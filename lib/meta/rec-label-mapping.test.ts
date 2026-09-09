@@ -47,6 +47,7 @@ describe("Meta rec label mapping", () => {
   });
 
   it.each([
+    ["scale_for_volume_budget_increase", "scale", "Scale budget"],
     ["scenario_m1_mid_funnel_efficient_scale", "scale", "Scale budget"],
     ["scenario_m2_mid_funnel_steady_keep", "keep", "Hold"],
     ["scenario_m3_mid_funnel_inefficient_cut", "cut", "Pause adset"],

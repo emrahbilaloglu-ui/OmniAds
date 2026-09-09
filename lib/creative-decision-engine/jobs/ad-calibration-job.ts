@@ -1,8 +1,17 @@
 import {
-  observedShopifyAovIsUsable,
   resolveObservedShopifyAov,
   type ObservedShopifyAovEvidence,
 } from "../shopify-aov-source";
+import {
+  projectAccountCpaForIdentity,
+  projectNativeTargetAuthorityForIdentity,
+} from "@/lib/creative-decision-engine/commercial-semantic-projection";
+import {
+  canonicalCommercialTargetInstant,
+  compareCommercialTargetInstants,
+  isCommercialTargetInstant,
+  isCommercialTargetInstantOlderThan,
+} from "@/lib/meta/commercial-target-instant";
 import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
@@ -33,7 +42,100 @@ export const NATIVE_AD_CALIBRATION_TABLE =
 export const NATIVE_AD_CALIBRATION_BATCH_TABLE =
   "engine_v3_ad_account_calibration_batches" as const;
 export const NATIVE_AD_CALIBRATION_CONTRACT_VERSION =
-  "engine-v3-native-ad-calibration.v3" as const;
+  /*
+  `.v5` — three changes, all of which move the bytes this key labels, so one
+  version carries them together rather than letting `.v4` mean four encodings.
+
+  1. RAW ACCOUNT CPA LEFT THE CELL MANIFEST. `.v4` projected the CPA out of the
+     target AUTHORITY but still hashed `accountCalibration` whole, and that
+     object carries `accountCpaP50` / `accountCpaSampleCount`. On a
+     ROAS-governed account those choose nothing — `resolveSpendUnit`'s governed
+     branch answers READY-or-`insufficient` and never reaches the
+     `account_history` rung — so a re-measured CPA moved `inputManifestHash`,
+     `cellSetHash` and through them the retained profile's agreement check,
+     discarding a verdict it could not have changed. The shared projection now
+     runs before the hash, and leaves the no-Target-ROAS case byte-identical.
+  2. CUT READINESS HOLDS OUTRIGHT WITHOUT A READY SPEND UNIT. `.v4` let a
+     P25-backed cell stay `ready` with basis `calibrated_relative` while a
+     Target ROAS governed and the spend-unit authority was NOT ready. Readiness
+     is what the retained profile and the downstream gates read, so "ready, but
+     a later gate will refuse" is a different fact from "not ready" and it
+     travelled into identity as the former.
+  3. THE TARGET ROW'S CLOCKS ARE READ STRICTLY. `effectiveAt` / `recordedAt`
+     went through `Date.parse`, which silently rolls `2026-02-30` into March
+     and accepts a naked local time. The cutoff-safety verdict those clocks
+     produce is hashed as `status`, so a rolled-over date could mint a `fresh`
+     authority from a day that does not exist.
+
+  `.v4` and earlier stay READABLE under their own key and are never recomputed
+  under current semantics: `assertNativeAdCalibrationBatchIntegrity` refuses a
+  batch whose `contractVersion` is not the current one before any hash is
+  re-derived, so a historical row is history and not a candidate.
+*/
+  "engine-v3-native-ad-calibration.v5" as const;
+/**
+ * The stamp a row written BEFORE `contract_version` existed carries.
+ *
+ * ── ROUND 9 ITEM 5: WHY NOT `.v4`, AND WHY NOT `.v3` EITHER ────────────────
+ * The audit allowed backfilling as `.v4` only on proof that `.v4` was the sole
+ * deployed writer. The repository proves the opposite:
+ *
+ *   git show HEAD:lib/creative-decision-engine/jobs/ad-calibration-job.ts
+ *     -> "engine-v3-native-ad-calibration.v3"
+ *   git log -S'engine-v3-native-ad-calibration.v4' -- <this file>   -> 0 commits
+ *   git log -S'engine-v3-native-ad-calibration.v1"' -- <this file>  -> 2 commits
+ *   git log -S'engine-v3-native-ad-calibration.v2"' -- <this file>  -> 2 commits
+ *   git log -S'engine-v3-native-ad-calibration.v3"' -- <this file>  -> 1 commit
+ *
+ * So `.v4` never wrote a row anywhere, and `.v1`, `.v2` and `.v3` were EACH a
+ * deployed writer at some point in these tables' life. Nothing in the schema,
+ * the git history or the migrations records which of the three wrote any
+ * particular existing row, and the rows themselves carry no discriminator.
+ *
+ * Stamping them `.v3` would therefore be inventing lineage for however many
+ * were written by `.v1` or `.v2`, and a wrong stamp is worse than none: it
+ * would make a row recompute against a formula it was not written with and
+ * fail as if it were corrupt. `legacy_unknown` says the true thing, and it
+ * fails CLOSED — a row carrying it is refused for current authority with its
+ * own named reason rather than guessed at.
+ */
+export const NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT =
+  "legacy_unknown" as const;
+
+/** Every value the durable `contract_version` column may hold. */
+/**
+ * The exact `CHECK` body both the DDL and the capability contract use.
+ *
+ * ── ROUND 10 ITEM 1 ────────────────────────────────────────────────────────
+ * Written once and rendered the way PostgreSQL itself renders `IN (...)` —
+ * `= ANY (ARRAY[...])` — because `inspectNativeAdCalibrationSchemaCapability`
+ * compares `pg_get_constraintdef` output to this string literally. A DDL that
+ * said `IN` and a contract that said `= ANY` would report `mismatched` forever
+ * on a correctly migrated database.
+ */
+export function nativeAdCalibrationContractVersionCheck(): string {
+  /*
+    The `::text` casts are what `pg_get_constraintdef` prints back, so emitting
+    them here makes the DDL, this contract and the database's own rendering the
+    SAME string. The capability comparison normalizes casts away either way;
+    matching exactly means the acceptance test can assert byte equality against
+    the catalog rather than against a normalizer.
+  */
+  const values = NATIVE_AD_CALIBRATION_DURABLE_CONTRACT_VALUES.map(
+    (value) => `'${value}'::text`,
+  ).join(", ");
+  return `CHECK (contract_version = ANY (ARRAY[${values}]))`;
+}
+
+export const NATIVE_AD_CALIBRATION_DURABLE_CONTRACT_VALUES: readonly string[] =
+  Object.freeze([
+    "engine-v3-native-ad-calibration.v1",
+    "engine-v3-native-ad-calibration.v2",
+    "engine-v3-native-ad-calibration.v3",
+    NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+    NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
+  ]);
+
 export const NATIVE_AD_CALIBRATION_POLICY_VERSION =
   `retained-account-calibration.${NATIVE_AD_ENGINE_VERSION}` as const;
 export const NATIVE_AD_ACCOUNT_WIDE_OPTIMIZATION_CONTEXT = "*" as const;
@@ -101,6 +203,11 @@ export type NativeAdCalibrationActionBlockReason =
   | "pooled_optimization_context_soft_only"
   | "unsupported_cohort"
   | "target_roas_authority_missing"
+  /**
+   * Retained for READ compatibility only: no path mints this any more (see
+   * `hasCommercialTargetAuthority`), and rows persisted while an explicit
+   * break-even ROAS was a required Cut input still carry it.
+   */
   | "break_even_roas_authority_missing"
   | "commercial_spend_unit_authority_missing"
   | "scale_calibration_sample_low"
@@ -145,26 +252,88 @@ export type NativeAdSpendUnitAuthorityBasis =
   | "target_cpa"
   | "operator_aov"
   /**
-   * The store's own average order value, divided by the configured Target ROAS.
+   * RETIRED as a native basis: readable, never minted, never expected.
    *
-   * Placed between the operator's typed assumption and Meta's attributed view
-   * of the same quantity: it is a measurement rather than a decision, so it does
-   * not displace a configured target, and it is the merchant's settled revenue
-   * rather than an attribution estimate, so it precedes one.
+   * The store's average order value used to sit here, above Meta's attributed
+   * view of the same quantity. It cannot: for a Meta decision the canonical
+   * money-per-purchase unit is Meta's OWN attributed AOV
+   * (`physical_account_purchase_aov_90d`), so the store observation is
+   * contextual evidence beside the authority, never the authority itself.
+   *
+   * It also could not be held to the cutoff. `resolveObservedShopifyAov` stamps
+   * `knowledgeAsOf` from the wall clock at read time
+   * (`shopify-aov-source.ts:711-712`), and no production caller passes a cutoff,
+   * so on 2026-09-07 four production accounts carried store evidence stamped
+   * about a second AFTER the cell cutoff it was built for (act_805150454596350:
+   * cutoff 03:13:19.302Z, knowledgeAsOf 03:13:20.188Z). The builder's cutoff
+   * test rejected it and chose the Meta basis; the validator had no cutoff test
+   * and expected this one; the disagreement failed the profile closed. Three of
+   * those accounts logged 39 failed `engine_v3_native_ad_decisions_shadow_job`
+   * runs each — 117 in 24h, every one `native_target_authority_mismatch`.
+   * Retiring the basis removes the race by construction rather than adding a
+   * fourth clock comparison the validator could drift on again.
+   *
+   * The member stays in the union so persisted rows that name it still parse
+   * (`ad-account-decision-profile-store.ts:632-639`). No production row does —
+   * verified on prod: zero rows in `engine_v3_ad_account_calibration_daily`, on
+   * any `as_of_date`, carry this basis. One that appeared would now fail the
+   * validator's basis equality and fail CLOSED, which is the intended reading of
+   * a retired authority.
    */
   | "observed_shopify_aov"
   | "physical_account_purchase_aov_90d";
 
+/**
+ * The version every newly minted authority carries.
+ *
+ * `.v3` exists because `.v2` hashed the store observation. Retiring
+ * `observed_shopify_aov` as a BASIS fixed the arithmetic and left identity
+ * alone, so a store-only change — observed, stale, unavailable,
+ * observed-zero-orders, or simply a different AOV — still moved
+ * `authorityHash`, `generationContentHash`, `inputManifestHash` and
+ * `cellSetHash`. Evidence that chooses nothing must not move identity either.
+ *
+ * It is minted UNCONDITIONALLY, including when the store was never consulted.
+ * Deciding the version from whether Shopify was consulted would have put the
+ * store back into identity through the version string itself, since
+ * `contractVersion` is part of the hashed content.
+ */
+export const NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION =
+  /*
+  `.v4` — minted alongside the calibration `.v4` because the authority this
+  spend unit is bound to is now hashed through the semantic projection. `.v1`,
+  `.v2` and `.v3` stay READABLE as history and are never re-minted.
+*/
+  "engine-v3-native-ad-spend-unit-authority.v4" as const;
+
 export interface NativeAdSpendUnitAuthority {
   /**
-   * `.v2` added `observedShopifyAovEvidence`. Rows written under `.v1` are read
-   * unchanged and are not backfilled: the field is absent there because the
-   * evidence did not exist when they were minted, which is a different fact
-   * from "it was looked for and was not usable".
+   * FOUR versions are READ; only `.v4` is minted.
+   *
+   * `.v1` predates the store source entirely and carries no
+   * `observedShopifyAovEvidence` member. `.v2` added it AND hashed it, so a
+   * `.v2` row's stored `authorityHash` only recomputes when the store evidence
+   * is hashed exactly as it was minted — 118 such rows are live in
+   * `engine_v3_ad_account_calibration_daily`, so that path is kept verbatim.
+   * `.v3` carries the same evidence and excludes it from every hash. `.v4`,
+   * the current mint, keeps that exclusion and additionally binds the
+   * authority through the semantic projection.
+   *
+   * `nativeAdAuthorityHashesStoreObservation` is the one switch that decides
+   * INCLUDE (`.v1`, `.v2`) versus EXCLUDE (`.v3`, `.v4`), and its `default`
+   * arm is `never`-checked, so adding a fifth version without answering the
+   * question fails to compile rather than silently defaulting.
+   *
+   * Rows are never backfilled between versions: each recomputes under its own
+   * key, and an unrecognized key fails CLOSED
+   * (`nativeAdSpendUnitAuthorityHashContent` throws;
+   * `nativeSpendUnitAuthorityMatchesCell` and the store parser reject it first).
    */
   contractVersion:
     | "engine-v3-native-ad-spend-unit-authority.v1"
-    | "engine-v3-native-ad-spend-unit-authority.v2";
+    | "engine-v3-native-ad-spend-unit-authority.v2"
+    | "engine-v3-native-ad-spend-unit-authority.v3"
+    | typeof NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION;
   status: "ready" | "blocked";
   basis: NativeAdSpendUnitAuthorityBasis | null;
   businessId: string;
@@ -180,8 +349,17 @@ export interface NativeAdSpendUnitAuthority {
    * merged into it. They answer the same question from different books, and an
    * operator reading a blocked authority needs to see which book was consulted.
    *
-   * Absent on `.v1` rows; `null` on `.v2` when the store was consulted and the
-   * result was not usable — the status inside says why.
+   * Contextual only, in the arithmetic AND in identity: it never sets `basis`
+   * or `baseSpendUnit`, the validator never derives an expected basis from it,
+   * and under `.v3` it is excluded from `authorityHash`, from the generation
+   * content and from the cell input manifest. It is still CARRIED and served.
+   *
+   * Under `.v2` it IS hashed, because those rows were minted that way and their
+   * stored hashes have to keep recomputing;
+   * `nativeAdSpendUnitAuthorityHashContent` is the single place that split lives.
+   *
+   * Absent on `.v1` rows; `null` on `.v2`/`.v3` when the store was consulted and
+   * the result was not usable — the status inside says why.
    */
   observedShopifyAovEvidence?: ObservedShopifyAovEvidence | null;
   authorityHash: string;
@@ -241,6 +419,41 @@ export interface NativeAdTargetAuthorityInput {
   recordedAt: string | null;
 }
 
+/**
+ * The one commercial-target rule the native path shares with the structure
+ * path's `resolveHardActionEligibility` in `account-decision-profile.ts`, which
+ * spells it `breakEvenAnchored || targetRoasAnchored`.
+ *
+ * An explicit break-even ROAS used to be mandatory here as well
+ * (`targetRoasAuthority && breakEvenRoasAuthority`), so a ROAS-only account got
+ * every Cut refused with `break_even_roas_authority_missing`, its purchase
+ * observations counted into `commercialAuthorityAdExclusionCount`, and its cell
+ * stamped `blocked_commercial`. Nothing on this path reads break-even to
+ * DECIDE: every lane in `buildNativeAdSpendUnitAuthority` either takes Target
+ * CPA whole or divides an AOV by Target ROAS, and the relative Cut boundary is
+ * a Target-ROAS ratio (`roasRatios` is empty without one). The requirement was
+ * therefore a gate on an input the computation never consumed.
+ *
+ * Break-even is still USED wherever it exists — a real break-even is better
+ * evidence for an economic Cut than a target alone, and `cut-policy` keeps
+ * keying its economic strip off it — its absence just no longer refuses the
+ * action.
+ *
+ * The refusal that remains is real: with NEITHER target present there is no
+ * commercial anchor at all, and the action is still blocked by name.
+ */
+function hasCommercialTargetAuthority(
+  targetAuthority: Pick<
+    ResolvedNativeAdTargetAuthority,
+    "targetRoasAuthority" | "breakEvenRoasAuthority"
+  >,
+): boolean {
+  return (
+    targetAuthority.targetRoasAuthority ||
+    targetAuthority.breakEvenRoasAuthority
+  );
+}
+
 export interface ResolvedNativeAdTargetAuthority {
   status: NativeAdTargetAuthorityStatus;
   sourceRowId: string | null;
@@ -282,7 +495,16 @@ export interface NativeAdCalibrationSourceRow {
   spend: number;
   impressions: number;
   clicks: number;
-  linkClicks: number;
+  /**
+   * NULLABLE, because absent and zero are different observations.
+   *
+   * This was coerced to 0 at the mapper, so an ad-day the provider never
+   * reported was counted as a measured zero and entered the account's
+   * link-click rate as real evidence. `meta_ad_daily.link_clicks` can hold
+   * NULL precisely to keep that distinction; flattening it here threw the
+   * distinction away one layer later.
+   */
+  linkClicks: number | null;
   conversions: number;
   revenue: number;
   landingPageViews?: number | null;
@@ -332,7 +554,11 @@ export interface NativeAdCalibrationObservation {
   totalRevenue: number;
   totalImpressions: number;
   totalClicks: number;
-  totalLinkClicks: number;
+  /**
+   * Null when ANY contributing row was unreported. The rates derived from it
+   * are absent in that case rather than computed over a partial population.
+   */
+  totalLinkClicks: number | null;
   totalLandingPageViews: number | null;
   totalAddToCart: number | null;
   totalInitiateCheckout: number | null;
@@ -406,6 +632,18 @@ export interface NativeAdCalibrationCellKey {
 }
 
 export interface NativeAdCalibrationCell {
+  /**
+   * The calibration contract this row was MINTED with, read from the durable
+   * column rather than assumed to be the current one.
+   *
+   * Typed as the readable union PLUS the legacy sentinel and a bare string,
+   * because a value the database holds is not a value this build gets to
+   * assume: an unrecognised stamp must be REFUSABLE, not unrepresentable.
+   */
+  contractVersion:
+    | NativeAdCalibrationReadableContractVersion
+    | typeof NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT
+    | (string & {});
   batchId: string | null;
   batchCompleteness: "computed" | "complete";
   batchCellCount: number;
@@ -476,11 +714,9 @@ export interface ComputeNativeAdCalibrationInput {
   /**
    * The store's own observed average order value, resolved by the caller.
    *
-   * The IO belongs to the caller — this function is pure — but the evidence
-   * has to arrive, and it did not: `buildNativeAdSpendUnitAuthority` accepted
-   * this parameter from the day it was written and every call site omitted it,
-   * so the `observed_shopify_aov` basis was unreachable and a business with
-   * only a target ROAS had no spend unit at all.
+   * Diagnostic only. It is recorded on the authority so a blocked spend unit
+   * can be read against what the store said, and it never chooses the basis —
+   * a Meta decision is sized by Meta's attributed AOV.
    *
    * `undefined` means the store was never consulted (a `.v1`-shaped
    * authority); `null` means it was and produced nothing usable.
@@ -668,8 +904,8 @@ SELECT
   history.break_even_roas,
   history.aov_assumption AS operator_aov_assumption,
   history.default_risk_posture,
-  history.effective_at,
-  history.recorded_at
+  to_char(history.effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS effective_at,
+  to_char(history.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS recorded_at
 FROM business_target_pack_history history
 JOIN business_provider_accounts binding
   ON binding.business_id = history.business_id::text
@@ -695,6 +931,11 @@ SELECT
 export const CREATE_NATIVE_AD_CALIBRATION_BATCH_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS engine_v3_ad_account_calibration_batches (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
+  -- ROUND 9 ITEM 5. The contract this row was MINTED with, stored rather than
+  -- assumed. Without it the runtime recomputed every historical row hash with
+  -- today formula, so a version-scoped recompute had no version to scope to and
+  -- the whole lineage was decorative.
+  contract_version TEXT NOT NULL,
   business_ref_id UUID NOT NULL,
   business_id TEXT NOT NULL,
   provider TEXT NOT NULL,
@@ -787,6 +1028,10 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_account_calibration_batches (
 export const CREATE_NATIVE_AD_CALIBRATION_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS engine_v3_ad_account_calibration_daily (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
+  -- Must equal its batch's. Enforced in the reader JOIN and asserted again in
+  -- validateCell: a cell and its batch disagreeing about the formula they were
+  -- written with is a corrupt generation, not a version to choose between.
+  contract_version TEXT NOT NULL,
   batch_id UUID NOT NULL,
   business_ref_id UUID NOT NULL,
   business_id TEXT NOT NULL,
@@ -1009,16 +1254,59 @@ BEFORE INSERT OR UPDATE OR DELETE ON engine_v3_ad_account_calibration_daily
 FOR EACH ROW EXECUTE FUNCTION engine_v3_native_ad_calibration_cell_immutable()
 `;
 
+/**
+ * The additive migration that gives EXISTING rows a truthful contract stamp.
+ *
+ * ── ROUND 9 ITEM 5 ─────────────────────────────────────────────────────────
+ * `ADD COLUMN ... DEFAULT ... NOT NULL` is a metadata-only operation on
+ * PostgreSQL 11+ — it rewrites no rows and, decisively, fires no row triggers.
+ * That matters here: both tables carry BEFORE UPDATE triggers that raise
+ * unconditionally, so a backfill written as `UPDATE ... SET contract_version`
+ * would abort the migration on the first existing row.
+ *
+ * The default is then DROPPED, so every new insert must state its contract
+ * explicitly and a future writer cannot silently inherit `legacy_unknown`.
+ *
+ * On a fresh database the `CREATE TABLE` above already declares the column and
+ * every statement here is a no-op; on an existing one the `CREATE TABLE` is the
+ * no-op and these do the work. Both orders converge on the same schema.
+ */
+export const ALTER_NATIVE_AD_CALIBRATION_CONTRACT_VERSION_SQL = `
+ALTER TABLE engine_v3_ad_account_calibration_batches
+  ADD COLUMN IF NOT EXISTS contract_version TEXT NOT NULL
+  DEFAULT '${NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT}';
+ALTER TABLE engine_v3_ad_account_calibration_batches
+  ALTER COLUMN contract_version DROP DEFAULT;
+ALTER TABLE engine_v3_ad_account_calibration_batches
+  DROP CONSTRAINT IF EXISTS engine_v3_ad_calibration_batches_contract_version_check;
+ALTER TABLE engine_v3_ad_account_calibration_batches
+  ADD CONSTRAINT engine_v3_ad_calibration_batches_contract_version_check
+  ${nativeAdCalibrationContractVersionCheck()};
+
+ALTER TABLE engine_v3_ad_account_calibration_daily
+  ADD COLUMN IF NOT EXISTS contract_version TEXT NOT NULL
+  DEFAULT '${NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT}';
+ALTER TABLE engine_v3_ad_account_calibration_daily
+  ALTER COLUMN contract_version DROP DEFAULT;
+ALTER TABLE engine_v3_ad_account_calibration_daily
+  DROP CONSTRAINT IF EXISTS engine_v3_ad_calibration_cells_contract_version_check;
+ALTER TABLE engine_v3_ad_account_calibration_daily
+  ADD CONSTRAINT engine_v3_ad_calibration_cells_contract_version_check
+  ${nativeAdCalibrationContractVersionCheck()}
+`;
+
 export const NATIVE_AD_CALIBRATION_MIGRATION_SQL = [
   CREATE_NATIVE_AD_CALIBRATION_DEPENDENCY_INDEX_SQL,
   CREATE_NATIVE_AD_CALIBRATION_BATCH_TABLE_SQL,
   CREATE_NATIVE_AD_CALIBRATION_TABLE_SQL,
+  ALTER_NATIVE_AD_CALIBRATION_CONTRACT_VERSION_SQL,
   CREATE_NATIVE_AD_CALIBRATION_INDEX_SQL,
   CREATE_NATIVE_AD_CALIBRATION_IMMUTABILITY_SQL,
 ].join(";\n");
 
 export const INSERT_NATIVE_AD_CALIBRATION_SQL = `
 INSERT INTO engine_v3_ad_account_calibration_daily (
+  contract_version,
   batch_id,
   business_ref_id,
   business_id,
@@ -1083,6 +1371,7 @@ INSERT INTO engine_v3_ad_account_calibration_daily (
   computed_at
 )
 SELECT
+  row.contract_version,
   row.batch_id,
   row.business_ref_id,
   row.business_id,
@@ -1146,6 +1435,7 @@ SELECT
   row.job_run_id,
   row.computed_at
 FROM jsonb_to_recordset($1::jsonb) AS row(
+  contract_version text,
   batch_id uuid,
   business_ref_id uuid,
   business_id text,
@@ -1277,6 +1567,7 @@ LIMIT 2
 
 export const INSERT_NATIVE_AD_CALIBRATION_BATCH_SQL = `
 INSERT INTO engine_v3_ad_account_calibration_batches (
+  contract_version,
   business_ref_id,
   business_id,
   provider,
@@ -1298,7 +1589,7 @@ INSERT INTO engine_v3_ad_account_calibration_batches (
   job_run_id,
   computed_at
 ) VALUES (
-  $1::uuid, $2, 'meta', $3::uuid, $4, $5::date, $6::timestamptz, $7,
+  $19, $1::uuid, $2, 'meta', $3::uuid, $4, $5::date, $6::timestamptz, $7,
   $8, $9, $10, $11::jsonb, $12::integer, $13, $14, $15, $16,
   'writing', $17::uuid, $18::timestamptz
 )
@@ -1411,10 +1702,22 @@ export function resolveNativeAdCalibrationCutoff(
   sampleWindowEnd: string;
 } {
   const window = resolveNativeAdCalibrationDate(asOf);
-  const asOfCutoff = normalizeRequiredTimestamp(
-    computationCutoff,
-    "computationCutoff",
-  );
+  /*
+    THE CUTOFF IS AN AUTHORITY BOUNDARY, so it is read strictly too.
+
+    `normalizeRequiredTimestamp` is the same laundering helper as above. At the
+    production call site this value is already `Date#toISOString()` output from
+    the driver's `transaction_timestamp()`, so nothing legitimate changes; what
+    closes is every OTHER caller — replays, fixtures, future plumbing — being
+    able to hand in a date-only or impossible cutoff and have it rewritten into
+    a usable one. A cutoff that is not a real instant cannot bound anything.
+  */
+  const asOfCutoff = strictCommercialClock(computationCutoff);
+  if (asOfCutoff === null) {
+    throw new TypeError(
+      "computationCutoff must be a strict RFC 3339 UTC instant with an explicit offset.",
+    );
+  }
   if (asOfCutoff.slice(0, 10) !== window.asOfDate) {
     throw new NativeAdHistoricalCalibrationUnsafeError(
       "Native ad calibration is current-only: asOf must equal the database transaction cutoff UTC date.",
@@ -1686,18 +1989,61 @@ export function resolveNativeAdTargetAuthority(
   input: NativeAdTargetAuthorityInput | null,
   asOfCutoff: string,
 ): ResolvedNativeAdTargetAuthority {
-  const cutoffMs = requireTimestamp(asOfCutoff, "asOfCutoff");
+  /*
+    ── ROUND 9 ITEM 1: THE RAW VALUES, BEFORE ANYTHING CAN LAUNDER THEM ───────
+
+    Round 8 put `commercialTargetInstantMs` here but read it off the NORMALIZED
+    object, and `normalizeTargetAuthorityInput` had already run
+    `normalizeTimestamp` over both clocks. That helper is
+    `new Date(text).toISOString()`, so it does not reject an impossible date —
+    it REWRITES it into a valid one. Measured on this runtime:
+
+      "2026-02-30"               -> "2026-03-02T00:00:00.000Z"
+      "2026-02-30T00:00:00.000Z" -> "2026-03-02T00:00:00.000Z"
+      "2026-09-05"               -> "2026-09-05T00:00:00.000Z"
+      "2026-09-05T03:00:00"      -> host-local, then serialized as UTC
+      "September 5, 2026"        -> "2026-09-04T21:00:00.000Z"
+
+    Every one of those reached the strict parser already wearing a well-formed
+    RFC 3339 face, passed it, and produced a `fresh` authority from a day that
+    does not exist or from a host's local midnight. The strict check was
+    therefore inert at this seam — the one seam that decides `cutoffSafe`, and
+    whose verdict is hashed into `authorityHash`.
+
+    So the three raw values are read FIRST. `normalizeTargetAuthorityInput`
+    below now also uses the strict parser for these two fields, so a laundered
+    instant cannot enter the hashed payload either — the decision and the bytes
+    are taken from the same reading.
+  */
+  if (!isCommercialTargetInstant(asOfCutoff)) {
+    throw new TypeError(
+      "asOfCutoff must be a strict RFC 3339 UTC instant with an explicit offset.",
+    );
+  }
+  const effectiveAt = input?.effectiveAt ?? null;
+  const recordedAt = input?.recordedAt ?? null;
+  const effectiveVsRecorded = compareCommercialTargetInstants(
+    effectiveAt,
+    recordedAt,
+  );
+  const effectiveVsCutoff = compareCommercialTargetInstants(
+    effectiveAt,
+    asOfCutoff,
+  );
+  const recordedVsCutoff = compareCommercialTargetInstants(
+    recordedAt,
+    asOfCutoff,
+  );
   const normalized = normalizeTargetAuthorityInput(input);
-  const effectiveMs = timestampOrNull(normalized?.effectiveAt ?? null);
-  const recordedMs = timestampOrNull(normalized?.recordedAt ?? null);
   const cutoffSafe =
     normalized !== null &&
     normalized.operation === "upsert" &&
-    effectiveMs !== null &&
-    recordedMs !== null &&
-    effectiveMs <= recordedMs &&
-    effectiveMs <= cutoffMs &&
-    recordedMs <= cutoffMs;
+    effectiveVsRecorded !== null &&
+    effectiveVsRecorded <= 0 &&
+    effectiveVsCutoff !== null &&
+    effectiveVsCutoff <= 0 &&
+    recordedVsCutoff !== null &&
+    recordedVsCutoff <= 0;
 
   let status: NativeAdTargetAuthorityStatus;
   if (normalized === null || normalized.operation === "delete") {
@@ -1705,8 +2051,15 @@ export function resolveNativeAdTargetAuthority(
   } else if (!cutoffSafe) {
     status = "cutoff_unsafe";
   } else {
-    const ageHours = (cutoffMs - effectiveMs) / 3_600_000;
-    status = ageHours > 24 * 30 ? "stale" : "fresh";
+    const olderThanFreshnessWindow = isCommercialTargetInstantOlderThan(
+      effectiveAt,
+      asOfCutoff,
+      24 * 30 * 3_600_000,
+    );
+    if (olderThanFreshnessWindow === null) {
+      throw new Error("Cutoff-safe target clocks could not be age-compared.");
+    }
+    status = olderThanFreshnessWindow ? "stale" : "fresh";
   }
 
   const cutoffSafeStatus = isNativeAdTargetAuthorityCutoffSafe(status);
@@ -1718,9 +2071,21 @@ export function resolveNativeAdTargetAuthority(
 
   const targetRoas = normalized?.targetRoas ?? null;
   const breakEvenRoas = normalized?.breakEvenRoas ?? null;
+  /*
+    THE PROJECTION, not the raw row.
+
+    This hashed `normalized` whole, so `targetCpa`, `breakEvenCpa` and
+    `operatorAovAssumption` keyed the native authority — and so did
+    `sourceRowId`, `effectiveAt` and `recordedAt`, which move whenever the
+    target pack row is re-saved. Under a governing Target ROAS an operator
+    editing only their Target CPA therefore minted a new `authorityHash`, and
+    with it a new generation and a new calibration cell, for an edit that could
+    not reach the verdict. What those clocks DECIDED is still hashed: `status`
+    below carries the cutoff-safety verdict they produced.
+  */
   const authorityHash = canonicalSha256({
     contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
-    authority: normalized,
+    authority: projectNativeTargetAuthorityForIdentity(normalized),
     status,
   });
 
@@ -1743,11 +2108,91 @@ export function resolveNativeAdTargetAuthority(
   };
 }
 
+/**
+ * The exact bytes `authorityHash` is taken over, for ONE authority version.
+ *
+ * Minting and recomputation both go through here so they cannot drift: before
+ * this existed, `buildNativeAdSpendUnitAuthority` hashed its `content` literal
+ * while `recomputeNativeAdSpendUnitAuthorityHash` stripped `authorityHash` off
+ * the finished object — one rule written twice, which is the shape of defect
+ * that produced 117 `native_target_authority_mismatch` runs in 24h when the
+ * builder and the validator disagreed by a single rung.
+ *
+ * Unknown versions THROW rather than hashing whatever they carry. Both callers
+ * that reach persisted data reject an unknown version before getting here
+ * (`nativeSpendUnitAuthorityMatchesCell` in ad-account-decision-profile.ts,
+ * `nativeSpendUnitAuthority` in ad-account-decision-profile-store.ts), so this
+ * is the guard for a version added to the union without a hashing rule.
+ */
+function nativeAdSpendUnitAuthorityHashContent(
+  content: Omit<NativeAdSpendUnitAuthority, "authorityHash">,
+): Record<string, unknown> {
+  switch (content.contractVersion) {
+    case "engine-v3-native-ad-spend-unit-authority.v1":
+    case "engine-v3-native-ad-spend-unit-authority.v2":
+      /*
+        LEGACY, VERBATIM. `.v1` carries no `observedShopifyAovEvidence` member
+        at all and `.v2` carries one that was hashed when the row was minted.
+        Returning the content unchanged is what makes a persisted `.v2` row
+        still recompute to its stored `authorityHash`.
+      */
+      return content;
+    /*
+      `.v3` EXCLUDED the store evidence from the hash, exactly as the current
+      contract does, so its rows recompute under the same rule that minted
+      them. It moved into this branch when `.v4` was minted for the semantic
+      projection; dropping it from the readable set instead would have made
+      every persisted `.v3` row unverifiable, which is the opposite of what
+      "readable as history" means.
+    */
+    case "engine-v3-native-ad-spend-unit-authority.v3":
+    case NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION: {
+      const { observedShopifyAovEvidence: _observed, ...hashed } = content;
+      return hashed;
+    }
+    default: {
+      const unsupported: never = content.contractVersion;
+      throw new Error(
+        `Unsupported native spend-unit authority contract ${String(unsupported)}.`,
+      );
+    }
+  }
+}
+
 export function recomputeNativeAdSpendUnitAuthorityHash(
   authority: NativeAdSpendUnitAuthority,
 ): string {
   const { authorityHash: _authorityHash, ...content } = authority;
-  return canonicalSha256(content);
+  return canonicalSha256(nativeAdSpendUnitAuthorityHashContent(content));
+}
+
+/**
+ * The authority as the CELL manifest sees it.
+ *
+ * `nativeAdCalibrationCellInputManifestContent` binds the whole
+ * `actionReadiness` object, which carries `spendUnitAuthority` verbatim — so
+ * before this projection existed the cell's `inputManifestHash` (and through it
+ * `cellSetHash`) moved on a store-only change even after the authority's own
+ * hash stopped moving. Same version split as
+ * `nativeAdSpendUnitAuthorityHashContent`, and for the same reason: `.v2` rows
+ * were persisted with the evidence bound in and must keep recomputing.
+ */
+function nativeAdCalibrationActionReadinessManifestContent(
+  actionReadiness: NativeAdCalibrationActionReadiness,
+): Record<string, unknown> {
+  const { spendUnitAuthority, ...actions } = actionReadiness;
+  /*
+    THE SAME EXPLICIT SWITCH the generation content uses. This compared against
+    the CURRENT version, so minting `.v4` silently reclassified every persisted
+    `.v3` row as legacy and put the store evidence back into its cell manifest
+    — breaking the very hashes `.v3` was minted to stabilise.
+  */
+  if (nativeAdAuthorityHashesStoreObservation(spendUnitAuthority.contractVersion)) {
+    return actionReadiness;
+  }
+  const { observedShopifyAovEvidence: _observed, ...boundAuthority } =
+    spendUnitAuthority;
+  return { ...actions, spendUnitAuthority: boundAuthority };
 }
 
 type NativeAdCalibrationCellInputManifestSource = Omit<
@@ -1757,6 +2202,293 @@ type NativeAdCalibrationCellInputManifestSource = Omit<
 
 function nativeAdCalibrationCellInputManifestContent(
   cell: NativeAdCalibrationCellInputManifestSource,
+  contractVersion: NativeAdCalibrationReadableContractVersion =
+    NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+) {
+  /*
+    VERSION-SCOPED, where this used to be unconditional.
+
+    The CPA fields were nulled here for every account, which was right for a
+    ROAS-governed one and WRONG for the no-Target-ROAS compatibility case: there
+    the legacy Target CPA is the only anchor there is, it genuinely governs the
+    unit, and blanking it made two accounts differing only in their CPA share a
+    cell manifest. The shared projection keeps that case whole and blanks only
+    where a Target ROAS governs — and it blanks the row's clocks with the
+    numbers, because `effectiveAt`/`recordedAt` move on any re-save. The
+    cutoff-safety booleans below still carry what those clocks decided.
+  */
+  /*
+    ── ROUND 9 ITEM 4/5: THE HISTORICAL SHAPE, REPRODUCED EXACTLY ────────────
+
+    `.v1`–`.v3` did NOT use the shared projection here. They blanked five
+    fields unconditionally and KEPT the row's clocks — the exact literal from
+    `git show HEAD:lib/creative-decision-engine/jobs/ad-calibration-job.ts`:
+
+        sourceRowId: null, targetCpa: null, breakEvenCpa: null,
+        operatorAovAssumption: null, defaultRiskPosture: null,
+        effectiveAt: <kept>, recordedAt: <kept>
+
+    `effectiveAt` / `recordedAt` are the discriminating fields: a version-scoped
+    recompute that quietly nulled them would produce a different digest for
+    every historical row that carries them, and the failure would look like
+    corruption rather than like a formula mismatch.
+  */
+  if (!nativeAdCalibrationProjectsTargetAuthority(contractVersion)) {
+    return nativeAdCalibrationCellInputManifestContentLegacy(
+      cell,
+      contractVersion,
+    );
+  }
+  const projected = projectNativeTargetAuthorityForIdentity(
+    cell.targetAuthority,
+  );
+  const persistedTargetAuthority = {
+    status: cell.targetAuthority.status,
+    ...(projected ?? {}),
+    /*
+      Two fields the CELL manifest has never carried, pinned here rather than
+      in the shared projection.
+
+      `operation` and `defaultRiskPosture` are not persisted on the calibration
+      row, so a hydrated cell cannot restore them. Letting the projection's
+      values through made the manifest depend on facts that survive only in
+      memory, and `recomputeNativeAdCalibrationCellInputManifestHash` on a
+      round-tripped cell then disagreed with the hash stored beside it — which
+      is exactly the "identity that cannot be re-derived" failure the manifest
+      exists to prevent. The authority hash above keeps reading them, because
+      it is computed once where they are real.
+    */
+    operation: null,
+    defaultRiskPosture: null,
+    targetRoasAuthority: cell.targetAuthority.targetRoasAuthority,
+    breakEvenRoasAuthority: cell.targetAuthority.breakEvenRoasAuthority,
+    authorityHash: cell.targetAuthority.authorityHash,
+  };
+  return {
+    contractVersion,
+    policyVersion: cell.policyVersion,
+    engineVersion: cell.engineVersion,
+    key: cell.key,
+    asOfDate: cell.asOfDate,
+    asOfCutoff: cell.asOfCutoff,
+    sampleWindowStart: cell.sampleWindowStart,
+    sampleWindowEnd: cell.sampleWindowEnd,
+    sampleWindowDays: cell.sampleWindowDays,
+    computedAt: cell.computedAt,
+    qualityStatus: cell.qualityStatus,
+    sourceAdCount: cell.sourceAdCount,
+    sourceDayCount: cell.sourceDayCount,
+    eligibleAdCount: cell.eligibleAdCount,
+    matureAdCount: cell.matureAdCount,
+    zeroConversionAdCount: cell.zeroConversionAdCount,
+    metricSampleCounts: cell.metricSampleCounts,
+    actionReadiness: nativeAdCalibrationActionReadinessManifestContent(
+      cell.actionReadiness,
+    ),
+    sourceMinDate: cell.sourceMinDate,
+    sourceMaxDate: cell.sourceMaxDate,
+    sourceMaxUpdatedAt: cell.sourceMaxUpdatedAt,
+    // Bind the exact projection persisted by the calibration row. The full
+    // bitemporal target payload is separately authenticated by authorityHash
+    // and re-read at the same cutoff before a profile is admitted.
+    targetAuthority: persistedTargetAuthority,
+    /*
+      THE SAME PROJECTION THE AUTHORITY ABOVE USES, applied to the account's own
+      measured cost-per-purchase.
+
+      `accountCalibration` was hashed whole, and it carries `accountCpaP50` and
+      `accountCpaSampleCount`. Under a governing Target ROAS neither chooses
+      anything: `resolveSpendUnit` answers READY-or-`insufficient` in that
+      branch and never falls through to the `account_history` rung, and the Cut
+      readiness gate below now refuses outright without a READY spend unit
+      rather than sizing anything from a CPA. Evidence that chooses nothing must
+      not key identity, or one more purchase in the account's history discards a
+      retained verdict it could not have changed.
+
+      Without a Target ROAS the rung is reachable, the CPA genuinely governs,
+      and the projection returns both fields untouched — so the compatibility
+      digest is byte-identical to `.v4`'s.
+    */
+    accountCalibration: nativeAdCalibrationProjectsAccountCpa(contractVersion)
+      ? {
+          ...cell.accountCalibration,
+          ...projectAccountCpaForIdentity(cell.targetAuthority, {
+            accountCpaP50: cell.accountCalibration.accountCpaP50,
+            accountCpaSampleCount:
+              cell.accountCalibration.accountCpaSampleCount,
+          }),
+        }
+      : cell.accountCalibration,
+    funnelCalibration: cell.funnelCalibration,
+    batchInputManifestHash: cell.batchInputManifestHash,
+    sourceManifestHash: cell.sourceManifestHash,
+    qualityCounts: cell.qualityCounts,
+  };
+}
+
+/**
+ * Recompute a BATCH's `generationContentHash` and `inputManifestHash` from the
+ * batch's own persisted fields.
+ *
+ * Round 6, item 9. `recomputeNativeAdCalibrationCellInputManifestHash` above
+ * verifies a CELL, and a cell carries `batchGenerationContentHash` as a
+ * supplied value — so a fixture test built on it accepts the generation hash
+ * rather than proving it. Nothing could therefore detect the generation content
+ * itself changing shape, which is precisely the failure the `.v3`/`.v4`
+ * include/exclude switch exists to prevent.
+ *
+ * This restates NOTHING: it is the same expression `computeNativeAdCalibrationBatch`
+ * digests, reading the persisted members instead of the in-flight locals, so a
+ * change to that expression that is not mirrored here fails the frozen fixture
+ * immediately.
+ */
+export function recomputeNativeAdCalibrationBatchGenerationHashes(
+  batch: Pick<
+    NativeAdCalibrationBatch,
+    | "contractVersion"
+    | "policyVersion"
+    | "engineVersion"
+    | "businessId"
+    | "providerAccountRefId"
+    | "providerAccountId"
+    | "sourceProvenance"
+    | "asOfDate"
+    | "asOfCutoff"
+    | "sampleWindowStart"
+    | "sampleWindowEnd"
+    | "targetAuthority"
+    | "spendUnitAuthority"
+    | "observations"
+    | "qualityCounts"
+    | "sourceManifestHash"
+  >,
+): { generationContentHash: string; inputManifestHash: string } {
+  const generationContentHash = canonicalSha256(
+    nativeAdCalibrationBatchGenerationContent(batch),
+  );
+  return {
+    generationContentHash,
+    inputManifestHash: canonicalSha256(
+      nativeAdCalibrationBatchInputManifestContent(batch, generationContentHash),
+    ),
+  };
+}
+
+/** The facts a batch's generation content is built from. */
+export type NativeAdCalibrationBatchGenerationFacts = Pick<
+  NativeAdCalibrationBatch,
+  | "contractVersion"
+  | "policyVersion"
+  | "engineVersion"
+  | "businessId"
+  | "providerAccountRefId"
+  | "providerAccountId"
+  | "asOfDate"
+  | "sampleWindowStart"
+  | "sampleWindowEnd"
+  | "targetAuthority"
+  | "spendUnitAuthority"
+  | "observations"
+  | "qualityCounts"
+  | "sourceManifestHash"
+>;
+
+/**
+ * THE ONE PLACE THE BATCH GENERATION CONTENT IS SPELLED.
+ *
+ * This expression existed in THREE copies: the producer inside
+ * `computeNativeAdCalibrationBatch`, the durable-write validator in
+ * `assertNativeAdCalibrationBatchIntegrity`, and the recompute the frozen-v3
+ * fixture verifies with. Three copies of a hash formula is three chances for a
+ * field to be added to one and not the others, and the failure is silent in the
+ * worst direction: the producer mints a hash the validator then reproduces
+ * because both were edited, while the recompute — the only one a FROZEN
+ * historical batch is checked against — quietly verifies different content.
+ *
+ * Every caller now digests this. A field added here moves the producer, the
+ * validator and the frozen fixture in the same commit or the fixture fails.
+ *
+ * Canonical serialization is unchanged: `canonicalSha256` still owns key order
+ * and encoding, and the member list and its order are byte-identical to what
+ * the three copies agreed on, so no persisted hash moves.
+ */
+export function nativeAdCalibrationBatchGenerationContent(
+  batch: NativeAdCalibrationBatchGenerationFacts,
+): Record<string, unknown> {
+  return {
+    contractVersion: batch.contractVersion,
+    policyVersion: batch.policyVersion,
+    engineVersion: batch.engineVersion,
+    businessId: batch.businessId,
+    providerAccountRefId: batch.providerAccountRefId,
+    providerAccountId: batch.providerAccountId,
+    asOfDate: batch.asOfDate,
+    sampleWindowStart: batch.sampleWindowStart,
+    sampleWindowEnd: batch.sampleWindowEnd,
+    sourceManifestHash: batch.sourceManifestHash,
+    /*
+      THE PROJECTION, scoped to the version this batch was minted with. @see
+      `nativeAdCalibrationProjectsTargetAuthority` for what leaked and how far.
+      The cutoff-safety verdict those clocks produced is NOT lost: `status` and
+      the derived `targetRoasAuthority` / `breakEvenRoasAuthority` booleans are
+      part of the projected object, so what the timestamps decided still keys
+      the hash while their raw values no longer do.
+    */
+    targetAuthority: nativeAdCalibrationProjectsTargetAuthority(
+      batch.contractVersion,
+    )
+      ? {
+          status: batch.targetAuthority.status,
+          ...(projectNativeTargetAuthorityForIdentity(batch.targetAuthority) ??
+            {}),
+          targetRoasAuthority: batch.targetAuthority.targetRoasAuthority,
+          breakEvenRoasAuthority: batch.targetAuthority.breakEvenRoasAuthority,
+          authorityHash: batch.targetAuthority.authorityHash,
+        }
+      : batch.targetAuthority,
+    /*
+      ── ROUND 10 ITEM 2 ─────────────────────────────────────────────────────
+      SPREAD, not assigned. `.v1` and `.v2` had no `spendUnitAuthority` key in
+      their generation content at all — the member first appears in the `.v3`
+      blob — and an explicit `spendUnitAuthority: undefined` is NOT the same
+      digest as an absent key. Spreading an empty object is what actually
+      reproduces "the key was never there".
+    */
+    ...(nativeAdCalibrationBatchHashesSpendUnitAuthority(batch.contractVersion)
+      ? {
+          spendUnitAuthority: nativeAdSpendUnitAuthorityGenerationContent(
+            batch.spendUnitAuthority,
+          ),
+        }
+      : {}),
+    qualityCounts: batch.qualityCounts,
+    observations: batch.observations.map(observationManifestEntry),
+  };
+}
+
+/** The batch input manifest content, wrapping the generation hash. */
+export function nativeAdCalibrationBatchInputManifestContent(
+  batch: Pick<NativeAdCalibrationBatch, "sourceProvenance" | "asOfCutoff">,
+  generationContentHash: string,
+): Record<string, unknown> {
+  return {
+    generationContentHash,
+    sourceProvenance: batch.sourceProvenance,
+    asOfCutoff: batch.asOfCutoff,
+  };
+}
+
+/**
+ * The `.v1`–`.v3` cell manifest content, byte-for-byte as those versions built
+ * it.
+ *
+ * A separate function rather than a branch inside the current one, so a future
+ * edit to the CURRENT formula cannot silently drift the historical one — which
+ * is the whole failure mode a version-scoped recompute exists to prevent.
+ */
+function nativeAdCalibrationCellInputManifestContentLegacy(
+  cell: NativeAdCalibrationCellInputManifestSource,
+  contractVersion: NativeAdCalibrationReadableContractVersion,
 ) {
   const persistedTargetAuthority = {
     status: cell.targetAuthority.status,
@@ -1774,7 +2506,7 @@ function nativeAdCalibrationCellInputManifestContent(
     authorityHash: cell.targetAuthority.authorityHash,
   };
   return {
-    contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+    contractVersion,
     policyVersion: cell.policyVersion,
     engineVersion: cell.engineVersion,
     key: cell.key,
@@ -1791,13 +2523,13 @@ function nativeAdCalibrationCellInputManifestContent(
     matureAdCount: cell.matureAdCount,
     zeroConversionAdCount: cell.zeroConversionAdCount,
     metricSampleCounts: cell.metricSampleCounts,
+    // Raw, as `.v1`-`.v3` hashed it. Those versions had no store-observation
+    // switch, and their spend-unit authorities are `.v1`/`.v2`, which the
+    // switch would answer INCLUDE for anyway.
     actionReadiness: cell.actionReadiness,
     sourceMinDate: cell.sourceMinDate,
     sourceMaxDate: cell.sourceMaxDate,
     sourceMaxUpdatedAt: cell.sourceMaxUpdatedAt,
-    // Bind the exact projection persisted by the calibration row. The full
-    // bitemporal target payload is separately authenticated by authorityHash
-    // and re-read at the same cutoff before a profile is admitted.
     targetAuthority: persistedTargetAuthority,
     accountCalibration: cell.accountCalibration,
     funnelCalibration: cell.funnelCalibration,
@@ -1807,13 +2539,313 @@ function nativeAdCalibrationCellInputManifestContent(
   };
 }
 
+/**
+ * Recompute ONE cell's input manifest hash under the contract it was minted
+ * with.
+ *
+ * `contractVersion` defaults to the current one, because a caller verifying a
+ * row it just produced is verifying a current row. A caller reading PERSISTED
+ * data passes the batch's own `contractVersion` — otherwise a historical cell
+ * is checked against a formula that did not exist when it was written, which
+ * fails it for a reason that has nothing to do with the row and is exactly the
+ * "identity that cannot be re-derived" failure the manifest exists to prevent.
+ */
 export function recomputeNativeAdCalibrationCellInputManifestHash(
   cell: NativeAdCalibrationCell,
+  contractVersion: NativeAdCalibrationReadableContractVersion =
+    NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
 ): string {
+  /*
+    ROUND 10 ITEM 2. `.v1` / `.v2` digested per-cell `observations` and a
+    cohort-purchase discriminator, and the calibration table persists neither —
+    so there is no honest answer to give from a durable row. Throwing is the
+    fail-closed one; returning a `.v3`-shaped digest would report a historical
+    row as corrupt.
+  */
+  if (!nativeAdCalibrationDurablyRecomputable(contractVersion)) {
+    throw new Error(
+      `Native ad calibration ${contractVersion} cannot be recomputed from durable columns: its manifest digested per-cell observations, which are not persisted.`,
+    );
+  }
   const { inputManifestHash: _inputManifestHash, ...source } = cell;
   return canonicalSha256(
-    nativeAdCalibrationCellInputManifestContent(source),
+    nativeAdCalibrationCellInputManifestContent(source, contractVersion),
   );
+}
+
+
+/**
+ * Does THIS authority version hash the store observation?
+ *
+ * An explicit version switch, not a comparison against "the current one". The
+ * projections below asked `contractVersion === NATIVE_AD_SPEND_UNIT_AUTHORITY_
+ * CONTRACT_VERSION`, so the moment `.v4` was minted every persisted `.v3` row
+ * became "legacy" and had the Shopify evidence RE-INCLUDED in its generation
+ * and manifest content — which is precisely the hashing rule `.v3` was created
+ * to stop. Their stored `generationContentHash`, `inputManifestHash` and
+ * `cellSetHash` therefore stopped recomputing, and a historical batch could no
+ * longer be verified at all.
+ *
+ * `.v1` and `.v2` genuinely hashed it and must keep doing so. `.v3` and `.v4`
+ * exclude it. `.v4` additionally carries the commercial semantic projection on
+ * the target authority, which is a different question and lives with the
+ * authority hash.
+ */
+/**
+ * Every calibration contract version a PERSISTED row may carry.
+ *
+ * The batch type pins `contractVersion` to the current constant, because a row
+ * being minted can only be current. A row being READ can be anything that was
+ * ever minted, and the recompute path has to be able to say which — otherwise
+ * a historical row is verified against today's formula and fails for a reason
+ * that has nothing to do with the row.
+ */
+export type NativeAdCalibrationReadableContractVersion =
+  | "engine-v3-native-ad-calibration.v1"
+  | "engine-v3-native-ad-calibration.v2"
+  | "engine-v3-native-ad-calibration.v3"
+  | typeof NATIVE_AD_CALIBRATION_CONTRACT_VERSION;
+
+/*
+  `.v4` IS ABSENT FROM THIS UNION ON PURPOSE, and the evidence is in git.
+
+    git show HEAD:lib/creative-decision-engine/jobs/ad-calibration-job.ts
+      -> "engine-v3-native-ad-calibration.v3"
+    git log -S'engine-v3-native-ad-calibration.v4' -- <this file>
+      -> 0 commits
+
+  `.v4` was minted in an uncommitted working tree and never reached a writer,
+  so no row anywhere carries it and its manifest formula was never observable.
+  Listing it here would claim a lineage rung that never existed, and picking a
+  formula for it would be inventing one. A row that somehow arrived stamped
+  `.v4` hits the `never` arm of the switches below and fails closed, which is
+  the correct answer for a stamp this deployment cannot account for.
+
+  `.v1`, `.v2` and `.v3` are all present in committed history and are therefore
+  real possible writers of the rows on disk.
+*/
+
+/**
+ * Does THIS calibration version project the account's own CPA out of the cell
+ * manifest?
+ *
+ * `.v5` does, because under a governing Target ROAS `accountCpaP50` /
+ * `accountCpaSampleCount` choose nothing and must not key identity. `.v4` and
+ * earlier hashed `accountCalibration` whole and their rows are on disk that
+ * way, so recomputing one under `.v5`'s rule would fail every historical row
+ * for a formula it was never written with.
+ *
+ * Same shape as `nativeAdAuthorityHashesStoreObservation` and for the same
+ * reason: the `default` arm is `never`-checked, so a sixth version cannot be
+ * added without answering this question.
+ */
+/** Is this durable stamp one of the formulas this build can reproduce? */
+export function isNativeAdCalibrationReadableContract(
+  value: string,
+): value is NativeAdCalibrationReadableContractVersion {
+  return (
+    value === "engine-v3-native-ad-calibration.v1" ||
+    value === "engine-v3-native-ad-calibration.v2" ||
+    value === "engine-v3-native-ad-calibration.v3" ||
+    value === NATIVE_AD_CALIBRATION_CONTRACT_VERSION
+  );
+}
+
+function nativeAdCalibrationProjectsAccountCpa(
+  contractVersion: NativeAdCalibrationReadableContractVersion,
+): boolean {
+  switch (contractVersion) {
+    case "engine-v3-native-ad-calibration.v1":
+    case "engine-v3-native-ad-calibration.v2":
+    case "engine-v3-native-ad-calibration.v3":
+      return false;
+    case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
+      return true;
+    default: {
+      const unsupported: never = contractVersion;
+      throw new Error(
+        `Unsupported native ad calibration contract ${String(unsupported)}.`,
+      );
+    }
+  }
+}
+
+/**
+ * Does THIS calibration version hash the target authority through the shared
+ * SEMANTIC projection, or as the raw row?
+ *
+ * ── ROUND 9 ITEM 4 ─────────────────────────────────────────────────────────
+ * The cell manifest was projected; the BATCH generation content was not. It
+ * digested `batch.targetAuthority` whole — `targetCpa`, `breakEvenCpa`,
+ * `operatorAovAssumption`, `sourceRowId`, `effectiveAt`, `recordedAt` — and
+ * `generationContentHash` feeds `inputManifestHash`, which every cell carries
+ * as `batchInputManifestHash`, which is inside `inputManifestHash`, which is
+ * inside `cellSetHash`. So under an unchanged governing Target ROAS, an
+ * operator typing a Target CPA — or merely re-saving the pack, which moves
+ * `effectiveAt`/`recordedAt` and `sourceRowId` on its own — minted a new
+ * generation, new cell manifests and a new cell set for a change that cannot
+ * reach a verdict. Projecting one of the two hash families and not the other
+ * left the leak fully open.
+ *
+ * `.v1`–`.v3` hashed the raw row in the batch content and used their own
+ * five-field blanking in the cell manifest, KEEPING the row's clocks. Their
+ * rows are on disk that way and must recompute to their stored hashes.
+ */
+/**
+ * Does THIS version's BATCH generation content include the spend-unit
+ * authority at all?
+ *
+ * ── ROUND 10 ITEM 2 ────────────────────────────────────────────────────────
+ * Read out of the blobs that minted each version, not inferred:
+ *
+ *   git show 6d7b54ce3:…/ad-calibration-job.ts   (mints `.v1`) — no key
+ *   git show 8147d5e27:…/ad-calibration-job.ts   (mints `.v2`) — no key
+ *   git show f07105197:…/ad-calibration-job.ts   (mints `.v3`) — key present
+ *
+ * Round 9 routed `.v1`–`.v3` through one `.v3`-era formula, which silently
+ * added a whole member to `.v1` and `.v2` generation content. Those two digests
+ * would never have matched a real historical batch.
+ */
+function nativeAdCalibrationBatchHashesSpendUnitAuthority(
+  contractVersion: NativeAdCalibrationReadableContractVersion,
+): boolean {
+  switch (contractVersion) {
+    case "engine-v3-native-ad-calibration.v1":
+    case "engine-v3-native-ad-calibration.v2":
+      return false;
+    case "engine-v3-native-ad-calibration.v3":
+    case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
+      return true;
+    default: {
+      const unsupported: never = contractVersion;
+      throw new Error(
+        `Unsupported native ad calibration contract ${String(unsupported)}.`,
+      );
+    }
+  }
+}
+
+/**
+ * Can a PERSISTED row of this version be re-derived from its DURABLE columns?
+ *
+ * ── ROUND 10 ITEM 2: THE HONEST BOUNDARY ───────────────────────────────────
+ * `.v1` and `.v2` cannot. Their cell manifest digested
+ * `observations: observations.map(observationManifestEntry)` and
+ * `targetAuthority: purchase ? batch.targetAuthority : null`, and NEITHER input
+ * survives persistence: the calibration cell table has no observations column
+ * and no cohort-purchase discriminator for that expression. The v1/v2 formula
+ * is therefore reproducible OFFLINE, against a fixture that still carries the
+ * observations, and not against a database row.
+ *
+ * Round 9 claimed durable readability for `.v1`–`.v3` alike. That was wrong for
+ * two of the three, and the failure mode is the bad direction: a v1 row would
+ * have been recomputed under a v3-era formula, mismatched, and been reported as
+ * CORRUPT rather than as unverifiable.
+ *
+ * `.v3` and `.v5` are durably recomputable: every field their formulas read is
+ * a persisted column.
+ */
+export function nativeAdCalibrationDurablyRecomputable(
+  contractVersion: NativeAdCalibrationReadableContractVersion,
+): boolean {
+  switch (contractVersion) {
+    case "engine-v3-native-ad-calibration.v1":
+    case "engine-v3-native-ad-calibration.v2":
+      return false;
+    case "engine-v3-native-ad-calibration.v3":
+    case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
+      return true;
+    default: {
+      const unsupported: never = contractVersion;
+      throw new Error(
+        `Unsupported native ad calibration contract ${String(unsupported)}.`,
+      );
+    }
+  }
+}
+
+/**
+ * The `.v1`/`.v2` CELL manifest content, byte-for-byte from the blobs that
+ * minted them.
+ *
+ * OFFLINE ONLY. It takes `observations` and `purchase` as arguments precisely
+ * because a persisted row carries neither; the only callers are the frozen
+ * synthetic fixtures that still hold them. Exported so a fixture cannot restate
+ * the formula and drift from it.
+ */
+export function nativeAdCalibrationCellInputManifestContentV1V2(input: {
+  contractVersion:
+    | "engine-v3-native-ad-calibration.v1"
+    | "engine-v3-native-ad-calibration.v2";
+  policyVersion: string;
+  engineVersion: string;
+  key: NativeAdCalibrationCellKey;
+  asOfDate: string;
+  asOfCutoff: string;
+  sampleWindowStart: string;
+  sampleWindowEnd: string;
+  targetAuthority: ResolvedNativeAdTargetAuthority;
+  /** `purchase ? batch.targetAuthority : null` in the original expression. */
+  purchase: boolean;
+  qualityStatus: NativeAdCalibrationQualityStatus;
+  metricSampleCounts: NativeAdCalibrationMetricSampleCounts;
+  actionReadiness: NativeAdCalibrationActionReadiness;
+  /** Already mapped through `observationManifestEntry` by the caller. */
+  observations: readonly unknown[];
+}): Record<string, unknown> {
+  return {
+    contractVersion: input.contractVersion,
+    policyVersion: input.policyVersion,
+    engineVersion: input.engineVersion,
+    key: input.key,
+    asOfDate: input.asOfDate,
+    asOfCutoff: input.asOfCutoff,
+    sampleWindowStart: input.sampleWindowStart,
+    sampleWindowEnd: input.sampleWindowEnd,
+    targetAuthority: input.purchase ? input.targetAuthority : null,
+    qualityStatus: input.qualityStatus,
+    metricSampleCounts: input.metricSampleCounts,
+    actionReadiness: input.actionReadiness,
+    observations: input.observations,
+  };
+}
+
+function nativeAdCalibrationProjectsTargetAuthority(
+  contractVersion: NativeAdCalibrationReadableContractVersion,
+): boolean {
+  switch (contractVersion) {
+    case "engine-v3-native-ad-calibration.v1":
+    case "engine-v3-native-ad-calibration.v2":
+    case "engine-v3-native-ad-calibration.v3":
+      return false;
+    case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
+      return true;
+    default: {
+      const unsupported: never = contractVersion;
+      throw new Error(
+        `Unsupported native ad calibration contract ${String(unsupported)}.`,
+      );
+    }
+  }
+}
+
+function nativeAdAuthorityHashesStoreObservation(
+  contractVersion: NativeAdSpendUnitAuthority["contractVersion"],
+): boolean {
+  switch (contractVersion) {
+    case "engine-v3-native-ad-spend-unit-authority.v1":
+    case "engine-v3-native-ad-spend-unit-authority.v2":
+      return true;
+    case "engine-v3-native-ad-spend-unit-authority.v3":
+    case NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION:
+      return false;
+    default: {
+      const unsupported: never = contractVersion;
+      throw new Error(
+        `Unsupported native spend-unit authority contract ${String(unsupported)}.`,
+      );
+    }
+  }
 }
 
 function nativeAdSpendUnitAuthorityGenerationContent(
@@ -1823,6 +2855,7 @@ function nativeAdSpendUnitAuthorityGenerationContent(
     authorityHash: _authorityHash,
     asOfCutoff: _asOfCutoff,
     accountAovEvidence,
+    observedShopifyAovEvidence,
     ...authorityContent
   } = authority;
   const {
@@ -1831,19 +2864,30 @@ function nativeAdSpendUnitAuthorityGenerationContent(
     ...accountAovContent
   } = accountAovEvidence;
   /*
-    The store observation joins the generation content under the same rule as
-    the account evidence above: its own read clock is stripped, because when it
-    was read is not part of what was read. Its window, order count, currency and
-    amounts are, so a changed observation changes the hash.
+    LEGACY ONLY. Under `.v2` the store observation is part of the generation
+    content — its own read clock stripped, because when it was read is not part
+    of what was read, but its window, order count, currency and amounts bound —
+    and it stays that way so a persisted `.v2` batch recomputes the
+    `generationContentHash` it was written with.
+
+    Under `.v3` it is not here at all. A store-only change may not move
+    `generationContentHash`, and `inputManifestHash` is taken over that hash, so
+    excluding it here is what makes both stop moving. The evidence is still
+    carried on the authority and still served.
   */
-  const observed = authorityContent.observedShopifyAovEvidence;
+  const legacyHashedObserved = nativeAdAuthorityHashesStoreObservation(
+    authorityContent.contractVersion,
+  )
+    ? observedShopifyAovEvidence
+    : undefined;
   const observedContent =
-    observed === undefined
+    legacyHashedObserved === undefined
       ? undefined
-      : observed === null
+      : legacyHashedObserved === null
         ? null
         : (() => {
-            const { knowledgeAsOf: _knowledgeAsOf, ...rest } = observed;
+            const { knowledgeAsOf: _knowledgeAsOf, ...rest } =
+              legacyHashedObserved;
             return rest;
           })();
   return {
@@ -2008,86 +3052,97 @@ function buildNativeAdSpendUnitAuthority(input: {
     input.currencyAdmission.status === "ready" &&
     input.timezoneAdmission.status === "ready";
   /*
-    Cutoff safety for the store observation, and why the window alone is not
-    enough.
+    The store observation is carried, never consulted, and never identity.
 
-    Shopify restates old orders: a refund recorded today changes the net revenue
-    of a window that closed weeks ago. An observation whose window ended before
-    the cutoff can therefore still carry knowledge the cutoff could not have
-    had. All three clocks must be at or before it.
+    It is persisted below so an operator reading a blocked authority can see
+    what the store said. It takes no part in choosing the basis: for a Meta
+    decision the canonical money-per-purchase unit is Meta's own attributed AOV,
+    and a second book that disagrees with it is context, not authority. See
+    `NativeAdSpendUnitAuthorityBasis` for the production incident that settled
+    this.
+
+    Under the `.v3` this mint stamps it is also excluded from every hash the
+    authority feeds — `authorityHash`, `generationContentHash`,
+    `inputManifestHash`, `cellSetHash` — so a store-only change moves nothing.
+    `.v2` rows keep hashing it, because that is what they were minted over.
   */
   const observedEvidence = input.observedShopifyAovEvidence ?? null;
-  const observedShopifyAovCutoffSafe =
-    observedEvidence !== null &&
-    observedEvidence.window !== null &&
-    observedEvidence.window.to <= input.asOfCutoff.slice(0, 10) &&
-    (observedEvidence.observedAt === null ||
-      observedEvidence.observedAt <= input.asOfCutoff) &&
-    observedEvidence.knowledgeAsOf <= input.asOfCutoff;
-  const observedShopifyAovMajor =
-    observedEvidence && observedShopifyAovIsUsable(observedEvidence)
-      ? observedEvidence.aovMinor / 10 ** observedEvidence.currencyExponent
-      : 0;
-  const observedShopifyAovUsable =
-    observedShopifyAovCutoffSafe &&
-    observedEvidence !== null &&
-    observedShopifyAovIsUsable(observedEvidence) &&
-    observedEvidence.currency === accountCurrency &&
-    positiveFinite(observedShopifyAovMajor);
+
+  /*
+    The Target ROAS test, hoisted because it is what SPLITS the two cases below
+    rather than a condition inside one of them.
+
+    `resolveNativeAdTargetAuthority` already folds the cutoff test into
+    `targetRoasAuthority` (`cutoffSafeStatus && positiveFinite(targetRoas)`), so
+    this is cutoff-safe by construction and needs no second clock comparison —
+    the class of drift that produced the 117 failed runs recorded on
+    `NativeAdSpendUnitAuthorityBasis`.
+  */
+  const targetRoas = input.targetAuthority.targetRoas;
+  const targetRoasAnchored =
+    input.targetAuthority.targetRoasAuthority && positiveFinite(targetRoas);
 
   let basis: NativeAdSpendUnitAuthorityBasis | null = null;
   let baseSpendUnit: number | null = null;
-  if (
+  if (accountDimensionsReady && targetRoasAnchored) {
+    /*
+      CASE 1 — A TARGET ROAS IS CONFIGURED.
+
+      Meta's own attributed AOV over that ratio is the canonical derived CPA
+      benchmark for a Meta decision, and it is the ONLY lane this case has. A
+      legacy Target CPA and an operator AOV assumption are both READ from the
+      same target authority and neither one chooses the basis: they used to sit
+      above this lane and no longer do.
+
+      When the evidence is not `ready` the authority stays BLOCKED and the
+      readiness resolver names it (`commercial_spend_unit_authority_missing`,
+      with `accountAovEvidence.status` saying which absence it is). It
+      deliberately does not fall back to the Target CPA: substituting any other
+      number here would decide Meta spend on revenue Meta never attributed, and
+      would report a missing platform AOV as a ready authority.
+
+      This lane must stay identical to the CASE 1 branch of
+      `nativeSpendUnitAuthorityMatchesTarget` in `ad-account-decision-profile.ts`.
+      One rung of disagreement raises `native_target_authority_mismatch` and
+      rolls the whole native job back.
+    */
+    if (
+      accountAovEvidence.status === "ready" &&
+      positiveFinite(accountAovEvidence.meanAov)
+    ) {
+      basis = "physical_account_purchase_aov_90d";
+      baseSpendUnit = accountAovEvidence.meanAov / targetRoas;
+    }
+  } else if (
     accountDimensionsReady &&
     targetCutoffSafe &&
     positiveFinite(input.targetAuthority.targetCpa)
   ) {
+    /*
+      CASE 2 — NO TARGET ROAS.
+
+      Nothing native divides an average order value without a ratio, so an
+      explicitly configured Target CPA is the only anchor this case has and it
+      legitimately governs. Unchanged legacy compatibility.
+
+      `operator_aov` has no case left: it only ever built
+      `operatorAovAssumption / targetRoas`, so CASE 1 owns every input shape
+      that could reach it. The member stays in `NativeAdSpendUnitAuthorityBasis`
+      so a persisted row naming it still parses — and, having no expected basis
+      to match, such a row now fails the validator CLOSED, which is the intended
+      reading of a retired authority.
+    */
     basis = "target_cpa";
     baseSpendUnit = input.targetAuthority.targetCpa;
-  } else if (
-    accountDimensionsReady &&
-    targetCutoffSafe &&
-    positiveFinite(input.targetAuthority.operatorAovAssumption) &&
-    input.targetAuthority.targetRoasAuthority &&
-    positiveFinite(input.targetAuthority.targetRoas)
-  ) {
-    basis = "operator_aov";
-    baseSpendUnit =
-      input.targetAuthority.operatorAovAssumption /
-      input.targetAuthority.targetRoas;
-  } else if (
-    accountDimensionsReady &&
-    observedShopifyAovUsable &&
-    input.targetAuthority.targetRoasAuthority &&
-    positiveFinite(input.targetAuthority.targetRoas)
-  ) {
-    /*
-      The merchant's own settled revenue, before Meta's attributed view of it.
-
-      Its currency was matched against the ad account, its window is closed
-      store days, and its order floor was cleared upstream — this branch only
-      divides. The cutoff test below is the same one every other evidence lane
-      passes: an observation the cutoff could not have known is not evidence for
-      that cutoff, however old its window says it is.
-    */
-    basis = "observed_shopify_aov";
-    baseSpendUnit = observedShopifyAovMajor / input.targetAuthority.targetRoas;
-  } else if (
-    accountDimensionsReady &&
-    accountAovEvidence.status === "ready" &&
-    positiveFinite(accountAovEvidence.meanAov) &&
-    input.targetAuthority.targetRoasAuthority &&
-    positiveFinite(input.targetAuthority.targetRoas)
-  ) {
-    basis = "physical_account_purchase_aov_90d";
-    baseSpendUnit =
-      accountAovEvidence.meanAov / input.targetAuthority.targetRoas;
   }
   const content: Omit<NativeAdSpendUnitAuthority, "authorityHash"> = {
-    contractVersion:
-      observedEvidence === undefined
-        ? "engine-v3-native-ad-spend-unit-authority.v1"
-        : "engine-v3-native-ad-spend-unit-authority.v2",
+    /*
+      One version for every mint, whatever the store said or whether it was
+      asked at all. The previous rule picked `.v1` vs `.v2` from
+      `observedEvidence === undefined`, which put a Shopify-only fact back into
+      the hashed content through the version string.
+    */
+    contractVersion: NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION,
     status: basis === null ? "blocked" : "ready",
     basis,
     businessId: input.businessId,
@@ -2104,7 +3159,12 @@ function buildNativeAdSpendUnitAuthority(input: {
   };
   const authority: NativeAdSpendUnitAuthority = {
     ...content,
-    authorityHash: canonicalSha256(content),
+    // Through the shared projection, never over `content` directly, so the mint
+    // and `recomputeNativeAdSpendUnitAuthorityHash` cannot disagree about which
+    // members are identity.
+    authorityHash: canonicalSha256(
+      nativeAdSpendUnitAuthorityHashContent(content),
+    ),
   };
   return { authority, manifestRows };
 }
@@ -2224,33 +3284,36 @@ export function computeNativeAdCalibrationBatch(
       .sort((left, right) => left.sortKey.localeCompare(right.sortKey)),
   });
   built.qualityCounts.commercialAuthorityAdExclusionCount =
-    targetAuthority.targetRoasAuthority &&
-    targetAuthority.breakEvenRoasAuthority
+    hasCommercialTargetAuthority(targetAuthority)
       ? 0
       : built.observations.filter((row) => row.cohort === "purchase").length;
 
-  const generationContentHash = canonicalSha256({
-    contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
-    policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
-    engineVersion: NATIVE_AD_ENGINE_VERSION,
-    businessId,
-    providerAccountRefId,
-    providerAccountId,
-    asOfDate: cutoff.asOfDate,
-    sampleWindowStart: cutoff.sampleWindowStart,
-    sampleWindowEnd: cutoff.sampleWindowEnd,
-    sourceManifestHash,
-    targetAuthority,
-    spendUnitAuthority:
-      nativeAdSpendUnitAuthorityGenerationContent(spendUnitAuthority),
-    qualityCounts: built.qualityCounts,
-    observations: built.observations.map(observationManifestEntry),
-  });
-  const inputManifestHash = canonicalSha256({
-    generationContentHash,
-    sourceProvenance,
-    asOfCutoff: cutoff.asOfCutoff,
-  });
+  // One shared content builder, so the producer, the durable-write validator
+  // and the frozen-fixture recompute cannot drift apart.
+  const generationContentHash = canonicalSha256(
+    nativeAdCalibrationBatchGenerationContent({
+      contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+      policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
+      engineVersion: NATIVE_AD_ENGINE_VERSION,
+      businessId,
+      providerAccountRefId,
+      providerAccountId,
+      asOfDate: cutoff.asOfDate,
+      sampleWindowStart: cutoff.sampleWindowStart,
+      sampleWindowEnd: cutoff.sampleWindowEnd,
+      sourceManifestHash,
+      targetAuthority,
+      spendUnitAuthority,
+      qualityCounts: built.qualityCounts,
+      observations: built.observations,
+    }),
+  );
+  const inputManifestHash = canonicalSha256(
+    nativeAdCalibrationBatchInputManifestContent(
+      { sourceProvenance, asOfCutoff: cutoff.asOfCutoff },
+      generationContentHash,
+    ),
+  );
 
   const batchBase = {
     contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
@@ -2298,6 +3361,9 @@ export function buildNativeAdCalibrationPersistencePayload(
   input: { batchId: string; jobRunId: string },
 ): Array<Record<string, unknown>> {
   return batch.cells.map((cell) => ({
+    // The cell inherits the BATCH's contract, which is what makes the
+    // agreement the reader enforces true by construction on every new row.
+    contract_version: batch.contractVersion,
     batch_id: input.batchId,
     business_ref_id: cell.key.businessId,
     business_id: cell.key.businessId,
@@ -2373,9 +3439,11 @@ export function computeNativeAdCalibrationCellSetHash(
       "key" | "inputManifestHash" | "sourceManifestHash"
     >
   >,
+  contractVersion: NativeAdCalibrationReadableContractVersion =
+    NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
 ): string {
   return canonicalSha256({
-    contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+    contractVersion,
     cells: cells
       .map((cell) => ({
         identity: cellIdentity(cell.key),
@@ -2401,6 +3469,20 @@ interface NativeAdCalibrationColumnContract {
 const BATCH_COLUMN_CONTRACT: Record<string, NativeAdCalibrationColumnContract> =
   {
     id: { type: "uuid", notNull: true, default: "gen_random_uuid()" },
+    /*
+      ── ROUND 10 ITEM 1: THE GATE MUST REQUIRE THE STAMP ────────────────────
+      `lib/migrations.ts` runs the calibration migration ONLY when capability
+      says `ready: false`. Omitting this column from the contract meant a
+      pre-Round-9 database reported `ready: true`, the ALTER never ran, and the
+      first `SELECT batch.contract_version` or stamped `INSERT` then crashed at
+      runtime — a schema gap that the gate designed to catch it declared
+      healthy.
+
+      `default: null` is not cosmetic either: the migration adds the column with
+      a `legacy_unknown` default and then DROPS it, so a database that stopped
+      halfway would still be caught here.
+    */
+    contract_version: { type: "text", notNull: true, default: null },
     business_ref_id: { type: "uuid", notNull: true, default: null },
     business_id: { type: "text", notNull: true, default: null },
     provider: { type: "text", notNull: true, default: null },
@@ -2461,6 +3543,9 @@ const CELL_COLUMN_CONTRACT: Record<string, NativeAdCalibrationColumnContract> =
   Object.fromEntries(
     [
       ["id", "uuid", true, "gen_random_uuid()"],
+      // ROUND 10 ITEM 1. Same reason as the batch column above; the cell is the
+      // row the production reader actually SELECTs the stamp from.
+      ["contract_version", "text", true, null],
       ["batch_id", "uuid", true, null],
       ["business_ref_id", "uuid", true, null],
       ["business_id", "text", true, null],
@@ -2549,6 +3634,9 @@ export const NATIVE_AD_CALIBRATION_REQUIRED_SCHEMA = {
       "CHECK (business_id = business_ref_id::text)",
     engine_v3_ad_calibration_batches_provider_check:
       "CHECK (provider = 'meta')",
+    // ROUND 10 ITEM 1: derived from the same builder the DDL uses.
+    engine_v3_ad_calibration_batches_contract_version_check:
+      nativeAdCalibrationContractVersionCheck(),
     engine_v3_ad_calibration_batches_source_mode_check:
       "CHECK (source_mode = 'current_transaction_snapshot')",
     engine_v3_ad_calibration_batches_isolation_check:
@@ -2591,6 +3679,8 @@ export const NATIVE_AD_CALIBRATION_REQUIRED_SCHEMA = {
     engine_v3_ad_calibration_daily_business_identity_check:
       "CHECK (business_id = business_ref_id::text)",
     engine_v3_ad_calibration_daily_provider_check: "CHECK (provider = 'meta')",
+    engine_v3_ad_calibration_cells_contract_version_check:
+      nativeAdCalibrationContractVersionCheck(),
     engine_v3_ad_calibration_daily_scope_check:
       "CHECK (cell_scope = ANY (ARRAY['objective_cohort_context', 'account_objective_cohort']))",
     engine_v3_ad_calibration_daily_cohort_check:
@@ -2842,6 +3932,12 @@ export async function replaceNativeAdCalibrationBatch(
         input.batch.cellSetHash,
         input.jobRunId,
         input.batch.computedAt,
+        /*
+          $19 — the contract this generation was minted with, taken from the
+          batch itself rather than from the module constant, so a batch built
+          under one version can never be persisted under another.
+        */
+        input.batch.contractVersion,
       ],
     );
     const batchId = requiredUuid(insertedBatch?.id, "calibration batch id");
@@ -3046,30 +4142,22 @@ export function assertNativeAdCalibrationBatchContract(
     batch.asOfDate,
     batch.asOfCutoff,
   );
-  const recomputedGenerationContentHash = canonicalSha256({
-    contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
-    policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
-    engineVersion: NATIVE_AD_ENGINE_VERSION,
-    businessId: batch.businessId,
-    providerAccountRefId: batch.providerAccountRefId,
-    providerAccountId: batch.providerAccountId,
-    asOfDate: batch.asOfDate,
-    sampleWindowStart: batch.sampleWindowStart,
-    sampleWindowEnd: batch.sampleWindowEnd,
-    sourceManifestHash: batch.sourceManifestHash,
-    targetAuthority: batch.targetAuthority,
-    spendUnitAuthority:
-      nativeAdSpendUnitAuthorityGenerationContent(
-        batch.spendUnitAuthority,
-      ),
-    qualityCounts: batch.qualityCounts,
-    observations: batch.observations.map(observationManifestEntry),
-  });
-  const recomputedInputManifestHash = canonicalSha256({
-    generationContentHash: recomputedGenerationContentHash,
-    sourceProvenance: batch.sourceProvenance,
-    asOfCutoff: batch.asOfCutoff,
-  });
+  // The SAME builder the producer digests, so this check cannot pass on a
+  // formula the producer no longer uses.
+  const recomputedGenerationContentHash = canonicalSha256(
+    nativeAdCalibrationBatchGenerationContent({
+      ...batch,
+      contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+      policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
+      engineVersion: NATIVE_AD_ENGINE_VERSION,
+    }),
+  );
+  const recomputedInputManifestHash = canonicalSha256(
+    nativeAdCalibrationBatchInputManifestContent(
+      batch,
+      recomputedGenerationContentHash,
+    ),
+  );
   if (
     batch.contractVersion !== NATIVE_AD_CALIBRATION_CONTRACT_VERSION ||
     batch.engineVersion !== NATIVE_AD_ENGINE_VERSION ||
@@ -4173,6 +5261,8 @@ function computeCell(
     targetAuthority: batch.targetAuthority,
   });
   const cellWithoutInputManifest: NativeAdCalibrationCellInputManifestSource = {
+    // A cell being MINTED carries the version being minted, by construction.
+    contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
     batchId: null,
     batchCompleteness: "computed",
     batchCellCount: 0,
@@ -4315,7 +5405,13 @@ function aggregateObservation(input: {
   const totalRevenue = sum(input.rows, (row) => row.revenue);
   const totalImpressions = sum(input.rows, (row) => row.impressions);
   const totalClicks = sum(input.rows, (row) => row.clicks);
-  const totalLinkClicks = sum(input.rows, (row) => row.linkClicks);
+  /*
+    COMPLETE-ONLY, like the other optional provider metrics beside it. `sum`
+    would have added the coerced zeros; `sumOptionalComplete` answers null the
+    moment any contributing row is unreported, so a link-click rate is either
+    measured across the whole population or absent.
+  */
+  const totalLinkClicks = sumOptionalComplete(input.rows, (row) => row.linkClicks);
   const totalLandingPageViews = sumOptionalComplete(
     input.rows,
     (row) => row.landingPageViews,
@@ -4381,12 +5477,19 @@ function aggregateObservation(input: {
       totalImpressions > 0 && thumbstopWeighted !== null
         ? thumbstopWeighted / totalImpressions
         : null,
+    /*
+      Every link-click rate now requires COMPLETE link-click evidence. A null
+      total means at least one contributing row was unreported, and a rate
+      computed over part of a population is not that population's rate.
+    */
     linkToLpvRate:
-      totalLinkClicks > 0 && totalLandingPageViews !== null
+      totalLinkClicks !== null &&
+      totalLinkClicks > 0 &&
+      totalLandingPageViews !== null
         ? (totalLandingPageViews / totalLinkClicks) * 100
         : null,
     linkToAtcRate:
-      totalLinkClicks > 0 && totalAddToCart !== null
+      totalLinkClicks !== null && totalLinkClicks > 0 && totalAddToCart !== null
         ? (totalAddToCart / totalLinkClicks) * 100
         : null,
     lpvToAtcRate:
@@ -4406,7 +5509,9 @@ function aggregateObservation(input: {
         ? (totalConversions / totalInitiateCheckout) * 100
         : null,
     clickToPurchaseRate:
-      totalLinkClicks > 0 ? (totalConversions / totalLinkClicks) * 100 : null,
+      totalLinkClicks !== null && totalLinkClicks > 0
+        ? (totalConversions / totalLinkClicks) * 100
+        : null,
     cumulative28dRoas,
     cumulative28dCtr:
       cumulative28Impressions > 0
@@ -4593,11 +5698,13 @@ function hasInvalidMetric(row: NormalizedSourceRow) {
     row.spend,
     row.impressions,
     row.clicks,
-    row.linkClicks,
     row.conversions,
     row.revenue,
   ];
   const optional = [
+    // Nullable now: an unreported link-click day is incomplete evidence, not
+    // an invalid row.
+    row.linkClicks,
     row.landingPageViews,
     row.addToCart,
     row.initiateCheckout,
@@ -4750,9 +5857,23 @@ function normalizeTargetAuthorityInput(
     breakEvenRoas: finiteOrNull(input.breakEvenRoas),
     operatorAovAssumption: finiteOrNull(input.operatorAovAssumption),
     defaultRiskPosture: input.defaultRiskPosture,
-    effectiveAt: normalizeTimestamp(input.effectiveAt),
-    recordedAt: normalizeTimestamp(input.recordedAt),
+    /*
+      STRICT, not `normalizeTimestamp`. These two are commercial-target clocks
+      whose verdict is hashed; `normalizeTimestamp` would rewrite an impossible
+      or date-only value into a well-formed instant and put THAT in the payload,
+      so the object a hash is taken over would disagree with the strict reading
+      the resolver just made about the same bytes. A value the strict parser
+      refuses is an ABSENT clock here, which is what `cutoffSafe` already knows
+      how to fail closed on.
+    */
+    effectiveAt: strictCommercialClock(input.effectiveAt),
+    recordedAt: strictCommercialClock(input.recordedAt),
   };
+}
+
+/** One commercial-target clock, or null when it is not a real UTC instant. */
+function strictCommercialClock(value: string | null | undefined): string | null {
+  return isCommercialTargetInstant(value) ? normalizeText(value) : null;
 }
 
 function resolveCellQualityStatus(input: {
@@ -4761,10 +5882,7 @@ function resolveCellQualityStatus(input: {
   targetAuthority: ResolvedNativeAdTargetAuthority;
 }): NativeAdCalibrationQualityStatus {
   if (input.cohort !== "purchase") return "unsupported_cohort";
-  if (
-    !input.targetAuthority.targetRoasAuthority ||
-    !input.targetAuthority.breakEvenRoasAuthority
-  ) {
+  if (!hasCommercialTargetAuthority(input.targetAuthority)) {
     return "blocked_commercial";
   }
   if (input.matureAdCount >= MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE) {
@@ -4812,18 +5930,69 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
     );
   }
 
+  /*
+    ── ROUND 9 ITEM 3: THE HOLD IS TOTAL ACROSS ALL THREE ACTIONS ────────────
+
+    Round 8 closed CUT when a Target ROAS governs and no READY same-account,
+    same-cutoff Meta AOV exists, and left SCALE and REFRESH open. That is the
+    same defect one action to the left: all three are purchase-budget
+    authorities on this cell, all three are persisted in `actionReadiness`, and
+    all three are read back by the retained profile as grants.
+
+      - Scale sizes a budget INCREASE. Without the canonical unit there is no
+        admissible arithmetic for how much, and its own gate only asked about
+        the account's calibration sample and a winner benchmark — neither of
+        which is a money-per-purchase unit.
+      - Refresh authorizes spend to continue against a creative-fatigue
+        boundary. Its gate asked only about `refreshRatioP10`, a ratio of
+        ratios, so a governed account with no economic unit could still be
+        told to keep spending on evidence that never priced a purchase.
+
+    `commercialSpendUnitHold` is computed once and applied to all three, so the
+    three cannot drift apart again. The reason is the existing named blocker,
+    because the missing thing is unchanged.
+
+    Preserved exactly: with no positive Target ROAS none of this applies and
+    each action keeps its own historical gate.
+  */
+  const cutTargetRoasGoverns = input.targetAuthority.targetRoasAuthority;
+  const cutHasReadySpendUnit = input.spendUnitAuthority.status === "ready";
+  const commercialSpendUnitHold = cutTargetRoasGoverns && !cutHasReadySpendUnit;
+
   const scaleReason: NativeAdCalibrationActionBlockReason | null = !input
     .targetAuthority.targetRoasAuthority
     ? "target_roas_authority_missing"
-    : scaleObserved < MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE
-      ? "scale_calibration_sample_low"
-      : !positiveFinite(input.accountCalibration.winnerPurchaseP50)
-        ? "scale_winner_benchmark_missing"
-        : null;
+    : commercialSpendUnitHold
+      ? "commercial_spend_unit_authority_missing"
+      : scaleObserved < MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE
+        ? "scale_calibration_sample_low"
+        : !positiveFinite(input.accountCalibration.winnerPurchaseP50)
+          ? "scale_winner_benchmark_missing"
+          : null;
   const cutUsesCalibratedRelativeBoundary =
     cutObserved >= NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR &&
     positiveFinite(input.accountCalibration.roasRatioP25);
+  /*
+    THE ACCOUNT'S OWN CPA IS OBSERVED EVIDENCE, NOT ECONOMIC AUTHORITY, WHILE A
+    TARGET ROAS GOVERNS.
+
+    `cutHasCanonicalExactSpendAuthority` is a sample-backed account CPA median.
+    It sat in an `||` with the READY spend-unit authority, so on an account
+    whose Target ROAS says only ready Meta AOV may answer, a re-measured
+    account CPA alone could open the economic stop-loss strip: it selected
+    `calibrated_relative_with_economic_stop_loss` instead of
+    `calibrated_relative`, which is a different boundary, a different verdict,
+    and — because the readiness basis is part of the cell — a different
+    generation and retention identity.
+
+    Under a positive Target ROAS the economic authority is the READY spend unit
+    and nothing else. The legacy branch is preserved exactly where it is
+    legitimate: no positive Target ROAS, where the account CPA is a real
+    money-per-purchase anchor because there is no ratio to divide.
+  */
+  const targetRoasGoverns = input.targetAuthority.targetRoasAuthority;
   const cutHasCanonicalExactSpendAuthority =
+    !targetRoasGoverns &&
     input.accountCalibration.accountCpaSampleCount >=
       NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR &&
     positiveFinite(input.accountCalibration.accountCpaP50);
@@ -4836,20 +6005,57 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
   // blocked the legacy-safe relative region remains available. A P25-null cell
   // has no retained peer boundary and therefore still requires the commercial
   // stop-loss proof to become Cut-ready at all.
-  const cutReason: NativeAdCalibrationActionBlockReason | null = !input
-    .targetAuthority.targetRoasAuthority
-    ? "target_roas_authority_missing"
-    : !input.targetAuthority.breakEvenRoasAuthority
-      ? "break_even_roas_authority_missing"
-      : !cutUsesCalibratedRelativeBoundary &&
-          input.spendUnitAuthority.status !== "ready"
+  /*
+    `target_roas_authority_missing` is the named refusal for having NO
+    commercial target at all. It keeps that spelling because Target ROAS is the
+    one this product asks an operator to configure and the only one any native
+    lane can consume; `break_even_roas_authority_missing` stays in the block
+    reason union unused by new rows, because rows minted before this rule are
+    persisted with it and must still parse.
+  */
+  /*
+    ── THE HOLD IS TOTAL, NOT DOWNSTREAM ───────────────────────────────────────
+
+    This read "no calibrated relative boundary AND no ready spend unit", so a
+    P25-backed cell on a ROAS-governed account stayed `ready` with basis
+    `calibrated_relative` even when the account had NO ready Meta-attributed
+    AOV. The defence was that a later gate would refuse the action anyway. That
+    is not the same fact:
+
+      - `actionReadiness.cut.ready` is persisted on the calibration row and read
+        back by the retained profile, so the row asserted an authority the
+        account does not have, and asserted it in identity.
+      - A ready cell with a null economic unit still selects a BOUNDARY (the
+        account-relative P25), and a boundary is arithmetic. Under a positive
+        Target ROAS the only admissible spend arithmetic is READY Meta AOV over
+        that ratio; a peer-relative percentile is a different quantity.
+      - "Ready, but something downstream will stop it" is exactly the shape that
+        lets a refactor of the downstream gate silently authorize the action.
+
+    So while a Target ROAS governs, a non-READY spend-unit authority blocks Cut
+    readiness itself, whatever the P25 says. The named reason is unchanged
+    (`commercial_spend_unit_authority_missing`), because the missing thing is
+    unchanged — only the scope of what its absence stops.
+
+    The legacy path is preserved exactly. Without a governing Target ROAS the
+    condition is the one it has always been: a calibrated relative boundary is
+    sufficient on its own, and only a cell that has neither boundary nor
+    economic unit is refused.
+  */
+  const cutReason: NativeAdCalibrationActionBlockReason | null =
+    !hasCommercialTargetAuthority(input.targetAuthority)
+      ? "target_roas_authority_missing"
+      : !cutHasReadySpendUnit &&
+          (cutTargetRoasGoverns || !cutUsesCalibratedRelativeBoundary)
         ? "commercial_spend_unit_authority_missing"
         : null;
   const refreshReason: NativeAdCalibrationActionBlockReason | null =
-    refreshObserved < NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR ||
-    !positiveFinite(input.accountCalibration.refreshRatioP10)
-      ? "refresh_calibration_sample_low"
-      : null;
+    commercialSpendUnitHold
+      ? "commercial_spend_unit_authority_missing"
+      : refreshObserved < NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR ||
+          !positiveFinite(input.accountCalibration.refreshRatioP10)
+        ? "refresh_calibration_sample_low"
+        : null;
 
   return {
     spendUnitAuthority: input.spendUnitAuthority,
@@ -4864,6 +6070,14 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
       cutUsesCalibratedRelativeBoundary
         ? NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR
         : 0,
+      /*
+        `calibrated_relative` — a relative boundary with NO economic unit
+        behind it — is now reachable only on the no-Target-ROAS legacy path,
+        because the gate above refuses readiness outright in the governed case.
+        The arm is kept rather than deleted: rows minted under `.v4` and
+        earlier carry this basis and must keep parsing and rendering as the
+        history they are.
+      */
       cutReason === null
         ? cutUsesCalibratedRelativeBoundary
           ? cutHasEconomicSpendAuthority
@@ -5274,7 +6488,14 @@ export function mapNativeAdCalibrationSourceRow(
     // This is deliberately NOT the place to start supplying a real link-click
     // count from the provider payload: that would change the numbers the engine
     // reads, which is a different change with a different proof.
-    linkClicks: dbOptionalNumber(row.link_clicks) ?? 0,
+    /*
+      NOT COERCED. This read `dbOptionalNumber(row.link_clicks) ?? 0`, which
+      turned "the provider supplied nothing" into "the provider measured zero"
+      — the exact collapse the nullable column was introduced to prevent. The
+      rate below is now computed only from COMPLETE evidence, so an incomplete
+      population yields no rate instead of a rate built on fabricated zeros.
+    */
+    linkClicks: dbOptionalNumber(row.link_clicks),
     // PostgreSQL double precision can represent NaN/Infinity. Keep malformed
     // canonical purchase truth in the source manifest so the account-AOV
     // receipt becomes contradictory instead of aborting the whole job before
@@ -5328,9 +6549,18 @@ export function mapNativeAdTargetAuthorityRow(
     breakEvenRoas: dbOptionalNumber(row.break_even_roas),
     operatorAovAssumption: dbOptionalNumber(row.operator_aov_assumption),
     defaultRiskPosture: risk,
-    effectiveAt: dbOptionalTimestamp(row.effective_at),
-    recordedAt: dbOptionalTimestamp(row.recorded_at),
+    effectiveAt: dbOptionalCommercialTimestamp(row.effective_at),
+    recordedAt: dbOptionalCommercialTimestamp(row.recorded_at),
   };
+}
+
+function dbOptionalCommercialTimestamp(value: unknown): string | null {
+  // SQL returns exact UTC text. Date remains a compatibility input for older
+  // callers, but a timestamp string must never pass through Date and lose the
+  // ordering evidence that the target resolver is about to validate.
+  return value instanceof Date
+    ? dbOptionalTimestamp(value)
+    : canonicalCommercialTargetInstant(value);
 }
 
 function dbOptionalText(value: unknown): string | null {

@@ -19,6 +19,18 @@
  * code's current text, so the two cannot drift: whatever the unique index
  * says identifies an occurrence is what the guard is allowed to treat as
  * identity, and the write-attempt clocks stay out of it.
+ *
+ * ── ROUND 16 ────────────────────────────────────────────────────────────────
+ * The identity GREW in Round 15 and this file still described the four-column
+ * version. The partition row is reused across retries, so two DISTINCT sync
+ * attempts capturing at the same millisecond collided on the old key and
+ * `ON CONFLICT DO NOTHING` silently kept whichever committed first — possibly
+ * the attempt whose config-history apply then failed. `sync_run_id` is now part
+ * of the occurrence, with NULL collapsed to a sentinel so legacy retries keep
+ * coalescing instead of appending under NULL-distinct semantics.
+ *
+ * The rule this file enforces is unchanged: the guard may treat as identity
+ * exactly what the unique index names, and no more.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -28,7 +40,7 @@ const MIGRATIONS = readFileSync("lib/migrations.ts", "utf8");
 
 /** The guard: from its lookup down to the throw. */
 const GUARD = SOURCE.slice(
-  SOURCE.indexOf("FROM meta_entity_observation_receipts"),
+  SOURCE.indexOf("const existing = await sql.query", SOURCE.indexOf("async function appendObservationCaptureReceipt")),
   SOURCE.indexOf("Observation receipt collision with a DIFFERENT occurrence"),
 );
 /*
@@ -39,20 +51,37 @@ const GUARD = SOURCE.slice(
 const FLAT = GUARD.replace(/\s+/g, " ");
 
 describe("observation receipt — the occurrence key is the database's", () => {
-  it("the unique index defines the occurrence, and names four columns", () => {
-    const index = MIGRATIONS.slice(
-      MIGRATIONS.indexOf("meta_entity_observation_receipts_occurrence"),
-    ).slice(0, 220);
-    expect(index).toContain("(partition_id, entity_type, endpoint, captured_at)");
+  it("the unique index defines the occurrence, and now names the ATTEMPT too", () => {
+    // ROUND 17: the build is CONCURRENT, so the CREATE is located by its own
+    // statement rather than by the first mention of the name (which is now the
+    // shared key constant).
+    const at = MIGRATIONS.indexOf(
+      "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS meta_entity_observation_receipts_attempt_occurrence",
+    );
+    expect(at).toBeGreaterThan(-1);
+    const index = MIGRATIONS.slice(at, at + 400);
+    expect(index).toContain("partition_id, entity_type, endpoint, captured_at");
+    expect(index).toContain("COALESCE(sync_run_id");
     // `observed_at` is NOT identity. Stated here so the assertion below has a
     // reason rather than a preference.
     expect(index).not.toContain("observed_at");
+  });
+
+  it("retains four-column uniqueness only on the legacy mirror table", () => {
+    expect(MIGRATIONS).not.toContain("DROP INDEX CONCURRENTLY IF EXISTS meta_entity_observation_receipts_occurrence");
+    expect(SOURCE).toContain("INSERT INTO meta_entity_observation_receipts_v2");
+    expect(SOURCE).toContain("ON CONFLICT (partition_id, entity_type, endpoint, captured_at) DO NOTHING");
+    expect(SOURCE).toContain("legacy.sync_run_id IS NOT DISTINCT FROM");
   });
 
   it("the guard looks the row up by exactly that key", () => {
     for (const column of ["partition_id", "entity_type", "endpoint", "captured_at"]) {
       expect(GUARD, column).toContain(`${column} = `);
     }
+    // The attempt is part of the lookup too: omitting it compared this attempt
+    // against a DIFFERENT attempt's row and reported ordinary differences as a
+    // contradiction.
+    expect(FLAT).toContain("COALESCE(sync_run_id");
   });
 });
 

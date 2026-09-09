@@ -62,12 +62,14 @@
 // substitute `.env.local`. It is stopped and deleted afterwards. When no
 // PostgreSQL binaries are present the whole file skips rather than passing
 // vacuously.
+import { sharedEphemeralDatabaseUrl } from "@/lib/test-utils/shared-ephemeral-database";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { seedCanonicalMetaAdDailyFacts } from "@/lib/creative-decision-engine/meta-aov-calculator.test-helpers";
 
 /** Never the local volume, never the production tunnel. */
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
@@ -92,7 +94,8 @@ function postgresBinDir(): string | null {
 }
 
 const PG_BIN = postgresBinDir();
-const RUNNABLE = PG_BIN !== null;
+const SHARED_DATABASE_URL = sharedEphemeralDatabaseUrl();
+const RUNNABLE = SHARED_DATABASE_URL !== null || PG_BIN !== null;
 
 // PostgreSQL refuses to start with "postmaster became multithreaded during
 // startup" unless LC_ALL names a valid locale, and the ambient environment is
@@ -252,6 +255,8 @@ describe.skipIf(!RUNNABLE)(
       );
 
     beforeAll(async () => {
+      let databaseUrl = SHARED_DATABASE_URL;
+      if (!databaseUrl) {
       const port = await freePort();
       if (FORBIDDEN_PORTS.has(port)) {
         throw new Error(`Refusing forbidden PostgreSQL port ${port}.`);
@@ -293,17 +298,18 @@ describe.skipIf(!RUNNABLE)(
         DB_USER,
         DB_NAME,
       ]);
-      const databaseUrl = `postgresql://${DB_USER}@127.0.0.1:${port}/${DB_NAME}`;
+      databaseUrl = `postgresql://${DB_USER}@127.0.0.1:${port}/${DB_NAME}`;
       await migrate(databaseUrl);
       // Set before anything imports `@/lib/db`, which reads the URL when the
       // pool is first created.
+      }
       process.env.DATABASE_URL = databaseUrl;
       process.env.DATABASE_URL_UNPOOLED = databaseUrl;
       process.env.DB_SSL_MODE = "disable";
 
       db = await import("@/lib/db");
       const sql = db.getDb();
-      const { upsertMetaCreativeDailyRows } = await import(
+      const { upsertMetaAdDailyRows, upsertMetaCreativeDailyRows } = await import(
         "@/lib/meta/warehouse"
       );
       const { runCalibrationJob } = await import("./jobs/calibration-job");
@@ -433,6 +439,11 @@ describe.skipIf(!RUNNABLE)(
             });
           }
           await upsertMetaCreativeDailyRows(rows);
+          await seedCanonicalMetaAdDailyFacts({
+            sql,
+            rows,
+            write: upsertMetaAdDailyRows,
+          });
         }
       };
 

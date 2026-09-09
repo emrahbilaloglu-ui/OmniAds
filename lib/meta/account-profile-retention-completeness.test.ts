@@ -149,6 +149,15 @@ vi.mock("@/lib/creative-decision-engine/data-source", async (importOriginal) => 
     async getAccountFunnelCalibration() {
       return { campaignKind: "all" as const, byFormat: {} };
     }
+    async getMetaAttributedAov() {
+      return {
+        aovMean: 58,
+        purchaseCount: 32,
+        totalRevenue: 1856,
+        windowStart: "2026-06-07",
+        windowEnd: fixture.asOfDate,
+      };
+    }
   }
   return {
     ...actual,

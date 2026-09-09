@@ -151,7 +151,9 @@ const candidateRow = (shape: typeof CBO | typeof ABO) => ({
   scope_id: shape.entityId,
   provider_account_id: ACCOUNT,
   rec_id: `rec_${shape.entityId}`,
-  rec_type: "scenario_budget_scale",
+  rec_type: shape.grain === "campaign"
+    ? "scenario_c1_controlled_scale"
+    : "adset_scale_budget",
   snapshot_date: "2026-08-31",
   engine_version: "meta-v3",
   decision_label: "scale",
@@ -210,7 +212,7 @@ const query = vi.fn(async (sql: string, params: unknown[] = []) => {
   if (text.includes("FROM engine_v3_campaign_role_authority")) {
     return roleRowsPresent ? [roleRow(String(params[1]))] : [];
   }
-  if (text.includes("FROM meta_entity_observation_receipts")) {
+  if (text.includes("FROM meta_entity_observation_receipts_v2")) {
     return completeRunRows;
   }
   if (text.includes("FROM owners")) {
@@ -280,7 +282,12 @@ vi.mock("@/lib/meta/account-context", async (importOriginal) => {
 });
 
 const controlPlane = await import("@/lib/meta/automation-control-plane");
-const { projectMetaBudgetProposals, listTypedBudgetCandidates, insertBudgetProposalRow } =
+const {
+  TYPED_BUDGET_CANDIDATE_SQL,
+  projectMetaBudgetProposals,
+  listTypedBudgetCandidates,
+  insertBudgetProposalRow,
+} =
   await import("@/lib/meta/budget-proposal-producer");
 const { loadBudgetCompositionSourcesForCandidate } =
   await import("@/lib/meta/budget-proposal-source-loader");
@@ -360,14 +367,153 @@ describe("D088 C3 — the real producer projects real rows", () => {
     vi.useRealTimers();
   });
 
-  it("projects exactly one CBO row and one ABO row through the real chain", async () => {
+  it("admits persisted typed budget intents only from act decisions", () => {
+    expect(TYPED_BUDGET_CANDIDATE_SQL).toMatch(
+      /AND\s+d\.decision_state\s*=\s*'act'/,
+    );
+    expect(TYPED_BUDGET_CANDIDATE_SQL).toMatch(
+      /provider_account_id\s*=\s*ANY\(\$\d::text\[\]\)/,
+    );
+    expect(TYPED_BUDGET_CANDIDATE_SQL).toContain(
+      "d.rec_type = 'scenario_c1_controlled_scale' AND d.scope_type = 'campaign' AND d.target_value ->> 'direction' = 'increase'",
+    );
+    expect(TYPED_BUDGET_CANDIDATE_SQL).not.toContain(
+      "d.rec_type = 'scenario_c1_controlled_scale' AND d.scope_type = 'adset'",
+    );
+    expect(TYPED_BUDGET_CANDIDATE_SQL).toContain(
+      "held.proposed_action = 'budget'",
+    );
+    expect(TYPED_BUDGET_CANDIDATE_SQL).toContain(
+      "held.status IN ('pending', 'claimed', 'reconcile')",
+    );
+    expect(TYPED_BUDGET_CANDIDATE_SQL).toMatch(
+      /held\.status\s*=\s*'pending'[\s\S]*held\.origin\s*=\s*'engine_decision'[\s\S]*held\.rec_type\s*=\s*d\.rec_type[\s\S]*held\.snapshot_date\s*=\s*d\.snapshot_date/,
+    );
+  });
+
+  it("cannot project a stale candidate from an account this run did not finish", async () => {
+    const [allowed] = await listTypedBudgetCandidates(
+      BIZ,
+      "2026-08-31",
+      [ACCOUNT],
+    );
+    expect(allowed).toBeDefined();
+    const loadCompositionSources = vi.fn(async () => null);
     const result = await projectMetaBudgetProposals({
-      // This suite is about composition refusals, so the family's standing
-      // mode is stated: a manual business projects nothing at all, which is
-      // its own test elsewhere.
-      readBudgetMode: async () => "semi_auto",
       businessId: BIZ,
       snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
+      readBudgetMode: async () => "semi_auto",
+      listCandidates: async () => [
+        allowed!,
+        { ...allowed!, providerAccountId: "act_failed_this_run" },
+      ],
+      loadCompositionSources,
+      insertProposal: async () => "should-not-happen",
+    });
+
+    expect(result.candidates).toBe(1);
+    expect(result.refusals).toEqual({ composition_sources_unavailable: 1 });
+    expect(loadCompositionSources).toHaveBeenCalledTimes(1);
+    expect(loadCompositionSources).toHaveBeenCalledWith(allowed);
+  });
+
+  it("refuses injected candidates from another business or snapshot day", async () => {
+    const [allowed] = await listTypedBudgetCandidates(
+      BIZ,
+      "2026-08-31",
+      [ACCOUNT],
+    );
+    const loadCompositionSources = vi.fn(async () => null);
+    const result = await projectMetaBudgetProposals({
+      businessId: BIZ,
+      snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
+      readBudgetMode: async () => "semi_auto",
+      listCandidates: async () => [
+        allowed!,
+        { ...allowed!, businessId: "other-business" },
+        { ...allowed!, snapshotDate: "2026-08-30" },
+      ],
+      loadCompositionSources,
+      insertProposal: async () => "should-not-happen",
+    });
+
+    expect(result.candidates).toBe(1);
+    expect(result.refusals).toEqual({
+      candidate_scope_mismatch: 2,
+      composition_sources_unavailable: 1,
+    });
+    expect(loadCompositionSources).toHaveBeenCalledTimes(1);
+    expect(loadCompositionSources).toHaveBeenCalledWith(allowed);
+  });
+
+  it.each([
+    ["campaign type at ad-set grain", {
+      scopeType: "adset",
+      parentCampaignId: ABO.parentCampaignId,
+    }],
+    ["scale type with a decrease direction", {
+      recommendedAction: "decrease_budget",
+    }],
+    ["an unsupported direction verb", {
+      recommendedAction: "hold_budget",
+    }],
+  ])("refuses an injected crossed semantic tuple: %s", async (_label, crossed) => {
+    const [allowed] = await listTypedBudgetCandidates(
+      BIZ,
+      "2026-08-31",
+      [ACCOUNT],
+    );
+    expect(allowed).toBeDefined();
+    const loadCompositionSources = vi.fn(async () => null);
+    const result = await projectMetaBudgetProposals({
+      businessId: BIZ,
+      snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
+      readBudgetMode: async () => "semi_auto",
+      listCandidates: async () => [{ ...allowed!, ...crossed } as never],
+      loadCompositionSources,
+      insertProposal: async () => "should-not-happen",
+    });
+
+    expect(result.candidates).toBe(0);
+    expect(result.projected).toBe(0);
+    expect(result.refusals).toEqual({ budget_action_semantic_mismatch: 1 });
+    expect(loadCompositionSources).not.toHaveBeenCalled();
+  });
+
+  it("does not read candidates when no account finished this run", async () => {
+    const listCandidates = vi.fn(async () => []);
+    const result = await projectMetaBudgetProposals({
+      businessId: BIZ,
+      snapshotDate: "2026-08-31",
+      providerAccountIds: [],
+      readBudgetMode: async () => "semi_auto",
+      listCandidates,
+      loadCompositionSources: async () => null,
+      insertProposal: async () => "should-not-happen",
+    });
+
+    expect(result.candidates).toBe(0);
+    expect(result.refusals).toEqual({ account_generation_not_fulfilled: 1 });
+    expect(listCandidates).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["default", null],
+    ["manual", "manual"],
+    ["semi-auto", "semi_auto"],
+    ["auto", "auto"],
+  ] as const)("projects account-scoped pending rows in %s mode", async (_label, mode) => {
+    const readBudgetMode = mode === null
+      ? undefined
+      : vi.fn(async () => mode);
+    const result = await projectMetaBudgetProposals({
+      businessId: BIZ,
+      snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
+      ...(readBudgetMode ? { readBudgetMode } : {}),
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async (input) => insertBudgetProposalRow({
         businessId: BIZ,
@@ -382,10 +528,58 @@ describe("D088 C3 — the real producer projects real rows", () => {
     expect(result.candidates).toBe(2);
     expect(result.projected).toBe(2);
     expect(inserted).toHaveLength(2);
+    for (const row of inserted) {
+      expect(String(row.sql)).toContain("'pending'");
+      expect((row.params as unknown[])[1]).toBe(ACCOUNT);
+    }
+    if (readBudgetMode) expect(readBudgetMode).not.toHaveBeenCalled();
 
     // ONE GET-only baseline per candidate, and never a POST at projection.
     expect(projectionGets()).toHaveLength(2);
     expect(posts()).toHaveLength(0);
+  });
+
+  it("keeps projecting the family when another writer wins an open slot", async () => {
+    const openSlotConflict = Object.assign(new Error("duplicate key"), {
+      code: "23505",
+      constraint: "uq_meta_automation_proposals_open_slot",
+    });
+    const result = await projectMetaBudgetProposals({
+      readBudgetMode: async () => "semi_auto",
+      businessId: BIZ,
+      snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
+      loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
+      insertProposal: async () => { throw openSlotConflict; },
+    });
+
+    expect(result.candidates).toBe(2);
+    expect(result.projected).toBe(0);
+    expect(result.refusals).toEqual({ insert_conflicted: 2 });
+  });
+
+  it("does not hide a different database uniqueness failure", async () => {
+    const unrelatedConflict = Object.assign(new Error("duplicate id"), {
+      code: "23505",
+      constraint: "meta_automation_proposals_pkey",
+    });
+    const candidates = await listTypedBudgetCandidates(
+      BIZ,
+      "2026-08-31",
+      [ACCOUNT],
+    );
+    await expect(projectMetaBudgetProposals({
+      readBudgetMode: async () => "semi_auto",
+      businessId: BIZ,
+      snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
+      listCandidates: async () => [candidates[0]!],
+      loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
+      insertProposal: async () => { throw unrelatedConflict; },
+    })).rejects.toMatchObject({
+      code: "23505",
+      constraint: "meta_automation_proposals_pkey",
+    });
   });
 
   it("the stored envelope carries the DECISION's own hash, clock and lineage", async () => {
@@ -395,6 +589,7 @@ describe("D088 C3 — the real producer projects real rows", () => {
       // its own test elsewhere.
       readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async (input) => insertBudgetProposalRow({
         businessId: BIZ, proposalId: input.proposalId, candidate: input.candidate,
@@ -402,7 +597,11 @@ describe("D088 C3 — the real producer projects real rows", () => {
       }),
     });
 
-    const candidates = await listTypedBudgetCandidates(BIZ, "2026-08-31");
+    const candidates = await listTypedBudgetCandidates(
+      BIZ,
+      "2026-08-31",
+      [ACCOUNT],
+    );
     for (const row of inserted) {
       const params = row.params as unknown[];
       const envelope = parseBudgetProposalEnvelope(
@@ -436,6 +635,7 @@ describe("D088 C3 — the real producer projects real rows", () => {
       // its own test elsewhere.
       readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
     });
@@ -469,6 +669,7 @@ describe("D088 C3 — the real producer projects real rows", () => {
       // its own test elsewhere.
       readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
     });
@@ -486,6 +687,7 @@ describe("D088 C3 — the real producer projects real rows", () => {
       // its own test elsewhere.
       readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
     });
@@ -502,6 +704,7 @@ describe("D088 C3 — the real producer projects real rows", () => {
       // its own test elsewhere.
       readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
     });
@@ -518,6 +721,7 @@ describe("D088 C3 — the real producer projects real rows", () => {
       // its own test elsewhere.
       readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
     });
@@ -574,6 +778,7 @@ describe("D088 C3 — the real producer projects real rows", () => {
       // its own test elsewhere.
       readBudgetMode: async () => "semi_auto",
       businessId: BIZ, snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
       loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
       insertProposal: async () => "should-not-happen",
     });

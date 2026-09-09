@@ -1,7 +1,26 @@
 import { describe, expect, it } from "vitest";
 
+import { META_BID_INTENT_CONTRACT_VERSION } from "@/lib/meta/bid-intent-contract";
 import { serverOperatorApplyForRec } from "@/lib/meta/rec-presentation";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+
+function authorisedBidTarget(bidAmountMinor: number) {
+  return {
+    contractVersion: META_BID_INTENT_CONTRACT_VERSION,
+    kind: "bid_intent",
+    authorityStatus: "authorised",
+    blockerCodes: [],
+    proposedMinorUnits: bidAmountMinor,
+    bidAmountMinor,
+    currentMinorUnits: 1200,
+    currency: "USD",
+    currencyExponent: 2,
+    direction: "increase",
+    percent: 10,
+    bidStrategyType: "cost_cap",
+    sizingPolicyVersion: "meta.bid-sizing.v1",
+  } as unknown as MetaRecommendation["targetValue"];
+}
 
 function rec(overrides: Partial<MetaRecommendation>): MetaRecommendation {
   return {
@@ -37,7 +56,11 @@ describe("what the operator may apply from a structure row", () => {
   it("carries the exact bid amount, in minor units", () => {
     expect(
       serverOperatorApplyForRec(
-        rec({ proposedAction: { kind: "apply_bid", bidAmountMinor: 1320 } }),
+        rec({
+          type: "scenario_b1_capped_winner_bid_raise",
+          targetValue: authorisedBidTarget(1320),
+          proposedAction: { kind: "apply_bid", bidAmountMinor: 1320 },
+        }),
       ),
     ).toEqual({
       action: "bid",
@@ -52,6 +75,8 @@ describe("what the operator may apply from a structure row", () => {
       serverOperatorApplyForRec(
         rec({
           level: "campaign",
+          type: "scenario_b1_capped_winner_bid_raise",
+          targetValue: authorisedBidTarget(1320),
           proposedAction: { kind: "apply_bid", bidAmountMinor: 1320 },
         }),
       ),
@@ -62,11 +87,27 @@ describe("what the operator may apply from a structure row", () => {
     for (const bidAmountMinor of [0, -5, 12.5, Number.NaN]) {
       expect(
         serverOperatorApplyForRec(
-          rec({ proposedAction: { kind: "apply_bid", bidAmountMinor } }),
+          rec({
+            type: "scenario_b1_capped_winner_bid_raise",
+            targetValue: authorisedBidTarget(bidAmountMinor),
+            proposedAction: { kind: "apply_bid", bidAmountMinor },
+          }),
         ),
         `bid ${bidAmountMinor}`,
       ).toBeNull();
     }
+  });
+
+  it("refuses a bid amount attached to unrelated recommendation semantics", () => {
+    expect(
+      serverOperatorApplyForRec(
+        rec({
+          type: "scenario_e1_frequency_fatigue",
+          targetValue: authorisedBidTarget(1320),
+          proposedAction: { kind: "apply_bid", bidAmountMinor: 1320 },
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("offers nothing without a proven entity id", () => {

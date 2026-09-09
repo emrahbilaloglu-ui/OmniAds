@@ -1,4 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
+
+/*
+  ROUND 10 ITEM 4. The helper resolves the ACCOUNT's IANA timezone before it
+  reads any history, so the window ends at the end of the ADVERTISER's day
+  rather than at whatever day boundary the database session happens to use. The
+  fail-closed path — no binding, no zone — is asserted in its own case below.
+*/
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => ({
+    query: vi.fn(async () => [{ timezone: "America/Los_Angeles" }]),
+  })),
+}));
 import { readMetaDecisionActionOutcomeLogsForRecommendationTypes } from "@/lib/meta/decision-outcomes";
 import { attachMetaEmpiricalOutcomeSummariesFromLogs } from "@/lib/meta/empirical-outcome-integration";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
@@ -56,12 +68,23 @@ describe("Meta empirical outcome integration", () => {
 
     const [enriched] = await attachMetaEmpiricalOutcomeSummariesFromLogs({
       businessId: "biz-1",
+      providerAccountId: "act_1",
+      endDate: "2026-09-05",
       recommendations: [rec()],
     });
 
+    /*
+      ROUND 9 ITEM 6. `providerAccountId: null` used to reach the query as
+      "match every account", and no cutoff was passed at all. Both are now
+      required and forwarded verbatim, so the read is bound to exactly the
+      account and the day the caller is serving.
+    */
     expect(readMetaDecisionActionOutcomeLogsForRecommendationTypes).toHaveBeenCalledWith({
       businessId: "biz-1",
-      providerAccountId: null,
+      providerAccountId: "act_1",
+      // ROUND 10 ITEM 4: the advertiser-local day end, as an absolute instant.
+      // 2026-09-05 in America/Los_Angeles ends at 2026-09-06T07:00:00Z (PDT).
+      occurredBefore: new Date("2026-09-06T07:00:00.000Z"),
       recTypes: ["adset_scale_budget"],
     });
     expect(enriched?.empiricalOutcomeSummary).toMatchObject({
@@ -102,12 +125,16 @@ describe("Meta empirical outcome integration", () => {
     await attachMetaEmpiricalOutcomeSummariesFromLogs({
       businessId: "biz-1",
       providerAccountId: "act_1",
+      endDate: "2026-09-05",
       recommendations: [rec()],
     });
 
     expect(readMetaDecisionActionOutcomeLogsForRecommendationTypes).toHaveBeenCalledWith({
       businessId: "biz-1",
       providerAccountId: "act_1",
+      // ROUND 10 ITEM 4: the advertiser-local day end, as an absolute instant.
+      // 2026-09-05 in America/Los_Angeles ends at 2026-09-06T07:00:00Z (PDT).
+      occurredBefore: new Date("2026-09-06T07:00:00.000Z"),
       recTypes: ["adset_scale_budget"],
     });
   });
@@ -143,11 +170,13 @@ describe("Meta empirical outcome integration", () => {
     const [forAccountA] = await attachMetaEmpiricalOutcomeSummariesFromLogs({
       businessId: "biz-1",
       providerAccountId: "act_1",
+      endDate: "2026-09-05",
       recommendations: [rec()],
     });
     const [forAccountB] = await attachMetaEmpiricalOutcomeSummariesFromLogs({
       businessId: "biz-1",
       providerAccountId: "act_2",
+      endDate: "2026-09-05",
       recommendations: [rec()],
     });
 
@@ -167,5 +196,90 @@ describe("Meta empirical outcome integration", () => {
       negativeCount: 12,
       precision: 0,
     });
+  });
+});
+
+/*
+  ── ROUND 9 ITEM 6: THE COUNTEREXAMPLES ─────────────────────────────────────
+  The helper is where an unscoped read becomes visible evidence on a served
+  recommendation, so both refusals are driven here as well as in the SQL.
+*/
+describe("historical outcome evidence is bound to one account and one cutoff", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("attaches NOTHING when the caller has no account scope", async () => {
+    const [served] = await attachMetaEmpiricalOutcomeSummariesFromLogs({
+      businessId: "biz-1",
+      providerAccountId: "",
+      endDate: "2026-09-05",
+      recommendations: [rec()],
+    });
+    // Not a widened read: no read at all.
+    expect(
+      readMetaDecisionActionOutcomeLogsForRecommendationTypes,
+    ).not.toHaveBeenCalled();
+    expect(served?.empiricalOutcomeSummary ?? null).toBeNull();
+  });
+
+  it("attaches NOTHING when the caller has no cutoff", async () => {
+    const [served] = await attachMetaEmpiricalOutcomeSummariesFromLogs({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      endDate: "",
+      recommendations: [rec()],
+    });
+    expect(
+      readMetaDecisionActionOutcomeLogsForRecommendationTypes,
+    ).not.toHaveBeenCalled();
+    expect(served?.empiricalOutcomeSummary ?? null).toBeNull();
+  });
+
+  it("forwards the served endDate as the cutoff, not a wall clock", async () => {
+    vi.mocked(readMetaDecisionActionOutcomeLogsForRecommendationTypes)
+      .mockResolvedValue([] as never);
+    await attachMetaEmpiricalOutcomeSummariesFromLogs({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      endDate: "2026-03-31",
+      recommendations: [rec()],
+    });
+    expect(
+      readMetaDecisionActionOutcomeLogsForRecommendationTypes,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // 2026-03-31 in America/Los_Angeles ends at 2026-04-01T07:00:00Z.
+        occurredBefore: new Date("2026-04-01T07:00:00.000Z"),
+      }),
+    );
+  });
+});
+
+describe("an unresolvable advertiser timezone attaches no history", () => {
+  it("returns the recommendations untouched when the account zone is unreadable", async () => {
+    /*
+      ROUND 10 ITEM 4. A UTC guess is exactly the defect: it moves the window
+      boundary by up to a day and this signal can only ever RAISE a
+      recommendation's confidence. No zone means no history.
+    */
+    vi.mocked(readMetaDecisionActionOutcomeLogsForRecommendationTypes)
+      .mockClear();
+    const dbModule = await import("@/lib/db");
+    vi.mocked(dbModule.getDb).mockReturnValue({
+      query: vi.fn(async () => []),
+    } as never);
+
+    const served = await attachMetaEmpiricalOutcomeSummariesFromLogs({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      endDate: "2026-09-05",
+      recommendations: [rec()],
+    });
+
+    expect(
+      readMetaDecisionActionOutcomeLogsForRecommendationTypes,
+    ).not.toHaveBeenCalled();
+    expect(served[0]?.empiricalOutcomeSummary ?? null).toBeNull();
   });
 });

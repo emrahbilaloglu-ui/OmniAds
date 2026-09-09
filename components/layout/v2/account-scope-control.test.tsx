@@ -15,6 +15,23 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+vi.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DropdownMenuLabel: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DropdownMenuSeparator: () => <hr />,
+  DropdownMenuItem: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+}));
+
 const CATALOGS: ProviderScopeCatalog[] = [
   {
     provider: "meta",
@@ -140,6 +157,64 @@ describe("AccountScopeControl", () => {
     expect(html).toContain('data-account-scope-state="selected"');
     expect(html).toContain('data-account-id="act_2"');
     expect(html).toContain("Vitahome");
+  });
+
+  it("renders normal account choices with their unique ids and no incidental metadata", () => {
+    const html = render({
+      id: "meta",
+      selectedAccountIds: ["act_1"],
+      assignedAccountIds: ["act_1", "act_2"],
+      selectedAccountLabel: "Grandmix",
+      mode: "portfolio",
+    });
+    const visibleText = html.replace(/<[^>]+>/g, " ");
+
+    expect(visibleText).toContain("Grandmix");
+    expect(visibleText).toContain("Vitahome");
+    expect(visibleText).toContain("ID act_1");
+    expect(visibleText).toContain("ID act_2");
+    expect(visibleText).not.toContain("TRY");
+    expect(visibleText).not.toContain("Europe/Istanbul");
+  });
+
+  it("distinguishes duplicate account names by visible account id", () => {
+    const html = render(
+      {
+        id: "meta",
+        selectedAccountIds: ["act_111111"],
+        assignedAccountIds: ["act_111111", "act_222222"],
+        selectedAccountLabel: "Shared Store",
+        mode: "portfolio",
+      },
+      [
+        {
+          provider: "meta",
+          accounts: [
+            {
+              id: "act_111111",
+              label: "Shared Store",
+              currency: "TRY",
+              timezone: "Europe/Istanbul",
+            },
+            {
+              id: "act_222222",
+              label: "Shared Store",
+              currency: "USD",
+              timezone: "America/New_York",
+            },
+          ],
+        },
+      ],
+    );
+    const visibleText = html.replace(/<[^>]+>/g, " ");
+
+    expect(visibleText.match(/Shared Store/g)).toHaveLength(3);
+    expect(visibleText).toContain("ID act_111111");
+    expect(visibleText).toContain("ID act_222222");
+    expect(visibleText).not.toContain("TRY");
+    expect(visibleText).not.toContain("USD");
+    expect(visibleText).not.toContain("Europe/Istanbul");
+    expect(visibleText).not.toContain("America/New_York");
   });
 
   it("renders nothing when the provider family has no catalog entry", () => {

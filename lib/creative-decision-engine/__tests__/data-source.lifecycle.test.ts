@@ -297,6 +297,25 @@ describe("WarehouseDataSource lifecycle hydration", () => {
     expect(targetPack?.freshness).toBe("unknown");
   });
 
+  it.each([
+    ["2026-05-04T03:00:00.000100Z", "fresh"],
+    ["2026-05-04T03:00:00.000900Z", "unknown"],
+  ])("keeps exact target-history provenance through the warehouse adapter (%s)", async (updatedAt, freshness) => {
+    query.mockResolvedValueOnce([targetPackRow({ updated_at: updatedAt })]);
+    const target = await new WarehouseDataSource().getBusinessTargetPack({
+      businessId: BUSINESS_ID, asOf: "2026-05-04T03:00:00.000100999Z",
+    });
+    expect(query.mock.calls[0]?.[1]).toEqual([BUSINESS_ID, "2026-05-04T03:00:00.000100Z"]);
+    expect(target).toMatchObject({ updatedAt, freshness });
+  });
+
+  it("rejects impossible warehouse target cutoffs before querying history", async () => {
+    await expect(new WarehouseDataSource().getBusinessTargetPack({
+      businessId: BUSINESS_ID, asOf: "2026-02-30T03:00:00.000Z",
+    })).resolves.toBeNull();
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("fills missing requested creatives from runtime SQL when lifecycle is partial", async () => {
     query.mockImplementation(async (queryText: string, params: unknown[]) => {
       if (queryText.includes("FROM business_target_pack_history")) {

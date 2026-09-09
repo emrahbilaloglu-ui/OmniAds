@@ -1,4 +1,7 @@
 import fs from "node:fs";
+import { runNativeAdCalibrationSchemaGate } from "@/lib/migrations";
+import { WarehouseNativeAdAccountProfileDataSource } from "../../ad-account-decision-profile-store";
+import { resolveNativeAdAccountDecisionProfile } from "../../ad-account-decision-profile";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +18,10 @@ import {
   CREATE_NATIVE_AD_CALIBRATION_BATCH_TABLE_SQL,
   CREATE_NATIVE_AD_CALIBRATION_TABLE_SQL,
   INSERT_NATIVE_AD_CALIBRATION_BATCH_SQL,
+  ALTER_NATIVE_AD_CALIBRATION_CONTRACT_VERSION_SQL,
+  NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
+  nativeAdCalibrationContractVersionCheck,
+  NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
   INSERT_NATIVE_AD_CALIBRATION_SQL,
   LIST_NATIVE_AD_PROVIDER_BINDINGS_SQL,
   NATIVE_AD_ACCOUNT_WIDE_OPTIMIZATION_CONTEXT,
@@ -677,16 +684,134 @@ describe("native ad calibration computation", () => {
       ),
     ).toBe(false);
     expect(purchaseExact?.accountCalibration.roasRatioP25).toBeGreaterThan(0);
+    /*
+      ── ROUND 8 ITEM 4: THE HOLD IS TOTAL ───────────────────────────────────
+
+      Round 6 left this cell READY with basis `calibrated_relative`: the
+      account AOV was blocked, so no economic unit existed, but the
+      sample-backed positive P25 was treated as authority on its own and a
+      downstream gate was trusted to refuse the action.
+
+      That was the wrong place to stop. `actionReadiness.cut.ready` is
+      persisted on the calibration row, read back by the retained profile, and
+      part of the cell's identity — so the row asserted an authority the
+      account does not have, and asserted it in the hash. And a "ready" cell
+      with no economic unit still selects a BOUNDARY: the account-relative P25.
+      A percentile of peers is not READY Meta AOV over the Target ROAS, and
+      under a positive Target ROAS that is the only admissible spend
+      arithmetic.
+
+      So readiness itself now holds, and the reason names the thing that is
+      actually missing. The P25 is still measured, still positive, still on the
+      cell — it simply is not authority here.
+    */
     expect(purchaseExact?.actionReadiness.cut).toEqual({
-      ready: true,
-      reason: null,
-      authorityBasis: "calibrated_relative_with_economic_stop_loss",
+      ready: false,
+      reason: "commercial_spend_unit_authority_missing",
+      authorityBasis: null,
       observedSampleCount: 30,
       requiredSampleCount: 20,
     });
+    expect(
+      purchaseExact?.accountCalibration.accountCpaP50,
+      "the account CPA is still OBSERVED on the cell; it simply grants nothing",
+    ).toBeGreaterThan(0);
+    expect(purchaseExact?.actionReadiness.spendUnitAuthority.status).not.toBe(
+      "ready",
+    );
+    // And the target authority IS the reason: a positive Target ROAS is what
+    // makes the missing spend unit fatal rather than merely narrowing.
+    expect(purchaseExact?.targetAuthority.targetRoasAuthority).toBe(true);
   });
 
-  it("keeps a synthetic P25-backed cell legacy-only when no economic spend authority exists", () => {
+  /*
+    ── ROUND 6 AUDIT ITEM 2: THE PAIRED TARGET-ROAS / NO-TARGET COMPATIBILITY ─
+    The SAME rows, the SAME blocked account AOV, and one field different: does
+    the target authority carry a positive Target ROAS. That is the whole
+    difference between "the account's own CPA is observed evidence" and "the
+    account's own CPA is the money-per-purchase anchor", and it is the only
+    thing allowed to move the readiness basis.
+  */
+  it("shows the account-CPA arm was only ever reachable where it is now forbidden", () => {
+    /*
+      ── ROUND 6 AUDIT ITEM 2: THE OTHER HALF OF THE PAIR ────────────────────
+      The governed half is the case above ("keeps a P25-ready PURCHASE cell
+      Cut-ready when an unrelated VALUE context blocks account AOV"): same
+      rows, same blocked account AOV, a positive Target ROAS, and the basis is
+      `calibrated_relative` because the account's own CPA is observed evidence
+      there rather than a money-per-purchase anchor.
+
+      This is the SAME fixture with one field different — no Target ROAS — and
+      it records something stronger than "the legacy branch still works":
+      `roasRatios` is EMPTY without a positive Target ROAS (see the note on
+      `hasCommercialTargetAuthority` in ad-calibration-job.ts), so
+      `cutUsesCalibratedRelativeBoundary` cannot be true, and
+      `calibrated_relative_with_economic_stop_loss` is unreachable. The
+      account-CPA arm therefore only ever contributed in the governed case —
+      exactly the case the contract forbids it in — so gating it removes no
+      legitimate reachable behaviour.
+
+      The refusal that remains is named on the BOUNDARY, not on the account CPA
+      having been rejected, which is the distinction this pair holds.
+    */
+    const purchaseRows = Array.from({ length: 30 }, (_, index) =>
+      makeRow({
+        sourceRowId: `legacy-purchase-ready-${index}`,
+        adId: `legacy-purchase-ready-${index}`,
+        optimizationGoal: "PURCHASE",
+        customEventType: "PURCHASE",
+      }),
+    );
+    const contradictoryValueContext = makeRow({
+      sourceRowId: "legacy-value-context-contradiction",
+      adId: "legacy-value-context-contradiction",
+      optimizationGoal: "VALUE",
+      customEventType: "VALUE",
+      conversions: 0,
+      revenue: 100,
+    });
+    const batch = compute([...purchaseRows, contradictoryValueContext], {
+      target: { ...AOV_ONLY_TARGET, targetRoas: null },
+    });
+    const purchaseExact = batch.cells.find(
+      (cell) =>
+        cell.key.cellScope === "objective_cohort_context" &&
+        cell.key.optimizationContext === "goal=PURCHASE|event=PURCHASE",
+    );
+    expect(purchaseExact?.targetAuthority.targetRoasAuthority).toBe(false);
+    // A real, sample-backed account CPA is present — so a reachable branch
+    // WOULD have fired here if one existed.
+    expect(purchaseExact?.accountCalibration.accountCpaP50).toBeGreaterThan(0);
+    // And the relative boundary the strip sits on top of does not exist.
+    expect(purchaseExact?.accountCalibration.roasRatioP25).toBeNull();
+    expect(purchaseExact?.actionReadiness.cut).toMatchObject({
+      ready: false,
+      reason: "commercial_spend_unit_authority_missing",
+      authorityBasis: null,
+    });
+  });
+
+  /*
+    ── ROUND 8 ITEM 4: ONE CELL, TWO TARGET REGIMES ────────────────────────────
+
+    The pair that decides item 4. Identical rows, identical P25, identical
+    BLOCKED spend-unit authority, no account CPA at all — and one field
+    different: whether a positive Target ROAS governs.
+
+    Governed: readiness HOLDS. A relative percentile is not READY Meta AOV over
+    the Target ROAS, and under a positive Target ROAS that is the only
+    admissible spend arithmetic; "ready but a later gate refuses" put an
+    authority the account does not have onto a persisted row and into its hash.
+
+    Not governed: `calibrated_relative` survives byte-for-byte. That is the
+    legacy compatibility path the item requires be preserved, and it is the
+    only place this basis is now reachable.
+
+    Both halves are driven through the real
+    `resolveNativeAdCalibrationActionReadiness`, so neither is a restatement of
+    the gate expression.
+  */
+  function relativeOnlyReadinessInputs() {
     const rows = Array.from({ length: 30 }, (_, index) =>
       makeRow({
         sourceRowId: `relative-only-${index}`,
@@ -698,8 +823,9 @@ describe("native ad calibration computation", () => {
       (cell) => cell.key.cellScope === "objective_cohort_context",
     );
     if (!exact) throw new Error("Expected exact calibration cell.");
-
-    const readiness = resolveNativeAdCalibrationActionReadiness({
+    // A real, sample-backed relative boundary — the thing under test.
+    expect(exact.accountCalibration.roasRatioP25).toBeGreaterThan(0);
+    return {
       key: exact.key,
       matureAdCount: exact.matureAdCount,
       metricSampleCounts: exact.metricSampleCounts,
@@ -711,9 +837,234 @@ describe("native ad calibration computation", () => {
       },
       spendUnitAuthority: {
         ...exact.actionReadiness.spendUnitAuthority,
-        status: "blocked",
+        status: "blocked" as const,
         basis: null,
         baseSpendUnit: null,
+      },
+    };
+  }
+
+  /*
+    ── ROUND 9 ITEM 4: THE BATCH GENERATION CONTENT, NOT A HELPER ─────────────
+
+    `nativeAdCalibrationBatchGenerationContent` digested the RAW
+    `ResolvedNativeAdTargetAuthority`, so `targetCpa`, `breakEvenCpa`,
+    `operatorAovAssumption`, `sourceRowId`, `effectiveAt` and `recordedAt` keyed
+    `generationContentHash` -> `inputManifestHash` -> every cell's
+    `batchInputManifestHash` -> every cell's `inputManifestHash` -> `cellSetHash`.
+    Round 8 projected the CELL manifest and left this one raw, so the leak was
+    fully open through the batch.
+
+    Driven through the real `computeNativeAdCalibrationBatch` — a projection
+    helper asserted in isolation cannot see which builders actually call it,
+    which is exactly how the batch half stayed unprojected for a round.
+  */
+  describe("the batch hash family under a governing Target ROAS", () => {
+    const rows = () =>
+      Array.from({ length: 30 }, (_, index) =>
+        makeRow({
+          sourceRowId: `hash-permutation-${index}`,
+          adId: `hash-permutation-${index}`,
+        }),
+      );
+
+    /** Everything the canonical rule says cannot change a verdict here. */
+    const INERT: Array<[string, Partial<NativeAdTargetAuthorityInput>]> = [
+      ["a typed Target CPA", { targetCpa: 31 }],
+      ["a cleared Target CPA", { targetCpa: null }],
+      ["a typed break-even CPA", { breakEvenCpa: 44 }],
+      ["an operator AOV assumption", { operatorAovAssumption: 900 }],
+      [
+        "a re-saved row identity",
+        { sourceRowId: "00000000-0000-4000-8000-000000000999" },
+      ],
+      [
+        "advanced row clocks",
+        {
+          effectiveAt: "2026-07-02T00:00:00.000Z",
+          recordedAt: "2026-07-02T00:00:01.000Z",
+        },
+      ],
+      [
+        "all of them at once",
+        {
+          targetCpa: 31,
+          breakEvenCpa: 44,
+          operatorAovAssumption: 900,
+          sourceRowId: "00000000-0000-4000-8000-000000000999",
+          effectiveAt: "2026-07-03T00:00:00.000Z",
+          recordedAt: "2026-07-03T00:00:01.000Z",
+        },
+      ],
+    ];
+
+    /** The four hashes the leak travelled through, in order. */
+    function hashFamily(batch: ReturnType<typeof compute>) {
+      return {
+        generationContentHash: batch.generationContentHash,
+        inputManifestHash: batch.inputManifestHash,
+        cellSetHash: batch.cellSetHash,
+        cellBatchInputManifestHashes: batch.cells.map(
+          (cell) => cell.batchInputManifestHash,
+        ),
+        cellInputManifestHashes: batch.cells.map((cell) => cell.inputManifestHash),
+      };
+    }
+
+    it.each(INERT)("is unchanged by %s", (_name, over) => {
+      const base = compute(rows(), { target: AOV_ONLY_TARGET });
+      const changed = compute(rows(), {
+        target: { ...AOV_ONLY_TARGET, ...over },
+      });
+      // The account IS governed, which is the precondition for the rule.
+      expect(base.targetAuthority.targetRoasAuthority).toBe(true);
+      expect(changed.targetAuthority.targetRoasAuthority).toBe(true);
+      expect(hashFamily(changed)).toEqual(hashFamily(base));
+    });
+
+    it("still moves when the governing Target ROAS itself moves", () => {
+      /*
+        The control that stops every case above from passing on a builder that
+        had simply stopped hashing the target authority at all.
+      */
+      const base = compute(rows(), { target: AOV_ONLY_TARGET });
+      const movedRatio = compute(rows(), {
+        target: { ...AOV_ONLY_TARGET, targetRoas: 3.1 },
+      });
+      expect(movedRatio.generationContentHash).not.toBe(
+        base.generationContentHash,
+      );
+      expect(movedRatio.cellSetHash).not.toBe(base.cellSetHash);
+    });
+
+    it("still moves when the cutoff-safety verdict moves", () => {
+      // What the clocks DECIDED is still hashed, even though their raw values
+      // are not: a row that is no longer cutoff-safe is a different fact.
+      const base = compute(rows(), { target: AOV_ONLY_TARGET });
+      const unsafe = compute(rows(), {
+        target: {
+          ...AOV_ONLY_TARGET,
+          effectiveAt: "2027-01-01T00:00:00.000Z",
+          recordedAt: "2027-01-01T00:00:01.000Z",
+        },
+      });
+      expect(unsafe.targetAuthority.targetRoasAuthority).toBe(false);
+      expect(unsafe.generationContentHash).not.toBe(base.generationContentHash);
+    });
+
+    it("KEEPS CPA sensitivity when no Target ROAS governs", () => {
+      /*
+        THE NEGATIVE CONTROL the audit asked for. With no ratio to divide, the
+        typed Target CPA is the anchor: two accounts differing only in it are
+        two different calibrations, and blanking it there would make them share
+        an identity.
+      */
+      const legacy = { ...AOV_ONLY_TARGET, targetRoas: null };
+      const base = compute(rows(), { target: legacy });
+      const withCpa = compute(rows(), { target: { ...legacy, targetCpa: 31 } });
+      expect(base.targetAuthority.targetRoasAuthority).toBe(false);
+      expect(withCpa.generationContentHash).not.toBe(base.generationContentHash);
+      expect(withCpa.inputManifestHash).not.toBe(base.inputManifestHash);
+      expect(withCpa.cellSetHash).not.toBe(base.cellSetHash);
+    });
+  });
+
+  /*
+    ── ROUND 9 ITEM 3: THE COMPLETE PERSISTED READINESS MATRIX ────────────────
+    Round 8 closed CUT and left SCALE and REFRESH open on the same cell, so a
+    governed account with no READY Meta AOV still persisted two purchase-budget
+    grants it does not have.
+  */
+  it("holds SCALE, CUT and REFRESH together when the spend unit is not ready", () => {
+    const purchaseRows = Array.from({ length: 30 }, (_, index) =>
+      makeRow({
+        sourceRowId: `total-hold-${index}`,
+        adId: `total-hold-${index}`,
+        optimizationGoal: "PURCHASE",
+        customEventType: "PURCHASE",
+      }),
+    );
+    const contradictoryValueContext = makeRow({
+      sourceRowId: "total-hold-value-contradiction",
+      adId: "total-hold-value-contradiction",
+      optimizationGoal: "VALUE",
+      customEventType: "VALUE",
+      conversions: 0,
+      revenue: 100,
+    });
+    const batch = compute([...purchaseRows, contradictoryValueContext], {
+      target: AOV_ONLY_TARGET,
+    });
+    const exact = batch.cells.find(
+      (cell) =>
+        cell.key.cellScope === "objective_cohort_context" &&
+        cell.key.optimizationContext === "goal=PURCHASE|event=PURCHASE",
+    );
+
+    expect(exact?.targetAuthority.targetRoasAuthority).toBe(true);
+    expect(exact?.actionReadiness.spendUnitAuthority.status).not.toBe("ready");
+    for (const action of ["scale", "cut", "refresh"] as const) {
+      expect(
+        exact?.actionReadiness[action],
+        `${action} must hold on the missing spend unit`,
+      ).toMatchObject({
+        ready: false,
+        reason: "commercial_spend_unit_authority_missing",
+        authorityBasis: null,
+      });
+    }
+  });
+
+  it("leaves the three actions on their OWN gates with no governing Target ROAS", () => {
+    /*
+      The legacy control. Without a positive Target ROAS the spend-unit
+      authority is not the question, and Scale and Refresh must still be
+      refused (or granted) by the sample gates that have always decided them —
+      never by a commercial blocker that does not apply.
+    */
+    const rows = Array.from({ length: 30 }, (_, index) =>
+      makeRow({ sourceRowId: `legacy-gate-${index}`, adId: `legacy-gate-${index}` }),
+    );
+    const batch = compute(rows, {
+      target: { ...AOV_ONLY_TARGET, targetRoas: null },
+    });
+    const exact = batch.cells.find(
+      (cell) => cell.key.cellScope === "objective_cohort_context",
+    );
+    expect(exact?.targetAuthority.targetRoasAuthority).toBe(false);
+    expect(exact?.actionReadiness.scale.reason).toBe(
+      "target_roas_authority_missing",
+    );
+    expect(exact?.actionReadiness.refresh.reason).not.toBe(
+      "commercial_spend_unit_authority_missing",
+    );
+  });
+
+  it("HOLDS a P25-backed cell outright when a Target ROAS governs and no spend unit is ready", () => {
+    const inputs = relativeOnlyReadinessInputs();
+    expect(inputs.targetAuthority.targetRoasAuthority).toBe(true);
+
+    const readiness = resolveNativeAdCalibrationActionReadiness(inputs);
+
+    expect(readiness.cut).toEqual({
+      ready: false,
+      reason: "commercial_spend_unit_authority_missing",
+      authorityBasis: null,
+      observedSampleCount: 30,
+      requiredSampleCount: 20,
+    });
+  });
+
+  it("keeps the P25-backed cell legacy-only READY when no Target ROAS governs", () => {
+    const inputs = relativeOnlyReadinessInputs();
+    const readiness = resolveNativeAdCalibrationActionReadiness({
+      ...inputs,
+      targetAuthority: {
+        ...inputs.targetAuthority,
+        targetRoas: null,
+        // Break-even alone still satisfies `hasCommercialTargetAuthority`, so
+        // the cell has a commercial target and simply no operating ratio.
+        targetRoasAuthority: false,
       },
     });
 
@@ -779,10 +1130,25 @@ describe("native ad calibration computation", () => {
   });
 
   it("authorizes only the commercial stop-loss cut path when peer calibration is thin", () => {
+    /*
+      RE-PINNED: `conversions: 4` (was the fixture default of 2).
+
+      `FRESH_TARGET` carries a Target ROAS, and with one the spend-unit
+      authority is the platform AOV over that ratio — so the account needs
+      `NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR` (20) attributed purchases
+      before any authority exists. Ten purchases used to be enough here only
+      because the pack's legacy Target CPA outranked the platform AOV and
+      supplied the unit regardless of the sample; it no longer does.
+
+      Four purchases per row over five rows clears the AOV floor while leaving
+      the PEER calibration exactly as thin (still five ads), which is the
+      thinness this test is actually about.
+    */
     const rows = Array.from({ length: 5 }, (_, index) =>
       makeRow({
         sourceRowId: `thin-stop-loss-${index}`,
         adId: `thin-stop-loss-${index}`,
+        conversions: 4,
         revenue: 40 + index,
       }),
     );
@@ -1391,39 +1757,80 @@ describe("native ad calibration computation", () => {
     expect(batch.sourceManifestHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("keeps thin-cell commercial stop-loss authority closed when either commercial anchor is missing", () => {
+  it("keeps thin-cell commercial stop-loss authority closed when NO commercial anchor is configured", () => {
+    /*
+     * WHAT CHANGED: break-even is no longer a REQUIRED input.
+     *
+     * This case used to require BOTH a target ROAS and an explicit break-even
+     * ROAS, so an account configured with a target ROAS alone had its Cut
+     * refused with `break_even_roas_authority_missing` — a refusal on an input
+     * nothing on this path consumes. Every lane in
+     * `buildNativeAdSpendUnitAuthority` either takes a Target CPA whole or
+     * divides an AOV by the Target ROAS, and the relative Cut boundary is a
+     * Target-ROAS ratio; break-even reached none of them.
+     *
+     * The rule is now the one `account-decision-profile.ts` already spells:
+     * a commercial ratio of EITHER kind. Break-even is still USED where it is
+     * present — it is the better boundary for an economic Cut — it just no
+     * longer refuses the action by its absence.
+     */
+    // RE-PINNED to `conversions: 4` for the same reason as the thin stop-loss
+    // case above: the TARGET-ROAS-ONLY branch below now needs the platform AOV
+    // sample floor cleared, because the pack's Target CPA no longer outranks it.
     const rows = Array.from({ length: 5 }, (_, index) =>
       makeRow({
         sourceRowId: `thin-missing-anchor-${index}`,
         adId: `thin-missing-anchor-${index}`,
+        conversions: 4,
         revenue: 40 + index,
       }),
     );
-    const cases = [
-      {
-        target: { ...FRESH_TARGET, targetRoas: null },
-        reason: "target_roas_authority_missing",
-        observedSampleCount: 0,
-      },
-      {
-        target: { ...FRESH_TARGET, breakEvenRoas: null },
-        reason: "break_even_roas_authority_missing",
-        observedSampleCount: 5,
-      },
-    ] as const;
 
-    for (const testCase of cases) {
-      const exact = compute(rows, { target: testCase.target }).cells.find(
-        (cell) => cell.key.cellScope === "objective_cohort_context",
-      );
-      expect(exact?.actionReadiness.cut).toEqual({
-        ready: false,
-        reason: testCase.reason,
-        authorityBasis: null,
-        observedSampleCount: testCase.observedSampleCount,
-        requiredSampleCount: 0,
-      });
-    }
+    // NEITHER anchor: there is no commercial ratio at all, so Cut stays closed.
+    // This is the guard against reading the loosening as "no anchor needed".
+    const noAnchor = compute(rows, {
+      target: { ...FRESH_TARGET, targetRoas: null, breakEvenRoas: null },
+    }).cells.find((cell) => cell.key.cellScope === "objective_cohort_context");
+    expect(noAnchor?.actionReadiness.cut).toEqual({
+      ready: false,
+      reason: "target_roas_authority_missing",
+      authorityBasis: null,
+      observedSampleCount: 0,
+      requiredSampleCount: 0,
+    });
+
+    // BREAK-EVEN ONLY, no target ROAS. The rule is EITHER anchor, so this
+    // authorizes too — and symmetrically, which is the point: the loosening is
+    // "a commercial ratio of either kind", not "break-even no longer counts".
+    const breakEvenOnly = compute(rows, {
+      target: { ...FRESH_TARGET, targetRoas: null },
+    }).cells.find((cell) => cell.key.cellScope === "objective_cohort_context");
+    expect(breakEvenOnly?.actionReadiness.cut).toEqual({
+      ready: true,
+      reason: null,
+      authorityBasis: "commercial_stop_loss",
+      observedSampleCount: 0,
+      requiredSampleCount: 0,
+    });
+
+    // TARGET ROAS ONLY — the case the canonical rule is about. It used to be
+    // refused for a missing break-even; it is now authorized on the commercial
+    // stop-loss basis, on this thin cell, with no other input added.
+    const targetRoasOnly = compute(rows, {
+      target: { ...FRESH_TARGET, breakEvenRoas: null },
+    }).cells.find((cell) => cell.key.cellScope === "objective_cohort_context");
+    expect(targetRoasOnly?.actionReadiness.cut).toEqual({
+      ready: true,
+      reason: null,
+      authorityBasis: "commercial_stop_loss",
+      // All five rows are observed here. They were declared commercially
+      // excluded before — `commercialAuthorityAdExclusionCount` counted every
+      // purchase observation on a ROAS-only account — which is the second half
+      // of the same defect: not only was the action refused, the evidence for
+      // it was discarded.
+      observedSampleCount: 5,
+      requiredSampleCount: 0,
+    });
   });
 
   it("keeps an old but bitemporally valid target authoritative", () => {
@@ -1459,10 +1866,20 @@ describe("native ad calibration computation", () => {
     expect(oldExact?.actionReadiness.refresh).toEqual(
       recentExact?.actionReadiness.refresh,
     );
+    /*
+      RE-PINNED. `FRESH_TARGET`/`OLD_TARGET` carry a Target ROAS of 2 as well as
+      a legacy Target CPA of 50, and with a Target ROAS the basis is the
+      platform AOV over that ratio: 60 attributed purchases on 7,575.00 of
+      revenue is a mean of 126.25, and 126.25 / 2 = 63.125.
+
+      What this test measures — that an OLD but bitemporally valid target stays
+      authoritative, with the same readiness as the fresh one — is unchanged and
+      is asserted above. Only the provenance of the unit moved.
+    */
     expect(oldExact?.actionReadiness.spendUnitAuthority).toMatchObject({
       status: "ready",
-      basis: "target_cpa",
-      baseSpendUnit: 50,
+      basis: "physical_account_purchase_aov_90d",
+      baseSpendUnit: 63.125,
     });
   });
 
@@ -2406,6 +2823,22 @@ describe("native ad calibration producer and SQL contract", () => {
   });
 });
 
+/*
+  ── ROUND 9 ITEM 5: THE DURABLE LINEAGE, PROVEN AGAINST REAL POSTGRESQL ──────
+
+  Everything else about the contract-version work can be asserted in memory. Two
+  things cannot:
+
+    1. That the migration is SAFE on a table that already has rows. Both
+       calibration tables carry BEFORE UPDATE triggers that raise
+       unconditionally, so a backfill written as `UPDATE ... SET
+       contract_version` aborts on the first existing row. `ADD COLUMN ...
+       DEFAULT ... NOT NULL` is metadata-only on PostgreSQL 11+ and fires no row
+       trigger — a claim about the database, provable only in one.
+    2. That the PRODUCTION reader hydrates the stamp and refuses a superseded
+       row end to end, through the real SQL rather than through a mapper called
+       with a hand-built object.
+*/
 const postgresCandidates = [
   process.env.EPHEMERAL_PG_BIN_DIR
     ? `${process.env.EPHEMERAL_PG_BIN_DIR}/initdb`
@@ -2422,6 +2855,284 @@ const postgresAvailable = postgresCandidates.some((candidate) =>
 describe.runIf(postgresAvailable)(
   "native ad calibration PostgreSQL seam",
   () => {
+    it("PRODUCTION GATE: a pre-Round-9 schema is not ready, migrates, and then is", async () => {
+      /*
+        ── ROUND 10 ITEM 1 ─────────────────────────────────────────────────────
+
+        `lib/migrations.ts` runs the calibration migration ONLY when capability
+        reports `ready: false`. The capability contract omitted
+        `contract_version` and both CHECK constraints, so a database that had
+        every OTHER column reported ready, the ALTER was skipped, and the first
+        `SELECT batch.contract_version` — which the production profile reader
+        does on every read — crashed against a column that was never added.
+
+        This drives `runNativeAdCalibrationSchemaGate`, the real exported gate,
+        NOT `NATIVE_AD_CALIBRATION_MIGRATION_SQL`. Calling the migration
+        directly would apply the ALTER unconditionally and could therefore never
+        observe the skip, which is the entire defect.
+      */
+      await withEphemeralPostgres(async (pool) => {
+        await createEphemeralSchema(pool);
+        const db = poolDb(pool);
+
+        // A legacy row, written by whatever writer this database once had.
+        const legacy = await inRepeatableRead(pool, async (client, receipt) => {
+          const row = makeRowForReceipt(receipt, "gate-legacy");
+          const batch = computeForReceipt([row], receipt, null);
+          const result = await replaceNativeAdCalibrationBatch(
+            { batch, jobRunId: JOB_RUN_ID },
+            {
+              db: clientDb(client),
+              transaction: async (operation) => operation(),
+            },
+          );
+          return { batch, result };
+        });
+        expect(legacy.result.rowsWritten).toBeGreaterThan(0);
+
+        /*
+          THE PRIOR SCHEMA: exactly these columns and constraints absent, and
+          nothing else touched. Dropping the column drops its CHECK with it.
+        */
+        await pool.query(`
+          ALTER TABLE engine_v3_ad_account_calibration_batches
+            DROP COLUMN contract_version;
+          ALTER TABLE engine_v3_ad_account_calibration_daily
+            DROP COLUMN contract_version;
+        `);
+
+        const before = await inspectNativeAdCalibrationSchemaCapability(db);
+        expect(before.ready).toBe(false);
+        // And it is missing for the RIGHT reason, not incidentally.
+        expect(before.missing).toEqual(
+          expect.arrayContaining([
+            "engine_v3_ad_account_calibration_batches.contract_version",
+            "engine_v3_ad_account_calibration_daily.contract_version",
+            "constraint:engine_v3_ad_calibration_batches_contract_version_check",
+            "constraint:engine_v3_ad_calibration_cells_contract_version_check",
+          ]),
+        );
+
+        // THE PRODUCTION GATE.
+        const after = await runNativeAdCalibrationSchemaGate({
+          db,
+          inspectorDb: db,
+        });
+        expect(after.ready).toBe(true);
+
+        // Legacy rows are stamped truthfully, not guessed at.
+        const stamped = await pool.query(`
+          SELECT batch.contract_version AS batch_version,
+                 cell.contract_version AS cell_version
+          FROM engine_v3_ad_account_calibration_batches batch
+          JOIN engine_v3_ad_account_calibration_daily cell
+            ON cell.batch_id = batch.id
+          LIMIT 1
+        `);
+        expect(stamped.rows[0]).toEqual({
+          batch_version: NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
+          cell_version: NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
+        });
+
+        // Both constraints exist and carry the exact body the contract names.
+        const constraints = await pool.query(
+          `
+          SELECT conname AS name, pg_get_constraintdef(oid, true) AS definition
+          FROM pg_constraint
+          WHERE conname = ANY($1::text[])
+          `,
+          [[
+            "engine_v3_ad_calibration_batches_contract_version_check",
+            "engine_v3_ad_calibration_cells_contract_version_check",
+          ]],
+        );
+        expect(constraints.rows).toHaveLength(2);
+        for (const row of constraints.rows) {
+          expect(row.definition).toBe(
+            nativeAdCalibrationContractVersionCheck(),
+          );
+        }
+
+        // An UNSTAMPED insert now fails, so no future writer can reintroduce
+        // an unversioned row.
+        await expect(
+          pool.query(`
+            INSERT INTO engine_v3_ad_account_calibration_batches (
+              business_ref_id, business_id, provider, provider_account_ref_id,
+              provider_account_id, as_of_date, as_of_cutoff,
+              transaction_isolation, engine_version, policy_version,
+              source_mode, source_provenance_json, expected_cell_count,
+              generation_content_hash, input_manifest_hash,
+              source_manifest_hash, cell_set_hash, completeness_status,
+              job_run_id, computed_at
+            )
+            SELECT business_ref_id, business_id, provider,
+              provider_account_ref_id, provider_account_id, as_of_date,
+              as_of_cutoff + interval '5 seconds', transaction_isolation,
+              engine_version, policy_version, source_mode,
+              source_provenance_json, expected_cell_count,
+              repeat('a', 64), repeat('b', 64), repeat('c', 64), repeat('d', 64),
+              'writing', job_run_id, as_of_cutoff + interval '5 seconds'
+            FROM engine_v3_ad_account_calibration_batches LIMIT 1
+          `),
+        ).rejects.toThrow(/contract_version/);
+
+        // And a correctly stamped current insert succeeds.
+        const stampedInsert = await inRepeatableRead(
+          pool,
+          async (client, receipt) => {
+            const row = makeRowForReceipt(receipt, "gate-current");
+            const batch = computeForReceipt([row], receipt, null);
+            return replaceNativeAdCalibrationBatch(
+              { batch, jobRunId: JOB_RUN_ID },
+              {
+                db: clientDb(client),
+                transaction: async (operation) => operation(),
+              },
+            );
+          },
+        );
+        expect(stampedInsert.rowsWritten).toBeGreaterThan(0);
+        const current = await pool.query(
+          `SELECT contract_version FROM engine_v3_ad_account_calibration_batches
+           WHERE id = $1::uuid`,
+          [stampedInsert.batchId],
+        );
+        expect(current.rows[0]?.contract_version).toBe(
+          NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+        );
+
+        expect(
+          (await inspectNativeAdCalibrationSchemaCapability(db)).ready,
+        ).toBe(true);
+      });
+    });
+
+    it("migrates pre-existing rows to legacy_unknown and refuses them as superseded", async () => {
+      await withEphemeralPostgres(async (pool) => {
+        await createEphemeralSchema(pool);
+        const db = poolDb(pool);
+
+        /*
+          A row written BEFORE the column existed. Simulated by dropping the
+          column, which is exactly the schema such a writer saw, and then
+          re-running the additive migration over a table that already has rows —
+          the case the trigger would have blocked had this been an UPDATE.
+        */
+        const written = await inRepeatableRead(pool, async (client, receipt) => {
+          const row = makeRowForReceipt(receipt, "legacy-lineage");
+          const batch = computeForReceipt([row], receipt, null);
+          const result = await replaceNativeAdCalibrationBatch(
+            { batch, jobRunId: JOB_RUN_ID },
+            {
+              db: clientDb(client),
+              transaction: async (operation) => operation(),
+            },
+          );
+          return { batch, result };
+        });
+        expect(written.result.rowsWritten).toBeGreaterThan(0);
+
+        await pool.query(`
+          ALTER TABLE engine_v3_ad_account_calibration_batches
+            DROP COLUMN contract_version;
+          ALTER TABLE engine_v3_ad_account_calibration_daily
+            DROP COLUMN contract_version;
+        `);
+
+        // THE MIGRATION, over a table that already holds rows.
+        await pool.query(ALTER_NATIVE_AD_CALIBRATION_CONTRACT_VERSION_SQL);
+
+        const stamped = await pool.query(`
+          SELECT batch.contract_version AS batch_version,
+                 cell.contract_version AS cell_version
+          FROM engine_v3_ad_account_calibration_batches batch
+          JOIN engine_v3_ad_account_calibration_daily cell
+            ON cell.batch_id = batch.id
+          LIMIT 1
+        `);
+        // Not `.v3`, not `.v4`, not the current one: the writer of these rows is
+        // genuinely unknown, and the migration says so rather than guessing.
+        expect(stamped.rows[0]).toEqual({
+          batch_version: NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
+          cell_version: NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
+        });
+
+        // The default is dropped, so a future writer cannot inherit it.
+        const columnDefault = await pool.query(`
+          SELECT column_default
+          FROM information_schema.columns
+          WHERE table_name = 'engine_v3_ad_account_calibration_batches'
+            AND column_name = 'contract_version'
+        `);
+        expect(columnDefault.rows[0]?.column_default).toBeNull();
+
+        /*
+          THROUGH THE PRODUCTION READER, not a hand-built object. The mapper
+          hydrates the durable stamp and enforces batch/cell agreement.
+        */
+        const cellKey = written.batch.cells.find(
+          (cell) => cell.key.cellScope === "objective_cohort_context",
+        )!.key;
+        const source = new WarehouseNativeAdAccountProfileDataSource(db);
+        const hydrated = await source.getNativeAdCalibrationCell({
+          businessId: cellKey.businessId,
+          providerAccountId: cellKey.providerAccountId,
+          accountTimezone: cellKey.accountTimezone,
+          accountCurrency: cellKey.accountCurrency,
+          cellScope: cellKey.cellScope,
+          objective: cellKey.objective,
+          cohort: cellKey.cohort,
+          optimizationContext: cellKey.optimizationContext,
+          asOfDate: written.batch.asOfDate,
+          engineVersion: NATIVE_AD_ENGINE_VERSION,
+          policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
+        } as never);
+        expect(hydrated?.contractVersion).toBe(
+          NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
+        );
+
+        /*
+          AND THE REFUSAL IS THE SPECIFIC ONE. Not "invalid" — the row is not
+          broken — and not silently accepted under today's formula, which is what
+          happened before the column existed.
+        */
+        const profile = await resolveNativeAdAccountDecisionProfile({
+          businessId: cellKey.businessId,
+          providerAccountId: cellKey.providerAccountId,
+          accountTimezone: cellKey.accountTimezone,
+          accountCurrency: cellKey.accountCurrency,
+          objective: cellKey.objective,
+          optimizationGoal: "PURCHASE",
+          customEventType: "PURCHASE",
+          cohort: "purchase",
+          asOf: written.batch.asOfDate,
+          dataSource: source as never,
+          flags: {
+            businessId: cellKey.businessId,
+            enabled: true,
+            surfaceVisible: false,
+            shadowOnly: false,
+            presetOverride: null,
+            source: {
+              enabled: "env",
+              surfaceVisible: "env",
+              shadowOnly: "env",
+              presetOverride: null,
+            },
+            envDefaults: {
+              enabled: true,
+              surfaceVisible: false,
+              shadowOnly: false,
+            },
+          } as never,
+        });
+        expect(profile.status).toBe("fail_closed");
+        expect(profile.reason).toBe("native_calibration_contract_superseded");
+        expect(profile.profile).toBeNull();
+      });
+    });
+
     it("proves empty replacement, append-only generations, RR late-row isolation, savepoints, FK binding, and tamper rejection", async () => {
       await withEphemeralPostgres(async (pool) => {
         await createEphemeralSchema(pool);
@@ -2595,6 +3306,7 @@ describe.runIf(postgresAvailable)(
                 WHERE batch.id = $1::uuid
               )
               INSERT INTO engine_v3_ad_account_calibration_batches (
+              contract_version,
               business_ref_id, business_id, provider, provider_account_ref_id,
               provider_account_id, as_of_date, as_of_cutoff,
               transaction_isolation, engine_version, policy_version,
@@ -2602,7 +3314,7 @@ describe.runIf(postgresAvailable)(
               generation_content_hash, input_manifest_hash,
               source_manifest_hash, cell_set_hash, completeness_status,
               job_run_id, computed_at
-            ) SELECT business_ref_id, business_id, provider, wrong_ref,
+            ) SELECT contract_version, business_ref_id, business_id, provider, wrong_ref,
               provider_account_id, as_of_date, new_cutoff,
               transaction_isolation, engine_version, policy_version,
               source_mode,
@@ -2632,6 +3344,7 @@ describe.runIf(postgresAvailable)(
             WHERE batch.id = $1::uuid
           )
           INSERT INTO engine_v3_ad_account_calibration_batches (
+            contract_version,
             business_ref_id, business_id, provider, provider_account_ref_id,
             provider_account_id, as_of_date, as_of_cutoff,
             transaction_isolation, engine_version, policy_version,
@@ -2639,7 +3352,7 @@ describe.runIf(postgresAvailable)(
             generation_content_hash, input_manifest_hash,
             source_manifest_hash, cell_set_hash, completeness_status,
             job_run_id, computed_at
-          ) SELECT business_ref_id, business_id, provider,
+          ) SELECT contract_version, business_ref_id, business_id, provider,
             provider_account_ref_id, provider_account_id, as_of_date,
             new_cutoff, transaction_isolation, engine_version, policy_version,
             source_mode,
@@ -2898,9 +3611,9 @@ async function proveLateSourceRowIsolation(pool: Pool) {
  * opposite — that nothing moved.
  */
 describe.runIf(postgresAvailable)(
-  "native ad calibration link_clicks null-versus-zero equivalence",
+  "native ad calibration link_clicks: absence is not a measured zero",
   () => {
-    it("produces byte-identical engine output for an unsupplied link_clicks and a stored zero", async () => {
+    it("separates an unsupplied link_clicks from a stored zero, end to end", async () => {
       await withEphemeralPostgres(async (pool) => {
         await createEphemeralSchema(pool);
 
@@ -3007,16 +3720,153 @@ describe.runIf(postgresAvailable)(
         //    calibration job with it.
         expect(nullWorld.rowCount).toBe(fixture.length);
 
-        // 2. It yields the SAME number the stored zero yielded — 0, not null,
-        //    not NaN. This is the whole (A)-not-(B) distinction: the engine saw
-        //    0 before and sees 0 now.
-        expect(nullWorld.linkClicks).toEqual(zeroWorld.linkClicks);
+        /*
+          2. RE-PINNED, IN THE OPPOSITE DIRECTION (Codex B10).
 
-        // 3. And the engine's actual output is unchanged, in full. Deep
-        //    equality over the entire computed batch, so a moved threshold, a
-        //    reclassified cell, a changed confidence or a different count would
-        //    all fail here rather than hiding behind a named-metric spot check.
+          This asserted the two worlds were EQUIVALENT — that an unsupplied
+          link-click day yields the same 0 a measured zero yields, and that the
+          whole batch is byte-identical. That equivalence WAS the defect. The
+          mapper coerced NULL to 0, so "the provider reported nothing" entered
+          the account's link-click rate as "the provider measured zero", and a
+          rate was computed over a population that had never been measured.
+
+          Absence and a measured zero are now different answers. The NULL world
+          reports no link-click reading at all, and the rates derived from it
+          are absent rather than computed from fabricated zeros.
+        */
+        expect(zeroWorld.linkClicks).toEqual([0, 0, 0]);
+        expect(nullWorld.linkClicks).toEqual([null, null, null]);
+        expect(nullWorld.linkClicks).not.toEqual(zeroWorld.linkClicks);
+
+        /*
+          3. AND THE BATCH IS UNCHANGED HERE, honestly — because this fixture's
+             measured value is ZERO. A zero link-click total is not a usable
+             denominator either, so every rate derived from it is already null
+             in the measured world; absence and zero therefore produce the same
+             DERIVED output on this population even though they are now
+             different observations. Asserting a difference here would have
+             been asserting something untrue of these rows.
+
+             The case where the distinction actually changes an answer needs a
+             POSITIVE population, and it is the next test.
+        */
         expect(nullWorld.batch).toEqual(zeroWorld.batch);
+      });
+    }, 120_000);
+
+    /*
+      THE CASE THAT CHANGES AN ANSWER (Codex B10).
+
+      With a POSITIVE measured population the link-click total is a real
+      denominator and `clickToPurchaseRate` is a real number. Blank one
+      contributing day and the population is no longer measured — the old
+      mapper coerced that day to 0, quietly shrinking the denominator and
+      RAISING the rate; the rate now goes absent instead.
+    */
+    it("computes a link-click rate only from complete evidence", async () => {
+      await withEphemeralPostgres(async (pool) => {
+        await createEphemeralSchema(pool);
+        const day = "2026-08-10";
+        const observedAt = "2026-08-11T00:00:00.000Z";
+        const fixture = [
+          { adId: "lc-ad-a", spend: 120.5, impressions: 5000, clicks: 90, conversions: 3, revenue: 410.25 },
+          { adId: "lc-ad-b", spend: 88.75, impressions: 2400, clicks: 61, conversions: 7, revenue: 933.4 },
+        ];
+        await pool.query(
+          `INSERT INTO meta_campaign_daily (
+             business_ref_id, provider_account_ref_id, provider_account_id, date,
+             campaign_id, objective, optimization_goal, custom_event_type,
+             truth_state, validation_status, created_at, updated_at
+           ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-campaign',
+             'OUTCOME_SALES', 'PURCHASE', 'PURCHASE', 'finalized', 'passed', $5, $5)`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID, day, observedAt],
+        );
+        await pool.query(
+          `INSERT INTO meta_adset_daily (
+             business_ref_id, provider_account_ref_id, provider_account_id, date,
+             adset_id, optimization_goal, custom_event_type,
+             truth_state, validation_status, created_at, updated_at
+           ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-adset',
+             'PURCHASE', 'PURCHASE', 'finalized', 'passed', $5, $5)`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID, day, observedAt],
+        );
+        for (const row of fixture) {
+          await pool.query(
+            `INSERT INTO meta_ad_daily (
+               business_ref_id, provider_account_ref_id, provider_account_id, date,
+               campaign_id, adset_id, ad_id, account_timezone, account_currency,
+               spend, impressions, clicks, link_clicks, conversions, revenue,
+               payload_json, truth_state, validation_status, finalized_at,
+               created_at, updated_at
+             ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-campaign', 'eq-adset',
+               $5, 'UTC', 'USD', $6, $7, $8, 40, $9, $10,
+               '{}'::jsonb, 'finalized', 'passed', $11, $11, $11)`,
+            [
+              BUSINESS_ID,
+              PROVIDER_ACCOUNT_REF_ID,
+              PROVIDER_ACCOUNT_ID,
+              day,
+              row.adId,
+              row.spend,
+              row.impressions,
+              row.clicks,
+              row.conversions,
+              row.revenue,
+              observedAt,
+            ],
+          );
+        }
+
+        const readWorld = async () =>
+          inRepeatableRead(pool, async (client, receipt) => {
+            const source = await client.query(
+              READ_NATIVE_AD_CALIBRATION_SOURCE_SQL,
+              [BUSINESS_ID, day, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID, receipt],
+            );
+            const mapped = source.rows.map(mapNativeAdCalibrationSourceRow);
+            const batch = computeForReceipt(mapped, `${day}T12:00:00.000Z`, null);
+            return {
+              linkClicks: mapped.map((mappedRow) => mappedRow.linkClicks),
+              // The observable consequence: how many ads contributed a
+              // click-to-purchase reading to the account's calibration.
+              clickToPurchaseSamples: batch.cells.map(
+                (cell) => cell.metricSampleCounts.clickToPurchase,
+              ),
+              batch,
+            };
+          });
+
+        // COMPLETE POSITIVE: every contributing row measured 40 link clicks.
+        const complete = await readWorld();
+        expect(complete.linkClicks).toEqual([40, 40]);
+
+        // MIXED INCOMPLETE: one day goes unreported. The remaining day still
+        // measured 40, so the old coercion would have produced a denominator
+        // of 40 and a rate — from half the population.
+        await pool.query(
+          `UPDATE meta_ad_daily SET link_clicks = NULL WHERE ad_id = 'lc-ad-a'`,
+        );
+        const mixed = await readWorld();
+        expect(mixed.linkClicks).toEqual(expect.arrayContaining([null, 40]));
+
+        /*
+          THE OBSERVABLE IS THE MAPPED VALUE, and deliberately not the batch.
+
+          This population is two ads, which is far below the sample floor that
+          produces calibration cells, so `batch.cells` is empty in BOTH worlds
+          and comparing batches here would assert nothing — it would be exactly
+          the kind of green this review round exists to remove. What the
+          fixture can prove is what the coercion actually did: the unreported
+          day now reaches the engine as `null` instead of as a fabricated `0`,
+          so it contributes no denominator rather than a false one. The
+          rate-level consequence of that null is covered by
+          `sumOptionalComplete`, which every link-click rate now goes through.
+        */
+        expect(complete.linkClicks).not.toContain(null);
+        expect(mixed.linkClicks).toContain(null);
+        expect(mixed.linkClicks).not.toEqual(complete.linkClicks);
+        // And specifically NOT the pre-fix answer, which was a measured zero.
+        expect(mixed.linkClicks).not.toContain(0);
       });
     }, 120_000);
 

@@ -393,9 +393,13 @@ describe("stale/fresh mutation-CTA boundary — static presentation→adapter→
     )?.[0] ?? "";
     expect(staleCard).not.toBe("");
     expect(staleCard).toContain('data-meta-exact-creative-state="Blocked"');
-    expect(staleCard).toContain(
-      'data-meta-exact-creative-served-action="Refresh data"',
+    expect(staleCard).not.toContain(
+      "data-meta-exact-creative-served-action",
     );
+    expect(staleCard).toContain("Refresh decision data before acting.");
+    expect(
+      staleCard.match(/data-meta-exact-creative-next-step/g),
+    ).toHaveLength(1);
     expect(staleCard).toMatch(
       /<button[^>]*disabled[^>]*>Review evidence<\//,
     );

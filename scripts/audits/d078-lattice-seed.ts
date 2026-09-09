@@ -15,6 +15,7 @@ import fs from "node:fs";
 import type { Client } from "pg";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
+import { NATIVE_AD_CALIBRATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
 
 export const D078_QA_ENGINE_VERSION =
   "v3-ad-2026-07-18-decision-presentation-hardening-shadow";
@@ -418,11 +419,17 @@ export async function seedD078Fixture(client: Client): Promise<SeedResult> {
           source_provenance_json, expected_cell_count,
           generation_content_hash, input_manifest_hash, source_manifest_hash,
           cell_set_hash, completeness_status, job_run_id, computed_at,
-          completed_at)
-       VALUES ($1::uuid, $1::text, 'meta', $2::uuid, $3, $4::date, now(),
+          completed_at, contract_version)
+       VALUES ($1::uuid, $1::text, 'meta', $2::uuid, $3::text, $4::date, now(),
                'repeatable read', $5, 'd078-qa', 'current_transaction_snapshot',
-               '{"source":"d078-qa-fixture"}'::jsonb, 1,
-               $6, $7, $8, $9, 'writing', $10::uuid, now(), NULL)
+               jsonb_build_object(
+                 'mode', 'current_transaction_snapshot',
+                 'providerAccountRefId', $2::text,
+                 'providerAccountId', $3::text,
+                 'transactionCutoff', now(),
+                 'transactionIsolation', 'repeatable read'
+               ), 1,
+               $6, $7, $8, $9, 'writing', $10::uuid, now(), NULL, $11)
        RETURNING id`,
       [
         theswaf.businessId,
@@ -435,6 +442,7 @@ export async function seedD078Fixture(client: Client): Promise<SeedResult> {
         sha("d078-source"),
         sha("d078-cells"),
         calibrationJobRunId,
+        NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
       ],
     )
   ).rows[0].id as string;
@@ -455,7 +463,7 @@ export async function seedD078Fixture(client: Client): Promise<SeedResult> {
           action_readiness_json, quality_counts_json, quality_status,
           target_authority_status, target_authority_hash,
           batch_input_manifest_hash, input_manifest_hash,
-          source_manifest_hash, job_run_id, computed_at)
+          source_manifest_hash, job_run_id, computed_at, contract_version)
        VALUES ($1::uuid, $2::uuid, $2::text, 'meta', $3::uuid, $4,
                'America/Chicago', 'USD', 'account_objective_cohort',
                'OUTCOME_SALES', 'purchase', 'purchase', $5::date, now(), $6,
@@ -463,7 +471,7 @@ export async function seedD078Fixture(client: Client): Promise<SeedResult> {
                52000, 'ready',
                '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
                'ready', 'fresh', $7, $8, $9, $10,
-               $11::uuid, now())
+               $11::uuid, now(), $12)
        RETURNING id`,
       [
         batchId,
@@ -477,6 +485,7 @@ export async function seedD078Fixture(client: Client): Promise<SeedResult> {
         sha("d078-input"),
         sha("d078-source"),
         calibrationJobRunId,
+        NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
       ],
     )
   ).rows[0].id as string;

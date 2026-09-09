@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { migrationDbMockModule } from "@/lib/__tests__/pinned-migration-client-mock";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/migration-verification", () => ({
@@ -118,11 +119,7 @@ async function collectMigrationQueries() {
   const queries: string[] = [];
   const sql = createSqlMock(queries);
 
-  vi.doMock("@/lib/db", () => ({
-    getDb: () => sql,
-    getDbWithTimeout: () => sql,
-    runDbTransaction: async (operation: () => Promise<unknown>) => operation(),
-  }));
+  vi.doMock("@/lib/db", () => migrationDbMockModule(sql, { catalog: "small" }));
   vi.doMock("@/lib/startup-diagnostics", () => ({
     logStartupError: vi.fn(),
     logStartupEvent: vi.fn(),

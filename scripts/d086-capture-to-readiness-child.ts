@@ -121,22 +121,22 @@ async function main() {
 
   const receiptColumns = await sql.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns
-      WHERE table_schema='public' AND table_name='meta_entity_observation_receipts'
+      WHERE table_schema='public' AND table_name='meta_entity_observation_receipts_v2'
       ORDER BY column_name`,
   );
   check(receiptColumns.length > 0,
-    "the registered migration did not create meta_entity_observation_receipts");
+    "the registered migration did not create meta_entity_observation_receipts_v2");
   check(receiptColumns.some((row) => row.column_name === "source_snapshot_ref_id"),
     "the receipt table has no typed snapshot reference");
   const receiptConstraints = await sql.query<{ conname: string; convalidated: boolean }>(
     `SELECT conname, convalidated FROM pg_constraint
-      WHERE conrelid = 'meta_entity_observation_receipts'::regclass AND contype = 'f'
+      WHERE conrelid = 'meta_entity_observation_receipts_v2'::regclass AND contype = 'f'
       ORDER BY conname`,
   );
   const constraintNames = receiptConstraints.map((row) => row.conname);
   for (const required of [
-    "meta_entity_observation_receipts_partition_fk",
-    "meta_entity_observation_receipts_snapshot_fk",
+    "meta_entity_observation_receipts_v2_partition_fk",
+    "meta_entity_observation_receipts_v2_snapshot_fk",
   ]) {
     check(constraintNames.includes(required),
       `the receipt table is missing the ${required} foreign key`);
@@ -274,6 +274,9 @@ async function main() {
       */
       partitionId = "00000000-0000-4000-8000-000000000000";
       await sql.query(
+        `ALTER TABLE meta_entity_observation_receipts_v2
+           DROP CONSTRAINT IF EXISTS meta_entity_observation_receipts_v2_partition_fk`);
+      await sql.query(
         `ALTER TABLE meta_entity_observation_receipts
            DROP CONSTRAINT IF EXISTS meta_entity_observation_receipts_partition_fk`);
     }
@@ -339,6 +342,11 @@ async function main() {
     });
     if (options.breakage === "missing_partition") {
       await sql.query(
+        `ALTER TABLE meta_entity_observation_receipts_v2
+           ADD CONSTRAINT meta_entity_observation_receipts_v2_partition_fk
+           FOREIGN KEY (partition_id) REFERENCES meta_sync_partitions(id)
+           ON DELETE RESTRICT NOT VALID`);
+      await sql.query(
         `ALTER TABLE meta_entity_observation_receipts
            ADD CONSTRAINT meta_entity_observation_receipts_partition_fk
            FOREIGN KEY (partition_id) REFERENCES meta_sync_partitions(id)
@@ -390,7 +398,7 @@ async function main() {
   }>(
     `SELECT rc.partition_id::text, rc.source_snapshot_ref_id::text,
             part.lane, part.scope, obs.endpoint_name AS obs_endpoint
-       FROM meta_entity_observation_receipts rc
+       FROM meta_entity_observation_receipts_v2 rc
        JOIN meta_sync_partitions part ON part.id = rc.partition_id
        LEFT JOIN meta_raw_snapshot_observations obs
               ON obs.snapshot_id = rc.source_snapshot_ref_id
@@ -421,7 +429,7 @@ async function main() {
   const cohorts = await sql.query<{ partitions: string; runs: string }>(
     `SELECT count(DISTINCT partition_id)::text AS partitions,
             count(DISTINCT run_id)::text AS runs
-       FROM meta_entity_observation_receipts
+       FROM meta_entity_observation_receipts_v2
       WHERE business_id=$1 AND provider_account_id=$2 AND entity_type='campaign'`,
     [BIZ, fullAccount]);
   check(cohorts[0]?.runs === "1" && cohorts[0]?.partitions === "2",
@@ -753,7 +761,7 @@ async function main() {
       observedAt: "2026-08-30T09:05:00.000Z", capturedAt: "2026-08-30T09:06:00.000Z",
     });
     const before = await sql.query<{ count: string }>(
-      `SELECT count(*)::text AS count FROM meta_entity_observation_receipts
+      `SELECT count(*)::text AS count FROM meta_entity_observation_receipts_v2
         WHERE business_id=$1 AND provider_account_id=$2`, [BIZ, account]);
     // An EXACT retry: same occurrence, same everything.
     await realCapture({
@@ -761,7 +769,7 @@ async function main() {
       observedAt: "2026-08-30T09:05:00.000Z", capturedAt: "2026-08-30T09:06:00.000Z",
     });
     const after = await sql.query<{ count: string }>(
-      `SELECT count(*)::text AS count FROM meta_entity_observation_receipts
+      `SELECT count(*)::text AS count FROM meta_entity_observation_receipts_v2
         WHERE business_id=$1 AND provider_account_id=$2`, [BIZ, account]);
     check(before[0]?.count === after[0]?.count,
       `an exact retry changed the receipt count (${before[0]?.count} -> ${after[0]?.count})`);
@@ -787,7 +795,7 @@ async function main() {
     check(refused.includes("collision with a DIFFERENT occurrence"),
       `a contradictory receipt collision was not refused (got: ${refused || "no error"})`);
     const stillIntact = await sql.query<{ count: string }>(
-      `SELECT count(*)::text AS count FROM meta_entity_observation_receipts
+      `SELECT count(*)::text AS count FROM meta_entity_observation_receipts_v2
         WHERE business_id=$1 AND provider_account_id=$2`, [BIZ, account]);
     check(stillIntact[0]?.count === after[0]?.count,
       "the refused collision left a partial write behind");
@@ -822,12 +830,12 @@ async function main() {
     ];
     const sequence = order === "forward" ? rows : [...rows].reverse();
     await sql.query(
-      `DELETE FROM meta_entity_observation_receipts
+      `DELETE FROM meta_entity_observation_receipts_v2
         WHERE business_id=$1 AND provider_account_id=$2 AND entity_type='campaign'`,
       [BIZ, account]);
     for (const [partition, snapshot, rowCount] of sequence) {
       await sql.query(
-        `INSERT INTO meta_entity_observation_receipts
+        `INSERT INTO meta_entity_observation_receipts_v2
            (receipt_contract, run_id, business_id, provider_account_id, entity_type,
             endpoint, partition_id, source_snapshot_id, source_snapshot_ref_id,
             capture_status, provider_row_count, page_count, run_reused,
@@ -839,7 +847,7 @@ async function main() {
         [BIZ, account, capture.campaignRun.runId, partition, snapshot, rowCount, snapshot]);
     }
     const ties = await sql.query<{ tied: string }>(
-      `SELECT count(*)::text AS tied FROM meta_entity_observation_receipts
+      `SELECT count(*)::text AS tied FROM meta_entity_observation_receipts_v2
         WHERE business_id=$1 AND provider_account_id=$2 AND entity_type='campaign'
           AND captured_at = '2026-08-30T09:06:00.000Z'::timestamptz`, [BIZ, account]);
     check(ties[0]?.tied === "2",
@@ -873,7 +881,13 @@ async function main() {
     check(String(probe[0]?.[key] ?? "") === String(expectedCount),
       `${key}: the live cluster reports ${String(probe[0]?.[key])}, contract wants ${expectedCount}`);
   }
-  const catalog = await sql.query<{ indexname: string; indexdef: string }>(
+  const catalog = await sql.query<{
+    indexname: string;
+    indexdef: string;
+    indisvalid: boolean;
+    indisready: boolean;
+    indislive: boolean;
+  }>(
     D086_INDEX_CATALOG_SQL, [D086_REQUIRED_INDEXES.map((index) => index.indexName)]);
   const catalogVerdict = classifyIndexCatalog(catalog);
   check(catalogVerdict.satisfied,

@@ -1,5 +1,4 @@
 import { resolveAccountDecisionProfile } from "./account-decision-profile";
-import { observedShopifyAovIsUsable } from "./shopify-aov-source";
 import type {
   BusinessTargetPack,
   CreativeDecisionDataSource,
@@ -19,6 +18,11 @@ import {
   NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR,
   NATIVE_AD_CALIBRATION_POLICY_VERSION,
   NATIVE_AD_CALIBRATION_TABLE,
+  NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION,
+  NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+  NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
+  isNativeAdCalibrationReadableContract,
+  nativeAdCalibrationDurablyRecomputable,
   isNativeAdTargetAuthorityCutoffSafe,
   resolveNativeAdCalibrationDate,
   resolveNativeAdCalibrationActionReadiness,
@@ -51,6 +55,14 @@ export type NativeAdAccountProfileFailureReason =
   | "native_calibration_missing"
   | "native_calibration_low_sample"
   | "native_calibration_contract_invalid"
+  /**
+   * The row is INTACT and re-derives exactly under its own contract — and that
+   * contract is not the one this deployment mints. Distinct from
+   * `native_calibration_contract_invalid`, which means the row does not verify
+   * at all: one is "old", the other is "broken", and an operator debugging a
+   * fail-closed account needs to know which.
+   */
+  | "native_calibration_contract_superseded"
   | "native_account_fallback_missing"
   | "native_account_fallback_low_sample"
   | "native_non_purchase_roas_unsupported"
@@ -158,9 +170,12 @@ SELECT
   calibration.sample_window_end::text AS sample_window_end,
   calibration.source_min_date::text AS source_min_date,
   calibration.source_max_date::text AS source_max_date,
+  to_char(calibration.target_effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS target_effective_at,
+  to_char(calibration.target_recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS target_recorded_at,
   batch.completeness_status AS batch_completeness,
   batch.expected_cell_count AS batch_cell_count,
-  batch.cell_set_hash AS batch_cell_set_hash
+  batch.cell_set_hash AS batch_cell_set_hash,
+  batch.contract_version AS batch_contract_version
 FROM latest_batch batch
 JOIN ${NATIVE_AD_CALIBRATION_TABLE} calibration
   ON batch.id = calibration.batch_id
@@ -175,6 +190,13 @@ JOIN ${NATIVE_AD_CALIBRATION_TABLE} calibration
  AND batch.policy_version = calibration.policy_version
  AND batch.input_manifest_hash = calibration.batch_input_manifest_hash
  AND batch.source_manifest_hash = calibration.source_manifest_hash
+ /*
+   ROUND 9 ITEM 5. A cell and its batch must agree about the contract they were
+   written with. Enforced in the JOIN so a disagreeing pair does not resolve at
+   all, rather than resolving and then being judged by whichever version the
+   reader happened to look at first.
+ */
+ AND batch.contract_version = calibration.contract_version
 WHERE calibration.business_ref_id = $1::uuid
   AND calibration.business_id = $1
   AND calibration.provider = 'meta'
@@ -233,6 +255,14 @@ export async function resolveNativeAdAccountDecisionProfile(
   const exactCell =
     await input.dataSource.getNativeAdCalibrationCell(requestedCell);
   const exactValidation = validateCell(exactCell, requestedCell);
+  if (exactValidation === "superseded") {
+    return failClosed({
+      reason: "native_calibration_contract_superseded",
+      fallbackPolicy,
+      requestedCell,
+      selectedCell: exactCell,
+    });
+  }
   if (exactValidation === "invalid") {
     return failClosed({
       reason: "native_calibration_contract_invalid",
@@ -381,7 +411,12 @@ export async function resolveNativeAdAccountDecisionProfile(
   });
   const retainedProfile = await resolveAccountDecisionProfile({
     businessId,
-    asOf: cutoff.asOfDate,
+    // The selected cell and target were admitted at this exact cutoff. Passing
+    // only the day would rewind commercial authority to the scheduled 03:00Z
+    // boundary and hold targets saved later that morning. The compatibility
+    // datasource is already bound to this cell; all canonical and stop-loss
+    // checks must finish at its cutoff before exposing the calendar day below.
+    asOf: selectedCell.asOfCutoff,
     dataSource: compatibilityDataSource,
     flags: input.flags,
     commercialStopLossAovAuthority:
@@ -401,6 +436,7 @@ export async function resolveNativeAdAccountDecisionProfile(
       : null;
   const profile: AccountDecisionProfile = {
     ...retainedProfile,
+    asOfDate: cutoff.asOfDate,
     scope: { type: "account", id: selectedCell.key.providerAccountId },
     hardActionEligibility,
     commercialStopLossCanonicalHardActionEligibility,
@@ -577,78 +613,91 @@ function approximatelyEqual(
   );
 }
 
-/**
- * The store observation this authority carries, in major units, when it is
- * usable at all.
- *
- * `.v1` authorities have no such member and answer null here, so they validate
- * exactly as they always did. Cutoff safety is NOT re-derived: the builder
- * proved it against the cutoff it minted under, and this validator compares the
- * authority against the target it was minted with.
- */
-function observedShopifyAovMajorForAuthority(
-  authority: NativeAdSpendUnitAuthority,
-): number | null {
-  const evidence = authority.observedShopifyAovEvidence;
-  if (!evidence || !observedShopifyAovIsUsable(evidence)) return null;
-  if (evidence.currency !== authority.accountCurrency) return null;
-  const major = evidence.aovMinor / 10 ** evidence.currencyExponent;
-  return Number.isFinite(major) && major > 0 ? major : null;
-}
-
-function observedShopifyAovUsableForAuthority(
-  authority: NativeAdSpendUnitAuthority,
-): boolean {
-  return observedShopifyAovMajorForAuthority(authority) !== null;
-}
-
 function nativeSpendUnitAuthorityMatchesTarget(
   authority: NativeAdSpendUnitAuthority,
   target: ReturnType<typeof resolveNativeAdTargetAuthority>,
 ): boolean {
+  /*
+    A HISTORICAL AUTHORITY IS READABLE, NOT AUTHORITATIVE.
+
+    The ladder below is TODAY's semantics. It was applied to every persisted
+    authority regardless of the contract that minted it, so a `.v1`, `.v2` or
+    `.v3` row — written when the rungs, the hashed content, or both, were
+    different — was judged against a rule it was never produced under. Two
+    outcomes, both wrong: a row minted under an older rung could be declared a
+    match and go on to AUTHORIZE a current decision, and a row that was
+    perfectly valid under its own contract could be declared a mismatch and
+    take the whole native job down with `native_target_authority_mismatch`.
+
+    Old versions stay parseable and their stored `authorityHash` stays
+    verifiable — `.v1`/`.v2`/`.v3` are still READ, and the serializer still
+    recomputes their digests under their own rules. What they may not do is
+    authorize under semantics that are not theirs. Anything not minted by the
+    current contract fails CLOSED here; the producer re-mints it on the next
+    run, which is the safe direction and the only one that keeps "what
+    authorized this decision" answerable.
+  */
+  if (
+    authority.contractVersion !== NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION
+  ) {
+    return false;
+  }
   if (authority.targetAuthorityHash !== target.authorityHash) return false;
   let expectedBasis: NativeAdSpendUnitAuthority["basis"] = null;
   let expectedBaseSpendUnit: number | null = null;
-  if (
+  /*
+    THE SAME SPLIT, IN THE SAME ORDER, AS `buildNativeAdSpendUnitAuthority` IN
+    `lib/creative-decision-engine/jobs/ad-calibration-job.ts`.
+
+    These two ladders are one rule read twice. When they disagree by a single
+    rung this function returns false, `resolveNativeAdAccountDecisionProfile`
+    raises `native_target_authority_mismatch`, and the whole native job rolls
+    back — which is what took Grandmix, IwaStore and TheSwaf offline on
+    2026-09-07 (117 failed `engine_v3_native_ad_decisions_shadow_job` runs in
+    24h) when a store-observation lane existed here that the builder had already
+    rejected on a cutoff test this side did not have. Anything changed below
+    must be changed there in the same commit.
+
+    `targetRoasAuthority` already folds in the cutoff test
+    (`resolveNativeAdTargetAuthority`: `cutoffSafeStatus && positiveFinite`), so
+    CASE 1 needs no separate `isNativeAdTargetAuthorityCutoffSafe` call and the
+    two sides cannot drift on a clock comparison only one of them makes.
+  */
+  const targetRoas = target.targetRoas;
+  const targetRoasAnchored =
+    target.targetRoasAuthority && positiveFinite(targetRoas);
+  if (targetRoasAnchored) {
+    /*
+      CASE 1 — A TARGET ROAS IS CONFIGURED: Meta's attributed AOV over that
+      ratio, and nothing else. A legacy Target CPA and an operator AOV
+      assumption are both present on `target` and neither is consulted.
+
+      If Meta's AOV is not `ready` the expected basis stays null and the
+      authority must be `blocked` — an explicit hold on missing Meta evidence,
+      never a quiet substitution and never a fall back to the CPA.
+    */
+    if (
+      authority.accountAovEvidence.status === "ready" &&
+      positiveFinite(authority.accountAovEvidence.meanAov)
+    ) {
+      expectedBasis = "physical_account_purchase_aov_90d";
+      expectedBaseSpendUnit =
+        authority.accountAovEvidence.meanAov / targetRoas;
+    }
+  } else if (
     isNativeAdTargetAuthorityCutoffSafe(target.status) &&
     positiveFinite(target.targetCpa)
   ) {
+    /*
+      CASE 2 — NO TARGET ROAS: the legacy Target CPA, taken whole. Unchanged.
+
+      `operator_aov` is expected nowhere now, because it only ever built
+      `operatorAovAssumption / targetRoas` and CASE 1 owns every shape that
+      carries a ratio. A persisted row naming it therefore matches no expected
+      basis and fails CLOSED, exactly as `observed_shopify_aov` does.
+    */
     expectedBasis = "target_cpa";
     expectedBaseSpendUnit = target.targetCpa;
-  } else if (
-    isNativeAdTargetAuthorityCutoffSafe(target.status) &&
-    positiveFinite(target.operatorAovAssumption) &&
-    target.targetRoasAuthority &&
-    positiveFinite(target.targetRoas)
-  ) {
-    expectedBasis = "operator_aov";
-    expectedBaseSpendUnit = target.operatorAovAssumption / target.targetRoas;
-  } else if (
-    observedShopifyAovUsableForAuthority(authority) &&
-    target.targetRoasAuthority &&
-    positiveFinite(target.targetRoas)
-  ) {
-    /*
-      The store observation, validated the same way it was built.
-
-      This branch and the builder's are two readings of one rule, and they are
-      only ever correct together: if one moved without the other, every authority
-      the job minted would fail this comparison and the whole profile would be
-      refused. That is why the basis union, the builder and this validator
-      change in the same commit.
-    */
-    expectedBasis = "observed_shopify_aov";
-    expectedBaseSpendUnit =
-      observedShopifyAovMajorForAuthority(authority)! / target.targetRoas;
-  } else if (
-    authority.accountAovEvidence.status === "ready" &&
-    positiveFinite(authority.accountAovEvidence.meanAov) &&
-    target.targetRoasAuthority &&
-    positiveFinite(target.targetRoas)
-  ) {
-    expectedBasis = "physical_account_purchase_aov_90d";
-    expectedBaseSpendUnit =
-      authority.accountAovEvidence.meanAov / target.targetRoas;
   }
   return (
     authority.basis === expectedBasis &&
@@ -672,19 +721,45 @@ function nativeSpendUnitAuthorityMatchesCell(
     evidence.unsupportedSchemaRowCount,
   ];
   /*
-    Both contract versions are read.
+    FOUR contract versions are read; only `.v4` is minted.
 
-    `.v2` adds `observedShopifyAovEvidence`; `.v1` rows predate the source and
-    carry no such member. Reading only one version would have made every row
-    written before or after the change unreadable, which is the migration this
-    product deliberately does not do — old snapshots stay readable and are not
+    `.v1` predates the store source and carries no `observedShopifyAovEvidence`
+    member. `.v2` carries one and HASHES it. `.v3` carries one and excludes it
+    from identity. `.v4` — the current mint, and the version this file's own
+    `expectedBasis` check is written against — carries the same exclusion and
+    binds the authority through the semantic projection.
+    `recomputeNativeAdSpendUnitAuthorityHash` applies each row's own rule, so a
+    persisted row of any of the four still recomputes to the hash it was
+    written with. Reading only the current version would have made every row
+    written before the change unreadable, which is the migration this product
+    deliberately does not do — old snapshots stay readable and are not
     backfilled.
+
+    A version outside this set fails CLOSED here, BEFORE the recompute below is
+    reached: `nativeAdSpendUnitAuthorityHashContent` throws on an unknown
+    version rather than hashing an unknown shape, and this short-circuit is what
+    turns that into a rejected profile instead of a thrown job.
   */
   if (
+    /*
+      STRUCTURAL / HASH verification admits every READABLE version, including
+      `.v3`. It was omitted here, so minting `.v4` made every persisted `.v3`
+      cell fail this check before its hash was ever recomputed — a row that is
+      perfectly verifiable under its own contract read as structurally invalid.
+
+      Whether such a cell may AUTHORIZE a current decision is a different
+      question, and it is answered separately by the version gate in
+      `nativeSpendUnitAuthorityMatchesTarget`. Readable here; not authoritative
+      there.
+    */
     (authority.contractVersion !==
       "engine-v3-native-ad-spend-unit-authority.v1" &&
       authority.contractVersion !==
-        "engine-v3-native-ad-spend-unit-authority.v2") ||
+        "engine-v3-native-ad-spend-unit-authority.v2" &&
+      authority.contractVersion !==
+        "engine-v3-native-ad-spend-unit-authority.v3" &&
+      authority.contractVersion !==
+        NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION) ||
     authority.businessId !== cell.key.businessId ||
     authority.providerAccountRefId !== cell.key.providerAccountRefId ||
     authority.providerAccountId !== cell.key.providerAccountId ||
@@ -747,8 +822,56 @@ function nativeSpendUnitAuthorityMatchesCell(
 function validateCell(
   cell: NativeAdCalibrationCell | null,
   query: NativeAdCalibrationCellQuery,
-): "valid" | "invalid" | "missing" {
+): "valid" | "invalid" | "missing" | "superseded" {
   if (cell === null) return "missing";
+  /*
+    ── ROUND 9 ITEM 5: THE ROW'S OWN CONTRACT, THEN THIS DEPLOYMENT'S ────────
+
+    Two questions, asked in this order and never collapsed:
+
+      1. Does this row re-derive under the contract it was WRITTEN with? That is
+         an integrity question, and answering it with today's formula makes
+         every historical row look corrupt.
+      2. Is that contract the one this deployment mints? That is an AUTHORITY
+         question, and a row can be perfectly intact and still not permitted to
+         authorize a current decision.
+
+    Before this, the runtime had no stored version at all: it recomputed
+    everything with the current formula, so (1) silently answered (2) and the
+    named reason was always `native_calibration_contract_invalid` — "broken" —
+    for rows that were merely old.
+
+    `legacy_unknown` reaches the same refusal by a different route: a row whose
+    writer cannot be identified cannot be verified under any formula, so it is
+    superseded rather than guessed at. @see
+    NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT for the git evidence.
+  */
+  const stamped = cell.contractVersion;
+  if (
+    stamped === NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT ||
+    !isNativeAdCalibrationReadableContract(stamped)
+  ) {
+    return "superseded";
+  }
+  if (stamped !== NATIVE_AD_CALIBRATION_CONTRACT_VERSION) {
+    /*
+      ── ROUND 10 ITEM 2 ─────────────────────────────────────────────────────
+      Intact-or-not is worth knowing where it CAN be known. `.v3` re-derives
+      from durable columns, so a `.v3` row that does not verify is corrupt and
+      is reported as such — a different fact from "old".
+
+      `.v1` and `.v2` cannot be re-derived from a database row at all: their
+      manifest digested per-cell `observations`, which the table does not store.
+      Attempting it would either throw or, worse, compare against a `.v3`-shaped
+      digest and report a perfectly good historical row as corrupt. They are
+      SUPERSEDED and unverifiable, and that is what is said.
+    */
+    if (!nativeAdCalibrationDurablyRecomputable(stamped)) return "superseded";
+    return recomputeNativeAdCalibrationCellInputManifestHash(cell, stamped) ===
+      cell.inputManifestHash
+      ? "superseded"
+      : "invalid";
+  }
   const expected: NativeAdCalibrationCellKey = {
     businessId: query.businessId,
     providerAccountRefId: cell?.key.providerAccountRefId ?? "",
@@ -789,7 +912,7 @@ function validateCell(
     cell.accountCalibration.matureCreativeCount === cell.matureAdCount &&
     /^[0-9a-f]{64}$/.test(cell.batchInputManifestHash) &&
     /^[0-9a-f]{64}$/.test(cell.inputManifestHash) &&
-    recomputeNativeAdCalibrationCellInputManifestHash(cell) ===
+    recomputeNativeAdCalibrationCellInputManifestHash(cell, stamped) ===
       cell.inputManifestHash &&
     /^[0-9a-f]{64}$/.test(cell.sourceManifestHash) &&
     nativeSpendUnitAuthorityMatchesCell(cell) &&
@@ -833,7 +956,24 @@ function nativeCutBoundaryAuthorityMatchesCell(
   const calibratedRelativeReady =
     cell.metricSampleCounts.roasRatio >=
       NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR && positiveFinite(accountP25);
+  /*
+    THE SAME GATE AS THE PRODUCER, AND IT HAS TO MOVE WITH IT.
+
+    This validator restates the producer's economic-authority rule so a
+    persisted cell that disagrees with it is refused. The producer no longer
+    accepts a sample-backed account CPA as economic authority while a Target
+    ROAS governs — the account's own median cost-per-purchase is observed
+    evidence there, not a money-per-purchase anchor — so the validator must
+    apply the same condition or every newly minted ROAS-governed cell would
+    fail its own check.
+
+    `targetAuthority.targetRoasAuthority` is carried ON THE CELL, so this reads
+    the same fact the producer read at mint time rather than re-deriving it
+    from today's target pack.
+  */
+  const targetRoasGoverns = cell.targetAuthority.targetRoasAuthority;
   const exactSpendAuthorityReady =
+    !targetRoasGoverns &&
     cell.accountCalibration.accountCpaSampleCount >=
       NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR &&
     positiveFinite(cell.accountCalibration.accountCpaP50);

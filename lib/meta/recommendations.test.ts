@@ -8,12 +8,14 @@ import {
   deriveMetaCampaignDisjointSegments,
   metaHistoryRecencyWeight,
   type MetaCalibrationContext,
+  type MetaRecommendation,
 } from "@/lib/meta/recommendations";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCreativeIntelligenceSummary } from "@/lib/meta/creative-intelligence";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 import { LEGACY_META_CALIBRATION_THRESHOLDS } from "@/lib/meta/calibration";
+import { budgetIntentSemanticTupleForRecommendationType } from "@/lib/meta/budget-intent-contract";
 
 function campaign(overrides: Partial<MetaCampaignRow>): MetaCampaignRow {
   return {
@@ -124,6 +126,26 @@ const breakdowns: MetaBreakdownsResponse = {
   products: { available: true },
 };
 
+/*
+  A ROAS-GOVERNED ACCOUNT THAT CAN ACT.
+
+  This fixture carried a Target ROAS and two CPAs and NO Meta-attributed AOV,
+  which is why it never caught the substitution: with no canonical unit the
+  maturity floor and the Scale ceiling both fell to a CPA, and every assertion
+  below was really asserting CPA-sized behaviour on an account whose rule says
+  the CPA governs nothing.
+
+  A positive Target ROAS now admits exactly one unit — READY Meta-attributed
+  AOV over that ratio — so the sample is stated, and it is stated CONSISTENTLY
+  with the campaigns in this file: they run at roughly ROAS 3.6 and CPA 50,
+  which implies an attributed AOV near 180, not some unrelated number. 60
+  purchases clears `classifyMetaAovQuality`'s ready bar of 20, and 180 / 2.2 =
+  81.8 is the allowance per purchase, comfortably above the fixture's CPA — so
+  a strong campaign is still a scale candidate for the right reason.
+
+  The CPAs stay on the fixture on purpose: they must be present and must change
+  nothing.
+*/
 const commercialTargets = {
   source: "configured_targets" as const,
   targetRoas: 2.2,
@@ -133,7 +155,102 @@ const commercialTargets = {
   riskPosture: "balanced" as const,
   freshness: "fresh" as const,
   updatedAt: "2026-05-08T00:00:00.000Z",
+  metaAttributedAov: { aovMean: 180, purchaseCount: 60 },
 };
+
+function budgetShiftRows() {
+  return [
+    campaign({
+      id: "scale-a",
+      name: "Purchase Scale A",
+      purchases: 30,
+      roas: 3.9,
+      spend: 2400,
+      revenue: 9360,
+    }),
+    campaign({
+      id: "scale-b",
+      name: "Purchase Scale B",
+      purchases: 21,
+      roas: 3.05,
+      spend: 1900,
+      revenue: 5795,
+    }),
+    campaign({
+      id: "validation-a",
+      name: "Purchase Validation",
+      purchases: 11,
+      roas: 2.3,
+      spend: 2100,
+      revenue: 4830,
+      cpa: 190.91,
+    }),
+    campaign({
+      id: "test-a",
+      name: "Purchase Test",
+      purchases: 2,
+      roas: 0.8,
+      spend: 500,
+      revenue: 400,
+    }),
+  ];
+}
+
+function recommendationWindows(rows: MetaCampaignRow[]) {
+  return {
+    selected: rows,
+    previousSelected: [],
+    last3: rows,
+    last7: rows,
+    last14: rows,
+    last30: rows,
+    last90: rows,
+    allHistory: rows,
+  };
+}
+
+const HELD_BUDGET_PRESENTATION_EN = {
+  decision: "Review only: commercial action authority is blocked",
+  title: "Budget allocation remains review-only",
+  why: "The required commercial action authority is incomplete for this account and evidence cutoff.",
+  summary:
+    "Performance evidence remains available for diagnosis, but it does not authorize a budget change.",
+  recommendedAction:
+    "Review the evidence and restore the missing commercial authority before re-evaluating. Keep current spend unchanged.",
+  expectedImpact:
+    "Prevents an unsupported spend change while preserving the evidence for review.",
+  stateReason:
+    "Budget allocation is review-only because the required commercial action authority is blocked.",
+};
+
+const HELD_BUDGET_PRESENTATION_TR = {
+  decision: "Yalnızca inceleme: ticari aksiyon yetkisi bloke",
+  title: "Bütçe dağılımı yalnızca inceleme durumunda",
+  why: "Bu hesap ve kanıt kesiti için gereken ticari aksiyon yetkisi tamamlanmamış.",
+  summary:
+    "Performans kanıtları teşhis için görünür kalır; bütçe değişikliği yetkilendirilmemiştir.",
+  recommendedAction:
+    "Kanıtları inceleyin ve eksik ticari yetkiyi tamamladıktan sonra yeniden değerlendirin. Mevcut harcamayı değiştirmeyin.",
+  expectedImpact:
+    "Yetkisiz harcama değişikliğini önlerken kanıtları inceleme için korur.",
+  stateReason:
+    "Gerekli ticari aksiyon yetkisi bloke olduğu için bütçe dağılımı yalnızca incelemeye açıktır.",
+};
+
+function budgetPresentationText(recommendation: MetaRecommendation) {
+  return [
+    recommendation.decision,
+    recommendation.title,
+    recommendation.why,
+    recommendation.summary,
+    recommendation.recommendedAction,
+    recommendation.expectedImpact,
+    recommendation.stateReason,
+  ].join(" ");
+}
+
+const BUDGET_INSTRUCTION_LEAK =
+  /Purchase Scale A|Purchase Validation|10[-–]15%|\b(?:shift|reallocate|transfer)\b|move budget|kaydır|çekip|yönelt|yeniden dağıt|aktar/i;
 
 const calibrationContext: MetaCalibrationContext = {
   thresholds: {
@@ -502,7 +619,7 @@ describe("buildMetaRecommendations", () => {
     });
 
     const rec = result.recommendations.find(
-      (item) => item.type === "scale_for_volume",
+      (item) => item.type === "scale_for_volume_budget_increase",
     );
     expect(rec?.decisionState).toBe("test");
   });
@@ -534,10 +651,99 @@ describe("buildMetaRecommendations", () => {
     });
 
     const rec = result.recommendations.find(
-      (item) => item.type === "scale_for_volume",
+      (item) => item.type === "scale_for_volume_budget_increase",
     );
     expect(rec?.decisionState).toBe("act");
   });
+
+  it("reaches act from real cumulative warehouse windows with independent segment depth", () => {
+    const cumulative = (purchases: number) =>
+      campaign({
+        roas: 3.6,
+        purchases,
+        spend: purchases * 25,
+        revenue: purchases * 90,
+        cpa: 25,
+      });
+    const selected = cumulative(112);
+
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [selected],
+        previousSelected: [],
+        // Four purchases per day accumulated by the shipped warehouse reads.
+        // Their disjoint deltas are 12, 16, 28 and 56 purchases.
+        last3: [cumulative(12)],
+        last7: [cumulative(28)],
+        last14: [cumulative(56)],
+        last30: [cumulative(112)],
+        last90: [cumulative(112)],
+        allHistory: [cumulative(112)],
+      },
+      breakdowns,
+      calibrationContext,
+      commercialTargets,
+    });
+
+    const rec = result.recommendations.find(
+      (item) => item.type === "scale_for_volume_budget_increase",
+    );
+    expect(rec?.decisionState).toBe("act");
+    expect(rec?.timeframeContext?.historicalSupport).toContain("4/4");
+  });
+
+  it.each([
+    ["lowest_cost", "scale_for_volume_budget_increase", true],
+    ["target_roas", "scale_for_volume", false],
+    ["cost_cap", "scale_for_volume", false],
+    ["bid_cap", "scale_for_volume", false],
+    ["manual_bid", "scale_for_volume", false],
+  ] as const)(
+    "gives %s volume scaling the matching typed budget semantics only when it asks for a budget increase",
+    (bidStrategyType, expectedType, budgetEligible) => {
+      const row = campaign({
+        id: `cmp-${bidStrategyType}`,
+        name: bidStrategyType,
+        bidStrategyType,
+        roas: 3.6,
+        purchases: 32,
+        spend: 1800,
+        revenue: 6480,
+      });
+      const result = buildMetaRecommendations({
+        windows: {
+          selected: [row],
+          previousSelected: [row],
+          last3: [row],
+          last7: [row],
+          last14: [row],
+          last30: [row],
+          last90: [row],
+          allHistory: [row],
+        },
+        breakdowns,
+        calibrationContext,
+        commercialTargets,
+      });
+      const volume = result.recommendations.find((item) =>
+        item.type === "scale_for_volume"
+        || item.type === "scale_for_volume_budget_increase"
+      );
+
+      expect(volume?.type).toBe(expectedType);
+      expect(
+        budgetIntentSemanticTupleForRecommendationType(volume?.type),
+      ).toEqual(
+        budgetEligible
+          ? {
+              recommendationType: "scale_for_volume_budget_increase",
+              grain: "campaign",
+              direction: "increase",
+            }
+          : null,
+      );
+    },
+  );
 
   it("renders recommendation money evidence in the campaign account currency", () => {
     const strong = campaign({
@@ -574,7 +780,7 @@ describe("buildMetaRecommendations", () => {
     });
 
     const rec = result.recommendations.find(
-      (item) => item.type === "scale_for_volume",
+      (item) => item.type === "scale_for_volume_budget_increase",
     );
     const coreCpa = rec?.evidence.find((item) => item.label === "Core CPA");
     expect(coreCpa?.value).toContain("£");
@@ -622,13 +828,14 @@ describe("buildMetaRecommendations", () => {
     });
 
     expect(
-      result.recommendations.some((item) => item.type === "scale_for_volume"),
-    ).toBe(false);
-    expect(
-      result.recommendations.some(
-        (item) => item.type === "scale_for_profitability",
+      result.recommendations.some((item) =>
+        item.type === "scale_for_volume"
+        || item.type === "scale_for_volume_budget_increase"
       ),
     ).toBe(false);
+    expect(result.recommendations.find(
+      (item) => item.type === "scale_for_profitability",
+    )).toBeUndefined();
   });
 
   it("produces profitability recommendation for weak high-spend campaign", () => {
@@ -705,6 +912,101 @@ describe("buildMetaRecommendations", () => {
         (item) => item.type === "scale_for_profitability",
       ),
     ).toBe(true);
+  });
+
+  /*
+    ── ROUND 6 AUDIT ITEM 2: THE CAMPAIGN PROFITABILITY PATH ────────────────
+    Two corrections, proven on the SAME fixture the positive case above uses,
+    so any hold here is attributable to the one field each case changes.
+
+    1. It read `metaCutRoasReviewCeiling` — break-even ROAS alone — and
+       returned early without one, making break-even a second mandatory user
+       target for a purchase-budget cut.
+    2. Its maturity floor was passed a calibrated `cpa_28d` p50 (or the
+       selection's spend-over-purchases) as `accountCpaBaseline`. That is inert
+       under a governing Target ROAS, but it read as a fallback and IS the
+       fallback in the legacy case; the hold has to come from the missing Meta
+       AOV, not from a number that happens to be absent.
+  */
+  const profitabilityWindows = () => {
+    const weak = campaign({
+      roas: 1.2,
+      purchases: 18,
+      spend: 3000,
+      revenue: 3600,
+      cpa: 166.67,
+    });
+    const strongPeer = campaign({
+      id: "cmp-2",
+      name: "Campaign 2",
+      roas: 3.4,
+      purchases: 35,
+      spend: 2000,
+      revenue: 6800,
+      cpa: 57.14,
+    });
+    const history = (over: Record<string, number>) => [
+      campaign({ roas: 1.3, purchases: 20, spend: 2900, revenue: 3770, cpa: 145, ...over }),
+      strongPeer,
+    ];
+    return {
+      selected: [weak, strongPeer],
+      previousSelected: [],
+      last3: [weak, strongPeer],
+      last7: [weak, strongPeer],
+      last14: history({ roas: 1.28 }),
+      last30: history({}),
+      last90: history({ roas: 1.35 }),
+      allHistory: history({ roas: 1.4 }),
+    };
+  };
+
+  it("produces the profitability recommendation with NO break-even configured", () => {
+    const result = buildMetaRecommendations({
+      windows: profitabilityWindows(),
+      breakdowns,
+      commercialTargets: { ...commercialTargets, breakEvenRoas: null },
+    });
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "scale_for_profitability",
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["missing", null],
+    ["thin", { aovMean: 180, purchaseCount: 9 }],
+  ])("HOLDS the profitability recommendation on a %s Meta sample", (_case, sample) => {
+    const result = buildMetaRecommendations({
+      windows: profitabilityWindows(),
+      breakdowns,
+      commercialTargets: { ...commercialTargets, metaAttributedAov: sample },
+    });
+    expect(result.recommendations.find(
+      (item) => item.type === "scale_for_profitability",
+    )).toMatchObject({ decisionState: "watch", signalQuality: { hard_action_authority: "blocked" } });
+  });
+
+  it("does not answer a missing Meta sample with the CPAs typed beside it", () => {
+    // The account carries both CPAs and a calibrated CPA distribution; neither
+    // may substitute for the unit while the Target ROAS governs.
+    const result = buildMetaRecommendations({
+      windows: profitabilityWindows(),
+      breakdowns,
+      calibrationContext,
+      commercialTargets: {
+        ...commercialTargets,
+        metaAttributedAov: null,
+        targetCpa: 120,
+        breakEvenCpa: 160,
+      },
+    });
+    expect(
+      result.recommendations.some(
+        (item) => item.type === "scale_for_profitability",
+      ),
+    ).toBe(false);
   });
 
   it("does not produce insights for add to cart campaigns without explicit recent purchase signal", () => {
@@ -1578,55 +1880,13 @@ describe("buildMetaRecommendations", () => {
   });
 
   it("moves budget from validation lanes into scaling lanes", () => {
-    const selectedRows = [
-      campaign({
-        id: "scale-a",
-        name: "Purchase Scale A",
-        purchases: 30,
-        roas: 3.9,
-        spend: 2400,
-        revenue: 9360,
-      }),
-      campaign({
-        id: "scale-b",
-        name: "Purchase Scale B",
-        purchases: 21,
-        roas: 3.05,
-        spend: 1900,
-        revenue: 5795,
-      }),
-      campaign({
-        id: "validation-a",
-        name: "Purchase Validation",
-        purchases: 11,
-        roas: 2.3,
-        spend: 2100,
-        revenue: 4830,
-        cpa: 190.91,
-      }),
-      campaign({
-        id: "test-a",
-        name: "Purchase Test",
-        purchases: 2,
-        roas: 0.8,
-        spend: 500,
-        revenue: 400,
-      }),
-    ];
+    const selectedRows = budgetShiftRows();
 
     const result = buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({
-      windows: {
-        selected: selectedRows,
-        previousSelected: [],
-        last3: selectedRows,
-        last7: selectedRows,
-        last14: selectedRows,
-        last30: selectedRows,
-        last90: selectedRows,
-        allHistory: selectedRows,
-      },
+      windows: recommendationWindows(selectedRows),
       breakdowns,
       creativeIntelligence,
+      commercialTargets,
     });
 
     const budgetShift = result.recommendations.find(
@@ -1639,6 +1899,109 @@ describe("buildMetaRecommendations", () => {
       budgetShift?.evidence.some((item) => item.label === "Lane mix"),
     ).toBe(true);
   });
+
+  it.each([
+    ["READY", { aovMean: 180, purchaseCount: 60 }, "act", null],
+    ["missing", null, "watch", "commercial_anchor_missing"],
+    [
+      "thin",
+      { aovMean: 180, purchaseCount: 9 },
+      "watch",
+      "commercial_anchor_sample_insufficient",
+    ],
+  ] as const)(
+    "keeps the real-builder budget allocation visible but correctly gated with a %s Meta sample",
+    (_sampleState, sample, expectedState, blocker) => {
+      const result = buildMetaRecommendations({
+        windows: recommendationWindows(budgetShiftRows()),
+        breakdowns,
+        commercialTargets: { ...commercialTargets, metaAttributedAov: sample },
+      });
+      const budgetShift = result.recommendations.find(
+        (item) => item.type === "budget_allocation",
+      );
+
+      expect(budgetShift).toBeDefined();
+      expect(budgetShift?.decisionState).toBe(expectedState);
+      expect(budgetShift?.evidence).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ label: "Best campaign" }),
+          expect.objectContaining({ label: "Weak campaign" }),
+        ]),
+      );
+      if (blocker === null) {
+        expect(budgetShift?.recommendedAction).toContain("Shift 10-15% budget");
+        expect(budgetShift?.signalQuality?.hard_action_blocker).toBeUndefined();
+      } else {
+        const reason = sample
+          ? "The Meta-attributed purchase sample is too small to support a spend change."
+          : "Meta-attributed purchase value is missing for this account and evidence cutoff.";
+        expect(budgetShift).toMatchObject({
+          confidence: "medium",
+          ...HELD_BUDGET_PRESENTATION_EN,
+          why: reason,
+          stateReason: reason,
+          signalQuality: {
+            hard_action_authority: "blocked",
+            hard_action_blocker: blocker,
+          },
+        });
+        expect(budgetShift?.confidenceScore).toBeLessThan(0.7);
+        expect(budgetShift).not.toHaveProperty("proposedAction");
+        expect(budgetShift).not.toHaveProperty("targetValue");
+        expect(budgetPresentationText(budgetShift!)).not.toMatch(
+          BUDGET_INSTRUCTION_LEAK,
+        );
+      }
+    },
+  );
+
+  it.each([
+    ["READY", { aovMean: 180, purchaseCount: 60 }, "act", null],
+    ["missing", null, "watch", "commercial_anchor_missing"],
+    [
+      "thin",
+      { aovMean: 180, purchaseCount: 9 },
+      "watch",
+      "commercial_anchor_sample_insufficient",
+    ],
+  ] as const)(
+    "localizes a %s Meta-sample budget allocation without reopening blocked transfer instructions",
+    (_sampleState, sample, expectedState, blocker) => {
+      const result = buildMetaRecommendations({
+        windows: recommendationWindows(budgetShiftRows()),
+        breakdowns,
+        commercialTargets: { ...commercialTargets, metaAttributedAov: sample },
+        language: "tr",
+      });
+      const budgetShift = result.recommendations.find(
+        (item) => item.type === "budget_allocation",
+      );
+
+      expect(budgetShift).toBeDefined();
+      expect(budgetShift?.decisionState).toBe(expectedState);
+      if (blocker === null) {
+        expect(budgetPresentationText(budgetShift!)).toMatch(
+          /Purchase Scale A|Purchase Validation/,
+        );
+        expect(budgetPresentationText(budgetShift!)).toMatch(/kaydır|çekip/);
+        expect(budgetShift?.signalQuality?.hard_action_blocker).toBeUndefined();
+      } else {
+        expect(budgetShift).toMatchObject({
+          ...HELD_BUDGET_PRESENTATION_TR,
+          signalQuality: {
+            hard_action_authority: "blocked",
+            hard_action_blocker: blocker,
+          },
+        });
+        expect(budgetPresentationText(budgetShift!)).not.toMatch(
+          BUDGET_INSTRUCTION_LEAK,
+        );
+        expect(budgetShift).not.toHaveProperty("proposedAction");
+        expect(budgetShift).not.toHaveProperty("targetValue");
+      }
+    },
+  );
 
   it("still produces creative deployment recommendations when there is only one clear scaling lane", () => {
     const selectedRows = [
@@ -1901,5 +2264,170 @@ describe("buildMetaRecommendations", () => {
         ].includes(item.type),
       ),
     ).toBe(false);
+  });
+});
+
+/*
+  CODEX C24 — the snapshot's campaignKind and the action meaning downstream of
+  it stay gated by ONE high-trust predicate, proven at runtime through the real
+  builder.
+
+  Before this, the structural emitters had no trusted role at emit time: `I4`
+  decided from `${campaignRole} ${campaignName}`.toLowerCase() containing
+  "test", and the label guard that would have demoted the row runs later, over
+  recommendations already emitted as `act`. `buildMetaRecommendations` now
+  receives the canonical context map and asks `isContextTrustedForAction`.
+*/
+describe("campaign role authority gates the emitted action, at runtime", () => {
+  const testCampaign = () =>
+    campaign({
+      id: "cmp_test",
+      name: "Latest Winners",
+      roas: 1.2,
+      purchases: 8,
+      spend: 900,
+      budgetLevel: "campaign",
+    });
+
+  function buildWith(entry: Record<string, unknown> | null) {
+    const row = testCampaign();
+    return buildMetaRecommendations({
+      windows: {
+        selected: [row],
+        previousSelected: [],
+        last3: [row],
+        last7: [row],
+        last14: [row],
+        last30: [row],
+        last90: [row],
+        allHistory: [row],
+      },
+      breakdowns: null,
+      campaignContextById: entry
+        ? (new Map([["cmp_test", entry]]) as never)
+        : null,
+    }).recommendations;
+  }
+
+  const provenanced = {
+    kind: "test",
+    contextTrust: "high",
+    source: "system_inferred",
+    inferenceConfidenceClass: "high",
+    resolverAuthorityValidated: true,
+  };
+
+  const i4 = (recs: Array<{ type: string; decisionState?: string }>) =>
+    recs.filter((rec) => rec.type === "scenario_i4_test_should_use_abo");
+
+  it("emits no structural rebuild from an untrusted role", () => {
+    for (const entry of [
+      null,
+      { ...provenanced, contextTrust: "medium" },
+      { ...provenanced, resolverAuthorityValidated: false },
+      { ...provenanced, inferenceConfidenceClass: "medium" },
+      { ...provenanced, source: "user_override" },
+      { ...provenanced, kind: "main" },
+    ]) {
+      expect(i4(buildWith(entry) as never), JSON.stringify(entry)).toEqual([]);
+    }
+  });
+
+  it("emits it from a fully provenanced canonical test kind", () => {
+    // The control: the gate is trust, not a blanket refusal. Note the campaign
+    // is named "Latest Winners" — the name is now irrelevant in both directions.
+    const emitted = i4(buildWith(provenanced) as never);
+    expect(emitted.length).toBe(1);
+    expect(emitted[0]?.decisionState).toBe("act");
+  });
+});
+
+/*
+  CODEX repair 1 — with a positive Target ROAS the CPA ladder is CLOSED, and
+  the four commercial states are distinguished on the real recommendation path.
+
+  `maybeVolumeScaleRecommendation` judged Scale against
+  `canonicalUnit ?? breakEvenCpa ?? targetCpa * 1.1`, so an account WITH a
+  Target ROAS whose Meta AOV was missing or thin fell through to a typed CPA
+  and a Scale was authorized against a number the rule says governs nothing.
+  The fixtures in this file missed it because they set a Target ROAS and two
+  CPAs and no Meta AOV at all — every assertion was really about CPA-sized
+  behaviour.
+*/
+describe("the canonical unit gates Scale on the real builder", () => {
+  const strong = () =>
+    campaign({
+      id: "cmp_scale",
+      roas: 3.6,
+      purchases: 32,
+      spend: 1800,
+      revenue: 6480,
+      cpa: 50,
+      status: "ACTIVE",
+    });
+
+  function scaleFor(targets: Record<string, unknown> | null, language: "en" | "tr" = "en", weak = false) {
+    const row = strong();
+    if (weak) Object.assign(row, { roas: 0.4, revenue: 720 });
+    return buildMetaRecommendations({
+      language,
+      windows: {
+        selected: [row],
+        previousSelected: [row],
+        last3: [row],
+        last7: [row],
+        last14: [row],
+        last30: [row],
+        last90: [row],
+        allHistory: [row],
+      },
+      breakdowns,
+      calibrationContext,
+      commercialTargets: targets as never,
+    }).recommendations.find(
+      (rec) => rec.type === (weak ? "scale_for_profitability" : "scale_for_volume_budget_increase"),
+    );
+  }
+
+  const base = { ...commercialTargets };
+
+  it("READY: authorizes Scale from the Meta-AOV unit", () => {
+    expect(scaleFor(base)).toBeDefined();
+  });
+
+  it.each(["en", "tr"] as const)("keeps missing/thin Scale and Cut candidates visibly held in %s", (language) => {
+    for (const weak of [false, true]) {
+      for (const sample of [null, { aovMean: 180, purchaseCount: 4 }]) {
+        const held = scaleFor({ ...base, metaAttributedAov: sample }, language, weak);
+        expect(held).toBeDefined();
+        expect(held).toMatchObject({ decisionState: "watch", signalQuality: { hard_action_authority: "blocked", hard_action_blocker: sample ? "commercial_anchor_sample_insufficient" : "commercial_anchor_missing" } });
+        expect(held).not.toHaveProperty("proposedAction");
+        expect(held).not.toHaveProperty("targetValue");
+        const text = [held?.decision, held?.title, held?.why, held?.summary, held?.recommendedAction, held?.expectedImpact].join(" ");
+        expect(text).not.toMatch(/increase budget|reduce (?:budget|spend)|loosen the bid|bütçeyi.*art[ıi]r|k[ıi]s[ıi]tlar[ıi].*gevşet|bütçe aç[ıi]n/i);
+        expect(held?.why).toContain("Meta");
+        expect(held?.recommendedAction).toContain(language === "tr" ? "değiştirmeyin" : "Do not change spend");
+      }
+    }
+  });
+
+  it("NO TARGET ROAS: Scale is unreachable regardless of any CPA", () => {
+    /*
+      The compatibility case, stated for what it actually is HERE.
+      `metaScaleRoasFloor` returns null without a positive Target ROAS, so this
+      builder returns before a ceiling is ever computed — budget expansion needs
+      an explicit operating target, and a typed CPA is not one. The legacy CPA
+      ladder is preserved where it IS reachable: the maturity floor, asserted in
+      `canonical-unit-outranks-cpa.test.ts`.
+    */
+    expect(
+      scaleFor({
+        ...base,
+        targetRoas: null,
+        metaAttributedAov: null,
+        targetCpa: 120,
+        breakEvenCpa: 160,
+      }),
+    ).toBeUndefined();
   });
 });

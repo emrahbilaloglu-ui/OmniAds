@@ -32,6 +32,7 @@ import {
   D086_RETENTION_CONTRACT,
   classifyRetainedBudgetFact,
   classifyRetainedProfile,
+  D086_SUPERSEDED_RETENTION_CONTRACTS,
   projectCanonicalProfileOutput,
   qualifyRoleAuthorityRow,
   validateCanonicalBudgetFact,
@@ -151,6 +152,61 @@ describe("D086 A — a budget value is retained only with its unit", () => {
     const out = validateCanonicalBudgetFact(budgetFact({ sourceCurrency: "JPY" }), budgetScope);
     expect(out.retained).toBe(true);
     if (out.retained) expect(out.value.currencyExponent).toBe(0);
+  });
+
+  /*
+    ── ROUND 6 AUDIT ITEM 3: v10 IS HISTORY, AND HISTORY AUTHORIZES NOTHING ──
+    `d086.budget-readiness-retention.v10` meant two different things: it was
+    minted for the semantic projection, its own source comment claimed the
+    artifact had been regenerated with it (it had not), and Round 6 then
+    changed what BOTH fingerprint halves digest again without moving it. v11
+    closes the collision, and a row still stamped v10 must be readable as
+    evidence that an older capture ran — never as a verdict that may be
+    retained or acted on.
+  */
+  it("mints v13 and lists every predecessor among the superseded identities", () => {
+    expect(D086_RETENTION_CONTRACT).toBe("d086.budget-readiness-retention.v13");
+    /*
+      Every predecessor, not just the newest one. A superseded list that
+      forgot a version would let a row stamped with it be read as current —
+      the list is what makes "readable as history only" enforceable — so the
+      whole range is asserted rather than the last entry.
+    */
+    for (let version = 1; version <= 12; version += 1) {
+      expect(D086_SUPERSEDED_RETENTION_CONTRACTS).toContain(
+        `d086.budget-readiness-retention.v${version}`,
+      );
+    }
+    // The current mint is never in its own superseded list.
+    expect(D086_SUPERSEDED_RETENTION_CONTRACTS).not.toContain(
+      D086_RETENTION_CONTRACT,
+    );
+  });
+
+  it("refuses to retain a v10-stamped profile row, and says why", () => {
+    const captured = projectCanonicalProfileOutput(profile(), "cut", profileScope);
+    expect(captured.retained).toBe(true);
+    if (!captured.retained) return;
+    const expected = {
+      inputFingerprint: profileScope.inputFingerprint,
+      sourceFingerprint: profileScope.sourceFingerprint,
+      nowIso: "2026-08-21T09:00:00Z",
+      maxAgeMs: 12 * 3_600_000,
+    };
+    // The control: the SAME row under the current contract is usable, so the
+    // refusal below is attributable to the stamp and to nothing else.
+    expect(classifyRetainedProfile(captured.value, expected)).toEqual({
+      usable: true,
+      reason: null,
+    });
+    const asV10 = {
+      ...captured.value,
+      contract: "d086.budget-readiness-retention.v10",
+    };
+    expect(classifyRetainedProfile(asV10, expected)).toMatchObject({
+      usable: false,
+      reason: "retained_profile_contract_superseded",
+    });
   });
 
   it("is TOTAL on hostile input", () => {

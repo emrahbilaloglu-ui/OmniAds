@@ -68,7 +68,7 @@ describe("D088 — one action vocabulary, no second dispatcher", () => {
       // Hostile extras a browser might attach.
       entityId_client: "c_999", amountOverride: 999_999,
 
-      recId: "rec_1", recType: "campaign", snapshotDate: "2026-08-30",
+      recId: "rec_1", recType: "scenario_c1_controlled_scale", snapshotDate: "2026-08-30",
       engineVersion: "v3", decisionHash: "e".repeat(64),
       decisionAt: "2026-08-30T00:00:00.000Z",
     } as never);
@@ -88,7 +88,7 @@ describe("D088 — one action vocabulary, no second dispatcher", () => {
       currentAmountMinor: 250000, intendedAmountMinor: 300000, currency: "TRY",
       currencyExponent: 2, currencyRegistryVersion: "iso4217.minor-units.2026-09-01",
       intentVerb: "increase_budget" as const,
-      recId: "rec_1", recType: "campaign", snapshotDate: "2026-08-30",
+      recId: "rec_1", recType: "scenario_c1_controlled_scale", snapshotDate: "2026-08-30",
       engineVersion: "v3", decisionHash: "e".repeat(64),
       decisionAt: "2026-08-30T00:00:00.000Z",
     };
@@ -107,7 +107,7 @@ const envelope = (): BudgetProposalEnvelope => buildBudgetProposalEnvelope({
   currencyExponent: 2, currencyRegistryVersion: "iso4217.minor-units.2026-09-01",
   intentVerb: "increase_budget",
 
-  recId: "rec_1", recType: "campaign", snapshotDate: "2026-08-30",
+  recId: "rec_1", recType: "scenario_c1_controlled_scale", snapshotDate: "2026-08-30",
   engineVersion: "v3", decisionHash: "e".repeat(64),
   decisionAt: "2026-08-30T00:00:00.000Z",
 });
@@ -187,6 +187,14 @@ describe("D088 — the execution path is dry-run and gate-closed by default", ()
       { releaseGateOpen: true, autoExecutionEnabled: true, dryRunOnly: false,
         envelope: { ...envelope(), intendedAmountMinor: 999999 } },
       "envelope_request_mismatch"],
+    ["a crossed recommendation semantic tuple",
+      { releaseGateOpen: true, autoExecutionEnabled: true, dryRunOnly: false,
+        envelope: { ...envelope(), recType: "adset_scale_budget" } },
+      "budget_semantic_authority_absent"],
+    ["an unsupported envelope direction verb",
+      { releaseGateOpen: true, autoExecutionEnabled: true, dryRunOnly: false,
+        envelope: { ...envelope(), intentVerb: "hold_budget" } },
+      "budget_semantic_authority_absent"],
   ])("withholds on %s with ZERO provider calls", async (_l, over, withheld) => {
     let executed = 0;
     const result = await executeBudgetProposal(execDeps({
@@ -356,7 +364,11 @@ describe("D088 — the scheduled sweep is inert and shares the manual path", () 
     dryRunOnly: true,
     listEligibleProposals: async () => [{ id: PROPOSAL }],
     claim: async () => CLAIM,
-    executeProposal: async () => ({ ok: true, receipt: { withheld: null } }),
+    executeProposal: async () => ({
+      ok: true,
+      receipt: { withheld: null },
+      auditComplete: true,
+    }),
     ...over,
   });
 
@@ -365,7 +377,10 @@ describe("D088 — the scheduled sweep is inert and shares the manual path", () 
     let executions = 0;
     const report = await runBudgetAutomationSweep(sweepDeps({
       claim: async () => { claims += 1; return CLAIM; },
-      executeProposal: async () => { executions += 1; return { ok: true, receipt: {} }; },
+      executeProposal: async () => {
+        executions += 1;
+        return { ok: true, receipt: {}, auditComplete: true };
+      },
     }) as never);
     expect(report.ran).toBe(false);
     expect(report.blockers).toContain("auto_execution_disabled");
@@ -380,7 +395,7 @@ describe("D088 — the scheduled sweep is inert and shares the manual path", () 
       claim: async () => { calls.push("claim"); return CLAIM; },
       executeProposal: async () => {
         calls.push("execute");
-        return { ok: true, receipt: { withheld: null } };
+        return { ok: true, receipt: { withheld: null }, auditComplete: true };
       },
     }) as never);
     expect(report.ran).toBe(true);
@@ -393,11 +408,31 @@ describe("D088 — the scheduled sweep is inert and shares the manual path", () 
     const report = await runBudgetAutomationSweep(sweepDeps({
       releaseGateOpen: true, autoExecutionEnabled: true, dryRunOnly: false,
       claim: async () => null,
-      executeProposal: async () => { executions += 1; return { ok: true, receipt: {} }; },
+      executeProposal: async () => {
+        executions += 1;
+        return { ok: true, receipt: {}, auditComplete: true };
+      },
     }) as never);
     expect(report.executed).toBe(0);
     expect(report.skipped).toBe(1);
     expect(executions).toBe(0);
+  });
+
+  it("reports an audit gap without relabelling a verified write", async () => {
+    const report = await runBudgetAutomationSweep(sweepDeps({
+      releaseGateOpen: true,
+      autoExecutionEnabled: true,
+      dryRunOnly: false,
+      executeProposal: async () => ({
+        ok: true,
+        receipt: { withheld: null },
+        auditComplete: false,
+      }),
+    }) as never);
+
+    expect(report.executed).toBe(1);
+    expect(report.failed).toBe(0);
+    expect(report.auditIncomplete).toBe(1);
   });
 });
 

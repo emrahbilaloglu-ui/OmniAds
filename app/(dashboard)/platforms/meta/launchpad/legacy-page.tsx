@@ -15,7 +15,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { accountSwitchQuery } from "@/lib/dashboard/account-scope-url";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import { useAppStore } from "@/store/app-store";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
@@ -922,7 +923,6 @@ export default function MetaLaunchpadPage({
   handoffPrefill: authorizedHandoffPrefill,
   executionEnabled: authorizedExecutionEnabled,
 }: MetaLaunchpadPageProps = {}) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const launchpadQuery = searchParams?.toString() ?? "";
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -1828,49 +1828,18 @@ export default function MetaLaunchpadPage({
   }
 
   function changeProviderAccount(nextProviderAccountId: string) {
-    if (nextProviderAccountId === providerAccountId) return;
-    if (hasAuthorizedProviderScope) {
-      // Canonical `/c/**` routes resolve account assignment on the server, so
-      // the client may only *request* an account: it writes the id into the
-      // URL and lets `resolveProviderAccountId` authorize it again on the
-      // next render. An unassigned id still comes back as null, so this
-      // widens nothing — it only makes the choice expressible.
-      if (typeof window === "undefined") return;
-      const url = new URL(window.location.href);
-      if (nextProviderAccountId) {
-        url.searchParams.set("providerAccountId", nextProviderAccountId);
-      } else {
-        url.searchParams.delete("providerAccountId");
-      }
-      // Same law the legacy path holds below: a launch half-built against the
-      // previous account must not follow the operator into the next one.
-      resetLaunchState();
-      setMode("new_campaign");
-      router.replace(`${url.pathname}${url.search}`);
+    if (
+      hasAuthorizedProviderScope ||
+      nextProviderAccountId === providerAccountId
+    ) {
       return;
     }
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
-      if (nextProviderAccountId) {
-        url.searchParams.set("providerAccountId", nextProviderAccountId);
-      } else {
-        url.searchParams.delete("providerAccountId");
-      }
-      for (const key of [
-        "sourceDecisionId",
-        "sourceDecisionSnapshotId",
-        "creativeBriefId",
-        "fromBriefing",
-        "fromMetaBriefing",
-        "creativeIds",
-        "campaignIds",
-        "adsetIds",
-        "mode",
-      ]) {
-        url.searchParams.delete(key);
-      }
-      url.searchParams.set("launchpadMode", "new_campaign");
-      url.searchParams.set("launchpadStep", "source");
+      const next = accountSwitchQuery(url.search, nextProviderAccountId);
+      next.set("launchpadMode", "new_campaign");
+      next.set("launchpadStep", "source");
+      url.search = next.toString();
       window.history.replaceState(null, "", url);
     }
     resetLaunchState();
@@ -1879,8 +1848,6 @@ export default function MetaLaunchpadPage({
     setDrafts([]);
     setLaunchIntents([]);
     setLaunchIntentCapability(null);
-    // Switching accounts discards the previous account's answer; the next read
-    // owns the next verdict, and until it lands nothing is claimed either way.
     setLibraryUnavailableMessage(null);
     setRecentAdActions([]);
     setDecisions([]);
@@ -2370,14 +2337,9 @@ export default function MetaLaunchpadPage({
     Boolean(providerAccountsError) ||
     !providerAccountId ||
     !currency;
-  // The scope-blocked state asks the operator to "select one assigned Meta ad
-  // account". It may only say that while a selection is actually expressible,
-  // so the surface's own account control is mounted here — the same
-  // `LaunchpadContextBar` the wizard uses, not a second picker.
-  const providerScopeChoicePending =
-    !providerAccountsLoading &&
+  const legacyAccountChoiceAvailable =
+    !hasAuthorizedProviderScope &&
     !providerAccountsError &&
-    !providerAccountId &&
     providerAccounts.length > 0;
 
   if (accountScopeBlocked) {
@@ -2388,7 +2350,11 @@ export default function MetaLaunchpadPage({
         : providerAccountsError
           ? "Meta ad accounts are temporarily unavailable."
           : !providerAccountId
-            ? "Select a Meta ad account to use Launchpad."
+            ? hasAuthorizedProviderScope
+              ? "Select a Meta ad account in the top bar to use Launchpad."
+              : providerAccounts.length > 0
+                ? "Select a Meta ad account below to use Launchpad."
+                : "No Meta ad account is assigned to this business."
             : "The selected Meta account needs a currency before launching.";
     return (
       <div
@@ -2411,9 +2377,21 @@ export default function MetaLaunchpadPage({
           providerAccountName={selectedProviderAccount?.name ?? "Not selected"}
           desktopHref={desktopHref}
           statusMessage={scopeMessage}
+          providerAccounts={
+            legacyAccountChoiceAvailable ? providerAccounts : undefined
+          }
+          providerAccountId={
+            legacyAccountChoiceAvailable ? providerAccountId : undefined
+          }
+          accountLoading={
+            legacyAccountChoiceAvailable ? providerAccountsLoading : undefined
+          }
+          onProviderAccountChange={
+            legacyAccountChoiceAvailable ? changeProviderAccount : undefined
+          }
         />
         <div className={styles.desktopSurface}>
-          {providerScopeChoicePending ? (
+          {legacyAccountChoiceAvailable ? (
             <LaunchpadContextBar
               businessId={businessId}
               businessName={businessName}
@@ -2432,7 +2410,13 @@ export default function MetaLaunchpadPage({
             recentLaunchesUnavailableReason={
               providerAccountsError
                 ? "Recent launches are temporarily unavailable."
-                : "Select a Meta ad account to view recent launches."
+                : !providerAccountId
+                  ? hasAuthorizedProviderScope
+                    ? "Select a Meta ad account in the top bar to view recent launches."
+                    : providerAccounts.length > 0
+                      ? "Select a Meta ad account above to view recent launches."
+                      : "No Meta ad account is assigned to this business."
+                  : "Recent launches need a selected account with a currency."
             }
             verifiedRole={verifiedLandingRole}
             verifiedHandoffName={verifiedHandoffName}
@@ -2494,10 +2478,16 @@ export default function MetaLaunchpadPage({
               businessId={businessId}
               businessName={businessName}
               currency={currency}
-              providerAccounts={providerAccounts}
+              providerAccounts={
+                hasAuthorizedProviderScope ? undefined : providerAccounts
+              }
               providerAccountId={providerAccountId}
-              accountLoading={providerAccountsLoading}
-              onProviderAccountChange={changeProviderAccount}
+              accountLoading={
+                hasAuthorizedProviderScope ? undefined : providerAccountsLoading
+              }
+              onProviderAccountChange={
+                hasAuthorizedProviderScope ? undefined : changeProviderAccount
+              }
             />
             <div className={styles.wizardFrame}>
               <div className={styles.wizardHeader}>
@@ -2952,6 +2942,10 @@ function LaunchpadMobileSurface({
   creativeLoading,
   desktopHref,
   statusMessage = null,
+  providerAccounts = [],
+  providerAccountId = "",
+  accountLoading = false,
+  onProviderAccountChange,
 }: {
   businessName: string;
   currency: string | null;
@@ -2966,6 +2960,10 @@ function LaunchpadMobileSurface({
   creativeLoading: boolean;
   desktopHref: string;
   statusMessage?: string | null;
+  providerAccounts?: MetaHistoryAccount[];
+  providerAccountId?: string;
+  accountLoading?: boolean;
+  onProviderAccountChange?: (value: string) => void;
 }) {
   const loading = libraryLoading || creativeLoading;
 
@@ -2986,6 +2984,34 @@ function LaunchpadMobileSurface({
             <ShieldCheck aria-hidden="true" className="h-4 w-4" />
             {statusMessage}
           </div>
+        ) : null}
+        {onProviderAccountChange ? (
+          <label className="grid gap-1 text-[12px] text-[var(--muted)]">
+            Meta ad account
+            <select
+              aria-label="Meta ad account for Launchpad mobile"
+              value={providerAccountId}
+              disabled={accountLoading || providerAccounts.length === 0}
+              onChange={(event) =>
+                onProviderAccountChange(event.currentTarget.value)
+              }
+              className="h-10 w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[var(--ink)] outline-none"
+            >
+              <option value="">
+                {accountLoading
+                  ? "Loading accounts"
+                  : providerAccounts.length === 0
+                    ? "No assigned account"
+                    : "Select account"}
+              </option>
+              {providerAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {launchpadAccountLabel(account)}
+                  {account.currency ? ` · ${account.currency}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
         ) : null}
         <dl className={styles.mobileFacts}>
           <div>
@@ -3030,30 +3056,26 @@ function LaunchpadMobileSurface({
 }
 
 function launchpadAccountLabel(account: MetaHistoryAccount): string {
-  const name = account.name?.trim();
-  if (name) return name;
-  const accountId = account.id.replace(/^act_/, "");
-  return accountId
-    ? `Meta account ••••${accountId.slice(-4)}`
-    : "Unnamed Meta account";
+  const name = account.name?.trim() || "Unnamed Meta account";
+  return `${name} · ID ${account.id}`;
 }
 
 function LaunchpadContextBar({
   businessId,
   businessName,
   currency,
-  providerAccounts,
+  providerAccounts = [],
   providerAccountId,
-  accountLoading,
+  accountLoading = false,
   onProviderAccountChange,
 }: {
   businessId: string;
   businessName: string;
   currency: string | null;
-  providerAccounts: MetaHistoryAccount[];
+  providerAccounts?: MetaHistoryAccount[];
   providerAccountId: string;
-  accountLoading: boolean;
-  onProviderAccountChange: (value: string) => void;
+  accountLoading?: boolean;
+  onProviderAccountChange?: (value: string) => void;
 }) {
   return (
     <div className="flex flex-wrap items-end gap-x-3 gap-y-2 pb-3">
@@ -3068,32 +3090,34 @@ function LaunchpadContextBar({
       </div>
       <span className="chip chip--warn">Creates as paused</span>
       <div className="min-w-0 flex-1" />
-      <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[11px] text-[var(--muted)]">
-        Ad account
-        <select
-          aria-label="Meta ad account for Launchpad"
-          value={providerAccountId}
-          disabled={accountLoading}
-          onChange={(event) =>
-            onProviderAccountChange(event.currentTarget.value)
-          }
-          className="max-w-[220px] border-0 bg-transparent text-[var(--ink)] outline-none"
-        >
-          <option value="">
-            {accountLoading
-              ? "Loading accounts"
-              : providerAccounts.length === 0
-                ? "No assigned account"
-                : "Select account"}
-          </option>
-          {providerAccounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {launchpadAccountLabel(account)}
-              {account.currency ? ` · ${account.currency}` : ""}
+      {onProviderAccountChange ? (
+        <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[11px] text-[var(--muted)]">
+          Ad account
+          <select
+            aria-label="Meta ad account for Launchpad"
+            value={providerAccountId}
+            disabled={accountLoading}
+            onChange={(event) =>
+              onProviderAccountChange(event.currentTarget.value)
+            }
+            className="max-w-[220px] border-0 bg-transparent text-[var(--ink)] outline-none"
+          >
+            <option value="">
+              {accountLoading
+                ? "Loading accounts"
+                : providerAccounts.length === 0
+                  ? "No assigned account"
+                  : "Select account"}
             </option>
-          ))}
-        </select>
-      </label>
+            {providerAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {launchpadAccountLabel(account)}
+                {account.currency ? ` · ${account.currency}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <Link
         href={buildMetaScopedHref("/platforms/meta", {
           businessId,

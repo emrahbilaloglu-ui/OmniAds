@@ -93,6 +93,7 @@ function proofProfile(input: {
   matureCreativeCount: number;
   lowCtrP10: number;
   commercialMaturitySpend?: number;
+  scaleMinPurchases?: number;
 }) {
   const accountBaselines = makeAccountCalibration({
     businessId: "classifier-business",
@@ -107,7 +108,7 @@ function proofProfile(input: {
     thresholds: {
       commercialMaturitySpend: input.commercialMaturitySpend ?? 300,
       recentSampleMinSpend: 30,
-      scaleMinPurchases: 10,
+      scaleMinPurchases: input.scaleMinPurchases ?? 10,
     },
     quality: {
       commercialTruthReady: true,
@@ -412,8 +413,129 @@ describe("native-ad replay semantic drift classifier", () => {
   it("permits only bounded numeric calibration evidence restatement for an unchanged action tuple", () => {
     const input = provenInput();
 
+    /*
+      Under `v3-2026-09-07-held-verdict-authority` this fixture's scale-zone row
+      publishes a HELD Scale rather than a plain Keep: the verdict is recorded
+      and withheld, and `authorizedAction` stays null. The pair is still a
+      bounded numeric restatement — only the mature-creative count in the reason
+      and the account CTR percentile in a badge label differ.
+    */
+    expect(input.baseline.preAuthorityLabel).toBe("scale");
+    expect(input.baseline.blockedActionType).toBe("scale");
+    expect(input.baseline.publishedLabel).toBe("keep");
+    expect(input.baseline.authorityBlocker).toBe(
+      "native_metrics_unavailable",
+    );
+    expect(input.challenger.simulatedAuthorizedAction).toBeNull();
+
     expect(scaleRefreshProjectionDrift(input)).toBe(false);
     expect(scaleRefreshCalibrationRestatement(input)).toBe(true);
+  });
+
+  it("keeps a held verdict out of the ordinary non-hard availability class", () => {
+    /*
+      Over-correction guard. `isOrdinaryNonHardProjection` is shared with the
+      `profile_availability_restatement` path, which permits label transitions
+      between the two sides without comparing action tuples. Held verdicts must
+      therefore stay OUT of it; they are admitted only as a pairwise class that
+      requires the identical held action on both sides.
+    */
+    const held = provenInput().baseline;
+
+    expect(held.blockedActionType).toBe("scale");
+    expect(isOrdinaryNonHardProjection(held)).toBe(false);
+  });
+
+  it("treats a held verdict present on only one side as drift", () => {
+    /*
+      Over-correction guard, and the reason the widening is pairwise rather
+      than a relaxed single-projection predicate.
+
+      Both sides here are genuine production projections over the identical
+      exact input whose profiles differ ONLY in the calibration-only threshold
+      `thresholds.scaleMinPurchases` (20 vs 10). That single number decides
+      whether the scale zone has purchase depth, so the baseline serves a plain
+      `[near scale]` Keep with no hold at all while the challenger serves a
+      Keep carrying a withheld Scale. A hold appearing out of nowhere is a
+      producer semantic change, not a restatement.
+    */
+    const oneSidedHold = provenInput({
+      persisted: proofProfile({
+        matureCreativeCount: 4,
+        lowCtrP10: 1,
+        scaleMinPurchases: 20,
+      }),
+      challenger: proofProfile({
+        matureCreativeCount: 4,
+        lowCtrP10: 1,
+        scaleMinPurchases: 10,
+      }),
+    });
+
+    expect(oneSidedHold.baseline.preAuthorityLabel).toBe("keep");
+    expect(oneSidedHold.baseline.blockedActionType).toBeNull();
+    expect(oneSidedHold.challenger.blockedActionType).toBe("scale");
+
+    expect(scaleRefreshProjectionDrift(oneSidedHold)).toBe(true);
+    expect(scaleRefreshCalibrationRestatement(oneSidedHold)).toBe(false);
+    expect(
+      scaleRefreshProfileAvailabilityRestatement(oneSidedHold),
+    ).toBe(false);
+  });
+
+  it("treats a changed held action or blocker as drift", () => {
+    // Over-correction guard: the held tuple must be identical on both sides.
+    const changedHeldAction = provenInput({
+      challengerOverrides: {
+        preAuthorityLabel: "refresh",
+        blockedActionType: "refresh",
+      },
+    });
+    const changedHeldBlocker = provenInput({
+      challengerOverrides: {
+        authorityBlocker: "source_freshness",
+      },
+    });
+
+    expect(scaleRefreshProjectionDrift(changedHeldAction)).toBe(true);
+    expect(
+      scaleRefreshCalibrationRestatement(changedHeldAction),
+    ).toBe(false);
+    expect(
+      scaleRefreshProfileAvailabilityRestatement(changedHeldAction),
+    ).toBe(false);
+
+    expect(scaleRefreshProjectionDrift(changedHeldBlocker)).toBe(true);
+    expect(
+      scaleRefreshCalibrationRestatement(changedHeldBlocker),
+    ).toBe(false);
+  });
+
+  it("does not hide an arbitrary reason change beneath an identical held verdict", () => {
+    /*
+      Over-correction guard: an identical held tuple does not license an
+      unbounded evidence rewrite underneath it. Production reproduction still
+      has to prove the reason is the deterministic consequence of the
+      calibration-only profile change.
+    */
+    const input = provenInput({
+      challengerOverrides: {
+        reason:
+          "[scale verdict held - account readiness incomplete] Arbitrary replacement decision.",
+      },
+      persisted: proofProfile({
+        matureCreativeCount: 4,
+        lowCtrP10: 0.5,
+      }),
+      challenger: proofProfile({
+        matureCreativeCount: 11,
+        lowCtrP10: 0.5,
+      }),
+    });
+
+    expect(input.baseline.blockedActionType).toBe("scale");
+    expect(scaleRefreshProjectionDrift(input)).toBe(true);
+    expect(scaleRefreshCalibrationRestatement(input)).toBe(false);
   });
 
   it("does not hide a Keep to Test More buyer decision regression behind changed hashes", () => {

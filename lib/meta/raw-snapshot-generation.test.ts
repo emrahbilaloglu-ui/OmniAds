@@ -85,19 +85,33 @@ describe("Meta raw snapshot generation restore", () => {
     ).toMatchObject({ nextPageIndex: 2 });
   });
 
-  it("rejects a checkpoint persisted ahead of its raw page", () => {
-    expect(() =>
+  it.each([
+    { rowsFetched: 1, nextPageUrl: "next-1" },
+    { rowsFetched: 0, nextPageUrl: "next-1" },
+    { rowsFetched: 0, nextPageUrl: null },
+  ])("rewinds an unpersisted first page regardless of response rows/cursor: $rowsFetched/$nextPageUrl", ({ rowsFetched, nextPageUrl }) => {
+    expect(
       resolveMetaRawSnapshotResumeState({
         pages: [],
         checkpoint: {
           phase: "fetch_raw",
           pageIndex: 0,
-          nextPageUrl: "next-1",
-          providerCursor: "next-1",
-          rowsFetched: 1,
+          nextPageUrl,
+          providerCursor: nextPageUrl,
+          rowsFetched,
         },
       }),
-    ).toThrowError(/checkpoint records 1 rows but no raw page is durable/);
+    ).toMatchObject({ pages: [], nextPageIndex: 0, rewoundToDurableFrontier: true, resumeCursor: null });
+  });
+
+  it.each([
+    { phase: "fetch_raw", pageIndex: 1, rowsFetched: 0 },
+    { phase: "fetch_raw", pageIndex: 2, rowsFetched: 2 },
+    { phase: "bulk_upsert", pageIndex: 1, rowsFetched: 1 },
+    { phase: "finalize", pageIndex: 1, rowsFetched: 1 },
+  ] as const)("refuses missing raw beyond the first fetch checkpoint: $phase/$pageIndex/$rowsFetched", (checkpoint) => {
+    expect(() => resolveMetaRawSnapshotResumeState({ pages: [], checkpoint }))
+      .toThrowError(MetaRawSnapshotRestoreError);
   });
 
   it("rewinds to the durable raw frontier when the checkpoint is one page ahead", () => {

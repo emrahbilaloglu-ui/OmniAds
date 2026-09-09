@@ -99,9 +99,10 @@ describe("the native projection runs on its own, after publication", () => {
 
   it("refreshes pending rows and only permits explicit untouched system withdrawals to return", async () => {
     /*
-      What makes a partial-account retry safe. The ON CONFLICT targets the
-      projection's own key. Pending rows refresh; expiry is reversible only
-      for this projection's marker with no provider or operator history.
+      What makes a partial-account retry safe. Exact untouched rows refresh by
+      id; expiry is reversible only for this projection's marker with no
+      provider or operator history. New rows let either unique arbiter skip one
+      candidate without aborting the rest of the batch.
     */
     const calls = recordingDb();
     await projectNativeAdProposals({
@@ -109,13 +110,22 @@ describe("the native projection runs on its own, after publication", () => {
     });
     const insert = calls.find((call) =>
       call.text.includes("INSERT INTO meta_automation_proposals"))!;
-    expect(insert.text).toContain("ON CONFLICT");
-    expect(insert.text).toContain("meta_automation_proposals.status = 'pending'");
-    expect(insert.text).toContain("meta_automation_proposals.decision_note IS NOT DISTINCT FROM 'native_ad_decision_withdrawn'");
-    expect(insert.text).toContain("meta_automation_proposals.dispatch_started_at IS NULL");
-    expect(insert.text).toContain("meta_automation_proposals.decided_by IS NULL");
-    expect(insert.text).toContain("rec_id = EXCLUDED.rec_id");
-    expect(insert.text).toContain("engine_version = EXCLUDED.engine_version");
+    expect(insert.text).toContain("eligible_decisions AS MATERIALIZED");
+    expect(insert.text).toContain("refreshed AS");
+    expect(insert.text).toContain("pending.status = 'pending'");
+    expect(insert.text).toContain("pending.snapshot_date <= $2::date");
+    expect(insert.text).toContain("pending.snapshot_date < $2::date");
+    expect(insert.text).toContain("SELECT 1 FROM withdrawn");
+    expect(insert.text).toContain("withdrawn.id = held.id");
+    expect(insert.text).toContain("pending.decision_note IS NOT DISTINCT FROM 'native_ad_decision_withdrawn'");
+    expect(insert.text).toContain("pending.dispatch_started_at IS NULL");
+    expect(insert.text).toContain("pending.decided_by IS NULL");
+    expect(insert.text).toContain("rec_id = d.rec_id");
+    expect(insert.text).toContain("engine_version = d.engine_version");
+    expect(insert.text).toContain("ON CONFLICT DO NOTHING");
+    expect(insert.text).not.toContain(
+      "ON CONFLICT (business_id, provider_account_id, decision_key, rec_type, snapshot_date)",
+    );
   });
 
   it("binds the optional account once for an atomic current-source/withdrawal/reoffer statement", async () => {

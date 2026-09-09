@@ -21,6 +21,7 @@ vi.mock("@/lib/provider-account-assignments", () => ({
 
 import * as dbModule from "@/lib/db";
 import {
+  metaProposalAccountsForFulfilledGeneration,
   metaSnapshotRetryAccountsFor,
   runMetaSnapshotForBusiness,
 } from "@/lib/meta/snapshot";
@@ -41,6 +42,15 @@ beforeEach(() => {
 });
 
 describe("a slot retry re-computes the accounts it owes, and only those", () => {
+  it("grants proposal scope only to accounts fulfilled in this attempt", () => {
+    expect(metaProposalAccountsForFulfilledGeneration([
+      { status: "fulfilled", value: { accountId: "act_1" } },
+      { status: "rejected", reason: new Error("act_2 failed") },
+      { status: "fulfilled", value: { accountId: null } },
+      { status: "fulfilled", value: { accountId: " act_1 " } },
+    ])).toEqual(["act_1"]);
+  });
+
   it("resolves every outstanding account of the business, not just a lone one", () => {
     expect(
       metaSnapshotRetryAccountsFor(

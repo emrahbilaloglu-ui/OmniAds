@@ -39,7 +39,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** The one revision. Path and lineage derive from it; nothing is retyped. */
-export const D086_REVISION = 9 as const;
+export const D086_REVISION = 15 as const;
 export const D086_CONTRACT_ID = `d086.budget-readiness-input-pack.v${D086_REVISION}` as const;
 
 /** Repo root from this module's own location — never `process.cwd()`. */
@@ -76,6 +76,113 @@ export const D086_FROZEN_ARTIFACTS: readonly string[] = Object.freeze(
 
 /** Every rejected predecessor, with the bytes it must still have. */
 export const D086_REJECTED_REVISIONS = Object.freeze([
+  {
+    revision: 14,
+    path: d086ArtifactPathFor(14),
+    fileSha256: "491aeb31e0bf55960fc9ed0f0dfd0897e8fd82c71b1ada55c0d04d14d9d9f9dc",
+    why: "Superseded by additive receipt storage with unmodified deployed-image rollback compatibility. "
+      + "r14 claimed all prepared statements were registered although four unused config-history statements were not. "
+      + "r15 removes those obsolete declarations and pins fresh PostgreSQL evidence for both legacy and v2 arbiters; "
+      + "the original four-column table and ranked indexes remain intact.",
+  },
+  {
+    revision: 13,
+    path: d086ArtifactPathFor(13),
+    fileSha256: "5432828f7213b3540f995136239a25c2acd5e0af6108262822c85aa73d009ce0",
+    why:
+      "Superseded rather than defective. r13 was assembled while "
+      + "`d086.budget-readiness-retention.v12` still digested legacy AccountCalibration Meta AOV "
+      + "fields from `meta_creative_daily`, even though a positive Target ROAS makes the resolver "
+      + "read the verdict-bearing strict finalized/passed physical-account AOV from "
+      + "`meta_ad_daily`. The pinned resolver source then performed that strict read a second time. "
+      + "Canonical AOV could therefore change eligibility and spend unit while "
+      + "`source_fingerprint` stayed unchanged, so stale retained authority could pass agreement. "
+      + "r14 mints retention v13: it captures the strict read once, pins its resolved/failed/not-read "
+      + "state into the resolver, and hashes only the effective AOV values and derived quality the "
+      + "resolver uses; legacy AOV remains identity-bearing only in the no-Target-ROAS compatibility "
+      + "case. r13's exact bytes are frozen here as the record of the earlier identity.",
+  },
+  {
+    revision: 12,
+    path: d086ArtifactPathFor(12),
+    fileSha256: "a508d90527b441b6a82cf25537e1b5b5425203f72d22d6083cceb6bad0eb4b6b",
+    why:
+      "Superseded rather than defective, on two measured facts about the tree it was assembled "
+      + "from. FIRST, its pinned local-PostgreSQL evidence was r3, whose catalogue records SIX "
+      + "indexes and carries no pg_index validity flags — and three of those six no longer exist: "
+      + "`meta_entity_observation_receipts_occurrence` was replaced by the attempt-scoped key "
+      + "(the old four-column key rejects the second of two attempts at the same millisecond), and "
+      + "`idx_meta_entity_observation_receipts_freshness` / `..._cohort` by their `_v2` successors. "
+      + "Evidence naming retired indexes, and unable to say whether the surviving ones are usable, "
+      + "attests nothing about the access paths D086 reads through; an index left INVALID by a "
+      + "failed CONCURRENT build still appears in `pg_indexes` and the planner will not use it. "
+      + "SECOND, r12 published `preparedMigrations.statements: 18`, and the retention DDL now "
+      + "prepares 25 — the Round 19 index contract added the CONCURRENT builds, their invalid-index "
+      + "repairs, their post-build contract assertions, and one deliberate DROP. r13 pins r4 "
+      + "evidence, which records the current seven-index catalogue with `indisvalid`, `indisready` "
+      + "and `indislive` for every entry, and the true statement count. r12's bytes are frozen here "
+      + "as the record of what the pack meant before that; they are also pinned by the D077 "
+      + "release-candidate manifest at this same hash.",
+  },
+  {
+    revision: 11,
+    path: d086ArtifactPathFor(11),
+    fileSha256: "d91d3e7913cecdd27dd7c1d1802f35cb5c3411e5f9783f379ea37e6cb20f136d",
+    why:
+      "Superseded rather than defective. r11 mints "
+      + "`d086.budget-readiness-retention.v11`, whose CONFIGURED half digests a SEMANTIC target "
+      + "provenance state (`targetProvenanceTrusted`) so that a trusted pack and an unprovenanced "
+      + "one cannot share a fingerprint — provenance decides hard-action eligibility, and an "
+      + "identity blind to it retains an authority grant its own evidence no longer supports. "
+      + "That state was derived from `Number.isFinite(Date.parse(updatedAt))`, which is not a "
+      + "validator: measured on this runtime `Date.parse` accepts a bare `YYYY-MM-DD`, a naked "
+      + "local time whose instant differs per host, `September 5, 2026`, and `2026-02-30` — which "
+      + "it silently reports as 2026-03-02. Each of those digested as `trusted`, so an impossible "
+      + "calendar date proved provenance and kept the hard-action gate open. Round 8 replaced the "
+      + "check with a strict UTC-instant reading that constructs the instant from the literal "
+      + "calendar fields instead of handing them to a parser that rolls them over, so those values "
+      + "now digest as `unknown`. `...v11` would otherwise label two different rules, so r12 mints "
+      + "`d086.budget-readiness-retention.v12` and r11's bytes are frozen here as the record of "
+      + "what the identity meant before the strict reading.",
+  },
+  {
+    revision: 10,
+    path: d086ArtifactPathFor(10),
+    fileSha256: "196620ec259ae0cab86b9b968a8393eb2192b324d50671c16a39580adabf9d3e",
+    why:
+      "Superseded rather than defective, and superseded for a reason r10's own source comment "
+      + "denied: it claimed the version bump and the artifact regeneration were 'both done in "
+      + "this pass', and only the bump was. Round 6 then changed what BOTH fingerprint halves "
+      + "digest a second time without moving the version, so `d086.budget-readiness-retention.v10` "
+      + "again meant two different things. The CONFIGURED half digested `profileConfig` RAW — "
+      + "carrying `attributionAovAdjustmentMultiplier`, a knob `resolveSpendUnit` pins to 1 on "
+      + "every rung and never writes into `SpendUnitEvidence` — and nulled both `updatedAt` AND "
+      + "`freshness`, which made every target-provenance state hash the same even though "
+      + "provenance decides hard-action eligibility. The MEASURED half digested `accountCpaP50` / "
+      + "`accountCpaSampleCount`, kept only because the resolver could once fall through to the "
+      + "`account_history` rung; that branch now answers READY-or-`insufficient`, so the account's "
+      + "own median CPA chooses nothing under a governing Target ROAS. r11 mints "
+      + "`d086.budget-readiness-retention.v11` with the projection all three go through, and r10's "
+      + "bytes are frozen here as the record of what the identity meant before it.",
+  },
+  {
+    revision: 9,
+    path: d086ArtifactPathFor(9),
+    fileSha256: "3317ab7425f9adba7e5664a8dbb8a566bc1d27e2fff4c7e54d9bca7048706ffe",
+    why:
+      "Superseded rather than defective: r9 was assembled while the retention identity "
+      + "`d086.budget-readiness-retention.v9` still meant two different things. Its MEASURED half "
+      + "digested the observed Shopify AOV, which chooses no rung under D091 and therefore could "
+      + "not change a verdict, yet moved `source_fingerprint` — a persisted column inside the "
+      + "`engine_v3_account_profile_output` UNIQUE key — so one new store order answered "
+      + "`retained_profile_source_mismatch` and discarded an unchanged Meta verdict. Its "
+      + "CONFIGURED half digested the raw target pack, so on an account governed by its Target "
+      + "ROAS the operator's Target CPA, break-even CPA and AOV assumption keyed the identity, as "
+      + "did the pack's own `updatedAt`, which moves on any re-save; each discarded retained "
+      + "verdicts for edits that could not have changed a decision. Both halves now read the "
+      + "shared semantic projection and the retention contract is minted as v10, so r9's bytes "
+      + "record what the identity meant before the projection and are frozen here.",
+  },
   {
     revision: 8,
     path: d086ArtifactPathFor(8),
@@ -325,6 +432,18 @@ export const D086_PINNED_SOURCES = Object.freeze([
     key: "d086_r9_postgres_evidence",
     path: `${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r3.json`,
     sha256: "5da7c564154d0e5b92a0df387e44df2ccb5b4d0005d92bf0aca683382f9f2a32",
+  },
+  {
+    // ROUND 25: the evidence r13 actually reads. r3 stays pinned above as
+    // frozen history — it is named by the D077 manifest — and is never rewritten.
+    key: "d086_r13_postgres_evidence",
+    path: `${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r4.json`,
+    sha256: "cceb24fadf6d3814481b78b597e14b2852b1e7dafb93d92ca9c97cb5107b29dc",
+  },
+  {
+    key: "d086_r15_postgres_evidence",
+    path: `${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r5.json`,
+    sha256: "d5b1fa580937df653390e5ef193b094a504e9f8324ddf75b480f6a8648143d2e",
   },
   {
     key: "d085_r16_accepted",
@@ -581,7 +700,7 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
   };
   const census = JSON.parse(read(pinnedSource("d086_live_census").path).toString("utf8")) as Record<string, any>;
   const localEvidence = JSON.parse(
-    read(pinnedSource("d086_r9_postgres_evidence").path).toString("utf8"),
+    read(pinnedSource("d086_r15_postgres_evidence").path).toString("utf8"),
   ) as Record<string, any>;
   const d085 = JSON.parse(read(pinnedSource("d085_r16_accepted").path).toString("utf8")) as Record<string, any>;
 
@@ -735,17 +854,13 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
     closures,
     simulation,
     localPostgresVerification: {
-      evidencePath: `${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r3.json`,
-      evidenceSha256: "5da7c564154d0e5b92a0df387e44df2ccb5b4d0005d92bf0aca683382f9f2a32",
+      evidencePath: pinnedSource("d086_r15_postgres_evidence").path,
+      evidenceSha256: pinnedSource("d086_r15_postgres_evidence").sha256,
       supersedes: {
-        path: `${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r2.json`,
-        sha256: "80e5670a95c3ea3d37667d43f4145afcd0f044bcfed65a6121c5edb93f7add29",
-        why:
-          "r8's evidence invented its own provenance: no meta_sync_partitions row stood behind "
-          + "any cohort id, persistMetaRawSnapshot was never called, its \"delta\" was one full "
-          + "capture whose run was UPDATEd to manifest_kind='delta', and its \"tied\" receipts "
-          + "were a millisecond apart. Superseded by r3, which starts from real partitions and "
-          + "real raw snapshots and exercises a writer-produced delta and a true same-clock tie.",
+        path: pinnedSource("d086_r13_postgres_evidence").path,
+        sha256: pinnedSource("d086_r13_postgres_evidence").sha256,
+        why: "r4's bytes remain frozen. r5 proves the additive legacy/v2 receipt schema, "
+          + "its deduplicated read model and all eight required indexes with PostgreSQL validity flags.",
       },
       /*
         Structured, so a reader does not have to trust a sentence. This records
@@ -753,7 +868,7 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
         side-effect ledger, which scopes itself to assembly and production.
       */
       scope: "ephemeral local cluster only; never production, never a provider",
-      serverVersion: "PostgreSQL 16.13 (Homebrew) on aarch64-apple-darwin25.2.0",
+      serverVersion: localEvidence.postgresVersion,
       clusterLifecycle: "created by the seam under mkdtemp and destroyed in its finally block",
       /*
         C7: the schema comes from the REAL migration registry, not from a
@@ -819,8 +934,8 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
       },
       // The cohort a receipt names is now a row the database enforces.
       cohortLinkageEnforcedBy: [
-        "meta_entity_observation_receipts_partition_fk",
-        "meta_entity_observation_receipts_snapshot_fk",
+        "meta_entity_observation_receipts_v2_partition_fk",
+        "meta_entity_observation_receipts_v2_snapshot_fk",
       ],
       readModelDrivenOverRealRows: true,
       indexRankPathsVerifiedFromCatalog: true,
@@ -841,8 +956,10 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
       registeredInMigrationRegistry: true,
       sqlDigest: d086Digest(D086_ADDITIVE_MIGRATION_SQL),
       note:
-        "REGISTERED in lib/migrations.ts, as correction 7 requires, and additive throughout "
-        + "(every statement is IF NOT EXISTS). Registration means a future deploy applies them; "
+        "The current prepared schema is registered in lib/migrations.ts and its shared receipt-schema module. "
+        + "The deployed four-column receipt table remains intact; attempt-scoped receipts use a separate v2 table. "
+        + "Obsolete, unregistered config-history ALTERs/indexes are excluded from this list. "
+        + "Registration means a future deploy applies them; "
         + "NOTHING here applies them to production, and no production catalog has ever held them. "
         + "They ARE applied in the ephemeral local cluster recorded under "
         + "localPostgresVerification — by the real registry rather than by this list — which is how their "
@@ -875,8 +992,8 @@ export function buildD086Artifact(read: (path: string) => Buffer = d086TrustedRe
       "The cohort binding is forward-only: an observation captured before the receipt table existed has no capture receipt, so it cannot attest today. It closes only after the additive column is deployed AND an admitted observation records it.",
       "Budget facts are read from meta_entity_state_history — the rows the real capture path writes — and every budget judgment on them is D083's buildCanonicalBudgetFact, reached through the shared projector. The transition-only config-history read was removed in correction 8 along with its query, its capability probe and the tests that certified it.",
       "The legacy role branch is BUSINESS-level migration evidence, not account authority, and publishes its real population and truncation state.",
-      "SQL EXECUTION, scoped precisely. Artifact assembly and production executed ZERO statements of any kind: this generator opens no database handle. Independent LOCAL verification is different and did run — an ephemeral PostgreSQL 16.13 cluster, created and destroyed by the seam, applied all prepared DDL, executed every readiness query, read pg_indexes, and exercised reversed-insertion conflicts through the real read model. Neither the census nor this artifact depends on that cluster.",
-      "The prepared migrations ARE registered in lib/migrations.ts, as correction 7 required, and are additive throughout: every statement is IF NOT EXISTS, and both foreign keys are added NOT VALID so a table already holding malformed rows is never blocked. Registration means a future deploy applies them. NOTHING in this work applies them to production, no production catalog has ever held them, and they are exercised only in the ephemeral local cluster recorded under localPostgresVerification.",
+      "SQL EXECUTION, scoped precisely. Artifact assembly and production executed ZERO statements of any kind: this generator opens no database handle. Independent LOCAL verification is different and did run — an ephemeral PostgreSQL 16.13 cluster, created and destroyed by the seam, applied all prepared DDL, executed every readiness query, read pg_index validity flags, and exercised reversed-insertion conflicts through the real read model. Neither the census nor this artifact depends on that cluster.",
+      "The current prepared schema is registered in lib/migrations.ts and its shared receipt-schema module. Receipt storage expands additively: the deployed four-column arbiter remains on the legacy table, the attempt arbiter lives on v2, and the authority read deduplicates the transactional legacy mirror. Unused config-history statements are excluded. This artifact applies no production migrations; its database proof comes from the real migration registry on the recorded ephemeral cluster.",
       "No causal claim is made about ROAS, revenue or profit. Nothing here has a counterfactual.",
       "Campaign names and manual Test/Main/Mixed labels are excluded by construction, not by policy: they are not members of any admitted schema in this slice.",
     ]),
@@ -1000,12 +1117,20 @@ export function verifyD086Artifact(
   //      WITH its exact verdict and the MECHANICS that produced it.
   try {
     const evidence = JSON.parse(
-      read(`${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r3.json`).toString("utf8"),
+      read(`${ARTIFACT_DIR}/d086-local-postgres-evidence-2026-09-02.r5.json`).toString("utf8"),
     ) as {
       ok?: boolean;
       postgresVersion?: string;
       capabilityProbe?: Record<string, unknown>;
-      indexCatalog?: Array<{ indexname: string; indexdef: string }>;
+      // ROUND 19, ITEM C8: the catalogue carries the pg_index validity flags,
+      // because existence alone never proved the access path was usable.
+      indexCatalog?: Array<{
+        indexname: string;
+        indexdef: string;
+        indisvalid?: boolean;
+        indisready?: boolean;
+        indislive?: boolean;
+      }>;
       steps?: Array<{ step: string; detail: string }>;
       cases?: Array<{
         name: string; status: string; blocker: string | null;
@@ -1095,8 +1220,58 @@ export function verifyD086Artifact(
         fail(`localEvidence: ${c.name} is ready with a blocker`);
       }
     }
-    if ((evidence.indexCatalog ?? []).length !== D086_REQUIRED_INDEXES.length) {
-      fail("localEvidence: the index catalog result is incomplete");
+    /*
+      ── ROUND 25: THE CATALOGUE IS BOUND BY NAME AND BY USABILITY ────────────
+
+      A length check alone accepted r3's catalogue, which named six indexes --
+      three of them since retired -- and carried no validity flags at all. Four
+      things are required now, and each rules out a way the evidence could look
+      complete while proving nothing:
+
+        - the exact required NAME SET, so a short, extra or wrong-name
+          catalogue fails rather than counting to the right total;
+        - `indisvalid` / `indisready` / `indislive` PRESENT and TRUE on every
+          entry, because an index left INVALID by a failed CONCURRENT build is
+          still listed and the planner still will not use it;
+        - no RETIRED index, so evidence cannot attest an access path the schema
+          has replaced.
+    */
+    const catalog = evidence.indexCatalog ?? [];
+    const requiredNames = D086_REQUIRED_INDEXES.map((index) => index.indexName);
+    const catalogNames = catalog.map((row) => row.indexname);
+    if (catalog.length !== requiredNames.length) {
+      fail(
+        `localEvidence: the index catalog has ${catalog.length} entries, the contract requires `
+        + `${requiredNames.length}`,
+      );
+    }
+    for (const name of requiredNames) {
+      if (!catalogNames.includes(name)) {
+        fail(`localEvidence: the index catalog omits ${name}`);
+      }
+    }
+    for (const name of catalogNames) {
+      if (!requiredNames.includes(name)) {
+        fail(`localEvidence: the index catalog names ${name}, which is not in the contract`);
+      }
+    }
+    for (const name of [
+      "idx_meta_entity_observation_receipts_freshness",
+      "idx_meta_entity_observation_receipts_cohort",
+    ]) {
+      if (catalogNames.includes(name)) {
+        fail(`localEvidence: the index catalog names the RETIRED index ${name}`);
+      }
+    }
+    for (const row of catalog) {
+      for (const flag of ["indisvalid", "indisready", "indislive"] as const) {
+        if (row[flag] !== true) {
+          fail(
+            `localEvidence: ${row.indexname} reports ${flag}=${String(row[flag])}; the index is `
+            + "not usable and existence alone never proved it was",
+          );
+        }
+      }
     }
     if (String((evidence.capabilityProbe ?? {}).receipt_columns ?? "")
       !== String(D086_REQUIRED_RECEIPT_COLUMNS.length)) {
@@ -1120,8 +1295,8 @@ export function verifyD086Artifact(
     }
     const receiptTable = (evidence.steps ?? []).find((s) => s.step === "receipt_table");
     for (const constraint of [
-      "meta_entity_observation_receipts_partition_fk",
-      "meta_entity_observation_receipts_snapshot_fk",
+      "meta_entity_observation_receipts_v2_partition_fk",
+      "meta_entity_observation_receipts_v2_snapshot_fk",
     ]) {
       if (!String(receiptTable?.detail ?? "").includes(constraint)) {
         fail(`localEvidence: the ${constraint} foreign key is not recorded as created`);

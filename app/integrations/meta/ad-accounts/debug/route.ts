@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
 import { fetchMetaAdAccounts } from "@/lib/meta-ad-accounts";
+import { requireBusinessAccess } from "@/lib/access";
 
 export async function GET(request: NextRequest) {
   if (process.env.NODE_ENV !== "development") {
@@ -18,7 +19,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const integration = await getIntegration(businessId, "meta");
+  const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
+  if ("error" in access) return access.error;
+  const authorizedBusinessId = access.membership.businessId;
+  const integration = await getIntegration(authorizedBusinessId, "meta");
   if (!integration) {
     return NextResponse.json(
       {
@@ -40,8 +44,18 @@ export async function GET(request: NextRequest) {
   }
 
   const result = await fetchMetaAdAccounts(integration.access_token);
+  /*
+    Diagnostics, not a mirror of the provider response.
+
+    This handler used to return `result.body` and `result.rawBody` verbatim.
+    Both carried Meta's `error.message`, which is free text the provider
+    controls and has been observed echoing the access token back inside it, and
+    `rawBody` carried the entire response. `rawBody` no longer exists, and
+    `result.body.error` is now a `MetaSafeGraphError` this repository authored:
+    a locally-written sentence plus the four named Graph identifiers.
+  */
   return NextResponse.json({
-    businessId,
+    businessId: authorizedBusinessId,
     integration: {
       id: integration.id,
       status: integration.status,
@@ -52,9 +66,18 @@ export async function GET(request: NextRequest) {
     meta: {
       status: result.status,
       ok: result.ok,
-      body: result.body,
-      raw: result.rawBody,
+      error: result.body?.error ?? null,
+      graph_error: result.graphError ?? null,
       normalized_count: result.normalized.length,
+      business_discovery: result.businessDiscovery
+        ? {
+            status: result.businessDiscovery.status,
+            ok: result.businessDiscovery.ok,
+            business_count: result.businessDiscovery.businessCount,
+            account_count: result.businessDiscovery.accountCount,
+            errors: result.businessDiscovery.errors,
+          }
+        : null,
     },
   });
 }

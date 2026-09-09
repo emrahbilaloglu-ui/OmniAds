@@ -1,4 +1,17 @@
 import { getDb } from "@/lib/db";
+import { attestMetaConfigObservation } from "@/lib/meta/config-observation-attestation";
+import {
+  META_RECENT_EDIT_AUTHORITY_KEY,
+  metaRecentEditAuthorityRecord,
+  type MetaRecentEditAuthorityReason,
+  type MetaRecentEditAuthorityRecord,
+} from "@/lib/meta/recent-edit-authority";
+import {
+  providerLocalCalendarDate,
+  providerLocalDayEndExclusive,
+  providerLocalDayStartInclusive,
+  readMetaAccountTimeZones,
+} from "@/lib/meta/provider-local-day";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import {
   getMetaAdDailyRange,
@@ -24,6 +37,10 @@ const MIN_FREQUENCY_IMPRESSIONS = 1_000;
 const CTR_STABLE_SPEND_MIN_RATIO = 0.5;
 const CTR_STABLE_SPEND_MAX_RATIO = 2;
 const RECENT_EDIT_COOLDOWN_DAYS = 7;
+/** The config-history window, in provider-local days. Unchanged from the 60 the
+ *  previous `INTERVAL '60 days'` expressed; only its ANCHOR moved from the DB
+ *  session's calendar to the advertiser's. */
+const CONFIG_HISTORY_LOOKBACK_DAYS = 60;
 const TRACKING_CLICK_SAMPLE_MIN = 500;
 const TRACKING_LPV_DROP_RATIO_MAX = 0.25;
 const TRACKING_LPV_OBSERVED_RATIO_MIN = 0.45;
@@ -395,9 +412,26 @@ function isSignificantConfigChange(current: ConfigHistoryRow, previous: ConfigHi
   );
 }
 
-export function findLastSignificantEditAt(rows: ConfigHistoryRow[], asOfDate: string) {
+export function findLastSignificantEditAt(
+  rows: ConfigHistoryRow[],
+  asOfDate: string,
+  /**
+   * ROUND 11 ITEM 1. The cutoff filter compared `normalizeDate(captured_at)` —
+   * the UTC date — against the as-of day, so an edit late on the advertiser's
+   * as-of day was excluded (or an edit early the next local day included).
+   * Optional only so existing pure-unit callers keep compiling; production
+   * always passes the account zone, and null means the row's own timestamp
+   * prefix is used exactly as before.
+   */
+  timeZone?: string | null,
+) {
+  const localDate = (value: string) =>
+    timeZone
+      ? (providerLocalCalendarDate({ instant: value, timeZone }) ??
+        normalizeDate(value))
+      : normalizeDate(value);
   const sorted = [...rows]
-    .filter((row) => normalizeDate(row.captured_at) <= normalizeDate(asOfDate))
+    .filter((row) => localDate(row.captured_at) <= normalizeDate(asOfDate))
     .sort((left, right) => new Date(left.captured_at).getTime() - new Date(right.captured_at).getTime());
   let latest: string | null = null;
   for (let index = 1; index < sorted.length; index += 1) {
@@ -496,11 +530,84 @@ async function readDimensionFirstSeen(input: {
 async function readConfigHistory(input: {
   businessId: string;
   scopeType: MetaEntitySignalScopeType;
-  entityIds: string[];
+  /**
+   * The physical provider account each entity belongs to, and the trusted IANA
+   * zone of that account.
+   *
+   * ── ROUND 11 ITEM 1 ──────────────────────────────────────────────────────
+   * This read filtered on `business_id` ALONE while
+   * `meta_campaign_config_history` and `meta_adset_config_history` both carry
+   * `provider_account_id` — so a business with several Meta accounts pooled
+   * every account's edit history, and one account's configuration change could
+   * lift the recent-edit veto on another account's ad set.
+   *
+   * An entity whose account or zone cannot be established is simply not
+   * requested.
+   *
+   * ── ROUND 12 ─────────────────────────────────────────────────────────────
+   * Round 11's comment here claimed that withholding the rows FAILS CLOSED,
+   * because a null `lastSignificantEditAt` keeps `qualityStatusFor` off
+   * "ready". That was wrong: `qualityStatusFor` calls a pack ready at any THREE
+   * non-null signals out of six, so a learning state, a frequency and a CTR
+   * decay were enough — and `blocksPurchaseHardAction` reads
+   * `daysSinceSignificantEdit != null && < 7`, which a null passes. Withholding
+   * the rows was silently INDISTINGUISHABLE from observing no edits.
+   *
+   * The caller now records that distinction explicitly.
+   * @see lib/meta/recent-edit-authority.ts
+   */
+  entityScopes: ReadonlyArray<{
+    entityId: string;
+    providerAccountId: string;
+    timeZone: string;
+    /**
+     * ── ROUND 15, DEFECT 1 ────────────────────────────────────────────────
+     * The ONE knowledge bound, computed once per account by the caller before
+     * any read happens. This used to be derived here as the full provider-local
+     * DAY END, while the receipt authority used `min(now, dayEnd)` — so on the
+     * current day a transition captured after `now` (a replay, or clock skew)
+     * entered the 60-day change window and moved
+     * `daysSinceSignificantEdit`, while the receipt evidence that was supposed
+     * to justify it excluded the very same instant. Two bounds, one decision.
+     */
+    knowledgeEndExclusive: Date;
+  }>;
   asOfDate: string;
 }) {
-  const entityIds = Array.from(new Set(input.entityIds.filter(Boolean)));
-  if (entityIds.length === 0) return new Map<string, ConfigHistoryRow[]>();
+  /*
+    ABSOLUTE INSTANTS, PER ACCOUNT. The bounds were `($3::date - INTERVAL '60
+    days')` and `($3::date + INTERVAL '1 day')`, and PostgreSQL resolves a
+    `date` against a `timestamptz` column using the SESSION's `TimeZone`. The
+    60-day window therefore started and ended wherever the connection happened
+    to be configured, not where the advertiser's day begins. Each entity now
+    carries its own start/end `timestamptz`, computed from its own account zone.
+  */
+  const scopes = input.entityScopes
+    .map((scope) => {
+      // ROUND 15: the caller's bound, not a second derivation of it.
+      const endExclusive = scope.knowledgeEndExclusive;
+      const startInclusive = providerLocalDayStartInclusive({
+        day: addDaysToISO(normalizeDate(input.asOfDate), -CONFIG_HISTORY_LOOKBACK_DAYS),
+        timeZone: scope.timeZone,
+      });
+      if (!endExclusive || !startInclusive) return null;
+      return {
+        entityId: scope.entityId,
+        providerAccountId: scope.providerAccountId,
+        startInclusive: startInclusive.toISOString(),
+        endExclusive: endExclusive.toISOString(),
+      };
+    })
+    .filter((scope): scope is NonNullable<typeof scope> => scope !== null);
+  const entityIds = scopes.map((scope) => scope.entityId);
+  /*
+    Nothing requested is not a failure. Every entity that was DROPPED before
+    this point already carries its own `unavailable` reason from the caller, so
+    reporting a read failure here as well would mislabel the cause.
+  */
+  if (entityIds.length === 0) {
+    return { byEntity: new Map<string, ConfigHistoryRow[]>(), readOk: true };
+  }
   const sql = getDb();
   const tableName =
     input.scopeType === "campaign" ? "meta_campaign_config_history" : "meta_adset_config_history";
@@ -511,7 +618,9 @@ async function readConfigHistory(input: {
     const rows = (await sql.query(
       `
         WITH requested_entities AS (
-          SELECT unnest($2::text[]) AS entity_id
+          SELECT * FROM unnest(
+            $2::text[], $3::text[], $4::timestamptz[], $5::timestamptz[]
+          ) AS t(entity_id, provider_account_id, start_inclusive, end_exclusive)
         )
         SELECT
           requested_entities.entity_id,
@@ -524,35 +633,248 @@ async function readConfigHistory(input: {
           history.promoted_object_json
         FROM requested_entities
         JOIN LATERAL (
-          SELECT
-            captured_at,
-            daily_budget,
-            lifetime_budget,
-            bid_strategy_type,
-            optimization_goal,
-            custom_event_type,
-            ${promotedObjectSelect}
-          FROM ${tableName}
-          WHERE business_id = $1
-            AND ${entityColumn} = requested_entities.entity_id
-            AND captured_at >= ($3::date - INTERVAL '60 days')
-            AND captured_at < ($3::date + INTERVAL '1 day')
-          ORDER BY captured_at DESC, created_at DESC
-          LIMIT 25
+          -- IN-WINDOW TRANSITIONS.
+          (
+            SELECT
+              captured_at,
+              daily_budget,
+              lifetime_budget,
+              bid_strategy_type,
+              optimization_goal,
+              custom_event_type,
+              ${promotedObjectSelect}
+            FROM ${tableName}
+            WHERE business_id = $1
+              -- The physical account this entity belongs to. Without it a
+              -- multi-account business pooled every account edit history.
+              AND provider_account_id = requested_entities.provider_account_id
+              AND ${entityColumn} = requested_entities.entity_id
+              -- Absolute instants, bounded by the ADVERTISER calendar. Never
+              -- ::date arithmetic, which resolves in the DB session timezone.
+              AND captured_at >= requested_entities.start_inclusive
+              AND captured_at < requested_entities.end_exclusive
+            ORDER BY captured_at DESC, created_at DESC
+            LIMIT 25
+          )
+          UNION ALL
+          -- ROUND 13, DEFECT 2: THE PREDECESSOR.
+          --
+          -- This table is TRANSITION-ONLY, and findLastSignificantEditAt
+          -- compares ADJACENT returned rows. A config set 90 days ago and
+          -- changed 2 days ago therefore returned exactly ONE row inside the
+          -- 60-day window, had no predecessor to be compared against, and the
+          -- real edit was reported as no edit at all -- the veto silently
+          -- lifted on the most recently edited entities.
+          --
+          -- One row, the latest strictly BEFORE the window, per exact account
+          -- and entity. It is COMPARISON CONTEXT ONLY: it sorts first, so it is
+          -- only ever the previous side of a comparison and can never itself be
+          -- reported as a recent edit.
+          (
+            SELECT
+              captured_at,
+              daily_budget,
+              lifetime_budget,
+              bid_strategy_type,
+              optimization_goal,
+              custom_event_type,
+              ${promotedObjectSelect}
+            FROM ${tableName}
+            WHERE business_id = $1
+              AND provider_account_id = requested_entities.provider_account_id
+              AND ${entityColumn} = requested_entities.entity_id
+              AND captured_at < requested_entities.start_inclusive
+            ORDER BY captured_at DESC, created_at DESC
+            LIMIT 1
+          )
         ) history ON true
         ORDER BY requested_entities.entity_id ASC, history.captured_at ASC
       `,
-      [input.businessId, entityIds, normalizeDate(input.asOfDate)],
+      [
+        input.businessId,
+        entityIds,
+        scopes.map((scope) => scope.providerAccountId),
+        scopes.map((scope) => scope.startInclusive),
+        scopes.map((scope) => scope.endExclusive),
+      ],
     )) as ConfigHistoryRow[];
-    return byEntity(rows, (row) => row.entity_id);
+    return { byEntity: byEntity(rows, (row) => row.entity_id), readOk: true };
   } catch (error) {
     console.warn("[meta-signals] config_history_unavailable", {
       businessId: input.businessId,
       scopeType: input.scopeType,
       message: error instanceof Error ? error.message : String(error),
     });
-    return new Map<string, ConfigHistoryRow[]>();
+    /*
+      A THROWN READ IS NOT AN EMPTY ONE. Returning an empty map alone made a
+      failed query look exactly like a clean account with no configuration
+      changes, and the second reading authorises spend.
+    */
+    return { byEntity: new Map<string, ConfigHistoryRow[]>(), readOk: false };
   }
+}
+
+/**
+ * ── ROUND 13, DEFECT 1: A SELECT IS NOT AN OBSERVATION ──────────────────────
+ *
+ * `meta_campaign_config_history` and `meta_adset_config_history` are
+ * TRANSITION-ONLY. A row is appended only when a COMPLETE capture observes a
+ * CHANGE. Two other things therefore also produce zero rows:
+ *
+ *   - an incomplete capture (partial, point_lookup, failed) writes nothing;
+ *   - a complete capture that saw no change writes nothing.
+ *
+ * Round 12 recorded `readOk: true` — the query did not throw — as `observed`,
+ * which collapses all three into "no recent edit" and authorises spend on an
+ * account that may never have been successfully read.
+ *
+ * What separates them is the durable CURRENT-CONFIG observation evidence the
+ * repository already keeps: `meta_entity_observation_receipts`, written per
+ * capture occurrence by `persistMetaEntityObservation`, plus the entity truth
+ * (`meta_entity_state_history` / `meta_entity_tombstones`) that says whether
+ * this exact entity was in that capture. Both are read through their existing
+ * canonical readers rather than re-implemented here.
+ *
+ * Every bound is the SAME one the history window uses: same business, same
+ * physical provider account, same trusted zone, and the same provider-local
+ * cutoff instant. Evidence bound to a different account or a different day
+ * would attest something other than the window it is being used to justify.
+ */
+type ObservationEvidence =
+  | { ok: true }
+  | { ok: false; reason: MetaRecentEditAuthorityReason; detail?: string | null };
+
+/**
+ * ── ROUND 14, CONTRACT 3: ONE KNOWLEDGE CLOCK, DERIVED PER ACCOUNT ─────────
+ *
+ * `dayEndExclusive` is the end of the provider-local as-of day. It is the right
+ * bound for a HISTORICAL day, where it is point-in-time evidence about a day
+ * that has finished. It is the wrong bound for the CURRENT day, where it sits
+ * in the future and would admit evidence that has not happened yet — and it is
+ * also what made freshness arithmetic wrong, because measuring an age back from
+ * a future instant inflates it.
+ *
+ * The knowledge bound is therefore `min(evaluationNow, dayEndExclusive)`, and a
+ * provider-local day whose START is still in the future has no knowledge bound
+ * at all: nothing can be known about it yet.
+ *
+ * `evaluationNow` is captured ONCE per backfill run and injected, so every
+ * account, entity and clock comparison in one run is taken against the same
+ * instant. Reading the wall clock per call would let two entities of the same
+ * account disagree about what "now" was.
+ */
+function resolveKnowledgeEndExclusive(input: {
+  day: string;
+  timeZone: string;
+  evaluationNow: Date;
+}): { knowledgeEndExclusive: Date } | { refusal: MetaRecentEditAuthorityReason } {
+  const dayEndExclusive = providerLocalDayEndExclusive({
+    day: input.day,
+    timeZone: input.timeZone,
+  });
+  const dayStartInclusive = providerLocalDayStartInclusive({
+    day: input.day,
+    timeZone: input.timeZone,
+  });
+  if (!dayEndExclusive || !dayStartInclusive) {
+    return { refusal: "provider_timezone_untrusted" };
+  }
+  // A day that has not begun in the advertiser's own calendar cannot be
+  // observed, and a "fresh" receipt for it would be evidence from the future.
+  if (dayStartInclusive.getTime() > input.evaluationNow.getTime()) {
+    return { refusal: "provider_local_day_in_future" };
+  }
+  return {
+    knowledgeEndExclusive: new Date(
+      Math.min(input.evaluationNow.getTime(), dayEndExclusive.getTime()),
+    ),
+  };
+}
+
+/**
+ * ── ROUND 14, DEFECT 1: A SELECT IS NOT AN OBSERVATION, AND NEITHER IS A
+ *    COMPLETE RECEIPT ON ITS OWN ─────────────────────────────────────────────
+ *
+ * `meta_campaign_config_history` and `meta_adset_config_history` are
+ * TRANSITION-ONLY: an incomplete capture appends nothing and an unchanged
+ * complete capture appends nothing, so zero rows is written identically by
+ * "nothing changed", "we never looked" and "we looked and failed".
+ *
+ * Round 13 closed the first gap with the capture receipt. It did not close the
+ * second: a COMPLETE receipt is committed BEFORE
+ * `append_current_config_history` runs, so an attempt can write a perfect
+ * receipt and then fail the apply. The receipt alone therefore attests that the
+ * provider was read — not that the config history it is being used to interpret
+ * was ever written.
+ *
+ * Three things are now required, and each closes a distinct hole:
+ *
+ *   1. THE EXACT ATTEMPT. `receipt.sync_run_id` is the real `meta_sync_runs.id`
+ *      — not the partition (reused across retries) and not the observation run
+ *      (coalesced content shared by many captures). The receipt is SELECTED
+ *      status-blind and the attempt is judged afterwards, so a newer failure is
+ *      never stepped over to reach an older success.
+ *   2. MANIFEST MEMBERSHIP. Not "is anything known about this entity" but "was
+ *      this entity in the manifest of the capture whose completeness is doing
+ *      the authorising".
+ *   3. THE KNOWLEDGE CLOCK. Freshness measured from the Meta-response clock to
+ *      the knowledge bound, so a newly persisted replay of an old provider
+ *      observation stays stale.
+ */
+type ObservationEvidenceInput = {
+  businessId: string;
+  providerAccountId: string;
+  scopeType: MetaEntitySignalScopeType;
+  entityIds: string[];
+  /** min(evaluationNow, provider-local day end). Strict upper bound. */
+  knowledgeEndExclusive: Date;
+};
+
+async function readObservationEvidence(
+  input: ObservationEvidenceInput,
+): Promise<Map<string, ObservationEvidence>> {
+  const evidence = new Map<string, ObservationEvidence>();
+  if (input.entityIds.length === 0) return evidence;
+
+  /*
+    ── ROUND 16: ONE ATTESTATION, SHARED WITH THE BOOTSTRAP ─────────────────
+
+    Every endpoint-level check that used to live inline here — receipt
+    selection, completeness, the exact sync attempt, the clocks, freshness and
+    manifest integrity — now lives in `attestMetaConfigObservation`, because the
+    bootstrap probe needs to ask exactly the same question. When it asked a
+    weaker one it could suppress the repair while the authority still held.
+
+    What remains here is the only part that is genuinely per-entity: which of
+    the requested ids are members of the attested manifest.
+  */
+  const attestation = await attestMetaConfigObservation({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    entityType: input.scopeType,
+    knowledgeEndExclusive: input.knowledgeEndExclusive,
+    entityIds: input.entityIds,
+  });
+  if (!attestation.ok) {
+    for (const entityId of input.entityIds) {
+      evidence.set(entityId, {
+        ok: false,
+        reason: attestation.reason,
+        detail: attestation.detail,
+      });
+    }
+    return evidence;
+  }
+
+  for (const entityId of input.entityIds) {
+    evidence.set(
+      entityId,
+      attestation.membership.presentEntityIds.has(entityId)
+        ? { ok: true }
+        : { ok: false, reason: "entity_absent_from_observation", detail: null },
+    );
+  }
+  return evidence;
 }
 
 function rowsWithin(rows: DailyRow[], startDate: string, endDate: string) {
@@ -570,9 +892,36 @@ function ageDaysFromFirstSeen(firstSeenAt: string | null | undefined, asOfDate: 
 function significantEditFields(input: {
   rows: ConfigHistoryRow[];
   asOfDate: string;
+  /**
+   * The account's own calendar. Null when it could not be established.
+   *
+   * ROUND 12. The caller has already withheld the history rows in that case, so
+   * this returns the same "nothing observed" shape — which is exactly the
+   * ambiguity that made the missing-timezone path authorise spend. The three
+   * fields below can no longer answer "was this knowable"; the authority record
+   * the caller attaches is what answers it.
+   */
+  timeZone: string | null;
 }) {
-  const lastSignificantEditAt = findLastSignificantEditAt(input.rows, input.asOfDate);
-  const editDate = dateFromTimestamp(lastSignificantEditAt);
+  const lastSignificantEditAt = findLastSignificantEditAt(
+    input.rows,
+    input.asOfDate,
+    input.timeZone,
+  );
+  /*
+    ROUND 11 ITEM 1. `dateFromTimestamp` is `toISOString().slice(0, 10)` — the
+    UTC date. An edit at 23:30 local in America/Los_Angeles is 06:30Z the next
+    day, so it was attributed to the wrong calendar day and the day count that
+    the >= 7 veto reads came out one off. The edit date and the as-of day are
+    now both read in the ADVERTISER's calendar.
+  */
+  const editDate =
+    lastSignificantEditAt == null || input.timeZone == null
+      ? null
+      : providerLocalCalendarDate({
+          instant: lastSignificantEditAt,
+          timeZone: input.timeZone,
+        });
   const daysSinceSignificantEdit = editDate == null ? null : Math.max(0, dayDiff(input.asOfDate, editDate));
   const recentChangeCooldownUntil =
     editDate == null
@@ -594,11 +943,20 @@ function buildSignal(input: {
   trackingQuality: ReturnType<typeof trackingQualityFromAdRows>;
   monthlyPacing: ReturnType<typeof computeMonthlyPacing>;
   placementMix: ReturnType<typeof buildPlacementMixSummary>;
+  /** The account's trusted IANA zone, or null when it could not be established. */
+  timeZone: string | null;
+  /**
+   * Whether this entity's edit age was KNOWABLE at all. Written into
+   * `sourceJson` so every consumer of the signal reads the same answer.
+   * @see lib/meta/recent-edit-authority.ts
+   */
+  recentEditAuthority: MetaRecentEditAuthorityRecord;
   sourceJson: Record<string, unknown>;
 }): MetaEntityDecisionSignal {
   const edit = significantEditFields({
     rows: input.configHistoryRows,
     asOfDate: input.asOfDate,
+    timeZone: input.timeZone,
   });
   const signal = {
     businessId: input.businessId,
@@ -629,6 +987,14 @@ function buildSignal(input: {
     trackingQualityStatus: input.trackingQuality.status,
     sourceJson: {
       ...input.sourceJson,
+      /*
+        ROUND 12. Beside `tracking_quality`, `monthly_pacing` and
+        `placement_mix`, and read the same way. This is the field that
+        distinguishes "the window was read and held no significant edit" from
+        "the window could not be read at all" — a distinction the three
+        edit columns above cannot carry, because both cases write null.
+      */
+      [META_RECENT_EDIT_AUTHORITY_KEY]: input.recentEditAuthority,
       tracking_quality: input.trackingQuality,
       monthly_pacing: input.monthlyPacing,
       placement_mix: input.placementMix,
@@ -674,8 +1040,21 @@ function signalCounts(signals: MetaEntityDecisionSignal[]) {
 export async function runMetaSignalsBackfillForBusiness(
   businessId: string,
   asOfDate: string,
+  /**
+   * ROUND 14, CONTRACT 3. The evaluation instant, captured once by the caller
+   * (or once here) and used for every clock comparison in this run. A test
+   * seam as well as a correctness one: a run must not drift across its own
+   * accounts because each read the wall clock separately.
+   */
+  input?: { now?: Date },
 ): Promise<RunMetaSignalsBackfillResult> {
   const normalizedAsOfDate = normalizeDate(asOfDate);
+  /*
+    ── ROUND 15, DEFECT 1: ONE INSTANT, CAPTURED BEFORE ANY READ ─────────────
+    Captured here rather than beside the receipt reads, because the config
+    history window is opened first and must be bounded by the SAME instant.
+  */
+  const evaluationNow = input?.now ?? new Date();
   const metricStartDate = addDaysToISO(normalizedAsOfDate, -27);
   const startDate = earlierISODate(metricStartDate, monthStartISO(normalizedAsOfDate));
   const last7Start = addDaysToISO(normalizedAsOfDate, -6);
@@ -724,16 +1103,267 @@ export async function runMetaSignalsBackfillForBusiness(
     adsetCreativeAge,
     campaignFirstSeen,
     adsetFirstSeen,
-    campaignHistory,
-    adsetHistory,
   ] = await Promise.all([
     readCreativeAgeDaysMax({ businessId, scopeType: "campaign", asOfDate: normalizedAsOfDate }),
     readCreativeAgeDaysMax({ businessId, scopeType: "adset", asOfDate: normalizedAsOfDate }),
     readDimensionFirstSeen({ businessId, scopeType: "campaign" }),
     readDimensionFirstSeen({ businessId, scopeType: "adset" }),
-    readConfigHistory({ businessId, scopeType: "campaign", entityIds: campaignIds, asOfDate: normalizedAsOfDate }),
-    readConfigHistory({ businessId, scopeType: "adset", entityIds: adsetIds, asOfDate: normalizedAsOfDate }),
   ]);
+
+  /*
+    ── ROUND 11 ITEM 1: THE ADVERTISER'S CALENDAR, PER ACCOUNT ────────────────
+
+    A business can carry several Meta accounts in different zones, so one map is
+    resolved for all of them and each entity is bounded by its OWN account's
+    calendar. An account with no binding, a null zone or a zone this runtime
+    cannot resolve is ABSENT from the map and its entities are not requested.
+
+    ── ROUND 12: WHAT THAT ABSENCE ACTUALLY DID ──────────────────────────────
+
+    Round 11 claimed here that a withheld account fails closed, "because they
+    carry no `lastSignificantEditAt`, `qualityStatusFor` does not call them
+    ready, and `blocksPurchaseHardAction` refuses on
+    `qualityStatus !== "ready"`". Every step of that was wrong:
+
+      - `qualityStatusFor` calls a pack READY at any three non-null signals out
+        of six, and `lastSignificantEditAt` is only one of the six. A learning
+        state, a frequency p80 and a CTR decay reach "ready" on their own.
+      - `blocksPurchaseHardAction` then tests
+        `daysSinceSignificantEdit != null && < 7`, and a null is not `< 7`.
+      - `recentEditCooldownActive` in the campaign emitters reads the same field
+        with the same null-passes semantics.
+
+    So the withheld account produced a signal that looked fully ready and
+    authorised Scale / Cut / Refresh against an edit age nobody had measured —
+    the exact opposite of failing closed.
+
+    The fix is to stop inferring the answer from an absent value and to record
+    it. Each entity gets an explicit authority.
+
+    ── ROUND 13: AND THE READ SUCCEEDING IS NOT ENOUGH EITHER ────────────────
+
+    Round 12's authority read READY as "trusted zone AND the config-history
+    query did not throw". Those tables are TRANSITION-ONLY, so a query that
+    returns nothing is equally consistent with "nothing changed", "we never
+    looked" and "we looked and failed" — and only the first is an observation.
+
+    READY now additionally requires a fresh COMPLETE current-config capture
+    receipt for this exact account, entity type and endpoint at or before the
+    same provider-local cutoff, with this entity present in it. Zero significant
+    edits under all of that stays READY, because that is an observation rather
+    than a failure.
+  */
+  const accountByEntity = new Map<string, string>();
+  for (const [entityId, rows] of campaignGroups) {
+    const account = rows[rows.length - 1]?.providerAccountId;
+    if (account) accountByEntity.set(`campaign:${entityId}`, account);
+  }
+  for (const [entityId, rows] of adsetGroups) {
+    const account = rows[rows.length - 1]?.providerAccountId;
+    if (account) accountByEntity.set(`adset:${entityId}`, account);
+  }
+  const timeZoneByAccount = await readMetaAccountTimeZones({
+    businessId,
+    providerAccountIds: Array.from(new Set(accountByEntity.values())),
+    query: (text, params) => getDb().query(text, params),
+  }).catch(() => new Map<string, string>());
+
+  /*
+    ── ROUND 15, DEFECT 1: THE BOUND, DERIVED ONCE PER ACCOUNT ───────────────
+
+    Computed here, before the config-history read, and reused verbatim by the
+    receipt/membership authority below. Previously the history window derived
+    its own end from `providerLocalDayEndExclusive` — the full provider day —
+    while the authority used `min(now, dayEnd)`. On the CURRENT day those are
+    different instants, so a transition captured after `now` could move
+    `daysSinceSignificantEdit` while being invisible to the evidence that was
+    supposed to justify reading it.
+
+    A completed historical day keeps its original day end, which is point-in-
+    time evidence about a day that has finished. A day that has not begun in
+    the advertiser's own calendar has no bound at all.
+  */
+  const knowledgeByAccount = new Map<
+    string,
+    { knowledgeEndExclusive: Date } | { refusal: MetaRecentEditAuthorityReason }
+  >();
+  for (const providerAccountId of new Set(accountByEntity.values())) {
+    const timeZone = timeZoneByAccount.get(providerAccountId);
+    knowledgeByAccount.set(
+      providerAccountId,
+      timeZone
+        ? resolveKnowledgeEndExclusive({
+            day: normalizedAsOfDate,
+            timeZone,
+            evaluationNow,
+          })
+        : { refusal: "provider_timezone_untrusted" },
+    );
+  }
+
+  const scopesFor = (
+    scopeType: MetaEntitySignalScopeType,
+    entityIds: string[],
+  ) =>
+    entityIds
+      .map((entityId) => {
+        const providerAccountId = accountByEntity.get(`${scopeType}:${entityId}`);
+        const timeZone = providerAccountId
+          ? timeZoneByAccount.get(providerAccountId)
+          : undefined;
+        const knowledge = providerAccountId
+          ? knowledgeByAccount.get(providerAccountId)
+          : undefined;
+        // An account with no usable bound is not requested at all: its entities
+        // are already denied, and reading a window nobody can bound would be
+        // the second reading this defect exists to remove.
+        return providerAccountId && timeZone && knowledge && !("refusal" in knowledge)
+          ? {
+              entityId,
+              providerAccountId,
+              timeZone,
+              knowledgeEndExclusive: knowledge.knowledgeEndExclusive,
+            }
+          : null;
+      })
+      .filter((scope): scope is NonNullable<typeof scope> => scope !== null);
+
+  const [campaignHistory, adsetHistory] = await Promise.all([
+    readConfigHistory({
+      businessId,
+      scopeType: "campaign",
+      entityScopes: scopesFor("campaign", campaignIds),
+      asOfDate: normalizedAsOfDate,
+    }),
+    readConfigHistory({
+      businessId,
+      scopeType: "adset",
+      entityScopes: scopesFor("adset", adsetIds),
+      asOfDate: normalizedAsOfDate,
+    }),
+  ]);
+
+  /*
+    ── ROUND 12: THE AUTHORITY, PER ENTITY ───────────────────────────────────
+
+    Resolved from the same three facts the window itself was built from, in the
+    order the failures actually occur. `observed` is the ONLY ready reason, and
+    it deliberately says nothing about whether an edit was found: an account
+    with a trusted zone and a clean 60-day history is `observed` with a null
+    `lastSignificantEditAt`, and must keep authorising actions.
+  */
+  /*
+    ── ROUND 13, DEFECT 1: THE OBSERVATION EVIDENCE, PER ACCOUNT ─────────────
+
+    Grouped by (scope type, physical account) because that is the grain a
+    capture receipt is written at, and resolved at the SAME provider-local
+    cutoff instant the history window closes on — so the evidence and the
+    window cannot describe different days or different accounts.
+  */
+  const observationEvidence = new Map<string, ObservationEvidence>();
+  const evidenceGroups = new Map<
+    string,
+    { scopeType: MetaEntitySignalScopeType; providerAccountId: string; entityIds: string[] }
+  >();
+  for (const scopeType of ["campaign", "adset"] as const) {
+    for (const entityId of scopeType === "campaign" ? campaignIds : adsetIds) {
+      const providerAccountId = accountByEntity.get(`${scopeType}:${entityId}`);
+      if (!providerAccountId) continue;
+      // No trusted zone means no cutoff instant to bind the evidence to, and
+      // the entity is already denied on that reason alone.
+      if (!timeZoneByAccount.get(providerAccountId)) continue;
+      const key = `${scopeType}:${providerAccountId}`;
+      const group = evidenceGroups.get(key) ?? {
+        scopeType,
+        providerAccountId,
+        entityIds: [],
+      };
+      group.entityIds.push(entityId);
+      evidenceGroups.set(key, group);
+    }
+  }
+  /*
+    ── ROUND 14, CONTRACT 3 ──────────────────────────────────────────────────
+    ONE evaluation instant for the whole run, so every account, entity and
+    clock comparison below is taken against the same "now". Reading the wall
+    clock per call would let two entities of one account disagree about it.
+  */
+  await Promise.all(
+    Array.from(evidenceGroups.values()).map(async (group) => {
+      const knowledge = knowledgeByAccount.get(group.providerAccountId)!;
+      const resolved =
+        "refusal" in knowledge
+          ? new Map<string, ObservationEvidence>(
+              group.entityIds.map((entityId) => [
+                entityId,
+                { ok: false as const, reason: knowledge.refusal },
+              ]),
+            )
+          : await readObservationEvidence({
+              businessId,
+              providerAccountId: group.providerAccountId,
+              scopeType: group.scopeType,
+              entityIds: group.entityIds,
+              knowledgeEndExclusive: knowledge.knowledgeEndExclusive,
+            }).catch(
+              () =>
+                new Map<string, ObservationEvidence>(
+                  group.entityIds.map((entityId) => [
+                    entityId,
+                    {
+                      ok: false as const,
+                      reason: "config_history_read_failed" as const,
+                    },
+                  ]),
+                ),
+            );
+      for (const [entityId, value] of resolved) {
+        observationEvidence.set(`${group.scopeType}:${entityId}`, value);
+      }
+    }),
+  );
+
+  const recentEditAuthorityFor = (
+    scopeType: MetaEntitySignalScopeType,
+    entityId: string,
+  ): MetaRecentEditAuthorityRecord => {
+    const providerAccountId = accountByEntity.get(`${scopeType}:${entityId}`);
+    const timeZone = providerAccountId
+      ? (timeZoneByAccount.get(providerAccountId) ?? null)
+      : null;
+    const readOk =
+      scopeType === "campaign" ? campaignHistory.readOk : adsetHistory.readOk;
+    /*
+      Ordered by which failure actually happened first. `observed` is reached
+      ONLY when the account resolved, its zone is trusted, the transition read
+      succeeded, AND a fresh complete current-config receipt names this exact
+      entity. Zero transitions under all four is a known no-edit result.
+    */
+    const evidence =
+      observationEvidence.get(`${scopeType}:${entityId}`) ??
+      ({
+        ok: false,
+        reason: "observation_receipt_missing",
+        detail: null,
+      } as ObservationEvidence);
+    const reason: MetaRecentEditAuthorityReason = !providerAccountId
+      ? "provider_account_unresolved"
+      : !timeZone
+        ? "provider_timezone_untrusted"
+        : !readOk
+          ? "config_history_read_failed"
+          : evidence.ok
+            ? "observed"
+            : evidence.reason;
+    return metaRecentEditAuthorityRecord({
+      status: reason === "observed" ? "ready" : "unavailable",
+      reason,
+      detail: evidence.ok ? null : (evidence.detail ?? null),
+      // Only a ready authority carries a zone: an unavailable one has either no
+      // zone at all, or a zone whose window was never successfully attested.
+      timeZone: reason === "observed" ? timeZone : null,
+    });
+  };
 
   const adsetLearningByCampaign = new Map<string, MetaLearningState[]>();
   const adsetSignals = Array.from(adsetGroups.entries()).map(([adsetId, rows]) => {
@@ -750,13 +1380,16 @@ export async function runMetaSignalsBackfillForBusiness(
     return buildSignal({
       businessId,
       providerAccountId: latest.providerAccountId,
+      // The account's own calendar, or null when it could not be established.
+      timeZone: timeZoneByAccount.get(latest.providerAccountId) ?? null,
       scopeType: "adset",
       scopeId: adsetId,
       asOfDate: normalizedAsOfDate,
       rows: sortedRows,
       learningState,
       creativeAgeDaysMax: adsetCreativeAge.get(adsetId) ?? null,
-      configHistoryRows: adsetHistory.get(adsetId) ?? [],
+      configHistoryRows: adsetHistory.byEntity.get(adsetId) ?? [],
+      recentEditAuthority: recentEditAuthorityFor("adset", adsetId),
       trackingQuality: trackingQualityFromAdRows(adRowsByAdset.get(adsetId) ?? [], metricStartDate, normalizedAsOfDate),
       monthlyPacing: computeMonthlyPacing({
         rows: sortedRows,
@@ -783,13 +1416,15 @@ export async function runMetaSignalsBackfillForBusiness(
     return buildSignal({
       businessId,
       providerAccountId: latest.providerAccountId,
+      timeZone: timeZoneByAccount.get(latest.providerAccountId) ?? null,
       scopeType: "campaign",
       scopeId: campaignId,
       asOfDate: normalizedAsOfDate,
       rows: sortedRows,
       learningState,
       creativeAgeDaysMax: campaignCreativeAge.get(campaignId) ?? null,
-      configHistoryRows: campaignHistory.get(campaignId) ?? [],
+      configHistoryRows: campaignHistory.byEntity.get(campaignId) ?? [],
+      recentEditAuthority: recentEditAuthorityFor("campaign", campaignId),
       trackingQuality: trackingQualityFromAdRows(adRowsByCampaign.get(campaignId) ?? [], metricStartDate, normalizedAsOfDate),
       monthlyPacing: computeMonthlyPacing({
         rows: sortedRows,

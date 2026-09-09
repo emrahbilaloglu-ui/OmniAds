@@ -27,9 +27,17 @@
 //            engine_v3_account_profile_output rows = []
 //
 // while the SAME account, one calibration run later, serves `resolved` with a
-// spend unit of 26.36363636363636 (58.00 store AOV / 2.20 target ROAS) and all
-// three actions eligible. Withholding was the defect: nothing about that
-// account had changed.
+// resolved spend unit and all three actions eligible. Withholding was the
+// defect: nothing about that account had changed.
+//
+// THE COMMERCIAL BASIS, RE-PINNED. That unit used to be 26.36363636363636 —
+// 58.00 store AOV / 2.20 target ROAS — because `resolveSpendUnit` carried an
+// `observed_shopify_aov` rung. It does not any more: for a META decision the
+// hard-decision unit is META'S OWN attributed purchase AOV for this account
+// divided by the target ROAS, and the merchant's settled Shopify orders are a
+// different book. The number below is therefore 36.00 / 2.20, and item 4's
+// six-purchase account now fails the commercial threshold itself rather than
+// only the calibration floor.
 //
 // WHAT THIS FILE PROVES, through the REAL exported route handler under a REAL
 // session cookie, against a REAL migrated ephemeral database:
@@ -54,12 +62,12 @@
 //      refusals, and the sibling's own answer is untouched.
 //   4. A BUSINESS THAT REALLY POOLS IS NOT POOLED. An account with 6 mature
 //      converters beside a sibling with 32 is served its OWN 6 in the
-//      transitional state, and Scale is withheld with the resolver's own
-//      `scale_calibration_below_floor` — the same verdict it gets one
-//      calibration run later. This case used to assert the opposite: that the
-//      pooled 38 was served, labelled `business_pooled`, with the retained row
-//      agreeing. See the comment on that case for why that expectation was
-//      wrong.
+//      transitional state, and every action is withheld with the resolver's own
+//      `commercial_anchor_sample_insufficient` — six attributed purchases are
+//      below the `ready` bar — the same verdict it gets one calibration run
+//      later. This case used to assert the opposite: that the pooled 38 was
+//      served, labelled `business_pooled`, with the retained row agreeing. See
+//      the comment on that case for why that expectation was wrong.
 //   5. UNREADABLE — a probe that FAILED is not the fact that a scope is
 //      missing. It holds under its own code with its own sentence, and neither
 //      the code nor the sentence is the absent one's.
@@ -88,6 +96,7 @@
 // substitute `.env.local`. It is stopped and deleted afterwards. When no
 // PostgreSQL binaries are present the whole file skips rather than passing
 // vacuously.
+import { sharedEphemeralDatabaseUrl } from "@/lib/test-utils/shared-ephemeral-database";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -96,6 +105,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { seedCanonicalMetaAdDailyFacts } from "@/lib/creative-decision-engine/meta-aov-calculator.test-helpers";
+import { seedHealthyDbHostCapacitySnapshot } from "@/lib/sync/db-growth-fence.test-helpers";
 
 /** Never the local volume, never the production tunnel. */
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
@@ -120,7 +131,8 @@ function postgresBinDir(): string | null {
 }
 
 const PG_BIN = postgresBinDir();
-const RUNNABLE = PG_BIN !== null;
+const SHARED_DATABASE_URL = sharedEphemeralDatabaseUrl();
+const RUNNABLE = SHARED_DATABASE_URL !== null || PG_BIN !== null;
 
 function run(command: string, args: string[]) {
   const result = spawnSync(command, args, {
@@ -340,6 +352,8 @@ describe.skipIf(!RUNNABLE)(
       )) as Array<{ scope_id: string }>;
 
     beforeAll(async () => {
+      let databaseUrl = SHARED_DATABASE_URL;
+      if (!databaseUrl) {
       const port = await freePort();
       if (FORBIDDEN_PORTS.has(port)) {
         throw new Error(`Refusing forbidden PostgreSQL port ${port}.`);
@@ -379,8 +393,9 @@ describe.skipIf(!RUNNABLE)(
         DB_USER,
         DB_NAME,
       ]);
-      const databaseUrl = `postgresql://${DB_USER}@127.0.0.1:${port}/${DB_NAME}`;
+      databaseUrl = `postgresql://${DB_USER}@127.0.0.1:${port}/${DB_NAME}`;
       await migrate(databaseUrl);
+      }
       process.env.DATABASE_URL = databaseUrl;
       process.env.DATABASE_URL_UNPOOLED = databaseUrl;
       process.env.DB_SSL_MODE = "disable";
@@ -388,7 +403,8 @@ describe.skipIf(!RUNNABLE)(
 
       db = await import("@/lib/db");
       const sql = db.getDb();
-      const { upsertMetaCreativeDailyRows } = await import(
+      await seedHealthyDbHostCapacitySnapshot(sql, "anchor-scope-test-host");
+      const { upsertMetaAdDailyRows, upsertMetaCreativeDailyRows } = await import(
         "@/lib/meta/warehouse"
       );
       const { runCalibrationJob } = await import(
@@ -473,6 +489,11 @@ describe.skipIf(!RUNNABLE)(
           });
         }
         await upsertMetaCreativeDailyRows(rows);
+        await seedCanonicalMetaAdDailyFacts({
+          sql,
+          rows,
+          write: upsertMetaAdDailyRows,
+        });
       };
 
       const seedBusiness = async (businessId: string, name: string) => {
@@ -715,7 +736,10 @@ describe.skipIf(!RUNNABLE)(
       ]);
       const materialised = await serve(SOLO_BUSINESS, SOLO_ACCOUNT);
       expect(materialised.anchor.status).toBe("resolved");
-      expect(materialised.anchor.explanation?.spendUnit).toBeCloseTo(26.363636, 5);
+      // 36.00 Meta-attributed AOV / 2.20 target ROAS. This used to be the
+      // store's 58.00 / 2.20 = 26.36; the store rung is gone from
+      // `resolveSpendUnit` and the account's own attributed AOV is the basis.
+      expect(materialised.anchor.explanation?.spendUnit).toBeCloseTo(36 / 2.2, 9);
 
       // The warehouse a deploy of the per-account writer lands on: the pooled
       // rows the previous release wrote, and nothing account-named at all.
@@ -729,10 +753,16 @@ describe.skipIf(!RUNNABLE)(
       // 1. THE OPERATOR STILL GETS THE ANSWER. Same number, same three actions.
       expect(served.anchor.status).toBe("resolved");
       expect(served.anchor.unavailableReason).toBeNull();
+      /*
+        RE-PINNED to the canonical basis. This account has forty of its own
+        Meta-attributed purchases, so the answer it is entitled to is still an
+        affirmative one — which is what keeps the transition case meaningful
+        after the store rung was retired, rather than turning it into a hold.
+      */
       expect(served.anchor.explanation?.spendUnitSource).toBe(
-        "observed_shopify_aov",
+        "meta_derived_aov",
       );
-      expect(served.anchor.explanation?.spendUnit).toBeCloseTo(26.363636, 5);
+      expect(served.anchor.explanation?.spendUnit).toBeCloseTo(36 / 2.2, 9);
       expect(
         served.anchor.actions.map(
           (action) => `${action.action}:${action.eligible}:${action.blockerCode}`,
@@ -933,7 +963,7 @@ describe.skipIf(!RUNNABLE)(
         providerAccountId: SIB_COVERED,
         basis: "materialised_account_scope",
       });
-      expect(covered.anchor.explanation?.spendUnit).toBeCloseTo(26.363636, 5);
+      expect(covered.anchor.explanation?.spendUnit).toBeCloseTo(36 / 2.2, 9);
     }, 180_000);
 
     it("measures a business that really pools from this account alone", async () => {
@@ -1019,15 +1049,24 @@ describe.skipIf(!RUNNABLE)(
           blockerCode: servedByAction.get(row.action)!.blockerCode,
         });
       }
-      // Six samples do not clear the 30-creative automation-quality floor, and
-      // the sibling's 32 are not this account's to spend.
-      expect(servedByAction.get("scale")!.eligible).toBe(false);
-      expect(servedByAction.get("scale")!.blockerCode).toBe(
-        "scale_calibration_below_floor",
-      );
-      // The rest of the answer is intact: this is isolation, not a hold.
-      expect(servedByAction.get("cut")!.eligible).toBe(true);
-      expect(servedByAction.get("refresh")!.eligible).toBe(true);
+      /*
+        Six samples are this account's whole evidence, and the sibling's 32 are
+        not this account's to spend — which is what the case measures, and it is
+        unchanged.
+
+        RE-PINNED on WHICH refusal comes first. Six attributed purchases are
+        below the resolver's `ready` bar as well as the 30-creative
+        automation-quality floor, so with the store rung retired the commercial
+        threshold is unmet and its blocker outranks the calibration one on all
+        three actions. Isolation is still what is being proved; the isolated
+        answer is simply stricter than it was.
+      */
+      for (const action of ["scale", "cut", "refresh"] as const) {
+        expect(servedByAction.get(action)!.eligible).toBe(false);
+        expect(servedByAction.get(action)!.blockerCode).toBe(
+          "commercial_anchor_sample_insufficient",
+        );
+      }
 
       /*
         ONE CALIBRATION RUN LATER nothing about the verdict moves. The same
@@ -1051,9 +1090,9 @@ describe.skipIf(!RUNNABLE)(
           (action) => `${action.action}:${action.eligible}:${action.blockerCode}`,
         ),
       ).toEqual([
-        "scale:false:scale_calibration_below_floor",
-        "cut:true:null",
-        "refresh:true:null",
+        "scale:false:commercial_anchor_sample_insufficient",
+        "cut:false:commercial_anchor_sample_insufficient",
+        "refresh:false:commercial_anchor_sample_insufficient",
       ]);
       await produceRetained({
         businessId: POOL_BUSINESS,
@@ -1071,7 +1110,7 @@ describe.skipIf(!RUNNABLE)(
       )) as Array<{ eligible: boolean; blocker_code: string | null }>;
       expect(newest[0]).toEqual({
         eligible: false,
-        blocker_code: "scale_calibration_below_floor",
+        blocker_code: "commercial_anchor_sample_insufficient",
       });
     }, 180_000);
 

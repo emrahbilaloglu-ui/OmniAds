@@ -43,6 +43,13 @@ class ProfileDataSource implements CreativeDecisionDataSource {
       CalibrationCampaignKind,
       AccountFunnelCalibration | null
     > | null = null,
+    private readonly liveMetaAov: {
+      aovMean: number | null;
+      purchaseCount: number;
+      totalRevenue: number;
+      windowStart: string;
+      windowEnd: string;
+    } | null = null,
   ) {}
 
   async getCreativeInput(): Promise<CreativeInput | null> {
@@ -114,7 +121,7 @@ class ProfileDataSource implements CreativeDecisionDataSource {
   }
 
   async getMetaAttributedAov() {
-    return {
+    return this.liveMetaAov ?? {
       aovMean: this.calibration.metaAttributedAovMean90d,
       purchaseCount: this.calibration.metaAttributedAovPurchaseCount90d,
       totalRevenue: this.calibration.metaAttributedRevenue90d,
@@ -234,6 +241,256 @@ describe("resolveAccountDecisionProfile", () => {
     expect(overlaidProfile.hardActionEligibility.cut).toBe(true);
   });
 
+  /*
+    ── ROUND 9 ITEM 2: THE PROFILE OBEYS ITS OWN CUTOFF ──────────────────────
+
+    `resolveAccountDecisionProfile` passed no cutoff into
+    `resolveSpendUnitProfile` / `resolveHardActionEligibility`, and the check
+    there asked whether `updatedAt` PARSED. So a target pack saved after the day
+    being reconstructed made every hard action eligible — a point-in-time
+    profile granting authority from evidence that did not exist yet.
+
+    `asOf: "2026-05-04"` widens to the deterministic cutoff
+    `2026-05-04T03:00:00.000Z`, the same rule the historical pack reader
+    applies. These cases drive the real resolver across that boundary.
+  */
+  const CUTOFF_PACK_ASOF = "2026-05-04";
+
+  function packAt(updatedAt: string | null): BusinessTargetPack {
+    return {
+      targetCpa: null,
+      targetRoas: 2.2,
+      breakEvenCpa: null,
+      breakEvenRoas: 1.7,
+      operatorAovAssumption: null,
+      defaultRiskPosture: "balanced",
+      updatedAt,
+      freshness: "fresh",
+    } as BusinessTargetPack;
+  }
+
+  const readyCalibrationByKind = () => {
+    const ready = makeAccountCalibration({
+      metaAttributedAovMean90d: 50,
+      metaAttributedAovPurchaseCount90d: 42,
+      metaAttributedRevenue90d: 2100,
+      metaAovQuality: "ready" as const,
+    });
+    return {
+      all: { ...ready, campaignKind: "all" as const },
+      main: { ...ready, campaignKind: "main" as const },
+      test: null,
+      mixed: null,
+    };
+  };
+
+  const profileWithPackAt = async (
+    updatedAt: string,
+    asOf = CUTOFF_PACK_ASOF,
+  ) =>
+    resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000501",
+      asOf,
+      dataSource: new ProfileDataSource(
+        packAt(updatedAt),
+        makeAccountCalibration({
+          metaAttributedAovMean90d: 50,
+          metaAttributedAovPurchaseCount90d: 42,
+          metaAttributedRevenue90d: 2100,
+          metaAovQuality: "ready",
+        }),
+        null,
+        { calibration: null, matureCreativeCount: null },
+        readyCalibrationByKind(),
+      ),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+
+  it("keeps every hard action eligible for a pack in force AT the cutoff", async () => {
+    // The control. Without it the refusals below would be satisfied by a
+    // profile that simply never grants anything.
+    const profile = await profileWithPackAt("2026-05-04T03:00:00.000Z");
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: true,
+      cut: true,
+    });
+    expect(profile.spendUnitSource).toBe("meta_derived_aov");
+  });
+
+  it("lets cutoff-safe account AOV override a populated legacy calibration under Target ROAS", async () => {
+    const unsafeLegacy = makeAccountCalibration({
+      metaAttributedAovMean90d: 999,
+      metaAttributedAovPurchaseCount90d: 99,
+      metaAttributedRevenue90d: 98_901,
+      metaAovQuality: "ready",
+    });
+    const unsafeLegacyByKind = {
+      all: { ...unsafeLegacy, campaignKind: "all" as const },
+      main: { ...unsafeLegacy, campaignKind: "main" as const },
+      test: null,
+      mixed: null,
+    };
+    const liveMetaAov = {
+      aovMean: 58,
+      purchaseCount: 20,
+      totalRevenue: 1_160,
+      windowStart: "2026-02-05",
+      windowEnd: "2026-05-04",
+    };
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000501",
+      asOf: CUTOFF_PACK_ASOF,
+      dataSource: new ProfileDataSource(
+        packAt("2026-05-04T03:00:00.000Z"),
+        unsafeLegacy,
+        null,
+        { calibration: null, matureCreativeCount: null },
+        unsafeLegacyByKind,
+        null,
+        liveMetaAov,
+      ),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+
+    expect(profile.spendUnitSource).toBe("meta_derived_aov");
+    expect(profile.spendUnit).toBeCloseTo(58 / 2.2, 10);
+    expect(profile.spendUnit).not.toBeCloseTo(999 / 2.2, 10);
+    expect(profile.hardActionEligibility.scale).toBe(true);
+    expect(profile.hardActionEligibilityByKind?.main?.scale).toBe(true);
+  });
+
+  it("treats an empty cutoff-safe account AOV as HOLD instead of reviving legacy calibration", async () => {
+    const unsafeLegacy = makeAccountCalibration({
+      metaAttributedAovMean90d: 999,
+      metaAttributedAovPurchaseCount90d: 99,
+      metaAttributedRevenue90d: 98_901,
+      metaAovQuality: "ready",
+    });
+    const unsafeLegacyByKind = {
+      all: { ...unsafeLegacy, campaignKind: "all" as const },
+      main: { ...unsafeLegacy, campaignKind: "main" as const },
+      test: null,
+      mixed: null,
+    };
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000501",
+      asOf: CUTOFF_PACK_ASOF,
+      dataSource: new ProfileDataSource(
+        packAt("2026-05-04T03:00:00.000Z"),
+        unsafeLegacy,
+        null,
+        { calibration: null, matureCreativeCount: null },
+        unsafeLegacyByKind,
+        null,
+        {
+          aovMean: null,
+          purchaseCount: 0,
+          totalRevenue: 0,
+          windowStart: "2026-02-05",
+          windowEnd: "2026-05-04",
+        },
+      ),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+
+    expect(profile.spendUnitSource).toBe("insufficient");
+    expect(profile.spendUnit).toBeNull();
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+    expect(profile.hardActionEligibilityByKind?.main).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+  });
+
+  it("makes EVERY hard action ineligible one millisecond after the cutoff", async () => {
+    const profile = await profileWithPackAt("2026-05-04T03:00:00.001Z");
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+  });
+
+  it("makes every hard action ineligible one microsecond after an exact cutoff", async () => {
+    const profile = await profileWithPackAt(
+      "2026-05-04T03:00:00.000900Z",
+      "2026-05-04T03:00:00.000100Z",
+    );
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+    expect(profile.hardActionEligibilityByKind?.main).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+  });
+
+  it("keeps every hard action eligible at an offset-equivalent exact cutoff", async () => {
+    const profile = await profileWithPackAt(
+      "2026-05-04T05:00:00.0009+02:00",
+      "2026-05-04T03:00:00.000900Z",
+    );
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: true,
+      cut: true,
+    });
+    expect(profile.hardActionEligibilityByKind?.main?.scale).toBe(true);
+  });
+
+  it("applies the same cutoff to the PER-KIND profiles", async () => {
+    /*
+      The canonical profile and the per-kind profiles are resolved by separate
+      calls. Threading the cutoff into one and not the other would let a
+      campaign-kind lane act on a pack the account-level lane had just refused —
+      which is why `asOfCutoffMs` is a REQUIRED field on both callees rather
+      than an optional one.
+    */
+    const inForce = await profileWithPackAt("2026-05-04T02:59:59.999Z");
+    const afterCutoff = await profileWithPackAt("2026-05-04T03:00:00.001Z");
+    expect(inForce.hardActionEligibilityByKind?.main).toMatchObject({
+      cut: true,
+    });
+    expect(afterCutoff.hardActionEligibilityByKind?.main).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+  });
+
+  it("fails closed when no deterministic cutoff can be derived at all", async () => {
+    /*
+      Never a wall clock. An `asOf` this code cannot read is an absent cutoff,
+      and an absent cutoff cannot authorize anything.
+    */
+    const profile = await resolveAccountDecisionProfile({
+      businessId: "00000000-0000-4000-8000-000000000501",
+      asOf: "2026-02-30",
+      dataSource: new ProfileDataSource(
+        packAt("2026-02-01T00:00:00.000Z"),
+        makeAccountCalibration({
+          metaAttributedAovMean90d: 50,
+          metaAttributedAovPurchaseCount90d: 42,
+          metaAttributedRevenue90d: 2100,
+          metaAovQuality: "ready",
+        }),
+      ),
+      flags: makeFlags({ shadowOnly: false }),
+    });
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+      refresh: false,
+    });
+  });
+
   it("builds a production-like Meta-derived profile with populated thresholds", async () => {
     const profile = await resolveAccountDecisionProfile({
       businessId: "00000000-0000-4000-8000-000000000501",
@@ -279,8 +536,18 @@ describe("resolveAccountDecisionProfile", () => {
       flags: makeFlags({ shadowOnly: false }),
     });
 
-    expect(profile.spendUnit).toBe(100);
-    expect(profile.spendUnitConfidence).toBe("high");
+    /*
+      RE-PINNED for the reordered ladder. This pack carries a Target ROAS of
+      2.2 alongside its legacy Target CPA of 100, so the unit is now the
+      account's Meta-attributed AOV (50) over that ratio and its confidence is
+      the sampled `medium` rather than the configured `high`. What this test is
+      actually about — an old but timestamp-TRUSTED target staying fully
+      eligible, and saying it is stale — is unchanged, and is what the
+      assertions below still measure.
+    */
+    expect(profile.spendUnit).toBeCloseTo(50 / 2.2, 10);
+    expect(profile.spendUnit).not.toBe(100);
+    expect(profile.spendUnitConfidence).toBe("medium");
     expect(profile.spendUnitEvidence.warnings).toContain(
       "commercial_target_stale",
     );
@@ -318,13 +585,13 @@ describe("resolveAccountDecisionProfile", () => {
       refresh: true,
       reasons: {
         scale: "valid explicit target ROAS is required for scale authority",
-        cut: "valid explicit break-even ROAS is required for cut authority",
+        cut: "valid explicit break-even or target ROAS is required for cut authority",
       },
     });
     expect(profile.quality.commercialTruthReady).toBe(false);
   });
 
-  it("does not let a growth target authorize economic cut", async () => {
+  it("lets a growth target anchor cut without inventing a loss boundary", async () => {
     const profile = await resolveAccountDecisionProfile({
       businessId: "00000000-0000-4000-8000-000000000512",
       asOf: "2026-05-04",
@@ -339,14 +606,20 @@ describe("resolveAccountDecisionProfile", () => {
       flags: makeFlags({ shadowOnly: false }),
     });
 
+    // A configured Target ROAS plus the canonical Meta AOV is a sufficient
+    // Cut anchor: it sizes the loss-budget spend unit. Requiring a second
+    // operator-typed ratio blocked every Cut on accounts that configure only
+    // a Target ROAS.
     expect(profile.hardActionEligibility).toMatchObject({
       scale: true,
-      cut: false,
+      cut: true,
       refresh: true,
     });
-    expect(profile.hardActionEligibility.reasons?.cut).toBe(
-      "valid explicit break-even ROAS is required for cut authority",
-    );
+    expect(profile.hardActionEligibility.reasons?.cut).toBeNull();
+    // What must NOT happen: a synthetic break-even. With none configured the
+    // resolver's economic strip (`cut-policy.hasExplicitBreakEven`) stays
+    // unreachable and Cut keeps using the account-relative boundary.
+    expect(profile.spendUnitEvidence.breakEvenRoas).toBeNull();
   });
 
   it("does not let a loss boundary authorize scale", async () => {
@@ -645,14 +918,21 @@ describe("resolveAccountDecisionProfile", () => {
       }),
     });
 
-    expect(profile.spendUnitConfidence).toBe("low");
+    /*
+      ROUND 6: a six-purchase sample under a Target ROAS builds no unit at all,
+      so the confidence is the hold rather than a `low` attached to a number.
+      Everything this case is actually about — all three hard actions refused,
+      and the refresh reason naming the confidence — is unchanged.
+    */
+    expect(profile.spendUnitConfidence).toBe("insufficient");
+    expect(profile.spendUnit).toBeNull();
     expect(profile.hardActionEligibility).toMatchObject({
       scale: false,
       cut: false,
       refresh: false,
     });
     expect(profile.hardActionEligibility.reasons?.refresh).toContain(
-      "low confidence",
+      "confidence",
     );
   });
 

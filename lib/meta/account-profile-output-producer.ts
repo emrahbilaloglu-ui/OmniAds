@@ -27,9 +27,14 @@
  *   both of its clocks, the operator's calibration profile, and the engine
  *   flags. An operator who edits their target ROAS changes this digest.
  * - `sourceFingerprint` — the MEASURED side: the account and funnel
- *   calibration the warehouse computed, the store's observed average order
- *   value evidence, and the account currency. A new day of sales changes this
- *   digest.
+ *   calibration the warehouse computed, the account currency, and the scope
+ *   those readings came from. A new day of Meta sales changes this digest.
+ *   It deliberately EXCLUDES the store's observed average order value: that
+ *   evidence chooses no rung under D091, so it cannot change the verdict, and
+ *   a fact that cannot change the verdict must not be able to invalidate a
+ *   retained one. It used to be digested here, and the consequence was that a
+ *   single new Shopify order answered `retained_profile_source_mismatch` and
+ *   discarded an unchanged Meta verdict. See the note at the digest itself.
  *
  * AND THE MEASURED SIDE IS ONE ACCOUNT'S. A business can hold several Meta ad
  * accounts, and the warehouse readers default to all of them: the pooled
@@ -149,6 +154,7 @@
  * row checked against itself.
  */
 import { createHash } from "node:crypto";
+import { deterministicCommercialCutoff } from "@/lib/meta/commercial-target-instant";
 
 import { getDb } from "@/lib/db";
 import {
@@ -160,6 +166,13 @@ import {
   type DecisionCalibrationProfileConfig,
 } from "@/lib/creative-decision-engine/data-source";
 import { resolveAccountDecisionProfile } from "@/lib/creative-decision-engine/account-decision-profile";
+import {
+  projectEffectiveMetaAovSemantics,
+  projectAccountCpaForIdentity,
+  projectCommercialTargetPackForIdentity,
+  projectProfileConfigForIdentity,
+  shouldReadStrictMetaAov,
+} from "@/lib/creative-decision-engine/commercial-semantic-projection";
 import {
   observedShopifyAovIsUsable,
   resolveObservedShopifyAov,
@@ -186,7 +199,7 @@ import {
 } from "@/lib/meta/budget-readiness-retention";
 
 export const ACCOUNT_PROFILE_OUTPUT_PRODUCER_CONTRACT =
-  "meta.account-profile-output-producer.v1" as const;
+  "meta.account-profile-output-producer.v2" as const;
 
 /** The two digests a retained verdict carries, and a reader re-derives. */
 export interface AccountProfileRetentionIdentity {
@@ -220,6 +233,18 @@ export interface AccountProfileRetentionInputs {
   flags: EngineV3Flags;
   accountCalibration: AccountCalibration;
   funnelCalibration: AccountFunnelCalibration;
+  /**
+   * The one strict physical-account AOV observation this input read performed.
+   *
+   * `not_read` preserves the no-ROAS legacy case where calibration already has
+   * all AOV fields. `failed` is distinct from an empty successful result so the
+   * pinned resolver source can reproduce the thrown read its own catch converts
+   * to a fail-closed absence. Neither state permits a second warehouse read.
+   */
+  strictMetaAov:
+    | { status: "not_read" }
+    | { status: "resolved"; value: MetaAttributedAovResult }
+    | { status: "failed" };
   observedShopifyAov: ObservedShopifyAovEvidence | null;
   /**
    * Whether the measured facts above came from this account's OWN retained
@@ -725,11 +750,46 @@ export async function readAccountProfileRetentionInputs(
           providerAccountId: measurement.readProviderAccountId,
         }),
       ]);
+    const strictMetaAov: AccountProfileRetentionInputs["strictMetaAov"] =
+      shouldReadStrictMetaAov(targetPack, accountCalibration)
+        ? await dataSource.getMetaAttributedAov({
+          businessId: scope.businessId,
+          providerAccountId: measurement.providerAccountId,
+          asOf: scope.asOfDate,
+          windowDays: 90,
+        }).then(
+          (value) => ({ status: "resolved" as const, value }),
+          () => ({ status: "failed" as const }),
+        )
+        : { status: "not_read" };
     /*
-      The store's evidence is consulted only when no configured unit exists,
-      exactly as the snapshot's own benchmark resolution does it. ROAS stays
-      the only required commercial target: a target CPA or an operator AOV
-      short-circuits this read, and their absence is not a blocker.
+      DIAGNOSTIC EVIDENCE, gathered when it is worth the query and never a rung.
+
+      The store's average order value chooses no basis anywhere (D091): the
+      canonical unit is Meta's own attributed AOV over the target ROAS, and
+      `resolveSpendUnit` has no `observed_shopify_aov` rung to reach. What this
+      read still produces is CONTEXT — a merchant's settled orders beside Meta's
+      attributed ones — carried in `spendUnitEvidence` and shown as clearly
+      labelled diagnostic evidence.
+
+      The comment here used to say the read mirrors "the snapshot's own
+      benchmark resolution", which stopped being true when the snapshot stopped
+      reading the store at all. The short-circuit that remains is kept only
+      because a configured target CPA or operator AOV is the state in which the
+      contextual comparison is least informative — NOT because either
+      suppresses a rung.
+
+      This comment also used to claim the resulting `source_fingerprint`
+      asymmetry between those accounts and the rest was "known and deliberate".
+      That framing hid a real defect. The value below was digested into the
+      MEASURED half of the retention identity, and that half is persisted as
+      `engine_v3_account_profile_output.source_fingerprint` — `NOT NULL`, and
+      part of the table's UNIQUE key (`lib/migrations.ts`) — then compared for
+      agreement by `budget-readiness-retention.ts`, which answers
+      `retained_profile_source_mismatch` and discards the retained verdict when
+      it moves. So one new Shopify order, or a `status` flip to `stale`, threw
+      away a Meta verdict that had not changed. Evidence that chooses no rung
+      must not key an identity either; the digest no longer reads it.
     */
     const observedShopifyAov =
       targetPack?.targetCpa || targetPack?.operatorAovAssumption
@@ -750,6 +810,7 @@ export async function readAccountProfileRetentionInputs(
       flags,
       accountCalibration,
       funnelCalibration,
+      strictMetaAov,
       observedShopifyAov,
       measuredScope,
       populationBreadth,
@@ -782,23 +843,65 @@ export function accountProfileRetentionIdentity(
     asOfDate: inputs.asOfDate,
   };
   const calibration = inputs.accountCalibration;
+  const effectiveMetaAov = projectEffectiveMetaAovSemantics({
+    targetPack: inputs.targetPack,
+    calibration,
+    strictMetaAov:
+      inputs.strictMetaAov.status === "resolved"
+        ? inputs.strictMetaAov.value
+        : null,
+  });
   return {
     inputFingerprint: digest({
       ...scope,
       side: "configured",
-      targetPack: inputs.targetPack
-        ? {
-          targetCpa: inputs.targetPack.targetCpa ?? null,
-          targetRoas: inputs.targetPack.targetRoas ?? null,
-          breakEvenCpa: inputs.targetPack.breakEvenCpa ?? null,
-          breakEvenRoas: inputs.targetPack.breakEvenRoas ?? null,
-          operatorAovAssumption: inputs.targetPack.operatorAovAssumption ?? null,
-          defaultRiskPosture: inputs.targetPack.defaultRiskPosture ?? null,
-          updatedAt: inputs.targetPack.updatedAt ?? null,
-          freshness: inputs.targetPack.freshness ?? null,
-        }
-        : null,
-      profileConfig: inputs.profileConfig ?? null,
+      /*
+        THE SEMANTIC PROJECTION, not the raw pack.
+
+        This enumerated `targetCpa`, `breakEvenCpa`, `operatorAovAssumption`,
+        `updatedAt` and `freshness` directly, so on an account governed by its
+        Target ROAS a Target-CPA edit — or merely re-saving the pack, which
+        moves `updatedAt` on its own — changed `input_fingerprint`. That
+        fingerprint is persisted and compared, so the retained verdict then
+        failed its agreement check with `retained_profile_input_mismatch` and
+        was discarded for an edit that could not have changed the decision.
+
+        Dropping the numbers alone would not have closed it: the row's
+        timestamp travels with them and moves on any re-save. The shared
+        projection removes both in the governed case and preserves the whole
+        pack — CPA, timestamp and all — in the no-Target-ROAS compatibility
+        case, where the legacy CPA genuinely is the anchor.
+      */
+      /*
+        ROUND 9 ITEM 2: the projection is given the SAME deterministic cutoff
+        the profile was built at, so `targetProvenanceTrusted` inside this
+        fingerprint means "trusted AS OF the day this row is about" rather than
+        "the timestamp parses". A pack saved after that day is `unknown` here,
+        which is the state that closes the hard-action gate — so a retained
+        verdict cannot keep an authority grant justified by evidence that did
+        not exist when it was minted.
+      */
+      targetPack: projectCommercialTargetPackForIdentity(
+        inputs.targetPack,
+        deterministicCommercialCutoff(inputs.asOfDate),
+      ),
+      /*
+        AND THE PROFILE CONFIG THROUGH THE SAME DOOR.
+
+        `profileConfig` was digested RAW, and it carries
+        `attributionAovAdjustmentMultiplier` — an account knob
+        `resolveSpendUnit` pins to 1 on every rung and never writes into
+        `SpendUnitEvidence`, precisely so it cannot reach a unit, a threshold,
+        an eligibility or a verdict. Hashing the object whole put it into
+        retention identity anyway, so typing the one setting the resolver
+        deliberately ignores answered `retained_profile_input_mismatch` and
+        discarded a verdict it could not have changed. The projection removes
+        only that member, only when a Target ROAS governs.
+      */
+      profileConfig: projectProfileConfigForIdentity(
+        inputs.profileConfig ?? null,
+        inputs.targetPack,
+      ),
       flags: {
         enabled: inputs.flags.enabled,
         surfaceVisible: inputs.flags.surfaceVisible,
@@ -839,12 +942,22 @@ export function accountProfileRetentionIdentity(
         roasP60: calibration.roasP60,
         refreshRatioP10: calibration.refreshRatioP10,
         lowCtrP10: calibration.lowCtrP10,
-        accountCpaP50: calibration.accountCpaP50,
-        accountCpaSampleCount: calibration.accountCpaSampleCount,
-        metaAttributedAovMean90d: calibration.metaAttributedAovMean90d,
-        metaAttributedAovPurchaseCount90d:
-          calibration.metaAttributedAovPurchaseCount90d,
-        metaAttributedRevenue90d: calibration.metaAttributedRevenue90d,
+        /*
+          THE ACCOUNT'S OWN MEASURED CPA, PROJECTED.
+
+          Kept while `resolveSpendUnit`'s governed branch could still fall
+          through to the `account_history` rung, where it genuinely chose the
+          unit. It cannot any more — that branch answers READY-or-`insufficient`
+          — so under a governing Target ROAS a re-measured account CPA moves no
+          verdict and must not move `source_fingerprint`, which is persisted and
+          compared. Without a Target ROAS the rung is reachable and both fields
+          key the digest exactly as before.
+        */
+        ...projectAccountCpaForIdentity(inputs.targetPack, {
+          accountCpaP50: calibration.accountCpaP50,
+          accountCpaSampleCount: calibration.accountCpaSampleCount,
+        }),
+        ...effectiveMetaAov,
         matureSpendP50: calibration.matureSpendP50,
         matureSpendP75: calibration.matureSpendP75,
         winnerSpendP25: calibration.winnerSpendP25,
@@ -854,22 +967,27 @@ export function accountProfileRetentionIdentity(
         roasRatioP25: calibration.roasRatioP25,
         roasRatioP50: calibration.roasRatioP50,
         roasRatioP75: calibration.roasRatioP75,
-        metaAovQuality: calibration.metaAovQuality,
       },
       funnelCalibration: inputs.funnelCalibration,
-      observedShopifyAov: inputs.observedShopifyAov
-        ? {
-          status: inputs.observedShopifyAov.status,
-          window: inputs.observedShopifyAov.window,
-          zoneName: inputs.observedShopifyAov.zoneName,
-          orderCount: inputs.observedShopifyAov.orderCount,
-          currency: inputs.observedShopifyAov.currency,
-          currencyExponent: inputs.observedShopifyAov.currencyExponent,
-          revenueMinor: inputs.observedShopifyAov.revenueMinor,
-          aovMinor: inputs.observedShopifyAov.aovMinor,
-          observedAt: inputs.observedShopifyAov.observedAt,
-        }
-        : null,
+      /*
+        `observedShopifyAov` IS DELIBERATELY ABSENT FROM THIS DIGEST.
+
+        D091 makes the store's average order value contextual evidence and
+        nothing else: `resolveSpendUnit` has no `observed_shopify_aov` rung, so
+        no Shopify number can change `spendUnit`, `spendUnitSource`,
+        `spendUnitConfidence`, the eligibility or the verdict. Digesting it
+        anyway gave it authority through the back door — this half is persisted
+        and compared, so a store-only change answered
+        `retained_profile_source_mismatch` and discarded an unchanged Meta
+        verdict. That is precisely the provenance mismatch D091 forbids.
+
+        The measured half still moves on every measurement that CAN move the
+        verdict: the calibration percentiles and sample counts above, the
+        attributed AOV, the funnel calibration, the account currency and the
+        measurement scope. The store's reading travels beside them as labelled
+        diagnostic evidence in `spendUnitEvidence`, where a reader can see it
+        change without it silently invalidating anything.
+      */
     }),
   };
 }
@@ -903,13 +1021,14 @@ export async function readAccountProfileRetentionIdentity(
 }
 
 /**
- * The data source the resolver runs against, with the four reads this module
- * already performed pinned to the values it digested.
+ * The data source the resolver runs against, with every verdict-bearing read
+ * this module already performed pinned to the values it digested.
  *
- * Without the pin the resolver would read the target pack and the calibration a
- * second time, and a write landing between the two reads would retain a verdict
- * whose stamped identity described a different reading of the account. Every
- * other method is the real warehouse reader, unchanged.
+ * Without the pin the resolver would read the target pack, calibration and
+ * strict Meta AOV a second time, and a write landing between the two reads
+ * would retain a verdict whose stamped identity described a different reading
+ * of the account. Kind-segmented calibration remains a real warehouse read;
+ * the strict AOV method below can only return or fail from the captured state.
  */
 class PinnedInputDataSource extends WarehouseDataSource {
   /**
@@ -918,11 +1037,10 @@ class PinnedInputDataSource extends WarehouseDataSource {
    * below cannot draw from a different population than the pinned ones.
    */
   private readonly measurementProviderAccountId: string | null;
-
   constructor(private readonly pinned: AccountProfileRetentionInputs) {
     super();
-    this.measurementProviderAccountId =
-      accountProfileInputsMeasurementScope(pinned).readProviderAccountId;
+    const measurement = accountProfileInputsMeasurementScope(pinned);
+    this.measurementProviderAccountId = measurement.readProviderAccountId;
   }
 
   override async getBusinessTargetPack(): Promise<BusinessTargetPack | null> {
@@ -942,20 +1060,15 @@ class PinnedInputDataSource extends WarehouseDataSource {
   }
 
   /*
-    THE READS THE RESOLVER MAKES THAT THIS MODULE DID NOT PIN.
+    THE EXTRA READS THE RESOLVER MAKES.
 
     `resolveAccountDecisionProfile` does not stop at the two pinned readers: it
-    also asks for the kind-segmented baselines and, when the pinned calibration
-    carries no attributed AOV, for a LIVE one. Left alone those three run at
-    the warehouse default — the whole business — so an account with no
-    purchases of its own was handed a sibling's average order value and the
-    canonical spend unit came out fully anchored on evidence this account does
-    not have. Each is re-scoped exactly as the pinned reads above were scoped —
-    `readProviderAccountId`, which names this account except where the pooled
-    rows have been proven to BE this account's rows. Mixing the two would put
-    one reading's calibration beside another reading's AOV in a single verdict.
-    When the account genuinely has no purchases of its own, the answer is empty
-    rather than borrowed.
+    also asks for kind-segmented baselines and may ask for strict Meta AOV.
+    The baselines remain warehouse reads and are re-scoped with
+    `readProviderAccountId`, which names this account except where pooled rows
+    are proven to BE this account's rows. Strict AOV has already been captured
+    once from `measurement.providerAccountId`; its method below reproduces that
+    resolved/failed/not-read state and never reaches the warehouse again.
   */
   override async getAccountCalibrationAllKinds(input: {
     businessId: string;
@@ -982,10 +1095,14 @@ class PinnedInputDataSource extends WarehouseDataSource {
     asOf: string;
     windowDays?: number;
   }): Promise<MetaAttributedAovResult> {
-    return super.getMetaAttributedAov({
-      ...input,
-      providerAccountId: this.measurementProviderAccountId,
-    });
+    if (this.pinned.strictMetaAov.status === "resolved") {
+      return this.pinned.strictMetaAov.value;
+    }
+    throw new Error(
+      this.pinned.strictMetaAov.status === "failed"
+        ? "the pinned strict Meta AOV read failed"
+        : "the pinned inputs did not read strict Meta AOV",
+    );
   }
 }
 

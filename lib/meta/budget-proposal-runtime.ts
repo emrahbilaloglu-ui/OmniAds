@@ -13,7 +13,12 @@
 import { createHash } from "node:crypto";
 
 import type { MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
-import type { BudgetField, BudgetOwnerGrain } from "@/lib/meta/budget-intent-contract";
+import {
+  isBudgetIntentSemanticTuple,
+  type BudgetDirection,
+  type BudgetField,
+  type BudgetOwnerGrain,
+} from "@/lib/meta/budget-intent-contract";
 import type { BudgetIntentVerb } from "@/lib/meta/budget-execution-composition";
 import type { BudgetWriteOutcome } from "@/lib/meta/budget-write-execution";
 import type { BudgetWriteRequest } from "@/lib/meta/budget-write-request";
@@ -22,6 +27,12 @@ import type { ProvenOwnerMode } from "@/lib/meta/budget-write-request";
 /** The canonical proposal action. Not a ceremony action; see the dispatch contract. */
 export const BUDGET_PROPOSAL_ACTION: MutationAction = "budget";
 
+function directionForBudgetIntentVerb(value: unknown): BudgetDirection | null {
+  if (value === "increase_budget") return "increase";
+  if (value === "decrease_budget") return "decrease";
+  return null;
+}
+
 export const BUDGET_PROPOSAL_WITHHELD_REASONS = [
   "release_gate_closed",
   "auto_execution_disabled",
@@ -29,6 +40,7 @@ export const BUDGET_PROPOSAL_WITHHELD_REASONS = [
   "composition_blocked",
   "dry_run_not_would_write_available",
   "envelope_request_mismatch",
+  "budget_semantic_authority_absent",
   "claim_absent",
   "dispatch_marker_unavailable",
   "manual_confirmation_absent",
@@ -58,6 +70,7 @@ export const BUDGET_PROPOSAL_WITHHELD_REASONS = [
     not be read, or it is no longer the value the decision was reasoned from.
   */
   "bid_envelope_absent",
+  "bid_semantic_authority_absent",
   "bid_strategy_not_writable",
   "bid_baseline_unreadable",
   "bid_baseline_changed",
@@ -325,6 +338,13 @@ export async function executeBudgetProposal(
 
   // The gates, cheapest first. The provider is reached last or not at all.
   if (!input.claimToken) return withhold("claim_absent");
+  if (!isBudgetIntentSemanticTuple({
+    recommendationType: input.envelope.recType,
+    grain: input.envelope.ownerGrain,
+    direction: directionForBudgetIntentVerb(input.envelope.intentVerb),
+  })) {
+    return withhold("budget_semantic_authority_absent");
+  }
   if (input.releaseGateOpen !== true) return withhold("release_gate_closed");
   // "Authorized to reach the provider", per the field's contract above.
   if (input.autoExecutionEnabled !== true) return withhold("auto_execution_disabled");
@@ -435,6 +455,11 @@ export function parseBudgetProposalEnvelope(value: unknown): BudgetProposalEnvel
   const decisionHash = str("decisionHash");
   const decisionAt = str("decisionAt");
   if (!recId || !recType || !snapshotDate || !engineVersion || !decisionAt) return null;
+  if (!isBudgetIntentSemanticTuple({
+    recommendationType: recType,
+    grain: ownerGrain,
+    direction: directionForBudgetIntentVerb(intentVerb),
+  })) return null;
   // A decision hash that is not a sha256 is not a decision hash.
   if (!decisionHash || !/^[0-9a-f]{64}$/.test(decisionHash)) return null;
   const proposalId = str("proposalId");
@@ -500,6 +525,11 @@ export function envelopeForProposalRow(
   if (envelope.providerAccountId !== row.providerAccountId) return null;
   if (envelope.ownerGrain !== row.scopeType) return null;
   if (envelope.entityId !== row.scopeId) return null;
+  if (!isBudgetIntentSemanticTuple({
+    recommendationType: envelope.recType,
+    grain: envelope.ownerGrain,
+    direction: directionForBudgetIntentVerb(envelope.intentVerb),
+  })) return null;
   /*
     The DECISION the row records and the decision the envelope names must be the
     same one. An envelope carrying another recommendation's lineage would put a

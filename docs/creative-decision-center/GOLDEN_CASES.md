@@ -420,7 +420,7 @@ fixtures:
 | Case   | Input                                                                                                                     | Required result                                                                                                          | Executable proof                                                               |
 | ------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
 | AR-001 | Fresh target CPA, no target/break-even ROAS                                                                               | `scale=false`, `cut=false`; refresh may remain eligible                                                                  | `account-decision-profile.test.ts`                                             |
-| AR-002 | Fresh target ROAS, missing break-even ROAS                                                                                | scale may pass; cut is blocked                                                                                           | `account-decision-profile.test.ts`                                             |
+| AR-002 | Fresh target ROAS, missing break-even ROAS                                                                                | ~~scale may pass; cut is blocked~~ **SUPERSEDED BY D091**: scale may pass and **cut is NOT blocked** — a Target ROAS anchors it and sizes the loss-budget spend unit. What must still not happen is a synthetic loss boundary: with no explicit break-even, `spendUnitEvidence.breakEvenRoas` stays null, `cut-policy.hasExplicitBreakEven` stays false and the economic strip stays unreachable, so Cut keeps the account-relative boundary. | `account-decision-profile.test.ts` ("lets a growth target anchor cut without inventing a loss boundary")            |
 | AR-003 | Fresh break-even ROAS, missing target ROAS                                                                                | cut may pass; scale is blocked                                                                                           | `account-decision-profile.test.ts`                                             |
 | AR-004 | Persisted spend action, same valid target now older than review interval                                                  | preserve the action; age may add advisory metadata only                                                                  | `snapshot.test.ts`, `commercial-action-authority.test.ts`                      |
 | AR-005 | Completed raw generation starts at global page 38                                                                         | next index is 39; page one is not fetched                                                                                | `raw-snapshot-generation.test.ts`, `meta.test.ts`                              |
@@ -536,19 +536,37 @@ Fail-closed capture (`lib/business-commercial.test.ts`):
 
 Ladder and explanation (`lib/creative-decision-engine/commercial-anchor.test.ts`):
 
+> **SUPERSEDED IN PART BY D091 — do not act on this table alone.** The current
+> ladder is ["The spend-unit basis" under D091](#the-spend-unit-basis) further
+> down this file. This table is retained because it is what the D079 slice
+> shipped and what its counterexamples below were measured against. The three
+> rows marked below are superseded; the unmarked rows are unchanged. In one
+> sentence, what changed: the ladder is no longer a precedence list. WITH a
+> Target ROAS the ONLY hard basis is the Meta platform AOV divided by it, and a
+> Target CPA or an operator AOV assumption is carried as evidence and chooses
+> nothing; WITHOUT a Target ROAS the legacy Target CPA still governs.
+
 | anchor state | source | threshold eligible | code |
 |---|---|---|---|
-| explicit Target CPA | `target_cpa` | yes | — |
-| operator AOV + Target ROAS | `operator_aov` | yes | — |
+| explicit Target CPA | `target_cpa` | ~~yes~~ **superseded by D091** — yes ONLY when no Target ROAS is configured; with one, the CPA is evidence and the basis is `meta_derived_aov` | — |
+| operator AOV + Target ROAS | ~~`operator_aov`~~ **superseded by D091** — `operator_aov` is a RETIRED rung, readable but never minted; this input shape now resolves as `meta_derived_aov` | ~~yes~~ — only if the Meta platform AOV is itself usable | — |
 | Meta AOV, ≥20 purchases/90d | `meta_derived_aov` | yes | — |
-| Meta AOV, <20 purchases/90d | `meta_derived_aov` | no | `commercial_anchor_sample_insufficient` |
-| account CPA p50 only | `account_history` | no | `commercial_anchor_missing` |
-| break-even fallback only | `break_even_aov` | no | `commercial_anchor_missing` |
+| Meta AOV, <20 purchases/90d, Target ROAS present | ~~`meta_derived_aov`~~ **corrected in Round 6** — `insufficient`; a thin sample builds NO unit under a governing Target ROAS | no | `commercial_anchor_sample_insufficient` |
+| account CPA p50 only, NO Target ROAS | `account_history` | no | `commercial_anchor_missing` |
+| account CPA p50, Target ROAS present | **corrected in Round 6** — unreachable; the governed branch answers `insufficient` rather than falling through | no | `commercial_anchor_missing` / `commercial_anchor_sample_insufficient` |
+| break-even fallback only, NO Target ROAS | `break_even_aov` | no | `commercial_anchor_missing` |
 | anchor present, timestamp unverifiable | any | no | `commercial_anchor_provenance_unverified` |
 | anchor fine, no Target ROAS | — | Scale only blocked | `target_roas_missing` |
-| anchor fine, no break-even ROAS | — | Cut only blocked | `break_even_roas_missing` |
+| anchor fine, no break-even ROAS | — | ~~Cut only blocked~~ **superseded by D091** — see below | ~~`break_even_roas_missing`~~ |
 | anchor fine, calibration below floor | — | Scale only blocked | `scale_calibration_below_floor` |
 | shadow-only account | any | no | `shadow_only` |
+
+`break_even_roas_missing` is still an emitted blocker code; only its TRIGGER
+moved. `commercial-anchor.ts` returns it whenever the threshold gate is
+satisfied and `cutAnchorEligible` is false, and `cutAnchorEligible` is now
+`targetPackAuthoritative && (breakEvenAnchored || targetRoasAnchored)` — so it
+now means "neither commercial ratio anchors this pack, or its provenance is
+unverifiable", not "break-even is absent".
 
 Offline counterfactual (`scripts/creative-decision-center/commercial-anchor-counterfactual.test.ts`):
 the no-anchor baseline reproduces 15,508 / 1,993 / 1,872 / 95 / 26 with 0
@@ -556,6 +574,18 @@ enabled hard actions; a candidate is rejected when absent, zero, negative,
 malformed, currency-mismatched (a USD anchor for TRY-denominated Bilsem Zeka),
 when it borrows a ROAS under as-of-origin semantics, or when it omits either
 paired ROAS under declared-all-window semantics.
+
+**Everything that follows to the end of this D079 section is a PRE-D091
+measurement, pinned as recorded.** It was produced when an explicit break-even
+ROAS was a required Cut input and when a Target CPA candidate could establish a
+hard anchor regardless of a Target ROAS. Neither is true now. Read it as
+history of the D079 slice; do not derive a current expectation from its counts
+or from its `break_even_roas_missing` attributions. In particular, the
+`real Cut-only stop-loss overlay` row below — whose effective code is
+`break_even_roas_missing` and whose panel copy "mentions break-even ROAS" — is
+a record of the copy that shipped with D079; under D091 that code is emitted
+only when NEITHER commercial ratio anchors the pack, and copy derived from it
+is inherited from `commercial-anchor.ts` rather than restated here.
 
 Per-action counterexample, pinned (a Target CPA candidate for IwaTR, which has
 no frozen target pack):
@@ -583,3 +613,175 @@ knowable pack, and its Cuts stay blocked on `break_even_roas_missing`.
 | every replay action row and total | partitions completely; `blockedAfterTotal = heldBefore - eligibleAfter`; baseline `blockedAfterTotal = 1993` |
 | per-action independent gates | Scale 8/0, Cut 86/26, Refresh 1/0 campaign-context/recovery |
 | independent-gate transitions | `campaign_context->campaign_context`, never recast as a commercial-anchor transition |
+## D091 canonical Meta AOV, direction and presentation (golden cases)
+
+### The spend-unit basis
+
+D091 makes the Meta platform AOV the canonical basis and stops requiring an
+explicit break-even. **This table is the current ladder.** Where any row of the
+D079 ladder table earlier in this file contradicts it, this one governs; those
+rows are marked superseded where they stand.
+
+The ladder is a TWO-CASE SPLIT, not a precedence list. WITH a Target ROAS the
+only hard basis is `Meta platform AOV / Target ROAS`; a Target CPA, an operator
+AOV assumption and any Shopify AOV are carried as evidence and choose nothing.
+WITHOUT a Target ROAS nothing can divide an average order value, so only legacy
+Target-CPA compatibility applies. `source` below names the served resolver's
+`spendUnitSource` (`resolveSpendUnit`); the native builder's equivalent basis is
+`physical_account_purchase_aov_90d` wherever the served one is
+`meta_derived_aov`. `code` names the NATIVE readiness reason; the served
+per-action equivalents from `commercial-anchor.ts` are given in the last column
+where they differ.
+
+| anchor state | source | hard-action eligible | code (native) | code (served) |
+|---|---|---|---|---|
+| Target ROAS + Meta platform AOV `ready` (≥20 attributed purchases/90d) | `meta_derived_aov` | threshold gate satisfied for all three actions; Scale additionally needs its own calibration sample | — | — (Scale may still report `scale_calibration_below_floor`) |
+| Target ROAS only, NO break-even, no CPA, no operator AOV, Meta platform AOV `ready` | `meta_derived_aov` | yes — Cut included | — | — |
+| break-even only, no Target ROAS, no Target CPA — **the one case where `calibrated_relative` Cut readiness is still reachable (Round 8)** | ~~`meta_derived_aov`~~ **corrected in Round 4** — no hard basis exists; `resolveSpendUnit` falls to the never-hard-eligible `account_history` / `break_even_aov` rungs, and the native authority is `blocked`. `meta_derived_aov` is a CASE 1 rung and CASE 1 requires a Target ROAS. | Scale no. Cut only through the calibrated-relative P25 boundary (`cutUsesCalibratedRelativeBoundary`), never through a spend unit | `target_roas_authority_missing` for Scale; Cut is not refused on the target (`hasCommercialTargetAuthority` is satisfied by break-even) but reports `commercial_spend_unit_authority_missing` without that P25 boundary | `commercial_anchor_missing` |
+| break-even only, no Target ROAS, Target CPA configured | `target_cpa` | yes — legacy CASE 2 compatibility, high confidence | — | — |
+| NEITHER Target ROAS nor break-even | — | no | `target_roas_authority_missing` | `commercial_anchor_missing`, or `break_even_roas_missing` / `target_roas_missing` where a spend unit exists but no ratio anchors the action |
+| Target ROAS present, Meta platform AOV ABSENT | — | no; holds explicitly, and never falls back to the Target CPA | authority `blocked`; Cut reports `commercial_spend_unit_authority_missing` — **corrected in Round 8: with a governing Target ROAS this holds OUTRIGHT, whether or not the cell carries a P25 boundary** | `commercial_anchor_missing` |
+| Target ROAS present, Meta platform AOV present but <20 purchases/90d | ~~`meta_derived_aov`~~ **corrected in Round 6** — `insufficient`; no unit is built. **A thin sample is a HOLD, never a fallback: no Target CPA, break-even CPA, account CPA, operator AOV, Shopify AOV or calibrated spend floor substitutes for it.** | no. The earlier `confidence: "low"` / `hardEligibleByDefault: false` reading closed the ACTION gate but still produced a spend unit from a thin sample, which then sized the maturity floor, every derived threshold and the canonical hash | authority `blocked` on `accountAovEvidence.status = insufficient_sample`; Cut holds outright (Round 8) | `commercial_anchor_sample_insufficient` |
+| Shopify AOV observed, Meta AOV absent | — | no; the store never substitutes | as the ABSENT row above | `commercial_anchor_missing` |
+| Shopify AOV observed, Meta AOV present | `meta_derived_aov` | yes; Shopify changes neither the source, the unit, nor any hash | — | — |
+| Shopify evidence stamped AFTER the cell cutoff | `physical_account_purchase_aov_90d` | unchanged; no `native_target_authority_mismatch`, no job rollback | — | — |
+
+**ROUND 10 CORRECTION.** The paragraph below described the pre-Round-9 code and
+is now wrong in the direction that matters. Under a governing Target ROAS the
+READY spend-unit authority gates **all three** actions:
+`resolveNativeAdCalibrationActionReadiness` computes one
+`commercialSpendUnitHold` and applies it to Scale, Cut and Refresh alike, so a
+non-READY authority answers `ready: false` with
+`commercial_spend_unit_authority_missing` on every one of them. Scale sizes a
+budget increase and Refresh authorizes continued spend; neither has admissible
+arithmetic without the canonical unit. The independent sample gates below still
+apply where NO positive Target ROAS governs.
+
+~~The native `code` column names the CUT readiness reason, which is the one the
+spend-unit authority participates in
+(`resolveNativeAdCalibrationActionReadiness`). Native Scale and Refresh reasons
+are computed independently of that authority~~ — Scale from
+`targetRoasAuthority`, its calibration sample and the winner benchmark; Refresh
+from its own sample and `refreshRatioP10` — so a blocked spend unit does not by
+itself name those two. `resolveCellQualityStatus` separately stamps the whole
+cell `blocked_commercial` only when `hasCommercialTargetAuthority` is false.
+
+Executable proof for the served path:
+`lib/creative-decision-engine/__tests__/canonical-meta-aov-permutations.test.ts`
+— the permutation matrix, "with a target ROAS, the platform AOV outranks every
+operator input", "a missing Meta AOV never becomes a hard action through a lower
+rung", and "keeps legacy target-CPA compatibility when no target ROAS exists".
+
+### Shopify is out of the hashes, not only out of the arithmetic
+
+Added in Round 4, after the basis change. Removing the store from the ladder
+fixed what it could DECIDE and left identity alone, so a store-only change —
+observed, stale, unavailable, observed-with-zero-orders, or simply a different
+AOV — still moved hashes. Evidence that chooses nothing must not move identity
+either.
+
+| case | expected |
+|---|---|
+| native authority minted at `.v3`, store AOV changed | `authorityHash`, `generationContentHash`, `inputManifestHash` and `cellSetHash` all unchanged; `observedShopifyAovEvidence` still carried and still served |
+| native authority minted at `.v3`, store never consulted | still `.v3` — the version is stamped unconditionally, because deciding it from whether Shopify was consulted would put the store back into identity through the version string |
+| persisted `.v2` authority recomputed | store evidence IS hashed, verbatim, so its stored `authorityHash` still recomputes; 118 such rows are live |
+| persisted `.v1` authority recomputed | carries no `observedShopifyAovEvidence` member at all; content hashed unchanged |
+| unrecognized authority version | fails CLOSED — `nativeAdSpendUnitAuthorityHashContent` throws, and both persisted-data callers reject it first |
+| canonical evaluation envelope, store AOV or store STATUS changed | `contextHash` unchanged under `.v6` / `.v8`: `normalizeSpendUnitEvidence` enumerates its members, dropping the three Shopify fields and every `observed_shopify_aov_*` warning |
+
+### Direction
+
+| case | expected |
+|---|---|
+| `scale_for_profitability`, any action text, any inherited `decisionLabel: 'scale'` | `tune` — the type is defensive by construction |
+| same, action text rewritten by `enforceMetaCommercialActionAuthority` | `tune` — no prose is authority |
+| same, action text in Turkish, or absent entirely | `tune` |
+| same, builder wrote `decisionLabel: 'cut'` | `cut` — an explicit structured label is the only route to Cut |
+| `promote_test_to_main` with `labelTransform.fromType = 'scale_for_profitability'` | `tune` — an escalated defensive verdict stays defensive |
+| `promote_test_to_main` from `adset_scale_budget` / `scale_for_volume` / `scenario_c1_controlled_scale` | `scale` — genuine promotions are untouched |
+| `scale_for_volume` with defensive-sounding text | `scale` — the rule is about one type, not about words |
+| campaign role RESOLVED, inherited `decisionLabel: 'scale'` | `tune` — corrected on every guard path, not only the review-only branch |
+
+### Presentation
+
+| case | expected |
+|---|---|
+| ACTIVE Ad with no exact decision | counted in `ads.pendingInventoryCount` and named in one limitation; ZERO rows, zero lane count, zero pre-cap count, no CTA |
+| 80 ACTIVE Ads, 80 eligible decisions, cap 60 | `pendingInventoryCount: 0` — a capped-out decision is a decision |
+| 80 ACTIVE Ads, 70 eligible decisions, cap 60 | `pendingInventoryCount: 10` |
+| identity universe absent from the read model | falls back to the served ids and stays fail-closed |
+| `effectiveTargetRoas: 0` (`truth_source = 'global_default'`) | served as null; no "vs 0.00 target"; `ratioToTarget` null with it |
+| `effectiveTargetRoas: 1.8`, `ratioToTarget: 1.33` | unchanged |
+| purchase cohort, spend 0, purchases 0, value 0, ROAS undefined | NO `tracking_anomaly`, NO "Verify pixel/CAPI"; the delivery gate answers |
+| purchase cohort, spend 300, purchases 0, ROAS missing | `tracking_anomaly` still fires — money left the account |
+| purchase cohort, spend 0, purchase value 600 | `tracking_anomaly` still fires — two observations disagree |
+| blocked creative row with no served `resolution` and no blockers | shows the buyer copy for its served ACTION code, never a generic "review the missing evidence" |
+| operator-facing source-health sentence | carries no producer code; `fallbackReason` keeps its own labelled row in diagnostics |
+
+### Native ad-grain fatigue (D091)
+
+The creative-grain `fatigue_composite` cases (GC-012, GC-028, GC-035, GC-045,
+GC-046, GC-096) are unaffected — they are a different grain and a different
+contract. At AD grain:
+
+| case | expected |
+|---|---|
+| no 14/14 disjoint band pair materialized | `fatigueStatus: "unknown"`; Refresh HELD, `label: "keep"`, `blocked_action_type: "refresh"`, nothing authorized |
+| bands present but unequal (7 vs 21) | rejected — equal windows required |
+| bands equal but overlapping, or with a gap | rejected — directly adjacent required |
+| a band ending AFTER the decision cutoff | ignored (PIT safety) |
+| click-to-purchase denominator absent | withheld — this is production's current state, and it is why nothing is fatigued |
+| stored link-click zero, no row-local actions array | legacy zero is unproven; the decision-bearing day makes the band denominator unavailable and Refresh remains held |
+| stored link-click zero, actions array has no `link_click` entry | measured zero is preserved; other proven positive days may still make the band denominator positive |
+| stored link-click zero, payload carries a positive/malformed/duplicate `link_click` entry | contradiction/unreadable provenance; band denominator withheld until repair or authoritative re-sync |
+| account-wide frequency observations: 7 | no percentile; a null percentile is not the same fact as missing evidence |
+| account-wide frequency observations: 8 | percentile available |
+| recent14 IMPROVING against prior14 | never `fatigued`, whatever else decays |
+| only ROAS decayed | refused — one signal is not a composite |
+| same inputs, same cutoff, twice | byte-identical, and the evidence hash is sensitive to the band inputs |
+| a shared creative split across two Ads that then diverge | each Ad answers for itself |
+
+### Held-role edges (D091)
+
+| campaign-context state | expected |
+|---|---|
+| validated high (`high` trust + `high` inference + resolver validated) | authority granted |
+| UNVALIDATED high (`high` trust beside `resolverAuthorityValidated: false`) | contradiction — authority WITHHELD, verdict still visible |
+| `high` trust beside a non-`high` inference class | same contradiction, same withholding |
+| medium / low / unknown / conflict | held; verdict visible, `buyerAction` null, `authorizedAction` null |
+| missing map, or no campaign id | held; no generic `diagnose` substituted for a typed verdict |
+
+### The canonical commercial rule (D092)
+
+The rule has two cases and the second one is the compatibility path, so both are
+pinned. "Ready" is `classifyMetaAovQuality`'s own bar — the same predicate
+`resolveSpendUnit` divides by.
+
+| commercial state | authoritative spend unit | maturity floor built from | Scale CPA veto |
+|---|---|---|---|
+| Target ROAS + READY Meta AOV | Meta AOV / Target ROAS | the same unit (`source: meta_derived_aov`) | the same unit |
+| Target ROAS + READY Meta AOV + a legacy Target CPA typed beside it | unchanged — Meta AOV / Target ROAS | unchanged | unchanged; the CPA vetoes nothing |
+| Target ROAS + READY Meta AOV + a break-even CPA | unchanged | unchanged | unchanged |
+| Target ROAS + Meta AOV below the ready bar | **HOLDS.** No hard basis, and no fallback of any kind | ~~falls to `break_even_cpa ?? target_cpa ?? account_cpa`~~ **corrected in Round 9** — `metaLossBudgetMaturity` answers null; a thin AOV under a governing Target ROAS is an ABSENCE, never a licence to size from a CPA | no ceiling is derived; Scale, Cut and Refresh all hold |
+| **NO Target ROAS + a Target CPA** | **the Target CPA, taken whole** | **`target_cpa`** | **the legacy `breakEvenCpa ?? targetCpa * 1.1` ceiling** |
+| no Target ROAS, no CPA, no account history | insufficient | null — nothing is mature | none |
+
+The no-Target-ROAS row is the one a projection is most likely to break: there
+the CPA is the only anchor there is, it governs the unit, and it MUST still key
+identity. Blanking it would make two genuinely different accounts share a
+fingerprint.
+
+| identity question | with a Target ROAS | without one |
+|---|---|---|
+| operator edits Target CPA | no hash moves | every hash moves |
+| operator re-saves the pack, changing only `updatedAt` | no hash moves | hash moves |
+| attribution multiplier set to 0.8 or 1.2 | no arithmetic and no hash moves | same |
+| Target ROAS itself changes | every hash moves | n/a |
+
+## Current authority vs historical record
+
+> **Current authority vs historical record.** Which table a decision taken today
+> may read, and which is retained only so a past decision can be explained, are
+> listed once in
+> [`CONTRACTS.md` → *Current authority vs historical record — the tables*](./CONTRACTS.md#current-authority-vs-historical-record--the-tables).
+> A value from the retained list may EXPLAIN a decision and may never GRANT one.

@@ -414,6 +414,96 @@ describe("the row names the entity it is about", () => {
     ).toBe("Change verified | Summer ad");
   });
 
+  it("turns the engine's out-of-scope title into a buyer-facing result", () => {
+    const action = actionFor(
+      decisionEntry({
+        title: "Out Of Scope decision",
+        label: "out_of_scope",
+        entity: { type: "creative", id: "creative-1", name: "Summer video" },
+      }),
+    );
+
+    expect(action).toBe("No recommendation | Summer video");
+    expect(action).not.toMatch(/out of scope decision/i);
+  });
+
+  it("maps every persisted Engine V3 event title and fails closed on additions", () => {
+    const eventEntry = (title: string) =>
+      entry({
+        kind: "label_flips",
+        title,
+        status: "recorded",
+        entity: { type: "creative", id: "creative-1", name: "Summer video" },
+        actor: { id: null, name: null, availability: "not_applicable" },
+        provenance: {
+          provider: "meta",
+          source: "engine_v3_decision_events",
+          sourceId: "event-1",
+          accountScopeBasis: "unique_creative_key",
+          attribution: "engine_transition",
+        },
+      });
+
+    expect(
+      [
+        "Decision Changed",
+        "Operator Action",
+        "Data Disabled",
+        "Manual Override",
+      ].map((title) => actionFor(eventEntry(title))),
+    ).toEqual([
+      "Decision changed | Summer video",
+      "Operator action recorded | Summer video",
+      "Decision data unavailable | Summer video",
+      "Decision changed manually | Summer video",
+    ]);
+    expect(actionFor(eventEntry("New Backend Event"))).toBe(
+      "Decision changed | Summer video",
+    );
+  });
+
+  it("maps outcome-log storage actions without claiming an unverified rollback", () => {
+    const actionOutcome = (
+      title: string,
+      kind: MetaHistoryEntry["kind"],
+      status: MetaHistoryEntry["status"],
+    ) =>
+      entry({
+        kind,
+        title,
+        status,
+        entity: { type: "ad", id: "ad-1", name: "Summer ad" },
+        actor: { id: null, name: null, availability: "not_applicable" },
+        provenance: {
+          provider: "meta",
+          source: "meta_decision_action_outcome_logs",
+          sourceId: "outcome-log-1",
+          accountScopeBasis: "exact_entity_key",
+          attribution:
+            kind === "outcomes" ? "correlational_outcome" : "provider_write_log",
+        },
+      });
+
+    expect(
+      actionFor(actionOutcome("Operator Response", "responses", "recorded")),
+    ).toBe("Operator response recorded | Summer ad");
+    expect(actionFor(actionOutcome("Preflight", "writes", "recorded"))).toBe(
+      "Change checked | Summer ad",
+    );
+    expect(actionFor(actionOutcome("Execute", "writes", "executing"))).toBe(
+      "Change in progress | Summer ad",
+    );
+    expect(
+      actionFor(actionOutcome("Rollback", "writes", "recorded")),
+    ).toBe("Change recorded | Summer ad");
+    expect(actionFor(actionOutcome("Outcome", "outcomes", "positive"))).toBe(
+      "Outcome recorded | Summer ad",
+    );
+    expect(
+      actionFor(actionOutcome("Unknown Internal Step", "writes", "failed")),
+    ).toBe("Change failed | Summer ad");
+  });
+
   it("replaces backend error titles with a truthful status action", () => {
     const action = actionFor(
       entry({
@@ -519,6 +609,70 @@ describe("served detail reaches the row", () => {
       "ROAS improved from 1.25 to 2.10 over the next 7 days. A recorded action was applied.",
     );
     expect(row.summary).not.toContain("auto_kpi_7d");
+  });
+
+  it("replaces the Engine V3 outcome projection and hides unexpected source text", () => {
+    const engineOutcome = (summary: string) =>
+      entry({
+        kind: "outcomes",
+        title: "7-day outcome",
+        summary,
+        status: "positive",
+        entity: { type: "creative", id: "creative-1", name: "Summer video" },
+        actor: { id: null, name: null, availability: "not_applicable" },
+        provenance: {
+          provider: "meta",
+          source: "engine_v3_decision_outcomes_daily",
+          sourceId: "outcome-1",
+          accountScopeBasis: "unique_creative_key",
+          attribution: "correlational_outcome",
+        },
+      });
+
+    expect(
+      historySummaryFor(
+        engineOutcome("Persisted correlational outcome for test more."),
+      ),
+    ).toBe("Performance outcome recorded for this recommendation.");
+    expect(
+      historySummaryFor(engineOutcome("Classifier completed normally.")),
+    ).toBeNull();
+  });
+
+  it("does not publish free-form Engine V3 event notes", () => {
+    expect(
+      historySummaryFor(
+        entry({
+          kind: "label_flips",
+          title: "Decision Changed",
+          summary: "Transition persisted after nightly evaluation.",
+          status: "recorded",
+          provenance: {
+            provider: "meta",
+            source: "engine_v3_decision_events",
+            sourceId: "event-1",
+            accountScopeBasis: "unique_creative_key",
+            attribution: "engine_transition",
+          },
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("allows measured outcome prose but hides unknown outcome-log summaries", () => {
+    expect(
+      historySummaryFor(
+        outcomeEntry({ status: "positive", summary: "Analysis completed." }),
+      ),
+    ).toBeNull();
+    expect(
+      historySummaryFor(
+        outcomeEntry({
+          status: "positive",
+          summary: "Revenue improved while spend held steady.",
+        }),
+      ),
+    ).toBe("Revenue improved while spend held steady.");
   });
 
   it("hides unknown machine summaries while preserving the status", () => {
@@ -694,6 +848,28 @@ describe("served detail reaches the row", () => {
     );
   });
 
+  it("translates creative context failures without exposing engine language", () => {
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          summary: "mixed decision context; evaluate at ad grain",
+        }),
+      ),
+    ).toBe(
+      "This creative appears in multiple ads, so no single recommendation was made.",
+    );
+    expect(
+      historySummaryFor(
+        decisionEntry({
+          summary:
+            "decision context identity unavailable; evaluate at ad grain",
+        }),
+      ),
+    ).toBe(
+      "The matching ad could not be identified, so no recommendation was made.",
+    );
+  });
+
   it("removes decision-engine tags while keeping ROAS evidence", () => {
     expect(
       historySummaryFor(
@@ -774,6 +950,18 @@ describe("buyer-facing account labels", () => {
     expect(historyAccountLabel({ id: "act_12345678", name: "12345678" })).toBe(
       "Meta account ••••5678",
     );
+  });
+
+  it("masks a different opaque identifier copied into the account name", () => {
+    for (const name of [
+      "act_87654321",
+      "238901234567890",
+      "123e4567-e89b-42d3-a456-426614174000",
+    ]) {
+      const label = historyAccountLabel({ id: "act_12345678", name });
+      expect(label).toBe("Meta account ••••5678");
+      expect(label).not.toContain(name);
+    }
   });
 });
 

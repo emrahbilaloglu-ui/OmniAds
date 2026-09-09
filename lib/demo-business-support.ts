@@ -1,4 +1,21 @@
 export const DEMO_BUSINESS_ID = "11111111-1111-4111-8111-111111111111";
+/**
+ * The one Meta ad account the demo workspace is authorized for.
+ *
+ * ── ROUND 9 ITEM 9 ─────────────────────────────────────────────────────────
+ * `app/api/meta/recommendations/route.ts` had invented its own
+ * `demo:meta-account` sentinel for demo scoping, which conflicted with the id
+ * the rest of the product already serves everywhere: `getDemoIntegrations()`
+ * publishes it as the connected Meta account, `listDemoProviderAccounts()`
+ * lists it as "UrbanTrail DTC", `getDemoMetaBreakdowns()` is keyed on it, and
+ * the demo business summary assigns it. Two sentinels for one demo account
+ * means a request naming the id the UI shows is refused by the route that is
+ * supposed to serve it.
+ *
+ * Named here, beside the business id, and imported by every other demo source
+ * rather than retyped — which is what let the literal drift in the first place.
+ */
+export const DEMO_META_PROVIDER_ACCOUNT_ID = "act_210009998877";
 export const DEMO_BUSINESS_NAME = "Adsecute Demo";
 
 export type DemoAssignableProvider = "meta" | "google";
@@ -138,7 +155,7 @@ export function getDemoIntegrations() {
         : provider === "google"
         ? "5241455382"
         : provider === "meta"
-          ? "act_210009998877"
+          ? DEMO_META_PROVIDER_ACCOUNT_ID
           : provider === "ga4"
             ? "properties/3322114455"
             : provider === "search_console"
@@ -222,7 +239,7 @@ export function getDemoProviderAccounts(
 
   return [
     {
-      id: "act_210009998877",
+      id: DEMO_META_PROVIDER_ACCOUNT_ID,
       name: "UrbanTrail DTC",
       currency: "USD",
       timezone: "America/Los_Angeles",

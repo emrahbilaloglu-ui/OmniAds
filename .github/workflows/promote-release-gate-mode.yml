@@ -27,7 +27,7 @@ on:
         type: string
 
 concurrency:
-  group: deploy-production
+  group: deploy-production-main
   cancel-in-progress: false
 
 jobs:
@@ -37,6 +37,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     steps:
       - name: Resolve expected SHA
         id: expected
@@ -132,6 +133,8 @@ jobs:
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
           HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          GHCR_PULL_USER: ${{ github.actor }}
+          GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -180,8 +183,12 @@ jobs:
             -o TCPKeepAlive=yes
           )
 
-          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
-            "EXPECTED_SHA='${EXPECTED_SHA}' RELEASE_GATE_MODE='${RELEASE_GATE_MODE}' bash -seuo pipefail" <<'EOF'
+          ghcr_user_q="$(printf '%q' "${GHCR_PULL_USER}")"
+          # Match deploy's private-registry transport: token on stdin, never
+          # argv; an isolated Docker config exists only for this invocation.
+          {
+            printf '%s\n' "${GHCR_PULL_TOKEN}"
+            cat <<'EOF'
             cd /var/www/adsecute
 
             log() {
@@ -305,6 +312,31 @@ jobs:
             log "Verifying strict control plane locally"
             verify_local_sync_control_plane
           EOF
+          } | ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+            "EXPECTED_SHA='${EXPECTED_SHA}' RELEASE_GATE_MODE='${RELEASE_GATE_MODE}' GHCR_USER=${ghcr_user_q} bash -c '
+          set -euo pipefail
+          IFS= read -r __ghcr_tok
+          __dcfg=\"\$(mktemp -d)\"
+          cleanup_registry_auth() {
+            timeout 10s docker --config \"\${__dcfg}\" logout ghcr.io >/dev/null 2>&1 || true
+            rm -rf \"\${__dcfg}\"
+          }
+          trap cleanup_registry_auth EXIT
+          trap \"exit 130\" INT
+          trap \"exit 143\" TERM
+          if [ -z \"\${__ghcr_tok}\" ] || [ -z \"\${GHCR_USER}\" ]; then
+            echo remote-registry-credentials-missing >&2
+            exit 78
+          fi
+          printf %s \"\${__ghcr_tok}\" | timeout 60s docker --config \"\${__dcfg}\" login ghcr.io -u \"\${GHCR_USER}\" --password-stdin >/dev/null 2>&1 || {
+            echo remote-registry-login-failed >&2
+            exit 78
+          }
+          __ghcr_tok=
+          unset __ghcr_tok
+          export DOCKER_CONFIG=\"\${__dcfg}\"
+          bash -seuo pipefail
+          '"
 
       - name: Verify strict public watch window
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_promote == 'true'

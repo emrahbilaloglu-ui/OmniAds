@@ -46,6 +46,12 @@ import {
 type MetaEntityScopeType = "campaign" | "adset";
 type MetaEntityStatusAction = "pause" | "resume";
 type RouteParams = { params: Promise<Record<string, string | undefined>> };
+type EntityActionExecutionHooks = {
+  /** Additional durable boundary required by a queue-owned write. */
+  beforeMutationAttempt?: () => Promise<void>;
+  /** Synchronous observation of an issued provider POST, separate from intent. */
+  onProviderMutationAttempt?: () => void;
+};
 
 interface EntityActionBody {
   actionOrigin?: string;
@@ -690,28 +696,31 @@ export async function handleMetaEntityPauseAction(
   request: NextRequest,
   context: RouteParams,
   input: { scopeType: MetaEntityScopeType; paramName: string },
+  executionHooks: EntityActionExecutionHooks = {},
 ) {
   return handleMetaEntityStatusAction(request, context, {
     ...input,
     action: "pause",
-  });
+  }, executionHooks);
 }
 
 export async function handleMetaEntityResumeAction(
   request: NextRequest,
   context: RouteParams,
   input: { scopeType: MetaEntityScopeType; paramName: string },
+  executionHooks: EntityActionExecutionHooks = {},
 ) {
   return handleMetaEntityStatusAction(request, context, {
     ...input,
     action: "resume",
-  });
+  }, executionHooks);
 }
 
 async function handleMetaEntityStatusAction(
   request: NextRequest,
   context: RouteParams,
   input: { scopeType: MetaEntityScopeType; paramName: string; action: MetaEntityStatusAction },
+  executionHooks: EntityActionExecutionHooks,
 ) {
   const params = await context.params;
   const entityId = params[input.paramName]?.trim() ?? "";
@@ -786,10 +795,15 @@ async function handleMetaEntityStatusAction(
     const options = dryRun
       ? { dryRun: true }
       : {
-        beforeMutationAttempt: beforeEntityProviderPost({
-          businessId: prepared.businessId,
-          rehearsalAtEntry: prepared.posture.rehearsal,
-        }),
+        beforeMutationAttempt: async () => {
+          // Re-prove the handler's own posture first. Only a request still
+          // allowed to approach the provider consumes its caller's claim.
+          await beforeEntityProviderPost({
+            businessId: prepared.businessId,
+            rehearsalAtEntry: prepared.posture.rehearsal,
+          })();
+          await executionHooks.beforeMutationAttempt?.();
+        },
       };
     const result =
       input.scopeType === "campaign"
@@ -962,6 +976,7 @@ function expectedCurrentBidAmountFromBody(body: EntityActionBody | null) {
 export async function handleMetaAdsetBidAction(
   request: NextRequest,
   context: RouteParams,
+  executionHooks: EntityActionExecutionHooks = {},
 ) {
   const params = await context.params;
   const adsetId = params.adsetId?.trim() ?? "";
@@ -1080,6 +1095,7 @@ export async function handleMetaAdsetBidAction(
   });
 
   const startedAt = Date.now();
+  let providerMutationBoundaryReached = false;
   try {
     const result = await updateAdsetBidAmount(prepared.ctx, {
       adsetId: prepared.target.entityId,
@@ -1097,12 +1113,28 @@ export async function handleMetaAdsetBidAction(
       ...(dryRun
         ? { dryRun: true }
         : {
-          beforeMutationAttempt: beforeEntityProviderPost({
-            businessId: prepared.businessId,
-            rehearsalAtEntry: prepared.posture.rehearsal,
-          }),
+          beforeMutationAttempt: async () => {
+            // Re-prove the standing write posture first. Only a request still
+            // allowed to approach the provider consumes the queue claim's
+            // durable dispatch marker.
+            await beforeEntityProviderPost({
+              businessId: prepared.businessId,
+              rehearsalAtEntry: prepared.posture.rehearsal,
+            })();
+            await executionHooks.beforeMutationAttempt?.();
+          },
+          onProviderMutationAttempt: () => {
+            providerMutationBoundaryReached = true;
+            executionHooks.onProviderMutationAttempt?.();
+          },
         }),
     });
+    // Retain actual adapter evidence before terminal logging can throw. The
+    // durable intent hook precedes a final GET and cannot prove a POST happened.
+    providerMutationBoundaryReached ||= !dryRun && !result.ok && (
+      result.mutationAttempt != null
+      || result.providerMutationAttempted === true
+    );
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
       return NextResponse.json(
@@ -1117,6 +1149,8 @@ export async function handleMetaAdsetBidAction(
             logId: log.id,
           }),
           mutationAttempt: result.mutationAttempt ?? null,
+          providerMutationAttempted: providerMutationBoundaryReached,
+          dryRun,
           retryAllowed:
             isProviderOutcomeAmbiguous(result) ||
             hasSuccessfulMetaProviderMutationAttempt(result)
@@ -1143,6 +1177,7 @@ export async function handleMetaAdsetBidAction(
       adsetId: prepared.target.entityId,
       bidAmountMinor: result.verifiedBidAmount,
       dryRun: result.dryRun === true,
+      providerMutationAttempted: providerMutationBoundaryReached,
       wouldHaveWritten: result.wouldHaveWritten ?? null,
       /*
         The terminal answer, which this handler used to omit.
@@ -1167,11 +1202,25 @@ export async function handleMetaAdsetBidAction(
     const message = sanitizeErrorMessage(error);
     await completeMetaAdsActionLog({
       id: log.id,
-      status: "failure",
-      errorCode: "internal_error",
+      status: providerMutationBoundaryReached ? "silent_failure" : "failure",
+      errorCode: providerMutationBoundaryReached ? "provider_outcome_ambiguous" : "internal_error",
       errorMessage: message,
       durationMs: Date.now() - startedAt,
     }).catch(() => null);
-    return jsonError(500, "internal_error", message);
+    return NextResponse.json({
+      ok: false,
+      error: {
+        code: providerMutationBoundaryReached ? "provider_outcome_ambiguous" : "internal_error",
+        message,
+      },
+      providerWriteAttempted: providerMutationBoundaryReached,
+      providerMutationAttempted: providerMutationBoundaryReached,
+      dryRun,
+      ...(providerMutationBoundaryReached ? {
+        providerOutcome: "outcome_ambiguous",
+        retryAllowed: false,
+        ...metaWriteFailureAnswer({ providerOutcome: "outcome_ambiguous", logId: log.id }),
+      } : {}),
+    }, { status: 500 });
   }
 }

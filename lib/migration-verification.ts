@@ -1,4 +1,4 @@
-import { getDb, getDbWithTimeout, runDbTransaction } from "@/lib/db";
+import { getDb, getDbWithDeadline, getDbWithTimeout, runDbTransaction } from "@/lib/db";
 
 /**
  * Post-migration proof that this change's schema actually landed.
@@ -197,6 +197,7 @@ interface ProbeClient {
  */
 async function runProbeAndRollback(
   probe: (tx: ProbeClient) => Promise<void>,
+  options?: { timeoutMs?: number; deadlineAtMs?: number },
 ): Promise<MigrationVerificationFailure[]> {
   const failures: MigrationVerificationFailure[] = [];
   try {
@@ -216,7 +217,7 @@ async function runProbeAndRollback(
         });
       }
       throw PROBE_ROLLBACK;
-    });
+    }, options);
   } catch (error) {
     if (error !== PROBE_ROLLBACK) {
       failures.push({
@@ -538,8 +539,11 @@ export const VERIFIED_INDEXES: readonly IndexSpec[] = [
 
 export async function verifyMigrationSchemaContract(input?: {
   timeoutMs?: number;
+  deadlineAtMs?: number;
 }): Promise<{ verified: number }> {
-  const sql = getDbWithTimeout(Math.max(1, Math.min(60_000, input?.timeoutMs ?? 30_000)));
+  const sql = input?.deadlineAtMs != null
+    ? getDbWithDeadline(input.deadlineAtMs)
+    : getDbWithTimeout(Math.max(1, Math.min(60_000, input?.timeoutMs ?? 30_000)));
   const failures: MigrationVerificationFailure[] = [];
 
   const columnRows = (await sql.query(
@@ -903,7 +907,7 @@ export async function verifyMigrationSchemaContract(input?: {
        ORDER BY s.sampled_at DESC, s.id DESC
        LIMIT 1`,
     );
-  });
+  }, input);
   failures.push(...probeFailures);
 
   if (failures.length > 0) {

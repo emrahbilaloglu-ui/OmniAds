@@ -358,9 +358,18 @@ function validDemoItemSemantics(item: DemoNativeCanonicalFixtureItem) {
 
   switch (item.sourceLabel) {
     case "scale":
+      /*
+        Mirrors `projectMetaDecisionSemantics` in lib/meta/decision-semantics.ts,
+        which now serves a Scale as `act` for every RESOLVED campaign role —
+        `main` included — and keeps only an unresolved role on `monitor`. This
+        clause used to hard-code test/mixed and would have rejected the demo
+        fixture's own Main-campaign Scale rows as invalid.
+      */
       return (
         item.decisionState ===
-          (item.lifecycleRole === "test" || item.lifecycleRole === "mixed"
+          (item.lifecycleRole === "test" ||
+          item.lifecycleRole === "main" ||
+          item.lifecycleRole === "mixed"
             ? "act"
             : "monitor") &&
         item.buyerAction === "scale" &&

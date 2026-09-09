@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 const PATH = ".github/workflows/automation-capability-toggle.yml";
 const SOURCE = readFileSync(PATH, "utf8");
+const REMOTE_SOURCE = readFileSync(".github/scripts/automation-capability-remote.sh", "utf8");
 const DOC = yaml.load(SOURCE) as Record<string, unknown>;
 
 describe("automation-capability-toggle.yml — parses and is dispatch-only", () => {
@@ -67,6 +68,63 @@ describe("automation-capability-toggle.yml — the exact-40-char SHA gate", () =
   });
 });
 
+describe("automation-capability-toggle.yml — stale close is never a green no-op", () => {
+  it("ships current-main safety code for close while preserving the caller SHA as evidence", () => {
+    expect(SOURCE).toContain('if [ "${CAPABILITY}" = "closed" ]; then');
+    expect(SOURCE).toContain('echo "should_run=true" >> "$GITHUB_OUTPUT"');
+    expect(SOURCE).toContain('echo "stale_close=true" >> "$GITHUB_OUTPUT"');
+    expect(SOURCE).toContain('echo "checkout_sha=${current_main_sha}" >> "$GITHUB_OUTPUT"');
+    expect(SOURCE).toContain("ref: ${{ steps.freshness.outputs.checkout_sha }}");
+    expect(SOURCE).toContain("EXPECTED_SHA=${REQUESTED_SHA} REQUESTED_SHA=${REQUESTED_SHA}");
+  });
+
+  it("resolves close's effective SHA only from matching running web+worker identities plus web build-info", () => {
+    expect(REMOTE_SOURCE).toContain("capability_resolve_running_release");
+    expect(REMOTE_SOURCE).toContain('web_revision="$(capability_container_label web org.opencontainers.image.revision)"');
+    expect(REMOTE_SOURCE).toContain('worker_revision="$(capability_container_label worker org.opencontainers.image.revision)"');
+    expect(REMOTE_SOURCE).toContain('if [ "${web_revision}" != "${worker_revision}" ]; then');
+    expect(REMOTE_SOURCE).toContain('if [ "${build_id}" != "${web_revision}" ]; then');
+    expect(REMOTE_SOURCE).toContain('EFFECTIVE_SHA="${CAP_RUNNING_SHA}"');
+    expect(REMOTE_SOURCE).toContain('capability_recreate_and_verify "false" "${EFFECTIVE_SHA}"');
+  });
+
+  it("persists false before any runtime read and bounds each subsequent HTTP/Docker read", () => {
+    expect(REMOTE_SOURCE).toContain(
+      'CAPABILITY_BUILD_INFO_MAX_TIME_SECONDS="${CAPABILITY_BUILD_INFO_MAX_TIME_SECONDS:-10}"',
+    );
+    expect(REMOTE_SOURCE).toContain("1|2|3|4|5|6|7|8|9|10)");
+    expect(REMOTE_SOURCE).toContain(
+      'curl -fsS --max-time "${CAPABILITY_BUILD_INFO_MAX_TIME_SECONDS}" "${CAPABILITY_BUILD_INFO_URL}"',
+    );
+    expect(REMOTE_SOURCE).toContain('build_json="$(capability_wait_for_build_info 3 1)"');
+
+    const closeStart = REMOTE_SOURCE.indexOf("capability_close() {");
+    const closeSource = REMOTE_SOURCE.slice(closeStart);
+    expect(closeSource.indexOf("capability_resolve_running_release")).toBeGreaterThan(0);
+    const falseWrite = closeSource.indexOf('atomic_set_env_var "${ENV_FILE}" "${ENV_KEY}" "false"');
+    expect(falseWrite).toBeGreaterThan(0);
+    expect(falseWrite).toBeLessThan(closeSource.indexOf("capability_state_snapshot"));
+    expect(falseWrite).toBeLessThan(
+      closeSource.indexOf("capability_resolve_running_release"),
+    );
+    expect(REMOTE_SOURCE).toContain('CAPABILITY_DOCKER_READ_MAX_TIME_SECONDS="${CAPABILITY_DOCKER_READ_MAX_TIME_SECONDS:-10}"');
+    expect(REMOTE_SOURCE).toContain("os.killpg(child.pid, signal.SIGKILL)");
+    expect(REMOTE_SOURCE).not.toMatch(/\$\(docker (compose ps|inspect)/);
+    expect(REMOTE_SOURCE).toContain('capability_docker_read compose exec -T "${service}" node -e');
+  });
+
+  it("stops both writer services without selecting an image when close identity is unprovable, retaining a failed result", () => {
+    expect(REMOTE_SOURCE).toContain('"running_release_identity_unverified,${CAP_EMERGENCY_STOP_BLOCKER}"');
+    expect(REMOTE_SOURCE).toContain("docker compose stop --timeout 90 web worker");
+    expect(REMOTE_SOURCE).toContain('capability_docker_read compose ps --all -q "${service}"');
+    expect(REMOTE_SOURCE).toContain("runtime_emergency_stopped_degraded");
+    expect(REMOTE_SOURCE).toContain("runtime_emergency_stop_unverified");
+    expect(REMOTE_SOURCE).toContain('"effectiveSha": os.environ.get("EFFECTIVE_SHA") or None');
+    expect(SOURCE).toContain('"requestedSha": requested_sha');
+    expect(SOURCE).toContain('"effectiveSha": effective_sha');
+  });
+});
+
 describe("automation-capability-toggle.yml — the typed confirmation for open", () => {
   it("requires the EXACT phrase OPEN_AUTOMATION_CAPABILITY when capability=open", () => {
     expect(SOURCE).toContain('"${CAPABILITY}" = "open" ] && [ "${CONFIRM_OPEN}" != "OPEN_AUTOMATION_CAPABILITY"');
@@ -92,6 +150,72 @@ describe("automation-capability-toggle.yml — concurrency matches deploy-hetzne
     const deployDoc = yaml.load(deploySource) as { concurrency: { group: string; "cancel-in-progress": boolean } };
     expect(deployDoc.concurrency.group).toBe("deploy-production-main");
     expect(deployDoc.concurrency["cancel-in-progress"]).toBe(false);
+  });
+
+  it("release-gate promotion shares the host mutation group too", () => {
+    const promotion = yaml.load(readFileSync(".github/workflows/promote-release-gate-mode.yml", "utf8")) as {
+      concurrency: { group: string; "cancel-in-progress": boolean };
+    };
+    expect(promotion.concurrency).toEqual(DOC.concurrency);
+  });
+
+  it("bounds current-main lookup, SSH connection and both complete phases while allowing OPEN rollback", () => {
+    expect(SOURCE).toContain("child.communicate(timeout=30)");
+    expect(SOURCE).toContain("-o ConnectTimeout=10 -o ConnectionAttempts=1");
+    expect(SOURCE).toContain('close_max_seconds="${CAPABILITY_CLOSE_SSH_MAX_TIME_SECONDS:-2100}"');
+    expect(SOURCE).toContain('deadline = int(sys.argv[1]) if sys.argv[2] == "closed" else 3600');
+    expect(SOURCE).toContain("os.killpg(child.pid, signal.SIGKILL)");
+    expect((DOC.jobs as { toggle: { "timeout-minutes": number } }).toggle["timeout-minutes"]).toBe(65);
+    expect(REMOTE_SOURCE).toContain('capability_bounded_command "${CAPABILITY_PREFLIGHT_MAX_TIME_SECONDS}" docker compose exec');
+    expect(REMOTE_SOURCE).toContain('CAPABILITY_PREFLIGHT_MAX_TIME_SECONDS="$(capability_deadline "${CAPABILITY_PREFLIGHT_MAX_TIME_SECONDS:-60}" 60)"');
+    expect(REMOTE_SOURCE).toContain('CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS="$(capability_deadline "${CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS:-300}" 300)"');
+    expect(REMOTE_SOURCE).toContain('capability_bounded_command "${CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS}" docker compose pull');
+    expect(REMOTE_SOURCE).toContain('capability_bounded_command "${CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS}" docker compose up');
+  });
+
+  it("allows lookup failure fallback only to the exact trusted main dispatch commit and records its provenance", () => {
+    expect(SOURCE).toContain('DISPATCH_REF: ${{ github.ref }}');
+    expect(SOURCE).toContain('DISPATCH_SHA: ${{ github.sha }}');
+    expect(SOURCE).toContain('[ "${CAPABILITY}" = "closed" ] && [ "${DISPATCH_REF:-}" = "refs/heads/main" ]');
+    expect(SOURCE).toContain('echo "checkout_sha=${DISPATCH_SHA}" >> "$GITHUB_OUTPUT"');
+    expect(SOURCE).toContain('echo "script_source=dispatch_main_fallback" >> "$GITHUB_OUTPUT"');
+    expect(SOURCE).toContain('echo "main_lookup=unavailable" >> "$GITHUB_OUTPUT"');
+  });
+
+  it("bounds every post-deploy HTTP transfer and the verification job without changing its checks", () => {
+    const source = readFileSync(".github/workflows/post-deploy-verify.yml", "utf8");
+    const workflow = yaml.load(source) as {
+      jobs: { verify: { "timeout-minutes": number; steps: Array<{ name: string; run?: string }> } };
+    };
+    expect(workflow.jobs.verify["timeout-minutes"]).toBe(20);
+    const documentCheck = workflow.jobs.verify.steps.find((step) => step.name === "Verify public and workspace documents")?.run ?? "";
+    const curls = documentCheck.split("\n").filter((line) => /\bcurl\b/.test(line));
+    expect(curls).toHaveLength(3);
+    for (const curl of curls) {
+      expect(curl).toContain("--max-time 10");
+      expect(curl).toContain("--retry-max-time 60");
+    }
+    expect(documentCheck).toContain('[ "${login_status}" != "200" ]');
+    expect(documentCheck).toContain('[ "${workspace_status}" != "307" ]');
+    expect(source).toContain("ref: ${{ steps.expected.outputs.sha }}");
+  });
+
+  it("bounds deploy ingress reads and its single verification dispatch without shortening migration recovery", () => {
+    const source = readFileSync(".github/workflows/deploy-hetzner.yml", "utf8");
+    const workflow = yaml.load(source) as {
+      jobs: { deploy: { "timeout-minutes": number; steps: Array<{ name: string; run?: string }> } };
+    };
+    expect(workflow.jobs.deploy["timeout-minutes"]).toBe(180);
+    const curls = workflow.jobs.deploy.steps.flatMap((step) =>
+      (step.run ?? "").split("\n").filter((line) => /\bcurl\s+-/.test(line)),
+    );
+    expect(curls).toHaveLength(4);
+    expect(curls.filter((line) => line.includes("--max-time 10"))).toHaveLength(3);
+    expect(curls.filter((line) => line.includes("--max-time 30"))).toHaveLength(1);
+    const dispatch = workflow.jobs.deploy.steps.find((step) => step.name === "Dispatch post-deploy verification workflow")?.run ?? "";
+    expect(dispatch).toContain("-X POST");
+    expect(dispatch).not.toMatch(/--retry\b/);
+    expect(source).toContain("ref: ${{ steps.deploy_sha.outputs.sha }}");
   });
 });
 
@@ -173,6 +297,19 @@ describe("automation-capability-toggle.yml — the artifact is uploaded on every
 });
 
 describe("automation-capability-toggle.yml — no secret is ever echoed in plaintext", () => {
+  it("uses per-invocation registry auth after file close, with bounded login and no credential in remote argv", () => {
+    const toggle = (DOC.jobs as { toggle: { permissions: Record<string, string> } }).toggle;
+    expect(toggle.permissions.packages).toBe("read");
+    expect(SOURCE).toContain("IFS= read -r CAP_REGISTRY_TOKEN; source /dev/stdin");
+    expect(SOURCE).toContain('printf \'%s\\n\' "${GHCR_PULL_TOKEN:-}" > "${concat_file}"');
+    expect(REMOTE_SOURCE).toContain('export -n CAP_REGISTRY_TOKEN');
+    expect(REMOTE_SOURCE).toContain('capability_bounded_command 60 docker --config "${CAP_REGISTRY_CONFIG}" login');
+    expect(REMOTE_SOURCE).toContain("trap capability_cleanup_registry_auth EXIT");
+    expect(REMOTE_SOURCE).toContain('docker compose up -d --pull never --force-recreate web worker');
+    expect(REMOTE_SOURCE).toContain('"${cached_identity}" != "${running_image} ${release_sha} ${service}-runner"');
+    expect(REMOTE_SOURCE).toContain('docker_read compose config --no-env-resolution --format json "${service}"');
+  });
+
   it("no step prints a raw ${{ secrets.* }} expression outside an env: assignment", () => {
     const lines = SOURCE.split("\n");
     const offenders = lines.filter((line) => {
@@ -202,13 +339,13 @@ describe("automation-capability-toggle.yml — the host phases are exactly the t
 
   it("concatenates the env-writer library and the phase script into ONE stdin stream", () => {
     const runAt = SOURCE.indexOf("Run a capability phase on the host");
-    const runBody = SOURCE.slice(runAt, runAt + 2000);
+    const runBody = SOURCE.slice(runAt, SOURCE.indexOf("- name: Build the redacted result artifact", runAt));
     // ONE `cat` invocation, both files as its arguments — never a
     // `{ cat A; cat B; }` group (whose own exit status is only the LAST
     // command's, silently masking an earlier cat failing while a later one
     // succeeds) and never two separate `cat` commands either.
     expect(runBody).toContain(
-      "cat .github/scripts/automation-capability-env.sh .github/scripts/automation-capability-remote.sh > \"${concat_file}\"",
+      "cat .github/scripts/automation-capability-env.sh .github/scripts/automation-capability-remote.sh >> \"${concat_file}\"",
     );
   });
 

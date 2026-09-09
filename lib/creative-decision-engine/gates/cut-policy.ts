@@ -204,10 +204,55 @@ export function maturitySpendThresholdFor(
   );
 }
 
-export function hasCanonicalRecentRecovery(ctx: GateContext): boolean {
+/**
+ * The floor a RECENT-window judgement may use, canonical first.
+ *
+ * `thresholds.recentSampleMinSpend` is derived from the spend unit, so it is
+ * `null` on an account with no authoritative one. Every predicate that judged
+ * the recent window against it then answered `false` — and `false` reads as
+ * "the recent evidence does not hold", which is the opposite of "there is no
+ * floor to judge it against". That inversion turned a withheld unit into a
+ * Cut (the recovery guard evaporated) and into a deleted Refresh verdict (the
+ * decay evidence evaporated).
+ *
+ * `commercialStopLossThresholds` is the trusted physical-account AOV view. It
+ * is present whenever that account-level evidence exists, independently of
+ * whether the Cut repair is engaged for this row, which is why it is read
+ * directly rather than through `effectiveCommercialStopLossThresholds`: the
+ * question here is "what does this account know about a meaningful recent
+ * window", not "which family is deciding the Cut".
+ *
+ * Still `null` when neither family has one, and the callers hold there.
+ */
+export function recentSampleMinSpendFloor(
+  profile: AccountDecisionProfile,
+): number | null {
+  return (
+    profile.thresholds.recentSampleMinSpend ??
+    profile.commercialStopLossThresholds?.recentSampleMinSpend ??
+    null
+  );
+}
+
+export function hasCanonicalRecentRecovery(
+  ctx: GateContext,
+  /**
+   * The recent-sample floor to judge against, when the caller is deciding from
+   * a threshold family other than the profile's own.
+   *
+   * `profile.thresholds.recentSampleMinSpend` is derived from the spend unit,
+   * so it is `null` on an account that has no authoritative one — and this
+   * predicate then answered `false`, which reads as "recovery is NOT holding"
+   * and let a cut proceed. That inverts the hold: a caller cutting on the
+   * REPAIRED commercial stop-loss thresholds must weigh recovery against the
+   * same family, not against a floor that does not exist.
+   */
+  recentSpendThresholdOverride?: number | null,
+): boolean {
   const recentSpend = ctx.input.recent7dSpend;
   const recentRoas = ctx.input.recent7dRoas;
-  const recentSpendThreshold = ctx.profile.thresholds.recentSampleMinSpend;
+  const recentSpendThreshold =
+    recentSpendThresholdOverride ?? recentSampleMinSpendFloor(ctx.profile);
   return (
     recentSpend !== null &&
     recentRoas !== null &&

@@ -153,7 +153,23 @@ export interface ObservedShopifyAovEvidence {
   knowledgeAsOf: string;
 }
 
-/** Only `observed` supplies a unit; every other status is a stated absence. */
+/**
+ * Only `observed` supplies a unit; every other status is a stated absence.
+ *
+ * It is a CONTENT test, not a point-in-time test. It never reads `window`,
+ * `observedAt` or `knowledgeAsOf`, so it cannot tell a caller whether this
+ * evidence was knowable at some earlier cutoff — and `knowledgeAsOf` is stamped
+ * from the wall clock at read time (`resolveObservedShopifyAov` below), so for
+ * anything cutoff-bound the answer is routinely "no".
+ *
+ * Treating it as an admission gate is what broke production on 2026-09-07: the
+ * native ad-profile validator gated the store spend-unit basis on this function
+ * alone while the builder also compared the three clocks, the two disagreed by
+ * about a second, and three accounts lost every native decision to
+ * `native_target_authority_mismatch`. The native hard-decision path no longer
+ * has a store-AOV basis at all. Any future cutoff-bound caller must compare the
+ * clocks itself; this predicate will not do it.
+ */
 export function observedShopifyAovIsUsable(
   evidence: ObservedShopifyAovEvidence | null,
 ): evidence is ObservedShopifyAovEvidence & { aovMinor: number; currency: string } {

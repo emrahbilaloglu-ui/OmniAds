@@ -89,6 +89,23 @@ describe("reportingWindowApplicability", () => {
     expect(result.comparisonApplies).toBe(false);
   });
 
+  it.each([
+    "/c/biz_1/creative/performance",
+    "/c/biz_1/creative/copies",
+    "/c/biz_1/creative/landing-pages",
+    "/c/biz_1/creative/inbox",
+    "/c/biz_1/creative/audiences",
+    "/c/biz_1/creative/creative_123",
+  ] as const)(
+    "keeps Creative Studio on its primary window without an unused comparison: %s",
+    (path) => {
+      const result = reportingWindowApplicability(path);
+
+      expect(result.applies).toBe(true);
+      expect(result.comparisonApplies).toBe(false);
+    },
+  );
+
   it("leaves an unregistered path fully active", () => {
     // Conservative on purpose: the picker keeps working everywhere outside the
     // Meta family, and an unregistered surface is not silently stripped of a

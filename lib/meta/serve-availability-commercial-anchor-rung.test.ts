@@ -1,24 +1,37 @@
 /**
- * The store's own average order value is a commercial anchor, and the served
- * panel must say so.
+ * The store's own average order value is NOT a commercial anchor for a META
+ * decision, and the served panel must say so.
  *
- * ROAS is the only commercial target this product requires; a target CPA and an
- * operator AOV assumption are optional and their absence is never a blocker,
- * because the average order value is read from the merchant's Shopify orders
- * and the CPA benchmark is derived from it. The `observed_shopify_aov` rung in
- * `resolveSpendUnit` already implements exactly that.
+ * THE CANONICAL RULE. The hard-decision spend unit for a Meta action is the
+ * META PLATFORM AOV — Meta's own attributed purchase revenue over its own
+ * attributed purchase count — divided by the Target ROAS. The merchant's
+ * settled Shopify orders are a different book: dividing Meta spend by them
+ * sizes Meta money from revenue Meta never attributed, and it made the served
+ * and native surfaces answer "what is a purchase worth" with two different
+ * numbers for the same account.
  *
- * What the availability matrix measured was the panel denying it: the served
- * `system.commercialAnchor` reported
- * `status: "blocked_missing_owner_anchor"`, `spendUnitSource: "insufficient"`
- * and `missingInputs: ["target_cpa", "operator_aov_assumption"]` while the
- * account's own retained `engine_v3_account_profile_output` rows carried a
- * resolved spend unit of 26.36 (58.00 ÷ 2.20) with cut and refresh eligible.
+ * WHAT THIS FILE USED TO PIN, AND WHY IT IS REVERSED. It asserted the opposite
+ * premise — that a proven store AOV resolves the anchor as
+ * `eligible_observed_shopify_aov` with `spendUnitSource: "observed_shopify_aov"`
+ * at HIGH confidence and a spend unit of 26.36 (58.00 / 2.20). That rung has
+ * been removed from `resolveSpendUnit`'s ladder: `observed_shopify_aov` remains
+ * in `SpendUnitSource` so profiles persisted while it was a rung still parse,
+ * but it is never minted again.
  *
- * These cases pin the resolution the panel is built from, both ways: the store
- * evidence resolves the anchor and reports its OWN provenance, and its absence
- * still refuses. Nothing here lowers a threshold — the eligibility predicates
- * are untouched and the second case proves the refusal still happens.
+ * WHAT IT PINS NOW, both ways, so nothing here is a one-directional relaxation:
+ *
+ *   - The store's number, however well proven, sizes and authorises NOTHING.
+ *     An account with a Target ROAS, a proven 58.00 store AOV and no Meta
+ *     purchase sample HOLDS, and the hold names the Meta purchase sample rather
+ *     than telling the operator to type a CPA or an AOV.
+ *   - The hold is not permanent and the panel is not dead: the same account
+ *     with Meta purchases attributed resolves through `meta_derived_aov` and
+ *     demands nothing.
+ *   - Shopify changes no decision input. The Meta-anchored resolution is
+ *     byte-identical with the store evidence present and absent.
+ *   - The provenance guard still bites on the rung that now exists: an
+ *     untrusted target pack demotes a ready Meta-derived unit and the threshold
+ *     gate refuses.
  */
 import { describe, expect, it } from "vitest";
 import { resolveAccountDecisionProfile } from "@/lib/creative-decision-engine/account-decision-profile";
@@ -83,21 +96,43 @@ function provenStoreAov(
   };
 }
 
+/**
+ * No Meta-attributed sample, and no account-history rung either.
+ *
+ * This is the controlled half of every pair below: with nothing on the Meta
+ * side the ladder can only answer from a configured rung, so whatever the store
+ * evidence does — or, now, does not do — is visible without a second cause.
+ */
+function noMetaPurchases(): AccountCalibration {
+  return makeAccountCalibration({
+    metaAttributedAovMean90d: null,
+    metaAttributedAovPurchaseCount90d: 0,
+    metaAttributedRevenue90d: 0,
+    metaAovQuality: "unavailable",
+    accountCpaP50: null,
+    accountCpaSampleCount: 0,
+  });
+}
+
+/**
+ * The canonical basis: 71.00 of Meta-attributed revenue per Meta-attributed
+ * purchase, over a sample the ladder calls `ready` (>= 20 purchases).
+ */
+function metaPlatformAov(): AccountCalibration {
+  return makeAccountCalibration({
+    metaAttributedAovMean90d: 71,
+    metaAttributedAovPurchaseCount90d: 400,
+    metaAttributedRevenue90d: 28_400,
+    metaAovQuality: "ready",
+    accountCpaP50: null,
+    accountCpaSampleCount: 0,
+  });
+}
+
 class ProfileDataSource implements CreativeDecisionDataSource {
   constructor(
     private readonly targetPack: BusinessTargetPack | null,
-    private readonly calibration: AccountCalibration = makeAccountCalibration({
-      // No Meta-attributed sample at all, so the ONLY rung that can answer
-      // below `operator_aov` is the store's. Without it the ladder must fall
-      // through to `insufficient`, which is what makes the pair a controlled
-      // comparison rather than a coincidence.
-      metaAttributedAovMean90d: null,
-      metaAttributedAovPurchaseCount90d: 0,
-      metaAttributedRevenue90d: 0,
-      metaAovQuality: "unavailable",
-      accountCpaP50: null,
-      accountCpaSampleCount: 0,
-    }),
+    private readonly calibration: AccountCalibration = noMetaPurchases(),
   ) {}
 
   async getCreativeInput(): Promise<CreativeInput | null> {
@@ -178,11 +213,12 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
 async function resolve(
   observedShopifyAov: ObservedShopifyAovEvidence | null,
   targetPack: BusinessTargetPack | null = TARGET_PACK,
+  calibration: AccountCalibration = noMetaPurchases(),
 ) {
   const profile = await resolveAccountDecisionProfile({
     businessId: "00000000-0000-4000-8000-000000000901",
     asOf: "2026-09-04",
-    dataSource: new ProfileDataSource(targetPack),
+    dataSource: new ProfileDataSource(targetPack, calibration),
     flags: makeFlags(),
     observedShopifyAov,
   });
@@ -193,36 +229,40 @@ async function resolve(
   return anchor;
 }
 
-describe("commercial anchor from observed store orders", () => {
-  it("resolves the anchor from the store's own average order value and names that source", async () => {
+describe("commercial anchor is the Meta platform AOV, never the store's", () => {
+  it("refuses to size a Meta action from a proven store average order value", async () => {
     const anchor = await resolve(provenStoreAov());
 
-    expect(anchor.status).toBe("eligible_observed_shopify_aov");
-    expect(anchor.spendUnitSource).toBe("observed_shopify_aov");
-    expect(anchor.spendUnitConfidence).toBe("high");
-    expect(anchor.thresholdEligible).toBe(true);
-    // 58.00 / 2.20 — the derived CPA benchmark, not a typed one.
-    expect(anchor.spendUnit).toBeCloseTo(26.3636, 4);
-    // The lineage rows the panel prints are unchanged by this fix: the store's
-    // own number is not among them yet, and the panel names its rung through
-    // `spendUnitSource` instead. Adding a lineage row needs the adapter and the
-    // payload-coverage census to move with it; that is handed off, not done
-    // here.
-    expect(anchor.lineage.targetRoas).toBe(2.2);
-    // The two OPTIONAL inputs must not be demanded once a unit exists.
-    expect(anchor.missingInputs).toEqual([]);
+    // The store number is real, proven and in the account's own currency, and
+    // it still authorises nothing.
+    expect(anchor.status).toBe("blocked_missing_owner_anchor");
+    expect(anchor.spendUnitSource).toBe("insufficient");
+    expect(anchor.thresholdEligible).toBe(false);
+    expect(anchor.spendUnit).toBeNull();
+    // 58.00 / 2.20 — the number this file used to assert. It must not appear.
+    expect(anchor.spendUnit).not.toBeCloseTo(26.3636, 4);
     expect(anchor.actions.cut).toMatchObject({
-      eligible: true,
-      blockerCode: null,
+      eligible: false,
+      blockerCode: "commercial_anchor_missing",
     });
     expect(anchor.actions.refresh).toMatchObject({
-      eligible: true,
-      blockerCode: null,
+      eligible: false,
+      blockerCode: "commercial_anchor_missing",
     });
-    // Scale still answers to its own calibration gate, untouched here.
-    expect(anchor.actions.scale.blockerCode).not.toBe(
-      "commercial_anchor_missing",
-    );
+  });
+
+  it("names the Meta purchase sample as the absence, not a CPA or an AOV", async () => {
+    const anchor = await resolve(provenStoreAov());
+
+    /*
+      A Target ROAS is configured, and with one the canonical unit is Meta's own
+      attributed AOV divided by it. So the operator is told what is actually
+      missing — Meta's attributed purchases — instead of being sent to type one
+      of the two numbers this product does not require.
+    */
+    expect(anchor.missingInputs).toEqual(["meta_attributed_purchase_sample"]);
+    expect(anchor.lineage.targetRoas).toBe(2.2);
+    expect(anchor.lineage.metaAttributedAovPurchaseCount90d).toBe(0);
   });
 
   it("still refuses when the store supplies nothing", async () => {
@@ -237,14 +277,56 @@ describe("commercial anchor from observed store orders", () => {
     });
   });
 
-  it("never reaches the store when an operator already typed an AOV assumption", async () => {
-    const anchor = await resolve(provenStoreAov(), {
-      ...TARGET_PACK,
-      operatorAovAssumption: 40,
-    });
+  it("resolves the unit from the Meta platform AOV once purchases exist", async () => {
+    /*
+      THE GUARD AGAINST OVER-CORRECTING. Retiring the store rung must not turn
+      the panel into a permanent hold: the same target pack, with Meta purchases
+      attributed, mints a unit through the canonical rung. 71.00 / 2.20.
+    */
+    const anchor = await resolve(null, TARGET_PACK, metaPlatformAov());
 
-    expect(anchor.spendUnitSource).toBe("operator_aov");
-    expect(anchor.status).toBe("eligible_operator_aov");
+    expect(anchor.status).toBe("eligible_meta_derived_aov");
+    expect(anchor.spendUnitSource).toBe("meta_derived_aov");
+    expect(anchor.thresholdEligible).toBe(true);
+    expect(anchor.spendUnit).toBeCloseTo(71 / 2.2, 4);
+    expect(anchor.missingInputs).toEqual([]);
+    expect(anchor.actions.cut).toMatchObject({
+      eligible: true,
+      blockerCode: null,
+    });
+  });
+
+  it("is not moved by the store evidence in either direction", async () => {
+    /*
+      Shopify is diagnostic and contextual only: it must change no decision
+      input. Same account, same targets, same Meta sample — once with a proven
+      58.00 store AOV beside it and once with none — and the resolved anchor is
+      identical, so no hash built from it can move either.
+    */
+    const withStore = await resolve(provenStoreAov(), TARGET_PACK, metaPlatformAov());
+    const withoutStore = await resolve(null, TARGET_PACK, metaPlatformAov());
+
+    expect(withStore).toEqual(withoutStore);
+    // And specifically NOT the store's own 58.00 / 2.20.
+    expect(withStore.spendUnit).toBeCloseTo(71 / 2.2, 4);
+  });
+
+  it("still reaches the sampled rung when an operator already typed an AOV assumption", async () => {
+    // RE-PINNED. This asserted `operator_aov` / `eligible_operator_aov`: the
+    // operator's assumption used to outrank the platform AOV. With a Target
+    // ROAS configured the basis is Meta's own attributed AOV over that ratio,
+    // so the typed 40.00 is carried as lineage and decides nothing.
+    const anchor = await resolve(
+      provenStoreAov(),
+      { ...TARGET_PACK, operatorAovAssumption: 40 },
+      metaPlatformAov(),
+    );
+
+    expect(anchor.spendUnitSource).toBe("meta_derived_aov");
+    expect(anchor.status).toBe("eligible_meta_derived_aov");
+    expect(anchor.spendUnit).toBeCloseTo(71 / 2.2, 4);
+    expect(anchor.spendUnit).not.toBeCloseTo(40 / 2.2, 4);
+    expect(anchor.lineage.operatorAovAssumption).toBe(40);
   });
 
   it("withholds the unit when the store evidence is not an observation", async () => {
@@ -256,19 +338,24 @@ describe("commercial anchor from observed store orders", () => {
     expect(anchor.status).toBe("blocked_missing_owner_anchor");
   });
 
-  it("demotes the store rung when the target pack it divides by has no trusted provenance", async () => {
-    const anchor = await resolve(provenStoreAov(), {
-      ...TARGET_PACK,
-      updatedAt: null,
-    });
+  it("demotes the Meta rung when the target pack it divides by has no trusted provenance", async () => {
+    /*
+      The provenance guard, re-pinned onto the rung that now exists. The Meta
+      sample is `ready` and the unit is real, but the pack it is divided by
+      carries no verifiable timestamp, so the confidence is demoted and the
+      threshold gate refuses — and the operator is told to re-save the target
+      rather than to invent economics.
+    */
+    const anchor = await resolve(
+      provenStoreAov(),
+      { ...TARGET_PACK, updatedAt: null },
+      metaPlatformAov(),
+    );
 
-    // The rung is still chosen — the store's number is real — but the pack it
-    // is divided by cannot be trusted, so the confidence is demoted and the
-    // threshold gate refuses. This is the guard that `observed_shopify_aov`
-    // used to sit outside of.
-    expect(anchor.spendUnitSource).toBe("observed_shopify_aov");
+    expect(anchor.spendUnitSource).toBe("meta_derived_aov");
     expect(anchor.spendUnitConfidence).toBe("low");
     expect(anchor.thresholdEligible).toBe(false);
     expect(anchor.status).toBe("blocked_provenance_unverified");
+    expect(anchor.missingInputs).toEqual(["commercial_target_provenance"]);
   });
 });

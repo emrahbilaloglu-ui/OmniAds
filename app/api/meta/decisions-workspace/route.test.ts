@@ -61,6 +61,12 @@ const commercialTargetsMock = vi.hoisted(() => ({
   hasMetaHardActionAnchor: vi.fn(),
   readMetaCommercialTargets: vi.fn(),
 }));
+const accountProfileMock = vi.hoisted(() => ({
+  resolveAccountDecisionProfile: vi.fn(),
+}));
+const engineFlagsMock = vi.hoisted(() => ({
+  resolveEngineV3Flags: vi.fn(),
+}));
 
 vi.mock("@/app/api/meta/account-pulse/route", () => ({
   GET: upstreamRouteMock.accountPulseGet,
@@ -133,11 +139,104 @@ vi.mock("@/lib/meta/commercial-targets", () => ({
   readMetaCommercialTargets: commercialTargetsMock.readMetaCommercialTargets,
 }));
 
+vi.mock("@/lib/creative-decision-engine/account-decision-profile", async (
+  importOriginal,
+) => {
+  const actual = await importOriginal<
+    typeof import("@/lib/creative-decision-engine/account-decision-profile")
+  >();
+  return {
+    ...actual,
+    resolveAccountDecisionProfile:
+      accountProfileMock.resolveAccountDecisionProfile,
+  };
+});
+
+vi.mock("@/lib/creative-decision-engine/feature-flags", async (
+  importOriginal,
+) => {
+  const actual = await importOriginal<
+    typeof import("@/lib/creative-decision-engine/feature-flags")
+  >();
+  return {
+    ...actual,
+    resolveEngineV3Flags: engineFlagsMock.resolveEngineV3Flags,
+  };
+});
+
+vi.mock("@/lib/creative-decision-engine/data-source", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("@/lib/creative-decision-engine/data-source")
+  >();
+  class StubWarehouseDataSource {
+    async readAccountScopeCalibrationMaterialisation() {
+      return "account_scope_materialized" as const;
+    }
+
+    async getBusinessTargetPack() {
+      return {
+        targetCpa: null,
+        targetRoas: 2.5,
+        breakEvenCpa: null,
+        breakEvenRoas: 1.8,
+        operatorAovAssumption: null,
+        defaultRiskPosture: "balanced" as const,
+        updatedAt: "2026-07-13T00:00:00.000Z",
+        freshness: "fresh" as const,
+      };
+    }
+  }
+  return { ...actual, WarehouseDataSource: StubWarehouseDataSource };
+});
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function setCanonicalProfileEligible() {
+  accountProfileMock.resolveAccountDecisionProfile.mockResolvedValue({
+    hardActionEligibility: {
+      scale: true,
+      cut: true,
+      refresh: true,
+      reason: null,
+    },
+  });
+  engineFlagsMock.resolveEngineV3Flags.mockResolvedValue({
+    businessId: "biz_1",
+    enabled: true,
+    surfaceVisible: true,
+    shadowOnly: false,
+    presetOverride: null,
+    source: {
+      enabled: "env",
+      surfaceVisible: "env",
+      shadowOnly: "env",
+      presetOverride: null,
+    },
+    envDefaults: { enabled: true, surfaceVisible: true, shadowOnly: false },
+  });
+}
+
+function authorisedBidTarget() {
+  return {
+    contractVersion: "meta.bid-intent.v1",
+    kind: "bid_intent",
+    authorityStatus: "authorised",
+    blockerCodes: [],
+    currentMinorUnits: 1200,
+    proposedMinorUnits: 1320,
+    bidAmountMinor: 1320,
+    currency: "USD",
+    currencyExponent: 2,
+    direction: "increase",
+    percent: 10,
+    bidStrategyType: "cost_cap",
+    sizingPolicyVersion: "meta.bid-sizing.v1",
+  } as const;
 }
 
 function healthyPipelineHealth() {
@@ -243,6 +342,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    setCanonicalProfileEligible();
     accessMock.requireBusinessAccess.mockResolvedValue({
       session: {
         sessionId: "sess_1",
@@ -576,7 +676,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     });
   });
 
-  it("keeps every current ACTIVE Ad visible when an exact decision snapshot is pending", async () => {
+  it("counts every current ACTIVE Ad awaiting an exact decision, without deciding it", async () => {
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       id: "assignment_1",
       business_id: "biz_1",
@@ -668,21 +768,37 @@ describe("GET /api/meta/decisions-workspace", () => {
         ]),
       }),
     );
-    expect(payload.os.ads.items).toHaveLength(1);
-    expect(payload.os.ads.items[0]).toMatchObject({
-      adId: "120000000000000001",
-      adName: "Current active Ad",
-      campaignName: "Main Winners",
-      lifecycleRole: "main",
-      campaignRoleSource: "automatic",
-      lane: "blocked",
-      decisionAvailability: "pending_native_evidence",
-      action: { code: "await_ad_grain_evidence", providerMutation: null },
-    });
+    /*
+     * WHAT CHANGED, AND WHY THE CLAIM SURVIVED IT.
+     *
+     * This used to assert a SYNTHESISED decision row: an ACTIVE Ad with no
+     * exact decision was published into `os.ads.items` as a `lane: "blocked"`
+     * placeholder. It is not a decision — every metric on it is null and an
+     * operator cannot act on it — and while it sat in the lane it consumed a
+     * slot of the response cap, counted into `blockedCount`, and inflated
+     * `eligiblePreCapCount` so the surface offered to fetch more decisions
+     * that did not exist. It is now served as a count and a sentence.
+     *
+     * The claim this test exists for is untouched: the ACTIVE inventory still
+     * reaches the read model (asserted immediately above) and the resolver's
+     * explanation still travels verbatim — on the campaign the account is
+     * actually running, which is a decided entity rather than a placeholder.
+     */
+    expect(payload.os.ads.items).toHaveLength(0);
+    expect(payload.os.ads.pendingInventoryCount).toBe(1);
+    expect(payload.os.ads.blockedCount).toBe(0);
+    expect(
+      payload.os.limitations.map((item: { code: string }) => item.code),
+    ).toContain("active_ad_inventory_pending_native_decision");
+
     // D074/D076: the resolver's explanation travels verbatim, and its null
-    // kind stays null even though the display role above is provisionally
-    // "main" — the two are separate claims and must stay distinguishable.
-    expect(payload.os.ads.items[0].campaignRoleExplanation).toEqual({
+    // kind stays null even though the displayed role is provisionally "main" —
+    // the two are separate claims and must stay distinguishable.
+    const campaignNode = payload.os.structure.groups[0].campaign;
+    expect(campaignNode.lifecycleRole).toBe("main");
+    expect(campaignNode.campaignRoleSource).toBe("automatic");
+    expect(campaignNode.campaignRoleTrustedForAction).toBe(false);
+    expect(campaignNode.campaignRoleExplanation).toEqual({
       kind: null,
       confidenceClass: "unknown",
       confidenceScore: 0.34,
@@ -757,8 +873,14 @@ describe("GET /api/meta/decisions-workspace", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.os.ads.items).toHaveLength(1);
-    expect(payload.os.ads.items[0].campaignRoleExplanation).toEqual({
+    // Same relocation as above: the un-decided ACTIVE Ad is a count, and the
+    // resolver's "never evaluated" explanation rides the campaign it belongs
+    // to. @see the pending-inventory note earlier in this file.
+    expect(payload.os.ads.items).toHaveLength(0);
+    expect(payload.os.ads.pendingInventoryCount).toBe(1);
+    expect(
+      payload.os.structure.groups[0].campaign.campaignRoleExplanation,
+    ).toEqual({
       kind: null,
       confidenceClass: "unknown",
       confidenceScore: null,
@@ -874,11 +996,26 @@ describe("GET /api/meta/decisions-workspace", () => {
     delete missingActionKind.actionKind;
     const lanes = metaLanePayload({
       actionNow: [
-        metaRec({ id: "pause", actionKind: "execute_pause" }),
-        metaRec({ id: "bid", actionKind: "execute_bid" }),
-        metaRec({ id: "route", actionKind: "route_launchpad_duplicate" }),
+        metaRec({
+          id: "pause",
+          level: "adset",
+          adsetId: "set_pause",
+          type: "scenario_a5_post_learning_underperformer",
+          proposedAction: { kind: "pause" },
+        }),
+        metaRec({
+          id: "bid",
+          level: "adset",
+          adsetId: "set_bid",
+          type: "scenario_b1_capped_winner_bid_raise",
+          targetValue: authorisedBidTarget(),
+          proposedAction: { kind: "apply_bid", bidAmountMinor: 1320 },
+        }),
+        metaRec({ id: "route", type: "winner_promotion_flow" }),
       ],
-      watching: [metaRec({ id: "review", actionKind: "review_drill" })],
+      watching: [
+        metaRec({ id: "review", kind: "state", decisionState: "watch" }),
+      ],
       nonSales: [missingActionKind],
       healthy: [],
       archive: [],
@@ -987,7 +1124,17 @@ describe("GET /api/meta/decisions-workspace", () => {
       reviewOnly: 1,
       missingActionKind: 1,
     });
-    expect(sql).toHaveBeenCalledTimes(4);
+    const digestQueries = sql.mock.calls
+      .map(([strings]) => Array.from(strings as TemplateStringsArray).join("?"))
+      .filter((query) =>
+        [
+          "FROM meta_ads_action_log log",
+          "COALESCE(snapshot.kind, 'recommendation') = 'anomaly'",
+          "FROM meta_decision_responses response",
+          "FROM meta_decision_snapshots_daily snapshot",
+        ].some((fragment) => query.includes(fragment)),
+      );
+    expect(digestQueries).toHaveLength(4);
     expect(payload.digest).toMatchObject({
       snapshotDate: "2026-05-07",
       labelFlips: {
@@ -1661,7 +1808,15 @@ describe("GET /api/meta/decisions-workspace", () => {
     reviewerMock.isReviewerEmail.mockReturnValue(true);
     const pulse = metaPulse();
     const lanes = metaLanePayload({
-      actionNow: [metaRec({ id: "pause-rec", actionKind: "execute_pause" })],
+      actionNow: [
+        metaRec({
+          id: "pause-rec",
+          level: "adset",
+          adsetId: "set_pause",
+          type: "scenario_a5_post_learning_underperformer",
+          proposedAction: { kind: "pause" },
+        }),
+      ],
       watching: [],
       nonSales: [],
       healthy: [],
@@ -1726,9 +1881,8 @@ describe("GET /api/meta/decisions-workspace", () => {
       campaignName: "Main campaign",
       adsetId: "set_1",
       adsetName: "Broad",
+      type: "scenario_a5_post_learning_underperformer",
       decisionLabel: "cut",
-      actionKind: "execute_pause",
-      primaryActionLabel: "Pause Ad Set",
       proposedAction: { kind: "pause" },
     });
     const lanes = metaLanePayload({
@@ -1769,8 +1923,13 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(payload.lanes.actionNow[0]).toMatchObject({
       id: "stale-structure-cut",
       decisionLabel: "cut",
-      actionKind: "execute_pause",
-      primaryActionLabel: "Pause Ad Set",
+      actionKind: "review_drill",
+      primaryActionLabel: "Review cut plan",
+      operatorApply: {
+        action: "pause",
+        grain: "adset",
+        entityId: "set_1",
+      },
     });
     expect(payload.lanes.watching).toHaveLength(0);
     expect(payload.lanes.watchingSegments).toEqual([]);
@@ -1790,9 +1949,9 @@ describe("GET /api/meta/decisions-workspace", () => {
       lane: "act",
       assessment: "Underperformer",
       action: {
-        code: "execute_pause",
+        code: "review_drill",
         intent: "review",
-        providerMutation: "pause",
+        providerMutation: null,
       },
     });
   });
@@ -1863,6 +2022,7 @@ describe("GET /api/meta/decisions-workspace budget evidence panel", () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    setCanonicalProfileEligible();
     accessMock.requireBusinessAccess.mockResolvedValue({
       session: {
         sessionId: "sess_1",
@@ -2068,6 +2228,7 @@ describe("GET /api/meta/decisions-workspace window resolution", () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    setCanonicalProfileEligible();
     accessMock.requireBusinessAccess.mockResolvedValue({
       session: {
         sessionId: "sess_1",

@@ -47,6 +47,7 @@ vi.mock("@/lib/creative-decision-engine/shopify-aov-source", () => ({
 import * as db from "@/lib/db";
 import {
   accountProfileRetentionIdentity,
+  produceRetainedAccountProfileOutputs,
   readAccountProfileRetentionInputs,
 } from "@/lib/meta/account-profile-output-producer";
 import type { CreativeDecisionDataSource } from "@/lib/creative-decision-engine/data-source";
@@ -59,9 +60,19 @@ const AS_OF = "2026-09-04";
 
 /** The only statement the producer issues itself: this account's currency. */
 function withCurrency(currency: string | null) {
+  const query = vi.fn(async (sql: string, params: unknown[] = []) => {
+    if (sql.includes("FROM business_provider_accounts")) {
+      return currency === null ? [] : [{ currency }];
+    }
+    if (sql.includes("INSERT INTO engine_v3_account_profile_output")) {
+      return [{ action: params[4] }];
+    }
+    return [];
+  });
   vi.mocked(db.getDb).mockReturnValue({
-    query: vi.fn(async () => (currency === null ? [] : [{ currency }])),
+    query,
   } as unknown as ReturnType<typeof db.getDb>);
+  return query;
 }
 
 const calibration = (over: Partial<AccountCalibration>): AccountCalibration => ({
@@ -134,6 +145,21 @@ function recordingDataSource(byAccount: Record<string, AccountCalibration>) {
       measured("getAccountFunnelCalibration", input);
       return { campaignKind: "all" as const, byFormat: {} };
     },
+    async getMetaAttributedAov(input: { providerAccountId?: string | null }) {
+      const account = measured("getMetaAttributedAov", input);
+      const legacy = byAccount[account] ?? calibration({ matureCreativeCount: 0 });
+      const aovMean = legacy.metaAttributedAovMean90d === null
+        ? null
+        : legacy.metaAttributedAovMean90d + 22;
+      const purchaseCount = legacy.metaAttributedAovPurchaseCount90d;
+      return {
+        aovMean,
+        purchaseCount,
+        totalRevenue: aovMean === null ? 0 : aovMean * purchaseCount,
+        windowStart: "2026-06-07",
+        windowEnd: AS_OF,
+      };
+    },
   };
   return {
     calls,
@@ -161,6 +187,14 @@ describe("the facts a retained account verdict is read from", () => {
     for (const call of measured) {
       expect(call.input.providerAccountId).toBe(ACCOUNT_A);
     }
+
+    const strictAov = calls.filter((call) => call.method === "getMetaAttributedAov");
+    expect(strictAov).toHaveLength(1);
+    expect(strictAov[0]!.input).toMatchObject({
+      providerAccountId: ACCOUNT_A,
+      asOf: AS_OF,
+      windowDays: 90,
+    });
 
     /*
       The other half of the split, asserted rather than assumed. Target ROAS,
@@ -234,5 +268,217 @@ describe("the facts a retained account verdict is read from", () => {
     const inputs = await readAccountProfileRetentionInputs(
       { businessId: BIZ, providerAccountId: ACCOUNT_A, asOfDate: AS_OF }, dataSource);
     expect(inputs?.accountCurrency ?? null).toBeNull();
+  });
+
+  it("pins the one strict AOV observation into resolver production without a warehouse reread", async () => {
+    const warehouseQuery = withCurrency("USD");
+    const { calls, dataSource } = recordingDataSource({
+      [ACCOUNT_A]: calibration({ metaAttributedAovMean90d: 36 }),
+    });
+    const inputs = await readAccountProfileRetentionInputs(
+      { businessId: BIZ, providerAccountId: ACCOUNT_A, asOfDate: AS_OF },
+      dataSource,
+    );
+    expect(inputs?.strictMetaAov).toMatchObject({
+      status: "resolved",
+      value: { aovMean: 58, purchaseCount: 32 },
+    });
+
+    const produced = await produceRetainedAccountProfileOutputs({
+      businessId: BIZ,
+      providerAccountId: ACCOUNT_A,
+      asOfDate: AS_OF,
+      nowIso: "2026-09-04T12:00:00.000Z",
+    }, inputs);
+
+    expect(produced.produced).toBe(true);
+    const writes = warehouseQuery.mock.calls.filter((call) =>
+      String(call[0]).includes("INSERT INTO engine_v3_account_profile_output"));
+    expect(writes).toHaveLength(3);
+    expect(writes.map((call) => {
+      const params = call[1] as unknown[];
+      return { action: params[4], eligible: params[9], spendUnit: params[13] };
+    })).toEqual([
+      { action: "scale", eligible: true, spendUnit: 58 / 2.2 },
+      { action: "cut", eligible: true, spendUnit: 58 / 2.2 },
+      { action: "refresh", eligible: true, spendUnit: 58 / 2.2 },
+    ]);
+
+    expect(calls.filter((call) => call.method === "getMetaAttributedAov")).toHaveLength(1);
+    expect(
+      warehouseQuery.mock.calls.some((call) =>
+        String(call[0]).includes("FROM meta_ad_daily")),
+    ).toBe(false);
+
+    const changedInputs = {
+      ...inputs!,
+      strictMetaAov: {
+        status: "resolved" as const,
+        value: {
+          aovMean: 80,
+          purchaseCount: 19,
+          totalRevenue: 1520,
+          windowStart: "2026-06-07",
+          windowEnd: AS_OF,
+        },
+      },
+    };
+    expect(
+      accountProfileRetentionIdentity(changedInputs).sourceFingerprint,
+    ).not.toBe(accountProfileRetentionIdentity(inputs!).sourceFingerprint);
+    await produceRetainedAccountProfileOutputs({
+      businessId: BIZ,
+      providerAccountId: ACCOUNT_A,
+      asOfDate: AS_OF,
+      nowIso: "2026-09-04T12:00:00.000Z",
+    }, changedInputs);
+    const changedWrites = warehouseQuery.mock.calls.filter((call) =>
+      String(call[0]).includes("INSERT INTO engine_v3_account_profile_output"))
+      .slice(3);
+    expect(changedWrites).toHaveLength(3);
+    expect(changedWrites.every((call) => {
+      const params = call[1] as unknown[];
+      return params[9] === false
+        && params[10] === "commercial_anchor_sample_insufficient"
+        && params[13] === null;
+    })).toBe(true);
+  });
+
+  it("captures a strict AOV read failure and reproduces the resolver's fail-closed hold", async () => {
+    const warehouseQuery = withCurrency("USD");
+    const base = recordingDataSource({
+      [ACCOUNT_A]: calibration({ metaAttributedAovMean90d: 999 }),
+    });
+    base.dataSource.getMetaAttributedAov = vi.fn(async () => {
+      throw new Error("warehouse timeout");
+    });
+    const inputs = await readAccountProfileRetentionInputs(
+      { businessId: BIZ, providerAccountId: ACCOUNT_A, asOfDate: AS_OF },
+      base.dataSource,
+    );
+    expect(inputs?.strictMetaAov).toEqual({ status: "failed" });
+
+    await produceRetainedAccountProfileOutputs({
+      businessId: BIZ,
+      providerAccountId: ACCOUNT_A,
+      asOfDate: AS_OF,
+      nowIso: "2026-09-04T12:00:00.000Z",
+    }, inputs);
+
+    const writes = warehouseQuery.mock.calls.filter((call) =>
+      String(call[0]).includes("INSERT INTO engine_v3_account_profile_output"));
+    expect(writes).toHaveLength(3);
+    expect(writes.every((call) => {
+      const params = call[1] as unknown[];
+      return params[9] === false
+        && params[10] === "commercial_anchor_missing"
+        && params[13] === null;
+    })).toBe(true);
+    expect(base.dataSource.getMetaAttributedAov).toHaveBeenCalledTimes(1);
+    expect(warehouseQuery.mock.calls.some((call) =>
+      String(call[0]).includes("FROM meta_ad_daily"))).toBe(false);
+  });
+
+  it("keeps sole-account calibration pooled but reads strict AOV from the physical account", async () => {
+    withCurrency("USD");
+    const calls: Array<{ method: string; providerAccountId?: string | null }> = [];
+    const source = {
+      async readAccountScopeCalibrationMaterialisation() {
+        return "per_account_scopes_unwritten" as const;
+      },
+      async readBusinessAccountPopulationBreadth() {
+        return "sole_account" as const;
+      },
+      async getBusinessTargetPack() {
+        return recordingDataSource({}).dataSource.getBusinessTargetPack({ businessId: BIZ });
+      },
+      async getDecisionCalibrationProfile() { return null; },
+      async getAccountCalibration(input: { providerAccountId?: string | null }) {
+        calls.push({ method: "calibration", ...input });
+        return calibration({ metaAttributedAovMean90d: 36 });
+      },
+      async getAccountFunnelCalibration(input: { providerAccountId?: string | null }) {
+        calls.push({ method: "funnel", ...input });
+        return { campaignKind: "all" as const, byFormat: {} };
+      },
+      async getMetaAttributedAov(input: { providerAccountId?: string | null }) {
+        calls.push({ method: "strict_aov", ...input });
+        return {
+          aovMean: 58,
+          purchaseCount: 32,
+          totalRevenue: 1856,
+          windowStart: "2026-06-07",
+          windowEnd: AS_OF,
+        };
+      },
+    } as unknown as CreativeDecisionDataSource;
+
+    const result = await readAccountProfileRetentionInputs(
+      { businessId: BIZ, providerAccountId: ACCOUNT_A, asOfDate: AS_OF },
+      source,
+    );
+    expect(result).not.toBeNull();
+    expect(calls).toEqual([
+      {
+        method: "calibration", businessId: BIZ, asOf: AS_OF,
+        providerAccountId: null,
+      },
+      {
+        method: "funnel", businessId: BIZ, asOf: AS_OF,
+        providerAccountId: null,
+      },
+      {
+        method: "strict_aov", businessId: BIZ, asOf: AS_OF,
+        providerAccountId: ACCOUNT_A, windowDays: 90,
+      },
+    ]);
+  });
+
+  it("skips strict AOV for complete no-ROAS legacy facts and reads it for the legacy fallback", async () => {
+    withCurrency("USD");
+    const legacy = recordingDataSource({ [ACCOUNT_A]: calibration({}) });
+    legacy.dataSource.getBusinessTargetPack = vi.fn(async () => ({
+      targetCpa: 31,
+      targetRoas: null,
+      breakEvenCpa: null,
+      breakEvenRoas: null,
+      operatorAovAssumption: null,
+      defaultRiskPosture: "balanced" as const,
+      updatedAt: "2026-09-04T00:00:00.000Z",
+      freshness: "fresh" as const,
+    }));
+    const legacyInputs = await readAccountProfileRetentionInputs(
+      { businessId: BIZ, providerAccountId: ACCOUNT_A, asOfDate: AS_OF },
+      legacy.dataSource,
+    );
+    expect(legacyInputs?.strictMetaAov).toEqual({ status: "not_read" });
+    expect(legacy.calls.filter((call) => call.method === "getMetaAttributedAov"))
+      .toHaveLength(0);
+
+    const fallback = recordingDataSource({
+      [ACCOUNT_A]: calibration({
+        metaAttributedAovMean90d: null,
+        metaAttributedAovPurchaseCount90d: 0,
+        metaAttributedRevenue90d: 0,
+        metaAovQuality: "unavailable",
+      }),
+    });
+    fallback.dataSource.getBusinessTargetPack = legacy.dataSource.getBusinessTargetPack;
+    fallback.dataSource.getMetaAttributedAov = vi.fn(async () => ({
+      aovMean: 73,
+      purchaseCount: 19,
+      totalRevenue: 1387,
+      windowStart: "2026-06-07",
+      windowEnd: AS_OF,
+    }));
+    const fallbackInputs = await readAccountProfileRetentionInputs(
+      { businessId: BIZ, providerAccountId: ACCOUNT_A, asOfDate: AS_OF },
+      fallback.dataSource,
+    );
+    expect(fallbackInputs?.strictMetaAov).toMatchObject({
+      status: "resolved",
+      value: { aovMean: 73, purchaseCount: 19 },
+    });
+    expect(fallback.dataSource.getMetaAttributedAov).toHaveBeenCalledTimes(1);
   });
 });

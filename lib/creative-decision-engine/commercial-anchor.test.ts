@@ -19,8 +19,8 @@ const EMPTY_LINEAGE: CommercialAnchorLineage = {
   attributionAovAdjustmentMultiplier: null,
 };
 
-/** Mirrors the profile's own predicates so the ladder is exercised exactly as
- * production composes it: resolver -> threshold eligibility -> explanation. */
+/** Formatter scenarios. The actual profile's eligibility composition is
+ * exercised independently in account-decision-profile.test.ts. */
 function explainFromLadder(input: {
   targetCpa?: number | null;
   operatorAovAssumption?: number | null;
@@ -59,8 +59,8 @@ function explainFromLadder(input: {
     hardEligibleByDefault &&
     (confidence === "high" ||
       (confidence === "medium" && metaAovQuality === "ready"));
-  const scaleAnchorEligible = (input.targetRoas ?? 0) > 0;
-  const cutAnchorEligible = (input.breakEvenRoas ?? 0) > 0;
+  const scaleAnchorEligible = !provenanceUnverified && (input.targetRoas ?? 0) > 0;
+  const cutAnchorEligible = !provenanceUnverified && ((input.breakEvenRoas ?? 0) > 0 || scaleAnchorEligible);
   return {
     resolution,
     explanation: resolveCommercialAnchorExplanation({
@@ -92,10 +92,14 @@ function explainFromLadder(input: {
 }
 
 describe("spend-unit ladder — source, eligibility and anchor status", () => {
-  it("explicit Target CPA is high confidence, eligible, and reported as such", () => {
+  it("explicit Target CPA is high confidence and eligible where it still governs", () => {
+    // RE-PINNED. This case used to also carry `targetRoas: 3`, which is now the
+    // case where the platform AOV takes over. The CPA rung survives exactly
+    // where it still means something: no Target ROAS, so nothing can divide an
+    // average order value and the CPA is the only anchor there is.
     const { resolution, explanation } = explainFromLadder({
       targetCpa: 25,
-      targetRoas: 3,
+      targetRoas: null,
       breakEvenRoas: 2,
       currency: "USD",
     });
@@ -107,21 +111,45 @@ describe("spend-unit ladder — source, eligibility and anchor status", () => {
     expect(explanation.thresholdEligible).toBe(true);
     expect(explanation.missingInputs).toEqual([]);
     expect(explanation.currency).toBe("USD");
-    expect(explanation.actions.scale.eligible).toBe(true);
+    // Scale is the one action that independently needs a ratio, and it names it.
+    expect(explanation.actions.scale.eligible).toBe(false);
+    expect(explanation.actions.scale.blockerCode).toBe("target_roas_missing");
     expect(explanation.actions.cut.eligible).toBe(true);
     expect(explanation.actions.refresh.eligible).toBe(true);
     expect(explanation.actions.cut.blockerCode).toBeNull();
   });
 
-  it("operator AOV plus Target ROAS is high confidence and derives the spend unit", () => {
+  it("a Target ROAS demotes an explicit Target CPA to the platform AOV", () => {
+    const { resolution, explanation } = explainFromLadder({
+      targetCpa: 25,
+      targetRoas: 3,
+      breakEvenRoas: 2,
+      metaAttributedAovMean90d: 60,
+      metaAttributedAovPurchaseCount90d: 20,
+    });
+    expect(resolution.source).toBe("meta_derived_aov");
+    expect(resolution.spendUnit).toBe(20);
+    expect(resolution.spendUnit).not.toBe(25);
+    expect(explanation.status).toBe("eligible_meta_derived_aov");
+    // The CPA is demoted, not discarded: it stays readable in the lineage.
+    expect(explanation.lineage.targetCpa).toBe(25);
+  });
+
+  it("operator AOV plus Target ROAS never derives the spend unit", () => {
+    // RE-PINNED. This asserted `operator_aov` at 90 / 3 = 30. With a Target
+    // ROAS the basis is Meta's own attributed AOV over that ratio, so the
+    // operator rung is unreachable: 60 / 3, never 90 / 3.
     const { resolution, explanation } = explainFromLadder({
       operatorAovAssumption: 90,
       targetRoas: 3,
       breakEvenRoas: 2,
+      metaAttributedAovMean90d: 60,
+      metaAttributedAovPurchaseCount90d: 20,
     });
-    expect(resolution.source).toBe("operator_aov");
-    expect(resolution.spendUnit).toBe(30);
-    expect(explanation.status).toBe("eligible_operator_aov");
+    expect(resolution.source).toBe("meta_derived_aov");
+    expect(resolution.spendUnit).toBe(20);
+    expect(resolution.spendUnit).not.toBe(30);
+    expect(explanation.status).toBe("eligible_meta_derived_aov");
     expect(explanation.missingInputs).toEqual([]);
     expect(explanation.lineage.operatorAovAssumption).toBe(90);
     expect(explanation.lineage.targetRoas).toBe(3);
@@ -146,7 +174,17 @@ describe("spend-unit ladder — source, eligibility and anchor status", () => {
       targetRoas: 3,
       breakEvenRoas: 2,
     });
-    expect(lowSample.resolution.confidence).toBe("low");
+    /*
+      ROUND 6: a thin sample builds NO unit under a Target ROAS. This expected
+      a low-confidence `meta_derived_aov` — the action gate was closed but a
+      real spend unit was still produced from 19 purchases and went on to size
+      the maturity floor, the thresholds and the canonical hash. The named
+      sample-insufficiency below is unchanged, which is the point: the operator
+      still learns WHY, they just no longer get a number nothing may use.
+    */
+    expect(lowSample.resolution.source).toBe("insufficient");
+    expect(lowSample.resolution.spendUnit).toBeNull();
+    expect(lowSample.resolution.confidence).toBe("insufficient");
     expect(lowSample.resolution.hardEligibleByDefault).toBe(false);
     expect(lowSample.explanation.status).toBe(
       "blocked_meta_aov_sample_insufficient",
@@ -160,16 +198,34 @@ describe("spend-unit ladder — source, eligibility and anchor status", () => {
     );
   });
 
-  it("account history is a spend unit but never hard-action eligible", () => {
+  it("account history is unreachable under a Target ROAS, and still a soft unit without one", () => {
     const { resolution, explanation } = explainFromLadder({
       accountCpaP50: 30,
       accountCpaSampleCount: 25,
       targetRoas: 3,
       breakEvenRoas: 2,
     });
-    expect(resolution.source).toBe("account_history");
-    expect(resolution.spendUnit).toBe(30);
+    /*
+      ROUND 6: this expected `account_history` with `spendUnit: 30`. The
+      account's own median CPA is a money-per-purchase unit built from
+      something other than ready Meta AOV, on an account whose Target ROAS says
+      only ready Meta AOV may answer, and `hardEligibleByDefault: false` left
+      the ARITHMETIC in place while closing only the action gate.
+    */
+    expect(resolution.source).toBe("insufficient");
+    expect(resolution.spendUnit).toBeNull();
     expect(resolution.hardEligibleByDefault).toBe(false);
+
+    // The compatibility control: without a Target ROAS the rung is reachable.
+    const legacy = explainFromLadder({
+      accountCpaP50: 30,
+      accountCpaSampleCount: 25,
+      targetRoas: null,
+      breakEvenRoas: 2,
+    });
+    expect(legacy.resolution.source).toBe("account_history");
+    expect(legacy.resolution.spendUnit).toBe(30);
+    expect(legacy.resolution.hardEligibleByDefault).toBe(false);
     expect(explanation.status).toBe("blocked_missing_owner_anchor");
     expect(explanation.actions.scale.blockerCode).toBe(
       "commercial_anchor_missing",
@@ -180,9 +236,19 @@ describe("spend-unit ladder — source, eligibility and anchor status", () => {
     expect(explanation.actions.refresh.blockerCode).toBe(
       "commercial_anchor_missing",
     );
+    /*
+      A Target ROAS is configured, so the canonical unit is Meta's own
+      attributed AOV divided by it and the Meta purchase sample is the only
+      absence. This used to read `["target_cpa", "operator_aov_assumption"]`,
+      and `operator_aov_assumption` is now absent from EVERY missing-input list:
+      with a Target ROAS it resolves the platform AOV rather than the operator's,
+      and without one it divides by nothing — so on neither branch would typing
+      it move the hold. A missing-input list names what WOULD work.
+      which told an operator with a perfectly good ROAS to go and type one of
+      the two numbers this product does not require.
+    */
     expect(explanation.missingInputs).toEqual([
-      "target_cpa",
-      "operator_aov_assumption",
+      "meta_attributed_purchase_sample",
     ]);
   });
 
@@ -197,7 +263,6 @@ describe("spend-unit ladder — source, eligibility and anchor status", () => {
     expect(explanation.status).toBe("blocked_missing_owner_anchor");
     expect(explanation.missingInputs).toEqual([
       "target_cpa",
-      "operator_aov_assumption",
       "target_roas",
     ]);
   });
@@ -210,7 +275,6 @@ describe("spend-unit ladder — source, eligibility and anchor status", () => {
     expect(explanation.spendUnit).toBeNull();
     expect(explanation.missingInputs).toEqual([
       "target_cpa",
-      "operator_aov_assumption",
       "target_roas",
     ]);
   });
@@ -232,8 +296,51 @@ describe("fail-closed anchor inputs", () => {
     });
     expect(resolution.source).not.toBe("target_cpa");
     expect(explanation.thresholdEligible).toBe(false);
-    expect(explanation.missingInputs).toContain("target_cpa");
+    expect(explanation.status).toBe("blocked_missing_owner_anchor");
+    /*
+      The unusable value is rejected exactly as before — that is what the two
+      assertions above measure. What moved is the ADVICE: a Target ROAS is
+      configured here, so the hold names the Meta purchase sample the resolver
+      actually stopped on rather than demanding the CPA back.
+    */
+    expect(explanation.missingInputs).toEqual([
+      "meta_attributed_purchase_sample",
+    ]);
   });
+
+  it.each([
+    ["zero", 0],
+    ["negative", -25],
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY],
+  ])(
+    "a %s Target CPA with no Target ROAS still names the CPA",
+    (_label, value) => {
+      /*
+        The guard against over-correcting the case above.
+
+        Legacy target-CPA compatibility survives precisely where it still means
+        something: with no Target ROAS nothing can divide an average order
+        value, so a Target CPA is the only rung that could resolve an anchor and
+        the hold must keep asking for it. Deleting `target_cpa` from this branch
+        too would leave an unusable CPA and no ROAS reported as a Meta sampling
+        problem, which it is not.
+      */
+      const { resolution, explanation } = explainFromLadder({
+        targetCpa: value,
+        accountCpaP50: 30,
+        accountCpaSampleCount: 25,
+        targetRoas: null,
+        breakEvenRoas: 2,
+      });
+      expect(resolution.source).not.toBe("target_cpa");
+      expect(explanation.thresholdEligible).toBe(false);
+      expect(explanation.missingInputs).toEqual([
+        "target_cpa",
+          "target_roas",
+      ]);
+    },
+  );
 
   it("an operator AOV without a Target ROAS is a partial anchor and stays blocked", () => {
     const { resolution, explanation } = explainFromLadder({
@@ -249,16 +356,42 @@ describe("fail-closed anchor inputs", () => {
     expect(explanation.missingInputs).not.toContain("operator_aov_assumption");
   });
 
-  it("a Target ROAS without any AOV or CPA is a partial anchor and stays blocked", () => {
-    const { explanation } = explainFromLadder({
+  it("a Target ROAS with no Meta purchase sample holds and names the sample", () => {
+    /*
+      The canonical rule, stated as an assertion: with a Target ROAS the spend
+      unit is Meta's own attributed AOV divided by it, so the absence that
+      blocks is the Meta purchase sample and NOT a CPA or an AOV nobody has to
+      type. The account is still held — this lowers nothing.
+    */
+    const { resolution, explanation } = explainFromLadder({
       targetRoas: 3,
       breakEvenRoas: 2,
     });
+    expect(resolution.source).toBe("insufficient");
     expect(explanation.thresholdEligible).toBe(false);
+    expect(explanation.status).toBe("blocked_missing_owner_anchor");
     expect(explanation.missingInputs).toEqual([
-      "target_cpa",
-      "operator_aov_assumption",
+      "meta_attributed_purchase_sample",
     ]);
+  });
+
+  it("a Target ROAS with a ready Meta sample resolves and demands nothing", () => {
+    /*
+      The guard against over-correcting the case above into a permanent hold.
+      The same lineage, with Meta purchases attached, must still MINT a unit
+      through the canonical rung — 60 / 3 — and name no missing input at all.
+    */
+    const { resolution, explanation } = explainFromLadder({
+      targetRoas: 3,
+      breakEvenRoas: 2,
+      metaAttributedAovMean90d: 60,
+      metaAttributedAovPurchaseCount90d: 20,
+    });
+    expect(resolution.source).toBe("meta_derived_aov");
+    expect(resolution.spendUnit).toBe(20);
+    expect(explanation.status).toBe("eligible_meta_derived_aov");
+    expect(explanation.thresholdEligible).toBe(true);
+    expect(explanation.missingInputs).toEqual([]);
   });
 
   it("unverifiable target provenance demotes an otherwise high-confidence anchor", () => {
@@ -309,22 +442,36 @@ describe("independent per-action gates keep their own codes", () => {
     expect(explanation.actions.refresh.eligible).toBe(true);
   });
 
-  it("a good anchor with no break-even ROAS blocks only Cut", () => {
+  it("a ready Meta anchor with Target ROAS permits Cut without a break-even target", () => {
+    // RE-PINNED: the anchor is now the platform AOV rather than the Target CPA,
+    // because a Target ROAS is configured. The CPA is left in place to show it
+    // neither supplies nor withholds the anchor here.
     const { explanation } = explainFromLadder({
       targetCpa: 25,
       targetRoas: 3,
       breakEvenRoas: null,
+      metaAttributedAovMean90d: 60,
+      metaAttributedAovPurchaseCount90d: 20,
     });
-    expect(explanation.actions.cut.eligible).toBe(false);
-    expect(explanation.actions.cut.blockerCode).toBe("break_even_roas_missing");
+    expect(explanation.actions.cut.eligible).toBe(true);
+    expect(explanation.actions.cut.blockerCode).toBeNull();
     expect(explanation.actions.scale.eligible).toBe(true);
   });
 
+  it("keeps Cut held when neither ratio is configured", () => {
+    const { explanation } = explainFromLadder({ targetCpa: 25 });
+    expect(explanation.actions.cut.eligible).toBe(false);
+    expect(explanation.actions.cut.blockerCode).toBe("break_even_roas_missing");
+  });
+
   it("calibration below the floor blocks only Scale and is not an anchor problem", () => {
+    // RE-PINNED for the same reason as the case above.
     const { explanation } = explainFromLadder({
       targetCpa: 25,
       targetRoas: 3,
       breakEvenRoas: 2,
+      metaAttributedAovMean90d: 60,
+      metaAttributedAovPurchaseCount90d: 20,
       calibrationReady: false,
     });
     expect(explanation.actions.scale.blockerCode).toBe(

@@ -35,6 +35,7 @@ export const STALE_SOURCE_UPDATED_AT_HOURS = 48;
 export const RECENT_SIGNAL_FRESHNESS_HOURS = 36;
 export const PREFLIGHT_FRESHNESS_HOURS = 12;
 export const STALE_CONFIDENCE_CAP = 65;
+export const HARD_ACTION_HOLD_CONFIDENCE_CAP = 65;
 
 // The account/economic cut boundary is capped at target. The resolver may
 // narrow it further to valid explicit breakeven, but never widen account P25.

@@ -42,8 +42,8 @@ const MetaLaunchpadPage = (await import("./legacy-page")).default;
 const { buildLaunchpadViewerEnvelope } = await import("./viewer-envelope");
 
 const ASSIGNED_ACCOUNTS = [
-  { id: "act_1", name: "Account One", currency: "USD", timezone: null },
-  { id: "act_2", name: "Account Two", currency: "USD", timezone: null },
+  { id: "act_1", name: "Same name", currency: "USD", timezone: null },
+  { id: "act_2", name: "Same name", currency: "USD", timezone: null },
 ];
 
 const SECTION_READ = {
@@ -82,10 +82,10 @@ function workspaceBody() {
   };
 }
 
-function stubWorkspace() {
+function stubWorkspace(body: Record<string, unknown> = workspaceBody()) {
   const fetchMock = vi.fn(async (url: string) =>
     String(url).startsWith("/api/launchpad/meta/workspace")
-      ? { ok: true, status: 200, json: async () => workspaceBody() }
+      ? { ok: true, status: 200, json: async () => body }
       : { ok: true, status: 200, json: async () => ({}) },
   );
   vi.stubGlobal("fetch", fetchMock);
@@ -122,12 +122,9 @@ describe("Meta Launchpad authorized client scope", () => {
       ).not.toBeNull();
     });
 
-    // The law is about the *chosen account*, not about presentation: an id the
-    // server refused is never restored, and nothing account-scoped is read
-    // while the scope is null. Reading the assignment list itself is allowed —
-    // it is the very set `resolveProviderAccountId` authorizes against, so it
-    // cannot widen scope, and without it a multi-account business would have
-    // nothing to select and Launchpad would be a dead end (see below).
+    // An id the server refused is never restored, and nothing account-scoped is
+    // read while the scope is null. The shared topbar owns the next selection;
+    // this surface reads assignments only to explain the blocked state.
     expect(scopeMocks.fetchCreatives).not.toHaveBeenCalled();
     expect(scopeMocks.fetchDecisions).not.toHaveBeenCalled();
     // The first-load read now carries the account list too, so the proof moved
@@ -142,9 +139,9 @@ describe("Meta Launchpad authorized client scope", () => {
     expect(container.textContent).not.toContain("act_unassigned");
   });
 
-  it("offers a multi-account business its assigned accounts and requests the choice through the URL", async () => {
+  it("leaves account selection to the shared topbar on desktop and mobile", async () => {
     stubWorkspace();
-    render(
+    const { container, rerender } = render(
       <MetaLaunchpadPage
         businessId="route_business"
         businessName="Route Business"
@@ -152,28 +149,165 @@ describe("Meta Launchpad authorized client scope", () => {
       />,
     );
 
-    // Without a control here the surface says "select one assigned Meta ad
-    // account" while offering nothing to select, and the operator can only
-    // proceed by hand-editing the address bar.
-    const picker = (await screen.findByLabelText(
-      "Meta ad account for Launchpad",
-    )) as HTMLSelectElement;
     await waitFor(() => {
-      expect(Array.from(picker.options).map((option) => option.value)).toEqual([
-        "",
-        "act_1",
-        "act_2",
-      ]);
+      expect(container.textContent).toContain(
+        "Select a Meta ad account in the top bar to use Launchpad.",
+      );
+    });
+    expect(screen.queryByLabelText("Meta ad account for Launchpad")).toBeNull();
+    expect(
+      screen.getByTestId("meta-mobile-launchpad").querySelector("select"),
+    ).toBeNull();
+    expect(scopeMocks.replace).not.toHaveBeenCalled();
+
+    // A topbar choice returns as a server-authorized prop. Launchpad consumes
+    // that scope directly and still does not grow its own account control.
+    rerender(
+      <MetaLaunchpadPage
+        businessId="route_business"
+        businessName="Route Business"
+        providerAccountId="act_2"
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        scopeMocks.fetchCreatives.mock.calls.some(
+          ([input]) => input.providerAccountId === "act_2",
+        ),
+      ).toBe(true);
     });
 
-    fireEvent.change(picker, { target: { value: "act_2" } });
+    const start = await screen.findByTestId("launchpad-start-manual");
+    fireEvent.click(start.querySelector("button")!);
+    await screen.findByTestId("launchpad-wizard");
+    expect(screen.queryByLabelText("Meta ad account for Launchpad")).toBeNull();
+    expect(scopeMocks.replace).not.toHaveBeenCalled();
+    expect(
+      screen.getByTestId("meta-mobile-launchpad").querySelector("select"),
+    ).toBeNull();
+  });
 
-    // The client may only *request* an account. It writes the id into the URL
-    // and the server re-resolves it, so an unassigned id is still refused.
-    expect(scopeMocks.replace).toHaveBeenCalledTimes(1);
-    expect(String(scopeMocks.replace.mock.calls[0]?.[0])).toContain(
-      "providerAccountId=act_2",
+  it("keeps legacy desktop and mobile account recovery selectable", async () => {
+    scopeMocks.query = "";
+    stubWorkspace();
+    const { container } = render(<MetaLaunchpadPage />);
+
+    const desktopPicker = await screen.findByLabelText(
+      "Meta ad account for Launchpad",
     );
+    const mobilePicker = await screen.findByLabelText(
+      "Meta ad account for Launchpad mobile",
+    );
+    expect(desktopPicker).toHaveValue("");
+    expect(mobilePicker).toHaveValue("");
+    expect(
+      Array.from((desktopPicker as HTMLSelectElement).options).map(
+        (option) => option.value,
+      ),
+    ).toEqual(["", "act_1", "act_2"]);
+    expect(
+      Array.from((desktopPicker as HTMLSelectElement).options).map(
+        (option) => option.text,
+      ),
+    ).toEqual([
+      "Select account",
+      "Same name · ID act_1 · USD",
+      "Same name · ID act_2 · USD",
+    ]);
+    expect(
+      Array.from((mobilePicker as HTMLSelectElement).options).map(
+        (option) => option.text,
+      ),
+    ).toEqual([
+      "Select account",
+      "Same name · ID act_1 · USD",
+      "Same name · ID act_2 · USD",
+    ]);
+    expect(container.textContent).toContain(
+      "Select a Meta ad account below to use Launchpad.",
+    );
+
+    fireEvent.change(mobilePicker, { target: { value: "act_2" } });
+
+    await waitFor(() => {
+      expect(
+        scopeMocks.fetchCreatives.mock.calls.some(
+          ([input]) => input.providerAccountId === "act_2",
+        ),
+      ).toBe(true);
+    });
+    expect(window.location.search).toContain("providerAccountId=act_2");
+
+    const start = await screen.findByTestId("launchpad-start-manual");
+    fireEvent.click(start.querySelector("button")!);
+    await screen.findByTestId("launchpad-wizard");
+    expect(screen.getByLabelText("Meta ad account for Launchpad")).toHaveValue(
+      "act_2",
+    );
+  });
+
+  it.each([
+    {
+      label: "no assigned accounts",
+      accountsSection: SECTION_READ,
+      message: "No Meta ad account is assigned to this business.",
+    },
+    {
+      label: "an unavailable assignment catalog",
+      accountsSection: {
+        status: "failed",
+        errorCode: "source_read_failed",
+        observedAt: "2026-08-26T00:00:00.000Z",
+      },
+      message: "Meta ad accounts are temporarily unavailable.",
+    },
+  ])(
+    "does not offer a false legacy choice with $label",
+    async ({ accountsSection, message }) => {
+      scopeMocks.query = "";
+      const body = workspaceBody();
+      stubWorkspace({
+        ...body,
+        accounts: [],
+        sections: { ...body.sections, accounts: accountsSection },
+      });
+
+      render(<MetaLaunchpadPage />);
+
+      await screen.findAllByText(message);
+      expect(
+        screen.queryByLabelText("Meta ad account for Launchpad"),
+      ).toBeNull();
+      expect(
+        screen.queryByLabelText("Meta ad account for Launchpad mobile"),
+      ).toBeNull();
+    },
+  );
+
+  it("retains the legacy account choice when the selected account lacks currency", async () => {
+    scopeMocks.query = "providerAccountId=act_1";
+    const body = workspaceBody();
+    stubWorkspace({
+      ...body,
+      accounts: [
+        { id: "act_1", name: "No Currency", currency: null, timezone: null },
+        { id: "act_2", name: "Ready", currency: "USD", timezone: null },
+      ],
+    });
+
+    render(<MetaLaunchpadPage />);
+
+    expect(
+      await screen.findByText(
+        "The selected Meta account needs a currency before launching.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Meta ad account for Launchpad")).toHaveValue(
+      "act_1",
+    );
+    expect(
+      screen.getByLabelText("Meta ad account for Launchpad mobile"),
+    ).toHaveValue("act_1");
   });
 });
 

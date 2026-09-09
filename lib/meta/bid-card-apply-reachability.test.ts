@@ -1,19 +1,13 @@
 /**
  * The card's Apply and the queue's Approve must agree about one amount.
  *
- * They did not. `proposedActionForRecommendation` granted an executable action
- * only to an ad-set recommendation whose `type` was `bid_value_guidance`, and
- * the only emitter of that type builds a CAMPAIGN recommendation — so the
- * condition was unsatisfiable for every real row. The bid projection attaches
- * its intent to whichever ad-set recommendation is present, which in practice
- * is a `scenario_*` row. Observed in the mounted product: an ad set serving
- * `targetValue.bidAmountMinor: 1320` from the real projection, and
- * `operatorApply: null` on the same row.
- *
- * The old tests could not catch it because they built the recommendation with
- * the unreachable type themselves. These start from the types real producers
- * emit, and take the target value from the REAL projection rather than
- * restating it.
+ * A typed amount is necessary but not sufficient. The recommendation type must
+ * itself authorise a currency bid change in the same direction; otherwise a
+ * Cut, fatigue refresh or structural recommendation can be turned into an
+ * unrelated money move merely by attaching a valid payload. B1 is today's only
+ * such vocabulary and it means an increase. Its real emitter is campaign-grain,
+ * so the ad-set row below is a forward-contract fixture, not a claim that live
+ * production currently emits executable bid rows.
  */
 import { describe, expect, it } from "vitest";
 
@@ -38,17 +32,13 @@ import {
 const BUSINESS = "11111111-1111-4111-8111-111111111111";
 
 /**
- * The type an ad-set row actually carries when the projection reaches it.
- *
- * `scenario_e1_frequency_fatigue` is one of the real ad-set emitters; the
- * point of the test is that the type is NOT `bid_value_guidance`, because no
- * ad-set producer emits that.
+ * A synthetic ad-set B1 row exercises the supported semantic contract.
  */
 function adsetRec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
   return {
-    id: "scenario_e1_frequency_fatigue-set_1",
+    id: "scenario_b1_capped_winner_bid_raise-set_1",
     level: "adset", adsetId: "set_1", campaignId: "camp_1",
-    type: "scenario_e1_frequency_fatigue", decisionLabel: "tune",
+    type: "scenario_b1_capped_winner_bid_raise", decisionLabel: "tune",
     lens: "efficiency", priority: "high", confidence: "high",
     decisionState: "act", decision: "", title: "", why: "", summary: "",
     ...overrides,
@@ -70,7 +60,7 @@ function context(overrides: Partial<BidIntentEntityContext> = {}): BidIntentEnti
   };
 }
 
-/** The real projection, so the target value under test is the one production writes. */
+/** The real projector, fed the forward-compatible semantic fixture above. */
 function sizedAdsetRec(recommendation = adsetRec()): MetaRecommendation {
   const result = projectBidIntents({
     recommendations: [recommendation],
@@ -79,6 +69,7 @@ function sizedAdsetRec(recommendation = adsetRec()): MetaRecommendation {
     // $10.00 benchmark against a $12.00 cap: q = 0.84 with delivery
     // constrained, which is the policy's 10% raise band. 1200 -> 1320.
     spendUnitMinor: 1000,
+    bidActionAuthority: true,
     accountCurrency: "USD",
     policy: {
       budgetMinHoursBetweenChanges: 24,
@@ -96,14 +87,14 @@ function sizedAdsetRec(recommendation = adsetRec()): MetaRecommendation {
   return result.recommendations[0]!;
 }
 
-describe("an ad set carrying a real sized bid offers a real Apply", () => {
+describe("an ad set carrying a semantically authorised bid offers Apply", () => {
   it("reads the amount off the target value the projection actually writes", () => {
     const rec = sizedAdsetRec();
-    expect(rec.type).not.toBe("bid_value_guidance");
+    expect(rec.type).toBe("scenario_b1_capped_winner_bid_raise");
     expect(executableBidIntentMinorUnits(rec.targetValue)).toBe(1320);
   });
 
-  it("proposes the apply_bid action for a type no producer would have matched", () => {
+  it("proposes apply_bid only for the bid-amount semantic type", () => {
     expect(proposedActionForRecommendation(sizedAdsetRec())).toEqual({
       kind: "apply_bid", bidAmountMinor: 1320,
     });
@@ -129,6 +120,7 @@ describe("and nothing else does", () => {
       businessId: BUSINESS,
       providerAccountId: "act_1",
       spendUnitMinor: 1000,
+      bidActionAuthority: true,
       accountCurrency: "USD",
       policy: {
         budgetMinHoursBetweenChanges: 24,
@@ -166,6 +158,26 @@ describe("and nothing else does", () => {
   it("refuses a target value carrying two different numbers for one write", () => {
     const target = sizedAdsetRec().targetValue as Record<string, unknown>;
     expect(executableBidIntentMinorUnits({ ...target, bidAmountMinor: 1500 })).toBeNull();
+  });
+
+  it("does not let a valid amount replace a Cut or fatigue recommendation's lever", () => {
+    const target = sizedAdsetRec().targetValue as Record<string, unknown>;
+    // The payload alone is structurally valid; the recommendation semantics are
+    // what must refuse these two poisoned historical rows.
+    expect(executableBidIntentMinorUnits(target)).toBe(1320);
+    for (const type of [
+      "adset_cut_spend",
+      "scenario_e1_frequency_fatigue",
+    ] as const) {
+      const poisoned = adsetRec({
+        type,
+        targetValue: target,
+        proposedAction: { kind: "apply_bid", bidAmountMinor: 1320 },
+      });
+      expect(proposedActionForRecommendation(poisoned)).toBeUndefined();
+      expect(serverLaunchModeForRec(poisoned)).toBeNull();
+      expect(serverOperatorApplyForRec(poisoned)).toBeNull();
+    }
   });
 
   it("refuses anything that is not a bid intent at all", () => {

@@ -1,11 +1,10 @@
 /**
  * The unattended executor for a queued bid change.
  *
- * It exists because `bid` was an allowed queue action with no producer and no
- * executor: the sweep dispatched budget, pause and resume, and a bid row — had
- * one ever been raised — would have been claimed and then withheld as
- * `composition_blocked`. The row now carries an envelope with an exact amount,
- * so there is finally something to execute.
+ * It is kept for a future semantically authorised ad-set B1 producer and for
+ * old-row revocation. No current production recommendation can reach it: B1 is
+ * campaign-grain. If such a producer is added, the row must carry an exact,
+ * lineage-bound envelope and still pass the recommendation-direction gate here.
  *
  * It follows the scheduled status runtime step for step, because the two are
  * the same kind of act: an unattended write that must never speak for an
@@ -34,6 +33,7 @@ import {
   type MetaAdsWriteFailure,
 } from "@/lib/meta/ads-write";
 import { bidStrategyFamily } from "@/lib/meta/bid-sizing-policy";
+import { metaBidAmountDirectionForRecommendationType } from "@/lib/meta/bid-intent-contract";
 import type { MetaAutomationProposal } from "@/lib/meta/automation-proposals";
 import type {
   BudgetProposalExecutionResult,
@@ -117,6 +117,10 @@ export function createScheduledBidRuntime(
     */
     const envelope = proposal.bidEnvelope;
     if (!envelope) return withheld("bid_envelope_absent");
+    if (
+      metaBidAmountDirectionForRecommendationType(proposal.recType)
+        !== envelope.direction
+    ) return withheld("bid_semantic_authority_absent");
 
     const gates = await deps.readGates({ proposal }).catch(() => null);
     const mode = await deps.readMode({ proposal }).catch(() => null);

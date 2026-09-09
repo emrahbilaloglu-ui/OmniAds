@@ -15,9 +15,19 @@ import {
 } from "./shopify-aov-source";
 import { NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR } from "./config-values";
 import {
+  type CommercialTargetInstantBoundary,
+  deterministicCommercialCutoff,
+  isCommercialTargetInstantWithinCutoff,
+} from "@/lib/meta/commercial-target-instant";
+import {
   classifyMetaAovQuality,
   resolveSpendUnit,
 } from "./spend-unit-resolver";
+import {
+  projectEffectiveMetaAovSemantics,
+  shouldReadStrictMetaAov,
+  targetRoasGoverns,
+} from "./commercial-semantic-projection";
 import {
   resolveCommercialAnchorExplanation,
   type CommercialAnchorExplanation,
@@ -258,6 +268,17 @@ function resolveSpendUnitProfile(input: {
   accountBaselines: AccountCalibration;
   attributionAovAdjustmentMultiplier: number;
   /**
+   * The deterministic cutoff this profile is being built AS OF. Production
+   * passes the strict timestamp so database microseconds remain orderable.
+   *
+   * ROUND 9 ITEM 2. Required, not optional: the previous check asked only
+   * whether `updatedAt` PARSED, so a pack saved after the day being
+   * reconstructed was "trusted" and kept `commercialThresholdEligible` open.
+   * Null means the caller could not derive a cutoff at all, which fails closed
+   * exactly like an unparseable timestamp — never like a wall clock.
+   */
+  asOfCutoff: CommercialTargetInstantBoundary | null;
+  /**
    * The store's own AOV, already proven usable (account currency, closed
    * window, order floor) by `resolveObservedShopifyAov`. Optional: an account
    * with no connected store resolves exactly as it did before.
@@ -289,10 +310,17 @@ function resolveSpendUnitProfile(input: {
 
   const freshness = input.targetPack?.freshness ?? "unknown";
   const targetUpdatedAt = input.targetPack?.updatedAt ?? null;
+  /*
+    STRICT. `Date.parse` accepted an impossible calendar date (`2026-02-30`
+    silently becomes 2026-03-02), a bare `YYYY-MM-DD`, and a naked local time
+    that means a different instant on every host — and any of those made this
+    pack "trusted", which is what keeps `commercialThresholdEligible` open. The
+    shared validator refuses all three.
+  */
   const commercialTruthTimestampTrusted =
     freshness !== "unknown" &&
-    typeof targetUpdatedAt === "string" &&
-    Number.isFinite(Date.parse(targetUpdatedAt));
+    input.asOfCutoff !== null &&
+    isCommercialTargetInstantWithinCutoff(targetUpdatedAt, input.asOfCutoff);
   /*
     `observed_shopify_aov` belongs in this list, and was missing from it.
 
@@ -355,7 +383,9 @@ function resolveHardActionEligibility(input: {
   metaAovQuality: MetaAovQuality;
   calibrationReady: boolean;
   shadowOnly: boolean;
-  /** Reported in the anchor lineage; it scales the Meta-derived spend unit. */
+  /** The same deterministic cutoff `resolveSpendUnitProfile` was given. */
+  asOfCutoff: CommercialTargetInstantBoundary | null;
+  /** Reported in the anchor lineage as a diagnostic; never scales the unit. */
   attributionAovAdjustmentMultiplier?: number | null;
 }): HardActionEligibility {
   if (input.shadowOnly) {
@@ -390,16 +420,44 @@ function resolveHardActionEligibility(input: {
       (input.spendUnitProfile.spendUnitConfidence === "medium" &&
         input.metaAovQuality === "ready"));
   const targetUpdatedAt = input.targetPack?.updatedAt ?? null;
+  /*
+    Same reading and the SAME CUTOFF as `resolveSpendUnitProfile` above, and
+    the same reason: this boolean is what lets a Scale or Cut anchor be claimed
+    at all. A target one millisecond after the cutoff is evidence this
+    reconstruction is not allowed to have seen, so it anchors nothing.
+  */
   const targetPackAuthoritative =
     input.targetPack?.freshness !== "unknown" &&
-    typeof targetUpdatedAt === "string" &&
-    Number.isFinite(Date.parse(targetUpdatedAt));
-  const scaleAnchorEligible =
-    targetPackAuthoritative &&
-    positiveFinite(input.targetPack?.targetRoas ?? null);
+    input.asOfCutoff !== null &&
+    isCommercialTargetInstantWithinCutoff(targetUpdatedAt, input.asOfCutoff);
+  const targetRoasAnchored = positiveFinite(
+    input.targetPack?.targetRoas ?? null,
+  );
+  const breakEvenAnchored = positiveFinite(
+    input.targetPack?.breakEvenRoas ?? null,
+  );
+  const scaleAnchorEligible = targetPackAuthoritative && targetRoasAnchored;
+  /*
+    An explicit break-even ROAS is no longer a required Cut input.
+
+    Grandmix's purchase cell configures a Target ROAS and has a
+    ready 90-day Meta platform AOV, but no operator ever typed a break-even
+    ROAS. That made `cutAnchorEligible` false, so every Cut on the account
+    reported `valid explicit break-even ROAS is required for cut authority`
+    even though the Cut the resolver actually wanted to publish was the
+    account-relative one below `bottomQuartileRatio`, which never reads
+    break-even at all.
+
+    Target ROAS is accepted as the Cut anchor here, and it sizes only the
+    SPEND unit (Meta platform AOV / target ROAS) that the loss-budget
+    thresholds are built from. It does not become a ROAS loss boundary:
+    `cut-policy.hasExplicitBreakEven` still keys the D049/D063 economic strip
+    off `spendUnitEvidence.breakEvenRoas`, so with no break-even present the
+    only reachable Cut zone stays the calibrated-relative one. Break-even
+    keeps narrowing that boundary wherever it is configured.
+  */
   const cutAnchorEligible =
-    targetPackAuthoritative &&
-    positiveFinite(input.targetPack?.breakEvenRoas ?? null);
+    targetPackAuthoritative && (breakEvenAnchored || targetRoasAnchored);
   const refreshEligible = commercialThresholdEligible;
   const scaleEligible =
     commercialThresholdEligible &&
@@ -425,7 +483,7 @@ function resolveHardActionEligibility(input: {
           confidence: input.spendUnitProfile.spendUnitConfidence,
           metaAovQuality: input.metaAovQuality,
         })
-      : "valid explicit break-even ROAS is required for cut authority";
+      : "valid explicit break-even or target ROAS is required for cut authority";
   const refreshReason = refreshEligible
     ? null
     : hardActionReason({
@@ -601,6 +659,13 @@ export function applyCommercialStopLossAovAuthority(input: {
   shadowOnly: boolean;
   authority?: CommercialStopLossAovAuthorityInput | null;
 }): AccountDecisionProfile {
+  /*
+    Derived from the profile's OWN `asOfDate`, not passed in and not read from
+    a clock. The stop-loss overlay is the same point in time as the profile it
+    overlays; deriving it here means a caller cannot hand this function a
+    different cutoff than the one that built `input.profile`.
+  */
+  const asOfCutoff = deterministicCommercialCutoff(input.profile.asOfDate);
   const stopLossAov = input.authority;
   const validStopLossAov =
     stopLossAov !== null &&
@@ -612,6 +677,7 @@ export function applyCommercialStopLossAovAuthority(input: {
     isAccountAovRevenueArithmeticConsistent(stopLossAov);
   const commercialStopLossSpendUnit = validStopLossAov
     ? resolveSpendUnitProfile({
+        asOfCutoff,
         targetPack: input.targetPack,
         accountBaselines: {
           ...input.profile.accountBaselines,
@@ -633,6 +699,7 @@ export function applyCommercialStopLossAovAuthority(input: {
     : null;
   const commercialStopLossEligibility = commercialStopLossSpendUnit
     ? resolveHardActionEligibility({
+        asOfCutoff,
         spendUnitProfile: commercialStopLossSpendUnit,
         targetPack: input.targetPack,
         metaAovQuality: "ready",
@@ -728,9 +795,19 @@ export async function resolveAccountDecisionProfile(input: {
     funnelCalibrationByKindPromise,
   ]);
 
-  const needsLiveMetaAov =
-    accountCalibration.metaAttributedAovMean90d === null ||
-    accountCalibration.metaAttributedAovPurchaseCount90d === 0;
+  /*
+    A Target ROAS makes the cutoff-safe physical-account read authoritative.
+
+    Calibration rows still carry the older creative-day AOV projection for
+    persisted compatibility. That projection has no finalized/validation or
+    knowledge-cutoff clocks, so its presence must never suppress this read or
+    survive as a fallback in the ROAS-governed case. A failed/empty live read is
+    therefore an authoritative absence and HOLDS; it is not permission to reuse
+    the legacy value. With no positive Target ROAS, the old fallback behaviour
+    remains available to the non-ROAS diagnostic/CPA path.
+  */
+  const targetRoasRequiresAuthoritativeMetaAov = targetRoasGoverns(targetPack);
+  const needsLiveMetaAov = shouldReadStrictMetaAov(targetPack, accountCalibration);
   const liveMetaAov = needsLiveMetaAov
     ? await input.dataSource
         .getMetaAttributedAov({
@@ -741,20 +818,16 @@ export async function resolveAccountDecisionProfile(input: {
         .catch(() => null)
     : null;
 
-  const metaAttributedAovMean90d =
-    accountCalibration.metaAttributedAovMean90d ?? liveMetaAov?.aovMean ?? null;
-  const metaAttributedAovPurchaseCount90d =
-    accountCalibration.metaAttributedAovPurchaseCount90d ||
-    liveMetaAov?.purchaseCount ||
-    0;
-  const metaAttributedRevenue90d =
-    accountCalibration.metaAttributedRevenue90d ||
-    liveMetaAov?.totalRevenue ||
-    0;
-  const metaAovQuality =
-    accountCalibration.metaAovQuality !== "unavailable"
-      ? accountCalibration.metaAovQuality
-      : classifyMetaAovQuality(metaAttributedAovPurchaseCount90d);
+  const {
+    metaAttributedAovMean90d,
+    metaAttributedAovPurchaseCount90d,
+    metaAttributedRevenue90d,
+    metaAovQuality,
+  } = projectEffectiveMetaAovSemantics({
+    targetPack,
+    calibration: accountCalibration,
+    strictMetaAov: liveMetaAov,
+  });
 
   const accountBaselinesWithAov: AccountCalibration = {
     ...accountCalibration,
@@ -769,10 +842,18 @@ export async function resolveAccountDecisionProfile(input: {
       >((acc, campaignKind) => {
         const calibration = accountBaselinesByKind[campaignKind];
         acc[campaignKind] = calibration
-          ? withAovFallback({
-              calibration,
-              fallback: accountBaselinesWithAov,
-            })
+          ? targetRoasRequiresAuthoritativeMetaAov
+            ? {
+                ...calibration,
+                metaAttributedAovMean90d,
+                metaAttributedAovPurchaseCount90d,
+                metaAttributedRevenue90d,
+                metaAovQuality,
+              }
+            : withAovFallback({
+                calibration,
+                fallback: accountBaselinesWithAov,
+              })
           : null;
         return acc;
       }, emptyByKind<AccountCalibration>())
@@ -790,7 +871,21 @@ export async function resolveAccountDecisionProfile(input: {
     1.0,
     profileConfig?.attributionAovAdjustmentMultiplier,
   );
+  /*
+    ── ROUND 9 ITEM 2: ONE DETERMINISTIC CUTOFF FOR THE WHOLE PROFILE ────────
+
+    Derived from `input.asOf` and from nothing else — never `new Date()`. Every
+    spend-unit and eligibility resolution below (canonical, per-campaign-kind,
+    and the stop-loss overlay) receives THIS value, so the canonical profile and
+    a per-kind profile cannot disagree about which target pack was in force.
+
+    `asOfCutoff` is required on both callees rather than optional, which is
+    why adding it surfaced all six call sites at compile time instead of
+    leaving one silently on the old behaviour.
+  */
+  const asOfCutoff = deterministicCommercialCutoff(input.asOf);
   const canonicalSpendUnitProfile = resolveSpendUnitProfile({
+    asOfCutoff,
     targetPack,
     accountBaselines,
     observedShopifyAov: input.observedShopifyAov ?? null,
@@ -810,6 +905,7 @@ export async function resolveAccountDecisionProfile(input: {
     accountBaselines,
   });
   const canonicalHardActionEligibility = resolveHardActionEligibility({
+    asOfCutoff,
     spendUnitProfile: canonicalSpendUnitProfile,
     targetPack,
     metaAovQuality,
@@ -845,6 +941,7 @@ export async function resolveAccountDecisionProfile(input: {
           : resolvedAccountBaselinesByKind[campaignKind];
       if (calibration === null) continue;
       const spendUnitProfile = resolveSpendUnitProfile({
+        asOfCutoff,
         targetPack,
         accountBaselines: calibration,
         attributionAovAdjustmentMultiplier,
@@ -856,6 +953,7 @@ export async function resolveAccountDecisionProfile(input: {
         accountBaselines: calibration,
       });
       hardActionEligibilityByKind[campaignKind] = resolveHardActionEligibility({
+        asOfCutoff,
         spendUnitProfile,
         targetPack,
         metaAovQuality: calibration.metaAovQuality,
@@ -893,10 +991,19 @@ export async function resolveAccountDecisionProfile(input: {
       scope: scopedCalibration.scope,
       hardActionEligibility: canonicalHardActionEligibility,
       quality: {
+        /*
+          Break-even is no longer part of "commercial truth is ready".
+
+          This flag gates target-relative decision copy and downstream
+          readiness reporting, and it read as false for every account that
+          configures only a Target ROAS — the shape this product asks for.
+          The required inputs are a trustworthy freshness stamp and a valid
+          Target ROAS; the money-per-purchase unit comes from the Meta
+          platform AOV, not from a second operator-typed ratio.
+        */
         commercialTruthReady:
           commercialTruthFreshness !== "unknown" &&
-          positiveFinite(targetPack?.targetRoas ?? null) &&
-          positiveFinite(targetPack?.breakEvenRoas ?? null),
+          positiveFinite(targetPack?.targetRoas ?? null),
         commercialTruthFreshness,
         calibrationReady:
           accountBaselines.matureCreativeCount >=

@@ -52,12 +52,17 @@ describe("provider discovery refresh path", () => {
       provider: "meta",
       liveLoader,
       freshnessMs: 1000,
+      // ROUND 23, ITEM 1: required, and forwarded verbatim -- asserted below.
+      expectedConnectionGeneration: "7:connected",
     });
 
     expect(providerSnapshots.forceProviderAccountSnapshotRefresh).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz_1",
         provider: "meta",
+        // The wrapper must PASS IT THROUGH: a refresh that silently dropped the
+        // caller's generation would be the Round 23 defect one layer down.
+        expectedConnectionGeneration: "7:connected",
         liveLoader,
         freshnessMs: 1000,
         reason: "assignment_drawer_manual_refresh",
@@ -83,6 +88,7 @@ describe("provider discovery refresh path", () => {
       businessId: "biz_1",
       provider: "meta",
       liveLoader: vi.fn().mockResolvedValue([]),
+      expectedConnectionGeneration: "7:connected",
     });
 
     expect(payload.data).toEqual([

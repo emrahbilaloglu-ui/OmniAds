@@ -96,6 +96,22 @@ export function projectCanonicalMetaDecisionPresentation(input: {
     blockerCodes,
     heldAction: blockedAction,
     authorityBlocker: input.decision.authorityBlocker,
+    /*
+      The engine's predicate blockers reach the resolution copy.
+
+      Omitting this was not lossless. `projectMetaDecisionSemantics` defaults
+      the argument to `[]`, and this is its ONLY production caller, so three
+      held-verdict resolutions — the thin calibration sample, the missing
+      account winner benchmark, and the missing ad-level fatigue verdict —
+      could never fire on a served row: they were reachable only from tests
+      that built the call themselves. Every operator got the generic
+      "Complete Hard-Action Evidence" / "Refresh Decision Data" sentence
+      instead of the one naming the floor that actually failed.
+
+      `DecisionOutput.blockers` is optional and stays optional: a decision
+      without it falls back to the same generic resolution as before.
+    */
+    predicateBlockers: input.decision.blockers ?? [],
   });
 
   return {

@@ -163,22 +163,24 @@ describe("D088 C3 — no fabricated authority survives on an authoritative path"
     const route = stripComments(
       readFileSync("app/api/meta/automation/proposals/route.ts", "utf8"));
     // The route defers to the lifecycle's settlement instead of repeating it.
-    expect(route).toContain("budgetLifecycle = lifecycle");
+    expect(route).toContain("sharedLifecycle = lifecycle");
     expect(route).toContain("proposal: lifecycle.settled");
     /*
       ...and does not stamp a dispatch marker on an approval that may still be
       withheld before any provider contact.
 
-      The rule outgrew its old name. It now covers every family that marks at
-      its own pre-POST boundary — budget, a Launchpad `launch`, and the
-      `resume` that names the intent it activates — because each crosses a long
-      chain of pre-provider refusals inside its handler, and a row stamped as
-      dispatched before any of them is a row an operator cannot read.
+      The rule now covers every executable family. Budget, bid, launch,
+      activation, pause and ordinary resume all cross pre-provider checks, so
+      the guarded handler must fire the marker at its exact mutation boundary.
+      Marking any of them at route entry would turn a refusal into a false
+      dispatch fact.
     */
     expect(route).toContain("const marksAtItsOwnBoundary =");
-    expect(route).toContain("input.proposal.proposedAction === BUDGET_PROPOSAL_ACTION");
-    expect(route).toContain('input.proposal.proposedAction === "launch"');
-    expect(route).toContain("input.proposal.launchIntentId !== null");
+    expect(route).toContain("claimedProposal.proposedAction === BUDGET_PROPOSAL_ACTION");
+    expect(route).toContain('claimedProposal.proposedAction === "launch"');
+    expect(route).toContain('claimedProposal.proposedAction === "bid"');
+    expect(route).toContain('claimedProposal.proposedAction === "pause"');
+    expect(route).toContain('claimedProposal.proposedAction === "resume"');
     expect(route).toContain("dispatchMarked = marksAtItsOwnBoundary");
   });
 

@@ -302,8 +302,44 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
    */
   stateLabel?: MetaDecisionCenterExactDisplayValue;
   stateTone?: MetaDecisionCenterExactTone;
+  /**
+   * The verdict the ENGINE reached and the server then WITHHELD, in buyer
+   * words — "Held verdict: Refresh creative".
+   *
+   * A SECOND, SEPARATE FACT from `decisionLabel`, and that is the whole point.
+   * A held Refresh publishes `keep`, so the published label reads "Keep
+   * monitoring" — the opposite of what the engine concluded — and the row said
+   * nothing else. This badge is the engine's conclusion; the label beside it
+   * stays the authorized outcome. Absent when no held verdict was served,
+   * which is not the same fact as "nothing was held".
+   *
+   * It is EVIDENCE, never authorization: a row carrying it offers no execution
+   * control, and this component draws none from it.
+   * @see heldCreativeVerdict in meta-decision-center-exact-adapter.ts
+   */
+  heldVerdictLabel?: MetaDecisionCenterExactDisplayValue;
+  heldVerdictTone?: MetaDecisionCenterExactTone;
+  /**
+   * What to do about it, in the same buyer language as the label.
+   *
+   * ROUND 9 ITEM 8. The INSPECTOR model carried this and the creative ROW model
+   * did not, so the mobile row — which is built from the row model — could not
+   * show it even once it started drawing the label. Both models now carry both
+   * halves from the one producer.
+   */
+  heldVerdictNextStep?: MetaDecisionCenterExactDisplayValue;
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
-  /** The server's own `whyNow` sentence for this row. */
+  /**
+   * The row's one sentence, in buyer language.
+   *
+   * NOT the server's `whyNow`, which this comment used to claim: that field
+   * carries producer prose — bracketed internal states like
+   * "[Ad metrics unavailable - fail closed]" and reason codes — and it must not
+   * reach an operator. The adapter maps the served blocker, resolution and
+   * action codes through the buyer-copy catalogs instead, and a code with no
+   * entry falls back to a written sentence rather than to itself.
+   * @see buyerFacingCreativeReason in meta-decision-center-exact-adapter.ts
+   */
   note?: MetaDecisionCenterExactDisplayValue;
   /** The server's `blockers` and `resolution.nextStep`, joined, never invented. */
   blockedNote?: MetaDecisionCenterExactDisplayValue;
@@ -524,6 +560,29 @@ export interface MetaDecisionCenterExactInspectorViewModel {
   entityMeta?: MetaDecisionCenterExactDisplayValue;
   decisionLabel?: MetaDecisionCenterExactDisplayValue;
   tone?: MetaDecisionCenterExactTone;
+  /**
+   * The verdict the engine reached and authority withheld.
+   *
+   * ADDITIONAL to `decisionLabel`, never a replacement for it. A held Refresh
+   * publishes `keep`, so `decisionLabel` reads "Keep monitoring" — still true,
+   * because it is what authority allows — while the engine's own conclusion
+   * was the opposite. The queue row draws both; the panel it opens must draw
+   * both too, or the second fact is lost one click later.
+   *
+   * Absent when nothing was held. Absence is not a verdict, so no held block
+   * is drawn and the published tone stands unaltered.
+   */
+  heldVerdictLabel?: MetaDecisionCenterExactDisplayValue;
+  heldVerdictTone?: MetaDecisionCenterExactTone;
+  /**
+   * The next step for THE HELD VERDICT, from its own resolution.
+   *
+   * Separate from `reasons` and `contractDetail`, which answer for the
+   * PUBLISHED decision. Merging them would attach the published label's
+   * sentence to the withheld verdict, which is how a withheld Refresh came to
+   * be explained as "Review the missing evidence before taking action."
+   */
+  heldVerdictNextStep?: MetaDecisionCenterExactDisplayValue;
   serverVerdict?: MetaDecisionCenterExactDisplayValue;
   contractDetail?: MetaDecisionCenterExactDisplayValue;
   reasons?: readonly MetaDecisionCenterExactDisplayValue[];
@@ -1549,11 +1608,6 @@ function NeedsResolutionLane({
             }
           >
             {display(row.confidence)} {copy.confidence.toLowerCase()}
-            {row.staleDemoted
-              ? language === "tr"
-                ? " · sınırlandı"
-                : " · capped"
-              : ""}
           </span>
           <span className={styles.resolutionStep} data-el="resolution-step">
             {metaNeedsResolutionNextStep(row, language)}
@@ -1801,12 +1855,33 @@ function ArchiveLane({
  */
 function CreativeCard({
   row,
+  grouped = false,
 }: {
   row: MetaDecisionCenterExactCreativeDecisionViewModel;
+  grouped?: boolean;
 }) {
   const copy = useCopy();
   const stripeA = row.stripeA?.trim() || "#F1F4F9";
   const stripeB = row.stripeB?.trim() || "#F7F9FC";
+  const isBlocked =
+    nonBlankDisplay(row.stateLabel) &&
+    String(row.stateLabel).trim().toLowerCase() === "blocked";
+  /*
+   * A HELD VERDICT SUPPRESSES THE ACTION LINE ON ITS OWN.
+   *
+   * `isBlocked` above is a string comparison against a badge caption, so a row
+   * that carries a held verdict but no state badge — the flat `creativeDecisions`
+   * path, and any caller that supplies rows without state — read as unblocked
+   * and drew the served action line. The typed held verdict is the fact that
+   * actually governs here: it is served only with an unauthorized label, so a
+   * row carrying one has no authorized action to advertise.
+   */
+  const isHeld = nonBlankDisplay(row.heldVerdictLabel);
+  const rowNote = isBlocked
+    ? nonBlankDisplay(row.blockedNote)
+      ? row.blockedNote
+      : row.note
+    : row.note;
   return (
     <article
       className={`${styles.creativeCard} ${toneClass(row.edgeTone)}`}
@@ -1833,7 +1908,20 @@ function CreativeCard({
           >
             {display(row.decisionLabel)}
           </span>
-          {nonBlankDisplay(row.stateLabel) ? (
+          {/* The engine's withheld conclusion, drawn beside the authorized
+              label and never merged into it. It borrows the state badge's
+              class because it is the same pill shape and the stylesheet is
+              owned by another lane this round; it carries its own attribute
+              and its own tone, so nothing about it reads as the state. */}
+          {nonBlankDisplay(row.heldVerdictLabel) ? (
+            <span
+              className={`${styles.creativeStateBadge} ${toneClass(row.heldVerdictTone)}`}
+              data-meta-exact-creative-held-verdict
+            >
+              {display(row.heldVerdictLabel)}
+            </span>
+          ) : null}
+          {!grouped && nonBlankDisplay(row.stateLabel) ? (
             <span
               className={`${styles.creativeStateBadge} ${toneClass(row.stateTone)}`}
               data-meta-exact-creative-row-state
@@ -1849,15 +1937,12 @@ function CreativeCard({
             </span>
           ))}
         </div>
-        {nonBlankDisplay(row.note) ? (
-          <p className={styles.creativeNote}>{display(row.note)}</p>
-        ) : null}
-        {nonBlankDisplay(row.blockedNote) ? (
+        {nonBlankDisplay(rowNote) ? (
           <p
-            className={styles.creativeBlockedNote}
-            data-meta-exact-creative-row-blockers
+            className={isBlocked ? styles.creativeBlockedNote : styles.creativeNote}
+            data-meta-exact-creative-next-step={isBlocked ? "true" : undefined}
           >
-            {display(row.blockedNote)}
+            {display(rowNote)}
           </p>
         ) : null}
       </div>
@@ -1883,16 +1968,16 @@ function CreativeCard({
           callback, `onCreativeReview` — so the control promised an action it
           does not perform. The engine's word is unchanged and still visible;
           what moved is which element carries it. */}
-      <p
-        className={`${styles.creativeServedAction} ${toneClass(row.actionTone)}`}
-        data-meta-exact-creative-served-action={
-          nonBlankDisplay(row.actionLabel)
-            ? String(row.actionLabel).trim()
-            : undefined
-        }
-      >
-        {display(row.actionLabel)}
-      </p>
+      {!isBlocked && !isHeld && nonBlankDisplay(row.actionLabel) ? (
+        <p
+          className={`${styles.creativeServedAction} ${toneClass(row.actionTone)}`}
+          data-meta-exact-creative-served-action={String(
+            row.actionLabel,
+          ).trim()}
+        >
+          {display(row.actionLabel)}
+        </p>
+      ) : null}
       <button
         aria-label={
           row.onPrimary
@@ -1926,6 +2011,7 @@ function CreativesScope({
   groups,
   lane,
   footnote,
+  notice,
   onOpenCreativeStudio,
 }: {
   posture: readonly MetaDecisionCenterExactCreativePostureViewModel[];
@@ -1933,6 +2019,18 @@ function CreativesScope({
   groups?: readonly MetaDecisionCenterExactCreativeGroupViewModel[];
   lane: MetaDecisionCenterExactLane;
   footnote?: MetaDecisionCenterExactDisplayValue;
+  /**
+   * The served source-health sentence, when the server sent one.
+   *
+   * `creativesNotice` has been on the view model and in this component's props
+   * type since the adapter first produced it, and it reached NO pixel: nothing
+   * destructured it and nothing rendered it. So the one condition it exists to
+   * explain — the decision source cannot answer for the ACTIVE Ads this
+   * account is running — was computed on every render and thrown away, while
+   * the scope showed either an unexplained empty lane or a lane full of
+   * placeholder rows. @see creativesNotice in meta-decision-center-exact-adapter.ts
+   */
+  notice?: MetaDecisionCenterExactDisplayValue;
   onOpenCreativeStudio?: () => void;
 }) {
   const copy = useCopy();
@@ -1965,6 +2063,11 @@ function CreativesScope({
           ))}
         </div>
       ) : null}
+      {meaningfulDisplay(notice) ? (
+        <p className={styles.creativeFootnote} data-meta-exact-creatives-notice>
+          {display(notice)}
+        </p>
+      ) : null}
       {hasGroupedDecisions && visibleGroups.length === 0 ? (
         <LaneEmpty lane={`creatives-${lane}`} reason={copy.laneServedNoRows} />
       ) : hasGroupedDecisions ? (
@@ -1983,12 +2086,14 @@ function CreativesScope({
               <span className={styles.creativeGroupCount}>
                 {display(group.count)}
               </span>
-              <span className={styles.creativeGroupNote}>
-                {display(group.note)}
-              </span>
+              {meaningfulDisplay(group.note) ? (
+                <span className={styles.creativeGroupNote}>
+                  {display(group.note)}
+                </span>
+              ) : null}
             </header>
             {group.rows.map((row) => (
-              <CreativeCard key={row.id} row={row} />
+              <CreativeCard grouped key={row.id} row={row} />
             ))}
           </section>
         ))
@@ -2297,7 +2402,22 @@ function EvidenceInspector({
   const reason = (model.reasons ?? []).find(meaningfulDisplay);
   const hasTargetComparison = meaningfulDisplay(model.targetComparison);
   const hasMoneyDetail = meaningfulDisplay(model.moneyDetail);
+  /*
+   * A HELD VERDICT SUPPRESSES THE MUTATION CEREMONY, exactly as it suppresses
+   * the queue row's served-action line.
+   *
+   * `manualAction` is the `gated:META-WRITE-01` sheet — a provider write. A
+   * held verdict is served only with an UNAUTHORIZED label, so a panel
+   * carrying one has, by definition, no authorized change to offer; letting
+   * the sheet fall through as the panel's primary control would put an
+   * execution affordance one click from a verdict authority refused.
+   *
+   * The evidence-review primary (`model.onPrimary`) is untouched: reading the
+   * evidence is what a held row is for.
+   */
+  const isHeld = nonBlankDisplay(model.heldVerdictLabel);
   const manualAction =
+    !isHeld &&
     model.manualAction &&
     !model.manualAction.refusalReason &&
     model.manualAction.onOpen
@@ -2353,6 +2473,41 @@ function EvidenceInspector({
             <p className={styles.inspectorMeta}>{display(model.entityMeta)}</p>
           ) : null}
         </div>
+
+        {/*
+          The engine's withheld conclusion, drawn as its own block above the
+          published remediation and never merged into it. It carries the held
+          verdict's OWN next step, so the specific resolution survives the
+          click that opened this panel.
+
+          The badge is the queue row's `creativeStateBadge` with the same
+          warning tone, so the operator recognises the same pill they clicked
+          from; the card and copy classes are the panel's own. Both are
+          borrowed rather than added because this round does not own the
+          stylesheet. The label already reads "Held verdict: …", so no section
+          heading is drawn above it.
+        */}
+        {nonBlankDisplay(model.heldVerdictLabel) ? (
+          <div
+            className={styles.contractCard}
+            data-meta-exact-inspector-held-verdict
+          >
+            <span
+              className={`${styles.creativeStateBadge} ${toneClass(model.heldVerdictTone)}`}
+              data-meta-exact-inspector-held-verdict-label
+            >
+              {display(model.heldVerdictLabel)}
+            </span>
+            {meaningfulDisplay(model.heldVerdictNextStep) ? (
+              <p
+                className={styles.contractCopy}
+                data-meta-exact-inspector-held-next-step
+              >
+                {display(model.heldVerdictNextStep)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className={styles.contractCard}>
           <p className={styles.inspectorSectionLabel}>
@@ -2956,6 +3111,7 @@ export function MetaDecisionCenterExact({
               footnote={viewModel.creativeFootnote}
               groups={viewModel.creativeGroups}
               lane={activeCreativeLane}
+              notice={viewModel.creativesNotice}
               onOpenCreativeStudio={onOpenCreativeStudio}
               posture={viewModel.creativePosture ?? []}
             />

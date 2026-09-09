@@ -893,7 +893,13 @@ export async function handleMetaLaunchAction(
       callerBoundary: options.beforeProviderMutation,
     }),
   });
-  return NextResponse.json(outcome.body, { status: outcome.status });
+  return NextResponse.json(
+    {
+      ...outcome.body,
+      providerMutationAttempted: outcome.providerMutationAttempted,
+    },
+    { status: outcome.status },
+  );
 }
 
 export async function handleMetaAddToExistingAction(
@@ -1329,5 +1335,11 @@ export async function handleMetaAddToExistingAction(
       callerBoundary: options.beforeProviderMutation,
     }),
   });
-  return NextResponse.json(outcome.body, { status: outcome.status });
+  return NextResponse.json(
+    {
+      ...outcome.body,
+      providerMutationAttempted: outcome.providerMutationAttempted,
+    },
+    { status: outcome.status },
+  );
 }

@@ -43,10 +43,175 @@ function looksLikeDatabaseError(lower: string) {
   ]);
 }
 
+/**
+ * The Graph error identity a failure can carry, and where it comes from.
+ *
+ * `MetaGraphRequestError` in lib/api/meta.ts attaches `errorCode`,
+ * `errorSubcode` and `isTransient` to everything it throws, and
+ * `classifyMetaError` in lib/sync/meta-sync.ts passes the thrown value straight
+ * into this function — so reading the identity off the error is what lets a
+ * provider code reach the classifier without rewriting the call sites.
+ *
+ * Duck-typed rather than imported: this module belongs to the sync layer and
+ * must not take a dependency on the Graph client. A caller that already has the
+ * identity in hand (a persisted row, a test) can pass the three fields
+ * directly instead.
+ */
+function readGraphErrorIdentity(input: {
+  error?: unknown;
+  errorCode?: number | null;
+  errorSubcode?: number | null;
+  isTransient?: boolean | null;
+}) {
+  const carrier =
+    input.error != null && typeof input.error === "object"
+      ? (input.error as Record<string, unknown>)
+      : null;
+  const numberOrNull = (explicit: unknown, key: string) => {
+    const value = explicit ?? carrier?.[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  };
+  const transient = input.isTransient ?? carrier?.isTransient;
+  return {
+    errorCode: numberOrNull(input.errorCode, "errorCode"),
+    errorSubcode: numberOrNull(input.errorSubcode, "errorSubcode"),
+    isTransient: typeof transient === "boolean" ? transient : null,
+  };
+}
+
+/**
+ * Codes that name a credential or account problem rather than a request one.
+ *
+ * The two subcodes are the ones that mean a PERSON has to go clear something on
+ * facebook.com; every other subcode under these codes is a token problem the
+ * operator fixes by reconnecting. This split is the whole reason the
+ * checkpoint verdict must not be reached by substring: our own table is named
+ * meta_sync_checkpoints (see looksLikeDatabaseError).
+ */
+const META_GRAPH_SESSION_CODES = new Set([102, 190]);
+const META_GRAPH_CHECKPOINT_SUBCODES = new Set([459, 464]);
+
+/** Permission refusals. 294 is the one this repo's Graph suite fixtures. */
+const META_GRAPH_PERMISSION_CODES = new Set([10, 200, 272, 294]);
+
+/**
+ * Throttles, and the two generic "try again" codes.
+ *
+ * Both sets together are exactly META_TRANSIENT_GRAPH_ERROR_CODES in
+ * lib/api/meta.ts — the codes that module retries a PAGE on. They are split
+ * here because they are re-run differently: a throttle needs the long quota
+ * backoff, and 1/2 are the provider's generic transient signal.
+ */
+const META_GRAPH_THROTTLE_CODES = new Set([
+  4, 17, 32, 341, 613, 80000, 80001, 80002, 80003, 80004, 80005, 80006, 80008,
+  80014,
+]);
+const META_GRAPH_TEMPORARY_CODES = new Set([1, 2]);
+
+/**
+ * Code 100 is Graph's invalid-parameter refusal — a request this client built
+ * wrong. Retrying the identical request cannot fix it, so it is terminal and
+ * NOT actionRequired: there is nothing for the operator to do on facebook.com.
+ */
+const META_GRAPH_INVALID_PARAMETER_CODES = new Set([100]);
+
+/**
+ * Classify from the provider's own structured verdict.
+ *
+ * Returns null when the identity says nothing this function recognises, which
+ * is the only case the message fallback below is allowed to handle.
+ */
+function classifyFromGraphErrorIdentity(identity: {
+  errorCode: number | null;
+  errorSubcode: number | null;
+  isTransient: boolean | null;
+}): MetaSyncFailureClassification | null {
+  const code = identity.errorCode;
+  if (code !== null) {
+    if (META_GRAPH_SESSION_CODES.has(code)) {
+      const checkpointed =
+        identity.errorSubcode !== null &&
+        META_GRAPH_CHECKPOINT_SUBCODES.has(identity.errorSubcode);
+      return {
+        errorClass: checkpointed ? "account_checkpoint" : "invalid_token",
+        terminal: true,
+        retryDelayMinutes: 0,
+        recoveryKind: "terminal_action_required",
+        actionRequired: true,
+        reasonCode: checkpointed
+          ? "meta_account_checkpoint"
+          : "meta_invalid_token",
+      };
+    }
+    if (META_GRAPH_PERMISSION_CODES.has(code)) {
+      return {
+        errorClass: "permission",
+        terminal: true,
+        retryDelayMinutes: 0,
+        recoveryKind: "terminal_action_required",
+        actionRequired: true,
+        reasonCode: "meta_permission_required",
+      };
+    }
+    if (META_GRAPH_THROTTLE_CODES.has(code)) {
+      return {
+        errorClass: "quota",
+        terminal: false,
+        retryDelayMinutes: 10,
+        recoveryKind: "replayable_transient",
+        actionRequired: false,
+        reasonCode: "meta_quota_retry",
+      };
+    }
+    if (META_GRAPH_TEMPORARY_CODES.has(code)) {
+      return {
+        errorClass: "transient",
+        terminal: false,
+        retryDelayMinutes: 3,
+        recoveryKind: "replayable_transient",
+        actionRequired: false,
+        reasonCode: "meta_provider_transient_code",
+      };
+    }
+    if (META_GRAPH_INVALID_PARAMETER_CODES.has(code)) {
+      return {
+        errorClass: "payload",
+        terminal: true,
+        retryDelayMinutes: 0,
+        recoveryKind: "unknown",
+        actionRequired: false,
+        reasonCode: "meta_payload_error",
+      };
+    }
+  }
+  // An unrecognised code the provider itself marked retryable. The reverse —
+  // an unrecognised code marked NOT transient — deliberately falls through
+  // rather than inventing a terminal verdict for a code nothing here can name;
+  // the attempt cap in shouldDeadLetterMetaFailure still makes it visible.
+  if (identity.isTransient === true) {
+    return {
+      errorClass: "transient",
+      terminal: false,
+      retryDelayMinutes: 3,
+      recoveryKind: "replayable_transient",
+      actionRequired: false,
+      reasonCode: "meta_provider_transient_flag",
+    };
+  }
+  return null;
+}
+
 export function classifyMetaSyncFailure(input: {
   error?: unknown;
   errorClass?: string | null;
   message?: string | null;
+  /**
+   * The provider's structured verdict. Supplied directly, or read off
+   * `input.error` when it carries it — see readGraphErrorIdentity.
+   */
+  errorCode?: number | null;
+  errorSubcode?: number | null;
+  isTransient?: boolean | null;
 }): MetaSyncFailureClassification {
   const rawMessage =
     input.message != null ? String(input.message) : normalizeMessage(input.error);
@@ -63,6 +228,30 @@ export function classifyMetaSyncFailure(input: {
       reasonCode: "meta_lease_conflict_retry",
     };
   }
+
+  // THE STRUCTURED VERDICT DECIDES. A Graph failure that carries a code is
+  // classified from that code and nothing else; the message is not consulted.
+  const structured = classifyFromGraphErrorIdentity(
+    readGraphErrorIdentity(input),
+  );
+  if (structured) return structured;
+
+  /*
+    EVERYTHING BELOW IS A COMPATIBILITY FALLBACK, and only for failures that
+    carry no structured code.
+
+    Two kinds of input reach it. Failures raised inside this application — a
+    lease race, a Postgres error, an out-of-memory — never had a Graph code to
+    begin with. And a persisted Meta failure re-read later has only the text and
+    the class column it was stored with: `classifyMetaDeadLetterCandidate` in
+    lib/meta/warehouse.ts reconstructs a verdict from
+    `meta_sync_partitions.last_error` and the run's `error_class`, and those
+    rows predate any structured code being captured.
+
+    Substring matching on a provider message is guesswork, and it has been wrong
+    in production before (see looksLikeDatabaseError). Do not extend it to cover
+    a provider condition that has a code — add the code above instead.
+  */
 
   if (
     providedClass === "account_checkpoint" ||
@@ -287,4 +476,116 @@ export function shouldDeadLetterMetaFailure(input: {
   // day silently never landed. Honour the attempt cap so a repeating failure
   // becomes visible.
   return input.attemptCount + 1 >= input.maxAttempts;
+}
+
+/**
+ * The ONLY text about a failure that may be logged or persisted.
+ *
+ * ── The defect this closes ──────────────────────────────────────────────────
+ * `meta_sync_jobs.last_error` was written as
+ * `error instanceof Error ? error.message : String(error)`, so whatever the
+ * provider (or undici, or PostgreSQL) put in a message went into the database
+ * verbatim and into every log line beside it. `lib/api/meta.ts` builds Graph
+ * URLs with `access_token` in the query string, and a failing request's message
+ * can carry that URL — an undici `TypeError: fetch failed` carries its request
+ * in `cause`, and a Graph 2xx error envelope echoes the request back. A
+ * credential therefore had a path into durable storage through an error field
+ * nobody thinks of as user data.
+ *
+ * ── What survives ───────────────────────────────────────────────────────────
+ * Only facts this repository authored: the classifier's own `errorClass` and
+ * `reasonCode`, whether it is terminal, and the provider's STRUCTURED codes
+ * when they are present — `code`, `error_subcode`, `is_transient` and
+ * `fbtrace_id`, all of which are identifiers rather than prose. Provider prose
+ * never appears. The raw text is consumed once, here, to classify, and is not
+ * carried out of this function.
+ */
+export interface MetaSafeFailureSummary {
+  errorClass: string;
+  reasonCode: string;
+  terminal: boolean;
+  actionRequired: boolean;
+  providerCode: number | null;
+  providerSubcode: number | null;
+  providerTransient: boolean | null;
+  fbtraceId: string | null;
+}
+
+/** Graph's own identifiers, read defensively from an unknown error shape. */
+function readProviderCodes(error: unknown): {
+  code: number | null;
+  subcode: number | null;
+  transient: boolean | null;
+  fbtraceId: string | null;
+} {
+  const source = (error ?? {}) as Record<string, unknown>;
+  const envelope =
+    (source.error as Record<string, unknown> | undefined) ??
+    ((source.body as Record<string, unknown> | undefined)?.error as
+      | Record<string, unknown>
+      | undefined) ??
+    source;
+  const numeric = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  const fbtrace = envelope?.fbtrace_id ?? source.fbtraceId;
+  const transient = envelope?.is_transient ?? source.isTransient;
+  return {
+    code: numeric(envelope?.code ?? source.errorCode),
+    subcode: numeric(envelope?.error_subcode ?? source.errorSubcode),
+    transient:
+      typeof transient === "boolean" ? transient : null,
+    // An identifier, not prose: bounded and character-checked so a provider
+    // cannot smuggle a sentence through it.
+    fbtraceId:
+      typeof fbtrace === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(fbtrace)
+        ? fbtrace
+        : null,
+  };
+}
+
+export function summarizeMetaFailureForStorage(input: {
+  error: unknown;
+}): MetaSafeFailureSummary {
+  const codesForClass = readProviderCodes(input.error);
+  const classification = classifyMetaSyncFailure({
+    error: input.error,
+    errorCode: codesForClass.code,
+    errorSubcode: codesForClass.subcode,
+    isTransient: codesForClass.transient,
+  });
+  const codes = readProviderCodes(input.error);
+  return {
+    errorClass: classification.errorClass,
+    reasonCode: classification.reasonCode,
+    terminal: classification.terminal,
+    actionRequired: classification.actionRequired,
+    providerCode: codes.code,
+    providerSubcode: codes.subcode,
+    providerTransient: codes.transient,
+    fbtraceId: codes.fbtraceId,
+  };
+}
+
+/**
+ * The single string form written to `last_error` and to logs.
+ *
+ * Locally authored in full: every segment is either a constant from this
+ * module or one of the structured identifiers above.
+ */
+export function formatMetaFailureForStorage(input: {
+  error: unknown;
+}): string {
+  const safe = summarizeMetaFailureForStorage(input);
+  const parts = [
+    `class=${safe.errorClass}`,
+    `reason=${safe.reasonCode}`,
+    `terminal=${safe.terminal}`,
+  ];
+  if (safe.providerCode !== null) parts.push(`code=${safe.providerCode}`);
+  if (safe.providerSubcode !== null) parts.push(`subcode=${safe.providerSubcode}`);
+  if (safe.providerTransient !== null) {
+    parts.push(`transient=${safe.providerTransient}`);
+  }
+  if (safe.fbtraceId !== null) parts.push(`fbtrace=${safe.fbtraceId}`);
+  return parts.join(" ");
 }

@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  AccountScopedDataSource,
   MockDataSource,
   resolveEffectiveCreativeCohort,
   WarehouseDataSource,
@@ -92,6 +93,41 @@ describe("creative-decision-engine v3 - data source", () => {
       const warehouse = new WarehouseDataSource();
 
       expect(warehouse).toBeInstanceOf(WarehouseDataSource);
+    });
+  });
+
+  describe("AccountScopedDataSource", () => {
+    it("keeps sole-account pooled calibration while binding strict Meta AOV", async () => {
+      const base = new MockDataSource();
+      const calibration = vi.spyOn(base, "getAccountCalibration");
+      const metaAov = vi.spyOn(base, "getMetaAttributedAov");
+      const source = new AccountScopedDataSource(
+        base,
+        "act-sole",
+        "meta_aov_only",
+      );
+
+      await source.getAccountCalibration({
+        businessId: "biz-sole",
+        asOf: "2026-09-08",
+        providerAccountId: null,
+      });
+      await source.getMetaAttributedAov({
+        businessId: "biz-sole",
+        asOf: "2026-09-08",
+        providerAccountId: null,
+      });
+
+      expect(calibration).toHaveBeenCalledWith({
+        businessId: "biz-sole",
+        asOf: "2026-09-08",
+        providerAccountId: null,
+      });
+      expect(metaAov).toHaveBeenCalledWith({
+        businessId: "biz-sole",
+        asOf: "2026-09-08",
+        providerAccountId: "act-sole",
+      });
     });
   });
 

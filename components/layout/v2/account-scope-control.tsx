@@ -238,12 +238,7 @@ export function AccountScopeControl({
                 {account.label}
               </span>
               <span className="block truncate text-xs text-muted-foreground">
-                {/* Stated only where it is known. An account whose currency or
-                    timezone we have not observed shows neither rather than a
-                    plausible default — §8.3 and D8. */}
-                {[account.id, account.currency, account.timezone]
-                  .filter(Boolean)
-                  .join(" · ")}
+                ID {account.id}
               </span>
             </span>
             {account.id === selectedId ? (

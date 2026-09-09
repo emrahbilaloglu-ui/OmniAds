@@ -76,16 +76,40 @@ export interface D086E2eReport {
     blocker: string | null; attested: boolean;
   }>;
   capabilityProbe: Record<string, unknown>;
-  indexCatalog: Array<{ indexname: string; indexdef: string }>;
+  /*
+    ── ROUND 25 ──────────────────────────────────────────────────────────────
+    The catalogue carries the pg_index validity flags. Existence never proved
+    the access path was usable: an index left INVALID by a failed CONCURRENT
+    build still appears in `pg_indexes`, and the planner will not use it.
+  */
+  indexCatalog: Array<{
+    indexname: string;
+    indexdef: string;
+    indisvalid: boolean;
+    indisready: boolean;
+    indislive: boolean;
+  }>;
   failures: string[];
 }
 
 /**
- * The evidence document, VERSIONED. r7's file is frozen and pinned; this is a
- * new path, never an overwrite.
+ * The evidence document, VERSIONED. Every earlier file is frozen and pinned;
+ * this is a new path, never an overwrite.
+ *
+ * ── ROUND 25: r3 -> r4 ─────────────────────────────────────────────────────
+ * r3 recorded a SIX-index catalogue with no validity flags, and three of those
+ * six no longer exist: `meta_entity_observation_receipts_occurrence` was
+ * replaced by the attempt-scoped key, and the `..._freshness` / `..._cohort`
+ * pair by their `_v2` successors. Evidence that names retired indexes and
+ * cannot say whether the surviving ones are usable proves nothing about the
+ * access paths D086 depends on.
+ *
+ * r4 captures the current required set with `indisvalid` / `indisready` /
+ * `indislive` for every entry. r3's bytes are frozen and pinned; nothing here
+ * rewrites them.
  */
 export const D086_E2E_EVIDENCE_PATH =
-  "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r3.json";
+  "docs/audits/generated/d086-local-postgres-evidence-2026-09-02.r5.json";
 
 /**
  * The exact verdict every case must produce, bound by name.
@@ -231,8 +255,8 @@ if (process.argv[1] && process.argv[1].endsWith("d086-capture-to-readiness-e2e.t
       fs.writeFileSync(
         path.join(process.cwd(), D086_E2E_EVIDENCE_PATH),
         `${JSON.stringify({
-          contract: "d086.capture-to-readiness-evidence.v2",
-          generatedFor: "D086 correction 8",
+          contract: "d086.capture-to-readiness-evidence.v3",
+          generatedFor: "D096 additive receipt compatibility",
           postgresVersion: report.postgresVersion,
           ok: report.ok,
           steps: report.steps,

@@ -603,6 +603,84 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("Decisions account scope ownership", () => {
+  it("keeps canonical account selection in the shared shell", () => {
+    state.providerAccounts = [
+      { id: "act_1", name: "Same name", currency: "USD", timezone: "UTC" },
+      { id: "act_2", name: "Same name", currency: "USD", timezone: "UTC" },
+    ];
+    const dom = render({
+      accountSelection: "shared",
+      serverProviderAccountId: null,
+    });
+
+    expect(
+      dom.querySelector('[data-testid="meta-account-required"]'),
+    ).toBeNull();
+    expect(
+      dom.querySelector('[aria-label="Meta ad account for Decisions mobile"]'),
+    ).toBeNull();
+  });
+
+  it("offers legacy desktop and mobile recovery and writes only a reauthorizable scope request", () => {
+    state.pathname = "/platforms/meta";
+    state.search =
+      "businessId=biz_1&window=custom&startDate=2026-08-01&endDate=2026-08-31&levels=campaign&row=ad%3Aold&creativeId=old&handoff=stale";
+    state.providerAccounts = [
+      { id: "act_1", name: "Same name", currency: "USD", timezone: "UTC" },
+      { id: "act_2", name: "Same name", currency: "USD", timezone: "UTC" },
+    ];
+    state.workspaceData = workspacePayload();
+
+    const dom = render({
+      accountSelection: "local",
+      serverProviderAccountId: null,
+    });
+    const desktop = dom.querySelector<HTMLSelectElement>(
+      '[data-testid="meta-account-required"] select',
+    );
+    const mobile = dom.querySelector<HTMLSelectElement>(
+      '[aria-label="Meta ad account for Decisions mobile"]',
+    );
+    expect(desktop).not.toBeNull();
+    expect(mobile).not.toBeNull();
+    expect(state.exactProps.levels).toEqual(["campaign"]);
+    expect(
+      mobile
+        ?.closest("[data-mobile-read-state]")
+        ?.getAttribute("data-mobile-read-state"),
+    ).toBe("account-required");
+    expect(Array.from(mobile!.options).map((option) => option.text)).toEqual([
+      "Select account",
+      "Same name · ID act_1 · USD",
+      "Same name · ID act_2 · USD",
+    ]);
+
+    act(() => {
+      mobile!.value = "act_2";
+      mobile!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const href = String(state.routerReplace.mock.calls[0]?.[0]);
+    const query = new URL(href, "https://adsecute.test").searchParams;
+    expect(query.get("businessId")).toBe("biz_1");
+    expect(query.get("window")).toBe("custom");
+    expect(query.get("startDate")).toBe("2026-08-01");
+    expect(query.get("endDate")).toBe("2026-08-31");
+    expect(query.get("providerAccountId")).toBe("act_2");
+    expect(query.has("row")).toBe(false);
+    expect(query.has("creativeId")).toBe(false);
+    expect(query.has("handoff")).toBe(false);
+    expect(query.has("levels")).toBe(false);
+    expect(state.exactProps.levels).toEqual([]);
+    expect(
+      state.queryKeys.some(
+        (key) => key[0] === "meta-decisions-workspace" && key[2] === "act_2",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("Decisions error recovery", () => {
   it("does not automatically repeat an expensive failed workspace fan-out", () => {
     render({ serverProviderAccountId: "act_server" });
@@ -1145,20 +1223,94 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(noticeText(dom)).not.toContain("scope=budgets");
   });
 
+  /*
+    ── ROUND 10 ITEM 5: THE MOBILE CLICK-THROUGH ────────────────────────────
+    Round 9 put the pending recommendation on the mobile QUEUE card. The
+    evidence screen behind "Read evidence →" did not render it, so a buyer who
+    tapped through to find out WHY lost the one fact they tapped for and the
+    screen read as a plain "Keep monitoring".
+
+    Driven as a real mount and a real click, because the defect was that a
+    rendered surface omitted a field the view model already carried — which a
+    view-model assertion cannot see.
+  */
+  it("carries the pending recommendation from the mobile card into the evidence screen", async () => {
+    /*
+      The OS ad-decision envelope is what the creatives lane reads, and
+      `heldAction` / `heldResolution` are its fields — the canonical envelope
+      is the structure half and carries neither.
+    */
+    state.canonicalCreatives = [];
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([
+        pendingOsDecision({
+          heldAction: "refresh",
+          heldResolution: { code: "commercial_target_missing" },
+        } as never),
+      ]),
+    } as never;
+    // A held recommendation lands in the blocked lane, which the mobile
+    // creatives tabs call "Needs Resolution".
+    state.search = "providerAccountId=act_1&scope=creatives&lane=needsres";
+    const dom = render();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // The queue card states it (Round 9).
+    const card = dom.querySelector("[data-mobile-held-verdict]");
+    expect(card?.textContent).toContain(
+      "Recommendation awaiting review: Refresh creative",
+    );
+
+    // Tap through.
+    const open = Array.from(
+      dom.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Read evidence"));
+    expect(open, "the mobile card must offer Read evidence").toBeTruthy();
+    await act(async () => {
+      open!.click();
+      await Promise.resolve();
+    });
+
+    const evidence = dom.querySelector(
+      '[data-testid="meta-mobile-creative-evidence"]',
+    );
+    expect(evidence, "the evidence screen must open").not.toBeNull();
+    const text = evidence?.textContent ?? "";
+    // The pending recommendation, its next step, and the currently safe
+    // published outcome — all three on screen together.
+    expect(text).toContain("Recommendation awaiting review: Refresh creative");
+    expect(text).toContain("review this Refresh creative recommendation again");
+    expect(
+      dom.querySelector("[data-mobile-evidence-held-next-step]"),
+    ).not.toBeNull();
+  });
+
   // entity: the restored half. `?entity=<recId>` opens that recommendation's
   // evidence when the workspace served it.
-  it("restores entity=<id> by opening the named recommendation", async () => {
+  it("restores entity=<id> and shows its mobile metrics once", async () => {
     state.workspaceData = workspacePayload({
-      actionNow: [metaRec({ id: "rec_entity" })],
+      actionNow: [
+        metaRec({
+          id: "rec_entity",
+          metrics: { spend: 321, roas: 2.25 },
+        }),
+      ],
     });
     state.search = "entity=rec_entity";
     const dom = render();
     await act(async () => {
       await Promise.resolve();
     });
-    expect(
-      dom.querySelector('[data-testid="meta-mobile-evidence"]'),
-    ).not.toBeNull();
+    const mobileEvidence = dom.querySelector(
+      '[data-testid="meta-mobile-evidence"]',
+    );
+    expect(mobileEvidence).not.toBeNull();
+    const evidenceText = mobileEvidence?.textContent ?? "";
+    expect((evidenceText.match(/321/g) ?? []).length).toBe(1);
+    expect((evidenceText.match(/2\.25x/g) ?? []).length).toBe(1);
     expect(noticeText(dom)).toBe("");
   });
 

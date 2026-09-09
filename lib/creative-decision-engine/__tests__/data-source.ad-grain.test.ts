@@ -4,9 +4,21 @@ const mocks = vi.hoisted(() => ({ query: vi.fn() }));
 
 vi.mock("@/lib/db", () => ({
   getDb: () => ({ query: mocks.query }),
+  /*
+    `computeNativeAdDecisions` is imported below so the band hydration can be
+    driven all the way into a native decision. `jobs/ad-decisions-job.ts`
+    NAMED-imports `runDbTransaction` at module scope, and an ESM named import
+    that the mock factory does not provide fails at link time even when nothing
+    calls it. It stays a throwing stub because no test here may reach a
+    transaction.
+  */
+  runDbTransaction: () => {
+    throw new Error("runDbTransaction is not available in this unit test.");
+  },
 }));
 
 import {
+  AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL,
   HYDRATE_AD_DECISION_INPUTS_QUERY,
   READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
   READ_AD_ENTITY_STATE_AS_OF_QUERY,
@@ -15,13 +27,78 @@ import {
   isPresentDayAdDecisionAsOf,
 } from "../data-source";
 import { NATIVE_AD_DB_BATCH_SIZE } from "../batching";
+import {
+  // Imported rather than spelled: a contract bump must not require editing a
+  // string literal in a test that is not about the version.
+  NATIVE_AD_LIFECYCLE_EVIDENCE_CONTRACT,
+  computeNativeAdDecisions,
+  computeNativeAdLifecycleEvidence,
+  resolveNativeAdFrequencyPressureThresholdsByAccount,
+} from "../jobs/ad-decisions-job";
+import {
+  makeAccountCalibration,
+  makeAccountDecisionProfile,
+  makeDataHealth,
+} from "./helpers";
 
 const BUSINESS_ID = "00000000-0000-4000-8000-000000000701";
 const HISTORICAL_AS_OF = "2026-07-10";
 const HISTORICAL_CUTOFF = "2026-07-10T03:15:00.000Z";
 
+/**
+ * The `ad_bands` columns exactly as node-postgres returns them.
+ *
+ * `impressions`, `clicks` and `link_clicks` are BIGINT in `meta_ad_daily`, and
+ * node-postgres hands BIGINT back as a STRING rather than a number. These
+ * fixtures therefore carry strings for those three and numbers for the
+ * DOUBLE PRECISION columns, which is what an ephemeral-PostgreSQL run of
+ * `HYDRATE_AD_DECISION_INPUTS_QUERY` produced against real rows on
+ * 2026-09-07: recent14 `{"recent14_impressions":"84000",
+ * "recent14_link_clicks":"560"}` beside `"recent14_spend":140`. A fixture that
+ * used numbers everywhere would not exercise the parse the mapper actually
+ * has to perform.
+ */
+function bandColumns(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    band_cutoff_date: "2026-07-10",
+    recent14_start_date: "2026-06-27",
+    recent14_end_date: "2026-07-10",
+    prior14_start_date: "2026-06-13",
+    prior14_end_date: "2026-06-26",
+    recent14_row_count: 14,
+    recent14_spend: 140,
+    recent14_conversions: 4,
+    recent14_revenue: 140,
+    recent14_impressions: "84000",
+    recent14_clicks: "840",
+    recent14_link_clicks: "560",
+    /*
+      COMPLETENESS, which the query now carries beside the sum. Zero delivered
+      rows are missing their link clicks, so this band's total is measured
+      rather than partial. A fixture that omits these columns reads as UNKNOWN
+      and fails closed, which is the intended answer for a row hydrated by a
+      query that cannot report coverage.
+    */
+    recent14_link_clicks_measured_rows: 14,
+    recent14_link_clicks_missing_delivered_rows: 0,
+    prior14_row_count: 14,
+    prior14_spend: 280,
+    prior14_conversions: 21,
+    prior14_revenue: 1120,
+    prior14_impressions: "140000",
+    prior14_clicks: "2800",
+    prior14_link_clicks: "1960",
+    prior14_link_clicks_measured_rows: 14,
+    prior14_link_clicks_missing_delivered_rows: 0,
+    ...overrides,
+  };
+}
+
 function hydrationRow(overrides: Record<string, unknown> = {}) {
   return {
+    ...bandColumns(),
     provider_account_id: "act_account_1",
     provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
     ad_id: "ad-1",
@@ -878,6 +955,484 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
   });
 });
 
+/*
+  The producer half of the ad-level fatigue contract.
+
+  `AdDisjointBandEvidence` existed on the type with no producer, so
+  `computeNativeAdLifecycleEvidence` fell to `fatigueStatus: "unknown"` for
+  every ad in existence and a Refresh could only ever be HELD. These tests
+  drive the real `WarehouseDataSource` mapper over rows in the wire shape
+  node-postgres actually returns, and then drive the hydrated inputs into the
+  real decision producer, so the path from `meta_ad_daily` to an authorized
+  Refresh is checked end to end rather than assumed.
+*/
+describe("native ad 14/14 band hydration", () => {
+  beforeEach(() => {
+    mocks.query.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /*
+    Cutoff-strict ACTIVE state for every hydrated ad.
+
+    Without it `effectiveStatus` is null and the delivery gate serves
+    `diagnose` ("Delivery status is unavailable") before any ROAS zone runs,
+    which would make these tests assert nothing about Refresh.
+  */
+  function activeStates(rows: Array<Record<string, unknown>>) {
+    return rows.map((row, index) => ({
+      event_kind: "state",
+      presence: "present",
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
+      provider_account_id: "act_account_1",
+      entity_id: row.ad_id,
+      creative_id: "creative-shared",
+      configured_status: "ACTIVE",
+      effective_status: "ACTIVE",
+      observed_at: "2026-07-10T02:30:00.000Z",
+      captured_at: "2026-07-10T02:31:00.000Z",
+    }));
+  }
+
+  /** Resolved campaign role, so the label guard does not hold the row first. */
+  function campaignContext() {
+    return new Map([
+      [
+        "campaign-1",
+        {
+          kind: "main" as const,
+          testDimension: null,
+          contextTrust: "high" as const,
+          provenance: {
+            mode: "automatic" as const,
+            source: "system_inferred" as const,
+            campaignId: "campaign-1",
+            kind: "main" as const,
+            testDimension: null,
+            contextTrust: "high" as const,
+            sourceRecordType: "engine_v3_campaign_context_daily" as const,
+            sourceRecordId: "context-campaign-1",
+            sourceAsOfDate: HISTORICAL_AS_OF,
+            sourceUpdatedAt: `${HISTORICAL_AS_OF}T01:00:00.000Z`,
+            sourceHash: "a".repeat(64),
+          },
+        },
+      ],
+    ]);
+  }
+
+  async function hydrate(rows: Array<Record<string, unknown>>) {
+    return await warehouseWithRows({
+      hydration: rows,
+      states: activeStates(rows),
+    }).listAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: HISTORICAL_AS_OF,
+      decisionCutoff: HISTORICAL_CUTOFF,
+    });
+  }
+
+  function bandProfile() {
+    return makeAccountDecisionProfile({
+      businessId: BUSINESS_ID,
+      asOfDate: HISTORICAL_AS_OF,
+      accountBaselines: makeAccountCalibration({
+        matureCreativeCount: 35,
+        winnerPurchaseP50: 6,
+        refreshRatioP10: 0.8,
+      }),
+      thresholds: {
+        recentSampleMinSpend: 50,
+        winnerMemoryMinSpend: 150,
+        winnerMemoryMinPurchases: 5,
+        scaleMinPurchases: 8,
+        commercialMaturitySpend: 400,
+      },
+    });
+  }
+
+  it("hydrates the equal, disjoint, directly adjacent pair the contract requires", async () => {
+    const [input] = await hydrate([hydrationRow()]);
+
+    expect(input?.adBandEvidence).toEqual({
+      cutoffDate: "2026-07-10",
+      recent14: {
+        startDate: "2026-06-27",
+        endDate: "2026-07-10",
+        spend: 140,
+        purchases: 4,
+        revenue: 140,
+        impressions: 84_000,
+        clicks: 840,
+        linkClicks: 560,
+      },
+      prior14: {
+        startDate: "2026-06-13",
+        endDate: "2026-06-26",
+        spend: 280,
+        purchases: 21,
+        revenue: 1120,
+        impressions: 140_000,
+        clicks: 2800,
+        linkClicks: 1960,
+      },
+    });
+    // Equal, and directly adjacent: 2026-06-26 is the calendar day before
+    // 2026-06-27, which is what `resolveNativeAdCompositeBands` checks
+    // arithmetically before it will compare the two.
+    expect(
+      Date.parse("2026-06-27T00:00:00.000Z") -
+        Date.parse("2026-06-26T00:00:00.000Z"),
+    ).toBe(86_400_000);
+    expect(input?.adBandEvidence?.recent14.endDate).toBe(
+      input?.adBandEvidence?.cutoffDate,
+    );
+  });
+
+  it("separates an unsupplied link-click window from a measured zero one", async () => {
+    /*
+      `meta_ad_daily.link_clicks` is NULL for a day the provider supplied
+      nothing and a number for a measured day, INCLUDING a measured 0. The
+      `ad_bands` CTE sums the raw column so a band is NULL only when every day
+      in it was unsupplied, and the mapper must carry that through instead of
+      flattening either case to the other. Both are inadmissible for
+      click-to-purchase, but only one of them is a claim about delivery.
+    */
+    const [unsupplied] = await hydrate([
+      hydrationRow({
+        ad_id: "ad-unsupplied",
+        recent14_link_clicks: null,
+        prior14_link_clicks: null,
+      }),
+    ]);
+    expect(unsupplied?.adBandEvidence?.recent14.linkClicks).toBeNull();
+    expect(unsupplied?.adBandEvidence?.prior14.linkClicks).toBeNull();
+
+    const [measuredZero] = await hydrate([
+      hydrationRow({
+        ad_id: "ad-measured-zero",
+        recent14_link_clicks: "0",
+        prior14_link_clicks: "0",
+      }),
+    ]);
+    expect(measuredZero?.adBandEvidence?.recent14.linkClicks).toBe(0);
+    expect(measuredZero?.adBandEvidence?.prior14.linkClicks).toBe(0);
+  });
+
+  it("reports a band the ad never delivered into as null, not as zero", async () => {
+    // PostgreSQL SUM over zero rows is NULL, and the mapper keeps it: "this ad
+    // has no admissible delivery in this window" is not "this ad delivered
+    // nothing", and only the first is true of an ad that started mid-window.
+    const [input] = await hydrate([
+      hydrationRow({
+        prior14_row_count: null,
+        prior14_spend: null,
+        prior14_conversions: null,
+        prior14_revenue: null,
+        prior14_impressions: null,
+        prior14_clicks: null,
+        prior14_link_clicks: null,
+      }),
+    ]);
+
+    expect(input?.adBandEvidence?.prior14).toEqual({
+      startDate: "2026-06-13",
+      endDate: "2026-06-26",
+      spend: null,
+      purchases: null,
+      revenue: null,
+      impressions: null,
+      clicks: null,
+      linkClicks: null,
+    });
+    // The window bounds still come from the query, so the withheld reason is
+    // "no delivery", never "no window".
+    const evidence = computeNativeAdLifecycleEvidence({
+      ad: input!,
+      profile: bandProfile(),
+      frequencyPressureThreshold: 3.5,
+    });
+    expect(evidence.missingEvidence).toContain(
+      "ad_prior14_window_delivery_unavailable",
+    );
+    expect(evidence.missingEvidence).not.toContain(
+      "ad_prior14_window_unavailable",
+    );
+    expect(evidence.fatigueStatus).toBe("unknown");
+  });
+
+  it("withholds band evidence entirely from an ad with no observed metrics", async () => {
+    // A present-day dimension/state seed with no ad-day rows. Emitting two
+    // all-null bands for it would report "these windows had no delivery" where
+    // the truth is "this ad has no observed metrics at all".
+    const [input] = await hydrate([
+      hydrationRow({ metric_row_count: 0, event_metrics_observed: false }),
+    ]);
+
+    expect(input?.metricEvidence.performanceMetricsObserved).toBe(false);
+    expect(input?.adBandEvidence).toBeNull();
+    const evidence = computeNativeAdLifecycleEvidence({
+      ad: input!,
+      profile: bandProfile(),
+      frequencyPressureThreshold: 3.5,
+    });
+    expect(evidence.missingEvidence).toContain(
+      "ad_performance_metrics_unobserved",
+    );
+    expect(evidence.fatigueStatus).toBe("unknown");
+  });
+
+  /**
+   * Eight hydrated siblings so the account-relative frequency P75 exists, plus
+   * the decayed ad under test. The siblings' own bands are flat: they supply
+   * the percentile, they are not the case.
+   */
+  /*
+    The default `hydrationRow` carries a full funnel payload (outbound clicks,
+    landing-page views, add-to-cart, initiate-checkout). Left in place beside
+    these purchase counts it makes the funnel diagnosis fire and the row serves
+    `diagnose`, which is a different question from the Refresh one under test.
+    Nulled here so the ROAS zone is what decides the label.
+  */
+  const NO_FUNNEL_PAYLOAD = {
+    outbound_clicks: null,
+    landing_page_views: null,
+    add_to_cart: null,
+    initiate_checkout: null,
+    thumbstop: null,
+    video25_rate: null,
+    video50_rate: null,
+    video75_rate: null,
+    video100_rate: null,
+  };
+
+  function bandPopulation(
+    adOverrides: Record<string, unknown>,
+  ): Array<Record<string, unknown>> {
+    const siblings = [1, 1.2, 1.4, 1.6, 1.8, 2, 2.2, 2.4].map(
+      (frequency, index) =>
+        hydrationRow({
+          ad_id: `ad-sibling-${index}`,
+          frequency,
+          spend: 400,
+          conversions: 12,
+          revenue: 760,
+          roas: 1.9,
+          impressions: 200_000,
+          recent_spend: 100,
+          recent_conversions: 3,
+          recent_revenue: 180,
+          recent_roas: 1.8,
+          recent_impressions: 90_000,
+          ...NO_FUNNEL_PAYLOAD,
+          ...bandColumns({
+            recent14_spend: 100,
+            recent14_conversions: 7,
+            recent14_revenue: 367,
+            recent14_impressions: "150000",
+            recent14_clicks: "3000",
+            recent14_link_clicks: "2000",
+          }),
+        }),
+    );
+    return [...siblings, hydrationRow(adOverrides)];
+  }
+
+  /** The decayed ad under test, in the cumulative shape the resolver reads. */
+  function decayedAdRow(
+    bandOverrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      ad_id: "ad-decayed",
+      frequency: 9,
+      spend: 400,
+      conversions: 12,
+      revenue: 760,
+      roas: 1.9,
+      impressions: 200_000,
+      recent_spend: 100,
+      recent_conversions: 1,
+      recent_revenue: 50,
+      recent_roas: 0.5,
+      recent_impressions: 90_000,
+      ...NO_FUNNEL_PAYLOAD,
+      ...bandColumns(bandOverrides),
+    };
+  }
+
+  it("carries hydrated band evidence into an AUTHORIZED native Refresh", async () => {
+    /*
+      The positive direction, which a contract that can only ever hold does not
+      have. Nothing here builds `adBandEvidence` by hand: the bands come out of
+      the hydration mapper, the account-relative P75 comes out of the hydrated
+      population, and the decision comes out of the real producer.
+
+      The decayed ad's own bands collapse on all three composite stages —
+      CTR 2.00% to 1.00%, click-to-purchase 0.0100 to 0.0033, ROAS 3.67 to
+      1.00 — and its frequency of 9 clears the sibling P75.
+    */
+    const inputs = await hydrate(bandPopulation(decayedAdRow()));
+    const thresholds =
+      resolveNativeAdFrequencyPressureThresholdsByAccount(inputs);
+    expect(thresholds.get("act_account_1")).toBe(2.2);
+
+    const decayed = inputs.find((row) => row.adId === "ad-decayed");
+    const evidence = computeNativeAdLifecycleEvidence({
+      ad: decayed!,
+      profile: bandProfile(),
+      frequencyPressureThreshold: thresholds.get("act_account_1") ?? null,
+    });
+    expect(evidence.missingEvidence).toEqual([]);
+    expect(evidence.fatigueStatus).toBe("fatigued");
+
+    const decisions = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile: bandProfile(),
+      dataHealth: makeDataHealth(),
+      adInputs: inputs,
+      campaignContextMode: "automatic",
+      campaignContextById: campaignContext(),
+      previousLabels: new Map(),
+      frequencyPressureThresholdByAccount: thresholds,
+    });
+    const decision = decisions.find(
+      (row) => row.input.adId === "ad-decayed",
+    )?.decision;
+    expect(decision?.preAuthorityLabel).toBe("refresh");
+    expect(decision?.reason).toContain("Fatigued");
+
+    // Authorized, so the provenance says the contract PASSED and carries the
+    // full hash rather than a withheld-evidence entry.
+    const provenance = (decision?.blockers ?? []).find(
+      (entry) => entry.predicate === "refresh_ad_lifecycle_evidence_contract",
+    );
+    expect(provenance?.status).toBe("passed");
+    expect(provenance?.observed).toBe(
+      `${NATIVE_AD_LIFECYCLE_EVIDENCE_CONTRACT}#${evidence.evidenceHash}`,
+    );
+    expect(
+      (decision?.blockers ?? []).map((entry) => entry.predicate),
+    ).not.toContain("refresh_ad_lifecycle_evidence");
+  });
+
+  it("keeps the same ad HELD when a legacy zero makes its positive band partial", async () => {
+    /*
+      The negative direction on the same population, changing one fact.
+      Read-only inspection of the live warehouse on 2026-09-07 found
+      A legacy stored zero without row-local payload provenance is projected as
+      NULL by the SQL classifier. Newer positive days can still leave a
+      positive SUM, so the missing-row counter is the fact that prevents that
+      partial denominator from authorizing Refresh.
+    */
+    const inputs = await hydrate(
+      bandPopulation(
+        decayedAdRow({
+          recent14_link_clicks: "600",
+          recent14_link_clicks_measured_rows: 13,
+          recent14_link_clicks_missing_delivered_rows: 1,
+        }),
+      ),
+    );
+    const thresholds =
+      resolveNativeAdFrequencyPressureThresholdsByAccount(inputs);
+    const decayed = inputs.find((row) => row.adId === "ad-decayed");
+    const evidence = computeNativeAdLifecycleEvidence({
+      ad: decayed!,
+      profile: bandProfile(),
+      frequencyPressureThreshold: thresholds.get("act_account_1") ?? null,
+    });
+    expect(evidence.missingEvidence).toContain(
+      "ad_recent14_window_link_clicks_unavailable",
+    );
+    expect(evidence.missingEvidence).not.toContain(
+      "ad_prior14_window_link_clicks_unavailable",
+    );
+    expect(evidence.fatigueStatus).toBe("unknown");
+
+    const decisions = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile: bandProfile(),
+      dataHealth: makeDataHealth(),
+      adInputs: inputs,
+      campaignContextMode: "automatic",
+      campaignContextById: campaignContext(),
+      previousLabels: new Map(),
+      frequencyPressureThresholdByAccount: thresholds,
+    });
+    const decision = decisions.find(
+      (row) => row.input.adId === "ad-decayed",
+    )?.decision;
+
+    // Execution shut, verdict kept and named.
+    expect(decision?.label).toBe("keep");
+    expect(decision?.preAuthorityLabel).toBe("refresh");
+    expect(decision?.blockedActionType).toBe("refresh");
+    const provenance = (decision?.blockers ?? []).find(
+      (entry) => entry.predicate === "refresh_ad_lifecycle_evidence_contract",
+    );
+    expect(provenance?.status).toBe("missing");
+    expect(provenance?.reason).toContain(
+      "ad_recent14_window_link_clicks_unavailable",
+    );
+  });
+
+  it("resolves the frequency percentile per provider account, not per hydrated cell", async () => {
+    /*
+      INVARIANTS.md requires the percentile to be account-relative, and the
+      production job builds it from the whole hydrated population BEFORE the
+      split into calibration cells. Here the eight siblings are split across
+      two optimization contexts, which is exactly the split a profile group
+      makes; resolved per cell each half is four observations and returns null,
+      and the decayed ad would be withheld on an account that has ample
+      observations.
+    */
+    const population = bandPopulation(decayedAdRow());
+    const split = population.map((row, index) =>
+      index < 4
+        ? { ...row, optimization_goal: "LEAD", custom_event_type: "LEAD" }
+        : row,
+    );
+    const inputs = await hydrate(split);
+    const accountWide =
+      resolveNativeAdFrequencyPressureThresholdsByAccount(inputs);
+    expect(accountWide.get("act_account_1")).toBe(2.2);
+
+    const leadCell = inputs.filter((row) => row.customEventType === "LEAD");
+    const purchaseCell = inputs.filter(
+      (row) => row.customEventType !== "LEAD",
+    );
+    expect(leadCell).toHaveLength(4);
+    expect(
+      resolveNativeAdFrequencyPressureThresholdsByAccount(leadCell).get(
+        "act_account_1",
+      ),
+    ).toBeNull();
+
+    const decayed = purchaseCell.find((row) => row.adId === "ad-decayed");
+    expect(
+      computeNativeAdLifecycleEvidence({
+        ad: decayed!,
+        profile: bandProfile(),
+        frequencyPressureThreshold: accountWide.get("act_account_1") ?? null,
+      }).fatigueStatus,
+    ).toBe("fatigued");
+    expect(
+      computeNativeAdLifecycleEvidence({
+        ad: decayed!,
+        profile: bandProfile(),
+        frequencyPressureThreshold:
+          resolveNativeAdFrequencyPressureThresholdsByAccount(
+            purchaseCell,
+          ).get("act_account_1") ?? null,
+      }).fatigueStatus,
+    ).toBe("unknown");
+  });
+});
+
 describe("native ad hydration SQL contract", () => {
   it("aggregates 28d, 7d and 24h windows at provider-account/ad grain", () => {
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
@@ -1065,5 +1620,208 @@ describe("native ad hydration SQL contract", () => {
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).not.toContain(
       "SUM(COALESCE((NULLIF(payload_json->>'outbound_clicks', ''))::numeric, 0))",
     );
+  });
+
+  it("materializes two equal, disjoint, directly adjacent 14-day ad bands", () => {
+    // Equal: both windows span 14 inclusive days. Disjoint and directly
+    // adjacent: prior14 ends at cutoff-14 and recent14 starts at cutoff-13.
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "('recent14', d.date BETWEEN ($2::date - INTERVAL '13 days') AND $2::date)",
+    );
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "('prior14', d.date BETWEEN ($2::date - INTERVAL '27 days') AND ($2::date - INTERVAL '14 days'))",
+    );
+    // Materialized, not differenced: DECISION_LOG.md D037 forbids
+    // reconstructing prior14 by subtracting recent14 from a cumulative window.
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain("FROM ad_band_days");
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "GROUP BY provider_account_id, ad_id, band_key",
+    );
+    // Both composite denominators, which the 7-day `recent` CTE has neither of.
+    for (const column of [
+      "MAX(clicks) FILTER (WHERE band_key = 'recent14') AS recent14_clicks",
+      "MAX(link_clicks) FILTER (WHERE band_key = 'recent14') AS recent14_link_clicks",
+      "MAX(clicks) FILTER (WHERE band_key = 'prior14') AS prior14_clicks",
+      "MAX(link_clicks) FILTER (WHERE band_key = 'prior14') AS prior14_link_clicks",
+    ]) {
+      expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(column);
+    }
+  });
+
+  it("draws the bands only from cutoff-bound, finalized, validated ad days", () => {
+    // `ad_band_days` reads `selected_ad_days`, which is already bounded to the
+    // 28 days ending at the cutoff and to finalized/validated rows created and
+    // updated before the decision cutoff. Reading `meta_ad_daily` directly
+    // would let a row dated after the cutoff into a band.
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "  FROM selected_ad_days d\n  CROSS JOIN LATERAL (\n    VALUES\n      ('recent14'",
+    );
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "$2::date::text AS band_cutoff_date",
+    );
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "($2::date - INTERVAL '13 days')::date::text AS recent14_start_date",
+    );
+  });
+
+  it("keeps an unsupplied band link-click sum null instead of coercing it to zero", () => {
+    /*
+      `metric_cumulative` wraps the same column in COALESCE(x, 0) so its 28-day
+      answer stays byte-identical to the one it gave when `link_clicks` was NOT
+      NULL. The band columns are new and carry the honest three-valued answer
+      instead: NULL when every day in the window was unsupplied, 0 when the
+      days were measured and were zero.
+    */
+    /*
+      Scoped to the BAND aggregate, not the whole query: `metric_cumulative`
+      legitimately coalesces the same column so its 28-day answer stays
+      byte-identical to the one it gave when `link_clicks` was NOT NULL. An
+      unscoped negative would match that one and mean nothing.
+    */
+    const bandBlock = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
+      HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("ad_band_aggregates AS ("),
+      HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("FROM ad_band_days"),
+    );
+    expect(bandBlock).toContain("SUM(link_clicks) AS link_clicks");
+    expect(bandBlock).not.toContain("COALESCE(link_clicks");
+    /*
+      AND THE SUM ALONE IS NOT ENOUGH, which is why the band also carries
+      coverage. `SUM` returns NULL only when EVERY row is NULL, so a band with
+      some measured days and some delivered-but-unreported days came back as a
+      positive number indistinguishable from full coverage.
+    */
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "link_clicks_missing_delivered_rows",
+    );
+    // The 28-day rollup keeps its coalesce; this test must not be read as
+    // having changed that one.
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "SUM(COALESCE(link_clicks, 0)) AS link_clicks",
+    );
+    const bandDaysBlock = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
+      HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("ad_band_days AS ("),
+      HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("ad_band_aggregates AS ("),
+    );
+    expect(bandDaysBlock).toContain(
+      `${AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL} AS link_clicks`,
+    );
+    expect(AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL).toContain(
+      "jsonb_typeof(payload_json->'actions') = 'array'",
+    );
+    expect(AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL).toContain(
+      "WHEN COUNT(*) = 0 THEN TRUE",
+    );
+    expect(AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL).toContain(
+      "ELSE '[]'::jsonb",
+    );
+  });
+});
+
+/*
+  CODEX B9 — PARTIAL LINK-CLICK COVERAGE IS UNKNOWN, NOT MEASURED.
+
+  `SUM(link_clicks)` ignores NULLs and returns NULL only when EVERY row in the
+  band is NULL. A band with three measured days and eleven delivered days the
+  provider never reported therefore came back as a positive number
+  indistinguishable from complete coverage, and the click-to-purchase composite
+  divided by it — a denominator built from part of a window, presented as the
+  whole of it, and able to authorize a Refresh.
+
+  The four states the review named are pinned here: unavailable, measured zero,
+  mixed incomplete, and complete positive.
+*/
+describe("band link-click completeness", () => {
+  async function bandOf(overrides: Record<string, unknown>) {
+    const rows = [hydrationRow(overrides)];
+    const inputs = await warehouseWithRows({
+      hydration: rows,
+      states: rows.map((row, index) => ({
+        event_kind: "state",
+        presence: "present",
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
+        provider_account_id: "act_account_1",
+        entity_id: row.ad_id,
+        creative_id: "creative-shared",
+        configured_status: "ACTIVE",
+        effective_status: "ACTIVE",
+        observed_at: "2026-07-10T02:30:00.000Z",
+        captured_at: "2026-07-10T02:31:00.000Z",
+      })),
+    }).listAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: HISTORICAL_AS_OF,
+      decisionCutoff: HISTORICAL_CUTOFF,
+    });
+    return inputs[0]?.adBandEvidence?.recent14 ?? null;
+  }
+
+  it("reports a fully measured positive band as measured", async () => {
+    const band = await bandOf({
+      recent14_link_clicks: "560",
+      recent14_link_clicks_measured_rows: 14,
+      recent14_link_clicks_missing_delivered_rows: 0,
+    });
+    expect(band?.linkClicks).toBe(560);
+  });
+
+  it("keeps a fully measured ZERO band as a measured zero, not unknown", async () => {
+    // The distinction the raw column exists to preserve: reported-and-zero is
+    // an observation, and it must survive the completeness gate.
+    const band = await bandOf({
+      recent14_link_clicks: "0",
+      recent14_link_clicks_measured_rows: 14,
+      recent14_link_clicks_missing_delivered_rows: 0,
+    });
+    expect(band?.linkClicks).toBe(0);
+  });
+
+  it("reports an entirely unsupplied band as unknown", async () => {
+    const band = await bandOf({
+      recent14_link_clicks: null,
+      recent14_link_clicks_measured_rows: 0,
+      recent14_link_clicks_missing_delivered_rows: 14,
+    });
+    expect(band?.linkClicks).toBeNull();
+  });
+
+  it("reports a MIXED band as unknown even though its sum is positive", async () => {
+    /*
+      THE CASE THIS EXISTS FOR. Three days measured 560 link clicks between
+      them; eleven delivered days reported nothing. `SUM` answers 560 and the
+      old mapper took it. The band is partial, so the honest answer is unknown.
+    */
+    const band = await bandOf({
+      recent14_link_clicks: "560",
+      recent14_link_clicks_measured_rows: 3,
+      recent14_link_clicks_missing_delivered_rows: 11,
+    });
+    expect(band?.linkClicks).toBeNull();
+    // And the rest of the band is untouched: only the link-click denominator
+    // is unknown, not the whole observation.
+    expect(band?.impressions).toBe(84000);
+    expect(band?.clicks).toBe(840);
+  });
+
+  it("does not treat an undelivered day's missing link clicks as a gap", async () => {
+    // A day with no impressions and no spend legitimately has no link clicks.
+    // The query counts only DELIVERED rows, so this band stays measured.
+    const band = await bandOf({
+      recent14_link_clicks: "560",
+      recent14_link_clicks_measured_rows: 9,
+      recent14_link_clicks_missing_delivered_rows: 0,
+    });
+    expect(band?.linkClicks).toBe(560);
+  });
+
+  it("fails closed when the hydration row cannot report coverage at all", async () => {
+    // A row from a query that predates the coverage columns cannot prove its
+    // own completeness, and an unprovable denominator is unknown.
+    const band = await bandOf({
+      recent14_link_clicks: "560",
+      recent14_link_clicks_measured_rows: undefined,
+      recent14_link_clicks_missing_delivered_rows: undefined,
+    });
+    expect(band?.linkClicks).toBeNull();
   });
 });

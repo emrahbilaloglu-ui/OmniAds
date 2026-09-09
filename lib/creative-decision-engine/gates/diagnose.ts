@@ -76,8 +76,57 @@ function finiteNonNegative(value: number | null | undefined): value is number {
  * one aggregate is missing or disagrees with the others, so this belongs in
  * the canonical diagnose gate rather than in one downstream Cut matcher.
  */
+/**
+ * Did this ad deliver anything for a purchase truth to be measured FROM?
+ *
+ * A measured zero spend with no purchase and no purchase value is not a gap in
+ * the data — it is the complete and correct description of an ad that did not
+ * run. ROAS is then `0 / 0`: undefined by arithmetic, which is a different
+ * thing from missing, and a different thing again from wrong.
+ *
+ * Absence of spend is required to be MEASURED (`spend === 0`), not merely
+ * unobserved: an unknown spend could hide real delivery, and suppressing the
+ * anomaly on unknown input would be the same conflation in the other
+ * direction.
+ */
+function hasNoDeliveryToAttribute(ctx: GateContext): boolean {
+  const { purchases, purchaseValue, roas, spend } = ctx.input;
+  const zeroOrAbsent = (value: number | null | undefined) =>
+    value == null || !Number.isFinite(value) || value === 0;
+  // `spend === 0` is already the measured-zero test: it excludes NaN, which is
+  // how an unobserved figure reaches this typed-as-number field.
+  return (
+    spend === 0 &&
+    zeroOrAbsent(purchases) &&
+    zeroOrAbsent(purchaseValue) &&
+    zeroOrAbsent(roas)
+  );
+}
+
 function purchaseTruthAnomaly(ctx: GateContext): string | null {
   if (ctx.input.effectiveCohort !== "purchase") return null;
+
+  /*
+   * A CONTRADICTION NEEDS TWO OBSERVATIONS THAT DISAGREE.
+   *
+   * The three `finiteNonNegative` checks below read a missing figure as a
+   * contradictory one, and the sentence this gate then writes tells the
+   * operator to "Verify pixel/CAPI purchase count, value, and ROAS aggregation
+   * before acting." On an ad that never spent, that is an instruction to audit
+   * a tracking integration on the evidence that nothing happened.
+   *
+   * MEASURED, not argued. On 2026-09-07 that sentence was on 5,230 of the
+   * 11,438 native ad rows — the single largest reason in the account set — and
+   * a read-only count over `engine_v3_ad_decision_snapshots_daily` showed ALL
+   * 5,230 of them carried `spend = 0` AND `purchases = 0`. Every one was
+   * ROAS `0 / 0`.
+   *
+   * Returning null here does not silence those rows: `isVerifiedNoDelivery24h`
+   * is the very next gate and is the honest diagnosis for an active ad with a
+   * verified empty delivery window. This only stops a delivery fact from being
+   * published as a tracking fault.
+   */
+  if (hasNoDeliveryToAttribute(ctx)) return null;
 
   const { purchases, purchaseValue, roas, spend } = ctx.input;
   if (!finiteNonNegative(purchases)) {

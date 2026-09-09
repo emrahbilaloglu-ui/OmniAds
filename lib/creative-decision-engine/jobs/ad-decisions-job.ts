@@ -21,6 +21,7 @@ import {
 } from "../campaign-context/source";
 import {
   buildCanonicalEvaluationProvenance,
+  canonicalSha256,
   type CampaignContextProvenance,
   type NativeAdSoftOnlyDecisionProfile,
   type PriorHysteresisProvenance,
@@ -31,6 +32,10 @@ import {
   type AdDecisionHydrationResult,
   type AdDecisionHydrationReceipt,
 } from "../data-source";
+import {
+  FATIGUE_SIGNIFICANT_DECAY_THRESHOLD,
+  FATIGUE_STRONG_WINDOW_FALLBACK_ROAS,
+} from "../config-values";
 import { buildDataLayerHealth, composeDataHealth } from "../data-health";
 import {
   adDecisionStabilityKey,
@@ -53,6 +58,7 @@ import {
   type AccountDecisionProfile,
   type AdDecisionInput,
   type AdDecisionOutput,
+  type AdDisjointBandObservation,
   type CreativeInput,
   type DataHealth,
   type DecisionAuthorityBlocker,
@@ -712,6 +718,20 @@ export async function runAdDecisionsJob(
           mergeUniqueMap(previousLabels, groupPrevious, "hysteresis lineage");
         }
 
+        /*
+          Account-relative, and therefore built BEFORE the split into profile
+          groups.
+
+          A profile group is one calibration cell (provider account + objective
+          + optimization goal + custom event type + cohort), so resolving the
+          percentile per group would compare an ad only against the ads that
+          share its cell. `NATIVE_AD_FREQUENCY_PRESSURE_MIN_OBSERVATIONS` is 8:
+          an account with 12 ads spread over three cells would then report no
+          percentile at all and force every one of them to `fatigueStatus:
+          "unknown"`.
+        */
+        const frequencyPressureThresholdByAccount =
+          resolveNativeAdFrequencyPressureThresholdsByAccount(adInputs);
         const decisionGroups = profileGroups.map((group) => {
           const dataHealth = buildNativeAdDataHealth({
             calibrationCell: group.calibrationCell,
@@ -730,6 +750,7 @@ export async function runAdDecisionsJob(
                   campaignContextMode,
                   campaignContextById,
                   previousLabels,
+                  frequencyPressureThresholdByAccount,
                 })
               : computeSoftOnlyNativeAdDecisions({
                   businessId: input.businessId,
@@ -1381,6 +1402,7 @@ function computeReadyNativeAdDecisions(input: {
   campaignContextMode: ReturnType<typeof resolveCampaignContextMode>;
   campaignContextById: CampaignContextMap;
   previousLabels: Map<string, PreviousAdPublishedLabel>;
+  frequencyPressureThresholdByAccount: ReadonlyMap<string, number | null>;
 }) {
   if (
     "profileType" in input.group.profile ||
@@ -1399,6 +1421,8 @@ function computeReadyNativeAdDecisions(input: {
     campaignContextMode: input.campaignContextMode,
     campaignContextById: input.campaignContextById,
     previousLabels: input.previousLabels,
+    frequencyPressureThresholdByAccount:
+      input.frequencyPressureThresholdByAccount,
   });
 }
 
@@ -1542,14 +1566,33 @@ export function computeNativeAdDecisions(input: {
     profile: AccountDecisionProfile,
     dataHealth: DataHealth,
   ) => DecisionOutput;
+  /**
+   * Frequency P75 per provider account, resolved over the whole account's ad
+   * population rather than this group's. The job passes it; callers that hand
+   * over a complete account in `adInputs` may omit it and get the same answer.
+   */
+  frequencyPressureThresholdByAccount?: ReadonlyMap<string, number | null>;
 }): AdDecisionComputation[] {
+  // Resolved once per population, never once per ad: an ad's own frequency is
+  // a single observation and can never be its own percentile.
+  const frequencyPressureThresholdByAccount =
+    input.frequencyPressureThresholdByAccount ??
+    resolveNativeAdFrequencyPressureThresholdsByAccount(input.adInputs);
   return input.adInputs
     .map((adInput) => {
       const withCampaign = withCreativeCampaignLabelContext(
         adInput,
         input.campaignContextById,
       );
-      const resolverInput = toResolverInput(withCampaign);
+      const adLifecycle = computeNativeAdLifecycleEvidence({
+        ad: withCampaign,
+        profile: input.profile,
+        frequencyPressureThreshold:
+          frequencyPressureThresholdByAccount.get(
+            adInput.providerAccountId,
+          ) ?? null,
+      });
+      const resolverInput = toResolverInput(withCampaign, adLifecycle);
       const resolveDecision = input.resolveDecision ?? decideCreative;
       const semanticDecision = normalizeSiteOwnedAdDecision(
         resolveDecision(resolverInput, input.profile, input.dataHealth),
@@ -1559,9 +1602,12 @@ export function computeNativeAdDecisions(input: {
         input: withCampaign,
         campaignLabelsById: input.campaignContextById,
       });
-      const adDecision = guardUnavailableAdMetrics(
-        toNativeAdDecisionOutput(guarded, withCampaign),
-        withCampaign,
+      const adDecision = nativeAdLifecycleEvidenceBlockers(
+        guardUnavailableAdMetrics(
+          toNativeAdDecisionOutput(guarded, withCampaign),
+          withCampaign,
+        ),
+        adLifecycle,
       );
       const stabilityKey = adDecisionStabilityKey({
         businessId: input.businessId,
@@ -1601,12 +1647,16 @@ export function computeNativeAdDecisions(input: {
     );
 }
 
-function toResolverInput(input: AdDecisionInput): CreativeInput {
+function toResolverInput(
+  input: AdDecisionInput,
+  adLifecycle: NativeAdLifecycleEvidence,
+): CreativeInput {
   const {
     metricEvidence: _metricEvidence,
     statusEvidence: _statusEvidence,
     creativeEvidence: _creativeEvidence,
     accountTimezone: _accountTimezone,
+    adBandEvidence: _adBandEvidence,
     creativeId,
     ...rest
   } = input;
@@ -1615,10 +1665,41 @@ function toResolverInput(input: AdDecisionInput): CreativeInput {
     // Resolver math never consumes this field. Native identity is restored on
     // the output before any canonical or persistence boundary.
     creativeId: creativeId ?? `native-ad:${input.adId}`,
-    // Creative-owned V1 lifecycle is retained only in creativeEvidence. Native
-    // ad labels cannot consume it until an ad-level lifecycle contract exists.
-    fatigueStatus: null,
-    lifecyclePosition: null,
+    /*
+      Ad-grain lifecycle, not the creative's.
+
+      Creative-owned V1 lifecycle stays in `creativeEvidence` and is still
+      never bound to an ad: one creative can back many ads, so its fatigue
+      verdict is not this ad's. These two fields come from
+      `computeNativeAdLifecycleEvidence`, which reads only this ad's own
+      equal, disjoint, cutoff-bound 14/14 windows plus a frequency percentile
+      taken across the whole PROVIDER ACCOUNT (not the profile group, which is
+      one calibration cell).
+
+      These two are the only fields that reach the RESOLVER. The contract
+      version, the full evidence hash and the missing-evidence list reach the
+      persisted decision by a second, narrower route: on any row that raises a
+      Refresh, held or authorized, `nativeAdLifecycleEvidenceBlockers`
+      publishes them on `blockers`, which `normalizeDecision` canonicalizes
+      into `decision_output_json`. The decay ratios, the pressure flag and the
+      prior-band verdict reach neither.
+    */
+    fatigueStatus: adLifecycle.fatigueStatus,
+    lifecyclePosition: adLifecycle.lifecyclePosition,
+    /*
+      Still null, and not for want of trying.
+
+      `days_since_peak`, `peak_roas_30d`, `peak_confidence`, the spend/ROAS
+      slopes and `spend_trajectory_30d` all need a daily series. The only
+      table that holds one is `engine_v3_creative_lifecycle_daily`, which is
+      keyed by `creative_id` (verified against the live schema: no ad-grain
+      lifecycle table exists). The ad hydration in
+      `lib/creative-decision-engine/data-source.ts` aggregates `meta_ad_daily`
+      into a 28-day cumulative row, a 7-day recent row, and a same-day
+      spend/impressions row; nothing in that shape can locate a peak or fit a
+      slope. The Meta delivery rankings and creative format are likewise read
+      only from that creative-grain row.
+    */
     daysSincePeak: null,
     peakRoas30d: null,
     peakConfidence: null,
@@ -1631,6 +1712,731 @@ function toResolverInput(input: AdDecisionInput): CreativeInput {
     engagementRateRanking: null,
     conversionRateRanking: null,
     creativeFormat: null,
+  };
+}
+
+/**
+ * The ad-grain fatigue/lifecycle evidence contract.
+ *
+ * Version it, because the verdict it produces is authority: `fatigued` is the
+ * only value that lets `shouldRefreshOnFatigue` and the below-target branch of
+ * `ratioZonesGate` publish a HARD `refresh`. The string is published on the
+ * decision's blockers by `nativeAdLifecycleEvidenceBlockers` below, so a
+ * consumer reading a held Refresh can name the contract that withheld it.
+ *
+ * v1 (superseded, never released) compared this ad's 7-day recent rollup with
+ * the 21 days obtained by subtracting it from the 28-day cumulative rollup,
+ * and counted ROAS decay plus purchases-per-impression decay as two signals.
+ * Three things were wrong with that. The windows were unequal, so a 7-day
+ * seasonal dip was measured against a 21-day mean. `INVARIANTS.md` asks for
+ * `recent14` against the "directly preceding disjoint prior14 period", not any
+ * disjoint pair. And purchases-per-impression is not independent of ROAS: both
+ * carry the same purchase numerator, so two "signals" were one observation
+ * counted twice, which is the exact substitution `DECISION_LOG.md` D037
+ * forbids ("Benchmark weakening ... cannot substitute for a material CTR,
+ * click-to-purchase, or ROAS decay signal").
+ *
+ * v2 (superseded) produced a receipt only when an admissible band pair
+ * existed: `evidenceHash` was null for every Refresh HELD on missing or
+ * invalid evidence, which is the outcome that most needs provenance. Two holds
+ * with different causes were indistinguishable, and determinism could not be
+ * demonstrated because nothing was hashed. v3 hashes a FULL receipt for every
+ * outcome — bands or an explicit absence, the sorted missing-evidence codes,
+ * the observed states, the winner bars and sample floors actually read, the
+ * ROAS targets, the frequency reading and its threshold, and the derived
+ * lifecycle state itself. The version moves because the same facts now produce
+ * a different digest, and a v2 receipt must not be compared with a v3 one.
+ */
+export const NATIVE_AD_LIFECYCLE_EVIDENCE_CONTRACT =
+  "native-ad-lifecycle-evidence.v3-full-receipt";
+
+/**
+ * `INVARIANTS.md`: "Frequency pressure must be account-relative (28-day
+ * creative P75 with at least eight observations). A global frequency cliff or
+ * a creative's own single-row percentile must not authorize fatigue." The
+ * ad-grain analogue compares ads with ads across one PROVIDER ACCOUNT at one
+ * cutoff — deliberately not one profile group, because a profile group is
+ * keyed by `NativeAdProfileRequestContext` (provider account + objective +
+ * optimization goal + custom event type + cohort), which is one calibration
+ * cell inside an account and therefore narrower than account-relative.
+ */
+const NATIVE_AD_FREQUENCY_PRESSURE_MIN_OBSERVATIONS = 8;
+
+/** Both comparison periods are exactly this long, inclusive of both endpoints. */
+const NATIVE_AD_BAND_LENGTH_DAYS = 14;
+
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * One comparison period's rates, each computed from that period's own
+ * numerator and denominator.
+ *
+ * `ctr` and `clickToPurchaseRate` are the composite: impressions to clicks,
+ * then link clicks to purchases. They are separate funnel stages measured on
+ * separate denominators, which is what makes two of them independent evidence
+ * rather than one observation counted twice.
+ */
+interface NativeAdCompositeBand {
+  startDate: string;
+  endDate: string;
+  spend: number;
+  purchases: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  linkClicks: number;
+  roas: number;
+  /** Clicks per impression, as a percentage, matching `CreativeInput.ctr`. */
+  ctr: number;
+  /** Purchases per link click, matching `HistoricalWindow.clickToPurchaseRate`. */
+  clickToPurchaseRate: number;
+}
+
+/**
+ * The result of one ad's lifecycle derivation.
+ *
+ * What crosses into production, and by which route:
+ *
+ *  - `fatigueStatus` and `lifecyclePosition` are copied onto `CreativeInput` by
+ *    `toResolverInput` and drive the resolver's label.
+ *  - `contractVersion` and the FULL `evidenceHash` are published on the
+ *    decision's `blockers` by `nativeAdLifecycleEvidenceBlockers`, on EVERY row
+ *    that raises a Refresh — held (with `missingEvidence` naming the gaps) and
+ *    authorized alike. `blockers` is canonicalized by `normalizeDecision` in
+ *    `canonical-evaluation.ts` and stored in `decision_output_json`, so a held
+ *    Refresh names the contract and the specific evidence it lacked, and an
+ *    authorized Refresh carries the lineage of the evidence that granted it.
+ *
+ * The decay ratios, `frequencyPressure` and `priorBandWasStrong` cross by
+ * neither route. They are returned so the arithmetic can be asserted directly
+ * in tests, and they are NOT persisted, hashed or surfaced.
+ * `buildAdCanonicalEvaluationProvenance` never sees this object. Do not write
+ * a consumer against them without first putting them on the persisted
+ * evaluation.
+ */
+export interface NativeAdLifecycleEvidence {
+  fatigueStatus: CreativeInput["fatigueStatus"];
+  lifecyclePosition: CreativeInput["lifecyclePosition"];
+  /** Always `NATIVE_AD_LIFECYCLE_EVIDENCE_CONTRACT`; carried for the blockers. */
+  contractVersion: string;
+  /**
+   * sha256 over the FULL receipt: the bands or their explicit absence, the
+   * sorted missing-evidence codes, the observed states, the winner bars and
+   * sample floors, the ROAS targets, the frequency reading and its threshold,
+   * and the derived lifecycle state. Two runs at the same cutoff over the same
+   * facts produce the same hash; any change to the evidence or to the verdict
+   * changes it.
+   *
+   * NEVER NULL, on purpose. Under v2 this was null whenever there was no
+   * admissible band pair, which is exactly the held-Refresh case — the outcome
+   * whose provenance an operator most needs. A held Refresh now carries a
+   * receipt that says which gaps held it.
+   */
+  evidenceHash: string;
+  /** Decline of `recent14` versus `prior14`, as a ratio, per composite stage. */
+  ctrDecay: number | null;
+  clickToPurchaseDecay: number | null;
+  roasDecay: number | null;
+  frequencyPressure: boolean;
+  /** `prior14` cleared the account's winner spend/purchase/ROAS floors. */
+  priorBandWasStrong: boolean;
+  missingEvidence: string[];
+}
+
+function finitePositive(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function finiteNonNegative(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+/**
+ * Frequency P75 per provider account.
+ *
+ * The map is the account-relative form the invariant asks for; the job builds
+ * it once from the whole hydrated population, before the ads are split into
+ * per-calibration-cell profile groups, so an account with eight ads spread
+ * across three cells still gets one percentile instead of three nulls.
+ */
+export function resolveNativeAdFrequencyPressureThresholdsByAccount(
+  adInputs: readonly AdDecisionInput[],
+): ReadonlyMap<string, number | null> {
+  const byAccount = new Map<string, AdDecisionInput[]>();
+  for (const ad of adInputs) {
+    const existing = byAccount.get(ad.providerAccountId);
+    if (existing) existing.push(ad);
+    else byAccount.set(ad.providerAccountId, [ad]);
+  }
+  return new Map(
+    Array.from(byAccount, ([providerAccountId, ads]) => [
+      providerAccountId,
+      resolveNativeAdFrequencyPressureThreshold(ads),
+    ]),
+  );
+}
+
+/**
+ * P75 of sibling ad frequencies over one population. Returns null below the
+ * observation floor so a thin account cannot manufacture exposure pressure out
+ * of two ads.
+ */
+export function resolveNativeAdFrequencyPressureThreshold(
+  adInputs: readonly AdDecisionInput[],
+): number | null {
+  const observations = adInputs
+    .filter((ad) => ad.metricEvidence.performanceMetricsObserved)
+    .map((ad) => ad.frequency)
+    .filter(finitePositive)
+    .sort((left, right) => left - right);
+  if (observations.length < NATIVE_AD_FREQUENCY_PRESSURE_MIN_OBSERVATIONS) {
+    return null;
+  }
+  // Nearest-rank P75 over the sorted sample.
+  const index = Math.min(
+    observations.length - 1,
+    Math.ceil(observations.length * 0.75) - 1,
+  );
+  return observations[index] ?? null;
+}
+
+/**
+ * Midnight UTC of a `YYYY-MM-DD` date, or null when it is not one.
+ *
+ * ROUND-TRIPPED, because the shape test and `Date.parse` together are not a
+ * validation. `Date.parse("2026-02-30T00:00:00.000Z")` does not fail — it
+ * ROLLS OVER and returns midnight on 2026-03-02, and `Date.parse` for
+ * `2026-04-31` returns 2026-05-01. Both satisfy the regex above and both are
+ * finite, so an impossible date silently became a real one two days away and
+ * shifted the band window it was defining. Measured on this runtime, not
+ * assumed: only `2026-13-01` fails outright (NaN); every in-range-looking
+ * overflow is accepted.
+ *
+ * Re-formatting the parsed instant and demanding the original string back is
+ * what closes it: a date that is not the day it claims to be fails closed, and
+ * the caller treats the band as inadmissible rather than comparing two windows
+ * whose boundaries the engine invented.
+ */
+function parseIsoDate(value: string | null | undefined): number | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+  const parsed = Date.parse(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed)) return null;
+  if (new Date(parsed).toISOString().slice(0, 10) !== value) return null;
+  return parsed;
+}
+
+/** Inclusive day count of a window, so a 14-day band returns 14. */
+function inclusiveDaySpan(startMs: number, endMs: number): number {
+  return Math.round((endMs - startMs) / MS_PER_DAY) + 1;
+}
+
+/**
+ * Admits one materialized window as a comparison period, or says exactly why
+ * it cannot be one.
+ *
+ * Every rejection is named rather than coerced. A window whose denominators
+ * are zero has no rate; substituting zero would report a 100% decay for an ad
+ * that was simply not served.
+ */
+function admitCompositeBand(
+  band: AdDisjointBandObservation | null | undefined,
+  label: "recent14" | "prior14",
+  cutoffMs: number,
+  missingEvidence: string[],
+): NativeAdCompositeBand | null {
+  if (!band) {
+    missingEvidence.push(`ad_${label}_window_unavailable`);
+    return null;
+  }
+  const startMs = parseIsoDate(band.startDate);
+  const endMs = parseIsoDate(band.endDate);
+  if (startMs === null || endMs === null || endMs < startMs) {
+    missingEvidence.push(`ad_${label}_window_dates_invalid`);
+    return null;
+  }
+  // PIT safety: a window that reaches past the decision cutoff carries facts
+  // the decision is not allowed to have seen.
+  if (endMs > cutoffMs) {
+    missingEvidence.push(`ad_${label}_window_after_cutoff`);
+    return null;
+  }
+  if (inclusiveDaySpan(startMs, endMs) !== NATIVE_AD_BAND_LENGTH_DAYS) {
+    missingEvidence.push(`ad_${label}_window_not_14_days`);
+    return null;
+  }
+  if (!finitePositive(band.spend) || !finitePositive(band.impressions)) {
+    missingEvidence.push(`ad_${label}_window_delivery_unavailable`);
+    return null;
+  }
+  if (
+    !finiteNonNegative(band.purchases) ||
+    !finiteNonNegative(band.revenue) ||
+    !finiteNonNegative(band.clicks)
+  ) {
+    missingEvidence.push(`ad_${label}_window_outcomes_unavailable`);
+    return null;
+  }
+  /*
+    Click-to-purchase needs a POSITIVE link-click denominator in BOTH periods,
+    and null and zero are rejected for different reasons that both land here.
+
+    `meta_ad_daily.link_clicks` is NULL for a day the provider supplied nothing
+    and a number for a measured day, including a measured 0; the `ad_bands` CTE
+    preserves that by summing the raw column, so a band is NULL only when every
+    day in it was unsupplied. A NULL band has no rate to compute. A measured-0
+    band has a zero denominator, and `purchases / 0` is not a rate either.
+
+    This is the branch real ads take right now. Read-only inspection of the
+    live warehouse on 2026-09-07 found 10,346 finalized, validated ad-day rows
+    in the current 28-day window, 2,461 of them with a measured `link_clicks`
+    and every one of those exactly 0, the other 7,885 NULL. The same column
+    carried 7,666 positive rows in March 2026, so the composite is reachable on
+    real facts, not only on fixtures.
+  */
+  if (!finitePositive(band.linkClicks)) {
+    missingEvidence.push(`ad_${label}_window_link_clicks_unavailable`);
+    return null;
+  }
+  return {
+    startDate: band.startDate,
+    endDate: band.endDate,
+    spend: band.spend,
+    purchases: band.purchases,
+    revenue: band.revenue,
+    impressions: band.impressions,
+    clicks: band.clicks,
+    linkClicks: band.linkClicks,
+    roas: band.revenue / band.spend,
+    ctr: (band.clicks / band.impressions) * 100,
+    clickToPurchaseRate: band.purchases / band.linkClicks,
+  };
+}
+
+/**
+ * The equal, disjoint, directly adjacent 14/14 pair, or null with the reasons
+ * recorded on `missingEvidence`.
+ *
+ * `INVARIANTS.md`: "When recent14 exists, creative fatigue decay must use the
+ * directly preceding disjoint prior14 period. Overlapping cumulative rates are
+ * not a substitute." Adjacency is checked arithmetically — `prior14.endDate`
+ * must be the calendar day before `recent14.startDate` — so neither an overlap
+ * nor a gap can pass as "directly preceding".
+ */
+function resolveNativeAdCompositeBands(
+  ad: AdDecisionInput,
+  missingEvidence: string[],
+): { recent: NativeAdCompositeBand; prior: NativeAdCompositeBand } | null {
+  const evidence = ad.adBandEvidence ?? null;
+  if (!evidence) {
+    missingEvidence.push("ad_disjoint_14d_band_evidence_unavailable");
+    return null;
+  }
+  const cutoffMs = parseIsoDate(evidence.cutoffDate);
+  if (cutoffMs === null) {
+    missingEvidence.push("ad_band_cutoff_invalid");
+    return null;
+  }
+  const recent = admitCompositeBand(
+    evidence.recent14,
+    "recent14",
+    cutoffMs,
+    missingEvidence,
+  );
+  const prior = admitCompositeBand(
+    evidence.prior14,
+    "prior14",
+    cutoffMs,
+    missingEvidence,
+  );
+  if (!recent || !prior) return null;
+
+  const recentStartMs = parseIsoDate(recent.startDate);
+  const priorEndMs = parseIsoDate(prior.endDate);
+  if (
+    recentStartMs === null ||
+    priorEndMs === null ||
+    priorEndMs !== recentStartMs - MS_PER_DAY
+  ) {
+    missingEvidence.push("ad_band_windows_not_directly_preceding");
+    return null;
+  }
+  return { recent, prior };
+}
+
+function decayRatio(
+  prior: number | null,
+  recent: number | null,
+): number | null {
+  if (!finitePositive(prior) || !finiteNonNegative(recent)) return null;
+  return (prior - recent) / prior;
+}
+
+/**
+ * Ad-grain analogue of `isStrongHistoricalWindow` in
+ * `lib/creative-decision-engine/fatigue.ts`: the same spend/purchase floors
+ * and the same target/break-even ROAS bar, applied to one disjoint band.
+ */
+function priorBandIsStrong(
+  band: NativeAdCompositeBand,
+  profile: AccountDecisionProfile,
+  ad: AdDecisionInput,
+): boolean {
+  const minSpend = profile.thresholds.winnerMemoryMinSpend ?? 0;
+  const minPurchases = profile.thresholds.winnerMemoryMinPurchases ?? 1;
+  if (band.spend < minSpend || band.purchases < minPurchases) return false;
+  const bars: number[] = [];
+  const targetRoas = ad.targetRoas ?? profile.spendUnitEvidence.targetRoas;
+  const breakevenRoas =
+    ad.breakevenRoas ?? profile.spendUnitEvidence.breakEvenRoas;
+  if (finitePositive(targetRoas)) bars.push(targetRoas * 0.85);
+  if (finitePositive(breakevenRoas)) bars.push(breakevenRoas * 1.1);
+  if (bars.length === 0) return band.roas >= FATIGUE_STRONG_WINDOW_FALLBACK_ROAS;
+  return band.roas >= Math.max(...bars);
+}
+
+/**
+ * The evidence this contract acted on, published where a consumer can read it.
+ *
+ * Both Refresh outcomes carry it, and they carry the SAME two facts — the
+ * contract version and the FULL evidence hash:
+ *
+ *  - HELD (`fatigueStatus: "unknown"`): `status: "missing"`, and the reason
+ *    names the specific gaps rather than "no verdict". `ratioZonesGate`
+ *    publishes the `refresh_ad_lifecycle_evidence` blocker that holds the row;
+ *    this says which contract withheld it and exactly what it lacked.
+ *  - AUTHORIZED (`fatigueStatus: "fatigued"`): `status: "passed"`. This is
+ *    provenance, never a restriction — see `DecisionPredicateBlocker.status`
+ *    in `types.ts` for why the read path cannot mistake it for one.
+ *
+ * Authority lineage is the reason the authorized path needs it at all.
+ * `normalizeDecision` in `canonical-evaluation.ts` enumerates the fields it
+ * canonicalizes into `decision_output_json` and `decisionHash`, and
+ * `normalizeCreativeInput` likewise omits `adBandEvidence`. Without this entry
+ * two ads whose bands and account-relative P75 differ entirely could reach
+ * `fatigued` and produce byte-identical canonical decisions — one lineage for
+ * two different pieces of evidence. The hash is emitted whole, not truncated:
+ * a 16-hex prefix is a display convenience, and lineage that a prefix
+ * collision can merge is not lineage.
+ *
+ * Nothing is stamped on rows that raised no Refresh at all. A healthy ad is
+ * not carrying a verdict, and a provenance entry on every native row would
+ * make the signal meaningless.
+ *
+ * `fatigueStatus` values other than `unknown` and `fatigued` are not handled
+ * because they cannot accompany a Refresh: `shouldRefreshOnFatigue` in
+ * `gates/ratio-zones.ts` requires `fatigued`, and the held branch beside it
+ * requires `refreshLifecycleEvidenceUnavailable`, which is null-or-unknown.
+ * A `none`/`watch` row reaching here would be a new Refresh producer, and it
+ * gets no entry rather than a fabricated one.
+ */
+function nativeAdLifecycleEvidenceBlockers(
+  decision: AdDecisionOutput,
+  evidence: NativeAdLifecycleEvidence,
+): AdDecisionOutput {
+  const raisesRefresh =
+    decision.blockedActionType === "refresh" ||
+    decision.label === "refresh" ||
+    decision.preAuthorityLabel === "refresh";
+  if (!raisesRefresh) return decision;
+
+  const withheld = evidence.fatigueStatus === "unknown";
+  const confirmed = evidence.fatigueStatus === "fatigued";
+  if (!withheld && !confirmed) return decision;
+
+  const observed =
+    evidence.evidenceHash === null
+      ? evidence.contractVersion
+      : `${evidence.contractVersion}#${evidence.evidenceHash}`;
+
+  return {
+    ...decision,
+    blockers: [
+      ...(decision.blockers ?? []),
+      {
+        predicate: "refresh_ad_lifecycle_evidence_contract",
+        observed,
+        threshold:
+          "equal disjoint 14/14 ad-grain bands with CTR and click-to-purchase, plus an account-relative frequency P75",
+        status: withheld ? "missing" : "passed",
+        severity: "info",
+        reason: withheld
+          ? `ad-level fatigue evidence withheld by ${
+              evidence.contractVersion
+            }: ${evidence.missingEvidence.join(", ")}`
+          : `ad-level fatigue evidence confirmed by ${evidence.contractVersion} on this ad's own equal, disjoint, cutoff-bound 14/14 bands and the account-relative frequency P75`,
+      },
+    ],
+  };
+}
+
+/**
+ * Derives this ad's own fatigue verdict and lifecycle position.
+ *
+ * The rule shape is the V1 fatigue motor's in `fatigue.ts`: material decay,
+ * plus exposure pressure, plus memory of a strong earlier period. What changes
+ * is the grain, which is entirely ad-owned:
+ *
+ *  - decay is measured on `recent14` against the directly preceding, equal,
+ *    disjoint `prior14`, on three rates that V1 also uses — CTR,
+ *    click-to-purchase and ROAS. CTR and click-to-purchase are the composite:
+ *    impressions-to-clicks and clicks-to-purchases have different
+ *    denominators, so agreeing is real corroboration;
+ *  - exposure pressure is this ad's 28-day frequency against the P75 of every
+ *    ad in the same PROVIDER ACCOUNT, minimum eight observations. The
+ *    percentile is resolved once per account in
+ *    `resolveNativeAdFrequencyPressureThresholdsByAccount` and passed in, never
+ *    per profile group, which would be one calibration cell;
+ *  - winner memory is `prior14` alone. V1 counts two strong disjoint bands out
+ *    of four; an ad has exactly two, and requiring `recent14` to be strong
+ *    would make `fatigued` unreachable by construction, since a fatigued ad's
+ *    recent period is weak. `prior14` is disjoint from `recent14`, so it is
+ *    still independent evidence.
+ *
+ * FAIL CLOSED. If any required piece is missing the status is `unknown`, never
+ * `none`: `none` asserts the ad is not fatigued, which is a claim this
+ * contract cannot make without the evidence. `unknown` is what
+ * `refreshLifecycleEvidenceUnavailable` in `gates/ratio-zones.ts` reads to HOLD
+ * a Refresh candidate — visible, with its reason, authorizing nothing.
+ *
+ * The 14/14 pair itself is now materialized: the `ad_bands` CTE in
+ * `HYDRATE_AD_DECISION_INPUTS_QUERY` emits it for every hydrated ad, so a
+ * missing band is an absence in `meta_ad_daily`, not an absent producer.
+ *
+ * On the CURRENT decision window every production ad still takes the fail-
+ * closed branch, and for one nameable reason rather than a missing pipeline:
+ * `meta_ad_daily.link_clicks` has no positive value anywhere in it (read-only
+ * inspection, 2026-09-07 — 2,461 measured rows, all exactly 0, plus 7,885
+ * NULL), so click-to-purchase has no denominator in either band. The same
+ * column carried 7,666 positive rows in March 2026, and at a March cutoff 320
+ * of that account population's 879 ads have positive link clicks in BOTH
+ * bands. Complete evidence therefore does grant `fatigued`; today's holds are
+ * a provider-feed gap, and they end without a code change when it closes.
+ */
+export function computeNativeAdLifecycleEvidence(input: {
+  ad: AdDecisionInput;
+  profile: AccountDecisionProfile;
+  frequencyPressureThreshold: number | null;
+}): NativeAdLifecycleEvidence {
+  const missingEvidence: string[] = [];
+  const bands = input.ad.metricEvidence.performanceMetricsObserved
+    ? resolveNativeAdCompositeBands(input.ad, missingEvidence)
+    : null;
+  if (!input.ad.metricEvidence.performanceMetricsObserved) {
+    missingEvidence.push("ad_performance_metrics_unobserved");
+  }
+
+  const recentSampleMinSpend = input.profile.thresholds.recentSampleMinSpend;
+  const recentSampleSufficient =
+    bands !== null &&
+    finitePositive(recentSampleMinSpend) &&
+    bands.recent.spend >= recentSampleMinSpend;
+  if (bands !== null && !recentSampleSufficient) {
+    missingEvidence.push("ad_recent_band_below_sample_floor");
+  }
+
+  /*
+    Two different absences. No percentile AT ALL is missing evidence and
+    withholds the verdict; a percentile this ad simply sits below is evidence
+    of NO pressure, which `INVARIANTS.md` turns into lifecycle state rather
+    than fatigue. Only the first is recorded on `missingEvidence`.
+  */
+  const frequencyPressureThreshold = input.frequencyPressureThreshold;
+  if (frequencyPressureThreshold === null) {
+    missingEvidence.push("account_relative_frequency_threshold_unavailable");
+  }
+  const frequencyPressure =
+    frequencyPressureThreshold !== null &&
+    finitePositive(input.ad.frequency) &&
+    input.ad.frequency >= frequencyPressureThreshold;
+
+  const admissible = bands !== null && recentSampleSufficient;
+  const ctrDecay = admissible
+    ? decayRatio(bands.prior.ctr, bands.recent.ctr)
+    : null;
+  const clickToPurchaseDecay = admissible
+    ? decayRatio(bands.prior.clickToPurchaseRate, bands.recent.clickToPurchaseRate)
+    : null;
+  const roasDecay = admissible
+    ? decayRatio(bands.prior.roas, bands.recent.roas)
+    : null;
+
+  const priorBandWasStrong =
+    bands !== null && priorBandIsStrong(bands.prior, input.profile, input.ad);
+
+  const decaySignals = [ctrDecay, clickToPurchaseDecay, roasDecay].filter(
+    (value): value is number => value !== null,
+  );
+  const significantDecayCount = decaySignals.filter(
+    (value) => value >= FATIGUE_SIGNIFICANT_DECAY_THRESHOLD,
+  ).length;
+  /*
+    `INVARIANTS.md`: "A recent floor-clearing period that is non-declining
+    versus its older comparison period must not be labeled `fatigued`."
+    Encoded directly rather than left to follow from the decay count, so an
+    improving `recent14` can never be read as wear whatever the counting rule
+    later becomes.
+  */
+  const recentIsNonDeclining =
+    decaySignals.length > 0 && decaySignals.every((value) => value <= 0);
+
+  /*
+    The composite is required, not preferred.
+
+    D037: "Benchmark weakening can establish pressure but cannot substitute for
+    a material CTR, click-to-purchase, or ROAS decay signal." ROAS alone is one
+    signal on one denominator; the two funnel stages are what make a second
+    signal independent. `fatigued` therefore needs at least one funnel-stage
+    decay, so a purely economic drop (a price change, an AOV shift) is a
+    performance question, not creative wear.
+
+    Honest about its current force: with exactly the three signals below, two
+    of which are funnel stages, `significantDecayCount >= 2` already implies
+    this, and removing this clause today changes no outcome (verified by
+    deleting it and re-running the contract suite). It is kept because the
+    implication is a property of the signal SET, not of the rule: a fourth,
+    economic signal would let two non-funnel observations form a `fatigued`
+    verdict, which is what D037 forbids.
+  */
+  const funnelStageDecayed =
+    (ctrDecay !== null && ctrDecay >= FATIGUE_SIGNIFICANT_DECAY_THRESHOLD) ||
+    (clickToPurchaseDecay !== null &&
+      clickToPurchaseDecay >= FATIGUE_SIGNIFICANT_DECAY_THRESHOLD);
+
+  const evidenceComplete =
+    admissible &&
+    frequencyPressureThreshold !== null &&
+    missingEvidence.length === 0;
+
+  let fatigueStatus: CreativeInput["fatigueStatus"];
+  if (!evidenceComplete) {
+    fatigueStatus = "unknown";
+  } else if (recentIsNonDeclining) {
+    fatigueStatus = "none";
+  } else if (
+    priorBandWasStrong &&
+    significantDecayCount >= 2 &&
+    funnelStageDecayed &&
+    frequencyPressure
+  ) {
+    fatigueStatus = "fatigued";
+  } else if (significantDecayCount >= 1 && frequencyPressure) {
+    fatigueStatus = "watch";
+  } else if (!priorBandWasStrong && significantDecayCount >= 2) {
+    fatigueStatus = "watch";
+  } else {
+    fatigueStatus = "none";
+  }
+
+  /*
+    Only the non-granting positions are emitted.
+
+    `applyPostProcess` in `lib/creative-decision-engine/gates/types.ts` adds
+    +5/+3/+2 confidence and an "opportunity window" badge for `rising` and
+    `plateau`. Two 14-day periods cannot certify that a window is open, and
+    confidence feeds the automation act threshold, so this contract never emits
+    them. `past_peak_unclear` only subtracts confidence and warns;
+    `insufficient_history` behaves exactly as the previous null did, and is the
+    honest position when the bands were never admissible.
+  */
+  const lifecyclePosition: CreativeInput["lifecyclePosition"] =
+    roasDecay !== null && roasDecay >= FATIGUE_SIGNIFICANT_DECAY_THRESHOLD
+      ? "past_peak_unclear"
+      : "insufficient_history";
+
+  /*
+    THE FULL RECEIPT, FOR EVERY REFRESH — HELD OR AUTHORIZED.
+
+    This hash used to be `bands ? sha256(...) : null`, so the outcome that most
+    needs provenance had none: a Refresh HELD for missing or invalid evidence
+    produced `evidenceHash: null` and published only the contract version. An
+    operator asking "on what did you withhold this?" got the name of a contract
+    and nothing it could be pinned to, and two different holds — one missing a
+    window, one whose window dates were impossible — were indistinguishable.
+    Determinism was equally unprovable: nothing was hashed, so nothing could be
+    shown to be stable across runs.
+
+    It is now computed for every outcome and it is never null. It is built HERE,
+    after the verdict, rather than beside the bands, because the receipt has to
+    cover the whole of what produced the verdict:
+
+      - the bands, or an explicit null when there were none;
+      - `missingEvidence`, SORTED, so a receipt is stable under the order the
+        gaps happened to be appended in — and it is precisely what separates
+        two different holds;
+      - the observed states that decided whether bands were even attempted;
+      - the winner bars and sample floors `priorBandIsStrong` and the recent
+        sample gate actually read, including the ROAS targets they prefer off
+        the ad before the profile, so a threshold change moves the hash;
+      - the frequency reading and its account-relative threshold;
+      - the derived state itself — `fatigueStatus`, `lifecyclePosition`,
+        `priorBandWasStrong`, the decay ratios, admissibility and completeness.
+
+    Hashing the derived state alongside its inputs is deliberate: it makes the
+    receipt a claim about the verdict, so a change in the derivation that left
+    every input untouched would still change the hash.
+  */
+  const evidenceHash = canonicalSha256({
+    contractVersion: NATIVE_AD_LIFECYCLE_EVIDENCE_CONTRACT,
+    cutoffDate: input.ad.adBandEvidence?.cutoffDate ?? null,
+    decisionEntityId: input.ad.decisionEntityId,
+    providerAccountId: input.ad.providerAccountId,
+    recent14: bands?.recent ?? null,
+    prior14: bands?.prior ?? null,
+    observed: {
+      performanceMetricsObserved:
+        input.ad.metricEvidence.performanceMetricsObserved,
+      bandsResolved: bands !== null,
+      admissible,
+      recentSampleSufficient,
+      evidenceComplete,
+    },
+    missingEvidence: [...missingEvidence].sort(),
+    frequency: input.ad.frequency ?? null,
+    frequencyPressureThreshold: input.frequencyPressureThreshold,
+    frequencyPressure,
+    floors: {
+      recentSampleMinSpend: recentSampleMinSpend ?? null,
+      winnerMemoryMinSpend: input.profile.thresholds.winnerMemoryMinSpend ?? null,
+      winnerMemoryMinPurchases:
+        input.profile.thresholds.winnerMemoryMinPurchases ?? null,
+      strongWindowFallbackRoas: FATIGUE_STRONG_WINDOW_FALLBACK_ROAS,
+      significantDecayThreshold: FATIGUE_SIGNIFICANT_DECAY_THRESHOLD,
+      bandLengthDays: NATIVE_AD_BAND_LENGTH_DAYS,
+    },
+    targets: {
+      targetRoas:
+        input.ad.targetRoas ?? input.profile.spendUnitEvidence.targetRoas ?? null,
+      breakevenRoas:
+        input.ad.breakevenRoas ??
+        input.profile.spendUnitEvidence.breakEvenRoas ??
+        null,
+    },
+    derived: {
+      ctrDecay,
+      clickToPurchaseDecay,
+      roasDecay,
+      significantDecayCount,
+      funnelStageDecayed,
+      recentIsNonDeclining,
+      priorBandWasStrong,
+      fatigueStatus,
+      lifecyclePosition,
+    },
+  });
+
+  return {
+    fatigueStatus,
+    lifecyclePosition,
+    contractVersion: NATIVE_AD_LIFECYCLE_EVIDENCE_CONTRACT,
+    evidenceHash,
+    ctrDecay,
+    clickToPurchaseDecay,
+    roasDecay,
+    frequencyPressure,
+    priorBandWasStrong,
+    missingEvidence,
   };
 }
 

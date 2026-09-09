@@ -140,7 +140,9 @@ interface AggregateMetrics {
   spend: number;
   impressions: number;
   clicks: number;
-  linkClicks: number;
+  // Nullable alongside the other optional provider metrics below: one
+  // unreported contributing row makes the population's total unknown.
+  linkClicks: number | null;
   conversions: number;
   revenue: number;
   landingPageViews: number | null;
@@ -910,8 +912,10 @@ function canonicalRestatedFact(row: NativeAdCalibrationSourceRow): boolean {
     row.impressions >= 0 &&
     Number.isFinite(row.clicks) &&
     row.clicks >= 0 &&
-    Number.isFinite(row.linkClicks) &&
-    row.linkClicks >= 0 &&
+    // Nullable: an unreported link-click day is incomplete evidence, not an
+    // invalid row, so absence is admitted and only a bad NUMBER is refused.
+    (row.linkClicks === null ||
+      (Number.isFinite(row.linkClicks) && row.linkClicks >= 0)) &&
     Number.isInteger(row.conversions) &&
     row.conversions >= 0 &&
     Number.isFinite(row.revenue) &&
@@ -1102,7 +1106,11 @@ function aggregate(
   const spend = rows.reduce((total, row) => total + row.spend, 0);
   const impressions = rows.reduce((total, row) => total + row.impressions, 0);
   const clicks = rows.reduce((total, row) => total + row.clicks, 0);
-  const linkClicks = rows.reduce((total, row) => total + row.linkClicks, 0);
+  // Complete-only, matching the calibration job: one unreported row makes the
+  // population's link-click total unknown rather than silently smaller.
+  const linkClicks = rows.some((row) => row.linkClicks === null)
+    ? null
+    : rows.reduce((total, row) => total + (row.linkClicks ?? 0), 0);
   const conversions = rows.reduce((total, row) => total + row.conversions, 0);
   const revenue = rows.reduce((total, row) => total + row.revenue, 0);
   const dates = rows.map((row) => row.date).sort();

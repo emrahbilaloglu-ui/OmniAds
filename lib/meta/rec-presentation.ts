@@ -11,7 +11,17 @@
 //   - primaryActionLabel: honest copy - execute verbs only for controls
 //     that execute; review framing for controls that open the drill drawer.
 import type { MetaLaunchMode } from "@/components/meta/redesign/types";
+import type { MetaAutomationReadinessBlocker } from "@/lib/meta/automation-readiness";
 import { executableBidIntentMinorUnits } from "@/lib/meta/bid-intent-contract";
+import {
+  META_AUTOMATIC_CONTEXT_RESOLVER_UNVALIDATED_REASON,
+  META_AUTOMATIC_CONTEXT_REVIEW_REASON,
+  META_CAMPAIGN_LABEL_GUARD_REASON,
+} from "@/lib/meta/campaign-label-guard";
+import {
+  launchModeForMetaRec,
+  resolveMetaRecDirection,
+} from "@/lib/meta/rec-label-mapping";
 import { proposedActionForRecommendation } from "@/lib/meta/recommendations";
 import type {
   MetaRecommendation,
@@ -23,6 +33,23 @@ export type MetaRecActionKind =
   | "route_launchpad_duplicate"
   | "review_drill";
 
+/*
+  LAUNCH ROUTING, NOT DIRECTION.
+
+  These two Sets answer "which Launchpad flow does the primary control hand
+  off to", which is a different question from "which way does the verdict
+  point". They are the only type Sets left in this module: the ten that
+  answered the direction question — SCALE/CUT/REBUILD/SWITCH/TUNE/SWAP/TEST/
+  REFRESH/KEEP — were a second copy of `META_REC_TYPE_DIRECTION`
+  (lib/meta/rec-label-mapping.ts) and had drifted from it on five types. @see
+  serverDecisionLabelForRec.
+
+  REBUILD_TYPES still names `creative_test_structure` because that type DOES
+  route to the rebuild flow (as a demotion — see
+  `serverPrimaryActionLabelForRec`), while its direction is `test_more`. That
+  divergence is the point: the two questions have different answers for it,
+  which is why the direction read no longer consults this Set at all.
+*/
 const REBUILD_TYPES = new Set<string>([
   "rebuild_with_constraints",
   "campaign_structure",
@@ -37,141 +64,65 @@ const DUPLICATE_TYPES = new Set<string>([
   "winner_promotion_flow",
 ]);
 
-const SCALE_TYPES = new Set<string>([
-  "adset_scale_budget",
-  "scale_for_volume",
-  "scale_for_profitability",
-  "winner_promotion_flow",
-  "scenario_b2_lowest_cost_budget_scale",
-  "scenario_c1_controlled_scale",
-  "scenario_m1_mid_funnel_efficient_scale",
-  "scenario_l1_lead_efficient_scale",
-  "scenario_t1_traffic_efficient_scale",
-  "scenario_eg1_engagement_efficient_scale",
-  "scenario_k2_peak_scale_ceiling",
-]);
-
-const CUT_TYPES = new Set<string>([
-  "adset_cut_spend",
-  "scenario_m3_mid_funnel_inefficient_cut",
-  "scenario_l3_lead_inefficient_cut",
-  "scenario_t3_traffic_inefficient_cut",
-  "scenario_eg3_engagement_inefficient_cut",
-]);
-
-const SWITCH_TYPES = new Set<string>([
-  "historical_bid_regime_fit",
-  "scenario_b5_lowest_cost_volatility_switch",
-  "scenario_g1_upper_funnel_event",
-  "scenario_g2_downshift_to_purchase",
-]);
-
-const TUNE_TYPES = new Set<string>([
-  "bid_strategy_fit",
-  "bid_value_guidance",
-  "bid_band_from_history",
-  "scenario_a1_math_floor_unmet",
-  "scenario_b1_capped_winner_bid_raise",
-  "scenario_b3_bid_cap_underperforming",
-  "scenario_b4_min_roas_loosen",
-  "scenario_c3_scale_sample_gate",
-  "scenario_d4_audience_overlap_consolidate",
-  "scenario_i1_abo_winner_budget_shift",
-  "scenario_i5_cross_campaign_overlap",
-  "scenario_k3_post_peak_taper",
-]);
-
-const SWAP_TYPES = new Set<string>([
-  "geo_cluster_for_signal_density",
-  "scenario_d1_lal_beats_broad_control",
-  "scenario_d2_lal_wide_efficiency_loss",
-  "scenario_d3_lal_compound_scale",
-  "scenario_d5_funnel_mixed_split",
-]);
-
-const TEST_TYPES = new Set<string>([
-  "creative_test_structure",
-  "scenario_g3_ab_test_bottom_funnel_verdict",
-]);
-
-const REFRESH_TYPES = new Set<string>([
-  "scenario_e1_frequency_fatigue",
-  "scenario_e2_ctr_decay_refresh",
-  "scenario_e3_frequency_p80_fatigue",
-  "scenario_e4_creative_age_refresh",
-  "scenario_m4_mid_funnel_refresh",
-  "scenario_l4_lead_refresh",
-  "scenario_t4_traffic_refresh",
-  "scenario_eg4_engagement_refresh",
-]);
-
-const KEEP_TYPES = new Set<string>([
-  "scenario_b6_profit_first_bid_cap_keep",
-  "scenario_j1_stable_winner_protected",
-  "scenario_m2_mid_funnel_steady_keep",
-  "scenario_l2_lead_steady_keep",
-  "scenario_t2_traffic_steady_keep",
-  "scenario_eg2_engagement_steady_keep",
-  "entity_state",
-  "campaign_state",
-  "adset_state",
-]);
-
-function profitabilityScaleIsDefensive(rec: {
-  type?: string | null;
-  recommendedAction?: string | null;
-}) {
-  if (rec.type !== "scale_for_profitability") return false;
-  // Server-generated text analyzed server-side: the engine owns both sides.
-  const text = String(rec.recommendedAction ?? "").toLowerCase();
-  return /\b(reduce|tighten|pause|cap|cut|reallocate|hold|do not scale|don't scale)\b/.test(
-    text,
-  );
-}
-
+/**
+ * DIRECTION IS DECIDED IN ONE PLACE, AND THIS IS NOT IT.
+ *
+ * This function used to answer from its own ten Sets, and before that from its
+ * own copy of the defensive-vocabulary regex. Both were second mappings of the
+ * question `decisionLabelForMetaRec` answers, and both drifted:
+ *
+ *   - the regex copy read AFTER `rec.decisionLabel`, so an affirmative "scale"
+ *     inferred from a type name upstream ended the read before the text was
+ *     consulted;
+ *   - the Sets had no entry for `scenario_a2_learning_weak_structural`,
+ *     `scenario_a4_learning_limited_persistent`,
+ *     `scenario_a5_post_learning_underperformer`, `scenario_i2_abo_to_cbo` or
+ *     `scenario_i3_cbo_overcrowded`, so all five fell through to the fallback
+ *     and were served as `diagnose` while the canonical table — and the
+ *     `decision_label` column stamped from it — said `rebuild`.
+ *
+ * It now asks the canonical reader, with the one parameter that is genuinely
+ * this caller's to choose: what to publish for a type the table does not map.
+ * @see resolveMetaRecDirection.
+ */
 export function serverDecisionLabelForRec(
   rec: Pick<
     MetaRecommendation,
-    "type" | "kind" | "decisionState" | "decisionLabel" | "recommendedAction"
+    | "type"
+    | "kind"
+    | "decisionState"
+    | "decisionLabel"
+    | "recommendedAction"
+    | "labelTransform"
   >,
 ): NonNullable<MetaRecommendation["decisionLabel"]> {
-  if (rec.decisionLabel) return rec.decisionLabel;
-  if (rec.kind === "anomaly") return "diagnose";
-  if (rec.kind === "state") return rec.decisionState === "test" ? "test_more" : "keep";
-  if (profitabilityScaleIsDefensive(rec)) return "tune";
-  const type = String(rec.type ?? "");
-  if (CUT_TYPES.has(type)) return "cut";
-  if (SCALE_TYPES.has(type)) return "scale";
-  if (REBUILD_TYPES.has(type) && type !== "creative_test_structure") return "rebuild";
-  if (SWITCH_TYPES.has(type)) return "switch";
-  if (SWAP_TYPES.has(type) && type !== "geo_cluster_for_signal_density") return "swap";
-  if (type === "geo_cluster_for_signal_density") return "swap";
-  if (TEST_TYPES.has(type)) return "test_more";
-  if (REFRESH_TYPES.has(type)) return "refresh";
-  if (TUNE_TYPES.has(type)) return "tune";
-  if (KEEP_TYPES.has(type)) return "keep";
-  return rec.decisionState === "test" ? "test_more" : "diagnose";
+  return resolveMetaRecDirection(rec, "diagnose");
 }
 
 export function serverLaunchModeForRec(
   rec: Pick<MetaRecommendation, "type" | "kind" | "level" | "targetValue">,
 ): MetaLaunchMode | null {
-  if (rec.kind === "anomaly" || rec.kind === "state") return null;
-  const type = String(rec.type ?? "");
-  if (REBUILD_TYPES.has(type)) return "rebuild";
-  if (DUPLICATE_TYPES.has(type)) return "duplicate";
   /*
-    The same correction as `proposedActionForRecommendation`.
+    DELEGATED (Codex C23).
 
-    This tested `type === "bid_value_guidance"` at ad-set grain, which no
-    producer emits, so the served `launchMode` said `null` for every ad set
-    that actually carried a validated cap raise. The intent decides, not the
-    label: `executableBidIntentMinorUnits` asks the queue's own question.
+    This was a second live launch-mode mapper beside `launchModeForMetaRec`
+    (lib/meta/rec-label-mapping.ts), and the two DIVERGED on the bid case: this
+    one asked the validated bid intent, that one asked for a
+    `bid_value_guidance` label no producer emits at ad-set grain. Two answers to
+    "may this row apply a bid" is the same duplicate-table defect the direction
+    mapper already had.
+
+    The corrected condition now lives in that module — it has no edge back to
+    this one, so it is the right home — and this function is the thin server
+    entry point onto it. `REBUILD_TYPES` / `DUPLICATE_TYPES` remain here for
+    `serverActionKindForRec`, which asks a different question.
   */
-  if (rec.level === "adset" && executableBidIntentMinorUnits(rec.targetValue) !== null) {
-    return "apply_bid";
-  }
-  return null;
+  return launchModeForMetaRec({
+    kind: rec.kind,
+    type: rec.type,
+    level: rec.level,
+    targetValue: rec.targetValue,
+  });
 }
 
 export function serverActionKindForRec(
@@ -209,6 +160,10 @@ export function serverPrimaryActionLabelForRec(
     | "lens"
     | "decisionLabel"
     | "recommendedAction"
+    // Declared because `serverDecisionLabelForRec` below reads it. Callers
+    // already pass whole recommendations, so this only stops the CTA copy and
+    // the chip being derived from two different views of the same row.
+    | "labelTransform"
   >,
 ): string {
   const actionKind = serverActionKindForRec(rec);
@@ -247,6 +202,122 @@ export function serverPrimaryActionLabelForRec(
 }
 
 /**
+ * Why this row offers the operator nothing to apply, or null if it may.
+ *
+ * A held row is one `applyMetaCampaignLabelGuard` demoted because the campaign
+ * role behind it is unresolved. The hold is typed and it is written in three
+ * places on the row — the readiness blocker, the signal-quality authority key,
+ * and the confidence reason — so this reads all three rather than one, because
+ * a payload can reach presentation with readiness not yet recomputed.
+ */
+export type MetaRecOperatorApplyWithheldReason =
+  /** An anomaly or a state row: a condition, not a change to make. */
+  | "condition_row"
+  /** `campaign_context_action_authority: "review_only"`. */
+  | "campaign_role_unresolved"
+  /** `campaign_context_action_authority: "resolver_unvalidated"`. */
+  | "campaign_role_resolver_unvalidated"
+  /** The pre-D074b guard reason, recognition-only for persisted payloads. */
+  | "campaign_role_unlabeled";
+
+const RESOLVER_UNVALIDATED_BLOCKER: MetaAutomationReadinessBlocker =
+  "campaign_context_resolver_unvalidated";
+const CONTEXT_UNRESOLVED_BLOCKER: MetaAutomationReadinessBlocker =
+  "campaign_context_unresolved";
+
+function signalQualityString(
+  rec: Pick<MetaRecommendation, "signalQuality">,
+  key: string,
+): string | null {
+  const quality = rec.signalQuality;
+  if (!quality || typeof quality !== "object") return null;
+  const value = (quality as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * The typed authority state that decides whether an operator verb is offered.
+ *
+ * `restrictAutomaticContextToReview` and `downgradeToSoftOnly`
+ * (lib/meta/campaign-label-guard.ts) hold a hard action by rewriting the
+ * decision state, capping confidence and stamping this authority — but both
+ * leave `proposedAction` and `targetValue` in place, exactly as the row was
+ * built. `serverOperatorApplyForRec` then re-derived a verb from those fields
+ * and served it, so the server held the row and offered a way to execute it in
+ * the same payload. `MetaPlatformPage` did suppress the control for rows in the
+ * needs-resolution lane, but that is a rendering decision on one surface: the
+ * verb still travelled in the API response, `decisions-workspace/route.ts`
+ * still counted it in the executable census, and any other reader of
+ * `operatorApply` — including the mobile card path added later — would have
+ * offered it.
+ *
+ * Note what is NOT read here. `automationReadiness.tier`, `autoExecuteEligible`
+ * and the programmatic evidence blockers stay out on purpose: those are the
+ * ENGINE's authority, which is withheld from every campaign and ad-set row, and
+ * gating on them would delete the operator capability entirely rather than gate
+ * it. Only the campaign-role hold closes this.
+ */
+export function operatorApplyWithheldReasonForRec(
+  rec: Pick<
+    MetaRecommendation,
+    "kind" | "signalQuality" | "confidenceReason" | "automationReadiness"
+  >,
+): MetaRecOperatorApplyWithheldReason | null {
+  if (rec.kind === "anomaly" || rec.kind === "state") return "condition_row";
+  const blockers = rec.automationReadiness?.blockers ?? [];
+  const authority = signalQualityString(rec, "campaign_context_action_authority");
+  if (
+    blockers.includes(RESOLVER_UNVALIDATED_BLOCKER) ||
+    authority === "resolver_unvalidated" ||
+    rec.confidenceReason === META_AUTOMATIC_CONTEXT_RESOLVER_UNVALIDATED_REASON
+  ) {
+    return "campaign_role_resolver_unvalidated";
+  }
+  if (
+    blockers.includes(CONTEXT_UNRESOLVED_BLOCKER) ||
+    authority === "review_only" ||
+    rec.confidenceReason === META_AUTOMATIC_CONTEXT_REVIEW_REASON
+  ) {
+    return "campaign_role_unresolved";
+  }
+  /*
+    The pre-D074b hold, recognized through the exported constant rather than
+    the retired vocabulary.
+
+    `hasLegacyUnresolvedRoleSignals` (lib/meta/automation-readiness.ts) reads
+    three markers for this state. This comment used to say "two of them are
+    retired tokens ... and the third is `META_CAMPAIGN_LABEL_GUARD_REASON`".
+    That is INVERTED, and the correction matters for reading the check below.
+
+    Two of those three markers compare against the retired reason string, and
+    the exported `META_CAMPAIGN_LABEL_GUARD_REASON` holds that same string — so
+    the two comparisons here recognize TWO of the three, not one. The third
+    reads a retired status KEY out of `signal_quality`, and it is the one this
+    function does not see.
+
+    It is unseen deliberately. That key is a ledgered legacy token in
+    `__tests__/campaign-role-vocabulary-closure.test.ts`, budgeted per file, so
+    naming it here — in code OR in a comment — breaches the budget; this
+    paragraph was itself rejected by that test once for spelling it. The
+    argument that the omission is safe is a read-only production `GROUP BY`
+    showing the reason and the retired status key co-occurring on every
+    persisted row. THAT MEASUREMENT CANNOT BE RE-VERIFIED from this working
+    tree, so it is recorded as a claim, not a fact: should the two ever
+    diverge, a row carrying only the status key falls through to `null` instead
+    of `campaign_role_unlabeled`, and the failure direction is that
+    `operatorApply` is offered on a row whose legacy role hold went
+    unrecognized.
+  */
+  if (
+    rec.confidenceReason === META_CAMPAIGN_LABEL_GUARD_REASON ||
+    signalQualityString(rec, "confidence_cap") === META_CAMPAIGN_LABEL_GUARD_REASON
+  ) {
+    return "campaign_role_unlabeled";
+  }
+  return null;
+}
+
+/**
  * What the OPERATOR may apply from this row, with their own authority.
  *
  * Deliberately separate from `serverActionKindForRec`, which answers a
@@ -264,15 +335,26 @@ export function serverPrimaryActionLabelForRec(
  * the engine's own authority chip beside it, and the server re-checks the
  * capability, rehearsal posture, STOP, account binding and current entity state
  * immediately before the provider POST regardless of what this returns.
+ *
+ * A capability is still not offered on a row whose verdict the server itself
+ * held. @see operatorApplyWithheldReasonForRec.
  */
 export function serverOperatorApplyForRec(
   rec: Pick<
     MetaRecommendation,
-    "kind" | "level" | "proposedAction" | "campaignId" | "adsetId" | "targetValue"
+    | "kind"
+    | "level"
+    | "proposedAction"
+    | "campaignId"
+    | "adsetId"
+    | "targetValue"
+    | "signalQuality"
+    | "confidenceReason"
+    | "automationReadiness"
   >,
 ): MetaRecOperatorApply {
-  // An anomaly or a state row describes a condition, not a change to make.
-  if (rec.kind === "anomaly" || rec.kind === "state") return null;
+  // Held or review-only closes this server-side, not just in one renderer.
+  if (operatorApplyWithheldReasonForRec(rec) !== null) return null;
   /*
     Derived when the stored row does not carry one.
 

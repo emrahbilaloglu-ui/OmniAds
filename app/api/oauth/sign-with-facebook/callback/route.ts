@@ -3,6 +3,7 @@ import { attachSessionCookie, createSession } from "@/lib/auth";
 import { findOrCreateFacebookUser } from "@/lib/account-store";
 import { listUserBusinesses } from "@/lib/access";
 import { logServerAuthEvent } from "@/lib/auth-diagnostics";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 interface FacebookTokenResponse {
   access_token?: string;
@@ -94,9 +95,15 @@ export async function GET(request: NextRequest) {
 
     const tokenData = (await tokenRes.json()) as FacebookTokenResponse;
     if (!tokenRes.ok || tokenData.error) {
+      // The identifiers, not the sentence. `tokenData.error.message` is free
+      // text Meta controls; `logServerAuthEvent` writes it to `console.info`,
+      // which is the server log this deployment ships. The redirect below was
+      // already locally authored — this was the last provider string on the
+      // path.
       logServerAuthEvent("facebook_login_token_exchange_failed", {
-        error: tokenData.error?.message,
+        httpStatus: tokenRes.status,
         code: tokenData.error?.code,
+        type: tokenData.error?.type,
       });
       return errorRedirect("Failed to exchange Facebook authorization code.");
     }
@@ -164,8 +171,9 @@ export async function GET(request: NextRequest) {
 
     // ── Redirect to app ───────────────────────────────────────
     let destination = "/overview";
-    if (nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")) {
-      destination = nextPath;
+    const safeNextPath = sanitizeNextPath(nextPath);
+    if (safeNextPath) {
+      destination = safeNextPath;
     } else if (businesses.length === 0) {
       destination = "/businesses/new";
     } else if (!firstActiveBusiness) {

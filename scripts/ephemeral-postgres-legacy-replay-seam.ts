@@ -900,6 +900,15 @@ async function main() {
     // G7: the generation CAS. A write computed under an OLD generation — an
     // in-flight token refresh that started before an OAuth reconnect — must be
     // refused, not applied over the newer grant.
+    /*
+      ROUND 23, ITEM 1: `expectedConnectionGeneration` is now REQUIRED, because
+      a manual refresh that omitted it adopted whatever generation existed by
+      claim time. Cases that are not ABOUT a generation mismatch therefore have
+      to state the current one explicitly; the two cases that ARE about it keep
+      their deliberately stale/captured values.
+    */
+    const currentSeamGeneration = () =>
+      readProviderConnectionGenerationToken(genBusinessId, "google");
     const staleGeneration = await readProviderConnectionGenerationToken(
       genBusinessId,
       "google",
@@ -935,8 +944,9 @@ async function main() {
     // G8: failure bookkeeping SURVIVES the throw that reports it, and a second
     // refresh observes the cooldown and makes ZERO provider calls.
     let providerCalls = 0;
-    const failingRefresh = () =>
+    const failingRefresh = async () =>
       forceProviderAccountSnapshotRefresh({
+        expectedConnectionGeneration: await currentSeamGeneration(),
         businessId: genBusinessId,
         provider: "google",
         reason: "seam_failure",
@@ -979,6 +989,7 @@ async function main() {
     // bypasses cooldown. What must hold is that a normal request inside the
     // cooldown window makes no provider call at all.
     await requestProviderAccountSnapshotRefresh({
+      expectedConnectionGeneration: await currentSeamGeneration(),
       businessId: genBusinessId,
       provider: "google",
       reason: "seam_cooldown_probe",
@@ -999,6 +1010,7 @@ async function main() {
       [genBusinessId],
     );
     const raced = await forceProviderAccountSnapshotRefresh({
+      expectedConnectionGeneration: await currentSeamGeneration(),
       businessId: genBusinessId,
       provider: "google",
       reason: "seam_race",
@@ -1077,6 +1089,7 @@ async function main() {
       [genBusinessId],
     );
     await forceProviderAccountSnapshotRefresh({
+      expectedConnectionGeneration: await currentSeamGeneration(),
       businessId: genBusinessId,
       provider: "google",
       reason: "seam_revision_a",
@@ -1091,6 +1104,7 @@ async function main() {
       ),
     );
     const rewrite = forceProviderAccountSnapshotRefresh({
+      expectedConnectionGeneration: await currentSeamGeneration(),
       businessId: genBusinessId,
       provider: "google",
       reason: "seam_revision_b",
@@ -1123,6 +1137,7 @@ async function main() {
     );
     let claimedCalls = 0;
     const claimed = await forceProviderAccountSnapshotRefresh({
+      expectedConnectionGeneration: await currentSeamGeneration(),
       businessId: genBusinessId,
       provider: "google",
       reason: "seam_claimed",
@@ -1154,6 +1169,7 @@ async function main() {
         [genBusinessId],
       );
       await forceProviderAccountSnapshotRefresh({
+        expectedConnectionGeneration: await currentSeamGeneration(),
         businessId: genBusinessId,
         provider: "google",
         reason: "seam_claim_base",
@@ -1167,6 +1183,7 @@ async function main() {
       // claimant's accounts land on top of the new owner's work.
       let takeoverDone = false;
       const oldClaimantSuccess = await forceProviderAccountSnapshotRefresh({
+        expectedConnectionGeneration: await currentSeamGeneration(),
         businessId: genBusinessId,
         provider: "google",
         reason: "seam_old_claimant",
@@ -1228,6 +1245,7 @@ async function main() {
         [genBusinessId],
       );
       const oldClaimantFailure = await forceProviderAccountSnapshotRefresh({
+        expectedConnectionGeneration: await currentSeamGeneration(),
         businessId: genBusinessId,
         provider: "google",
         reason: "seam_old_claimant_failure",
@@ -1275,6 +1293,7 @@ async function main() {
         [genBusinessId],
       );
       await forceProviderAccountSnapshotRefresh({
+        expectedConnectionGeneration: await currentSeamGeneration(),
         businessId: genBusinessId,
         provider: "google",
         reason: "seam_fingerprint_base",
@@ -1294,6 +1313,7 @@ async function main() {
         [genBusinessId],
       );
       await forceProviderAccountSnapshotRefresh({
+        expectedConnectionGeneration: await currentSeamGeneration(),
         businessId: genBusinessId,
         provider: "google",
         reason: "seam_reconnect_then_fail",
@@ -1356,6 +1376,7 @@ async function main() {
         Array.from({ length: 12 }, () => readRevision(otherClient)),
       );
       const rewrite = forceProviderAccountSnapshotRefresh({
+        expectedConnectionGeneration: await currentSeamGeneration(),
         businessId: genBusinessId,
         provider: "google",
         reason: "seam_cross_client_rewrite",

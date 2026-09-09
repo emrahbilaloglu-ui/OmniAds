@@ -10,22 +10,12 @@
  * appear, and on the legacy mount every card em-dashed with nothing on screen
  * saying why.
  *
- * REWRITTEN, not deleted. The earlier version of this file pinned "and no
- * picker was introduced to fix it", on the reading that the design draws no
- * account control. Stating the reason turned out not to be enough: a business
- * with several assigned accounts could read the sentence "select one assigned
- * Meta ad account" and have no way to select one short of hand-editing the
- * address bar, which is a dead end rather than a refusal. Launchpad had
- * already resolved the same tension the same way, so Automation follows it.
- *
  * The law these tests now pin:
  *
- * - The picker is mounted ONLY where the scope is unresolved. A resolved
- *   screen renders no `select` at all, so the design's surface is untouched in
- *   every state an operator normally sees.
- * - The client may only REQUEST an account: selecting one writes the id into
- *   the URL and the canonical route re-resolves it server-side. A URL
- *   parameter never becomes authority.
+ * - Canonical account selection stays in the shared topbar on desktop and
+ *   mobile, while the legacy dashboard mount retains a local recovery picker.
+ * - A server-authorized account arriving after a topbar switch drives the
+ *   account-scoped reads without client-side scope invention.
  * - Nothing is auto-picked. One assigned account is an unambiguous
  *   resolution, not a choice; the first of several is a guess and is never
  *   made.
@@ -38,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const scopeMocks = vi.hoisted(() => ({
   fetchAccounts: vi.fn(),
   replace: vi.fn(),
+  query: "",
 }));
 
 vi.mock("@/components/states/useTierZeroFreshness", () => ({
@@ -48,7 +39,7 @@ vi.mock("@/store/app-store", () => ({
     selector({ selectedBusinessId: "store_business" }),
 }));
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(""),
+  useSearchParams: () => new URLSearchParams(scopeMocks.query),
   useRouter: () => ({ replace: scopeMocks.replace, push: vi.fn() }),
 }));
 vi.mock("@/lib/meta/history-client", () => ({
@@ -70,6 +61,7 @@ function mobileSurface(container: HTMLElement) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  scopeMocks.query = "";
 });
 
 afterEach(() => {
@@ -115,25 +107,19 @@ describe("Meta Automation account scope", () => {
       "provider_account_scope_unresolved",
     );
     expect(notice(container)?.textContent).toContain(
-      "Choose a Meta ad account to see its automation status",
+      "Choose a Meta ad account in the top bar to see its automation status",
     );
     // The silence was the defect, not the refusal to read: no request may be
     // issued for an unresolved scope.
     expect(providerFetch).not.toHaveBeenCalled();
 
-    // The way out of the dead end. It offers the assigned accounts and
-    // pre-selects none of them: picking the first of several on the operator's
-    // behalf is exactly the silent scope this screen must never invent.
-    const picker = container.querySelector<HTMLSelectElement>(
-      "[data-control='account-picker'] select",
-    );
-    expect(picker).not.toBeNull();
-    expect(Array.from(picker!.options).map((option) => option.value)).toEqual([
-      "",
-      "act_1",
-      "act_2",
-    ]);
-    expect(picker!.value).toBe("");
+    const desktopNotice = notice(container);
+    expect(
+      desktopNotice?.querySelector("[data-control='account-picker']"),
+    ).toBeNull();
+    expect(
+      desktopNotice?.querySelector("[data-control='retry-read']"),
+    ).not.toBeNull();
 
     const mobile = mobileSurface(container);
     expect(mobile).not.toBeNull();
@@ -146,11 +132,11 @@ describe("Meta Automation account scope", () => {
         ?.getAttribute("data-reason"),
     ).toBe("provider_account_scope_unresolved");
     expect(mobile!.textContent).toContain(
-      "Choose a Meta ad account to see its automation status",
+      "Choose a Meta ad account in the top bar to see its automation status",
     );
     expect(
       mobile!.querySelectorAll("[data-control='account-picker']"),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
     expect(
       mobile!.querySelectorAll("[data-control='retry-read']"),
     ).toHaveLength(1);
@@ -172,36 +158,167 @@ describe("Meta Automation account scope", () => {
     expect(launch?.textContent).toContain("Always manual");
   });
 
-  it("requests the chosen account through the URL, never by granting it", async () => {
+  it("keeps a selectable account recovery on the legacy dashboard mount", async () => {
+    scopeMocks.query =
+      "businessId=route_business&window=custom&startDate=2026-08-01&endDate=2026-08-31&row=ad%3Aold&handoff=stale";
+    scopeMocks.fetchAccounts.mockResolvedValue([
+      { id: "act_1", name: "Same name", currency: "USD" },
+      { id: "act_2", name: "Same name", currency: "USD" },
+    ]);
+    const providerFetch = vi.spyOn(globalThis, "fetch");
+
+    const { container } = render(
+      <MetaAutomationPage
+        businessId="route_business"
+        providerAccountId={null}
+        accountSelection="local"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        container.querySelectorAll<HTMLSelectElement>(
+          "[data-control='account-picker'] select",
+        ),
+      ).toHaveLength(2);
+    });
+    expect(notice(container)?.textContent).toContain(
+      "Choose a Meta ad account below to see its automation status",
+    );
+
+    const desktopPicker = container.querySelector<HTMLSelectElement>(
+      "[data-testid='automation-exact-desktop'] [data-control='account-picker'] select",
+    );
+    expect(desktopPicker).not.toBeNull();
+    expect(desktopPicker).toHaveValue("");
+    expect(
+      Array.from(desktopPicker!.options).map((option) => option.value),
+    ).toEqual(["", "act_1", "act_2"]);
+    expect(
+      Array.from(desktopPicker!.options).map((option) => option.text),
+    ).toEqual([
+      "Select account",
+      "Same name · ID act_1 · USD",
+      "Same name · ID act_2 · USD",
+    ]);
+    fireEvent.change(desktopPicker!, { target: { value: "act_2" } });
+
+    const replacement = String(scopeMocks.replace.mock.calls[0]?.[0]);
+    expect(replacement).toContain("businessId=route_business");
+    expect(replacement).toContain("window=custom");
+    expect(replacement).toContain("startDate=2026-08-01");
+    expect(replacement).toContain("endDate=2026-08-31");
+    expect(replacement).toContain("providerAccountId=act_2");
+    expect(replacement).not.toContain("row=");
+    expect(replacement).not.toContain("handoff=");
+    // The URL is a request for a new server render. The client does not adopt
+    // the id or issue an account-scoped read before assignment is revalidated.
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("hides the legacy picker when the assignment catalog is unavailable", async () => {
+    scopeMocks.fetchAccounts.mockRejectedValue(new Error("assignments down"));
+    const { container } = render(
+      <MetaAutomationPage
+        businessId="route_business"
+        providerAccountId={null}
+        accountSelection="local"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(notice(container)?.getAttribute("data-reason")).toBe(
+        "provider_account_scope_unavailable",
+      );
+    });
+    expect(
+      container.querySelector("[data-control='account-picker']"),
+    ).toBeNull();
+    expect(notice(container)?.textContent).toContain(
+      "Meta ad accounts are unavailable right now",
+    );
+    expect(notice(container)?.textContent).not.toContain("No assigned account");
+  });
+
+  it("does not keep the legacy picker after the server resolves an account", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ ok: true, automation: null, proposals: [] }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    const { container } = render(
+      <MetaAutomationPage
+        businessId="route_business"
+        providerAccountId="act_2"
+        accountSelection="local"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        Array.from(vi.mocked(globalThis.fetch).mock.calls).some(([input]) =>
+          String(input).includes("providerAccountId=act_2"),
+        ),
+      ).toBe(true);
+    });
+    expect(
+      container.querySelector("[data-control='account-picker']"),
+    ).toBeNull();
+  });
+
+  it("accepts a server-authorized topbar switch without mounting a local selector", async () => {
     scopeMocks.fetchAccounts.mockResolvedValue([
       { id: "act_1", name: "One" },
       { id: "act_2", name: "Two" },
     ]);
+    const providerFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ ok: true, automation: null, proposals: [] }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
 
-    const { container } = render(
+    const { container, rerender } = render(
       <MetaAutomationPage
         businessId="route_business"
         providerAccountId={null}
       />,
     );
 
-    const picker = await waitFor(() => {
-      const found = mobileSurface(container)?.querySelector<HTMLSelectElement>(
-        "[data-control='account-picker'] select",
+    await waitFor(() => {
+      expect(notice(container)?.getAttribute("data-reason")).toBe(
+        "provider_account_scope_unresolved",
       );
-      expect(found).not.toBeNull();
-      return found!;
     });
+    expect(
+      container.querySelector("[data-control='account-picker']"),
+    ).toBeNull();
+    expect(scopeMocks.replace).not.toHaveBeenCalled();
 
-    fireEvent.change(picker, { target: { value: "act_2" } });
-
-    // The id goes into the address bar and the canonical route re-runs
-    // `resolveProviderAccountId` against this business's assignments. An
-    // unassigned id therefore still comes back null: this widens nothing.
-    expect(scopeMocks.replace).toHaveBeenCalledTimes(1);
-    expect(String(scopeMocks.replace.mock.calls[0]?.[0])).toContain(
-      "providerAccountId=act_2",
+    rerender(
+      <MetaAutomationPage
+        businessId="route_business"
+        providerAccountId="act_2"
+      />,
     );
+
+    await waitFor(() => {
+      expect(
+        providerFetch.mock.calls.some(([input]) =>
+          String(input).includes("providerAccountId=act_2"),
+        ),
+      ).toBe(true);
+    });
+    expect(
+      container.querySelector("[data-control='account-picker']"),
+    ).toBeNull();
   });
 
   it("disables every mutating control while no account is resolved", async () => {
@@ -282,13 +399,9 @@ describe("Meta Automation account scope", () => {
     expect(notice(container)?.getAttribute("data-reason")).toBe(
       "provider_account_scope_unresolved",
     );
-    // Rewritten with the picker. The old law was "the client must not go
-    // looking for an account the server already declined to resolve", which
-    // read the assignment list as scope-widening. It is not: it is the very
-    // set `resolveProviderAccountId` authorizes against, so asking for it can
-    // only ever offer a subset of what the server would already accept — and
-    // without it the unresolved state has nothing to offer and stays a dead
-    // end. What must NOT happen is a scoped read, and that is what is pinned.
+    // The assignment read distinguishes "none assigned" from "choose in the
+    // topbar". It carries no account scope and cannot trigger an Automation
+    // data read on its own.
     await waitFor(() => {
       expect(scopeMocks.fetchAccounts).toHaveBeenCalledWith(
         expect.objectContaining({ businessId: "route_business" }),

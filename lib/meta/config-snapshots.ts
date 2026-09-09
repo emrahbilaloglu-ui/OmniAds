@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { resolveMetaProviderLocalDayEnd } from "@/lib/meta/provider-local-day";
 import {
   assertDbSchemaReady,
   getDbSchemaReadiness,
@@ -457,13 +458,51 @@ export async function appendMetaConfigSnapshots(
   }
 }
 
+/**
+ * The bid-regime history behind a served recommendation.
+ *
+ * ── ROUND 9 ITEM 6 ─────────────────────────────────────────────────────────
+ * This filtered on `business_id` and `entity_level` alone — no `account_id`,
+ * no time bound — and its output raises a recommendation's confidence and can
+ * carry it into the `act` lane. Two ways that was wrong:
+ *
+ *   - A business with several Meta accounts pooled all of them, so one
+ *     account's constrained/open share described another's entity.
+ *   - The whole history was read regardless of the window being served, so a
+ *     request for a range ending in March counted snapshots captured in
+ *     September. A "high confidence" act was built from evidence recorded
+ *     after the decision it justifies.
+ *
+ * Both are required now, and an unusable scope or an unreadable table returns
+ * an EMPTY map — which the caller already treats as "no history", so the
+ * recommendation loses the confidence rather than gaining it from the wrong
+ * rows.
+ */
 export async function readMetaBidRegimeHistorySummaries(input: {
   businessId: string;
+  providerAccountId: string;
+  /** Inclusive `YYYY-MM-DD`; the advertiser-local day the window ends on. */
+  capturedAtCutoff: string;
   entityLevel: MetaConfigEntityLevel;
   entityIds: string[];
 }): Promise<Map<string, MetaBidRegimeHistorySummary>> {
   const entityIds = Array.from(new Set(input.entityIds.filter(Boolean)));
   if (entityIds.length === 0) return new Map();
+  const providerAccountId = input.providerAccountId?.trim() ?? "";
+  if (!providerAccountId) return new Map();
+  /*
+    ROUND 10 ITEM 4. Resolved to an absolute instant from the ACCOUNT's own IANA
+    timezone; a null zone or binding answers with an empty map, which the caller
+    already reads as "no history". This signal can only raise a
+    recommendation's confidence, so an unresolvable window must not produce one.
+  */
+  const capturedBefore = await resolveMetaProviderLocalDayEnd({
+    businessId: input.businessId,
+    providerAccountId,
+    day: input.capturedAtCutoff ?? "",
+    query: (text, params) => getDb().query(text, params),
+  }).catch(() => null);
+  if (!capturedBefore) return new Map();
 
   try {
     await assertDbSchemaReady({
@@ -479,6 +518,8 @@ export async function readMetaBidRegimeHistorySummaries(input: {
         COUNT(*)::int AS observation_count
       FROM meta_config_snapshots
       WHERE business_id = ${input.businessId}
+        AND account_id = ${providerAccountId}
+        AND captured_at < ${capturedBefore.toISOString()}::timestamptz
         AND entity_level = ${input.entityLevel}
         AND entity_id = ANY(${entityIds}::text[])
         AND (

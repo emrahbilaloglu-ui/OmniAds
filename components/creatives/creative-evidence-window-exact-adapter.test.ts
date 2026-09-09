@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { INTERNAL_VOCABULARY } from "@/lib/meta/buyer-copy";
 
 import {
   buildCreativeEvidenceWindowExactViewModel,
@@ -48,6 +49,24 @@ function decisionFixture(
     whyNow: "Server why now",
     blockers: [],
     resolution: null,
+    /*
+      FAITHFUL TO WHAT THE PRODUCER SERVES, which this fixture did not state.
+
+      `decisions-os-presentation.ts` sets the Ad decision's `heldAction` from
+      `decision.classification.heldAction` and its `heldResolution` from the
+      same classification's resolution, so whenever the canonical envelope
+      below carries a held action the Ad decision carries it too. Omitting them
+      here made the window fall to its canonical-only branch — the one that
+      cannot name a reason — while the fixture's own canonical half said
+      `heldAction: "refresh"`. The richer production path went untested.
+    */
+    heldAction: "refresh",
+    heldResolution: {
+      code: "refresh_ad_lifecycle_evidence",
+      label: "Refresh ad lifecycle evidence",
+      owner: "system",
+      detail: null,
+    },
     metrics: {
       spend: 9700,
       purchases: 318,
@@ -233,6 +252,25 @@ describe("buildCreativeEvidenceWindowExactViewModel identity and contract", () =
     expect(model.verdictSub).toContain("More verified evidence is required.");
     expect(model.verdictSub).toContain("Creates a replacement brief");
     expect(model.verdictSub).not.toContain("Native ad authority unavailable");
+  });
+
+  it.each([0, -2, null, Number.NaN, Number.POSITIVE_INFINITY])(
+    "does not print an unavailable commercial target %s from either envelope", (value) => {
+      const decision = decisionFixture();
+      const canonical = canonicalFixture();
+      decision.metrics.effectiveTargetRoas = value;
+      canonical.metrics.effectiveTargetRoas = value;
+      const model = buildCreativeEvidenceWindowExactViewModel({ decision, canonical });
+      expect(model.moneySub).toBe("—");
+      expect(model.moneySub).not.toContain("target");
+    },
+  );
+
+  it.each([0, -2, null])("keeps a positive canonical target when the served decision target is %s", (value) => {
+    const decision = decisionFixture();
+    decision.metrics.effectiveTargetRoas = value;
+    const model = buildCreativeEvidenceWindowExactViewModel({ decision, canonical: canonicalFixture() });
+    expect(model.moneySub).toBe("vs 3.80 target");
   });
 
   it("em-dashes the whole contract when nothing is served", () => {
@@ -851,13 +889,108 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     expect(value(model.authority, "confirmation-ceremony")).toBe("Elevated");
   });
 
+  /*
+    RE-PINNED. This case used to assert
+    `expect(value(model.authority, "held-action")).toBe("refresh")` — the
+    engine's own token, printed to an operator, on the one surface a creative
+    row actually opens. It was green and it pinned a producer-vocabulary leak.
+
+    Every neighbouring row on this block goes through `humanizeCode` or a buyer
+    catalog; this one did not. The verdict now reads in the same words the
+    queue row uses, from the same catalog, and the reason for the hold is its
+    own row rather than being conflated with the published resolution.
+  */
   it("reports a held, blocked decision as held rather than as an ordinary call", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
       canonical,
     });
     expect(value(model.authority, "decision-state")).toBe("Blocked");
-    expect(value(model.authority, "held-action")).toBe("refresh");
+
+    // Buyer copy, and specifically NOT the engine's token.
+    expect(value(model.authority, "held-action")).toBe("Refresh creative");
+    expect(value(model.authority, "held-action")).not.toBe("refresh");
+
+    // The hold has its own reason, and it names the held verdict rather than
+    // falling through to the generic evidence sentence.
+    const reason = value(model.authority, "held-reason");
+    expect(reason).toBeTruthy();
+    expect(reason).toContain("Refresh creative");
+
+    // The held resolution's CODE selects that sentence and never reaches a
+    // pixel — the same rule the served resolution follows on this surface.
+    const held = decisionFixture().heldResolution?.code ?? null;
+    if (held) expect(reason).not.toContain(held);
+  });
+
+  /*
+    THE OTHER BRANCH. Making the fixture faithful above moved the default case
+    onto the richer path, so the canonical-only envelope — `heldAction` served
+    on the classification with no `heldResolution` anywhere, which is what an
+    older serialized payload looks like — needs its own case or it goes
+    untested.
+
+    The verdict is still named in buyer copy, because the action code is
+    present. The reason is stated as NOT SERVED rather than borrowed from the
+    published resolution a few rows up, which explains a different decision.
+  */
+  it("names the held verdict without a reason when only the canonical envelope holds it", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture({
+        heldAction: null,
+        heldResolution: null,
+      } as Partial<MetaOsAdDecision>),
+      canonical,
+    });
+    expect(value(model.authority, "held-action")).toBe("Refresh creative");
+    const reason = value(model.authority, "held-reason");
+    expect(reason).toContain("not served");
+    // Never the published resolution standing in for the held one.
+    expect(reason).not.toContain("Server why now");
+  });
+
+  /*
+    The verdict is named; no execution comes with it. `authorizeMetaNativeAdPause`
+    refuses independently on `classification.heldAction !== null`, and this
+    asserts the window does not reintroduce an affordance while describing the
+    hold.
+  */
+  it("offers no execution authority on the held row it now names", () => {
+    const refused = {
+      kind: "native_ad_pause" as const,
+      offered: false,
+      refusalReason:
+        "This recommendation can be reviewed, but it cannot pause this ad.",
+    };
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical,
+      primaryActionAuthority: refused,
+      // Served deliberately: a callback and an href that WOULD wire a live
+      // control, so the refusal is what withholds it rather than their absence.
+      callbacks: { onPrimary: () => {} },
+      hrefs: { primary: "https://example.test/pause" },
+    });
+
+    // `primaryAllowed` is false, so no callback is wired and no href survives.
+    expect(model.primaryAction?.onClick).toBeUndefined();
+    expect(model.primaryAction?.href ?? null).toBeNull();
+    expect(model.primaryAction?.disabled).toBe(true);
+
+    /*
+      The control is proven to exist when authority ALLOWS it, so the assertions
+      above are about the refusal and not about a window that never wires a
+      control at all.
+    */
+    const allowed = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical,
+      primaryActionAuthority: { ...refused, offered: true, refusalReason: null },
+      callbacks: { onPrimary: () => {} },
+      hrefs: { primary: "https://example.test/pause" },
+    });
+    expect(allowed.primaryAction?.onClick).toBeTypeOf("function");
+    expect(allowed.primaryAction?.disabled).toBe(false);
   });
 
   /**
@@ -1862,12 +1995,38 @@ describe("served fields that reached no surface", () => {
     expect(
       auditValue(model.authority, "served-authority-provenance"),
     ).toContain("first blocker Recent economic recovery cannot be ruled out");
-    // The sentence is its own row, so a token list does not become a paragraph.
+    /*
+      ROUND 8 ITEM 7. The sentence is still its own row — so a token list does
+      not become a paragraph — but it is now MAPPED FROM THE CODE rather than
+      copied from the server's prose. The served explanation above names the
+      gate and the mechanism ("the Cut verdict is held until a sufficiently
+      sampled recent window confirms ROAS remains below break-even"); a media
+      buyer needs what is missing and what would change it.
+
+      The fixture still carries the engine's sentence, which is what makes this
+      a mapping assertion rather than a rename: the row must NOT contain it.
+    */
     expect(
       auditValue(model.authority, "served-first-blocker-explanation"),
     ).toBe(
-      "The Cut verdict is held until a sufficiently sampled recent window confirms ROAS remains below break-even.",
+      "Recent spend is too light to be sure this has not recovered. Give it a few more days.",
     );
+    expect(
+      auditValue(model.authority, "served-first-blocker-explanation"),
+    ).not.toContain("Cut verdict is held");
+    /*
+      And none of the engine's vocabulary at all, swept against the one shared
+      list the Decision Center DOM test also uses — so a term added there is
+      immediately enforced on this surface too.
+    */
+    const shown = String(
+      auditValue(model.authority, "served-first-blocker-explanation") ?? "",
+    ).toLowerCase();
+    for (const term of INTERNAL_VOCABULARY) {
+      expect(shown, `the drawer rendered "${term}"`).not.toContain(
+        term.toLowerCase(),
+      );
+    }
 
     // No first blocker, no row: a decision that passed every gate must not
     // acquire an empty "held because" line suggesting one was tripped.

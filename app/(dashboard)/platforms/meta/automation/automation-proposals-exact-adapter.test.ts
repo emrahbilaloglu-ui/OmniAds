@@ -93,6 +93,39 @@ describe("the confirmation queue view model", () => {
     expect(row.why).toContain("below breakeven");
   });
 
+  it("exposes the exact approved amount for pending budget and bid rows", () => {
+    const rows = buildAutomationProposalsModel({
+      readCompleteness: "complete",
+      proposals: [
+        proposal({
+          id: "22222222-2222-4222-8222-222222222222",
+          proposedAction: "budget",
+          actionLabel: "Apply budget",
+          evidenceLabel: "Budget: TRY 2500.00 → TRY 3000.00",
+        }),
+        proposal({
+          id: "33333333-3333-4333-8333-333333333333",
+          proposedAction: "bid",
+          actionLabel: "Apply bid",
+          evidenceLabel: "Bid: USD 12.00 → USD 13.20 (+10%)",
+        }),
+      ],
+      now: NOW,
+    }).rows;
+
+    expect(rows.map((row) => ({ action: row.action, evidence: row.evidence })))
+      .toEqual([
+        {
+          action: "Apply budget",
+          evidence: "Budget: TRY 2500.00 → TRY 3000.00",
+        },
+        {
+          action: "Apply bid",
+          evidence: "Bid: USD 12.00 → USD 13.20 (+10%)",
+        },
+      ]);
+  });
+
   it("keeps the count at an em dash when the read was not proven", () => {
     const model = buildAutomationProposalsModel({
       readCompleteness: "unavailable",

@@ -60,6 +60,9 @@ jobs:
   deploy:
     if: inputs.sha != ''
     runs-on: ubuntu-latest
+    # Default migration wrapper: 31 minutes, with up to four contention
+    # attempts. Preserve that recovery budget plus pull and verification time.
+    timeout-minutes: 180
     permissions:
       actions: write
       contents: read
@@ -461,7 +464,7 @@ jobs:
             pending=0
 
             for url in "${urls[@]}"; do
-              if build_info_json="$(curl -fsSL "${url}" 2>/dev/null)"; then
+              if build_info_json="$(curl -fsSL --max-time 10 "${url}" 2>/dev/null)"; then
                 build_id="$(
                   printf '%s' "${build_info_json}" | python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
                 )"
@@ -494,8 +497,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          curl -fsSI https://adsecute.com/about >/dev/null
-          curl -fsSI https://www.adsecute.com/about >/dev/null
+          curl -fsSI --max-time 10 https://adsecute.com/about >/dev/null
+          curl -fsSI --max-time 10 https://www.adsecute.com/about >/dev/null
 
       - name: Dispatch post-deploy verification workflow
         if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
@@ -507,7 +510,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          curl -fsSL \
+          # A timed-out POST is an ambiguous dispatch outcome. Fail visibly;
+          # do not retry and risk scheduling verification twice.
+          curl -fsSL --max-time 30 \
             -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \

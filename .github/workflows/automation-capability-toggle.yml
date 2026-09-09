@@ -50,9 +50,12 @@ jobs:
   toggle:
     if: inputs.sha != ''
     runs-on: ubuntu-latest
+    # Includes bounded OPEN verification and its independent rollback window.
+    timeout-minutes: 65
     permissions:
       contents: read
       actions: read
+      packages: read
     steps:
       - name: Resolve and validate the exact deploy SHA
         id: expected
@@ -99,39 +102,104 @@ jobs:
 
       - name: Skip a superseded request
         id: freshness
-        if: inputs.require_current_main_head == 'true'
         shell: bash
         env:
-          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          REQUESTED_SHA: ${{ steps.expected.outputs.sha }}
+          CAPABILITY: ${{ inputs.capability }}
+          REQUIRE_CURRENT_MAIN_HEAD: ${{ inputs.require_current_main_head }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          current_main_sha="$(
-            git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" refs/heads/main \
+
+          # The opt-out preserves the existing OPEN behavior: the exact
+          # requested/deployed SHA is checked out and the host baseline still
+          # has to prove that exact release is running before any write.
+          if [ "${CAPABILITY}" = "open" ] && [ "${REQUIRE_CURRENT_MAIN_HEAD}" != "true" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "checkout_sha=${REQUESTED_SHA}" >> "$GITHUB_OUTPUT"
+            echo "script_source=requested_sha_override" >> "$GITHUB_OUTPUT"
+            echo "main_lookup=skipped" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if current_main_sha="$(
+            python3 -c '
+          import os, signal, subprocess, sys
+          child = subprocess.Popen(sys.argv[1:], stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+          try:
+              output, errors = child.communicate(timeout=30)
+          except subprocess.TimeoutExpired:
+              try:
+                  os.killpg(child.pid, signal.SIGKILL)
+              except ProcessLookupError:
+                  pass
+              try:
+                  child.communicate(timeout=1)
+              except subprocess.TimeoutExpired:
+                  child.stdout.close()
+                  child.stderr.close()
+              print("Current main lookup exceeded 30 seconds", file=sys.stderr)
+              sys.exit(124)
+          sys.stdout.buffer.write(output)
+          sys.stderr.buffer.write(errors)
+          sys.exit(child.returncode if child.returncode >= 0 else 128 - child.returncode)
+          ' git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" refs/heads/main \
               | awk '{print $1}'
-          )"
-          if [ -z "${current_main_sha}" ]; then
-            echo "Unable to resolve current main HEAD."
+          )"; then lookup_status=0; else lookup_status=$?; fi
+          if [ "${lookup_status}" -ne 0 ] || [[ ! "${current_main_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            # Only a main dispatch carries trusted main provenance when the
+            # live git endpoint is unavailable. Never use the requested image
+            # SHA or an arbitrary feature-branch dispatch as safety-code fallback.
+            if [ "${CAPABILITY}" = "closed" ] && [ "${DISPATCH_REF:-}" = "refs/heads/main" ] && [[ "${DISPATCH_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
+              echo "checkout_sha=${DISPATCH_SHA}" >> "$GITHUB_OUTPUT"
+              echo "script_source=dispatch_main_fallback" >> "$GITHUB_OUTPUT"
+              echo "main_lookup=unavailable" >> "$GITHUB_OUTPUT"
+              echo "Current-main lookup unavailable; close uses the exact trusted main dispatch commit."
+              exit 0
+            fi
+            echo "Unable to resolve current main HEAD or a trusted main-dispatch fallback."
             exit 1
           fi
           echo "current_main_sha=${current_main_sha}" >> "$GITHUB_OUTPUT"
-          if [ "${EXPECTED_SHA}" != "${current_main_sha}" ]; then
+          echo "script_source=current_main" >> "$GITHUB_OUTPUT"
+          echo "main_lookup=available" >> "$GITHUB_OUTPUT"
+
+          if [ "${CAPABILITY}" = "closed" ]; then
+            # Always ship the current main version of the safety script. The
+            # script does NOT deploy current main: on-host it discovers and
+            # proves the web+worker release already running, then recreates
+            # that same release with the capability closed. The requested SHA
+            # remains evidence only and is never selected as close's image tag.
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "checkout_sha=${current_main_sha}" >> "$GITHUB_OUTPUT"
+            if [ "${REQUESTED_SHA}" != "${current_main_sha}" ]; then
+              echo "stale_close=true" >> "$GITHUB_OUTPUT"
+              echo "Requested SHA is not current main; capability_close will preserve the proven running release."
+            fi
+            exit 0
+          fi
+
+          if [ "${REQUESTED_SHA}" != "${current_main_sha}" ]; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping — ${EXPECTED_SHA} is not current main (${current_main_sha})."
+            echo "Skipping open — ${REQUESTED_SHA} is not current main (${current_main_sha})."
             exit 0
           fi
           echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "checkout_sha=${current_main_sha}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout expected ref
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.freshness.outputs.should_run == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.expected.outputs.sha }}
+          ref: ${{ steps.freshness.outputs.checkout_sha }}
           fetch-depth: 1
 
       - name: Prepare SSH access
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.freshness.outputs.should_run == 'true'
         shell: bash
         env:
           HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
@@ -165,14 +233,16 @@ jobs:
       # uses for the main deploy. No file lands on the host beyond
       # `.env.production` itself and its timestamped backup.
       - name: Run a capability phase on the host
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.freshness.outputs.should_run == 'true'
         id: run_phase
         shell: bash
         env:
-          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          REQUESTED_SHA: ${{ steps.expected.outputs.sha }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           CAPABILITY: ${{ inputs.capability }}
+          GHCR_PULL_TOKEN: ${{ github.token }}
+          GHCR_PULL_USER: ${{ github.actor }}
         run: |
           set -euo pipefail
 
@@ -182,10 +252,47 @@ jobs:
           fi
 
           port="${HETZNER_PORT:-22}"
-          ssh_opts=(-i ~/.ssh/id_ed25519 -p "${port}" -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=6)
+          ssh_opts=(-i ~/.ssh/id_ed25519 -p "${port}" -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 -o ServerAliveInterval=30 -o ServerAliveCountMax=6)
+
+          # SSH keepalive only detects a dead transport; a responsive sshd can
+          # keep a stuck remote command alive forever. Bound CLOSED dispatches
+          # as well, and let the existing phase-status/artifact path report a
+          # timeout as failure. The remote script persists false before any
+          # runtime reads. An unreachable host cannot prove any file/runtime
+          # closure. Bounds include registry auth, the worker's 90-second stop
+          # grace and final stop proof; OPEN includes a full CLOSED rollback.
+          close_max_seconds="${CAPABILITY_CLOSE_SSH_MAX_TIME_SECONDS:-2100}"
+          if [[ ! "${close_max_seconds}" =~ ^[1-9][0-9]{0,3}$ ]] || [ "${close_max_seconds}" -gt 2100 ]; then
+            close_max_seconds=2100
+          fi
+          capability_ssh() {
+            python3 -c '
+          import os, signal, subprocess, sys
+          deadline = int(sys.argv[1]) if sys.argv[2] == "closed" else 3600
+          child = subprocess.Popen(sys.argv[3:], stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+          try:
+              output, errors = child.communicate(timeout=deadline)
+          except subprocess.TimeoutExpired:
+              try:
+                  os.killpg(child.pid, signal.SIGKILL)
+              except ProcessLookupError:
+                  pass
+              try:
+                  child.communicate(timeout=1)
+              except subprocess.TimeoutExpired:
+                  child.stdout.close()
+                  child.stderr.close()
+              print("Capability SSH exceeded its deadline; remote state is unverified", file=sys.stderr)
+              sys.exit(124)
+          sys.stdout.buffer.write(output)
+          sys.stderr.buffer.write(errors)
+          sys.exit(child.returncode if child.returncode >= 0 else 128 - child.returncode)
+          ' "${close_max_seconds}" "${CAPABILITY}" ssh "$@"
+          }
 
           out_file="$(mktemp)"
           concat_file="$(mktemp)"
+          trap 'rm -f "${concat_file}"' EXIT
 
           # The concatenation is a PLAIN redirect with its own directly-
           # checked exit status — never a pipe stage — so a cat that cannot
@@ -201,7 +308,7 @@ jobs:
           # inside the `then` branch would read the INVERTED value (0)
           # instead of cat's real failure code. The positive form below
           # captures cat's own, real exit status.
-          if cat .github/scripts/automation-capability-env.sh .github/scripts/automation-capability-remote.sh > "${concat_file}"; then
+          if printf '%s\n' "${GHCR_PULL_TOKEN:-}" > "${concat_file}" && cat .github/scripts/automation-capability-env.sh .github/scripts/automation-capability-remote.sh >> "${concat_file}"; then
             cat_status=0
           else
             cat_status=$?
@@ -211,8 +318,8 @@ jobs:
           tee_status=0
           if [ "${cat_status}" -eq 0 ]; then
             set +e
-            ssh "${ssh_opts[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
-              "cd ${REMOTE_APP_DIR} && EXPECTED_SHA=${EXPECTED_SHA} PHASE=${phase} REMOTE_APP_DIR=${REMOTE_APP_DIR} bash -s" \
+            capability_ssh "${ssh_opts[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+              "cd ${REMOTE_APP_DIR} && EXPECTED_SHA=${REQUESTED_SHA} REQUESTED_SHA=${REQUESTED_SHA} GHCR_USER=${GHCR_PULL_USER:-} PHASE=${phase} REMOTE_APP_DIR=${REMOTE_APP_DIR} bash -c 'unset CAP_REGISTRY_TOKEN; IFS= read -r CAP_REGISTRY_TOKEN; source /dev/stdin'" \
               < "${concat_file}" \
               | tee "${out_file}"
             # PIPESTATUS is overwritten by the NEXT command bash runs —
@@ -265,12 +372,15 @@ jobs:
           fi
 
       - name: Build the redacted result artifact
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.freshness.outputs.should_run == 'true'
         shell: bash
         env:
           PHASE_STATUS: ${{ steps.run_phase.outputs.phase_status }}
           OUT_FILE: ${{ steps.run_phase.outputs.out_file }}
-          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          REQUESTED_SHA: ${{ steps.expected.outputs.sha }}
+          WORKFLOW_SCRIPT_SHA: ${{ steps.freshness.outputs.checkout_sha }}
+          WORKFLOW_SCRIPT_SOURCE: ${{ steps.freshness.outputs.script_source }}
+          MAIN_LOOKUP: ${{ steps.freshness.outputs.main_lookup }}
           CAPABILITY: ${{ inputs.capability }}
         run: |
           set -euo pipefail
@@ -325,7 +435,23 @@ jobs:
               summary = json.load(handle)
 
           phase_status = int(os.environ["PHASE_STATUS"])
+          requested_sha = os.environ["REQUESTED_SHA"]
           result = summary.get("result")
+
+          # An opted-out OPEN can intentionally check out an older exact
+          # deployed commit whose remote script predates the requested/effective
+          # field split. Its existing exact-running baseline still proves that
+          # expectedSha is both values, so canonicalize only that legacy OPEN
+          # shape. Close runs trusted main safety code and must emit the
+          # distinct fields itself (fallback provenance is recorded separately).
+          if (
+              os.environ["CAPABILITY"] == "open"
+              and summary.get("requestedSha") is None
+              and summary.get("effectiveSha") is None
+              and summary.get("expectedSha") == requested_sha
+          ):
+              summary["requestedSha"] = requested_sha
+              summary["effectiveSha"] = requested_sha
           if phase_status != 0 and result == "pass":
               # The phase script's own exit code disagrees with the JSON it
               # printed -- the exit code wins. A non-zero phase must never be
@@ -340,10 +466,28 @@ jobs:
               result = "fail"
               summary.setdefault("blockers", []).append("blockers_present_despite_pass_result")
 
+          if result == "pass" and summary.get("requestedSha") != requested_sha:
+              result = "fail"
+              summary.setdefault("blockers", []).append("requested_sha_evidence_mismatch")
+
+          effective_sha = summary.get("effectiveSha")
+          if result == "pass" and (
+              not isinstance(effective_sha, str)
+              or len(effective_sha) != 40
+              or any(character not in "0123456789abcdef" for character in effective_sha)
+          ):
+              result = "fail"
+              summary.setdefault("blockers", []).append("effective_sha_evidence_missing")
+
           artifact = {
               "workflow": "automation-capability-toggle",
               "requestedCapability": os.environ["CAPABILITY"],
-              "expectedSha": os.environ["EXPECTED_SHA"],
+              "expectedSha": requested_sha,
+              "requestedSha": requested_sha,
+              "effectiveSha": effective_sha,
+              "workflowScriptSha": os.environ["WORKFLOW_SCRIPT_SHA"],
+              "workflowScriptSource": os.environ.get("WORKFLOW_SCRIPT_SOURCE") or "unknown",
+              "mainLookup": os.environ.get("MAIN_LOOKUP") or "unknown",
               "phaseStatus": phase_status,
               "summary": {**summary, "result": result},
           }
@@ -354,7 +498,7 @@ jobs:
           rm -f .artifacts/_phase-summary.json
 
       - name: Fail the job on anything but summary.result == pass
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.freshness.outputs.should_run == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -380,7 +524,7 @@ jobs:
           PY
 
       - name: Upload result artifact
-        if: always() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true')
+        if: always() && steps.freshness.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: automation-capability-toggle-${{ steps.expected.outputs.sha }}

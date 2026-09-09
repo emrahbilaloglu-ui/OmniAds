@@ -412,6 +412,22 @@ export interface MetaOsStructureGroup {
   urgentAdsetCount: number;
 }
 
+/**
+ * The versioned resolution a server produced for one decision.
+ *
+ * Extracted from the inline shape `MetaOsAdDecision.resolution` already
+ * carried, byte-for-byte, so it can be NAMED by the held-verdict field below.
+ * `category` stays widened to `string` — as the inline shape had it — because
+ * a payload serialized under an earlier category vocabulary must keep parsing.
+ */
+export interface MetaOsDecisionResolution {
+  code: string;
+  category: string;
+  owner: "system" | "operator" | "integration";
+  label: string;
+  nextStep: string;
+}
+
 export interface MetaOsAdDecision {
   id: string;
   decisionId: string;
@@ -450,13 +466,17 @@ export interface MetaOsAdDecision {
    * The engine's own confidence number for this decision, or null when NO
    * confidence was computed for it.
    *
-   * Nullable because a synthesised placeholder row is not a measurement. The
-   * `await_ad_grain_evidence` row this presentation emits for a live Ad with no
-   * Ad-grain snapshot has no engine behind it at all; it used to carry a
-   * hardcoded 0, and the evidence window rendered that constant as
-   * "low · score 0.00" — a fabricated number printed as a measured one, under a
-   * render whose own rule is that a MEASURED zero stays zero. A row with no
-   * computed confidence now serves null and renders an em dash.
+   * Nullable because a decision can reach this contract without one, and a
+   * render whose own rule is that a MEASURED zero stays zero must not be handed
+   * a fabricated zero. The case that made this nullable was the
+   * `await_ad_grain_evidence` placeholder the presentation used to emit for a
+   * live Ad with no Ad-grain snapshot: no engine behind it, a hardcoded 0, and
+   * an evidence window printing "low · score 0.00" as if it had been measured.
+   * That placeholder is no longer produced at all — un-decided ACTIVE inventory
+   * is served as `ads.pendingInventoryCount` and one limitation sentence — but
+   * the field stays nullable, because payloads serialized before that change
+   * still carry such rows and must keep rendering an em dash rather than a
+   * zero.
    *
    * A served 0 is therefore a real engine score of zero and must still print as
    * 0.00. Never coalesce this field to 0 on read.
@@ -466,13 +486,16 @@ export interface MetaOsAdDecision {
   confirmationCeremony: MetaDecisionConfirmationCeremony;
   whyNow: string;
   blockers: Array<{ code: string; label: string }>;
-  resolution: {
-    code: string;
-    category: string;
-    owner: "system" | "operator" | "integration";
-    label: string;
-    nextStep: string;
-  } | null;
+  resolution: MetaOsDecisionResolution | null;
+  /**
+   * The mathematical verdict the engine reached and then WITHHELD, typed.
+   * Null when no hard verdict was held. Evidence, never authorization: a
+   * non-null value always accompanies an unauthorized published label and
+   * every execution field stays null.
+   */
+  heldAction?: "scale" | "cut" | "refresh" | null;
+  /** The specific resolution for the HELD verdict, not the published one. */
+  heldResolution?: MetaOsDecisionResolution | null;
   metrics: MetaOsDecisionMetrics;
   /** `image` | `video` | `catalog` from the decided-from lifecycle row. */
   creativeFormat?: string | null;
@@ -486,7 +509,34 @@ export interface MetaOsAdDecision {
   engineVersion: string;
   snapshotAsOf: string;
   sourceGrain: "ad" | "creative_context";
+  /**
+   * `pending_native_evidence` is a COMPATIBILITY value, not a live one.
+   *
+   * The current producer never emits it: un-decided ACTIVE inventory is served
+   * as `ads.pendingInventoryCount` plus the
+   * `active_ad_inventory_pending_native_decision` limitation, and no synthetic
+   * decision is built. The member remains so that payloads serialized before
+   * that separation stay readable, and so the reader's own copy for those rows
+   * keeps working.
+   */
   decisionAvailability: "available" | "pending_native_evidence";
+}
+
+/**
+ * A decision that definitely carries a held verdict.
+ *
+ * `heldAction` and `heldResolution` are OPTIONAL on `MetaOsAdDecision` so that
+ * payloads serialized before D091 stay readable. A consumer that is
+ * specifically about the held case — a fixture that must supply one, a renderer
+ * branch that has already narrowed — wants them REQUIRED, and writing
+ * `NonNullable<...>` at each such site invites one of them to drift. This names
+ * the narrowing once.
+ *
+ * Intersect it with `MetaOsAdDecision`; it is not a standalone decision shape.
+ */
+export interface MetaOsAdDecisionHeldVerdict {
+  heldAction: "scale" | "cut" | "refresh";
+  heldResolution: MetaOsDecisionResolution | null;
 }
 
 export interface MetaOsInactiveAsset {
@@ -531,8 +581,35 @@ export interface MetaOsDecisionsPresentation {
     actCount: number;
     blockedCount: number;
     monitorCount: number;
+    /**
+     * How many SERVED rows carry each held verdict, counted SEPARATELY from
+     * the three lane counts above.
+     *
+     * A held row is already counted once as `blockedCount`, because that is
+     * the lane it is served in. These are a second, orthogonal tally of WHICH
+     * mathematical verdict was withheld, so a surface can say "3 Refresh
+     * verdicts held" without re-deriving it from the rows — and so a held
+     * Refresh stops being invisible behind the published `keep` label.
+     * Adding these to any lane count would double-count the same decisions.
+     *
+     * Optional only so payloads serialized before this field stay readable: an
+     * absent key means the counts were not measured, which is not the same as
+     * three zeroes. The current builder always emits it.
+     */
+    heldCounts?: { scale: number; cut: number; refresh: number };
     statePreCapCounts: Record<MetaOsDecisionLane, number>;
     eligiblePreCapCount: number;
+    /**
+     * ACTIVE provider inventory that carries no exact Ad-grain decision.
+     *
+     * These are NOT decisions and are excluded from `items` and from every
+     * count above; they are summarised here and in the
+     * `active_ad_inventory_pending_native_decision` limitation. Optional only
+     * so payloads serialized before the separation stay readable — a reader
+     * that finds the key absent knows the count was not measured, which is not
+     * the same as zero.
+     */
+    pendingInventoryCount?: number;
     omittedWithoutVerifiedAdId: number;
     omittedAmbiguousIdentity: number;
     omittedNotApplicable: number;

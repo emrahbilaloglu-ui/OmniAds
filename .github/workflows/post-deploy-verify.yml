@@ -16,6 +16,7 @@ jobs:
   verify:
     if: inputs.sha != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       actions: read
       contents: read
@@ -64,6 +65,31 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Verify exact public build
+        id: exact_build
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p .artifacts
+          curl -fsS --max-time 10 --retry 4 --retry-all-errors --retry-max-time 60 \
+            "https://adsecute.com/api/build-info?post_deploy_build=${EXPECTED_SHA}" \
+            -o .artifacts/post-deploy-build-info.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path(".artifacts/post-deploy-build-info.json").read_text(encoding="utf-8"))
+          actual = payload.get("buildId") if isinstance(payload, dict) else None
+          expected = os.environ["EXPECTED_SHA"]
+          if actual != expected:
+              raise SystemExit(f"Public build mismatch: expected {expected}, observed {actual!r}")
+          print(f"Public build verified: {actual}")
+          PY
+
       - name: Verify public and workspace documents
         shell: bash
         env:
@@ -72,7 +98,7 @@ jobs:
           set -euo pipefail
 
           mkdir -p .artifacts
-          login_status="$(curl -sS --retry 4 --retry-all-errors \
+          login_status="$(curl -sS --max-time 10 --retry 4 --retry-all-errors --retry-max-time 60 \
             -w '%{http_code}' \
             "https://adsecute.com/login?post_deploy_style=${EXPECTED_SHA}" \
             -o .artifacts/public-login.html)"
@@ -97,7 +123,7 @@ jobs:
 
           : > .artifacts/public-login.css
           for stylesheet_path in "${stylesheet_paths[@]}"; do
-            curl -fsS --retry 4 --retry-all-errors \
+            curl -fsS --max-time 10 --retry 4 --retry-all-errors --retry-max-time 60 \
               "https://adsecute.com${stylesheet_path}" \
               >> .artifacts/public-login.css
           done
@@ -116,7 +142,7 @@ jobs:
           # `/login?next=%2Fapp%2Fhome%3Fpost_deploy_style%3D<sha>` and the exact
           # match below failed against the gate's own parameter rather than
           # against anything the deploy did.
-          workspace_status="$(curl -sS --retry 4 --retry-all-errors \
+          workspace_status="$(curl -sS --max-time 10 --retry 4 --retry-all-errors --retry-max-time 60 \
             -D .artifacts/workspace-redirect.headers \
             -w '%{http_code}' \
             "https://adsecute.com/app/home" \
@@ -165,6 +191,7 @@ jobs:
               "## Post-Deploy Verification",
               "",
               f"- expectedBuildId: `{os.environ['EXPECTED_SHA']}`",
+              f"- exactBuildStep: `{os.environ['EXACT_BUILD_OUTCOME']}`",
               f"- releaseAuthorityStep: `{os.environ['RELEASE_AUTHORITY_OUTCOME']}`",
           ]
 
@@ -189,6 +216,7 @@ jobs:
           PY
         env:
           EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          EXACT_BUILD_OUTCOME: ${{ steps.exact_build.outcome }}
           RELEASE_AUTHORITY_OUTCOME: ${{ steps.release_authority.outcome }}
 
       - name: Upload verification artifacts
@@ -197,6 +225,7 @@ jobs:
         with:
           name: post-deploy-verify-${{ steps.expected.outputs.sha }}
           path: |
+            .artifacts/post-deploy-build-info.json
             .artifacts/post-deploy-release-authority.json
             .artifacts/public-login.html
             .artifacts/public-login.css

@@ -44,6 +44,7 @@
 // `AutomationView` defaults to `AUTOMATION_VIEWER_NOT_ESTABLISHED` — now
 // itself fail-closed for every mutation this surface gates on a role.
 import AutomationView from "./automation-view";
+import { MetaBusinessScopeRefusal } from "../legacy-page";
 import { buildAutomationViewerEnvelope } from "./viewer-envelope";
 import type { AutomationViewerEnvelope } from "./viewer-envelope";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
@@ -82,10 +83,27 @@ export default async function LegacyMetaAutomationPage(
     exact same authorization below. A query value still wins only after that
     authorization; neither source is trusted directly.
   */
-  const activeBusinessId = requestedBusinessId
-    ? null
-    : (await getSessionFromCookies().catch(() => null))?.activeBusinessId ?? null;
-  const businessId = requestedBusinessId ?? activeBusinessId;
+  const activeBusinessId =
+    (await getSessionFromCookies().catch(() => null))?.activeBusinessId ?? null;
+
+  if (
+    requestedBusinessId &&
+    requestedBusinessId !== activeBusinessId
+  ) {
+    const requestedAccess = await requireBusinessPageContext({
+      businessId: requestedBusinessId,
+    }).catch(() => null);
+    return (
+      <MetaBusinessScopeRefusal
+        requestedBusinessId={requestedBusinessId}
+        requestedBusinessName={null}
+        activeBusinessName={null}
+        canSwitchSession={requestedAccess?.kind === "ok"}
+      />
+    );
+  }
+
+  const businessId = activeBusinessId;
 
   // Server-AUTHORIZED scope, passed to `AutomationView` only together and
   // only on success — see the file header for exactly why `undefined` (not
@@ -155,6 +173,7 @@ export default async function LegacyMetaAutomationPage(
     <AutomationView
       businessId={authorizedBusinessId}
       providerAccountId={authorizedProviderAccountId}
+      accountSelection="local"
       viewer={viewer}
       stateHistoryReadiness={stateHistoryReadiness}
       budgetWriteReadiness={budgetWriteReadiness}

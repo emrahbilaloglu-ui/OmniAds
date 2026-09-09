@@ -19,11 +19,58 @@ import type {
   CommercialAnchorExplanation,
 } from "./commercial-anchor";
 
-export const ENGINE_VERSION =
-  "v3-2026-07-18-decision-presentation-hardening";
+/*
+  Producer epoch. Bumped from `v3-2026-07-18-decision-presentation-hardening`
+  for the held-verdict authority change.
+
+  INVARIANTS.md: "Any change to canonical decision provenance, reason/hash
+  semantics, or authority ordering requires a new versioned producer/evaluation
+  contract; old snapshots remain readable under their original version key."
+
+  `buildCanonicalEvaluationProvenance` (canonical-evaluation.ts) feeds
+  `reason`, `blockers`, `preAuthorityLabel`, `authorityBlocker`,
+  `blockedActionType` and `engineVersion` into the sha256 `decisionHash`, and
+  `ratioZonesGate` now moves all five for identical inputs: near-scale rows
+  carry numeric `scale_account_benchmark_ready` observed/threshold instead of
+  a prose sentence, a scale-zone row whose only gap is the account winner
+  benchmark publishes a held `scale`, and a decayed row with no lifecycle
+  verdict publishes a held `refresh`. Both epochs move because `ratioZonesGate`
+  is shared: it resolves legacy creative decisions and native Ad decisions from
+  the same code.
+
+  The native epoch moves for two further producer changes inside this same
+  unreleased bump, both ad-grain only. `HYDRATE_AD_DECISION_INPUTS_QUERY`
+  (data-source.ts) now materializes the equal, disjoint 14/14 `adBandEvidence`
+  pair, so a decayed native Ad with complete evidence can reach `fatigued` and
+  publish a HARD `refresh` instead of only ever being held. And
+  `nativeAdLifecycleEvidenceBlockers` (jobs/ad-decisions-job.ts) publishes the
+  contract version and the FULL evidence hash on `blockers` for BOTH the held
+  and the authorized Refresh, which moves `decisionHash` for authorized rows
+  that previously carried no lifecycle provenance at all.
+
+  Nothing rewrites history: rows already in `engine_v3_*` keep the epoch string
+  they were written with, and every reader compares against these constants
+  rather than parsing them (`decisions-workspace-read-model.ts` reports
+  `engine_epoch_mismatch` / `engine_version_drift`, which is "not current", not
+  "unreadable").
+
+  SUPERSEDED BY ROUND 4, and stated here because this paragraph used to say the
+  opposite: the envelope shape DID change. Excluding Shopify from hashed
+  identity replaced the bare `SpendUnitEvidence` spread in
+  `normalizeSpendUnitEvidence` with an enumerated projection, which changes
+  WHICH FIELDS the envelope hashes rather than only what the producer decides.
+  Both evaluation keys therefore moved with it:
+  `CANONICAL_EVALUATION_CONTRACT_VERSION` to `engine-v3-canonical-evaluation.v6`
+  and `AD_DECISION_EVALUATION_CONTRACT_VERSION` to
+  `engine-v3-canonical-ad-evaluation.v8` — the latter because
+  `buildAdCanonicalEvaluationProvenance` stamps it over the base version in all
+  three payloads, so on the native Ad path it is the only key that ever labels a
+  persisted row.
+*/
+export const ENGINE_VERSION = "v3-2026-09-07-held-verdict-authority";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-07-18-decision-presentation-hardening-shadow";
+  "v3-ad-2026-09-07-held-verdict-authority-shadow";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -434,6 +481,63 @@ export interface AdDecisionMetricEvidence {
 }
 
 /**
+ * One materialized ad-grain observation window.
+ *
+ * Materialized, not differenced. `DECISION_LOG.md` D037: "Runtime hydration
+ * materializes that direct `prior14` period from daily facts; it is not
+ * reconstructed by subtracting rates without denominators." Every field is the
+ * window's own SUM over `meta_ad_daily`, so the rates below are computed from
+ * that window's own numerator and denominator.
+ *
+ * `clicks` and `linkClicks` are separate on purpose: CTR is
+ * `clicks / impressions` and click-to-purchase is `purchases / linkClicks`.
+ * They measure different funnel stages and Meta reports them as different
+ * fields.
+ */
+export interface AdDisjointBandObservation {
+  /** Inclusive first date of the window, `YYYY-MM-DD`. */
+  startDate: string;
+  /** Inclusive last date of the window, `YYYY-MM-DD`. */
+  endDate: string;
+  spend: number | null;
+  purchases: number | null;
+  revenue: number | null;
+  impressions: number | null;
+  clicks: number | null;
+  linkClicks: number | null;
+}
+
+/**
+ * The two equal, disjoint, directly adjacent ad-grain periods that
+ * `INVARIANTS.md` requires for a fatigue decay comparison: "When recent14
+ * exists, creative fatigue decay must use the directly preceding disjoint
+ * prior14 period. Overlapping cumulative rates are not a substitute."
+ *
+ * Produced by the `ad_bands` CTE in `HYDRATE_AD_DECISION_INPUTS_QUERY`
+ * (`lib/creative-decision-engine/data-source.ts`), which sums `meta_ad_daily`
+ * separately over `cutoff-13..cutoff` and `cutoff-27..cutoff-14` and carries
+ * `clicks` and `link_clicks` alongside spend/conversions/revenue/impressions
+ * so both composite denominators exist per band. The window bounds are emitted
+ * by that query rather than re-derived here, so the dates always describe the
+ * rows that were summed.
+ *
+ * Optional because the producer withholds it for an ad with no finalized
+ * ad-day rows in the window at all; such an ad already carries
+ * `metricEvidence.performanceMetricsObserved: false`, and
+ * `computeNativeAdLifecycleEvidence` withholds its verdict for that reason
+ * first.
+ */
+export interface AdDisjointBandEvidence {
+  /**
+   * The decision cutoff the windows were materialized against, `YYYY-MM-DD`.
+   * Any band ending after it is discarded rather than trusted.
+   */
+  cutoffDate: string;
+  recent14: AdDisjointBandObservation;
+  prior14: AdDisjointBandObservation;
+}
+
+/**
  * Native Meta Ads decision input. Identity is business/account/ad; creativeId
  * is nullable portfolio grouping only and must never own provider execution.
  */
@@ -464,6 +568,14 @@ export interface AdDecisionInput extends Omit<
   metricEvidence: AdDecisionMetricEvidence;
   statusEvidence: AdDecisionStatusEvidence;
   creativeEvidence: AdCreativeEvidenceOverlay;
+  /**
+   * Equal, disjoint 14/14 ad-grain windows, hydrated by the `ad_bands` CTE in
+   * `HYDRATE_AD_DECISION_INPUTS_QUERY`. Absent means the ad-level fatigue
+   * verdict is withheld, never that the ad is healthy. `toResolverInput`
+   * strips it before the resolver runs — it is producer evidence, not resolver
+   * input.
+   */
+  adBandEvidence?: AdDisjointBandEvidence | null;
 }
 
 /** Per-business runtime configuration (Tier 2). */
@@ -864,7 +976,26 @@ export interface DecisionPredicateBlocker {
   predicate: string;
   observed: string | number | null;
   threshold: string | number | null;
-  status: "failed" | "missing";
+  /**
+   * `failed` — the predicate was evaluated and did not clear its threshold.
+   * `missing` — the evidence the predicate needs does not exist.
+   * `passed` — PROVENANCE, not a restriction: the predicate was evaluated and
+   * cleared, and the entry exists only so the contract and evidence hash that
+   * cleared it are canonicalized into `decision_output_json` alongside the
+   * held case. `normalizeDecision` in `canonical-evaluation.ts` is the only
+   * writer of that field, so a `passed` entry is the only way an AUTHORIZED
+   * verdict can carry its evidence lineage at all.
+   *
+   * A `passed` entry must never be read as a blocker. Nothing in the read path
+   * does: `bridgeV3DecisionToV21` in `lib/creative-decision-center/v3-bridge.ts`
+   * builds `blockerReasons` from badges and campaign-role tags and never reads
+   * `DecisionOutput.blockers`, and `resolutionForAuthorityBlocker` in
+   * `lib/meta/decision-semantics.ts` matches on `predicate` alone. The one
+   * remaining reader is `buildDecisionExplainability` in
+   * `app/api/creatives/briefing/card-serialization.ts`, which counts and
+   * stringifies every entry with its status.
+   */
+  status: "failed" | "missing" | "passed";
   severity: "info" | "warning";
   reason: string;
 }

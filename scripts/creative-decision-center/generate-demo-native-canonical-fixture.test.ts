@@ -63,15 +63,39 @@ describe("demo native canonical fixture generator", () => {
     expect(generated).toBe(committed);
   });
 
+  it("keeps a Test-cohort Refresh candidate held and confidence-capped after its Cut transform", () => {
+    const fixture = buildDemoNativeCanonicalFixture();
+    const heldRefresh = fixture.items.find((item) => item.adId === "m-ad-5");
+
+    expect(heldRefresh).toMatchObject({
+      lifecycleRole: "test",
+      sourceLabel: "keep",
+      preAuthorityLabel: "cut",
+      heldAction: "cut",
+      authorityBlocker: "native_metrics_unavailable",
+      decisionState: "blocked",
+      confidence: 65,
+      buyerAction: null,
+      executionAction: null,
+    });
+    expect(heldRefresh?.badges).toContain("lifecycle_unavailable");
+    expect(heldRefresh?.blockerCodes).toContain(
+      "refresh_ad_lifecycle_evidence",
+    );
+  });
+
   it("uses the canonical server projection for Main-scale semantics while keeping demo execution closed", () => {
     const fixture = buildDemoNativeCanonicalFixture();
     const mainScale = fixture.items.find((item) => item.adId === "m-ad-1");
 
+    // `main` is a RESOLVED campaign role, so its Scale sits in the Act lane
+    // like every other resolved role; only `role_unresolved` stays on monitor.
+    // Execution stays closed regardless: demo inventory is review evidence.
     expect(mainScale).toMatchObject({
       sourceLabel: "scale",
       lifecycleRole: "main",
       assessment: "proven_winner",
-      decisionState: "monitor",
+      decisionState: "act",
       buyerAction: "scale",
       buyerLabel: "Scale - Scale budget",
       executionAction: null,

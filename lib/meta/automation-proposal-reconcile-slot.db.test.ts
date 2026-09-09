@@ -33,7 +33,10 @@
  * happens to be — which, in this repo, is production.
  */
 import { NextRequest } from "next/server";
+import { Client } from "pg";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 
 const SEAM = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
 
@@ -64,7 +67,10 @@ vi.mock("@/lib/meta/automation-proposal-execution", () => ({
       proposal: { id: string; scopeId: string };
       receiptKey?: string | null;
       dryRunOnly: boolean;
+      markDispatchStarted?: () => Promise<boolean>;
     }) => {
+      const marked = await input.markDispatchStarted?.();
+      if (marked === false) throw new Error("fake provider dispatch marker failed");
       providerCalls.push({
         proposalId: input.proposal.id,
         receiptKey: input.receiptKey ?? null,
@@ -74,11 +80,15 @@ vi.mock("@/lib/meta/automation-proposal-execution", () => ({
         receipt: {
           httpStatus: 200,
           response: { ok: true, fakeProvider: true },
-          dryRun: input.dryRunOnly,
+          // This seam injects a provider answer so it can test the bookkeeping
+          // failure after a real attempt, independently of the host's release
+          // gate. The provider itself remains a counting fake.
+          dryRun: false,
           dispatchedAt: new Date().toISOString(),
           endpoint: `/api/meta/adsets/${input.proposal.scopeId}/pause`,
           withheld: null,
           receiptKey: input.receiptKey ?? null,
+          providerMutationAttempted: true,
         },
       };
     },
@@ -110,11 +120,40 @@ function approveRequest(proposalId: string) {
 
 async function seedProposal(input: {
   scopeId: string;
+  providerAccountId?: string;
   status?: string;
   recType?: string;
   claimToken?: string | null;
   dispatchStarted?: boolean;
 }) {
+  const providerAccountId = input.providerAccountId ?? PROVIDER_ACCOUNT_ID;
+  const recType = input.recType ?? "scenario_reconcile_cut";
+  /*
+    Claimable engine rows must own the exact current decision they project.
+    Seeding the proposal alone would now be a deliberate stale-source case and
+    could never reach the provider double this seam is meant to exercise.
+  */
+  await getDb().query(
+    `INSERT INTO meta_adset_dimensions
+       (business_id, provider_account_id, campaign_id, adset_id,
+        adset_name_current, adset_status)
+     VALUES ($1::uuid, $2, 'camp_reconcile', $3, 'Reconcile ad set', 'ACTIVE')
+     ON CONFLICT DO NOTHING`,
+    [seeded.businessId, providerAccountId, input.scopeId],
+  );
+  await getDb().query(
+    `INSERT INTO meta_decision_snapshots_daily (
+       scope_type, scope_id, business_id, snapshot_date, rec_id, rec_type,
+       level, decision_state, evidence, recommended_action, target_value,
+       reasoning, engine_version, kind, decision_label, provider_account_id
+     ) VALUES (
+       'adset', $1, $2, CURRENT_DATE, 'rec_reconcile', $3,
+       'adset', 'act', '{}'::jsonb, 'Pause this ad set.', NULL,
+       'ROAS below breakeven for 6 days.', 'meta-v3', 'recommendation', 'cut', $4
+     )
+     ON CONFLICT DO NOTHING`,
+    [input.scopeId, seeded.businessId, recType, providerAccountId],
+  );
   const rows = (await getDb().query<{ id: string }>(
     `
       INSERT INTO meta_automation_proposals (
@@ -137,10 +176,10 @@ async function seedProposal(input: {
     `,
     [
       seeded.businessId,
-      PROVIDER_ACCOUNT_ID,
+      providerAccountId,
       `adset:${input.scopeId}`,
       input.scopeId,
-      input.recType ?? "scenario_reconcile_cut",
+      recType,
       input.status ?? "pending",
       input.claimToken ?? null,
       seeded.userId,
@@ -155,14 +194,17 @@ async function readRow(proposalId: string) {
     status: string;
     claim_token: string | null;
     dispatch_started_at: string | null;
+    decision_note: string | null;
   }>(
-    `SELECT status, claim_token::text AS claim_token, dispatch_started_at
+    `SELECT status, claim_token::text AS claim_token, dispatch_started_at,
+            decision_note
      FROM meta_automation_proposals WHERE id = $1::uuid`,
     [proposalId],
   )) as Array<{
     status: string;
     claim_token: string | null;
     dispatch_started_at: string | null;
+    decision_note: string | null;
   }>;
   return rows[0]!;
 }
@@ -318,6 +360,124 @@ describe.runIf(SEAM)("a reconcile row holds the entity's action slot", () => {
     const response = await POST(approveRequest(heldId));
     expect(response.status).toBe(409);
     expect(providerCalls).toHaveLength(0);
+  });
+
+  it("withdraws, re-offers, and revokes pause authority per provider account", async () => {
+    const siblingAccount = "act_reconcile_sibling";
+    const sharedScopeId = "adset_same_external_id";
+    const todayRows = (await getDb().query<{ today: string }>(
+      `SELECT CURRENT_DATE::text AS today`,
+    )) as Array<{ today: string }>;
+    const today = todayRows[0]!.today;
+
+    // Earlier cases intentionally leave one untouched pending row behind. This
+    // case measures a business-wide reconciliation, so isolate its candidate
+    // set before asserting the exact withdrawal count.
+    await getDb().query(
+      `DELETE FROM meta_automation_proposals
+        WHERE business_id = $1::uuid AND status = 'pending'
+          AND claim_token IS NULL AND dispatch_started_at IS NULL`,
+      [seeded.businessId],
+    );
+    await getDb().query(
+      `DELETE FROM meta_decision_snapshots_daily
+        WHERE business_id = $1 AND snapshot_date = CURRENT_DATE`,
+      [seeded.businessId],
+    );
+
+    for (const accountId of [PROVIDER_ACCOUNT_ID, siblingAccount]) {
+      await getDb().query(
+        `INSERT INTO meta_adset_dimensions
+           (business_id, provider_account_id, campaign_id, adset_id,
+            adset_name_current, adset_status)
+         VALUES ($1::uuid, $2, 'camp_shared', $3, 'Shared external id', 'ACTIVE')
+         ON CONFLICT DO NOTHING`,
+        [seeded.businessId, accountId, sharedScopeId],
+      );
+      await getDb().query(
+        `INSERT INTO meta_decision_snapshots_daily (
+           scope_type, scope_id, business_id, snapshot_date, rec_id, rec_type,
+           level, decision_state, evidence, recommended_action, target_value,
+           reasoning, engine_version, kind, decision_label, provider_account_id
+         ) VALUES (
+           'adset', $1, $2, $3::date, 'rec_reconcile',
+           'scenario_reconcile_cut', 'adset', 'act', '{}'::jsonb,
+           'Pause this ad set.', NULL, 'ROAS is below the configured floor.',
+           'meta-v3', 'recommendation', 'cut', $4
+         )`,
+        [sharedScopeId, seeded.businessId, today, accountId],
+      );
+    }
+
+    const primaryId = await seedProposal({
+      scopeId: sharedScopeId,
+      providerAccountId: PROVIDER_ACCOUNT_ID,
+    });
+    const siblingId = await seedProposal({
+      scopeId: sharedScopeId,
+      providerAccountId: siblingAccount,
+    });
+
+    const preRefresh = await store.reconcileMetaEngineDecisionProposalsForSnapshot({
+      businessId: seeded.businessId,
+      snapshotDate: today,
+      attemptedProviderAccountIds: [PROVIDER_ACCOUNT_ID, siblingAccount],
+      fulfilledProviderAccountIds: [],
+    });
+    expect(preRefresh).toEqual({ ran: true, withdrawn: 2 });
+    expect(await readRow(primaryId)).toMatchObject({
+      status: "expired",
+      decision_note: "engine_decision_source_withdrawn",
+    });
+    expect(await readRow(siblingId)).toMatchObject({
+      status: "expired",
+      decision_note: "engine_decision_source_withdrawn",
+    });
+
+    const projected = await store.projectMetaAutomationProposals({
+      businessId: seeded.businessId,
+      snapshotDate: today,
+      providerAccountIds: [PROVIDER_ACCOUNT_ID],
+      readModes: async () => ({ pause: "semi_auto" }) as never,
+    });
+    expect(projected.projected).toBe(1);
+    expect(await readRow(primaryId)).toMatchObject({
+      status: "pending",
+      decision_note: null,
+    });
+    expect(await readRow(siblingId)).toMatchObject({
+      status: "expired",
+      decision_note: "engine_decision_source_withdrawn",
+    });
+
+    await getDb().query(
+      `UPDATE meta_decision_snapshots_daily
+          SET decision_state = 'watch'
+        WHERE business_id = $1 AND provider_account_id = $2
+          AND snapshot_date = $3::date AND scope_id = $4
+          AND rec_type = 'scenario_reconcile_cut'`,
+      [seeded.businessId, PROVIDER_ACCOUNT_ID, today, sharedScopeId],
+    );
+    const staleClaim = await store.claimMetaAutomationProposal({
+      businessId: seeded.businessId,
+      providerAccountId: PROVIDER_ACCOUNT_ID,
+      proposalId: primaryId,
+      claimedBy: seeded.userId,
+    });
+    expect(staleClaim.status).toBe("conflict");
+    expect(providerCalls).toHaveLength(0);
+
+    const downgraded = await store.reconcileMetaEngineDecisionProposalsForSnapshot({
+      businessId: seeded.businessId,
+      snapshotDate: today,
+      attemptedProviderAccountIds: [PROVIDER_ACCOUNT_ID],
+      fulfilledProviderAccountIds: [PROVIDER_ACCOUNT_ID],
+    });
+    expect(downgraded).toEqual({ ran: true, withdrawn: 1 });
+    expect(await readRow(primaryId)).toMatchObject({
+      status: "expired",
+      decision_note: "engine_decision_source_withdrawn",
+    });
   });
 });
 
@@ -622,5 +782,281 @@ describe.runIf(SEAM)("the post-dispatch settle exception", () => {
     // module in the tree that can call Meta from this path is the executor, and
     // it is a vitest mock for the entire file.
     expect(vi.isMockFunction(executor.executeMetaAutomationProposal)).toBe(true);
+  });
+});
+
+describe.runIf(SEAM)("native proposal generation authority", () => {
+  it("hides and refuses to claim the retained cut after a newer failed or account-incomplete generation", async () => {
+    const connectionString = process.env.DATABASE_URL?.trim();
+    if (!connectionString) throw new Error("ephemeral DATABASE_URL is missing");
+    const client = new Client({ connectionString });
+    await client.connect();
+
+    const businessId = "a1100000-0000-4000-8000-000000000001";
+    const otherBusinessId = "a1100000-0000-4000-8000-000000000002";
+    const accountId = "act_native_generation_authority";
+    const accountRefId = "a1200000-0000-4000-8000-000000000001";
+    const otherAccountId = "act_native_generation_other";
+    const decisionId = "a1300000-0000-4000-8000-000000000001";
+    const evaluationId = "a1400000-0000-4000-8000-000000000001";
+    const successfulRunId = "a1500000-0000-4000-8000-000000000001";
+    const failedRunId = "a1500000-0000-4000-8000-000000000002";
+    const proposalId = "a1600000-0000-4000-8000-000000000001";
+    const adId = "ad_native_generation_authority";
+    const creativeId = "creative_native_generation_authority";
+    const decisionHash = "d".repeat(64);
+    const manifestHash = "e".repeat(64);
+    const decisionKey = `ad:${adId}`;
+    const completeReceipt = {
+      provider_account_ref_id: accountRefId,
+      provider_account_id: accountId,
+      expected_ad_count: 1,
+      expected_manifest_hash: manifestHash,
+      hydrated_ad_count: 1,
+      hydrated_manifest_hash: manifestHash,
+      authoritative_for_prune: true,
+    };
+
+    try {
+      /*
+        These are session-local source/queue tables with the production columns
+        the predicate reads. PostgreSQL evaluates the exact production
+        predicate below; no mock decides which generation is authoritative.
+      */
+      await client.query(`
+        CREATE TEMP TABLE engine_v3_job_runs (
+          id UUID PRIMARY KEY,
+          job_name TEXT NOT NULL,
+          business_ref_id UUID NOT NULL,
+          business_id TEXT,
+          as_of_date DATE NOT NULL,
+          engine_version TEXT NOT NULL,
+          status TEXT NOT NULL,
+          started_at TIMESTAMPTZ NOT NULL,
+          finished_at TIMESTAMPTZ,
+          error_message TEXT,
+          error_json JSONB
+        );
+        CREATE TEMP TABLE engine_v3_ad_decision_snapshots_daily (
+          id UUID PRIMARY KEY,
+          business_id TEXT NOT NULL,
+          provider_account_ref_id UUID NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          ad_id TEXT NOT NULL,
+          creative_id TEXT,
+          as_of_date DATE NOT NULL,
+          engine_version TEXT NOT NULL,
+          label TEXT NOT NULL,
+          authorized_action TEXT,
+          job_run_id UUID NOT NULL,
+          evaluation_id UUID NOT NULL,
+          decision_hash TEXT NOT NULL,
+          computed_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE TEMP TABLE native_proposal_fixture (
+          id UUID PRIMARY KEY,
+          business_id UUID NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          snapshot_date DATE NOT NULL,
+          scope_id TEXT NOT NULL,
+          rec_id TEXT NOT NULL,
+          engine_version TEXT NOT NULL,
+          decision_key TEXT NOT NULL,
+          evidence_ref JSONB NOT NULL,
+          claimed BOOLEAN NOT NULL DEFAULT FALSE
+        );
+      `);
+      await client.query(
+        `INSERT INTO engine_v3_job_runs (
+           id, job_name, business_ref_id, business_id, as_of_date,
+           engine_version, status, started_at, finished_at, error_json
+         ) VALUES (
+           $1::uuid, 'engine_v3_native_ad_decisions_shadow_job',
+           $2::uuid, $2::text,
+           (statement_timestamp() AT TIME ZONE 'UTC')::date,
+           $3, 'success',
+           NOW() - INTERVAL '30 minutes', NOW() - INTERVAL '29 minutes',
+           $4::jsonb
+         )`,
+        [
+          successfulRunId,
+          businessId,
+          NATIVE_AD_ENGINE_VERSION,
+          JSON.stringify({
+            metadata: { hydration_receipts: [completeReceipt] },
+          }),
+        ],
+      );
+      await client.query(
+        `INSERT INTO engine_v3_ad_decision_snapshots_daily (
+           id, business_id, provider_account_ref_id, provider_account_id,
+           ad_id, creative_id, as_of_date, engine_version, label,
+           authorized_action, job_run_id, evaluation_id, decision_hash,
+           computed_at
+         ) VALUES (
+           $1::uuid, $2, $3::uuid, $4, $5, $6,
+           (statement_timestamp() AT TIME ZONE 'UTC')::date, $7,
+           'cut', 'cut', $8::uuid, $9::uuid, $10,
+           NOW() - INTERVAL '29 minutes'
+         )`,
+        [
+          decisionId,
+          businessId,
+          accountRefId,
+          accountId,
+          adId,
+          creativeId,
+          NATIVE_AD_ENGINE_VERSION,
+          successfulRunId,
+          evaluationId,
+          decisionHash,
+        ],
+      );
+      await client.query(
+        `INSERT INTO native_proposal_fixture (
+           id, business_id, provider_account_id, snapshot_date, scope_id,
+           rec_id, engine_version, decision_key, evidence_ref
+         ) VALUES (
+           $1::uuid, $2::uuid, $3,
+           (statement_timestamp() AT TIME ZONE 'UTC')::date,
+           $4, $5, $6, $7, $8::jsonb
+         )`,
+        [
+          proposalId,
+          businessId,
+          accountId,
+          adId,
+          evaluationId,
+          NATIVE_AD_ENGINE_VERSION,
+          decisionKey,
+          JSON.stringify({
+            snapshotId: decisionId,
+            evaluationId,
+            creativeId,
+            decisionHash,
+            decisionKey,
+            snapshotDate: new Date().toISOString().slice(0, 10),
+          }),
+        ],
+      );
+
+      const predicate = store.currentNativeAdDecisionSourcePredicate(
+        "proposal",
+        true,
+      );
+      const read = () =>
+        client.query<{ id: string }>(
+          `SELECT proposal.id::text AS id
+             FROM native_proposal_fixture proposal
+            WHERE proposal.id = $1::uuid
+              AND ${predicate}`,
+          [proposalId],
+        );
+      const claim = () =>
+        client.query<{ id: string }>(
+          `UPDATE native_proposal_fixture proposal
+              SET claimed = TRUE
+            WHERE proposal.id = $1::uuid
+              AND proposal.claimed = FALSE
+              AND ${predicate}
+          RETURNING proposal.id::text AS id`,
+          [proposalId],
+        );
+
+      expect((await read()).rows.map((row) => row.id)).toEqual([proposalId]);
+
+      // A later failure from another business, an older day, or another job is
+      // outside this source's authority boundary and must not revoke it.
+      await client.query(
+        `INSERT INTO engine_v3_job_runs (
+           id, job_name, business_ref_id, business_id, as_of_date,
+           engine_version, status, started_at, finished_at
+         ) VALUES
+           (gen_random_uuid(), 'engine_v3_native_ad_decisions_shadow_job',
+            $1::uuid, $1::text,
+            (statement_timestamp() AT TIME ZONE 'UTC')::date,
+            $3, 'failed',
+            NOW() - INTERVAL '5 minutes', NOW() - INTERVAL '4 minutes'),
+           (gen_random_uuid(), 'engine_v3_native_ad_decisions_shadow_job',
+            $2::uuid, $2::text,
+            (statement_timestamp() AT TIME ZONE 'UTC')::date - 1,
+            $3, 'failed',
+            NOW() - INTERVAL '3 minutes', NOW() - INTERVAL '2 minutes'),
+           (gen_random_uuid(), 'engine_v3_native_ad_operator_response_shadow_job',
+            $2::uuid, $2::text,
+            (statement_timestamp() AT TIME ZONE 'UTC')::date,
+            $3, 'failed',
+            NOW() - INTERVAL '1 minute', NOW())`,
+        [otherBusinessId, businessId, NATIVE_AD_ENGINE_VERSION],
+      );
+      expect((await read()).rows).toHaveLength(1);
+
+      // This is the production failure: it writes no replacement decision row.
+      // The morning row is still the latest row, but no longer belongs to the
+      // latest authoritative generation.
+      await client.query(
+        `INSERT INTO engine_v3_job_runs (
+           id, job_name, business_ref_id, business_id, as_of_date,
+           engine_version, status, started_at, finished_at, error_message
+         ) VALUES (
+           $1::uuid, 'engine_v3_native_ad_decisions_shadow_job',
+           $2::uuid, $2::text,
+           (statement_timestamp() AT TIME ZONE 'UTC')::date,
+           $3, 'failed',
+           NOW() - INTERVAL '5 minutes', NOW() - INTERVAL '4 minutes',
+           'injected newer generation failure'
+         )`,
+        [failedRunId, businessId, NATIVE_AD_ENGINE_VERSION],
+      );
+      expect((await read()).rows).toHaveLength(0);
+      expect((await claim()).rows).toHaveLength(0);
+      expect(
+        (
+          await client.query<{ claimed: boolean }>(
+            `SELECT claimed FROM native_proposal_fixture WHERE id = $1::uuid`,
+            [proposalId],
+          )
+        ).rows[0]?.claimed,
+      ).toBe(false);
+
+      // A nominally successful run without exactly one complete receipt for
+      // this provider account is unavailable for this account and also closed.
+      await client.query(`DELETE FROM engine_v3_job_runs WHERE id = $1::uuid`, [
+        failedRunId,
+      ]);
+      await client.query(
+        `UPDATE engine_v3_job_runs
+            SET error_json = $2::jsonb
+          WHERE id = $1::uuid`,
+        [
+          successfulRunId,
+          JSON.stringify({
+            metadata: {
+              hydration_receipts: [
+                { ...completeReceipt, provider_account_id: otherAccountId },
+              ],
+            },
+          }),
+        ],
+      );
+      expect((await read()).rows).toHaveLength(0);
+      expect((await claim()).rows).toHaveLength(0);
+
+      // Positive control for the same guarded UPDATE after authority returns.
+      await client.query(
+        `UPDATE engine_v3_job_runs
+            SET error_json = $2::jsonb
+          WHERE id = $1::uuid`,
+        [
+          successfulRunId,
+          JSON.stringify({
+            metadata: { hydration_receipts: [completeReceipt] },
+          }),
+        ],
+      );
+      expect((await claim()).rows.map((row) => row.id)).toEqual([proposalId]);
+    } finally {
+      await client.end();
+    }
   });
 });

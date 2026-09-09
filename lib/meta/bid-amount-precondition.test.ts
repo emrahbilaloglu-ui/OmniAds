@@ -171,9 +171,10 @@ describe("the live cap is re-proved immediately before the bid POST", () => {
       beforeMutationAttempt: async () => {
         order.push("journal");
       },
+      onProviderMutationAttempt: () => { order.push("attempt"); },
     });
 
-    expect(order).toEqual(["journal", "GET", "POST", "GET"]);
+    expect(order).toEqual(["journal", "GET", "attempt", "POST", "GET"]);
   });
 
   it("refuses a strategy that moved, before the write rather than after it", async () => {
@@ -198,6 +199,23 @@ describe("the live cap is re-proved immediately before the bid POST", () => {
       providerOutcome: "definite_failure",
     });
     expect(issuedMethods()).toEqual(["GET"]);
+  });
+
+  it("does not let a synchronous observation failure gate or repeat the POST", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(adsetState(1200))
+      .mockResolvedValueOnce(accepted())
+      .mockResolvedValueOnce(adsetState(1320));
+    const onProviderMutationAttempt = vi.fn(() => { throw new Error("observer failed"); });
+
+    const result = await updateAdsetBidAmount(ctx, {
+      adsetId: ADSET, bidAmountMinor: 1320, expectedCurrentBidAmountMinor: 1200,
+      onProviderMutationAttempt,
+    });
+
+    expect(result).toMatchObject({ ok: true, verifiedBidAmount: 1320 });
+    expect(onProviderMutationAttempt).toHaveBeenCalledOnce();
+    expect(issuedMethods()).toEqual(["GET", "POST", "GET"]);
   });
 
   it("refuses when the pre-POST read is not about this ad set", async () => {

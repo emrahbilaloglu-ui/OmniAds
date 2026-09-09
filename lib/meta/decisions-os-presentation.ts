@@ -16,6 +16,11 @@ import type {
   MetaStructureInventoryEntity,
 } from "@/components/meta/redesign/types";
 import type { MetaDecisionPipelineHealth } from "@/lib/meta/decision-pipeline-health";
+import type { HardActionEligibility } from "@/lib/creative-decision-engine/types";
+import type {
+  CommercialAnchorBlockerCode,
+  CommercialAnchorInputCode,
+} from "@/lib/creative-decision-engine/commercial-anchor";
 import { isCampaignContextResolverAuthorityValidated } from "@/lib/creative-decision-engine/campaign-context/source";
 import {
   toCanonicalDecisionAction,
@@ -138,14 +143,38 @@ type InactiveStructureInput = {
 type StructureInput = {
   rec: MetaRecommendation;
   lane: MetaOsDecisionLane;
-  targetAuthorityBlocker: MetaTargetHardAction | null;
+  targetAuthorityBlocker: MetaTargetAuthorityBlocker | null;
 };
 
-export type MetaTargetHardAction = "scale" | "cut";
+export type MetaTargetHardAction = "scale" | "cut" | "refresh";
+
+type MetaStructureTargetHardAction = Exclude<MetaTargetHardAction, "refresh">;
 
 export type MetaTargetHardActionEligibility = Readonly<
   Record<MetaTargetHardAction, boolean>
->;
+> & {
+  codes?: Partial<Record<MetaTargetHardAction, CommercialAnchorBlockerCode | null>>;
+  reasons?: Partial<Record<MetaTargetHardAction, string | null>>;
+  missingInputs?: readonly CommercialAnchorInputCode[];
+};
+
+type MetaTargetAuthorityBlocker = {
+  action: MetaTargetHardAction;
+  code: CommercialAnchorBlockerCode | null;
+  /** Canonical profile reason. It is evidence for diagnostics, never UI copy. */
+  reason: string | null;
+  missingInputs: readonly CommercialAnchorInputCode[];
+};
+
+type MetaTargetAuthorityPresentation = {
+  blockerLabel: string;
+  actionCode: string;
+  actionLabel: string;
+  scopeNote: string;
+  expectedImpact: string;
+  watchSegment: NonNullable<MetaRecommendation["watchSegment"]>;
+  missingEvidenceCode?: string;
+};
 
 const PRIORITY_WEIGHT = { high: 3, medium: 2, low: 1 } as const;
 const CONFIDENCE_WEIGHT = { high: 3, medium: 2, low: 1 } as const;
@@ -162,7 +191,7 @@ function finite(value: number | null | undefined) {
 
 export function metaStructureTargetHardAction(
   rec: MetaRecommendation,
-): MetaTargetHardAction | null {
+): MetaStructureTargetHardAction | null {
   if (rec.decisionLabel === "scale") return "scale";
   if (
     rec.decisionLabel === "cut" ||
@@ -176,12 +205,133 @@ export function metaStructureTargetHardAction(
   return null;
 }
 
+function targetAuthorityBlockerForAction(
+  action: MetaTargetHardAction | null,
+  eligibility: MetaTargetHardActionEligibility,
+): MetaTargetAuthorityBlocker | null {
+  if (!action || eligibility[action]) return null;
+  return {
+    action,
+    code: eligibility.codes?.[action] ?? null,
+    reason: eligibility.reasons?.[action] ?? null,
+    missingInputs: eligibility.missingInputs ?? [],
+  };
+}
+
 function targetAuthorityBlocker(
   rec: MetaRecommendation,
   eligibility: MetaTargetHardActionEligibility,
 ) {
-  const action = metaStructureTargetHardAction(rec);
-  return action && !eligibility[action] ? action : null;
+  return targetAuthorityBlockerForAction(
+    metaStructureTargetHardAction(rec),
+    eligibility,
+  );
+}
+
+function targetAuthorityPresentation(
+  blocker: MetaTargetAuthorityBlocker,
+): MetaTargetAuthorityPresentation {
+  const actionName =
+    blocker.action === "scale"
+      ? "Scale"
+      : blocker.action === "cut"
+        ? "Cut"
+        : "Refresh";
+  const waitsForMetaPurchaseEvidence =
+    blocker.code === "commercial_anchor_sample_insufficient" ||
+    (blocker.code === "commercial_anchor_missing" &&
+      blocker.missingInputs.includes("meta_attributed_purchase_sample") &&
+      !blocker.missingInputs.includes("target_roas"));
+
+  if (waitsForMetaPurchaseEvidence) {
+    const thin = blocker.code === "commercial_anchor_sample_insufficient";
+    const blockerLabel = thin
+      ? "Meta purchase sample is still too small"
+      : "Meta purchase value evidence is unavailable";
+    return {
+      blockerLabel,
+      actionCode: "resolve_decision_inputs",
+      actionLabel: "Review Meta Purchase Evidence",
+      scopeNote: thin
+        ? `Meta's attributed purchase sample is too small to support a reliable account AOV, so no ${actionName} action is authorized`
+        : `A trusted Meta-attributed account AOV is unavailable, so no ${actionName} action is authorized`,
+      expectedImpact: `${actionName} remains on hold until Meta-attributed purchase evidence is ready.`,
+      watchSegment: "insufficient_signal",
+    };
+  }
+
+  if (blocker.code === "scale_calibration_below_floor") {
+    return {
+      blockerLabel: "Scale calibration evidence is still too thin",
+      actionCode: "resolve_decision_inputs",
+      actionLabel: "Review Scale Evidence",
+      scopeNote:
+        "The account calibration sample is below the Scale quality floor, so no Scale action is authorized",
+      expectedImpact: "Scale remains on hold until calibration evidence is ready.",
+      watchSegment: "insufficient_signal",
+    };
+  }
+
+  if (blocker.code === "target_roas_missing") {
+    return {
+      blockerLabel: "Current Target ROAS authority",
+      actionCode: "review_commercial_truth",
+      actionLabel: "Review Commercial Truth",
+      scopeNote:
+        `A current Target ROAS is required before a ${actionName} action can be authorized`,
+      expectedImpact:
+        "No provider change until current commercial truth is authoritative.",
+      watchSegment: "missing_target",
+      missingEvidenceCode: "current_target_roas_authority",
+    };
+  }
+
+  if (blocker.code === "break_even_roas_missing") {
+    return {
+      blockerLabel: "Current Target ROAS or break-even ROAS authority",
+      actionCode: "review_commercial_truth",
+      actionLabel: "Review Commercial Truth",
+      scopeNote:
+        "A current Target ROAS or break-even ROAS is required before a Cut action can be authorized",
+      expectedImpact:
+        "No provider change until current commercial truth is authoritative.",
+      watchSegment: "missing_target",
+      missingEvidenceCode: "current_break_even_roas_authority",
+    };
+  }
+
+  if (blocker.code === "commercial_anchor_provenance_unverified") {
+    return {
+      blockerLabel: "Commercial target provenance is not verified",
+      actionCode: "review_commercial_truth",
+      actionLabel: "Review Commercial Truth",
+      scopeNote:
+        "The current commercial target needs verified provenance before a hard action can be authorized",
+      expectedImpact:
+        "No provider change until current commercial truth is authoritative.",
+      watchSegment: "missing_target",
+    };
+  }
+
+  return {
+    blockerLabel:
+      blocker.action === "scale"
+        ? "Current target ROAS authority"
+        : blocker.action === "cut"
+          ? "Current commercial Cut authority"
+          : "Current commercial Refresh authority",
+    actionCode: "review_commercial_truth",
+    actionLabel: "Review Commercial Truth",
+    scopeNote:
+      blocker.action === "scale"
+        ? "Current target ROAS authority is unavailable; no Scale action is authorized"
+        : blocker.action === "cut"
+          ? "Current commercial Cut authority is unavailable; no Cut action is authorized"
+          : "Current commercial Refresh authority is unavailable; no Refresh action is authorized",
+    expectedImpact:
+      "No provider change until current commercial truth is authoritative.",
+    watchSegment: "missing_target",
+  };
 }
 
 function guardStructureRecommendationForCurrentTargets(
@@ -190,10 +340,7 @@ function guardStructureRecommendationForCurrentTargets(
 ) {
   const blocker = targetAuthorityBlocker(rec, eligibility);
   if (!blocker) return { rec, blocked: false as const };
-  const blockerLabel =
-    blocker === "scale"
-      ? "Current target ROAS authority"
-      : "Current break-even ROAS authority";
+  const presentation = targetAuthorityPresentation(blocker);
   const automationReadiness = rec.automationReadiness
     ? {
         ...rec.automationReadiness,
@@ -209,12 +356,12 @@ function guardStructureRecommendationForCurrentTargets(
         missingEvidence: Array.from(
           new Set([
             ...rec.automationReadiness.missingEvidence,
-            blocker === "scale"
-              ? "current_target_roas_authority"
-              : "current_break_even_roas_authority",
+            ...(presentation.missingEvidenceCode
+              ? [presentation.missingEvidenceCode]
+              : []),
           ]),
         ),
-        reason: `${blockerLabel} is unavailable, so the persisted hard action is review-only.`,
+        reason: `${presentation.blockerLabel}. The persisted hard action remains review-only.`,
       }
     : undefined;
 
@@ -225,17 +372,16 @@ function guardStructureRecommendationForCurrentTargets(
       decisionState: "watch" as const,
       stateReason: "current_commercial_target_authority_unavailable",
       actionKind: "review_drill" as const,
-      primaryActionLabel: "Review Commercial Truth",
-      recommendedAction: "Review Commercial Truth",
-      expectedImpact:
-        "No provider change until current commercial truth is authoritative.",
+      recommendedAction: presentation.actionLabel,
+      primaryActionLabel: presentation.actionLabel,
+      expectedImpact: presentation.expectedImpact,
       proposedAction: undefined,
       targetValue: undefined,
-      watchSegment: "missing_target" as const,
+      watchSegment: presentation.watchSegment,
       rowPresentation: {
         ...rec.rowPresentation,
         signal: "blocker" as const,
-        blockerLabel,
+        blockerLabel: presentation.blockerLabel,
         autoBadge: false,
       },
       ...(automationReadiness ? { automationReadiness } : {}),
@@ -279,6 +425,69 @@ export function revalidateMetaStructureLanesForCurrentTargets(
     },
     watchingSegments: buildMetaWatchingSegments(watching),
   };
+}
+
+/**
+ * Project the canonical account profile onto all three commercial hard actions.
+ * This copies no commercial rule: Target ROAS, Meta AOV and break-even
+ * semantics remain owned by AccountDecisionProfile.
+ */
+export function targetHardActionEligibilityFromAccountProfile(
+  eligibility:
+    | (Pick<HardActionEligibility, "scale" | "cut" | "refresh"> &
+        Partial<
+          Pick<HardActionEligibility, "reason" | "reasons" | "codes" | "anchor">
+        >)
+    | null,
+): MetaTargetHardActionEligibility {
+  const hasCanonicalReasons =
+    eligibility?.reason !== undefined || eligibility?.reasons !== undefined;
+  const reasons = hasCanonicalReasons
+    ? {
+        scale:
+          eligibility.reasons?.scale ??
+          (eligibility.scale ? null : eligibility.reason ?? null),
+        cut:
+          eligibility.reasons?.cut ??
+          (eligibility.cut ? null : eligibility.reason ?? null),
+        refresh:
+          eligibility.reasons?.refresh ??
+          (eligibility.refresh ? null : eligibility.reason ?? null),
+      }
+    : null;
+  return {
+    scale: eligibility?.scale === true,
+    cut: eligibility?.cut === true,
+    refresh: eligibility?.refresh === true,
+    ...(eligibility?.codes
+      ? {
+          codes: {
+            scale: eligibility.codes.scale ?? null,
+            cut: eligibility.codes.cut ?? null,
+            refresh: eligibility.codes.refresh ?? null,
+          },
+        }
+      : {}),
+    ...(reasons ? { reasons } : {}),
+    ...(eligibility?.anchor
+      ? { missingInputs: eligibility.anchor.missingInputs }
+      : {}),
+  };
+}
+
+export function revalidateMetaStructureLanesForAccountProfile(
+  lanes: MetaLanePayload,
+  eligibility:
+    | (Pick<HardActionEligibility, "scale" | "cut" | "refresh"> &
+        Partial<
+          Pick<HardActionEligibility, "reason" | "reasons" | "codes" | "anchor">
+        >)
+    | null,
+): MetaLanePayload {
+  return revalidateMetaStructureLanesForCurrentTargets(
+    lanes,
+    targetHardActionEligibilityFromAccountProfile(eligibility),
+  );
 }
 
 export function providerCurrencyValue(
@@ -449,10 +658,77 @@ function structureBudgetOwnership(rec: MetaRecommendation) {
   };
 }
 
+/**
+ * WHICH SHAPE OF STRUCTURE ACTION IS THIS?
+ *
+ * Decided from TYPED fields only — the authority blocker, `decisionLabel`,
+ * `actionKind` and `campaignKind` — never from the producer's operator copy.
+ *
+ * Its predecessor decided the same question by matching English against that
+ * copy: `/\bscale\b/i.test(label)` chose the budget rewrite, `/^cut\b/i` chose
+ * the pause verb, `/review structure\s*&\s*scale/i` chose the structure label
+ * and `/budget/i.test(label)` chose the served `intent`. Two consequences,
+ * both real in this repository:
+ *
+ *   - `/\bscale\b/i` matches "Review structure & scale", and it was tested
+ *     FIRST, so the branch written to serve "Review Structure" was
+ *     unreachable and the one campaign kind D016 says must review its
+ *     structure before any execution instruction — `mixed` — was served a
+ *     budget instruction instead. An inversion, produced by word order.
+ *   - `intent` is authority-bearing. `launchModeForServedStructureAction` in
+ *     components/meta/redesign/MetaPlatformPage.tsx refuses to open Launchpad
+ *     unless the served `intent` is `launchpad`, so adding or removing the
+ *     word "budget" from a label moved a row between authorities.
+ *
+ * Nothing below reads a character of copy, so a rewrite, a translation or an
+ * empty label cannot change the code, the intent, the authority, or — for the
+ * shapes that name their own action — the label.
+ */
+type StructureActionShape =
+  | "commercial_truth_withheld"
+  | "resolve_decision_inputs"
+  | "bid_review"
+  | "structure_review"
+  | "budget_review"
+  | "pause_entity"
+  | "producer_copy";
+
+function structureActionShape(
+  rec: MetaRecommendation,
+  targetAuthorityBlocker: MetaTargetAuthorityBlocker | null,
+): StructureActionShape {
+  if (targetAuthorityBlocker) return "commercial_truth_withheld";
+  if (rec.decisionLabel === "diagnose") return "resolve_decision_inputs";
+  /*
+    Ordered ahead of the Scale case, exactly as the regex chain's first branch
+    was: a bid row's control applies a cap, so it keeps the producer's own copy
+    and must not be relabelled as a budget move.
+  */
+  if (rec.actionKind === "execute_bid") return "bid_review";
+  if (rec.decisionLabel === "scale") {
+    /*
+      D016: a Scale verdict answers "is this a winner", not "where does the
+      operator execute". On a Mixed campaign the answer is a structure review
+      first; on Test and Main it is the budget the ownership resolved.
+    */
+    return rec.campaignKind === "mixed" ? "structure_review" : "budget_review";
+  }
+  /*
+    "Pause" is an execute verb, so it is served only for the row that actually
+    carries a pause control. The predecessor served it whenever the producer's
+    copy happened to start with the word "Cut", which could label a row that
+    had no provider mutation at all as a pause.
+  */
+  if (rec.decisionLabel === "cut" && rec.actionKind === "execute_pause") {
+    return "pause_entity";
+  }
+  return "producer_copy";
+}
+
 function structureAction(
   rec: MetaRecommendation,
   ownership: ReturnType<typeof structureBudgetOwnership>,
-  targetAuthorityBlocker: MetaTargetHardAction | null,
+  targetAuthorityBlocker: MetaTargetAuthorityBlocker | null,
 ): MetaOsDecisionAction {
   const configuredTarget =
     rec.actionKind === "execute_bid"
@@ -462,27 +738,27 @@ function structureAction(
         : rec.level;
   const targetLevel = configuredTarget === "adset" ? "adset" : "campaign";
   const targetNoun = targetLevel === "adset" ? "Ad Set" : "Campaign";
-  let label =
+  const shape = structureActionShape(rec, targetAuthorityBlocker);
+  /** The producer's own operator copy; null when it supplied none. */
+  const producerCopy =
     rec.primaryActionLabel?.trim() ||
     rec.recommendedAction?.trim() ||
     rec.decision?.trim() ||
-    "Review";
+    null;
 
-  if (targetAuthorityBlocker) {
+  if (shape === "commercial_truth_withheld") {
+    const presentation = targetAuthorityPresentation(targetAuthorityBlocker!);
     return {
-      code: "review_commercial_truth",
-      label: "Review Commercial Truth",
+      code: presentation.actionCode,
+      label: presentation.actionLabel,
       intent: "review",
       targetLevel,
       providerMutation: null,
-      scopeNote:
-        targetAuthorityBlocker === "scale"
-          ? "Current target ROAS authority is unavailable; no Scale action is authorized"
-          : "Current break-even ROAS authority is unavailable; no Cut action is authorized",
+      scopeNote: presentation.scopeNote,
     };
   }
 
-  if (rec.decisionLabel === "diagnose") {
+  if (shape === "resolve_decision_inputs") {
     return {
       code: "resolve_decision_inputs",
       label: "Resolve Decision Inputs",
@@ -492,20 +768,6 @@ function structureAction(
       scopeNote:
         "Complete the missing server evidence before changing provider state",
     };
-  }
-
-  if (rec.actionKind === "execute_bid") {
-    label = label || "Review Bid Adjustment";
-  } else if (
-    (rec.decisionLabel === "scale" &&
-      !/^(increase|reduce)\b.*\bbudget\b/i.test(label)) ||
-    /\bscale\b/i.test(label)
-  ) {
-    label = `Review ${targetNoun} Budget`;
-  } else if (rec.decisionLabel === "cut" && /^cut\b/i.test(label)) {
-    label = `Pause ${targetNoun}`;
-  } else if (/review structure\s*&\s*scale/i.test(label)) {
-    label = "Review Structure";
   }
 
   let intent: MetaOsCommandIntent = "review";
@@ -528,7 +790,36 @@ function structureAction(
     intent = "review";
   }
 
-  if (/budget/i.test(label) && providerMutation === null) intent = "manual";
+  const label =
+    shape === "structure_review"
+      ? "Review Structure"
+      : shape === "budget_review"
+        ? `Review ${targetNoun} Budget`
+        : shape === "pause_entity"
+          ? `Pause ${targetNoun}`
+          : shape === "bid_review"
+            ? // The fallback the predecessor's `label || "Review Bid
+              // Adjustment"` could never reach, because `label` had already
+              // been defaulted to "Review" one statement earlier.
+              (producerCopy ?? "Review Bid Adjustment")
+            : (producerCopy ?? "Review");
+
+  /*
+    The operator performs this one themselves.
+
+    A budget or structure review with no provider control behind it is not a
+    review the product can run, so the served intent says `manual`. This was
+    `/budget/i.test(label)`, which reached the same answer for today's
+    producers only because the Scale rewrite above had just put the word
+    "budget" into the label — and would have reached a different one for any
+    other row whose copy happened to contain it.
+  */
+  if (
+    (shape === "budget_review" || shape === "structure_review") &&
+    providerMutation === null
+  ) {
+    intent = "manual";
+  }
 
   return {
     code: rec.actionKind ?? rec.decisionLabel ?? "review",
@@ -646,10 +937,10 @@ function structureNode(
       ? "Decision Blocked"
       : assessmentForRecommendation(rec),
     whyNow: input.targetAuthorityBlocker
-      ? "Current commercial target authority is unavailable; the persisted verdict remains visible but cannot authorize an action."
+      ? `${targetAuthorityPresentation(input.targetAuthorityBlocker).blockerLabel}. The persisted verdict remains visible but cannot authorize an action.`
       : rec.why || rec.summary || "Evidence unavailable.",
     expectedImpact: input.targetAuthorityBlocker
-      ? "Cannot calculate until commercial truth is current"
+      ? targetAuthorityPresentation(input.targetAuthorityBlocker).expectedImpact
       : rec.expectedImpact || "Cannot calculate",
     evidence: rec.evidence ?? [],
     metrics: recommendationMetrics(rec, currency),
@@ -825,10 +1116,7 @@ function adAssessment(decision: MetaCanonicalDecision) {
 
 function adAction(
   decision: MetaCanonicalDecision,
-  targetHardActionEligibility: Readonly<{
-    scale: boolean;
-    cut: boolean;
-  }>,
+  targetHardActionEligibility: MetaTargetHardActionEligibility,
 ): {
   action: MetaOsDecisionAction;
   lane: MetaOsDecisionLane;
@@ -856,7 +1144,31 @@ function adAction(
     targetLevel,
   });
 
-  if (decision.classification.decisionState === "blocked") {
+  /*
+    A HELD VERDICT IS BLOCKED, WHATEVER STATE THE PAYLOAD CLAIMS.
+
+    `heldAction` is only ever set when the engine reached a hard Scale, Cut or
+    Refresh and an authority gate withheld it, and INVARIANTS.md requires such
+    a row to serve as `decisionState: blocked` with `buyerAction: null`, never
+    inheriting an affirmative soft action from the published compatibility
+    label. `projectMetaDecisionSemantics` guarantees exactly that pairing, so
+    for every decision the current producers build this condition is already
+    implied by the first one.
+
+    It is stated anyway because the consequence of the pairing being violated
+    is not cosmetic. Reading `buyerAction` alone, a payload carrying
+    `heldAction: "cut"` beside `decisionState: "act"` and a native exact
+    authority falls through to the Cut branch below and is served with
+    `intent: "execute"` and `providerMutation: "pause"` — a provider write
+    originating from a verdict that was explicitly withheld. Reading a held
+    `keep` publishes `code: "keep_running"`, which is the affirmative soft
+    action the invariant forbids and the reason a held Refresh reached the
+    operator as "Keep Running".
+  */
+  if (
+    decision.classification.decisionState === "blocked" ||
+    decision.classification.heldAction !== null
+  ) {
     const resolution = decision.classification.resolution;
     return {
       lane: "blocked",
@@ -873,18 +1185,24 @@ function adAction(
   }
 
   if (
-    (buyerAction === "scale" || buyerAction === "cut") &&
+    (buyerAction === "scale" ||
+      buyerAction === "cut" ||
+      buyerAction === "refresh") &&
     !targetHardActionEligibility[buyerAction]
   ) {
+    const blocker = targetAuthorityBlockerForAction(
+      buyerAction,
+      targetHardActionEligibility,
+    )!;
+    const presentation = targetAuthorityPresentation(blocker);
     return {
       lane: "blocked",
       action: base({
-        code: "review_commercial_truth",
-        label: "Review Commercial Truth",
+        code: presentation.actionCode,
+        label: presentation.actionLabel,
         intent: "review",
         providerMutation: null,
-        scopeNote:
-          "Current commercial target authority is unavailable; no hard Scale/Cut action is authorized",
+        scopeNote: presentation.scopeNote,
       }),
     };
   }
@@ -1180,10 +1498,7 @@ function presentedCampaignRole(input: {
 function adDecision(
   decision: MetaCanonicalDecision,
   contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
-  targetHardActionEligibility: Readonly<{
-    scale: boolean;
-    cut: boolean;
-  }>,
+  targetHardActionEligibility: MetaTargetHardActionEligibility,
 ): MetaOsAdDecision | null {
   const ad = decision.parentChain.ad;
   if (!ad?.id?.trim() || !/^\d+$/.test(ad.id.trim())) return null;
@@ -1243,6 +1558,36 @@ function adDecision(
       label: blocker.label,
     })),
     resolution: decision.classification.resolution,
+    /*
+      The withheld verdict, served BESIDE the published label rather than
+      instead of it.
+
+      `heldAction` already existed on the canonical classification and this
+      module read it in exactly one place — `priorityForDecision`, to rank the
+      row — so the verdict decided where the row sorted and was then dropped
+      before anything could say what it was. A held Refresh published `keep`,
+      the surface rendered "Keep Running", and the Refresh pipeline, which
+      selects on the served verdict, omitted the row entirely.
+
+      `heldResolution` is the resolution belonging to THAT verdict:
+      `projectMetaDecisionSemantics` produces it from the authority blocker and
+      the held action together (`resolutionForAuthorityBlocker` in
+      lib/meta/decision-semantics.ts names the held action in its nextStep), so
+      it says which readiness floor failed for the Scale or Cut that was held.
+      It is never `adAction`'s `resolve_evidence_gap` fallback: a payload that
+      carries a held verdict and no resolution serves null here, because a
+      fabricated generic resolution would read as a measured one.
+
+      Both are evidence. Every execution field on this row is null — the held
+      branch of `adAction` above returns `intent: "review"` and
+      `providerMutation: null` — and no consumer may treat either field as
+      authority to write.
+    */
+    heldAction: decision.classification.heldAction ?? null,
+    heldResolution:
+      decision.classification.heldAction === null
+        ? null
+        : (decision.classification.resolution ?? null),
     metrics: {
       spend: decision.metrics.spend,
       purchases: decision.metrics.purchases,
@@ -1253,8 +1598,11 @@ function adDecision(
       // nothing to read even though the decision behind them carried it.
       ctr: decision.metrics.ctr ?? null,
       frequency: decision.metrics.frequency ?? null,
-      effectiveTargetRoas: decision.metrics.effectiveTargetRoas,
-      ratioToTarget: decision.metrics.ratioToTarget,
+      effectiveTargetRoas: commercialTarget(decision.metrics.effectiveTargetRoas),
+      ratioToTarget: ratioToCommercialTarget(
+        decision.metrics.ratioToTarget,
+        decision.metrics.effectiveTargetRoas,
+      ),
       currency: decision.metrics.currency,
       attribution: "meta_attributed",
       grain: decision.identityGrain === "ad" ? "ad" : "creative_context",
@@ -1271,108 +1619,67 @@ function adDecision(
   };
 }
 
-function activeInventoryAd(
-  row: MetaCurrentAdStatusSourceRow,
-  currency: string | null,
-  contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
-): MetaOsAdDecision | null {
+/**
+ * IS THIS ACTIVE PROVIDER INVENTORY THAT NO PRODUCER HAS DECIDED?
+ *
+ * A census, not a decision. This used to be `activeInventoryAd`, which built a
+ * whole 40-field `MetaOsAdDecision` for the answer "no decision exists": an
+ * `await_ad_grain_evidence` action, a `lane: "blocked"`, an `unrankable`
+ * priority band, a `not_evaluated` published label, a synthesised `resolution`,
+ * and every metric null. That object was then published into the decision
+ * lanes, where it consumed a slot of the response cap, counted into
+ * `blockedCount` and `statePreCapCounts.blocked`, and inflated
+ * `eligiblePreCapCount` so the surface offered to fetch more decisions that do
+ * not exist. On an account whose producer had failed, the whole page was those
+ * rows and the real held verdicts were pushed off it.
+ *
+ * The fact is real and is still served — as `ads.pendingInventoryCount` and the
+ * `active_ad_inventory_pending_native_decision` limitation — so nothing is
+ * hidden. What is gone is the fabricated decision that carried it. Building an
+ * object shaped like a verdict is how it ends up read as one, so this returns
+ * an identity or nothing.
+ *
+ * `campaignRole` is deliberately NOT resolved here: an inferred role qualifies
+ * a verdict, and there is no verdict to qualify.
+ */
+function activeInventoryAdId(row: MetaCurrentAdStatusSourceRow): string | null {
   const adId = row.adId.trim();
   if (!/^\d+$/.test(adId)) return null;
   if (row.effectiveStatus?.trim().toUpperCase() !== "ACTIVE") return null;
-  const fetchedDate = row.fetchedAt.slice(0, 10);
-  const campaignRole = presentedCampaignRole({
-    campaignId: row.campaignId,
-    campaignName: row.campaignName,
-    contexts,
-  });
-  return {
-    id: `ad:${adId}`,
-    decisionId: `inventory:${adId}`,
-    sourceSnapshotId: `inventory:${adId}:${fetchedDate}`,
-    episodeId: `inventory:${adId}`,
-    providerAccountId: row.providerAccountId,
-    adId,
-    adName: row.adName?.trim() || adId,
-    campaignId: row.campaignId,
-    campaignName: row.campaignName ?? null,
-    adsetId: row.adsetId,
-    adsetName: null,
-    creativeId: row.creativeId,
-    creativeName: null,
-    thumbnailUrl: null,
-    lifecycleRole: campaignRole.value,
-    campaignRoleSource: campaignRole.source,
-    campaignRoleConfidence: campaignRole.confidence,
-    campaignRoleTrustedForAction: campaignRole.trustedForAction,
-    campaignRoleExplanation: campaignRole.explanation,
-    action: {
-      code: "await_ad_grain_evidence",
-      label: "Evidence pending",
-      intent: "review",
-      targetLevel: "ad",
-      providerMutation: null,
-      scopeNote:
-        "The Ad is live, but no exact Ad-grain decision snapshot can authorize an action yet",
-    },
-    lane: "blocked",
-    priority: {
-      band: "unrankable",
-      rank: null,
-      version: META_OS_DECISIONS_PRESENTATION_VERSION,
-    },
-    assessment: "Ad-grain evidence pending",
-    confidence: "low",
-    // No engine ran for this row, so there is no score to serve. A 0 here was a
-    // fabricated constant that the evidence window printed as "score 0.00" — a
-    // measurement the placeholder's own `whyNow` denies having. Null is the
-    // honest value and renders as an em dash; the "low" band above stays,
-    // because THAT is a stated property of a placeholder.
-    confidenceScore: null,
-    riskTier: null,
-    confirmationCeremony: "highest",
-    whyNow:
-      "Meta confirms this Ad is ACTIVE, but the exact Ad-grain decision snapshot is not available.",
-    blockers: [
-      {
-        code: "native_ad_decision_unavailable",
-        label: "Exact Ad-grain decision evidence is unavailable",
-      },
-    ],
-    resolution: {
-      code: "produce_native_ad_decision",
-      category: "system",
-      owner: "system",
-      label: "Produce exact Ad decision",
-      nextStep:
-        "Complete the native Ad decision schema and producer lineage gate.",
-    },
-    metrics: {
-      spend: null,
-      purchases: null,
-      roas: null,
-      cpa: null,
-      ctr: null,
-      frequency: null,
-      effectiveTargetRoas: null,
-      ratioToTarget: null,
-      currency,
-      attribution: "meta_attributed",
-      grain: "ad",
-    },
-    rawLabel: null,
-    publishedLabel: "not_evaluated",
-    authorityProvenance: {
-      availability: "historical_unavailable",
-      preAuthorityLabel: null,
-      postAuthorityRawLabel: null,
-      publishedLabel: "not_evaluated",
-      firstBlocker: null,
-    },
-    engineVersion: "not_evaluated",
-    snapshotAsOf: fetchedDate,
-    sourceGrain: "ad",
-    decisionAvailability: "pending_native_evidence",
-  };
+  return adId;
+}
+
+/**
+ * A commercial ROAS target, or null when there is not one.
+ *
+ * WHY THIS EXISTS. `truth_source = 'global_default'` writes a target of ZERO
+ * and forwards it as a number, so `effectiveTargetRoas` arrives finite and the
+ * surfaces that format it printed "vs 0.00 target" beside a real ROAS — a
+ * target nobody set, rendered as a target that was met by definition. On the
+ * current account set that is the majority of rows: 6,365 of the served rows
+ * carry `global_default`, all of them with a zero target.
+ *
+ * A non-positive target is the ABSENCE of a target, so it is served as null and
+ * every consumer's existing "no target" branch handles it. `ratioToTarget` is
+ * held to the same rule: a ratio against zero is not a measurement.
+ */
+function commercialTarget(value: number | null | undefined): number | null {
+  const target = finite(value);
+  return target === null || target <= 0 ? null : target;
+}
+
+/**
+ * A ratio to target, kept only when the target it was measured against exists.
+ *
+ * Divided by a zero or absent target the ratio is either infinite or meaningless,
+ * and either way it is not evidence. @see commercialTarget
+ */
+function ratioToCommercialTarget(
+  ratio: number | null | undefined,
+  target: number | null | undefined,
+): number | null {
+  if (commercialTarget(target) === null) return null;
+  return finite(ratio);
 }
 
 function displayDecisionLabel(value: string | null | undefined) {
@@ -1469,8 +1776,11 @@ function inactiveAdAsset(
       cpa: null,
       ctr: null,
       frequency: null,
-      effectiveTargetRoas: decision.metrics.effectiveTargetRoas,
-      ratioToTarget: decision.metrics.ratioToTarget,
+      effectiveTargetRoas: commercialTarget(decision.metrics.effectiveTargetRoas),
+      ratioToTarget: ratioToCommercialTarget(
+        decision.metrics.ratioToTarget,
+        decision.metrics.effectiveTargetRoas,
+      ),
       currency: decision.metrics.currency,
       attribution: "meta_attributed",
       grain: decision.identityGrain === "ad" ? "ad" : "creative_context",
@@ -1601,6 +1911,7 @@ export function buildMetaOsDecisionsPresentation(input: {
   const targetHardActionEligibility = input.targetHardActionEligibility ?? {
     scale: true,
     cut: true,
+    refresh: true,
   };
   const structureInputs: StructureInput[] = [
     ...input.actionNow.map((rec) => ({
@@ -1789,36 +2100,56 @@ export function buildMetaOsDecisionsPresentation(input: {
   const canonicalAdIds = new Set(canonicalAds.map((item) => item.adId));
   const canonicalAdUniverseIds =
     readCanonicalAdUniverseIds(input.decisionReadModel) ?? canonicalAdIds;
-  const pendingInventoryAds = (input.currentAds ?? [])
-    .map((row) =>
-      activeInventoryAd(row, input.currency, currentAdCampaignContexts),
-    )
-    .filter((item): item is MetaOsAdDecision => Boolean(item))
-    .filter((item) => !canonicalAdUniverseIds.has(item.adId))
-    .sort((left, right) => left.adId.localeCompare(right.adId));
+  const pendingInventoryAdIds = new Set(
+    (input.currentAds ?? [])
+      .map(activeInventoryAdId)
+      .filter((adId): adId is string => adId !== null)
+      .filter((adId) => !canonicalAdUniverseIds.has(adId)),
+  );
   const adLimit =
-    input.decisionReadModel.queue?.adCandidates?.limit ??
-    canonicalAds.length + pendingInventoryAds.length;
-  const ads = selectOsAdDecisions(
-    [...canonicalAds, ...pendingInventoryAds],
-    adLimit,
-  );
-  const pendingInventoryPreCapCount = pendingInventoryAds.length;
-  const pendingInventorySelectedCount = ads.filter(
-    (item) => item.decisionAvailability === "pending_native_evidence",
-  ).length;
-  const pendingInventoryWithheldCount = Math.max(
-    0,
-    pendingInventoryPreCapCount - pendingInventorySelectedCount,
-  );
+    input.decisionReadModel.queue?.adCandidates?.limit ?? canonicalAds.length;
+  /*
+   * The decision lanes carry DECISIONS. Provider inventory is not one.
+   *
+   * `activeInventoryAd` synthesises a placeholder for an ACTIVE Ad that no
+   * producer has decided: `lane: "blocked"`, priority band `unrankable`,
+   * label `not_evaluated`, every metric null. Those placeholders used to be
+   * concatenated onto `canonicalAds` and cut to the same `adLimit`, which had
+   * three consequences an operator cannot act on, all of them observed on this
+   * account set:
+   *
+   *   1. They COMPETED for the cap. On Grandmix the queue served 60 rows and
+   *      every one of them was a placeholder, so the real held verdicts the
+   *      engine had produced were pushed out of the page by rows that state
+   *      only "no decision exists".
+   *   2. They INFLATED the lane counts. `blockedCount` and
+   *      `statePreCapCounts.blocked` counted them, so "33 blocked" mixed
+   *      withheld verdicts with un-evaluated inventory and no reader could
+   *      tell which number was which.
+   *   3. They INFLATED `eligiblePreCapCount`, which drives the surface's
+   *      "load more" affordance — so the surface offered to fetch more
+   *      decisions that do not exist.
+   *
+   * They are still SERVED, because an ACTIVE Ad with no decision is a real
+   * source-health fact and hiding it would be its own lie. They are served as
+   * one count and one sentence — `pendingInventoryCount` plus the
+   * `active_ad_inventory_pending_native_decision` limitation — not as rows in
+   * a decision lane.
+   *
+   * The cap no longer applies to them: nothing is "withheld by the response
+   * cap" when the population is summarised rather than paginated, so the
+   * sentence states the whole count once.
+   *
+   * The placeholder is not merely unpublished — it is no longer BUILT. What
+   * remains is `activeInventoryAdId`, a census that answers only "is this
+   * un-decided ACTIVE inventory" with an identity. @see activeInventoryAdId
+   */
+  const ads = selectOsAdDecisions(canonicalAds, adLimit);
+  const pendingInventoryPreCapCount = pendingInventoryAdIds.size;
   const pendingInventoryLimitation =
     pendingInventoryPreCapCount === 0
       ? null
-      : pendingInventoryWithheldCount === 0
-        ? `${pendingInventorySelectedCount} ACTIVE ${pendingInventorySelectedCount === 1 ? "Ad is" : "Ads are"} visible from the current provider inventory but remain blocked until exact Ad-grain decisions exist.`
-        : pendingInventorySelectedCount === 0
-          ? `${pendingInventoryWithheldCount} ACTIVE ${pendingInventoryWithheldCount === 1 ? "Ad is" : "Ads are"} withheld by the response cap and remain blocked until exact Ad-grain decisions exist.`
-          : `${pendingInventorySelectedCount} of ${pendingInventoryPreCapCount} ACTIVE Ads are visible from the current provider inventory; ${pendingInventoryWithheldCount} ${pendingInventoryWithheldCount === 1 ? "is" : "are"} withheld by the response cap. All remain blocked until exact Ad-grain decisions exist.`;
+      : `${pendingInventoryPreCapCount} ACTIVE ${pendingInventoryPreCapCount === 1 ? "Ad has" : "Ads have"} no exact Ad-grain decision yet, so ${pendingInventoryPreCapCount === 1 ? "it is" : "they are"} not listed as ${pendingInventoryPreCapCount === 1 ? "a decision" : "decisions"}.`;
 
   const allStructureNodes = groups.flatMap((group) => [
     group.campaign,
@@ -1887,23 +2218,54 @@ export function buildMetaOsDecisionsPresentation(input: {
       actCount: ads.filter((item) => item.lane === "act").length,
       blockedCount: ads.filter((item) => item.lane === "blocked").length,
       monitorCount: ads.filter((item) => item.lane === "monitor").length,
+      /*
+       * WHICH verdicts were held, over the same SERVED rows the three lane
+       * counts above describe.
+       *
+       * Deliberately a second, orthogonal tally rather than a lane: every held
+       * row is already counted once in `blockedCount`, and adding it to a lane
+       * count again would report the same decision twice. Without this the
+       * only served evidence that a Refresh verdict existed was the per-row
+       * `heldAction`, and a count the surface could not compute cheaply is a
+       * count the surface did not show.
+       */
+      heldCounts: {
+        scale: ads.filter((item) => item.heldAction === "scale").length,
+        cut: ads.filter((item) => item.heldAction === "cut").length,
+        refresh: ads.filter((item) => item.heldAction === "refresh").length,
+      },
       statePreCapCounts: {
         act:
           input.decisionReadModel.queue?.adCandidates?.stateCounts?.act
             ?.preCapCount ?? ads.filter((item) => item.lane === "act").length,
+        // Withheld VERDICTS only. Un-evaluated ACTIVE inventory is counted by
+        // `pendingInventoryCount`, never added here: adding it made "blocked"
+        // a mixture of two populations that need different operator answers.
         blocked:
-          (input.decisionReadModel.queue?.adCandidates?.stateCounts?.blocked
+          input.decisionReadModel.queue?.adCandidates?.stateCounts?.blocked
             ?.preCapCount ??
-            canonicalAds.filter((item) => item.lane === "blocked").length) +
-          pendingInventoryPreCapCount,
+          canonicalAds.filter((item) => item.lane === "blocked").length,
         monitor:
           input.decisionReadModel.queue?.adCandidates?.stateCounts?.monitor
             ?.preCapCount ??
           ads.filter((item) => item.lane === "monitor").length,
       },
+      // The pre-cap size of the population that produced `items`, which is now
+      // the canonical decisions alone. The surface pairs this with the shown
+      // count to decide whether more decisions can be fetched, so counting
+      // un-evaluated inventory here offered a page of rows that do not exist.
       eligiblePreCapCount:
-        (input.decisionReadModel.queue?.adCandidates?.eligiblePreCapCount ??
-          canonicalAds.length) + pendingInventoryPreCapCount,
+        input.decisionReadModel.queue?.adCandidates?.eligiblePreCapCount ??
+        canonicalAds.length,
+      /*
+       * ACTIVE provider inventory carrying no exact Ad-grain decision.
+       *
+       * Deliberately NOT part of any lane count above: these are not decisions
+       * and an operator cannot act on them. Served so the surface can state
+       * the source-health fact once, beside the `active_ad_inventory_pending_native_decision`
+       * limitation that carries the sentence.
+       */
+      pendingInventoryCount: pendingInventoryPreCapCount,
       omittedWithoutVerifiedAdId,
       omittedAmbiguousIdentity,
       omittedNotApplicable,

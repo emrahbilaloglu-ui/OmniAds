@@ -80,6 +80,7 @@ const writeGuard = await import("@/lib/meta/automation-write-guard");
 const accountContext = await import("@/lib/meta/account-context");
 const logs = await import("@/lib/meta/ads-action-log");
 const writes = await import("@/lib/meta/ads-write");
+const entityActions = await import("@/lib/meta/entity-action-routes");
 const campaignPause = await import("@/app/api/meta/campaigns/[campaignId]/pause/route");
 const campaignResume = await import("@/app/api/meta/campaigns/[campaignId]/resume/route");
 const adsetPause = await import("@/app/api/meta/adsets/[adsetId]/pause/route");
@@ -236,6 +237,60 @@ describe("Meta entity write routes", () => {
         }),
       }),
     );
+  });
+
+  it("runs a queue-owned marker only from the write adapter's provider boundary", async () => {
+    const marker = vi.fn(async () => undefined);
+    vi.mocked(writes.pauseCampaign).mockImplementationOnce(
+      async (_ctx, _entityId, options) => {
+        expect(marker).not.toHaveBeenCalled();
+        await options?.beforeMutationAttempt?.();
+        return {
+          ok: true,
+          verifiedStatus: "PAUSED",
+          responsePayload: { success: true },
+          verificationPayload: { status: "PAUSED" },
+        };
+      },
+    );
+
+    const response = await entityActions.handleMetaEntityPauseAction(
+      request({ businessId: "biz_1", recId: "rec_1" }),
+      { params: Promise.resolve({ campaignId: "cmp_1" }) },
+      { scopeType: "campaign", paramName: "campaignId" },
+      { beforeMutationAttempt: marker },
+    );
+
+    expect(response.status).toBe(200);
+    expect(marker).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run a queue-owned marker when entity preflight refuses", async () => {
+    const marker = vi.fn(async () => undefined);
+    vi.mocked(writes.readMetaEntityExecutionState).mockResolvedValueOnce({
+      ok: true,
+      scopeType: "campaign",
+      entityId: "cmp_1",
+      providerAccountId: "act_1",
+      configuredStatus: "PAUSED",
+      effectiveStatus: "PAUSED",
+      campaignId: "cmp_1",
+      campaignProviderAccountId: "act_1",
+      campaignConfiguredStatus: "PAUSED",
+      campaignEffectiveStatus: "PAUSED",
+      observedAt: "2026-07-18T14:00:00.000Z",
+    });
+
+    const response = await entityActions.handleMetaEntityPauseAction(
+      request({ businessId: "biz_1", recId: "rec_1" }),
+      { params: Promise.resolve({ campaignId: "cmp_1" }) },
+      { scopeType: "campaign", paramName: "campaignId" },
+      { beforeMutationAttempt: marker },
+    );
+
+    expect(response.status).toBe(409);
+    expect(marker).not.toHaveBeenCalled();
+    expect(writes.pauseCampaign).not.toHaveBeenCalled();
   });
 
   it("rejects campaign and ad set writes without an explicit action origin", async () => {

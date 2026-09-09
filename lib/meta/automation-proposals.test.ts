@@ -22,6 +22,7 @@ import {
   META_AUTOMATION_PROPOSAL_TTL_HOURS,
   META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES,
   NO_PROVIDER_DISPATCH,
+  claimMetaAutomationProposal,
   claimScheduledMetaAutomationProposal,
   evaluateProposalTransition,
   providerDispatchFacts,
@@ -31,6 +32,8 @@ import {
   proposalDecisionKey,
   proposalExpiryFor,
   projectMetaAutomationProposals,
+  readMetaAutomationProposalQueue,
+  reconcileMetaEngineDecisionProposalsForSnapshot,
   raiseRuleAutomationProposal,
   type MetaAutomationProposalStatus,
 } from "@/lib/meta/automation-proposals";
@@ -368,7 +371,168 @@ const SEMI_AUTO_MODES = {
   creative: "semi_auto",
 } as const;
 
+describe("same-day engine proposal reconciliation", () => {
+  it("does not open the proposal tables when no provider account was attempted", async () => {
+    const { tagged, calls } = recordingDb([]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    expect(await reconcileMetaEngineDecisionProposalsForSnapshot({
+      businessId: BUSINESS_ID,
+      snapshotDate: "2026-08-17",
+      attemptedProviderAccountIds: [],
+      fulfilledProviderAccountIds: [],
+      now: NOW,
+    })).toEqual({ ran: true, withdrawn: 0 });
+    expect(calls).toEqual([]);
+  });
+
+  it("withdraws only untouched engine rows in attempted accounts and binds fulfillment", async () => {
+    const { tagged, calls } = recordingDb([[{ id: RULE_ID }]]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    expect(await reconcileMetaEngineDecisionProposalsForSnapshot({
+      businessId: BUSINESS_ID,
+      snapshotDate: "2026-08-17",
+      attemptedProviderAccountIds: [" act_ok ", "act_failed", "act_ok"],
+      // An unattempted id cannot acquire authority by appearing here.
+      fulfilledProviderAccountIds: ["act_ok", "act_not_attempted"],
+      now: NOW,
+    })).toEqual({ ran: true, withdrawn: 1 });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.values).toEqual([
+      BUSINESS_ID,
+      "2026-08-17",
+      ["act_ok", "act_failed"],
+      ["act_ok"],
+      NOW.toISOString(),
+    ]);
+    const sql = calls[0]!.text;
+    expect(sql).toContain("p.status = 'pending'");
+    expect(sql).toContain("p.snapshot_date <= $2::date");
+    expect(sql).toContain("p.snapshot_date < $2::date");
+    expect(sql).toContain("p.provider_account_id = ANY($3::text[])");
+    expect(sql).toContain("NOT (p.provider_account_id = ANY($4::text[]))");
+    expect(sql).toContain("d.decision_state = 'act'");
+    expect(sql).toContain("d.rec_id = p.rec_id");
+    expect(sql).toContain("d.rec_type = p.rec_type");
+    expect(sql).toContain(
+      "d.rec_type = 'scenario_c1_controlled_scale' AND d.scope_type = 'campaign' AND d.target_value ->> 'direction' = 'increase'",
+    );
+    expect(sql).toContain("p.budget_envelope_json ->> 'intendedAmountMinor'");
+    expect(sql).toContain("p.bid_envelope_json ->> 'intentKey'");
+    expect(sql).toContain("engine_decision_source_withdrawn");
+    expect(sql).toContain("p.dispatch_started_at IS NULL");
+    expect(sql).toContain("p.receipt_json IS NULL");
+  });
+
+  it("hides stale source rows from the queue even before a reconciliation write", async () => {
+    const { tagged, calls } = recordingDb([[], [], []]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    expect(await readMetaAutomationProposalQueue({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_ok",
+      now: NOW,
+    })).toEqual({ readCompleteness: "complete", proposals: [] });
+
+    const read = calls.at(-1)!.text;
+    expect(read).toContain("d.decision_state = 'act'");
+    expect(read).toContain("d.rec_id = meta_automation_proposals.rec_id");
+    expect(read).toContain("meta_automation_proposals.bid_envelope_json ->> 'intentKey'");
+    expect(read).toContain("engine_v3_ad_decision_snapshots_daily native_decision");
+    expect(read).toContain("latest_native.as_of_date DESC");
+    expect(read).toContain("latest_native.computed_at DESC");
+    expect(read).not.toContain(
+      "latest_native.as_of_date = native_decision.as_of_date",
+    );
+    expect(read).toContain(
+      "newer_decision.snapshot_date > d.snapshot_date",
+    );
+    expect(read).toContain(
+      "meta_automation_proposals.evidence_ref ->> 'snapshotId' = native_decision.id::text",
+    );
+    const compactRead = read.replace(/\s+/g, " ");
+    expect(compactRead).toContain(
+      "FROM engine_v3_job_runs run WHERE run.job_name = 'engine_v3_native_ad_decisions_shadow_job'",
+    );
+    expect(compactRead).toContain(
+      "run.business_ref_id = meta_automation_proposals.business_id",
+    );
+    expect(compactRead).toContain(
+      "authoritative_generation.effective_status = 'success'",
+    );
+    expect(compactRead).toContain(
+      "authoritative_generation.id = native_decision.job_run_id",
+    );
+    expect(compactRead).toContain(
+      "receipt ->> 'provider_account_ref_id' = native_decision.provider_account_ref_id::text",
+    );
+  });
+
+  it("re-proves the current source inside the atomic pending-to-claimed update", async () => {
+    const { tagged, calls } = recordingDb([[], []]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    expect(await claimMetaAutomationProposal({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_ok",
+      proposalId: RULE_ID,
+      claimedBy: ACTOR_ID,
+      now: NOW,
+    })).toEqual({ status: "conflict", current: null });
+
+    const claim = calls[0]!.text;
+    expect(claim).toContain("SET status = 'claimed'");
+    expect(claim).toContain("d.decision_state = 'act'");
+    expect(claim).toContain(
+      "meta_automation_proposals.scope_type = 'ad'",
+    );
+    expect(claim).toContain("meta_automation_proposals.rec_type = 'native_ad_cut'");
+    expect(claim).toContain("native_decision.authorized_action = 'cut'");
+    expect(claim).toContain("latest_native.as_of_date DESC");
+    expect(claim).toContain("latest_native.computed_at DESC");
+    expect(claim).not.toContain(
+      "latest_native.as_of_date = native_decision.as_of_date",
+    );
+    expect(claim).toContain(
+      "d.rec_type = 'adset_scale_budget' AND d.scope_type = 'adset' AND d.target_value ->> 'direction' = 'increase'",
+    );
+    expect(claim).toContain("meta_automation_proposals.bid_envelope_json ->> 'intentKey'");
+    const compactClaim = claim.replace(/\s+/g, " ");
+    expect(compactClaim).toContain(
+      "FROM engine_v3_job_runs run WHERE run.job_name = 'engine_v3_native_ad_decisions_shadow_job'",
+    );
+    expect(compactClaim).toContain(
+      "authoritative_generation.effective_status = 'success'",
+    );
+    expect(compactClaim).toContain(
+      "authoritative_generation.as_of_date = native_decision.as_of_date",
+    );
+    expect(compactClaim).toContain(
+      "authoritative_generation.id = native_decision.job_run_id",
+    );
+    expect(compactClaim).toContain(
+      "account_receipt ->> 'provider_account_id' = meta_automation_proposals.provider_account_id",
+    );
+  });
+});
+
 describe("the standing mode decides whether the queue is used at all", () => {
+  it("does not read stale same-day rows when no account finished this run", async () => {
+    const { tagged, calls } = recordingDb([]);
+    vi.mocked(dbModule.getDb).mockReturnValue(tagged as never);
+
+    expect(await projectMetaAutomationProposals({
+      businessId: BUSINESS_ID,
+      snapshotDate: "2026-08-17",
+      providerAccountIds: [],
+      now: NOW,
+      readModes: async () => SEMI_AUTO_MODES,
+    })).toEqual({ projected: 0, expired: 0, ran: true });
+    expect(calls).toEqual([]);
+  });
+
   it("projects nothing in manual mode", async () => {
     // In manual mode the operator applies from the decision card. A queue that
     // fills up behind them is a second inbox nobody asked for.
@@ -381,6 +545,7 @@ describe("the standing mode decides whether the queue is used at all", () => {
     const result = await projectMetaAutomationProposals({
       businessId: BUSINESS_ID,
       snapshotDate: "2026-08-17",
+      providerAccountIds: ["act_123"],
       now: NOW,
       readModes: async () => ({ ...SEMI_AUTO_MODES, pause: "manual" }),
     });
@@ -420,6 +585,7 @@ describe("one queue, two origins", () => {
     await projectMetaAutomationProposals({
       businessId: BUSINESS_ID,
       snapshotDate: "2026-08-17",
+      providerAccountIds: ["act_123"],
       now: NOW,
       // The queue exists for the two modes that route through it. Injected so
       // this case stays about the projection rather than about the control
@@ -428,6 +594,28 @@ describe("one queue, two origins", () => {
     });
 
     const projection = calls.at(-1)!.text;
+
+    // A cut label on a watch/test/legacy row is an explanation, not pause
+    // authority. Persisted state is checked at the final queue boundary too.
+    expect(projection).toMatch(/AND\s+d\.decision_state\s*=\s*'act'/);
+    expect(projection).toMatch(/provider_account_id\s*=\s*ANY\(\$\d::text\[\]\)/);
+    expect(calls.at(-1)!.values).toContainEqual(["act_123"]);
+
+    // A Meta entity id is account-scoped. Two fulfilled accounts may carry
+    // the same campaign/ad-set id, and the rec-type winner must be chosen once
+    // PER account or DISTINCT ON silently drops one account's pause.
+    expect(projection).toContain(
+      "DISTINCT ON (d.provider_account_id, d.scope_type, d.scope_id)",
+    );
+    expect(projection).toContain(
+      "ORDER BY d.provider_account_id, d.scope_type, d.scope_id, d.rec_type",
+    );
+    expect(projection).toContain("decisions AS MATERIALIZED");
+    expect(projection).toContain("refreshed AS");
+    expect(projection).toContain("ON CONFLICT DO NOTHING");
+    expect(projection).not.toContain(
+      "ON CONFLICT (business_id, provider_account_id, decision_key, rec_type, snapshot_date)",
+    );
 
     // Widened when the execution claim landed, and the law it states is WIDER
     // than the one it replaced, never narrower.

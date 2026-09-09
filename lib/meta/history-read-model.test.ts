@@ -13,6 +13,7 @@ const {
   redactMetaHistoryDetail,
 } = await import("@/lib/meta/history-read-model");
 const { decodeMetaHistoryCursor } = await import("@/lib/meta/history-contract");
+const { toHistoryPage } = await import("@/lib/zero-base/meta/history-adapter");
 
 const queryMock = vi.fn();
 
@@ -167,6 +168,98 @@ describe("Meta History read model", () => {
       // The slice floor. The read starts bounded and widens only if the page
       // comes back short, so a full page never scans the whole journal.
       expect.any(String),
+    ]);
+  });
+
+  it("keeps source provenance while the History adapter removes storage vocabulary", async () => {
+    queryMock.mockResolvedValue([
+      historyRow({
+        source_key: "engine_v3_decision_outcomes_daily",
+        source_id: "outcome_1",
+        kind: "outcomes",
+        title: "7-day outcome",
+        summary: "Persisted correlational outcome for keep.",
+        entity_type: "creative",
+        entity_id: "creative_1",
+        entity_name: "Summer video",
+        label: "keep",
+        status_raw: "positive",
+        actor_id: null,
+        actor_name: null,
+        actor_availability: "not_applicable",
+        account_scope_basis: "unique_creative_key",
+        attribution: "correlational_outcome",
+        correlation_status: "keyed",
+        correlation_key: "snapshot_1",
+      }),
+      historyRow({
+        source_key: "engine_v3_decision_events",
+        source_id: "event_1",
+        kind: "label_flips",
+        title: "Data Disabled",
+        summary: "Transition persisted after nightly evaluation.",
+        entity_type: "creative",
+        entity_id: "creative_2",
+        entity_name: "Hook test",
+        label: null,
+        status_raw: "recorded",
+        actor_id: null,
+        actor_name: null,
+        actor_availability: "not_applicable",
+        account_scope_basis: "unique_creative_key",
+        attribution: "engine_transition",
+        correlation_status: "unavailable",
+        correlation_key: null,
+      }),
+      historyRow({
+        source_key: "meta_decision_action_outcome_logs",
+        source_id: "action_outcome_1",
+        kind: "writes",
+        title: "Rollback",
+        summary: "Writer stage completed normally.",
+        entity_type: "ad",
+        entity_id: "ad_1",
+        entity_name: "Summer ad",
+        label: null,
+        status_raw: "verified_success",
+        actor_id: null,
+        actor_name: null,
+        actor_availability: "not_applicable",
+        account_scope_basis: "exact_entity_key",
+        attribution: "provider_write_log",
+        correlation_status: "keyed",
+        correlation_key: "rec_1",
+      }),
+      historyRow({
+        source_id: "older_log",
+        occurred_at: "2026-07-08T10:00:00.000Z",
+      }),
+    ]);
+
+    const payload = await readMetaHistoryJournal({
+      query: { ...baseQuery, limit: 3 },
+      account: { id: "act_1", name: "Primary", currency: "EUR", timezone: "UTC" },
+    });
+    const page = toHistoryPage(payload);
+
+    expect(payload.entries.map((item) => item.provenance.source)).toEqual([
+      "engine_v3_decision_outcomes_daily",
+      "engine_v3_decision_events",
+      "meta_decision_action_outcome_logs",
+    ]);
+    expect(page.rows.map(({ action, summary }) => ({ action, summary }))).toEqual([
+      {
+        action: "7-day outcome | Summer video",
+        summary: "Performance outcome recorded for this recommendation.",
+      },
+      {
+        action: "Decision data unavailable | Hook test",
+        summary: null,
+      },
+      {
+        action: "Change verified | Summer ad",
+        summary: null,
+      },
     ]);
   });
 

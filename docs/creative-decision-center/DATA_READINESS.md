@@ -11,6 +11,39 @@ Known facts to preserve unless repo evidence proves otherwise:
 - V3 input now carries `ctr`, `cpm`, `frequency`, `firstSeenAt`, `firstSpendAt`, `spend24h`, `impressions24h`, `reviewStatus`, `disapprovalReason`, and `limitedReason` where warehouse rows expose them.
 - `fix_delivery`, `fix_policy`, and `watch_launch` remain proof-gated: they may emit only when those fields are present and the bridge can map the server-produced diagnostic badge.
 - If required data is missing, fallback to `diagnose_data` or cap confidence.
+- Recent-edit authority is RECEIPT-BACKED, ATTEMPT-BOUND, and evaluated under a
+  single knowledge bound shared by the change window and the evidence.
+  `meta_campaign_config_history` / `meta_adset_config_history` are
+  transition-only, a COMPLETE receipt commits BEFORE
+  `append_current_config_history`, and an observation run's `row_count` is the
+  FULL logical provider scope on the complete lane — delta runs included. A
+  purchase-budget hard action therefore requires, together:
+  (a) ONE bound: current day = `min(evaluationNow, provider-local day end)`,
+      completed historical day = its own day end, future provider-local day =
+      unavailable; strict `<` on every clock, applied to the config-history
+      window and to all receipt/run/entity clocks alike;
+  (b) the newest receipt at/before that bound, selected WITHOUT filtering on
+      status, being `complete` with no error;
+  (c) its `sync_run_id` resolving to a terminal `succeeded` `meta_sync_runs` row
+      whose finish is STRICTLY before the bound and whose lifecycle contains the
+      receipt occurrence, on a matching partition/business/account that was not
+      dead-lettered. Legacy null links hold;
+  (d) base manifest count == run `row_count` == receipt `providerRowCount` on
+      BOTH lanes, verified BEFORE any tombstone is applied, so one legitimate
+      deletion cannot invalidate every surviving member. Explicit
+      `explicit_deleted` / `explicit_not_found` exits are applied afterwards and
+      are superseded by a coalesced re-observation at the receipt occurrence
+      clock; `absent_unconfirmed` removes membership; partial and point_lookup
+      rows never enter delta reconstruction;
+  (e) freshness measured from `observedAt` to the bound.
+  Receipt occurrence identity includes `sync_run_id`, so two attempts at one
+  millisecond append two receipts and the newest exact attempt governs, while an
+  exact retry stays idempotent. A bounded, self-terminating current-day
+  bootstrap lets an already-covered account write its first linked receipt.
+  A complete, succeeded attempt that saw the entity and recorded zero
+  transitions is a known no-edit result and still permits the action.
+  Diagnostic, watch and test decisions are unaffected.
+  @see `lib/meta/recent-edit-authority.ts`
 - Stale source evidence caps confidence and disables execution readiness, but
   it must not hide mature severe stop-loss `cut` decisions. Stale scale remains
   blocked because scale depends on fresh recent-hold proof.
@@ -77,8 +110,12 @@ Known facts to preserve unless repo evidence proves otherwise:
   reproduction of both projection/input/context envelopes, unchanged
   identity/input/data health/context, and no hard, `cut_candidate`, or pending
   artifact. `calibration_restatement` additionally requires no blocker,
-  authorization, or hysteresis. Arbitrary label/reason/context changes remain
-  semantic drift.
+  authorization, or hysteresis — or, since D091, an IDENTICAL held verdict on
+  both sides (same pre-authority label, blocked action and blocker,
+  `authorizedAction` null on both). A hold on only one side, or a changed held
+  action or blocker, is still semantic drift, and a held verdict is still
+  excluded from both `profile_availability_restatement` classes. Arbitrary
+  label/reason/context changes remain semantic drift.
 - Provider mutation plus complete live verification is not sufficient for a
   successful receipt. Every unsafe-to-terminalize native decision-origin row
   stays pending with common error code
@@ -140,6 +177,17 @@ Known facts to preserve unless repo evidence proves otherwise:
 | fix_delivery | active ad/campaign/adset + 24h no spend/impressions | partial | V3 input from latest daily warehouse row | campaign/adset active status still partial | Meta ad/adset/campaign status + latest daily insights | diagnose_data | conditional | must not emit without spend/impression proof |
 | fix_policy | review/effective status + disapproval/limited reason | partial | V3 input from effective status + payload review/reason fields | Meta review fields depend on payload availability | Meta ad/ad creative review fields | diagnose_data | conditional | must not emit without policy/review proof |
 | diagnose_data | missing required data, stale data, truth issue | partial | trust/provenance/snapshot | per-row freshness and missingData summary | snapshot/source health | diagnose_data | yes | honest fallback |
+
+**Amended by D091 — read this with the `cut` row above.** That row's
+"action-specific break-even anchor" was written while an explicit break-even
+ROAS was a required Cut input. It no longer is: Cut is anchored by a commercial
+ratio of EITHER kind. What the row's "trusted commercial spend unit" now means
+is `Meta platform AOV / Target ROAS` where a Target ROAS exists, and a legacy
+Target CPA only where one does not; a Shopify AOV is never that unit. An
+explicit break-even still defines the bounded P25-to-break-even economic strip
+(`cut-policy.hasExplicitBreakEven`), so where it is absent the Cut is anchored
+but the strip does not exist — which is also what "break-even-capped commercial
+stop-loss path" in that row now refers to.
 
 ## Aggregate Actions
 
@@ -241,8 +289,19 @@ Known facts to preserve unless repo evidence proves otherwise:
 
 ## D079 commercial spend-unit anchor readiness (2026-08-31)
 
-The hard-action threshold gate needs an owner-supplied economic anchor that the
-warehouse cannot supply. On the accepted generalized PIT evidence
+> **Amended by D091 — read this before the section.** The owner input a
+> hard action now needs is a RATIO, not a money amount. With a Target ROAS
+> configured, the average order value it divides is an account fact the
+> warehouse does supply — Meta's own attributed purchase AOV — so no CPA and no
+> AOV needs to be typed. The "Required input" bullets below carry the
+> superseded wording struck in place, and the two-case split that replaced it.
+
+~~The hard-action threshold gate needs an owner-supplied economic anchor that
+the warehouse cannot supply.~~ **[SUPERSEDED BY D091: it needs an owner-supplied
+RATIO — a Target ROAS, or a break-even ROAS for Cut — plus a Meta platform AOV
+the warehouse supplies. The only case still needing an owner-supplied money
+amount is an account with no Target ROAS at all, where a legacy Target CPA is
+the anchor.]** On the accepted generalized PIT evidence
 (`56f4472b…`), 1,872 of 1,993 held hard-action signals (93.93%) carry the
 persisted first blocker `profile_hard_action_ineligible`, every one of them
 running on `account_baseline` or `account_baseline_thin`.
@@ -259,11 +318,49 @@ canonical per-action code (`commercial_anchor_missing`,
 
 Required input, per business, on `business_target_pack_history`:
 
-- `target_cpa` (positive), OR `aov_assumption` (positive) together with
-  `target_roas` (positive);
+- ~~`target_cpa` (positive), OR `aov_assumption` (positive) together with
+  `target_roas` (positive);~~ **SUPERSEDED BY D091 — this is a TWO-CASE SPLIT,
+  not a precedence list.**
+  - **WITH `target_roas` (positive):** the ONLY hard basis is the canonical
+    Meta platform AOV divided by that ratio. `target_cpa` and `aov_assumption`
+    are read from the same target pack, are CARRIED AS EVIDENCE, and choose
+    nothing — neither outranks the platform AOV and neither is a fallback when
+    it is absent. Verified in `resolveSpendUnit` CASE 1
+    (`lib/creative-decision-engine/spend-unit-resolver.ts`) and
+    `buildNativeAdSpendUnitAuthority` CASE 1
+    (`lib/creative-decision-engine/jobs/ad-calibration-job.ts`); the executable
+    proof is `__tests__/canonical-meta-aov-permutations.test.ts`
+    ("with a target ROAS, the platform AOV outranks every operator input").
+  - **WITHOUT `target_roas`:** nothing can divide an average order value, so
+    legacy Target-CPA compatibility applies unchanged — a positive `target_cpa`
+    is taken whole (`target_cpa`, high confidence, hard-eligible).
+  - `aov_assumption` establishes NO rung in either case: `operator_aov` only
+    ever built `aov_assumption / target_roas`, which CASE 1 now owns, so it is
+    a RETIRED rung — readable for persisted rows, never minted again. Same for
+    `observed_shopify_aov`.
+  - An earlier D091 amendment in this bullet said `target_cpa` was "still taken
+    whole where it exists" and that `aov_assumption` with `target_roas` "still
+    ranks ahead of the account's own AOV". Both are superseded by the split
+    above; neither was true of the shipped resolver.
 - a verifiable `effective_at` provenance stamp — an unverifiable timestamp
   demotes the anchor rather than being trusted;
-- `break_even_roas` additionally for Cut, `target_roas` additionally for Scale.
+- `target_roas` additionally for Scale. **`break_even_roas` is no longer
+  required for Cut (D091)**: a commercial ratio of either kind anchors it. An
+  explicit break-even is still what defines the bounded
+  P25-to-break-even economic strip, so where it is absent the Cut is anchored
+  but the strip does not exist.
+
+What is required INSTEAD, and it is an account fact rather than an owner input:
+a usable Meta platform AOV (Meta attributed purchase revenue over its purchase
+count, ≥20 cutoff-safe purchases). Where it is absent the authority holds
+explicitly as `commercial_spend_unit_authority_missing`. A Shopify AOV is
+diagnostic evidence and never substitutes for it — and since the Round 4
+hashing correction it is excluded from HASHED IDENTITY as well: native
+authority `.v3` keeps `observedShopifyAovEvidence` out of `authorityHash`, the
+generation content and the cell input manifest, and canonical evaluation `.v6`
+/ Native-Ad evaluation `.v8` stopped hashing the three Shopify evidence members
+and the `observed_shopify_aov_*` warnings. The evidence is still carried and
+still served; it just moves no hash.
 
 State at the time of writing [verified from the frozen evidence, not
 re-queried]: all five configured packs had `target_cpa`, `break_even_cpa` and
@@ -272,8 +369,22 @@ values — they are owner economics, and no real target was written for any
 business.
 
 Not readiness for action, and not even readiness for the whole hard-action
-set: the threshold gate is common, but Cut additionally needs a break-even
-ROAS and Scale additionally needs a Target ROAS plus a calibration sample.
+set: the threshold gate is common, but ~~Cut additionally needs a break-even
+ROAS and~~ **[SUPERSEDED BY D091: Cut additionally needs a commercial ratio of
+EITHER kind — `cutAnchorEligible = targetPackAuthoritative && (breakEvenAnchored
+|| targetRoasAnchored)` in `resolveHardActionEligibility`,
+`lib/creative-decision-engine/account-decision-profile.ts`; the native
+equivalent is `hasCommercialTargetAuthority` in
+`lib/creative-decision-engine/jobs/ad-calibration-job.ts`]** Scale additionally
+needs a Target ROAS plus a calibration sample.
+
+The replay figures immediately below were produced under the PRE-D091 rule and
+are kept as recorded. `break_even_roas_missing` is still a live blocker code,
+but its trigger changed: it is now emitted only when NEITHER a break-even ROAS
+nor a Target ROAS anchors the pack (or the pack's provenance is unverifiable),
+not merely when break-even is absent. Do not re-derive a current expectation
+from these counts.
+
 Under illustrative candidates for four businesses the corrected per-action
 replay clears 50 rows, all Refresh; every held Cut stays withheld (1,355 on
 `break_even_roas_missing`, 149 on `commercial_anchor_missing`). Campaign
@@ -307,3 +418,86 @@ per-action independent-gate counts on the accepted evidence:
 | Cut | 1,925 | 86 | 26 |
 | Refresh | 60 | 1 | 0 |
 | total | 1,993 | 95 | 26 |
+## D091 — `meta_ad_daily.link_clicks` is not being ingested, and it gates fatigue
+
+Measured read-only on 2026-09-07:
+
+| month | rows | `link_clicks` NULL | `link_clicks` > 0 |
+|---|---|---|---|
+| 2026-03 | 13,182 | 0 | 7,666 |
+| 2026-04 | 11,722 | 0 | 7,219 |
+| 2026-05 | 13,751 | 0 | 738 |
+| 2026-06 | 14,540 | 0 | 2,676 |
+| 2026-07 | 16,452 | 0 | 58 |
+| 2026-08 | 11,948 | 5,676 | 0 |
+| 2026-09 | 2,327 | 2,327 | 0 |
+
+The column is populated all-time (122,825 positive rows since 2024-03-19), so
+this is an ingestion regression that began degrading in May 2026 and went fully
+NULL in August, not a column that was never written.
+
+CONSEQUENCE, and it is deliberate. The native ad-grain lifecycle evidence
+contract requires a CTR + click-to-purchase composite over equal disjoint 14/14
+windows. Click-to-purchase has no denominator anywhere in the current decision
+window, so the contract fails closed to `fatigueStatus: "unknown"` and **no
+native ad can be labelled fatigued until the ingestion is repaired**. A Refresh
+is openly HELD — visible, with its reason, authorizing nothing. It is not
+silently absent.
+
+At the 2026-09-06 cutoff the OTHER half is real: of 873 ads in the 28-day
+window, 465 have spend and 467 have impressions and clicks in BOTH 14-day
+bands, and all 13 provider accounts clear the account-wide frequency floor of
+eight observations (largest 193). Only the link-click denominator is missing.
+
+Repairing it is out of scope here and is the single highest-value follow-up for
+Refresh: it is the one input standing between a held Refresh and an authorized
+one.
+
+### D095 legacy-zero admission boundary
+
+Forward ingestion and the bounded stored-payload repair can now distinguish a
+measured zero from an unsupplied value, but the nullable migration deliberately
+did not rewrite old zeros. Those historical rows remain mixed evidence. Native
+14-day lifecycle bands therefore admit a stored zero only when the same row's
+`payload_json.actions` proves the measured-zero encoding. An uncorroborated or
+contradicted zero counts as unavailable on a decision-bearing day, and both the
+decision hydration query and the readback verifier use the same classifier.
+This permits repaired/current evidence to produce Refresh while preventing the
+untouched legacy population from granting it.
+
+## Meta-attributed AOV readiness governs the commercial anchor (D092)
+
+The canonical spend unit needs BOTH halves: the ratio from the business target
+pack and the average order value from Meta's own attributed purchases. The AOV
+half has a readiness bar (`classifyMetaAovQuality`: `unavailable` under 1
+purchase, `unstable` under 5, `low_sample` under 20, `ready` at 20+), and only
+`ready` supplies an authoritative unit.
+
+An account that has typed a Target ROAS but whose Meta purchase sample is not
+ready is HELD, not substituted. It does not fall back to a typed Target CPA:
+taking the CPA there would mint a hard-action grant on an account where Meta
+attributed no usable purchases at all, reporting an absence as an anchor.
+
+**CORRECTED (Round 5).** This section used to end "the maturity floor falls
+back to the legacy CPA ladder in that state, which is a gate rather than a
+basis." That was describing the defect, not the rule. The maturity floor is
+sized from the SAME unit the threshold it admits is sized from, so a floor
+built from a CPA while the unit came from the AOV/ROAS ratio gave one account
+two answers to "what is a purchase worth". `metaLossBudgetMaturity` now returns
+`null` whenever a positive Target ROAS exists and no ready Meta AOV does — the
+hold is total. The legacy `breakEvenCpa ?? targetCpa ?? accountCpa` ladder
+applies ONLY where there is no positive Target ROAS, which is the compatibility
+case D091 preserves.
+
+Readiness is therefore a data-readiness fact with authority consequences, and it
+is read from one place. `metaLossBudgetMaturity`, `metaCanonicalSpendUnit` and
+`resolveSpendUnit` all call the same classifier so that none of them can claim a
+unit another would refuse to build.
+
+## Current authority vs historical record
+
+> **Current authority vs historical record.** Which table a decision taken today
+> may read, and which is retained only so a past decision can be explained, are
+> listed once in
+> [`CONTRACTS.md` → *Current authority vs historical record — the tables*](./CONTRACTS.md#current-authority-vs-historical-record--the-tables).
+> A value from the retained list may EXPLAIN a decision and may never GRANT one.

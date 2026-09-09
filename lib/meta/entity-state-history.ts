@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { getDb, runDbTransaction } from "@/lib/db";
+import { commercialTargetInstantMs } from "@/lib/meta/commercial-target-instant";
+import { META_OBSERVATION_RECEIPT_AUTHORITY_SQL } from "@/lib/meta/observation-receipt-schema";
 
 export const META_ENTITY_TYPES = [
   "campaign",
@@ -122,6 +125,8 @@ export interface PersistMetaEntityObservationInput {
    * unattestable, which is the fail-closed direction.
    */
   captureReceipt?: {
+    /** ROUND 14: the real `meta_sync_runs.id` of the attempt. */
+    syncRunId?: string | null;
     partitionId: string;
     sourceSnapshotId?: string | null;
     /** The raw snapshot row this capture was mapped from, as a real reference. */
@@ -130,12 +135,62 @@ export interface PersistMetaEntityObservationInput {
 }
 
 /**
+ * WHAT A RUN'S PERSISTED STATE ROWS ARE, declared as a value.
+ *
+ * Before this constant the answer had to be INFERRED from a combination —
+ * `completeness`, a NULL `manifest_kind`, and a `row_count` that is the logical
+ * provider scope rather than the physical row count — and two different
+ * storage semantics produced the same combination:
+ *
+ *   - legacy / `failed` / `point_lookup`: `manifest_kind` NULL because the run
+ *     wrote every row it carried (or carried none), and
+ *   - the deduped `partial` lane: `manifest_kind` NULL because 'delta' is a
+ *     COMPLETE-lane word (see the block at the partial branch), while the rows
+ *     it did write are a strict subset of what it observed.
+ *
+ * A reader that took NULL to mean "run-bound rows are this run's whole
+ * payload" would read the second as the first. The discriminator removes the
+ * inference: `delta_stats_json.manifestContract` says which contract produced
+ * the rows, and it is present on every run this writer stamps stats onto.
+ *
+ * `manifest_kind` itself cannot carry the distinction: its column CHECK is
+ * `manifest_kind IS NULL OR manifest_kind IN ('full','delta')`
+ * (`lib/migrations.ts`, the `ADD COLUMN IF NOT EXISTS manifest_kind` statement),
+ * so a third value needs a migration this change deliberately does not make.
+ */
+export const META_COMPLETE_MANIFEST_CONTRACT =
+  "d075.complete-scope-manifest.v1" as const;
+
+/**
+ * The partial lane's storage contract, stated so no reader has to guess:
+ *
+ *  - the rows this run owns are the entities the payload POSITIVELY OBSERVED
+ *    and whose content differed from the winner a reader already resolves;
+ *  - `logicalEntityCount` (and the run's `row_count`) is the whole observed
+ *    payload, which is larger than the row set whenever the dedupe suppressed
+ *    anything, so `row_count` is NOT a membership count on this lane;
+ *  - `exitedEntityCount` is structurally 0 and there is never an
+ *    `absent_unconfirmed` row: a partial page proves what it contains, never
+ *    what it omits, so this run makes no scope-membership claim at all;
+ *  - the run is therefore NOT a manifest. Nothing may reconstruct a scope from
+ *    it, and nothing may compare its member count to `row_count`.
+ */
+export const META_PARTIAL_MANIFEST_CONTRACT =
+  "d075.partial-observed-present-delta.v1" as const;
+
+export type MetaObservationManifestContract =
+  | typeof META_COMPLETE_MANIFEST_CONTRACT
+  | typeof META_PARTIAL_MANIFEST_CONTRACT;
+
+/**
  * D075 write-amplification telemetry, persisted on the run as
  * `delta_stats_json` and returned to the caller. `logicalEntityCount` is the
  * full incoming scope (`row_count` keeps that meaning too);
  * `physicalStateRows` is what was actually appended.
  */
 export interface MetaObservationDeltaStats {
+  /** Which storage contract produced this run's rows. Never inferred. */
+  manifestContract: MetaObservationManifestContract;
   logicalEntityCount: number;
   changedEntityCount: number;
   newEntityCount: number;
@@ -167,13 +222,35 @@ export interface PersistMetaEntityObservationResult {
   /** How many observations this run now represents. */
   repeatCount: number;
   /**
-   * D075: how this run's manifest is stored. `null` on non-complete lanes
-   * (legacy full-manifest behavior) and on coalesced results, `'full'` on a
-   * first complete observation of a scope, `'delta'` when only
-   * changed/new/exited entities were appended.
+   * D075: how this run's manifest is stored. `'full'` on a first complete
+   * observation of a scope, `'delta'` when only changed/new/exited entities
+   * were appended, `null` everywhere else — coalesced results, the `failed`
+   * and `point_lookup` lanes, AND the partial lane.
+   *
+   * A NULL here is NOT "this run wrote every row it carried". The partial lane
+   * is delta-deduped too and still stamps NULL on purpose, because 'delta' is
+   * a COMPLETE-lane word that three manifest-reconstruction readers switch on;
+   * the block at that branch names them. `deltaStats.manifestContract` is the
+   * field that says which storage contract produced the rows.
    */
   manifestKind: "full" | "delta" | null;
-  /** Present exactly when `manifestKind` is non-null. */
+  /**
+   * The write-amplification receipt for this run, or null when the run's rows
+   * were not delta-bounded at all.
+   *
+   * NOT "present exactly when `manifestKind` is non-null", which is what the
+   * previous revision of this comment claimed. The implication holds in ONE
+   * direction only: a non-null `manifestKind` always carries stats, but the
+   * partial lane writes `delta_stats_json` with `manifest_kind` NULL, so a
+   * non-null `deltaStats` beside a NULL `manifestKind` is the ordinary shape
+   * of a deduped partial run — and the shape a reader is likeliest to meet,
+   * since the partial lane is the one that produced the 2026-09-07 rewrite
+   * storm.
+   *
+   * Null on: a coalesced heartbeat result, the `failed` lane (which may carry
+   * no states at all), the `point_lookup` lane, and a `partial` run whose
+   * payload carried zero states. The `complete` lane always carries stats.
+   */
   deltaStats: MetaObservationDeltaStats | null;
 }
 
@@ -511,6 +588,209 @@ export function normalizeMetaProviderUpdatedAt(
   return parsed.toISOString();
 }
 
+/**
+ * THREE DIFFERENT NULLS IN A SCHEDULE COLUMN, AND THE MARKER THAT SAYS WHICH.
+ *
+ * `campaign_start_time`, `campaign_end_time`, `adset_start_time` and
+ * `adset_end_time` are `timestamptz` columns fed from provider strings. Until
+ * this normalizer they reached PostgreSQL RAW: the campaign and ad-set mappers
+ * in `lib/api/meta.ts` build them with `optionalString(input.row.start_time)`,
+ * which trims and rejects blanks and validates nothing else, and both INSERT
+ * sites in this module cast the result with `::timestamptz`. PostgreSQL was
+ * therefore the FIRST thing that looked at the value, and it looks at it inside
+ * `runDbTransaction` — so one unparsable string aborted the entire observation,
+ * every entity in it. Measured against PostgreSQL 16.13:
+ *
+ *   select 'not-a-date'::timestamptz
+ *     -> ERROR: invalid input syntax for type timestamp with time zone
+ *   select ''::timestamptz
+ *     -> ERROR: invalid input syntax for type timestamp with time zone
+ *
+ * `provider_updated_at` shares the column type and does NOT share the defect:
+ * its mappers pass every value through `normalizeMetaProviderUpdatedAt` above,
+ * which returns null on anything unparsable and on anything later than
+ * `capturedAt`. The schedule fields were the ones with no such funnel.
+ *
+ * So a schedule value is validated BEFORE the write, and an unusable one
+ * becomes an EXPLICIT UNKNOWN — the column is NULL and field coverage says
+ * WHY. That marker is a THIRD thing, and the three must never be collapsed:
+ *
+ *   `true` beside a null value, or `false` — MEASURED ABSENCE. The request
+ *     asked for the field and the response answered without a usable one.
+ *     `metaFieldCoverageState` in `lib/api/meta.ts` writes these two.
+ *   `degraded_not_observed` — NOT ASKED. The campaigns edge refused the
+ *     schedule fields, the request was narrowed to be accepted at all, and the
+ *     row's null is evidence of nothing. `lib/api/meta.ts` writes it as
+ *     `META_FIELD_COVERAGE_DEGRADED`, and it is the ONE marker the read-side
+ *     carry lateral in `stateSelect` restores a prior value for.
+ *   `invalid_not_retained` — ASKED, ANSWERED, UNUSABLE. Written here, and only
+ *     here. The provider did return something for a field we did ask for, and
+ *     it could not be represented.
+ *
+ * WHY AN INVALID VALUE MUST NOT INHERIT THE OLD ONE. The carry-forward lateral
+ * in `stateSelect` restores the newest prior value whose coverage
+ * `IS DISTINCT FROM 'degraded_not_observed'`; that predicate IS the documented
+ * carry rule, and it is the whole of it. `invalid_not_retained` is distinct
+ * from `degraded_not_observed`, so the invalid row is itself an eligible
+ * winner, wins the as-of read on its own recency, and resolves to NULL. That
+ * is the case this normalizer is in and it is the intended one: a degraded row
+ * is one nobody asked about, so the last OBSERVED value still stands; an
+ * invalid row is one the provider did answer, so the old value has been
+ * contradicted rather than left standing. Restoring it there would be exactly
+ * the silent inheritance outside the carry rule that the rule exists to
+ * prevent. (The other case — a schedule the request had to drop — is
+ * unchanged: it still carries `degraded_not_observed`, and the lateral still
+ * restores it.)
+ *
+ * WHY THE ACCEPTED SET IS BOUNDED WHERE IT IS, rather than at an invented
+ * business window. It is exactly what `Date#toISOString` renders WITHOUT an
+ * expanded-year sign, because that is exactly the subset `::timestamptz`
+ * accepts back. Measured on the same cluster, and note that the raw value is
+ * the one PostgreSQL likes:
+ *
+ *   select '99999-01-01'::timestamptz     -> accepted, year 99999 (the exact
+ *                                            rendering depends on the server
+ *                                            time zone; acceptance does not)
+ *   new Date('99999-01-01').toISOString() -> a signed six-digit-year ISO
+ *   select <that expanded-year ISO>::timestamptz
+ *     -> ERROR: time zone displacement out of range
+ *
+ * A year-99999 schedule is not a schedule; it is also a value whose canonical
+ * ISO rendering PostgreSQL refuses, so normalizing it would CREATE the abort
+ * this function exists to remove. It is an explicit unknown instead.
+ *
+ * WHAT THIS COSTS ONCE. Meta spells a schedule with an offset
+ * (`2026-09-07T10:00:00+0300`); the canonical form of the same INSTANT is
+ * `2026-09-07T07:00:00.000Z`. The `timestamptz` column stores an instant, so
+ * the stored value does not move at all — only the string that goes into
+ * `buildMetaEntityStateHash` canonicalizes. On the first run after this
+ * deploys, each campaign and ad-set carrying a schedule therefore hashes
+ * differently from its retained predecessor and the delta writer appends at
+ * most one extra row per entity per scope, once. The same bounded restatement
+ * the D083 Correction 1 note above describes, and afterwards a re-spelled
+ * offset from the provider stops producing a row at all.
+ */
+export const META_FIELD_COVERAGE_SCHEDULE_INVALID =
+  "invalid_not_retained" as const;
+
+/** The four state fields that land in a `timestamptz` schedule column. */
+export const META_SCHEDULE_STATE_FIELDS = [
+  "campaignStartTime",
+  "campaignEndTime",
+  "adsetStartTime",
+  "adsetEndTime",
+] as const;
+
+export type MetaScheduleStateField =
+  (typeof META_SCHEDULE_STATE_FIELDS)[number];
+
+export type MetaScheduleTimestampNormalization =
+  /** No value arrived. Coverage is left exactly as the mapper wrote it. */
+  | { outcome: "absent"; value: null }
+  /** A usable instant, rendered canonically. */
+  | { outcome: "normalized"; value: string }
+  /** A value arrived and cannot be written. Coverage becomes explicit unknown. */
+  | {
+      outcome: "invalid";
+      value: null;
+      reason: "blank" | "unparsable" | "unrepresentable";
+    };
+
+/**
+ * Exactly the shape `Date#toISOString` emits for a four-digit year. Anything
+ * outside it carries the `+`/`-` expanded-year sign PostgreSQL reads as a time
+ * zone displacement.
+ */
+const META_CANONICAL_ISO_INSTANT =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * One provider schedule string, decided.
+ *
+ * A blank string is INVALID rather than absent on purpose. `''::timestamptz`
+ * is an error, not a null, so it is a value that arrived and cannot be
+ * written — and nothing about it says the provider meant "no schedule". The
+ * shipped mappers never emit one (`optionalString` returns null for a blank),
+ * so this arm is a guard for any other caller rather than a live lane.
+ */
+export function normalizeMetaScheduleTimestamp(
+  raw: unknown,
+): MetaScheduleTimestampNormalization {
+  if (raw === null || raw === undefined) {
+    return { outcome: "absent", value: null };
+  }
+  if (typeof raw !== "string") {
+    return { outcome: "invalid", value: null, reason: "unparsable" };
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { outcome: "invalid", value: null, reason: "blank" };
+  }
+  if (/^[+-]?\d{5,}-/.test(trimmed)) {
+    return { outcome: "invalid", value: null, reason: "unrepresentable" };
+  }
+  // Meta uses compact offsets (+0000) as well as RFC 3339 offsets (+00:00).
+  // Validate the literal calendar and explicit offset before constructing a
+  // Date: Date parsing alone accepts February 30 and host-local timestamps.
+  const explicitOffset = trimmed.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const milliseconds = commercialTargetInstantMs(explicitOffset);
+  if (milliseconds === null) {
+    return { outcome: "invalid", value: null, reason: "unparsable" };
+  }
+  let iso: string;
+  try {
+    iso = new Date(milliseconds).toISOString();
+  } catch {
+    // `toISOString` throws RangeError past ±8.64e15 ms.
+    return { outcome: "invalid", value: null, reason: "unrepresentable" };
+  }
+  if (!META_CANONICAL_ISO_INSTANT.test(iso)) {
+    return { outcome: "invalid", value: null, reason: "unrepresentable" };
+  }
+  return { outcome: "normalized", value: iso };
+}
+
+/**
+ * The same decision applied to a whole state, coverage included.
+ *
+ * IDEMPOTENT, and it has to be: `buildMetaEntityStateHash` runs it so no caller
+ * can hash a state this writer would have normalized, and
+ * `persistMetaEntityObservation` runs it on the object it BOTH hashes and
+ * inserts. A normalized value re-normalizes to itself; an invalidated field is
+ * null afterwards, which is `absent`, so its `invalid_not_retained` marker is
+ * left alone rather than overwritten.
+ *
+ * Returns the input object unchanged when nothing needed normalizing, so the
+ * overwhelmingly common path allocates nothing.
+ */
+export function normalizeMetaEntityStateSchedule<
+  TState extends MetaEntityStateHashInput,
+>(state: TState): TState {
+  let patch: Partial<Record<MetaScheduleStateField, string | null>> | null =
+    null;
+  let coverage: Record<string, unknown> | null = null;
+  for (const field of META_SCHEDULE_STATE_FIELDS) {
+    const decision = normalizeMetaScheduleTimestamp(state[field]);
+    if (decision.outcome === "absent") continue;
+    if (decision.outcome === "normalized") {
+      if (decision.value === state[field]) continue;
+      patch ??= {};
+      patch[field] = decision.value;
+      continue;
+    }
+    patch ??= {};
+    patch[field] = null;
+    coverage ??= { ...(state.fieldCoverage ?? {}) };
+    coverage[field] = META_FIELD_COVERAGE_SCHEDULE_INVALID;
+  }
+  if (!patch) return state;
+  return (
+    coverage
+      ? { ...state, ...patch, fieldCoverage: coverage }
+      : { ...state, ...patch }
+  ) as TState;
+}
+
 export function resolveMetaEntityObservedAt(input: {
   providerUpdatedAt?: string | null;
   responseObservedAt: string | Date;
@@ -570,7 +850,12 @@ function normalizeLimit(value: number | null | undefined) {
  * previous revision of this file claimed these fields were excluded while the
  * code included them; that disagreement is what this note replaces.
  */
-export function buildMetaEntityStateHash(input: MetaEntityStateHashInput) {
+export function buildMetaEntityStateHash(rawInput: MetaEntityStateHashInput) {
+  // D083 Correction 3 — the schedule is normalized HERE as well as on the
+  // persist path, so no caller can produce a hash over a raw schedule string
+  // that the writer would have rewritten. It is idempotent, so the persist
+  // path's own normalization does not double-apply.
+  const input = normalizeMetaEntityStateSchedule(rawInput);
   return sha256({
     contractVersion: "meta-entity-state.v3",
     businessId: requireNonEmpty(input.businessId, "businessId"),
@@ -645,6 +930,95 @@ export function metaObservationCheckpointIntervalMs(
 }
 
 /**
+ * Failure-receipt keys that name the REQUEST, not the failure.
+ *
+ * WHY THIS EXISTS, measured. `persistMetaStatusConfigObservation` in
+ * `lib/api/meta.ts` hands this module an `error` of
+ * `{ pagination: paginationReceiptContext(receipt), invalidRowCount }`, and
+ * `paginationReceiptContext` passes `receipt.failure` through whole. That
+ * object is built by the non-complete receipt constructor in the same file and
+ * carries `message`, `pageUrl`, `attempts` and `fbtraceId` alongside the
+ * classification (`kind`, `httpStatus`, `errorCode`, `errorSubcode`,
+ * `isTransient`). `fbtraceId` is Meta's per-REQUEST trace identifier
+ * (`readMetaGraphErrorIdentity` reads it from `error.fbtrace_id`), so it is
+ * different on every attempt by construction.
+ *
+ * Until v2 the whole object went into the semantic hash, which made every
+ * failing attempt a semantically distinct observation. The coalescing branch
+ * compares `currentRun.semantic_hash === semanticHash`, so it could never fire
+ * on a repeating provider failure: each attempt appended a new
+ * `meta_entity_observation_runs` row and a new
+ * `meta_entity_observation_receipts` row. Neither table is in `FENCED_TABLES`
+ * (`lib/sync/db-growth-fence.ts`), so no per-table ceiling bounds that growth —
+ * only the 160 GiB `DEFAULT_DATABASE_BUDGET_BYTES` aggregate, which refuses ALL
+ * sync when it trips rather than bounding either table. The measurement already
+ * recorded for this lane is 729 `failed` `campaign_configs` runs since
+ * 2026-09-04, every one carrying `httpStatus: 400` (the same window
+ * `readMetaObservationWriterPressure` below documents). That ONE run was
+ * appended per attempt is what this hash rule produces rather than a separate
+ * measurement — and it did not start with the trace id: `message` and `pageUrl`
+ * differ per attempt too, so a whole-receipt hash has been defeating the
+ * heartbeat for as long as it has been computed that way.
+ *
+ * Dropped here, and why each one is request identity rather than truth:
+ *  - `fbtraceId`  — Meta's identifier for THIS HTTP request.
+ *  - `message`    — free text that echoes the request back; already excluded
+ *                   from the snapshot path for the same reason.
+ *  - `pageUrl`    — the paging cursor of this attempt.
+ *  - `attempts`   — how many times THIS call retried internally.
+ *
+ * Deliberately kept, because they are the failure itself and two different
+ * failures must not coalesce: `kind`, `termination`, `httpStatus`, `errorCode`,
+ * `errorSubcode`, `isTransient`, `pageIndex`, `pageCount`, `complete`,
+ * `invalidRowCount` and the field-degradation record.
+ *
+ * NOTHING IS LOST FORENSICALLY. The run keeps the first occurrence's full
+ * `error_json` verbatim, and `appendObservationCaptureReceipt` writes the whole
+ * error — trace id included — for EVERY occurrence, on the coalesced path as
+ * well as the appending one. What changes is only which occurrences share a run.
+ */
+const META_REQUEST_SCOPED_ERROR_FIELDS: ReadonlySet<string> = new Set([
+  "fbtraceId",
+  "message",
+  "pageUrl",
+  "attempts",
+]);
+
+/**
+ * Strip request-scoped keys at every depth, structure otherwise untouched.
+ *
+ * Applied to the SEMANTIC hash only. `buildMetaObservationRunHash` and the
+ * persisted `error_json` keep the receipt whole: the run hash is the identity
+ * of one stored row and must stay byte-faithful to what arrived.
+ */
+function canonicalizeSemanticError(
+  value: unknown,
+  active: Set<object> = new Set(),
+): unknown {
+  if (value === null || typeof value !== "object") return value;
+  // Same refusal `canonicalize` makes, taken one step earlier: without it a
+  // self-referential receipt would exhaust the stack here instead of reaching
+  // that guard's TypeError.
+  if (active.has(value)) throw new TypeError("error receipt contains a cycle.");
+  active.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((item) => canonicalizeSemanticError(item, active));
+    }
+    const output: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      if (META_REQUEST_SCOPED_ERROR_FIELDS.has(key)) continue;
+      output[key] = canonicalizeSemanticError(entry, active);
+    }
+    return output;
+  } finally {
+    active.delete(value);
+  }
+}
+
+/**
  * The observed TRUTH, with every clock removed.
  *
  * `buildMetaObservationRunHash` includes `observedAt` and `capturedAt`, so
@@ -658,12 +1032,16 @@ export function metaObservationCheckpointIntervalMs(
  * fourth is derived from per-state `observedAt`, so including it would smuggle a
  * clock back in.
  *
- * Included on purpose: completeness and the error receipt, because "complete
- * with these 40 ads" and "partial with these 40 ads" are different truths and
- * must not coalesce into each other; and the sorted (entityId, stateHash) set,
- * which is the entity truth itself. `stateHash` is already clock-free — it
- * carries `providerUpdatedAt`, which is provider truth rather than an
- * observation clock.
+ * Included on purpose: completeness and the failure CLASSIFICATION, because
+ * "complete with these 40 ads" and "partial with these 40 ads" are different
+ * truths and must not coalesce into each other; and the sorted
+ * (entityId, stateHash) set, which is the entity truth itself. `stateHash` is
+ * already clock-free — it carries `providerUpdatedAt`, which is provider truth
+ * rather than an observation clock.
+ *
+ * Excluded from the error receipt as of v2: the fragments that identify the
+ * REQUEST rather than the failure — see `META_REQUEST_SCOPED_ERROR_FIELDS` for
+ * the measured reason and the field-by-field justification.
  */
 export function buildMetaObservationSemanticHash(input: {
   businessId: string;
@@ -677,7 +1055,21 @@ export function buildMetaObservationSemanticHash(input: {
   states: ReadonlyArray<{ entityId: string; stateHash: string }>;
 }) {
   return sha256({
-    contractVersion: "meta-entity-observation-semantic.v1",
+    /*
+      v1 -> v2: the error receipt is now canonicalized before it is hashed.
+
+      The version is bumped rather than reused because the stored
+      `meta_entity_observation_runs.semantic_hash` carries no version column of
+      its own — the version lives inside the hashed payload. Reusing 'v1' would
+      leave rows written under two different input rules indistinguishable and
+      identically labelled. Bumping costs exactly one appended run per
+      (business, account, entity_type, endpoint, completeness) lane on the first
+      observation after deploy, because the newest run's stored v1 hash cannot
+      match a v2 computation; on the complete lane that appended run takes the
+      delta branch, so it writes only genuinely changed rows. No history is
+      rewritten and no stored hash is reinterpreted.
+    */
+    contractVersion: "meta-entity-observation-semantic.v2",
     businessId: requireNonEmpty(input.businessId, "businessId"),
     providerAccountId: requireNonEmpty(
       input.providerAccountId,
@@ -688,7 +1080,7 @@ export function buildMetaObservationSemanticHash(input: {
     completeness: input.completeness,
     pageCount: input.pageCount,
     rowCount: input.rowCount,
-    error: input.error ?? null,
+    error: canonicalizeSemanticError(input.error ?? null),
     states: [...input.states]
       .map((state) => ({ entityId: state.entityId, stateHash: state.stateHash }))
       .sort((a, b) => a.entityId.localeCompare(b.entityId)),
@@ -897,10 +1289,33 @@ function buildMetaTombstoneHash(input: {
  * repeat a no-op, so calling this on every observation is idempotent.
  */
 /**
- * D075: every ad this observation's lineage evidence names — the provider's
- * ad-creative relationships plus verified duplicate action pairs. These ads
- * must have a durable state row in whichever run a lineage edge attaches to,
- * because the edge FK-references (run_id, entity_type, ad_id, creative_id).
+ * D075: every ad this observation's lineage evidence can actually turn into an
+ * edge. These ads must have a durable state row in whichever run a lineage edge
+ * attaches to, because the edge FK-references
+ * (run_id, entity_type, ad_id, creative_id).
+ *
+ * SHARED-CREATIVE NARROWING (the second half of the 2026-09-07 rewrite storm).
+ * This used to name EVERY ad in `adCreativeRelationships`, which for an
+ * `ad_configs` observation is every ad in the payload that carries a creative.
+ * The delta writer then carried all of them into the run, so a complete
+ * observation in which nothing changed still wrote the whole scope. Production
+ * on 2026-09-06 (read-only, re-measured 2026-09-07): ALL TWELVE `ad_configs`
+ * delta runs that day — one per ad account, twelve accounts, so "every run on
+ * this endpoint" rather than a streak inside one account — recorded
+ * `changedEntityCount: 0, newEntityCount: 0, exitedEntityCount: 0` beside
+ * `lineageCarriedEntityCount` equal to `physicalStateRows` equal to that
+ * account's entire ad scope (171 at the smallest, 3288 at the largest,
+ * `amplification: 1`). The D075 diff was correct and the carry re-wrote the
+ * scope anyway.
+ *
+ * The narrowing is edge-lossless by construction, not by estimate.
+ * `persistMetaObservationLineage` derives an `observation_run` edge only inside
+ * a creative group of two or more ads (it sorts the group, takes the earliest
+ * as source, and emits `relationships.slice(1)` as targets), so a creative
+ * named by exactly one ad in this payload can never produce an edge and its ad
+ * never needs a durable row. The `verified_action` family is unrelated to the
+ * payload grouping — it joins `meta_ads_action_log` — so both of its ads stay
+ * named unconditionally.
  */
 async function lineageRelevantAdIds(
   sql: ReturnType<typeof getDb>,
@@ -910,9 +1325,22 @@ async function lineageRelevantAdIds(
     adCreativeRelationships?: MetaObservedAdCreativeRelationship[] | null;
   },
 ): Promise<Set<string>> {
-  const adIds = new Set<string>(
-    (input.adCreativeRelationships ?? []).map((rel) => rel.adId),
-  );
+  const adIdsByCreative = new Map<string, Set<string>>();
+  for (const relationship of input.adCreativeRelationships ?? []) {
+    const adId = relationship.adId.trim();
+    const creativeId = relationship.creativeId.trim();
+    if (!adId || !creativeId) continue;
+    const group = adIdsByCreative.get(creativeId) ?? new Set<string>();
+    group.add(adId);
+    adIdsByCreative.set(creativeId, group);
+  }
+  const adIds = new Set<string>();
+  for (const group of adIdsByCreative.values()) {
+    // One ad on a creative is a group of one; `relationships.slice(1)` below is
+    // empty for it and no edge exists to FK-reference a row.
+    if (group.size < 2) continue;
+    for (const adId of group) adIds.add(adId);
+  }
   const verifiedPairs = await sql<{
     ad_id: string;
     resulting_ad_id: string;
@@ -1194,7 +1622,7 @@ const UUID_PATTERN =
  * writer coalesced onto an existing run: that row is the evidence that one run
  * carried several captures, which is why the cohort cannot live on the run.
  */
-async function appendObservationCaptureReceipt(
+export async function appendObservationCaptureReceipt(
   sql: ReturnType<typeof getDb>,
   input: {
     runId: string;
@@ -1205,6 +1633,12 @@ async function appendObservationCaptureReceipt(
     partitionId: string;
     sourceSnapshotId: string | null;
     sourceSnapshotRefId: string | null;
+    /**
+     * ROUND 14: the real `meta_sync_runs.id` of the attempt writing this
+     * receipt. Null only for callers that genuinely have no sync attempt (the
+     * tombstone path); the config-observation path always supplies one.
+     */
+    syncRunId: string | null;
     captureStatus: MetaObservationCompleteness;
     providerRowCount: number;
     pageCount: number;
@@ -1220,26 +1654,69 @@ async function appendObservationCaptureReceipt(
   if (input.sourceSnapshotRefId !== null && !UUID_PATTERN.test(input.sourceSnapshotRefId)) {
     throw new Error("captureReceipt.sourceSnapshotRefId must be a UUID.");
   }
+  if (input.syncRunId !== null && !UUID_PATTERN.test(input.syncRunId)) {
+    throw new Error("captureReceipt.syncRunId must be a UUID.");
+  }
   const errorJson = input.error ? JSON.stringify(input.error) : null;
   const inserted = await sql<{ id: string }>`
-    INSERT INTO meta_entity_observation_receipts (
+    WITH receipt AS (
+    INSERT INTO meta_entity_observation_receipts_v2 (
       receipt_contract, run_id, business_id, provider_account_id, entity_type,
       endpoint, partition_id, source_snapshot_id, source_snapshot_ref_id,
+      sync_run_id,
       capture_status, provider_row_count, page_count, run_reused, observed_at,
       captured_at, error_json
-    ) VALUES (
+    ) SELECT
       ${META_OBSERVATION_RECEIPT_CONTRACT}, ${input.runId}::uuid,
       ${input.businessId}, ${input.providerAccountId}, ${input.entityType},
       ${input.endpoint}, ${input.partitionId}::uuid, ${input.sourceSnapshotId},
       ${input.sourceSnapshotRefId}::uuid,
+      ${input.syncRunId}::uuid,
       ${input.captureStatus}, ${input.providerRowCount}, ${input.pageCount},
       ${input.runReused}, ${input.observedAt}::timestamptz,
       ${input.capturedAt}::timestamptz,
       ${errorJson}::jsonb
+    WHERE NOT EXISTS (
+      -- A retry after an old-image write must compare the retained occurrence,
+      -- including its NULL attempt, instead of copying it into v2 a second time.
+      SELECT 1 FROM meta_entity_observation_receipts legacy
+       WHERE legacy.partition_id = ${input.partitionId}::uuid
+         AND legacy.entity_type = ${input.entityType}
+         AND legacy.endpoint = ${input.endpoint}
+         AND legacy.captured_at = ${input.capturedAt}::timestamptz
+         AND legacy.sync_run_id IS NOT DISTINCT FROM ${input.syncRunId}::uuid
     )
-    ON CONFLICT (partition_id, entity_type, endpoint, captured_at)
+    /*
+      ── ROUND 15, DEFECT 4 ─────────────────────────────────────────────────
+      The occurrence includes the ATTEMPT. Two distinct sync runs capturing at
+      the same millisecond used to collide on the partition-scoped key, and
+      DO NOTHING silently kept whichever committed first -- possibly the one
+      whose apply then failed. They now append as two receipts, while an exact
+      retry of the SAME attempt still coalesces.
+    */
+    ON CONFLICT (partition_id, entity_type, endpoint, captured_at,
+                 COALESCE(sync_run_id, '00000000-0000-0000-0000-000000000000'::uuid))
     DO NOTHING
-    RETURNING id::text AS id
+    RETURNING *
+    ), legacy_mirror AS (
+      -- Preserve the deployed image's four-column write/read contract. The
+      -- first capture is mirrored with the SAME UUID and clocks; later sync
+      -- attempts remain distinct in v2. Both writes commit or roll back with
+      -- the observation transaction. The authority union deduplicates by id.
+      INSERT INTO meta_entity_observation_receipts (
+        id, receipt_contract, run_id, business_id, provider_account_id,
+        entity_type, endpoint, partition_id, source_snapshot_id,
+        source_snapshot_ref_id, sync_run_id, capture_status, provider_row_count,
+        page_count, run_reused, observed_at, captured_at, error_json, created_at
+      )
+      SELECT id, receipt_contract, run_id, business_id, provider_account_id,
+             entity_type, endpoint, partition_id, source_snapshot_id,
+             source_snapshot_ref_id, sync_run_id, capture_status, provider_row_count,
+             page_count, run_reused, observed_at, captured_at, error_json, created_at
+        FROM receipt
+      ON CONFLICT (partition_id, entity_type, endpoint, captured_at) DO NOTHING
+    )
+    SELECT id::text AS id FROM receipt
   `;
   if (inserted[0]) return;
 
@@ -1252,7 +1729,7 @@ async function appendObservationCaptureReceipt(
     anything else is two contradictory statements about one capture occurrence
     and there is no rule that picks a winner, so it refuses.
   */
-  const existing = await sql<{
+  const existing = await sql.query<{
     run_id: string;
     source_snapshot_id: string | null;
     source_snapshot_ref_id: string | null;
@@ -1262,17 +1739,23 @@ async function appendObservationCaptureReceipt(
     run_reused: boolean;
     observed_at: string;
     error_json: unknown;
-  }>`
+  }>(`
     SELECT run_id::text AS run_id, source_snapshot_id,
            source_snapshot_ref_id::text AS source_snapshot_ref_id,
            capture_status, provider_row_count, page_count, run_reused,
            observed_at::text AS observed_at, error_json
-      FROM meta_entity_observation_receipts
-     WHERE partition_id = ${input.partitionId}::uuid
-       AND entity_type = ${input.entityType}
-       AND endpoint = ${input.endpoint}
-       AND captured_at = ${input.capturedAt}::timestamptz
-  `;
+      FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) receipt
+     WHERE partition_id = $1::uuid
+       AND entity_type = $2
+       AND endpoint = $3
+       AND captured_at = $4::timestamptz
+       -- ROUND 15: the same key the conflict fired on. Omitting the attempt
+       -- here compared this attempt against a DIFFERENT attempt's row and
+       -- reported its ordinary differences as a contradiction.
+       AND COALESCE(sync_run_id, '00000000-0000-0000-0000-000000000000'::uuid)
+         = COALESCE($5::uuid,
+                    '00000000-0000-0000-0000-000000000000'::uuid)
+  `, [input.partitionId, input.entityType, input.endpoint, input.capturedAt, input.syncRunId]);
   const row = existing[0];
   if (!row) {
     throw new Error("Observation receipt conflicted with a row that then vanished.");
@@ -1302,9 +1785,13 @@ async function appendObservationCaptureReceipt(
     the reason `run_reused` above is not.
 
     The database defines an occurrence as
-    `(partition_id, entity_type, endpoint, captured_at)` — that is the UNIQUE
-    index `meta_entity_observation_receipts_occurrence`, and it is the key this
-    very lookup uses. `observed_at` is not in it. It is the clock of the WRITE
+    `(partition_id, entity_type, endpoint, captured_at, COALESCE(sync_run_id,
+    …))` — that is the UNIQUE index
+    `meta_entity_observation_receipts_attempt_occurrence` (ROUND 16: this
+    comment described the older four-column key, which Round 15 replaced so two
+    distinct sync attempts at one millisecond could no longer collapse into one
+    receipt) — and it is the key this very lookup uses. `observed_at` is not in
+    it. It is the clock of the WRITE
     ATTEMPT — when WE looked — while `captured_at` is the provider capture time
     that identifies the occurrence.
 
@@ -1324,9 +1811,10 @@ async function appendObservationCaptureReceipt(
   */
   compare(
     "error_json",
-    row.error_json === null || row.error_json === undefined
-      ? null : JSON.stringify(row.error_json),
-    errorJson,
+    // JSONB reorders object keys. Compare JSON values so an exact retry stays
+    // idempotent, while changed nested values and array order still refuse.
+    isDeepStrictEqual(row.error_json ?? null, errorJson === null ? null : JSON.parse(errorJson)),
+    true,
   );
   if (differences.length > 0) {
     throw new Error(
@@ -1386,11 +1874,29 @@ export async function persistMetaEntityObservation(
     if (new Date(stateObservedAt).getTime() > new Date(capturedAt).getTime()) {
       throw new Error("State observedAt cannot be after capturedAt.");
     }
-    const normalizedState = {
+    /*
+      THE ROW AND ITS OWN HASH ARE COMPUTED FROM ONE OBJECT.
+
+      `state_hash` is computed here, before the transaction opens, and both
+      INSERT sites below write `state.campaignStartTime` (and its three
+      siblings) from this very map — so the schedule has to be normalized
+      BEFORE the hash call on the next line or the stored row and the stored
+      hash would describe different values. That is the same constraint the
+      read-side carry lateral in `stateSelect` names when it explains why the
+      carry is read-side only; the difference is that this normalization is a
+      property of the row itself, so it belongs on the write path.
+
+      A schedule the provider answered with something unusable becomes an
+      explicit unknown here: null column, `invalid_not_retained` coverage. Both
+      go into the hash, which is what makes the explicit unknown a REAL state
+      change — the row is appended by the delta writer instead of being deduped
+      away against the last known value.
+    */
+    const normalizedState = normalizeMetaEntityStateSchedule({
       ...rawState,
       entityId: stateEntityId,
       observedAt: stateObservedAt,
-    };
+    });
     statesByEntity.set(stateEntityId, {
       ...normalizedState,
       stateHash: buildMetaEntityStateHash(normalizedState),
@@ -1479,7 +1985,7 @@ export async function persistMetaEntityObservation(
         -- complete A reuses A, while complete A -> complete B -> complete A
         -- still records both real state transitions.
         AND completeness = ${input.completeness}
-      ORDER BY observed_at DESC, id DESC
+      ORDER BY observed_at DESC, captured_at DESC, created_at DESC, id DESC
       LIMIT 1
       FOR UPDATE
     `;
@@ -1683,6 +2189,7 @@ export async function persistMetaEntityObservation(
             partitionId: input.captureReceipt.partitionId,
             sourceSnapshotId: input.captureReceipt.sourceSnapshotId ?? null,
             sourceSnapshotRefId: input.captureReceipt.sourceSnapshotRefId ?? null,
+            syncRunId: input.captureReceipt.syncRunId ?? null,
             captureStatus: input.completeness,
             providerRowCount,
             pageCount,
@@ -1716,8 +2223,13 @@ export async function persistMetaEntityObservation(
     // D075: delta-bounded complete manifests. A complete observation with a
     // reconstructable baseline persists only changed, new, and scope-exited
     // entities; unchanged entities write nothing. The first complete
-    // observation of a scope, and every non-complete lane, keep the full
-    // write exactly as before.
+    // observation of a scope keeps the full write exactly as before.
+    //
+    // The `partial` lane is delta-deduped too (branch below), but on a
+    // strictly weaker contract: observed-present rows only, and never a
+    // scope-exit row, because a partial payload is not a scope. `failed`
+    // carries no states at all and `point_lookup` is a single-entity probe,
+    // so neither has a diff baseline worth reconstructing.
     let manifestKind: "full" | "delta" | null = null;
     let baseRunId: string | null = null;
     let statesToPersist = states;
@@ -1833,6 +2345,7 @@ export async function persistMetaEntityObservation(
         manifestKind = "delta";
         baseRunId = currentRun.id;
         deltaStats = {
+          manifestContract: META_COMPLETE_MANIFEST_CONTRACT,
           logicalEntityCount: states.length,
           changedEntityCount,
           newEntityCount,
@@ -1845,6 +2358,7 @@ export async function persistMetaEntityObservation(
       } else {
         manifestKind = "full";
         deltaStats = {
+          manifestContract: META_COMPLETE_MANIFEST_CONTRACT,
           logicalEntityCount: states.length,
           changedEntityCount: 0,
           newEntityCount: states.length,
@@ -1854,6 +2368,205 @@ export async function persistMetaEntityObservation(
           amplification: 1,
         };
       }
+    } else if (input.completeness === "partial" && states.length > 0) {
+      // The partial lane, delta-deduped against what a reader would already
+      // answer — WITHOUT ever inferring absence from a partial payload.
+      //
+      // WHY THIS EXISTS. Until this branch, `statesToPersist` stayed `states`
+      // for every non-complete lane, so a partial observation re-wrote every
+      // row it had managed to fetch. A partial receipt is produced by
+      // `receiptCompleteness` in `lib/api/meta.ts` whenever pagination breaks
+      // part-way — and also for a receipt whose pagination COMPLETED while
+      // `invalidRowCount > 0`, since that function returns `complete` only for
+      // `receipt.complete && invalidRowCount === 0`. The pagination arm is the
+      // one measured below; the invalid-row arm reaches this branch too, and
+      // the dedupe treats both identically because it compares state hashes
+      // and never the receipt. Each retry breaks at a different page, so the
+      // run's `pageCount`/`rowCount`/`error` differ and the same-completeness
+      // heartbeat above cannot coalesce them. Every retry therefore appended a
+      // full copy of the pages it did reach. Measured read-only on production
+      // 2026-09-07: 126,500 partial state rows written since 2026-09-04, of
+      // which 126,500 — every single one — carried a `state_hash` identical to
+      // the entity's immediately preceding row. One `ad_configs` scope alone
+      // wrote 94,500 such rows across 41 partial runs in three days, while
+      // `meta_entity_state_history` sat 638,976 bytes over its 6 GiB D089
+      // ceiling with admission refused.
+      //
+      // THE SAFETY HALF, STATED IN CODE. A partial page proves what it
+      // CONTAINS, never what it omits. There is no `exitedRows` here and there
+      // must never be one: the complete lane earns its `absent_unconfirmed`
+      // rows because a complete payload is the whole scope, and a partial
+      // payload is by definition not. An entity missing from this payload is
+      // left exactly as the history already has it — no absence row, no
+      // presence flip, no scope membership claim of any kind. The dedupe below
+      // only ever REMOVES writes for entities the payload positively observed.
+      const observedEntityIds = states.map((state) => state.entityId);
+      // The winner this dedupe must not disturb, in the exact shape
+      // `stateSelect` (the generic as-of read) resolves it: every lane, no
+      // endpoint restriction, dual clock cutoff, and the same tie-break tuple.
+      // Suppressing a write is only safe when the row it would have added
+      // carries content a reader already gets from the row it would have
+      // displaced.
+      //
+      // PER-ENTITY LATERAL, NOT `DISTINCT ON` OVER `entity_id = ANY(...)`.
+      // This runs inside the writer's own transaction, so its cost is the
+      // observation's cost. The `DISTINCT ON` spelling was measured on
+      // production (EXPLAIN ANALYZE, read-only, 2026-09-07) against a real
+      // 3,288-ad scope: it matched 856,497 historical rows and sorted all of
+      // them — 14.07 s with a 115 MB external merge on disk. The lateral below
+      // asks `idx_meta_entity_state_history_asof` for ONE row per observed
+      // entity and returned the identical result in 517 ms on the same scope.
+      // Same winner order, same predicates, 27x less work; do not "simplify"
+      // it back.
+      const baseline = await sql<{ entity_id: string; state_hash: string }>`
+        SELECT target.entity_id, winner.state_hash
+        FROM unnest(${observedEntityIds}::text[]) AS target(entity_id)
+        CROSS JOIN LATERAL (
+          SELECT state.state_hash
+          FROM meta_entity_state_history state
+          WHERE state.business_id = ${businessId}
+            AND state.provider_account_id = ${providerAccountId}
+            AND state.entity_type = ${entityType}
+            AND state.entity_id = target.entity_id
+            AND state.observed_at <= ${observedAt}::timestamptz
+            AND state.captured_at <= ${capturedAt}::timestamptz
+            AND state.run_completeness IN ('complete', 'partial', 'point_lookup')
+          ORDER BY state.observed_at DESC, state.captured_at DESC,
+            state.created_at DESC, state.id DESC
+          LIMIT 1
+        ) winner
+      `;
+      const baselineHashByEntity = new Map(
+        baseline.map((row) => [row.entity_id, row.state_hash] as const),
+      );
+      let changedEntityCount = 0;
+      let newEntityCount = 0;
+      const deltaRows: typeof states = [];
+      for (const state of states) {
+        const priorHash = baselineHashByEntity.get(state.entityId);
+        if (priorHash === undefined) {
+          newEntityCount += 1;
+          deltaRows.push(state);
+        } else if (priorHash !== state.stateHash) {
+          changedEntityCount += 1;
+          deltaRows.push(state);
+        }
+      }
+      // Same reason as the complete lane: `meta_creative_lineage_edges`
+      // FK-references state rows BY RUN, so an ad this observation's lineage
+      // evidence can actually turn into an edge needs a durable row in THIS
+      // run even when its state did not change.
+      let lineageCarriedEntityCount = 0;
+      if (entityType === "ad") {
+        const lineageAdIds = await lineageRelevantAdIds(sql, {
+          businessRefId: binding.business_ref_id,
+          observedAt,
+          adCreativeRelationships: input.adCreativeRelationships,
+        });
+        if (lineageAdIds.size > 0) {
+          const included = new Set(deltaRows.map((row) => row.entityId));
+          for (const adId of lineageAdIds) {
+            const state = statesByEntity.get(adId);
+            if (state && !included.has(adId)) {
+              deltaRows.push(state);
+              included.add(adId);
+              lineageCarriedEntityCount += 1;
+            }
+          }
+        }
+      }
+      statesToPersist = [...deltaRows].sort((a, b) =>
+        a.entityId.localeCompare(b.entityId),
+      );
+      // `manifest_kind` deliberately stays NULL.
+      //
+      // 'delta' is a COMPLETE-lane word everywhere it is read: the ad
+      // hydration lateral in `lib/creative-decision-engine/data-source.ts`,
+      // the D086 membership lateral in `lib/meta/budget-readiness-read-model.ts`
+      // and the `confirmed_until` lateral in
+      // `lib/creative-decision-engine/jobs/ad-operator-response-job.ts` all
+      // switch a manifest-reconstruction arm on it, and that arm reconstructs
+      // from `run_completeness = 'complete'` rows only. Stamping a partial run
+      // 'delta' would hand those readers a complete-lane scope as this partial
+      // run's membership. A NULL kind keeps every existing reader's
+      // classification of this run byte-identical to today; the dedupe is
+      // reported in `delta_stats_json`, which no reader branches on, and the
+      // storage semantic is stated there explicitly as
+      // `manifestContract: META_PARTIAL_MANIFEST_CONTRACT` so that "NULL kind"
+      // no longer has to carry two different meanings at once.
+      //
+      // The whole reference set, so the claim can be re-checked rather than
+      // trusted (`grep -rn delta_stats_json --include='*.ts'`): this module
+      // writes it and reads it back in two places that steer nothing — the
+      // coalesced-path `jsonb_set` that keeps a kept run's carry counts
+      // truthful, and the `SUM(...)` in `readMetaObservationWriterPressure`,
+      // a read-only instrument. `lib/migrations.ts` adds the column and
+      // `lib/migration-verification.ts` asserts its type. The rest only NAME
+      // it: `scripts/ephemeral-postgres-native-ad-decision-seam.ts` creates a
+      // column list, and four one-off audit scripts
+      // (`scripts/audits/d077-correction1-artifact-generator.ts`,
+      // `d077-production-recovery-readonly-preflight.ts`,
+      // `d078-six-business-evidence-bundle.ts`,
+      // `d080-meta-budget-edit-evidence.ts`) check whether production HAS the
+      // column. One seam harness does assert its VALUE —
+      // `scripts/ephemeral-postgres-entity-state-history-seam-child.ts` — but
+      // that is a test observing this writer, not a reader taking a decision
+      // from it. No production code path changes behaviour on its contents.
+      //
+      // THE CONSUMER SWEEP, verdict by verdict. Every reader that branches on
+      // a run's manifest shape, checked against the contract stated at
+      // `META_PARTIAL_MANIFEST_CONTRACT` rather than argued from it. The
+      // question each one had to answer is: can it mistake a deduped partial
+      // run for a run whose row set is its whole payload?
+      //
+      //  1. `lib/meta/budget-readiness-read-model.ts` — reconstructs members
+      //     with `c.manifest_kind IS DISTINCT FROM 'delta'` (run-bound arm),
+      //     which a NULL-kind partial run enters. It cannot mis-read it:
+      //     `attestCompleteRun` refuses the capture by name
+      //     (`D086_CAPTURE_STATUS_BLOCKER.partial = "capture_partial"`) before
+      //     any member set or `row_count` comparison is reached, and refuses
+      //     again on `run.captureStatus !== "complete"`.
+      //  2. `scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts`
+      //     — same `IS DISTINCT FROM 'delta'` run-bound arm in
+      //     `SOURCE_RUNS_SQL`, and it is the one place that compares
+      //     `expectedRowCount` (the run's `row_count`) with
+      //     `persistedRowCount`. It cannot mis-read a partial run either: the
+      //     receipt predicate requires `source.completeness === "complete"`
+      //     before that comparison is evaluated.
+      //  3. `lib/creative-decision-engine/jobs/ad-operator-response-job.ts` —
+      //     `AD_OPERATOR_SCOPE_CONFIRMATION_LATERAL_SQL` is complete-lane on
+      //     both sides: it confirms only `state.run_completeness = 'complete'`
+      //     rows, extends confirmation only from
+      //     `later_run.manifest_kind = 'delta' AND later_run.completeness =
+      //     'complete'` runs, and only a `newer.run_completeness = 'complete'`
+      //     row supersedes. A partial run never granted confirmation and never
+      //     revoked it, before this dedupe or after.
+      //  4. `lib/creative-decision-engine/data-source.ts` — the ad hydration
+      //     lateral reconstructs from `run_completeness = 'complete'` rows.
+      //  5. `lib/meta/state-history-compaction.ts` — D077 planning is
+      //     `r.completeness = 'complete'` throughout, so a partial run is never
+      //     a compaction candidate; its rows only ever EXCLUDE a complete
+      //     duplicate through the `interleaved.run_completeness IN ('partial',
+      //     'point_lookup')` predicate. Fewer partial rows can only widen what
+      //     D077 may remove, never narrow it.
+      //  6. `readMetaEntityStatesAsOf` in this module — the only reader that
+      //     resolves a partial row as an as-of winner. The dedupe's baseline
+      //     lateral above is deliberately the same winner order, so a
+      //     suppressed write is one whose content that reader already answers
+      //     with. Proven rather than argued, against real PostgreSQL, by
+      //     `lib/meta/entity-state-history-partial-delta.db.test.ts`.
+      deltaStats = {
+        manifestContract: META_PARTIAL_MANIFEST_CONTRACT,
+        logicalEntityCount: states.length,
+        changedEntityCount,
+        newEntityCount,
+        // Structurally zero, and it must stay that way. A partial payload
+        // cannot evidence a scope exit.
+        exitedEntityCount: 0,
+        lineageCarriedEntityCount,
+        physicalStateRows: statesToPersist.length,
+        amplification: statesToPersist.length / Math.max(1, states.length),
+      };
     }
 
     const runRows = await sql<MetaObservationRunDbRow>`
@@ -1980,6 +2693,7 @@ export async function persistMetaEntityObservation(
         partitionId: input.captureReceipt.partitionId,
         sourceSnapshotId: input.captureReceipt.sourceSnapshotId ?? null,
         sourceSnapshotRefId: input.captureReceipt.sourceSnapshotRefId ?? null,
+        syncRunId: input.captureReceipt.syncRunId ?? null,
         captureStatus: input.completeness,
         providerRowCount,
         pageCount,
@@ -2167,16 +2881,104 @@ function stateSelect(
           creative_id, entity_name, configured_status, effective_status, learning_status,
           learning_source, campaign_daily_budget_raw, campaign_lifetime_budget_raw,
           adset_daily_budget_raw, adset_lifetime_budget_raw, budget_currency, budget_origin,
-          campaign_start_time::text AS campaign_start_time,
-          campaign_end_time::text AS campaign_end_time,
-          adset_start_time::text AS adset_start_time,
-          adset_end_time::text AS adset_end_time,
+          schedule.campaign_start_time,
+          schedule.campaign_end_time,
+          schedule.adset_start_time,
+          schedule.adset_end_time,
           budget_currency_exponent, budget_currency_registry_version, budget_shape_support,
           provider_api_version,
           review_status, policy_status, policy_reasons_json, provider_updated_at, presence,
           field_coverage_json, observed_at::text AS observed_at,
           captured_at::text AS captured_at, run_completeness, state_hash
-        FROM meta_entity_state_history
+        FROM meta_entity_state_history state
+        /*
+          THE SCHEDULE IS THE LAST VALUE THAT WAS ACTUALLY OBSERVED.
+
+          When the campaigns edge refuses start_time/stop_time, the sync
+          drops those fields, retries, and writes rows whose schedule is NULL
+          while field_coverage_json records degraded_not_observed — an
+          explicit "not asked", not a measured absence. lib/api/meta.ts
+          carries a known schedule forward into such a row before the write,
+          but it cannot when the prior-value read itself fails
+          (scheduleDegradation.priorStateReadFailed). Without this lateral
+          that row is the newest one, wins the DISTINCT ON, and a schedule the
+          system had observed is destroyed by a request that never asked for it.
+
+          AND THE CARRY RULE IS EXACTLY THIS PREDICATE, no wider. A schedule
+          the provider DID answer with an unusable value is stamped
+          invalid_not_retained by normalizeMetaEntityStateSchedule on the write
+          path, which is DISTINCT FROM degraded_not_observed -- so that row is
+          an eligible winner here, wins on its own recency, and resolves to
+          NULL. An explicit unknown must not inherit the old value: nobody
+          asked about a degraded row, whereas an invalid row is an answer that
+          contradicts what was there. Measured absence (coverage true or false)
+          is the third case and is likewise never carried.
+
+          NOTE: this comment is inside a tagged template literal, so it carries
+          no backticks -- one would terminate the SQL string.
+
+          Read-side and hash-neutral ON PURPOSE: state_hash is computed before
+          the write, so a writer-side COALESCE would put the row and its hash
+          out of agreement. Here the stored row is untouched and only the
+          resolved value is carried. The carried fact is capped at the selected
+          row's captured_at, so later knowledge is never published with that
+          row's earlier provenance.
+        */
+        LEFT JOIN LATERAL (
+          SELECT
+            (SELECT to_char(prior.campaign_start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+               FROM meta_entity_state_history prior
+              WHERE prior.business_id = state.business_id
+                AND prior.provider_account_id = state.provider_account_id
+                AND prior.entity_type = state.entity_type
+                AND prior.entity_id = state.entity_id
+                AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
+                AND prior.field_coverage_json ->> 'campaignStartTime'
+                      IS DISTINCT FROM 'degraded_not_observed'
+              ORDER BY prior.observed_at DESC, prior.captured_at DESC,
+                       prior.created_at DESC, prior.id DESC
+              LIMIT 1) AS campaign_start_time,
+            (SELECT to_char(prior.campaign_end_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+               FROM meta_entity_state_history prior
+              WHERE prior.business_id = state.business_id
+                AND prior.provider_account_id = state.provider_account_id
+                AND prior.entity_type = state.entity_type
+                AND prior.entity_id = state.entity_id
+                AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
+                AND prior.field_coverage_json ->> 'campaignEndTime'
+                      IS DISTINCT FROM 'degraded_not_observed'
+              ORDER BY prior.observed_at DESC, prior.captured_at DESC,
+                       prior.created_at DESC, prior.id DESC
+              LIMIT 1) AS campaign_end_time,
+            (SELECT to_char(prior.adset_start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+               FROM meta_entity_state_history prior
+              WHERE prior.business_id = state.business_id
+                AND prior.provider_account_id = state.provider_account_id
+                AND prior.entity_type = state.entity_type
+                AND prior.entity_id = state.entity_id
+                AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
+                AND prior.field_coverage_json ->> 'adsetStartTime'
+                      IS DISTINCT FROM 'degraded_not_observed'
+              ORDER BY prior.observed_at DESC, prior.captured_at DESC,
+                       prior.created_at DESC, prior.id DESC
+              LIMIT 1) AS adset_start_time,
+            (SELECT to_char(prior.adset_end_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+               FROM meta_entity_state_history prior
+              WHERE prior.business_id = state.business_id
+                AND prior.provider_account_id = state.provider_account_id
+                AND prior.entity_type = state.entity_type
+                AND prior.entity_id = state.entity_id
+                AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
+                AND prior.field_coverage_json ->> 'adsetEndTime'
+                      IS DISTINCT FROM 'degraded_not_observed'
+              ORDER BY prior.observed_at DESC, prior.captured_at DESC,
+                       prior.created_at DESC, prior.id DESC
+              LIMIT 1) AS adset_end_time
+        ) AS schedule ON TRUE
         WHERE business_id = ${input.businessId}
           AND provider_account_id = ${input.providerAccountId}
           AND entity_type = ${input.entityType}
@@ -2193,16 +2995,104 @@ function stateSelect(
           creative_id, entity_name, configured_status, effective_status, learning_status,
           learning_source, campaign_daily_budget_raw, campaign_lifetime_budget_raw,
           adset_daily_budget_raw, adset_lifetime_budget_raw, budget_currency, budget_origin,
-          campaign_start_time::text AS campaign_start_time,
-          campaign_end_time::text AS campaign_end_time,
-          adset_start_time::text AS adset_start_time,
-          adset_end_time::text AS adset_end_time,
+          schedule.campaign_start_time,
+          schedule.campaign_end_time,
+          schedule.adset_start_time,
+          schedule.adset_end_time,
           budget_currency_exponent, budget_currency_registry_version, budget_shape_support,
           provider_api_version,
           review_status, policy_status, policy_reasons_json, provider_updated_at, presence,
           field_coverage_json, observed_at::text AS observed_at,
           captured_at::text AS captured_at, run_completeness, state_hash
-        FROM meta_entity_state_history
+        FROM meta_entity_state_history state
+        /*
+          THE SCHEDULE IS THE LAST VALUE THAT WAS ACTUALLY OBSERVED.
+
+          When the campaigns edge refuses start_time/stop_time, the sync
+          drops those fields, retries, and writes rows whose schedule is NULL
+          while field_coverage_json records degraded_not_observed — an
+          explicit "not asked", not a measured absence. lib/api/meta.ts
+          carries a known schedule forward into such a row before the write,
+          but it cannot when the prior-value read itself fails
+          (scheduleDegradation.priorStateReadFailed). Without this lateral
+          that row is the newest one, wins the DISTINCT ON, and a schedule the
+          system had observed is destroyed by a request that never asked for it.
+
+          AND THE CARRY RULE IS EXACTLY THIS PREDICATE, no wider. A schedule
+          the provider DID answer with an unusable value is stamped
+          invalid_not_retained by normalizeMetaEntityStateSchedule on the write
+          path, which is DISTINCT FROM degraded_not_observed -- so that row is
+          an eligible winner here, wins on its own recency, and resolves to
+          NULL. An explicit unknown must not inherit the old value: nobody
+          asked about a degraded row, whereas an invalid row is an answer that
+          contradicts what was there. Measured absence (coverage true or false)
+          is the third case and is likewise never carried.
+
+          NOTE: this comment is inside a tagged template literal, so it carries
+          no backticks -- one would terminate the SQL string.
+
+          Read-side and hash-neutral ON PURPOSE: state_hash is computed before
+          the write, so a writer-side COALESCE would put the row and its hash
+          out of agreement. Here the stored row is untouched and only the
+          resolved value is carried. The carried fact is capped at the selected
+          row's captured_at, so later knowledge is never published with that
+          row's earlier provenance.
+        */
+        LEFT JOIN LATERAL (
+          SELECT
+            (SELECT to_char(prior.campaign_start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+               FROM meta_entity_state_history prior
+              WHERE prior.business_id = state.business_id
+                AND prior.provider_account_id = state.provider_account_id
+                AND prior.entity_type = state.entity_type
+                AND prior.entity_id = state.entity_id
+                AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
+                AND prior.field_coverage_json ->> 'campaignStartTime'
+                      IS DISTINCT FROM 'degraded_not_observed'
+              ORDER BY prior.observed_at DESC, prior.captured_at DESC,
+                       prior.created_at DESC, prior.id DESC
+              LIMIT 1) AS campaign_start_time,
+            (SELECT to_char(prior.campaign_end_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+               FROM meta_entity_state_history prior
+              WHERE prior.business_id = state.business_id
+                AND prior.provider_account_id = state.provider_account_id
+                AND prior.entity_type = state.entity_type
+                AND prior.entity_id = state.entity_id
+                AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
+                AND prior.field_coverage_json ->> 'campaignEndTime'
+                      IS DISTINCT FROM 'degraded_not_observed'
+              ORDER BY prior.observed_at DESC, prior.captured_at DESC,
+                       prior.created_at DESC, prior.id DESC
+              LIMIT 1) AS campaign_end_time,
+            (SELECT to_char(prior.adset_start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+               FROM meta_entity_state_history prior
+              WHERE prior.business_id = state.business_id
+                AND prior.provider_account_id = state.provider_account_id
+                AND prior.entity_type = state.entity_type
+                AND prior.entity_id = state.entity_id
+                AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
+                AND prior.field_coverage_json ->> 'adsetStartTime'
+                      IS DISTINCT FROM 'degraded_not_observed'
+              ORDER BY prior.observed_at DESC, prior.captured_at DESC,
+                       prior.created_at DESC, prior.id DESC
+              LIMIT 1) AS adset_start_time,
+            (SELECT to_char(prior.adset_end_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+               FROM meta_entity_state_history prior
+              WHERE prior.business_id = state.business_id
+                AND prior.provider_account_id = state.provider_account_id
+                AND prior.entity_type = state.entity_type
+                AND prior.entity_id = state.entity_id
+                AND prior.observed_at <= state.observed_at
+                AND prior.captured_at <= state.captured_at
+                AND prior.field_coverage_json ->> 'adsetEndTime'
+                      IS DISTINCT FROM 'degraded_not_observed'
+              ORDER BY prior.observed_at DESC, prior.captured_at DESC,
+                       prior.created_at DESC, prior.id DESC
+              LIMIT 1) AS adset_end_time
+        ) AS schedule ON TRUE
         WHERE business_id = ${input.businessId}
           AND provider_account_id = ${input.providerAccountId}
           AND entity_type = ${input.entityType}
@@ -2232,6 +3122,331 @@ export async function readMetaEntityStatesAsOf(input: {
     cutoff: normalizeCutoff(input.cutoff),
   });
   return rows.map(mapState);
+}
+
+/**
+ * One observation lane's write pressure and liveness, as measured rather than
+ * asserted.
+ *
+ * WHY THIS EXISTS. Two different stalls look identical from outside this
+ * module — "the writer stopped" — and they need opposite responses:
+ *
+ *   1. Nothing was ATTEMPTED. No run row of any lane exists in the window. The
+ *      cause is upstream of this file (sync admission refused, scheduler,
+ *      lease, growth fence).
+ *   2. It was attempted and the PROVIDER refused. `failed`/`partial` runs keep
+ *      arriving with an `error_json` receipt while the `complete` lane's clock
+ *      stands still. The cause is the provider call, not storage.
+ *   3. It was attempted, it succeeded, and the writer wrote. Then
+ *      `physicalStateRows` against `deltaLogicalEntityCount` says whether the
+ *      delta contract is actually holding or the scope is being rewritten.
+ *
+ * On 2026-09-07 production shows all three at once, and this readback is the
+ * instrument that separates them — it does NOT decide between them. Read-only,
+ * SELECT-only, no side effects; safe to run against production through a
+ * read-only session.
+ *
+ * The open question it exists to make re-testable: `campaign_configs` has no
+ * `complete` run after 2026-08-22 06:02 UTC, no run of ANY lane between then
+ * and 2026-09-04 15:57 UTC, and 729 `failed` runs carrying
+ * `pagination.failure.httpStatus = 400` after that. Whether the campaign
+ * writer's freeze is a CONSEQUENCE of the state-history rewrite chain (the
+ * fence refused admission, so nothing was attempted) or an INDEPENDENT
+ * provider-side rejection that merely started in the same window is not
+ * decided here. Run this over the window on both sides of the fix and let the
+ * three shapes above answer it.
+ *
+ * WHICH NUMBERS ARE WINDOW NUMBERS, stated because they are not all the same.
+ * A run is COALESCED CONTENT: one row whose `repeat_count` and
+ * `last_captured_at` keep moving as the same truth is re-observed. Filtering on
+ * `run.captured_at` selects runs by their FIRST capture, so any number summed
+ * off those rows crosses the window in both directions — a run first captured
+ * before `since` contributes nothing however often it was re-observed inside,
+ * and a run first captured inside contributes re-sightings that happened after
+ * `until`. Every field below therefore names its own basis:
+ *
+ *   - `runsAppended`, `runsWithError`, `physicalStateRows`, `providerRowCount`,
+ *     the `delta*` sums, `firstRunCapturedAt`/`lastRunCapturedAt`: runs whose
+ *     FIRST capture fell in the window. Window facts about appends.
+ *   - `lifetimeOccurrencesOfWindowRuns`, `lastHeartbeatAtOfWindowRuns`:
+ *     LIFETIME totals of exactly those runs. They are not window numbers and
+ *     the names say so.
+ *   - `windowOccurrences`, `firstWindowOccurrenceAt`, `lastWindowOccurrenceAt`:
+ *     the window's actual capture occurrences, counted from
+ *     `meta_entity_observation_receipts`, which appends one immutable row per
+ *     occurrence on the coalesced path as well as the appending one. This is
+ *     the only field family that answers "how many times was this lane captured
+ *     between `since` and `until`". NULL means no receipt exists for the lane at
+ *     all — absence of measurement, not zero. Receipts are written only when the
+ *     caller supplies `captureReceipt`, so a lane captured by a path that omits
+ *     it reports NULL here while still reporting its appended runs.
+ *
+ * A lane re-observed inside the window whose run was appended BEFORE it appears
+ * with `runsAppended: 0` and a positive `windowOccurrences`; that combination
+ * is "alive, coalescing, appending nothing", and before the receipt join it was
+ * indistinguishable from "nothing was attempted".
+ */
+export interface MetaObservationWriterPressureRow {
+  businessId: string;
+  providerAccountId: string;
+  entityType: MetaEntityType;
+  endpoint: string;
+  completeness: MetaObservationCompleteness;
+  /** Runs APPENDED in the window — a coalesced re-observation adds none. */
+  runsAppended: number;
+  /**
+   * Capture occurrences INSIDE the window, from the receipts. NULL when the
+   * lane has no receipt at all (a capture path that supplied none).
+   */
+  windowOccurrences: number | null;
+  /** First/last receipt clock inside the window; NULL with `windowOccurrences`. */
+  firstWindowOccurrenceAt: string | null;
+  lastWindowOccurrenceAt: string | null;
+  /**
+   * `repeat_count` summed over the runs APPENDED in the window: their whole
+   * lifetime, including re-sightings after `until`. Not a window number.
+   */
+  lifetimeOccurrencesOfWindowRuns: number;
+  /** Runs whose receipt carries an error object. */
+  runsWithError: number;
+  /** State rows those runs own right now — the storage this lane actually spent. */
+  physicalStateRows: number;
+  /** `row_count` summed: the LOGICAL provider scope those runs claim. */
+  providerRowCount: number;
+  /**
+   * `delta_stats_json` summed over the runs that carry it. NULL means no run in
+   * this group recorded stats (a legacy run, or a lane that writes none), which
+   * is absence of measurement, not a zero.
+   */
+  deltaLogicalEntityCount: number | null;
+  deltaChangedEntityCount: number | null;
+  deltaNewEntityCount: number | null;
+  deltaExitedEntityCount: number | null;
+  deltaLineageCarriedEntityCount: number | null;
+  /** Runs in this group with no `delta_stats_json` at all. */
+  runsWithoutDeltaStats: number;
+  firstRunCapturedAt: string | null;
+  lastRunCapturedAt: string | null;
+  /**
+   * Newest heartbeat clock among the runs APPENDED in the window. A coalescing
+   * lane is alive without appending, so this can be later than `until`; use
+   * `lastWindowOccurrenceAt` for the window's own last capture.
+   */
+  lastHeartbeatAtOfWindowRuns: string | null;
+  /** Newest `captured_at` among state rows these runs own; NULL when none. */
+  lastStateCapturedAt: string | null;
+  /** The newest receipt's failure shape, verbatim from `error_json`. */
+  lastErrorKind: string | null;
+  lastErrorHttpStatus: number | null;
+  lastErrorTermination: string | null;
+}
+
+interface MetaObservationWriterPressureDbRow {
+  business_id: string;
+  provider_account_id: string;
+  entity_type: MetaEntityType;
+  endpoint: string;
+  completeness: MetaObservationCompleteness;
+  runs_appended: string | number | null;
+  window_occurrences: string | number | null;
+  first_window_occurrence_at: string | null;
+  last_window_occurrence_at: string | null;
+  lifetime_occurrences_of_window_runs: string | number | null;
+  runs_with_error: string | number | null;
+  physical_state_rows: string | number | null;
+  provider_row_count: string | number | null;
+  delta_logical_entity_count: string | number | null;
+  delta_changed_entity_count: string | number | null;
+  delta_new_entity_count: string | number | null;
+  delta_exited_entity_count: string | number | null;
+  delta_lineage_carried_entity_count: string | number | null;
+  runs_without_delta_stats: string | number | null;
+  first_run_captured_at: string | null;
+  last_run_captured_at: string | null;
+  last_heartbeat_at_of_window_runs: string | null;
+  last_state_captured_at: string | null;
+  last_error_kind: string | null;
+  last_error_http_status: string | number | null;
+  last_error_termination: string | null;
+}
+
+function countOrNull(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function countOrZero(value: string | number | null | undefined): number {
+  return countOrNull(value) ?? 0;
+}
+
+/**
+ * Read the writer-pressure rows for a captured-at window.
+ *
+ * `since` is required on purpose: an unbounded window would per-run probe
+ * `meta_entity_state_history`, and that table is the one under the growth
+ * fence. Scope to a business list whenever the question is about one account.
+ * Measured on production 2026-09-07 through a read-only session: an unscoped
+ * 18-day window over 2,379 runs returned in 3.4 s. That is diagnostic-shaped,
+ * not request-shaped — it is comfortably under the 8 s pool ceiling but has no
+ * business being on a page render path. The receipt aggregation added since
+ * that measurement is a grouped scan of one window of
+ * `meta_entity_observation_receipts` served by
+ * `idx_meta_entity_observation_receipts_freshness_v2`; it is not per-run and adds
+ * no probe of the fenced table, but the measurement above predates it and is
+ * not re-quoted as covering it.
+ */
+export async function readMetaObservationWriterPressure(input: {
+  since: string | Date;
+  until?: string | Date | null;
+  businessIds?: readonly string[] | null;
+}): Promise<MetaObservationWriterPressureRow[]> {
+  const sql = getDb();
+  const since = normalizeCutoff(input.since);
+  const until = input.until == null ? null : normalizeCutoff(input.until);
+  const businessIds =
+    input.businessIds == null
+      ? null
+      : Array.from(
+          new Set(
+            input.businessIds
+              .map((value) => requireNonEmpty(value, "businessIds[]"))
+              .sort(),
+          ),
+        );
+  if (businessIds != null && businessIds.length === 0) {
+    throw new Error("businessIds must be null or a non-empty list.");
+  }
+  const rows = await sql.query<MetaObservationWriterPressureDbRow>(`
+    WITH scoped_runs AS (
+      SELECT
+        run.id, run.business_id, run.provider_account_id, run.entity_type,
+        run.endpoint, run.completeness, run.repeat_count, run.row_count,
+        run.captured_at, run.delta_stats_json, run.error_json,
+        COALESCE(run.last_captured_at, run.captured_at) AS heartbeat_at
+      FROM meta_entity_observation_runs run
+      WHERE run.captured_at >= $1::timestamptz
+        AND ($2::timestamptz IS NULL
+             OR run.captured_at < $2::timestamptz)
+        AND ($3::text[] IS NULL
+             OR run.business_id = ANY($3::text[]))
+    ), measured AS (
+      SELECT scoped.*, owned.state_rows, owned.last_state_captured_at
+      FROM scoped_runs scoped
+      LEFT JOIN LATERAL (
+        SELECT count(*)::bigint AS state_rows,
+               max(state.captured_at) AS last_state_captured_at
+        FROM meta_entity_state_history state
+        WHERE state.run_id = scoped.id
+      ) owned ON TRUE
+    ), run_groups AS (
+      SELECT
+        business_id, provider_account_id, entity_type, endpoint, completeness,
+        count(*)::text AS runs_appended,
+        SUM(COALESCE(repeat_count, 1))::text
+          AS lifetime_occurrences_of_window_runs,
+        count(*) FILTER (WHERE error_json IS NOT NULL)::text AS runs_with_error,
+        SUM(COALESCE(state_rows, 0))::text AS physical_state_rows,
+        SUM(COALESCE(row_count, 0))::text AS provider_row_count,
+        SUM((delta_stats_json->>'logicalEntityCount')::bigint)::text
+          AS delta_logical_entity_count,
+        SUM((delta_stats_json->>'changedEntityCount')::bigint)::text
+          AS delta_changed_entity_count,
+        SUM((delta_stats_json->>'newEntityCount')::bigint)::text
+          AS delta_new_entity_count,
+        SUM((delta_stats_json->>'exitedEntityCount')::bigint)::text
+          AS delta_exited_entity_count,
+        SUM((delta_stats_json->>'lineageCarriedEntityCount')::bigint)::text
+          AS delta_lineage_carried_entity_count,
+        count(*) FILTER (WHERE delta_stats_json IS NULL)::text
+          AS runs_without_delta_stats,
+        min(captured_at)::text AS first_run_captured_at,
+        max(captured_at)::text AS last_run_captured_at,
+        max(heartbeat_at)::text AS last_heartbeat_at_of_window_runs,
+        max(last_state_captured_at)::text AS last_state_captured_at,
+        (array_agg(error_json->'pagination'->'failure'->>'kind'
+                   ORDER BY captured_at DESC, id DESC)
+          FILTER (WHERE error_json IS NOT NULL))[1] AS last_error_kind,
+        (array_agg(error_json->'pagination'->'failure'->>'httpStatus'
+                   ORDER BY captured_at DESC, id DESC)
+          FILTER (WHERE error_json IS NOT NULL))[1] AS last_error_http_status,
+        (array_agg(error_json->'pagination'->>'termination'
+                   ORDER BY captured_at DESC, id DESC)
+          FILTER (WHERE error_json IS NOT NULL))[1] AS last_error_termination
+      FROM measured
+      GROUP BY business_id, provider_account_id, entity_type, endpoint, completeness
+    ), receipt_groups AS (
+      /*
+        THE WINDOW'S OCCURRENCES, from the append-only receipts.
+
+        A receipt is written per capture occurrence -- on the coalesced path as
+        well as the appending one -- and its clock never moves, so counting
+        receipts inside the window is the only way to ask "how many captures
+        happened between since and until" without a run's lifetime repeat_count
+        leaking across either boundary.
+
+        The grouping key is the run table's, with capture_status standing in for
+        completeness: the coalescing lookup only ever reuses a run within the
+        SAME completeness lane, so a receipt's status and its run's completeness
+        cannot disagree.
+      */
+      SELECT
+        business_id, provider_account_id, entity_type, endpoint,
+        capture_status AS completeness,
+        count(*)::text AS window_occurrences,
+        min(captured_at)::text AS first_window_occurrence_at,
+        max(captured_at)::text AS last_window_occurrence_at
+      FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) receipt
+      WHERE captured_at >= $1::timestamptz
+        AND ($2::timestamptz IS NULL
+             OR captured_at < $2::timestamptz)
+        AND ($3::text[] IS NULL
+             OR business_id = ANY($3::text[]))
+      GROUP BY business_id, provider_account_id, entity_type, endpoint,
+        capture_status
+    )
+    -- FULL OUTER, so a lane that only COALESCED in the window (no run appended)
+    -- is reported rather than silently reading as "nothing was attempted", and
+    -- a lane that appended runs but wrote no receipt still reports its appends.
+    SELECT *
+    FROM run_groups
+    FULL OUTER JOIN receipt_groups
+      USING (business_id, provider_account_id, entity_type, endpoint,
+             completeness)
+    ORDER BY business_id, provider_account_id, entity_type, endpoint, completeness
+  `, [since, until, businessIds]);
+  return rows.map((row) => ({
+    businessId: row.business_id,
+    providerAccountId: row.provider_account_id,
+    entityType: row.entity_type,
+    endpoint: row.endpoint,
+    completeness: row.completeness,
+    runsAppended: countOrZero(row.runs_appended),
+    windowOccurrences: countOrNull(row.window_occurrences),
+    firstWindowOccurrenceAt: row.first_window_occurrence_at,
+    lastWindowOccurrenceAt: row.last_window_occurrence_at,
+    lifetimeOccurrencesOfWindowRuns: countOrZero(
+      row.lifetime_occurrences_of_window_runs,
+    ),
+    runsWithError: countOrZero(row.runs_with_error),
+    physicalStateRows: countOrZero(row.physical_state_rows),
+    providerRowCount: countOrZero(row.provider_row_count),
+    deltaLogicalEntityCount: countOrNull(row.delta_logical_entity_count),
+    deltaChangedEntityCount: countOrNull(row.delta_changed_entity_count),
+    deltaNewEntityCount: countOrNull(row.delta_new_entity_count),
+    deltaExitedEntityCount: countOrNull(row.delta_exited_entity_count),
+    deltaLineageCarriedEntityCount: countOrNull(
+      row.delta_lineage_carried_entity_count,
+    ),
+    runsWithoutDeltaStats: countOrZero(row.runs_without_delta_stats),
+    firstRunCapturedAt: row.first_run_captured_at,
+    lastRunCapturedAt: row.last_run_captured_at,
+    lastHeartbeatAtOfWindowRuns: row.last_heartbeat_at_of_window_runs,
+    lastStateCapturedAt: row.last_state_captured_at,
+    lastErrorKind: row.last_error_kind,
+    lastErrorHttpStatus: countOrNull(row.last_error_http_status),
+    lastErrorTermination: row.last_error_termination,
+  }));
 }
 
 function mapTombstone(row: MetaEntityTombstoneDbRow): MetaEntityTombstone {
@@ -2501,4 +3716,463 @@ export async function readMetaCreativeLineageAsOf(input: {
     capturedAt: row.captured_at,
     lineageHash: row.lineage_hash,
   }));
+}
+
+/**
+ * The provider endpoint whose receipts attest an entity type's CURRENT CONFIG.
+ *
+ * ── ROUND 13 ────────────────────────────────────────────────────────────────
+ * These are the exact literals `lib/api/meta.ts` passes to
+ * `persistMetaStatusConfigObservation` (`campaign_configs`, `adset_configs`,
+ * `ad_configs`), named here so a reader cannot ask about an endpoint the writer
+ * never writes and silently find nothing.
+ */
+export const META_CONFIG_OBSERVATION_ENDPOINT: Readonly<
+  Record<MetaEntityType, string>
+> = Object.freeze({
+  campaign: "campaign_configs",
+  adset: "adset_configs",
+  ad: "ad_configs",
+  creative: "creative_configs",
+});
+
+export interface MetaObservationReceiptPointer {
+  captureStatus: MetaObservationCompleteness;
+  observedAt: string;
+  capturedAt: string;
+  providerRowCount: number;
+  pageCount: number;
+  hasError: boolean;
+  /** The OBSERVATION run — coalesced content, shared by many captures. */
+  runId: string;
+  partitionId: string;
+  sourceSnapshotId: string | null;
+  /* ── ROUND 14: the exact sync attempt, and what became of it. ─────────── */
+  /** `meta_sync_runs.id`, or null on a row written before the column existed. */
+  syncRunId: string | null;
+  syncRun: {
+    status: string;
+    /** ROUND 15: the attempt's own lifecycle, so the receipt can be placed inside it. */
+    startedAt: string | null;
+    finishedAt: string | null;
+    partitionId: string;
+    businessId: string;
+    providerAccountId: string;
+  } | null;
+  /** The partition's own status, so a dead-lettered attempt cannot attest. */
+  partitionStatus: string | null;
+}
+
+/**
+ * The LATEST capture attempt at or before `cutoff`, whatever its outcome.
+ *
+ * ── ROUND 13 ────────────────────────────────────────────────────────────────
+ * Deliberately NOT "the latest complete attempt". The distinction is the whole
+ * point, and the table's own freshness index states it:
+ *
+ *   -- The FRESHNESS read: the newest attempt for an endpoint whatever its
+ *   -- outcome, so a newer failure cannot be stepped over by an older
+ *   -- success. Status is deliberately NOT in the leading key.
+ *
+ * A reader that filtered on `capture_status = 'complete'` inside the ORDER BY
+ * would happily reach back past this morning's failed capture to yesterday's
+ * good one and report the account as observed. The caller gets the newest row
+ * and decides; it never gets to skip one.
+ *
+ * Ordering matches `idx_meta_entity_observation_receipts_freshness_v2`
+ * on the v2 arm — `(business_id, provider_account_id, entity_type, endpoint,
+ * captured_at DESC, created_at DESC, id DESC)`. The authority union also keeps
+ * legacy-only captures and excludes mirrored UUIDs. ROUND 16: the `created_at` rung is what makes "newest" mean the
+ * later ATTEMPT when two captured in the same millisecond; `id` alone is a
+ * random v4 UUID and ordered them arbitrarily.
+ */
+export async function readMetaLatestObservationReceiptAsOf(input: {
+  businessId: string;
+  providerAccountId: string;
+  entityType: MetaEntityType;
+  endpoint: string;
+  cutoff: string | Date;
+}): Promise<MetaObservationReceiptPointer | null> {
+  const sql = getDb();
+  const businessId = requireNonEmpty(input.businessId, "businessId");
+  const providerAccountId = requireNonEmpty(
+    input.providerAccountId,
+    "providerAccountId",
+  );
+  const entityType = normalizeEntityType(input.entityType);
+  const endpoint = requireNonEmpty(input.endpoint, "endpoint");
+  const cutoff = normalizeCutoff(input.cutoff);
+  const rows = await sql.query<{
+    capture_status: string;
+    observed_at: string;
+    captured_at: string;
+    provider_row_count: number;
+    page_count: number;
+    has_error: boolean;
+    run_id: string;
+    partition_id: string;
+    source_snapshot_id: string | null;
+    sync_run_id: string | null;
+    sync_run_status: string | null;
+    sync_run_started_at: string | null;
+    sync_run_finished_at: string | null;
+    sync_run_partition_id: string | null;
+    sync_run_business_id: string | null;
+    sync_run_provider_account_id: string | null;
+    partition_status: string | null;
+  }>(`
+    SELECT receipt.capture_status,
+           receipt.observed_at::text  AS observed_at,
+           receipt.captured_at::text  AS captured_at,
+           receipt.provider_row_count,
+           receipt.page_count,
+           (receipt.error_json IS NOT NULL) AS has_error,
+           receipt.run_id::text       AS run_id,
+           receipt.partition_id::text AS partition_id,
+           receipt.source_snapshot_id,
+           receipt.sync_run_id::text  AS sync_run_id,
+           run.status                 AS sync_run_status,
+           -- ROUND 15: the START of the attempt, with the row's own creation
+           -- clock as the fallback for a run that never stamped one. Without it
+           -- the receipt cannot be placed inside the attempt's lifecycle.
+           COALESCE(run.started_at, run.created_at)::text AS sync_run_started_at,
+           run.finished_at::text      AS sync_run_finished_at,
+           run.partition_id::text     AS sync_run_partition_id,
+           run.business_id            AS sync_run_business_id,
+           run.provider_account_id    AS sync_run_provider_account_id,
+           part.status                AS partition_status
+    FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) receipt
+    -- LEFT joins on purpose. The receipt is SELECTED status-blind; whether its
+    -- attempt succeeded is judged afterwards by the caller. Inner-joining a
+    -- succeeded run here would let the query walk back past a newer failure to
+    -- an older success, which is the exact fallback this contract forbids.
+    LEFT JOIN meta_sync_runs run ON run.id = receipt.sync_run_id
+    LEFT JOIN meta_sync_partitions part ON part.id = receipt.partition_id
+    WHERE receipt.business_id = $1
+      AND receipt.provider_account_id = $2
+      AND receipt.entity_type = $3
+      AND receipt.endpoint = $4
+      -- BOTH clocks, STRICTLY before the knowledge bound: evidence exactly at
+      -- the next provider-local midnight belongs to the next day.
+      AND receipt.observed_at < $5::timestamptz
+      AND receipt.captured_at < $5::timestamptz
+    -- ROUND 15: real insertion order before the deterministic id tiebreak. The
+    -- id is a random v4 UUID, so two attempts that captured in the same
+    -- millisecond were previously ordered arbitrarily and the newest receipt
+    -- could be the older attempt.
+    ORDER BY receipt.captured_at DESC, receipt.created_at DESC, receipt.id DESC
+    LIMIT 1
+  `, [businessId, providerAccountId, entityType, endpoint, cutoff]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    captureStatus: row.capture_status as MetaObservationCompleteness,
+    observedAt: row.observed_at,
+    capturedAt: row.captured_at,
+    providerRowCount: Number(row.provider_row_count ?? 0),
+    pageCount: Number(row.page_count ?? 0),
+    hasError: Boolean(row.has_error),
+    runId: row.run_id,
+    partitionId: row.partition_id,
+    sourceSnapshotId: row.source_snapshot_id,
+    syncRunId: row.sync_run_id,
+    syncRun:
+      row.sync_run_status == null
+        ? null
+        : {
+            status: row.sync_run_status,
+            startedAt: row.sync_run_started_at,
+            finishedAt: row.sync_run_finished_at,
+            partitionId: row.sync_run_partition_id ?? "",
+            businessId: row.sync_run_business_id ?? "",
+            providerAccountId: row.sync_run_provider_account_id ?? "",
+          },
+    partitionStatus: row.partition_status,
+  };
+}
+
+export type MetaManifestMembershipRefusal =
+  | "observation_run_missing"
+  | "observation_run_scope_mismatch"
+  | "observation_run_not_complete"
+  | "observation_run_errored"
+  | "observation_run_clock_after_knowledge"
+  | "observation_manifest_count_mismatch"
+  | "observation_manifest_empty"
+  /** ROUND 15: the receipt and its run disagree about how big the scope was. */
+  | "observation_receipt_run_count_mismatch";
+
+export interface MetaManifestMembership {
+  ok: boolean;
+  refusal: MetaManifestMembershipRefusal | null;
+  /** The requested ids that are MEMBERS of the selected receipt's manifest. */
+  presentEntityIds: Set<string>;
+  manifestKind: string | null;
+  /** The BASE manifest size, before tombstones. This is what the counts agree on. */
+  manifestCount: number;
+  /** Members removed by an explicit scope exit after the re-observation. */
+  removedByTombstone: number;
+}
+
+/**
+ * MEMBERSHIP OF THE EXACT CAPTURE THE RECEIPT NAMES.
+ *
+ * ── ROUND 14, CONTRACT 2 ────────────────────────────────────────────────────
+ * `readMetaEntityTruthAsOf` answers a different question: "what is the latest
+ * thing known about this entity at this cutoff". That accepts a `present` state
+ * from ANY run — an older endpoint, an older capture, a partial lane — so an
+ * entity that has not been seen since March authorised actions today, and an
+ * `absent_unconfirmed` row (which means "we did not see it and cannot say why")
+ * counted as evidence of presence. Neither is membership of the capture whose
+ * completeness is doing the authorising.
+ *
+ * This asks the narrower question the authority actually needs: was this exact
+ * entity IN the manifest of the observation run that the selected receipt
+ * points at? The semantics are the ones already proven in
+ * `lib/creative-decision-engine/data-source.ts` and
+ * `lib/meta/budget-readiness-read-model.ts`, applied to one run:
+ *
+ *   full / legacy   the members are the rows written BY that exact run, with
+ *                   `presence = 'present'`;
+ *   delta           the run records only what changed, so membership is the
+ *                   deterministic latest row per entity across the same
+ *                   business / account / entity type / ENDPOINT, restricted to
+ *                   the COMPLETE lane and to rows observed and captured at or
+ *                   before the selected run's own immutable clocks, keeping
+ *                   only those whose winning row is `present`;
+ *   partial and point_lookup rows never enter delta reconstruction;
+ *   `absent_unconfirmed` removes membership rather than granting it;
+ *   an `explicit_deleted` / `explicit_not_found` tombstone recorded AFTER the
+ *   applicable re-observation removes membership.
+ *
+ * COALESCED RECEIPTS. `persistMetaEntityObservation` advances a heartbeat on an
+ * existing run when the semantic truth is unchanged, so the receipt's
+ * occurrence clock and the run's payload clock are different facts. The delta
+ * window is bounded by the RUN's immutable clocks, never by the receipt's
+ * occurrence clock. The selected run's `observed_at` excludes later-observed
+ * truth captured before an out-of-order replay, while its `captured_at` excludes
+ * knowledge that had not landed yet.
+ */
+export async function readMetaCompleteManifestMembershipForReceipt(input: {
+  businessId: string;
+  providerAccountId: string;
+  entityType: MetaEntityType;
+  endpoint: string;
+  /** The OBSERVATION run the selected receipt points at. */
+  observationRunId: string;
+  /** The receipt's own provider row count. */
+  expectedProviderRowCount: number;
+  /**
+   * ── ROUND 15, DEFECT 2 ──────────────────────────────────────────────────
+   * The RECEIPT OCCURRENCE clock, which is not the run's payload clock. A
+   * coalesced receipt at t2 re-observes a payload first captured at t1: the
+   * base manifest is reconstructed against t1 (the immutable payload), but the
+   * account was demonstrably still being observed at t2, so a scope exit
+   * recorded between t1 and t2 is SUPERSEDED by that re-observation. Only a
+   * tombstone at or after t2 wins.
+   */
+  receiptCapturedAt: string | Date;
+  /** Strict upper bound; evidence at or after this instant is the next day's. */
+  knowledgeEndExclusive: string | Date;
+  entityIds: readonly string[];
+}): Promise<MetaManifestMembership> {
+  const sql = getDb();
+  const businessId = requireNonEmpty(input.businessId, "businessId");
+  const providerAccountId = requireNonEmpty(
+    input.providerAccountId,
+    "providerAccountId",
+  );
+  const entityType = normalizeEntityType(input.entityType);
+  const endpoint = requireNonEmpty(input.endpoint, "endpoint");
+  const runId = requireNonEmpty(input.observationRunId, "observationRunId");
+  const knowledge = normalizeCutoff(input.knowledgeEndExclusive);
+  const receiptCapturedAt = normalizeCutoff(input.receiptCapturedAt);
+  const requested = Array.from(
+    new Set(input.entityIds.map((id) => id.trim())),
+  ).filter((id) => id.length > 0);
+  const deny = (
+    refusal: MetaManifestMembershipRefusal,
+  ): MetaManifestMembership => ({
+    ok: false,
+    refusal,
+    presentEntityIds: new Set<string>(),
+    manifestKind: null,
+    manifestCount: 0,
+    removedByTombstone: 0,
+  });
+
+  // ── 1. THE RUN ITSELF, validated before a single member is read. ──────────
+  const runRows = await sql<{
+    manifest_kind: string | null;
+    completeness: string;
+    row_count: number;
+    has_error: boolean;
+    observed_at: string;
+    captured_at: string;
+    scope_ok: boolean;
+  }>`
+    SELECT run.manifest_kind,
+           run.completeness,
+           run.row_count,
+           (run.error_json IS NOT NULL) AS has_error,
+           run.observed_at::text AS observed_at,
+           run.captured_at::text AS captured_at,
+           (run.business_id = ${businessId}
+            AND run.provider_account_id = ${providerAccountId}
+            AND run.entity_type = ${entityType}
+            AND run.endpoint = ${endpoint}) AS scope_ok
+    FROM meta_entity_observation_runs run
+    WHERE run.id = ${runId}::uuid
+    LIMIT 1
+  `;
+  const run = runRows[0];
+  if (!run) return deny("observation_run_missing");
+  if (!run.scope_ok) return deny("observation_run_scope_mismatch");
+  if (run.completeness !== "complete") return deny("observation_run_not_complete");
+  if (run.has_error) return deny("observation_run_errored");
+  // IMMUTABLE CLOCKS, strictly inside the knowledge bound. A heartbeat can move
+  // a run's effective clock; these two cannot.
+  if (
+    new Date(run.observed_at).getTime() >= new Date(knowledge).getTime() ||
+    new Date(run.captured_at).getTime() >= new Date(knowledge).getTime()
+  ) {
+    return deny("observation_run_clock_after_knowledge");
+  }
+  /*
+    ── ROUND 15: THE TWO RECORDED SCOPE SIZES MUST AGREE FIRST ─────────────
+    Both the run and the receipt record how large the provider scope was. If
+    they disagree, the pair is internally inconsistent and nothing downstream
+    can be trusted to say an entity was absent.
+  */
+  const runRowCount = Number(run.row_count ?? 0);
+  if (runRowCount !== input.expectedProviderRowCount) {
+    return deny("observation_receipt_run_count_mismatch");
+  }
+
+  /*
+    ── 2. THE BASE MANIFEST, RECONSTRUCTED BEFORE ANY TOMBSTONE ────────────
+
+    ROUND 15 correction. Round 14 exempted delta runs from the count check on
+    the belief that a delta run's `row_count` is the size of the change. It is
+    not: `META_PARTIAL_MANIFEST_CONTRACT` states that `logicalEntityCount` — and
+    the run's `row_count` with it — is "the whole observed payload", the full
+    logical provider scope, on the complete lane too. So the integrity check
+    applies to BOTH lanes, and skipping it on delta was exactly the hole a
+    truncated delta needed.
+
+    Tombstones are deliberately NOT applied here. Removing an exited entity
+    before counting would make one legitimate deletion look like a truncated
+    capture and invalidate every surviving member with it.
+  */
+  const isDelta = run.manifest_kind === "delta";
+  const baseRows = await sql<{ entity_id: string }>`
+    SELECT state.entity_id
+    FROM meta_entity_state_history state
+    WHERE ${!isDelta}::boolean
+      AND state.run_id = ${runId}::uuid
+      AND state.business_id = ${businessId}
+      AND state.provider_account_id = ${providerAccountId}
+      AND state.entity_type = ${entityType}
+      AND state.presence = 'present'
+      AND state.observed_at < ${knowledge}::timestamptz
+      AND state.captured_at < ${knowledge}::timestamptz
+
+    UNION ALL
+
+    SELECT latest.entity_id
+    FROM (
+      SELECT DISTINCT ON (state.entity_id)
+        state.entity_id, state.presence
+      FROM meta_entity_state_history state
+      WHERE ${isDelta}::boolean
+        AND state.business_id = ${businessId}
+        AND state.provider_account_id = ${providerAccountId}
+        AND state.entity_type = ${entityType}
+        -- COMPLETE LANE ONLY. Partial and point-lookup rows never enter a delta
+        -- reconstruction: neither enumerates the account, so neither can
+        -- establish that an absent entity is really absent.
+        AND state.run_completeness = 'complete'
+        -- Same ENDPOINT as the selected run: a different endpoint is a
+        -- different manifest and must not leak in.
+        AND EXISTS (
+          SELECT 1 FROM meta_entity_observation_runs scope_run
+          WHERE scope_run.id = state.run_id
+            AND scope_run.endpoint = ${endpoint}
+            AND scope_run.business_id = ${businessId}
+            AND scope_run.provider_account_id = ${providerAccountId}
+            AND scope_run.entity_type = ${entityType}
+        )
+        -- Reconstruct the same predecessor the writer used: BOTH immutable run
+        -- clocks, observed_at first. A later-observed live manifest may have
+        -- been captured before an out-of-order historical replay; admitting it
+        -- here can swap member identities while preserving row_count.
+        AND state.observed_at <= ${run.observed_at}::timestamptz
+        AND state.captured_at <= ${run.captured_at}::timestamptz
+        AND state.observed_at < ${knowledge}::timestamptz
+        AND state.captured_at < ${knowledge}::timestamptz
+      ORDER BY state.entity_id, state.observed_at DESC, state.captured_at DESC,
+               state.created_at DESC, state.id DESC
+    ) latest
+    -- absent_unconfirmed REMOVES membership. It means the capture did not see
+    -- the entity and cannot say why, which is the opposite of evidence.
+    WHERE latest.presence = 'present'
+  `;
+  const base = new Set(baseRows.map((row) => row.entity_id));
+  /*
+    THE INTEGRITY CHECK, on the BASE manifest and on BOTH lanes. A truncated or
+    corrupt delta — receipt and run both claiming 2, reconstruction yielding 1 —
+    is refused here rather than silently answering "that entity was absent".
+  */
+  if (base.size !== runRowCount) {
+    return deny("observation_manifest_count_mismatch");
+  }
+  /*
+    ── ROUND 16: A GENUINELY EMPTY ACCOUNT IS VALID, NOT BROKEN ─────────────
+
+    Round 15 refused an empty manifest outright, before comparing counts. That
+    conflated two different worlds: a capture that lost its rows, and an account
+    that really has no ad sets. The first is caught by the count comparison
+    above (recorded 2, reconstructed 0 is a mismatch); the second records 0 and
+    reconstructs 0, which is a complete, truthful observation of an empty scope.
+
+    Refusing it made an empty account permanently unattestable — and, once the
+    bootstrap started reading this attestation, permanently in recovery. There
+    are no entities to decide about either way, so the honest answer is a valid
+    manifest with no members.
+  */
+  if (base.size === 0 && runRowCount !== 0) {
+    return deny("observation_manifest_empty");
+  }
+
+  /*
+    ── 3. LIVE MEMBERS: apply explicit scope exits AFTER the integrity check ──
+
+    The re-observation instant is the RECEIPT OCCURRENCE clock. A coalesced
+    receipt at t2 means the account was observed again at t2 and this entity was
+    still in it, so a tombstone recorded between the payload clock t1 and t2 is
+    SUPERSEDED. A tombstone at or after t2 wins — `>=`, which is the canonical
+    deterministic tie rule this repository already uses, where a tombstone
+    outranks a state at an identical clock.
+  */
+  const tombstoned = await sql<{ entity_id: string }>`
+    SELECT DISTINCT tomb.entity_id
+    FROM meta_entity_tombstones tomb
+    WHERE tomb.business_id = ${businessId}
+      AND tomb.provider_account_id = ${providerAccountId}
+      AND tomb.entity_type = ${entityType}
+      AND tomb.reason IN ('explicit_deleted', 'explicit_not_found')
+      AND tomb.captured_at >= ${receiptCapturedAt}::timestamptz
+      AND tomb.observed_at < ${knowledge}::timestamptz
+      AND tomb.captured_at < ${knowledge}::timestamptz
+  `;
+  const exited = new Set(tombstoned.map((row) => row.entity_id));
+  const live = new Set([...base].filter((id) => !exited.has(id)));
+  return {
+    ok: true,
+    refusal: null,
+    presentEntityIds: new Set(requested.filter((id) => live.has(id))),
+    manifestKind: run.manifest_kind,
+    manifestCount: base.size,
+    removedByTombstone: base.size - live.size,
+  };
 }

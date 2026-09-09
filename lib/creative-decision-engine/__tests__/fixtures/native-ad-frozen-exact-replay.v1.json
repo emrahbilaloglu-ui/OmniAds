@@ -1,5 +1,6 @@
 {
   "contractVersion": "native-ad-frozen-exact-replay.v1",
+  "engineVersion": "v3-ad-2026-09-07-held-verdict-authority-shadow",
   "sourceMode": "anonymized_frozen_acceptance_fixture",
   "sourceProvenance": {
     "mode": "synthetic_anonymized_production_contract_fixture",
@@ -127,9 +128,23 @@
           "recent7dRoas": 3
         },
         "expected": {
+          "preAuthorityLabel": "scale",
           "publishedLabel": "keep",
-          "blockedActionType": null,
-          "reasonFragment": "[near scale]"
+          "blockedActionType": "scale",
+          "authorityBlocker": "profile_hard_action_ineligible",
+          "reasonFragment": "near scale, soft-only",
+          "benchmarkBlockers": [
+            {
+              "predicate": "scale_account_benchmark_ready",
+              "observed": 5,
+              "threshold": 30
+            },
+            {
+              "predicate": "scale_account_benchmark_ready",
+              "observed": null,
+              "threshold": "positive winner purchase P50"
+            }
+          ]
         }
       },
       "nativeRefreshCandidate": {
@@ -146,9 +161,11 @@
           "recent7dRoas": 1
         },
         "expected": {
-          "preAuthorityLabel": "keep",
+          "preAuthorityLabel": "refresh",
           "publishedLabel": "keep",
-          "blockedActionType": null
+          "blockedActionType": "refresh",
+          "authorityBlocker": "profile_hard_action_ineligible",
+          "reasonFragment": "[soft-only - refresh blocked]"
         }
       },
       "expectedEligibility": {

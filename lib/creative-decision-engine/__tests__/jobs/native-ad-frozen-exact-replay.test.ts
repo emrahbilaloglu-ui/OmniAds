@@ -96,6 +96,17 @@ type FrozenMetrics = Pick<
 
 interface FrozenFixture {
   contractVersion: "native-ad-frozen-exact-replay.v1";
+  /**
+   * The producer epoch these frozen outputs were derived under.
+   *
+   * INVARIANTS.md requires a new versioned producer contract whenever
+   * canonical decision provenance, reason/hash semantics or authority ordering
+   * change. Freezing the epoch alongside the expectations turns that into a
+   * gate: a change that moves any expectation below has, by definition, moved
+   * provenance, and this assertion fails until `NATIVE_AD_ENGINE_VERSION`
+   * moves with it.
+   */
+  engineVersion: string;
   sourceMode: "anonymized_frozen_acceptance_fixture";
   sourceProvenance: {
     mode: "synthetic_anonymized_production_contract_fixture";
@@ -148,13 +159,26 @@ interface FrozenFixture {
     };
     scaleRefreshIsolation: {
       nativeScaleCandidate: FrozenNativeArchetype & {
-        expected: FrozenSoftExpectation & { reasonFragment: string };
+        expected: {
+          preAuthorityLabel: "scale";
+          publishedLabel: "keep";
+          blockedActionType: "scale";
+          authorityBlocker: "profile_hard_action_ineligible";
+          reasonFragment: string;
+          benchmarkBlockers: Array<{
+            predicate: string;
+            observed: number | null;
+            threshold: number | string;
+          }>;
+        };
       };
       nativeRefreshCandidate: FrozenNativeArchetype & {
         expected: {
-          preAuthorityLabel: "keep";
+          preAuthorityLabel: "refresh";
           publishedLabel: "keep";
-          blockedActionType: null;
+          blockedActionType: "refresh";
+          authorityBlocker: "profile_hard_action_ineligible";
+          reasonFragment: string;
         };
       };
       expectedEligibility: {
@@ -914,6 +938,10 @@ describe("native Ad frozen exact replay acceptance", () => {
 
   it("binds thin exact calibration to cutoff-safe account/currency AOV for Cut only", async () => {
     expect(fixture.contractVersion).toBe("native-ad-frozen-exact-replay.v1");
+    // The frozen outputs below belong to one producer epoch. See the field's
+    // doc comment: this is the assertion that makes a silent provenance change
+    // impossible to land.
+    expect(fixture.engineVersion).toBe(NATIVE_AD_ENGINE_VERSION);
     expect(fixture.sourceMode).toBe("anonymized_frozen_acceptance_fixture");
     expect(fixture.sourceProvenance).toMatchObject({
       mode: "synthetic_anonymized_production_contract_fixture",
@@ -1099,13 +1127,56 @@ describe("native Ad frozen exact replay acceptance", () => {
     expect(recoveryResult.decision.reason).toContain(
       recovery.expected.reasonFragment,
     );
+    /*
+      Scale and Refresh readiness close EXECUTION, not the verdict.
+
+      Both rows in this archetype run against `expectedEligibility`
+      `{ scale: false, refresh: false }`. The frozen expectation used to be
+      `publishedLabel: "keep"` with `blockedActionType: null` for both, which
+      is a deleted recommendation: an ad at 175% of target with 15 purchases
+      and a holding recent week, and an ad whose recent 7d ROAS fell 66%
+      against its own preceding 21 days, both served as ordinary Keeps with
+      nothing for an operator to see or a lane to route.
+
+      The published label is still `keep` and `authorized_action` is still
+      null — nothing is executable. What changed is that the held verdict now
+      round-trips through `blocked_action_type`, as INVARIANTS.md requires of
+      every held Scale/Cut/Refresh.
+
+      `authority_blocker` is `profile_hard_action_ineligible` on BOTH rows and
+      that is the honest code here, not the gate's requested hold: this
+      account's cell denies Scale and Refresh outright
+      (`native_ad_calibration:scale_calibration_sample_low` /
+      `refresh_calibration_sample_low`), so `finalizeDecision` discards the
+      requested hold via `profileBlocksHardAuthority` and stamps the profile
+      denial itself. The gate's own `native_metrics_unavailable` hold is only
+      reachable on a profile that ALLOWS the action, which this one does not.
+    */
     const scaleResult = byAdId(firstRun, scale.adId);
     expect(scaleResult.decision).toMatchObject({
+      preAuthorityLabel: scale.expected.preAuthorityLabel,
       label: scale.expected.publishedLabel,
       blockedActionType: scale.expected.blockedActionType,
+      authorityBlocker: scale.expected.authorityBlocker,
     });
     expect(scaleResult.decision.reason).toContain(
       scale.expected.reasonFragment,
+    );
+    // The readiness numbers are part of the frozen provenance: they are hashed
+    // into `decisionHash` through `normalizeDecision`, so freezing them as
+    // prose would have let the prose-to-numbers change land unnoticed.
+    expect(
+      scaleResult.decision.blockers?.filter(
+        (entry) => entry.predicate === "scale_account_benchmark_ready",
+      ),
+    ).toEqual(
+      scale.expected.benchmarkBlockers.map((expected) =>
+        expect.objectContaining({
+          predicate: expected.predicate,
+          observed: expected.observed,
+          threshold: expected.threshold,
+        }),
+      ),
     );
 
     const refreshDecision = byAdId(firstRun, refresh.adId);
@@ -1113,8 +1184,11 @@ describe("native Ad frozen exact replay acceptance", () => {
       preAuthorityLabel: refresh.expected.preAuthorityLabel,
       label: refresh.expected.publishedLabel,
       blockedActionType: refresh.expected.blockedActionType,
-      authorityBlocker: null,
+      authorityBlocker: refresh.expected.authorityBlocker,
     });
+    expect(refreshDecision.decision.reason).toContain(
+      refresh.expected.reasonFragment,
+    );
 
     const pendingPayload = snapshotPayload({
       asOfDate: fixture.firstAsOfDate,
@@ -2109,9 +2183,26 @@ describe("native Ad fixed-cohort replay parity", () => {
       "contradictory_purchase_truth",
     );
     expect(exact?.accountCalibration.roasRatioP25).toBeGreaterThan(0);
+    /*
+      ── ROUND 8 ITEM 4, THROUGH THE REPLAY HARNESS ──────────────────────────
+
+      This fixture's account AOV is `contradictory_purchase_truth`, so the
+      spend-unit authority is NOT ready, and the account carries a positive
+      Target ROAS. Round 6 withdrew the economic STRIP here and left the cell
+      READY on its P25 alone; Round 8 refuses readiness itself, because a
+      relative percentile is not READY Meta AOV over the Target ROAS and under
+      a positive Target ROAS that is the only admissible spend arithmetic.
+
+      The assertion is not loosened — it names the exact reason — and the
+      strip's own reachability is still asserted elsewhere, on a cell whose
+      spend-unit authority IS ready (`ad-calibration-job.test.ts`, "grants
+      authority per action …"), which is now the only thing that can open Cut
+      at all in this regime.
+    */
     expect(exact?.actionReadiness.cut).toMatchObject({
-      ready: true,
-      authorityBasis: "calibrated_relative_with_economic_stop_loss",
+      ready: false,
+      reason: "commercial_spend_unit_authority_missing",
+      authorityBasis: null,
     });
 
     const legacySafeLossInput = {
@@ -2131,19 +2222,39 @@ describe("native Ad fixed-cohort replay parity", () => {
       index: 31,
     });
 
+    /*
+      THE HOLD, CARRIED THROUGH THE REPLAYED DECISION.
+
+      The row is still RECOGNISED as a Cut candidate — `preAuthorityLabel` is
+      `cut`, which is the mathematics and it has not changed. What changed is
+      that no authority exists to publish it: the cell is not Cut-ready, the
+      retained profile is therefore hard-action ineligible for cut, and the
+      published label falls to `test_more` with the blocked action named.
+
+      Round 6 published `keep` here off a `calibrated_relative` basis. That
+      basis is now null, because a relative percentile is not a spend unit.
+    */
     expect(challenger).toMatchObject({
       status: "computed",
-      selectedCellCutAuthorityBasis:
-        "calibrated_relative_with_economic_stop_loss",
+      selectedCellCutAuthorityBasis: null,
+      spendUnitAuthorityStatus: "blocked",
       repairAuthoritySelected: false,
       preAuthorityLabel: "cut",
-      authorityBlocker: null,
-      rawLabel: "cut",
-      publishedLabel: "keep",
+      authorityBlocker: "profile_hard_action_ineligible",
+      rawLabel: "test_more",
+      publishedLabel: "test_more",
       blockedActionType: "cut",
       simulatedAuthorizedAction: null,
     });
-    expect(challenger.policyAudit?.zone).toBe("legacy_safe_loss");
+    // The measured P25 is still there — the hold is about authority, not data.
+    expect(challenger.selectedCellRoasRatioP25).toBeGreaterThan(0);
+    // No relative zone is entered at all, because Cut never became authorized.
+    expect(challenger.policyAudit?.zone).toBeNull();
+    // And the operator-facing reason names the missing unit rather than
+    // inventing a different cause.
+    expect(challenger.reason).toContain(
+      "native_ad_calibration:commercial_spend_unit_authority_missing",
+    );
   });
 
   it("keeps a P25-null PURCHASE profile fail-closed when account-AOV proof is contradictory", async () => {
@@ -2210,9 +2321,25 @@ describe("native Ad fixed-cohort replay parity", () => {
       baseInput,
     ]);
     const probeProfile = probeGroup.profile as AccountDecisionProfile;
+    /*
+      ROUND 6: READ THE FAMILY THE ENGINE ACTUALLY DECIDES FROM.
+
+      This read `thresholds.commercialMaturitySpend` directly. On this frozen
+      account the EXACT cell carries five attributed purchases, and a sample
+      that thin under a Target ROAS no longer builds a spend unit at all, so
+      the canonical family is empty and the repaired physical-account AOV view
+      (`commercialStopLossThresholds`) is the one every gate consults — the
+      same repair `NATIVE_AD_THIN_EXACT_FALLBACK_CELL` exists to supply. The
+      boundary being rebuilt is unchanged; only which family states it is.
+    */
     const restatedMaturityFloor =
-      probeProfile.thresholds.commercialMaturitySpend;
-    const recentFloor = probeProfile.thresholds.recentSampleMinSpend ?? 0;
+      probeProfile.thresholds.commercialMaturitySpend ??
+      probeProfile.commercialStopLossThresholds?.commercialMaturitySpend ??
+      null;
+    const recentFloor =
+      probeProfile.thresholds.recentSampleMinSpend ??
+      probeProfile.commercialStopLossThresholds?.recentSampleMinSpend ??
+      0;
     if (
       restatedMaturityFloor === null ||
       restatedMaturityFloor - 1 <= recentFloor

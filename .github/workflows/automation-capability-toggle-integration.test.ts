@@ -1,7 +1,8 @@
 /**
  * PRE-DEPLOY AUDIT — the REAL remote script + env writer + workflow
  * pipeline/summary-extraction path, run end-to-end. No host, no SSH, no
- * Docker, no network — but nothing here is a rewrite or a mock of the
+ * Docker, no external network (the timeout cases use a loopback TCP peer) —
+ * but nothing here is a rewrite or a mock of the
  * ORCHESTRATION LOGIC itself.
  *
  * Every earlier test in this pass proved the PURE TypeScript orchestrator
@@ -40,7 +41,7 @@
  * success for the exact SSH failure the fixed line correctly reports as a
  * failure — the real broken path is shown failing, not assumed.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,6 +62,7 @@ function stepRun(name: string): string {
 }
 
 const PHASE_RUNNER_SCRIPT = stepRun("Run a capability phase on the host");
+const FRESHNESS_SCRIPT = stepRun("Skip a superseded request");
 const BUILD_ARTIFACT_SCRIPT = stepRun("Build the redacted result artifact");
 const FAIL_GATE_SCRIPT = stepRun("Fail the job on anything but summary.result == pass");
 
@@ -68,6 +70,42 @@ const ENV_SH = readFileSync(".github/scripts/automation-capability-env.sh", "utf
 const REMOTE_SH = readFileSync(".github/scripts/automation-capability-remote.sh", "utf8");
 
 const VALID_SHA = "a".repeat(40);
+const REAL_CURL_PATH = execFileSync("bash", ["-c", "command -v curl"], {
+  encoding: "utf8",
+}).trim();
+
+const BUILD_INFO_SERVER_SCRIPT = String.raw`
+const { appendFileSync } = require("node:fs");
+const { createServer } = require("node:net");
+
+const sockets = new Set();
+const server = createServer((socket) => {
+  sockets.add(socket);
+  socket.on("close", () => sockets.delete(socket));
+  appendFileSync(process.env.CONNECTION_LOG, "connected\n");
+  if (process.env.SERVER_MODE !== "respond") return;
+
+  socket.once("data", () => {
+    const body = JSON.stringify({ buildId: process.env.SERVER_BUILD_ID });
+    socket.end(
+      "HTTP/1.1 200 OK\r\n" +
+      "Content-Type: application/json\r\n" +
+      "Content-Length: " + Buffer.byteLength(body) + "\r\n" +
+      "Connection: close\r\n\r\n" + body,
+    );
+  });
+});
+
+server.listen(0, "127.0.0.1", () => {
+  process.stdout.write(String(server.address().port) + "\n");
+});
+
+process.on("SIGTERM", () => {
+  for (const socket of sockets) socket.destroy();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 100).unref();
+});
+`;
 
 const FAKE_SSH_SCRIPT = `#!/usr/bin/env bash
 # Fake ssh: ignore every connection flag, evaluate the LAST argument
@@ -83,7 +121,7 @@ set -u
 if [ "\${FAKE_CURL_EXIT:-0}" != "0" ]; then
   exit "\${FAKE_CURL_EXIT}"
 fi
-printf '{"buildId":"%s"}' "\${FAKE_BUILD_ID:-\${EXPECTED_SHA:-}}"
+printf '{"buildId":"%s"}' "\${FAKE_BUILD_ID:-\${APP_BUILD_ID:-\${REQUESTED_SHA:-}}}"
 `;
 
 // A STATEFUL fake: \`docker compose up\` marks a per-test marker file
@@ -98,17 +136,72 @@ printf '{"buildId":"%s"}' "\${FAKE_BUILD_ID:-\${EXPECTED_SHA:-}}"
 const FAKE_DOCKER_SCRIPT = `#!/usr/bin/env bash
 set -u
 UP_MARKER="\${REMOTE_APP_DIR}/.fake-docker-up-called"
+STOP_MARKER="\${REMOTE_APP_DIR}/.fake-docker-stop-called"
+
+if [ -n "\${FAKE_DOCKER_CALL_LOG:-}" ]; then
+  file_gate="$(sed -n 's/^META_AUTOMATION_LIVE_WRITES=//p' "\${REMOTE_APP_DIR}/.env.production")"
+  printf '%s|APP_IMAGE_TAG=%s|APP_BUILD_ID=%s|FILE_GATE=%s\n' "$*" "\${APP_IMAGE_TAG:-}" "\${APP_BUILD_ID:-}" "\${file_gate}" >> "\${FAKE_DOCKER_CALL_LOG}"
+fi
+
+if [ "\${FAKE_DOCKER_HANG:-}" = "$1 $2" ] || [ "\${FAKE_DOCKER_HANG:-}" = "$1" ]; then
+  # A real stuck process with a descendant that inherits stdout and ignores
+  # TERM. If the watchdog kills only the parent, the descendant survives and
+  # writes this marker before the complete failing phase returns.
+  trap '' TERM
+  (trap '' TERM; sleep 2; touch "\${REMOTE_APP_DIR}/.hung-descendant-survived"; sleep 30) &
+  if [ "\${FAKE_DOCKER_PARENT_EXITS:-0}" = "1" ]; then exit 0; fi
+  wait
+fi
+
+if [ "\$1" = "--config" ]; then
+  config_dir="\$2"
+  token="$(cat)"
+  printf '%s' "\$config_dir" > "\${REMOTE_APP_DIR}/.registry-config-path"
+  printf '%s' "\${CAP_REGISTRY_TOKEN-unset}" > "\${REMOTE_APP_DIR}/.registry-token-env"
+  if [ "\$token" != "fixture-registry-token" ]; then exit 78; fi
+  printf 'private-config' > "\$config_dir/config.json"
+  exit "\${FAKE_LOGIN_EXIT:-0}"
+fi
+
+if [ "\$1 \$2" = "image inspect" ]; then
+  if [ "\${FAKE_CACHE_MISSING:-0}" = "1" ] && [ ! -f "\${REMOTE_APP_DIR}/.fake-docker-pulled" ]; then exit 1; fi
+  case "\${@: -1}" in *omniads-worker:*) service="worker"; digit="2" ;; *) service="web"; digit="1" ;; esac
+  digest="$(printf '%064d' 0 | tr 0 "\$digit")"
+  if [ "\${FAKE_CACHE_WRONG_ID:-0}" = "1" ]; then digest="$(printf '%064d' 0)"; fi
+  printf 'sha256:%s %s %s-runner\n' "\$digest" "\${APP_IMAGE_TAG:-\${REQUESTED_SHA:-}}" "\$service"
+  exit 0
+fi
 
 if [ "\$1" = "compose" ]; then
   shift
   case "\$1" in
-    pull) exit "\${FAKE_PULL_EXIT:-0}" ;;
+    config)
+      # Worker selection includes the web dependency, as real Compose does.
+      printf '{"services":{"web":{"image":"ghcr.io/example/omniads-web:%s"},"worker":{"image":"ghcr.io/example/omniads-worker:%s"}}}' "\${APP_IMAGE_TAG:-\${REQUESTED_SHA:-}}" "\${APP_IMAGE_TAG:-\${REQUESTED_SHA:-}}"
+      exit 0
+      ;;
+    pull)
+      if [ "\${FAKE_PULL_HANG_ONCE:-0}" = "1" ] && [ ! -f "\${REMOTE_APP_DIR}/.pull-hung" ]; then
+        touch "\${REMOTE_APP_DIR}/.pull-hung"
+        (sleep 2; touch "\${REMOTE_APP_DIR}/.hung-descendant-survived"; sleep 30) &
+        wait
+      fi
+      if [ "\${FAKE_PULL_EXIT:-0}" = "0" ]; then touch "\${REMOTE_APP_DIR}/.fake-docker-pulled"; fi
+      exit "\${FAKE_PULL_EXIT:-0}"
+      ;;
     up)
       : > "\$UP_MARKER"
+      rm -f "\$STOP_MARKER"
       exit "\${FAKE_UP_EXIT:-0}"
       ;;
+    stop)
+      if [ "\${FAKE_STOP_EXIT:-0}" = "0" ] && [ "\${FAKE_STOP_IGNORED:-0}" != "1" ]; then
+        : > "\$STOP_MARKER"
+      fi
+      exit "\${FAKE_STOP_EXIT:-0}"
+      ;;
     ps)
-      service="\$3"
+      service="\${@: -1}"
       case "\$service" in
         web) miss="\${FAKE_WEB_MISSING:-0}" ;;
         worker) miss="\${FAKE_WORKER_MISSING:-0}" ;;
@@ -122,6 +215,11 @@ if [ "\$1" = "compose" ]; then
       service="\$3"
       shift 3
       if printf '%s ' "\$@" | grep -q "automation-capability-preflight-cli.ts"; then
+        if [ "\${FAKE_PREFLIGHT_HANG_AFTER_UP:-0}" = "1" ] && [ -f "\$UP_MARKER" ]; then
+          (sleep 2; touch "\${REMOTE_APP_DIR}/.hung-descendant-survived"; sleep 30) &
+          if [ "\${FAKE_PREFLIGHT_PARENT_EXITS:-0}" = "1" ]; then exit 0; fi
+          wait
+        fi
         exit "\${FAKE_PREFLIGHT_EXIT:-0}"
       fi
       # Default: read the REAL current value out of the .env.production
@@ -132,6 +230,11 @@ if [ "\$1" = "compose" ]; then
       [ -z "\$current_env_value" ] && current_env_value="false"
       after_up="0"
       [ -f "\$UP_MARKER" ] && after_up="1"
+      # Existing containers keep their initial process env until recreate;
+      # merely rewriting the real fixture file must NOT change this readback.
+      if [ "\$after_up" = "0" ]; then
+        current_env_value="\${FAKE_BASELINE_ENV:-\$current_env_value}"
+      fi
       case "\$service" in
         web)
           if [ "\$after_up" = "1" ] && [ -n "\${FAKE_WEB_ENV_AFTER_UP:-}" ]; then
@@ -175,7 +278,12 @@ if [ "\$1" = "inspect" ]; then
   after_up="0"
   [ -f "\$UP_MARKER" ] && after_up="1"
   case "\$fmt" in
+    "{{.Image}}")
+      case "\$service" in worker) digit="2" ;; *) digit="1" ;; esac
+      printf 'sha256:%s\n' "$(printf '%064d' 0 | tr 0 "\$digit")"
+      ;;
     *State.Running*)
+      if [ -f "\$STOP_MARKER" ]; then echo "false"; exit 0; fi
       case "\$service" in
         web) nr="\${FAKE_WEB_NOT_RUNNING:-0}" ;;
         worker) nr="\${FAKE_WORKER_NOT_RUNNING:-0}" ;;
@@ -188,15 +296,19 @@ if [ "\$1" = "inspect" ]; then
         web)
           if [ "\$after_up" = "1" ] && [ -n "\${FAKE_WEB_REVISION_AFTER_UP:-}" ]; then
             echo "\$FAKE_WEB_REVISION_AFTER_UP"
+          elif [ "\$after_up" = "1" ]; then
+            echo "\${APP_IMAGE_TAG:-\${FAKE_WEB_REVISION:-\${REQUESTED_SHA:-}}}"
           else
-            echo "\${FAKE_WEB_REVISION:-\${EXPECTED_SHA:-}}"
+            echo "\${FAKE_WEB_REVISION:-\${REQUESTED_SHA:-}}"
           fi
           ;;
         worker)
           if [ "\$after_up" = "1" ] && [ -n "\${FAKE_WORKER_REVISION_AFTER_UP:-}" ]; then
             echo "\$FAKE_WORKER_REVISION_AFTER_UP"
+          elif [ "\$after_up" = "1" ]; then
+            echo "\${APP_IMAGE_TAG:-\${FAKE_WORKER_REVISION:-\${REQUESTED_SHA:-}}}"
           else
-            echo "\${FAKE_WORKER_REVISION:-\${EXPECTED_SHA:-}}"
+            echo "\${FAKE_WORKER_REVISION:-\${REQUESTED_SHA:-}}"
           fi
           ;;
         *) echo "" ;;
@@ -234,6 +346,69 @@ function writeExecutable(path: string, content: string) {
   chmodSync(path, 0o755);
 }
 
+async function startBuildInfoServer(mode: "hang" | "respond") {
+  const connectionLog = join(dir, `build-info-${mode}-${Math.random().toString(36).slice(2)}.log`);
+  writeFileSync(connectionLog, "");
+  const child = spawn(process.execPath, ["-e", BUILD_INFO_SERVER_SCRIPT], {
+    env: {
+      ...process.env,
+      CONNECTION_LOG: connectionLog,
+      SERVER_MODE: mode,
+      SERVER_BUILD_ID: VALID_SHA,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const port = await new Promise<number>((resolve, reject) => {
+    let output = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      settled = true;
+      child.kill("SIGKILL");
+      reject(new Error("build-info test server did not announce a port"));
+    }, 2_000);
+
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error(`build-info test server exited before listen: ${code}`));
+    });
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      if (settled) return;
+      output += chunk;
+      const match = output.match(/^(\d+)\n/);
+      if (!match) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(Number(match[1]));
+    });
+  });
+
+  return {
+    port,
+    connectionLog,
+    async stop() {
+      if (child.exitCode !== null) return;
+      await new Promise<void>((resolve) => {
+        const killTimer = setTimeout(() => child.kill("SIGKILL"), 1_000);
+        child.once("exit", () => {
+          clearTimeout(killTimer);
+          resolve();
+        });
+        child.kill("SIGTERM");
+      });
+    },
+  };
+}
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "adsecute-capability-integration-"));
   remoteAppDir = join(dir, "remote-app");
@@ -262,6 +437,110 @@ function parseGithubOutput(content: string): Record<string, string> {
   return out;
 }
 
+function runFreshnessStep(input: {
+  capability: "open" | "closed";
+  requestedSha: string;
+  currentMainSha: string;
+  requireCurrentMainHead?: "true" | "false";
+  gitScript?: string;
+  dispatchRef?: string;
+  dispatchSha?: string;
+}) {
+  const outputFile = join(dir, `freshness-output-${Math.random().toString(36).slice(2)}`);
+  writeFileSync(outputFile, "");
+  writeExecutable(
+    join(fakeBinDir, "git"),
+    input.gitScript ?? `#!/usr/bin/env bash\nprintf '%s\\trefs/heads/main\\n' "${input.currentMainSha}"\n`,
+  );
+  execFileSync("bash", ["-c", FRESHNESS_SCRIPT], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+      REQUESTED_SHA: input.requestedSha,
+      CAPABILITY: input.capability,
+      REQUIRE_CURRENT_MAIN_HEAD: input.requireCurrentMainHead ?? "true",
+      REPOSITORY: "example/adsecute",
+      GH_TOKEN: "redacted-test-token",
+      GITHUB_OUTPUT: outputFile,
+      DISPATCH_REF: input.dispatchRef ?? "refs/heads/main",
+      DISPATCH_SHA: input.dispatchSha ?? VALID_SHA,
+    },
+  });
+  return parseGithubOutput(readFileSync(outputFile, "utf8"));
+}
+
+describe("stale request freshness behavior", () => {
+  it.each(["#!/bin/sh\nexit 128\n", "#!/bin/sh\nprintf invalid\n"])("closes from the exact main dispatch commit if lookup is unavailable (%s)", (gitScript) => {
+    const dispatchSha = "c".repeat(40);
+    expect(runFreshnessStep({
+      capability: "closed",
+      requestedSha: "b".repeat(40),
+      currentMainSha: "",
+      gitScript,
+      dispatchSha,
+    })).toMatchObject({
+      should_run: "true",
+      checkout_sha: dispatchSha,
+      script_source: "dispatch_main_fallback",
+      main_lookup: "unavailable",
+    });
+  });
+
+  it.each([
+    { capability: "open" as const, dispatchRef: "refs/heads/main", dispatchSha: VALID_SHA },
+    { capability: "closed" as const, dispatchRef: "refs/heads/feature", dispatchSha: VALID_SHA },
+    { capability: "closed" as const, dispatchRef: "refs/heads/main", dispatchSha: "invalid" },
+  ])("refuses an unavailable lookup without trusted main close provenance: $capability $dispatchRef $dispatchSha", (context) => {
+    expect(() => runFreshnessStep({
+      ...context,
+      requestedSha: "b".repeat(40),
+      currentMainSha: "",
+      gitScript: "#!/bin/sh\nexit 128\n",
+    })).toThrow();
+  });
+
+  it("runs a stale close with the current-main safety script", () => {
+    const freshness = runFreshnessStep({
+      capability: "closed",
+      requestedSha: "b".repeat(40),
+      currentMainSha: VALID_SHA,
+    });
+    expect(freshness).toMatchObject({
+      should_run: "true",
+      stale_close: "true",
+      checkout_sha: VALID_SHA,
+    });
+  });
+
+  it("still skips a stale open", () => {
+    expect(runFreshnessStep({
+      capability: "open",
+      requestedSha: "b".repeat(40),
+      currentMainSha: VALID_SHA,
+    })).toMatchObject({ should_run: "false" });
+  });
+
+  it("still uses the current-main safety script for close when the main-head requirement is opted out", () => {
+    expect(runFreshnessStep({
+      capability: "closed",
+      requestedSha: "b".repeat(40),
+      currentMainSha: VALID_SHA,
+      requireCurrentMainHead: "false",
+    })).toMatchObject({ should_run: "true", checkout_sha: VALID_SHA });
+  });
+
+  it("preserves the exact requested-ref behavior for an opted-out open", () => {
+    const requestedSha = "b".repeat(40);
+    expect(runFreshnessStep({
+      capability: "open",
+      requestedSha,
+      currentMainSha: "",
+      requireCurrentMainHead: "false",
+    })).toMatchObject({ should_run: "true", checkout_sha: requestedSha });
+  });
+});
+
 /**
  * Runs the REAL "Run a capability phase on the host" step script exactly
  * as the workflow does — concatenated env.sh + remote.sh piped through
@@ -270,7 +549,7 @@ function parseGithubOutput(content: string): Record<string, string> {
  */
 function runPhaseStep(input: {
   capability: "open" | "closed";
-  expectedSha?: string;
+  requestedSha?: string;
   fakeEnv?: Record<string, string>;
   sshScript?: string;
 }): { phaseStatus: number; outFileContent: string; githubOutput: Record<string, string> } {
@@ -286,13 +565,16 @@ function runPhaseStep(input: {
     env: {
       PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
       HOME: process.env.HOME ?? dir,
-      EXPECTED_SHA: input.expectedSha ?? VALID_SHA,
+      REQUESTED_SHA: input.requestedSha ?? VALID_SHA,
       HETZNER_PORT: "22",
       HETZNER_USER: "deployer",
       CAPABILITY: input.capability,
       PRIMARY_DEPLOY_HOST: "fake-host.invalid",
+      GHCR_PULL_USER: "fixture-user",
+      GHCR_PULL_TOKEN: "fixture-registry-token",
       REMOTE_APP_DIR: remoteAppDir,
       GITHUB_OUTPUT: githubOutputFile,
+      FAKE_BASELINE_ENV: readEnvFile().match(/^META_AUTOMATION_LIVE_WRITES=(.*)$/m)?.[1] ?? "false",
       ...input.fakeEnv,
     },
   });
@@ -311,7 +593,10 @@ function runBuildArtifactStep(input: {
   phaseStatus: number;
   outFileContent: string;
   capability: "open" | "closed";
-  expectedSha?: string;
+  requestedSha?: string;
+  workflowScriptSha?: string;
+  workflowScriptSource?: string;
+  mainLookup?: string;
 }): { artifact: Record<string, unknown>; artifactsDir: string } {
   const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-artifact-"));
   const outFile = join(artifactsDir, "out.txt");
@@ -324,7 +609,10 @@ function runBuildArtifactStep(input: {
       PATH: process.env.PATH ?? "",
       PHASE_STATUS: String(input.phaseStatus),
       OUT_FILE: outFile,
-      EXPECTED_SHA: input.expectedSha ?? VALID_SHA,
+      REQUESTED_SHA: input.requestedSha ?? VALID_SHA,
+      WORKFLOW_SCRIPT_SHA: input.workflowScriptSha ?? VALID_SHA,
+      WORKFLOW_SCRIPT_SOURCE: input.workflowScriptSource ?? "current_main",
+      MAIN_LOOKUP: input.mainLookup ?? "available",
       CAPABILITY: input.capability,
     },
   });
@@ -345,8 +633,9 @@ function runFailGateStep(artifactsDir: string): { stdout: string } {
 /** Runs env.sh + remote.sh in ONE shot (no ssh layer) for scenarios that don't need the workflow's own steps — the direct remote-script test. */
 function runRemoteDirect(input: {
   phase: "capability_open" | "capability_close" | "capability_preflight";
-  expectedSha?: string;
+  requestedSha?: string;
   fakeEnv?: Record<string, string>;
+  timeoutMs?: number;
 }): { status: number; stdout: string; capabilityJson: Record<string, unknown> | null } {
   let stdout = "";
   let status = 0;
@@ -355,12 +644,16 @@ function runRemoteDirect(input: {
       encoding: "utf8",
       env: {
         PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
-        EXPECTED_SHA: input.expectedSha ?? VALID_SHA,
+        REQUESTED_SHA: input.requestedSha ?? VALID_SHA,
         PHASE: input.phase,
+        GHCR_USER: "fixture-user",
+        CAP_REGISTRY_TOKEN: "fixture-registry-token",
         REMOTE_APP_DIR: remoteAppDir,
+        FAKE_BASELINE_ENV: readEnvFile().match(/^META_AUTOMATION_LIVE_WRITES=(.*)$/m)?.[1] ?? "false",
         ...input.fakeEnv,
       },
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: input.timeoutMs,
     });
   } catch (error) {
     const e = error as { status?: number; stdout?: string };
@@ -377,6 +670,70 @@ function readEnvFile(): string {
 }
 
 describe("the full workflow pipeline — success", () => {
+  it("a stale close uses current-main safety code but recreates only the distinct release proven to be running", () => {
+    const requestedSha = "b".repeat(40);
+    const runningSha = "c".repeat(40);
+    const dockerCallLog = join(dir, "docker-calls.log");
+    const freshness = runFreshnessStep({
+      capability: "closed",
+      requestedSha,
+      currentMainSha: VALID_SHA,
+    });
+    expect(freshness).toMatchObject({
+      should_run: "true",
+      checkout_sha: VALID_SHA,
+    });
+
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const phase = runPhaseStep({
+      capability: "closed",
+      requestedSha,
+      fakeEnv: {
+        FAKE_WEB_REVISION: runningSha,
+        FAKE_WORKER_REVISION: runningSha,
+        FAKE_BUILD_ID: runningSha,
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    const { artifact, artifactsDir } = runBuildArtifactStep({
+      phaseStatus: phase.phaseStatus,
+      outFileContent: phase.outFileContent,
+      capability: "closed",
+      requestedSha,
+      workflowScriptSha: VALID_SHA,
+    });
+    const summary = artifact.summary as Record<string, unknown>;
+    const after = summary.after as Record<string, unknown>;
+    expect(artifact).toMatchObject({
+      requestedSha,
+      effectiveSha: runningSha,
+      workflowScriptSha: VALID_SHA,
+    });
+    expect(summary).toMatchObject({ requestedSha, effectiveSha: runningSha });
+    expect(summary.result).toBe("pass");
+    expect(after.web).toMatchObject({
+      revision: runningSha,
+      envValue: "false",
+    });
+    expect(after.worker).toMatchObject({
+      revision: runningSha,
+      envValue: "false",
+    });
+    const recreateCalls = readFileSync(dockerCallLog, "utf8")
+      .split("\n")
+      .filter((line) => line.startsWith("compose pull ") || line.startsWith("compose up "));
+    // Proven immutable cached images skip the registry pull.
+    expect(recreateCalls).toHaveLength(1);
+    for (const call of recreateCalls) {
+      expect(call).toContain(`APP_IMAGE_TAG=${runningSha}`);
+      expect(call).toContain(`APP_BUILD_ID=${runningSha}`);
+      expect(call).not.toContain(requestedSha);
+      expect(call).not.toContain(VALID_SHA);
+    }
+    expect(() => runFailGateStep(artifactsDir)).not.toThrow();
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+  });
+
   it("capability=open: env file flips, both steps' artifact is pass with blockers=[], the fail gate does not throw", () => {
     const phase = runPhaseStep({ capability: "open" });
     expect(phase.phaseStatus).toBe(0);
@@ -439,7 +796,7 @@ describe("baseline refusal — a wrong pre-existing SHA is refused, not silently
     const wrongSha = "b".repeat(40);
     const { status, capabilityJson } = runRemoteDirect({
       phase: "capability_open",
-      expectedSha: VALID_SHA,
+      requestedSha: VALID_SHA,
       fakeEnv: { FAKE_WEB_REVISION: wrongSha }, // worker still reports VALID_SHA
     });
     expect(status).not.toBe(0);
@@ -456,8 +813,8 @@ describe("baseline refusal — a wrong pre-existing SHA is refused, not silently
     expect((capabilityJson?.blockers as string[]).join(",")).toContain("baseline_refused");
   });
 
-  it("`current main HEAD` alone (a correct EXPECTED_SHA) is NOT sufficient — the baseline check is what actually verifies what is running", () => {
-    // EXPECTED_SHA is valid and matches the workflow's own freshness gate,
+  it("`current main HEAD` alone (a correct REQUESTED_SHA) is NOT sufficient — the baseline check is what actually verifies what is running", () => {
+    // REQUESTED_SHA is valid and matches the workflow's own freshness gate,
     // but the running WORKER happens to be on the wrong revision. The
     // baseline check must catch this even though "the SHA is current main"
     // was already true.
@@ -526,7 +883,7 @@ describe("docker compose pull/up failures — explicit propagation, not swallowe
     const original = readEnvFile();
     const { status, capabilityJson } = runRemoteDirect({
       phase: "capability_open",
-      fakeEnv: { FAKE_PULL_EXIT: "1" },
+      fakeEnv: { FAKE_PULL_EXIT: "1", FAKE_CACHE_MISSING: "1" },
     });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("fail");
@@ -635,6 +992,58 @@ describe("env-writer failure modes — real filesystem faults, not simulated by 
 });
 
 describe("rollback failure — the restore's OWN failure is never swallowed into a false recovery", () => {
+  it.each(["0", "1"])("rolls back exact-SHA OPEN when the final preflight stalls (parent exits=%s)", (parentExits) => {
+    const dockerCallLog = join(dir, "post-open-preflight-timeout.log");
+    const startedAt = Date.now();
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_open",
+      timeoutMs: 15_000,
+      fakeEnv: {
+        CAPABILITY_PREFLIGHT_MAX_TIME_SECONDS: "1",
+        FAKE_PREFLIGHT_HANG_AFTER_UP: "1",
+        FAKE_PREFLIGHT_PARENT_EXITS: parentExits,
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson).toMatchObject({
+      result: "fail",
+      rolledBack: true,
+      rollbackVerified: true,
+      effectiveSha: VALID_SHA,
+      after: { web: { envValue: "false" }, worker: { envValue: "false" } },
+    });
+    expect(capabilityJson?.blockers).toContain("post_write_failure");
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+    const recreates = readFileSync(dockerCallLog, "utf8").split("\n").filter((line) => line.startsWith("compose up "));
+    expect(recreates).toHaveLength(2);
+    expect(recreates.every((line) => line.includes(`APP_IMAGE_TAG=${VALID_SHA}|APP_BUILD_ID=${VALID_SHA}`))).toBe(true);
+    expect(recreates[0]).toContain("FILE_GATE=true");
+    expect(recreates[1]).toContain("FILE_GATE=false");
+    expect(existsSync(join(remoteAppDir, ".hung-descendant-survived"))).toBe(false);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_000);
+    // Includes two complete immutable-image/runtime verification sequences.
+    // The one-second watchdog itself is still checked by the descendant's
+    // two-second survival marker, independently of process-startup overhead.
+    expect(Date.now() - startedAt).toBeLessThan(15_000);
+  }, 20_000);
+
+  it("rolls back after a genuinely stalled image pull, without changing the proven release", () => {
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_open",
+      timeoutMs: 6_000,
+      fakeEnv: {
+        CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS: "1",
+        FAKE_PULL_HANG_ONCE: "1",
+        FAKE_CACHE_MISSING: "1",
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson).toMatchObject({ result: "fail", rolledBack: true, rollbackVerified: true, effectiveSha: VALID_SHA });
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+    expect(existsSync(join(remoteAppDir, ".hung-descendant-survived"))).toBe(false);
+  }, 8_000);
+
   it("when the recreate-verify step fails AND the subsequent forced-close recreate ALSO fails, rollbackVerified is false and the blocker names it", () => {
     const { status, capabilityJson } = runRemoteDirect({
       phase: "capability_open",
@@ -673,7 +1082,7 @@ describe("rollback failure — the restore's OWN failure is never swallowed into
         encoding: "utf8",
         env: {
           PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
-          EXPECTED_SHA: VALID_SHA,
+          REQUESTED_SHA: VALID_SHA,
           PHASE: "capability_open",
           REMOTE_APP_DIR: remoteAppDir,
           FAKE_WORKER_ENV: "false", // forces the first recreate-verify to fail
@@ -698,6 +1107,231 @@ describe("rollback failure — the restore's OWN failure is never swallowed into
 });
 
 describe("capability_close — fail-safe under DB/preflight failure, never gated on it", () => {
+  it("keeps both services running when independent process readback is already closed despite unprovable release identity", () => {
+    const dockerCallLog = join(dir, "already-closed.log");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      fakeEnv: { FAKE_WORKER_REVISION: "b".repeat(40), FAKE_DOCKER_CALL_LOG: dockerCallLog },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson).toMatchObject({
+      result: "fail",
+      fileState: { envValue: "false", lineCount: 1 },
+      emergencyStop: { attempted: false, verified: true, reason: "both_runtime_gates_closed" },
+    });
+    expect(capabilityJson?.blockers).toContain("runtime_gates_closed_release_unverified");
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up|stop) /m);
+  });
+
+  it("closes from matching immutable cached images when no registry credential is available", () => {
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const dockerCallLog = join(dir, "cache-only-close.log");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      fakeEnv: { CAP_REGISTRY_TOKEN: "", GHCR_USER: "", FAKE_DOCKER_CALL_LOG: dockerCallLog },
+    });
+    expect(status).toBe(0);
+    expect(capabilityJson).toMatchObject({ result: "pass", effectiveSha: VALID_SHA });
+    const calls = readFileSync(dockerCallLog, "utf8");
+    expect(calls).toContain("image inspect --format");
+    expect(calls).toContain("compose up -d --pull never --force-recreate web worker");
+    expect(calls).not.toMatch(/^compose pull|^--config /m);
+  });
+
+  it("does not accept a cached tag whose immutable image differs from the running release", () => {
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const dockerCallLog = join(dir, "wrong-cache-close.log");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      fakeEnv: { CAP_REGISTRY_TOKEN: "", FAKE_CACHE_WRONG_ID: "1", FAKE_DOCKER_CALL_LOG: dockerCallLog },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson).toMatchObject({ result: "fail", emergencyStop: { attempted: true, verified: true } });
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose up /m);
+  });
+
+  it.each(["0", "78"])("carries private GHCR credentials only on stdin and removes ephemeral auth after login exit %s", (loginExit) => {
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const dockerCallLog = join(dir, "registry-close.log");
+    const { phaseStatus, outFileContent } = runPhaseStep({
+      capability: "closed",
+      fakeEnv: { FAKE_CACHE_MISSING: "1", FAKE_LOGIN_EXIT: loginExit, FAKE_DOCKER_CALL_LOG: dockerCallLog },
+    });
+    expect(phaseStatus === 0).toBe(loginExit === "0");
+    const configPath = readFileSync(join(remoteAppDir, ".registry-config-path"), "utf8");
+    expect(existsSync(configPath)).toBe(false);
+    expect(readFileSync(join(remoteAppDir, ".registry-token-env"), "utf8")).toBe("unset");
+    expect(outFileContent).not.toContain("fixture-registry-token");
+    const calls = readFileSync(dockerCallLog, "utf8");
+    expect(calls).not.toContain("fixture-registry-token");
+    expect(calls.trim().split("\n").every((line) => line.endsWith("FILE_GATE=false"))).toBe(true);
+    if (loginExit !== "0") expect(calls).not.toMatch(/^compose up /m);
+  });
+
+  it.each([
+    { failure: "before-rename", expectedValue: "true", expectedCount: 1 },
+    { failure: "after-rename", expectedValue: "false", expectedCount: 1 },
+    { failure: "duplicate-after-rename", expectedValue: null, expectedCount: 2 },
+  ])("reports independently observed file evidence and stops both writers on $failure atomic failure", ({ failure, expectedValue, expectedCount }) => {
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\nOTHER_KEY=kept\n");
+    chmodSync(envFile, 0o644);
+    const dockerCallLog = join(dir, "atomic-failure-stop.log");
+    if (failure === "before-rename") {
+      writeExecutable(join(fakeBinDir, "cp"), "#!/bin/sh\nexit 1\n");
+    } else {
+      writeExecutable(join(fakeBinDir, "mv"), failure === "after-rename"
+        ? '#!/usr/bin/env bash\n/bin/mv "$@" || exit $?\n/bin/chmod 600 "${@: -1}"\n'
+        : '#!/usr/bin/env bash\n/bin/mv "$@" || exit $?\nprintf "META_AUTOMATION_LIVE_WRITES=true\\n" >> "${@: -1}"\n');
+    }
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      fakeEnv: { FAKE_DOCKER_CALL_LOG: dockerCallLog },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson).toMatchObject({
+      result: "fail",
+      fileState: { envValue: expectedValue, lineCount: expectedCount },
+      before: null,
+      after: null,
+      effectiveSha: null,
+      emergencyStop: { attempted: true, verified: true, webStoppedOrAbsent: true, workerStoppedOrAbsent: true },
+    });
+    expect(capabilityJson?.blockers).toContain("initial_write_failed");
+    const calls = readFileSync(dockerCallLog, "utf8");
+    expect(calls).toMatch(/^compose stop --timeout 90 web worker\|/m);
+    expect(calls).not.toMatch(/^compose (pull|up) /m);
+  });
+
+  it.each(["command-fails", "command-lies"])("never claims stopped when emergency stop %s and readback still finds live writers", (failure) => {
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      fakeEnv: {
+        FAKE_WORKER_REVISION: "b".repeat(40),
+        ...(failure === "command-fails" ? { FAKE_STOP_EXIT: "1" } : { FAKE_STOP_IGNORED: "1" }),
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson).toMatchObject({
+      result: "fail",
+      after: null,
+      fileState: { envValue: "false", lineCount: 1 },
+      emergencyStop: { attempted: true, commandSucceeded: failure === "command-lies", verified: false, webStoppedOrAbsent: false, workerStoppedOrAbsent: false },
+    });
+    expect(capabilityJson?.blockers).toContain("runtime_emergency_stop_unverified");
+  });
+
+  it.each([
+    ["compose ps", "0"], ["inspect", "0"], ["compose exec", "0"],
+    ["compose ps", "1"], ["inspect", "1"], ["compose exec", "1"],
+  ])("persists false before stalled %s (parent exits=%s) and bounds inherited pipes too", (operation, parentExits) => {
+    const dockerCallLog = join(dir, "stalled-docker-calls.log");
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\nOTHER_KEY=kept\n");
+    const startedAt = Date.now();
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      timeoutMs: 10_000,
+      fakeEnv: {
+        FAKE_DOCKER_HANG: operation,
+        FAKE_DOCKER_PARENT_EXITS: parentExits,
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+        CAPABILITY_DOCKER_READ_MAX_TIME_SECONDS: "1",
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson?.result).toBe("fail");
+    expect(readEnvFile()).toBe("OTHER_KEY=kept\nMETA_AUTOMATION_LIVE_WRITES=false\n");
+    const calls = readFileSync(dockerCallLog, "utf8").trim().split("\n");
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((call) => call.endsWith("|FILE_GATE=false"))).toBe(true);
+    expect(existsSync(join(remoteAppDir, ".hung-descendant-survived"))).toBe(false);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(2_800);
+    expect(Date.now() - startedAt).toBeLessThan(9_500);
+    if (operation !== "compose exec") {
+      expect(capabilityJson?.effectiveSha).toBeNull();
+      expect(calls.join("\n")).not.toMatch(/^compose (pull|up) /m);
+      expect(capabilityJson?.blockers).toContain("runtime_emergency_stop_unverified");
+      expect(capabilityJson?.emergencyStop).toMatchObject({ attempted: true, verified: false });
+    } else {
+      expect(capabilityJson?.blockers).toContain("close_verify_failed");
+    }
+  }, 12_000);
+
+  it("bounds a peer that accepts every build-info connection but never responds after persisting file-level false", async () => {
+    const server = await startBuildInfoServer("hang");
+    const dockerCallLog = join(dir, "hanging-build-info-docker-calls.log");
+    writeExecutable(
+      join(fakeBinDir, "curl"),
+      '#!/usr/bin/env bash\nexec "${REAL_CURL_PATH:?}" "$@"\n',
+    );
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+
+    try {
+      const startedAt = Date.now();
+      const { status, capabilityJson } = runRemoteDirect({
+        phase: "capability_close",
+        timeoutMs: 8_000,
+        fakeEnv: {
+          REAL_CURL_PATH,
+          CAPABILITY_BUILD_INFO_URL: `http://127.0.0.1:${server.port}/api/build-info`,
+          CAPABILITY_BUILD_INFO_MAX_TIME_SECONDS: "1",
+          FAKE_DOCKER_CALL_LOG: dockerCallLog,
+        },
+      });
+      const elapsedMs = Date.now() - startedAt;
+
+      expect(status).not.toBe(0);
+      expect(capabilityJson?.result).toBe("fail");
+      expect(capabilityJson?.effectiveSha).toBeNull();
+      expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
+        "running_release_identity_unverified",
+        "runtime_emergency_stopped_degraded",
+      ]));
+      expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+      expect(readFileSync(server.connectionLog, "utf8").trim().split("\n")).toHaveLength(3);
+      expect(elapsedMs).toBeGreaterThanOrEqual(4_500);
+      expect(elapsedMs).toBeLessThan(7_500);
+      expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
+      expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+      expect(readFileSync(dockerCallLog, "utf8").trim().split("\n").every((call) => call.endsWith("|FILE_GATE=false"))).toBe(true);
+    } finally {
+      await server.stop();
+    }
+  }, 10_000);
+
+  it("keeps normal build-info identity verification and close/recreate behavior", async () => {
+    const server = await startBuildInfoServer("respond");
+    writeExecutable(
+      join(fakeBinDir, "curl"),
+      '#!/usr/bin/env bash\nexec "${REAL_CURL_PATH:?}" "$@"\n',
+    );
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+
+    try {
+      const { status, capabilityJson } = runRemoteDirect({
+        phase: "capability_close",
+        timeoutMs: 4_000,
+        fakeEnv: {
+          REAL_CURL_PATH,
+          CAPABILITY_BUILD_INFO_URL: `http://127.0.0.1:${server.port}/api/build-info`,
+          CAPABILITY_BUILD_INFO_MAX_TIME_SECONDS: "1",
+        },
+      });
+
+      expect(status).toBe(0);
+      expect(capabilityJson).toMatchObject({
+        result: "pass",
+        effectiveSha: VALID_SHA,
+        before: { web: { envValue: "true" }, worker: { envValue: "true" } },
+        after: { web: { envValue: "false" }, worker: { envValue: "false" } },
+      });
+      expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+      expect(readFileSync(server.connectionLog, "utf8").trim().split("\n")).toHaveLength(2);
+    } finally {
+      await server.stop();
+    }
+  }, 6_000);
+
   it("capability_close succeeds even when the DB-backed preflight would refuse — close is never gated on it", () => {
     writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
     const { status, capabilityJson } = runRemoteDirect({
@@ -735,9 +1369,132 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
     // happens (the preflight), which the FAKE_PREFLIGHT_EXIT case above
     // demonstrates is never invoked.
   });
+
+  it("refuses a split web/worker release before recreate, persists file-level false, and never selects either revision", () => {
+    const dockerCallLog = join(dir, "split-release-docker-calls.log");
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      requestedSha: "b".repeat(40),
+      fakeEnv: {
+        FAKE_WEB_REVISION: VALID_SHA,
+        FAKE_WORKER_REVISION: "c".repeat(40),
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson).toMatchObject({
+      result: "fail",
+      requestedSha: "b".repeat(40),
+      effectiveSha: null,
+    });
+    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
+      "running_release_identity_unverified",
+      "runtime_emergency_stopped_degraded",
+    ]));
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+  });
+
+  it("refuses an unreadable running container identity and does no pull/up", () => {
+    const dockerCallLog = join(dir, "unreadable-release-docker-calls.log");
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      requestedSha: "b".repeat(40),
+      fakeEnv: {
+        FAKE_WEB_MISSING: "1",
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson?.result).toBe("fail");
+    expect(capabilityJson?.effectiveSha).toBeNull();
+    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
+      "running_release_identity_unverified",
+      "runtime_emergency_stopped_degraded",
+    ]));
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+  });
+
+  it("refuses matching revision labels that are not full lowercase SHAs", () => {
+    const dockerCallLog = join(dir, "malformed-release-docker-calls.log");
+    const malformedRevision = "A".repeat(40);
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      requestedSha: "b".repeat(40),
+      fakeEnv: {
+        FAKE_WEB_REVISION: malformedRevision,
+        FAKE_WORKER_REVISION: malformedRevision,
+        FAKE_BUILD_ID: malformedRevision,
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson?.effectiveSha).toBeNull();
+    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
+      "running_release_identity_unverified",
+      "runtime_emergency_stopped_degraded",
+    ]));
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+  });
+
+  it("requires current web build-info to agree with the shared image revision before recreate", () => {
+    const dockerCallLog = join(dir, "build-info-mismatch-docker-calls.log");
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_close",
+      requestedSha: "b".repeat(40),
+      fakeEnv: {
+        FAKE_WEB_REVISION: VALID_SHA,
+        FAKE_WORKER_REVISION: VALID_SHA,
+        FAKE_BUILD_ID: "c".repeat(40),
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
+    });
+    expect(status).not.toBe(0);
+    expect(capabilityJson?.effectiveSha).toBeNull();
+    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
+      "running_release_identity_unverified",
+      "runtime_emergency_stopped_degraded",
+    ]));
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+  });
 });
 
 describe("SSH failure — a dead host is caught by the current phase-status capture", () => {
+  it.each([false, true])("bounds a stuck close SSH process (parent exits=%s) and reports unverified failure", (parentExits) => {
+    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+    const startedAt = Date.now();
+    const phase = runPhaseStep({
+      capability: "closed",
+      fakeEnv: { CAPABILITY_CLOSE_SSH_MAX_TIME_SECONDS: "1" },
+      sshScript: `#!/usr/bin/env bash\ntrap "" TERM\n(trap "" TERM; sleep 30) &\n${parentExits ? "exit 0" : "wait"}\n`,
+    });
+    expect(phase.phaseStatus).toBe(124);
+    expect(phase.outFileContent).not.toContain("CAPABILITY_JSON: ");
+    expect(Date.now() - startedAt).toBeLessThan(3_000);
+    // SSH never delivered the close script: neither file nor runtime closure
+    // is claimed, and the workflow must remain red through its real artifact.
+    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=true");
+    const { artifact, artifactsDir } = runBuildArtifactStep({
+      phaseStatus: phase.phaseStatus,
+      outFileContent: phase.outFileContent,
+      capability: "closed",
+    });
+    expect((artifact.summary as Record<string, unknown>).result).toBe("fail");
+    expect(() => runFailGateStep(artifactsDir)).toThrow();
+    rmSync(artifactsDir, { recursive: true, force: true });
+  }, 5_000);
+
   it("a nonzero ssh exit is correctly reported as a nonzero phase_status", () => {
     const phase = runPhaseStep({ capability: "open", sshScript: FAKE_SSH_ALWAYS_FAILS_SCRIPT });
     expect(phase.phaseStatus).not.toBe(0);
@@ -860,7 +1617,7 @@ describe("FINDING 1 — a failure discovered only AFTER the rename must still ro
         encoding: "utf8",
         env: {
           PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
-          EXPECTED_SHA: VALID_SHA,
+          REQUESTED_SHA: VALID_SHA,
           PHASE: "capability_open",
           REMOTE_APP_DIR: remoteAppDir,
           [STAT_COUNTER_ENV]: counterFile,
@@ -893,7 +1650,7 @@ describe("FINDING 1 — a failure discovered only AFTER the rename must still ro
         encoding: "utf8",
         env: {
           PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
-          EXPECTED_SHA: VALID_SHA,
+          REQUESTED_SHA: VALID_SHA,
           PHASE: "capability_open",
           REMOTE_APP_DIR: remoteAppDir,
           FAKE_WORKER_ENV_AFTER_UP: "false", // forces the FIRST recreate-verify to fail, triggering rollback
@@ -1009,7 +1766,7 @@ exec bash -c "$last"
       env: {
         PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
         HOME: process.env.HOME ?? dir,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
         HETZNER_PORT: "22",
         HETZNER_USER: "deployer",
         CAPABILITY: "open",
@@ -1041,7 +1798,7 @@ exec bash -c "$last"
       env: {
         PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
         HOME: process.env.HOME ?? dir,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
         HETZNER_PORT: "22",
         HETZNER_USER: "deployer",
         CAPABILITY: "open",
@@ -1105,7 +1862,8 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
             PATH: process.env.PATH ?? "",
             PHASE_STATUS: "0",
             OUT_FILE: outFile,
-            EXPECTED_SHA: VALID_SHA,
+            REQUESTED_SHA: VALID_SHA,
+            WORKFLOW_SCRIPT_SHA: VALID_SHA,
             CAPABILITY: "open",
           },
         });
@@ -1137,7 +1895,8 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
         PATH: process.env.PATH ?? "",
         PHASE_STATUS: "1",
         OUT_FILE: outFile,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
+        WORKFLOW_SCRIPT_SHA: VALID_SHA,
         CAPABILITY: "open",
       },
     });
@@ -1152,7 +1911,14 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
   it("a healthy extraction (grep=0, tail=0, sed=0) produces the real parsed summary, not any failure blocker", () => {
     const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-extraction-healthy-"));
     const outFile = join(artifactsDir, "out.txt");
-    writeFileSync(outFile, 'some log line\nCAPABILITY_JSON: {"result":"pass","blockers":[]}\n');
+    writeFileSync(
+      outFile,
+      `some log line\nCAPABILITY_JSON: ${JSON.stringify({
+        result: "pass",
+        blockers: [],
+        expectedSha: VALID_SHA,
+      })}\n`,
+    );
     execFileSync("bash", ["-c", BUILD_ARTIFACT_SCRIPT], {
       cwd: artifactsDir,
       encoding: "utf8",
@@ -1160,7 +1926,8 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
         PATH: process.env.PATH ?? "",
         PHASE_STATUS: "0",
         OUT_FILE: outFile,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
+        WORKFLOW_SCRIPT_SHA: VALID_SHA,
         CAPABILITY: "open",
       },
     });
@@ -1170,6 +1937,7 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
     const summary = artifact.summary as Record<string, unknown>;
     expect(summary.result).toBe("pass");
     expect(summary.blockers).toEqual([]);
+    expect(summary).toMatchObject({ requestedSha: VALID_SHA, effectiveSha: VALID_SHA });
   });
 
   it("a real fake tail that writes the full valid line and THEN exits 1 is caught as capability_json_extraction_failed — writing valid-looking output does not excuse a nonzero exit", () => {
@@ -1192,7 +1960,8 @@ exit "\${FAKE_TAIL_EXIT:-0}"
         PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         PHASE_STATUS: "0",
         OUT_FILE: outFile,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
+        WORKFLOW_SCRIPT_SHA: VALID_SHA,
         CAPABILITY: "open",
         FAKE_TAIL_EXIT: "1",
       },
@@ -1226,7 +1995,8 @@ exit "\${FAKE_SED_EXIT:-0}"
         PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         PHASE_STATUS: "0",
         OUT_FILE: outFile,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
+        WORKFLOW_SCRIPT_SHA: VALID_SHA,
         CAPABILITY: "open",
         FAKE_SED_EXIT: "1",
       },
@@ -1251,7 +2021,8 @@ exit "\${FAKE_SED_EXIT:-0}"
         PATH: process.env.PATH ?? "",
         PHASE_STATUS: "0",
         OUT_FILE: outFile,
-        EXPECTED_SHA: VALID_SHA,
+        REQUESTED_SHA: VALID_SHA,
+        WORKFLOW_SCRIPT_SHA: VALID_SHA,
         CAPABILITY: "open",
       },
     });

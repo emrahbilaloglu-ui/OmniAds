@@ -131,9 +131,36 @@ export async function readMetaDecisionActionOutcomeLogs(input: {
   `;
 }
 
+/**
+ * Historical outcome evidence for one account, up to one deterministic cutoff.
+ *
+ * ── ROUND 9 ITEM 6 ─────────────────────────────────────────────────────────
+ * `providerAccountId` was OPTIONAL and the filter was written as "null matches
+ * everything", so a caller that forgot it pooled every account's outcome
+ * history into one summary — and those summaries raise confidence on the
+ * recommendations an operator acts on. There was no temporal filter at all, so
+ * a request for a window ending in March was answered with outcomes recorded in
+ * September: the served evidence for a historical range described the future.
+ *
+ * Both are now REQUIRED. `occurredAtCutoff` is compared against `occurred_at`,
+ * which is the outcome's own EFFECTIVE time (the writer sets it explicitly and
+ * falls back to `now()`); `created_at` — when the row was inserted — is
+ * deliberately not used, because when we learned something is not when it
+ * happened.
+ */
 export async function readMetaDecisionActionOutcomeLogsForRecommendationTypes(input: {
   businessId: string;
-  providerAccountId?: string | null;
+  providerAccountId: string;
+  /**
+   * The absolute instant the served provider-local day ENDS, exclusive.
+   *
+   * ROUND 10 ITEM 4. This was a `YYYY-MM-DD` compared as `< (date + 1)`, and
+   * PostgreSQL casts that date to `timestamptz` with the SESSION timezone — so
+   * the window boundary was the connection's zone, not the advertiser's. A
+   * `timestamptz` bound compared to a `timestamptz` column has no session
+   * dependency. @see lib/meta/provider-local-day.ts
+   */
+  occurredBefore: Date;
   recTypes: string[];
   limit?: number;
 }) {
@@ -141,6 +168,17 @@ export async function readMetaDecisionActionOutcomeLogsForRecommendationTypes(in
     new Set(input.recTypes.map((value) => value.trim()).filter(Boolean)),
   );
   if (recTypes.length === 0) return [];
+  /*
+    FAIL CLOSED ON AN UNUSABLE SCOPE. An empty account or a malformed cutoff
+    used to widen the query; here they answer "no history", which is the honest
+    reading of a scope this call cannot establish.
+  */
+  const providerAccountId = input.providerAccountId?.trim() ?? "";
+  if (!providerAccountId) return [];
+  const occurredBefore = input.occurredBefore;
+  if (!(occurredBefore instanceof Date) || !Number.isFinite(occurredBefore.getTime())) {
+    return [];
+  }
 
   await assertMetaDecisionOutcomeTablesReady("meta_decision_outcome_storage");
   const sql = getDb();
@@ -176,7 +214,12 @@ export async function readMetaDecisionActionOutcomeLogsForRecommendationTypes(in
       outcome_log.occurred_at::text AS occurred_at
     FROM meta_decision_action_outcome_logs outcome_log
     WHERE outcome_log.business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR outcome_log.provider_account_id = ${input.providerAccountId ?? null})
+      AND outcome_log.provider_account_id = ${providerAccountId}
+      -- The outcome own effective time, strictly before the absolute instant
+      -- the served PROVIDER-LOCAL day ends. A timestamptz bound, so the
+      -- boundary cannot move with the database session timezone. Never
+      -- created_at: insertion time is when we learned it, not when it happened.
+      AND outcome_log.occurred_at < ${occurredBefore.toISOString()}::timestamptz
       AND outcome_log.action_type = 'outcome'
       AND outcome_log.rec_type = ANY(${recTypes}::text[])
     ORDER BY outcome_log.occurred_at DESC

@@ -932,9 +932,10 @@ describe("Dashboard v2 exact Automation presentation", () => {
       'data-reason="provider_account_scope_unresolved"',
     );
     expect(unresolved).toContain(
-      "Choose a Meta ad account to see its automation status.",
+      "Choose a Meta ad account in the top bar to see its automation status.",
     );
     expect(unresolved).toContain('data-control="retry-read"');
+    expect(unresolved).not.toContain('data-control="account-picker"');
     expect(noneAssigned).toContain(
       "No Meta ad account is assigned to this business",
     );
@@ -957,9 +958,10 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(mobile.match(/data-field="read-error"/g)).toHaveLength(1);
     expect(mobile).toContain('data-reason="provider_account_scope_unresolved"');
     expect(mobile).toContain(
-      "Choose a Meta ad account to see its automation status.",
+      "Choose a Meta ad account in the top bar to see its automation status.",
     );
     expect(mobile).toContain('data-control="retry-read"');
+    expect(mobile).not.toContain('data-control="account-picker"');
     expect(mobile).not.toContain('data-field="action-modes-unavailable"');
     expect(mobile).not.toContain('data-testid="mobile-stop-control"');
     expect(mobile).not.toContain("Pending approvals");
@@ -1108,7 +1110,7 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(html).not.toContain("reconciliation required");
     expect(confirmationEmptyEl(html)).toContain('data-proven-empty="true"');
     expect(html).toContain('data-field="confirmation-count">0<');
-    // The approved exception: no Retry on a state that is not a failure.
+    // Recovery stays absent on a state that is not a failure.
     expect(html).not.toContain('data-control="retry-queue"');
   });
 
@@ -1776,9 +1778,10 @@ describe("Dashboard v2 exact Automation presentation", () => {
     expect(narrowCss).not.toContain(
       '.ledgerCard[data-ledger-state="ready"] .ledgerTable',
     );
-    expect(narrowCss).toMatch(
-      /\.mobileReadRecovery \.accountPicker[\s\S]*?width: 100%/,
-    );
+    // Canonical renders receive no legacy selector callback, so the picker is
+    // absent from the actual mobile pane even though the shared stylesheet
+    // carries the fallback mount's styles.
+    expect(mobile).not.toContain('data-control="account-picker"');
     expect(css).toContain("@media (min-width: 1024px)");
   });
 });

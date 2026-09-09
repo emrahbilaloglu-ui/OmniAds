@@ -1,9 +1,45 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
-vi.mock("@/lib/business-commercial", () => ({
-  getBusinessCommercialTruthSnapshot: vi.fn(),
+/*
+  The account/cutoff-scoped Meta-attributed purchase sample.
+
+  ROUND 6 AUDIT ITEM 2: a rule firing on `target_roas` mints a purchase-BUDGET
+  proposal, so the evaluator now refuses to run at all unless this account has
+  a READY sample for the day being evaluated. A ready default keeps the cases
+  below measuring what they were written to measure; the two new cases at the
+  end drive it to missing and thin.
+*/
+vi.mock("@/lib/creative-decision-engine/meta-aov-calculator", () => ({
+  computeMetaAttributedAov: vi.fn(async () => ({
+    aovMean: 180,
+    purchaseCount: 60,
+    totalRevenue: 10_800,
+  })),
 }));
+/*
+  ── ROUND 8 ITEM 1: THE TARGET PACK IS READ AS OF THE CUTOFF ────────────────
+  The evaluator no longer calls `getBusinessCommercialTruthSnapshot`, which is
+  the CURRENT workspace pack. It calls `readMetaCommercialTargets(businessId,
+  {asOf: cutoff})`, which reads `business_target_pack_history` through
+  `getBusinessTargetPackHistoryAsOf`. So that is what these cases drive.
+
+  `resolveBusinessTargetPackFreshness` is the REAL implementation, not a stub:
+  freshness is what `hasMetaHardActionAnchor` gates purchase-value authority on,
+  and stubbing it would let a pack with no provenance authorize a proposal —
+  which is the exact defect this item closes. A pack therefore has to carry a
+  real `updatedAt` at or before the cutoff to be usable, the same as in
+  production.
+*/
+vi.mock("@/lib/business-commercial", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/business-commercial")>();
+  return {
+    getBusinessCommercialTruthSnapshot: vi.fn(),
+    getBusinessTargetPackHistoryAsOf: vi.fn(async () => null),
+    resolveBusinessTargetPackFreshness: actual.resolveBusinessTargetPackFreshness,
+  };
+});
 vi.mock("@/lib/meta/automation-rules-store", async () => {
   const actual = await vi.importActual<
     typeof import("@/lib/meta/automation-rules-store")
@@ -37,6 +73,9 @@ const {
   evaluateBusinessAutomationRules,
   runMetaAutomationRuleEvaluationIfDue,
 } = await import("@/lib/meta/automation-rules-evaluation");
+const aovCalculator = await import(
+  "@/lib/creative-decision-engine/meta-aov-calculator"
+);
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 
@@ -58,8 +97,22 @@ const RULE = {
   updatedAt: null,
 };
 
-function snapshot(targetPack: unknown) {
-  return { businessId: BUSINESS_ID, targetPack } as never;
+/**
+ * A target pack as `business_target_pack_history` returns it AS OF the cutoff.
+ *
+ * `updatedAt` defaults to a real instant six days before the warehouse day the
+ * cases use, so `resolveBusinessTargetPackFreshness` answers `fresh` and the
+ * pack can anchor a hard action. Passing `updatedAt: null` is how a case drives
+ * an unprovenanced pack.
+ */
+const PACK_UPDATED_AT = "2026-08-10T00:00:00.000Z";
+
+function historicalPack(targetPack: unknown) {
+  if (targetPack === null || targetPack === undefined) return null as never;
+  return {
+    updatedAt: PACK_UPDATED_AT,
+    ...(targetPack as Record<string, unknown>),
+  } as never;
 }
 
 function warehouseSql(rows: unknown[], maxDate: string | null = "2026-08-16") {
@@ -80,6 +133,11 @@ beforeEach(() => {
   ] as never);
   vi.mocked(assignments.fetchAssignedAccountIds).mockResolvedValue(["act_1"]);
   vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
+  vi.mocked(aovCalculator.computeMetaAttributedAov).mockResolvedValue({
+    aovMean: 180,
+    purchaseCount: 60,
+    totalRevenue: 10_800,
+  } as never);
 });
 
 /** 06:00 UTC — the slot the job runs in. */
@@ -96,9 +154,136 @@ const NOT_DUE = new Date("2026-08-18T05:12:00.000Z");
 const LATE_TICK = new Date("2026-08-18T09:12:00.000Z");
 
 describe("evaluateBusinessAutomationRules", () => {
+  /*
+    ── ROUND 6 AUDIT ITEM 2: THE PROPOSAL PATH IS A PURCHASE-BUDGET PATH ────
+    A rule that fires mints a live proposal, so the same commercial contract
+    applies here as on every other purchase-budget surface. Two doors were open:
+
+      - `anchorsFromTargetPack` exposed `target_cpa` / `break_even_cpa`, so an
+        operator-authored CPA rule could evaluate and mint a proposal on an
+        account whose only authoritative money-per-purchase is READY Meta AOV
+        over its Target ROAS.
+      - a ROAS rule could fire with no Meta-attributed sample behind the ratio
+        at all.
+
+    Both are closed here, and both fail closed by NAME rather than silently.
+  */
+  const roasGovernedPack = () =>
+    historicalPack({
+      targetRoas: 3.8,
+      breakEvenRoas: 2.5,
+      targetCpa: 42,
+      breakEvenCpa: 55,
+    });
+
+  const threeLosingDays = () =>
+    warehouseSql(
+      [
+        { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-16", roas: 1.9, cpa: 60, spend: 100, revenue: 190 },
+        { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-15", roas: 1.8, cpa: 61, spend: 100, revenue: 180 },
+        { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-14", roas: 1.7, cpa: 62, spend: 100, revenue: 170 },
+      ],
+      "2026-08-16",
+    ) as never;
+
+  it("projects the CPA anchors to null while a Target ROAS governs", async () => {
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      roasGovernedPack(),
+    );
+    vi.mocked(db.getDb).mockReturnValue(threeLosingDays());
+
+    const report = await evaluateBusinessAutomationRules({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      rules: [RULE],
+    });
+
+    // The pack HAS both CPAs typed; the evaluator may not see them.
+    expect(report.anchors).toMatchObject({
+      target_roas: 3.8,
+      break_even_roas: 2.5,
+      target_cpa: null,
+      break_even_cpa: null,
+    });
+  });
+
+  it("keeps the CPA anchors when no Target ROAS governs", async () => {
+    // The compatibility control: with no ratio to divide, the typed CPA IS the
+    // anchor and a CPA rule is legitimately evaluable.
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      historicalPack({
+        targetRoas: null,
+        breakEvenRoas: 2.5,
+        targetCpa: 42,
+        breakEvenCpa: 55,
+      }),
+    );
+    vi.mocked(db.getDb).mockReturnValue(threeLosingDays());
+
+    const report = await evaluateBusinessAutomationRules({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      rules: [RULE],
+    });
+
+    expect(report.anchors).toMatchObject({ target_cpa: 42, break_even_cpa: 55 });
+  });
+
+  it.each([
+    ["a missing", null],
+    ["a thin", { aovMean: 180, purchaseCount: 9, totalRevenue: 1620 }],
+  ])("mints NO proposal on %s Meta sample while a Target ROAS governs", async (_case, sample) => {
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      roasGovernedPack(),
+    );
+    vi.mocked(db.getDb).mockReturnValue(threeLosingDays());
+    vi.mocked(aovCalculator.computeMetaAttributedAov).mockResolvedValue(
+      sample as never,
+    );
+
+    const report = await evaluateBusinessAutomationRules({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      rules: [RULE],
+    });
+
+    expect(report.skippedReason).toBe("purchase_value_authority_missing");
+    expect(report.evaluation).toBeNull();
+    expect(report.recorded).toEqual([]);
+    expect(store.recordRuleFirings).not.toHaveBeenCalled();
+  });
+
+  it("reads the sample for the evaluated ACCOUNT and DAY, and fails closed when it cannot", async () => {
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      roasGovernedPack(),
+    );
+    vi.mocked(db.getDb).mockReturnValue(threeLosingDays());
+    vi.mocked(aovCalculator.computeMetaAttributedAov).mockRejectedValue(
+      new Error("sample read failed"),
+    );
+
+    const report = await evaluateBusinessAutomationRules({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      asOfDate: "2026-08-16",
+      rules: [RULE],
+    });
+
+    expect(aovCalculator.computeMetaAttributedAov).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_1",
+        asOf: "2026-08-16",
+      }),
+    );
+    // An unreadable sample is not the same fact as a ready one.
+    expect(report.skippedReason).toBe("purchase_value_authority_missing");
+    expect(report.evaluation).toBeNull();
+  });
+
   it("anchors the evaluation to the newest warehouse day rather than the wall clock", async () => {
-    vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue(
-      snapshot({
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      historicalPack({
         targetRoas: 3.8,
         breakEvenRoas: 2.5,
         targetCpa: null,
@@ -133,8 +318,8 @@ describe("evaluateBusinessAutomationRules", () => {
   });
 
   it("refuses to evaluate at all when the Commercial Truth pack supplies no anchor", async () => {
-    vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue(
-      snapshot(null),
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      historicalPack(null),
     );
     const sql = warehouseSql([]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
@@ -148,13 +333,29 @@ describe("evaluateBusinessAutomationRules", () => {
     expect(report.skippedReason).toBe("no_commercial_anchors");
     expect(report.evaluation).toBeNull();
     expect(store.recordRuleFirings).not.toHaveBeenCalled();
-    // It does not even read the warehouse without something to compare against.
-    expect(sql).not.toHaveBeenCalled();
+    /*
+      It reads the CUTOFF and stops.
+
+      This used to assert the warehouse was not touched at all, which was true
+      only because the anchors came from the current workspace pack and could
+      therefore be read before any day was chosen. The cutoff now comes first —
+      a point-in-time question cannot be asked before its own cutoff exists —
+      so one `MAX(date)` read is expected and correct. What must NOT happen is
+      the expensive part: no entity window is pulled once the pack in force on
+      that day turns out to hold no anchor.
+    */
+    const queries = sql.mock.calls.map((call) =>
+      Array.from(call[0] as TemplateStringsArray).join("?"),
+    );
+    expect(queries.filter((query) => query.includes("MAX(date)"))).toHaveLength(1);
+    expect(
+      queries.filter((query) => query.includes("entity_name")),
+    ).toHaveLength(0);
   });
 
   it("skips inactive rules and guards without touching the warehouse", async () => {
-    vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue(
-      snapshot({
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      historicalPack({
         targetRoas: 3.8,
         breakEvenRoas: 2.5,
         targetCpa: null,
@@ -190,8 +391,8 @@ describe("evaluateBusinessAutomationRules", () => {
   });
 
   it("reports missing history instead of firing on a thin warehouse", async () => {
-    vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue(
-      snapshot({
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      historicalPack({
         targetRoas: null,
         breakEvenRoas: 2.5,
         targetCpa: null,
@@ -210,9 +411,190 @@ describe("evaluateBusinessAutomationRules", () => {
     expect(report.evaluation).toBeNull();
   });
 
+  /*
+    ── ROUND 8 ITEM 1: POINT-IN-TIME PROVENANCE ────────────────────────────────
+
+    Three separate wall-clock reads decided economic authority here, and each
+    of these cases drives one of them. Every one FAILS on the pre-fix code:
+
+      1. the anchors came from `getBusinessCommercialTruthSnapshot` — the pack
+         as it is NOW — so a target saved after the evaluated day changed a
+         historical verdict;
+      2. the Meta AOV was read at `input.asOfDate ?? new Date()`, so a
+         scheduled run divided a warehouse-day ratio by a today-shaped AOV;
+      3. the authority check was handed `freshness: "fresh"` and an `updatedAt`
+         falling back to `new Date().toISOString()`, which is precisely what
+         `hasMetaHardActionAnchor` exists to refuse.
+  */
+  it("derives BOTH the target read and the AOV read from the warehouse max when asOf is omitted", async () => {
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      historicalPack({
+        targetRoas: 3.8,
+        breakEvenRoas: 2.5,
+        targetCpa: null,
+        breakEvenCpa: null,
+      }),
+    );
+    vi.mocked(db.getDb).mockReturnValue(
+      warehouseSql(
+        [
+          { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-16", roas: 1.9, cpa: null, spend: 100, revenue: 190 },
+          { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-15", roas: 1.8, cpa: null, spend: 100, revenue: 180 },
+          { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-14", roas: 1.7, cpa: null, spend: 100, revenue: 170 },
+        ],
+        "2026-08-16",
+      ) as never,
+    );
+
+    const report = await evaluateBusinessAutomationRules({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      rules: [RULE],
+    });
+
+    // ONE cutoff, reaching BOTH economic reads. Neither is the wall clock, and
+    // neither is a different day from the other.
+    expect(commercial.getBusinessTargetPackHistoryAsOf).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      asOf: "2026-08-16",
+    });
+    expect(aovCalculator.computeMetaAttributedAov).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_1",
+        asOf: "2026-08-16",
+      }),
+    );
+    expect(report.asOfDate).toBe("2026-08-16");
+    expect(report.skippedReason).toBeNull();
+  });
+
+  it("does not let a target saved AFTER the cutoff change a historical result", async () => {
+    /*
+      The history reader is the authority, and it is asked for the cutoff day.
+      A pack that only exists after that day is not visible to it — so this
+      case gives the CURRENT snapshot a firing-strength target and the HISTORY
+      an anchorless one, and requires the historical answer to win.
+
+      Under the old code `getBusinessCommercialTruthSnapshot` supplied the
+      anchors directly and this evaluation would have fired.
+    */
+    vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue({
+      businessId: BUSINESS_ID,
+      targetPack: {
+        targetRoas: null,
+        breakEvenRoas: 2.5,
+        targetCpa: null,
+        breakEvenCpa: null,
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      },
+    } as never);
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      null as never,
+    );
+    vi.mocked(db.getDb).mockReturnValue(
+      warehouseSql(
+        [
+          { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-16", roas: 1.9, cpa: null, spend: 100, revenue: 190 },
+          { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-15", roas: 1.8, cpa: null, spend: 100, revenue: 180 },
+          { entity_id: "adset_1", entity_name: "Retargeting", date: "2026-08-14", roas: 1.7, cpa: null, spend: 100, revenue: 170 },
+        ],
+        "2026-08-16",
+      ) as never,
+    );
+
+    const report = await evaluateBusinessAutomationRules({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      rules: [RULE],
+    });
+
+    expect(report.skippedReason).toBe("no_commercial_anchors");
+    expect(report.anchors).toEqual({
+      target_roas: null,
+      break_even_roas: null,
+      target_cpa: null,
+      break_even_cpa: null,
+    });
+    expect(store.recordRuleFirings).not.toHaveBeenCalled();
+    // And the current-workspace reader was never consulted for authority.
+    expect(commercial.getBusinessCommercialTruthSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("records nothing when the historical target read REJECTS", async () => {
+    // Unreadable is not empty, and it is certainly not "fresh". The old code
+    // could not reach this state at all: it synthesized the provenance it
+    // needed.
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockRejectedValue(
+      new Error("business_target_pack_history is not ready"),
+    );
+    vi.mocked(db.getDb).mockReturnValue(threeLosingDays());
+
+    const report = await evaluateBusinessAutomationRules({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      rules: [RULE],
+    });
+
+    expect(report.skippedReason).toBe("commercial_targets_unreadable");
+    expect(report.evaluation).toBeNull();
+    expect(report.recorded).toEqual([]);
+    expect(store.recordRuleFirings).not.toHaveBeenCalled();
+    // Nothing was proposed on evidence nobody could read.
+    expect(report.minRoasFloor).toBeNull();
+  });
+
+  it("records nothing when the historical pack carries NO usable provenance", async () => {
+    /*
+      A pack with no `updatedAt` cannot establish that it was in force. The old
+      code passed `updatedAt: <snapshot value> ?? new Date().toISOString()` and
+      `freshness: "fresh"` into the authority check, so this pack authorized
+      purchase-budget proposals by asserting the provenance it lacks.
+    */
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue({
+      targetRoas: 3.8,
+      breakEvenRoas: 2.5,
+      targetCpa: null,
+      breakEvenCpa: null,
+      updatedAt: null,
+    } as never);
+    vi.mocked(db.getDb).mockReturnValue(threeLosingDays());
+
+    const report = await evaluateBusinessAutomationRules({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      rules: [RULE],
+    });
+
+    expect(report.skippedReason).toBe("purchase_value_authority_missing");
+    expect(store.recordRuleFirings).not.toHaveBeenCalled();
+  });
+
+  it("records nothing when the historical pack timestamp is an impossible date", async () => {
+    // `2026-02-30` is not a day. `Date.parse` silently answers 2026-03-02 for
+    // it, which used to make this pack `fresh` and hard-action anchored.
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue({
+      targetRoas: 3.8,
+      breakEvenRoas: 2.5,
+      targetCpa: null,
+      breakEvenCpa: null,
+      updatedAt: "2026-02-30T00:00:00.000Z",
+    } as never);
+    vi.mocked(db.getDb).mockReturnValue(threeLosingDays());
+
+    const report = await evaluateBusinessAutomationRules({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      rules: [RULE],
+    });
+
+    expect(report.skippedReason).toBe("purchase_value_authority_missing");
+    expect(store.recordRuleFirings).not.toHaveBeenCalled();
+  });
+
   it("produces the same report twice over an unchanged warehouse", async () => {
-    vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue(
-      snapshot({
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      historicalPack({
         targetRoas: 3.8,
         breakEvenRoas: 2.5,
         targetCpa: null,
@@ -249,8 +631,8 @@ describe("evaluateBusinessAutomationRules", () => {
  */
 describe("runMetaAutomationRuleEvaluationIfDue", () => {
   function warehouseReady() {
-    vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue(
-      snapshot({
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      historicalPack({
         targetRoas: 3.8,
         breakEvenRoas: 2.5,
         targetCpa: null,
@@ -358,16 +740,26 @@ describe("runMetaAutomationRuleEvaluationIfDue", () => {
       { id: BUSINESS_ID, name: "A" },
       { id: "0b3f5c2e-1111-4222-8333-444455556666", name: "B" },
     ] as never);
-    vi.mocked(commercial.getBusinessCommercialTruthSnapshot)
-      .mockRejectedValueOnce(new Error("commercial truth unavailable"))
-      .mockResolvedValue(
-        snapshot({
-          targetRoas: 3.8,
-          breakEvenRoas: 2.5,
-          targetCpa: null,
-          breakEvenCpa: null,
-        }),
-      );
+    /*
+      The failure has to be one the evaluator does NOT absorb.
+
+      A rejected target-pack read is now caught and reported as
+      `commercial_targets_unreadable` on an otherwise successful account, which
+      is the correct behaviour and no longer a thrown failure — so driving it
+      here would silently stop testing what this case is about. The warehouse
+      cutoff read is not absorbed, so that is what fails.
+    */
+    const failingSql = warehouseSql([]);
+    failingSql.mockRejectedValueOnce(new Error("warehouse unavailable"));
+    vi.mocked(db.getDb).mockReturnValueOnce(failingSql as never);
+    vi.mocked(commercial.getBusinessTargetPackHistoryAsOf).mockResolvedValue(
+      historicalPack({
+        targetRoas: 3.8,
+        breakEvenRoas: 2.5,
+        targetCpa: null,
+        breakEvenCpa: null,
+      }),
+    );
 
     const result = await runMetaAutomationRuleEvaluationIfDue(DUE);
 

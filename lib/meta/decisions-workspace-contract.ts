@@ -463,6 +463,66 @@ export interface MetaDecisionCapabilityState {
   reason: string | null;
 }
 
+/**
+ * The one code that means "the latest native run did not succeed and the last
+ * good generation is being served instead".
+ *
+ * It lives here rather than beside the reader that raises it because both the
+ * reader (`lib/meta/decisions-workspace-read-model.ts`, re-exported there as
+ * `NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON`) and this served contract have
+ * to name the same literal, and two declarations of one token are two tokens
+ * waiting to drift. INVARIANTS forbids the UI inferring staleness from prose,
+ * so this is a value to switch on, never a sentence to parse.
+ */
+export type MetaDecisionSourceDegradedReason =
+  "native_latest_job_failed_serving_last_successful_generation";
+
+/**
+ * The literal is written twice -- once as the type above, once as the value
+ * here -- because `served-field-probe.ts` resolves a served leaf's domain by
+ * reading this file's type declarations, and it cannot follow a
+ * `typeof SOME_CONST` back to a value it has no rule for. The two cannot drift:
+ * the annotation makes a mismatch a compile error rather than a silent one.
+ */
+export const META_DECISION_SOURCE_DEGRADED_REASON: MetaDecisionSourceDegradedReason =
+  "native_latest_job_failed_serving_last_successful_generation";
+
+/**
+ * BOTH HALVES OF A DEGRADED WINDOW, IN ONE BLOCK.
+ *
+ * A consumer must be able to say "showing 2026-09-04's decisions; the
+ * 2026-09-06 run failed" without inferring either half. Before this block the
+ * envelope stated only `source.fallbackReason`: the served generation's own
+ * identity was reachable (`source.generation`, `source.snapshotAsOf`) but the
+ * run that FAILED -- the newest fact in the window, and the one an operator
+ * acts on -- reached no consumer at all.
+ *
+ * The two identities are carried TOGETHER, in one optional block, so a reader
+ * cannot pair a served generation with a failed run it never sat behind. The
+ * served half is repeated here rather than referenced across fields for the
+ * same reason; `source.generation.jobRunId` and `source.snapshotAsOf` carry the
+ * same two values for a degraded envelope, and the read model pins that they
+ * agree.
+ *
+ * ADDITIVE AND OPTIONAL. Payloads serialized before this block existed stay
+ * readable under the same `contractVersion`: absent means "not degraded",
+ * which is what every previously stored payload meant.
+ */
+export interface MetaDecisionSourceDegradation {
+  reason: MetaDecisionSourceDegradedReason;
+  /** The retained generation these rows actually come from. */
+  servedGeneration: {
+    jobRunId: string;
+    asOfDate: string;
+  };
+  /** The newest terminal run -- the one that failed, and did not produce them. */
+  latestTerminalRun: {
+    jobRunId: string;
+    status: string;
+    asOfDate: string;
+  };
+}
+
 export type MetaDecisionsReadModelUnavailableCode =
   | "provider_account_required"
   | "provider_account_scope_unverified"
@@ -499,6 +559,11 @@ export interface MetaDecisionsWorkspaceReadModel {
       manifestHash: string;
       expectedAdCount: number;
     } | null;
+    /**
+     * Present only while the last good generation is being served in place of
+     * a failed latest run. @see MetaDecisionSourceDegradation
+     */
+    degraded?: MetaDecisionSourceDegradation;
   };
   queue: {
     deduplicationGrain: "ad" | "creative";

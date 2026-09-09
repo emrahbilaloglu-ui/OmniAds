@@ -38,6 +38,7 @@ import type {
   MetaOsDecisionAction,
 } from "@/lib/meta/decisions-os-contract";
 import { dashboardHrefForRouteFamily } from "@/lib/dashboard-v2/screen-registry";
+import { accountSwitchQuery } from "@/lib/dashboard/account-scope-url";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import {
   authorizeLaunchpadHandoff,
@@ -161,6 +162,12 @@ interface MetaPlatformPageProps {
    * and a client must not mint scope it has not had verified.
    */
   serverProviderAccountId?: string | null;
+  /**
+   * Canonical `/c/**` routes use the shared topbar account control. The
+   * compatibility mount opts into the local recovery control because its shell
+   * has no provider catalog.
+   */
+  accountSelection?: "shared" | "local";
   /**
    * Whether decision ownership actions may run, read from the server's gate.
    *
@@ -288,7 +295,16 @@ function metaNativeAdPauseBuyerFailure(
   return "We could not pause this ad. Please try again.";
 }
 
-function metaBuyerCreativeEvidenceViewModel(
+/*
+  EXPORTED for the held-verdict mount test.
+
+  This mapper is the layer that used to drop the engine's held verdict on the
+  way to the DOM — it rebuilds the adapter's view model and replaces the whole
+  authority block with one availability sentence. Testing it through the page
+  shell would mean standing up the page's entire mock surface; testing it
+  directly puts the real regression path under assertion instead.
+*/
+export function metaBuyerCreativeEvidenceViewModel(
   model: CreativeEvidenceWindowExactViewModel,
   primaryAuthority: {
     kind: "launchpad_handoff" | "native_ad_pause";
@@ -354,6 +370,14 @@ function metaBuyerCreativeEvidenceViewModel(
       : null,
     coverage,
     authority: actionAvailability,
+    /*
+      PRESERVED THROUGH THE WRAPPER (Codex C18). This function rebuilds the
+      view model and replaces `authority` with one availability sentence, which
+      is where the engine's held verdict used to be lost. These two fields are
+      buyer copy, not internal authority vocabulary, so they travel.
+    */
+    heldVerdictLabel: model.heldVerdictLabel ?? null,
+    heldVerdictNextStep: model.heldVerdictNextStep ?? null,
     actionNotice,
     diagnostics: [],
     provenance: undefined,
@@ -1219,6 +1243,12 @@ function metaAccountDisplayLabel(
   return `Meta account ••••${cleanId.slice(-4)}`;
 }
 
+function metaProviderAccountOptionLabel(account: MetaHistoryAccount): string {
+  const name = account.name?.trim() || "Unnamed Meta account";
+  const currency = account.currency?.trim();
+  return `${name} · ID ${account.id}${currency ? ` · ${currency}` : ""}`;
+}
+
 function mobileTimestamp(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
@@ -1374,16 +1404,6 @@ function MetaMobileEvidenceScreen({
   }
 
   const rec = item.rec;
-  const metrics = structuredMetricsForRec(rec);
-  const roasText =
-    typeof metrics?.roas === "number" && Number.isFinite(metrics.roas)
-      ? `${metrics.roas.toFixed(2)}x${typeof targetRoas === "number" && Number.isFinite(targetRoas) ? ` vs ${targetRoas.toFixed(2)}x target` : ""}`
-      : null;
-  const spendText =
-    typeof metrics?.spend === "number" && Number.isFinite(metrics.spend)
-      ? formatMoney(metrics.spend, moneyCurrency)
-      : null;
-  const metricLine = [spendText, roasText].filter(Boolean).join(" · ");
   const reason =
     inspector?.reasons
       ?.map((value) => mobileDisplay(value))
@@ -1411,7 +1431,6 @@ function MetaMobileEvidenceScreen({
             <strong>
               {mobileDecisionLine(rec, targetRoas, moneyCurrency, inspector)}
             </strong>
-            {metricLine ? <span>{metricLine}</span> : null}
           </article>
           <p className="ad-mobile-copy">{reason}</p>
           <MobileDecisionConfidence confidence={rec.confidence} />
@@ -1569,7 +1588,17 @@ function mobileQueueRowsForLane(
       decisionTone: row.decisionTone,
       stateLabel: row.stateLabel,
       stateTone: row.stateTone,
-      blockedNote: row.blockedNote,
+      // The adapter's one buyer sentence lives in note. Held rows already
+      // render that sentence through heldVerdictNextStep below.
+      blockedNote: row.blockedNote ?? (row.heldVerdictNextStep ? undefined : row.note),
+      /*
+        ROUND 9 ITEM 8. Carried, not re-derived. The desktop creative row draws
+        exactly these two fields off the same view model; dropping them here
+        made a phone show "Keep monitoring" for a decision a desk showed as a
+        Refresh recommendation awaiting review.
+      */
+      heldVerdictLabel: row.heldVerdictLabel ?? null,
+      heldVerdictNextStep: row.heldVerdictNextStep ?? null,
       money: row.money,
       moneySub: row.moneySub,
       chips: row.chips,
@@ -1742,6 +1771,31 @@ function MetaMobileCreativeEvidenceScreen({
               {viewModel.actionNotice.text}
             </p>
           ) : null}
+          {/*
+            ── ROUND 10 ITEM 5 ────────────────────────────────────────────────
+            The pending recommendation, BEFORE the published outcome below.
+
+            The mobile QUEUE card learned to show this in Round 9, and the
+            evidence screen behind "Read evidence →" did not — so a buyer who
+            tapped through to see WHY lost the one fact they had tapped for, and
+            the screen read as a plain "Keep monitoring". The desktop drawer
+            renders exactly these two fields from the same catalog.
+
+            Ordered above the verdict on purpose: the operator needs "a Refresh
+            recommendation is waiting, here is what it needs" first, and the
+            currently safe published outcome second. Both are on screen together
+            — neither replaces the other.
+          */}
+          {viewModel.heldVerdictLabel ? (
+            <article className="ad-mobile-heat" data-mobile-evidence-held>
+              <strong>{viewModel.heldVerdictLabel}</strong>
+              {viewModel.heldVerdictNextStep ? (
+                <span data-mobile-evidence-held-next-step>
+                  {viewModel.heldVerdictNextStep}
+                </span>
+              ) : null}
+            </article>
+          ) : null}
           {isMeaningful(viewModel.verdict) || money ? (
             <article className="ad-mobile-heat">
               {isMeaningful(viewModel.verdict) ? (
@@ -1797,6 +1851,8 @@ function MetaMobileQueueRow({
   stateLabel,
   stateTone,
   blockedNote,
+  heldVerdictLabel,
+  heldVerdictNextStep,
   money,
   moneySub,
   chips,
@@ -1812,6 +1868,16 @@ function MetaMobileQueueRow({
   stateLabel?: MetaDecisionCenterExactDisplayValue;
   stateTone?: MetaDecisionCenterExactTone;
   blockedNote?: MetaDecisionCenterExactDisplayValue;
+  /**
+   * ── ROUND 9 ITEM 8 ───────────────────────────────────────────────────────
+   * The desktop row draws these two and mobile dropped them, so the SAME
+   * decision read differently on the two surfaces: desktop said a Refresh
+   * recommendation was waiting and what to do about it, mobile said only
+   * "Keep monitoring". A buyer on a phone was shown a different truth about
+   * their account, not a smaller one.
+   */
+  heldVerdictLabel?: MetaDecisionCenterExactDisplayValue | null;
+  heldVerdictNextStep?: MetaDecisionCenterExactDisplayValue | null;
   money?: MetaDecisionCenterExactDisplayValue;
   moneySub?: MetaDecisionCenterExactDisplayValue;
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
@@ -1844,6 +1910,21 @@ function MetaMobileQueueRow({
         {chips && chips.length > 0 ? (
           <p data-tone="caution">
             {chips.map((chip) => mobileDisplay(chip)).join(" · ")}
+          </p>
+        ) : null}
+        {/*
+          ROUND 9 ITEM 8. The same held recommendation the desktop row draws,
+          in the same buyer language — `heldCreativeVerdict` is the one producer
+          for both, so the two surfaces cannot drift into different sentences.
+        */}
+        {heldVerdictLabel && mobileDisplay(heldVerdictLabel) !== "—" ? (
+          <p data-mobile-held-verdict="true" data-tone="caution">
+            {mobileDisplay(heldVerdictLabel)}
+          </p>
+        ) : null}
+        {heldVerdictNextStep && mobileDisplay(heldVerdictNextStep) !== "—" ? (
+          <p data-mobile-held-next-step="true" data-tone="caution">
+            {mobileDisplay(heldVerdictNextStep)}
           </p>
         ) : null}
         {/* The server's own blockers and next step, verbatim. */}
@@ -1993,6 +2074,7 @@ function MetaMobileDecisionsScreen({
   manualActionFor,
   ceremonyRowId,
   ceremony,
+  localAccountSelection,
 }: {
   businessName?: string | null;
   viewModel: MetaDecisionCenterExactViewModel;
@@ -2024,6 +2106,13 @@ function MetaMobileDecisionsScreen({
   /** The row whose ceremony is open, so the sheet renders beside its card. */
   ceremonyRowId?: string | null;
   ceremony?: ReactNode;
+  localAccountSelection?: {
+    accounts: MetaHistoryAccount[];
+    providerAccountId: string | null;
+    loading: boolean;
+    error: Error | null;
+    onSelect: (providerAccountId: string) => void;
+  };
 }) {
   const counts = viewModel.counts ?? {};
   const creativeLaneCounts = viewModel.operatorSummary?.scopeCounts?.creatives;
@@ -2035,6 +2124,55 @@ function MetaMobileDecisionsScreen({
     historyHref,
     pathname,
   });
+  if (
+    localAccountSelection &&
+    !localAccountSelection.providerAccountId &&
+    !localAccountSelection.loading &&
+    !localAccountSelection.error
+  ) {
+    return (
+      <section
+        className="meta-mobile-decision-stage"
+        data-testid="meta-mobile-decisions"
+        data-mobile-read-state="account-required"
+      >
+        <div className="ad-mobile-device">
+          <div className="ad-mobile-screen">
+            <div className="ad-mobile-status">
+              <span>Meta Decision Center</span>
+              <span>{businessName ?? "Meta"}</span>
+            </div>
+            <article className="ad-mobile-row-card" role="status">
+              <h3>Select a Meta ad account</h3>
+              <p>Select the account whose decisions you want to review.</p>
+              <label>
+                <span className="sr-only">Meta ad account</span>
+                <select
+                  aria-label="Meta ad account for Decisions mobile"
+                  value=""
+                  disabled={localAccountSelection.accounts.length === 0}
+                  onChange={(event) =>
+                    localAccountSelection.onSelect(event.currentTarget.value)
+                  }
+                >
+                  <option value="">
+                    {localAccountSelection.accounts.length === 0
+                      ? "No assigned account"
+                      : "Select account"}
+                  </option>
+                  {localAccountSelection.accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {metaProviderAccountOptionLabel(account)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </article>
+          </div>
+        </div>
+      </section>
+    );
+  }
   if (loading || error) {
     return (
       <section
@@ -2215,6 +2353,21 @@ function MetaMobileDecisionsScreen({
                 ))}
             </nav>
           )}
+
+          {/*
+            ROUND 9 ITEM 8. The mapped pending/legacy notice, which mobile did
+            not render at all — so a phone showed an empty or partial creatives
+            lane with no explanation, while the desktop said how many ads were
+            still being evaluated. Same buyer sentence, same source
+            (`creativesNotice`), no second derivation.
+          */}
+          {scope === "creatives" &&
+          viewModel.creativesNotice &&
+          mobileDisplay(viewModel.creativesNotice) !== "—" ? (
+            <p className="ad-mobile-copy" data-mobile-creatives-notice>
+              {mobileDisplay(viewModel.creativesNotice)}
+            </p>
+          ) : null}
 
           {rows.map((row) => (
             <Fragment key={row.id}>
@@ -3409,6 +3562,7 @@ export function MetaPlatformPage({
   businessId,
   businessName,
   serverProviderAccountId = null,
+  accountSelection = "shared",
   decisionWorkflowUiEnabled: authorizedWorkflowUiEnabled,
   mutationUiEnabled: authorizedMutationUiEnabled,
 }: MetaPlatformPageProps) {
@@ -4236,17 +4390,21 @@ export function MetaPlatformPage({
   };
 
   const setProviderAccount = (nextProviderAccountId: string) => {
-    const params = currentUrlParams();
-    if (nextProviderAccountId) {
-      params.set("providerAccountId", nextProviderAccountId);
-    } else {
-      params.delete("providerAccountId");
-    }
-    params.delete("entity");
+    const params = accountSwitchQuery(
+      currentUrlParams().toString(),
+      nextProviderAccountId,
+    );
     setDrillItem(null);
+    setOverlay(EMPTY_OVERLAY);
+    setPendingStructurePrimary(null);
     setNativeAdPauseAuthorization(null);
     setNativeAdPauseError(null);
     setCreativeDrill(null);
+    setManualCeremonyRec(null);
+    setActiveScope("structure");
+    setActiveLane("action");
+    setActiveLevels([]);
+    setRowSearch("");
     replaceMetaParams(params);
   };
 
@@ -5147,13 +5305,9 @@ export function MetaPlatformPage({
    */
   const manualActionForRec = (
     rec: MetaRecommendation | null,
-  ):
-    | NonNullable<
-        NonNullable<
-          MetaDecisionCenterExactViewModel["inspector"]
-        >["manualAction"]
-      >
-    | null => {
+  ): NonNullable<
+    NonNullable<MetaDecisionCenterExactViewModel["inspector"]>["manualAction"]
+  > | null => {
     if (!rec || blockedStructureIds.has(rec.id)) return null;
     const operatorApply = rec.operatorApply ?? null;
     const decisionKey = toDecisionRow(rec).decisionKey;
@@ -5553,6 +5707,17 @@ export function MetaPlatformPage({
           manualActionFor={mobileManualActionFor}
           ceremonyRowId={manualCeremonyRec?.id ?? null}
           ceremony={manualCeremonySheetFor("mobile")}
+          localAccountSelection={
+            accountSelection === "local"
+              ? {
+                  accounts: providerAccounts,
+                  providerAccountId,
+                  loading: providerAccountsQuery.isLoading,
+                  error: providerAccountMetadataError,
+                  onSelect: setProviderAccount,
+                }
+              : undefined
+          }
         />
       )}
 
@@ -5563,7 +5728,8 @@ export function MetaPlatformPage({
           filled it is broken presents a read failure as an empty success; the
           blocking banner below states the failure instead.
         */}
-        {!providerAccountsQuery.isLoading &&
+        {accountSelection === "local" &&
+        !providerAccountsQuery.isLoading &&
         !providerAccountId &&
         !providerAccountMetadataError ? (
           <div className="banner warn" data-testid="meta-account-required">
@@ -5589,9 +5755,7 @@ export function MetaPlatformPage({
                   </option>
                   {providerAccounts.map((account) => (
                     <option key={account.id} value={account.id}>
-                      {metaAccountDisplayLabel(account.name, account.id) ??
-                        "Unnamed Meta account"}
-                      {account.currency ? " · " + account.currency : ""}
+                      {metaProviderAccountOptionLabel(account)}
                     </option>
                   ))}
                 </select>

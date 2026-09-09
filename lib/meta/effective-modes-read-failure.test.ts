@@ -129,7 +129,24 @@ describe("effective modes preserve unreadable versus successfully absent rows", 
       .toMatchObject({ effectiveModes: { pause: "semi_auto" }, verified: true, writeBlocked: false });
   });
 
-  it.each(["budget", "bid", "launch", "launch-intent"])(
+  it("budget projection remains available when the standing mode read fails", async () => {
+    const listCandidates = vi.fn(async () => []);
+    modeFailure = new Error("mode read timed out");
+
+    await expect(projectMetaBudgetProposals({
+      businessId: BUSINESS,
+      snapshotDate: "2026-09-06",
+      providerAccountIds: [ACCOUNT],
+      listCandidates,
+      insertProposal: async () => null,
+      loadCompositionSources: async () => null,
+    })).resolves.toMatchObject({ ran: true, candidates: 0 });
+    expect(listCandidates).toHaveBeenCalledOnce();
+    expect(statements.some((text) =>
+      text.includes("FROM meta_automation_decision_type_modes"))).toBe(false);
+  });
+
+  it.each(["bid", "launch", "launch-intent"])(
     "%s producer exposes the failure before reading candidates and resumes after recovery",
     async (family) => {
       modeRows = [
@@ -139,9 +156,14 @@ describe("effective modes preserve unreadable versus successfully absent rows", 
       ];
       const listCandidates = vi.fn(async () => []);
       const insertProposal = vi.fn(async () => null);
-      const common = { businessId: BUSINESS, snapshotDate: "2026-09-06", listCandidates, insertProposal };
+      const common = {
+        businessId: BUSINESS,
+        snapshotDate: "2026-09-06",
+        providerAccountIds: [ACCOUNT],
+        listCandidates,
+        insertProposal,
+      };
       const produce = () => {
-        if (family === "budget") return projectMetaBudgetProposals({ ...common, loadCompositionSources: async () => null });
         if (family === "bid") return projectMetaBidProposals(common);
         if (family === "launch") return projectMetaLaunchProposals(common);
         return projectMetaLaunchIntents(common);

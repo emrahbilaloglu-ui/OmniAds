@@ -53,10 +53,40 @@ vi.mock("@/lib/db", () => ({
   runDbTransaction: vi.fn(async (operation: () => Promise<unknown>) =>
     operation(),
   ),
+  /*
+    ── ROUND 20, ITEM 3 ──────────────────────────────────────────────────────
+    Round 18 moved the whole run onto a PINNED lease and Round 20 moved the
+    native-ad DDL group onto that same lease. Neither export existed in this
+    mock, so every test in this file threw
+    `withPinnedDbClient is not a function` before reaching its assertion. They
+    are wired per test by `wirePinnedDb` below.
+  */
+  withPinnedDbClient: vi.fn(),
+  runPinnedDbTransaction: vi.fn(),
 }));
 
 const db = await import("@/lib/db");
 const startupDiagnostics = await import("@/lib/startup-diagnostics");
+const { migrationDbMockModule } = await import(
+  "@/lib/__tests__/pinned-migration-client-mock"
+);
+
+/**
+ * Point every `@/lib/db` seam the migration runner uses at one capturing mock:
+ * the pooled readers, the pinned lease, and the transaction the native-ad group
+ * opens ON that lease.
+ */
+function wirePinnedDb(sql: unknown, options: { catalog?: "small" } = { catalog: "small" }) {
+  const module = migrationDbMockModule(sql as never, options);
+  vi.mocked(db.getDb).mockReturnValue(sql as never);
+  vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+  vi.mocked(db.withPinnedDbClient).mockImplementation(
+    module.withPinnedDbClient as never,
+  );
+  vi.mocked(db.runPinnedDbTransaction).mockImplementation(
+    module.runPinnedDbTransaction as never,
+  );
+}
 
 function expectDropColumnQuery(queries: string, tableName: string, columnName: string) {
   expect(queries).toMatch(
@@ -71,6 +101,7 @@ describe("runMigrations", () => {
     process.env.ENABLE_RUNTIME_MIGRATIONS = "true";
     delete process.env.DB_DROP_LEGACY_CORE_TABLES;
     delete process.env.DB_ENABLE_LEGACY_CORE_COMPAT_TABLES;
+    delete process.env.ADSECUTE_META_HISTORY_SCHEMA_MAINTENANCE;
   });
 
   it("uses the explicit timeout override DB client when provided", async () => {
@@ -87,8 +118,7 @@ describe("runMigrations", () => {
         }),
       }
     );
-    vi.mocked(db.getDb).mockReturnValue(sql as never);
-    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+    wirePinnedDb(sql);
 
     const migrations = await import("@/lib/migrations");
     await migrations.runMigrations({
@@ -98,7 +128,29 @@ describe("runMigrations", () => {
       verifyNativeSchemaCapabilities: false,
     });
 
-    expect(db.getDbWithTimeout).toHaveBeenCalledWith(120_000);
+    /*
+      ── ROUND 20, ITEM 3 ────────────────────────────────────────────────────
+      The override used to be observed through `getDbWithTimeout`, which only
+      the native-ad group called -- and that group has stopped calling it,
+      because it now runs on the lease the rest of the migration already holds.
+      The override is observed where it is now actually honoured: the bounded
+      DDL transaction opened on that pinned lease, which receives BOTH the
+      statement timeout and the proven lock bound.
+    */
+    expect(db.runPinnedDbTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeoutMs: expect.any(Number),
+        deadlineAtMs: expect.any(Number),
+        lockTimeoutMs: 15_000,
+      }),
+    );
+    expect(
+      vi.mocked(db.runPinnedDbTransaction).mock.calls[0]?.[0].timeoutMs,
+    ).toBeLessThanOrEqual(120_000);
+    expect(db.withPinnedDbClient).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ timeoutMs: 120_000 }),
+    );
     expect(db.getDb).not.toHaveBeenCalled();
     expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
       "migrations_started",
@@ -107,6 +159,14 @@ describe("runMigrations", () => {
         force: true,
         timeoutMs: 120_000,
       }),
+    );
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migration_relation_budget_measured",
+      expect.objectContaining({ phase: "before_build", relation_bytes: "8192", index_bytes: "0", index_valid: false }),
+    );
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migration_relation_budget_measured",
+      expect.objectContaining({ phase: "after_build", relation_bytes: "16384", index_bytes: "8192", index_valid: true }),
     );
     expect(queries.join("\n")).toContain("provider_connections");
     expect(queries.join("\n")).toContain("integration_credentials");
@@ -189,6 +249,80 @@ describe("runMigrations", () => {
     expectDropColumnQuery(queries.join("\n"), "meta_adset_daily", "manual_bid_amount");
   });
 
+  it.each([
+    { label: "missing catalog response", result: [], fixture: false },
+    { label: "malformed bigint", result: [{ relation_bytes: "not-a-size", index_valid: false }], fixture: true },
+    { label: "boolean coercion", result: [{ relation_bytes: false, index_valid: false }], fixture: true },
+    { label: "relation at the SOURCE ceiling", result: [{ relation_bytes: "6442450944", index_valid: false }], fixture: true },
+    { label: "null SQL response", result: null, fixture: true },
+    { label: "wrong SQL response shape", result: { rows: [{ relation_bytes: "8192", index_valid: true }] }, fixture: true },
+  ])("keeps production measurement refusal with the SQL mock: $label", async ({ result, fixture }) => {
+    const sql = Object.assign(vi.fn(async () => []), {
+      query: vi.fn(async (text: string) =>
+        text.includes("AS index_valid") &&
+          text.includes("pg_total_relation_size('meta_entity_state_history'::regclass)")
+          ? result
+          : [],
+      ),
+    });
+    // Omitted catalog remains unknown. A caller's explicit malformed/oversized
+    // response must survive even when the small-catalog fallback is enabled.
+    wirePinnedDb(sql, fixture ? { catalog: "small" } : {});
+    const migrations = await import("@/lib/migrations");
+    await expect(migrations.runMigrations({ force: true, verifyNativeSchemaCapabilities: false }))
+      .rejects.toThrow("migration_relation_budget_refused:before_build");
+    expect(sql.query.mock.calls.some(([text]) => text.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_entity_state_history_manifest_delta")))
+      .toBe(false);
+  });
+
+  it("settles at one absolute deadline and does not overlap a delayed prior run", async () => {
+    const sql = Object.assign(
+      vi.fn(async () => []),
+      { query: vi.fn(async () => []) },
+    );
+    const module = migrationDbMockModule(sql as never, { catalog: "small" });
+    let releaseStart!: () => void;
+    const delayedStart = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    let leaseStarts = 0;
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+    vi.mocked(db.withPinnedDbClient).mockImplementation(async (fn, options) => {
+      leaseStarts += 1;
+      await delayedStart;
+      return module.withPinnedDbClient(fn as never, options as never);
+    });
+    vi.mocked(db.runPinnedDbTransaction).mockImplementation(
+      module.runPinnedDbTransaction as never,
+    );
+
+    const migrations = await import("@/lib/migrations");
+    const startedAt = Date.now();
+    const first = migrations.runMigrations({
+      force: true,
+      reason: "absolute-deadline-delayed-start",
+      timeoutMs: 40,
+      verifyNativeSchemaCapabilities: false,
+    });
+
+    await expect(first).rejects.toThrow("timed out after 40ms");
+    expect(Date.now() - startedAt).toBeLessThan(300);
+
+    const retryStartedAt = Date.now();
+    await expect(migrations.runMigrations({
+      force: true,
+      reason: "must-not-overlap",
+      timeoutMs: 40,
+      verifyNativeSchemaCapabilities: false,
+    })).rejects.toThrow("timed out after 40ms");
+    expect(Date.now() - retryStartedAt).toBeLessThan(100);
+    expect(leaseStarts).toBe(1);
+
+    releaseStart();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
   it("drops only retired legacy core tables when the cleanup switch is enabled", async () => {
     const queries: string[] = [];
     const sql = Object.assign(
@@ -207,8 +341,7 @@ describe("runMigrations", () => {
       }
     );
     process.env.DB_DROP_LEGACY_CORE_TABLES = "1";
-    vi.mocked(db.getDb).mockReturnValue(sql as never);
-    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+    wirePinnedDb(sql);
 
     const migrations = await import("@/lib/migrations");
     await migrations.runMigrations({
@@ -249,8 +382,7 @@ describe("runMigrations", () => {
         }),
       }
     );
-    vi.mocked(db.getDb).mockReturnValue(sql as never);
-    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+    wirePinnedDb(sql);
 
     const migrations = await import("@/lib/migrations");
     await migrations.runMigrations({
@@ -296,8 +428,7 @@ describe("runMigrations", () => {
         }),
       }
     );
-    vi.mocked(db.getDb).mockReturnValue(sql as never);
-    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+    wirePinnedDb(sql);
 
     const migrations = await import("@/lib/migrations");
     await migrations.runMigrations({
@@ -340,8 +471,7 @@ describe("runMigrations", () => {
         }),
       },
     );
-    vi.mocked(db.getDb).mockReturnValue(sql as never);
-    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+    wirePinnedDb(sql);
 
     const migrations = await import("@/lib/migrations");
     await migrations.runMigrations({
@@ -391,8 +521,7 @@ describe("runMigrations", () => {
         }),
       },
     );
-    vi.mocked(db.getDb).mockReturnValue(sql as never);
-    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+    wirePinnedDb(sql);
 
     const migrations = await import("@/lib/migrations");
     await migrations.runMigrations({
@@ -435,8 +564,7 @@ describe("runMigrations", () => {
         }),
       },
     );
-    vi.mocked(db.getDb).mockReturnValue(sql as never);
-    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+    wirePinnedDb(sql);
 
     const migrations = await import("@/lib/migrations");
     await migrations.runMigrations({
@@ -476,8 +604,7 @@ describe("runMigrations", () => {
         }),
       },
     );
-    vi.mocked(db.getDb).mockReturnValue(sql as never);
-    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+    wirePinnedDb(sql);
 
     const migrations = await import("@/lib/migrations");
     await migrations.runMigrations({

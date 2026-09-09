@@ -140,6 +140,18 @@ export interface CreativeEvidenceWindowExactViewModel {
   coverage?: CreativeEvidenceWindowExactCoverage | null;
   /** Source authority, eligibility, identity, risk, responses, write outcome. */
   authority?: readonly CreativeEvidenceWindowExactAuditRow[];
+  /**
+   * The engine's held verdict, in BUYER copy, and the reason holding it.
+   *
+   * Carried as two named fields rather than as `authority` rows on purpose:
+   * this drawer deliberately keeps internal authority vocabulary out (see
+   * "keeps internal authority rows out of the buyer-facing drawer"), and the
+   * held verdict is not internal vocabulary — it is the engine's conclusion,
+   * which the operator is entitled to see beside the published label. Both
+   * strings come from the same catalog the queue row reads.
+   */
+  heldVerdictLabel?: string | null;
+  heldVerdictNextStep?: string | null;
   /** Hashes, lineage ids and receipts. Closed by default. */
   diagnostics?: readonly CreativeEvidenceWindowExactAuditRow[];
   provenance?: CreativeEvidenceWindowExactDisplayValue;
@@ -276,6 +288,12 @@ export function CreativeEvidenceWindowExact({
   const facts = (viewModel.facts ?? []).filter(
     (fact) => meaningful(fact.label) && meaningful(fact.value),
   );
+  const heldVerdictLabel = meaningful(viewModel.heldVerdictLabel)
+    ? viewModel.heldVerdictLabel!.trim()
+    : null;
+  const heldVerdictNextStep = meaningful(viewModel.heldVerdictNextStep)
+    ? viewModel.heldVerdictNextStep!.trim()
+    : null;
   const showCtr =
     Boolean(viewModel.ctr?.path) || meaningful(viewModel.ctr?.note);
   const showFrequency =
@@ -578,6 +596,24 @@ export function CreativeEvidenceWindowExact({
             </div>
           ) : null}
 
+          {heldVerdictLabel ? (
+            <div
+              className={styles.factRow}
+              data-creative-evidence-held-verdict=""
+            >
+              <span className={styles.factLabel}>
+                {heldVerdictLabel}
+              </span>
+              {heldVerdictNextStep ? (
+                <span
+                  className={`${styles.factValue} ${toneClass("warning")}`}
+                  data-creative-evidence-held-reason=""
+                >
+                  {heldVerdictNextStep}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           {facts.length > 0 ? (
             <div className={styles.factGrid}>
               {facts.map((fact) => {

@@ -14,7 +14,14 @@ export async function refreshProviderDiscoveryPayload(input: {
   liveLoader: () => Promise<ProviderAccountSnapshotItem[]>;
   freshnessMs?: number;
   reason?: string;
-  expectedConnectionGeneration?: string | null;
+  /**
+   * ROUND 23, ITEM 1: required. The generation the caller read its credential
+   * under, so a manual refresh cannot authorise an old token's result under a
+   * newer grant. Pass
+   * `providerConnectionGenerationTokenFromIntegration(integration)` from the
+   * SAME record the access token came from.
+   */
+  expectedConnectionGeneration: string | null;
 }): Promise<ProviderDiscoveryPayload> {
   const assignmentRow = await getProviderAccountAssignments(input.businessId, input.provider).catch(
     () => null,

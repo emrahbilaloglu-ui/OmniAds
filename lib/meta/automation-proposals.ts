@@ -49,6 +49,8 @@
 import { resolveEffectiveMetaModes } from "@/lib/meta/automation-control-plane";
 import { getDb, runDbTransaction } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "@/lib/creative-decision-engine/jobs/job-runtime";
+import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { readMetaAutomationProposalRoasFloor } from "@/lib/meta/automation-guardrail-policy";
 import type { MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
 import {
@@ -61,6 +63,11 @@ import {
   parseBidProposalEnvelope,
   type BidProposalEnvelope,
 } from "@/lib/meta/bid-proposal-envelope";
+import {
+  META_BUDGET_INTENT_CONTRACT_VERSION,
+  budgetIntentSemanticTupleSqlPredicate,
+} from "@/lib/meta/budget-intent-contract";
+import { META_BID_INTENT_CONTRACT_VERSION } from "@/lib/meta/bid-intent-contract";
 
 /** Grains the queue can aim a guarded write at. */
 /**
@@ -217,6 +224,34 @@ function sqlStatusList(statuses: readonly string[]): string {
   return statuses.map((status) => `'${status}'`).join(", ");
 }
 
+function isOpenSlotUniqueViolation(error: unknown): boolean {
+  return Boolean(
+    error
+      && typeof error === "object"
+      && (error as { code?: unknown }).code === "23505"
+      && (error as { constraint?: unknown }).constraint
+        === "uq_meta_automation_proposals_open_slot",
+  );
+}
+
+/**
+ * A system-withdrawn row re-enters the open slot through UPDATE, so PostgreSQL
+ * cannot give that branch `ON CONFLICT DO NOTHING`. If another producer commits
+ * the slot after this statement's snapshot, the unique index aborts the atomic
+ * statement. Retrying is safe and finite: the winner is then visible to the
+ * source predicate and that candidate drops out, while every unrelated row is
+ * evaluated again. Other errors still fail the projection.
+ */
+async function runPauseProjectionBatch<T>(run: () => Promise<T[]>): Promise<T[]> {
+  while (true) {
+    try {
+      return await run();
+    } catch (error) {
+      if (!isOpenSlotUniqueViolation(error)) throw error;
+    }
+  }
+}
+
 /** `'pending', 'claimed', 'reconcile'` — the open-slot predicate, once. */
 export const META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL = sqlStatusList(
   META_AUTOMATION_PROPOSAL_OPEN_STATUSES,
@@ -226,6 +261,337 @@ export const META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL = sqlStatusList(
 const META_AUTOMATION_PROPOSAL_UNDECIDED_STATUS_SQL = sqlStatusList(
   META_AUTOMATION_PROPOSAL_UNDECIDED_STATUSES,
 );
+
+/** A system withdrawal is reversible; an operator/provider outcome never is. */
+export const META_ENGINE_PROJECTION_WITHDRAWAL_NOTE =
+  "engine_decision_source_withdrawn" as const;
+
+/**
+ * The exact terminal shape a later snapshot may re-open.
+ *
+ * Every execution/decision field must still be empty. Matching only the note
+ * would let a manually expired or partially dispatched row return to pending.
+ * The alias is supplied only by static SQL in this repository.
+ */
+export function metaEngineProjectionWithdrawalPredicate(alias: string): string {
+  return `${alias}.status = 'expired'
+    AND ${alias}.origin = 'engine_decision'
+    AND ${alias}.scope_type IN ('campaign', 'adset')
+    AND ${alias}.proposed_action IN ('pause', 'budget', 'bid')
+    AND ${alias}.decision_note IS NOT DISTINCT FROM '${META_ENGINE_PROJECTION_WITHDRAWAL_NOTE}'
+    AND ${alias}.claim_token IS NULL
+    AND ${alias}.claimed_at IS NULL
+    AND ${alias}.claimed_by IS NULL
+    AND ${alias}.dispatch_started_at IS NULL
+    AND ${alias}.decided_by IS NULL
+    AND ${alias}.decided_at IS NULL
+    AND ${alias}.receipt_json IS NULL`;
+}
+
+export function metaEngineProjectionReofferablePredicate(alias: string): string {
+  return `((${alias}.status = 'pending'
+      AND ${alias}.claim_token IS NULL
+      AND ${alias}.claimed_at IS NULL
+      AND ${alias}.claimed_by IS NULL
+      AND ${alias}.dispatch_started_at IS NULL
+      AND ${alias}.decided_by IS NULL
+      AND ${alias}.decided_at IS NULL
+      AND ${alias}.receipt_json IS NULL)
+    OR (${metaEngineProjectionWithdrawalPredicate(alias)}))`;
+}
+
+/**
+ * Prove that an ad-grain pause still names the latest native decision row.
+ *
+ * The native projector normally withdraws a stale row after publishing. A
+ * failed projector must not leave the earlier cut approvable, though, so queue
+ * reads and claims repeat the source check themselves. Legacy proposal rows
+ * have no immutable snapshot identity and therefore fail closed while pending.
+ */
+export function currentNativeAdDecisionSourcePredicate(
+  alias: string,
+  strictEnvelopes: boolean,
+): string {
+  const envelope = strictEnvelopes
+    ? `AND jsonb_typeof(${alias}.evidence_ref) = 'object'
+       AND ${alias}.evidence_ref ->> 'snapshotId' = native_decision.id::text
+       AND ${alias}.evidence_ref ->> 'evaluationId'
+             = native_decision.evaluation_id::text
+       AND ${alias}.evidence_ref ->> 'creativeId' = native_decision.creative_id
+       AND ${alias}.evidence_ref ->> 'decisionHash'
+             = native_decision.decision_hash
+       AND ${alias}.evidence_ref ->> 'decisionKey' = ${alias}.decision_key
+       AND ${alias}.evidence_ref ->> 'snapshotDate'
+             = native_decision.as_of_date::text`
+    : "AND FALSE";
+
+  return `EXISTS (
+    SELECT 1
+      FROM engine_v3_ad_decision_snapshots_daily native_decision
+     WHERE native_decision.business_id = ${alias}.business_id::text
+       AND native_decision.provider_account_id = ${alias}.provider_account_id
+       AND native_decision.as_of_date = ${alias}.snapshot_date
+       AND native_decision.ad_id = ${alias}.scope_id
+       AND native_decision.evaluation_id::text = ${alias}.rec_id
+       AND native_decision.engine_version = ${alias}.engine_version
+       AND native_decision.label = 'cut'
+       AND native_decision.authorized_action = 'cut'
+       AND NULLIF(BTRIM(native_decision.creative_id), '') IS NOT NULL
+       /*
+         A decision row is evidence only when it belongs to the latest
+         authoritative native generation. A failed/skipped/stale-running later
+         run writes no replacement decision row, so looking only for the latest
+         row would otherwise leave the prior generation approvable. This is the
+         same terminal-run and account-receipt authority the canonical Decision
+         Center reader applies, repeated inside GET and the atomic claim.
+       */
+       AND EXISTS (
+         SELECT 1
+           FROM (
+             SELECT effective_run.*
+               FROM (
+                 SELECT run.*,
+                        CASE
+                          WHEN run.status = 'running'
+                            AND run.started_at < statement_timestamp()
+                              - make_interval(
+                                  secs => ${ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS * 4}::double precision / 1000.0
+                                )
+                          THEN 'failed'
+                          WHEN run.status = 'running' THEN 'running'
+                          WHEN run.finished_at IS NULL
+                            OR run.finished_at > statement_timestamp()
+                          THEN 'failed'
+                          ELSE run.status
+                        END AS effective_status
+                   FROM engine_v3_job_runs run
+                  WHERE run.job_name = 'engine_v3_native_ad_decisions_shadow_job'
+                    AND run.business_ref_id = ${alias}.business_id
+                    AND run.business_id = ${alias}.business_id::text
+                    AND run.as_of_date <= (
+                      statement_timestamp() AT TIME ZONE 'UTC'
+                    )::date
+                    AND run.started_at <= statement_timestamp()
+                    AND NOT (
+                      run.status = 'skipped'
+                      AND COALESCE(run.error_message, '')
+                            ILIKE 'Advisory lock not acquired%'
+                      AND EXISTS (
+                        SELECT 1
+                          FROM engine_v3_job_runs holder
+                         WHERE holder.job_name = run.job_name
+                           AND holder.business_ref_id = run.business_ref_id
+                           AND holder.business_id = run.business_id
+                           AND holder.as_of_date = run.as_of_date
+                           AND holder.id <> run.id
+                           AND holder.status IN ('success', 'failed')
+                           AND holder.started_at
+                                 <= COALESCE(run.finished_at, run.started_at)
+                           AND holder.finished_at >= run.started_at
+                           AND holder.finished_at <= statement_timestamp()
+                      )
+                    )
+               ) effective_run
+              WHERE effective_run.effective_status <> 'running'
+              ORDER BY effective_run.as_of_date DESC,
+                       effective_run.started_at DESC,
+                       effective_run.id DESC
+              LIMIT 1
+           ) authoritative_generation
+          WHERE authoritative_generation.effective_status = 'success'
+            AND authoritative_generation.engine_version
+                  = '${NATIVE_AD_ENGINE_VERSION}'
+            AND authoritative_generation.engine_version
+                  = native_decision.engine_version
+            AND authoritative_generation.as_of_date = native_decision.as_of_date
+            AND authoritative_generation.id = native_decision.job_run_id
+            /* Duplicate receipts make account authority ambiguous. */
+            AND (
+              SELECT COUNT(*)
+                FROM jsonb_array_elements(
+                  CASE
+                    WHEN jsonb_typeof(
+                      authoritative_generation.error_json
+                        #> '{metadata,hydration_receipts}'
+                    ) = 'array'
+                    THEN authoritative_generation.error_json
+                           #> '{metadata,hydration_receipts}'
+                    ELSE '[]'::jsonb
+                  END
+                ) account_receipt
+               WHERE account_receipt ->> 'provider_account_id'
+                     = ${alias}.provider_account_id
+            ) = 1
+            AND EXISTS (
+              SELECT 1
+                FROM jsonb_array_elements(
+                  CASE
+                    WHEN jsonb_typeof(
+                      authoritative_generation.error_json
+                        #> '{metadata,hydration_receipts}'
+                    ) = 'array'
+                    THEN authoritative_generation.error_json
+                           #> '{metadata,hydration_receipts}'
+                    ELSE '[]'::jsonb
+                  END
+                ) receipt
+               WHERE receipt ->> 'provider_account_id'
+                     = ${alias}.provider_account_id
+                 AND receipt ->> 'provider_account_ref_id'
+                     = native_decision.provider_account_ref_id::text
+                 AND receipt ->> 'expected_ad_count' ~ '^[0-9]+$'
+                 AND receipt ->> 'hydrated_ad_count' ~ '^[0-9]+$'
+                 AND receipt ->> 'hydrated_ad_count'
+                     = receipt ->> 'expected_ad_count'
+                 AND receipt ->> 'expected_manifest_hash' ~ '^[0-9a-f]{64}$'
+                 AND receipt ->> 'hydrated_manifest_hash'
+                     = receipt ->> 'expected_manifest_hash'
+                 AND receipt ->> 'authoritative_for_prune' = 'true'
+            )
+       )
+       AND native_decision.id = (
+         SELECT latest_native.id
+           FROM engine_v3_ad_decision_snapshots_daily latest_native
+          WHERE latest_native.business_id = native_decision.business_id
+            AND latest_native.provider_account_id
+                  = native_decision.provider_account_id
+            AND latest_native.ad_id = native_decision.ad_id
+          ORDER BY latest_native.as_of_date DESC,
+                   latest_native.computed_at DESC,
+                   latest_native.id DESC
+          LIMIT 1
+       )
+       ${envelope}
+  )`;
+}
+
+/**
+ * Prove that an engine proposal still describes the current persisted decision.
+ *
+ * Native ad proposals have their own decision table and reconciliation path;
+ * rules and operator actions have no structure-snapshot source. Those shapes
+ * pass through. Campaign/ad-set pause, budget and bid rows must still match the
+ * exact decision lineage and an action-specific structured payload. On the
+ * modern schema the persisted envelope must also name the same amount/intent.
+ */
+function currentEngineDecisionSourcePredicate(
+  alias: string,
+  strictEnvelopes: boolean,
+): string {
+  const budgetEnvelope = strictEnvelopes
+    ? `AND jsonb_typeof(${alias}.budget_envelope_json) = 'object'
+       AND ${alias}.budget_envelope_json ->> 'proposalId' = ${alias}.id::text
+       AND ${alias}.budget_envelope_json ->> 'recId' = d.rec_id
+       AND ${alias}.budget_envelope_json ->> 'recType' = d.rec_type
+       AND ${alias}.budget_envelope_json ->> 'snapshotDate' = d.snapshot_date::text
+       AND ${alias}.budget_envelope_json ->> 'engineVersion' = d.engine_version
+       AND ${alias}.budget_envelope_json ->> 'intendedAmountMinor'
+             = d.target_value ->> 'amountMinor'
+       AND ${alias}.budget_envelope_json ->> 'intentVerb' = CASE
+             WHEN d.target_value ->> 'direction' = 'increase' THEN 'increase_budget'
+             ELSE 'decrease_budget'
+           END`
+    : "AND FALSE";
+  const bidEnvelope = strictEnvelopes
+    ? `AND jsonb_typeof(${alias}.bid_envelope_json) = 'object'
+       AND ${alias}.bid_envelope_json ->> 'proposalId' = ${alias}.id::text
+       AND ${alias}.bid_envelope_json ->> 'recId' = d.rec_id
+       AND ${alias}.bid_envelope_json ->> 'recType' = d.rec_type
+       AND ${alias}.bid_envelope_json ->> 'snapshotDate' = d.snapshot_date::text
+       AND ${alias}.bid_envelope_json ->> 'engineVersion' = d.engine_version
+       AND ${alias}.bid_envelope_json ->> 'intentKey'
+             = d.target_value ->> 'intentKey'
+       AND ${alias}.bid_envelope_json ->> 'direction'
+             = d.target_value ->> 'direction'
+       AND ${alias}.bid_envelope_json ->> 'percent'
+             = d.target_value ->> 'percent'
+       AND ${alias}.bid_envelope_json ->> 'currentMinorUnits'
+             = d.target_value ->> 'currentMinorUnits'
+       AND ${alias}.bid_envelope_json ->> 'proposedMinorUnits'
+             = d.target_value ->> 'proposedMinorUnits'`
+    : "AND FALSE";
+
+  return `(
+    ${alias}.origin <> 'engine_decision'
+    OR (${alias}.scope_type = 'ad'
+      AND ${alias}.proposed_action = 'pause'
+      AND ${alias}.rec_type = 'native_ad_cut'
+      AND ${alias}.decision_label = 'cut'
+      AND ${currentNativeAdDecisionSourcePredicate(alias, strictEnvelopes)})
+    OR ${alias}.proposed_action NOT IN ('pause', 'budget', 'bid')
+    OR (${alias}.scope_type IN ('campaign', 'adset') AND EXISTS (
+      SELECT 1
+        FROM meta_decision_snapshots_daily d
+       WHERE d.business_id = ${alias}.business_id::text
+         AND d.provider_account_id = ${alias}.provider_account_id
+         AND d.snapshot_date = ${alias}.snapshot_date
+         AND d.scope_type = ${alias}.scope_type
+         AND d.scope_id = ${alias}.scope_id
+         AND d.rec_id = ${alias}.rec_id
+         AND d.rec_type = ${alias}.rec_type
+         AND d.engine_version = ${alias}.engine_version
+         AND d.kind = 'recommendation'
+         AND d.decision_state = 'act'
+         AND NOT EXISTS (
+           SELECT 1
+             FROM meta_decision_snapshots_daily newer_decision
+            WHERE newer_decision.business_id = d.business_id
+              AND newer_decision.provider_account_id = d.provider_account_id
+              AND newer_decision.scope_type = d.scope_type
+              AND newer_decision.scope_id = d.scope_id
+              AND newer_decision.kind = 'recommendation'
+              AND newer_decision.snapshot_date > d.snapshot_date
+         )
+         AND (
+           (${alias}.proposed_action = 'pause'
+             AND d.decision_label = 'cut')
+           OR
+           (${alias}.proposed_action = 'budget'
+             AND ${budgetIntentSemanticTupleSqlPredicate({
+               recommendationTypeExpression: "d.rec_type",
+               grainExpression: "d.scope_type",
+               directionExpression: "d.target_value ->> 'direction'",
+             })}
+             AND jsonb_typeof(d.target_value) = 'object'
+             AND d.target_value ->> 'contractVersion'
+                   = '${META_BUDGET_INTENT_CONTRACT_VERSION}'
+             AND CASE
+                   WHEN d.target_value ->> 'amountMinor' ~ '^[0-9]+$'
+                     THEN (d.target_value ->> 'amountMinor')::numeric > 0
+                   ELSE FALSE
+                 END
+             ${budgetEnvelope})
+           OR
+           (${alias}.proposed_action = 'bid'
+             AND d.scope_type = 'adset'
+             AND d.rec_type = 'scenario_b1_capped_winner_bid_raise'
+             AND jsonb_typeof(d.target_value) = 'object'
+             AND d.target_value ->> 'contractVersion'
+                   = '${META_BID_INTENT_CONTRACT_VERSION}'
+             AND d.target_value ->> 'kind' = 'bid_intent'
+             AND d.target_value ->> 'authorityStatus' = 'authorised'
+             AND d.target_value ->> 'direction' = 'increase'
+             AND CASE
+                   WHEN jsonb_typeof(d.target_value -> 'blockerCodes') = 'array'
+                     THEN jsonb_array_length(d.target_value -> 'blockerCodes') = 0
+                   ELSE FALSE
+                 END
+             AND CASE
+                   WHEN d.target_value ->> 'currentMinorUnits' ~ '^[0-9]+$'
+                     THEN (d.target_value ->> 'currentMinorUnits')::numeric > 0
+                   ELSE FALSE
+                 END
+             AND CASE
+                   WHEN d.target_value ->> 'proposedMinorUnits' ~ '^[0-9]+$'
+                     THEN (d.target_value ->> 'proposedMinorUnits')::numeric > 0
+                   ELSE FALSE
+                 END
+             AND NULLIF(BTRIM(d.target_value ->> 'intentKey'), '') IS NOT NULL
+             ${bidEnvelope})
+         )
+    ))
+  )`;
+}
 export type MetaAutomationProposalStatus =
   (typeof META_AUTOMATION_PROPOSAL_STATUSES)[number];
 
@@ -261,6 +627,15 @@ export interface MetaAutomationProposalReceipt {
   receiptKey?: string | null;
   /** Which authorization path produced this receipt. */
   executionKind?: "manual" | "scheduled";
+  /**
+   * Exact provider mutation fact from the guarded executor.
+   *
+   * This is distinct from `dispatch_started_at`, which is a durable
+   * write-ahead intent marker. `false` means the final provider boundary
+   * refused before a mutation attempt; absence preserves older receipts whose
+   * executor could not distinguish the two facts.
+   */
+  providerMutationAttempted?: boolean;
   /**
    * Set when the dispatch started and no provider answer was obtained. An
    * ambiguous attempt is never presented as PAUSED or as success.
@@ -702,6 +1077,10 @@ function mapProposalRow(row: ProposalDbRow): MetaAutomationProposal {
         providerAccountId: row.provider_account_id,
         scopeType: row.scope_type,
         scopeId: row.scope_id,
+        recId: row.rec_id,
+        recType: row.rec_type,
+        snapshotDate: String(row.snapshot_date).slice(0, 10),
+        engineVersion: row.engine_version,
       },
     ),
     /*
@@ -791,6 +1170,7 @@ async function withClaimColumnFallback<T>(
 async function selectProposalRows(
   where: string,
   params: unknown[],
+  legacyWhere: string = where,
 ): Promise<ProposalDbRow[]> {
   return withClaimColumnFallback(
     async () =>
@@ -800,7 +1180,7 @@ async function selectProposalRows(
       )) as ProposalDbRow[],
     async () =>
       (await getDb().query<ProposalDbRow>(
-        `SELECT ${PROPOSAL_BASE_COLUMNS} FROM meta_automation_proposals ${where}`,
+        `SELECT ${PROPOSAL_BASE_COLUMNS} FROM meta_automation_proposals ${legacyWhere}`,
         params,
       )) as ProposalDbRow[],
   );
@@ -811,6 +1191,92 @@ async function proposalsReady() {
     tables: [...PROPOSAL_TABLES],
   }).catch(() => null);
   return Boolean(readiness?.ready);
+}
+
+export interface ReconcileMetaEngineDecisionProposalsResult {
+  /** False only when the proposal/source schema is not available yet. */
+  ran: boolean;
+  withdrawn: number;
+}
+
+/**
+ * Withdraw stale engine projections before one structure refresh recomputes.
+ *
+ * `attemptedProviderAccountIds` is the authority boundary. An account the run
+ * did not attempt is untouched. An attempted account absent from `fulfilled`
+ * loses every still-pending campaign/ad-set engine proposal for this day; a
+ * fulfilled account loses only rows whose exact current source no longer
+ * authorises the same action and amount.
+ *
+ * The snapshot calls this first with an empty fulfilled set. That closes the
+ * old queue before any potentially failing account computation begins. Its
+ * normal producers then re-open only rows proved by this run. If generation or
+ * a later producer fails, the safe state is therefore already durable.
+ */
+export async function reconcileMetaEngineDecisionProposalsForSnapshot(input: {
+  businessId: string;
+  snapshotDate: string;
+  attemptedProviderAccountIds: readonly string[];
+  fulfilledProviderAccountIds: readonly string[];
+  now?: Date;
+}): Promise<ReconcileMetaEngineDecisionProposalsResult> {
+  const attempted = Array.from(new Set(
+    input.attemptedProviderAccountIds.map((id) => id.trim()).filter(Boolean),
+  ));
+  if (attempted.length === 0) return { ran: true, withdrawn: 0 };
+  if (!(await proposalsReady())) return { ran: false, withdrawn: 0 };
+
+  const attemptedSet = new Set(attempted);
+  const fulfilled = Array.from(new Set(
+    input.fulfilledProviderAccountIds
+      .map((id) => id.trim())
+      .filter((id) => Boolean(id) && attemptedSet.has(id)),
+  ));
+  const now = (input.now ?? new Date()).toISOString();
+  const run = async (strictEnvelopes: boolean) =>
+    (await getDb().query<{ id: string }>(
+      `UPDATE meta_automation_proposals p
+          SET status = 'expired',
+              decision_note = '${META_ENGINE_PROJECTION_WITHDRAWAL_NOTE}',
+              expires_at = $5::timestamptz,
+              updated_at = $5::timestamptz
+        WHERE p.business_id = $1::uuid
+          AND p.snapshot_date <= $2::date
+          AND p.provider_account_id = ANY($3::text[])
+          AND p.status = 'pending'
+          AND p.origin = 'engine_decision'
+          AND p.scope_type IN ('campaign', 'adset')
+          AND p.proposed_action IN ('pause', 'budget', 'bid')
+          AND p.claim_token IS NULL
+          AND p.claimed_at IS NULL
+          AND p.claimed_by IS NULL
+          AND p.dispatch_started_at IS NULL
+          AND p.decided_by IS NULL
+          AND p.decided_at IS NULL
+          AND p.receipt_json IS NULL
+          AND (
+            p.snapshot_date < $2::date
+            OR NOT (p.provider_account_id = ANY($4::text[]))
+            OR NOT (${currentEngineDecisionSourcePredicate("p", strictEnvelopes)})
+          )
+        RETURNING p.id::text AS id`,
+      [input.businessId, input.snapshotDate, attempted, fulfilled, now],
+    )) as Array<{ id: string }>;
+
+  try {
+    const rows = await run(true);
+    return { ran: true, withdrawn: rows.length };
+  } catch (error) {
+    /*
+      A rolling pre-migration process may have the queue but not its envelope
+      columns. Pause can still be reconciled exactly; budget/bid are withdrawn
+      because that schema cannot prove their amount. Claiming on that database
+      also refuses with `migration_required`.
+    */
+    if (!isUndefinedColumnError(error)) throw error;
+    const rows = await run(false);
+    return { ran: true, withdrawn: rows.length };
+  }
 }
 
 /**
@@ -972,20 +1438,22 @@ export interface ProjectMetaAutomationProposalsResult {
  * means: the sweep ages out what the previous snapshot proposed, and the insert
  * re-raises anything the new snapshot still says.
  *
- * The insert is `ON CONFLICT … DO UPDATE` restricted to rows that are still
- * `pending`. A proposal an operator already approved, modified or dismissed is
- * never resurrected by a re-run, and an expired one stays expired for its own
- * snapshot day — the new day's snapshot produces a new row.
+ * Exact untouched projection rows are refreshed with an UPDATE that preserves
+ * their id. New rows use untargeted `ON CONFLICT DO NOTHING`, so either the
+ * projection-key arbiter or an action-slot winner can refuse one candidate
+ * without aborting unrelated candidates in the same batch. A proposal an
+ * operator already approved, modified or dismissed is never resurrected.
  *
  * Three narrowing clauses that each exist for a reason:
  *
  * - The already-`PAUSED` exclusion. A pause proposal on something already
  *   paused is a primary control whose only possible outcome is a no-op write.
- * - `DISTINCT ON (scope_type, scope_id)`. The decision table's grain is one row
- *   per *rec type*, so one ad set can carry several `cut` scenarios in a day.
- *   Two queue rows proposing the same pause would be two chances to do the same
- *   thing; the lowest rec type wins, deterministically, so a re-run picks the
- *   same one.
+ * - `DISTINCT ON (provider_account_id, scope_type, scope_id)`. The decision
+ *   table's grain is one row per *rec type*, so one ad set can carry several
+ *   `cut` scenarios in a day. Two queue rows proposing the same pause would be
+ *   two chances to do the same thing; the lowest rec type wins,
+ *   deterministically, so a re-run picks the same one. Provider account is
+ *   part of the identity because Meta ids are only unique inside an account.
  * - The `NOT EXISTS` against a decided row for the same entity and day. Without
  *   it, a different rec type winning the tiebreak on a later run would re-raise
  *   a proposal the operator had already dismissed that same day. `claimed`
@@ -1020,10 +1488,20 @@ export interface ProjectMetaAutomationProposalsResult {
 export async function projectMetaAutomationProposals(input: {
   businessId: string;
   snapshotDate: string;
+  /** Accounts whose decision generation completed in this exact snapshot run. */
+  providerAccountIds: readonly string[];
   now?: Date;
   /** Injectable so the projection stays testable without a control plane. */
   readModes?: typeof resolveEffectiveMetaModes;
 }): Promise<ProjectMetaAutomationProposalsResult> {
+  const providerAccountIds = Array.from(new Set(
+    input.providerAccountIds.map((id) => id.trim()).filter(Boolean),
+  ));
+  // With no successful account generation this tick, every same-day decision
+  // is potentially stale. Do not even open the proposal tables.
+  if (providerAccountIds.length === 0) {
+    return { projected: 0, expired: 0, ran: true };
+  }
   if (!(await proposalsReady())) {
     return { projected: 0, expired: 0, ran: false };
   }
@@ -1070,10 +1548,11 @@ export async function projectMetaAutomationProposals(input: {
   }).catch(() => null);
 
   const ttlInterval = `${META_AUTOMATION_PROPOSAL_TTL_HOURS} hours`;
-  const rows = (await getDb().query<{ id: string }>(
-    `
-      WITH decisions AS (
-        SELECT DISTINCT ON (d.scope_type, d.scope_id)
+  const rows = await runPauseProjectionBatch<{ id: string }>(() =>
+    getDb().query<{ id: string }>(
+      `
+      WITH decisions AS MATERIALIZED (
+        SELECT DISTINCT ON (d.provider_account_id, d.scope_type, d.scope_id)
                d.scope_type,
                d.scope_id,
                d.rec_id,
@@ -1109,9 +1588,12 @@ export async function projectMetaAutomationProposals(input: {
           ON dim.business_id = d.business_id
          AND dim.scope_type = d.scope_type
          AND dim.scope_id = d.scope_id
+         AND dim.provider_account_id = d.provider_account_id
         WHERE d.business_id = $1::text
           AND d.snapshot_date = $2::date
           AND d.kind = 'recommendation'
+          AND d.decision_state = 'act'
+          AND dim.provider_account_id = ANY($6::text[])
           AND d.scope_type IN ('campaign', 'adset')
           AND d.decision_label = 'cut'
           AND COALESCE(UPPER(dim.entity_status), '') <> 'PAUSED'
@@ -1124,6 +1606,7 @@ export async function projectMetaAutomationProposals(input: {
               AND decided.decision_key = d.scope_type || ':' || d.scope_id
               AND decided.snapshot_date = d.snapshot_date
               AND decided.status NOT IN (${META_AUTOMATION_PROPOSAL_UNDECIDED_STATUS_SQL})
+              AND NOT (${metaEngineProjectionWithdrawalPredicate("decided")})
           )
           AND NOT EXISTS (
             SELECT 1
@@ -1134,8 +1617,8 @@ export async function projectMetaAutomationProposals(input: {
               AND held.proposed_action = 'pause'
               AND held.status IN (${META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL})
               -- The exemption is for the row this statement REFRESHES in place,
-              -- and only a pending row can be refreshed: the upsert's own
-              -- DO UPDATE is guarded on status = 'pending'. Exempting a
+              -- and only a pending row can be refreshed: the refresh UPDATE is
+              -- guarded on untouched pending state. Exempting a
               -- reconcile row here would let the projection attempt an insert
               -- against a held slot, which the open-slot unique index would
               -- then reject inside the snapshot pipeline.
@@ -1171,8 +1654,50 @@ export async function projectMetaAutomationProposals(input: {
                 AND perf.roas < $5::numeric
             )
           )
-        ORDER BY d.scope_type, d.scope_id, d.rec_type
-      )
+        ORDER BY d.provider_account_id, d.scope_type, d.scope_id, d.rec_type
+      ), refreshed AS (
+        UPDATE meta_automation_proposals pending
+           SET status = 'pending',
+               rec_id = d.rec_id,
+               engine_version = d.engine_version,
+               decision_label = d.decision_label,
+               action_label = CASE
+                 WHEN d.scope_type = 'campaign' THEN 'Pause campaign'
+                 ELSE 'Pause ad set'
+               END,
+               primary_caption = $3,
+               reason = d.reasoning,
+               evidence_label = NULLIF(BTRIM(d.expected_impact), ''),
+               evidence_ref = jsonb_build_object(
+                 'recId', d.rec_id,
+                 'recType', d.rec_type,
+                 'snapshotDate', d.snapshot_date::text,
+                 'engineVersion', d.engine_version,
+                 'decisionKey', d.scope_type || ':' || d.scope_id,
+                 'evidence', d.evidence
+               ),
+               entity_label = NULLIF(BTRIM(d.entity_label), ''),
+               expires_at = d.created_at + $4::interval,
+               decision_note = NULL,
+               updated_at = NOW()
+          FROM decisions d
+         WHERE pending.business_id = $1::uuid
+           AND pending.provider_account_id = d.provider_account_id
+           AND pending.decision_key = d.scope_type || ':' || d.scope_id
+           AND pending.scope_type = d.scope_type
+           AND pending.scope_id = d.scope_id
+           AND pending.rec_type = d.rec_type
+           AND pending.snapshot_date = d.snapshot_date
+           AND pending.origin = 'engine_decision'
+           AND pending.scope_type IN ('campaign', 'adset')
+           AND pending.proposed_action = 'pause'
+           AND ${metaEngineProjectionReofferablePredicate("pending")}
+        RETURNING pending.id,
+                  pending.provider_account_id,
+                  pending.decision_key,
+                  pending.rec_type,
+                  pending.snapshot_date
+      ), inserted AS (
       INSERT INTO meta_automation_proposals (
         business_id, provider_account_id, origin, decision_key, scope_type,
         scope_id, rec_id, rec_type, snapshot_date, engine_version,
@@ -1206,26 +1731,36 @@ export async function projectMetaAutomationProposals(input: {
              ),
              created_at + $4::interval,
              'pending'
-      FROM decisions
-      ON CONFLICT (business_id, provider_account_id, decision_key, rec_type, snapshot_date)
-      DO UPDATE SET
-        reason = EXCLUDED.reason,
-        evidence_label = EXCLUDED.evidence_label,
-        evidence_ref = EXCLUDED.evidence_ref,
-        entity_label = EXCLUDED.entity_label,
-        expires_at = EXCLUDED.expires_at,
-        updated_at = NOW()
-      WHERE meta_automation_proposals.status = 'pending'
+      FROM decisions d
+      WHERE NOT EXISTS (
+        SELECT 1
+          FROM refreshed r
+         WHERE r.provider_account_id = d.provider_account_id
+           AND r.decision_key = d.scope_type || ':' || d.scope_id
+           AND r.rec_type = d.rec_type
+           AND r.snapshot_date = d.snapshot_date
+      )
+      -- No conflict target on purpose. The projection key and the open action
+      -- slot are independent arbiters. A rule can win the slot after this
+      -- statement's source read; that one candidate is then skipped without a
+      -- 23505 aborting every unrelated candidate in the batch.
+      ON CONFLICT DO NOTHING
       RETURNING id
-    `,
-    [
-      input.businessId,
-      input.snapshotDate,
-      META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
-      ttlInterval,
-      minRoasFloor,
-    ],
-  )) as Array<{ id: string }>;
+      )
+      SELECT id FROM refreshed
+      UNION ALL
+      SELECT id FROM inserted
+      `,
+      [
+        input.businessId,
+        input.snapshotDate,
+        META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
+        ttlInterval,
+        minRoasFloor,
+        providerAccountIds,
+      ],
+    ),
+  );
 
   /*
     The native ad projection does NOT run here.
@@ -1265,9 +1800,10 @@ export async function projectMetaAutomationProposals(input: {
  * point: run from the structure snapshot, as it was, it could only ever see
  * the previous slot's decisions.
  *
- * Idempotent by construction. The insert's ON CONFLICT targets the projection's
- * own unique key (business, account, decision key, rec type, snapshot date).
- * Pending rows are refreshed or withdrawn as the current decision changes.
+ * Idempotent by construction. Exact pending/system-withdrawn projection rows
+ * are refreshed by id; new rows let either unique arbiter skip only its own
+ * conflicting candidate. Pending rows are refreshed or withdrawn as the
+ * current decision changes.
  * Only our untouched system-withdrawn rows can be offered again; operator
  * decisions and provider attempts retain their terminal or in-flight state.
  * Safe to call again for one account, or for all of them.
@@ -1327,7 +1863,7 @@ export async function projectNativeAdProposals(input: {
 const NATIVE_PROJECTION_WITHDRAWAL_NOTE = "native_ad_decision_withdrawn";
 
 /** Only expiry caused by this projection is reversible; never an operator act. */
-function nativeProjectionWithdrawalPredicate(alias: "decided" | "meta_automation_proposals") {
+function nativeProjectionWithdrawalPredicate(alias: string) {
   return `${alias}.status = 'expired'
     AND ${alias}.origin = 'engine_decision'
     AND ${alias}.rec_type = 'native_ad_cut'
@@ -1341,6 +1877,18 @@ function nativeProjectionWithdrawalPredicate(alias: "decided" | "meta_automation
     AND ${alias}.decided_by IS NULL
     AND ${alias}.decided_at IS NULL
     AND ${alias}.receipt_json IS NULL`;
+}
+
+function nativeProjectionReofferablePredicate(alias: string) {
+  return `((${alias}.status = 'pending'
+      AND ${alias}.claim_token IS NULL
+      AND ${alias}.claimed_at IS NULL
+      AND ${alias}.claimed_by IS NULL
+      AND ${alias}.dispatch_started_at IS NULL
+      AND ${alias}.decided_by IS NULL
+      AND ${alias}.decided_at IS NULL
+      AND ${alias}.receipt_json IS NULL)
+    OR (${nativeProjectionWithdrawalPredicate(alias)}))`;
 }
 
 /** One atomic statement: the source read, withdrawal and re-offer share a snapshot. */
@@ -1393,7 +1941,7 @@ export const NATIVE_AD_PAUSE_PROJECTION_SQL = `
                expires_at = NOW(),
                updated_at = NOW()
          WHERE pending.business_id = $1::uuid
-           AND pending.snapshot_date = $2::date
+           AND pending.snapshot_date <= $2::date
            AND ($5::text IS NULL OR pending.provider_account_id = $5)
            AND pending.status = 'pending'
            AND pending.origin = 'engine_decision'
@@ -1407,13 +1955,91 @@ export const NATIVE_AD_PAUSE_PROJECTION_SQL = `
            AND pending.decided_by IS NULL
            AND pending.decided_at IS NULL
            AND pending.receipt_json IS NULL
-           AND NOT EXISTS (
-             SELECT 1 FROM decisions current_cut
-              WHERE current_cut.provider_account_id = pending.provider_account_id
-                AND 'ad:' || current_cut.ad_id = pending.decision_key
+           AND (
+             pending.snapshot_date < $2::date
+             OR NOT EXISTS (
+               SELECT 1 FROM decisions current_cut
+                WHERE current_cut.provider_account_id = pending.provider_account_id
+                  AND 'ad:' || current_cut.ad_id = pending.decision_key
+             )
            )
         RETURNING pending.id
-      )
+      ), eligible_decisions AS MATERIALIZED (
+        SELECT d.*
+          FROM decisions d
+         WHERE NOT EXISTS (
+           SELECT 1 FROM meta_automation_proposals decided
+            WHERE decided.business_id = $1::uuid
+              AND decided.provider_account_id = d.provider_account_id
+              AND decided.decision_key = 'ad:' || d.ad_id
+              AND decided.snapshot_date = d.as_of_date
+              AND decided.status NOT IN (${META_AUTOMATION_PROPOSAL_UNDECIDED_STATUS_SQL})
+              AND NOT (${nativeProjectionWithdrawalPredicate("decided")})
+         )
+           AND NOT EXISTS (
+             SELECT 1 FROM meta_automation_proposals held
+              WHERE held.business_id = $1::uuid
+                AND held.provider_account_id = d.provider_account_id
+                AND held.decision_key = 'ad:' || d.ad_id
+                AND held.proposed_action = 'pause'
+                AND held.status IN (${META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL})
+                AND NOT EXISTS (
+                  SELECT 1 FROM withdrawn
+                   WHERE withdrawn.id = held.id
+                )
+                AND NOT (
+                  held.status = 'pending'
+                  AND held.origin = 'engine_decision'
+                  AND held.scope_type = 'ad'
+                  AND held.scope_id = d.ad_id
+                  AND held.rec_type = 'native_ad_cut'
+                  AND held.snapshot_date = d.as_of_date
+                )
+           )
+      ), refreshed AS (
+        UPDATE meta_automation_proposals pending
+           SET status = 'pending',
+               rec_id = d.rec_id,
+               engine_version = d.engine_version,
+               decision_label = 'cut',
+               reason = d.reason,
+               evidence_ref = jsonb_build_object(
+                 'recId', d.rec_id,
+                 'recType', 'native_ad_cut',
+                 'snapshotDate', d.as_of_date::text,
+                 'engineVersion', d.engine_version,
+                 'decisionKey', 'ad:' || d.ad_id,
+                 'creativeId', d.creative_id,
+                 'decisionHash', d.decision_hash,
+                 'snapshotId', d.snapshot_id,
+                 'evaluationId', d.rec_id,
+                 'evidence', jsonb_build_object(
+                   'roas', d.roas,
+                   'spend', d.spend,
+                   'targetRoas', d.effective_target_roas
+                 )
+               ),
+               entity_label = NULLIF(BTRIM(d.entity_label), ''),
+               expires_at = NOW() + $4::interval,
+               decision_note = NULL,
+               updated_at = NOW()
+          FROM eligible_decisions d
+         WHERE pending.business_id = $1::uuid
+           AND pending.provider_account_id = d.provider_account_id
+           AND pending.decision_key = 'ad:' || d.ad_id
+           AND pending.scope_id = d.ad_id
+           AND pending.rec_type = 'native_ad_cut'
+           AND pending.snapshot_date = d.as_of_date
+           AND pending.origin = 'engine_decision'
+           AND pending.scope_type = 'ad'
+           AND pending.proposed_action = 'pause'
+           AND ${nativeProjectionReofferablePredicate("pending")}
+        RETURNING pending.id,
+                  pending.provider_account_id,
+                  pending.decision_key,
+                  pending.rec_type,
+                  pending.snapshot_date
+      ), inserted AS (
       INSERT INTO meta_automation_proposals (
         business_id, provider_account_id, origin, decision_key, scope_type,
         scope_id, rec_id, rec_type, snapshot_date, engine_version,
@@ -1456,50 +2082,24 @@ export const NATIVE_AD_PAUSE_PROJECTION_SQL = `
              ),
              NOW() + $4::interval,
              'pending'
-        FROM decisions d
+        FROM eligible_decisions d
        WHERE NOT EXISTS (
-         SELECT 1 FROM meta_automation_proposals decided
-          WHERE decided.business_id = $1::uuid
-            AND decided.provider_account_id = d.provider_account_id
-            AND decided.decision_key = 'ad:' || d.ad_id
-            AND decided.snapshot_date = d.as_of_date
-            AND decided.status NOT IN (${META_AUTOMATION_PROPOSAL_UNDECIDED_STATUS_SQL})
-            AND NOT (${nativeProjectionWithdrawalPredicate("decided")})
-       )
-         AND NOT EXISTS (
-           SELECT 1 FROM meta_automation_proposals held
-            WHERE held.business_id = $1::uuid
-              AND held.provider_account_id = d.provider_account_id
-              AND held.decision_key = 'ad:' || d.ad_id
-              AND held.proposed_action = 'pause'
-              AND held.status IN (${META_AUTOMATION_PROPOSAL_OPEN_STATUS_SQL})
-              AND NOT (
-                held.status = 'pending'
-                AND held.origin = 'engine_decision'
-                AND held.rec_type = 'native_ad_cut'
-                AND held.snapshot_date = d.as_of_date
-              )
+           SELECT 1
+             FROM refreshed r
+            WHERE r.provider_account_id = d.provider_account_id
+              AND r.decision_key = 'ad:' || d.ad_id
+              AND r.rec_type = 'native_ad_cut'
+              AND r.snapshot_date = d.as_of_date
          )
-      ON CONFLICT (business_id, provider_account_id, decision_key, rec_type, snapshot_date)
-      DO UPDATE SET
-        status = 'pending',
-        rec_id = EXCLUDED.rec_id,
-        engine_version = EXCLUDED.engine_version,
-        decision_label = EXCLUDED.decision_label,
-        reason = EXCLUDED.reason,
-        evidence_ref = EXCLUDED.evidence_ref,
-        entity_label = EXCLUDED.entity_label,
-        expires_at = EXCLUDED.expires_at,
-        decision_note = NULL,
-        updated_at = NOW()
-      WHERE meta_automation_proposals.origin = 'engine_decision'
-        AND meta_automation_proposals.scope_type = 'ad'
-        AND meta_automation_proposals.proposed_action = 'pause'
-        AND (
-          meta_automation_proposals.status = 'pending'
-          OR (${nativeProjectionWithdrawalPredicate("meta_automation_proposals")})
-        )
+      -- The projection key and the open action slot can race independently.
+      -- Suppress either conflict for this candidate only, so another ad in the
+      -- same batch still reaches the queue.
+      ON CONFLICT DO NOTHING
       RETURNING id
+      )
+      SELECT id FROM refreshed
+      UNION ALL
+      SELECT id FROM inserted
     `;
 
 async function projectNativeAdPauseProposals(input: {
@@ -1508,15 +2108,17 @@ async function projectNativeAdPauseProposals(input: {
   providerAccountId: string | null;
   ttlInterval: string;
 }): Promise<number> {
-  const rows = await getDb().query<{ id: string }>(
-    NATIVE_AD_PAUSE_PROJECTION_SQL,
-    [
-      input.businessId,
-      input.snapshotDate,
-      META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
-      input.ttlInterval,
-      input.providerAccountId,
-    ],
+  const rows = await runPauseProjectionBatch<{ id: string }>(
+    () => getDb().query<{ id: string }>(
+      NATIVE_AD_PAUSE_PROJECTION_SQL,
+      [
+        input.businessId,
+        input.snapshotDate,
+        META_AUTOMATION_PROPOSAL_PRIMARY_CAPTION,
+        input.ttlInterval,
+        input.providerAccountId,
+      ],
+    ),
   );
   return rows.length;
 }
@@ -1559,9 +2161,24 @@ export async function readMetaAutomationProposalQueue(input: {
         AND provider_account_id = $2
         AND status = 'pending'
         AND expires_at > $3::timestamptz
+        AND ${currentEngineDecisionSourcePredicate(
+          "meta_automation_proposals",
+          true,
+        )}
       ORDER BY expires_at ASC, created_at ASC
     `,
     [input.businessId, input.providerAccountId, now.toISOString()],
+    `
+      WHERE business_id = $1::uuid
+        AND provider_account_id = $2
+        AND status = 'pending'
+        AND expires_at > $3::timestamptz
+        AND ${currentEngineDecisionSourcePredicate(
+          "meta_automation_proposals",
+          false,
+        )}
+      ORDER BY expires_at ASC, created_at ASC
+    `,
   );
   return { readCompleteness: "complete", proposals: rows.map(mapProposalRow) };
 }
@@ -1618,9 +2235,29 @@ export async function readMetaAutomationProposal(input: {
       WHERE business_id = $1::uuid
         AND provider_account_id = $2
         AND id = $3::uuid
+        AND (
+          status <> 'pending'
+          OR ${currentEngineDecisionSourcePredicate(
+            "meta_automation_proposals",
+            true,
+          )}
+        )
       LIMIT 1
     `,
     [input.businessId, input.providerAccountId, input.proposalId],
+    `
+      WHERE business_id = $1::uuid
+        AND provider_account_id = $2
+        AND id = $3::uuid
+        AND (
+          status <> 'pending'
+          OR ${currentEngineDecisionSourcePredicate(
+            "meta_automation_proposals",
+            false,
+          )}
+        )
+      LIMIT 1
+    `,
   );
   return rows[0] ? mapProposalRow(rows[0]) : null;
 }
@@ -1802,6 +2439,10 @@ export async function claimMetaAutomationProposal(input: {
           AND id = $3::uuid
           AND status = 'pending'
           AND expires_at > $5::timestamptz
+          AND ${currentEngineDecisionSourcePredicate(
+            "meta_automation_proposals",
+            true,
+          )}
         RETURNING ${PROPOSAL_COLUMNS}
       `,
       [

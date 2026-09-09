@@ -123,9 +123,21 @@ describe("observed Shopify AOV", () => {
     expect(observedShopifyAovIsUsable(evidence)).toBe(true);
   });
 
-  it("supplies the spend unit as AOV divided by Target ROAS", () => {
-    // The whole point of the source: ROAS is the only configured target, and
-    // both optional fields stay null.
+  it("supplies no spend unit, and holds by name when Meta attributed nothing", () => {
+    /*
+      RE-PINNED to the canonical rule. This case used to assert the opposite —
+      `source: "observed_shopify_aov"` and $58.00 / 2.2 = 2636 minor, the A3.6
+      worked case — because the store's AOV was a rung of `resolveSpendUnit`.
+      It is not one any more: for a META decision the money-per-purchase unit is
+      META's own attributed purchase AOV, and the merchant's settled orders are
+      a different book.
+
+      The refusal is EXPLICIT, not silence. `insufficient` with a null unit is
+      the resolver's own hold, and the warnings say which absence caused it —
+      including `operator_aov_missing`, which this case used to assert was NOT
+      emitted. It is emitted correctly now: with no Meta AOV, nothing at all can
+      supply the quantity a Target ROAS divides.
+    */
     const resolution = resolveSpendUnit({
       targetCpa: null,
       operatorAovAssumption: null,
@@ -141,13 +153,72 @@ describe("observed Shopify AOV", () => {
       accountCpaSampleCount: 0,
       attributionAovAdjustmentMultiplier: 1,
     });
-    expect(resolution.source).toBe("observed_shopify_aov");
-    // $58.00 / 2.2 = $26.36 (2636 minor), the A3.6 worked case.
-    expect(Math.round(resolution.spendUnit! * 100)).toBe(2636);
+    expect(resolution.source).toBe("insufficient");
+    expect(resolution.spendUnit).toBeNull();
+    expect(resolution.confidence).toBe("insufficient");
+    expect(resolution.hardEligibleByDefault).toBe(false);
+    // A NAMED hold: the two absences the operator can act on, not silence.
+    expect(resolution.evidence.warnings).toContain("meta_aov_unavailable");
+    expect(resolution.evidence.warnings).toContain("operator_aov_missing");
+    // The store's number is still CARRIED, as context beside the refusal.
+    expect(resolution.evidence.observedShopifyAov).toBe(58);
+    expect(resolution.evidence.observedShopifyAovOrderCount).toBe(41);
+    expect(resolution.evidence.observedShopifyAovStatus).toBe("observed");
+  });
+
+  it("still mints a unit from the Meta platform AOV and a Target ROAS", () => {
+    /*
+      THE GUARD AGAINST OVER-CORRECTING the case above into a resolver that
+      never answers. The canonical basis is present here — 71.00 of attributed
+      revenue per attributed purchase over a `ready` sample — and it must still
+      produce a unit, with no store evidence anywhere in the input.
+    */
+    const resolution = resolveSpendUnit({
+      targetCpa: null,
+      operatorAovAssumption: null,
+      metaAttributedAovMean90d: 71,
+      metaAttributedAovPurchaseCount90d: 400,
+      metaAttributedRevenue90d: 28_400,
+      targetRoas: 2.2,
+      breakEvenRoas: 1.8,
+      accountCpaP50: null,
+      accountCpaSampleCount: 0,
+      attributionAovAdjustmentMultiplier: 1,
+    });
+    expect(resolution.source).toBe("meta_derived_aov");
+    expect(Math.round(resolution.spendUnit! * 100)).toBe(3227);
+    expect(resolution.hardEligibleByDefault).toBe(true);
+    expect(resolution.evidence.warnings).not.toContain("meta_aov_unavailable");
     expect(resolution.evidence.warnings).not.toContain("operator_aov_missing");
   });
 
   it("prefers a configured Target CPA over the observed store number", () => {
+    // RE-PINNED: this case used to also carry `targetRoas: 2.2`, and it was the
+    // Target ROAS, not the CPA, that has since become decisive. With no ratio
+    // the CPA is still the only anchor there is, and the store's measurement
+    // still does not become one.
+    const resolution = resolveSpendUnit({
+      targetCpa: 30,
+      operatorAovAssumption: null,
+      observedShopifyAov: 58,
+      observedShopifyAovStatus: "observed",
+      metaAttributedAovMean90d: null,
+      metaAttributedAovPurchaseCount90d: 0,
+      metaAttributedRevenue90d: 0,
+      targetRoas: null,
+      breakEvenRoas: null,
+      accountCpaP50: null,
+      accountCpaSampleCount: 0,
+      attributionAovAdjustmentMultiplier: 1,
+    });
+    // A configured number is a decision; this source is a measurement.
+    expect(resolution.source).toBe("target_cpa");
+  });
+
+  it("holds on a missing Meta AOV rather than taking the CPA or the store's", () => {
+    // The same account WITH a Target ROAS: the canonical basis is the platform
+    // AOV over that ratio, and neither the operator's CPA (30) nor the store's
+    // 58 / 2.2 = 26.36 stands in for it when Meta has attributed nothing.
     const resolution = resolveSpendUnit({
       targetCpa: 30,
       operatorAovAssumption: null,
@@ -162,11 +233,22 @@ describe("observed Shopify AOV", () => {
       accountCpaSampleCount: 0,
       attributionAovAdjustmentMultiplier: 1,
     });
-    // A configured number is a decision; this source is a measurement.
-    expect(resolution.source).toBe("target_cpa");
+
+    expect(resolution.source).toBe("insufficient");
+    expect(resolution.spendUnit).toBeNull();
+    expect(resolution.hardEligibleByDefault).toBe(false);
+    expect(resolution.evidence.warnings).toContain("meta_aov_unavailable");
+    expect(resolution.evidence.observedShopifyAov).toBe(58);
   });
 
-  it("precedes the Meta-attributed estimate of the same quantity", () => {
+  it("yields to the Meta-attributed estimate of the same quantity", () => {
+    /*
+      RE-PINNED, and the direction is the whole point. This used to assert that
+      the store's 58.00 PRECEDED Meta's own 71.00 — the merchant's book winning
+      over the platform's own attribution of the very spend being decided. Under
+      the canonical rule the platform's number is the basis, and the store's is
+      carried beside it as context.
+    */
     const resolution = resolveSpendUnit({
       targetCpa: null,
       operatorAovAssumption: null,
@@ -181,7 +263,10 @@ describe("observed Shopify AOV", () => {
       accountCpaSampleCount: 0,
       attributionAovAdjustmentMultiplier: 1,
     });
-    expect(resolution.source).toBe("observed_shopify_aov");
+    expect(resolution.source).toBe("meta_derived_aov");
+    // 71.00 / 2.2, not the store's 58.00 / 2.2 = 2636.
+    expect(Math.round(resolution.spendUnit! * 100)).toBe(3227);
+    expect(resolution.evidence.observedShopifyAov).toBe(58);
   });
 
   it("withholds without the store's own time zone, rather than picking one", async () => {

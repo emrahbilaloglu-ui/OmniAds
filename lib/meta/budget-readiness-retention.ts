@@ -20,6 +20,7 @@
  * `unknown`, takes exactly one owned snapshot through the hardened observer in
  * `lib/meta/runtime-schema`, and returns a refusal rather than throwing.
  */
+import { META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL } from "@/lib/meta/observation-receipt-schema";
 import {
   ISO_4217_REGISTRY_SOURCE,
   ISO_4217_REGISTRY_VERSION,
@@ -52,14 +53,124 @@ import {
  * its own contract and its own unit provenance. No D086 schema was ever
  * deployed and no row exists anywhere, so the corrected identity is versioned
  * now rather than quietly given to v1.
+ *
+ * v10 CLOSES A COLLISION THAT v9 WAS CARRYING.
+ *
+ * Two changes altered what the retention identity means while its name stayed
+ * `.v9`, so a row written before either and a row written after both claimed
+ * the same contract and hashed differently — the exact silent-collision shape
+ * this ledger exists to prevent:
+ *
+ *  - the MEASURED half stopped digesting the observed Shopify AOV. Under D091
+ *    that reading chooses no rung, so it could not change a verdict, yet it
+ *    changed this hash — and this hash is persisted
+ *    (`engine_v3_account_profile_output.source_fingerprint`, part of that
+ *    table's UNIQUE key) and compared below, so one new store order answered
+ *    `retained_profile_source_mismatch` and discarded an unchanged Meta
+ *    verdict.
+ *  - the CONFIGURED half now digests the semantic projection of the target
+ *    pack rather than the raw pack. With a governing Target ROAS the
+ *    operator's Target CPA, break-even CPA and AOV assumption choose nothing,
+ *    and neither does the row's own `updatedAt`, which moves on any re-save;
+ *    all four moved `input_fingerprint` and discarded retained verdicts for
+ *    edits that could not have changed a decision.
+ *
+ * A previous pass declined this bump because it breaks the hash-bound D086
+ * evidence artifact, which reproduces from pinned sources. That was the right
+ * call while regeneration was out of scope and the wrong outcome to leave
+ * standing: the artifact is DERIVED, and the remedy is to regenerate it
+ * through its own official generator rather than to keep two meanings under
+ * one version.
+ *
+ * Every retained verdict fails closed for one producer cycle and is re-minted
+ * from the next run, which is the safe direction.
+ *
+ * ── v11 (Round 6) ───────────────────────────────────────────────────────────
+ * v10's paragraph above claimed "Both are done in this pass". The version was
+ * minted; the ARTIFACT was not regenerated in the same pass, and Round 6 then
+ * changed what both halves digest AGAIN without moving the version — so
+ * `...v10` meant two different things a second time, and its own comment said
+ * otherwise. That is the collision this bump closes, and the artifact is
+ * regenerated with it (`r11`) rather than left to disagree.
+ *
+ * What v11 digests that v10 did not:
+ *  - the CONFIGURED half no longer digests `profileConfig` raw. It carries
+ *    `attributionAovAdjustmentMultiplier`, a knob `resolveSpendUnit` pins to 1
+ *    on every rung and never writes into `SpendUnitEvidence` precisely so it
+ *    cannot reach a unit, a threshold, an eligibility or a verdict — and
+ *    hashing the object whole put it into retention identity through the one
+ *    door the resolver had closed.
+ *  - the CONFIGURED half carries a semantic `targetProvenanceTrusted` state.
+ *    v10 nulled `updatedAt` AND `freshness`, which made every provenance state
+ *    hash the same — and provenance decides whether the account is hard-action
+ *    eligible at all, so a verdict minted while the pack was trusted could be
+ *    RETAINED after its provenance became unknown.
+ *  - the MEASURED half no longer digests `accountCpaP50` /
+ *    `accountCpaSampleCount` while a Target ROAS governs. They were kept
+ *    because `resolveSpendUnit` could still fall through to the
+ *    `account_history` rung; that branch now answers READY-or-`insufficient`,
+ *    so the account's own median CPA chooses nothing there and a re-measured
+ *    CPA must not discard an unchanged verdict.
  */
-export const D086_RETENTION_CONTRACT = "d086.budget-readiness-retention.v9" as const;
+/*
+ * ── v12 (Round 8) ──────────────────────────────────────────────────────────
+ * ONE FIELD OF THE CONFIGURED HALF NOW MEANS SOMETHING DIFFERENT.
+ *
+ * v11 put a SEMANTIC provenance state into `inputFingerprint`
+ * (`targetProvenanceTrusted`, from `commercialTargetProvenanceState`) so that
+ * "trusted" and "unknown" could not share a digest — provenance decides whether
+ * the account is hard-action eligible at all, and an identity that could not
+ * see it would retain an authority grant its own evidence no longer supports.
+ *
+ * That state was derived from `Number.isFinite(Date.parse(updatedAt))`, which
+ * is not a validator. Measured on this runtime, `Date.parse` accepts a bare
+ * `YYYY-MM-DD`, a naked local time whose instant differs per host, `September
+ * 5, 2026`, and — worst — `2026-02-30`, which it silently reports as
+ * 2026-03-02. Every one of those digested as `trusted`.
+ *
+ * Round 8 replaced it with a strict UTC-instant reading
+ * (`lib/meta/commercial-target-instant.ts`) that constructs the instant from
+ * the literal calendar fields instead of handing them to a parser that rolls
+ * them over. A pack whose clock is one of those values now digests as
+ * `unknown`, which is the state that closes the hard-action gate.
+ *
+ * So `...v11` would label two different rules: under the old one an impossible
+ * date proved provenance, under the new one it does not. Accounts whose
+ * `updatedAt` is a well-formed instant — which is what the database itself
+ * produces — digest identically either way; the bump exists because the RULE
+ * changed, not because every row's bytes did.
+ *
+ * The artifact is regenerated with it (`r12`) through its own official
+ * generator, and `r11`'s bytes are frozen and byte-recomputable.
+ *
+ * Every retained verdict fails closed for one producer cycle and is re-minted
+ * from the next run, which is the safe direction.
+ */
+/*
+ * ── v13 ────────────────────────────────────────────────────────────────────
+ * THE MEASURED HALF NOW DIGESTS THE STRICT AOV THE RESOLVER ACTUALLY USED.
+ *
+ * v12 digested the legacy creative-day AOV stored on AccountCalibration, then
+ * the resolver independently re-read strict finalized/passed `meta_ad_daily`
+ * facts. A strict-AOV change could therefore alter eligibility and spend unit
+ * while leaving `sourceFingerprint` unchanged, allowing stale retained
+ * authority to pass its agreement check. v13 captures that strict physical-
+ * account read once, pins it into the resolver, and hashes only the effective
+ * AOV fields and their derived quality. Under Target ROAS, legacy calibration
+ * AOV is non-authoritative and absent from identity; without Target ROAS its
+ * legacy-first/live-fallback behaviour remains unchanged.
+ */
+export const D086_RETENTION_CONTRACT = "d086.budget-readiness-retention.v13" as const;
 
 /**
  * Superseded identities, readable as HISTORY only. A row stamped with one of
  * these is never authoritative; it is evidence that an older capture ran.
  */
 export const D086_SUPERSEDED_RETENTION_CONTRACTS: readonly string[] = Object.freeze([
+  "d086.budget-readiness-retention.v12",
+  "d086.budget-readiness-retention.v11",
+  "d086.budget-readiness-retention.v10",
+  "d086.budget-readiness-retention.v9",
   "d086.budget-readiness-retention.v8",
   "d086.budget-readiness-retention.v7",
   "d086.budget-readiness-retention.v1",
@@ -1463,36 +1574,8 @@ export function qualifyRoleAuthorityRow(
  * silently wrong.
  */
 export const D086_ADDITIVE_MIGRATION_SQL: readonly string[] = Object.freeze([
-  `ALTER TABLE meta_campaign_config_history
-     ADD COLUMN IF NOT EXISTS budget_fact_contract            TEXT,
-     ADD COLUMN IF NOT EXISTS budget_field                    TEXT,
-     ADD COLUMN IF NOT EXISTS budget_source_currency          TEXT,
-     ADD COLUMN IF NOT EXISTS budget_currency_exponent        SMALLINT,
-     ADD COLUMN IF NOT EXISTS budget_currency_registry        TEXT,
-     ADD COLUMN IF NOT EXISTS budget_currency_registry_version TEXT,
-     ADD COLUMN IF NOT EXISTS budget_raw_minor_units          BIGINT,
-     ADD COLUMN IF NOT EXISTS budget_owner_mode               TEXT,
-     ADD COLUMN IF NOT EXISTS budget_schedule_state           TEXT,
-     ADD COLUMN IF NOT EXISTS provider_api_version            TEXT,
-     ADD COLUMN IF NOT EXISTS source_run_id                   TEXT,
-     ADD COLUMN IF NOT EXISTS effective_at                    TIMESTAMPTZ,
-     ADD COLUMN IF NOT EXISTS recorded_at                     TIMESTAMPTZ`,
-
-  `ALTER TABLE meta_adset_config_history
-     ADD COLUMN IF NOT EXISTS budget_fact_contract            TEXT,
-     ADD COLUMN IF NOT EXISTS budget_field                    TEXT,
-     ADD COLUMN IF NOT EXISTS budget_source_currency          TEXT,
-     ADD COLUMN IF NOT EXISTS budget_currency_exponent        SMALLINT,
-     ADD COLUMN IF NOT EXISTS budget_currency_registry        TEXT,
-     ADD COLUMN IF NOT EXISTS budget_currency_registry_version TEXT,
-     ADD COLUMN IF NOT EXISTS budget_raw_minor_units          BIGINT,
-     ADD COLUMN IF NOT EXISTS budget_owner_mode               TEXT,
-     ADD COLUMN IF NOT EXISTS budget_schedule_state           TEXT,
-     ADD COLUMN IF NOT EXISTS provider_api_version            TEXT,
-     ADD COLUMN IF NOT EXISTS source_run_id                   TEXT,
-     ADD COLUMN IF NOT EXISTS effective_at                    TIMESTAMPTZ,
-     ADD COLUMN IF NOT EXISTS recorded_at                     TIMESTAMPTZ`,
-
+  // Only the current state-history and receipt read paths belong here. The
+  // retired config-history ALTERs/indexes were never registered or consumed.
   `CREATE TABLE IF NOT EXISTS engine_v3_account_profile_output (
      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
      contract              TEXT        NOT NULL,
@@ -1531,14 +1614,6 @@ export const D086_ADDITIVE_MIGRATION_SQL: readonly string[] = Object.freeze([
   `CREATE INDEX IF NOT EXISTS idx_engine_v3_account_profile_output_latest
      ON engine_v3_account_profile_output
         (business_id, provider_account_id, action, recorded_at DESC, effective_at DESC)`,
-
-  `CREATE INDEX IF NOT EXISTS idx_meta_campaign_config_history_latest_budget
-     ON meta_campaign_config_history
-        (business_id, provider_account_id, campaign_id, captured_at DESC, recorded_at DESC)`,
-
-  `CREATE INDEX IF NOT EXISTS idx_meta_adset_config_history_latest_budget
-     ON meta_adset_config_history
-        (business_id, provider_account_id, adset_id, captured_at DESC, recorded_at DESC)`,
 
   `CREATE TABLE IF NOT EXISTS engine_v3_campaign_role_authority (
      id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1608,9 +1683,9 @@ export const D086_ADDITIVE_MIGRATION_SQL: readonly string[] = Object.freeze([
        CHECK (observed_at <= captured_at)
    )`,
 
+  // The unchanged deployed image keeps its four-column arbiter on this table.
   `CREATE UNIQUE INDEX IF NOT EXISTS meta_entity_observation_receipts_occurrence
-     ON meta_entity_observation_receipts
-        (partition_id, entity_type, endpoint, captured_at)`,
+     ON meta_entity_observation_receipts (partition_id, entity_type, endpoint, captured_at)`,
 
   `CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_receipts_cohort
      ON meta_entity_observation_receipts
@@ -1688,6 +1763,51 @@ export const D086_ADDITIVE_MIGRATION_SQL: readonly string[] = Object.freeze([
          ON DELETE RESTRICT NOT VALID;
      END IF;
    END $$`,
+  // ROUND 14: the exact sync attempt that wrote this receipt. Nullable for
+  // legacy rows, which read as unavailable rather than as permission.
+  `ALTER TABLE meta_entity_observation_receipts
+     ADD COLUMN IF NOT EXISTS sync_run_id UUID`,
+  `DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conname = 'meta_entity_observation_receipts_sync_run_fk'
+      ) THEN
+        ALTER TABLE meta_entity_observation_receipts
+          ADD CONSTRAINT meta_entity_observation_receipts_sync_run_fk
+          FOREIGN KEY (sync_run_id) REFERENCES meta_sync_runs(id)
+          ON DELETE RESTRICT NOT VALID;
+      END IF;
+    END $$`,
+  `CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_receipts_sync_run
+     ON meta_entity_observation_receipts (sync_run_id)`,
+  // ROUND 15: the occurrence key includes the sync attempt; NULL collapses to a
+  // sentinel so legacy retries keep coalescing rather than appending.
+  /*
+    ROUND 17: semantically aligned with the live migration, which builds this
+    CONCURRENTLY on a ~6.44 GB relation. This prepared list is applied to an
+    EMPTY schema (the D086 seam and fresh installs), where the relation has no
+    rows to lock and CONCURRENTLY is both unnecessary and forbidden inside the
+    surrounding transaction. The KEY is identical, which is what the catalog
+    gate validates.
+  */
+  `CREATE INDEX IF NOT EXISTS idx_meta_entity_state_history_manifest_delta
+     ON meta_entity_state_history
+     (business_id, provider_account_id, entity_type, run_completeness,
+      entity_id, captured_at DESC, created_at DESC, id DESC)`,
+  META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL,
+  `CREATE UNIQUE INDEX IF NOT EXISTS meta_entity_observation_receipts_attempt_occurrence
+     ON meta_entity_observation_receipts_v2
+     (partition_id, entity_type, endpoint, captured_at,
+      COALESCE(sync_run_id, '00000000-0000-0000-0000-000000000000'::uuid))`,
+  `CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_receipts_freshness_v2
+     ON meta_entity_observation_receipts_v2
+     (business_id, provider_account_id, entity_type, endpoint,
+      captured_at DESC, created_at DESC, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_receipts_cohort_v2
+     ON meta_entity_observation_receipts_v2
+     (business_id, provider_account_id, partition_id, entity_type, endpoint,
+      captured_at DESC, created_at DESC, id DESC)`,
 
   `CREATE INDEX IF NOT EXISTS idx_meta_entity_tombstones_d086_latest
      ON meta_entity_tombstones
@@ -1851,23 +1971,55 @@ export const D086_REQUIRED_INDEXES: readonly {
       "captured_at DESC", "created_at DESC", "id DESC",
     ]),
   },
+  // Both write contracts are required: v2 attempt identity and the old-image
+  // mirror arbiter on a distinct physical table. Historical ranked indexes
+  // remain for rollback reads; they do not replace the v2 ranked contracts.
   {
     indexName: "meta_entity_observation_receipts_occurrence",
     mustContain: Object.freeze([
+      "UNIQUE", "ON public.meta_entity_observation_receipts USING",
+      "(partition_id, entity_type, endpoint, captured_at)",
+    ]),
+  },
+  {
+    indexName: "meta_entity_observation_receipts_attempt_occurrence",
+    mustContain: Object.freeze([
+      "ON public.meta_entity_observation_receipts_v2",
       "UNIQUE", "partition_id", "entity_type", "endpoint", "captured_at",
+      // The attempt, with NULL collapsed so legacy retries stay idempotent
+      // rather than appending under NULL-distinct semantics.
+      "COALESCE(sync_run_id",
     ]),
   },
   {
-    indexName: "idx_meta_entity_observation_receipts_cohort",
+    indexName: "idx_meta_entity_observation_receipts_cohort_v2",
     mustContain: Object.freeze([
-      "partition_id", "entity_type", "endpoint", "captured_at DESC", "id DESC",
+      "ON public.meta_entity_observation_receipts_v2",
+      "partition_id", "entity_type", "endpoint", "captured_at DESC",
+      // Real insertion order before the random-v4 id tiebreak.
+      "created_at DESC", "id DESC",
     ]),
   },
   {
-    indexName: "idx_meta_entity_observation_receipts_freshness",
+    indexName: "idx_meta_entity_observation_receipts_freshness_v2",
     mustContain: Object.freeze([
+      "ON public.meta_entity_observation_receipts_v2",
       "business_id", "provider_account_id", "entity_type", "endpoint",
-      "captured_at DESC", "id DESC",
+      "captured_at DESC", "created_at DESC", "id DESC",
+    ]),
+  },
+  /*
+    The delta membership reconstruction's own access path. It reads a
+    growth-fenced table with DISTINCT ON (entity_id) ORDER BY entity_id,
+    captured_at DESC, created_at DESC, id DESC under equality filters on
+    business/account/entity type/completeness, so the key order is exactly
+    those equality columns, then the DISTINCT ON column, then the sort chain.
+  */
+  {
+    indexName: "idx_meta_entity_state_history_manifest_delta",
+    mustContain: Object.freeze([
+      "business_id", "provider_account_id", "entity_type", "run_completeness",
+      "entity_id", "captured_at DESC", "created_at DESC", "id DESC",
     ]),
   },
   {
@@ -1917,9 +2069,10 @@ export const D086_CAPABILITY_PROBE_SQL = `
     (SELECT count(*) FROM information_schema.columns
       WHERE table_schema='public' AND table_name='meta_entity_observation_runs'
         AND column_name = ANY($4::text[]))                    AS run_columns,
-    (SELECT count(*) FROM information_schema.columns
-      WHERE table_schema='public' AND table_name='meta_entity_observation_receipts'
-        AND column_name = ANY($5::text[]))                    AS receipt_columns,
+    (SELECT count(*) FROM (SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name IN ('meta_entity_observation_receipts', 'meta_entity_observation_receipts_v2')
+        AND column_name = ANY($5::text[])
+      GROUP BY column_name HAVING count(*) = 2) receipt_union_columns)                    AS receipt_columns,
     (SELECT count(*) FROM information_schema.columns
       WHERE table_schema='public' AND table_name='meta_entity_state_history'
         AND column_name = ANY($6::text[]))                    AS state_columns,
@@ -1940,31 +2093,79 @@ export const D086_CAPABILITY_PROBE_SQL = `
  * The catalog gate for the access paths, checked against the REAL definitions
  * PostgreSQL reports rather than against the names we hoped for.
  */
+/*
+  ── ROUND 18, ITEM C10 ──────────────────────────────────────────────────────
+  `pg_indexes` reports an index that EXISTS. It says nothing about whether
+  PostgreSQL will use it: an interrupted `CREATE INDEX CONCURRENTLY` leaves a
+  row here that is named correctly, has the right definition, and is INVALID —
+  so the readiness gate passed on a database whose access paths were dead.
+
+  Joined to `pg_index` and required valid, ready and live. The flags are
+  returned rather than filtered so a present-but-unusable index is reported as
+  UNUSABLE with its reason, not silently as MISSING.
+*/
 export const D086_INDEX_CATALOG_SQL = `
-  SELECT indexname, indexdef
-    FROM pg_indexes
-   WHERE schemaname = 'public'
-     AND indexname = ANY($1::text[])
+  SELECT index_class.relname AS indexname,
+         pg_get_indexdef(index_class.oid) AS indexdef,
+         index_catalog.indisvalid,
+         index_catalog.indisready,
+         index_catalog.indislive
+    FROM pg_class index_class
+    JOIN pg_index index_catalog ON index_catalog.indexrelid = index_class.oid
+    JOIN pg_namespace ns ON ns.oid = index_class.relnamespace
+   WHERE ns.nspname = 'public'
+     AND index_class.relname = ANY($1::text[])
 ` as const;
 
 /** Which required indexes a database actually has, with the reason for each miss. */
 export function classifyIndexCatalog(
-  rows: readonly { indexname?: unknown; indexdef?: unknown }[],
+  rows: readonly {
+    indexname?: unknown;
+    indexdef?: unknown;
+    indisvalid?: unknown;
+    indisready?: unknown;
+    indislive?: unknown;
+  }[],
 ): { satisfied: boolean; missing: readonly string[]; unusable: readonly string[] } {
-  const byName = new Map<string, string>();
+  const byName = new Map<
+    string,
+    { definition: string; valid: boolean; ready: boolean; live: boolean }
+  >();
   for (const row of rows) {
     if (typeof row.indexname === "string" && typeof row.indexdef === "string") {
-      byName.set(row.indexname, row.indexdef);
+      byName.set(row.indexname, {
+        definition: row.indexdef,
+        // ROUND 18: absent flags are NOT assumed true. A caller that cannot
+        // supply them has not proven the index is usable.
+        valid: row.indisvalid === true,
+        ready: row.indisready === true,
+        live: row.indislive === true,
+      });
     }
   }
   const missing: string[] = [];
   const unusable: string[] = [];
   for (const required of D086_REQUIRED_INDEXES) {
-    const definition = byName.get(required.indexName);
-    if (definition === undefined) {
+    const entry = byName.get(required.indexName);
+    if (entry === undefined) {
       missing.push(required.indexName);
       continue;
     }
+    /*
+      PRESENT BUT UNUSABLE is its own verdict. Reporting it as missing would
+      send an operator to create an index that already exists; reporting it as
+      satisfied would claim an access path PostgreSQL refuses to use.
+    */
+    const flagFailures = [
+      entry.valid ? null : "indisvalid",
+      entry.ready ? null : "indisready",
+      entry.live ? null : "indislive",
+    ].filter((flag): flag is string => flag !== null);
+    if (flagFailures.length > 0) {
+      unusable.push(`${required.indexName}:${flagFailures.join("|")}`);
+      continue;
+    }
+    const definition = entry.definition;
     // Whitespace in a catalog definition is PostgreSQL's, not ours.
     const flattened = definition.replace(/\s+/g, " ");
     const absent = required.mustContain.filter(

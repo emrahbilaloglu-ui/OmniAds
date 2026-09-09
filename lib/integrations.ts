@@ -321,6 +321,31 @@ async function readIntegrationByBusiness(
 
 // ── Queries ────────────────────────────────────────────────────────
 
+/**
+ * The connection-generation token for an integration record ALREADY IN HAND.
+ *
+ * ── ROUND 23, ITEM 1 ────────────────────────────────────────────────────────
+ * `readProviderConnectionGenerationToken` issues its own query, so a caller
+ * that reads the access token and then reads the generation has two reads with
+ * a window between them -- a reconnect landing in that window produces a token
+ * from generation A labelled generation B, which is the exact confusion the
+ * token exists to prevent.
+ *
+ * `readIntegrationRowsByBusiness` already selects `pc.connection_generation`
+ * and `pc.status` in the SAME statement as the credential, so the record the
+ * caller is holding can answer the question with no second read and no window.
+ * The format is identical to `readProviderConnectionGeneration`'s, and
+ * `provider-account-snapshots.test.ts` pins the two against each other.
+ */
+export function providerConnectionGenerationTokenFromIntegration(
+  integration: Pick<IntegrationRow, "connection_generation" | "status"> | null,
+): string | null {
+  if (!integration) return null;
+  const generation = integration.connection_generation;
+  if (generation == null || String(generation).trim().length === 0) return null;
+  return `${generation}:${integration.status}`;
+}
+
 /** Get all integrations for a business */
 export async function getIntegrationsByBusiness(
   businessId: string,

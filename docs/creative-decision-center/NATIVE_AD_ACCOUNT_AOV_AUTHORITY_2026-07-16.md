@@ -233,13 +233,27 @@ repository-content claim with the current-day authority artifact.
 
 ## Version And Rollback
 
-- Canonical engine: `v3-2026-07-18-decision-presentation-hardening`
-- Native engine: `v3-ad-2026-07-18-decision-presentation-hardening-shadow`
-- Native calibration: `engine-v3-native-ad-calibration.v3`
-- Canonical evaluation: `engine-v3-canonical-evaluation.v5`
-- Native-Ad evaluation: `engine-v3-canonical-ad-evaluation.v7`
+> **POINT-IN-TIME RECORD — 2026-07-16. Four of the six values below are
+> SUPERSEDED BY D091.** They are kept, struck, because the analysis in this
+> report was performed against those versions and restating it under today's
+> would misattribute the findings. Do not read a current value out of this
+> list; the current table lives in `CONTRACTS.md` and `START_HERE.md`.
+
+- Canonical engine: ~~`v3-2026-07-18-decision-presentation-hardening`~~ —
+  superseded; now `v3-2026-09-07-held-verdict-authority`
+- Native engine: ~~`v3-ad-2026-07-18-decision-presentation-hardening-shadow`~~ —
+  superseded; now `v3-ad-2026-09-07-held-verdict-authority-shadow`
+- Native calibration: ~~`engine-v3-native-ad-calibration.v3`~~ — superseded by the UNCOMMITTED candidate `engine-v3-native-ad-calibration.v5` (Round 10; `.v4` was minted in a working tree and never committed, so it never wrote a row). `git show HEAD` still reads `.v3`.
+- Canonical evaluation: ~~`engine-v3-canonical-evaluation.v5`~~ — superseded;
+  now `engine-v3-canonical-evaluation.v7`
+- Native-Ad evaluation: ~~`engine-v3-canonical-ad-evaluation.v7`~~ — superseded;
+  now `engine-v3-canonical-ad-evaluation.v9`
+- Native spend-unit authority: `engine-v3-native-ad-spend-unit-authority.v4` is
+  minted today, with `.v1`, `.v2` and `.v3` readable as history. This report predates
+  that contract, which is why the list above never named it.
 - Exact native rollback epoch:
-  `v3-ad-2026-07-15-commercial-stop-loss-shadow`
+  `v3-ad-2026-07-15-commercial-stop-loss-shadow` — the rollback target AS OF
+  this report, not a current instruction
 
 Old receipts are not reinterpreted under the new epoch. Rollback therefore
 restores the prior semantics without rewriting historical snapshots.

@@ -52,24 +52,46 @@ import type {
   MetaOsDecisionAction,
   MetaOsStructureNode,
 } from "@/lib/meta/decisions-os-contract";
+import { META_BID_INTENT_CONTRACT_VERSION } from "@/lib/meta/bid-intent-contract";
+import type { MetaRecommendation } from "@/lib/meta/recommendations";
 
 const CAPPED_ADSET = "9000000000201";
 const CAPPED_CAMPAIGN = "9000000000101";
 
 /**
- * An ad-set row carrying a validated bid intent — the shape the harness's real
- * snapshot produces. `annotateMetaRecPresentation` runs inside `metaRec`, so
+ * A forward-compatible ad-set row carrying a validated bid intent. B1 is the
+ * only vocabulary that authorises a bid-amount increase; its current production
+ * emitter is campaign-grain. `annotateMetaRecPresentation` runs inside `metaRec`, so
  * `operatorApply` is stamped by the SHIPPED `serverOperatorApplyForRec` rather
  * than asserted here.
  */
+function authorisedBidTarget() {
+  return {
+    contractVersion: META_BID_INTENT_CONTRACT_VERSION,
+    kind: "bid_intent",
+    authorityStatus: "authorised",
+    blockerCodes: [],
+    currentMinorUnits: 1200,
+    proposedMinorUnits: 1320,
+    bidAmountMinor: 1320,
+    currency: "USD",
+    currencyExponent: 2,
+    direction: "increase",
+    percent: 10,
+    bidStrategyType: "cost_cap",
+    sizingPolicyVersion: "meta.bid-sizing.v1",
+  } as unknown as MetaRecommendation["targetValue"];
+}
+
 function bidRec() {
   return metaRec({
-    id: "scenario_e1_frequency_fatigue-9000000000201",
+    id: "scenario_b1_capped_winner_bid_raise-9000000000201",
     level: "adset",
     adsetId: CAPPED_ADSET,
     campaignId: CAPPED_CAMPAIGN,
     campaignName: "Prospecting CBO",
-    type: "scenario_e1_frequency_fatigue",
+    type: "scenario_b1_capped_winner_bid_raise",
+    targetValue: authorisedBidTarget(),
     proposedAction: { kind: "apply_bid", bidAmountMinor: 1320 },
   });
 }
@@ -83,6 +105,10 @@ function blockedRec(action: "pause" | "bid") {
     campaignId: CAPPED_CAMPAIGN,
     campaignName: "Blocked commercial decision",
     decisionLabel: "cut",
+    type: adset
+      ? "scenario_b1_capped_winner_bid_raise"
+      : "scenario_a5_post_learning_underperformer",
+    targetValue: adset ? authorisedBidTarget() : undefined,
     proposedAction:
       action === "bid"
         ? { kind: "apply_bid", bidAmountMinor: 1320 }
@@ -375,7 +401,7 @@ const { MetaPlatformPage } = await import(
 /** The one row the mobile stage renders for the bid decision. */
 function mobileRow() {
   const row = document.querySelector(
-    `[data-mobile-row-id="scenario_e1_frequency_fatigue-${CAPPED_ADSET}"]`,
+    `[data-mobile-row-id="scenario_b1_capped_winner_bid_raise-${CAPPED_ADSET}"]`,
   );
   if (!row) throw new Error("the mobile stage rendered no row for the bid decision");
   return row as HTMLElement;
@@ -383,7 +409,7 @@ function mobileRow() {
 
 function mobileApply() {
   return document.querySelector(
-    `[data-mobile-apply="scenario_e1_frequency_fatigue-${CAPPED_ADSET}"]`,
+    `[data-mobile-apply="scenario_b1_capped_winner_bid_raise-${CAPPED_ADSET}"]`,
   ) as HTMLButtonElement | null;
 }
 
@@ -449,7 +475,7 @@ describe("the mobile decision card's manual apply", () => {
     // Same row, same served verb, on both.
     for (const sheet of [mobileSheet, desktopSheet]) {
       expect(sheet?.getAttribute("data-meta-manual-ceremony")).toBe(
-        `scenario_e1_frequency_fatigue-${CAPPED_ADSET}`,
+        `scenario_b1_capped_winner_bid_raise-${CAPPED_ADSET}`,
       );
       expect(
         [...sheet!.querySelectorAll("[data-mutation-action]")].map((node) =>

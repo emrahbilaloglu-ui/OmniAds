@@ -134,17 +134,22 @@ describe("projectMetaDecisionSemantics", () => {
     });
   });
 
-  it("keeps a Test winner actionable while the same Main winner monitors", () => {
+  it("keeps a Scale actionable for every resolved role and holds only an unresolved one", () => {
     const base = {
       legacyBuyerAction: "scale" as const,
       sourceLabel: "scale",
       badgeCodes: [] as string[],
     };
+    // A Main campaign carries most of an account's budget; demoting its Scale
+    // to `monitor` on the role alone dropped the verdict with no blocker and
+    // no reason. Only an unresolved role is untrustworthy context.
+    for (const lifecycleRole of ["test", "main", "mixed"] as const) {
+      expect(
+        projectMetaDecisionSemantics({ ...base, lifecycleRole }),
+      ).toMatchObject({ decisionState: "act", buyerAction: "scale" });
+    }
     expect(
-      projectMetaDecisionSemantics({ ...base, lifecycleRole: "test" }),
-    ).toMatchObject({ decisionState: "act", buyerAction: "scale" });
-    expect(
-      projectMetaDecisionSemantics({ ...base, lifecycleRole: "main" }),
+      projectMetaDecisionSemantics({ ...base, lifecycleRole: "role_unresolved" }),
     ).toMatchObject({ decisionState: "monitor", buyerAction: "scale" });
   });
 
@@ -239,6 +244,86 @@ describe("projectMetaDecisionSemantics", () => {
     });
   });
 
+  /*
+   * A HELD REFRESH IS IDENTIFIED BY ITS PREDICATE, NOT BY THE ACTION LABEL.
+   *
+   * `heldAction` is `DecisionOutput.blockedActionType`, and `finalizeDecision`
+   * in lib/creative-decision-engine/gates/types.ts rewrites a held Refresh's
+   * `blockedActionType` to "cut" on a Test campaign — the same
+   * `applyTestCohortRefreshOverride` rewrite the label gets, applied to the
+   * hold so a transform cannot silently drop it. Keying the resolution on
+   * `heldAction === "refresh"` therefore skipped exactly the Test-cohort rows
+   * the branch exists for.
+   */
+  it.each([
+    {
+      cohort: "main campaign (no transform)",
+      heldAction: "refresh" as const,
+      label: "Refresh Held — Ad Fatigue Evidence Missing",
+    },
+    {
+      cohort: "test cohort, Refresh rewritten to Cut",
+      heldAction: "cut" as const,
+      label: "Cut Held — Ad Fatigue Evidence Missing",
+    },
+  ])(
+    "resolves a held ad-fatigue gap on the $cohort",
+    ({ heldAction, label }) => {
+      const projection = projectMetaDecisionSemantics({
+        legacyBuyerAction: "protect",
+        sourceLabel: "keep",
+        lifecycleRole: heldAction === "cut" ? "test" : "main",
+        badgeCodes: ["lifecycle_unavailable"],
+        blockerCodes: ["native_metrics_unavailable"],
+        heldAction,
+        authorityBlocker: "native_metrics_unavailable",
+        predicateBlockers: [
+          {
+            predicate: "refresh_ad_lifecycle_evidence",
+            observed: "unavailable",
+            threshold: "fatigued",
+          },
+        ],
+      });
+
+      expect(projection.resolution).toEqual({
+        code: "complete_hard_action_evidence",
+        category: "system",
+        owner: "system",
+        label,
+        nextStep:
+          "The recent window decayed against this ad's own earlier period, but no ad-level fatigue verdict exists to confirm creative wear, so no provider action is authorized yet. The verdict resolves as sibling-ad exposure evidence accumulates.",
+      });
+      // The wrong answer: a data repair aimed at a feed that is already
+      // current, owned by integration, for evidence the account has simply not
+      // produced yet.
+      expect(projection.resolution?.code).not.toBe("refresh_decision_data");
+      expect(projection.resolution?.owner).not.toBe("integration");
+    },
+  );
+
+  it("keeps the generic native-metrics reading when no lifecycle predicate is present", () => {
+    // The predicate is what makes the specific copy true, so a held Cut under
+    // the same authority blocker without it must NOT borrow the fatigue
+    // sentence.
+    expect(
+      projectMetaDecisionSemantics({
+        legacyBuyerAction: "protect",
+        sourceLabel: "keep",
+        lifecycleRole: "test",
+        badgeCodes: [],
+        blockerCodes: ["native_metrics_unavailable"],
+        heldAction: "cut",
+        authorityBlocker: "native_metrics_unavailable",
+        predicateBlockers: [],
+      }).resolution,
+    ).toMatchObject({
+      code: "refresh_decision_data",
+      owner: "integration",
+      label: "Refresh Decision Data",
+    });
+  });
+
   it("excludes out-of-scope snapshots without fabricating a resolution", () => {
     expect(
       projectMetaDecisionSemantics({
@@ -252,6 +337,7 @@ describe("projectMetaDecisionSemantics", () => {
       legacyBuyerAction: "diagnose_data",
       buyerAction: null,
       resolution: null,
+      heldAction: null,
     });
   });
 });

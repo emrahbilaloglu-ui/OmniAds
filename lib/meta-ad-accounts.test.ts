@@ -1,8 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchMetaAdAccounts } from "@/lib/meta-ad-accounts";
 
+/*
+  The failure assertions below pin the CURRENT contract, which changed: the
+  provider's `error.message` is free text Meta controls — observed echoing the
+  access token back inside it — so it is replaced at the parse boundary with a
+  locally-authored sentence carrying only status, code, subcode, is_transient
+  and fbtrace_id. Each case therefore asserts BOTH directions: the provider's
+  sentence is gone, and the identity that makes the failure diagnosable is not.
+
+  The leak itself, at every boundary that can carry it, is covered by
+  lib/meta-ad-accounts-error-boundary.test.ts.
+*/
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function rawResponse(body: string, status = 200) {
+  return new Response(body, {
     status,
     headers: { "content-type": "application/json" },
   });
@@ -11,6 +30,91 @@ function jsonResponse(body: unknown, status = 200) {
 describe("fetchMetaAdAccounts", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { label: "an empty object", response: () => jsonResponse({}) },
+    { label: "a null data field", response: () => jsonResponse({ data: null }) },
+    { label: "invalid JSON", response: () => rawResponse("{not-json") },
+  ])("fails closed when a 2xx collection returns $label", async ({ response }) => {
+    const fetchMock = vi.fn(async () => response());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchMetaAdAccounts("token");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      status: 200,
+      ok: false,
+      normalized: [],
+      graphError: null,
+    });
+    expect(result.body?.error).toEqual({
+      message: "Meta Graph collection returned status 200 without a data array.",
+      code: null,
+      error_subcode: null,
+      is_transient: null,
+      fbtrace_id: null,
+      authored_by: "adsecute",
+    });
+  });
+
+  it("accepts a valid 2xx collection data array", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v25.0/me/adaccounts") {
+        return jsonResponse({
+          data: [{ id: "act_direct", name: "Direct Account" }],
+        });
+      }
+      if (url.pathname === "/v25.0/me/businesses") {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse({ error: { message: "unexpected path" } }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchMetaAdAccounts("token");
+
+    expect(result.ok).toBe(true);
+    expect(result.body).toBeNull();
+    expect(result.normalized).toEqual([
+      expect.objectContaining({ id: "act_direct", name: "Direct Account" }),
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails the aggregate when a later business-account collection is malformed", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v25.0/me/adaccounts") {
+        return jsonResponse({
+          data: [{ id: "act_direct", name: "Direct Account" }],
+        });
+      }
+      if (url.pathname === "/v25.0/me/businesses") {
+        return jsonResponse({ data: [{ id: "biz_1", name: "Business 1" }] });
+      }
+      if (url.pathname === "/v25.0/biz_1/owned_ad_accounts") {
+        return jsonResponse({});
+      }
+      return jsonResponse({ data: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchMetaAdAccounts("token");
+
+    expect(result.ok).toBe(false);
+    expect(result.normalized.map((account) => account.id)).toEqual([
+      "act_direct",
+    ]);
+    expect(result.businessDiscovery?.errors).toEqual([
+      expect.objectContaining({
+        businessId: "biz_1",
+        edge: "owned_ad_accounts",
+        message: "Meta owned_ad_accounts discovery failed (status 200)",
+      }),
+    ]);
   });
 
   it("merges direct, business-owned, and business-client Meta ad accounts", async () => {
@@ -97,7 +201,18 @@ describe("fetchMetaAdAccounts", () => {
           });
         }
         if (url.pathname === "/v25.0/me/businesses") {
-          return jsonResponse({ error: { message: "Missing business permission" } }, 403);
+          return jsonResponse(
+            {
+              error: {
+                message: "Missing business permission",
+                code: 200,
+                error_subcode: 33,
+                is_transient: false,
+                fbtrace_id: "BiZpErM0001",
+              },
+            },
+            403,
+          );
         }
         return jsonResponse({ data: [] });
       }),
@@ -107,9 +222,17 @@ describe("fetchMetaAdAccounts", () => {
 
     expect(result.ok).toBe(false);
     expect(result.normalized.map((account) => account.id)).toEqual(["act_direct"]);
-    expect(result.body?.error?.message).toContain("Missing business permission");
+    expect(result.body?.error?.message).not.toContain("Missing business permission");
     expect(result.businessDiscovery?.ok).toBe(false);
-    expect(result.businessDiscovery?.errors[0]?.message).toBe("Missing business permission");
+    expect(result.businessDiscovery?.errors[0]?.message).toBe(
+      "Meta me/businesses discovery failed (status 403, code 200, subcode 33, is_transient false, fbtrace_id BiZpErM0001)",
+    );
+    expect(result.businessDiscovery?.errors[0]?.graphError).toEqual({
+      errorCode: 200,
+      errorSubcode: 33,
+      isTransient: false,
+      fbtraceId: "BiZpErM0001",
+    });
   });
 
   it("fails the refresh when only business discovery can find accounts and it is unavailable", async () => {
@@ -131,7 +254,10 @@ describe("fetchMetaAdAccounts", () => {
 
     expect(result.ok).toBe(false);
     expect(result.normalized).toEqual([]);
-    expect(result.body?.error?.message).toContain("Business discovery unavailable");
+    expect(result.body?.error?.message).not.toContain("Business discovery unavailable");
+    expect(result.body?.error?.message).toContain(
+      "Meta business account discovery failed: Meta me/businesses discovery failed (status 503)",
+    );
     expect(result.businessDiscovery?.errors[0]?.edge).toBe("me/businesses");
   });
 
@@ -162,10 +288,12 @@ describe("fetchMetaAdAccounts", () => {
 
     expect(result.ok).toBe(false);
     expect(result.normalized.map((account) => account.id)).toEqual(["act_owned"]);
-    expect(result.body?.error?.message).toContain("Client edge failed");
+    expect(result.body?.error?.message).not.toContain("Client edge failed");
     expect(result.businessDiscovery?.errors[0]).toMatchObject({
       businessId: "biz_1",
       edge: "client_ad_accounts",
+      message:
+        "Meta client_ad_accounts discovery failed (status 500)",
     });
   });
 
@@ -183,7 +311,17 @@ describe("fetchMetaAdAccounts", () => {
           });
         }
         if (url.pathname === "/v25.0/me/adaccounts" && url.searchParams.get("page") === "2") {
-          return jsonResponse({ error: { message: "Next page failed" } }, 500);
+          return jsonResponse(
+            {
+              error: {
+                message: "Next page failed",
+                code: 1,
+                is_transient: false,
+                fbtrace_id: "NeXtPaGe001",
+              },
+            },
+            500,
+          );
         }
         return jsonResponse({ data: [] });
       }),
@@ -193,7 +331,9 @@ describe("fetchMetaAdAccounts", () => {
 
     expect(result.ok).toBe(false);
     expect(result.status).toBe(500);
-    expect(result.body?.error?.message).toBe("Next page failed");
+    expect(result.body?.error?.message).toBe(
+      "Meta API request failed (status 500, code 1, is_transient false, fbtrace_id NeXtPaGe001)",
+    );
     expect(result.normalized.map((account) => account.id)).toEqual(["act_direct"]);
   });
 
@@ -227,14 +367,36 @@ describe("fetchMetaAdAccounts", () => {
   it("preserves the direct Meta API failure contract", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({ error: { message: "Bad token" } }, 401)),
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            error: {
+              message: "Bad token",
+              code: 190,
+              error_subcode: 463,
+              is_transient: false,
+              fbtrace_id: "BaDt0KeN0001",
+            },
+          },
+          401,
+        ),
+      ),
     );
 
     const result = await fetchMetaAdAccounts("token");
 
     expect(result.ok).toBe(false);
     expect(result.status).toBe(401);
-    expect(result.body?.error?.message).toBe("Bad token");
+    expect(result.body?.error?.message).not.toContain("Bad token");
+    expect(result.body?.error).toEqual({
+      message:
+        "Meta API request failed (status 401, code 190, subcode 463, is_transient false, fbtrace_id BaDt0KeN0001)",
+      code: 190,
+      error_subcode: 463,
+      is_transient: false,
+      fbtrace_id: "BaDt0KeN0001",
+      authored_by: "adsecute",
+    });
     expect(result.normalized).toEqual([]);
   });
 });

@@ -121,8 +121,10 @@ export async function verifyNativeProposalLifecycleFixtures(query: Query): Promi
     ["expired", "pending"], "account-scoped withdrawal preserves the other account's same ad id");
 
   // The full tuple and state are copied before and after the next projection.
-  // These rows cover other business/day, manual origin, terminal states and
+  // These rows cover another business, manual origin, terminal states and
   // outstanding provider outcomes, even when their old cut has disappeared.
+  // An untouched prior-day native pending row is deliberately different: the
+  // current projection withdraws it so it cannot retain the open pause slot.
   const preserved = ["claimed", "reconcile", "approved", "dismissed", "modified", "failed", "expired"];
   for (const status of preserved) {
     await decision(`preserve-${status}`, "cut");
@@ -139,10 +141,18 @@ export async function verifyNativeProposalLifecycleFixtures(query: Query): Promi
     ($1,$3,'operator_action','ad:manual','ad','manual','native_ad_cut',$4,'pause','pending',now()+interval '1 day')`,
   [business, otherBusiness, account, day]);
   const preservedRows = () => query(`SELECT to_jsonb(p) AS row FROM pg_temp.meta_automation_proposals p
-    WHERE decision_key <> 'ad:cycle' ORDER BY decision_key`);
+    WHERE decision_key NOT IN ('ad:cycle', 'ad:other-day') ORDER BY decision_key`);
   const before = await preservedRows();
   await run();
-  equal(await preservedRows(), before, "claimed/reconcile/terminal/manual/other-business/day rows remain byte-equivalent");
+  equal(await preservedRows(), before, "claimed/reconcile/terminal/manual/other-business rows remain byte-equivalent");
+  const priorDay = (await query(`SELECT snapshot_date::text, status, decision_note
+    FROM pg_temp.meta_automation_proposals WHERE business_id=$1::uuid
+    AND provider_account_id=$2 AND decision_key='ad:other-day'`, [business, account]))[0];
+  equal(priorDay, {
+    snapshot_date: "2026-09-05",
+    status: "expired",
+    decision_note: marker,
+  }, "untouched prior-day native pending row is withdrawn");
   for (const status of preserved) await decision(`preserve-${status}`, "cut");
   await run();
   equal(await preservedRows(), before, "returning cuts cannot revive operator decisions or generic expired rows");

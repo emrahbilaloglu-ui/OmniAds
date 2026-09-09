@@ -337,7 +337,7 @@ describe("terminal persistence is required for an ordinary settlement", () => {
       const row = { ...PROPOSAL, scopeType: target.scopeType, proposedAction: target.action };
       const results: BudgetProposalExecutionResult[] = [];
       const settle = vi.fn<ClaimedExecutionDeps["settle"]>(async () => row);
-      const recordLedger = vi.fn<ClaimedExecutionDeps["recordLedger"]>(async () => undefined);
+      const recordLedger = vi.fn<ClaimedExecutionDeps["recordLedger"]>(async () => true);
       const markDispatchStarted = vi.fn(async () => true);
       const settled = await runClaimedProposalExecution({
         businessId: row.businessId, providerAccountId: row.providerAccountId,

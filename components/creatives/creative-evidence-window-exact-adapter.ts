@@ -9,6 +9,7 @@ import type {
   CreativeEvidenceWindowExactTone,
   CreativeEvidenceWindowExactViewModel,
 } from "@/components/creatives/CreativeEvidenceWindowExact";
+import { buyerAuthorityBlockerCopy } from "@/lib/meta/buyer-copy";
 import {
   buyerFacingCreativeActionLabel,
   buyerFacingCreativeBlocker,
@@ -17,6 +18,8 @@ import {
   buyerFacingCreativeReason,
   buyerFacingCreativeResolution,
   buyerFacingCreativeScope,
+  buyerHeldVerdictLabel,
+  heldCreativeVerdict,
 } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
 import type {
   MetaCanonicalDecision,
@@ -1194,12 +1197,23 @@ function authorityRows(input: {
        * which is a token list and would become unreadable with a sentence in it.
        */
       if (provenance.firstBlocker) {
+        /*
+          ── ROUND 8 ITEM 7 ──────────────────────────────────────────────────
+          The server's own sentence names the LAYER that refused — "the account
+          profile did not meet the evidence requirements for a hard provider
+          action", "exact Ad-grain metrics were unavailable, so the hard
+          verdict cannot authorize a provider action". A buyer reading a held
+          row needs what is missing and what would change it, not which gate
+          fired.
+
+          Mapped from the served CODE, which is the fact; the server's prose is
+          not consulted, so an unmapped code falls back to an honest short
+          sentence rather than putting the engine's wording back on screen.
+        */
         push(
           "served-first-blocker-explanation",
-          "Label held because",
-          // A blocker served without its sentence is an em dash, not silence:
-          // the gate was tripped and the row must still say so.
-          nonBlank(provenance.firstBlocker.explanation) ?? EM_DASH,
+          "Why this is on hold",
+          buyerAuthorityBlockerCopy(provenance.firstBlocker.code),
           "warning",
         );
       }
@@ -1272,11 +1286,66 @@ function authorityRows(input: {
       : null,
     canonical?.classification?.decisionState === "act" ? "positive" : "warning",
   );
-  if (canonical?.classification?.heldAction) {
+  /*
+    THE HELD VERDICT, IN THE OPERATOR'S WORDS, WITH ITS OWN REASON.
+
+    This row used to push `canonical.classification.heldAction` verbatim, so an
+    operator read the engine's own token — "refresh" — under the label "Held
+    action", while every neighbouring row on this same block went through
+    `humanizeCode` or a buyer catalog. It was the producer vocabulary reaching
+    a pixel, on the one surface a creative row actually opens:
+    `onCreativeReview` in `MetaPlatformPage.tsx` answers with
+    `setCreativeDrill`, and the decision-center inspector that carries the
+    typed badge is gated on `activeScope === "structure"`, which no creative
+    selection ever mints. The typed verdict existed and the operator could not
+    reach it.
+
+    The catalog is the SAME one the queue row reads — `heldCreativeVerdict` and
+    `buyerHeldVerdictLabel`, both from the decision-center adapter this module
+    already imports — so a held Cut reads "Reduce spend" here exactly as it
+    does there. A second table would be the duplicate-mapper defect one surface
+    over.
+
+    WHY THE REASON IS A SEPARATE ROW. The verdict says WHAT the engine
+    concluded; it does not say why authority withheld it. `heldResolution`
+    lives on the Ad decision, never on the canonical envelope, and its CODE is
+    never printed — it selects a buyer sentence, which is the same rule the
+    served resolution follows on this surface.
+
+    NO EXECUTION TRAVELS WITH EITHER ROW. These are audit rows, and
+    `authorizeMetaNativeAdPause` independently refuses on
+    `canonical.classification.heldAction !== null`, so a held row's primary
+    authority is already `offered: false`. Naming the verdict does not offer it.
+  */
+  const heldVerdict = decision ? heldCreativeVerdict(decision) : null;
+  const heldActionCode =
+    decision?.heldAction ?? canonical?.classification?.heldAction ?? null;
+  if (heldVerdict) {
+    // ROUND 9 ITEM 7: the drawer's own labels, in buyer language.
     push(
       "held-action",
-      "Held action",
-      canonical.classification.heldAction,
+      "Awaiting review",
+      buyerHeldVerdictLabel(heldVerdict.action),
+      "warning",
+    );
+    push("held-reason", "What to do next", heldVerdict.nextStep, "warning");
+  } else if (heldActionCode) {
+    push(
+      "held-action",
+      "Awaiting review",
+      buyerHeldVerdictLabel(heldActionCode),
+      "warning",
+    );
+    /*
+      The canonical envelope carries `heldAction` and no `heldResolution`, so
+      the verdict is known and its reason genuinely was not served. That is
+      stated rather than filled in with the PUBLISHED resolution sitting a few
+      rows up, which explains a different decision.
+    */
+    push(
+      "held-reason",
+      "Why it is held",
+      "The held verdict's own resolution was not served on this envelope.",
       "warning",
     );
   }
@@ -1968,10 +2037,13 @@ export function buildCreativeEvidenceWindowExactViewModel(
     currencyCode(decision?.metrics.currency) ??
     currencyCode(canonical?.metrics.currency) ??
     currencyCode(input.fallbackCurrency);
-  const target = finite(
-    decision?.metrics.effectiveTargetRoas ??
-      canonical?.metrics.effectiveTargetRoas,
-  );
+  const decisionTarget = finite(decision?.metrics.effectiveTargetRoas);
+  const canonicalTarget = finite(canonical?.metrics.effectiveTargetRoas);
+  const target = decisionTarget !== null && decisionTarget > 0
+    ? decisionTarget
+    : canonicalTarget !== null && canonicalTarget > 0
+      ? canonicalTarget
+      : null;
   const tone = decisionTone(
     canonical?.classification.buyerLabel ?? decision?.publishedLabel,
   );
@@ -2027,6 +2099,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
    * live control onto a row the server has already refused. Route omitted
    * entirely is unchanged behaviour — the caller made no claim either way.
    */
+  const heldVerdict = input.decision ? heldCreativeVerdict(input.decision) : null;
   const primaryAuthority = input.primaryActionAuthority;
   const primaryOffered =
     primaryAuthority?.offered ?? input.launchpadRoute?.offered ?? null;
@@ -2042,6 +2115,18 @@ export function buildCreativeEvidenceWindowExactViewModel(
         : EM_DASH),
     decisionLabel: verdictLabel ?? EM_DASH,
     decisionTone: tone,
+    /*
+      THE HELD VERDICT, CARRIED TO THE COMPONENT (Codex C18).
+
+      The audit rows above already name it, but this drawer deliberately does
+      not render internal authority vocabulary, and `MetaPlatformPage` replaces
+      the `authority` block with a single availability sentence on the way to
+      the DOM. So the engine's conclusion and the reason holding it — computed
+      here, in buyer copy — reached no pixel on the one surface an operator
+      opens from a creative row. These two fields are the buyer-safe channel.
+    */
+    heldVerdictLabel: heldVerdict?.label ?? null,
+    heldVerdictNextStep: heldVerdict?.nextStep ?? null,
     previewUrl:
       (canonical?.media.thumbnail.state === "available"
         ? nonBlank(canonical.media.thumbnail.url)

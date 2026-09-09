@@ -12,11 +12,12 @@ vi.mock("@/components/meta/redesign/MetaPlatformPage", () => ({
     businessId: string;
     businessName?: string | null;
     currency?: string | null;
+    accountSelection?: "shared" | "local";
   }) =>
     React.createElement(
       "div",
       null,
-      `meta-platform:${props.businessId}:${props.businessName ?? ""}:${props.currency ?? ""}`,
+      `meta-platform:${props.businessId}:${props.businessName ?? ""}:${props.currency ?? ""}:${props.accountSelection ?? ""}`,
     ),
 }));
 
@@ -40,7 +41,9 @@ describe("MetaPage", () => {
    * selected business would read someone else's queue.
    */
   it("renders the full five-lane Decision Center for the selected business, with its scope", () => {
-    expect(renderToStaticMarkup(<MetaPage />)).toContain("meta-platform:biz_1:TheSwaf:USD");
+    expect(renderToStaticMarkup(<MetaPage />)).toContain(
+      "meta-platform:biz_1:TheSwaf:USD:local",
+    );
   });
 
   it("uses the server-authorized route scope instead of a different selected-store business", () => {
@@ -50,8 +53,9 @@ describe("MetaPage", () => {
           businessId="biz_route"
           businessName="Route Business"
           currency="TRY"
+          accountSelection="shared"
         />,
       ),
-    ).toContain("meta-platform:biz_route:Route Business:TRY");
+    ).toContain("meta-platform:biz_route:Route Business:TRY:shared");
   });
 });

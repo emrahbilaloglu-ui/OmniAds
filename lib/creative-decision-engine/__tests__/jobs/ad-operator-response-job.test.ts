@@ -48,22 +48,40 @@ import { ENGINE_VERSION, NATIVE_AD_ENGINE_VERSION } from "../../types";
 const CUTOFF = "2026-07-13T03:00:00.000Z";
 const JOB_RUN_ID = "00000000-0000-4000-8000-000000000099";
 
-describe("decision-presentation hardening release epoch contract", () => {
+describe("held-verdict authority release epoch contract", () => {
+  /*
+    The lock did its job: bumping three contracts for the Codex A3 semantic
+    projection failed here first. The values are advanced deliberately, and the
+    two engine EPOCHS are unchanged on purpose — the producer's semantics did
+    not move, only which fields the envelopes hash.
+  */
   it("locks current contracts and the exact immediately previous rollback epoch", () => {
     expect(ENGINE_VERSION).toBe(
-      "v3-2026-07-18-decision-presentation-hardening",
+      "v3-2026-09-07-held-verdict-authority",
     );
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
-      "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+      "v3-ad-2026-09-07-held-verdict-authority-shadow",
     );
+    /*
+      ROUND 9 ITEM 10. These three had drifted a full version behind the
+      constants they lock — `.v4`/`.v8`/`.v10` against `.v5`/`.v9`/`.v11` — so
+      the one test whose entire job is to make a version bump deliberate was
+      itself the thing that had stopped being updated.
+
+      All three are DIRTY LOCAL CANDIDATES, not deployed values.
+      `git show HEAD` reads `.v3` / `.v5` / `.v7`, and
+      `git log -S'engine-v3-native-ad-calibration.v4'` returns zero commits.
+      Round 9 therefore amends the candidates in place rather than minting a
+      further bump for its own changes.
+    */
     expect(NATIVE_AD_CALIBRATION_CONTRACT_VERSION).toBe(
-      "engine-v3-native-ad-calibration.v3",
+      "engine-v3-native-ad-calibration.v5",
     );
     expect(CANONICAL_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-evaluation.v5",
+      "engine-v3-canonical-evaluation.v9",
     );
     expect(AD_DECISION_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-ad-evaluation.v7",
+      "engine-v3-canonical-ad-evaluation.v11",
     );
     expect(NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION).toBe(
       "v3-ad-2026-07-15-commercial-stop-loss-shadow",

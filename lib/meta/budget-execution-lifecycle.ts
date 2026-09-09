@@ -16,8 +16,10 @@
  *   pre-POST marker settles to `reconcile`, because the write may have landed;
  *   an exception before that marker is a proven non-attempt and settles failed.
  */
-import type { MetaAutomationProposal } from "@/lib/meta/automation-proposals";
-import type { BudgetProposalExecutionResult } from "@/lib/meta/budget-proposal-runtime";
+import type {
+  MetaAutomationProposal,
+  MetaAutomationProposalReceipt,
+} from "@/lib/meta/automation-proposals";
 
 export const CLAIMED_EXECUTION_CONTRACT = "meta.claimed-proposal-execution.v1" as const;
 
@@ -28,9 +30,26 @@ export interface ClaimedLedgerEntry {
     | "automation_proposal_approved"
     | "automation_proposal_failed"
     | "automation_proposal_reconcile";
-  severity: "success" | "danger";
+  severity: "info" | "success" | "danger";
+  resultStatus: "applied" | "failed" | "recorded";
   message: string;
   payload: Record<string, unknown>;
+}
+
+/**
+ * The common result shape consumed by the claimed-row lifecycle.
+ *
+ * Budget was the first family to use this boundary, but the lifecycle itself
+ * is about a claimed proposal and its provider facts. Keeping the type generic
+ * lets bid approvals use the same crash-safe marker, settlement, reconciliation
+ * and ledger path without pretending their receipts are budget receipts.
+ */
+export interface ClaimedProposalExecutionOutcome {
+  ok: boolean;
+  receipt: MetaAutomationProposalReceipt;
+  reconcile: boolean;
+  rollbackRequested: false;
+  journalId: string | null;
 }
 
 export interface ClaimedExecutionDeps {
@@ -54,7 +73,7 @@ export interface ClaimedExecutionDeps {
   settle(input: {
     businessId: string; proposalId: string; claimToken: string;
     status: ClaimedSettleStatus; decidedBy: string;
-    receipt: BudgetProposalExecutionResult["receipt"];
+    receipt: MetaAutomationProposalReceipt;
   }): Promise<MetaAutomationProposal | null>;
   /** Last-resort durable hold when the normal terminal settlement is lost. */
   forceReconcile(input: {
@@ -64,12 +83,14 @@ export interface ClaimedExecutionDeps {
   recordReconciliation(input: {
     proposal: MetaAutomationProposal;
     claimToken: string;
-    receipt: BudgetProposalExecutionResult["receipt"];
+    receipt: MetaAutomationProposalReceipt;
+    reason: "dispatch_no_answer" | "settle_failed_after_dispatch";
   }): Promise<boolean>;
-  recordLedger(input: ClaimedLedgerEntry): Promise<void>;
+  /** True only when the secondary activity-ledger copy was persisted. */
+  recordLedger(input: ClaimedLedgerEntry): Promise<boolean>;
   execute(
     beforeProviderPost: () => Promise<boolean>,
-  ): Promise<BudgetProposalExecutionResult>;
+  ): Promise<ClaimedProposalExecutionOutcome>;
 }
 
 export interface ClaimedExecutionResult {
@@ -91,18 +112,21 @@ export interface ClaimedExecutionResult {
   reconciliationHeld: boolean;
   /** Whether the append-only reconciliation receipt landed. */
   reconciliationRecorded: boolean;
+  /** Audit truth is reported separately from the provider outcome. */
+  ledgerCompleteness: "complete" | "unavailable";
+  ledgerErrorCode: "activity_ledger_write_failed" | null;
   /** The settled row, so a caller does not settle a second time to see it. */
   settled: MetaAutomationProposal | null;
   /** True when the pre-POST marker could not be written, so nothing was sent. */
   markerFailed: boolean;
-  receipt: BudgetProposalExecutionResult["receipt"];
+  receipt: MetaAutomationProposalReceipt;
   journalId: string | null;
 }
 
 export async function runClaimedProposalExecution(
   deps: ClaimedExecutionDeps,
 ): Promise<ClaimedExecutionResult> {
-  let outcome: BudgetProposalExecutionResult;
+  let outcome: ClaimedProposalExecutionOutcome;
   let threw = false;
   let markerWritten = false;
   let markerFailed = false;
@@ -209,21 +233,68 @@ export async function runClaimedProposalExecution(
       proposalId: deps.proposal.id,
       claimToken: deps.claimToken,
     }).catch(() => false);
+    settledStatus = "reconcile";
+  }
+  /*
+    Every unresolved provider attempt gets an append-only receipt, even when
+    the proposal row itself settled to `reconcile` cleanly. The row holds the
+    slot; the outbox preserves which attempt and which in-memory receipt must be
+    checked before a retry. A settlement failure uses its narrower reason only
+    when the provider outcome itself was known.
+  */
+  const reconciliationReason = outcomeNeedsReconcile
+    ? "dispatch_no_answer" as const
+    : settlementNeedsReconcile
+      ? "settle_failed_after_dispatch" as const
+      : null;
+  if (reconciliationReason) {
     reconciliationRecorded = await deps.recordReconciliation({
       proposal: deps.proposal,
       claimToken: deps.claimToken,
       receipt,
+      reason: reconciliationReason,
     }).catch(() => false);
-    settledStatus = "reconcile";
   }
   const reconcile = outcomeNeedsReconcile || settlementNeedsReconcile;
+  /*
+    No provider attempt is a conclusive outcome too. A dry run, a release-gate
+    refusal, or a provider-boundary veto proves that Meta was not changed; it
+    must not be rendered with the same `outcomeKnown: false` fact as an
+    unanswered POST. Every genuinely unknown provider attempt is already held
+    by `reconcile`, so that is the complete false branch.
+  */
+  const providerOutcomeKnown = !reconcile;
+  /*
+    An accepted rehearsal is a durable decision, but it is not a provider
+    application. This can happen when write posture changes after the route's
+    initial guard read and the concrete handler correctly falls back to dry
+    run. Keep that outcome out of the green Applied bucket even when the
+    executor itself returned `ok: true`.
+  */
+  const providerWriteApplied = outcome.ok
+    && providerDispatchStarted
+    && !reconcile
+    && !markerFailed
+    && receipt.dryRun !== true;
+  const resultStatus: ClaimedLedgerEntry["resultStatus"] = reconcile
+    ? "failed"
+    : providerWriteApplied
+      ? "applied"
+      : outcome.ok
+        ? "recorded"
+        : "failed";
 
   const entity = deps.proposal.entityLabel ?? deps.proposal.scopeId;
-  await deps.recordLedger({
+  const ledgerEntry: ClaimedLedgerEntry = {
     activityType: reconcile
       ? "automation_proposal_reconcile"
       : outcome.ok ? "automation_proposal_approved" : "automation_proposal_failed",
-    severity: outcome.ok && !reconcile ? "success" : "danger",
+    severity: resultStatus === "applied"
+      ? "success"
+      : resultStatus === "recorded"
+        ? "info"
+        : "danger",
+    resultStatus,
     message: reconcile
       ? `Proposal outcome unknown — ${deps.proposal.actionLabel} on ${entity}.`
       : outcome.ok
@@ -240,26 +311,34 @@ export async function runClaimedProposalExecution(
       // Three separate facts, never one boolean.
       providerDispatchIntentMarked: markerWritten,
       providerDispatchStarted,
-      providerOutcomeKnown: providerDispatchStarted && !reconcile,
-      providerWriteSucceeded: providerDispatchStarted && !reconcile && outcome.ok,
+      providerOutcomeKnown,
+      providerWriteVerified: providerWriteApplied,
       journalId: outcome.journalId,
     },
-  }).catch(() => undefined);
+  };
+  let ledgerComplete = false;
+  try {
+    ledgerComplete = await deps.recordLedger(ledgerEntry);
+  } catch {
+    ledgerComplete = false;
+  }
 
   return {
-    ok: outcome.ok && providerDispatchStarted && !reconcile && !markerFailed,
+    ok: providerWriteApplied,
     contract: CLAIMED_EXECUTION_CONTRACT,
     markerFailed,
     settledStatus,
     providerDispatchIntentMarked: markerWritten,
     providerDispatchStarted,
-    providerOutcomeKnown: providerDispatchStarted && !reconcile,
+    providerOutcomeKnown,
     reconcile,
     rollbackRequested: false,
     lostTheRow: settled === null,
     settlementFailed,
     reconciliationHeld,
     reconciliationRecorded,
+    ledgerCompleteness: ledgerComplete ? "complete" : "unavailable",
+    ledgerErrorCode: ledgerComplete ? null : "activity_ledger_write_failed",
     settled,
     receipt,
     journalId: outcome.journalId,

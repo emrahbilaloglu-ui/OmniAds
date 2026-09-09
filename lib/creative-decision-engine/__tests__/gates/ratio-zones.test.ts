@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultBusinessConfig } from "../../config";
+import { HARD_ACTION_HOLD_CONFIDENCE_CAP } from "../../config-values";
 import { ratioZonesGate, resolveCutBoundary } from "../../gates/ratio-zones";
 import type { GateContext } from "../../gates/types";
 import type {
@@ -271,6 +272,9 @@ describe("ratioZonesGate - scale zone", () => {
     );
 
     expect(output.label).toBe("keep");
+    expect(output.confidence).toBeLessThanOrEqual(
+      HARD_ACTION_HOLD_CONFIDENCE_CAP,
+    );
     expect(output.reason).toContain("winner purchase benchmark unavailable");
     expect(output.badges.map((badge) => badge.type)).toEqual(
       expect.arrayContaining([
@@ -840,6 +844,108 @@ describe("ratioZonesGate - bounded economic stop-loss branch", () => {
     expect(output.preAuthorityLabel).toBe("cut");
     expect(output.reason.startsWith("[economic stop-loss]")).toBe(true);
     expect(output.reason).toContain("remains below break-even 1.90");
+  });
+
+  it("still reaches the economic Cut when lifecycle evidence is unavailable and the recent window decayed", () => {
+    /*
+      INVARIANTS.md: "The bounded P25-to-break-even economic strip may cross
+      the generic `0.85` target-band boundary. Refresh keeps precedence, but
+      target-band Keep must not terminate a below-break-even row before the
+      economic Cut/recovery/evidence branch runs."
+
+      This row sits at 90% of target, below an explicit 1.90 break-even, with
+      9,000 spend behind it. `fatigueStatus: null` is what every thin native
+      account produces — `resolveNativeAdFrequencyPressureThreshold` returns
+      null below eight sibling observations, so the ad-level contract emits
+      `unknown` — and 1.40/1.80 = 0.78 clears the 0.82 refresh decay floor. The
+      held-Refresh branch therefore matches this row exactly. If it ran before
+      the `canonicalCutZone` test, this $9,000 stop-loss would be served as a
+      `keep` whose `blocked_action_type` is `refresh`: the Cut erased, and not
+      recoverable downstream because nothing records it.
+    */
+    for (const fatigueStatus of [null, "unknown"] as const) {
+      const output = terminalOutput(
+        ratioZonesGate(
+          ratioContext(0.9, {
+            input: {
+              spend: 9000,
+              recent7dRoas: 1.4,
+              recent7dSpend: 80,
+              fatigueStatus,
+            },
+            profile: profileWithBreakeven({
+              breakEvenRoas: TARGET_ROAS * 0.95,
+              bottomQuartileRatio: 0.7,
+            }),
+          }),
+        ),
+      );
+
+      expect(output.label).toBe("cut");
+      expect(output.preAuthorityLabel).toBe("cut");
+      expect(output.blockedActionType).toBeNull();
+      expect(output.reason.startsWith("[economic stop-loss]")).toBe(true);
+    }
+  });
+
+  it("holds the Refresh candidate only above the economic strip", () => {
+    // Same decayed recent window and the same missing fatigue verdict, but no
+    // explicit break-even, so there is no economic Cut branch to preempt. The
+    // candidate is held rather than deleted: `keep` is served, `refresh` is
+    // recorded, and no provider action is authorized.
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.9, {
+          input: {
+            spend: 600,
+            recent7dRoas: 1.4,
+            recent7dSpend: 80,
+            fatigueStatus: null,
+          },
+          profile: profileWithBreakeven({ breakEvenRoas: null }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.preAuthorityLabel).toBe("refresh");
+    expect(output.blockedActionType).toBe("refresh");
+    expect(output.authorityBlocker).toBe("native_metrics_unavailable");
+    expect(output.reason).toContain(
+      "[refresh verdict held - ad-level fatigue evidence required]",
+    );
+  });
+
+  it("names source freshness first when the held Refresh was measured on stale evidence", () => {
+    /*
+      `finalizeDecision` applies its stale/unknown-freshness path only when the
+      FINAL label is a hard action; this branch serves `keep`, so that path is
+      skipped and the branch has to name freshness itself. A confirmed Refresh
+      on the same window is held with `source_freshness`, and a held one must
+      not silently report a cleaner story than the confirmed one.
+    */
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.9, {
+          input: {
+            spend: 600,
+            recent7dRoas: 1.4,
+            recent7dSpend: 80,
+            fatigueStatus: null,
+            dataFreshnessHours: null,
+          },
+          profile: profileWithBreakeven({ breakEvenRoas: null }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.preAuthorityLabel).toBe("refresh");
+    expect(output.blockedActionType).toBe("refresh");
+    expect(output.authorityBlocker).toBe("source_freshness");
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "unknown_freshness",
+    );
   });
 
   it("describes an authority-denied above-0.85 expanded row as below break-even", () => {

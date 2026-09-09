@@ -19,6 +19,7 @@ import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import { emitHighPriorityAdsetScenario } from "@/lib/meta/scenario-emitters/high-priority";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
+import { metaRecentEditAuthorityReady } from "@/lib/meta/recent-edit-authority";
 import {
   isPurchaseCohort,
   resolveMetaFunnelCohort,
@@ -27,7 +28,9 @@ import {
 import {
   metaCutRoasReviewCeiling,
   metaLossBudgetMaturity,
+  metaRelativeCutRoasCeiling,
   metaScaleRoasFloor,
+  resolveMetaPurchaseValueAuthority,
   type MetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
 import { enforceMetaCommercialActionAuthority } from "@/lib/meta/commercial-action-authority";
@@ -119,6 +122,28 @@ function textFromSignalRecord(
 
 function blocksPurchaseHardAction(signals: MetaEntityDecisionSignal | null | undefined) {
   if (!signals || signals.qualityStatus !== "ready") return true;
+  /*
+    ── ROUND 12: AN UNKNOWN EDIT AGE IS NOT A PASSING ONE ────────────────────
+
+    The line below tests `daysSinceSignificantEdit != null && < 7`, so a NULL
+    day count falls straight through it. That is correct when the count is null
+    because the account's 60-day config history was read and held no significant
+    edit — a real observation, and one that must keep authorising actions. It is
+    NOT correct when the count is null because the entity had no resolvable
+    provider account, no trusted IANA timezone, or its history read threw: there
+    the recent-edit veto was never evaluated at all.
+
+    Both cases wrote the same three nulls, so this gate could not tell them
+    apart, and `qualityStatusFor` does not close the gap either — it calls a
+    pack "ready" at any three non-null signals out of six, and the edit is only
+    one of the six. An ad set with a learning state, a frequency and a CTR decay
+    reached "ready" with an unmeasured edit age and authorised purchase-budget
+    Scale / Cut / Refresh.
+
+    The authority answers "was this knowable" as its own recorded fact, so the
+    day-count test below can go on meaning only what it says.
+  */
+  if (!metaRecentEditAuthorityReady(signals)) return true;
   if (signals.daysSinceSignificantEdit != null && signals.daysSinceSignificantEdit < 7) return true;
   if (signals.trackingQualityStatus === "lpv_drop_suspected") return true;
   return textFromSignalRecord(signals, "monthly_pacing", "status") === "overpaced";
@@ -387,7 +412,52 @@ export function buildMetaAdsetRecommendations(
     }
 
     const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
+    /*
+      TWO CUT ANCHORS, AND THEY ARE NOT THE SAME QUESTION.
+
+      `cutCeiling` (break-even ROAS) is the ECONOMIC-LOSS anchor and stays
+      exactly as it was: the severe-loser bypass below reads it alone.
+      `relativeCutCeiling` is the anchor the RELATIVE path compares against, and
+      it is the TARGET ROAS whenever there is one — break-even is used only when
+      no Target ROAS exists at all.
+
+      This comment used to say the opposite ("break-even when the operator
+      configured one, the Target ROAS otherwise"), which described the pre-Round
+      8 `breakEvenRoas ?? targetRoas` order. That order silently replaced the
+      configured operating line: two accounts with the same Target ROAS made
+      different relative decisions because one had also typed a break-even, and
+      editing only the break-even moved a boundary the operator never meant to
+      touch. Requiring break-even for the relative path would ALSO have made it
+      a second mandatory user target. @see metaRelativeCutRoasCeiling
+    */
     const cutCeiling = metaCutRoasReviewCeiling(input.commercialTargets);
+    const relativeCutCeiling = metaRelativeCutRoasCeiling(input.commercialTargets);
+    /*
+      The purchase-VALUE budget authority, asked ONCE for this account.
+
+      Scale used to gate on `adset.cpa <= cpa.p75` — the account's own measured
+      cost-per-purchase distribution. Under a positive Target ROAS that is an
+      unauthoritative CPA deciding a purchase-value budget increase, which is
+      the substitution the canonical rule forbids; and it is the reason a
+      thin-sample account could still be scaled. When the authority is granted
+      the gate becomes the canonical unit itself (READY Meta AOV / Target
+      ROAS). When there is no positive Target ROAS at all, the legacy p75 gate
+      is preserved verbatim for compatibility.
+    */
+    const purchaseValueAuthority = resolveMetaPurchaseValueAuthority(
+      input.commercialTargets,
+    );
+    /*
+      GOVERNANCE IS DETERMINED BY THE TARGET'S PRESENCE, NOT ITS AUTHORITY.
+
+      `metaScaleRoasFloor` deliberately returns null when target provenance is
+      unknown. Using it to decide whether Target ROAS governs made that refusal
+      look like "no Target ROAS": the Cut path then reopened the legacy CPA /
+      calibrated-spend ladder. An untrusted ratio must close that fallback,
+      just like a trusted ratio with a missing or thin Meta AOV does.
+    */
+    const targetRoas = Number(input.commercialTargets?.targetRoas ?? 0);
+    const targetRoasGoverns = Number.isFinite(targetRoas) && targetRoas > 0;
     const scaleThreshold = scaleFloor ? (context ? Math.max(roas.p75, scaleFloor) : Math.max(roas.p75, scaleFloor)) : null;
     const weakThreshold = context ? roas.p25 : Math.max(roas.p25, 1.5);
     const currency =
@@ -418,13 +488,33 @@ export function buildMetaAdsetRecommendations(
       roasSampleReady &&
       !blocksPurchaseHardAction(signals)
     ) {
+      /*
+        THE AUTHORITY, NOT A SECOND CPA COMPARISON.
+
+        Under a governing Target ROAS the requirement is that a purchase-value
+        unit EXISTS — a ready, same-account Meta-attributed AOV over that ratio
+        — and the ratio gate above is what tests this ad set against it. The
+        account's `cpa.p75` is not consulted, and neither is the unit itself as
+        a ceiling: the unit is an ACCOUNT allowance while `adset.cpa` is one ad
+        set's measured cost per purchase, so an ad set whose own basket is
+        larger than the account average carries a higher CPA at the same ROAS
+        and would be refused for being better than its peers.
+
+        Without a positive Target ROAS the legacy `cpa.p75` gate is preserved
+        verbatim, sample requirement included.
+      */
+      const scaleUnitGateSatisfied = targetRoasGoverns
+        ? // `cpa > 0` stays as a COHERENCE check, not a threshold: a zero
+          // cost-per-purchase beside twelve purchases and positive spend is an
+          // uncomputed metric, and an ad set whose delivery evidence is
+          // incomplete is not scaled on the rest of it.
+          purchaseValueAuthority.authorized && adset.cpa > 0
+        : cpaSampleReady && adset.cpa > 0 && adset.cpa <= cpa.p75;
       if (
         scaleThreshold != null &&
-        cpaSampleReady &&
         adset.purchases >= 8 &&
         adset.roas >= scaleThreshold &&
-        adset.cpa > 0 &&
-        adset.cpa <= cpa.p75
+        scaleUnitGateSatisfied
       ) {
         const confidenceResult = confidence({
           context,
@@ -456,12 +546,44 @@ export function buildMetaAdsetRecommendations(
         continue;
       }
 
+      /*
+        THE SPEND FLOOR IS THE CANONICAL MATURITY, OR THERE IS NO CUT.
+
+        The previous shape fell back to the calibrated `hardCutSpend` whenever
+        `maturity` was null. Under a positive Target ROAS `maturity` is null
+        for exactly one reason — the Meta sample is missing or thin — so that
+        fallback re-opened a purchase-budget spend action on an account with no
+        authoritative money-per-purchase, sized from a calibrated spend
+        percentile instead. A calibrated floor is not a substitute for the
+        unit; it is a different quantity that happens to be a number.
+
+        So the floor is `maturity.spendThreshold` (itself
+        `max(calibratedFloor, unit * riskMultiplier)`) when a Target ROAS
+        governs, and the legacy calibrated floor only where no positive Target
+        ROAS exists — the compatibility case in which `metaLossBudgetMaturity`
+        answers from the CPA ladder anyway.
+
+        The CEILING is the Target ROAS when no break-even is configured
+        (`metaRelativeCutRoasCeiling`), so break-even stays a separately
+        identified economic stop-loss signal — `cutCeiling` and the
+        severe-loser bypass below still read it alone — and never becomes a
+        second mandatory user target.
+      */
+      const relativeCutSpendFloor = targetRoasGoverns
+        ? purchaseValueAuthority.authorized
+          ? (maturity?.spendThreshold ?? null)
+          : null
+        : (maturity?.spendThreshold ??
+          context?.thresholds.hardCutSpend ??
+          LEGACY_META_CALIBRATION_THRESHOLDS.hardCutSpend);
       if (
-        cutCeiling != null &&
-        maturity &&
-        adset.spend >= maturity.spendThreshold &&
+        relativeCutCeiling != null &&
+        // Under a governing Target ROAS this also requires the READY sample,
+        // because that is what `metaLossBudgetMaturity` refuses without.
+        relativeCutSpendFloor != null &&
+        adset.spend >= relativeCutSpendFloor &&
         adset.roas < weakThreshold &&
-        adset.roas < cutCeiling
+        adset.roas < relativeCutCeiling
       ) {
         const confidenceResult = confidence({
           context,
@@ -488,7 +610,7 @@ export function buildMetaAdsetRecommendations(
             { label: "Ad set spend", value: formatMoney(adset.spend, currency, null), tone: "warning" },
             { label: "Ad set ROAS", value: fmtRoas(adset.roas), tone: "warning" },
             { label: "ROAS p25", value: fmtRoas(roas.p25), tone: "neutral" },
-            { label: "Loss maturity spend", value: formatMoney(maturity.spendThreshold, currency, null), tone: "neutral" },
+            { label: "Loss maturity spend", value: formatMoney(relativeCutSpendFloor, currency, null), tone: "neutral" },
             ...commercialTargetEvidence(input.commercialTargets, currency),
             ...(severeLoser
               ? [{ label: "Severe loser bypass", value: "active", tone: "warning" as const }]

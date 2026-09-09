@@ -15,6 +15,20 @@ vi.mock("@/lib/demo-business", () => ({
 
 vi.mock("@/lib/integrations", () => ({
   getIntegration: vi.fn(),
+  /*
+    ── ROUND 23, ITEM 1 ──────────────────────────────────────────────────────
+    The REAL derivation, not a stub. The route's whole job here is to hand the
+    refresh the generation of the record its token came from, so a mock that
+    invented a token would prove nothing about the binding.
+  */
+  providerConnectionGenerationTokenFromIntegration: (
+    integration: { connection_generation?: unknown; status?: unknown } | null,
+  ) => {
+    if (!integration) return null;
+    const generation = integration.connection_generation;
+    if (generation == null || String(generation).trim().length === 0) return null;
+    return `${String(generation)}:${String(integration.status)}`;
+  },
 }));
 
 vi.mock("@/lib/meta-ad-accounts", () => ({
@@ -58,8 +72,43 @@ describe("POST /integrations/meta/ad-accounts", () => {
     vi.mocked(integrations.getIntegration).mockResolvedValue({
       access_token: "meta-token",
       token_expires_at: null,
+      // The generation this record's token belongs to. Carried on the SAME row
+      // as the credential by `readIntegrationRowsByBusiness`.
+      connection_generation: "9",
+      status: "connected",
     } as never);
     vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue(null as never);
+  });
+
+  it("binds the manual refresh to the generation of the record its token came from", async () => {
+    /*
+      ── ROUND 23, ITEM 1 ──────────────────────────────────────────────────────
+      This route read the integration record, called Meta with that token, and
+      then refreshed WITHOUT naming the generation. `runSnapshotRefresh` adopted
+      whichever generation existed by the time it claimed, so a reconnect in
+      that window authorised an old token's account list -- and the timezones
+      in it -- under the new grant.
+
+      Google's equivalent route already captured this. The assertion is on the
+      EXACT token derived from the record, not merely on the key being present:
+      a route that passed `null`, or that re-read the generation in a second
+      query, would satisfy a presence check and reintroduce the window.
+    */
+    vi.mocked(refresh.refreshProviderDiscoveryPayload).mockResolvedValue({
+      data: [],
+      meta: { source: "live" },
+      notice: null,
+    } as never);
+
+    await POST(
+      new NextRequest("http://localhost/integrations/meta/ad-accounts?businessId=biz_1", {
+        method: "POST",
+      }),
+    );
+
+    expect(refresh.refreshProviderDiscoveryPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedConnectionGeneration: "9:connected" }),
+    );
   });
 
   it("serves cached Meta account discovery data when manual refresh fails", async () => {
@@ -123,13 +172,22 @@ describe("POST /integrations/meta/ad-accounts", () => {
   });
 
   it("allows direct Meta accounts on first refresh when business discovery fails without a cached snapshot", async () => {
+    // The shape `fetchMetaAdAccounts` actually returns now: no `rawBody` at
+    // all, and an `error` this repository authored rather than Meta's own
+    // sentence. Keeping the old shape here would let this test pass against a
+    // helper that had gone back to quoting the provider.
     vi.mocked(metaAdAccounts.fetchMetaAdAccounts).mockResolvedValue({
       status: 200,
       ok: false,
-      rawBody: "{}",
       body: {
         error: {
-          message: "Meta business account discovery failed: Missing business permission",
+          message:
+            "Meta business account discovery failed: Meta me/businesses discovery failed (status 403, code 200)",
+          code: null,
+          error_subcode: null,
+          is_transient: null,
+          fbtrace_id: null,
+          authored_by: "adsecute",
         },
       },
       normalized: [
@@ -148,7 +206,12 @@ describe("POST /integrations/meta/ad-accounts", () => {
         ok: false,
         businessCount: 0,
         accountCount: 0,
-        errors: [{ edge: "me/businesses", message: "Missing business permission" }],
+        errors: [
+          {
+            edge: "me/businesses",
+            message: "Meta me/businesses discovery failed (status 403, code 200)",
+          },
+        ],
       },
     } as never);
     vi.mocked(refresh.refreshProviderDiscoveryPayload).mockImplementationOnce(async (input) => {

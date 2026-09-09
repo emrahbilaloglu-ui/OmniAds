@@ -169,7 +169,11 @@ describe("a demo journal states why it is empty, without being opened", () => {
     );
     expect(notice!.textContent).not.toContain(DEMO_MESSAGE);
     expect(screen.getAllByText("Demo activity is unavailable")).toHaveLength(1);
-    expect(screen.getAllByText(DEMO_ACCOUNT.name!)).toHaveLength(1);
+    expect(
+      screen.getByRole("option", {
+        name: `${DEMO_ACCOUNT.name} · ID ${DEMO_ACCOUNT.id}`,
+      }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText("Past accounts are temporarily unavailable."),
     ).toBeNull();

@@ -16,6 +16,10 @@ import {
   type MetaDecisionCenterExactProps,
   type MetaDecisionCenterExactViewModel,
 } from "./MetaDecisionCenterExact";
+// The tone the operator actually sees is a class on the rendered node, so the
+// tone assertions below compare against the stylesheet's own names rather than
+// against a string this test invented.
+import styles from "./MetaDecisionCenterExact.module.css";
 import type {
   MetaBudgetDecisionEvidenceByDirection,
   MetaBudgetDecisionEvidencePanel,
@@ -611,7 +615,13 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     );
     expect(row).toBeTruthy();
     expect(row?.textContent).toContain("Auto · Main");
-    expect(row?.textContent).toContain("Low confidence · capped");
+    expect(row?.textContent).toContain("Low confidence");
+    expect(row?.textContent).not.toContain("· capped");
+    expect(
+      Array.from(row?.querySelectorAll("span") ?? []).find((element) =>
+        element.textContent?.includes("Low confidence"),
+      )?.getAttribute("title"),
+    ).toBe("Confidence capped by server evidence");
     expect(row?.textContent).not.toContain("3 checks");
     expect(row?.textContent).toContain("$420 · ROAS 2.10");
     expect(row?.textContent).not.toContain("Review and apply");
@@ -727,6 +737,52 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
   });
 
   /**
+   * LAW: un-decided ACTIVE inventory reaches NO lane, NO count and NO control.
+   *
+   * The Decision Center used to render one placeholder row per ACTIVE Ad that
+   * no producer had decided — on Grandmix that was the entire page, and the
+   * real held verdicts were pushed off it by rows whose only content was that
+   * nothing had been decided. The producer no longer builds those rows at all;
+   * the population is a count and one sentence.
+   *
+   * This is the surface half of that claim, which the route and presentation
+   * tests cannot make: with the population present and non-zero, the rendered
+   * Creatives scope shows zero decision rows, zero primary controls, and the
+   * sentence — and it says the empty lane is empty rather than leaving the
+   * absence unexplained.
+   */
+  it("renders the inventory sentence and no rows when nothing was decided", () => {
+    const viewModel = exactViewModel();
+    viewModel.creativeDecisions = [];
+    viewModel.creativeGroups = [];
+    viewModel.creativePosture = [];
+    viewModel.creativesNotice =
+      "60 ACTIVE Ads have no exact Ad-grain decision yet, so they are not listed as decisions.";
+
+    render(
+      <MetaDecisionCenterExact
+        defaultScope="creatives"
+        viewModel={viewModel}
+      />,
+    );
+
+    const html = root().innerHTML;
+    // The sentence is there.
+    expect(
+      document.querySelector("[data-meta-exact-creatives-notice]")?.textContent,
+    ).toBe(
+      "60 ACTIVE Ads have no exact Ad-grain decision yet, so they are not listed as decisions.",
+    );
+    // And nothing that looks like a decision is.
+    expect(html).not.toContain("data-meta-exact-creative-row");
+    expect(html).not.toContain("data-meta-exact-creative-served-action");
+    expect(html).not.toContain("Evidence pending");
+    expect(html).not.toContain("Wait for ad-level decision");
+    // The empty lane says it is empty rather than rendering nothing at all.
+    expect(html).toContain("data-meta-exact-lane-empty");
+  });
+
+  /**
    * LAW: source degradation is a property of the SOURCE, never of the row count.
    *
    * The only path that reached the desktop used to be the creatives notice, and
@@ -739,8 +795,12 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
    */
   it("keeps a non-empty creative queue useful without raw source diagnostics", () => {
     const viewModel = exactViewModel();
+    // Buyer language only. The producer code that used to be appended here as
+    // "Source: native_account_manifest_incomplete." is asserted below to be
+    // absent from the rendered text, and it keeps its own labelled row in the
+    // diagnostics panel that this surface does not render.
     viewModel.creativesNotice =
-      "Legacy creative-grain decisions cannot authorize Ad writes. Source: native_account_manifest_incomplete.";
+      "Legacy creative-grain decisions cannot authorize Ad writes.";
     viewModel.sourceProvenance = {
       headline: "legacy_creative · degraded",
       tone: "warning",
@@ -762,7 +822,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
       coverage: [
         { id: "shown", label: "Shown here", value: "60" },
         // Two eligible pre-cap counts, each under a label naming which it is:
-        // the read model's served count and the presentation's derived maximum.
+        // the read model's served count and the presentation's own served count.
         // @see meta-decision-center-exact-adapter.ts — sourceProvenance.
         {
           id: "queue-eligible-pre-cap",
@@ -771,7 +831,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
         },
         {
           id: "ads-eligible-pre-cap",
-          label: "Eligible (pre-cap) · derived maximum",
+          label: "Eligible (pre-cap) · served payload",
           value: "80",
         },
       ],
@@ -810,8 +870,24 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(
       queue?.children[0]?.hasAttribute("data-meta-exact-creative-posture"),
     ).toBe(true);
+    /*
+     * The notice sits BETWEEN the posture band and the first row.
+     *
+     * It was a declared prop that reached no pixel: nothing in this component
+     * destructured `creativesNotice` and nothing rendered it, so the adapter
+     * computed the sentence on every render and threw it away. Placing it here
+     * is the point of the law above — an operator reads why the source is
+     * degraded before reading the rows it produced, not after scrolling past
+     * them.
+     */
     expect(
-      queue?.children[1]?.getAttribute("data-meta-exact-creative-row"),
+      queue?.children[1]?.hasAttribute("data-meta-exact-creatives-notice"),
+    ).toBe(true);
+    expect(queue?.children[1]?.textContent).toBe(
+      "Legacy creative-grain decisions cannot authorize Ad writes.",
+    );
+    expect(
+      queue?.children[2]?.getAttribute("data-meta-exact-creative-row"),
     ).toBe("creative-a");
     expect(
       document.querySelector("[data-meta-exact-source-provenance]"),
@@ -957,19 +1033,22 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(
       screen.getByText("Exact Ad-grain decision evidence is unavailable"),
     ).toBeTruthy();
-    // No callback was served for the row, so its review control is not
-    // live. The SERVED action label still renders — it is decision
-    // information, and moving it off the button did not withhold it.
-    for (const [rowId, servedAction] of [
-      ["row-blocked", "Evidence pending"],
-    ] as const) {
+    // The blocked group already states the row's state. The row keeps one
+    // next step and one evidence control instead of repeating the same held
+    // state as a badge, action line and blocker line.
+    for (const rowId of ["row-blocked"] as const) {
       const row = document.querySelector(
         `[data-meta-exact-creative-row="${rowId}"]`,
       );
       expect(
-        row?.querySelector("[data-meta-exact-creative-served-action]")
-          ?.textContent,
-      ).toBe(servedAction);
+        row?.querySelectorAll("[data-meta-exact-creative-next-step]"),
+      ).toHaveLength(1);
+      expect(
+        row?.querySelector("[data-meta-exact-creative-served-action]"),
+      ).toBeNull();
+      expect(
+        row?.querySelector("[data-meta-exact-creative-row-state]"),
+      ).toBeNull();
       const review = row?.querySelector<HTMLButtonElement>(
         "[data-meta-exact-creative-review]",
       );
@@ -1608,5 +1687,346 @@ describe("the Decision Center mounts the budget-decision evidence", () => {
     );
     expect(source).not.toMatch(/buyerAction|inferredKind|campaignRole/i);
     expect(source).not.toMatch(/Math\.|reduce\(|parseFloat|Number\(/);
+  });
+});
+
+/**
+ * D091 / Codex item 5 — the held verdict on the rendered row.
+ *
+ * The view model is not the operator's eye. These assert the DOM: the engine's
+ * withheld conclusion is a SEPARATE element from the published label, it says
+ * which verdict was reached, and the row it sits on offers nothing that would
+ * change anything at Meta.
+ */
+describe("a held verdict renders as evidence and never as an affordance", () => {
+  function heldRow(): MetaDecisionCenterExactViewModel {
+    return {
+      creativeGroups: [
+        {
+          id: "blocked",
+          label: "Blocked",
+          tone: "warning",
+          count: "1 decision",
+          note: "3 ads need more evidence before action (scale 1 · cut 0 · refresh 2), counted apart from this group's total",
+          rows: [
+            {
+              id: "row-held",
+              name: "Held Refresh Ad",
+              stateLabel: "Blocked",
+              stateTone: "warning",
+              decisionLabel: "Keep monitoring",
+              decisionTone: "warning",
+              heldVerdictLabel: "Recommendation awaiting review: Refresh creative",
+              heldVerdictTone: "warning",
+              note: "Confirm the commercial target before acting. Then review this Refresh creative recommendation again.",
+              actionLabel: "Keep running",
+              onPrimary: () => {},
+              onOpen: () => {},
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("draws the engine's held verdict as its own element beside the published label", () => {
+    render(
+      <MetaDecisionCenterExact
+        lane="needsres"
+        scope="creatives"
+        viewModel={heldRow()}
+      />,
+    );
+    const row = document.querySelector(
+      '[data-meta-exact-creative-row="row-held"]',
+    )!;
+    const held = row.querySelector("[data-meta-exact-creative-held-verdict]");
+
+    // The engine reached Refresh. The row now says so, in words, on screen.
+    expect(held?.textContent).toBe("Recommendation awaiting review: Refresh creative");
+    // And it is a DIFFERENT element from the published label, so neither one
+    // is mistaken for the other.
+    expect(row.textContent).toContain("Keep monitoring");
+    expect(held?.textContent).not.toContain("Keep monitoring");
+    // The specific held resolution, not the generic evidence sentence.
+    expect(
+      row.querySelector("[data-meta-exact-creative-next-step]")?.textContent,
+    ).toBe(
+      "Confirm the commercial target before acting. Then review this Refresh creative recommendation again.",
+    );
+    // The group states the held split apart from its own total.
+    expect(screen.getByText("1 decision")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "3 ads need more evidence before action (scale 1 · cut 0 · refresh 2), counted apart from this group's total",
+      ),
+    ).toBeTruthy();
+  });
+
+  /**
+   * The suppression must follow the HELD VERDICT, not the badge caption.
+   *
+   * `isBlocked` in this component is a string comparison against
+   * `stateLabel`, so this row is deliberately served WITHOUT one — the flat
+   * `creativeDecisions` path, and any caller that supplies rows with no state.
+   * Before the held verdict governed it, such a row drew the served action
+   * line for a verdict the server had refused to authorize.
+   */
+  it("offers no Apply, no CTA and no served action on the held row", () => {
+    const base = heldRow();
+    const row0 = base.creativeGroups![0]!.rows[0]!;
+    render(
+      <MetaDecisionCenterExact
+        lane="needsres"
+        scope="creatives"
+        viewModel={{
+          creativeDecisions: [
+            { ...row0, stateLabel: undefined, stateTone: undefined },
+          ],
+        }}
+      />,
+    );
+    const row = document.querySelector(
+      '[data-meta-exact-creative-row="row-held"]',
+    )!;
+
+    // No served-action line, and no design control key: a held row mints no
+    // provider write and must not draw the affordance for one.
+    expect(
+      row.querySelector("[data-meta-exact-creative-served-action]"),
+    ).toBeNull();
+    expect(row.querySelector("[data-ctl]")).toBeNull();
+    // The ONE control on the row opens the evidence, and says so. Anything
+    // else here would be an execution affordance on a withheld verdict.
+    const buttons = Array.from(row.querySelectorAll("button"));
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.getAttribute("data-meta-exact-creative-review")).toBe(
+      "true",
+    );
+    expect(buttons[0]!.textContent).toBe("Review evidence");
+    expect(row.textContent).not.toMatch(/apply|pause|resume|execute/i);
+  });
+
+  it("draws no held badge on a row the server held nothing on", () => {
+    const viewModel = heldRow();
+    const row = viewModel.creativeGroups![0]!.rows[0]!;
+    render(
+      <MetaDecisionCenterExact
+        lane="needsres"
+        scope="creatives"
+        viewModel={{
+          creativeGroups: [
+            {
+              ...viewModel.creativeGroups![0]!,
+              note: null,
+              rows: [{ ...row, heldVerdictLabel: undefined }],
+            },
+          ],
+        }}
+      />,
+    );
+    expect(
+      document.querySelector("[data-meta-exact-creative-held-verdict]"),
+    ).toBeNull();
+  });
+});
+
+/**
+ * D091 / Codex item 5, SECOND SURFACE — the held verdict in the evidence panel.
+ *
+ * The panel is one click from the row above. It drew `decisionLabel` —
+ * "Keep monitoring" for a held Refresh — under `tone`, which reads the
+ * published `keep` as POSITIVE, and said nothing at all about a verdict being
+ * withheld. These assert the DOM, not the view model: the held verdict is a
+ * SEPARATE element from the published label, it carries its own specific
+ * resolution, the panel is not painted with the approval colour, and nothing
+ * that would change anything at Meta becomes reachable inside it.
+ */
+describe("the evidence panel states a held verdict and offers no way to act on it", () => {
+  function heldInspector(): MetaDecisionCenterExactViewModel["inspector"] {
+    return {
+      entityName: "Held Refresh Ad",
+      entityMeta: "Server Campaign · Server Ad set",
+      decisionLabel: "Keep monitoring",
+      tone: "warning",
+      heldVerdictLabel: "Recommendation awaiting review: Refresh creative",
+      heldVerdictTone: "warning",
+      heldVerdictNextStep:
+        "Confirm the commercial target before acting. Then review this Refresh creative recommendation again.",
+      serverVerdict: "Review decision",
+      reasons: ["This decision needs review before any action."],
+      actionLabel: "Review decision",
+      actionTone: "warning",
+    };
+  }
+
+  function panel(): HTMLElement {
+    return document.querySelector("[data-meta-exact-inspector]") as HTMLElement;
+  }
+
+  it("draws the held verdict and its own resolution as elements of their own", () => {
+    render(
+      <MetaDecisionCenterExact
+        lane="needsres"
+        scope="structure"
+        viewModel={{ inspector: heldInspector() }}
+      />,
+    );
+    const held = panel().querySelector(
+      "[data-meta-exact-inspector-held-verdict]",
+    );
+
+    // The engine reached Refresh. The panel now says so, in words, on screen.
+    expect(
+      held?.querySelector("[data-meta-exact-inspector-held-verdict-label]")
+        ?.textContent,
+    ).toBe("Recommendation awaiting review: Refresh creative");
+    // The SPECIFIC held resolution, not the generic evidence sentence.
+    expect(
+      held?.querySelector("[data-meta-exact-inspector-held-next-step]")
+        ?.textContent,
+    ).toBe(
+      "Confirm the commercial target before acting. Then review this Refresh creative recommendation again.",
+    );
+    expect(held?.textContent).not.toContain(
+      "Review the missing evidence before taking action.",
+    );
+    // And the published label is still there, in a DIFFERENT element, so
+    // neither fact is mistaken for the other.
+    expect(panel().textContent).toContain("Keep monitoring");
+    expect(held?.textContent).not.toContain("Keep monitoring");
+    // The badge wears its own warning tone — the same pill the operator
+    // clicked from on the queue row, not the published label's colour.
+    expect(
+      held?.querySelector("[data-meta-exact-inspector-held-verdict-label]")
+        ?.className,
+    ).toContain(styles.toneWarning);
+  });
+
+  it("never paints the panel of a held row in the approval colour", () => {
+    render(
+      <MetaDecisionCenterExact
+        lane="needsres"
+        scope="structure"
+        viewModel={{ inspector: heldInspector() }}
+      />,
+    );
+
+    // `tone` tints the panel frame and its header badge. Read off the rendered
+    // class list rather than off the view model, because the colour is what
+    // the operator actually sees.
+    expect(panel().className).not.toContain(styles.tonePositive);
+    expect(panel().className).toContain(styles.toneWarning);
+  });
+
+  /**
+   * THE MUTATION CEREMONY MUST NOT FALL THROUGH ONTO A HELD PANEL.
+   *
+   * `manualAction` is the `gated:META-WRITE-01` sheet — a provider write. It
+   * becomes the panel's primary control whenever no other primary is served,
+   * which is precisely the shape a held row can arrive in: authority withheld
+   * the verdict, so there is nothing else to offer. Served UNREFUSED here —
+   * the gate open and the viewer able to write — because a refused sheet
+   * proves nothing about the suppression.
+   */
+  it("offers no execution affordance inside a held row's evidence panel", () => {
+    const openMutationSheet = vi.fn();
+    render(
+      <MetaDecisionCenterExact
+        lane="needsres"
+        scope="structure"
+        viewModel={{
+          inspector: {
+            ...heldInspector(),
+            manualAction: {
+              label: "Open manual action",
+              refusalReason: null,
+              onOpen: openMutationSheet,
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(panel().querySelectorAll("button")).toHaveLength(0);
+    expect(panel().textContent).not.toContain("Open manual action");
+    // No design control key inside the panel either: a held verdict mints no
+    // provider write and must not draw the affordance for one.
+    expect(panel().querySelector("[data-ctl]")).toBeNull();
+  });
+
+  it("keeps the evidence review reachable on a held panel, and only that", () => {
+    const review = vi.fn();
+    const openMutationSheet = vi.fn();
+    render(
+      <MetaDecisionCenterExact
+        lane="needsres"
+        scope="structure"
+        viewModel={{
+          inspector: {
+            ...heldInspector(),
+            onPrimary: review,
+            manualAction: {
+              label: "Open manual action",
+              refusalReason: null,
+              onOpen: openMutationSheet,
+            },
+          },
+        }}
+      />,
+    );
+    const buttons = Array.from(panel().querySelectorAll("button"));
+
+    // Exactly one control, and it reads the evidence rather than writing.
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.textContent).toBe("Review decision");
+    fireEvent.click(buttons[0]!);
+    expect(review).toHaveBeenCalledTimes(1);
+    expect(openMutationSheet).not.toHaveBeenCalled();
+    expect(panel().textContent).not.toContain("Open manual action");
+  });
+
+  it("still opens the mutation sheet on a panel with no held verdict", () => {
+    const openMutationSheet = vi.fn();
+    const { heldVerdictLabel: _label, ...unheld } = heldInspector()!;
+    render(
+      <MetaDecisionCenterExact
+        lane="needsres"
+        scope="structure"
+        viewModel={{
+          inspector: {
+            ...unheld,
+            manualAction: {
+              label: "Open manual action",
+              refusalReason: null,
+              onOpen: openMutationSheet,
+            },
+          },
+        }}
+      />,
+    );
+    const buttons = Array.from(panel().querySelectorAll("button"));
+
+    // The suppression above follows the HELD VERDICT and nothing else: remove
+    // it and the ceremony is reachable exactly as before.
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(buttons[0]!);
+    expect(openMutationSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it("draws no held block on a panel the server held nothing on", () => {
+    const { heldVerdictLabel: _label, ...unheld } = heldInspector()!;
+    render(
+      <MetaDecisionCenterExact
+        lane="needsres"
+        scope="structure"
+        viewModel={{ inspector: { ...unheld, tone: "positive" } }}
+      />,
+    );
+
+    expect(
+      panel().querySelector("[data-meta-exact-inspector-held-verdict]"),
+    ).toBeNull();
+    expect(panel().textContent).toContain("Keep monitoring");
   });
 });

@@ -39,12 +39,25 @@
 //
 //   (a) MULTI-ACCOUNT BOOTSTRAP. A is not granted scale from B — not in the
 //       served profile, not in the retained row, and not in the budget
-//       consumer. A reads its own six, and Scale is withheld with the
-//       resolver's own `scale_calibration_below_floor`.
+//       consumer. A reads its own six, and every action is withheld with the
+//       resolver's own `commercial_anchor_sample_insufficient`.
 //   (b) ADEQUATE DATA WORKS THROUGH BOOTSTRAP. An account with enough of its
 //       OWN evidence is served a concrete answer in the same warehouse state —
 //       no hold, no blanking, no waiting for a cron — and the retained verdict
 //       and the budget consumer agree with it.
+//
+// THE COMMERCIAL BASIS, RE-PINNED. (a) and (b) used to assert
+// `observed_shopify_aov` — the business's store AOV of 58.00 over the 2.20
+// target ROAS, 26.36 — and (a) therefore blocked only Scale, on the calibration
+// floor, while cut and refresh stayed eligible. That rung has been removed from
+// `resolveSpendUnit`: for a META decision the hard-decision unit is META'S OWN
+// attributed purchase AOV for this account divided by the target ROAS, and the
+// merchant's settled Shopify orders are a different book. A's six attributed
+// purchases are below the resolver's `ready` bar, so the commercial threshold
+// itself is unmet and its blocker outranks the calibration one on all three
+// actions. (b) is unchanged in kind — forty attributed purchases still resolve
+// — which is what keeps (a) a statement about A's evidence rather than a
+// blanket hold.
 //   (c) NO BORROWED META AOV. An account with no purchases of its own, on a
 //       business with no store, is told so rather than handed its sibling's
 //       Meta-attributed average order value.
@@ -81,6 +94,7 @@
 // substitute `.env.local`. It is stopped and deleted afterwards. When no
 // PostgreSQL binaries are present the whole file skips rather than passing
 // vacuously.
+import { sharedEphemeralDatabaseUrl } from "@/lib/test-utils/shared-ephemeral-database";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -89,6 +103,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { seedCanonicalMetaAdDailyFacts } from "@/lib/creative-decision-engine/meta-aov-calculator.test-helpers";
+import { seedHealthyDbHostCapacitySnapshot } from "@/lib/sync/db-growth-fence.test-helpers";
 
 /** Never the local volume, never the production tunnel. */
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
@@ -113,7 +129,8 @@ function postgresBinDir(): string | null {
 }
 
 const PG_BIN = postgresBinDir();
-const RUNNABLE = PG_BIN !== null;
+const SHARED_DATABASE_URL = sharedEphemeralDatabaseUrl();
+const RUNNABLE = SHARED_DATABASE_URL !== null || PG_BIN !== null;
 
 function run(command: string, args: string[]) {
   const result = spawnSync(command, args, {
@@ -231,6 +248,8 @@ type ServedWorkspace = {
       status: string;
       spendUnit: number | null;
       spendUnitSource: string;
+      thresholdEligible: boolean;
+      missingInputs: string[];
       lineage: Record<string, unknown>;
     } | null;
     actions: AnchorAction[];
@@ -426,6 +445,8 @@ describe.skipIf(!RUNNABLE)(
     };
 
     beforeAll(async () => {
+      let databaseUrl = SHARED_DATABASE_URL;
+      if (!databaseUrl) {
       const port = await freePort();
       if (FORBIDDEN_PORTS.has(port)) {
         throw new Error(`Refusing forbidden PostgreSQL port ${port}.`);
@@ -465,8 +486,9 @@ describe.skipIf(!RUNNABLE)(
         DB_USER,
         DB_NAME,
       ]);
-      const databaseUrl = `postgresql://${DB_USER}@127.0.0.1:${port}/${DB_NAME}`;
+      databaseUrl = `postgresql://${DB_USER}@127.0.0.1:${port}/${DB_NAME}`;
       await migrate(databaseUrl);
+      }
       process.env.DATABASE_URL = databaseUrl;
       process.env.DATABASE_URL_UNPOOLED = databaseUrl;
       process.env.DB_SSL_MODE = "disable";
@@ -474,7 +496,8 @@ describe.skipIf(!RUNNABLE)(
 
       db = await import("@/lib/db");
       const sql = db.getDb();
-      const { upsertMetaCreativeDailyRows } = await import(
+      await seedHealthyDbHostCapacitySnapshot(sql, "bootstrap-population-test-host");
+      const { upsertMetaAdDailyRows, upsertMetaCreativeDailyRows } = await import(
         "@/lib/meta/warehouse"
       );
       const { runCalibrationJob } = await import(
@@ -552,6 +575,11 @@ describe.skipIf(!RUNNABLE)(
           });
         }
         await upsertMetaCreativeDailyRows(rows);
+        await seedCanonicalMetaAdDailyFacts({
+          sql,
+          rows,
+          write: upsertMetaAdDailyRows,
+        });
       };
 
       const seedBusiness = async (businessId: string, name: string) => {
@@ -811,17 +839,27 @@ describe.skipIf(!RUNNABLE)(
         hold: null,
       });
 
-      // Scale is withheld with the resolver's own code, and the two actions
-      // that do not depend on the calibration floor are still granted — a
-      // concrete answer, not a blanking.
+      /*
+        Every action is withheld with the resolver's own code — a concrete
+        named answer, not a blanking.
+
+        RE-PINNED. This used to read `scale:false:scale_calibration_below_floor`
+        beside an eligible cut and refresh, because A's commercial anchor came
+        from the business's Shopify AOV and only Scale answered to the
+        calibration floor. The store rung is gone: A's unit is A's OWN
+        Meta-attributed AOV, its six attributed purchases are below the `ready`
+        bar, and the commercial threshold blocker outranks the calibration one
+        for all three. A's calibration is still below the floor; it is simply no
+        longer the FIRST reason.
+      */
       expect(
         served.anchor.actions.map(
           (action) => `${action.action}:${action.eligible}:${action.blockerCode}`,
         ),
       ).toEqual([
-        "scale:false:scale_calibration_below_floor",
-        "cut:true:null",
-        "refresh:true:null",
+        "scale:false:commercial_anchor_sample_insufficient",
+        "cut:false:commercial_anchor_sample_insufficient",
+        "refresh:false:commercial_anchor_sample_insufficient",
       ]);
 
       // THE RETAINED ROW SAYS THE SAME THING.
@@ -837,9 +875,9 @@ describe.skipIf(!RUNNABLE)(
           (row) => `${row.action}:${row.eligible}:${row.blocker_code}`,
         ),
       ).toEqual([
-        "cut:true:null",
-        "refresh:true:null",
-        "scale:false:scale_calibration_below_floor",
+        "cut:false:commercial_anchor_sample_insufficient",
+        "refresh:false:commercial_anchor_sample_insufficient",
+        "scale:false:commercial_anchor_sample_insufficient",
       ]);
 
       // AND SO DOES THE BUDGET CONSUMER, which is the surface that authorises a
@@ -855,10 +893,11 @@ describe.skipIf(!RUNNABLE)(
         selectedAction: "scale",
         sourceStatus: "unavailable",
         eligible: null,
-        code: "scale_calibration_below_floor",
+        code: "commercial_anchor_sample_insufficient",
       });
 
-      // The same consumer, on the action A's own evidence DOES support.
+      // The same consumer on the other direction, which A's own six-purchase
+      // sample no longer supports either.
       const decrease = await budgetConsumerVerdict(
         BOOT_BUSINESS,
         BOOT_SMALL,
@@ -866,10 +905,9 @@ describe.skipIf(!RUNNABLE)(
       );
       expect(decrease.commercial).toMatchObject({
         selectedAction: "cut",
-        sourceStatus: "resolved",
-        eligible: true,
+        eligible: null,
+        code: "commercial_anchor_sample_insufficient",
       });
-      expect(decrease.profileRetained).toBe(true);
     }, 180_000);
 
     it("(b) serves an adequately evidenced account a real answer in bootstrap", async () => {
@@ -880,11 +918,19 @@ describe.skipIf(!RUNNABLE)(
       const served = await serve(SOLE_BUSINESS, SOLE_ACCOUNT);
       expect(served.anchor.status).toBe("resolved");
       expect(served.anchor.unavailableReason).toBeNull();
+      /*
+        RE-PINNED, and this case is where the guard against over-correcting
+        lives on real storage: retiring the store rung must not leave the served
+        path unable to say YES. It still says yes here, through the canonical
+        rung — this account has forty of its own attributed purchases.
+      */
       expect(served.anchor.explanation?.spendUnitSource).toBe(
-        "observed_shopify_aov",
+        "meta_derived_aov",
       );
-      // 58.00 store AOV / 2.20 target ROAS. ROAS is the only configured target.
-      expect(served.anchor.explanation?.spendUnit).toBeCloseTo(26.363636, 5);
+      // 36.00 Meta-attributed AOV / 2.20 target ROAS. ROAS is the only
+      // configured target, and specifically NOT the store's 58.00 / 2.20.
+      expect(served.anchor.explanation?.spendUnit).toBeCloseTo(36 / 2.2, 9);
+      expect(served.anchor.explanation?.missingInputs).toEqual([]);
       expect(
         served.anchor.actions.map(
           (action) => `${action.action}:${action.eligible}:${action.blockerCode}`,
@@ -906,6 +952,7 @@ describe.skipIf(!RUNNABLE)(
         scope: "account",
         providerAccountId: SOLE_ACCOUNT,
         basis: "sole_account_pooled_rows",
+        readProviderAccountId: null,
         hold: null,
       });
 
@@ -1012,9 +1059,18 @@ describe.skipIf(!RUNNABLE)(
       const withPurchases = await serve(AOV_BUSINESS, AOV_WITH);
       const without = await serve(AOV_BUSINESS, AOV_WITHOUT);
 
-      // The account that has purchases is anchored on its OWN 44.00.
+      /*
+        The account that has purchases reads its OWN 44.00 — which is the
+        anti-pooling claim this case makes, and it is unchanged.
+
+        ROUND 6: eight attributed purchases are below the `ready` bar of
+        twenty, so under a Target ROAS the ladder holds rather than sizing a
+        unit from them; the source is the hold and the lineage still names this
+        account's own number. What must never appear here is the SIBLING's
+        evidence, and it does not.
+      */
       expect(withPurchases.anchor.explanation?.spendUnitSource).toBe(
-        "meta_derived_aov",
+        "insufficient",
       );
       expect(
         withPurchases.anchor.explanation?.lineage.metaAttributedAovMean90d,
@@ -1218,7 +1274,7 @@ describe.skipIf(!RUNNABLE)(
       );
       expect(increase.commercial).toMatchObject({
         eligible: null,
-        code: "scale_calibration_below_floor",
+        code: "commercial_anchor_sample_insufficient",
       });
     }, 180_000);
 

@@ -132,6 +132,40 @@ describe("Meta commercial target helpers", () => {
     expect(hasMetaHardActionAnchor(targets)).toBe(false);
   });
 
+  it("rejects a target microsecond after an exact same-ms cutoff", () => {
+    const targets = normalizeMetaCommercialTargets(
+      {
+        targetRoas: 2.4,
+        breakEvenRoas: 1.6,
+        freshness: "fresh",
+        updatedAt: "2026-07-15T00:00:00.000900Z",
+      },
+      "2026-07-15T00:00:00.000100Z",
+    );
+
+    expect(targets).toMatchObject({
+      freshness: "unknown",
+      updatedAt: null,
+    });
+    expect(hasMetaHardActionAnchor(targets)).toBe(false);
+  });
+
+  it("accepts a target exactly at an offset-equivalent microsecond cutoff", () => {
+    const targets = normalizeMetaCommercialTargets(
+      {
+        targetRoas: 2.4,
+        breakEvenRoas: 1.6,
+        freshness: "fresh",
+        updatedAt: "2026-07-15T02:00:00.0009+02:00",
+      },
+      "2026-07-15T00:00:00.000900Z",
+    );
+
+    expect(targets.freshness).toBe("fresh");
+    expect(targets.updatedAt).toBe("2026-07-15T02:00:00.0009+02:00");
+    expect(hasMetaHardActionAnchor(targets)).toBe(true);
+  });
+
   it("keeps an old configured target as a hard-action anchor when its timestamp is valid", () => {
     const targets = normalizeMetaCommercialTargets(
       {
@@ -277,6 +311,38 @@ describe("Meta commercial target helpers", () => {
       breakEvenRoas: 1.6,
       freshness: "stale",
       updatedAt: "2099-12-01T00:00:00.000Z",
+    });
+  });
+
+  it("fails historical replay closed when its row is one microsecond after the exact cutoff", async () => {
+    vi.mocked(getBusinessTargetPackHistoryAsOf).mockResolvedValue({
+      targetCpa: 100,
+      targetRoas: 2.4,
+      breakEvenCpa: 130,
+      breakEvenRoas: 1.6,
+      contributionMarginAssumption: null,
+      aovAssumption: null,
+      newCustomerWeight: null,
+      defaultRiskPosture: "balanced",
+      costStructure: {
+        cogsPercent: null,
+        shippingPercent: null,
+        fulfillmentPercent: null,
+        paymentProcessingPercent: null,
+      },
+      sourceLabel: "settings_manual_entry",
+      updatedAt: "2026-05-04T03:00:00.000900Z",
+      updatedByUserId: null,
+    });
+
+    await expect(
+      readMetaCommercialTargets("business-1", {
+        asOf: "2026-05-04T03:00:00.000100Z",
+      }),
+    ).resolves.toMatchObject({
+      source: "configured_targets",
+      freshness: "unknown",
+      updatedAt: null,
     });
   });
 });

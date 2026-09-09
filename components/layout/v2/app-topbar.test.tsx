@@ -317,21 +317,24 @@ describe("business-scoped Dashboard v2 topbar", () => {
   });
 
   it.each([
-    "/c/business_A/meta/decisions",
-    "/c/business_A/creative/performance",
-    "/c/business_A/meta/history",
-  ])("keeps the global date control where it drives the screen: %s", (pathname) => {
-    state.pathname = pathname;
-    window.history.replaceState(null, "", `${pathname}?${STATED_WINDOW}`);
+    ["/c/business_A/meta/decisions", true],
+    ["/c/business_A/creative/performance", false],
+    ["/c/business_A/meta/history", false],
+  ] as const)(
+    "keeps the global date control where it drives the screen: %s",
+    (pathname, comparisonApplies) => {
+      state.pathname = pathname;
+      window.history.replaceState(null, "", `${pathname}?${STATED_WINDOW}`);
 
-    renderTopbar();
+      renderTopbar();
 
-    expect(screen.getByTestId("date-range-picker")).toBeTruthy();
-    expect(state.pickerProps).toHaveLength(1);
-    expect(state.pickerProps[0]?.showComparisonTrigger).toBe(
-      pathname.includes("/meta/history") ? false : true,
-    );
-  });
+      expect(screen.getByTestId("date-range-picker")).toBeTruthy();
+      expect(state.pickerProps).toHaveLength(1);
+      expect(state.pickerProps[0]?.showComparisonTrigger).toBe(
+        comparisonApplies,
+      );
+    },
+  );
 
   it("posts first and then navigates A to the equivalent B route without optimistic store drift", async () => {
     renderTopbar();

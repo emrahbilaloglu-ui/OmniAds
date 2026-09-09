@@ -19,6 +19,7 @@
  */
 import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
 import {
+  metaBidAmountDirectionForRecommendationType,
   META_BID_INTENT_CONTRACT_VERSION,
   validateBidIntent,
 } from "@/lib/meta/bid-intent-contract";
@@ -47,6 +48,8 @@ export interface BidIntentProjectionInput {
   providerAccountId: string;
   /** The derived CPA benchmark in minor units. See the spend-unit resolver. */
   spendUnitMinor: number | null;
+  /** True only for a trusted target pack and a hard-eligible canonical unit. */
+  bidActionAuthority: boolean;
   accountCurrency: string | null;
   policy: BidSizingInput["policy"];
   contextByAdsetId: Map<string, BidIntentEntityContext>;
@@ -93,6 +96,30 @@ export function projectBidIntents(
 
   const recommendations = input.recommendations.map((rec) => {
     if (rec.kind === "anomaly" || rec.kind === "state") return rec;
+    // A typed bid is a money-moving instruction. Keep explanatory `test`,
+    // `watch`, and legacy state-less rows byte-identical and untyped.
+    if (rec.decisionState !== "act") return rec;
+    /*
+      Sizing is not semantics.
+
+      A previous version treated every actionable ad-set recommendation as a
+      spare carrier for a bid. That let an `adset_cut_spend` row simultaneously
+      queue a pause and INCREASE its cap, and let refresh/structural rows become
+      money moves. Only a recommendation type that explicitly names a currency
+      bid-amount operation may enter this policy. The current B1 producer is
+      campaign-grain, so no live ad-set row qualifies until a real producer
+      supplies that semantic contract.
+    */
+    const expectedDirection =
+      metaBidAmountDirectionForRecommendationType(rec.type);
+    if (!expectedDirection) {
+      note("bid_action_semantic_missing");
+      return rec;
+    }
+    if (!input.bidActionAuthority) {
+      note("commercial_target_unknown");
+      return rec;
+    }
     // A bid amount lives on an ad set; there is no campaign-grain bid write.
     if (rec.level !== "adset") return rec;
     const adsetId = rec.adsetId?.trim();
@@ -118,6 +145,10 @@ export function projectBidIntents(
     });
     if (outcome.status === "withheld") {
       note(outcome.code);
+      return rec;
+    }
+    if (outcome.direction !== expectedDirection) {
+      note("bid_direction_semantic_mismatch");
       return rec;
     }
 

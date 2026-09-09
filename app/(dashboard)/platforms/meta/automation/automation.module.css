@@ -519,8 +519,8 @@
   padding: 13px 16px;
 }
 
-/* The unresolved-scope account control. It is mounted inside the read-failure
-   notice and nowhere else, so it cannot appear on a resolved screen. */
+/* The legacy shell's unresolved-scope account control. Canonical `/c/**`
+   routes do not mount it because their shared topbar owns account selection. */
 .accountPicker {
   display: inline-flex;
   align-items: center;

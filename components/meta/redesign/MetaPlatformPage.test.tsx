@@ -1147,11 +1147,12 @@ describe("MetaPlatformPage", () => {
       'data-meta-exact-creative-row="os_ad_pending_1"',
     );
     expect(pending).toContain("Live Ad Without A Decision");
-    // It says what it is without exposing producer vocabulary.
-    expect(pending).toContain("Decision pending");
-    expect(pending).toContain("Decision evidence is still being prepared.");
-    expect(pending).toContain(
-      "Wait for the next completed ad-level decision.",
+    // The blocked group carries the state; the row states one next step.
+    expect(pending).not.toContain("Decision pending");
+    expect(pending).not.toContain("Decision evidence is still being prepared.");
+    expect(pending).toContain("Wait for the next completed ad-level decision.");
+    expect(pending.match(/data-meta-exact-creative-next-step/g)).toHaveLength(
+      1,
     );
     expect(pending).not.toContain("schema and producer lineage");
     // The served state is on the row, not pooled away.
@@ -1333,18 +1334,40 @@ describe("MetaPlatformPage", () => {
     expect(html).not.toContain("Creative grouping unavailable");
   });
 
-  it("withholds Decisions until a provider account is explicit when multiple are assigned", () => {
+  it("offers account recovery on both legacy surfaces and keeps canonical selection in the shell", () => {
     state.providerAccounts = [
       { id: "act_1", name: "US", currency: "USD", timezone: "UTC" },
       { id: "act_2", name: "EU", currency: "EUR", timezone: "UTC" },
     ];
 
     const unscoped = renderToStaticMarkup(
-      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        accountSelection="local"
+      />,
     );
     expect(unscoped).toContain('data-testid="meta-account-required"');
+    expect(unscoped).toContain('data-mobile-read-state="account-required"');
+    expect(unscoped).toContain(
+      'aria-label="Meta ad account for Decisions mobile"',
+    );
     expect(unscoped).toContain(
       "Select the account whose decisions you want to review.",
+    );
+    expect(unscoped).toContain("US · ID act_1 · USD");
+    expect(unscoped).toContain("EU · ID act_2 · EUR");
+
+    const canonical = renderToStaticMarkup(
+      <MetaPlatformPage
+        businessId="biz_1"
+        businessName="TheSwaf"
+        accountSelection="shared"
+      />,
+    );
+    expect(canonical).not.toContain('data-testid="meta-account-required"');
+    expect(canonical).not.toContain(
+      'aria-label="Meta ad account for Decisions mobile"',
     );
 
     state.search = "window=28d&providerAccountId=act_2";
@@ -3461,8 +3484,7 @@ describe("mobile decision surface parity", () => {
         suppressedAlternativeCount: 0,
       },
     };
-    state.search =
-      "window=28d&area=monitor&segment=needs_resolution";
+    state.search = "window=28d&area=monitor&segment=needs_resolution";
 
     const html = renderToStaticMarkup(
       <MetaPlatformPage
@@ -3478,7 +3500,7 @@ describe("mobile decision surface parity", () => {
       html,
       'data-meta-exact-needsres-row="rec_blocked"',
     );
-    const nextStep = "Confirm the ROAS or break-even target before acting.";
+    const nextStep = "Confirm the ROAS target before acting.";
 
     expect(rowStart).toBeGreaterThan(-1);
     expect(countText(row, nextStep)).toBe(1);

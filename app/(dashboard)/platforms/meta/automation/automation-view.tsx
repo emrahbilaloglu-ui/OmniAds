@@ -27,6 +27,7 @@ import {
 } from "@/lib/meta/automation-rules-client";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
+import { accountSwitchQuery } from "@/lib/dashboard/account-scope-url";
 import { MANUAL_CONFIRMATION } from "@/lib/zero-base/meta/dispatch-contract";
 import { useAppStore } from "@/store/app-store";
 
@@ -89,6 +90,12 @@ export interface MetaAutomationPageProps {
   businessId?: string;
   /** `null` is an intentional unresolved scope and must not silently select an account. */
   providerAccountId?: string | null;
+  /**
+   * The legacy dashboard shell has no shared provider-account control. Its
+   * route opts into the local recovery picker; canonical `/c/**` routes leave
+   * this unset because their topbar owns account selection.
+   */
+  accountSelection?: "shared" | "local";
   initialPayload?: AutomationPayload | null;
   /**
    * The server's answer to "may this viewer write here". Absent means no server
@@ -384,7 +391,7 @@ const READ_FAILURE_MESSAGES: Record<string, string> = {
   automation_control_state_unavailable:
     "Automation status is unavailable right now. Refresh to try again.",
   provider_account_scope_unresolved:
-    "Choose a Meta ad account to see its automation status.",
+    "Choose a Meta ad account in the top bar to see its automation status.",
   provider_account_none_assigned:
     "No Meta ad account is assigned to this business.",
   provider_account_not_assigned:
@@ -1054,18 +1061,10 @@ function AutomationRuleComposer({
 }
 
 /**
- * The account choice, offered ONLY where the scope is unresolved.
- *
- * The design draws no account control on this screen, and in the resolved
- * state this renders nothing at all — the surface is byte-identical. It exists
- * because the unresolved state was a dead end: every card em-dashed, the
- * notice said the scope was unresolved, and a multi-account business had no
- * way to say which account it meant short of hand-editing the address bar.
- *
- * The client may only REQUEST an account. Selecting one writes the id into the
- * URL and the server re-resolves it against this business's assignments on the
- * next render, so an unassigned id is still refused. A URL parameter therefore
- * never becomes authority — it becomes a question the server answers.
+ * The account choice offered by the legacy dashboard shell when scope is
+ * unresolved. Selecting an option only writes a request into the URL; the
+ * server resolves that id against the business's assignments on the next
+ * render before any account-scoped read or write can run.
  */
 function AutomationAccountPicker({
   accounts,
@@ -1081,9 +1080,6 @@ function AutomationAccountPicker({
       <span>Meta ad account</span>
       <select
         aria-label="Meta ad account for Automation"
-        // No pre-selection. Picking the first of several assigned accounts on
-        // the operator's behalf is exactly the silent scope this screen must
-        // never invent.
         value=""
         disabled={loading || accounts.length === 0}
         onChange={(event) => onSelect(event.currentTarget.value)}
@@ -1097,14 +1093,18 @@ function AutomationAccountPicker({
         </option>
         {accounts.map((account) => (
           <option key={account.id} value={account.id}>
-            {account.name?.trim() ||
-              `Meta account ${compactMetaAccountId(account.id) ?? ""}`.trim()}
+            {automationAccountOptionLabel(account)}
             {account.currency ? ` · ${account.currency}` : ""}
           </option>
         ))}
       </select>
     </label>
   );
+}
+
+function automationAccountOptionLabel(account: MetaHistoryAccount): string {
+  const name = account.name?.trim() || "Unnamed Meta account";
+  return `${name} · ID ${account.id}`;
 }
 
 /**
@@ -1171,13 +1171,12 @@ export function MetaAutomationView({
   readError?: string | null;
   /** Re-runs the same read. Absent on a server render, where nothing can retry. */
   onRetryRead?: () => void;
-  /** The business's assigned Meta accounts, for the unresolved-scope picker. */
+  /** Assigned accounts used only by the legacy shell's unresolved-scope picker. */
   providerAccounts?: MetaHistoryAccount[];
   providerAccountsLoading?: boolean;
   /**
-   * Requests an account by writing it into the URL. Absent means this render
-   * cannot express a choice, and the picker is then not drawn at all rather
-   * than drawn inert.
+   * Requests an account through the URL. Absent on canonical routes, where the
+   * shared topbar owns selection and this view must not draw a duplicate.
    */
   onSelectProviderAccount?: (providerAccountId: string) => void;
   /**
@@ -1904,8 +1903,15 @@ export function MetaAutomationView({
                 data-field="read-error"
                 data-reason={readFailure}
               >
-                <span>{readFailureMessage(readFailure)}</span>
-                {onSelectProviderAccount && !providerAccountId ? (
+                <span>
+                  {readFailure === "provider_account_scope_unresolved" &&
+                  onSelectProviderAccount
+                    ? "Choose a Meta ad account below to see its automation status."
+                    : readFailureMessage(readFailure)}
+                </span>
+                {readFailure === "provider_account_scope_unresolved" &&
+                onSelectProviderAccount &&
+                !providerAccountId ? (
                   <AutomationAccountPicker
                     accounts={providerAccounts}
                     loading={providerAccountsLoading}
@@ -2148,8 +2154,15 @@ export function MetaAutomationView({
             data-field="read-error"
             data-reason={readFailure}
           >
-            <p role="status">{readFailureMessage(readFailure)}</p>
-            {onSelectProviderAccount && !providerAccountId ? (
+            <p role="status">
+              {readFailure === "provider_account_scope_unresolved" &&
+              onSelectProviderAccount
+                ? "Choose a Meta ad account below to see its automation status."
+                : readFailureMessage(readFailure)}
+            </p>
+            {readFailure === "provider_account_scope_unresolved" &&
+            onSelectProviderAccount &&
+            !providerAccountId ? (
               <AutomationAccountPicker
                 accounts={providerAccounts}
                 loading={providerAccountsLoading}
@@ -3075,6 +3088,7 @@ export function StateHistoryRecoverySection({
 export default function MetaAutomationPage({
   businessId: authorizedBusinessId,
   providerAccountId: authorizedProviderAccountId,
+  accountSelection = "shared",
   initialPayload = null,
   viewer = AUTOMATION_VIEWER_NOT_ESTABLISHED,
   stopEngageRefusalReason = null,
@@ -3115,15 +3129,6 @@ export default function MetaAutomationPage({
    * the unresolved scope in the failure notice the screen already draws.
    */
   const [scopeFailure, setScopeFailure] = useState<string | null>(null);
-  /**
-   * The business's assigned Meta accounts.
-   *
-   * Read even when the server already resolved the scope to null, because this
-   * list IS the set `resolveProviderAccountId` authorizes against — asking for
-   * it cannot widen scope, and without it a multi-account business has nothing
-   * to choose from and Automation stays a dead end. Same reasoning, and the
-   * same server-reauthorized model, as Launchpad's own account control.
-   */
   const [providerAccounts, setProviderAccounts] = useState<
     MetaHistoryAccount[]
   >([]);
@@ -3169,24 +3174,21 @@ export default function MetaAutomationPage({
   // registered and never reachable, because nothing in the app mounts the bar.
   const retryRead = useCallback(() => setRefreshKey((value) => value + 1), []);
 
-  /**
-   * Request an account. Never grant one.
-   *
-   * The id goes into the URL and nothing else changes here: the canonical
-   * route re-runs `resolveProviderAccountId` against this business's
-   * assignments on the next render, so an id that is not assigned comes back
-   * as null and the surface stays refused. That is why this is a `replace`
-   * into the address bar rather than a `setProviderAccountId` — a URL
-   * parameter must never become authority on its own.
-   */
   const selectProviderAccount = useCallback(
     (nextProviderAccountId: string) => {
-      if (!nextProviderAccountId || typeof window === "undefined") return;
-      const url = new URL(window.location.href);
-      url.searchParams.set("providerAccountId", nextProviderAccountId);
-      router.replace(`${url.pathname}${url.search}`);
+      if (!nextProviderAccountId) return;
+      const next = accountSwitchQuery(
+        searchParams.toString(),
+        nextProviderAccountId,
+      );
+      const query = next.toString();
+      const pathname =
+        typeof window !== "undefined"
+          ? window.location.pathname
+          : "/platforms/meta/automation";
+      router.replace(query ? `${pathname}?${query}` : pathname);
     },
-    [router],
+    [router, searchParams],
   );
 
   // The scope failure is a read failure too: it is the reason no read ran.
@@ -3247,11 +3249,12 @@ export default function MetaAutomationPage({
       setScopeFailure(authorized ? null : "provider_account_scope_unresolved");
       if (authorized || !businessId) {
         setProviderAccounts([]);
+        setProviderAccountsLoading(false);
         return;
       }
-      // Unresolved on the server: fetch the assignment list so the operator
-      // can name one. The client never SELECTS here — it writes the id into
-      // the URL and the server authorizes it again on the next render.
+      // The shared topbar owns account selection. This read only distinguishes
+      // an unassigned workspace from a temporarily unavailable assignment
+      // catalog so the recovery message remains truthful.
       const scopeController = new AbortController();
       setProviderAccountsLoading(true);
       fetchMetaHistoryAccounts({ businessId, signal: scopeController.signal })
@@ -3278,6 +3281,7 @@ export default function MetaAutomationPage({
     if (!businessId) {
       setProviderAccountId(null);
       setProviderAccounts([]);
+      setProviderAccountsLoading(false);
       setScopeFailure(null);
       return;
     }
@@ -3438,6 +3442,9 @@ export default function MetaAutomationPage({
             error?: { message?: string };
             ledgerCompleteness?: "complete" | "unavailable";
             receipt?: { dryRun?: boolean } | null;
+            proposalStatus?: string | null;
+            providerOutcomeKnown?: boolean;
+            providerWriteVerified?: boolean;
           } | null;
           // Recorded from BOTH arms: a decision that reached the provider and
           // failed to reach the ledger still has to stop the footnote from
@@ -3459,29 +3466,43 @@ export default function MetaAutomationPage({
             setSessionLedgerCompleteness(body.ledgerCompleteness);
           }
           if (!response.ok || body?.ok !== true) {
-            setProposalError("This action could not be saved.");
+            const serverMessage = typeof body?.error?.message === "string"
+              ? body.error.message.trim()
+              : "";
+            setProposalError(
+              serverMessage || "This action could not be saved.",
+            );
             setQueue(UNAVAILABLE_QUEUE);
             return;
           }
           if (control === "approve") {
             /**
-             * Three states, and the middle one is the one that matters.
+             * Provider truth, not the HTTP envelope, decides the notice.
              *
-             * `dryRun === true` is a receipt that says the approval never left
-             * the building. `false` means it did reach Meta. Anything else —
-             * an absent receipt, an absent flag — is a successful response we
-             * cannot read the disposition out of, and that is said rather than
-             * defaulted to either answer: guessing "sent" invents a write, and
-             * guessing "not sent" hides one.
+             * The route returns a 200 queue envelope after a conclusively failed
+             * provider attempt too, because the proposal row and refreshed queue
+             * were recorded successfully. `receipt.dryRun === false` therefore
+             * cannot mean "Applied" by itself. Only the route's explicit
+             * `providerWriteVerified` fact may make that claim.
              */
             const dryRun = body?.receipt?.dryRun;
-            setProposalNotice(
-              dryRun === true
-                ? "Saved as a preview. Nothing was sent to Meta."
-                : dryRun === false
-                  ? "Applied on Meta."
-                  : "Saved, but the result could not be confirmed. Check recent activity before trying again.",
-            );
+            if (body?.providerWriteVerified === true) {
+              setProposalNotice("Applied on Meta.");
+            } else if (dryRun === true) {
+              setProposalNotice("Saved as a preview. Nothing was sent to Meta.");
+            } else if (
+              body?.proposalStatus === "failed"
+              || (body?.providerWriteVerified === false
+                && body.providerOutcomeKnown === true)
+            ) {
+              setProposalError(
+                "The proposal was recorded, but nothing was applied on Meta.",
+              );
+            } else {
+              setProposalNotice(
+                "Saved, but the result could not be confirmed. Check recent activity before trying again.",
+              );
+            }
           }
           setQueue(parseProposalQueue(body));
         })
@@ -3518,9 +3539,15 @@ export default function MetaAutomationPage({
       onRulesChanged={setPayload}
       readError={surfacedReadFailure}
       onRetryRead={retryRead}
-      providerAccounts={providerAccounts}
-      providerAccountsLoading={providerAccountsLoading}
-      onSelectProviderAccount={selectProviderAccount}
+      providerAccounts={
+        accountSelection === "local" ? providerAccounts : undefined
+      }
+      providerAccountsLoading={
+        accountSelection === "local" ? providerAccountsLoading : undefined
+      }
+      onSelectProviderAccount={
+        accountSelection === "local" ? selectProviderAccount : undefined
+      }
       ledgerCompleteness={sessionLedgerCompleteness}
       viewer={viewer}
       stopEngageRefusalReason={stopEngageRefusalReason}

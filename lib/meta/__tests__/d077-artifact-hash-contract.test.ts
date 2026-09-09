@@ -23,6 +23,10 @@ import { describe, expect, it } from "vitest";
 
 import { buildWholeShellProof } from "@/scripts/audits/d077-whole-shell-proof";
 import {
+  captureD077SourceIdentity,
+  readD077RemoteDivergence,
+} from "@/scripts/audits/d077-source-identity";
+import {
   CODEX_FALLBACK_PNPM_PATH,
   RETAINED_C4_PROBE,
   assertPortableRepoRelativePath,
@@ -197,6 +201,71 @@ describe("D077 artifact hash contract (fail-closed)", () => {
       manifest.pinnedNonSelfFileCount,
     );
     expect(expected.classCounts).toEqual(manifest.classCounts);
+  });
+
+  it("binds remote divergence to the exact origin/main SHA serialized in the manifest", () => {
+    const manifest = mustLoadJson(
+      `${GEN}/d077-release-candidate-manifest-2026-08-30.json`,
+    ) as unknown as {
+      head: string;
+      baseMain: string;
+      originMain: string;
+      remoteDivergence: {
+        aheadOfOriginMain: number;
+        behindOriginMain: number;
+      };
+    };
+
+    expect(manifest.head).toMatch(/^[0-9a-f]{40}$/);
+    expect(manifest.baseMain).toMatch(/^[0-9a-f]{40}$/);
+    expect(manifest.originMain).toMatch(/^[0-9a-f]{40}$/);
+    expect(manifest.remoteDivergence).toEqual(
+      readD077RemoteDivergence({
+        head: manifest.head,
+        originMain: manifest.originMain,
+        readGit: (args) =>
+          execFileSync("git", [...args], {
+            cwd: ROOT,
+            encoding: "utf8",
+          }).trim(),
+      }),
+    );
+  });
+
+  it("captures origin/main once and uses that same SHA for divergence", () => {
+    const head = "a".repeat(40);
+    const originMain = "b".repeat(40);
+    const calls: string[][] = [];
+    const identity = captureD077SourceIdentity((args) => {
+      calls.push([...args]);
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return `${head}\n`;
+      if (args[0] === "rev-parse" && args[1] === "origin/main") {
+        return `${originMain}\n`;
+      }
+      if (
+        args[0] === "rev-list" &&
+        args[1] === "--left-right" &&
+        args[2] === "--count" &&
+        args[3] === `${originMain}...${head}`
+      ) {
+        return "2\t3\n";
+      }
+      throw new Error(`unexpected git call: ${args.join(" ")}`);
+    });
+
+    expect(identity).toEqual({
+      head,
+      originMain,
+      remoteDivergence: {
+        aheadOfOriginMain: 3,
+        behindOriginMain: 2,
+      },
+    });
+    expect(
+      calls.filter(
+        (args) => args[0] === "rev-parse" && args[1] === "origin/main",
+      ),
+    ).toHaveLength(1);
   });
 
   it("every non-deleted manifest entry's pinned sha256 matches the CURRENT file on disk, byte-for-byte — not just internal consistency", () => {

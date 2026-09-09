@@ -20,9 +20,9 @@
  *    it and the screen went back to promising "every outcome lands in the
  *    ledger with a receipt" with nothing behind the sentence.
  *
- * 3. THE APPROVED EXCEPTION. The account selector and the Retry controls are
- *    allowed to exist, but ONLY in a multi-account unresolved state and in an
- *    unavailable/error state. The canonical happy path draws neither.
+ * 3. RECOVERY. Account selection belongs to the shared topbar. Automation
+ *    keeps only its read Retry on unavailable/error states, including the
+ *    compact mobile recovery.
  */
 import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
@@ -129,7 +129,7 @@ function controlPlane(
   } as MetaAutomationControlPlane;
 }
 
-function proposalRow() {
+function proposalRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     actionLabel: "Pause ad set",
@@ -139,6 +139,7 @@ function proposalRow() {
     evidenceLabel: "frees $680/d",
     primaryCaption: "Approve & apply",
     expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    ...overrides,
   };
 }
 
@@ -221,6 +222,60 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe("Automation exact amount confirmation rows", () => {
+  it("renders pending budget and bid amounts without an editable amount control", async () => {
+    wireServer({
+      queue: () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            readCompleteness: { proposals: "complete" },
+            holds: { claimed: 0, reconcile: 0 },
+            proposals: [
+              proposalRow({
+                id: "22222222-2222-4222-8222-222222222222",
+                proposedAction: "budget",
+                actionLabel: "Apply budget",
+                evidenceLabel: "Budget: TRY 2500.00 → TRY 3000.00",
+              }),
+              proposalRow({
+                id: "33333333-3333-4333-8333-333333333333",
+                proposedAction: "bid",
+                actionLabel: "Apply bid",
+                evidenceLabel: "Bid: USD 12.00 → USD 13.20 (+10%)",
+              }),
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    });
+    const { container } = render(
+      <MetaAutomationPage
+        businessId="biz_1"
+        providerAccountId="act_1"
+        initialPayload={controlPlane()}
+        viewer={LIVE_COLLABORATOR}
+      />,
+    );
+
+    const rows = await waitFor(() => {
+      const desktop = container.querySelector(
+        "[data-testid='automation-exact-desktop']",
+      );
+      expect(desktop).not.toBeNull();
+      const found = desktop!.querySelectorAll("[data-proposal-id]");
+      expect(found).toHaveLength(2);
+      return [...found];
+    });
+    expect(rows[0]!.textContent).toContain("Budget: TRY 2500.00 → TRY 3000.00");
+    expect(rows[1]!.textContent).toContain("Bid: USD 12.00 → USD 13.20 (+10%)");
+    for (const row of rows) {
+      expect(row.querySelector("[data-control='approve']")).not.toBeNull();
+      expect(row.querySelector("input")).toBeNull();
+    }
+  });
 });
 
 describe("Automation refusal copy", () => {
@@ -764,6 +819,10 @@ describe("Automation ledger completeness after a reload", () => {
         "unavailable",
       );
     });
+    expect(container.textContent).toContain(
+      "This approval was dispatched and no provider result came back.",
+    );
+    expect(container.textContent).not.toContain("This action could not be saved.");
 
     const retry = await waitFor(() => {
       const found = container.querySelector<HTMLButtonElement>(
@@ -790,6 +849,50 @@ describe("Automation ledger completeness after a reload", () => {
       "unavailable",
     );
     expect(container.querySelector("[data-holds='unreadable']")).toBeNull();
+  });
+
+  it("does not call a conclusively failed provider attempt applied", async () => {
+    wireServer({
+      post: () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            readCompleteness: { proposals: "complete" },
+            holds: { claimed: 0, reconcile: 0 },
+            proposals: [],
+            proposalStatus: "failed",
+            providerOutcomeKnown: true,
+            providerWriteVerified: false,
+            receipt: { dryRun: false },
+            ledgerCompleteness: "complete",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    });
+    const { container } = render(
+      <MetaAutomationPage
+        businessId="biz_1"
+        providerAccountId="act_1"
+        initialPayload={controlPlane()}
+        viewer={LIVE_COLLABORATOR}
+      />,
+    );
+
+    const approve = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        "[data-control='approve']",
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    fireEvent.click(approve);
+
+    await waitFor(() => {
+      expect(container.textContent).toContain(
+        "The proposal was recorded, but nothing was applied on Meta.",
+      );
+    });
+    expect(container.textContent).not.toContain("Applied on Meta.");
   });
 
   it("clears the withdrawn promise when the account changes", async () => {
@@ -849,7 +952,7 @@ describe("Automation ledger completeness after a reload", () => {
   });
 });
 
-describe("Automation account selector and Retry, the approved exception", () => {
+describe("Automation shared account path and local Retry", () => {
   it("draws neither on the canonical resolved screen", async () => {
     wireServer();
     const { container } = render(
@@ -867,13 +970,13 @@ describe("Automation account selector and Retry, the approved exception", () => 
       ).not.toBeNull();
     });
 
-    expect(container.querySelector("select")).toBeNull();
+    expect(container.querySelector("[data-control='account-picker']")).toBeNull();
     expect(container.querySelector("[data-control='retry-read']")).toBeNull();
     expect(container.querySelector("[data-control='retry-queue']")).toBeNull();
     expect(container.querySelector("[data-field='read-error']")).toBeNull();
   });
 
-  it("draws both where several assigned accounts leave the scope unresolved", async () => {
+  it("keeps only Retry where several accounts leave scope unresolved", async () => {
     mocks.fetchAccounts.mockResolvedValue([
       { id: "act_1", name: "One" },
       { id: "act_2", name: "Two" },
@@ -888,11 +991,12 @@ describe("Automation account selector and Retry, the approved exception", () => 
     );
 
     await waitFor(() => {
-      expect(container.querySelector("select")).not.toBeNull();
+      expect(mocks.fetchAccounts).toHaveBeenCalled();
     });
+    expect(container.querySelector("[data-control='account-picker']")).toBeNull();
     expect(
-      container.querySelector("[data-control='retry-read']"),
-    ).not.toBeNull();
+      container.querySelectorAll("[data-control='retry-read']"),
+    ).toHaveLength(2);
     expect(
       container
         .querySelector("[data-field='read-error']")
@@ -921,8 +1025,6 @@ describe("Automation account selector and Retry, the approved exception", () => 
     expect(
       container.querySelector("[data-control='retry-queue']"),
     ).not.toBeNull();
-    // A failure, not a picker: the account resolved, so nothing here is a
-    // choice the operator can make.
-    expect(container.querySelector("select")).toBeNull();
+    expect(container.querySelector("[data-control='account-picker']")).toBeNull();
   });
 });

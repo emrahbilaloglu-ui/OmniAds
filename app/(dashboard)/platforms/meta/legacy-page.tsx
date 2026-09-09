@@ -19,6 +19,8 @@ interface MetaPageProps {
   // never widen: the resolver refuses an unassigned id and refuses to choose on
   // behalf of a multi-account business.
   serverProviderAccountId?: string | null;
+  /** Local recovery exists only on compatibility mounts without shell scope. */
+  accountSelection?: "shared" | "local";
   /**
    * Forwarded verbatim from the route's own gate read. This shim never decides
    * it; an absent value stays absent so the body's fail-closed reading applies.
@@ -45,7 +47,7 @@ interface MetaPageProps {
  * make the topbar, this body and every request name the same workspace. The
  * query parameter never moves it on its own.
  */
-function MetaBusinessScopeRefusal({
+export function MetaBusinessScopeRefusal({
   requestedBusinessId,
   requestedBusinessName,
   activeBusinessName,
@@ -146,6 +148,7 @@ export default function MetaPage({
   businessName: authorizedBusinessName = null,
   currency: authorizedCurrency = null,
   serverProviderAccountId = null,
+  accountSelection = "local",
   decisionWorkflowUiEnabled,
   mutationUiEnabled,
 }: MetaPageProps = {}) {
@@ -199,6 +202,7 @@ export default function MetaPage({
       businessName={authorizedBusinessName ?? business?.name ?? null}
       currency={authorizedCurrency ?? business?.currency ?? null}
       serverProviderAccountId={serverProviderAccountId}
+      accountSelection={accountSelection}
       decisionWorkflowUiEnabled={decisionWorkflowUiEnabled}
       mutationUiEnabled={mutationUiEnabled}
     />

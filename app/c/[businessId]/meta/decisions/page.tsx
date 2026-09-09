@@ -118,36 +118,37 @@ export default async function MetaDecisionsPage({
   // longer empties the surface for a value the server already established.
   return (
     <>
-    {/*
+      {/*
       The live region: this surface reads its workspace in the browser, so the
       envelope above is only the half the server knew before the fetch. The
       body forwards the payload's envelope and this shows whichever is later.
     */}
-    <MetaSurfaceStateLive initial={readState} surfaceId="meta-decisions" />
-    <LegacyMetaPage
-      businessId={businessId}
-      businessName={business?.name ?? null}
-      currency={business?.currency ?? null}
-      serverProviderAccountId={providerAccountId}
-      /*
-       * Read on the server and forwarded. The workflow STATE is rendered
-       * regardless — the design already draws its output as a "Deferred" watch
-       * segment and a "Let cook until …" row note — but the seven transitions
-       * are controls the design does not draw, so §18 keeps them refused until
-       * the owner's separately approved round. Defaults off.
-       */
-      decisionWorkflowUiEnabled={readMetaReleaseGates().decisionWorkflowUi}
-      /*
-       * The manual action sheet's gate, read on the server for the same reason.
-       *
-       * The mutation ceremony — preflight, type-to-confirm, receipt,
-       * reconciliation — has existed for a while with no way to reach it from a
-       * decision. `ZERO_BASE_MUTATION_UI_ENABLED` is a SECOND, independent flag
-       * from the workflow one and also defaults off; with it shut the control
-       * is present and refusing, which is D8's posture, not hidden.
-       */
-      mutationUiEnabled={isMutationUiEnabled()}
-    />
+      <MetaSurfaceStateLive initial={readState} surfaceId="meta-decisions" />
+      <LegacyMetaPage
+        businessId={businessId}
+        businessName={business?.name ?? null}
+        currency={business?.currency ?? null}
+        serverProviderAccountId={providerAccountId}
+        accountSelection={readMetaReleaseGates().accountPicker ? "shared" : "local"}
+        /*
+         * Read on the server and forwarded. The workflow STATE is rendered
+         * regardless — the design already draws its output as a "Deferred" watch
+         * segment and a "Let cook until …" row note — but the seven transitions
+         * are controls the design does not draw, so §18 keeps them refused until
+         * the owner's separately approved round. Defaults off.
+         */
+        decisionWorkflowUiEnabled={readMetaReleaseGates().decisionWorkflowUi}
+        /*
+         * The manual action sheet's gate, read on the server for the same reason.
+         *
+         * The mutation ceremony — preflight, type-to-confirm, receipt,
+         * reconciliation — has existed for a while with no way to reach it from a
+         * decision. `ZERO_BASE_MUTATION_UI_ENABLED` is a SECOND, independent flag
+         * from the workflow one and also defaults off; with it shut the control
+         * is present and refusing, which is D8's posture, not hidden.
+         */
+        mutationUiEnabled={isMutationUiEnabled()}
+      />
     </>
   );
 }

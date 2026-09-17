@@ -19,6 +19,10 @@ function signedPrefix(value: number) {
   return value < 0 ? "−" : "";
 }
 
+function hasFractionalCount(metric: MetricIdentity) {
+  return metric.id.toLowerCase() === "google-purchases";
+}
+
 function isLtvToCac(metric: MetricIdentity) {
   const title = metric.title.toLowerCase().replace(/\s+/g, "");
   return metric.id === "ltv-cac" || title === "ltv:cac" || title === "ltv/cac";
@@ -61,6 +65,9 @@ export function formatOverviewMetricValue(
 
   if (metric.unit === "currency") return formatCurrency(value, currencySymbol);
   if (metric.unit === "count") {
+    // Google conversions are fractional under data-driven attribution; rounding
+    // 12.5 to 13 would misstate them.
+    if (hasFractionalCount(metric)) return `${signedPrefix(value)}${formatNumber(value, 0, 2)}`;
     return `${signedPrefix(value)}${Math.round(Math.abs(value)).toLocaleString("en-US")}`;
   }
   if (metric.unit === "ratio") {
@@ -82,7 +89,7 @@ export function formatOverviewSparklineValue(metric: MetricIdentity, value: numb
   const needsCurrency =
     id === "pins-revenue" ||
     id === "pins-spend" ||
-    /^(meta|google)-(spend|revenue|cpa)$/.test(id) ||
+    /^(meta|google)-(spend|revenue|cpa|cpm|cpc)$/.test(id) ||
     id === "store-aov";
   if (needsCurrency && !currencySymbol) return OVERVIEW_MISSING_VALUE;
 
@@ -93,8 +100,10 @@ export function formatOverviewSparklineValue(metric: MetricIdentity, value: numb
   if (id === "pins-conversion-rate") return `${signedPrefix(value)}${formatNumber(value, 2, 2)}% CVR`;
 
   if (/^(meta|google)-(spend|revenue)$/.test(id)) return formatThousands(value, currencySymbol);
+  if (id === "google-purchases") return `${signedPrefix(value)}${formatNumber(value, 0, 2)}`;
   if (/^(meta|google)-purchases$/.test(id) || id === "store-new-customers") return integer;
-  if (/^(meta|google)-cpa$/.test(id) || id === "store-aov") {
+  if (/^(meta|google)-(ctr|conversion-rate)$/.test(id)) return `${signedPrefix(value)}${formatNumber(value, 2, 2)}%`;
+  if (/^(meta|google)-(cpa|cpm|cpc)$/.test(id) || id === "store-aov") {
     return currencySymbol
       ? `${signedPrefix(value)}${currencySymbol}${Math.abs(value).toFixed(2)}`
       : OVERVIEW_MISSING_VALUE;

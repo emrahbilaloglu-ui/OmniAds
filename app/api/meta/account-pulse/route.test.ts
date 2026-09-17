@@ -144,6 +144,8 @@ describe("GET /api/meta/account-pulse", () => {
       isPartial: false,
       notReadyReason: null,
       readSource: "warehouse_published",
+      effectiveEndDate: "2026-05-06",
+      warehouseScope: "account_daily",
     });
     mockSql({ targetRoas: 2.4, calibrationP50: 3.1 });
   });

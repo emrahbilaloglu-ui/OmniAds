@@ -3,8 +3,8 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getBusinessCostModel } from "@/lib/business-cost-model";
 import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import { getBusinessTimezone } from "@/lib/account-store";
+import { getIntegrationStatusByBusiness } from "@/lib/integration-status";
 import { GA4AuthError, getAnalyticsOverviewData } from "@/lib/analytics-overview";
-import { getIntegrationStatusByBusiness, type IntegrationStatusResponse } from "@/lib/integration-status";
 import {
   getOverviewData,
   getShopifyOverviewServingData,
@@ -12,6 +12,15 @@ import {
 } from "@/lib/overview-service";
 import { runWithGoogleRequestAuditContext } from "@/lib/google-request-audit";
 import {
+  buildBlendedProviderRoasSeries,
+  buildPaidProviderSpendSeries,
+  providerScalarSourceSetsComparable,
+  providerTrendMatchesScalar,
+  type OverviewProvider,
+} from "@/lib/overview-provider-metrics";
+import {
+  aggregateOverviewProviderRow,
+  aggregateVerifiedOverviewProviderRow,
   buildAttributionRows,
   buildMetricCard,
   buildPlatformSections,
@@ -31,7 +40,11 @@ import {
 } from "@/lib/overview-summary-support";
 import { logPerfEvent } from "@/lib/perf";
 import { resolveRequestLanguage } from "@/lib/request-language";
-import type { OverviewMetricCardData, OverviewSummaryData } from "@/src/types/models";
+import type {
+  OverviewMetricCardData,
+  OverviewPaidProviderScope,
+  OverviewSummaryData,
+} from "@/src/types/models";
 
 function getTodayIsoForTimeZone(timeZone?: string | null): string {
   if (!timeZone) return new Date().toISOString().slice(0, 10);
@@ -51,6 +64,129 @@ function shiftIsoDate(date: string, dayDelta: number): string {
   const value = new Date(`${date}T00:00:00.000Z`);
   value.setUTCDate(value.getUTCDate() + dayDelta);
   return value.toISOString().slice(0, 10);
+}
+
+type PaidProviderConnectionState = "connected" | "disconnected" | "unknown";
+
+type PaidProviderConnectionStates = Record<OverviewProvider, PaidProviderConnectionState>;
+
+interface ResolvedPaidProviderScope extends OverviewPaidProviderScope {
+  rows: Array<{
+    provider: OverviewProvider;
+    aggregate: NonNullable<ReturnType<typeof aggregateVerifiedOverviewProviderRow>>;
+  }>;
+}
+
+function providerRangeMatchesRequestedWindow(
+  overview: OverviewAggregateData,
+  provider: OverviewProvider,
+  requested: { startDate: string; endDate: string },
+) {
+  const range = overview.providerScalarRanges?.[provider];
+  return range?.startDate === requested.startDate && range.endDate === requested.endDate;
+}
+
+/**
+ * Resolve one complete denominator scope for every paid aggregate. Historical
+ * rows remain valid after disconnect. An absent provider is ignorable only
+ * when the integrations read explicitly confirms it is disconnected.
+ */
+function resolvePaidProviderScope(
+  overview: OverviewAggregateData | null,
+  connectionStates: PaidProviderConnectionStates,
+  requested: { startDate: string; endDate: string } | null,
+): ResolvedPaidProviderScope {
+  if (!overview || !requested) return { providers: [], complete: false, rows: [] };
+
+  const rows: ResolvedPaidProviderScope["rows"] = [];
+  let complete = true;
+  for (const provider of ["meta", "google"] as const) {
+    const source = overview.providerSources?.[provider] ?? null;
+    const rawRow = aggregateOverviewProviderRow(overview, provider);
+    const range = overview.providerScalarRanges?.[provider] ?? null;
+    const hasAnyReadEvidence = source !== null || rawRow !== null || range !== null;
+
+    if (!hasAnyReadEvidence) {
+      if (connectionStates[provider] !== "disconnected") complete = false;
+      continue;
+    }
+
+    const aggregate = aggregateVerifiedOverviewProviderRow(overview, provider);
+    if (!source || !rawRow || !aggregate || !providerRangeMatchesRequestedWindow(overview, provider, requested)) {
+      complete = false;
+      continue;
+    }
+    rows.push({ provider, aggregate });
+  }
+
+  return { providers: rows.map((row) => row.provider), complete, rows };
+}
+
+function providerSourcesForScope(
+  overview: OverviewAggregateData | null,
+  scope: ResolvedPaidProviderScope,
+) {
+  const included = new Set(scope.providers);
+  return {
+    meta: included.has("meta") ? (overview?.providerSources?.meta ?? null) : null,
+    google: included.has("google") ? (overview?.providerSources?.google ?? null) : null,
+  };
+}
+
+interface PaidPlatformSnapshot {
+  providers: OverviewProvider[];
+  spend: number;
+  conversionValue: number;
+  roas: number | null;
+}
+
+/** Platform-owned numerator and denominator for the Overview Blended ROAS. */
+function paidPlatformSnapshot(scope: ResolvedPaidProviderScope): PaidPlatformSnapshot | null {
+  if (!scope.complete || scope.rows.length === 0) return null;
+  const spend = scope.rows.reduce((sum, row) => sum + row.aggregate.spend, 0);
+  const conversionValue = scope.rows.reduce((sum, row) => sum + row.aggregate.revenue, 0);
+  return {
+    providers: scope.providers,
+    spend,
+    conversionValue,
+    roas: spend > 0 ? conversionValue / spend : null,
+  };
+}
+
+function samePaidProviderSet(current: PaidPlatformSnapshot | null, previous: PaidPlatformSnapshot | null) {
+  if (!current || !previous || current.providers.length !== previous.providers.length) return false;
+  return current.providers.every((provider, index) => provider === previous.providers[index]);
+}
+
+function sourceSafeProviderTrends(
+  overview: OverviewAggregateData,
+  snapshot: PaidPlatformSnapshot | null,
+) {
+  if (!snapshot) return null;
+  const compatibleTrends: Partial<
+    Record<OverviewProvider, NonNullable<OverviewAggregateData["providerTrends"]>[OverviewProvider]>
+  > = {};
+  for (const provider of snapshot.providers) {
+    if (
+      !providerTrendMatchesScalar(
+        provider,
+        overview.providerSources?.[provider],
+        overview.providerTrendSources?.[provider],
+      )
+    ) {
+      return null;
+    }
+    compatibleTrends[provider] = overview.providerTrends?.[provider];
+  }
+  return compatibleTrends;
+}
+
+function sourceSafeBlendedRoasSeries(
+  overview: OverviewAggregateData,
+  snapshot: PaidPlatformSnapshot | null,
+) {
+  const compatibleTrends = sourceSafeProviderTrends(overview, snapshot);
+  return compatibleTrends ? buildBlendedProviderRoasSeries(compatibleTrends) : [];
 }
 
 function resolveShopifyMetricSource(
@@ -141,9 +277,9 @@ export async function GET(request: NextRequest) {
     previousAnalyticsResult,
     currentShopifyResult,
     previousShopifyResult,
-    integrationsStatusResult,
     costModelResult,
     commercialTruthResult,
+    integrationStatusResult,
   ] = await Promise.allSettled([
     getOverviewData({
       businessId,
@@ -197,17 +333,19 @@ export async function GET(request: NextRequest) {
       businessId,
       startDate: resolvedStart,
       endDate: resolvedEnd,
+      timeZone: businessTimeZone,
     }),
     compareMode === "previous_period" && previousWindow.startDate && previousWindow.endDate
       ? getShopifyOverviewServingData({
           businessId,
           startDate: previousWindow.startDate,
           endDate: previousWindow.endDate,
+          timeZone: businessTimeZone,
         })
       : Promise.resolve(null),
-    getIntegrationStatusByBusiness(businessId),
     getBusinessCostModel(businessId),
     getBusinessCommercialTruthSnapshot(businessId),
+    getIntegrationStatusByBusiness(businessId),
   ]);
 
   if (currentOverviewResult.status === "rejected") {
@@ -226,6 +364,56 @@ export async function GET(request: NextRequest) {
 
   const currentOverview = currentOverviewResult.value;
   const previousOverview = previousOverviewResult.status === "fulfilled" ? previousOverviewResult.value : null;
+  const paidProviderConnectionStates: PaidProviderConnectionStates =
+    integrationStatusResult.status === "fulfilled"
+      ? {
+          meta: integrationStatusResult.value.meta ? "connected" : "disconnected",
+          google: integrationStatusResult.value.google ? "connected" : "disconnected",
+        }
+      : { meta: "unknown", google: "unknown" };
+  const currentPaidProviderScope = resolvePaidProviderScope(
+    currentOverview,
+    paidProviderConnectionStates,
+    { startDate: resolvedStart, endDate: resolvedEnd },
+  );
+  const previousPaidProviderScope =
+    compareMode === "previous_period" && previousOverview && previousWindow.startDate && previousWindow.endDate
+      ? resolvePaidProviderScope(previousOverview, paidProviderConnectionStates, {
+          startDate: previousWindow.startDate,
+          endDate: previousWindow.endDate,
+        })
+      : null;
+  const currentProviderSources = providerSourcesForScope(currentOverview, currentPaidProviderScope);
+  const comparablePreviousProviderSources = previousPaidProviderScope
+    ? providerSourcesForScope(previousOverview, previousPaidProviderScope)
+    : null;
+  const currentOverviewForProviderScope = {
+    ...currentOverview,
+    providerSources: currentProviderSources,
+  };
+  const previousOverviewForProviderComparison =
+    previousOverview && comparablePreviousProviderSources
+      ? { ...previousOverview, providerSources: comparablePreviousProviderSources }
+      : previousOverview;
+  const currentBlendedRoas = paidPlatformSnapshot(currentPaidProviderScope);
+  const previousBlendedRoas = previousPaidProviderScope
+    ? paidPlatformSnapshot(previousPaidProviderScope)
+    : null;
+  const currentMerSpend = currentBlendedRoas?.spend ?? null;
+  const previousMerSpend = previousBlendedRoas?.spend ?? null;
+  const blendedProviderSourceLabel = currentBlendedRoas
+    ? currentBlendedRoas.providers
+        .map((provider) => (provider === "meta" ? "Meta Ads" : "Google Ads"))
+        .join(" + ")
+    : null;
+  const paidSpendComparisonComparable =
+    compareMode === "previous_period" &&
+    samePaidProviderSet(currentBlendedRoas, previousBlendedRoas) &&
+    providerScalarSourceSetsComparable(
+      currentProviderSources,
+      previousOverviewForProviderComparison?.providerSources,
+    );
+  const blendedRoasComparable = paidSpendComparisonComparable;
   const currentAnalytics =
     currentAnalyticsResult.status === "fulfilled"
       ? currentAnalyticsResult.value
@@ -238,27 +426,95 @@ export async function GET(request: NextRequest) {
       : previousAnalyticsResult.reason instanceof GA4AuthError
         ? null
         : null;
+  const shopifyConnectionState = currentOverview.shopifyConnectionState ?? "unknown";
   const currentShopify =
-    currentShopifyResult.status === "fulfilled" ? (currentShopifyResult.value?.aggregate ?? null) : null;
+    shopifyConnectionState === "connected" && currentShopifyResult.status === "fulfilled"
+      ? (currentShopifyResult.value?.aggregate ?? null)
+      : null;
   const previousShopify =
-    previousShopifyResult.status === "fulfilled" ? (previousShopifyResult.value?.aggregate ?? null) : null;
-  const integrationsStatus = integrationsStatusResult.status === "fulfilled" ? integrationsStatusResult.value : null;
+    shopifyConnectionState === "connected" && previousShopifyResult.status === "fulfilled"
+      ? (previousShopifyResult.value?.aggregate ?? null)
+      : null;
   const costModel = costModelResult.status === "fulfilled" ? costModelResult.value : null;
   const targetRoas =
     commercialTruthResult.status === "fulfilled" ? (commercialTruthResult.value.targetPack?.targetRoas ?? null) : null;
   const analyticsConnected = Boolean(currentAnalytics?.kpis);
-  const shopifyConnected = Boolean(integrationsStatus?.shopify);
   const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
 
   // GA4 daily trends are deferred to the /api/overview-sparklines endpoint.
   // The summary endpoint only needs aggregate KPI values (handled above).
   const ga4DailyTrends: Awaited<ReturnType<typeof getGa4DailyTrendSnapshot>> = [];
 
-  const revenueSource = currentOverview.kpiSources?.revenue;
-  const purchasesSource = currentOverview.kpiSources?.purchases;
-  const roasSource = currentOverview.kpiSources?.roas;
+  const rawRevenueSource = currentOverview.kpiSources?.revenue;
+  const rawPurchasesSource = currentOverview.kpiSources?.purchases;
   const isShopifySource = (source: { source?: string | null } | null | undefined) =>
-    typeof source?.source === "string" && source.source.startsWith("shopify");
+    source?.source === "shopify_ledger" ||
+    source?.source === "shopify_warehouse" ||
+    source?.source === "shopify_live_fallback";
+  const rawAovSource = currentOverview.kpiSources?.aov;
+  const shopifyPrimary = shopifyConnectionState === "connected";
+  const ga4CommerceFallbackAllowed = shopifyConnectionState === "disconnected";
+  const normalizeCommerceSource = (
+    source: { source?: string | null; label?: string | null } | null | undefined,
+  ) => {
+    if (shopifyPrimary) {
+      return isShopifySource(source)
+        ? source
+        : { source: "shopify_unavailable", label: "Shopify" };
+    }
+    if (ga4CommerceFallbackAllowed && source?.source === "ga4_fallback") return source;
+    return { source: "unavailable", label: tr("Unavailable", "Kullanılamıyor") };
+  };
+  // A reconnect can happen between the parallel integration and aggregate
+  // reads. Once Shopify is observed as connected, discard any concurrent GA4
+  // result rather than presenting it as current commerce truth.
+  const revenueSource = normalizeCommerceSource(rawRevenueSource);
+  const purchasesSource = normalizeCommerceSource(rawPurchasesSource);
+  const aovSource = normalizeCommerceSource(rawAovSource);
+  const sourceHasVerifiedValue = (source: { source?: string | null } | null | undefined) =>
+    isShopifySource(source) || source?.source === "ga4_fallback";
+  const commerceSourceFamily = (source: { source?: string | null } | null | undefined) => {
+    if (isShopifySource(source)) return "shopify";
+    if (source?.source === "ga4_fallback") return "ga4";
+    return null;
+  };
+  const sameCommerceSourceFamily = (
+    current: { source?: string | null } | null | undefined,
+    previous: { source?: string | null } | null | undefined,
+  ) => {
+    const currentFamily = commerceSourceFamily(current);
+    return currentFamily !== null && currentFamily === commerceSourceFamily(previous);
+  };
+  const verifiedRevenueCurrent = sourceHasVerifiedValue(revenueSource) ? currentOverview.kpis.revenue : null;
+  const verifiedRevenuePrevious =
+    previousOverview && sameCommerceSourceFamily(revenueSource, previousOverview.kpiSources?.revenue)
+      ? previousOverview.kpis.revenue
+      : null;
+  const verifiedRevenuePreviousForMer = paidSpendComparisonComparable
+    ? verifiedRevenuePrevious
+    : null;
+  const verifiedPurchasesCurrent = sourceHasVerifiedValue(purchasesSource)
+    ? currentOverview.kpis.purchases
+    : null;
+  const verifiedPurchasesPrevious =
+    previousOverview && sameCommerceSourceFamily(purchasesSource, previousOverview.kpiSources?.purchases)
+      ? previousOverview.kpis.purchases
+      : null;
+  const verifiedAovCurrent = sourceHasVerifiedValue(aovSource) ? currentOverview.kpis.aov : null;
+  const verifiedAovPrevious =
+    previousOverview && sameCommerceSourceFamily(aovSource, previousOverview.kpiSources?.aov)
+      ? previousOverview.kpis.aov
+      : null;
+  const paidProviderScopeLabel = blendedProviderSourceLabel ?? tr(
+    "verified paid platforms",
+    "doğrulanmış reklam platformları",
+  );
+  const paidSpendDefinition = currentBlendedRoas?.providers.length === 1
+    ? tr(`${paidProviderScopeLabel} spend`, `${paidProviderScopeLabel} harcaması`)
+    : tr(
+        `combined spend (${paidProviderScopeLabel})`,
+        `toplam harcama (${paidProviderScopeLabel})`,
+      );
   const revenueCompositeSourceLabel = isShopifySource(revenueSource)
     ? tr(
         `${revenueSource?.label ?? "Shopify"} + ad platforms`,
@@ -267,13 +523,51 @@ export async function GET(request: NextRequest) {
     : revenueSource?.source === "ga4_fallback"
       ? tr("GA4 + ad platforms", "GA4 + reklam platformlari")
       : tr("Revenue + ad platforms", "Gelir + reklam platformlari");
-  const spendSeries = toSparklineSeries(currentOverview.trends.custom, (point) => point.spend);
+  const merDefinition = isShopifySource(revenueSource)
+    ? tr(
+        `Shopify revenue / ${paidSpendDefinition}`,
+        `Shopify geliri / ${paidSpendDefinition}`,
+      )
+    : revenueSource?.source === "ga4_fallback"
+      ? tr(
+          `GA4 ecommerce revenue fallback / ${paidSpendDefinition}`,
+          `GA4 e-ticaret gelir yedeği / ${paidSpendDefinition}`,
+        )
+      : tr(
+          `Commerce revenue / ${paidSpendDefinition}`,
+          `E-ticaret geliri / ${paidSpendDefinition}`,
+        );
+  const commerceUnavailableHelper = shopifyPrimary
+    ? tr("Finish Shopify store sync", "Shopify mağaza senkronunu tamamlayın")
+    : tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın");
+  const compatiblePaidProviderTrends = sourceSafeProviderTrends(
+    currentOverviewForProviderScope,
+    currentBlendedRoas,
+  );
+  const spendSeries = compatiblePaidProviderTrends
+    ? buildPaidProviderSpendSeries(compatiblePaidProviderTrends)
+    : [];
   const revenueSeries = toSparklineSeries(currentOverview.trends.custom, (point) => point.revenue);
   const purchaseSeries = toSparklineSeries(currentOverview.trends.custom, (point) => point.purchases);
-  const merSeries = toRatioSparklineSeries(
-    currentOverview.trends.custom,
-    (point) => point.revenue,
-    (point) => point.spend
+  const verifiedPaidSpendByDate = new Map(
+    buildPaidProviderSpendSeries(
+      compatiblePaidProviderTrends ?? {},
+    ).map((point) => [point.date, point.value]),
+  );
+  const merSeries =
+    currentMerSpend !== null
+      ? toRatioSparklineSeries(
+          currentOverview.trends.custom.flatMap((point) => {
+            const spend = verifiedPaidSpendByDate.get(point.date);
+            return spend === undefined ? [] : [{ ...point, spend }];
+          }),
+          (point) => point.revenue,
+          (point) => point.spend,
+        )
+      : [];
+  const blendedRoasSeries = sourceSafeBlendedRoasSeries(
+    currentOverviewForProviderScope,
+    currentBlendedRoas,
   );
   const blendedCpaSeries = toRatioSparklineSeries(
     currentOverview.trends.custom,
@@ -309,6 +603,11 @@ export async function GET(request: NextRequest) {
     (point) => point.grossRevenue ?? point.revenue,
     (point) => point.purchases
   );
+  const shopifyConversionRateSeries = (currentShopify?.dailyTrends ?? []).flatMap((point) =>
+    point.conversionRate === null || point.conversionRate === undefined
+      ? []
+      : [{ date: point.date, value: roundSparklineValue(point.conversionRate) }]
+  );
   const ga4ConversionRateSeries = toPercentSparklineSeries(
     ga4DailyTrends,
     (point) => point.purchases,
@@ -333,17 +632,54 @@ export async function GET(request: NextRequest) {
   const engagementRatePrevious = previousAnalytics?.kpis?.engagementRate ?? null;
   const avgSessionDurationCurrent = currentAnalytics?.kpis?.avgSessionDuration ?? null;
   const avgSessionDurationPrevious = previousAnalytics?.kpis?.avgSessionDuration ?? null;
-  const conversionRateCurrent = currentAnalytics?.kpis?.purchaseCvr ?? null;
-  const conversionRatePrevious = previousAnalytics?.kpis?.purchaseCvr ?? null;
-  const storeConversionSource = analyticsConnected
-    ? { key: "ga4", label: "GA4" }
-    : { key: "unavailable", label: tr("Unavailable", "Kullanılamıyor") };
-  const newCustomersCurrent = currentAnalytics?.kpis?.firstTimePurchasers ?? null;
-  const newCustomersPrevious = previousAnalytics?.kpis?.firstTimePurchasers ?? null;
+  const ga4ConversionRateCurrent = currentAnalytics?.kpis?.purchaseCvr ?? null;
+  const ga4ConversionRatePrevious = previousAnalytics?.kpis?.purchaseCvr ?? null;
   const shopifyStoreMetricSource = resolveShopifyMetricSource(currentOverview.shopifyServing?.source, tr);
+  const selectedShopifyMetricSource =
+    shopifyStoreMetricSource.key !== "unavailable"
+      ? shopifyStoreMetricSource
+      : shopifyPrimary
+        ? { key: "shopify_unavailable", label: "Shopify" }
+        : shopifyStoreMetricSource;
+  const ga4FallbackSource =
+    ga4CommerceFallbackAllowed && analyticsConnected
+      ? { key: "ga4_fallback", label: tr("GA4 fallback", "GA4 yedeği") }
+      : { key: "unavailable", label: tr("Unavailable", "Kullanılamıyor") };
+  const storeConversionSource = shopifyPrimary
+    ? currentShopify?.conversionRate !== null && currentShopify?.conversionRate !== undefined
+      ? { key: "shopify_customer_events", label: "Shopify" }
+      : { key: "shopify_unavailable", label: "Shopify" }
+    : ga4FallbackSource;
+  const storeCustomerSource = shopifyPrimary
+    ? currentShopify?.newCustomers !== null && currentShopify?.newCustomers !== undefined
+      ? { key: "shopify", label: "Shopify" }
+      : { key: "shopify_unavailable", label: "Shopify" }
+    : ga4FallbackSource;
+  const conversionRateCurrent = shopifyPrimary
+    ? currentShopify?.conversionRate ?? null
+    : ga4CommerceFallbackAllowed && ga4ConversionRateCurrent !== null
+      ? ga4ConversionRateCurrent * 100
+      : null;
+  const conversionRatePrevious = shopifyPrimary
+    ? previousShopify?.conversionRate ?? null
+    : ga4CommerceFallbackAllowed && ga4ConversionRatePrevious !== null
+      ? ga4ConversionRatePrevious * 100
+      : null;
+  const newCustomersCurrent = shopifyPrimary
+    ? currentShopify?.newCustomers ?? null
+    : ga4CommerceFallbackAllowed
+      ? currentAnalytics?.kpis?.firstTimePurchasers ?? null
+      : null;
+  const newCustomersPrevious = shopifyPrimary
+    ? previousShopify?.newCustomers ?? null
+    : ga4CommerceFallbackAllowed
+      ? previousAnalytics?.kpis?.firstTimePurchasers ?? null
+      : null;
   const shopifyStoreMetricHelper =
     shopifyStoreMetricSource.key === "unavailable"
-      ? tr("Connect Shopify and finish store sync", "Shopify bağlayın ve mağaza senkronunu tamamlayın")
+      ? shopifyPrimary
+        ? tr("Finish Shopify store sync", "Shopify mağaza senkronunu tamamlayın")
+        : tr("Connect Shopify", "Shopify bağlayın")
       : undefined;
   const grossSalesCurrent = currentShopify?.grossRevenue ?? null;
   const grossSalesPrevious = previousShopify?.grossRevenue ?? null;
@@ -374,7 +710,7 @@ export async function GET(request: NextRequest) {
       ? (returnEventsPrevious / previousShopify.purchases) * 100
       : null;
   const [currentGa4Ltv, previousGa4Ltv] = await Promise.all([
-    analyticsConnected
+    analyticsConnected && ga4CommerceFallbackAllowed
       ? getGa4LtvSnapshot({
           businessId,
           startDate: resolvedStart,
@@ -382,7 +718,7 @@ export async function GET(request: NextRequest) {
           spend: currentOverview.kpis.spend ?? 0,
         })
       : Promise.resolve(null),
-    analyticsConnected && previousWindow.startDate && previousWindow.endDate
+    analyticsConnected && ga4CommerceFallbackAllowed && previousWindow.startDate && previousWindow.endDate
       ? getGa4LtvSnapshot({
           businessId,
           startDate: previousWindow.startDate,
@@ -396,13 +732,13 @@ export async function GET(request: NextRequest) {
       id: "pins-revenue",
       title: "Revenue",
       subtitle: tr("Primary ecommerce outcome", "Ana ecommerce sonucu"),
-      value: currentOverview.kpis.revenue ?? null,
-      previousValue: previousOverview?.kpis.revenue ?? null,
+      value: verifiedRevenueCurrent,
+      previousValue: verifiedRevenuePrevious,
       unit: "currency",
       sourceKey: revenueSource?.source ?? "unavailable",
       sourceLabel: revenueSource?.label ?? tr("Unavailable", "Kullanılamıyor"),
       helperText:
-        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
+        !sourceHasVerifiedValue(revenueSource) ? commerceUnavailableHelper : undefined,
       sparklineData: revenueSeries,
       compareMode,
       icon: "badge-dollar-sign",
@@ -411,11 +747,14 @@ export async function GET(request: NextRequest) {
       id: "pins-spend",
       title: "Ad Spend",
       subtitle: tr("Paid media investment", "Paid media harcamasi"),
-      value: currentOverview.kpis.spend ?? null,
-      previousValue: previousOverview?.kpis.spend ?? null,
+      value: currentBlendedRoas?.spend ?? null,
+      previousValue: paidSpendComparisonComparable ? (previousBlendedRoas?.spend ?? null) : null,
       unit: "currency",
-      sourceKey: "ad_platforms",
-      sourceLabel: tr("Ad platforms", "Reklam platformlari"),
+      sourceKey: currentBlendedRoas ? "ad_platforms" : "unavailable",
+      sourceLabel: blendedProviderSourceLabel ?? tr("Unavailable", "Kullanılamıyor"),
+      helperText: currentBlendedRoas
+        ? undefined
+        : tr("Paid-media coverage is incomplete for this window", "Bu dönem için reklam verisi kapsamı eksik"),
       sparklineData: spendSeries,
       compareMode,
       icon: "wallet",
@@ -423,17 +762,24 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "pins-mer",
       title: "MER",
-      subtitle: tr("Revenue / spend", "Gelir / harcama"),
-      value: currentOverview.kpis.spend > 0 ? currentOverview.kpis.revenue / currentOverview.kpis.spend : null,
+      subtitle: merDefinition,
+      value:
+        verifiedRevenueCurrent !== null && currentMerSpend !== null && currentMerSpend > 0
+          ? verifiedRevenueCurrent / currentMerSpend
+          : null,
       previousValue:
-        previousOverview && previousOverview.kpis.spend > 0
-          ? previousOverview.kpis.revenue / previousOverview.kpis.spend
+        verifiedRevenuePreviousForMer !== null && previousMerSpend !== null && previousMerSpend > 0
+          ? verifiedRevenuePreviousForMer / previousMerSpend
           : null,
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
       sourceLabel: revenueCompositeSourceLabel,
       helperText:
-        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
+        !sourceHasVerifiedValue(revenueSource)
+          ? commerceUnavailableHelper
+          : currentMerSpend === null
+            ? tr("Paid-media coverage is incomplete for this window", "Bu dönem için reklam verisi kapsamı eksik")
+            : undefined,
       sparklineData: merSeries,
       compareMode,
       icon: "line-chart",
@@ -441,32 +787,51 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "pins-blended-roas",
       title: `Blended ROAS · target ${targetRoas == null ? "—" : targetRoas.toFixed(2)}`,
-      subtitle: tr("Revenue relative to ad spend", "Gelirin reklam harcamasina göre durumu"),
-      value: currentOverview.kpis.roas ?? null,
-      previousValue: previousOverview?.kpis.roas ?? null,
+      subtitle: blendedProviderSourceLabel
+        ? tr(
+            `Attributed conversion value (${blendedProviderSourceLabel}) / ${paidSpendDefinition}`,
+            `Atfedilen dönüşüm değeri (${blendedProviderSourceLabel}) / ${paidSpendDefinition}`,
+          )
+        : tr(
+            "Platform-attributed conversion value / ad spend",
+            "Platform dönüşüm değeri / reklam harcaması",
+          ),
+      value: currentBlendedRoas?.roas ?? null,
+      previousValue: blendedRoasComparable ? (previousBlendedRoas?.roas ?? null) : null,
       unit: "ratio",
-      sourceKey: roasSource?.source ?? "unavailable",
-      sourceLabel: roasSource?.label ?? tr("Unavailable", "Kullanılamıyor"),
+      sourceKey: currentBlendedRoas ? "ad_platforms" : "unavailable",
+      sourceLabel: blendedProviderSourceLabel ?? tr("Unavailable", "Kullanılamıyor"),
       helperText:
-        roasSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
-      sparklineData: merSeries,
+        currentBlendedRoas?.roas === null || currentBlendedRoas === null
+          ? tr(
+              "No verified platform-attributed conversion value for this window",
+              "Bu dönem için doğrulanmış platform dönüşüm değeri yok",
+            )
+          : undefined,
+      sparklineData: blendedRoasSeries,
       compareMode,
       icon: "chart-line",
+      metricKey: "roas",
     }),
     buildMetricCard({
       id: "pins-conversion-rate",
-      title: "Conv Rate · GA4",
+      title: tr("Conversion Rate", "Dönüşüm Oranı"),
       subtitle: tr("Store purchase conversion", "Magaza satın alma dönüşum orani"),
-      value: conversionRateCurrent !== null ? conversionRateCurrent * 100 : null,
-      previousValue: conversionRatePrevious !== null ? conversionRatePrevious * 100 : null,
+      value: conversionRateCurrent,
+      previousValue: conversionRatePrevious,
       unit: "percent",
       sourceKey: storeConversionSource.key,
       sourceLabel: storeConversionSource.label,
       helperText:
-        storeConversionSource.key === "unavailable"
-          ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın")
+        storeConversionSource.key === "unavailable" || storeConversionSource.key === "shopify_unavailable"
+          ? shopifyPrimary
+            ? tr(
+                "Shopify session tracking is unavailable for this period",
+                "Bu dönem için Shopify oturum takibi kullanılamıyor",
+              )
+            : tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın")
           : undefined,
-      sparklineData: ga4ConversionRateSeries,
+      sparklineData: shopifyPrimary ? shopifyConversionRateSeries : ga4ConversionRateSeries,
       compareMode,
       icon: "target",
     }),
@@ -474,14 +839,14 @@ export async function GET(request: NextRequest) {
       id: "pins-orders",
       title: tr("Orders", "Siparisler"),
       subtitle: tr("Completed purchases", "Tamamlanan satın almalar"),
-      value: currentOverview.kpis.purchases ?? null,
-      previousValue: previousOverview?.kpis.purchases ?? null,
+      value: verifiedPurchasesCurrent,
+      previousValue: verifiedPurchasesPrevious,
       unit: "count",
       sourceKey: purchasesSource?.source ?? "unavailable",
       sourceLabel: purchasesSource?.label ?? tr("Unavailable", "Kullanılamıyor"),
       helperText:
-        purchasesSource?.source === "unavailable"
-          ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın")
+        !sourceHasVerifiedValue(purchasesSource)
+          ? commerceUnavailableHelper
           : undefined,
       sparklineData: purchaseSeries,
       compareMode,
@@ -494,13 +859,24 @@ export async function GET(request: NextRequest) {
       id: "store-aov",
       title: "AOV",
       subtitle: tr("Average order value", "Ortalama siparis degeri"),
-      value: currentShopify?.averageOrderValue ?? null,
-      previousValue: previousShopify?.averageOrderValue ?? null,
+      value: verifiedAovCurrent,
+      previousValue: verifiedAovPrevious,
       unit: "currency",
-      sourceKey: shopifyStoreMetricSource.key,
-      sourceLabel: shopifyStoreMetricSource.label,
-      helperText: shopifyStoreMetricHelper,
-      sparklineData: shopifyAovSeries,
+      sourceKey: aovSource?.source ?? "unavailable",
+      sourceLabel: aovSource?.label ?? tr("Unavailable", "Kullanılamıyor"),
+      helperText:
+        !sourceHasVerifiedValue(aovSource)
+          ? shopifyPrimary
+            ? tr("Finish Shopify store sync", "Shopify mağaza senkronunu tamamlayın")
+            : tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın")
+          : undefined,
+      sparklineData: isShopifySource(aovSource) ? shopifyAovSeries : ga4RevenueSeries.map((point, index) => ({
+        date: point.date,
+        value:
+          ga4PurchaseSeries[index] && ga4PurchaseSeries[index].value > 0
+            ? roundSparklineValue(point.value / ga4PurchaseSeries[index].value)
+            : 0,
+      })),
       compareMode,
       icon: "receipt",
     }),
@@ -510,9 +886,14 @@ export async function GET(request: NextRequest) {
       value: newCustomersCurrent,
       previousValue: newCustomersPrevious,
       unit: "count",
-      sourceKey: analyticsConnected ? "ga4" : "unavailable",
-      sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
-      helperText: analyticsConnected ? undefined : tr("Connect GA4", "GA4 bağlayın"),
+      sourceKey: storeCustomerSource.key,
+      sourceLabel: storeCustomerSource.label,
+      helperText:
+        storeCustomerSource.key === "unavailable" || storeCustomerSource.key === "shopify_unavailable"
+          ? shopifyPrimary
+            ? tr("Shopify customer lifecycle data is unavailable", "Shopify müşteri yaşam döngüsü verisi kullanılamıyor")
+            : tr("Connect GA4", "GA4 bağlayın")
+          : undefined,
       sparklineData: [],
       compareMode,
     }),
@@ -523,8 +904,8 @@ export async function GET(request: NextRequest) {
       value: grossSalesCurrent,
       previousValue: grossSalesPrevious,
       unit: "currency",
-      sourceKey: shopifyStoreMetricSource.key,
-      sourceLabel: shopifyStoreMetricSource.label,
+      sourceKey: selectedShopifyMetricSource.key,
+      sourceLabel: selectedShopifyMetricSource.label,
       helperText: shopifyStoreMetricHelper,
       sparklineData: shopifyGrossSalesSeries,
       compareMode,
@@ -537,8 +918,8 @@ export async function GET(request: NextRequest) {
       value: refundedRevenueCurrent,
       previousValue: refundedRevenuePrevious,
       unit: "currency",
-      sourceKey: shopifyStoreMetricSource.key,
-      sourceLabel: shopifyStoreMetricSource.label,
+      sourceKey: selectedShopifyMetricSource.key,
+      sourceLabel: selectedShopifyMetricSource.label,
       helperText: shopifyStoreMetricHelper,
       sparklineData: shopifyRefundedRevenueSeries,
       compareMode,
@@ -551,8 +932,8 @@ export async function GET(request: NextRequest) {
       value: refundRateCurrent,
       previousValue: refundRatePrevious,
       unit: "percent",
-      sourceKey: shopifyStoreMetricSource.key,
-      sourceLabel: shopifyStoreMetricSource.label,
+      sourceKey: selectedShopifyMetricSource.key,
+      sourceLabel: selectedShopifyMetricSource.label,
       helperText: shopifyStoreMetricHelper,
       sparklineData: shopifyRefundRateSeries,
       compareMode,
@@ -565,8 +946,8 @@ export async function GET(request: NextRequest) {
       value: returnEventsCurrent,
       previousValue: returnEventsPrevious,
       unit: "count",
-      sourceKey: shopifyStoreMetricSource.key,
-      sourceLabel: shopifyStoreMetricSource.label,
+      sourceKey: selectedShopifyMetricSource.key,
+      sourceLabel: selectedShopifyMetricSource.label,
       helperText: shopifyStoreMetricHelper,
       sparklineData: shopifyReturnEventsSeries,
       compareMode,
@@ -579,8 +960,8 @@ export async function GET(request: NextRequest) {
       value: returnRateCurrent,
       previousValue: returnRatePrevious,
       unit: "percent",
-      sourceKey: shopifyStoreMetricSource.key,
-      sourceLabel: shopifyStoreMetricSource.label,
+      sourceKey: selectedShopifyMetricSource.key,
+      sourceLabel: selectedShopifyMetricSource.label,
       helperText: shopifyStoreMetricHelper,
       sparklineData: shopifyReturnRateSeries,
       compareMode,
@@ -589,12 +970,7 @@ export async function GET(request: NextRequest) {
   ];
 
   const ltvSourceLabel = tr("GA4 fallback", "GA4 yedegi");
-  const ltvEstimatedHelper = shopifyConnected
-    ? tr(
-        "Estimated from GA4 because Shopify lifecycle data is unavailable for this view",
-        "Bu görünümde Shopify lifecycle verisi olmadigi için GA4 verisinden tahmin edildi"
-      )
-    : tr("Estimated from GA4", "GA4 üzerinden tahmin edildi");
+  const ltvEstimatedHelper = tr("Estimated from GA4", "GA4 üzerinden tahmin edildi");
   const ltv: OverviewMetricCardData[] = [
     currentGa4Ltv?.averageCustomerLtv !== null && currentGa4Ltv?.averageCustomerLtv !== undefined
       ? buildMetricCard({
@@ -671,39 +1047,44 @@ export async function GET(request: NextRequest) {
 
   const costModelData = toCostModelData(costModel);
   const cogsValue =
-    costModelData && currentOverview.kpis.revenue
-      ? Number((currentOverview.kpis.revenue * costModelData.cogsPercent).toFixed(2))
+    costModelData && verifiedRevenueCurrent !== null
+      ? Number((verifiedRevenueCurrent * costModelData.cogsPercent).toFixed(2))
       : null;
   const shippingValue =
-    costModelData && currentOverview.kpis.revenue
-      ? Number((currentOverview.kpis.revenue * costModelData.shippingPercent).toFixed(2))
+    costModelData && verifiedRevenueCurrent !== null
+      ? Number((verifiedRevenueCurrent * costModelData.shippingPercent).toFixed(2))
       : null;
   const feeValue =
-    costModelData && currentOverview.kpis.revenue
-      ? Number((currentOverview.kpis.revenue * costModelData.feePercent).toFixed(2))
+    costModelData && verifiedRevenueCurrent !== null
+      ? Number((verifiedRevenueCurrent * costModelData.feePercent).toFixed(2))
       : null;
   const variableCosts =
-    cogsValue !== null && shippingValue !== null && feeValue !== null
-      ? Number((currentOverview.kpis.spend + cogsValue + shippingValue + feeValue).toFixed(2))
+    cogsValue !== null && shippingValue !== null && feeValue !== null && currentMerSpend !== null
+      ? Number((currentMerSpend + cogsValue + shippingValue + feeValue).toFixed(2))
       : null;
   const totalExpensesValue =
     variableCosts !== null && costModelData ? Number((variableCosts + costModelData.fixedCost).toFixed(2)) : null;
   const netProfitValue =
-    totalExpensesValue !== null ? Number((currentOverview.kpis.revenue - totalExpensesValue).toFixed(2)) : null;
+    totalExpensesValue !== null && verifiedRevenueCurrent !== null
+      ? Number((verifiedRevenueCurrent - totalExpensesValue).toFixed(2))
+      : null;
   const contributionMarginValue =
-    variableCosts !== null && currentOverview.kpis.revenue > 0
-      ? Number((((currentOverview.kpis.revenue - variableCosts) / currentOverview.kpis.revenue) * 100).toFixed(1))
+    variableCosts !== null && verifiedRevenueCurrent !== null && verifiedRevenueCurrent > 0
+      ? Number((((verifiedRevenueCurrent - variableCosts) / verifiedRevenueCurrent) * 100).toFixed(1))
       : null;
   const costModelMissingHelper = tr("Set cost model", "Maliyet modelini ayarla");
   const expenses: OverviewMetricCardData[] = [
     buildMetricCard({
       id: "expenses-ad-spend",
       title: tr("Ad Spend", "Reklam Spend'i"),
-      value: currentOverview.kpis.spend ?? null,
-      previousValue: previousOverview?.kpis.spend ?? null,
+      value: currentBlendedRoas?.spend ?? null,
+      previousValue: paidSpendComparisonComparable ? (previousBlendedRoas?.spend ?? null) : null,
       unit: "currency",
-      sourceKey: "ad_platforms",
-      sourceLabel: tr("Ad platforms", "Reklam platformlari"),
+      sourceKey: currentBlendedRoas ? "ad_platforms" : "unavailable",
+      sourceLabel: blendedProviderSourceLabel ?? tr("Unavailable", "Kullanılamıyor"),
+      helperText: currentBlendedRoas
+        ? undefined
+        : tr("Paid-media coverage is incomplete for this window", "Bu dönem için reklam verisi kapsamı eksik"),
       sparklineData: spendSeries,
       compareMode,
       icon: "wallet",
@@ -783,15 +1164,19 @@ export async function GET(request: NextRequest) {
           id: "expenses-total-tracked",
           title: tr("Total Expenses", "Toplam Giderler"),
           subtitle: tr("Tracked expenses", "Izlenen giderler"),
-          value: currentOverview.kpis.spend ?? null,
-          previousValue: previousOverview?.kpis.spend ?? null,
+          value: currentBlendedRoas?.spend ?? null,
+          previousValue: paidSpendComparisonComparable ? (previousBlendedRoas?.spend ?? null) : null,
           unit: "currency",
-          sourceKey: "ad_platforms",
-          sourceLabel: tr("Ad spend only", "Yalnizca reklam spend'i"),
-          helperText: tr(
-            "Set cost model to include COGS, shipping, fees, and fixed cost",
-            "COGS, kargo, fee ve sabit giderleri dahil etmek için maliyet modeli ayarlayin"
-          ),
+          sourceKey: currentBlendedRoas ? "ad_platforms" : "unavailable",
+          sourceLabel: currentBlendedRoas
+            ? tr("Ad spend only", "Yalnizca reklam spend'i")
+            : tr("Unavailable", "Kullanılamıyor"),
+          helperText: currentBlendedRoas
+            ? tr(
+                "Set cost model to include COGS, shipping, fees, and fixed cost",
+                "COGS, kargo, fee ve sabit giderleri dahil etmek için maliyet modeli ayarlayin"
+              )
+            : tr("Paid-media coverage is incomplete for this window", "Bu dönem için reklam verisi kapsamı eksik"),
           sparklineData: spendSeries,
           compareMode,
           icon: "badge-dollar-sign",
@@ -850,10 +1235,13 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "expenses-mer",
       title: "MER",
-      value: currentOverview.kpis.spend > 0 ? currentOverview.kpis.revenue / currentOverview.kpis.spend : null,
+      value:
+        verifiedRevenueCurrent !== null && currentMerSpend !== null && currentMerSpend > 0
+          ? verifiedRevenueCurrent / currentMerSpend
+          : null,
       previousValue:
-        previousOverview && previousOverview.kpis.spend > 0
-          ? previousOverview.kpis.revenue / previousOverview.kpis.spend
+        verifiedRevenuePreviousForMer !== null && previousMerSpend !== null && previousMerSpend > 0
+          ? verifiedRevenuePreviousForMer / previousMerSpend
           : null,
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
@@ -862,7 +1250,7 @@ export async function GET(request: NextRequest) {
         : revenueSource?.source === "ga4_fallback"
           ? "GA4 + ad platforms"
           : "Revenue + ad platforms",
-      helperText: revenueSource?.source === "unavailable" ? "Connect Shopify or GA4" : undefined,
+      helperText: !sourceHasVerifiedValue(revenueSource) ? commerceUnavailableHelper : undefined,
       sparklineData: merSeries,
       compareMode,
       icon: "chart-line",
@@ -873,16 +1261,19 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "custom-mer",
       title: "MER",
-      value: currentOverview.kpis.spend > 0 ? currentOverview.kpis.revenue / currentOverview.kpis.spend : null,
+      value:
+        verifiedRevenueCurrent !== null && currentMerSpend !== null && currentMerSpend > 0
+          ? verifiedRevenueCurrent / currentMerSpend
+          : null,
       previousValue:
-        previousOverview && previousOverview.kpis.spend > 0
-          ? previousOverview.kpis.revenue / previousOverview.kpis.spend
+        verifiedRevenuePreviousForMer !== null && previousMerSpend !== null && previousMerSpend > 0
+          ? verifiedRevenuePreviousForMer / previousMerSpend
           : null,
       unit: "ratio",
       sourceKey: revenueSource?.source ?? "unavailable",
       sourceLabel: tr("Derived", "Türetilmiş"),
       helperText:
-        revenueSource?.source === "unavailable" ? tr("Connect Shopify or GA4", "Shopify veya GA4 bağlayın") : undefined,
+        !sourceHasVerifiedValue(revenueSource) ? commerceUnavailableHelper : undefined,
       sparklineData: merSeries,
       compareMode,
     }),
@@ -942,8 +1333,8 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "web-conversion-rate",
       title: "Conv rate",
-      value: conversionRateCurrent === null ? null : conversionRateCurrent * 100,
-      previousValue: conversionRatePrevious === null ? null : conversionRatePrevious * 100,
+      value: ga4ConversionRateCurrent === null ? null : ga4ConversionRateCurrent * 100,
+      previousValue: ga4ConversionRatePrevious === null ? null : ga4ConversionRatePrevious * 100,
       unit: "percent",
       sourceKey: analyticsConnected ? "ga4" : "unavailable",
       sourceLabel: analyticsConnected ? "GA4" : tr("Unavailable", "Kullanılamıyor"),
@@ -953,7 +1344,11 @@ export async function GET(request: NextRequest) {
       icon: "target",
     }),
   ];
-  const platforms = buildPlatformSections(currentOverview, previousOverview, compareMode);
+  const platforms = buildPlatformSections(
+    currentOverviewForProviderScope,
+    previousOverviewForProviderComparison,
+    compareMode,
+  );
 
   const summary: OverviewSummaryData = {
     businessId,
@@ -961,14 +1356,31 @@ export async function GET(request: NextRequest) {
       startDate: resolvedStart,
       endDate: resolvedEnd,
     },
+    shopifyConnectionState,
     comparison: {
       mode: compareMode,
       startDate: previousWindow.startDate,
       endDate: previousWindow.endDate,
     },
+    providerSources: {
+      current: currentProviderSources,
+      previous: comparablePreviousProviderSources,
+    },
+    paidProviderScope: {
+      current: {
+        providers: currentPaidProviderScope.providers,
+        complete: currentPaidProviderScope.complete,
+      },
+      previous: previousPaidProviderScope
+        ? {
+            providers: previousPaidProviderScope.providers,
+            complete: previousPaidProviderScope.complete,
+          }
+        : null,
+    },
     pins,
     storeMetrics,
-    attribution: buildAttributionRows(currentOverview, {
+    attribution: buildAttributionRows(currentOverviewForProviderScope, {
       // The current aggregate contract has no organic-only revenue/conversion
       // split. Rendering total GA4 values as Organic would be false, so the
       // required row remains honest until that producer field exists.

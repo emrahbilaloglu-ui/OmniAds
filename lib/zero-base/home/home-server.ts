@@ -7,13 +7,17 @@
  * an extra hop, a second authorization surface, and (in this repo's own
  * history) a fan-out that made a page slow enough to look broken.
  *
- * Nothing is recomputed. The KPI values and their per-KPI source provenance are
- * taken exactly as the read model produced them; this file decides only how a
- * value is *described* — available, partial or unavailable, and with what
- * comparison.
+ * Primitive values and source provenance come from the read model. Home
+ * re-derives Blended ROAS and MER only from those verified primitives so a
+ * store-revenue ratio cannot be relabeled as platform ROAS (or vice versa).
+ * It also decides whether a value is available, partial or unavailable and
+ * whether its daily series covers the same source scope as its scalar.
  */
 import { getOverviewData, type OverviewResponse } from "@/lib/overview-service";
-import { getIntegrationStatusByBusiness } from "@/lib/integration-status";
+import {
+  getIntegrationStatusByBusiness,
+  type IntegrationStatusResponse,
+} from "@/lib/integration-status";
 import { getBusinessCurrency } from "@/lib/account-store";
 import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import { resolveEvidenceFreshness } from "@/lib/workspace/workspace-context";
@@ -26,6 +30,13 @@ import {
 import type { OverviewMetricCardData, OverviewMetricUnit } from "@/src/types/models";
 import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";
 import type { TrendPoint as HomeTrendPoint } from "@/components/zero-base/home/trend-panel";
+import {
+  buildBlendedProviderRoasSeries,
+  buildPaidProviderSpendSeries,
+  providerScalarSourcesComparable,
+  providerTrendMatchesScalar,
+  type OverviewProvider,
+} from "@/lib/overview-provider-metrics";
 
 /** KPI → the card the contract expects, keyed to the direction registry. */
 const HOME_KPIS: ReadonlyArray<{
@@ -49,7 +60,7 @@ const HOME_KPIS: ReadonlyArray<{
   { key: "orders", title: "Purchases", unit: "count", read: (o) => o.kpis.purchases, sourceField: "purchases" },
   {
     key: "blended_roas",
-    title: "ROAS vs target",
+    title: "Blended ROAS vs target",
     unit: "ratio",
     read: (o) => o.totals.roas,
     source: { source: "ad_platforms", label: "Connected ad platforms" },
@@ -81,6 +92,214 @@ const PROVIDER_LABEL: Record<string, string> = {
   ga4: "GA4",
   search_console: "Search Console",
 };
+
+const PAID_PROVIDERS = ["meta", "google"] as const;
+
+interface PaidProviderSnapshot {
+  providers: OverviewProvider[];
+  spend: number;
+  conversionValue: number;
+}
+
+interface PaidProviderResolution {
+  snapshot: PaidProviderSnapshot | null;
+  reason: string | null;
+}
+
+function normalizedPaidProvider(value: string): OverviewProvider | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "meta") return "meta";
+  if (normalized === "google" || normalized === "google_ads") return "google";
+  return null;
+}
+
+function providerConnectionState(
+  integrations: IntegrationStatusResponse | null,
+  provider: OverviewProvider,
+): "connected" | "disconnected" | "unknown" {
+  if (!integrations || typeof integrations[provider] !== "boolean") return "unknown";
+  return integrations[provider] ? "connected" : "disconnected";
+}
+
+function isoDay(value: string | null | undefined): number | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = Date.parse(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 10) !== value) return null;
+  return parsed;
+}
+
+/** A provider scalar may be used only when its measured window covers Home's requested window. */
+function providerRangeCoversOverviewWindow(
+  providerRange: { startDate: string; endDate: string } | null | undefined,
+  overviewRange: OverviewResponse["dateRange"],
+) {
+  const providerStart = isoDay(providerRange?.startDate);
+  const providerEnd = isoDay(providerRange?.endDate);
+  const requestedStart = isoDay(overviewRange.startDate);
+  const requestedEnd = isoDay(overviewRange.endDate);
+  return (
+    providerStart !== null &&
+    providerEnd !== null &&
+    requestedStart !== null &&
+    requestedEnd !== null &&
+    providerStart <= requestedStart &&
+    providerEnd >= requestedEnd
+  );
+}
+
+/**
+ * Resolve the exact provider rows Home is allowed to blend.
+ *
+ * A row without a known scalar source, or a claimed scalar source without a
+ * row, makes the paid scope unverified. Silently dropping either case would
+ * turn a partial provider set into a believable blended result.
+ */
+function resolvePaidProviderSnapshot(
+  overview: OverviewResponse,
+  integrations: IntegrationStatusResponse | null,
+): PaidProviderResolution {
+  const rowsByProvider = new Map<OverviewProvider, OverviewResponse["platformEfficiency"]>();
+  for (const provider of PAID_PROVIDERS) rowsByProvider.set(provider, []);
+
+  for (const row of overview.platformEfficiency) {
+    const provider = normalizedPaidProvider(String(row.platform));
+    if (!provider) continue;
+    rowsByProvider.get(provider)?.push(row);
+  }
+
+  const providers: OverviewProvider[] = [];
+  let spend = 0;
+  let conversionValue = 0;
+  for (const provider of PAID_PROVIDERS) {
+    const rows = rowsByProvider.get(provider) ?? [];
+    const scalarSource = overview.providerSources?.[provider];
+    const scalarRange = overview.providerScalarRanges?.[provider];
+    const sourceVerified = providerScalarSourcesComparable(
+      provider,
+      scalarSource,
+      scalarSource,
+    );
+    const hasAnyReadEvidence = rows.length > 0 || scalarSource != null || scalarRange != null;
+
+    if (!hasAnyReadEvidence) {
+      // A successful integration-status read is the only authority that lets
+      // Home treat an absent provider as legitimately out of scope. A
+      // connected provider, or a failed status read, leaves the denominator
+      // unknown and therefore fails every paid-scope metric closed.
+      if (providerConnectionState(integrations, provider) === "disconnected") continue;
+      return {
+        snapshot: null,
+        reason: "Paid-provider scope is missing a connected or unverified provider.",
+      };
+    }
+
+    // Once any read evidence exists, both a supported source and at least one
+    // provider row are mandatory. A stray range or unsupported source is a
+    // mismatch, not a measured zero.
+    if (!sourceVerified || rows.length === 0) {
+      return {
+        snapshot: null,
+        reason: "Paid-provider scope contains an unverified or incomplete source.",
+      };
+    }
+    if (!providerRangeCoversOverviewWindow(scalarRange, overview.dateRange)) {
+      return {
+        snapshot: null,
+        reason: "Paid-provider scalar coverage does not cover the requested window.",
+      };
+    }
+    if (
+      rows.some(
+        (row) =>
+          typeof row.spend !== "number" ||
+          !Number.isFinite(row.spend) ||
+          typeof row.revenue !== "number" ||
+          !Number.isFinite(row.revenue),
+      )
+    ) {
+      return {
+        snapshot: null,
+        reason: "Paid-provider spend or attributed conversion value is invalid for this window.",
+      };
+    }
+
+    providers.push(provider);
+    spend += rows.reduce((sum, row) => sum + Number(row.spend), 0);
+    conversionValue += rows.reduce((sum, row) => sum + Number(row.revenue), 0);
+  }
+
+  if (providers.length === 0) {
+    return {
+      snapshot: null,
+      reason: "No verified paid-provider data is available for this window.",
+    };
+  }
+
+  return { snapshot: { providers, spend, conversionValue }, reason: null };
+}
+
+function paidProviderLabel(providers: readonly OverviewProvider[]) {
+  return providers.map((provider) => (provider === "meta" ? "Meta Ads" : "Google Ads")).join(" + ");
+}
+
+function sourceSafeProviderTrends(
+  overview: OverviewResponse,
+  snapshot: PaidProviderSnapshot | null,
+) {
+  if (!snapshot) return null;
+  const trends: Partial<
+    Record<OverviewProvider, NonNullable<OverviewResponse["providerTrends"]>[OverviewProvider]>
+  > = {};
+  for (const provider of snapshot.providers) {
+    const providerPoints = overview.providerTrends?.[provider];
+    if (
+      providerPoints === undefined ||
+      !providerTrendMatchesScalar(
+        provider,
+        overview.providerSources?.[provider],
+        overview.providerTrendSources?.[provider],
+      )
+    ) {
+      return null;
+    }
+    trends[provider] = providerPoints;
+  }
+  return trends;
+}
+
+type CommerceResolution = {
+  source: string;
+  formulaLabel: string;
+  revenue: number;
+};
+
+/** Shopify is primary. GA4 is commerce truth only as an explicit disconnect fallback. */
+function resolveCommerceRevenue(overview: OverviewResponse): CommerceResolution | null {
+  const provenance = overview.kpiSources.revenue;
+  const source = provenance?.source;
+  const shopifySource =
+    source === "shopify_ledger" ||
+    source === "shopify_warehouse" ||
+    source === "shopify_live_fallback";
+  const revenue = Number(overview.kpis.revenue);
+  if (!Number.isFinite(revenue)) return null;
+
+  if (overview.shopifyConnectionState === "connected" && shopifySource) {
+    return {
+      source,
+      formulaLabel: "Shopify revenue",
+      revenue,
+    };
+  }
+  if (overview.shopifyConnectionState === "disconnected" && source === "ga4_fallback") {
+    return {
+      source,
+      formulaLabel: "GA4 ecommerce revenue fallback",
+      revenue,
+    };
+  }
+  return null;
+}
 
 /**
  * A KPI whose source resolved to `unavailable` is not zero — it is unserved,
@@ -184,49 +403,126 @@ export async function readHomePageModel(input: {
     };
   }
 
-  const kpis = overview.kpis as unknown as Record<string, number>;
-  const trend = overview.trends["30d"] ?? [];
+  // `custom` is the exact requested Overview window. Fixed 30-day slices
+  // silently truncate commerce sparklines for longer custom windows.
+  const trend = overview.trends.custom ?? [];
+  const paidProviderResolution = resolvePaidProviderSnapshot(overview, integrations);
+  const paidProviderSnapshot = paidProviderResolution.snapshot;
+  const compatibleProviderTrends = sourceSafeProviderTrends(overview, paidProviderSnapshot);
+  const paidSpendSeries = compatibleProviderTrends
+    ? buildPaidProviderSpendSeries(compatibleProviderTrends)
+    : [];
+  const blendedRoasSeries = compatibleProviderTrends
+    ? buildBlendedProviderRoasSeries(compatibleProviderTrends)
+    : [];
+  const commerce = resolveCommerceRevenue(overview);
+  const paidScopeLabel = paidProviderSnapshot
+    ? paidProviderLabel(paidProviderSnapshot.providers)
+    : "paid providers";
+  const blendedFormulaLabel = `${paidScopeLabel} attributed conversion value / verified ${paidScopeLabel} spend`;
+  const merFormulaLabel = commerce
+    ? `${commerce.formulaLabel} / verified ${paidScopeLabel} spend`
+    : "Verified commerce revenue / verified paid-provider spend";
+  const commerceRevenueByDate = new Map(
+    trend.flatMap((point) => {
+      const date = String(point.date ?? "");
+      const revenue = Number(point.revenue);
+      return date && Number.isFinite(revenue) ? [[date, revenue] as const] : [];
+    }),
+  );
+  const merSeries = commerce
+    ? paidSpendSeries.flatMap((point) => {
+        const revenue = commerceRevenueByDate.get(point.date);
+        return revenue !== undefined && point.value > 0
+          ? [{ date: point.date, value: revenue / point.value }]
+          : [];
+      })
+    : [];
 
   const metrics = HOME_KPIS.map((kpi) => {
     const sourceField = kpi.sourceField ?? KPI_SOURCE_FIELD[kpi.key];
-    const provenance = kpi.source ?? (
+    let provenance = kpi.source ?? (
       overview.kpiSources as unknown as Record<string, { source: string; label: string } | undefined>
     )[sourceField];
-    const served =
+    let served =
       isServed(provenance?.source) &&
       (!kpi.sourceMustBeShopify || Boolean(provenance?.source.startsWith("shopify_")));
-    const raw = kpi.read(overview);
+    let raw = kpi.read(overview);
+    let unavailableReason = provenance?.label
+      ? `Not served by ${provenance.label} for this window.`
+      : "Not served for this window.";
 
-    const card: OverviewMetricCardData | undefined = served
+    if (kpi.key === "spend") {
+      provenance = {
+        source: paidProviderSnapshot ? "ad_platforms" : "unavailable",
+        label: paidProviderSnapshot ? `Verified ${paidScopeLabel} spend` : "Verified paid-provider spend",
+      };
+      // Zero is a valid measured spend. Only scope/source/range failures make
+      // the scalar unavailable.
+      served = Boolean(paidProviderSnapshot);
+      raw = paidProviderSnapshot?.spend ?? Number.NaN;
+      unavailableReason = paidProviderResolution.reason ?? "Verified paid-provider spend is unavailable for this window.";
+    } else if (kpi.key === "blended_roas") {
+      provenance = {
+        source: paidProviderSnapshot ? "ad_platforms" : "unavailable",
+        label: blendedFormulaLabel,
+      };
+      served = Boolean(paidProviderSnapshot && paidProviderSnapshot.spend > 0);
+      raw = served && paidProviderSnapshot
+        ? paidProviderSnapshot.conversionValue / paidProviderSnapshot.spend
+        : Number.NaN;
+      unavailableReason = paidProviderResolution.reason ?? "Verified paid-provider spend is zero for this window.";
+    } else if (kpi.key === "mer") {
+      provenance = {
+        source: commerce?.source ?? "unavailable",
+        label: merFormulaLabel,
+      };
+      served = Boolean(commerce && paidProviderSnapshot && paidProviderSnapshot.spend > 0);
+      raw = served && commerce && paidProviderSnapshot
+        ? commerce.revenue / paidProviderSnapshot.spend
+        : Number.NaN;
+      unavailableReason = !commerce
+        ? "Shopify revenue or the explicit GA4 fallback is unavailable for this window."
+        : (paidProviderResolution.reason ?? "Verified paid-provider spend is zero for this window.");
+    }
+
+    const specialFormulaMetric = kpi.key === "spend" || kpi.key === "blended_roas" || kpi.key === "mer";
+    const valueAvailable = served && Number.isFinite(raw);
+
+    const card: OverviewMetricCardData | undefined = valueAvailable || specialFormulaMetric
       ? {
           id: kpi.key,
           title: kpi.title,
-          value: Number.isFinite(raw) ? raw : null,
+          value: valueAvailable ? raw : null,
           changePct: null,
-          sparklineData: trend
-            .map((point) => {
-              const row = point as unknown as Record<string, unknown>;
-              return {
-                date: String(row.date ?? ""),
-                value:
-                  kpi.key === "spend"
-                    ? Number(row.spend ?? Number.NaN)
-                    : kpi.key === "revenue"
-                      ? Number(row.revenue ?? Number.NaN)
-                    : kpi.key === "orders"
-                      ? Number(row.purchases ?? Number.NaN)
-                      : Number(row.spend) > 0
-                        ? Number(row.revenue) / Number(row.spend)
-                        : Number.NaN,
-              };
-            })
-            .filter((point) => Boolean(point.date) && Number.isFinite(point.value)),
+          sparklineData:
+            kpi.key === "blended_roas"
+              ? blendedRoasSeries
+              : kpi.key === "mer"
+                ? merSeries
+                : kpi.key === "spend"
+                  ? paidSpendSeries
+              : trend
+                  .map((point) => {
+                    const row = point as unknown as Record<string, unknown>;
+                    return {
+                      date: String(row.date ?? ""),
+                      value:
+                        kpi.key === "revenue"
+                            ? Number(row.revenue ?? Number.NaN)
+                            : kpi.key === "orders"
+                              ? Number(row.purchases ?? Number.NaN)
+                              : Number.NaN,
+                    };
+                  })
+                  .filter((point) => Boolean(point.date) && Number.isFinite(point.value)),
           trendDirection: "neutral",
           dataSource: {
             key: provenance?.source ?? "unknown",
             label: provenance?.label ?? "Unknown source",
           },
-          status: "available",
+          status: valueAvailable ? "available" : "unavailable",
+          helperText: valueAvailable ? undefined : unavailableReason,
           unit: kpi.unit,
         }
       : undefined;
@@ -239,9 +535,7 @@ export async function readHomePageModel(input: {
       mode: "none",
       currency,
       currencyProof,
-      unavailableReason: provenance?.label
-        ? `Not served by ${provenance.label} for this window.`
-        : "Not served for this window.",
+      unavailableReason,
     });
   });
 
@@ -268,16 +562,13 @@ export async function readHomePageModel(input: {
     comparisonMode: "none",
   };
 
-  const trendPoints: HomeTrendPoint[] = trend.map((point) => {
-    const row = point as unknown as { date?: string; label?: string; spend?: number; revenue?: number };
-    const spend = Number(row.spend);
-    const revenue = Number(row.revenue);
-    return {
-      date: String(row.date ?? row.label ?? ""),
-      spend: Number.isFinite(spend) ? spend : null,
-      roas: Number.isFinite(spend) && spend > 0 && Number.isFinite(revenue) ? revenue / spend : null,
-    };
-  }).filter((point) => Boolean(point.date));
+  const blendedRoasByDate = new Map(blendedRoasSeries.map((point) => [point.date, point.value]));
+  const trendPoints: HomeTrendPoint[] = paidSpendSeries.map((point) => ({
+    date: point.date,
+    // Zero is a measured value when every active provider reported the day.
+    spend: point.value,
+    roas: blendedRoasByDate.get(point.date) ?? null,
+  }));
 
   return {
     contract,

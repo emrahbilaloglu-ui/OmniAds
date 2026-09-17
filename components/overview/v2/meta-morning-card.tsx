@@ -84,7 +84,7 @@ export function MetaMorningCard({
         />
       </dl>
 
-      <div className="px-4 py-3 text-[12px]" style={{ color: "var(--muted)" }}>
+      <div className="px-4 py-3 text-[12px]" style={{ color: "var(--adv-ink-3)" }}>
         <p data-field="brief-modes">
           {brief && stateOf(brief.modes)
             ? `Budget ${MODE_WORDS[brief.modes.budget ?? ""] ?? "—"} · Pause ${MODE_WORDS[brief.modes.pause ?? ""] ?? "—"}`
@@ -116,10 +116,10 @@ function Cell({
 }) {
   return (
     <div className="px-4 py-3" style={{ background: "var(--surface, #fff)" }} data-field={field}>
-      <dt className="text-[11.5px]" style={{ color: "var(--muted)" }}>{label}</dt>
+      <dt className="text-[11.5px]" style={{ color: "var(--adv-ink-3)" }}>{label}</dt>
       <dd className="mt-1 text-[22px] font-[650] leading-none tabular-nums">{value}</dd>
       {note ? (
-        <p className="mt-1 text-[11.5px]" style={{ color: "var(--muted)" }}>{note}</p>
+        <p className="mt-1 text-[11.5px]" style={{ color: "var(--adv-ink-3)" }}>{note}</p>
       ) : null}
     </div>
   );

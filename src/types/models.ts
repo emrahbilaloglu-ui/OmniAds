@@ -141,6 +141,7 @@ export interface IntegrationConnection {
 export interface OverviewData {
   businessId: string;
   dateRange: { startDate: string; endDate: string };
+  shopifyConnectionState?: "connected" | "disconnected" | "unknown";
   totals: MetricsRow;
   kpis: {
     spend: number;
@@ -172,6 +173,9 @@ export interface OverviewData {
     roas: number;
     purchases: number;
     cpa: number;
+    /** Absent when the provider did not report delivery counts for the row. */
+    impressions?: number;
+    clicks?: number;
   }>;
   trends: {
     "7d": Array<{
@@ -313,9 +317,41 @@ export interface BusinessCostModelData {
   updatedAt: string | null;
 }
 
+/**
+ * The read behind each provider's platform cards, as sent on the wire. Null
+ * means no usable provider read. Loose strings on purpose: the client gates on
+ * `providerTrendMatchesScalar`, which fails closed for anything it does not know.
+ */
+export interface OverviewProviderSourceMap {
+  meta: string | null;
+  google: string | null;
+}
+
+export interface OverviewPaidProviderScope {
+  /** Providers whose source, aggregate row, and scalar range were all verified. */
+  providers: Array<"meta" | "google">;
+  /** False when a connected/unknown provider read is absent or any provider read is inconsistent. */
+  complete: boolean;
+}
+
 export interface OverviewSummaryData {
   businessId: string;
   dateRange: { startDate: string; endDate: string };
+  shopifyConnectionState?: "connected" | "disconnected" | "unknown";
+  /**
+   * Scalar sources for the current window and, when comparing, the previous
+   * window. A provider sparkline may patch a platform card only when its trend
+   * source matches the scalar source for the same window.
+   */
+  providerSources?: {
+    current: OverviewProviderSourceMap;
+    previous: OverviewProviderSourceMap | null;
+  };
+  /** The paid-provider denominator contract used by Spend, Blended ROAS, MER, and their charts. */
+  paidProviderScope?: {
+    current: OverviewPaidProviderScope;
+    previous: OverviewPaidProviderScope | null;
+  };
   comparison: {
     mode: "none" | "previous_period";
     startDate: string | null;

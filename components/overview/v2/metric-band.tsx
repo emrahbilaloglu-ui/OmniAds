@@ -6,8 +6,9 @@ import { AdvSparkline } from "./adv-sparkline";
 import { formatOverviewDelta, formatOverviewMetricValue, formatOverviewSparklineValue } from "./metric-format";
 
 /**
- * Design decision D6: one primary KPI band replaces the six-equal-card wall —
- * a full-bleed accent hero for the headline metric plus four supporting tiles.
+ * Design decision D6: the first KPI on the band is the accent hero card and
+ * the rest are supporting tiles. The band's grid sizes both (see
+ * `kpi-band.module.css`); values scale with the card via `data-kpi-value`.
  */
 
 const TILE_TONES = [
@@ -15,21 +16,18 @@ const TILE_TONES = [
     bg: "#0B1020",
     line: "#0B1020",
     fill: "rgba(11,16,32,0.07)",
-    delta: "info",
   },
   {
     bg: "#0b7954",
     line: "#0b7954",
     fill: "rgba(14,159,110,0.09)",
-    delta: "pos",
   },
   {
     bg: "#6C41BE",
     line: "#6C41BE",
     fill: "rgba(108,65,190,0.08)",
-    delta: "pos",
   },
-  { bg: "#B45309", line: "#B45309", fill: "rgba(180,83,9,0.08)", delta: "neg" },
+  { bg: "#B45309", line: "#B45309", fill: "rgba(180,83,9,0.08)" },
 ] as const;
 
 const TILE_ICON_PATHS = [
@@ -38,6 +36,10 @@ const TILE_ICON_PATHS = [
   "M8 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M19 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12",
   "M19 5L5 19 M6.5 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M17.5 20a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
 ] as const;
+
+function unavailableMessage(metric: OverviewMetricCardData) {
+  return metric.helperText ?? "No verified data for this window";
+}
 
 type DeltaTone = "pos" | "neg" | "info" | "neutral";
 
@@ -51,11 +53,9 @@ const DELTA_COLORS: Record<DeltaTone, { background: string; color: string }> = {
 export function DeltaChip({
   metric,
   tone = "solid",
-  colorTone,
 }: {
   metric: OverviewMetricCardData;
   tone?: "solid" | "hero";
-  colorTone?: DeltaTone;
 }) {
   if (metric.changePct === null || !Number.isFinite(metric.changePct)) {
     if (tone === "hero") {
@@ -94,8 +94,7 @@ export function DeltaChip({
   }
 
   const resolvedTone =
-    colorTone ??
-    (metric.trendSentiment === "positive" ? "pos" : metric.trendSentiment === "negative" ? "neg" : "neutral");
+    metric.trendSentiment === "positive" ? "pos" : metric.trendSentiment === "negative" ? "neg" : "neutral";
 
   return (
     <span
@@ -112,12 +111,21 @@ function metricLabel(metric: OverviewMetricCardData) {
   return metric.title;
 }
 
+/** Keep the two efficiency ratios distinguishable wherever either is pinned. */
+function efficiencyDefinition(metric: OverviewMetricCardData) {
+  return metric.id === "pins-blended-roas" || metric.id === "pins-mer"
+    ? metric.subtitle
+    : undefined;
+}
+
 export function HeroMetricCard({ metric, currencySymbol }: { metric: OverviewMetricCardData; currencySymbol: string }) {
   const format = (value: number) => formatOverviewSparklineValue(metric, value, currencySymbol);
+  const unavailable = metric.value === null || metric.status === "unavailable";
+  const definition = efficiencyDefinition(metric);
   return (
     <article
       data-overview-metric-id={metric.id}
-      className="flex min-w-0 flex-col justify-between rounded-[var(--adv-r-card)] p-5 text-white sm:col-span-2"
+      className="flex min-w-0 flex-col justify-between rounded-[var(--adv-r-card)] p-5 text-white"
       style={{ background: "var(--adv-accent)", minHeight: 170 }}
     >
       <div className="flex items-center justify-between">
@@ -130,6 +138,7 @@ export function HeroMetricCard({ metric, currencySymbol }: { metric: OverviewMet
         <DeltaChip metric={metric} tone="hero" />
       </div>
       <p
+        data-kpi-value="primary"
         className="m-0 mt-2.5 text-[42px] font-bold leading-none tabular-nums"
         style={{
           fontFamily: "var(--adv-font-display)",
@@ -138,19 +147,29 @@ export function HeroMetricCard({ metric, currencySymbol }: { metric: OverviewMet
       >
         {formatOverviewMetricValue(metric, metric.value, currencySymbol)}
       </p>
-      <AdvSparkline
-        points={metric.sparklineData}
-        previousPoints={metric.previousSparklineData}
-        line="#ffffff"
-        fill="rgba(255,255,255,0.14)"
-        height={44}
-        strokeWidth={1.6}
-        tone="light"
-        variant="hero"
-        format={format}
-        ariaLabel={`${metric.title} trend`}
-        marginTop={12}
-      />
+      {definition ? (
+        <p className="m-0 mt-2 text-[11px] font-medium text-white/75">{definition}</p>
+      ) : null}
+      {unavailable ? (
+        <div className="mt-3 text-[11.5px] leading-[1.45] text-white/80">
+          <p className="m-0">{unavailableMessage(metric)}</p>
+          <p className="m-0 mt-1 text-[10.5px] text-white/60">Source · {metric.dataSource.label}</p>
+        </div>
+      ) : (
+        <AdvSparkline
+          points={metric.sparklineData}
+          previousPoints={metric.previousSparklineData}
+          line="#ffffff"
+          fill="rgba(255,255,255,0.14)"
+          height={44}
+          strokeWidth={1.6}
+          tone="light"
+          variant="hero"
+          format={format}
+          ariaLabel={`${metric.title} trend`}
+          marginTop={12}
+        />
+      )}
     </article>
   );
 }
@@ -167,6 +186,8 @@ export function HeroTile({
   const tone = TILE_TONES[index % TILE_TONES.length]!;
   const iconPath = TILE_ICON_PATHS[index % TILE_ICON_PATHS.length] ?? TILE_ICON_PATHS[0];
   const format = (value: number) => formatOverviewSparklineValue(metric, value, currencySymbol);
+  const unavailable = metric.value === null || metric.status === "unavailable";
+  const definition = efficiencyDefinition(metric);
 
   return (
     <article data-overview-metric-id={metric.id} className="adv-card flex min-w-0 flex-col justify-between p-4">
@@ -188,25 +209,39 @@ export function HeroTile({
             <path d={iconPath} />
           </svg>
         </span>
-        <DeltaChip metric={metric} colorTone={tone.delta} />
+        <DeltaChip metric={metric} />
       </div>
       <div className="mt-3.5">
-        <p className="adv-num m-0 text-[26px] font-bold leading-none" style={{ fontFamily: "var(--adv-font-display)" }}>
+        <p
+          data-kpi-value="tile"
+          className="adv-num m-0 text-[26px] font-bold leading-none"
+          style={{ fontFamily: "var(--adv-font-display)" }}
+        >
           {formatOverviewMetricValue(metric, metric.value, currencySymbol)}
         </p>
         <p className="m-0 mt-1.5 truncate text-[12px] font-medium text-[var(--adv-ink-3)]">{metricLabel(metric)}</p>
+        {definition ? (
+          <p className="m-0 mt-1 text-[10px] leading-[1.35] text-[var(--adv-ink-3)]">{definition}</p>
+        ) : null}
       </div>
-      <AdvSparkline
-        points={metric.sparklineData}
-        previousPoints={metric.previousSparklineData}
-        line={tone.line}
-        fill={tone.fill}
-        height={38}
-        variant="tile"
-        format={format}
-        ariaLabel={`${metric.title} trend`}
-        marginTop={12}
-      />
+      {unavailable ? (
+        <div className="mt-3 text-[10.5px] leading-[1.4] text-[var(--adv-ink-3)]">
+          <p className="m-0">{unavailableMessage(metric)}</p>
+          <p className="m-0 mt-1 text-[10px]">Source · {metric.dataSource.label}</p>
+        </div>
+      ) : (
+        <AdvSparkline
+          points={metric.sparklineData}
+          previousPoints={metric.previousSparklineData}
+          line={tone.line}
+          fill={tone.fill}
+          height={38}
+          variant="tile"
+          format={format}
+          ariaLabel={`${metric.title} trend`}
+          marginTop={12}
+        />
+      )}
     </article>
   );
 }

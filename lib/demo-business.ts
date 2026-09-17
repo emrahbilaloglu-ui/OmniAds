@@ -31,12 +31,31 @@ export function isDemoBusinessId(businessId: string | null | undefined): boolean
   return businessId === DEMO_BUSINESS_ID;
 }
 
+function allocateDemoTotal(weights: number[], total: number, digits = 2): number[] {
+  const scale = 10 ** digits;
+  const targetUnits = Math.round(total * scale);
+  const weightTotal = weights.reduce((sum, value) => sum + value, 0);
+  let allocatedUnits = 0;
+  return weights.map((weight, index) => {
+    const units =
+      index === weights.length - 1
+        ? targetUnits - allocatedUnits
+        : Math.round((targetUnits * weight) / weightTotal);
+    allocatedUnits += units;
+    return units / scale;
+  });
+}
+
 
 export function getDemoOverview() {
+  const demoDays = getDemoSparklines().combined;
   return {
     businessId: DEMO_BUSINESS_ID,
     dateRange: { startDate: "2026-02-10", endDate: "2026-03-11" },
-    kpis: { spend: 38240, revenue: 124860, roas: 3.27, purchases: 1420, cpa: 26.93, aov: 87.93 },
+    shopifyConnectionState: "connected" as const,
+    // Commerce KPIs keep Shopify as the revenue/order authority. Spend and CPA
+    // come from the paid providers, so MER is store revenue / paid spend.
+    kpis: { spend: 35960, revenue: 124860, roas: 3.47, purchases: 1420, cpa: 26.89, aov: 87.93 },
     kpiSources: {
       spend: { source: "ad_platforms", label: "Ad platforms" },
       revenue: { source: "shopify_ledger", label: "Shopify Ledger" },
@@ -46,96 +65,59 @@ export function getDemoOverview() {
       aov: { source: "shopify_ledger", label: "Shopify Ledger" },
     },
     totals: {
-      impressions: 2361800,
-      clicks: 81220,
-      purchases: 1420,
-      spend: 38240,
-      conversions: 1710,
-      revenue: 124860,
-      ctr: 3.44,
-      cpm: 16.19,
-      cpc: 0.47,
-      cpa: 26.93,
-      roas: 3.27,
+      // Paid-platform aggregate. Keeping this separate from `kpis` preserves
+      // Blended ROAS as platform-attributed value / provider spend.
+      impressions: 2244800,
+      clicks: 60935,
+      purchases: 1337.4,
+      spend: 35960,
+      conversions: 1337.4,
+      revenue: 119470,
+      ctr: 2.71,
+      cpm: 16.02,
+      cpc: 0.59,
+      cpa: 26.89,
+      roas: 3.32,
+    },
+    providerSources: { meta: "warehouse_published_account_daily" as const, google: "warehouse_account_aggregate" as const },
+    providerScalarRanges: {
+      meta: { startDate: "2026-02-10", endDate: "2026-03-11" },
+      google: { startDate: "2026-02-10", endDate: "2026-03-11" },
     },
     platformEfficiency: [
-      { platform: "Meta", spend: 21420, revenue: 72890, roas: 3.4, purchases: 816, cpa: 26.25 },
-      { platform: "Google", spend: 14540, revenue: 46580, roas: 3.2, purchases: 521, cpa: 27.91 },
+      {
+        platform: "Meta",
+        spend: 21420,
+        revenue: 72890,
+        roas: 3.4,
+        purchases: 816,
+        cpa: 26.25,
+        impressions: 1785000,
+        clicks: 37485,
+      },
+      {
+        platform: "Google",
+        spend: 14540,
+        revenue: 46580,
+        roas: 3.2,
+        purchases: 521.4,
+        cpa: 27.89,
+        impressions: 459800,
+        clicks: 23450,
+      },
       { platform: "Organic", spend: 0, revenue: 5390, roas: 0, purchases: 83, cpa: 0 },
     ],
     trends: {
-      "7d": [
-        { label: "Mar 05", spend: 1450, revenue: 4630, purchases: 53 },
-        { label: "Mar 06", spend: 1490, revenue: 4720, purchases: 54 },
-        { label: "Mar 07", spend: 1500, revenue: 4760, purchases: 54 },
-        { label: "Mar 08", spend: 1510, revenue: 4790, purchases: 55 },
-        { label: "Mar 09", spend: 1530, revenue: 4840, purchases: 55 },
-        { label: "Mar 10", spend: 1540, revenue: 4860, purchases: 56 },
-        { label: "Mar 11", spend: 1560, revenue: 4890, purchases: 56 },
-      ],
-      "14d": [
-        { label: "Feb 26", spend: 1340, revenue: 4310, purchases: 49 },
-        { label: "Feb 27", spend: 1360, revenue: 4380, purchases: 50 },
-        { label: "Feb 28", spend: 1380, revenue: 4420, purchases: 50 },
-        { label: "Mar 01", spend: 1410, revenue: 4510, purchases: 51 },
-        { label: "Mar 02", spend: 1420, revenue: 4540, purchases: 52 },
-        { label: "Mar 03", spend: 1440, revenue: 4600, purchases: 52 },
-        { label: "Mar 04", spend: 1460, revenue: 4650, purchases: 53 },
-        { label: "Mar 05", spend: 1450, revenue: 4630, purchases: 53 },
-        { label: "Mar 06", spend: 1490, revenue: 4720, purchases: 54 },
-        { label: "Mar 07", spend: 1500, revenue: 4760, purchases: 54 },
-        { label: "Mar 08", spend: 1510, revenue: 4790, purchases: 55 },
-        { label: "Mar 09", spend: 1530, revenue: 4840, purchases: 55 },
-        { label: "Mar 10", spend: 1540, revenue: 4860, purchases: 56 },
-        { label: "Mar 11", spend: 1560, revenue: 4890, purchases: 56 },
-      ],
-      "30d": [
-        { label: "Feb 10", spend: 980, revenue: 3140, purchases: 36 },
-        { label: "Feb 15", spend: 1230, revenue: 3780, purchases: 44 },
-        { label: "Feb 20", spend: 1270, revenue: 4010, purchases: 45 },
-        { label: "Feb 25", spend: 1320, revenue: 4250, purchases: 48 },
-        { label: "Mar 01", spend: 1410, revenue: 4510, purchases: 51 },
-        { label: "Mar 06", spend: 1490, revenue: 4720, purchases: 54 },
-        { label: "Mar 11", spend: 1560, revenue: 4890, purchases: 56 },
-      ],
-      custom: [
-        { label: "Feb 10", spend: 980, revenue: 3140, purchases: 36 },
-        { label: "Feb 11", spend: 1050, revenue: 3320, purchases: 38 },
-        { label: "Feb 12", spend: 1090, revenue: 3480, purchases: 40 },
-        { label: "Feb 13", spend: 1140, revenue: 3620, purchases: 42 },
-        { label: "Feb 14", spend: 1200, revenue: 3850, purchases: 44 },
-        { label: "Feb 15", spend: 1230, revenue: 3780, purchases: 44 },
-        { label: "Feb 16", spend: 1180, revenue: 3700, purchases: 43 },
-        { label: "Feb 17", spend: 1220, revenue: 3910, purchases: 45 },
-        { label: "Feb 18", spend: 1260, revenue: 3980, purchases: 46 },
-        { label: "Feb 19", spend: 1240, revenue: 3950, purchases: 45 },
-        { label: "Feb 20", spend: 1270, revenue: 4010, purchases: 45 },
-        { label: "Feb 21", spend: 1290, revenue: 4070, purchases: 46 },
-        { label: "Feb 22", spend: 1310, revenue: 4150, purchases: 47 },
-        { label: "Feb 23", spend: 1300, revenue: 4100, purchases: 47 },
-        { label: "Feb 24", spend: 1280, revenue: 4080, purchases: 46 },
-        { label: "Feb 25", spend: 1320, revenue: 4250, purchases: 48 },
-        { label: "Feb 26", spend: 1340, revenue: 4310, purchases: 49 },
-        { label: "Feb 27", spend: 1360, revenue: 4380, purchases: 50 },
-        { label: "Feb 28", spend: 1380, revenue: 4420, purchases: 50 },
-        { label: "Mar 01", spend: 1410, revenue: 4510, purchases: 51 },
-        { label: "Mar 02", spend: 1420, revenue: 4540, purchases: 52 },
-        { label: "Mar 03", spend: 1440, revenue: 4600, purchases: 52 },
-        { label: "Mar 04", spend: 1460, revenue: 4650, purchases: 53 },
-        { label: "Mar 05", spend: 1450, revenue: 4630, purchases: 53 },
-        { label: "Mar 06", spend: 1490, revenue: 4720, purchases: 54 },
-        { label: "Mar 07", spend: 1500, revenue: 4760, purchases: 54 },
-        { label: "Mar 08", spend: 1510, revenue: 4790, purchases: 55 },
-        { label: "Mar 09", spend: 1530, revenue: 4840, purchases: 55 },
-        { label: "Mar 10", spend: 1540, revenue: 4860, purchases: 56 },
-        { label: "Mar 11", spend: 1560, revenue: 4890, purchases: 56 },
-      ],
+      "7d": demoDays.slice(-7),
+      "14d": demoDays.slice(-14),
+      "30d": demoDays,
+      custom: demoDays,
     },
   };
 }
 
 export function getDemoSparklines() {
-  const days: Array<{ date: string; spend: number; revenue: number; purchases: number }> = [
+  const rawDays: Array<{ date: string; spend: number; revenue: number; purchases: number }> = [
     { date: "2026-02-10", spend: 980, revenue: 3140, purchases: 36 },
     { date: "2026-02-11", spend: 1050, revenue: 3320, purchases: 38 },
     { date: "2026-02-12", spend: 1090, revenue: 3480, purchases: 40 },
@@ -167,8 +149,43 @@ export function getDemoSparklines() {
     { date: "2026-03-10", spend: 1540, revenue: 4860, purchases: 56 },
     { date: "2026-03-11", spend: 1560, revenue: 4890, purchases: 56 },
   ];
-  const metaDays = days.map((d) => ({ ...d, spend: Math.round(d.spend * 0.56), revenue: Math.round(d.revenue * 0.58) }));
-  const googleDays = days.map((d) => ({ ...d, spend: Math.round(d.spend * 0.38), revenue: Math.round(d.revenue * 0.37) }));
+  const spendWeights = rawDays.map((day) => day.spend);
+  const revenueWeights = rawDays.map((day) => day.revenue);
+  const purchaseWeights = rawDays.map((day) => day.purchases);
+  const storeRevenue = allocateDemoTotal(revenueWeights, 124860);
+  const storePurchases = allocateDemoTotal(purchaseWeights, 1420);
+  const metaSpend = allocateDemoTotal(spendWeights, 21420);
+  const metaRevenue = allocateDemoTotal(revenueWeights, 72890);
+  const metaPurchases = allocateDemoTotal(purchaseWeights, 816);
+  const metaImpressions = allocateDemoTotal(spendWeights, 1785000, 0);
+  const metaClicks = allocateDemoTotal(spendWeights, 37485, 0);
+  const googleSpend = allocateDemoTotal(spendWeights, 14540);
+  const googleRevenue = allocateDemoTotal(revenueWeights, 46580);
+  const googlePurchases = allocateDemoTotal(purchaseWeights, 521.4);
+  const googleImpressions = allocateDemoTotal(spendWeights, 459800, 0);
+  const googleClicks = allocateDemoTotal(spendWeights, 23450, 0);
+  const metaDays = rawDays.map((day, index) => ({
+    date: day.date,
+    spend: metaSpend[index]!,
+    revenue: metaRevenue[index]!,
+    purchases: metaPurchases[index]!,
+    impressions: metaImpressions[index]!,
+    clicks: metaClicks[index]!,
+  }));
+  const googleDays = rawDays.map((day, index) => ({
+    date: day.date,
+    spend: googleSpend[index]!,
+    revenue: googleRevenue[index]!,
+    purchases: googlePurchases[index]!,
+    impressions: googleImpressions[index]!,
+    clicks: googleClicks[index]!,
+  }));
+  const days = rawDays.map((day, index) => ({
+    date: day.date,
+    spend: metaSpend[index]! + googleSpend[index]!,
+    revenue: storeRevenue[index]!,
+    purchases: storePurchases[index]!,
+  }));
   const ga4Daily = days.map((d) => ({
     date: d.date,
     sessions: Math.round(d.purchases * 28.5),
@@ -182,6 +199,21 @@ export function getDemoSparklines() {
   return {
     combined: days,
     providerTrends: { meta: metaDays, google: googleDays },
+    providerTrendSources: { meta: "warehouse_published_account_daily" as const, google: "warehouse_account_daily" as const },
+    shopifyDaily: days.map((day) => ({
+      date: day.date,
+      revenue: day.revenue,
+      grossRevenue: day.revenue,
+      refundedRevenue: 0,
+      returnEvents: 0,
+      purchases: day.purchases,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+    })),
+    shopifyCommerceAvailable: true,
+    shopifyConnectionState: "connected" as const,
     ga4Daily,
   };
 }
@@ -2215,7 +2247,7 @@ export function getDemoMetaStatus() {
 export function getDemoAiInsight() {
   return {
     insight_date: "2026-03-28",
-    summary: "UrbanTrail is performing above benchmark across Meta and Google Ads. Blended ROAS sits at 3.27x on $38.2K spend, with purchase volume up 8% week-over-week. Creative fatigue is emerging on two top Meta ad sets — rotation recommended within 5 days. Google Shopping campaigns continue to outperform Search in CPA efficiency.",
+    summary: "UrbanTrail is performing above benchmark across Meta and Google Ads. Blended ROAS sits at 3.32x on $36.0K spend, with purchase volume up 8% week-over-week. Creative fatigue is emerging on two top Meta ad sets — rotation recommended within 5 days. Google Shopping campaigns continue to outperform Search in CPA efficiency.",
     risks: [
       "Top Meta creative (Explorer Backpack lifestyle video) showing CTR decline of 18% over last 7 days — risk of fatigue within the week.",
       "Google Ads broad match keywords driving 34% of spend with below-average ROAS (2.1x) — budget allocation risk.",

@@ -15,6 +15,8 @@ import { logRuntimeDebug } from "@/lib/runtime-logging";
 export type MetaCanonicalOverviewSummary = Awaited<
   ReturnType<typeof getMetaWarehouseSummary>
 > & {
+  /** Last calendar day included in the scalar totals. */
+  effectiveEndDate: string;
   isPartial: boolean;
   notReadyReason?: string | null;
   readSource:
@@ -26,10 +28,23 @@ export type MetaCanonicalOverviewSummary = Awaited<
 export type MetaCanonicalOverviewTrends = Awaited<
   ReturnType<typeof getMetaWarehouseTrends>
 > & {
+  /** Last calendar day requested from the warehouse trend read. */
+  effectiveEndDate: string;
   isPartial: boolean;
   notReadyReason?: string | null;
   readSource: "warehouse_published";
 };
+
+function resolveMetaWarehouseEndDate(
+  input: { startDate: string; endDate: string },
+  rangeContext: Awaited<ReturnType<typeof getMetaRangePreparationContext>>,
+) {
+  return !rangeContext.isSelectedCurrentDay &&
+    rangeContext.selectedRangeTruthEndDate &&
+    input.startDate <= rangeContext.selectedRangeTruthEndDate
+    ? rangeContext.selectedRangeTruthEndDate
+    : input.endDate;
+}
 
 export async function getMetaCanonicalOverviewSummary(input: {
   businessId: string;
@@ -60,12 +75,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
   const providerAccountIds = requestedAccountId
     ? assignedAccountIds.filter((id) => id === requestedAccountId)
     : assignedAccountIds;
-  const effectiveEndDate =
-    !rangeContext.isSelectedCurrentDay &&
-    rangeContext.selectedRangeTruthEndDate &&
-    input.startDate <= rangeContext.selectedRangeTruthEndDate
-      ? rangeContext.selectedRangeTruthEndDate
-      : input.endDate;
+  const effectiveEndDate = resolveMetaWarehouseEndDate(input, rangeContext);
   const warehouseSummary = await getMetaWarehouseSummary({
     businessId: input.businessId,
     startDate: input.startDate,
@@ -90,6 +100,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
       });
       return {
         ...warehouseSummary,
+        effectiveEndDate: input.endDate,
         totals: liveTotals,
         accounts: [],
         isPartial: liveTotals.spend <= 0 && liveTotals.impressions <= 0,
@@ -120,6 +131,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
       });
       return {
         ...warehouseSummary,
+        effectiveEndDate: input.endDate,
         totals: {
           spend: 0,
           revenue: 0,
@@ -164,6 +176,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
       });
       return {
         ...warehouseSummary,
+        effectiveEndDate: input.endDate,
         totals: liveTotals,
         isPartial: false,
         notReadyReason: null,
@@ -179,6 +192,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
 
   const result = {
     ...warehouseSummary,
+    effectiveEndDate,
     isPartial: Boolean(warehouseSummary.isPartial),
     notReadyReason:
       warehouseSummary.isPartial
@@ -221,16 +235,20 @@ export async function getMetaCanonicalOverviewTrends(input: {
         (accountId) => accountId === input.providerAccountId,
       )
     : assignedProviderAccountIds;
-  const [rangeContext, trends] = await Promise.all([
-    getMetaRangePreparationContext(input),
-    getMetaWarehouseTrends({
-      ...input,
-      providerAccountIds,
-    }),
-  ]);
+  const rangeContext = await getMetaRangePreparationContext(input);
+  // Use the same closed warehouse boundary as the scalar summary. Otherwise a
+  // custom range that includes today can put a today-inclusive line beneath a
+  // total that deliberately stops at the latest published truth day.
+  const effectiveEndDate = resolveMetaWarehouseEndDate(input, rangeContext);
+  const trends = await getMetaWarehouseTrends({
+    ...input,
+    endDate: effectiveEndDate,
+    providerAccountIds,
+  });
 
   const result = {
     ...trends,
+    effectiveEndDate,
     isPartial: Boolean(trends.isPartial),
     notReadyReason: trends.isPartial
       ? getMetaPartialReason({

@@ -123,6 +123,15 @@ export async function GET(request: NextRequest) {
     sparklines: {
       combined: trendBundle.combined,
       providerTrends: trendBundle.providerTrends,
+      // Explicit per-provider trend sources; absent means unknown, which the
+      // client treats as incompatible with every scalar source.
+      providerTrendSources: {
+        meta: trendBundle.providerTrendSources?.meta ?? null,
+        google: trendBundle.providerTrendSources?.google ?? null,
+      },
+      shopifyDaily: trendBundle.shopifyDaily ?? [],
+      shopifyCommerceAvailable: trendBundle.shopifyCommerceAvailable === true,
+      shopifyConnectionState: trendBundle.shopifyConnectionState ?? "unknown",
       ga4Daily,
     },
   });

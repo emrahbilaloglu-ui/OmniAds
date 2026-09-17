@@ -1,4 +1,5 @@
 import { isDemoBusiness } from "@/lib/business-mode.server";
+import { getBusinessTimezone } from "@/lib/account-store";
 import { getDemoOverview, getDemoSparklines, isDemoBusinessId } from "@/lib/demo-business";
 import {
   getGoogleCanonicalOverviewSummary,
@@ -33,6 +34,17 @@ import {
   getShopifyOverviewSummaryReadCandidate,
   type ShopifyOverviewServingMetadata,
 } from "@/lib/shopify/read-adapter";
+import { getShopifyCustomerEventsAggregate } from "@/lib/shopify/customer-events-analytics";
+import type { ShopifyOverviewAggregate } from "@/lib/shopify/overview";
+import {
+  type GoogleScalarSource,
+  type GoogleTrendSource,
+  type MetaScalarSource,
+  type MetaTrendSource,
+  type ProviderScalarSources,
+  type ProviderTrendSources,
+  metaWarehouseSource,
+} from "@/lib/overview-provider-metrics";
 
 interface TrendPoint {
   date: string;
@@ -48,6 +60,13 @@ interface PlatformEfficiencyRow {
   roas: number;
   purchases: number;
   cpa: number;
+  /**
+   * Delivery primitives from the same provider read as spend. Optional because
+   * a row from an older payload or a source that did not report them is
+   * unknown, not zero; provider cards derive CTR/CPC/CPM only when present.
+   */
+  impressions?: number;
+  clicks?: number;
 }
 
 export interface DailyTrendPoint {
@@ -57,14 +76,32 @@ export interface DailyTrendPoint {
   purchases: number;
 }
 
+/**
+ * One provider day, present only when the provider reported at least one row
+ * for that date. Impressions and clicks are null when a reported row omitted
+ * them, so a rate series can drop the day instead of plotting a fabricated zero.
+ */
+export interface ProviderDailyTrendPoint extends DailyTrendPoint {
+  impressions: number | null;
+  clicks: number | null;
+}
+
 export interface OverviewTrendBundle {
   combined: DailyTrendPoint[];
-  providerTrends: Partial<Record<"meta" | "google", DailyTrendPoint[]>>;
+  providerTrends: Partial<Record<"meta" | "google", ProviderDailyTrendPoint[]>>;
+  /** Which read produced each provider's points; null when that read failed. */
+  providerTrendSources: ProviderTrendSources;
+  shopifyDaily?: ShopifyOverviewAggregate["dailyTrends"];
+  shopifyCommerceAvailable?: boolean;
+  shopifyConnectionState?: ShopifyConnectionState;
 }
+
+export type ShopifyConnectionState = "connected" | "disconnected" | "unknown";
 
 export interface OverviewResponse {
   businessId: string;
   dateRange: { startDate: string; endDate: string };
+  shopifyConnectionState?: ShopifyConnectionState;
   status?: string;
   kpis: {
     spend: number;
@@ -103,14 +140,29 @@ export interface OverviewResponse {
     roas: number;
   };
   platformEfficiency: PlatformEfficiencyRow[];
+  /** The read behind each provider's platform rows; null when none was usable. */
+  providerSources?: ProviderScalarSources;
+  /** Exact scalar coverage used by each provider; null when no provider row was usable. */
+  providerScalarRanges?: ProviderScalarRanges;
   shopifyServing?: ShopifyOverviewServingMetadata | null;
-  providerTrends?: Partial<Record<"meta" | "google", TrendPoint[]>>;
+  providerTrends?: Partial<Record<"meta" | "google", ProviderDailyTrendPoint[]>>;
+  providerTrendSources?: ProviderTrendSources;
   trends: {
     "7d": TrendPoint[];
     "14d": TrendPoint[];
     "30d": TrendPoint[];
     custom: TrendPoint[];
   };
+}
+
+export interface ProviderReadRange {
+  startDate: string;
+  endDate: string;
+}
+
+export interface ProviderScalarRanges {
+  meta: ProviderReadRange | null;
+  google: ProviderReadRange | null;
 }
 
 function normalizeOverviewTrendDate(value: string | Date) {
@@ -126,7 +178,12 @@ interface MetaOverviewFragment {
   spend: number;
   revenue: number;
   purchases: number;
+  clicks: number;
+  impressions: number;
   rows: PlatformEfficiencyRow[];
+  /** Null whenever `rows` is empty, or when a warehouse read did not name its grain. */
+  source: MetaScalarSource | null;
+  range: ProviderReadRange | null;
 }
 
 interface GoogleOverviewFragment {
@@ -136,11 +193,18 @@ interface GoogleOverviewFragment {
   clicks: number;
   impressions: number;
   row: PlatformEfficiencyRow | null;
+  /** Null whenever `row` is null. */
+  source: GoogleScalarSource | null;
+  range: ProviderReadRange | null;
 }
 
 interface DailyTrendsBundle {
   combined: TrendPoint[];
-  providerTrends: Partial<Record<"meta" | "google", TrendPoint[]>>;
+  providerTrends: Partial<Record<"meta" | "google", ProviderDailyTrendPoint[]>>;
+  providerTrendSources: ProviderTrendSources;
+  shopifyDaily: ShopifyOverviewAggregate["dailyTrends"];
+  shopifyCommerceAvailable: boolean;
+  shopifyConnectionState: ShopifyConnectionState;
 }
 
 interface TimedResult<T> {
@@ -167,6 +231,26 @@ async function getGa4EcommerceFallback(
   endDate: string
 ): Promise<Ga4EcommerceFallback | null> {
   return getGa4EcommerceFallbackData(businessId, startDate, endDate);
+}
+
+/**
+ * Returns a deliberately small connection-state contract for commerce source
+ * selection. A successful read with no Shopify row is a confirmed disconnect;
+ * error or unexpected persisted states remain unknown and must fail closed.
+ */
+export async function getShopifyConnectionState(
+  businessId: string,
+): Promise<ShopifyConnectionState> {
+  try {
+    const integration = await getIntegration(businessId, "shopify");
+    if (!integration || integration.status === "disconnected") return "disconnected";
+    if (integration.status === "connected") return "connected";
+    return "unknown";
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[overview] shopify integration state unavailable", { businessId, message });
+    return "unknown";
+  }
 }
 
 async function getMetaAccessContext(businessId: string): Promise<MetaAccessContext> {
@@ -237,47 +321,65 @@ async function getMetaOverviewFragment(input: {
       startDate: input.startDate,
       endDate: input.endDate,
     });
-    if (canonicalSummary.accounts.length > 0) {
-      const payload: MetaOverviewFragment = {
-        spend: canonicalSummary.totals.spend,
-        revenue: canonicalSummary.totals.revenue,
-        purchases: canonicalSummary.totals.conversions,
-        rows: canonicalSummary.accounts.map((account) => ({
-          platform: "meta",
-          spend: account.spend,
-          revenue: account.revenue,
-          purchases: account.conversions,
-          cpa: account.conversions > 0 ? account.spend / account.conversions : 0,
-          roas: account.roas,
-        })),
-      };
-      return payload;
-    }
-    if (
-      canonicalSummary.readSource === "current_day_live" &&
-      (
-        canonicalSummary.totals.spend > 0 ||
-        canonicalSummary.totals.revenue > 0 ||
-        canonicalSummary.totals.conversions > 0
-      )
-    ) {
+    const totals = canonicalSummary.totals;
+    const fragmentTotals = {
+      spend: totals.spend,
+      revenue: totals.revenue,
+      purchases: totals.conversions,
+      clicks: Number(totals.clicks ?? 0),
+      impressions: Number(totals.impressions ?? 0),
+    };
+
+    if (canonicalSummary.readSource === "warehouse_published") {
+      // Account rows are the published warehouse slice itself, so they are
+      // the platform rows only for a warehouse read.
+      if (canonicalSummary.accounts.length > 0) {
+        return {
+          ...fragmentTotals,
+          rows: canonicalSummary.accounts.map((account) => ({
+            platform: "meta",
+            spend: account.spend,
+            revenue: account.revenue,
+            purchases: account.conversions,
+            cpa: account.conversions > 0 ? account.spend / account.conversions : 0,
+            roas: account.roas,
+            impressions: reportedCount(account.impressions),
+            clicks: reportedCount(account.clicks),
+          })),
+          // The grain (campaign_daily or account_daily) is part of the source,
+          // so a campaign-grain total is never paired with account-grain rows.
+          source: metaWarehouseSource(canonicalSummary.warehouseScope),
+          range: {
+            startDate: input.startDate,
+            endDate: canonicalSummary.effectiveEndDate ?? input.endDate,
+          },
+        };
+      }
+    } else if (!canonicalSummary.isPartial) {
+      // Live reads (today, or a range the warehouse cannot serve) replace the
+      // totals but may keep a partial warehouse `accounts` slice, so they
+      // become ONE provider row built from the live totals. `isPartial` is how
+      // the canonical read says the live totals are not ready yet; an unready
+      // read stays unknown instead of becoming a measured zero.
       return {
-        spend: canonicalSummary.totals.spend,
-        revenue: canonicalSummary.totals.revenue,
-        purchases: canonicalSummary.totals.conversions,
+        ...fragmentTotals,
         rows: [
           {
             platform: "meta",
-            spend: canonicalSummary.totals.spend,
-            revenue: canonicalSummary.totals.revenue,
-            purchases: canonicalSummary.totals.conversions,
-            cpa:
-              canonicalSummary.totals.conversions > 0
-                ? canonicalSummary.totals.spend / canonicalSummary.totals.conversions
-                : 0,
-            roas: canonicalSummary.totals.roas,
+            spend: totals.spend,
+            revenue: totals.revenue,
+            purchases: totals.conversions,
+            cpa: totals.conversions > 0 ? totals.spend / totals.conversions : 0,
+            roas: totals.roas,
+            impressions: reportedCount(totals.impressions),
+            clicks: reportedCount(totals.clicks),
           },
         ],
+        source: canonicalSummary.readSource,
+        range: {
+          startDate: input.startDate,
+          endDate: canonicalSummary.effectiveEndDate ?? input.endDate,
+        },
       };
     }
   } catch (error: unknown) {
@@ -287,7 +389,82 @@ async function getMetaOverviewFragment(input: {
       message,
     });
   }
-  return { spend: 0, revenue: 0, purchases: 0, rows: [] };
+  return { spend: 0, revenue: 0, purchases: 0, clicks: 0, impressions: 0, rows: [], source: null, range: null };
+}
+
+/**
+ * A delivery count the provider actually reported. Anything else — absent,
+ * null, non-numeric — stays undefined so downstream rates read it as unknown
+ * rather than as a measured zero.
+ */
+function reportedCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+interface ProviderTrendAccumulator {
+  spend: number;
+  revenue: number;
+  purchases: number;
+  /** Null once any contributing row failed to report the primitive. */
+  impressions: number | null;
+  clicks: number | null;
+}
+
+interface ProviderTrendSourceRow {
+  date: string | Date;
+  spend?: number | null;
+  revenue?: number | null;
+  conversions?: number | null;
+  impressions?: number | null;
+  clicks?: number | null;
+}
+
+/** Sums provider rows per day; delivery primitives stay unknown unless every row reported them. */
+function accumulateProviderTrendRows(rows: readonly ProviderTrendSourceRow[]) {
+  const byDate = new Map<string, ProviderTrendAccumulator>();
+  for (const row of rows) {
+    const date = normalizeOverviewTrendDate(row.date);
+    const current = byDate.get(date) ?? {
+      spend: 0,
+      revenue: 0,
+      purchases: 0,
+      impressions: 0,
+      clicks: 0,
+    };
+    current.spend += Number(row.spend ?? 0);
+    current.revenue += Number(row.revenue ?? 0);
+    current.purchases += Number(row.conversions ?? 0);
+    const impressions = reportedCount(row.impressions);
+    const clicks = reportedCount(row.clicks);
+    current.impressions =
+      current.impressions === null || impressions === undefined ? null : current.impressions + impressions;
+    current.clicks = current.clicks === null || clicks === undefined ? null : current.clicks + clicks;
+    byDate.set(date, current);
+  }
+  return byDate;
+}
+
+/**
+ * One reported provider day. Callers only build points for dates the provider
+ * actually returned; a measured zero stays zero. Purchases keep two decimals
+ * because Google conversions are fractional under data-driven attribution.
+ */
+function toProviderTrendPoint(date: string, row: ProviderTrendAccumulator): ProviderDailyTrendPoint {
+  return {
+    date,
+    spend: round2(row.spend),
+    revenue: round2(row.revenue),
+    purchases: round2(row.purchases),
+    impressions: row.impressions,
+    clicks: row.clicks,
+  };
+}
+
+function reportedProviderTrend(dates: readonly string[], byDate: Map<string, ProviderTrendAccumulator>) {
+  return dates.flatMap((date) => {
+    const row = byDate.get(date);
+    return row ? [toProviderTrendPoint(date, row)] : [];
+  });
 }
 
 async function getGoogleOverviewFragment(input: {
@@ -312,26 +489,58 @@ async function getGoogleOverviewFragment(input: {
   const clicks = Number(googleOverview.kpis.clicks ?? 0);
   const impressions = Number(googleOverview.kpis.impressions ?? 0);
 
+  const source = measuredGoogleScalarSource(googleOverview);
+  // Row existence follows read coverage, never metric magnitude: a covered
+  // window that spent nothing is a measured zero, not a missing provider.
+  const row: PlatformEfficiencyRow | null =
+    source !== null
+      ? {
+          platform: "google",
+          spend,
+          revenue,
+          roas: Number(googleOverview.kpis.roas ?? 0),
+          purchases,
+          cpa: Number(googleOverview.kpis.cpa ?? 0),
+          impressions: reportedCount(googleOverview.kpis.impressions),
+          clicks: reportedCount(googleOverview.kpis.clicks),
+        }
+      : null;
   const payload: GoogleOverviewFragment = {
     spend,
     revenue,
     purchases,
     clicks,
     impressions,
-    row:
-      spend > 0 || revenue > 0 || purchases > 0 || clicks > 0 || impressions > 0
-        ? {
-            platform: "google",
-            spend,
-            revenue,
-            roas: Number(googleOverview.kpis.roas ?? 0),
-            purchases,
-            cpa: Number(googleOverview.kpis.cpa ?? 0),
-          }
-        : null,
+    row,
+    source,
+    range: source ? { startDate: input.startDate, endDate: input.endDate } : null,
   };
 
   return payload;
+}
+
+/**
+ * The Google scalar source when the canonical read actually measured the
+ * window, otherwise null.
+ *
+ * - A warehouse aggregate is measured when it covered at least one row
+ *   (`summary.totalAccounts` counts the account or campaign rows it summed).
+ * - The current-day live overlay is measured when its authoritative
+ *   `customer_summary` query ran and did not fail, even if every KPI is zero.
+ */
+function measuredGoogleScalarSource(
+  overview: Awaited<ReturnType<typeof getGoogleCanonicalOverviewSummary>>,
+): GoogleScalarSource | null {
+  const readSource = overview.summary?.readSource ?? overview.meta?.readSource ?? null;
+  if (readSource === "warehouse_account_aggregate" || readSource === "warehouse_campaign_aggregate_fallback") {
+    return Number(overview.summary?.totalAccounts ?? 0) > 0 ? readSource : null;
+  }
+  if (readSource === "live_overlay_current_day") {
+    const ran = overview.meta?.query_names ?? [];
+    const failed = (overview.meta?.failed_queries ?? []).some((failure) => failure.query === "customer_summary");
+    return ran.includes("customer_summary") && !failed ? readSource : null;
+  }
+  return null;
 }
 
 async function measureComponent<T>(operation: () => Promise<T>): Promise<TimedResult<T>> {
@@ -348,13 +557,79 @@ async function resolveShopifyOverviewAggregateForRead(input: {
   startDate: string;
   endDate: string;
   purpose?: "summary" | "full";
+  timeZone?: string | null;
 }) {
   // Request-time reads stay projection-backed; the full diagnostic candidate remains
   // available to sync/evidence lanes that still need live-vs-warehouse comparison.
   const candidate = await getShopifyOverviewSummaryReadCandidate(input);
+  const customerEventsTimeZone =
+    input.timeZone ??
+    (input.purpose === "full"
+      ? await getBusinessTimezone(input.businessId).catch(() => null)
+      : null);
+  const customerEventsRegisteredAt = candidate.customerEventsRegisteredAt ?? null;
+  const customerEventsCoverRange = Boolean(
+    customerEventsRegisteredAt &&
+      customerEventsRegisteredAt.slice(0, 10) < input.startDate,
+  );
+  const customerEvents =
+    input.purpose === "full" &&
+    candidate.status.connected &&
+    candidate.status.shopId &&
+    customerEventsCoverRange
+      ? await getShopifyCustomerEventsAggregate({
+          businessId: input.businessId,
+          providerAccountId: candidate.status.shopId,
+          timeZone: customerEventsTimeZone,
+          startDate: input.startDate,
+          endDate: input.endDate,
+        }).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn("[overview] shopify customer events unavailable", {
+            businessId: input.businessId,
+            message,
+          });
+          return null;
+        })
+      : null;
   const liveDailyByDate = new Map(
     (candidate.live?.dailyTrends ?? []).map((row) => [row.date, row])
   );
+  const customerEventsByDate = new Map(
+    (customerEvents?.daily ?? []).map((row) => [row.date, row]),
+  );
+  const mergeCustomerEvents = (
+    aggregate: ShopifyOverviewAggregate | null,
+  ): ShopifyOverviewAggregate | null => {
+    if (!aggregate || !customerEvents || customerEvents.daily.length === 0) return aggregate;
+    const commerceByDate = new Map(aggregate.dailyTrends.map((row) => [row.date, row]));
+    const dates = new Set([...commerceByDate.keys(), ...customerEventsByDate.keys()]);
+    return {
+      ...aggregate,
+      sessions: customerEvents.sessions,
+      conversionRate: customerEvents.conversionRate,
+      dailyTrends: Array.from(dates)
+        .sort()
+        .map((date) => {
+          const commerceRow = commerceByDate.get(date);
+          const eventRow = customerEventsByDate.get(date);
+          return {
+            ...(commerceRow ?? {
+              date,
+              revenue: 0,
+              purchases: 0,
+              grossRevenue: 0,
+              refundedRevenue: 0,
+              returnEvents: 0,
+              newCustomers: null,
+              returningCustomers: null,
+            }),
+            sessions: eventRow?.sessions ?? commerceRow?.sessions ?? null,
+            conversionRate: eventRow?.conversionRate ?? commerceRow?.conversionRate ?? null,
+          };
+        }),
+    };
+  };
 
   if (candidate.preferredSource === "warehouse" && candidate.warehouse) {
     logRuntimeDebug("overview", "shopify_warehouse_read_canary_selected", {
@@ -366,7 +641,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
     });
 
     return {
-      aggregate: {
+      aggregate: mergeCustomerEvents({
         revenue: candidate.warehouse.revenue,
         purchases: candidate.warehouse.purchases,
         averageOrderValue: candidate.warehouse.averageOrderValue,
@@ -392,7 +667,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
             returningCustomers: liveRow?.returningCustomers ?? null,
           };
         }),
-      },
+      }),
       serving: candidate.servingMetadata,
     };
   }
@@ -407,7 +682,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
     });
 
     return {
-      aggregate: {
+      aggregate: mergeCustomerEvents({
         revenue: candidate.warehouse.revenue,
         purchases: candidate.warehouse.purchases,
         averageOrderValue: candidate.warehouse.averageOrderValue,
@@ -433,7 +708,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
             returningCustomers: liveRow?.returningCustomers ?? null,
           };
         }),
-      },
+      }),
       serving: candidate.servingMetadata,
     };
   }
@@ -449,7 +724,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
     });
 
     return {
-      aggregate: {
+      aggregate: mergeCustomerEvents({
         revenue: candidate.ledger.revenue,
         purchases: candidate.ledger.purchases,
         averageOrderValue: candidate.ledger.averageOrderValue,
@@ -475,7 +750,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
             returningCustomers: liveRow?.returningCustomers ?? null,
           };
         }),
-      },
+      }),
       serving: candidate.servingMetadata,
     };
   }
@@ -496,7 +771,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
   }
 
   return {
-    aggregate: candidate.live,
+    aggregate: mergeCustomerEvents(candidate.live),
     serving: candidate.servingMetadata,
   };
 }
@@ -505,6 +780,7 @@ export async function getShopifyOverviewServingData(params: {
   businessId: string;
   startDate: string;
   endDate: string;
+  timeZone?: string | null;
 }) {
   return resolveShopifyOverviewAggregateForRead({ ...params, purpose: "full" });
 }
@@ -523,11 +799,11 @@ async function buildDailyTrends(params: {
       dateSpanDays: enumerateDays(params.startDate, params.endDate).length,
     },
     async () => {
-      const [shopifyResult] = await Promise.all([
+      const [shopifyResult, shopifyConnectionState] = await Promise.all([
         measureComponent(() =>
           resolveShopifyOverviewAggregateForRead({
             ...params,
-            purpose: "summary",
+            purpose: "full",
           }).catch((error: unknown) => {
             const message = error instanceof Error ? error.message : String(error);
             console.warn("[overview] shopify daily trends unavailable", {
@@ -537,6 +813,7 @@ async function buildDailyTrends(params: {
             return null;
           }),
         ),
+        getShopifyConnectionState(params.businessId),
       ]);
 
       const [metaRowsResult, googleRowsResult] = await Promise.all([
@@ -546,7 +823,13 @@ async function buildDailyTrends(params: {
             startDate: params.startDate,
             endDate: params.endDate,
           }).catch(() => null);
-          return trends?.points ?? [];
+          return {
+            points: trends?.points ?? [],
+            source:
+              trends?.readSource === "warehouse_published"
+                ? (metaWarehouseSource(trends.warehouseScope) as MetaTrendSource | null)
+                : null,
+          };
         }),
         measureComponent(async () => {
           const trends = await getGoogleCanonicalOverviewTrends({
@@ -554,74 +837,60 @@ async function buildDailyTrends(params: {
             startDate: params.startDate,
             endDate: params.endDate,
           }).catch(() => null);
-          return trends?.points ?? [];
+          return {
+            points: trends?.points ?? [],
+            source: (trends?.meta?.readSource ?? null) as GoogleTrendSource | null,
+          };
         }),
       ]);
-      const metaRows = metaRowsResult.result;
-      const googleRows = googleRowsResult.result;
+      const metaRows = metaRowsResult.result.points;
+      const googleRows = googleRowsResult.result.points;
 
       const dates = enumerateDays(params.startDate, params.endDate);
       const mergeStartedAt = Date.now();
-      const metaByDate = new Map<string, DailyTrendPoint>();
-      const googleByDate = new Map<string, DailyTrendPoint>();
+      const metaByDate = accumulateProviderTrendRows(metaRows);
+      const googleByDate = accumulateProviderTrendRows(googleRows);
 
-      for (const row of metaRows) {
-        const date = normalizeOverviewTrendDate(row.date);
-        const current = metaByDate.get(date) ?? { date, spend: 0, revenue: 0, purchases: 0 };
-        current.spend += Number(row.spend ?? 0);
-        current.revenue += Number(row.revenue ?? 0);
-        current.purchases += Number((row as { conversions?: number }).conversions ?? 0);
-        metaByDate.set(date, current);
-      }
-
-      for (const row of googleRows) {
-        const date = normalizeOverviewTrendDate(row.date);
-        const current = googleByDate.get(date) ?? { date, spend: 0, revenue: 0, purchases: 0 };
-        current.spend += Number(row.spend ?? 0);
-        current.revenue += Number(row.revenue ?? 0);
-        current.purchases += Number((row as { conversions?: number }).conversions ?? 0);
-        googleByDate.set(date, current);
-      }
-
-      const shopifyByDate = new Map(
-        (shopifyResult.result?.aggregate?.dailyTrends ?? []).map((row) => [row.date, row]),
-      );
-      const metaTrend = dates.map((date) => {
-        const row = metaByDate.get(date);
-        return {
-          date,
-          spend: round2(row?.spend ?? 0),
-          revenue: round2(row?.revenue ?? 0),
-          purchases: Math.round(row?.purchases ?? 0),
-        };
-      });
-      const googleTrend = dates.map((date) => {
-        const row = googleByDate.get(date);
-        return {
-          date,
-          spend: round2(row?.spend ?? 0),
-          revenue: round2(row?.revenue ?? 0),
-          purchases: Math.round(row?.purchases ?? 0),
-        };
-      });
+      const hasShopifyAggregate = Boolean(shopifyResult.result?.aggregate);
+      const canServeShopifyCommerce =
+        shopifyConnectionState === "connected" && hasShopifyAggregate;
+      const trustedShopifyDaily = canServeShopifyCommerce
+        ? (shopifyResult.result?.aggregate?.dailyTrends ?? [])
+        : [];
+      const shopifyByDate = new Map(trustedShopifyDaily.map((row) => [row.date, row]));
+      // Provider trends carry only dates the provider reported. An absent date
+      // is not a measured zero, so it must not become a zero point.
+      const metaTrend = reportedProviderTrend(dates, metaByDate);
+      const googleTrend = reportedProviderTrend(dates, googleByDate);
 
       const payload = {
-        combined: dates.map((date, index) => {
+        combined: dates.map((date) => {
           const shopifyDay = shopifyByDate.get(date);
-          const spend = metaTrend[index]!.spend + googleTrend[index]!.spend;
-          const warehouseRevenue = metaTrend[index]!.revenue + googleTrend[index]!.revenue;
-          const warehousePurchases = metaTrend[index]!.purchases + googleTrend[index]!.purchases;
+          // Blended spend may still read an absent provider date as no spend.
+          const metaDay = metaByDate.get(date);
+          const googleDay = googleByDate.get(date);
+          const spend = (metaDay ? round2(metaDay.spend) : 0) + (googleDay ? round2(googleDay.spend) : 0);
           return {
             date,
             spend: round2(spend),
-            revenue: round2(shopifyDay?.revenue ?? warehouseRevenue),
-            purchases: Math.round(shopifyDay?.purchases ?? warehousePurchases),
+            // Provider-attributed revenue remains in providerTrends. It is not
+            // a store-commerce fallback and must never be relabeled as
+            // Shopify/GA4 revenue in the combined series.
+            revenue: round2(canServeShopifyCommerce ? shopifyDay?.revenue ?? 0 : 0),
+            purchases: Math.round(canServeShopifyCommerce ? shopifyDay?.purchases ?? 0 : 0),
           };
         }),
         providerTrends: {
           meta: metaTrend,
           google: googleTrend,
         },
+        providerTrendSources: {
+          meta: metaRowsResult.result.source,
+          google: googleRowsResult.result.source,
+        },
+        shopifyDaily: trustedShopifyDaily,
+        shopifyCommerceAvailable: canServeShopifyCommerce,
+        shopifyConnectionState,
       };
       logPerfEvent("overview_daily_trends_components", {
         businessId: params.businessId,
@@ -688,10 +957,7 @@ export async function getOverviewData(params: {
     return getDemoOverview() as unknown as OverviewResponse;
   }
 
-  await getIntegration(businessId, "shopify").catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn("[overview] shopify integration warmup failed", { businessId, message });
-  });
+  const shopifyConnectionState = await getShopifyConnectionState(businessId);
 
   let totalSpend = 0;
   let totalRevenue = 0;
@@ -737,6 +1003,11 @@ export async function getOverviewData(params: {
     totalSpend += metaResult.value.result.spend;
     totalRevenue += metaResult.value.result.revenue;
     totalPurchases += metaResult.value.result.purchases;
+    // Blended totals divide Meta + Google spend by these delivery counts, so
+    // leaving Meta out divided blended spend by Google-only impressions and
+    // clicks. Provider cards never read these blended values.
+    totalClicks += metaResult.value.result.clicks;
+    totalImpressions += metaResult.value.result.impressions;
     platformEfficiency.push(...metaResult.value.result.rows);
   } else {
     const message =
@@ -764,7 +1035,8 @@ export async function getOverviewData(params: {
   }
 
   const shopifyResolution = shopifyResult.status === "fulfilled" ? shopifyResult.value.result : null;
-  const shopifyAggregate = shopifyResolution?.aggregate ?? null;
+  const shopifyAggregate =
+    shopifyConnectionState === "connected" ? (shopifyResolution?.aggregate ?? null) : null;
   if (shopifyResult.status === "rejected") {
     const message =
       shopifyResult.reason instanceof Error
@@ -795,11 +1067,14 @@ export async function getOverviewData(params: {
   componentPerf.aggregationDurationMs = Date.now() - aggregationStartedAt;
 
   const skipTrends = params.includeTrends === false;
+  const ga4FallbackAllowed = shopifyConnectionState === "disconnected";
 
   const [ga4FallbackResult, dailyTrends] = await Promise.all([
     shopifyAggregate
       ? Promise.resolve<TimedResult<Ga4EcommerceFallback | null> | null>(null)
-      : measureComponent(() => getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd)),
+      : ga4FallbackAllowed
+        ? measureComponent(() => getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd))
+        : Promise.resolve<TimedResult<Ga4EcommerceFallback | null> | null>(null),
     skipTrends
       ? Promise.resolve(null)
       : buildDailyTrends({ businessId, startDate: resolvedStart, endDate: resolvedEnd }),
@@ -821,14 +1096,31 @@ export async function getOverviewData(params: {
       : null,
     ga4Fallback,
   });
+  overview.shopifyConnectionState = shopifyConnectionState;
   overview.shopifyServing = shopifyResolution?.serving ?? null;
+  overview.providerSources = {
+    meta: metaResult.status === "fulfilled" ? metaResult.value.result.source : null,
+    google: googleResult.status === "fulfilled" ? googleResult.value.result.source : null,
+  };
+  overview.providerScalarRanges = {
+    meta: metaResult.status === "fulfilled" ? metaResult.value.result.range : null,
+    google: googleResult.status === "fulfilled" ? googleResult.value.result.range : null,
+  };
 
   if (dailyTrends) {
     overview.providerTrends = dailyTrends.providerTrends;
-    overview.trends.custom = dailyTrends.combined;
-    overview.trends["7d"] = dailyTrends.combined.slice(-7);
-    overview.trends["14d"] = dailyTrends.combined.slice(-14);
-    overview.trends["30d"] = dailyTrends.combined.slice(-30);
+    overview.providerTrendSources = dailyTrends.providerTrendSources;
+    const overviewCommerceSource = overview.kpiSources.revenue?.source;
+    const canServeCombinedCommerceTrend =
+      dailyTrends.shopifyCommerceAvailable &&
+      (overviewCommerceSource === "shopify_ledger" ||
+        overviewCommerceSource === "shopify_warehouse" ||
+        overviewCommerceSource === "shopify_live_fallback");
+    const commerceTrend = canServeCombinedCommerceTrend ? dailyTrends.combined : [];
+    overview.trends.custom = commerceTrend;
+    overview.trends["7d"] = commerceTrend.slice(-7);
+    overview.trends["14d"] = commerceTrend.slice(-14);
+    overview.trends["30d"] = commerceTrend.slice(-30);
   }
 
   if (overview.status === "no_data" && (ga4Fallback || shopifyAggregate)) {

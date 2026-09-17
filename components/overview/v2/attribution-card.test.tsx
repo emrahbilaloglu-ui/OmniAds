@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -102,5 +103,31 @@ describe("Dashboard v2 attribution card", () => {
     expect(html).toContain('style="font-size:10px;padding:9px 16px"');
     expect(html).toContain('style="padding:11px 16px"');
     expect(html).not.toContain("No attributed channels for this window.");
+  });
+
+  it("provides the same eight attribution facts in the narrow-card rendering", () => {
+    const html = render();
+    const cards = html.slice(html.indexOf('data-testid="attribution-cards"'));
+
+    expect(cards).toContain("Meta Ads");
+    for (const label of ["Spend", "Revenue", "ROAS", "CPA", "AOV", "Conv.", "Share"]) {
+      expect(cards, `${label} is missing from the responsive card`).toContain(`<dt>${label}</dt>`);
+    }
+    expect(cards).toContain("$1,200");
+    expect(cards).toContain("$3,600");
+    expect(cards).toContain("$28.50");
+    expect(cards).toContain("$85.71");
+    expect(cards).toContain(">42</dd>");
+    expect(cards).toContain(">58%</span>");
+  });
+
+  it("switches from the canonical table to cards based on card width", () => {
+    const css = readFileSync("components/overview/v2/attribution-card.module.css", "utf8");
+    const narrowRule = css.slice(css.indexOf("@container attribution-card (max-width: 759px)"));
+
+    expect(css).toContain("container-type: inline-size");
+    expect(css).toContain("container-name: attribution-card");
+    expect(narrowRule).toMatch(/\.tableViewport\s*{[^}]*display:\s*none/);
+    expect(narrowRule).toMatch(/\.mobileList\s*{[^}]*display:\s*grid/);
   });
 });

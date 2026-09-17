@@ -8,6 +8,8 @@ interface PlatformEfficiencyRow {
   roas: number;
   purchases: number;
   cpa: number;
+  impressions?: number;
+  clicks?: number;
 }
 
 interface Ga4EcommerceFallback {
@@ -102,10 +104,9 @@ export function applyEcommerceSourcePriority(
     overview.kpis.aov = aov;
     overview.kpis.roas = roas;
 
-    overview.totals.revenue = revenue;
-    overview.totals.purchases = purchases;
-    overview.totals.conversions = purchases;
-    overview.totals.roas = roas;
+    // `totals` remains the paid-platform aggregate built before commerce
+    // resolution. Replacing it with Shopify would erase Blended ROAS and make
+    // it structurally identical to MER. Store truth lives in `kpis`.
 
     const shopifySource = resolveShopifySourceDescriptor(input.shopify.source);
     overview.kpiSources.revenue = shopifySource;
@@ -132,10 +133,8 @@ export function applyEcommerceSourcePriority(
     overview.kpis.aov = aov;
     overview.kpis.roas = roas;
 
-    overview.totals.revenue = revenue;
-    overview.totals.purchases = purchases;
-    overview.totals.conversions = purchases;
-    overview.totals.roas = roas;
+    // Keep paid-platform totals intact. GA4 is an explicit commerce fallback
+    // for `kpis`; it is not platform-attributed conversion value.
 
     overview.kpiSources.revenue = { source: "ga4_fallback", label: "GA4" };
     overview.kpiSources.purchases = { source: "ga4_fallback", label: "GA4" };
@@ -217,7 +216,9 @@ export function buildOverviewResponse(params: {
       spend: round2(row.spend),
       revenue: round2(row.revenue),
       roas: round2(row.roas),
-      purchases: Math.round(row.purchases),
+      // Two decimals, not an integer: Google conversions are fractional, and
+      // rounding them per row distorted conversions, cost/conv. and conv. rate.
+      purchases: round2(row.purchases),
       cpa: round2(row.cpa),
     })),
     providerTrends: {},

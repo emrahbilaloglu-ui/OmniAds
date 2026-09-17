@@ -70,6 +70,20 @@ describe("meta canonical overview summary", () => {
       clicks: 0,
       reach: 0,
     } as never);
+    vi.mocked(serving.getMetaWarehouseTrends).mockResolvedValue({
+      freshness: {
+        dataState: "ready",
+        lastSyncedAt: "2026-04-19T00:00:00Z",
+        liveRefreshedAt: null,
+        isPartial: false,
+        missingWindows: [],
+        warnings: [],
+      },
+      isPartial: false,
+      verification: null,
+      warehouseScope: "account_daily",
+      points: [],
+    } as never);
   });
 
   it("keeps historical non-finalized-only ranges partial until published truth exists", async () => {
@@ -191,5 +205,19 @@ describe("meta canonical overview summary", () => {
     expect(result.isPartial).toBe(false);
     expect(result.notReadyReason).toBeNull();
     expect(result.readSource).toBe("warehouse_published");
+    expect(result.effectiveEndDate).toBe("2026-04-18");
+
+    const trends = await canonical.getMetaCanonicalOverviewTrends({
+      businessId: "biz-1",
+      startDate: "2026-04-13",
+      endDate: "2026-04-19",
+    });
+    expect(serving.getMetaWarehouseTrends).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      startDate: "2026-04-13",
+      endDate: "2026-04-18",
+      providerAccountIds: ["act_1"],
+    });
+    expect(trends.effectiveEndDate).toBe("2026-04-18");
   });
 });

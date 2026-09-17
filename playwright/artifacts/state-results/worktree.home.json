@@ -47,7 +47,7 @@
   },
   "interactions": {
     "required": 142,
-    "executed": 2,
+    "executed": 1,
     "missing": [
       "live:AUTH-01",
       "live:AUTH-02 email",
@@ -74,6 +74,7 @@
       "live:nav",
       "live:nav-drawer",
       "live:nav-drawer close",
+      "live:chart-table-toggle",
       "live:SCOPE-03 account-picker",
       "live:SCOPE-03 assign",
       "live:SCOPE-05",
@@ -191,8 +192,7 @@
       "live:media-retry"
     ],
     "cases": [
-      "live:ECON-04 divergence-link",
-      "live:chart-table-toggle"
+      "live:ECON-04 divergence-link"
     ]
   }
 }

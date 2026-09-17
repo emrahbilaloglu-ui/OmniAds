@@ -4,17 +4,25 @@ vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
 }));
 
-vi.mock("@/lib/migrations", () => ({
-  runMigrations: vi.fn(),
+vi.mock("@/lib/db-schema-readiness", () => ({
+  getDbSchemaReadiness: vi.fn(),
 }));
 
 const db = await import("@/lib/db");
+const dbSchemaReadiness = await import("@/lib/db-schema-readiness");
 const {
   classifyShopifyCustomerEventType,
   getShopifyCustomerEventsAggregate,
 } = await import("@/lib/shopify/customer-events-analytics");
 
 describe("classifyShopifyCustomerEventType", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(dbSchemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: true,
+    } as never);
+  });
+
   it("normalizes common Shopify customer event names", () => {
     expect(classifyShopifyCustomerEventType("page_viewed")).toBe("page_view");
     expect(classifyShopifyCustomerEventType("view_item")).toBe("product_view");
@@ -25,8 +33,7 @@ describe("classifyShopifyCustomerEventType", () => {
   });
 
   it("computes session-derived funnel rates safely", async () => {
-    vi.mocked(db.getDb).mockReturnValue(
-      vi.fn().mockResolvedValue([
+    const sql = vi.fn().mockResolvedValue([
         {
           date: "2026-03-30",
           sessions: 4,
@@ -41,11 +48,13 @@ describe("classifyShopifyCustomerEventType", () => {
           begin_checkout_sessions: 2,
           purchase_sessions: 1,
         },
-      ]) as never
-    );
+      ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
 
     const result = await getShopifyCustomerEventsAggregate({
       businessId: "biz_1",
+      providerAccountId: "grandmix.myshopify.com",
+      timeZone: "Europe/Istanbul",
       startDate: "2026-03-01",
       endDate: "2026-03-31",
     });
@@ -74,5 +83,17 @@ describe("classifyShopifyCustomerEventType", () => {
         conversionRate: 25,
       })
     );
+    expect(sql).toHaveBeenCalledTimes(1);
+    const [, ...boundValues] = sql.mock.calls[0] ?? [];
+    expect(boundValues).toEqual([
+      "Europe/Istanbul",
+      "biz_1",
+      "grandmix.myshopify.com",
+      "grandmix.myshopify.com",
+      "Europe/Istanbul",
+      "2026-03-01",
+      "Europe/Istanbul",
+      "2026-03-31",
+    ]);
   });
 });

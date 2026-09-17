@@ -1,0 +1,67 @@
+/*
+ * The size container wraps the padded card, so every breakpoint below is the
+ * card's own rendered width. It fills its layout slot and lets the card stretch.
+ */
+.cardContainer {
+  container: platform-card / inline-size;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.card {
+  min-width: 0;
+  flex: 1;
+}
+
+.header {
+  flex-wrap: wrap;
+}
+
+.cta {
+  white-space: nowrap;
+}
+
+/* Eight provider KPIs as a 4 × 2 grid when the card is wider than 879px. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stat {
+  min-width: 0;
+}
+
+.value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reason {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/*
+ * 340–879px card width: 2 × 4. A 390px phone viewport gives a 366px card, so
+ * it stays at two columns.
+ */
+@container platform-card (width <= 879px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+}
+
+/* Below 340px card width: one column. */
+@container platform-card (width < 340px) {
+  .stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

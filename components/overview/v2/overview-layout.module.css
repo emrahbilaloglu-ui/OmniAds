@@ -1,0 +1,349 @@
+.page {
+  --ledger-accent-action: var(--adv-accent);
+  --ledger-bg-surface: #ffffff;
+  --ledger-bg-inset: var(--adv-fill);
+  --ledger-border-control: var(--adv-border);
+  --ledger-border-subtle: var(--adv-hairline);
+  --ledger-ink-primary: var(--adv-ink);
+  --ledger-ink-secondary: var(--adv-ink-2);
+  --ledger-ink-tertiary: var(--adv-ink-3);
+  --ledger-radius-button: 8px;
+  --ledger-radius-card: var(--adv-r-card);
+  --ledger-semantic-danger: #e11d48;
+  --ledger-semantic-warn: #b45309;
+  --ledger-elevation-2: 0 12px 30px rgb(14 21 38 / 14%);
+
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+  container: overview / inline-size;
+  gap: 24px;
+}
+
+.layoutEditButton {
+  white-space: nowrap;
+}
+
+.headerActions {
+  flex-wrap: wrap;
+}
+
+.mobileTriage {
+  display: inline-flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center !important;
+  justify-content: center;
+}
+
+.layoutGrid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 20px;
+}
+
+.layoutItem {
+  display: flex;
+  flex-direction: column;
+  grid-column: span var(--overview-layout-span);
+  min-width: 0;
+}
+
+.layoutItem > :last-child {
+  flex: 1;
+}
+
+.editorBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--adv-accent-bd);
+  border-radius: 12px;
+  background: var(--adv-accent-bg);
+  color: var(--adv-ink-2);
+  font-size: 12.5px;
+}
+
+.editorBar strong {
+  color: var(--adv-ink);
+}
+
+.editorBar button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* One bar owns Save and Cancel for the whole customize session. It sticks to
+   the top of the scrolling page column so it stays reachable from any section. */
+.customizeBar {
+  position: sticky;
+  z-index: 30;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--adv-accent-bd);
+  border-radius: 12px;
+  background: var(--adv-accent-bg);
+  box-shadow: 0 6px 18px rgb(15 23 42 / 8%);
+  color: var(--adv-ink-2);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.customizeBar:focus-visible {
+  outline: 2px solid var(--adv-accent);
+  outline-offset: 2px;
+}
+
+.customizeCopy {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.customizeCopy strong {
+  color: var(--adv-ink);
+  font-size: 13px;
+}
+
+.customizeActions {
+  display: flex;
+  gap: 8px;
+}
+
+.customizeActions button {
+  min-width: 84px;
+  justify-content: center;
+}
+
+.customizeActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.layoutItemEditing {
+  border-radius: calc(var(--adv-r-card) + 4px);
+  outline: 1px dashed var(--adv-accent-bd);
+  outline-offset: 6px;
+}
+
+.itemToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 32px;
+  margin-bottom: 8px;
+  color: var(--adv-ink-2);
+  font-size: 12px;
+}
+
+.itemToolbar > strong {
+  overflow: hidden;
+  color: var(--adv-ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbarActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.iconButton {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid var(--adv-border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--adv-ink-2);
+  cursor: pointer;
+}
+
+.iconButton[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.iconButton[aria-disabled="false"]:hover {
+  border-color: var(--adv-accent-bd);
+  color: var(--adv-accent);
+}
+
+.iconButton:focus-visible,
+.sizeSelect:focus-visible {
+  outline: 2px solid var(--adv-accent);
+  outline-offset: 2px;
+}
+
+.sizeSelect {
+  height: 30px;
+  max-width: 112px;
+  border: 1px solid var(--adv-border);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0 26px 0 8px;
+  color: var(--adv-ink-2);
+  font: inherit;
+}
+
+.pinnedLabel {
+  color: var(--adv-ink-3);
+  font-family: var(--adv-font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.fillLabel,
+.widthHint,
+.fixedWidthLabel {
+  color: var(--adv-ink-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sourceFootnote {
+  overflow: hidden;
+  border-top: 1px solid var(--adv-hairline);
+  color: var(--adv-ink-3);
+}
+
+.sourceFootnoteSummary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 2px;
+  color: var(--adv-ink-2);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.sourceFootnoteSummary::marker {
+  color: var(--adv-ink-3);
+}
+
+.sourceFootnoteStatus {
+  color: var(--adv-ink-3);
+  font-family: var(--adv-font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.sourceFootnoteBody {
+  padding: 0 0 4px;
+}
+
+.widthHint {
+  display: none;
+}
+
+.tileCard {
+  container: overview-tile / inline-size;
+}
+
+.tileGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@container overview-tile (min-width: 760px) {
+  .tileGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container overview-tile (max-width: 340px) {
+  .tileGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container overview (max-width: 920px) {
+  .layoutItem,
+  .layoutItem[data-layout-size] {
+    grid-column: 1 / -1;
+  }
+
+  .editorBar,
+  .itemToolbar,
+  .toolbarActions {
+    flex-wrap: wrap;
+  }
+
+  .sizeSelect {
+    display: none;
+  }
+
+  .widthHint {
+    display: inline;
+  }
+}
+
+@container overview (max-width: 600px) {
+  .layoutGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .editorBar,
+  .itemToolbar {
+    align-items: flex-start;
+  }
+
+  .iconButton {
+    width: 44px;
+    height: 44px;
+  }
+
+  .toolbarActions {
+    width: 100%;
+  }
+
+  .customizeActions {
+    width: 100%;
+  }
+
+  .customizeActions button {
+    min-height: 44px;
+    flex: 1;
+  }
+}
+
+@media (max-width: 700px) {
+  .page {
+    gap: 18px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .mobileTriage {
+    display: none;
+  }
+}

@@ -7,42 +7,107 @@ export interface SparkPoint {
   value: number;
 }
 
+export interface SparklineDateDomain {
+  startDate: string;
+  endDate: string;
+}
+
 /** Design geometry: a 100×26 user-space box with the series inset to 3…23. */
 const VB_W = 100;
 const VB_H = 26;
 const Y_TOP = 3;
 const Y_SPAN = 20;
 
+function isoDayMs(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const ms = Date.parse(`${date}T00:00:00Z`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Horizontal positions across the 0…VB_W box.
+ *
+ * When every point carries a strictly increasing calendar date, points sit at
+ * their real date offsets, so a day with no reported row leaves a visible gap
+ * instead of squeezing its neighbours together — and nothing is invented to
+ * fill it. Anything else (labels, repeated or unordered dates) keeps the
+ * original even index spacing.
+ */
+function xPositions(points: SparkPoint[], domain?: SparklineDateDomain) {
+  if (points.length < 2) return points.map(() => 0);
+  const times = points.map((point) => isoDayMs(point.date));
+  const datedAndIncreasing = times.every(
+    (time, index) => time !== null && (index === 0 || time > (times[index - 1] as number)),
+  );
+  if (datedAndIncreasing) {
+    const observedFirst = times[0] as number;
+    const observedLast = times[times.length - 1] as number;
+    const domainFirst = domain ? isoDayMs(domain.startDate) : null;
+    const domainLast = domain ? isoDayMs(domain.endDate) : null;
+    const useDomain =
+      domainFirst !== null &&
+      domainLast !== null &&
+      domainLast > domainFirst &&
+      observedFirst >= domainFirst &&
+      observedLast <= domainLast;
+    const first = useDomain ? (domainFirst as number) : observedFirst;
+    const last = useDomain ? (domainLast as number) : observedLast;
+    const span = last - first;
+    return times.map((time) => (((time as number) - first) / span) * VB_W);
+  }
+  const step = VB_W / (points.length - 1);
+  return points.map((_, index) => index * step);
+}
+
+/** The index of the position nearest `x`. */
+function nearestIndex(xs: number[], x: number) {
+  let best = 0;
+  for (let index = 1; index < xs.length; index += 1) {
+    if (Math.abs(xs[index]! - x) < Math.abs(xs[best]! - x)) best = index;
+  }
+  return best;
+}
+
 /**
  * Both series share one scale so the dashed comparison reads against the same
  * baseline as the current period — scaling them independently would make a
  * lower previous period look identical to the current one.
  */
-function buildGeometry(points: SparkPoint[], previous?: SparkPoint[]) {
+function buildGeometry(
+  points: SparkPoint[],
+  previous?: SparkPoint[],
+  dateDomain?: SparklineDateDomain,
+  previousDateDomain?: SparklineDateDomain,
+) {
   const values = points.map((point) => point.value);
   const previousValues = (previous ?? []).map((point) => point.value);
   const scaleValues = [...values, ...previousValues];
   const min = Math.min(...scaleValues);
   const max = Math.max(...scaleValues);
-  const step = points.length > 1 ? VB_W / (points.length - 1) : VB_W;
   const project = (value: number) => {
     const normalized = max === min ? 0.5 : (value - min) / (max - min);
     return Y_TOP + Y_SPAN - normalized * Y_SPAN;
   };
-  const toPath = (series: number[], seriesStep: number) =>
+  const toPath = (series: number[], xs: number[]) =>
     series
-      .map((value, index) => `${index ? "L" : "M"}${(index * seriesStep).toFixed(1)} ${project(value).toFixed(1)}`)
+      .map((value, index) => `${index ? "L" : "M"}${xs[index]!.toFixed(1)} ${project(value).toFixed(1)}`)
       .join(" ");
 
+  const xs = xPositions(points, dateDomain);
+  const previousXs = previous && previous.length > 1 ? xPositions(previous, previousDateDomain) : [];
   const ys = values.map(project);
-  const path = toPath(values, step);
-  const previousPath = previousValues.length > 1 ? toPath(previousValues, VB_W / (previousValues.length - 1)) : null;
+  const path = toPath(values, xs);
+  const previousPath = previousValues.length > 1 ? toPath(previousValues, previousXs) : null;
   return {
+    xs,
+    previousXs,
     ys,
-    step,
     path,
     previousPath,
-    area: `${path} L${VB_W} ${VB_H} L0 ${VB_H} Z`,
+    // Close the fill beneath the first/last measured x positions. When a
+    // selected-window domain exposes a missing edge day, shading that empty
+    // edge would still imply a value even though the line correctly stops.
+    area: `${path} L${xs[xs.length - 1]!.toFixed(1)} ${VB_H} L${xs[0]!.toFixed(1)} ${VB_H} Z`,
   };
 }
 
@@ -60,6 +125,10 @@ export interface AdvSparklineProps {
   points: SparkPoint[];
   /** Optional previous-period series, drawn as the design's dashed comparison. */
   previousPoints?: SparkPoint[];
+  /** Selected current window, including any unreported edge dates. */
+  dateDomain?: SparklineDateDomain;
+  /** Selected previous window, normalized separately to the same 0…100 axis. */
+  previousDateDomain?: SparklineDateDomain;
   /** Stroke colour for the trend line and the hover dot. */
   line: string;
   /** Fill under the line. */
@@ -87,6 +156,8 @@ export interface AdvSparklineProps {
 export function AdvSparkline({
   points,
   previousPoints,
+  dateDomain,
+  previousDateDomain,
   line,
   fill,
   height,
@@ -116,27 +187,39 @@ export function AdvSparkline({
   }
 
   const comparisonPoints = previousPoints && previousPoints.length > 1 ? previousPoints : undefined;
-  const { ys, step, path, previousPath, area } = buildGeometry(points, comparisonPoints);
+  const { xs, previousXs, ys, path, previousPath, area } = buildGeometry(
+    points,
+    comparisonPoints,
+    dateDomain,
+    previousDateDomain,
+  );
   const index = hover ?? points.length - 1;
-  const leftPct = `${((index * step) / VB_W) * 100}%`;
-  const boxLeftPct = `${Math.max(16, Math.min(84, ((index * step) / VB_W) * 100))}%`;
+  const leftPct = `${(xs[index]! / VB_W) * 100}%`;
+  const boxLeftPct = `${Math.max(16, Math.min(84, (xs[index]! / VB_W) * 100))}%`;
   const dotTopPct = `${(ys[index]! / VB_H) * 100}%`;
   const light = tone === "light";
   const geometry = variant ?? (light ? "hero" : height <= 26 ? "compact" : "tile");
   const compact = geometry === "compact";
-  const previousIndex = comparisonPoints?.length
-    ? Math.round((index / (points.length - 1)) * (comparisonPoints.length - 1))
-    : null;
-  const previousValue = previousIndex === null ? null : (comparisonPoints?.[previousIndex]?.value ?? null);
+  // The previous point at the same relative position in its own window.
+  const previousIndex = comparisonPoints?.length ? nearestIndex(previousXs, xs[index]!) : null;
+  const rawPreviousValue = previousIndex === null ? null : (comparisonPoints?.[previousIndex]?.value ?? null);
+  const previousValue = rawPreviousValue !== null && Number.isFinite(rawPreviousValue) ? rawPreviousValue : null;
+  // A change needs a non-zero baseline. With none, the tooltip states the
+  // previous value alone instead of claiming a "+0.0%" change nobody measured.
   const comparisonDelta =
-    previousValue !== null && previousValue > 0 ? ((points[index]!.value - previousValue) / previousValue) * 100 : 0;
-  const comparisonDeltaLabel = `${comparisonDelta >= 0 ? "+" : "−"}${Math.abs(comparisonDelta).toFixed(1)}%`;
+    previousValue !== null && previousValue !== 0
+      ? ((points[index]!.value - previousValue) / Math.abs(previousValue)) * 100
+      : null;
+  const comparisonDeltaLabel =
+    comparisonDelta === null
+      ? null
+      : `${comparisonDelta > 0 ? "+" : comparisonDelta < 0 ? "−" : ""}${Math.abs(comparisonDelta).toFixed(1)}%`;
 
   function handleMove(event: React.MouseEvent<HTMLDivElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width === 0) return;
-    const ratio = (event.clientX - rect.left) / rect.width;
-    const next = Math.max(0, Math.min(points.length - 1, Math.round(ratio * (points.length - 1))));
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const next = nearestIndex(xs, ratio * VB_W);
     setHover((current) => (current === next ? current : next));
   }
 
@@ -229,7 +312,8 @@ export function AdvSparkline({
                   fontWeight: 400,
                 }}
               >
-                prev {(formatPrevious ?? format)(previousValue)} · {comparisonDeltaLabel}
+                prev {(formatPrevious ?? format)(previousValue)}
+                {comparisonDeltaLabel ? ` · ${comparisonDeltaLabel}` : null}
               </span>
             ) : null}
           </span>

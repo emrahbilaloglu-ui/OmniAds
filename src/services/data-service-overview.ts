@@ -10,11 +10,41 @@ import {
   readJsonResponse,
 } from "@/src/services/data-service-support";
 
+/**
+ * One reported provider day; dates without a provider row are absent, not
+ * zero. `impressions`/`clicks` are null (or absent in older payloads) when the
+ * row did not report them, and rate series must skip that day.
+ */
+export interface ProviderSparklinePoint {
+  date: string;
+  spend: number;
+  revenue: number;
+  purchases: number;
+  impressions?: number | null;
+  clicks?: number | null;
+}
+
 export interface SparklineBundle {
   combined: Array<{ date: string; spend: number; revenue: number; purchases: number }>;
+  shopifyDaily?: Array<{
+    date: string;
+    revenue: number;
+    purchases: number;
+    grossRevenue?: number | null;
+    conversionRate: number | null;
+    newCustomers: number | null;
+    returningCustomers: number | null;
+  }>;
+  shopifyCommerceAvailable?: boolean;
+  shopifyConnectionState?: "connected" | "disconnected" | "unknown";
   providerTrends: {
-    meta?: Array<{ date: string; spend: number; revenue: number; purchases: number }>;
-    google?: Array<{ date: string; spend: number; revenue: number; purchases: number }>;
+    meta?: ProviderSparklinePoint[];
+    google?: ProviderSparklinePoint[];
+  };
+  /** The read behind each provider trend. Absent or null is unknown and never patches a card. */
+  providerTrendSources?: {
+    meta?: string | null;
+    google?: string | null;
   };
   ga4Daily: Array<{
     date: string;

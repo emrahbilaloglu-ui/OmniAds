@@ -1,35 +1,20 @@
 "use client";
 
-/**
- * Spend & ROAS trend (H03), with a real table alternative.
- *
- * The contract for `live:chart-table-toggle` is specific and worth honouring
- * exactly: the toggle swaps the chart for **real `<table>` markup in place**,
- * announces "table view", and the preference is **persisted per surface**.
- *
- * Two things follow from that:
- *
- * - The table is a genuine `<table>` with headers, not an ARIA grid painted
- *   over divs. A screen reader user gets the actual figures, not a description
- *   of a picture.
- * - Persistence is per surface, so a buyer who always wants numbers on Home
- *   gets numbers on Home without forcing that choice onto every other chart.
- *
- * A null point is a gap, not a zero — the line breaks rather than diving to the
- * axis, because a day with no spend recorded is not a day of zero spend.
- */
-import { useCallback, useEffect, useId, useState } from "react";
+/** Spend and platform-attributed ROAS in one compact, interactive chart. */
+import { useMemo, useState } from "react";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+import styles from "./trend-panel.module.css";
 
 export interface TrendPoint {
   date: string;
-  /** Null when no spend was recorded that day. Never coerced to 0. */
+  /** Null means missing data, never zero. */
   spend: number | null;
-  /** Null when ROAS could not be derived that day. */
+  /** Null means the return could not be derived for the day. */
   roas: number | null;
 }
 
-const STORAGE_PREFIX = "zero-base:trend-view:";
+const PLOT_HEIGHT = 200;
+const AXIS_INTERVALS = 3;
 
 function formatSpend(value: number, currency: string | null): string {
   if (!currency) return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -44,30 +29,61 @@ function formatSpend(value: number, currency: string | null): string {
   }
 }
 
+function formatSpendTick(value: number, currency: string | null): string {
+  const options: Intl.NumberFormatOptions = {
+    notation: value >= 1_000 ? "compact" : "standard",
+    maximumFractionDigits: value >= 1_000 ? 1 : 0,
+  };
+  if (!currency) return new Intl.NumberFormat(undefined, options).format(value);
+  try {
+    return new Intl.NumberFormat(undefined, { ...options, style: "currency", currency }).format(value);
+  } catch {
+    return `${new Intl.NumberFormat(undefined, options).format(value)} ${currency}`;
+  }
+}
+
 function shortDate(value: string): string {
   const date = new Date(`${value}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
-/** Read the persisted preference. Absent storage is not an error. */
-function readPreference(surface: string): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(`${STORAGE_PREFIX}${surface}`) === "table";
-  } catch {
-    // Storage can be denied outright; a disabled preference is not a failure.
-    return false;
-  }
+function niceStep(rawStep: number): number {
+  if (!Number.isFinite(rawStep) || rawStep <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10;
+  return nice * magnitude;
 }
 
-function writePreference(surface: string, table: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(`${STORAGE_PREFIX}${surface}`, table ? "table" : "chart");
-  } catch {
-    /* Preference is a convenience; losing it must never break the surface. */
+function buildAxis(maxValue: number): { max: number; ticks: number[] } {
+  if (!Number.isFinite(maxValue) || maxValue <= 0) {
+    return { max: 1, ticks: [0, 1 / 3, 2 / 3, 1] };
   }
+  const step = niceStep(maxValue / AXIS_INTERVALS);
+  const max = Math.ceil(maxValue / step) * step;
+  return {
+    max,
+    ticks: Array.from({ length: Math.round(max / step) + 1 }, (_, index) => index * step),
+  };
+}
+
+function xTickIndexes(length: number): number[] {
+  if (length <= 0) return [];
+  if (length <= 5) return Array.from({ length }, (_, index) => index);
+  return Array.from(
+    new Set([
+      0,
+      Math.round((length - 1) * 0.25),
+      Math.round((length - 1) * 0.5),
+      Math.round((length - 1) * 0.75),
+      length - 1,
+    ]),
+  );
 }
 
 export function TrendPanel({
@@ -79,249 +95,112 @@ export function TrendPanel({
 }: {
   title: string;
   points: readonly TrendPoint[];
-  /** Null when the account currency is genuinely unknown. */
   currency: string | null;
   targetRoas: number | null;
-  /** Identity the view preference is stored against. */
   surface: string;
 }) {
-  const [showTable, setShowTable] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const copy = useCopy();
-  const regionId = useId();
-
-  // The preference is read after mount so the server and first client render
-  // agree; hydrating straight from storage would mismatch.
-  useEffect(() => {
-    setShowTable(readPreference(surface));
-  }, [surface]);
-
-  const toggle = useCallback(() => {
-    setShowTable((previous) => {
-      const next = !previous;
-      writePreference(surface, next);
-      return next;
-    });
-  }, [surface]);
-
-  const spends = points
-    .map((point) => point.spend)
-    .filter((value): value is number => value !== null);
-  const max = spends.length ? Math.max(...spends) : 0;
-  const roasValues = points.map((point) => point.roas).filter((value): value is number => value !== null);
-  const maxRoas = Math.max(...roasValues, targetRoas ?? 0, 1) * 1.1;
-  const first = points.at(0)?.date ?? null;
-  const last = points.at(-1)?.date ?? null;
-
-  const unitLabel = currency ? `daily spend ${currency}` : "daily spend, currency unknown";
-  const targetLabel =
-    targetRoas === null
-      ? "no ROAS target set"
-      : `indigo = ROAS ≥ target ${targetRoas.toFixed(1)}`;
+  const chart = useMemo(() => {
+    const spends = points.map((point) => point.spend).filter((value): value is number => value !== null);
+    const roasValues = points.map((point) => point.roas).filter((value): value is number => value !== null);
+    return {
+      spendAxis: buildAxis(Math.max(...spends, 0)),
+      roasAxis: buildAxis(Math.max(...roasValues, targetRoas ?? 0, 0)),
+      hasData: spends.length > 0 || roasValues.length > 0,
+      xTicks: xTickIndexes(points.length),
+    };
+  }, [points, targetRoas]);
 
   return (
-    <section
-      data-trend-panel={surface}
-      aria-label={title}
-      style={{
-        borderRadius: "var(--ledger-radius-card)",
-        border: "1px solid var(--ledger-border-subtle)",
-        background: "var(--ledger-bg-surface)",
-        padding: 16,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          gap: 12,
-          marginBottom: 12,
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>{title}</h2>
-        <button
-          type="button"
-          data-ctl="live:chart-table-toggle"
-          onClick={toggle}
-          aria-pressed={showTable}
-          aria-controls={regionId}
-          style={{
-            background: "none",
-            border: "1px solid var(--ledger-border-control)",
-            borderRadius: "var(--ledger-radius-button)",
-            color: "var(--ledger-ink-secondary)",
-            cursor: "pointer",
-            fontSize: 12,
-            lineHeight: "18px",
-            padding: "4px 10px",
-          }}
-        >
-          {showTable ? "View as chart" : "View as table"}
-        </button>
-      </div>
+    <section data-trend-panel={surface} aria-label={title} className={styles.panel}>
+      <div data-trend-chart="" aria-label={`${title}: spend bars and ROAS line`} className={styles.chart}>
+        <div className={styles.legend} aria-hidden="true">
+          <span><i className={styles.spendSwatch} />Spend ({currency ?? "currency unknown"})</span>
+          <span><i className={styles.roasSwatch} />ROAS</span>
+          {targetRoas !== null ? <span><i className={styles.targetSwatch} />Target {targetRoas.toFixed(2)}x</span> : null}
+        </div>
 
-      {/* The mode change is announced, because the content swapped underneath
-          a user who cannot see it happen. */}
-      <p
-        role="status"
-        aria-live="polite"
-        data-trend-mode={showTable ? "table" : "chart"}
-        style={{
-          position: "absolute",
-          width: 1,
-          height: 1,
-          overflow: "hidden",
-          clip: "rect(0 0 0 0)",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {showTable ? "table view" : "chart view"}
-      </p>
-
-      <div id={regionId}>
-        {showTable ? (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <caption
-              style={{
-                textAlign: "left",
-                fontSize: 12,
-                color: "var(--ledger-ink-tertiary)",
-                paddingBottom: 6,
-              }}
-            >
-              {unitLabel} · {targetLabel}
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col" style={{ textAlign: "left", padding: "6px 8px", fontSize: 12 }}>
-                  {copy.date}
-                </th>
-                <th scope="col" style={{ textAlign: "right", padding: "6px 8px", fontSize: 12 }}>
-                  {copy.spend}
-                </th>
-                <th scope="col" style={{ textAlign: "right", padding: "6px 8px", fontSize: 12 }}>
-                  {copy.returnOnAdSpend}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {points.map((point) => (
-                <tr key={point.date} data-trend-row={point.date}>
-                  <th
-                    scope="row"
-                    style={{ textAlign: "left", fontWeight: 500, padding: "6px 8px" }}
-                  >
-                    {point.date}
-                  </th>
-                  <td
-                    style={{
-                      textAlign: "right",
-                      padding: "6px 8px",
-                      fontFamily: "var(--font-adc-mono), ui-monospace, monospace",
-                    }}
-                  >
-                    {/* "No data" and 0 are different facts. */}
-                    {point.spend === null ? "No data" : point.spend.toFixed(2)}
-                  </td>
-                  <td
-                    style={{
-                      textAlign: "right",
-                      padding: "6px 8px",
-                      fontFamily: "var(--font-adc-mono), ui-monospace, monospace",
-                    }}
-                  >
-                    {point.roas === null ? "No data" : point.roas.toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {!chart.hasData ? (
+          <div className={styles.emptyState}>
+            <strong>No daily trend data</strong>
+            <span>Spend and ROAS will appear here when the selected period has source data.</span>
+          </div>
         ) : (
-          <div data-trend-chart="" aria-label={`${title}: spend bars and ROAS line`}>
-            <div
-              aria-hidden="true"
-              style={{ display: "flex", flexWrap: "wrap", gap: "8px 16px", marginBottom: 10, fontSize: 12, color: "var(--ledger-ink-secondary)" }}
-            >
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 12, height: 8, borderRadius: 1, background: "var(--ledger-accent-action)" }} />
-                Spend ({currency ?? "currency unknown"})
-              </span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 14, height: 2, background: "var(--ledger-semantic-warn)" }} />
-                ROAS
-              </span>
-              {targetRoas !== null ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 14, borderTop: "1px dashed var(--ledger-ink-tertiary)" }} />
-                  Target {targetRoas.toFixed(1)}x
+          <div className={styles.chartFrame}>
+            <div className={styles.axisTitleLeft} aria-hidden="true">Spend</div>
+            <div className={styles.axisTitleRight} aria-hidden="true">ROAS</div>
+
+            <div className={styles.leftAxis} aria-hidden="true">
+              {chart.spendAxis.ticks.map((tick) => (
+                <span key={tick} style={{ bottom: `${(tick / chart.spendAxis.max) * 100}%` }}>
+                  {formatSpendTick(tick, currency)}
                 </span>
-              ) : null}
+              ))}
             </div>
-            <div
-              style={{
-                position: "relative",
-                height: 184,
-                padding: "0 42px 24px 54px",
-              }}
-            >
-              {[0, 0.5, 1].map((ratio) => (
-                <div
-                  key={ratio}
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    left: 54,
-                    right: 42,
-                    bottom: 24 + ratio * 160,
-                    borderTop: "1px solid var(--ledger-border-subtle)",
-                  }}
-                >
-                  <span style={{ position: "absolute", right: "calc(100% + 8px)", top: -8, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-                    {max === 0 ? "0" : formatSpend(max * ratio, currency)}
-                  </span>
-                  <span style={{ position: "absolute", left: "calc(100% + 8px)", top: -8, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-                    {(maxRoas * ratio).toFixed(1)}x
-                  </span>
-                </div>
+
+            <div className={styles.plot}>
+              {chart.spendAxis.ticks.map((tick) => (
+                <span
+                  key={tick}
+                  className={styles.gridLine}
+                  style={{ bottom: `${(tick / chart.spendAxis.max) * 100}%` }}
+                />
               ))}
 
-              <div style={{ position: "absolute", inset: "0 42px 24px 54px", display: "flex", alignItems: "flex-end", gap: 3 }}>
+              {targetRoas !== null ? (
+                <>
+                  <span
+                    className={styles.targetLine}
+                    style={{ bottom: `${Math.min(100, (targetRoas / chart.roasAxis.max) * 100)}%` }}
+                  />
+                  <span
+                    className={styles.targetPill}
+                    style={{
+                      bottom: `clamp(4px, calc(${Math.min(100, (targetRoas / chart.roasAxis.max) * 100)}% + 5px), calc(100% - 23px))`,
+                    }}
+                  >
+                    Target {targetRoas.toFixed(2)}x
+                  </span>
+                </>
+              ) : null}
+
+              <div className={styles.bars}>
                 {points.map((point, index) => {
-                  const height = point.spend === null || max === 0 ? 0 : (point.spend / max) * 160;
+                  const height = point.spend === null ? 0 : (point.spend / chart.spendAxis.max) * 100;
                   const label = `${point.date}; spend ${point.spend === null ? "no data" : formatSpend(point.spend, currency)}; ROAS ${point.roas === null ? "no data" : `${point.roas.toFixed(2)}x`}`;
                   return (
                     <button
                       type="button"
                       key={point.date}
                       data-trend-bar={point.date}
+                      data-active={activeIndex === index ? "true" : undefined}
                       aria-label={label}
                       onMouseEnter={() => setActiveIndex(index)}
                       onMouseLeave={() => setActiveIndex(null)}
                       onFocus={() => setActiveIndex(index)}
                       onBlur={() => setActiveIndex(null)}
-                      style={{
-                        position: "relative",
-                        zIndex: 2,
-                        flex: 1,
-                        height: Math.max(height, point.spend === null ? 0 : 2),
-                        minWidth: 2,
-                        padding: 0,
-                        border: 0,
-                        background: point.spend === null ? "transparent" : "var(--ledger-accent-action)",
-                        borderRadius: "2px 2px 0 0",
-                        cursor: "crosshair",
-                      }}
-                    />
+                      className={styles.barSlot}
+                    >
+                      {point.spend === null ? (
+                        <span className={styles.missingMark} aria-hidden="true" />
+                      ) : (
+                        <span
+                          className={styles.bar}
+                          style={{ height: `${Math.max(height, point.spend === 0 ? 1 : 2)}%` }}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </button>
                   );
                 })}
               </div>
 
               <svg
                 aria-hidden="true"
-                viewBox="0 0 1000 160"
+                viewBox={`0 0 1000 ${PLOT_HEIGHT}`}
                 preserveAspectRatio="none"
-                style={{ position: "absolute", zIndex: 3, pointerEvents: "none", inset: "0 42px 24px 54px", width: "calc(100% - 96px)", height: 160, overflow: "visible" }}
+                className={styles.lineChart}
               >
                 {points.slice(1).map((point, index) => {
                   const previous = points[index];
@@ -330,52 +209,79 @@ export function TrendPanel({
                     <line
                       key={`${previous.date}-${point.date}`}
                       x1={((index + 0.5) / Math.max(points.length, 1)) * 1000}
-                      y1={160 - (previous.roas / maxRoas) * 160}
+                      y1={PLOT_HEIGHT - (previous.roas / chart.roasAxis.max) * PLOT_HEIGHT}
                       x2={((index + 1.5) / Math.max(points.length, 1)) * 1000}
-                      y2={160 - (point.roas / maxRoas) * 160}
-                      stroke="var(--ledger-semantic-warn)"
-                      strokeWidth="2"
-                      vectorEffect="non-scaling-stroke"
+                      y2={PLOT_HEIGHT - (point.roas / chart.roasAxis.max) * PLOT_HEIGHT}
+                      className={styles.roasLine}
                     />
                   );
                 })}
                 {points.map((point, index) => point.roas === null ? null : (
-                  <circle key={point.date} cx={((index + 0.5) / Math.max(points.length, 1)) * 1000} cy={160 - (point.roas / maxRoas) * 160} r="3" fill="var(--ledger-semantic-warn)" vectorEffect="non-scaling-stroke" />
+                  <circle
+                    key={point.date}
+                    cx={((index + 0.5) / Math.max(points.length, 1)) * 1000}
+                    cy={PLOT_HEIGHT - (point.roas / chart.roasAxis.max) * PLOT_HEIGHT}
+                    r={activeIndex === index ? 5 : 3.25}
+                    className={activeIndex === index ? styles.roasPointActive : styles.roasPoint}
+                  />
                 ))}
-                {targetRoas !== null ? (
-                  <line x1="0" x2="1000" y1={160 - (targetRoas / maxRoas) * 160} y2={160 - (targetRoas / maxRoas) * 160} stroke="var(--ledger-ink-tertiary)" strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
-                ) : null}
               </svg>
 
               {activeIndex !== null && points[activeIndex] ? (
-                <div
-                  role="tooltip"
-                  data-trend-tooltip=""
-                  style={{
-                    position: "absolute",
-                    zIndex: 5,
-                    left: `clamp(92px, calc(54px + (100% - 96px) * ${(activeIndex + 0.5) / Math.max(points.length, 1)}), calc(100% - 92px))`,
-                    top: 4,
-                    transform: "translateX(-50%)",
-                    width: 176,
-                    padding: "8px 10px",
-                    border: "1px solid var(--ledger-border-control)",
-                    borderRadius: "var(--ledger-radius-button)",
-                    background: "var(--ledger-bg-surface)",
-                    boxShadow: "var(--ledger-elevation-2)",
-                    fontSize: 12,
-                    lineHeight: "18px",
-                    pointerEvents: "none",
-                  }}
-                >
-                  <strong style={{ display: "block" }}>{points[activeIndex].date}</strong>
-                  <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>{copy.spend}</span><strong>{points[activeIndex].spend === null ? "No data" : formatSpend(points[activeIndex].spend, currency)}</strong></span>
-                  <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span>ROAS</span><strong>{points[activeIndex].roas === null ? "No data" : `${points[activeIndex].roas.toFixed(2)}x`}</strong></span>
-                </div>
+                <>
+                  <span
+                    className={styles.activeGuide}
+                    aria-hidden="true"
+                    style={{ left: `${((activeIndex + 0.5) / Math.max(points.length, 1)) * 100}%` }}
+                  />
+                  <div
+                    role="tooltip"
+                    data-trend-tooltip=""
+                    className={styles.tooltip}
+                    style={{
+                      left: `clamp(94px, ${((activeIndex + 0.5) / Math.max(points.length, 1)) * 100}%, calc(100% - 94px))`,
+                      top: `clamp(8px, calc(${(1 - Math.max(
+                        points[activeIndex].spend === null ? 0 : points[activeIndex].spend / chart.spendAxis.max,
+                        points[activeIndex].roas === null ? 0 : points[activeIndex].roas / chart.roasAxis.max,
+                      )) * 100}% - 92px), calc(100% - 96px))`,
+                    }}
+                  >
+                    <div
+                      className={styles.tooltipDate}
+                      data-trend-tooltip-date=""
+                      data-date={points[activeIndex].date}
+                    >
+                      {shortDate(points[activeIndex].date)}
+                    </div>
+                    <span><i className={styles.spendDot} />{copy.spend}<strong>{points[activeIndex].spend === null ? "No data" : formatSpend(points[activeIndex].spend, currency)}</strong></span>
+                    <span><i className={styles.roasDot} />ROAS<strong>{points[activeIndex].roas === null ? "No data" : `${points[activeIndex].roas.toFixed(2)}x`}</strong></span>
+                    {targetRoas !== null && points[activeIndex].roas !== null ? (
+                      <small>{Math.abs(points[activeIndex].roas - targetRoas).toFixed(2)}x {points[activeIndex].roas >= targetRoas ? "above" : "below"} target</small>
+                    ) : null}
+                  </div>
+                </>
               ) : null}
+            </div>
 
-              <span aria-hidden="true" style={{ position: "absolute", left: 54, bottom: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{first ? shortDate(first) : "—"}</span>
-              <span aria-hidden="true" style={{ position: "absolute", right: 42, bottom: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{last ? shortDate(last) : "—"}</span>
+            <div className={styles.rightAxis} aria-hidden="true">
+              {chart.roasAxis.ticks.map((tick) => (
+                <span key={tick} style={{ bottom: `${(tick / chart.roasAxis.max) * 100}%` }}>
+                  {tick.toFixed(tick % 1 === 0 ? 0 : 1)}x
+                </span>
+              ))}
+            </div>
+
+            <div className={styles.xAxis} aria-hidden="true">
+              {chart.xTicks.map((index, tickPosition) => (
+                <span
+                  key={points[index].date}
+                  data-edge={tickPosition === 0 ? "start" : tickPosition === chart.xTicks.length - 1 ? "end" : undefined}
+                  data-intermediate={tickPosition > 0 && tickPosition < chart.xTicks.length - 1 ? "true" : undefined}
+                  style={{ left: `${((index + 0.5) / Math.max(points.length, 1)) * 100}%` }}
+                >
+                  {shortDate(points[index].date)}
+                </span>
+              ))}
             </div>
           </div>
         )}

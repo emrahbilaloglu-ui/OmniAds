@@ -72,6 +72,7 @@ function toRate(numerator: number, denominator: number) {
 export async function getShopifyCustomerEventsAggregate(input: {
   businessId: string;
   providerAccountId?: string | null;
+  timeZone?: string | null;
   startDate: string;
   endDate: string;
 }) {
@@ -100,9 +101,10 @@ export async function getShopifyCustomerEventsAggregate(input: {
     } satisfies ShopifyCustomerEventsAggregate;
   }
   const sql = getDb();
+  const timeZone = input.timeZone?.trim() || "UTC";
   const rows = (await sql`
     SELECT
-      occurred_at::date::text AS date,
+      (occurred_at AT TIME ZONE ${timeZone})::date::text AS date,
       COUNT(DISTINCT session_id) FILTER (WHERE session_id IS NOT NULL AND session_id <> '') AS sessions,
       COUNT(*) FILTER (WHERE session_id IS NULL OR session_id = '') AS sessionless_events,
       COUNT(*) FILTER (
@@ -140,8 +142,8 @@ export async function getShopifyCustomerEventsAggregate(input: {
     FROM shopify_customer_events
     WHERE business_id = ${input.businessId}
       AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND occurred_at::date >= ${input.startDate}::date
-      AND occurred_at::date <= ${input.endDate}::date
+      AND (occurred_at AT TIME ZONE ${timeZone})::date >= ${input.startDate}::date
+      AND (occurred_at AT TIME ZONE ${timeZone})::date <= ${input.endDate}::date
     GROUP BY 1
     ORDER BY 1 ASC
   `) as Array<Record<string, unknown>>;

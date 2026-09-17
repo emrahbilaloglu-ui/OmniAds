@@ -54,10 +54,10 @@ describe("canonical Overview metric band", () => {
     expect(html).not.toContain("adv-chip");
   });
 
-  it("uses the design's info delta and exact geometry on the spend tile", () => {
+  it("uses metric sentiment for the delta instead of the card's visual position", () => {
     const html = renderToStaticMarkup(<HeroTile metric={metric()} currencySymbol="$" index={0} />);
 
-    expect(html).toContain("background:#EAF0FF;color:#2a5fe2");
+    expect(html).toContain("background:#E7F6F0;color:#0b7954");
     expect(html).toContain("gap-[3px]");
     expect(html).toContain("text-[11.5px]");
     expect(html).toContain('style="margin-top:12px"');
@@ -90,6 +90,39 @@ describe("canonical Overview metric band", () => {
     );
     expect(html).toContain("−0.4%");
     expect(html).toContain("background:#B45309");
+    expect(html).toContain("background:#FDECF0;color:#E11D48");
+  });
+
+  it("shows the source formula for MER and Blended ROAS without adding generic subtitle noise", () => {
+    const blended = renderToStaticMarkup(
+      <HeroTile
+        metric={metric({
+          id: "pins-blended-roas",
+          title: "Blended ROAS",
+          subtitle: "Platform-attributed conversion value / ad spend",
+          unit: "ratio",
+        })}
+        currencySymbol="$"
+        index={0}
+      />,
+    );
+    const mer = renderToStaticMarkup(
+      <HeroTile
+        metric={metric({
+          id: "pins-mer",
+          title: "MER",
+          subtitle: "Store revenue / ad spend",
+          unit: "ratio",
+        })}
+        currencySymbol="$"
+        index={1}
+      />,
+    );
+    const spend = renderToStaticMarkup(<HeroTile metric={metric()} currencySymbol="$" index={0} />);
+
+    expect(blended).toContain("Platform-attributed conversion value / ad spend");
+    expect(mer).toContain("Store revenue / ad spend");
+    expect(spend).not.toContain("Paid media investment");
   });
 
   it("uses parent-supplied card colours and no compact number tracking", () => {

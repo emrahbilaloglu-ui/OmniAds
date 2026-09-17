@@ -144,6 +144,8 @@ export interface MetaWarehouseSummaryResponse {
     publishedAt: string | null;
     asOf: string | null;
   } | null;
+  /** The published grain `totals` and `accounts` were summed from. */
+  warehouseScope: MetaWarehouseScope;
   totals: {
     spend: number;
     revenue: number;
@@ -164,6 +166,9 @@ export interface MetaWarehouseSummaryResponse {
     spend: number;
     revenue: number;
     conversions: number;
+    /** Summed from the same rows as spend, so account-grain rates stay coherent. */
+    impressions: number;
+    clicks: number;
     roas: number;
   }>;
 }
@@ -181,10 +186,19 @@ export interface MetaWarehouseTrendPoint {
   clicks: number;
 }
 
+/**
+ * The published warehouse grain a summary or trend was built from. Both prefer
+ * campaign_daily whenever any published campaign row exists in the range and
+ * fall back to account_daily otherwise, so a summary and a trend for the same
+ * range describe the same rows.
+ */
+export type MetaWarehouseScope = "campaign_daily" | "account_daily";
+
 export interface MetaWarehouseTrendResponse {
   freshness: MetaWarehouseFreshness;
   isPartial?: boolean;
   verification?: MetaWarehouseSummaryResponse["verification"];
+  warehouseScope: MetaWarehouseScope;
   points: MetaWarehouseTrendPoint[];
 }
 
@@ -905,6 +919,8 @@ export async function getMetaWarehouseSummary(input: {
       spend: number;
       revenue: number;
       conversions: number;
+      impressions: number;
+      clicks: number;
       roas: number;
     }
   >();
@@ -914,6 +930,8 @@ export async function getMetaWarehouseSummary(input: {
       existing.spend = r2(existing.spend + row.spend);
       existing.revenue = r2(existing.revenue + row.revenue);
       existing.conversions += row.conversions;
+      existing.impressions += row.impressions;
+      existing.clicks += row.clicks;
       existing.roas = existing.spend > 0 ? r2(existing.revenue / existing.spend) : 0;
     } else {
       accountsMap.set(row.providerAccountId, {
@@ -924,6 +942,8 @@ export async function getMetaWarehouseSummary(input: {
         spend: row.spend,
         revenue: row.revenue,
         conversions: row.conversions,
+        impressions: row.impressions,
+        clicks: row.clicks,
         roas: row.roas,
       });
     }
@@ -1021,6 +1041,7 @@ export async function getMetaWarehouseSummary(input: {
     },
     isPartial: v2Enabled ? !verification?.truthReady : summaryRows.length === 0,
     verification: buildVerificationMetadata(verification),
+    warehouseScope: campaignRows.length > 0 ? "campaign_daily" : "account_daily",
     totals: {
       spend: r2(totals.spend),
       revenue: r2(totals.revenue),
@@ -1111,22 +1132,32 @@ export async function getMetaWarehouseTrends(input: {
   const v2Enabled =
     isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
     providerAccountIds.length > 0;
-  const [rawRows, verification] = await Promise.all([
+  // Same reads, publication filter and scope choice as getMetaWarehouseSummary:
+  // campaign_daily when any published campaign row exists, otherwise
+  // account_daily. The two grains are never summed together.
+  const [rawRows, rawCampaignRows, verification] = await Promise.all([
     getMetaAccountDailyRange(input),
+    getMetaCampaignDailyRange(input),
     v2Enabled
       ? getMetaPublishedVerificationSummary({
           businessId: input.businessId,
           startDate: input.startDate,
           endDate: input.endDate,
           providerAccountIds,
-          surfaces: ["account_daily"],
+          surfaces: ["account_daily", "campaign_daily"],
         }).catch(() => null)
       : Promise.resolve(null),
   ]);
-  const rows = v2Enabled
+  const accountRows = v2Enabled
     ? filterRowsToPublishedKeys(rawRows, verification, "account_daily")
     : rawRows;
-  const byDate = new Map<string, MetaAccountDailyRow[]>();
+  const campaignRows = v2Enabled
+    ? filterRowsToPublishedKeys(rawCampaignRows, verification, "campaign_daily")
+    : rawCampaignRows;
+  const warehouseScope: MetaWarehouseScope = campaignRows.length > 0 ? "campaign_daily" : "account_daily";
+  const rows: Array<MetaAccountDailyRow | MetaCampaignDailyRow> =
+    warehouseScope === "campaign_daily" ? campaignRows : accountRows;
+  const byDate = new Map<string, Array<MetaAccountDailyRow | MetaCampaignDailyRow>>();
   for (const row of rows) {
     const dateKey = normalizeMetaServingDate(row.date);
     const list = byDate.get(dateKey);
@@ -1134,7 +1165,7 @@ export async function getMetaWarehouseTrends(input: {
     else byDate.set(dateKey, [row]);
   }
 
-  let points = Array.from(byDate.entries())
+  const points = Array.from(byDate.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, dailyRows]) => {
       const spend = r2(dailyRows.reduce((sum, row) => sum + row.spend, 0));
@@ -1162,6 +1193,7 @@ export async function getMetaWarehouseTrends(input: {
     },
     isPartial: v2Enabled ? !verification?.truthReady : rows.length === 0,
     verification: buildVerificationMetadata(verification),
+    warehouseScope,
     points,
   };
 }

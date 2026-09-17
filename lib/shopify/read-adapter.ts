@@ -71,6 +71,26 @@ export interface ShopifyOverviewReadCandidate {
   preferredSource: ShopifyPreferredOverviewSource;
   canServeWarehouse: boolean;
   servingMetadata: ShopifyOverviewServingMetadata;
+  customerEventsRegisteredAt?: string | null;
+}
+
+function getCustomerEventsRegisteredAt(
+  integration: Awaited<ReturnType<typeof getIntegrationMetadata>> | null,
+  providerAccountId: string | null,
+) {
+  const raw = integration?.metadata?.shopifyCustomerEventsPixel;
+  if (!raw || typeof raw !== "object") return null;
+  const marker = raw as Record<string, unknown>;
+  if (
+    typeof marker.shopDomain !== "string" ||
+    !providerAccountId ||
+    marker.shopDomain.toLowerCase() !== providerAccountId.toLowerCase() ||
+    typeof marker.registeredAt !== "string" ||
+    !Number.isFinite(Date.parse(marker.registeredAt))
+  ) {
+    return null;
+  }
+  return marker.registeredAt;
 }
 
 function resolveProductionMode(raw: unknown): ShopifyProductionServingMode {
@@ -293,6 +313,7 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
     integration?.status === "connected" && integration.provider_account_id
       ? integration.provider_account_id
       : null;
+  const customerEventsRegisteredAt = getCustomerEventsRegisteredAt(integration, providerAccountId);
   const canaryKey = providerAccountId
     ? buildShopifyOverviewCanaryKey({
         startDate: input.startDate,
@@ -370,6 +391,7 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
   if (trustedProjectionSource === "ledger") {
     ledger = await getShopifyRevenueLedgerAggregate({
       businessId: input.businessId,
+      providerAccountId,
       startDate: input.startDate,
       endDate: input.endDate,
     }).catch(() => null);
@@ -379,6 +401,7 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
   if (preferredSource === "none" && trustedProjectionSource === "warehouse") {
     warehouse = await getShopifyWarehouseOverviewAggregate({
       businessId: input.businessId,
+      providerAccountId,
       startDate: input.startDate,
       endDate: input.endDate,
     }).catch(() => null);
@@ -393,9 +416,14 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
       persistedServing?.trustState === "disabled";
     if (persistedExplicitLiveFallback) {
       preferredSource = "live";
-    } else if (!warehouse && (persistedPreferredSource === "warehouse" || productionMode !== "disabled")) {
+    } else if (
+      providerAccountId &&
+      !warehouse &&
+      (persistedPreferredSource === "warehouse" || productionMode !== "disabled")
+    ) {
       warehouse = await getShopifyWarehouseOverviewAggregate({
         businessId: input.businessId,
+        providerAccountId,
         startDate: input.startDate,
         endDate: input.endDate,
       }).catch(() => null);
@@ -453,6 +481,7 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
                 ? "range_serving_state_unavailable"
                 : null,
           }),
+    customerEventsRegisteredAt,
   } as const;
 }
 
@@ -461,8 +490,13 @@ export async function getShopifyOverviewReadCandidate(input: {
   startDate: string;
   endDate: string;
 }): Promise<ShopifyOverviewReadCandidate> {
-  const [integration, status, live, warehouse, ledger] = await Promise.all([
-    getIntegrationMetadata(input.businessId, "shopify").catch(() => null),
+  const integration = await getIntegrationMetadata(input.businessId, "shopify").catch(() => null);
+  const providerAccountId =
+    integration?.status === "connected" && integration.provider_account_id
+      ? integration.provider_account_id
+      : null;
+  const customerEventsRegisteredAt = getCustomerEventsRegisteredAt(integration, providerAccountId);
+  const [status, live, warehouse, ledger] = await Promise.all([
     getShopifyStatus({
       businessId: input.businessId,
       startDate: input.startDate,
@@ -472,11 +506,13 @@ export async function getShopifyOverviewReadCandidate(input: {
     getShopifyOverviewAggregate(input),
     getShopifyWarehouseOverviewAggregate({
       businessId: input.businessId,
+      providerAccountId,
       startDate: input.startDate,
       endDate: input.endDate,
     }).catch(() => null),
     getShopifyRevenueLedgerAggregate({
       businessId: input.businessId,
+      providerAccountId,
       startDate: input.startDate,
       endDate: input.endDate,
     }).catch(() => null),
@@ -679,6 +715,7 @@ export async function getShopifyOverviewReadCandidate(input: {
     canaryEnabled,
     preferredSource,
     canServeWarehouse: canServeTrustedShopify,
+    customerEventsRegisteredAt,
     servingMetadata: {
       source:
         preferredSource === "ledger"

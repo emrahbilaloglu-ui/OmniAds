@@ -67,6 +67,8 @@ interface PreferencesState {
   setHeatmapEnabled: (value: boolean) => void;
   setMetaOperatorPreset: (value: OperatorSurfacePreset) => void;
   setOverviewPins: (contextKey: string, metrics: string[]) => void;
+  /** Forget a context's saved pins so it follows the current defaults again. */
+  clearOverviewPins: (contextKey: string) => void;
   pinOverviewMetric: (contextKey: string, metricKey: string) => void;
   unpinOverviewMetric: (contextKey: string, metricKey: string) => void;
   replaceOverviewMetric: (contextKey: string, currentMetricKey: string, nextMetricKey: string) => void;
@@ -129,6 +131,13 @@ export const usePreferencesStore = create<PreferencesState>()(
             [contextKey]: dedupeMetricKeys(metrics),
           },
         })),
+      clearOverviewPins: (contextKey) =>
+        set((state) => {
+          if (!Object.prototype.hasOwnProperty.call(state.overviewPinsByContext, contextKey)) return state;
+          const next = { ...state.overviewPinsByContext };
+          delete next[contextKey];
+          return { overviewPinsByContext: next };
+        }),
       pinOverviewMetric: (contextKey, metricKey) =>
         set((state) => {
           const current = state.overviewPinsByContext[contextKey] ?? [];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
@@ -16,19 +16,43 @@ import { TrendPanel } from "@/components/zero-base/home/trend-panel";
 import { EconomicsContext } from "@/components/zero-base/home/economics-context";
 import {
   buildOverviewSourceHealth,
-  overviewTrendPoints,
 } from "@/lib/zero-base/home/overview-source-health";
 import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";
 import { AttributionCard } from "@/components/overview/v2/attribution-card";
-import { HeroMetricCard, HeroTile, StatTile } from "@/components/overview/v2/metric-band";
+import { StatTile } from "@/components/overview/v2/metric-band";
+import { CustomizableKpiBand } from "@/components/overview/v2/customizable-kpi-band";
 import { PlatformMiniDashboard } from "@/components/overview/v2/platform-card";
+import {
+  OVERVIEW_PROVIDER_METRIC_SPECS,
+  buildBlendedProviderRoasSeries,
+  buildPaidProviderSpendSeries,
+  buildProviderMetricSeries,
+  providerForMetricId,
+  providerMetricId,
+  providerScalarSourceSetsComparable,
+  providerScalarSourcesComparable,
+  providerTrendMatchesScalar,
+} from "@/lib/overview-provider-metrics";
 import { ShareSnapshotButton } from "@/components/overview/v2/share-snapshot-button";
+import { OverviewCustomizeBar } from "@/components/overview/v2/overview-customize-bar";
+import { useOverviewCustomization } from "@/components/overview/v2/use-overview-customization";
+import {
+  OverviewLayout,
+  useOverviewLayoutPreference,
+  type OverviewLayoutContent,
+} from "@/components/overview/v2/overview-layout";
+import overviewStyles from "@/components/overview/v2/overview-layout.module.css";
 import { getPresetDatesForReferenceDate, getTodayIsoForTimeZone } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { usePreferencesHydrated } from "@/hooks/persistent-date-range-support";
 import { currencySymbolFor } from "@/lib/metric-format";
+import {
+  buildOverviewMetricCatalog,
+  DEFAULT_PINNED_METRICS,
+} from "@/lib/overview-metric-catalog";
 import { dashboardHrefForRouteFamily } from "@/lib/dashboard-v2/screen-registry";
 import { useAppStore } from "@/store/app-store";
+import { usePreferencesStore } from "@/store/preferences-store";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { getGoogleAdsStatusRefetchInterval } from "@/lib/google-ads/sync-progress-ux";
@@ -44,7 +68,9 @@ import type {
   OverviewAttributionRow,
   OverviewMetricCardData,
   OverviewMetricUnit,
+  OverviewPaidProviderScope,
   OverviewPlatformSection,
+  OverviewProviderSourceMap,
   OverviewSummaryData,
 } from "@/src/types/models";
 
@@ -153,30 +179,14 @@ type FixedMetricSpec = {
   icon?: string;
 };
 
-const HEADLINE_SPECS: FixedMetricSpec[] = [
-  {
-    id: "pins-revenue",
-    title: "Revenue",
-    unit: "currency",
-    icon: "badge-dollar-sign",
-  },
-  { id: "pins-spend", title: "Ad Spend", unit: "currency", icon: "receipt" },
-  {
-    id: "pins-blended-roas",
-    title: "Blended ROAS · target —",
-    unit: "ratio",
-    icon: "target",
-  },
-  { id: "pins-orders", title: "Orders", unit: "count", icon: "shopping-cart" },
-  {
-    id: "pins-conversion-rate",
-    title: "Conv Rate · GA4",
-    unit: "percent",
-    icon: "percent",
-  },
+const SHOPIFY_STORE_SPECS: FixedMetricSpec[] = [
+  { id: "store-aov", title: "AOV", unit: "currency" },
+  { id: "store-gross-sales", title: "Gross Sales", unit: "currency" },
+  { id: "store-refunded-revenue", title: "Refunded Revenue", unit: "currency" },
+  { id: "store-refund-rate", title: "Refund Rate", unit: "percent" },
 ];
 
-const STORE_SPECS: FixedMetricSpec[] = [
+const GA4_FALLBACK_STORE_SPECS: FixedMetricSpec[] = [
   { id: "store-aov", title: "AOV", unit: "currency" },
   { id: "store-new-customers", title: "New customers", unit: "count" },
   { id: "ltv-repeat-rate", title: "Repeat rate", unit: "percent" },
@@ -194,18 +204,18 @@ const WEB_SPECS: FixedMetricSpec[] = [
   { id: "web-conversion-rate", title: "Conv rate", unit: "percent" },
 ];
 
+const DEFAULT_KPI_CANDIDATES = [
+  ...DEFAULT_PINNED_METRICS,
+  "aov",
+  "mer",
+  "sessions",
+];
+
 const PLATFORM_SPECS = [
   { provider: "meta", title: "Meta Ads" },
   { provider: "google", title: "Google Ads" },
 ] as const;
 
-const PLATFORM_METRIC_SPECS: Array<Omit<FixedMetricSpec, "id"> & { suffix: string }> = [
-  { suffix: "spend", title: "Spend", unit: "currency" },
-  { suffix: "revenue", title: "Revenue", unit: "currency" },
-  { suffix: "roas", title: "ROAS", unit: "ratio" },
-  { suffix: "purchases", title: "Purchases", unit: "count" },
-  { suffix: "cpa", title: "CPA", unit: "currency" },
-];
 
 function unavailableMetric(spec: FixedMetricSpec): OverviewMetricCardData {
   return {
@@ -271,14 +281,11 @@ function fixedPlatformSections(sections: OverviewPlatformSection[] | undefined) 
       const normalized = section.provider === "google_ads" ? "google" : section.provider;
       return normalized === provider;
     });
-    const metrics = PLATFORM_METRIC_SPECS.map((spec) => {
-      const id = `${provider}-${spec.suffix}`;
-      const metric = source?.metrics.find(
-        (candidate) =>
-          candidate.id === id ||
-          candidate.id.endsWith(`-${spec.suffix}`) ||
-          candidate.title.toLowerCase() === spec.title.toLowerCase()
-      );
+    // Exact ids only: suffix or title matching would let `google-conversion-rate`
+    // or a relabelled "Conversions" card fill the wrong provider slot.
+    const metrics = OVERVIEW_PROVIDER_METRIC_SPECS[provider].map((spec) => {
+      const id = providerMetricId(provider, spec.suffix);
+      const metric = source?.metrics.find((candidate) => candidate.id === id);
       return metric
         ? { ...metric, id, title: spec.title, unit: spec.unit }
         : unavailableMetric({ id, title: spec.title, unit: spec.unit });
@@ -297,6 +304,7 @@ export default function OverviewPage() {
   const router = useRouter();
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const workspaceOwnerId = useAppStore((state) => state.workspaceOwnerId);
   const businessId = selectedBusinessId ?? "";
   const activeBusiness = useMemo(
     () => businesses.find((business) => business.id === selectedBusinessId) ?? null,
@@ -451,8 +459,9 @@ export default function OverviewPage() {
   };
 
   // Merge sparklines into the summary once they arrive.
-  // Uses the same formula the server-side route used to generate sparklines,
-  // so ROAS and MER values are identical.
+  // Uses the same source-specific formulas as the server-side route: MER is
+  // store revenue / ad spend, while Blended ROAS is provider-attributed
+  // conversion value / the matching provider spend.
   const effectiveSummary = useMemo(() => {
     if (!query.data) return undefined;
     const withCurrent = sparklineQuery.data ? patchSummarySparklines(query.data, sparklineQuery.data) : query.data;
@@ -503,11 +512,67 @@ export default function OverviewPage() {
   });
 
   const symbol = currencySymbolFor(currency);
-  const headlineMetrics = useMemo(() => fixedMetrics(effectiveSummary?.pins, HEADLINE_SPECS), [effectiveSummary?.pins]);
-  const storeAndCustomerMetrics = useMemo(
-    () => fixedMetrics([...(effectiveSummary?.storeMetrics ?? []), ...(effectiveSummary?.ltv ?? [])], STORE_SPECS),
-    [effectiveSummary?.ltv, effectiveSummary?.storeMetrics]
+  const metricCatalog = useMemo(
+    () => buildOverviewMetricCatalog(effectiveSummary, { includeUnavailable: true }),
+    [effectiveSummary],
   );
+  const pinContextKey = workspaceOwnerId && businessId ? `${workspaceOwnerId}:${businessId}` : null;
+  const overviewPinsByContext = usePreferencesStore((state) => state.overviewPinsByContext);
+  const setOverviewPins = usePreferencesStore((state) => state.setOverviewPins);
+  const clearOverviewPins = usePreferencesStore((state) => state.clearOverviewPins);
+  const hasStoredPins = Boolean(
+    pinContextKey && Object.prototype.hasOwnProperty.call(overviewPinsByContext, pinContextKey),
+  );
+  const storedPins = pinContextKey && hasStoredPins
+    ? overviewPinsByContext[pinContextKey] ?? []
+    : undefined;
+  const defaultPinKeys = useMemo(() => {
+    const catalogKeys = new Set(metricCatalog.map((entry) => entry.key));
+    // Keep the stable headline surfaces even when a source read fails. The
+    // card must explain missing data; silently dropping it makes the band look
+    // complete and prevents the owner from customizing that slot.
+    return DEFAULT_KPI_CANDIDATES.filter((key) => catalogKeys.has(key)).slice(0, 5);
+  }, [metricCatalog]);
+
+  // Defaults are never written on first view: an unsaved context keeps
+  // following the current defaults until the owner saves a choice.
+  const selectedPinKeys = storedPins ?? defaultPinKeys;
+  const { layout: savedOverviewLayout, saveLayout } = useOverviewLayoutPreference(businessId);
+  const customization = useOverviewCustomization({
+    context: `${pinContextKey ?? "anonymous"}|${businessId}`,
+    savedKpiKeys: selectedPinKeys,
+    defaultKpiKeys: defaultPinKeys,
+    savedLayout: savedOverviewLayout,
+    onSaveKpis: (keys) => {
+      if (pinContextKey) setOverviewPins(pinContextKey, keys);
+    },
+    onRestoreKpiDefaults: () => {
+      if (pinContextKey) clearOverviewPins(pinContextKey);
+    },
+    onSaveLayout: saveLayout,
+  });
+  const customizationReady = Boolean(dateRangeReady && pinContextKey && metricCatalog.length);
+  const customizing = customization.editing;
+  // Customize is the single entry point; focus returns to it when a session ends.
+  const customizeButtonRef = useRef<HTMLButtonElement>(null);
+  const returnFocusAfterCustomize = useRef(false);
+  useEffect(() => {
+    if (customizing || !returnFocusAfterCustomize.current) return;
+    returnFocusAfterCustomize.current = false;
+    customizeButtonRef.current?.focus();
+  }, [customizing]);
+  const startCustomize = () => {
+    if (!customizationReady) return;
+    returnFocusAfterCustomize.current = true;
+    customization.start();
+  };
+  const storeAovSourceKey = effectiveSummary?.storeMetrics.find((metric) => metric.id === "store-aov")?.dataSource.key;
+  const shopifyStorePrimary = storeAovSourceKey?.startsWith("shopify") ?? false;
+  const ga4StoreFallback = storeAovSourceKey === "ga4_fallback";
+  const storeAndCustomerMetrics = useMemo(() => {
+    const metrics = [...(effectiveSummary?.storeMetrics ?? []), ...(effectiveSummary?.ltv ?? [])];
+    return fixedMetrics(metrics, ga4StoreFallback ? GA4_FALLBACK_STORE_SPECS : SHOPIFY_STORE_SPECS);
+  }, [effectiveSummary?.ltv, effectiveSummary?.storeMetrics, ga4StoreFallback]);
   const webAnalyticsMetrics = useMemo(
     () => fixedMetrics(effectiveSummary?.webAnalytics, WEB_SPECS),
     [effectiveSummary?.webAnalytics]
@@ -520,8 +585,14 @@ export default function OverviewPage() {
     () => fixedPlatformSections(effectiveSummary?.platforms),
     [effectiveSummary?.platforms]
   );
-  const heroMetric = headlineMetrics[0]!;
-  const heroTiles = headlineMetrics.slice(1);
+  const providerDateDomain = effectiveSummary?.dateRange;
+  const providerPreviousDateDomain =
+    effectiveSummary?.comparison.startDate && effectiveSummary.comparison.endDate
+      ? {
+          startDate: effectiveSummary.comparison.startDate,
+          endDate: effectiveSummary.comparison.endDate,
+        }
+      : undefined;
   const windowDayCount = useMemo(() => {
     if (!startDate || !endDate) return null;
     const start = Date.parse(`${startDate}T00:00:00Z`);
@@ -558,9 +629,10 @@ export default function OverviewPage() {
     ],
   );
   const trendPoints = useMemo(
-    () => overviewTrendPoints(sparklineQuery.data?.combined ?? []),
-    [sparklineQuery.data],
+    () => sourceSafeOverviewTrendPoints(sparklineQuery.data, effectiveSummary),
+    [effectiveSummary, sparklineQuery.data],
   );
+  const sourceAttentionCount = sourceHealth.filter((source) => source.state !== "ok").length;
   /*
    * Null when the target pack was not read.
    *
@@ -602,8 +674,110 @@ export default function OverviewPage() {
     return <ErrorState description={errorMessage} onRetry={() => query.refetch()} />;
   }
 
+  const overviewLayoutItems: OverviewLayoutContent[] = [
+    {
+      id: "trend",
+      content: (
+        <TrendPanel
+          currency={currency ?? null}
+          points={trendPoints}
+          surface="overview"
+          targetRoas={economics?.targetRoas ?? null}
+          title={overviewTrendTitle(effectiveSummary)}
+        />
+      ),
+    },
+    ...(economics
+      ? [
+          {
+            id: "economics" as const,
+            content: <EconomicsContext businessId={businessId} model={economics} />,
+          },
+        ]
+      : []),
+    {
+      id: "attribution",
+      content: <AttributionCard rows={attributionRows} currencySymbol={symbol} />,
+    },
+    {
+      id: "meta-morning",
+      content: (
+        <MetaMorningCard
+          brief={metaBriefQuery.data}
+          loading={metaBriefQuery.isLoading}
+          error={
+            metaBriefQuery.error instanceof Error
+              ? metaBriefQuery.error.message
+              : null
+          }
+        />
+      ),
+    },
+    {
+      id: "ai-brief",
+      content: (
+        <AiBriefCard
+          insight={aiBriefQuery.data}
+          loading={aiBriefQuery.isLoading}
+          error={aiBriefActionError ?? (aiBriefQuery.error instanceof Error ? aiBriefQuery.error.message : null)}
+          onRegenerate={handleRegenerateAiBrief}
+          regenerating={aiBriefRegenerating}
+        />
+      ),
+    },
+    ...platformSections.map((platform) => ({
+      id: (platform.provider === "meta" ? "meta-platform" : "google-platform") as
+        | "meta-platform"
+        | "google-platform",
+      content: (
+        <PlatformMiniDashboard
+          key={platform.provider}
+          provider={platform.provider}
+          title={platform.title}
+          metrics={platform.metrics}
+          currencySymbol={symbol}
+          dateDomain={providerDateDomain}
+          previousDateDomain={providerPreviousDateDomain}
+          latestSync={
+            platform.provider === "meta" ? metaStatusQuery.data?.latestSync : googleAdsStatusQuery.data?.latestSync
+          }
+        />
+      ),
+    })),
+    {
+      id: "store-value",
+      content: (
+        <TileCard
+          title={
+            shopifyStorePrimary
+              ? "Store performance · Shopify"
+              : ga4StoreFallback
+                ? "Store & customer value · GA4 fallback"
+                : "Store & customer value"
+          }
+          metrics={storeAndCustomerMetrics}
+          currencySymbol={symbol}
+          line="#0b7954"
+          fill="rgba(14,159,110,0.08)"
+        />
+      ),
+    },
+    {
+      id: "web-analytics",
+      content: (
+        <TileCard
+          title="Web analytics · GA4"
+          metrics={webAnalyticsMetrics}
+          currencySymbol={symbol}
+          line="#B45309"
+          fill="rgba(180,83,9,0.07)"
+        />
+      ),
+    },
+  ];
+
   return (
-    <section data-screen-label="Overview" className="flex flex-col gap-5">
+    <section data-screen-label="Overview" className={`${overviewStyles.page} flex flex-col`}>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="adv-eyebrow" style={{ fontSize: 11 }}>
@@ -615,7 +789,19 @@ export default function OverviewPage() {
             {windowDayCount === null ? "" : `${windowDayCount}-day `}window.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className={`${overviewStyles.headerActions} flex gap-2`}>
+          {customizing ? null : (
+            <button
+              type="button"
+              className={`${overviewStyles.layoutEditButton} adv-btn`}
+              style={{ padding: "0 14px" }}
+              ref={customizeButtonRef}
+              disabled={!customizationReady}
+              onClick={startCustomize}
+            >
+              Customize
+            </button>
+          )}
           <button
             type="button"
             className="adv-btn"
@@ -633,138 +819,56 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      <div
-        data-el="home-kpis"
-        data-overview-section="headline"
-        className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]"
-      >
-        <HeroMetricCard metric={heroMetric} currencySymbol={symbol} />
-        {heroTiles.map((metric, index) => (
-          <HeroTile key={metric.id} metric={metric} currencySymbol={symbol} index={index} />
-        ))}
-      </div>
-
-      {/*
-        Where these numbers come from, and how current they are.
-
-        Above the attribution and the brief on purpose: an operator who is about
-        to read a conclusion needs to know first whether the sources behind it
-        are serving. The panel renders whatever the reads returned — including
-        a read that failed, which says so rather than reporting "not connected".
-      */}
-      <div data-overview-section="source-readiness" data-el="source-readiness">
-        <SourceHealthPanel
-          compact
-          connectHref={integrationsHref}
-          sources={sourceHealth}
+      {customizing ? (
+        <OverviewCustomizeBar
+          dirty={customization.dirty}
+          onCancel={customization.cancel}
+          onSave={customization.save}
         />
-      </div>
-
-      {/*
-        The trend, with the table the contract requires.
-
-        `live:chart-table-toggle` is specific: the toggle swaps the chart for
-        REAL table markup in place, announces the mode, and persists the choice
-        per surface. `TrendPanel` is the component that already does exactly
-        that; this page had a chart and no way to read the numbers behind it.
-      */}
-      <div data-overview-section="trend">
-        <TrendPanel
-          currency={currency ?? null}
-          points={trendPoints}
-          surface="overview"
-          targetRoas={economics?.targetRoas ?? null}
-          title="Spend & ROAS"
-        />
-      </div>
-
-      {economics ? (
-        <div data-overview-section="economics">
-          <EconomicsContext businessId={businessId} model={economics} />
-        </div>
       ) : null}
 
-      {/*
-        The narrow-width way into the day's work.
+      <CustomizableKpiBand
+        catalog={metricCatalog}
+        keys={customization.kpiKeys}
+        defaultKeys={defaultPinKeys}
+        currencySymbol={symbol}
+        loading={query.isLoading}
+        editing={customizing}
+        onKeysChange={customization.setKpiKeys}
+        onRestoreDefaults={customization.restoreKpiDefaults}
+      />
 
-        `live:MOBILE-01` opens Meta Decisions in Tier-0 triage order. Rendered
-        only below the tablet breakpoint: at desktop the rail already carries
-        the same destination, and two routes to one place on one screen is the
-        duplication this product removes elsewhere.
-      */}
       <a
-        className="adv-btn md:hidden"
+        className={`${overviewStyles.mobileTriage} adv-btn`}
         data-ctl="live:MOBILE-01"
         data-overview-section="mobile-triage"
-        /*
-          `/platforms/meta/decisions` has no page. The decisions surface is
-          `/platforms/meta` itself, so the one route this card offered on
-          mobile — the only triage entry point below the tablet breakpoint —
-          answered 404 every time it was pressed.
-        */
         href={`${dashboardHrefForRouteFamily("/platforms/meta", pathname)}?order=tier0`}
-        style={{ minHeight: 44, display: "inline-flex", alignItems: "center" }}
       >
         Start Meta triage
       </a>
 
-      <div
-        data-overview-section="attribution-and-brief"
-        className="grid grid-cols-1 items-start gap-3 lg:[grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]"
-      >
-        <AttributionCard rows={attributionRows} currencySymbol={symbol} />
-        <MetaMorningCard
-          brief={metaBriefQuery.data}
-          loading={metaBriefQuery.isLoading}
-          error={
-            metaBriefQuery.error instanceof Error
-              ? metaBriefQuery.error.message
-              : null
-          }
-        />
-        <AiBriefCard
-          insight={aiBriefQuery.data}
-          loading={aiBriefQuery.isLoading}
-          error={aiBriefActionError ?? (aiBriefQuery.error instanceof Error ? aiBriefQuery.error.message : null)}
-          onRegenerate={handleRegenerateAiBrief}
-          regenerating={aiBriefRegenerating}
-        />
-      </div>
+      <OverviewLayout
+        layout={customization.layout}
+        editing={customizing}
+        items={overviewLayoutItems}
+        onLayoutChange={customization.setLayout}
+      />
 
-      <div data-overview-section="platforms" className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-2">
-        {platformSections.map((platform) => (
-          <PlatformMiniDashboard
-            key={platform.provider}
-            provider={platform.provider}
-            title={platform.title}
-            metrics={platform.metrics}
-            currencySymbol={symbol}
-            latestSync={
-              platform.provider === "meta" ? metaStatusQuery.data?.latestSync : googleAdsStatusQuery.data?.latestSync
-            }
-          />
-        ))}
-      </div>
-
-      <div
-        data-overview-section="store-and-web"
-        className="grid grid-cols-1 items-start gap-3 lg:[grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]"
+      <details
+        className={overviewStyles.sourceFootnote}
+        data-overview-section="source-readiness"
+        data-el="source-readiness"
       >
-        <TileCard
-          title="Store &amp; customer value"
-          metrics={storeAndCustomerMetrics}
-          currencySymbol={symbol}
-          line="#0b7954"
-          fill="rgba(14,159,110,0.08)"
-        />
-        <TileCard
-          title="Web analytics · GA4"
-          metrics={webAnalyticsMetrics}
-          currencySymbol={symbol}
-          line="#B45309"
-          fill="rgba(180,83,9,0.07)"
-        />
-      </div>
+        <summary className={overviewStyles.sourceFootnoteSummary}>
+          <span>Data sources</span>
+          <span className={overviewStyles.sourceFootnoteStatus}>
+            {sourceAttentionCount === 0 ? "All serving" : `${sourceAttentionCount} need attention`}
+          </span>
+        </summary>
+        <div className={overviewStyles.sourceFootnoteBody}>
+          <SourceHealthPanel compact connectHref={integrationsHref} sources={sourceHealth} />
+        </div>
+      </details>
     </section>
   );
 }
@@ -784,9 +888,9 @@ function TileCard({
   fill: string;
 }) {
   return (
-    <article className="adv-card p-4" data-overview-tile-group={title}>
+    <article className={`${overviewStyles.tileCard} adv-card p-4`} data-overview-tile-group={title}>
       <h2 className="adv-card-title mb-3">{title}</h2>
-      <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(130px,1fr))]">
+      <div className={overviewStyles.tileGrid}>
         {metrics.map((metric) => (
           <StatTile key={metric.id} metric={metric} currencySymbol={currencySymbol} line={line} fill={fill} />
         ))}
@@ -803,60 +907,272 @@ function TileCard({
 
 type SparklinePoint = { date: string; value: number };
 
+type CommerceSourceFamily = "shopify" | "ga4" | null;
+const COMMERCE_SOURCE_CONFLICT_HELPER = "Refresh to confirm the current commerce source";
+
+function commerceSourceFamily(summary: OverviewSummaryData): CommerceSourceFamily {
+  const sourceKey = summary.pins.find((metric) => metric.id === "pins-revenue")?.dataSource.key;
+  if (
+    sourceKey === "shopify_ledger" ||
+    sourceKey === "shopify_warehouse" ||
+    sourceKey === "shopify_live_fallback"
+  ) {
+    return "shopify";
+  }
+  return sourceKey === "ga4_fallback" ? "ga4" : null;
+}
+
+function commerceAuthorityMatches(
+  summary: OverviewSummaryData,
+  bundle: SparklineBundle,
+  family = commerceSourceFamily(summary),
+) {
+  if (family === null) return true;
+  const summaryState = summary.shopifyConnectionState ?? "unknown";
+  const bundleState = bundle.shopifyConnectionState ?? "unknown";
+  if (family === "shopify") {
+    return (
+      summaryState === "connected" &&
+      bundleState === "connected" &&
+      bundle.shopifyCommerceAvailable === true
+    );
+  }
+  return (
+    summaryState === "disconnected" &&
+    bundleState === "disconnected" &&
+    bundle.shopifyCommerceAvailable !== true
+  );
+}
+
+function unavailableCommerceCard(card: OverviewMetricCardData): OverviewMetricCardData {
+  return {
+    ...card,
+    value: null,
+    previousValue: null,
+    changePct: null,
+    sparklineData: [],
+    previousSparklineData: [],
+    trendDirection: "neutral",
+    trendSentiment: "neutral",
+    dataSource: { key: "unavailable", label: "Unavailable" },
+    status: "unavailable",
+    helperText: COMMERCE_SOURCE_CONFLICT_HELPER,
+  };
+}
+
+/**
+ * The summary and sparkline endpoints are separate reads. If a Shopify
+ * connect/disconnect lands between them, hide commerce values instead of
+ * combining two contradictory source snapshots. Provider and GA4 web data
+ * remain independently usable.
+ */
+export function reconcileOverviewCommerceSource(
+  summary: OverviewSummaryData,
+  bundle: SparklineBundle,
+): OverviewSummaryData {
+  if (commerceAuthorityMatches(summary, bundle)) return summary;
+  return {
+    ...summary,
+    pins: summary.pins.map((metric) =>
+      metric.id === "pins-spend" || metric.id === "pins-blended-roas"
+        ? metric
+        : unavailableCommerceCard(metric),
+    ),
+    storeMetrics: summary.storeMetrics.map(unavailableCommerceCard),
+    ltv: summary.ltv.map(unavailableCommerceCard),
+    expenses: summary.expenses.map((metric) =>
+      metric.id === "expenses-ad-spend" ? metric : unavailableCommerceCard(metric),
+    ),
+    customMetrics: summary.customMetrics.map(unavailableCommerceCard),
+  };
+}
+
 function rv(value: number, digits = 4): number {
   if (!Number.isFinite(value)) return 0;
   return Number(value.toFixed(digits));
 }
 
-function buildSparklineMap(
+function sourceSafeProviderTrends(
   bundle: SparklineBundle,
-  costModel: BusinessCostModelData | null
-): Record<string, SparklinePoint[]> {
-  const { combined, providerTrends, ga4Daily } = bundle;
+  providerScalarSources: OverviewProviderSourceMap | null | undefined,
+  providerScope?: OverviewPaidProviderScope | null,
+) {
+  if (providerScope && !providerScope.complete) return null;
+  const activeProviders = providerScope
+    ? providerScope.providers.filter((provider) => providerScalarSources?.[provider])
+    : (["meta", "google"] as const).filter((provider) => providerScalarSources?.[provider]);
+  if (providerScope && activeProviders.length !== providerScope.providers.length) return null;
+  if (activeProviders.length === 0) return null;
 
-  const spendSeries = combined.map((p) => ({
-    date: p.date,
-    value: rv(p.spend),
-  }));
-  const revenueSeries = combined.map((p) => ({
+  const compatibleTrends: Partial<
+    Record<"meta" | "google", SparklineBundle["providerTrends"]["meta"]>
+  > = {};
+  for (const provider of activeProviders) {
+    const trends = bundle.providerTrends[provider];
+    if (
+      trends === undefined ||
+      !providerTrendMatchesScalar(
+        provider,
+        providerScalarSources?.[provider],
+        bundle.providerTrendSources?.[provider],
+      )
+    ) {
+      return null;
+    }
+    compatibleTrends[provider] = trends;
+  }
+  return compatibleTrends;
+}
+
+function sourceSafeBlendedRoasSeries(
+  bundle: SparklineBundle,
+  providerScalarSources: OverviewProviderSourceMap | null | undefined,
+  providerScope?: OverviewPaidProviderScope | null,
+): SparklinePoint[] {
+  const compatibleTrends = sourceSafeProviderTrends(bundle, providerScalarSources, providerScope);
+  return compatibleTrends ? buildBlendedProviderRoasSeries(compatibleTrends) : [];
+}
+
+function sourceSafePaidSpendSeries(
+  bundle: SparklineBundle,
+  providerScalarSources: OverviewProviderSourceMap | null | undefined,
+  providerScope?: OverviewPaidProviderScope | null,
+): SparklinePoint[] {
+  const compatibleTrends = sourceSafeProviderTrends(bundle, providerScalarSources, providerScope);
+  return compatibleTrends ? buildPaidProviderSpendSeries(compatibleTrends) : [];
+}
+
+export function buildSparklineMap(
+  bundle: SparklineBundle,
+  costModel: BusinessCostModelData | null,
+  summary: OverviewSummaryData,
+  providerScalarSources: OverviewProviderSourceMap | null | undefined = summary.providerSources?.current,
+  providerScope: OverviewPaidProviderScope | null | undefined = summary.paidProviderScope?.current,
+): Record<string, SparklinePoint[]> {
+  const {
+    providerTrends,
+    ga4Daily,
+    shopifyDaily = [],
+    shopifyCommerceAvailable = false,
+  } = bundle;
+  const summaryConnectionState = summary.shopifyConnectionState ?? "unknown";
+  const bundleConnectionState = bundle.shopifyConnectionState ?? "unknown";
+  const canUseShopifyCommerce =
+    summaryConnectionState === "connected" &&
+    bundleConnectionState === "connected" &&
+    shopifyCommerceAvailable;
+  const canUseGa4Commerce =
+    summaryConnectionState === "disconnected" &&
+    bundleConnectionState === "disconnected" &&
+    !shopifyCommerceAvailable;
+  const trustedShopifyDaily = canUseShopifyCommerce ? shopifyDaily : [];
+  const commerceGa4Daily = canUseGa4Commerce ? ga4Daily : [];
+
+  // Spend is usable only for dates reported by every provider in the scalar
+  // scope. `combined` intentionally contains every calendar date and fills an
+  // absent provider with zero, so using it here would turn missing data into a
+  // measured zero (or a partial Meta/Google denominator).
+  const spendSeries = sourceSafePaidSpendSeries(bundle, providerScalarSources, providerScope);
+  const shopifyRevenueSeries = canUseShopifyCommerce
+    ? trustedShopifyDaily.map((point) => ({
+        date: point.date,
+        value: rv(point.revenue),
+      }))
+    : [];
+  const shopifyPurchaseSeries = canUseShopifyCommerce
+    ? trustedShopifyDaily.map((point) => ({
+        date: point.date,
+        value: rv(point.purchases),
+      }))
+    : [];
+  const ga4RevenueSeries = commerceGa4Daily.map((p) => ({
     date: p.date,
     value: rv(p.revenue),
   }));
-  const purchaseSeries = combined.map((p) => ({
+  const ga4PurchaseSeries = commerceGa4Daily.map((p) => ({
     date: p.date,
     value: rv(p.purchases),
   }));
-  const merSeries = combined.map((p) => ({
-    date: p.date,
-    value: p.spend > 0 ? rv(p.revenue / p.spend) : 0,
-  }));
-  const blendedCpaSeries = combined.map((p) => ({
-    date: p.date,
-    value: p.purchases > 0 ? rv(p.spend / p.purchases) : 0,
-  }));
+  const shopifyAovSeries = trustedShopifyDaily.flatMap((point) => {
+    const revenue = point.grossRevenue ?? point.revenue;
+    return point.purchases > 0
+      ? [{ date: point.date, value: rv(revenue / point.purchases) }]
+      : [];
+  });
+  const shopifyConversionSeries = trustedShopifyDaily.flatMap((point) =>
+    point.conversionRate == null
+      ? []
+      : [{ date: point.date, value: rv(point.conversionRate) }],
+  );
+  const sourceKeyFor = (metrics: OverviewMetricCardData[], id: string) =>
+    metrics.find((metric) => metric.id === id)?.dataSource.key;
+  const isShopifyCommerceSource = (sourceKey: string | undefined) =>
+    sourceKey === "shopify_ledger" ||
+    sourceKey === "shopify_warehouse" ||
+    sourceKey === "shopify_live_fallback";
+  const revenueSourceKey = sourceKeyFor(summary.pins, "pins-revenue");
+  const purchaseSourceKey = sourceKeyFor(summary.pins, "pins-orders");
+  const conversionSourceKey = sourceKeyFor(summary.pins, "pins-conversion-rate");
+  const aovSourceKey = sourceKeyFor(summary.storeMetrics, "store-aov");
+  const revenueSeries = isShopifyCommerceSource(revenueSourceKey)
+    ? shopifyRevenueSeries
+    : revenueSourceKey === "ga4_fallback"
+      ? ga4RevenueSeries
+      : [];
+  const purchaseSeries = isShopifyCommerceSource(purchaseSourceKey)
+    ? shopifyPurchaseSeries
+    : purchaseSourceKey === "ga4_fallback"
+      ? ga4PurchaseSeries
+      : [];
+  const spendByDate = new Map(spendSeries.map((point) => [point.date, point.value]));
+  const verifiedSpendByDate = new Map(
+    sourceSafePaidSpendSeries(bundle, providerScalarSources, providerScope).map((point) => [point.date, point.value]),
+  );
+  const purchasesByDate = new Map(purchaseSeries.map((point) => [point.date, point.value]));
+  const merCard = summary.pins.find((metric) => metric.id === "pins-mer");
+  const merSeries =
+    merCard?.value == null || merCard.status === "unavailable"
+      ? []
+      : revenueSeries
+          .map((point) => {
+            const spend = verifiedSpendByDate.get(point.date);
+            return spend !== undefined && spend > 0
+              ? { date: point.date, value: rv(point.value / spend) }
+              : null;
+          })
+          .filter((point): point is SparklinePoint => point !== null);
+  const blendedCpaSeries = purchaseSeries.map((point) => {
+    const spend = spendByDate.get(point.date) ?? 0;
+    return { date: point.date, value: point.value > 0 ? rv(spend / point.value) : 0 };
+  });
+  const blendedRoasSeries = sourceSafeBlendedRoasSeries(bundle, providerScalarSources, providerScope);
 
   // GA4 daily derived series
-  const ga4AovSeries = ga4Daily.map((p) => ({
+  const ga4AovSeries = commerceGa4Daily.map((p) => ({
     date: p.date,
     value: p.purchases > 0 ? rv(p.revenue / p.purchases) : 0,
   }));
-  const ga4ConvRateSeries = ga4Daily.map((p) => ({
+  const ga4CommerceConvRateSeries = commerceGa4Daily.map((p) => ({
     date: p.date,
     value: p.sessions > 0 ? rv((p.purchases / p.sessions) * 100, 4) : 0,
   }));
-  const ga4NewCustomersSeries = ga4Daily.map((p) => ({
+  const ga4WebConversionRateSeries = ga4Daily.map((p) => ({
+    date: p.date,
+    value: p.sessions > 0 ? rv((p.purchases / p.sessions) * 100, 4) : 0,
+  }));
+  const ga4NewCustomersSeries = commerceGa4Daily.map((p) => ({
     date: p.date,
     value: rv(p.firstTimePurchasers),
   }));
-  const ga4ReturningCustomersSeries = ga4Daily.map((p) => ({
+  const ga4ReturningCustomersSeries = commerceGa4Daily.map((p) => ({
     date: p.date,
     value: rv(Math.max(p.totalPurchasers - p.firstTimePurchasers, 0)),
   }));
-  const ga4RevenuePerCustomerSeries = ga4Daily.map((p) => ({
+  const ga4RevenuePerCustomerSeries = commerceGa4Daily.map((p) => ({
     date: p.date,
     value: p.totalPurchasers > 0 ? rv(p.revenue / p.totalPurchasers) : 0,
   }));
-  const ga4RepeatRateSeries = ga4Daily.map((p) => ({
+  const ga4RepeatRateSeries = commerceGa4Daily.map((p) => ({
     date: p.date,
     value:
       p.totalPurchasers > 0
@@ -876,92 +1192,96 @@ function buildSparklineMap(
     value: rv(p.avgSessionDuration),
   }));
 
-  const aovSeries =
-    ga4AovSeries.length > 0
+  const aovSeries = isShopifyCommerceSource(aovSourceKey)
+    ? shopifyAovSeries
+    : aovSourceKey === "ga4_fallback"
       ? ga4AovSeries
-      : combined.map((p) => ({
-          date: p.date,
-          value: p.purchases > 0 ? rv(p.revenue / p.purchases) : 0,
-        }));
+      : [];
+  const commerceConversionSeries = conversionSourceKey === "shopify_customer_events"
+    ? shopifyConversionSeries
+    : conversionSourceKey === "ga4_fallback"
+      ? ga4CommerceConvRateSeries
+      : [];
+  const customerSourceKey = sourceKeyFor(summary.storeMetrics, "store-new-customers");
+  const customerSeries = customerSourceKey === "ga4_fallback" ? ga4NewCustomersSeries : [];
 
-  const ltvCacSeries = ga4RevenuePerCustomerSeries.map((point, i) => ({
-    date: point.date,
-    value: blendedCpaSeries[i] && blendedCpaSeries[i].value > 0 ? rv(point.value / blendedCpaSeries[i].value) : 0,
-  }));
+  const ltvCacSeries = ga4RevenuePerCustomerSeries.flatMap((point) => {
+    const purchases = purchasesByDate.get(point.date);
+    const spend = spendByDate.get(point.date);
+    return purchases !== undefined && purchases > 0 && spend !== undefined && spend > 0
+      ? [{ date: point.date, value: rv(point.value / (spend / purchases)) }]
+      : [];
+  });
 
   // Cost-model dependent sparklines
   const cm = costModel;
   const totalExpensesSeries: SparklinePoint[] = cm
-    ? revenueSeries.map((point, i) => ({
-        date: point.date,
-        value: rv(
-          (spendSeries[i]?.value ?? 0) +
-            point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent) +
-            cm.fixedCost
-        ),
-      }))
+    ? revenueSeries.flatMap((point) => {
+        const spend = spendByDate.get(point.date);
+        return spend === undefined
+          ? []
+          : [{
+              date: point.date,
+              value: rv(
+                spend +
+                  point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent) +
+                  cm.fixedCost
+              ),
+            }];
+      })
     : spendSeries;
 
   const netProfitSeries: SparklinePoint[] = cm
-    ? revenueSeries.map((point, i) => ({
-        date: point.date,
-        value: rv(
-          point.value -
-            ((spendSeries[i]?.value ?? 0) +
-              point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent) +
-              cm.fixedCost)
-        ),
-      }))
-    : [];
-
-  const contributionMarginSeries: SparklinePoint[] = cm
-    ? revenueSeries.map((point, i) => {
-        const spendVal = spendSeries[i]?.value ?? 0;
-        const varCost = spendVal + point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent);
-        return {
-          date: point.date,
-          value: point.value > 0 ? rv(((point.value - varCost) / point.value) * 100) : 0,
-        };
+    ? revenueSeries.flatMap((point) => {
+        const spend = spendByDate.get(point.date);
+        return spend === undefined
+          ? []
+          : [{
+              date: point.date,
+              value: rv(
+                point.value -
+                  (spend +
+                    point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent) +
+                    cm.fixedCost)
+              ),
+            }];
       })
     : [];
 
-  // Per-provider sparklines (meta, google)
+  const contributionMarginSeries: SparklinePoint[] = cm
+    ? revenueSeries.flatMap((point) => {
+        const spendVal = spendByDate.get(point.date);
+        if (spendVal === undefined) return [];
+        const varCost = spendVal + point.value * (cm.cogsPercent + cm.shippingPercent + cm.feePercent);
+        return [{
+          date: point.date,
+          value: point.value > 0 ? rv(((point.value - varCost) / point.value) * 100) : 0,
+        }];
+      })
+    : [];
+
+  // Per-provider sparklines. Same specs and formulas as the summary route; a
+  // day with a zero or unreported denominator is omitted, never drawn as 0.
   const providerSparklines: Record<string, SparklinePoint[]> = {};
-  for (const [provider, trends] of Object.entries(providerTrends)) {
+  for (const provider of ["meta", "google"] as const) {
+    const trends = providerTrends[provider];
     if (!trends) continue;
-    providerSparklines[`${provider}-spend`] = trends.map((p) => ({
-      date: p.date,
-      value: rv(p.spend),
-    }));
-    providerSparklines[`${provider}-revenue`] = trends.map((p) => ({
-      date: p.date,
-      value: rv(p.revenue),
-    }));
-    providerSparklines[`${provider}-roas`] = trends.map((p) => ({
-      date: p.date,
-      value: p.spend > 0 ? rv(p.revenue / p.spend) : 0,
-    }));
-    providerSparklines[`${provider}-purchases`] = trends.map((p) => ({
-      date: p.date,
-      value: rv(p.purchases),
-    }));
-    providerSparklines[`${provider}-cpa`] = trends.map((p) => ({
-      date: p.date,
-      value: p.purchases > 0 ? rv(p.spend / p.purchases) : 0,
-    }));
+    for (const spec of OVERVIEW_PROVIDER_METRIC_SPECS[provider]) {
+      providerSparklines[providerMetricId(provider, spec.suffix)] = buildProviderMetricSeries(spec.suffix, trends);
+    }
   }
 
   return {
     "pins-revenue": revenueSeries,
     "pins-spend": spendSeries,
     "pins-mer": merSeries,
-    "pins-blended-roas": merSeries,
-    "pins-conversion-rate": ga4ConvRateSeries,
+    "pins-blended-roas": blendedRoasSeries,
+    "pins-conversion-rate": commerceConversionSeries,
     "pins-orders": purchaseSeries,
     "store-aov": aovSeries,
-    "store-conversion-rate": ga4ConvRateSeries,
-    "store-new-customers": ga4NewCustomersSeries,
-    "store-returning-customers": ga4ReturningCustomersSeries,
+    "store-conversion-rate": commerceConversionSeries,
+    "store-new-customers": customerSeries,
+    "store-returning-customers": customerSourceKey === "ga4_fallback" ? ga4ReturningCustomersSeries : [],
     "ltv-average": ga4RevenuePerCustomerSeries,
     "ltv-cac": ltvCacSeries,
     "ltv-repeat-rate": ga4RepeatRateSeries,
@@ -976,12 +1296,13 @@ function buildSparklineMap(
     "web-sessions": ga4SessionsSeries,
     "web-session-duration": ga4SessionDurationSeries,
     "web-engagement-rate": ga4EngagementSeries,
-    "web-conversion-rate": ga4ConvRateSeries,
+    "web-conversion-rate": ga4WebConversionRateSeries,
     ...providerSparklines,
   };
 }
 
 function patchCard(card: OverviewMetricCardData, sparkMap: Record<string, SparklinePoint[]>): OverviewMetricCardData {
+  if (card.helperText === COMMERCE_SOURCE_CONFLICT_HELPER) return card;
   const patches = sparkMap[card.id];
   if (!patches || patches.length === 0) return card;
   return { ...card, sparklineData: patches };
@@ -991,41 +1312,174 @@ function patchCardComparison(
   card: OverviewMetricCardData,
   sparkMap: Record<string, SparklinePoint[]>
 ): OverviewMetricCardData {
+  if (card.helperText === COMMERCE_SOURCE_CONFLICT_HELPER) return card;
   const patches = sparkMap[card.id];
   if (!patches || patches.length === 0) return card;
   return { ...card, previousSparklineData: patches };
 }
 
-function patchSummarySparklines(summary: OverviewSummaryData, bundle: SparklineBundle): OverviewSummaryData {
-  const sparkMap = buildSparklineMap(bundle, summary.costModel.values);
+/**
+ * Provider sparklines are drawn only when the trend was read from the same
+ * source family as that window's platform scalars. A live scalar (Meta today or
+ * live historical fallback, Google's current-day overlay) never receives a
+ * warehouse trend, and a missing or unknown source on either side fails closed.
+ */
+function gateProviderSparklines(
+  sparkMap: Record<string, SparklinePoint[]>,
+  scalarSources: OverviewProviderSourceMap | null | undefined,
+  bundle: SparklineBundle,
+  /**
+   * For comparison series only: the current window's scalar sources. The
+   * dashed previous line is drawn only when the two windows are comparable.
+   */
+  currentScalarSources?: OverviewProviderSourceMap | null,
+) {
+  const allowed = (provider: "meta" | "google") =>
+    providerTrendMatchesScalar(provider, scalarSources?.[provider], bundle.providerTrendSources?.[provider]) &&
+    (currentScalarSources === undefined ||
+      providerScalarSourcesComparable(provider, currentScalarSources?.[provider], scalarSources?.[provider]));
+  const compatible: Record<"meta" | "google", boolean> = {
+    meta: allowed("meta"),
+    google: allowed("google"),
+  };
+  const gatedMap = Object.fromEntries(
+    Object.entries(sparkMap).filter(([id]) => {
+      const provider = providerForMetricId(id);
+      return provider === null || compatible[provider];
+    }),
+  );
+  return { gatedMap, compatible };
+}
+
+export function patchSummarySparklines(summary: OverviewSummaryData, bundle: SparklineBundle): OverviewSummaryData {
+  const reconciledSummary = reconcileOverviewCommerceSource(summary, bundle);
+  const sparkMap = buildSparklineMap(bundle, reconciledSummary.costModel.values, reconciledSummary);
+  const { gatedMap, compatible } = gateProviderSparklines(
+    sparkMap,
+    reconciledSummary.providerSources?.current,
+    bundle,
+  );
   return {
-    ...summary,
-    pins: summary.pins.map((m) => patchCard(m, sparkMap)),
-    storeMetrics: summary.storeMetrics.map((m) => patchCard(m, sparkMap)),
-    ltv: summary.ltv.map((m) => patchCard(m, sparkMap)),
-    expenses: summary.expenses.map((m) => patchCard(m, sparkMap)),
-    customMetrics: summary.customMetrics.map((m) => patchCard(m, sparkMap)),
-    webAnalytics: summary.webAnalytics.map((m) => patchCard(m, sparkMap)),
-    platforms: summary.platforms.map((platform) => ({
+    ...reconciledSummary,
+    pins: reconciledSummary.pins.map((m) =>
+      m.id === "pins-blended-roas" && !gatedMap[m.id]
+        ? { ...m, sparklineData: [] }
+        : patchCard(m, gatedMap),
+    ),
+    storeMetrics: reconciledSummary.storeMetrics.map((m) => patchCard(m, gatedMap)),
+    ltv: reconciledSummary.ltv.map((m) => patchCard(m, gatedMap)),
+    expenses: reconciledSummary.expenses.map((m) => patchCard(m, gatedMap)),
+    customMetrics: reconciledSummary.customMetrics.map((m) => patchCard(m, gatedMap)),
+    webAnalytics: reconciledSummary.webAnalytics.map((m) => patchCard(m, gatedMap)),
+    platforms: reconciledSummary.platforms.map((platform) => ({
       ...platform,
-      metrics: platform.metrics.map((m) => patchCard(m, sparkMap)),
+      metrics: platform.metrics.map((m) => {
+        const provider = providerForMetricId(m.id);
+        // Clear rather than keep: an incompatible card must not show any
+        // trend, including one that arrived with the summary itself.
+        if (provider && !compatible[provider]) return { ...m, sparklineData: [] };
+        return patchCard(m, gatedMap);
+      }),
     })),
   };
 }
 
-function patchSummaryComparisonSparklines(summary: OverviewSummaryData, bundle: SparklineBundle): OverviewSummaryData {
-  const sparkMap = buildSparklineMap(bundle, summary.costModel.values);
+export function patchSummaryComparisonSparklines(
+  summary: OverviewSummaryData,
+  bundle: SparklineBundle,
+): OverviewSummaryData {
+  const previousProviderSources = summary.providerSources?.previous;
+  const currentProviderScope = summary.paidProviderScope?.current;
+  const previousProviderScope = summary.paidProviderScope?.previous;
+  const blendedComparisonComparable =
+    (currentProviderScope?.complete ?? true) &&
+    (previousProviderScope?.complete ?? true) &&
+    providerScalarSourceSetsComparable(summary.providerSources?.current, previousProviderSources);
+  const sparkMap = buildSparklineMap(
+    bundle,
+    summary.costModel.values,
+    summary,
+    previousProviderSources,
+    previousProviderScope,
+  );
+  // The summary contract carries source-gated scalar comparisons but no
+  // previous-period commerce source metadata. Preserve only provider-owned
+  // comparison series; otherwise a changed Shopify/GA4 source could be drawn
+  // as if both periods shared one commerce truth.
+  const safeComparisonMap = Object.fromEntries(
+    Object.entries(sparkMap).filter(([id]) =>
+      id === "pins-spend" ||
+      (id === "pins-blended-roas" && blendedComparisonComparable) ||
+      id === "expenses-ad-spend" ||
+      id.startsWith("web-") ||
+      id.startsWith("meta-") ||
+      id.startsWith("google-"),
+    ),
+  );
+  // Provider comparison series are gated against the PREVIOUS window's scalar
+  // sources, and drawn only when those match the current window's source.
+  const { gatedMap, compatible } = gateProviderSparklines(
+    safeComparisonMap,
+    summary.providerSources?.previous,
+    bundle,
+    summary.providerSources?.current ?? null,
+  );
   return {
     ...summary,
-    pins: summary.pins.map((m) => patchCardComparison(m, sparkMap)),
-    storeMetrics: summary.storeMetrics.map((m) => patchCardComparison(m, sparkMap)),
-    ltv: summary.ltv.map((m) => patchCardComparison(m, sparkMap)),
-    expenses: summary.expenses.map((m) => patchCardComparison(m, sparkMap)),
-    customMetrics: summary.customMetrics.map((m) => patchCardComparison(m, sparkMap)),
-    webAnalytics: summary.webAnalytics.map((m) => patchCardComparison(m, sparkMap)),
+    pins: summary.pins.map((m) =>
+      m.id === "pins-blended-roas" && !gatedMap[m.id]
+        ? { ...m, previousSparklineData: [] }
+        : patchCardComparison(m, gatedMap),
+    ),
+    storeMetrics: summary.storeMetrics.map((m) => patchCardComparison(m, gatedMap)),
+    ltv: summary.ltv.map((m) => patchCardComparison(m, gatedMap)),
+    expenses: summary.expenses.map((m) => patchCardComparison(m, gatedMap)),
+    customMetrics: summary.customMetrics.map((m) => patchCardComparison(m, gatedMap)),
+    webAnalytics: summary.webAnalytics.map((m) => patchCardComparison(m, gatedMap)),
     platforms: summary.platforms.map((platform) => ({
       ...platform,
-      metrics: platform.metrics.map((m) => patchCardComparison(m, sparkMap)),
+      metrics: platform.metrics.map((m) => {
+        const provider = providerForMetricId(m.id);
+        if (provider && !compatible[provider]) return { ...m, previousSparklineData: [] };
+        return patchCardComparison(m, gatedMap);
+      }),
     })),
   };
+}
+
+export function sourceSafeOverviewTrendPoints(
+  bundle: SparklineBundle | undefined,
+  summary: OverviewSummaryData | undefined,
+) {
+  if (!bundle || !summary) return [];
+  const spendSeries = sourceSafePaidSpendSeries(
+    bundle,
+    summary.providerSources?.current,
+    summary.paidProviderScope?.current,
+  );
+  const blendedByDate = new Map(
+    sourceSafeBlendedRoasSeries(
+      bundle,
+      summary.providerSources?.current,
+      summary.paidProviderScope?.current,
+    ).map((point) => [point.date, point.value]),
+  );
+  return spendSeries.map((point) => ({
+    date: point.date,
+    spend: point.value,
+    roas: blendedByDate.get(point.date) ?? null,
+  }));
+}
+
+export function overviewTrendTitle(summary: OverviewSummaryData | undefined) {
+  const scope = summary?.paidProviderScope?.current;
+  const activeProviders = scope
+    ? scope.complete
+      ? scope.providers
+      : []
+    : (["meta", "google"] as const).filter((provider) => summary?.providerSources?.current?.[provider]);
+  if (activeProviders.length === 1) {
+    return `${activeProviders[0] === "meta" ? "Meta Ads" : "Google Ads"} Spend & ROAS`;
+  }
+  return "Spend & Blended ROAS";
 }

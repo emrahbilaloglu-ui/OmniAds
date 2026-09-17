@@ -57,6 +57,26 @@ describe("canonical Overview metric formatting", () => {
     );
   });
 
+  it("formats provider diagnostics and keeps fractional Google conversions", () => {
+    const google = (id: string, unit: "count" | "currency" | "percent") => ({ id, title: id, unit });
+    expect(formatOverviewMetricValue(google("google-purchases", "count"), 12.5, "$")).toBe("12.5");
+    expect(formatOverviewMetricValue(google("google-purchases", "count"), 4.83, "$")).toBe("4.83");
+    expect(formatOverviewMetricValue(google("google-purchases", "count"), 1200, "$")).toBe("1,200");
+    // Meta purchases stay whole numbers.
+    expect(formatOverviewMetricValue({ id: "meta-purchases", title: "Purchases", unit: "count" }, 12.5, "$")).toBe("13");
+    expect(formatOverviewSparklineValue(google("google-purchases", "count"), 1.25, "$")).toBe("1.25");
+
+    expect(formatOverviewSparklineValue({ id: "meta-cpm", title: "CPM", unit: "currency" }, 12.345, "$")).toBe("$12.35");
+    expect(formatOverviewSparklineValue({ id: "meta-cpc", title: "All-click CPC", unit: "currency" }, 0.4, "$")).toBe(
+      "$0.40",
+    );
+    expect(formatOverviewSparklineValue(google("google-cpc", "currency"), 0.75, "")).toBe("—");
+    expect(formatOverviewSparklineValue({ id: "meta-ctr", title: "All-click CTR", unit: "percent" }, 1.8182, "$")).toBe(
+      "1.82%",
+    );
+    expect(formatOverviewSparklineValue(google("google-conversion-rate", "percent"), 12.5, "$")).toBe("12.50%");
+  });
+
   it("uses each canonical card's formatter at boundary values", () => {
     expect(formatOverviewSparklineValue({ id: "web-sessions", title: "Sessions", unit: "count" }, 900, "$")).toBe(
       "0.9k"

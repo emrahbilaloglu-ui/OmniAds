@@ -1,16 +1,25 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { dashboardHrefForRouteFamily } from "@/lib/dashboard-v2/screen-registry";
+import {
+  OVERVIEW_PROVIDER_METRIC_SPECS,
+  providerMetricId,
+  type OverviewProvider,
+  type ProviderMetricSpec,
+} from "@/lib/overview-provider-metrics";
 import type { OverviewMetricCardData } from "@/src/types/models";
-import { AdvSparkline } from "./adv-sparkline";
+import { AdvSparkline, type SparklineDateDomain } from "./adv-sparkline";
+import { DeltaChip } from "./metric-band";
 import { formatOverviewMetricValue, formatOverviewSparklineValue } from "./metric-format";
+import styles from "./platform-card.module.css";
 import {
   SYNC_AGE_UNKNOWN_LABEL,
   isUnknownSyncAgeLabel,
 } from "@/lib/provider-sync-vocabulary";
 
-const PROVIDER_META: Record<string, { label: string; logo: string; href: string; cta: string }> = {
+const PROVIDER_META: Record<OverviewProvider, { label: string; logo: string; href: string; cta: string }> = {
   meta: {
     label: "Meta Ads",
     logo: "/platform-logos/Meta.png",
@@ -25,24 +34,14 @@ const PROVIDER_META: Record<string, { label: string; logo: string; href: string;
   },
 };
 
-const PLATFORM_STAT_SLOTS = [
-  { key: "spend", label: "Spend", aliases: ["spend"] },
-  { key: "revenue", label: "Revenue", aliases: ["revenue"] },
-  { key: "roas", label: "ROAS", aliases: ["roas"] },
-  {
-    key: "purchases",
-    label: "Purchases",
-    aliases: ["purchases", "conversions"],
-  },
-  { key: "cpa", label: "CPA", aliases: ["cpa"] },
-] as const;
+const SPARKLINE_HEIGHT = 30;
 
-function metricForSlot(metrics: OverviewMetricCardData[], slot: (typeof PLATFORM_STAT_SLOTS)[number]) {
-  return metrics.find((metric) => {
-    const id = metric.id.toLowerCase();
-    const title = metric.title.trim().toLowerCase();
-    return slot.aliases.some((alias) => id === alias || id.endsWith(`-${alias}`) || title === alias);
-  });
+function isOverviewProvider(value: string): value is OverviewProvider {
+  return value === "meta" || value === "google";
+}
+
+function isAvailable(metric: OverviewMetricCardData | undefined): metric is OverviewMetricCardData {
+  return Boolean(metric && metric.status !== "unavailable" && metric.value !== null && Number.isFinite(metric.value));
 }
 
 export function formatProviderSyncLabel(
@@ -61,22 +60,105 @@ export function formatProviderSyncLabel(
   return `Synced ${Math.round(hours / 24)}d ago`;
 }
 
+function ProviderStatTile({
+  provider,
+  providerLabel,
+  spec,
+  metric,
+  currencySymbol,
+  dateDomain,
+  previousDateDomain,
+}: {
+  provider: OverviewProvider;
+  providerLabel: string;
+  spec: ProviderMetricSpec;
+  metric: OverviewMetricCardData | undefined;
+  currencySymbol: string;
+  dateDomain?: SparklineDateDomain;
+  previousDateDomain?: SparklineDateDomain;
+}) {
+  const id = providerMetricId(provider, spec.suffix);
+  const available = isAvailable(metric);
+  // The card's own identity (id/title/unit) always comes from the spec, so the
+  // label, the formatter and the sparkline tooltip can never disagree.
+  const identity = { id, title: spec.title, unit: spec.unit };
+  const showDelta = available && metric.changePct !== null && Number.isFinite(metric.changePct);
+  const reason = metric?.helperText ?? "No verified data for this window";
+
+  return (
+    <li
+      className={`${styles.stat} min-w-0 rounded-[10px] bg-[#F7F9FC] px-3 pb-2.5 pt-3`}
+      data-provider-metric-id={id}
+      data-metric-state={available ? "available" : "unavailable"}
+    >
+      <div className="flex min-h-[20px] items-center justify-between gap-2">
+        <p
+          className="m-0 min-w-0 truncate text-[10px] uppercase tracking-[0.08em] text-[#555d6d]"
+          style={{ fontFamily: "var(--adv-font-mono)" }}
+        >
+          {spec.title}
+        </p>
+        {showDelta ? (
+          <span className="shrink-0" data-provider-metric-delta="">
+            <DeltaChip metric={metric} />
+            <span className="sr-only"> vs previous period</span>
+          </span>
+        ) : null}
+      </div>
+      <p
+        className={`${styles.value} m-0 mt-1.5 whitespace-nowrap text-[18px] font-semibold text-[#0E1526]`}
+        style={{
+          fontFamily: "var(--adv-font-display)",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {available ? formatOverviewMetricValue(identity, metric.value, currencySymbol) : "—"}
+      </p>
+      {available ? (
+        <AdvSparkline
+          points={metric.sparklineData}
+          previousPoints={metric.previousSparklineData}
+          dateDomain={dateDomain}
+          previousDateDomain={previousDateDomain}
+          line="#2a5fe2"
+          fill="rgba(47,107,255,0.08)"
+          height={SPARKLINE_HEIGHT}
+          format={(value) => formatOverviewSparklineValue(identity, value, currencySymbol)}
+          ariaLabel={`${providerLabel} ${spec.title} trend`}
+          marginTop={8}
+        />
+      ) : (
+        <p
+          className={`${styles.reason} m-0 mt-2 text-[11px] leading-[15px] text-[#555d6d]`}
+          style={{ minHeight: SPARKLINE_HEIGHT }}
+        >
+          {reason}
+        </p>
+      )}
+    </li>
+  );
+}
+
 export function PlatformMiniDashboard({
   provider,
   title,
   metrics,
   currencySymbol,
   latestSync,
+  dateDomain,
+  previousDateDomain,
 }: {
   provider: string;
   title: string;
   metrics: OverviewMetricCardData[];
   currencySymbol: string;
   latestSync?: { finishedAt?: string | null; status?: string | null } | null;
+  dateDomain?: SparklineDateDomain;
+  previousDateDomain?: SparklineDateDomain;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const meta = PROVIDER_META[provider];
+  const knownProvider = isOverviewProvider(provider) ? provider : null;
+  const meta = knownProvider ? PROVIDER_META[knownProvider] : null;
   const label = meta?.label ?? title;
   const syncLabel = formatProviderSyncLabel(latestSync?.finishedAt, latestSync?.status);
   // The pill used to be success-green for every status, so a failed, missing or
@@ -84,90 +166,77 @@ export function PlatformMiniDashboard({
   // the card actually renders: only a completed sync with a valid timestamp is
   // positive.
   const syncTone = isUnknownSyncAgeLabel(syncLabel) ? "neutral" : "positive";
-  const stats = PLATFORM_STAT_SLOTS.map((slot) => ({
-    ...slot,
-    metric: metricForSlot(metrics, slot),
-  }));
+  const specs = knownProvider ? OVERVIEW_PROVIDER_METRIC_SPECS[knownProvider] : [];
+  const headingId = `overview-provider-${provider}-heading`;
 
   return (
-    <article data-overview-provider={provider} className="adv-card flex flex-col gap-3.5 p-4">
-      <div className="flex items-center gap-2.5">
-        <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px] border border-[#E4E8F0] bg-[#F1F4F9]">
-          {meta ? (
-            <span
-              role="img"
-              aria-label={label}
-              className="inline-block h-[17px] w-[17px] bg-contain bg-center bg-no-repeat"
-              style={{ backgroundImage: `url(${meta.logo})` }}
-            />
-          ) : null}
-        </span>
-        <span
-          className="text-[15px] font-semibold text-[var(--adv-ink)]"
-          style={{ fontFamily: "var(--adv-font-display)" }}
-        >
-          {label}
-        </span>
-        <span
-          className="inline-flex items-center rounded-full text-[11px] font-semibold"
-          data-sync-tone={syncTone}
-          style={{
-            gap: 5,
-            padding: "2px 9px",
-            background: syncTone === "positive" ? "#E7F6F0" : "#EEF1F6",
-            color: syncTone === "positive" ? "#0b7954" : "#555d6d",
-          }}
-        >
-          <span className="h-[5px] w-[5px] rounded-full bg-current" />
-          {syncLabel}
-        </span>
-        {meta ? (
+    // The size container sits OUTSIDE the padded card so its breakpoints are
+    // measured against the card's own rendered width, not its content box.
+    <div className={styles.cardContainer} data-platform-card-container="">
+      <article
+        data-overview-provider={provider}
+        aria-labelledby={headingId}
+        className={`${styles.card} adv-card flex flex-col gap-3.5 p-4`}
+      >
+        <div className={`${styles.header} flex items-center gap-2.5`}>
           <span
-            onClick={() => router.push(dashboardHrefForRouteFamily(meta.href, pathname))}
-            className="ml-auto text-[12.5px] font-semibold text-[var(--adv-accent)]"
-            style={{ cursor: "pointer" }}
+            aria-hidden="true"
+            className="grid h-[30px] w-[30px] place-items-center rounded-[9px] border border-[#E4E8F0] bg-[#F1F4F9]"
           >
-            {meta.cta} →
+            {meta ? (
+              // Decorative: the adjacent h2 already names the provider.
+              <span
+                className="inline-block h-[17px] w-[17px] bg-contain bg-center bg-no-repeat"
+                style={{ backgroundImage: `url(${meta.logo})` }}
+              />
+            ) : null}
           </span>
-        ) : null}
-      </div>
-      <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(96px,1fr))]">
-        {stats.map(({ key, label: statLabel, metric }) => (
-          <div key={key} className="min-w-0 rounded-[10px] bg-[#F7F9FC] px-[10px] pb-2 pt-[10px]">
-            <p
-              className="m-0 truncate text-[9px] uppercase tracking-[0.08em] text-[#555d6d]"
-              style={{ fontFamily: "var(--adv-font-mono)" }}
+          <h2
+            id={headingId}
+            className="m-0 text-[15px] font-semibold text-[var(--adv-ink)]"
+            style={{ fontFamily: "var(--adv-font-display)" }}
+          >
+            {label}
+          </h2>
+          <span
+            className="inline-flex items-center rounded-full text-[11px] font-semibold"
+            data-sync-tone={syncTone}
+            style={{
+              gap: 5,
+              padding: "2px 9px",
+              background: syncTone === "positive" ? "#E7F6F0" : "#EEF1F6",
+              color: syncTone === "positive" ? "#0b7954" : "#555d6d",
+            }}
+          >
+            <span className="h-[5px] w-[5px] rounded-full bg-current" />
+            {syncLabel}
+          </span>
+          {meta ? (
+            <Link
+              href={dashboardHrefForRouteFamily(meta.href, pathname)}
+              className={`${styles.cta} ml-auto text-[12.5px] font-semibold text-[var(--adv-accent)]`}
             >
-              {statLabel}
-            </p>
-            <p
-              className="m-0 mt-[5px] whitespace-nowrap text-[16px] font-semibold text-[#0E1526]"
-              style={{
-                fontFamily: "var(--adv-font-display)",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {!metric || metric.status === "unavailable" || metric.value === null
-                ? "—"
-                : formatOverviewMetricValue(metric, metric.value, currencySymbol)}
-            </p>
-            <AdvSparkline
-              points={metric?.status === "unavailable" ? [] : (metric?.sparklineData ?? [])}
-              previousPoints={metric?.status === "unavailable" ? undefined : metric?.previousSparklineData}
-              line="#2a5fe2"
-              fill="rgba(47,107,255,0.08)"
-              height={24}
-              format={(value) =>
-                metric && metric.status !== "unavailable"
-                  ? formatOverviewSparklineValue(metric, value, currencySymbol)
-                  : "—"
-              }
-              ariaLabel={`${label} ${statLabel} trend`}
-              marginTop={8}
-            />
-          </div>
-        ))}
-      </div>
-    </article>
+              {meta.cta} <span aria-hidden="true">→</span>
+            </Link>
+          ) : null}
+        </div>
+        <ul role="list" aria-label={`${label} metrics`} className={styles.stats}>
+          {knownProvider
+            ? specs.map((spec) => (
+                <ProviderStatTile
+                  key={spec.suffix}
+                  provider={knownProvider}
+                  providerLabel={label}
+                  spec={spec}
+                  metric={metrics.find((candidate) => candidate.id === providerMetricId(knownProvider, spec.suffix))}
+                  currencySymbol={currencySymbol}
+                  dateDomain={dateDomain}
+                  previousDateDomain={previousDateDomain}
+                />
+              ))
+            : null}
+        </ul>
+      </article>
+    </div>
   );
 }

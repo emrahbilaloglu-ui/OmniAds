@@ -1,0 +1,529 @@
+/*
+ * Overview KPI band.
+ *
+ * The band measures its own width (not the viewport) and picks a tier:
+ *   narrow  < 330px   1 card per row
+ *   small   330–679   2 per row
+ *   medium  680–1039  3 per row
+ *   wide    >= 1040   4 per row
+ * Each card carries its span for every tier as a CSS variable computed by
+ * `kpiRowSpans`, so a short last row divides the width evenly.
+ *
+ * The container is declared and queried in this one module so its name keeps
+ * a single spelling.
+ */
+
+.shell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  container: overview-kpis / inline-size;
+}
+
+.header {
+  display: flex;
+  min-height: 34px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.headerTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.headerTitle h2 {
+  margin: 0;
+  color: var(--adv-ink);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.headerTitle span {
+  color: var(--adv-ink-3);
+  font-size: 12px;
+}
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.textButton {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--adv-ink-3);
+  white-space: nowrap;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.textButton svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+
+.textButton:not([aria-disabled="true"]):hover {
+  background: var(--adv-fill);
+  color: var(--adv-ink);
+}
+
+.textButton[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.editHint {
+  margin: -2px 0 2px;
+  color: var(--adv-ink-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* ---------- grid ---------- */
+
+.band {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 164px;
+  flex-direction: column;
+  gap: 8px;
+  grid-column: span var(--kpi-span-narrow, 12);
+  container: kpi-card / inline-size;
+}
+
+.item > article {
+  flex: 1;
+}
+
+@container overview-kpis (min-width: 330px) {
+  .item {
+    grid-column: span var(--kpi-span-small, 6);
+  }
+}
+
+@container overview-kpis (min-width: 680px) {
+  .band {
+    gap: 16px;
+  }
+
+  .item {
+    min-height: 175px;
+    grid-column: span var(--kpi-span-medium, 4);
+  }
+}
+
+@container overview-kpis (min-width: 1040px) {
+  .item {
+    grid-column: span var(--kpi-span-wide, 3);
+  }
+}
+
+/* ---------- card typography scales with the card, not the viewport ---------- */
+
+.item [data-kpi-value] {
+  white-space: nowrap;
+}
+
+.item [data-kpi-value="primary"] {
+  font-size: clamp(22px, 12cqi, 42px);
+}
+
+.item [data-kpi-value="tile"] {
+  font-size: clamp(20px, 9cqi, 26px);
+}
+
+@container kpi-card (max-width: 219px) {
+  .item > article {
+    padding: 14px 12px;
+  }
+}
+
+/* ---------- customize mode ---------- */
+
+.item[data-editing] {
+  border-radius: calc(var(--adv-r-card) + 4px);
+  outline: 1px dashed var(--adv-accent-bd);
+  outline-offset: 4px;
+  cursor: grab;
+  transition: opacity 120ms ease, outline-color 120ms ease;
+}
+
+.item[data-editing]:active {
+  cursor: grabbing;
+}
+
+.item[data-dragging] {
+  opacity: 0.45;
+}
+
+.item[data-drop-target] {
+  outline: 2px solid var(--adv-accent);
+  outline-offset: 4px;
+}
+
+.controls {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.controlGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.iconButton {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--adv-border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--adv-ink-2);
+  cursor: pointer;
+  font: inherit;
+}
+
+/* The grip is a drag affordance, not a control: the card itself is draggable. */
+.handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--adv-ink-3);
+  cursor: grab;
+  font-family: var(--adv-font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.handle svg,
+.iconButton svg {
+  width: 15px;
+  height: 15px;
+}
+
+.iconButton:not([aria-disabled="true"]):hover {
+  border-color: var(--adv-accent-bd);
+  color: var(--adv-accent);
+}
+
+.removeButton:not([aria-disabled="true"]):hover {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.iconButton[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.addItem {
+  min-height: 164px;
+}
+
+.addTile {
+  display: flex;
+  width: 100%;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--adv-border);
+  border-radius: var(--adv-r-card);
+  background: transparent;
+  color: var(--adv-ink-3);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.addTile svg {
+  width: 20px;
+  height: 20px;
+}
+
+.addTile:hover,
+.addTile[data-state="open"] {
+  border-color: var(--adv-accent-bd);
+  background: var(--adv-accent-bg);
+  color: var(--adv-accent);
+}
+
+@container overview-kpis (min-width: 680px) {
+  /* Beside other cards, the add tile lines up under their control rows. */
+  .addItem {
+    min-height: 175px;
+    padding-top: 40px;
+  }
+
+  @media (pointer: coarse) {
+    .addItem {
+      padding-top: 52px;
+    }
+  }
+}
+
+.textButton:focus-visible,
+.iconButton:focus-visible,
+.addTile:focus-visible,
+.pickerOption:focus-visible {
+  outline: 2px solid var(--adv-accent);
+  outline-offset: 2px;
+}
+
+/* ---------- loading and empty ---------- */
+
+.skeleton {
+  border-radius: var(--adv-r-card);
+  background: linear-gradient(100deg, var(--adv-fill) 25%, #ffffff 50%, var(--adv-fill) 75%);
+  background-size: 200% 100%;
+  animation: kpi-loading 1.4s ease-in-out infinite;
+}
+
+@keyframes kpi-loading {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.empty {
+  display: flex;
+  min-height: 132px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  grid-column: 1 / -1;
+  border: 1px dashed var(--adv-border);
+  border-radius: var(--adv-r-card);
+  color: var(--adv-ink-3);
+  font-size: 12px;
+  text-align: center;
+}
+
+.empty strong {
+  color: var(--adv-ink-2);
+  font-size: 13px;
+}
+
+/* ---------- metric picker ---------- */
+
+.picker {
+  z-index: 1100;
+  display: flex;
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(460px, var(--radix-popover-content-available-height, 460px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--adv-border);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgb(15 23 42 / 16%);
+  color: var(--adv-ink);
+}
+
+.pickerTitle {
+  margin: 0;
+  padding: 12px 14px 0;
+  color: var(--adv-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.pickerSearch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 10px 12px 6px;
+}
+
+.pickerSearch > svg {
+  position: absolute;
+  left: 11px;
+  width: 14px;
+  height: 14px;
+  color: var(--adv-ink-3);
+  pointer-events: none;
+}
+
+.pickerSearch input {
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--adv-border);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0 10px 0 32px;
+  color: var(--adv-ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.pickerSearch input:focus {
+  border-color: var(--adv-accent);
+  box-shadow: 0 0 0 3px var(--adv-accent-bg);
+  outline: none;
+}
+
+.pickerList {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 6px 8px;
+}
+
+.pickerGroup + .pickerGroup {
+  margin-top: 8px;
+}
+
+.pickerGroupLabel {
+  margin: 6px 8px 4px;
+  color: var(--adv-ink-3);
+  font-family: var(--adv-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.pickerOption {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--adv-ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.pickerOption:not([aria-disabled="true"]):hover {
+  background: var(--adv-accent-bg);
+}
+
+.pickerOption > svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  color: var(--adv-accent);
+}
+
+.pickerOption[aria-disabled="true"] {
+  cursor: default;
+}
+
+.pickerOption[aria-disabled="true"] strong {
+  color: var(--adv-ink-3);
+}
+
+.pickerOptionCopy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pickerOptionCopy strong {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickerOptionCopy small {
+  color: var(--adv-ink-3);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pickerEmpty {
+  margin: 12px 8px;
+  color: var(--adv-ink-3);
+  font-size: 12px;
+  text-align: center;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- touch and motion ---------- */
+
+@media (pointer: coarse) {
+  .textButton,
+  .iconButton {
+    min-height: 44px;
+  }
+
+  .iconButton {
+    width: 44px;
+  }
+
+  .pickerOption {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+
+  .item[data-editing],
+  .textButton,
+  .addTile {
+    transition: none;
+  }
+}

@@ -1722,6 +1722,7 @@ describe("meta historical serving", () => {
         updatedAt: "2026-04-02T00:00:00Z",
       },
     ] as never);
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([]);
 
     const trends = await getMetaWarehouseTrends({
       businessId: "biz-1",
@@ -1736,6 +1737,134 @@ describe("meta historical serving", () => {
       spend: 25,
       revenue: 50,
       conversions: 2,
+    });
+  });
+
+  describe("summary and trend warehouse scope", () => {
+    const metrics = (spend: number, impressions: number, clicks: number) => ({
+      spend,
+      impressions,
+      clicks,
+      reach: impressions,
+      frequency: 1,
+      conversions: 1,
+      revenue: spend * 2,
+      roas: 2,
+      cpa: spend,
+      ctr: null,
+      cpc: null,
+    });
+    const accountRow = (date: string, spend: number) => ({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      date,
+      accountName: "Account 1",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      ...metrics(spend, spend * 10, spend),
+      sourceSnapshotId: null,
+      updatedAt: "2026-04-02T00:00:00Z",
+    });
+    const campaignRow = (date: string, campaignId: string, spend: number) => ({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      date,
+      campaignId,
+      campaignNameCurrent: campaignId,
+      campaignNameHistorical: campaignId,
+      campaignStatus: "ACTIVE",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      ...metrics(spend, spend * 10, spend),
+      sourceSnapshotId: null,
+      updatedAt: "2026-04-02T00:00:00Z",
+    });
+    const input = {
+      businessId: "biz-1",
+      startDate: "2026-03-30",
+      endDate: "2026-03-31",
+      providerAccountIds: ["act_1"],
+    };
+
+    it("uses campaign rows for both whenever campaign rows exist, never adding account rows on top", async () => {
+      vi.mocked(warehouse.getMetaAccountDailyRange).mockResolvedValue([
+        accountRow("2026-03-30", 100),
+        accountRow("2026-03-31", 100),
+      ] as never);
+      vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
+        campaignRow("2026-03-30", "cmp-1", 60),
+        campaignRow("2026-03-30", "cmp-2", 50),
+        campaignRow("2026-03-31", "cmp-1", 20),
+      ] as never);
+
+      const [summary, trends] = await Promise.all([getMetaWarehouseSummary(input), getMetaWarehouseTrends(input)]);
+
+      expect(summary.warehouseScope).toBe("campaign_daily");
+      expect(trends.warehouseScope).toBe("campaign_daily");
+      expect(trends.points.map((point) => [point.date, point.spend, point.impressions, point.clicks])).toEqual([
+        ["2026-03-30", 110, 1_100, 110],
+        ["2026-03-31", 20, 200, 20],
+      ]);
+      // The trend sums to the summary: one grain, counted once.
+      expect(trends.points.reduce((sum, point) => sum + point.spend, 0)).toBe(summary.totals.spend);
+      expect(summary.totals.spend).toBe(130);
+    });
+
+    it("uses account rows for both when no campaign rows exist", async () => {
+      vi.mocked(warehouse.getMetaAccountDailyRange).mockResolvedValue([
+        accountRow("2026-03-30", 100),
+        accountRow("2026-03-31", 40),
+      ] as never);
+      vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([]);
+
+      const [summary, trends] = await Promise.all([getMetaWarehouseSummary(input), getMetaWarehouseTrends(input)]);
+
+      expect(summary.warehouseScope).toBe("account_daily");
+      expect(trends.warehouseScope).toBe("account_daily");
+      expect(trends.points.map((point) => [point.date, point.spend])).toEqual([
+        ["2026-03-30", 100],
+        ["2026-03-31", 40],
+      ]);
+      expect(summary.totals.spend).toBe(140);
+    });
+
+    it("applies the same published-key filter before choosing the trend grain", async () => {
+      process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+      vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+        verificationState: "complete",
+        truthReady: true,
+        totalDays: 2,
+        completedCoreDays: 2,
+        sourceFetchedAt: "2026-04-01T00:00:00Z",
+        publishedAt: "2026-04-01T00:05:00Z",
+        asOf: "2026-04-01T00:05:00Z",
+        publishedSlices: 3,
+        totalExpectedSlices: 4,
+        reasonCounts: {},
+        publishedKeysBySurface: {
+          account_daily: ["act_1:2026-03-30", "act_1:2026-03-31"],
+          campaign_daily: ["act_1:2026-03-30"],
+        },
+      } as never);
+      vi.mocked(warehouse.getMetaAccountDailyRange).mockResolvedValue([
+        accountRow("2026-03-30", 100),
+        accountRow("2026-03-31", 40),
+      ] as never);
+      vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
+        campaignRow("2026-03-30", "cmp-1", 90),
+        // Unpublished campaign day: filtered out, and not replaced by the account row.
+        campaignRow("2026-03-31", "cmp-1", 35),
+      ] as never);
+
+      const [summary, trends] = await Promise.all([getMetaWarehouseSummary(input), getMetaWarehouseTrends(input)]);
+
+      expect(warehouse.getMetaPublishedVerificationSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ surfaces: ["account_daily", "campaign_daily"] }),
+      );
+      expect(summary.warehouseScope).toBe("campaign_daily");
+      expect(trends.warehouseScope).toBe("campaign_daily");
+      expect(trends.points.map((point) => [point.date, point.spend])).toEqual([["2026-03-30", 90]]);
+      expect(summary.totals.spend).toBe(90);
     });
   });
 

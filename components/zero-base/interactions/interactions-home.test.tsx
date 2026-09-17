@@ -3,7 +3,7 @@
 /**
  * WP-26 group 3 / G7 — interaction contracts owned by the Home composition.
  *
- * Both controls here are operated on the real `HomeView`, not on a surrogate.
+ * The interactions here are operated on the real `HomeView`, not on a surrogate.
  * That matters: the point of G7 is that a contract is satisfied by the
  * production owner, so if either control disappears from Home, or stops
  * producing its consequence, these cases fail rather than quietly passing
@@ -11,7 +11,7 @@
  */
 import React from "react";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import {
@@ -82,9 +82,6 @@ const ECONOMICS: EconomicsContextModel = {
   ],
 };
 
-/** The trend panel's own table — Home also renders a source-health table. */
-const trendTable = () => document.querySelector('[data-trend-panel="home"] table');
-
 const POINTS = [
   { date: "2026-08-08", spend: 540, roas: 2.8 },
   { date: "2026-08-09", spend: null, roas: null },
@@ -105,7 +102,6 @@ function renderHome() {
 
 afterEach(() => {
   cleanup();
-  window.localStorage.clear();
 });
 afterAll(() => flushInteractionResults("home"));
 
@@ -118,51 +114,15 @@ describe("G7 — Home composition contracts", () => {
       name: /2026-08-08; spend \$540\.00; ROAS 2\.80x/i,
     });
     await user.hover(point);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("2026-08-08");
-    expect(screen.getByRole("tooltip")).toHaveTextContent("$540");
-    expect(screen.getByRole("tooltip")).toHaveTextContent("2.80x");
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip.querySelector("[data-trend-tooltip-date]")).toHaveAttribute("data-date", "2026-08-08");
+    expect(tooltip).toHaveTextContent("$540");
+    expect(tooltip).toHaveTextContent("2.80x");
 
     await user.unhover(point);
     expect(screen.queryByRole("tooltip")).toBeNull();
     await user.click(point);
     expect(screen.getByRole("tooltip")).toBeVisible();
-  });
-
-  interactionCase("live:chart-table-toggle", async () => {
-    const user = userEvent.setup();
-    const { unmount } = renderHome();
-
-    const toggle = screen.getByRole("button", { name: /view as table/i });
-    expectOperable(toggle, "chart/table toggle");
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
-    // The chart is present and there is no table yet.
-    expect(document.querySelector("[data-trend-chart]")).not.toBeNull();
-    expect(trendTable()).toBeNull();
-
-    await user.click(toggle);
-
-    // The consequence: real <table> markup, in place, with the figures.
-    await waitFor(() => expect(trendTable()).not.toBeNull());
-    expect(trendTable()!.querySelectorAll("tbody tr").length).toBe(POINTS.length);
-    expect(document.querySelector("[data-trend-chart]")).toBeNull();
-    // A day with no spend reads as "No data", never as 0.
-    expect(screen.getAllByText("No data").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /view as chart/i })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    // Announced, because the content swapped under a user who cannot see it.
-    await waitFor(() =>
-      expect(document.querySelector('[data-trend-mode="table"]')?.textContent).toBe("table view"),
-    );
-
-    // Persisted per surface: a fresh mount of Home comes back as a table.
-    unmount();
-    renderHome();
-    await waitFor(() => expect(trendTable()).not.toBeNull());
-    // ...and the preference is scoped to this surface, not applied globally.
-    expect(window.localStorage.getItem("zero-base:trend-view:home")).toBe("table");
-    expect(window.localStorage.getItem("zero-base:trend-view:decisions")).toBeNull();
   });
 
   interactionCase("live:ECON-04 divergence-link", async () => {
@@ -182,44 +142,9 @@ describe("G7 — Home composition contracts", () => {
     expectNavigates(link, /^\/app\/manage\/business#economics$/, "economics divergence link");
   });
 
-  /**
-   * Keyboard reachability, asserted honestly.
-   *
-   * An earlier version of this case called itself a keyboard/pointer parity
-   * test and then fired `click` in the "keyboard" path, because jsdom does not
-   * synthesise a click from Enter on a native button. That made both paths
-   * identical and proved nothing.
-   *
-   * What actually guarantees Enter and Space activation is that the control is
-   * a real `<button>` in the tab order — browser behaviour we inherit rather
-   * than implement. So that is what is asserted, and `userEvent.tab()` +
-   * `{Enter}` drives it the way a keyboard user would.
-   */
-  it("the toggle is reachable and operable from the keyboard alone", async () => {
-    const user = userEvent.setup();
-    renderHome();
-    const toggle = screen.getByRole("button", { name: /view as table/i });
-
-    expect(toggle.tagName).toBe("BUTTON");
-    // Not removed from the tab order.
-    expect(toggle.getAttribute("tabindex")).not.toBe("-1");
-
-    toggle.focus();
-    expect(document.activeElement).toBe(toggle);
-
-    await user.keyboard("{Enter}");
-    await waitFor(() => expect(trendTable()).not.toBeNull());
-  });
 });
 
 describe("G7 mutation controls — these must fail if the real controls regress", () => {
-  it("the toggle is a real button, not a div with a click handler", () => {
-    renderHome();
-    const toggle = screen.getByRole("button", { name: /view as table/i });
-    expect(toggle.tagName).toBe("BUTTON");
-    expect(toggle).toHaveAttribute("data-ctl", "live:chart-table-toggle");
-  });
-
   it("the divergence link is a real link carrying an href, not a button", () => {
     renderHome();
     const link = screen.getByRole("link", { name: /see consumers/i });

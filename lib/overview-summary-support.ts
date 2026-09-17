@@ -3,6 +3,16 @@ import { getBusinessCostModel } from "@/lib/business-cost-model";
 import { resolveGa4AnalyticsContext, runGA4Report } from "@/lib/google-analytics-reporting";
 import { buildOverviewOpportunities } from "@/lib/overviewInsights";
 import { type OverviewResponse as OverviewAggregateData } from "@/lib/overview-service";
+import {
+  OVERVIEW_PROVIDER_METRIC_SPECS,
+  buildProviderMetricSeries,
+  deriveProviderMetric,
+  providerMetricId,
+  providerMetricUnavailableReason,
+  providerScalarSourcesComparable,
+  providerTrendMatchesScalar,
+  type ProviderPrimitives,
+} from "@/lib/overview-provider-metrics";
 import type {
   OverviewAttributionRow,
   BusinessCostModelData,
@@ -209,18 +219,39 @@ export function toPercentSparklineSeries<T>(
   });
 }
 
-type PlatformEfficiencyRow = OverviewAggregateData["platformEfficiency"][number];
-
 function normalizedProvider(value: string) {
   const provider = value.trim().toLowerCase();
   return provider === "google_ads" ? "google" : provider;
+}
+
+export interface OverviewProviderAggregate {
+  platform: "meta" | "google";
+  spend: number;
+  revenue: number;
+  purchases: number;
+  /** Attribution-table contract: 0 when the denominator is 0. Cards derive their own. */
+  roas: number;
+  cpa: number;
+  /** Null when any contributing row did not report the primitive. */
+  impressions: number | null;
+  clicks: number | null;
+}
+
+function sumReported(rows: OverviewAggregateData["platformEfficiency"], key: "impressions" | "clicks") {
+  let total = 0;
+  for (const row of rows) {
+    const value = row[key];
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    total += value;
+  }
+  return total;
 }
 
 /** Collapse account-grain rows into the provider-grain contract Overview draws. */
 export function aggregateOverviewProviderRow(
   data: OverviewAggregateData | null,
   provider: "meta" | "google"
-): PlatformEfficiencyRow | null {
+): OverviewProviderAggregate | null {
   const rows = data?.platformEfficiency.filter((row) => normalizedProvider(row.platform) === provider) ?? [];
   if (rows.length === 0) return null;
 
@@ -234,6 +265,30 @@ export function aggregateOverviewProviderRow(
     purchases,
     roas: spend > 0 ? revenue / spend : 0,
     cpa: purchases > 0 ? spend / purchases : 0,
+    impressions: sumReported(rows, "impressions"),
+    clicks: sumReported(rows, "clicks"),
+  };
+}
+
+/** Provider aggregate only when its scalar read has a known, supported source. */
+export function aggregateVerifiedOverviewProviderRow(
+  data: OverviewAggregateData | null,
+  provider: "meta" | "google",
+): OverviewProviderAggregate | null {
+  const source = data?.providerSources?.[provider];
+  return providerScalarSourcesComparable(provider, source, source)
+    ? aggregateOverviewProviderRow(data, provider)
+    : null;
+}
+
+function providerPrimitives(row: OverviewProviderAggregate | null): ProviderPrimitives | null {
+  if (!row) return null;
+  return {
+    spend: row.spend,
+    revenue: row.revenue,
+    purchases: row.purchases,
+    impressions: row.impressions,
+    clicks: row.clicks,
   };
 }
 
@@ -254,7 +309,7 @@ export function buildAttributionRows(
   const paidRows = OVERVIEW_PAID_PROVIDER_SPECS.map(({ provider, label }) => ({
     provider,
     label,
-    metrics: aggregateOverviewProviderRow(overview, provider),
+    metrics: aggregateVerifiedOverviewProviderRow(overview, provider),
   }));
   const knownPaidSpend = paidRows.reduce((sum, row) => sum + (row.metrics?.spend ?? 0), 0);
 
@@ -312,108 +367,83 @@ export function buildAttributionRows(
   return rows;
 }
 
+const PROVIDER_METRIC_ICONS: Record<string, string> = {
+  spend: "wallet",
+  revenue: "badge-dollar-sign",
+  roas: "chart-line",
+  purchases: "shopping-cart",
+  cpa: "target",
+  cpm: "eye",
+  ctr: "mouse-pointer-click",
+  cpc: "coins",
+  "conversion-rate": "percent",
+};
+
+/**
+ * Eight provider-specific cards per platform, in the order fixed by
+ * `OVERVIEW_PROVIDER_METRIC_SPECS`. Every value — current and previous — is
+ * derived from that window's summed provider primitives, so a CTR is total
+ * clicks over total impressions rather than an average of account CTRs, and
+ * nothing here reads the blended `totals`.
+ */
 export function buildPlatformSections(
   current: OverviewAggregateData,
   previous: OverviewAggregateData | null,
   compareMode: CompareMode
 ): OverviewPlatformSection[] {
   return OVERVIEW_PAID_PROVIDER_SPECS.map(({ provider, label }) => {
-    const row = aggregateOverviewProviderRow(current, provider);
-    const previousRow = aggregateOverviewProviderRow(previous, provider);
-    const providerTrendSeries = current.providerTrends?.[provider as "meta" | "google"] ?? [];
-    const unavailable = (id: string, title: string, unit: OverviewMetricUnit) =>
-      buildUnavailableMetric({
-        id: `${provider}-${id}`,
-        title,
-        unit,
-        sourceKey: provider,
-        sourceLabel: label,
-        helperText: "No synced provider data for this window",
-      });
+    const primitives = providerPrimitives(aggregateVerifiedOverviewProviderRow(current, provider));
+    // A previous value is only meaningful when both windows were read from the
+    // same source and grain; otherwise the change would compare different rows.
+    const previousPrimitives = providerScalarSourcesComparable(
+      provider,
+      current.providerSources?.[provider],
+      previous?.providerSources?.[provider],
+    )
+      ? providerPrimitives(aggregateVerifiedOverviewProviderRow(previous, provider))
+      : null;
+    // A trend from a different read than the scalar (e.g. a warehouse trend
+    // under a live total) would contradict the card, so it is not attached.
+    const providerTrendSeries = providerTrendMatchesScalar(
+      provider,
+      current.providerSources?.[provider],
+      current.providerTrendSources?.[provider],
+    )
+      ? (current.providerTrends?.[provider] ?? [])
+      : [];
     return {
       id: provider,
       title: label,
       provider,
-      metrics: [
-        row
-          ? buildMetricCard({
-              id: `${provider}-spend`,
-              title: "Spend",
-              value: row.spend,
-              previousValue: previousRow?.spend ?? null,
-              unit: "currency",
-              sourceKey: provider,
-              sourceLabel: row.platform,
-              sparklineData: toSparklineSeries(providerTrendSeries, (point) => point.spend),
-              compareMode,
-              icon: "wallet",
-            })
-          : unavailable("spend", "Spend", "currency"),
-        row
-          ? buildMetricCard({
-              id: `${provider}-revenue`,
-              title: "Revenue",
-              value: row.revenue,
-              previousValue: previousRow?.revenue ?? null,
-              unit: "currency",
-              sourceKey: provider,
-              sourceLabel: row.platform,
-              sparklineData: toSparklineSeries(providerTrendSeries, (point) => point.revenue),
-              compareMode,
-              icon: "badge-dollar-sign",
-            })
-          : unavailable("revenue", "Revenue", "currency"),
-        row
-          ? buildMetricCard({
-              id: `${provider}-roas`,
-              title: "ROAS",
-              value: row.roas,
-              previousValue: previousRow?.roas ?? null,
-              unit: "ratio",
-              sourceKey: provider,
-              sourceLabel: row.platform,
-              sparklineData: toRatioSparklineSeries(
-                providerTrendSeries,
-                (point) => point.revenue,
-                (point) => point.spend
-              ),
-              compareMode,
-              icon: "chart-line",
-            })
-          : unavailable("roas", "ROAS", "ratio"),
-        row
-          ? buildMetricCard({
-              id: `${provider}-purchases`,
-              title: "Purchases",
-              value: row.purchases,
-              previousValue: previousRow?.purchases ?? null,
-              unit: "count",
-              sourceKey: provider,
-              sourceLabel: row.platform,
-              sparklineData: toSparklineSeries(providerTrendSeries, (point) => point.purchases),
-              compareMode,
-              icon: "shopping-cart",
-            })
-          : unavailable("purchases", "Purchases", "count"),
-        row
-          ? buildMetricCard({
-              id: `${provider}-cpa`,
-              title: "CPA",
-              value: row.cpa,
-              previousValue: previousRow?.cpa ?? null,
-              unit: "currency",
-              sourceKey: provider,
-              sourceLabel: row.platform,
-              sparklineData: toRatioSparklineSeries(
-                providerTrendSeries,
-                (point) => point.spend,
-                (point) => point.purchases
-              ),
-              compareMode,
-              icon: "target",
-            })
-          : unavailable("cpa", "CPA", "currency"),
-      ],
+      metrics: OVERVIEW_PROVIDER_METRIC_SPECS[provider].map((spec) => {
+        const id = providerMetricId(provider, spec.suffix);
+        const icon = PROVIDER_METRIC_ICONS[spec.suffix];
+        if (!primitives) {
+          return buildUnavailableMetric({
+            id,
+            title: spec.title,
+            unit: spec.unit,
+            sourceKey: provider,
+            sourceLabel: label,
+            helperText: "No synced provider data for this window",
+            icon,
+          });
+        }
+        return buildMetricCard({
+          id,
+          title: spec.title,
+          value: deriveProviderMetric(spec.suffix, primitives),
+          previousValue: previousPrimitives ? deriveProviderMetric(spec.suffix, previousPrimitives) : null,
+          unit: spec.unit,
+          sourceKey: provider,
+          sourceLabel: label,
+          helperText: providerMetricUnavailableReason(provider, spec.suffix, primitives) ?? undefined,
+          sparklineData: buildProviderMetricSeries(spec.suffix, providerTrendSeries),
+          compareMode,
+          icon,
+          metricKey: spec.metricKey,
+        });
+      }),
     };
   });
 }

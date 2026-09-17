@@ -54,6 +54,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     vi.mocked(warehouseState.getShopifyServingState).mockResolvedValue(null as never);
     vi.mocked(warehouseState.getShopifyServingOverride).mockResolvedValue(null as never);
     vi.mocked(warehouseState.listShopifyReconciliationRuns).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getShopifyWarehouseOverviewAggregate).mockResolvedValue(null as never);
     vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue({
       revenue: 1001,
       grossRevenue: 1020,
@@ -170,6 +171,90 @@ describe("getShopifyOverviewReadCandidate", () => {
       endDate: "2026-03-31",
       ignoreServingTrust: true,
     });
+    expect(warehouse.getShopifyWarehouseOverviewAggregate).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      providerAccountId: "shop",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+    expect(revenueLedger.getShopifyRevenueLedgerAggregate).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      providerAccountId: "shop",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+  });
+
+  it("accepts customer-event coverage only for the active Shopify account", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      metadata: {
+        shopifyProductionServingMode: "auto",
+        shopifyCustomerEventsPixel: {
+          shopDomain: "shop",
+          registeredAt: "2026-02-20T10:00:00.000Z",
+        },
+      },
+      scopes: "read_orders,read_all_orders,read_returns",
+      status: "connected",
+      provider_account_id: "shop",
+    } as never);
+
+    const matching = await getShopifyOverviewSummaryReadCandidate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+    expect(matching.customerEventsRegisteredAt).toBe("2026-02-20T10:00:00.000Z");
+
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      metadata: {
+        shopifyProductionServingMode: "auto",
+        shopifyCustomerEventsPixel: {
+          shopDomain: "old-shop",
+          registeredAt: "2026-02-20T10:00:00.000Z",
+        },
+      },
+      scopes: "read_orders,read_all_orders,read_returns",
+      status: "connected",
+      provider_account_id: "shop",
+    } as never);
+
+    const mismatched = await getShopifyOverviewSummaryReadCandidate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+    expect(mismatched.customerEventsRegisteredAt).toBeNull();
+  });
+
+  it("does not read stale warehouse rows without an active connected shop", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      metadata: { shopifyProductionServingMode: "auto" },
+      scopes: "read_orders,read_all_orders,read_returns",
+      status: "disconnected",
+      provider_account_id: "old-shop",
+    } as never);
+    vi.mocked(warehouse.getShopifyWarehouseOverviewAggregate).mockResolvedValue({
+      revenue: 999,
+      grossRevenue: 999,
+      refundedRevenue: 0,
+      purchases: 9,
+      returnEvents: 0,
+      averageOrderValue: 111,
+      daily: [],
+    } as never);
+
+    const result = await getShopifyOverviewSummaryReadCandidate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+
+    expect(result.status.connected).toBe(false);
+    expect(result.preferredSource).toBe("none");
+    expect(result.warehouse).toBeNull();
+    expect(warehouse.getShopifyWarehouseOverviewAggregate).not.toHaveBeenCalled();
+    expect(revenueLedger.getShopifyRevenueLedgerAggregate).not.toHaveBeenCalled();
   });
 
   it("keeps persisted live fallback metadata for summary reads without live raw requests", async () => {
@@ -475,6 +560,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(result.servingMetadata.trustState).toBe("trusted");
     expect(warehouse.getShopifyWarehouseOverviewAggregate).toHaveBeenCalledWith({
       businessId: "biz_1",
+      providerAccountId: "shop",
       startDate: "2026-03-24",
       endDate: "2026-03-30",
     });

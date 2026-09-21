@@ -71,6 +71,41 @@ function renderEditor(overrides: Partial<React.ComponentProps<typeof CommerceCos
 afterEach(cleanup);
 
 describe("CommerceCostModelEditor", () => {
+  it("shows legacy percentages without floating-point tails in summaries and edit fields", async () => {
+    const user = userEvent.setup();
+    renderEditor({
+      structure: structure([
+        component({ basis: { kind: "percent_of_base", percent: 3.5000000000000004, base: "order_net_product_sales" } }),
+      ]),
+    });
+
+    expect(screen.getByText("3.5% of order net product sales")).toBeTruthy();
+    expect(screen.queryByText(/3\.5000000000000004/)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Edit Product cost" }));
+    expect(screen.getByLabelText("Percentage")).toHaveValue("3.5");
+  });
+
+  it("formats legacy source differences and leaves missing values unknown", () => {
+    renderEditor({
+      structure: {
+        ...structure(),
+        conflicts: [{
+          family: "product_purchase",
+          slot: "legacy_cogs",
+          detail: "Legacy sources disagree.",
+          candidates: [
+            { source: { kind: "legacy_import", ref: "business_cost_models" }, value: 28.999999999999996 },
+            { source: { kind: "legacy_import", ref: "business_target_packs" }, value: null },
+          ],
+        }],
+      },
+    });
+
+    expect(screen.getByText("Current cost model: 29% · Commercial Truth target pack: unknown")).toBeTruthy();
+    expect(screen.queryByText(/28\.999999999999996|unknown%/)).toBeNull();
+  });
+
   it("compares the draft model break-even with the manual Target Pack without applying it", () => {
     renderEditor({
       dirty: true,

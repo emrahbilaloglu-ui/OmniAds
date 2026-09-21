@@ -1,20 +1,20 @@
 {
- "manifestHash": "65576900f1802a4bc52eff5c7cb1cbf1a7facec6a9c5618dcecb4315d3e7b376",
+ "manifestHash": "821e9109c9ec9e88f9d9d9c7fbe42c841ce6e6410632658950e291b7321f32d2",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-21T05:34:28.461Z",
- "branch": "codex/commercial-cost-model-v1",
+ "generatedAtUtc": "2026-09-21T08:42:13.642Z",
+ "branch": "main",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "bbb6b5dd33b6e4a4ac4d7f6ab680639175128825",
+ "head": "5400a3d099c7450b4e6e3fd3f324329dc9fd3aa7",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
- "originMain": "a3e4ebe519e8f7e3f9ccc552d672fcc653ed5053",
+ "originMain": "5400a3d099c7450b4e6e3fd3f324329dc9fd3aa7",
  "remoteDivergence": {
-  "aheadOfOriginMain": 1,
+  "aheadOfOriginMain": 0,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 61,
+ "gitPorcelainEntryCount": 2,
  "releaseDiffEntryCountIncludingSelf": 1206,
  "expandedOnDiskCandidateFileCountIncludingSelf": 1206,
  "pinnedNonSelfFileCount": 1205,
@@ -1085,13 +1085,13 @@
    "path": "components/commercial-truth/CommerceCostModelEditor.test.tsx",
    "git": "A",
    "class": "tests_only",
-   "sha256": "c8db342b81b5ea8bfa41416d2cee672ef73924a874557be5e4f486d0300755a6"
+   "sha256": "d4c33fad34c0dbb83229475750faee25e64980453c73905ad70a7b3ed9bc84cb"
   },
   {
    "path": "components/commercial-truth/CommerceCostModelEditor.tsx",
    "git": "A",
    "class": "runtime",
-   "sha256": "b7ad76ecb7439191ac0900947ccd9dfca0406b4aa736508c0ee106ca0f993d41"
+   "sha256": "bd6301589148431f341b2823ce831517b7d6a3ec777e16601a464f07535a46a2"
   },
   {
    "path": "components/commercial-truth/commercial-truth-exact-adapter.test.ts",

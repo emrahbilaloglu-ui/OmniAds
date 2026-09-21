@@ -491,9 +491,9 @@ function formFromComponent(component: CommerceCostComponent): ComponentForm {
       "amount" in basis && typeof basis.amount === "number" ? String(basis.amount) : "",
     percent:
       basis.kind === "percent_of_base" || basis.kind === "percent_plus_fixed"
-        ? String(basis.percent)
+        ? formatPercentValue(basis.percent)
         : basis.kind === "margin_input"
-          ? String(basis.marginPercent)
+          ? formatPercentValue(basis.marginPercent)
           : "",
     fixedAmount: basis.kind === "percent_plus_fixed" ? String(basis.fixedAmount) : "",
     fixedPer: basis.kind === "percent_plus_fixed" ? (basis.fixedPer ?? "order") : "order",
@@ -642,6 +642,12 @@ function buildBasis(form: ComponentForm): CostBasis {
   }
 }
 
+function formatPercentValue(value: number): string {
+  // Legacy unit-interval rates can produce binary float tails when multiplied by 100.
+  // Keep the model value unchanged and remove only display-level precision noise.
+  return Number(value.toPrecision(15)).toString();
+}
+
 function basisSummary(basis: CostBasis, currency: string) {
   switch (basis.kind) {
     case "amount_per_unit":
@@ -651,13 +657,13 @@ function basisSummary(basis: CostBasis, currency: string) {
     case "amount_per_order":
       return `${basis.amount.toLocaleString()} ${currency} / order`;
     case "percent_of_base":
-      return `${basis.percent}% of ${basis.base.replaceAll("_", " ")}`;
+      return `${formatPercentValue(basis.percent)}% of ${basis.base.replaceAll("_", " ")}`;
     case "percent_plus_fixed":
-      return `${basis.percent}% + ${basis.fixedAmount.toLocaleString()} ${currency} / ${basis.fixedPer ?? "order"}`;
+      return `${formatPercentValue(basis.percent)}% + ${basis.fixedAmount.toLocaleString()} ${currency} / ${basis.fixedPer ?? "order"}`;
     case "period_amount":
       return `${basis.amount.toLocaleString()} ${currency} / ${basis.period}`;
     case "margin_input":
-      return `${basis.marginPercent}% ${basis.marginKind} margin`;
+      return `${formatPercentValue(basis.marginPercent)}% ${basis.marginKind} margin`;
     case "rate_table":
       return `${basis.rows.length} rate row${basis.rows.length === 1 ? "" : "s"}`;
     case "bom":
@@ -1264,7 +1270,10 @@ export function CommerceCostModelEditor({
                       : candidate.source.ref === "business_target_packs"
                         ? "Commercial Truth target pack"
                         : "Legacy source";
-                    return `${sourceLabel}: ${candidate.value ?? "unknown"}%`;
+                    const valueLabel = candidate.value === null
+                      ? "unknown"
+                      : `${formatPercentValue(candidate.value)}%`;
+                    return `${sourceLabel}: ${valueLabel}`;
                   })
                   .join(" · ")}
               </span>

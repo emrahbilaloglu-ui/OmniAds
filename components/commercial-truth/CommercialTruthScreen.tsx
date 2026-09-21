@@ -4,11 +4,10 @@
  * The data boundary for Commercial Truth.
  *
  * Every fact the design draws is read from a real endpoint here:
- *  - the target pack, its cost structure and the live cost model context from
+ *  - the target pack and legacy cost-model context from
  *    `/api/business-commercial-settings`;
- *  - the monthly fixed base from that same snapshot's cost-model context, and
- *    written back through `/api/business-cost-model`, which is where the column
- *    actually lives;
+ *  - the versioned, composable cost authority from
+ *    `/api/business-commerce-cost-structure`;
  *  - window spend and revenue from `/api/overview-summary`, which is what makes
  *    the blended-MER slice of the revenue split honest;
  *  - campaign spend from both `/api/meta/campaigns` and
@@ -23,9 +22,14 @@
  * range and rows with no verdict, because a verdict computed against a guessed
  * anchor would be a fabricated decision.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CommercialTruthExact } from "@/components/commercial-truth/CommercialTruthExact";
+import {
+  CommerceCostModelEditor,
+  type CommerceCostModelSource,
+} from "@/components/commercial-truth/CommerceCostModelEditor";
+import { ShopifyCostSourcePanel } from "@/components/commercial-truth/ShopifyCostSourcePanel";
 import {
   buildCommercialTruthExactModel,
   type CommercialTruthCampaignSource,
@@ -36,10 +40,15 @@ import {
   type CommercialTruthFieldId,
 } from "@/components/commercial-truth/commercial-truth-exact-model";
 import { buildCommercialTruthWindow } from "@/components/commercial-truth/commercial-truth-window";
+import type { BreakEvenRoasPreview } from "@/lib/commerce-cost/break-even-preview";
 import {
   createEmptyTargetPack,
   type BusinessCommercialTruthSnapshot,
 } from "@/src/types/business-commercial";
+import type {
+  CommerceCostStructure,
+  CostStructureIssue,
+} from "@/src/types/commerce-cost";
 import { useAppStore } from "@/store/app-store";
 
 type DraftMap = Partial<Record<CommercialTruthFieldId, string>>;
@@ -51,9 +60,27 @@ interface SettingsResponse {
   message?: string;
 }
 
+interface CostStructureResponse {
+  structure?: CommerceCostStructure | null;
+  source?: CommerceCostModelSource;
+  revision?: string | null;
+  issues?: CostStructureIssue[];
+  unreadableLegacySources?: string[];
+  ambiguousLegacyZeros?: string[];
+  storage?: { ready?: boolean; missingTables?: string[] } | null;
+  permissions?: { canEdit?: boolean } | null;
+  message?: string;
+  currentRevision?: string | null;
+}
+
 interface OverviewPin {
   id: string;
   value: number | null;
+}
+
+interface BreakEvenPreviewResponse {
+  preview?: BreakEvenRoasPreview | null;
+  message?: string;
 }
 
 /** Parses "62%", "$58.00" and "3.80" without inventing a value for "" or "—". */
@@ -63,12 +90,6 @@ function parseLooseNumber(value: string | undefined): number | null {
   if (!trimmed || trimmed === TRUTH_DASH) return null;
   const parsed = Number.parseFloat(trimmed.replace(/[^0-9.\-]/g, ""));
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function parseRatio(value: string | undefined): number | null {
-  const parsed = parseLooseNumber(value);
-  if (parsed === null) return null;
-  return parsed / 100;
 }
 
 function finite(value: unknown): number | null {
@@ -87,6 +108,7 @@ export function CommercialTruthScreen({
   );
 
   const [snapshot, setSnapshot] = useState<BusinessCommercialTruthSnapshot | null>(null);
+  const [snapshotBusinessId, setSnapshotBusinessId] = useState<string | null>(null);
   const [revision, setRevision] = useState<string | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -99,24 +121,52 @@ export function CommercialTruthScreen({
     spend: number | null;
     revenue: number | null;
   }>({ spend: null, revenue: null });
+  const [costStructure, setCostStructure] = useState<CommerceCostStructure | null>(null);
+  const [costBusinessId, setCostBusinessId] = useState<string | null>(null);
+  const [costDraft, setCostDraft] = useState<CommerceCostStructure | null>(null);
+  const [costSource, setCostSource] = useState<CommerceCostModelSource>("empty");
+  const [costRevision, setCostRevision] = useState<string | null>(null);
+  const [costIssues, setCostIssues] = useState<CostStructureIssue[]>([]);
+  const [costSourceWarnings, setCostSourceWarnings] = useState<string[]>([]);
+  const [costCanEdit, setCostCanEdit] = useState(false);
+  const [costSaving, setCostSaving] = useState(false);
+  const [costError, setCostError] = useState<string | null>(null);
+  const [breakEvenPreview, setBreakEvenPreview] = useState<BreakEvenRoasPreview | null>(null);
+  const [breakEvenPreviewLoading, setBreakEvenPreviewLoading] = useState(false);
+  const [breakEvenPreviewError, setBreakEvenPreviewError] = useState<string | null>(null);
+  const [costCatalogRevision, setCostCatalogRevision] = useState(0);
+  const snapshotLoadSequence = useRef(0);
+  const costLoadSequence = useRef(0);
+  const currentBusinessIdRef = useRef(businessId);
+  currentBusinessIdRef.current = businessId;
 
   const loadSnapshot = useCallback(async () => {
+    const sequence = ++snapshotLoadSequence.current;
+    setSnapshotBusinessId(null);
+    setSnapshot(null);
+    setRevision(null);
+    setCanEdit(false);
+    setDrafts({});
     try {
       const response = await fetch(
         `/api/business-commercial-settings?businessId=${encodeURIComponent(businessId)}`,
         { cache: "no-store" },
       );
       const payload = (await response.json().catch(() => null)) as SettingsResponse | null;
+      if (sequence !== snapshotLoadSequence.current || currentBusinessIdRef.current !== businessId) return;
       if (!response.ok || !payload?.snapshot) {
         throw new Error(payload?.message ?? "Could not load the target pack.");
       }
       setSnapshot(payload.snapshot);
+      setSnapshotBusinessId(businessId);
       setRevision(typeof payload.revision === "string" ? payload.revision : null);
       setCanEdit(Boolean(payload.permissions?.canEdit));
       setDrafts({});
       setError(null);
     } catch (loadError: unknown) {
+      if (sequence !== snapshotLoadSequence.current || currentBusinessIdRef.current !== businessId) return;
       setSnapshot(null);
+      setSnapshotBusinessId(null);
       setRevision(null);
       setCanEdit(false);
       setError(loadError instanceof Error ? loadError.message : "Could not load the target pack.");
@@ -138,6 +188,61 @@ export function CommercialTruthScreen({
     } catch {
       setHistory([]);
       setActor(null);
+    }
+  }, [businessId]);
+
+  const loadCostStructure = useCallback(async () => {
+    const sequence = ++costLoadSequence.current;
+    setCostBusinessId(null);
+    setCostStructure(null);
+    setCostDraft(null);
+    setCostRevision(null);
+    setCostCanEdit(false);
+    try {
+      const response = await fetch(
+        `/api/business-commerce-cost-structure?businessId=${encodeURIComponent(businessId)}`,
+        { cache: "no-store" },
+      );
+      const payload = (await response.json().catch(() => null)) as CostStructureResponse | null;
+      if (sequence !== costLoadSequence.current || currentBusinessIdRef.current !== businessId) return;
+      if (!response.ok || !payload?.structure || !payload.source) {
+        throw new Error(payload?.message ?? "Could not load the cost model.");
+      }
+      setCostStructure(payload.structure);
+      setCostDraft(payload.structure);
+      setCostBusinessId(businessId);
+      setCostSource(payload.source);
+      setCostRevision(typeof payload.revision === "string" ? payload.revision : null);
+      setCostIssues(payload.issues ?? []);
+      setCostSourceWarnings([
+        ...(payload.storage?.ready === false
+          ? [
+              "Versioned cost-model storage is not ready yet. This is a read-only preview from the current cost settings; saving stays disabled until migrations are applied.",
+            ]
+          : []),
+        ...(payload.ambiguousLegacyZeros?.length
+          ? [
+              "Some zeroes from the old cost form were left as gaps because that form could not distinguish a default from a real zero.",
+            ]
+          : []),
+        ...(payload.unreadableLegacySources?.length
+          ? ["Some legacy cost settings could not be read. Review the missing families before saving."]
+          : []),
+      ]);
+      setCostCanEdit(Boolean(payload.permissions?.canEdit));
+      setCostError(null);
+    } catch (loadError: unknown) {
+      if (sequence !== costLoadSequence.current || currentBusinessIdRef.current !== businessId) return;
+      setCostStructure(null);
+      setCostDraft(null);
+      setCostBusinessId(null);
+      setCostRevision(null);
+      setCostIssues([]);
+      setCostSourceWarnings([]);
+      setCostCanEdit(false);
+      setCostError(
+        loadError instanceof Error ? loadError.message : "Could not load the cost model.",
+      );
     }
   }, [businessId]);
 
@@ -220,12 +325,68 @@ export function CommercialTruthScreen({
   useEffect(() => {
     void loadSnapshot();
     void loadHistory();
+    void loadCostStructure();
     void loadWindow();
     void loadCampaigns();
-  }, [loadCampaigns, loadHistory, loadSnapshot, loadWindow]);
+  }, [loadCampaigns, loadCostStructure, loadHistory, loadSnapshot, loadWindow]);
 
-  const targetPack = snapshot?.targetPack ?? null;
-  const costModel = snapshot?.costModelContext ?? null;
+  useEffect(() => {
+    if (!costDraft || costBusinessId !== businessId) {
+      setBreakEvenPreview(null);
+      setBreakEvenPreviewLoading(false);
+      setBreakEvenPreviewError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const truthWindow = buildCommercialTruthWindow(business?.timezone ?? null);
+    setBreakEvenPreviewLoading(true);
+    setBreakEvenPreviewError(null);
+
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch("/api/business-commerce-break-even-preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              businessId,
+              structure: costDraft,
+              startDate: truthWindow.startDate,
+              endDate: truthWindow.endDate,
+            }),
+            signal: controller.signal,
+          });
+          const payload = (await response.json().catch(() => null)) as BreakEvenPreviewResponse | null;
+          if (controller.signal.aborted || currentBusinessIdRef.current !== businessId) return;
+          if (!response.ok || !payload?.preview) {
+            throw new Error(payload?.message ?? "Could not calculate the draft break-even ROAS.");
+          }
+          setBreakEvenPreview(payload.preview);
+          setBreakEvenPreviewError(null);
+        } catch (previewError: unknown) {
+          if (controller.signal.aborted) return;
+          setBreakEvenPreview(null);
+          setBreakEvenPreviewError(
+            previewError instanceof Error
+              ? previewError.message
+              : "Could not calculate the draft break-even ROAS.",
+          );
+        } finally {
+          if (!controller.signal.aborted) setBreakEvenPreviewLoading(false);
+        }
+      })();
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [business?.timezone, businessId, costBusinessId, costDraft, costCatalogRevision]);
+
+  const activeSnapshot = snapshotBusinessId === businessId ? snapshot : null;
+  const targetPack = activeSnapshot?.targetPack ?? null;
+  const costModel = activeSnapshot?.costModelContext ?? null;
 
   const baseModel = useMemo(
     () =>
@@ -294,41 +455,82 @@ export function CommercialTruthScreen({
   const model = useMemo(
     () => ({
       ...baseModel,
-      fields: baseModel.fields.map((field) =>
-        drafts[field.id] === undefined ? field : { ...field, value: drafts[field.id] as string },
-      ),
+      // Cost inputs now live in the versioned component editor below. Keeping
+      // the old percentage inputs beside it would create two competing write
+      // paths for the same economic truth.
+      fields: baseModel.fields
+        .filter((field) =>
+          ["targetRoas", "breakevenRoas", "aovFloor", "cpaCeiling"].includes(field.id),
+        )
+        .map((field) =>
+          drafts[field.id] === undefined ? field : { ...field, value: drafts[field.id] as string },
+        ),
     }),
     [baseModel, drafts],
   );
 
+  const handleCostSave = useCallback(async () => {
+    if (!costDraft || costRevision === null || costBusinessId !== businessId) {
+      setCostError("The latest cost model revision is unavailable. Reload before saving.");
+      return;
+    }
+    setCostSaving(true);
+    setCostError(null);
+    try {
+      const response = await fetch("/api/business-commerce-cost-structure", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessId,
+          structure: costDraft,
+          expectedRevision: costRevision,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as CostStructureResponse | null;
+      if (currentBusinessIdRef.current !== businessId) return;
+      if (!response.ok || !payload?.structure || !payload.source) {
+        if (response.status === 409 && payload?.currentRevision) {
+          throw new Error("The cost model changed in another editor. Reload before saving again.");
+        }
+        const issueDetails = (payload?.issues ?? [])
+          .map((issue) => issue.detail)
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(" ");
+        throw new Error(
+          [payload?.message ?? "Could not save the cost model.", issueDetails]
+            .filter(Boolean)
+            .join(" "),
+        );
+      }
+      setCostStructure(payload.structure);
+      setCostDraft(payload.structure);
+      setCostSource(payload.source);
+      setCostRevision(typeof payload.revision === "string" ? payload.revision : null);
+      setCostIssues(payload.issues ?? []);
+      setCostSourceWarnings([]);
+      setCostCanEdit(Boolean(payload.permissions?.canEdit));
+    } catch (saveError: unknown) {
+      setCostError(
+        saveError instanceof Error ? saveError.message : "Could not save the cost model.",
+      );
+    } finally {
+      setCostSaving(false);
+    }
+  }, [businessId, costBusinessId, costDraft, costRevision]);
+
   const handleSave = useCallback(async () => {
-    if (!snapshot || !revision) {
+    if (!activeSnapshot || !revision || snapshotBusinessId !== businessId) {
       setError("Commercial truth was not loaded. Refresh before saving.");
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      const pack = snapshot.targetPack ?? createEmptyTargetPack();
-      const existingCosts = pack.costStructure ?? null;
-      const grossMargin = parseRatio(drafts.grossMargin);
-      const cogsPercent =
-        drafts.grossMargin === undefined
-          ? (existingCosts?.cogsPercent ?? null)
-          : grossMargin === null
-            ? null
-            : 1 - grossMargin;
-      const shippingPercent =
-        drafts.shippingCost === undefined
-          ? (existingCosts?.shippingPercent ?? null)
-          : parseRatio(drafts.shippingCost);
-      const paymentProcessingPercent =
-        drafts.paymentFees === undefined
-          ? (existingCosts?.paymentProcessingPercent ?? null)
-          : parseRatio(drafts.paymentFees);
+      const pack = activeSnapshot.targetPack ?? createEmptyTargetPack();
 
       const nextSnapshot: BusinessCommercialTruthSnapshot = {
-        ...snapshot,
+        ...activeSnapshot,
         targetPack: {
           ...pack,
           targetRoas:
@@ -343,12 +545,6 @@ export function CommercialTruthScreen({
             drafts.aovFloor === undefined
               ? pack.aovAssumption
               : parseLooseNumber(drafts.aovFloor),
-          costStructure: {
-            cogsPercent,
-            shippingPercent,
-            fulfillmentPercent: existingCosts?.fulfillmentPercent ?? null,
-            paymentProcessingPercent,
-          },
         },
       };
 
@@ -358,61 +554,9 @@ export function CommercialTruthScreen({
         body: JSON.stringify({ businessId, snapshot: nextSnapshot, expectedRevision: revision }),
       });
       const payload = (await response.json().catch(() => null)) as SettingsResponse | null;
+      if (currentBusinessIdRef.current !== businessId) return;
       if (!response.ok || !payload?.snapshot) {
         throw new Error(payload?.message ?? "Could not save the target pack.");
-      }
-
-      // `business_cost_models` is the table overview profit estimates, reports
-      // and the Google advisor read (lib/overview-summary-support.ts,
-      // lib/google-ads/serving.ts). The pack's own cost structure overrides it
-      // on this screen, so writing only the pack looked correct here while the
-      // rest of the product kept costing at the stale percentages. Any edit to
-      // one of the four cost fields therefore mirrors into that table, not just
-      // an edit that happens to include the monthly fixed base.
-      const costFieldsTouched =
-        drafts.grossMargin !== undefined ||
-        drafts.shippingCost !== undefined ||
-        drafts.paymentFees !== undefined ||
-        drafts.fixedCosts !== undefined;
-      if (costFieldsTouched) {
-        // The route takes all four columns together, so an edit to one of them
-        // carries the other three at their stored values — the pack's override
-        // first, then the live cost model. Nothing the operator did not touch
-        // is blanked, and nothing absent is invented.
-        const fixedCost =
-          drafts.fixedCosts === undefined
-            ? (costModel?.fixedCost ?? null)
-            : parseLooseNumber(drafts.fixedCosts);
-        const effective = {
-          cogsPercent: cogsPercent ?? costModel?.cogsPercent ?? null,
-          shippingPercent: shippingPercent ?? costModel?.shippingPercent ?? null,
-          feePercent: paymentProcessingPercent ?? costModel?.feePercent ?? null,
-        };
-        const incomplete =
-          fixedCost === null ||
-          effective.cogsPercent === null ||
-          effective.shippingPercent === null ||
-          effective.feePercent === null;
-        // The monthly fixed base lives only on the cost model, so an edit that
-        // names it and cannot be written is a failure the operator must see.
-        if (incomplete && drafts.fixedCosts !== undefined) {
-          throw new Error(
-            "Fixed costs need gross margin, shipping cost and payment fees to be set as well.",
-          );
-        }
-        if (!incomplete) {
-          const costResponse = await fetch("/api/business-cost-model", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ businessId, ...effective, fixedCost }),
-          });
-          if (!costResponse.ok) {
-            const costPayload = (await costResponse.json().catch(() => null)) as {
-              message?: string;
-            } | null;
-            throw new Error(costPayload?.message ?? "Could not save the cost model.");
-          }
-        }
       }
 
       setDrafts({});
@@ -422,7 +566,7 @@ export function CommercialTruthScreen({
     } finally {
       setSaving(false);
     }
-  }, [businessId, costModel, drafts, loadHistory, loadSnapshot, revision, snapshot]);
+  }, [activeSnapshot, businessId, drafts, loadHistory, loadSnapshot, revision, snapshotBusinessId]);
 
   return (
     <CommercialTruthExact
@@ -434,6 +578,46 @@ export function CommercialTruthScreen({
         setDrafts({});
         setError(null);
       }}
+      costModelEditor={
+        costDraft && costBusinessId === businessId ? (
+          <>
+            <ShopifyCostSourcePanel
+              businessId={businessId}
+              structure={costDraft}
+              canEdit={costCanEdit}
+              saving={costSaving}
+              onChange={setCostDraft}
+              onCatalogSynced={() => setCostCatalogRevision((revision) => revision + 1)}
+            />
+            <CommerceCostModelEditor
+              structure={costDraft}
+              source={costSource}
+              canEdit={costCanEdit}
+              saving={costSaving}
+              serverIssues={costIssues}
+              sourceWarnings={costSourceWarnings}
+              error={costError}
+              dirty={costDraft !== costStructure}
+              breakEvenPreview={breakEvenPreview}
+              breakEvenPreviewLoading={breakEvenPreviewLoading}
+              breakEvenPreviewError={breakEvenPreviewError}
+              targetPackBreakEvenRoas={
+                drafts.breakevenRoas === undefined
+                  ? targetPack?.breakEvenRoas ?? null
+                  : parseLooseNumber(drafts.breakevenRoas)
+              }
+              onChange={setCostDraft}
+              onSave={() => void handleCostSave()}
+              onDiscard={() => {
+                setCostDraft(costStructure);
+                setCostError(null);
+              }}
+            />
+          </>
+        ) : costError ? (
+          <div role="alert">{costError}</div>
+        ) : null
+      }
     />
   );
 }

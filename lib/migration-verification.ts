@@ -333,6 +333,10 @@ export const FORBIDDEN_TRIGGERS: readonly string[] = [
 export const VERIFIED_TABLES: readonly string[] = [
   "meta_raw_snapshot_observations",
   "shopify_raw_snapshot_observations",
+  "business_commerce_cost_structures",
+  "business_commerce_cost_structure_history",
+  "shopify_variant_unit_costs",
+  "shopify_variant_unit_cost_history",
 ];
 
 interface EncryptedSecretColumnSpec {
@@ -388,6 +392,16 @@ export const VERIFIED_FOREIGN_KEYS: readonly ForeignKeySpec[] = [
   { table: "meta_raw_snapshot_observations", column: "snapshot_id", referencedTable: "meta_raw_snapshots", onDelete: "r" },
   { table: "meta_raw_snapshot_observations", column: "partition_id", referencedTable: "meta_sync_partitions", onDelete: "c" },
   { table: "shopify_raw_snapshot_observations", column: "snapshot_id", referencedTable: "shopify_raw_snapshots", onDelete: "r" },
+  // CASCADE on both cost-structure tables is what makes deleting a business
+  // actually remove its declared costs; NO ACTION would leave the history rows
+  // behind and block the delete. SET NULL on the audit column is the other
+  // direction: removing a user must not remove the record of what they stored.
+  { table: "business_commerce_cost_structures", column: "business_id", referencedTable: "businesses", onDelete: "c" },
+  { table: "business_commerce_cost_structures", column: "updated_by_user_id", referencedTable: "users", onDelete: "n" },
+  { table: "business_commerce_cost_structure_history", column: "business_id", referencedTable: "businesses", onDelete: "c" },
+  { table: "business_commerce_cost_structure_history", column: "updated_by_user_id", referencedTable: "users", onDelete: "n" },
+  { table: "shopify_variant_unit_costs", column: "business_id", referencedTable: "businesses", onDelete: "c" },
+  { table: "shopify_variant_unit_cost_history", column: "business_id", referencedTable: "businesses", onDelete: "c" },
 ];
 
 /** Indexes this change adds, with the fragments that define them. */
@@ -534,6 +548,44 @@ export const VERIFIED_INDEXES: readonly IndexSpec[] = [
     table: "system_capacity_snapshots",
     unique: false,
     definitionMustContain: ["source", "sampled_at DESC", "id DESC"],
+  },
+  {
+    // What makes the cost-structure history append-only. Every index in phase 4
+    // is built under `.catch(() => {})`, so without this assertion a failed
+    // build would report a successful migration and leave the writer free to
+    // insert version 5 twice — two different answers to "what was this
+    // business's cost structure at version 5", with nothing to say which the
+    // ledger used.
+    name: "uniq_business_commerce_cost_history_version",
+    table: "business_commerce_cost_structure_history",
+    unique: true,
+    accessMethod: "btree",
+    keyExpressions: ["business_id", "version"],
+    predicate: null,
+  },
+  {
+    name: "idx_shopify_variant_unit_costs_business_active",
+    table: "shopify_variant_unit_costs",
+    unique: false,
+    accessMethod: "btree",
+    keyExpressions: ["business_id", "active", "product_title", "variant_title"],
+    predicate: null,
+  },
+  {
+    name: "idx_shopify_variant_unit_costs_missing",
+    table: "shopify_variant_unit_costs",
+    unique: false,
+    accessMethod: "btree",
+    keyExpressions: ["business_id", "active", "variant_id"],
+    predicate: "(unit_cost IS NULL)",
+  },
+  {
+    name: "idx_shopify_variant_unit_cost_history_variant",
+    table: "shopify_variant_unit_cost_history",
+    unique: false,
+    accessMethod: "btree",
+    keyExpressions: ["business_id", "provider_account_id", "variant_id", "observed_at DESC", "id DESC"],
+    predicate: null,
   },
 ];
 

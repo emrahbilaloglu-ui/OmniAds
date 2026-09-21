@@ -1,27 +1,27 @@
 {
- "manifestHash": "1255a6d443f4b6be17f1fa4a5c3dc77099b895b2022339d1d1d46b597b5f866b",
+ "manifestHash": "65576900f1802a4bc52eff5c7cb1cbf1a7facec6a9c5618dcecb4315d3e7b376",
  "hashAlgorithm": "sha256",
  "hashBasis": "sha256 over UTF-8 bytes of JSON.stringify(artifact, null, 1) of the artifact WITHOUT its embedded hash fields (the artifact object before {<hashField>, hashAlgorithm, hashBasis} are prepended)",
  "contract": "adsecute.d077.release-candidate-manifest.v3",
- "generatedAtUtc": "2026-09-17T18:04:19.474Z",
- "branch": "codex/overview-responsive-layout",
+ "generatedAtUtc": "2026-09-21T05:34:28.461Z",
+ "branch": "codex/commercial-cost-model-v1",
  "supersededBranchLabel": "codex/meta-disabled-readiness-20260829",
- "head": "a3e4ebe519e8f7e3f9ccc552d672fcc653ed5053",
+ "head": "bbb6b5dd33b6e4a4ac4d7f6ab680639175128825",
  "baseMain": "babf158e150fd33057117b39b175da044ac62d2e",
  "originMain": "a3e4ebe519e8f7e3f9ccc552d672fcc653ed5053",
  "remoteDivergence": {
-  "aheadOfOriginMain": 0,
+  "aheadOfOriginMain": 1,
   "behindOriginMain": 0
  },
  "selfExclusion": "this manifest's own path (docs/audits/generated/d077-release-candidate-manifest-2026-08-30.json) is EXCLUDED from its entry list: a manifest cannot recursively pin its own final bytes; its external SHA-256 is reported in the final response and by Codex's own hashing",
- "gitPorcelainEntryCount": 66,
- "releaseDiffEntryCountIncludingSelf": 1151,
- "expandedOnDiskCandidateFileCountIncludingSelf": 1151,
- "pinnedNonSelfFileCount": 1150,
+ "gitPorcelainEntryCount": 61,
+ "releaseDiffEntryCountIncludingSelf": 1206,
+ "expandedOnDiskCandidateFileCountIncludingSelf": 1206,
+ "pinnedNonSelfFileCount": 1205,
  "historicalContext": "pre-task freeze was 217 porcelain entries / 265 files — historical context only, NOT the final tree",
  "classCounts": {
-  "tests_only": 537,
-  "runtime": 384,
+  "tests_only": 561,
+  "runtime": 415,
   "runtime_deletion": 2,
   "deploy_config": 1,
   "docs": 56,
@@ -120,6 +120,12 @@
    "git": "M",
    "class": "runtime",
    "sha256": "ea7bb1e8496d23d20856fca93f73bd161227dd96535a5f85ef03a373da7f69b2"
+  },
+  {
+   "path": "app/(dashboard)/commercial-truth/legacy-page.tsx",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "14880f89827991f3326c8382710d7e59d5142ed819fff9d958ff8bd7af161b98"
   },
   {
    "path": "app/(dashboard)/overview/legacy-page.tsx",
@@ -468,6 +474,42 @@
    "git": "M",
    "class": "runtime",
    "sha256": "bf587874112016087f546053b599becab55520d2fba0450e41411b1ff104764c"
+  },
+  {
+   "path": "app/api/business-commerce-break-even-preview/route.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "58ddb63503aadee9c4505a505f54e768c3e0925c5d0caa420ae7123d85aa9fe5"
+  },
+  {
+   "path": "app/api/business-commerce-break-even-preview/route.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "fae57c5ff3411b39e6aff5a247b69c2c4d345e7b8aa5663bece76e04c2facd21"
+  },
+  {
+   "path": "app/api/business-commerce-cost-structure/route.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "4ee581afb0623808b0e4eb6aad8af7fcfb3cee50db8da7b3327170fa41cc541e"
+  },
+  {
+   "path": "app/api/business-commerce-cost-structure/route.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "e3dc5ab237065a64b789a5a685487b5e34ff7d2644230dec89a3043177eca353"
+  },
+  {
+   "path": "app/api/business-commerce-cost-structure/shopify/route.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "716a1cf910ca4df66cadb1464257ad6a92342de19e266d097bff0d0e16348460"
+  },
+  {
+   "path": "app/api/business-commerce-cost-structure/shopify/route.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "1e9cd490b6b40b51a10938afcd499a91dd4afbfdaa01b4838466d21715b8eabd"
   },
   {
    "path": "app/api/creatives/briefing/canonical-projection.test.ts",
@@ -861,7 +903,7 @@
   },
   {
    "path": "app/api/metrics/trend/route.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "f6c7137376aaa1035e2878e8511165678a9aaf31635547d9e7fed02d584d2942"
   },
@@ -1034,6 +1076,24 @@
    "sha256": "8c059f94fa778d8319f0c58a11f5a59c9baa091723ba9451e19ca3aa60094736"
   },
   {
+   "path": "components/commercial-truth/CommerceCostModelEditor.module.css",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "cecbd412e1fbeb54a67da3191f1decc1b326c3566ae0ee296495e4e007f73921"
+  },
+  {
+   "path": "components/commercial-truth/CommerceCostModelEditor.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "c8db342b81b5ea8bfa41416d2cee672ef73924a874557be5e4f486d0300755a6"
+  },
+  {
+   "path": "components/commercial-truth/CommerceCostModelEditor.tsx",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "b7ad76ecb7439191ac0900947ccd9dfca0406b4aa736508c0ee106ca0f993d41"
+  },
+  {
    "path": "components/commercial-truth/commercial-truth-exact-adapter.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -1043,7 +1103,7 @@
    "path": "components/commercial-truth/commercial-truth-exact-adapter.ts",
    "git": "M",
    "class": "runtime",
-   "sha256": "efba1129da8cb7466b827ff281c916c26d9846e2abe71471c3ec5d51b61cb6fc"
+   "sha256": "cf8d150c82fbf9ccfb6db63800ff072161f3ee29c1675900fe2d60dc6be6d2ac"
   },
   {
    "path": "components/commercial-truth/commercial-truth-exact-model.ts",
@@ -1061,7 +1121,49 @@
    "path": "components/commercial-truth/CommercialTruthExact.tsx",
    "git": "M",
    "class": "runtime",
-   "sha256": "589c7a8deaa61db9dfa1c8ab03f08f9da944a0dc2dbbe82febaa2cefec431208"
+   "sha256": "0633400fe9b01cbac97768675deaeb1abde45d167cd0e258a8adab7f29dd8ded"
+  },
+  {
+   "path": "components/commercial-truth/CommercialTruthScreen.test.tsx",
+   "git": "M",
+   "class": "tests_only",
+   "sha256": "c5a23d25696e7b56833b811b74d4f93607aad8a3ae4e984abf23b84bf44b68c3"
+  },
+  {
+   "path": "components/commercial-truth/CommercialTruthScreen.tsx",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "cbc4c1e6454dc40a63d0918e82a45cf877312dad229769ea1f8b9bba443fddd9"
+  },
+  {
+   "path": "components/commercial-truth/FieldHelpTip.module.css",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "f0436d0aaf5e97d3909370c1b20270522bc357fc2ffb53fa51691f1251990938"
+  },
+  {
+   "path": "components/commercial-truth/FieldHelpTip.tsx",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "43476f6993761b1376d3b5d85adeb3640a76afe827c211e38116f893a3ad0bc7"
+  },
+  {
+   "path": "components/commercial-truth/ShopifyCostSourcePanel.module.css",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "aa0d386d509389c5e366ec1c88a53ddbe078bfc25086b5779d0f0cf3d0f351ad"
+  },
+  {
+   "path": "components/commercial-truth/ShopifyCostSourcePanel.test.tsx",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "0cca46edf878775788d4508bade008f149456f7911c37eef49017205c7b22a30"
+  },
+  {
+   "path": "components/commercial-truth/ShopifyCostSourcePanel.tsx",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "0f1c6fb23a3f8d1f52c0c159b7af735d99ce404e8fc286ae9f2cada02e1be9b8"
   },
   {
    "path": "components/common/briefing/InsightsPanel.test.tsx",
@@ -1779,7 +1881,7 @@
   },
   {
    "path": "components/overview/v2/attribution-card.module.css",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "470d17d5c828ee8720e7b4aa7dfb4f4adab72dbcc930b500e4c159e2fe11ed85"
   },
@@ -1797,37 +1899,37 @@
   },
   {
    "path": "components/overview/v2/customizable-kpi-band.test.tsx",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "550d73550bd8f76c49c579a2ce7475422b024702b2c50040b31aa7983dad461b"
   },
   {
    "path": "components/overview/v2/customizable-kpi-band.tsx",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "2a6bbd2a225d7d5ab5ce768fee38f6062e3791090cf6cb8c505127d0c243df6f"
   },
   {
    "path": "components/overview/v2/kpi-band.module.css",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "81fd2809be1227e034ddd1be3549304774a703c93b1a0ed5a35b97a805680e63"
   },
   {
    "path": "components/overview/v2/kpi-grid.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "5c3836211db450a94c7786b42e4617c01283687d63d431ba972678cff34822db"
   },
   {
    "path": "components/overview/v2/kpi-grid.ts",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "becc77eb5a047a3a358f94969c697bc0332be346ea11fd9ae0fc65c7a3a27745"
   },
   {
    "path": "components/overview/v2/kpi-metric-picker.tsx",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "290fb88ef19cc59c1e46fb3479d7327ce2521dc541bb8c5dbd869388665b4b53"
   },
@@ -1869,37 +1971,37 @@
   },
   {
    "path": "components/overview/v2/overview-customize-bar.test.tsx",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "4409933a06c00de3274d48642d6366ef89ae72eee3bb5165e418f86464f4fbc7"
   },
   {
    "path": "components/overview/v2/overview-customize-bar.tsx",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "e6224f0554e0fcf345a014f1c33a7a8fd0a16ecfb7e87e3fa8c7feea3c3f66b5"
   },
   {
    "path": "components/overview/v2/overview-layout.module.css",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "248b3a854a75e7f46f0652683dc5ae6326405a2e96e4e6179cb18ba5a5526468"
   },
   {
    "path": "components/overview/v2/overview-layout.test.tsx",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "22a1d72d71c11945aedfb683cc45ebd6c48c8223a216df5968bcb3d540d0ecbb"
   },
   {
    "path": "components/overview/v2/overview-layout.tsx",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "5a7645e4a37f8bbfcfb95d34af0294b4b6dcec838ed454a55fe70feaf98a6b37"
   },
   {
    "path": "components/overview/v2/platform-card.module.css",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "619d2ccd0ee02293a4d0fdb8e5124345286becae2776771bdd6391bc2c637fd7"
   },
@@ -1917,19 +2019,19 @@
   },
   {
    "path": "components/overview/v2/use-overview-customization.test.tsx",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "e30bff1c9ece03026af3da54d5d435f7a3f5fff2188726e5931398200b9d1387"
   },
   {
    "path": "components/overview/v2/use-overview-customization.ts",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "25bf21218011c2bbd749a2876f6387b7537641b6a7630ba340472cb431e2064e"
   },
   {
    "path": "components/zero-base/home/trend-panel.module.css",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "fdcd9d192478e1ad6e758417e2e41c347fa6e3d304345b3cfeae9ae98c4df33c"
   },
@@ -1956,6 +2058,12 @@
    "git": "M",
    "class": "tests_only",
    "sha256": "b5f6131bfca751f425eafa57cfe1415980403589f2e202d7878fe324321704ce"
+  },
+  {
+   "path": "components/zero-base/manage/manage-views.tsx",
+   "git": "M",
+   "class": "runtime",
+   "sha256": "1b9be4c5784f0598777c418d524c2d9751f280782babcb46e1bc66db711f5ad6"
   },
   {
    "path": "components/zero-base/meta/decisions/mutation-ceremony-panel.tsx",
@@ -2303,7 +2411,7 @@
    "path": "docs/audits/generated/d077-release-deploy-approval-packet-2026-08-30.json",
    "git": "A",
    "class": "generated_evidence",
-   "sha256": "0fa04a914f62b8e15109549e714f75911fe8dec7d412dd0f626f6118b5a9cee5"
+   "sha256": "f40a4eeec9aea880de09ef3652529521d6a78e0d47792b9a1ad8d9a5a2af04d3"
   },
   {
    "path": "docs/audits/generated/d078-hard-action-recompute-2026-08-30.json",
@@ -2864,6 +2972,30 @@
    "sha256": "3c6722a13b3df87e86fd3d30055084ecabc5fdd03d3613ef36336780e04a1cfe"
   },
   {
+   "path": "lib/business-commerce-cost-preview.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "ee965d0b9b0d2253fa454327a61f6585916a1e9124bdb5df751e3204e5cc3028"
+  },
+  {
+   "path": "lib/business-commerce-cost-preview.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "1c194376ca0f3e0adbd5bc342d697374f6c801d2192c9159a913813e6235ce96"
+  },
+  {
+   "path": "lib/business-commerce-cost-structure.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "652282a04ed78a79d84dba752af2533fa09fdf48fac17cda3c0ef1b9c6c76661"
+  },
+  {
+   "path": "lib/business-commerce-cost-structure.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "87244926350252b465afb0023998df6b6063241dcd341343892d9951f077f2b5"
+  },
+  {
    "path": "lib/business-commercial.test.ts",
    "git": "M",
    "class": "tests_only",
@@ -2874,6 +3006,180 @@
    "git": "M",
    "class": "runtime",
    "sha256": "5650223bac97c3469a537de3057492a69f647a09fd9c42d6f18a0f017f95efad"
+  },
+  {
+   "path": "lib/commerce-cost/__tests__/fixtures.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "1898884aa570d3fb6bff5cecf5b1f2169b01c90e12d7f03530351290ad52d99b"
+  },
+  {
+   "path": "lib/commerce-cost/basis.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "4506b2275d439f73e3b4efe3ed90655ebf98953ab64045ce71d2bc4f5766a2ec"
+  },
+  {
+   "path": "lib/commerce-cost/basis.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "5157718fd07995b8670a8e8b6d26d65f7d4d0b1af10d11fe652925885b27101d"
+  },
+  {
+   "path": "lib/commerce-cost/break-even-preview-source.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "d445037514d5f546a52235ed5192f8d35b5b929c19c489de110bbce8939fab56"
+  },
+  {
+   "path": "lib/commerce-cost/break-even-preview.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "aca84f4800162e3d49f80224bdf605621921e130082d92b939b7b9ef3f66c585"
+  },
+  {
+   "path": "lib/commerce-cost/break-even-preview.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "1f55b5da8fe64f6e02f9ea9d96d6f16c5e4537aa3d8d0fbc56434fa95bbbaef2"
+  },
+  {
+   "path": "lib/commerce-cost/ladder.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "48a171834587814f9411899c88af02f452b0b3ce08c20340abd01d5b9d178fe1"
+  },
+  {
+   "path": "lib/commerce-cost/ladder.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "67ce33f4722506ee1f4d1e59b626cbe7f6c034cd0a371ac42c18ec0b23adc230"
+  },
+  {
+   "path": "lib/commerce-cost/ledger.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "6af11185dda15a04c0a337c730f8bd8ac478dadc71c7dd6af9860e00de7fb5cd"
+  },
+  {
+   "path": "lib/commerce-cost/ledger.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "71022e7aeaa9175b14a44cd888858d2e4d3a6ec4701de84e9dc609bd33f38d78"
+  },
+  {
+   "path": "lib/commerce-cost/legacy.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "1b6c0bb264a8ccb0957afdae794e1ffb96052ccff7e054d068387d590c254820"
+  },
+  {
+   "path": "lib/commerce-cost/legacy.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "725c1e8824612ad6a15db3f873d495d194190f98391152e265bfcabffef7b401"
+  },
+  {
+   "path": "lib/commerce-cost/money.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "5911cda141796e759bd7f71895e28c79fa0a3b510907a8a7ad3d41a9720f0e47"
+  },
+  {
+   "path": "lib/commerce-cost/money.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "8ad1469a02db524e304218b687c3cd9a4d3baf7bbd899c337485d4e6bb0fcffd"
+  },
+  {
+   "path": "lib/commerce-cost/payload.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "eba226ca0aefd522bd3cd39bc713cf4f5e2c5c8d78abaabdd637d2f591c0b4c9"
+  },
+  {
+   "path": "lib/commerce-cost/payload.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "f36adc436bccfbb43ae9eb2b09088c0622a34eb9b13c72cff067e99de7d59069"
+  },
+  {
+   "path": "lib/commerce-cost/reconcile.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "40b615a113975df0b7cc132028c5fc18949be4e24ac3ad2d678d74db9d4fa484"
+  },
+  {
+   "path": "lib/commerce-cost/reconcile.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "e82997838a5e471ae8ab4784a552c9967086d75f0e41ad157ae4b8f22975aa36"
+  },
+  {
+   "path": "lib/commerce-cost/resolver.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "d49101a3fb1cb61336340758d914ac85f9ea58a48bfe87a07aed7f831e3208ba"
+  },
+  {
+   "path": "lib/commerce-cost/resolver.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "73fdd05e9b5d896bd29a59bc3dbee34b39fb5439082fc315ce87a28851ce6aaa"
+  },
+  {
+   "path": "lib/commerce-cost/revision.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "21edf057a13521d727fdcf34917a1745c8adc54cca4fedcf5dac8b4393eb7728"
+  },
+  {
+   "path": "lib/commerce-cost/revision.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "12819ff66acaa7219d8f744ebbd627f20bf7c130458b89e667b1548e12f23066"
+  },
+  {
+   "path": "lib/commerce-cost/scope.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "2dcd3ee32d1a1da6b69102f51239c743e5598f7e85c5ca92631a4fc0d5ea45c2"
+  },
+  {
+   "path": "lib/commerce-cost/scope.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "cb92dd4beb29f762d660d6b867118150229e4d4cd475827134e8d52302b4446d"
+  },
+  {
+   "path": "lib/commerce-cost/taxonomy.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "9bfeb4d6e0c19a0b73daaa829e6cfa481a64bde8fac8f915a7a97b375cc32248"
+  },
+  {
+   "path": "lib/commerce-cost/time.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "bbbb603d48c2bd76aa177b9c0e85a8073a34f66ccc623afa0550dad5674b5319"
+  },
+  {
+   "path": "lib/commerce-cost/time.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "195bb540cad596ccdcfe5cbcfb5eb128d99d613a9886f9513abd78632d5143cc"
+  },
+  {
+   "path": "lib/commerce-cost/validate.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "c1ba76092c51d60ffe4d9a82d26fe2e5b2e201e1e15b5a2a0a0c4da1078d6aea"
+  },
+  {
+   "path": "lib/commerce-cost/validate.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "d245213c6ecc68c2da1616500e5a70c77ac5987859ec1cc02d410e4dc5fe788c"
   },
   {
    "path": "lib/creative-decision-center/__tests__/observability.test.ts",
@@ -3477,7 +3783,7 @@
   },
   {
    "path": "lib/demo-business-overview.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "afc7317aeacb7923b6ed6abec6f27be6d48a845fe314ebb5b2ad1193e1f72057"
   },
@@ -5699,7 +6005,13 @@
    "path": "lib/migration-verification.ts",
    "git": "M",
    "class": "migration",
-   "sha256": "23685c61ee1774c8152dbf029e08bf0dcf86155a08ac48681e6ea8700596fdc4"
+   "sha256": "196c3ba7f75fd032c7b47b6783a5d7634ee0e2dca0a77527c06c9cf956c0fef2"
+  },
+  {
+   "path": "lib/migrations.commerce-cost-structure.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "a9dbff5fed7a307d7eea996199a80c41de2632eac3981fa3f2183b2629fa7540"
   },
   {
    "path": "lib/migrations.engine-v3.test.ts",
@@ -5747,7 +6059,7 @@
    "path": "lib/migrations.ts",
    "git": "M",
    "class": "migration",
-   "sha256": "8a183748ac150c3d89b5a0c5602d7374fd29b68ff89ce43af6e5a1594050a71c"
+   "sha256": "b8dc15cbd101724c9c813713220bfb912ddae9a4bc5b6a53e1399c9b79dab2d1"
   },
   {
    "path": "lib/notification-producer-account-scope.test.ts",
@@ -5781,7 +6093,7 @@
   },
   {
    "path": "lib/overview-metric-catalog.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "dcad70428137300dbca0327065b9f6cb2a5ce6ca1db0dba95aa762c1b20c9bb9"
   },
@@ -5793,19 +6105,19 @@
   },
   {
    "path": "lib/overview-metric-trend.ts",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "14a2e0320250b33c9c1ae6012217e2ce5661905ed6d344b5c0738aca2602b7c5"
   },
   {
    "path": "lib/overview-provider-metrics.test.ts",
-   "git": "??",
+   "git": "A",
    "class": "tests_only",
    "sha256": "eaa649cac91b63d00416e6555cab71eb725ef4787b79f62bb96e9cdc97436a3b"
   },
   {
    "path": "lib/overview-provider-metrics.ts",
-   "git": "??",
+   "git": "A",
    "class": "runtime",
    "sha256": "ad81907a629663aa2ed19d14780ab1c86cbcf5e950142f246fb9687d9c683e13"
   },
@@ -5958,6 +6270,18 @@
    "git": "M",
    "class": "runtime",
    "sha256": "bb05f5554f7a569020fbf92b97e20dea853625b55838b46231ee47c6d91a716d"
+  },
+  {
+   "path": "lib/shopify/unit-cost-catalog.test.ts",
+   "git": "A",
+   "class": "tests_only",
+   "sha256": "94983943e805fe677e3822a271d18bcbf5e3da3928d4c75d443d0190a733d673"
+  },
+  {
+   "path": "lib/shopify/unit-cost-catalog.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "8ceff08c0c7689b59e887dc9623206a4642b6165677d686ae427d9caddffddc6"
   },
   {
    "path": "lib/shopify/warehouse-dimensions.test.ts",
@@ -6737,7 +7061,7 @@
    "path": "scripts/ephemeral-postgres-migrations-check.ts",
    "git": "M",
    "class": "script_ops_non_request_path",
-   "sha256": "7df96a702fd8e3a09926adaf3242394802e4a69a8e822b825f1d6d4ab15d23ed"
+   "sha256": "24d4c1fbc786820dc96c898b1f30fac88fe0dbe9716ee84b25d8658ca9a235ac"
   },
   {
    "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -6918,6 +7242,12 @@
    "git": "M",
    "class": "runtime",
    "sha256": "1f417a56bd648a77f1098157b0df666f9fb9211b089e4001b8b5ca2d9abf6d1c"
+  },
+  {
+   "path": "src/types/commerce-cost.ts",
+   "git": "A",
+   "class": "runtime",
+   "sha256": "97b7284ecdefe0df7d0edfc1eba88b93167ac8ccb6f1634e31bfcead944f33ff"
   },
   {
    "path": "src/types/models.ts",

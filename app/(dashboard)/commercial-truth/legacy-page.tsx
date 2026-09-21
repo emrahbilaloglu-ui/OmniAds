@@ -20,5 +20,5 @@ export default function CommercialTruthPage() {
     return <BusinessEmptyState />;
   }
 
-  return <CommercialTruthScreen businessId={selectedBusinessId} />;
+  return <CommercialTruthScreen key={selectedBusinessId} businessId={selectedBusinessId} />;
 }

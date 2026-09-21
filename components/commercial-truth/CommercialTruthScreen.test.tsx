@@ -16,6 +16,7 @@ import {
   createEmptyTargetPack,
   type BusinessCommercialTruthSnapshot,
 } from "@/src/types/business-commercial";
+import type { CommerceCostStructure } from "@/src/types/commerce-cost";
 
 const mockAppState = {
   businesses: [
@@ -41,17 +42,63 @@ function jsonResponse(body: unknown) {
   return Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response);
 }
 
+const EMPTY_SHOPIFY_COST_CATALOG = {
+  storage: { ready: true, missingTables: [] },
+  connection: {
+    connected: true,
+    shopDomain: "store.myshopify.com",
+    scopeReady: true,
+    missingScopes: [],
+  },
+  summary: {
+    totalVariants: 0,
+    costedVariants: 0,
+    missingCostVariants: 0,
+    coveragePercent: null,
+    currencyCounts: [],
+    lastSyncedAt: null,
+  },
+  rows: [],
+  matchedVariants: 0,
+  limit: 50,
+  offset: 0,
+};
+
 /** Every Meta row here is `budgetLevel: "adset"`, exactly as a demo seed is. */
 const META_ROWS = [
   { id: "m1", name: "Prospecting — Broad US", budgetLevel: "adset", spend: 21900, revenue: 112128, roas: 5.12 },
   { id: "m2", name: "Retargeting 7d — DPA", budgetLevel: "adset", spend: 12300, revenue: 23862, roas: 1.94 },
 ];
 
+const COST_REVISION = "b".repeat(64);
+const EMPTY_COST_STRUCTURE: CommerceCostStructure = {
+  businessId: "biz_1",
+  version: 0,
+  origin: "operator",
+  confirmed: false,
+  reportingCurrency: "USD",
+  effectiveFrom: "2026-09-17T00:00:00.000Z",
+  recordedAt: "2026-09-17T00:00:00.000Z",
+  components: [],
+};
+
 beforeEach(() => {
   requested = [];
   globalThis.fetch = ((input: RequestInfo | URL) => {
     const url = String(input);
     requested.push(url);
+    if (url.startsWith("/api/business-commerce-cost-structure/shopify")) {
+      return jsonResponse(EMPTY_SHOPIFY_COST_CATALOG);
+    }
+    if (url.startsWith("/api/business-commerce-cost-structure")) {
+      return jsonResponse({
+        structure: EMPTY_COST_STRUCTURE,
+        source: "empty",
+        revision: COST_REVISION,
+        issues: [],
+        permissions: { canEdit: true },
+      });
+    }
     if (url.startsWith("/api/meta/campaigns")) return jsonResponse({ rows: META_ROWS });
     if (url.startsWith("/api/google-ads/campaigns")) {
       return jsonResponse({
@@ -139,17 +186,6 @@ describe("CommercialTruthScreen campaign level", () => {
 
 /* --------------------------------------------------------------- cost model */
 
-/**
- * `business_cost_models` is the table overview profit estimates, reports and
- * the Google advisor read cost from. Commercial Truth used to write it only
- * when the monthly fixed base was part of the same edit, so an edit to gross
- * margin, shipping or payment fees landed on the target pack alone — where this
- * screen's own reader prefers it, hiding the divergence — and left that table
- * costing at the stale percentages.
- *
- * The route takes all four columns at once, so each of these asserts the one
- * edited column changed and the other three went back at their stored values.
- */
 const STORED_COSTS = {
   cogsPercent: 0.38,
   shippingPercent: 0.06,
@@ -181,16 +217,44 @@ function costSnapshot(packCosts: boolean): BusinessCommercialTruthSnapshot {
   } as unknown as BusinessCommercialTruthSnapshot;
 }
 
-describe("CommercialTruthScreen cost model writes", () => {
-  let costModelBodies: Array<Record<string, unknown>>;
+describe("CommercialTruthScreen versioned cost model", () => {
+  let costStructureBodies: Array<Record<string, unknown>>;
+  let legacyCostWrites: Array<Record<string, unknown>>;
   let packBodies: Array<Record<string, unknown>>;
 
-  function installFetch(snapshot: BusinessCommercialTruthSnapshot) {
+  function installFetch(
+    snapshot: BusinessCommercialTruthSnapshot,
+    costResponse: Record<string, unknown> = {},
+  ) {
     globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url.startsWith("/api/business-commerce-cost-structure/shopify")) {
+        return jsonResponse(EMPTY_SHOPIFY_COST_CATALOG);
+      }
+      if (url.startsWith("/api/business-commerce-cost-structure")) {
+        if (method === "PUT") {
+          const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          costStructureBodies.push(body);
+          return jsonResponse({
+            structure: body.structure,
+            source: "stored",
+            revision: "c".repeat(64),
+            issues: [],
+            permissions: { canEdit: true },
+          });
+        }
+        return jsonResponse({
+          structure: EMPTY_COST_STRUCTURE,
+          source: "empty",
+          revision: COST_REVISION,
+          issues: [],
+          permissions: { canEdit: true },
+          ...costResponse,
+        });
+      }
       if (url.startsWith("/api/business-cost-model")) {
-        costModelBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        legacyCostWrites.push(JSON.parse(String(init?.body ?? "{}")));
         return jsonResponse({ costModel: null });
       }
       if (url.startsWith("/api/business-commercial-settings/history")) {
@@ -212,7 +276,8 @@ describe("CommercialTruthScreen cost model writes", () => {
   }
 
   beforeEach(() => {
-    costModelBodies = [];
+    costStructureBodies = [];
+    legacyCostWrites = [];
     packBodies = [];
     installFetch(costSnapshot(true));
   });
@@ -225,73 +290,156 @@ describe("CommercialTruthScreen cost model writes", () => {
     });
   }
 
-  it("writes COGS from a gross-margin-only edit and keeps the other three columns", async () => {
-    await editAndSave("commercial-gross-margin", "60%");
+  it("removes the four legacy cost inputs so there is one cost-editing path", async () => {
+    await mount();
 
-    expect(costModelBodies).toHaveLength(1);
-    const body = costModelBodies[0]!;
-    expect(body.businessId).toBe("biz_1");
-    // Gross margin 60% is COGS 40%; the screen stores the cost side.
-    expect(body.cogsPercent as number).toBeCloseTo(0.4, 10);
-    expect(body.shippingPercent).toBe(STORED_COSTS.shippingPercent);
-    expect(body.feePercent).toBe(STORED_COSTS.feePercent);
-    expect(body.fixedCost).toBe(STORED_COSTS.fixedCost);
-    // The pack is still written in the same save — this adds a mirror, it does
-    // not move where the target pack lives.
-    expect(packBodies).toHaveLength(1);
+    expect(await screen.findByTestId("shopify-cost-source-panel")).toBeTruthy();
+    expect(await screen.findByTestId("commerce-cost-model-editor")).toBeTruthy();
+    expect(screen.queryByTestId("commercial-gross-margin")).toBeNull();
+    expect(screen.queryByTestId("commercial-cost-shipping")).toBeNull();
+    expect(screen.queryByTestId("commercial-cost-processing")).toBeNull();
+    expect(screen.queryByTestId("commercial-fixed-costs")).toBeNull();
   });
 
-  it("writes shipping from a shipping-only edit and keeps the other three columns", async () => {
-    await editAndSave("commercial-cost-shipping", "7%");
+  it("shows the cost model as a read-only preview while versioned storage is unavailable", async () => {
+    installFetch(costSnapshot(true), {
+      storage: {
+        ready: false,
+        missingTables: ["business_commerce_cost_structures"],
+      },
+      permissions: { canEdit: false },
+    });
 
-    expect(costModelBodies).toHaveLength(1);
-    const body = costModelBodies[0]!;
-    expect(body.shippingPercent as number).toBeCloseTo(0.07, 10);
-    expect(body.cogsPercent).toBe(STORED_COSTS.cogsPercent);
-    expect(body.feePercent).toBe(STORED_COSTS.feePercent);
-    expect(body.fixedCost).toBe(STORED_COSTS.fixedCost);
+    await mount();
+
+    expect(await screen.findByTestId("commerce-cost-model-editor")).toBeTruthy();
+    expect(screen.getByText(/storage is not ready yet/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add cost" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save cost model" })).toBeDisabled();
   });
 
-  it("writes payment fees from a fees-only edit and keeps the other three columns", async () => {
-    await editAndSave("commercial-cost-processing", "3.5%");
-
-    expect(costModelBodies).toHaveLength(1);
-    const body = costModelBodies[0]!;
-    expect(body.feePercent as number).toBeCloseTo(0.035, 10);
-    expect(body.cogsPercent).toBe(STORED_COSTS.cogsPercent);
-    expect(body.shippingPercent).toBe(STORED_COSTS.shippingPercent);
-    expect(body.fixedCost).toBe(STORED_COSTS.fixedCost);
-  });
-
-  it("writes the monthly fixed base from a fixed-base-only edit and keeps the percentages", async () => {
-    await editAndSave("commercial-fixed-costs", "14000");
-
-    expect(costModelBodies).toHaveLength(1);
-    const body = costModelBodies[0]!;
-    expect(body.fixedCost).toBe(14000);
-    expect(body.cogsPercent).toBe(STORED_COSTS.cogsPercent);
-    expect(body.shippingPercent).toBe(STORED_COSTS.shippingPercent);
-    expect(body.feePercent).toBe(STORED_COSTS.feePercent);
-  });
-
-  it("falls back to the stored cost model for untouched columns the pack does not override", async () => {
-    installFetch(costSnapshot(false));
-    await editAndSave("commercial-cost-shipping", "7%");
-
-    expect(costModelBodies).toHaveLength(1);
-    const body = costModelBodies[0]!;
-    expect(body.shippingPercent as number).toBeCloseTo(0.07, 10);
-    // The pack carries no override for these, so the live cost model supplies
-    // them rather than the write blanking what the operator never touched.
-    expect(body.cogsPercent).toBe(STORED_COSTS.cogsPercent);
-    expect(body.feePercent).toBe(STORED_COSTS.feePercent);
-    expect(body.fixedCost).toBe(STORED_COSTS.fixedCost);
-  });
-
-  it("leaves the cost model alone when the edit touches no cost field", async () => {
+  it("keeps target-pack saves separate from the versioned cost model", async () => {
     await editAndSave("commercial-target-roas", "4.20");
 
     expect(packBodies).toHaveLength(1);
-    expect(costModelBodies).toHaveLength(0);
+    expect(costStructureBodies).toHaveLength(0);
+    expect(legacyCostWrites).toHaveLength(0);
+  });
+
+  it("writes a new component with the revision returned by GET", async () => {
+    await mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Add cost" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Loaded product cost" } });
+    fireEvent.change(screen.getByLabelText("Percentage"), { target: { value: "42" } });
+    const addButtons = screen.getAllByRole("button", { name: "Add cost" });
+    fireEvent.click(addButtons[addButtons.length - 1]!);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save cost model" }));
+    });
+
+    expect(costStructureBodies).toHaveLength(1);
+    expect(costStructureBodies[0]).toMatchObject({
+      businessId: "biz_1",
+      expectedRevision: COST_REVISION,
+    });
+    const saved = costStructureBodies[0]!.structure as CommerceCostStructure;
+    expect(saved.components).toHaveLength(1);
+    expect(saved.components[0]?.basis).toMatchObject({
+      kind: "percent_of_base",
+      percent: 42,
+    });
+    expect(legacyCostWrites).toHaveLength(0);
+  });
+});
+
+describe("CommercialTruthScreen business isolation", () => {
+  it("ignores a late cost-model response from the previously selected business", async () => {
+    let resolveFirstCost!: (response: Response) => void;
+    const firstCost = new Promise<Response>((resolve) => {
+      resolveFirstCost = resolve;
+    });
+    const costFor = (businessId: string, label: string): CommerceCostStructure => ({
+      ...EMPTY_COST_STRUCTURE,
+      businessId,
+      components: [
+        {
+          id: `cost-${businessId}`,
+          version: 1,
+          family: "product_purchase",
+          slot: "default",
+          label,
+          scope: [],
+          basis: { kind: "amount_per_unit", amount: 10 },
+          currency: "USD",
+          taxTreatment: "unknown",
+          effectiveFrom: "2026-09-01T00:00:00.000Z",
+          recordedAt: "2026-09-01T00:00:00.000Z",
+          recognition: "on_order",
+          refundBehaviour: "reverse_on_restock",
+          evidence: "operator_estimate",
+          source: { kind: "manual" },
+          decisionClass: "contribution",
+          status: "active",
+        },
+      ],
+    });
+
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/business-commerce-cost-structure/shopify")) {
+        return jsonResponse(EMPTY_SHOPIFY_COST_CATALOG);
+      }
+      if (url.startsWith("/api/business-commerce-cost-structure")) {
+        if (url.includes("businessId=biz_1")) return firstCost;
+        return jsonResponse({
+          structure: costFor("biz_2", "Business two cost"),
+          source: "stored",
+          revision: "2".repeat(64),
+          issues: [],
+          permissions: { canEdit: true },
+        });
+      }
+      if (url.startsWith("/api/business-commercial-settings/history")) {
+        return jsonResponse({ entries: [] });
+      }
+      if (url.startsWith("/api/business-commercial-settings")) {
+        const businessId = url.includes("businessId=biz_2") ? "biz_2" : "biz_1";
+        return jsonResponse({
+          snapshot: { ...costSnapshot(false), businessId },
+          revision: REVISION,
+          permissions: { canEdit: true },
+        });
+      }
+      if (url.startsWith("/api/overview-summary")) {
+        return jsonResponse({ summary: { pins: [] } });
+      }
+      return jsonResponse({ rows: [] });
+    }) as unknown as typeof fetch;
+
+    const view = render(React.createElement(CommercialTruthScreen, { businessId: "biz_1" }));
+    await act(async () => {
+      view.rerender(React.createElement(CommercialTruthScreen, { businessId: "biz_2" }));
+    });
+
+    expect(await screen.findByText("Business two cost")).toBeTruthy();
+
+    await act(async () => {
+      resolveFirstCost({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            structure: costFor("biz_1", "Late business one cost"),
+            source: "stored",
+            revision: "1".repeat(64),
+            issues: [],
+            permissions: { canEdit: true },
+          }),
+      } as Response);
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("Late business one cost")).toBeNull();
+    expect(screen.getByText("Business two cost")).toBeTruthy();
   });
 });

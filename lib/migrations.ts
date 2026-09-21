@@ -4838,6 +4838,123 @@ export async function runMigrations(options?: {
           updated_by_user_id              UUID REFERENCES users(id) ON DELETE SET NULL,
           CHECK (effective_at <= recorded_at)
         )`,
+          // The operator-declared commerce cost structure: one current row per
+          // business, plus an append-only history row per version.
+          //
+          // `structure` is the whole typed CommerceCostStructure. The scalar
+          // columns beside it are denormalized from that same object so a
+          // listing or a readiness check does not have to parse every blob, and
+          // the CHECKs below tie them back to it — the row and the JSON can
+          // never disagree about which business or which version this is.
+          //
+          // Unlike business_target_pack_history there is deliberately NO
+          // `CHECK (effective_from <= recorded_at)`: a cost structure may be
+          // declared today to take effect next month, so a forward-dated
+          // effective_from is correct input, not a corrupt row.
+          //
+          // `revision` excludes 64 zeros because that string is the reserved
+          // token for "nothing is stored for this business"
+          // (the legacy absent-token value). Forbidding it here keeps a
+          // stored row unable to impersonate absence, so a first-save token can
+          // never be replayed against a real version.
+          sql`CREATE TABLE IF NOT EXISTS business_commerce_cost_structures (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          business_ref_id      UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          version              INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+          revision             TEXT NOT NULL
+                                CHECK (revision ~ '^[0-9a-f]{64}$' AND revision !~ '^0{64}$'),
+          origin               TEXT NOT NULL
+                                CHECK (origin IN ('operator', 'template', 'legacy_import')),
+          confirmed            BOOLEAN NOT NULL DEFAULT false,
+          structure            JSONB NOT NULL,
+          effective_from       TIMESTAMPTZ NOT NULL,
+          recorded_at          TIMESTAMPTZ NOT NULL,
+          updated_by_user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id),
+          CHECK (jsonb_typeof(structure) = 'object'),
+          CHECK (lower(structure->>'businessId') = business_id::text),
+          CHECK ((structure->>'version')::integer = version)
+        )`,
+          // Append-only. A past day's profit was computed from a past version,
+          // so a version's meaning must never change: nothing updates a row
+          // here, and the unique index on (business_id, version) in phase 4
+          // makes rewriting one a constraint violation rather than a silent
+          // overwrite. `confirmed` carries no default -- a history row has to
+          // state what was actually stored.
+          sql`CREATE TABLE IF NOT EXISTS business_commerce_cost_structure_history (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          business_ref_id      UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          version              INTEGER NOT NULL CHECK (version > 0),
+          revision             TEXT NOT NULL
+                                CHECK (revision ~ '^[0-9a-f]{64}$' AND revision !~ '^0{64}$'),
+          origin               TEXT NOT NULL
+                                CHECK (origin IN ('operator', 'template', 'legacy_import')),
+          confirmed            BOOLEAN NOT NULL,
+          structure            JSONB NOT NULL,
+          effective_from       TIMESTAMPTZ NOT NULL,
+          recorded_at          TIMESTAMPTZ NOT NULL,
+          updated_by_user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (jsonb_typeof(structure) = 'object'),
+          CHECK (lower(structure->>'businessId') = business_id::text),
+          CHECK ((structure->>'version')::integer = version)
+        )`,
+          // Current Shopify catalog cost per variant. This is source evidence,
+          // not an activated business cost model: no decision or reporting
+          // query reads this table. `unit_cost = NULL` is retained so coverage
+          // has an honest denominator instead of silently dropping products
+          // whose cost is missing in Shopify.
+          sql`CREATE TABLE IF NOT EXISTS shopify_variant_unit_costs (
+          id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id           UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id   TEXT NOT NULL,
+          product_id            TEXT NOT NULL,
+          variant_id            TEXT NOT NULL,
+          inventory_item_id     TEXT NOT NULL,
+          sku                   TEXT,
+          product_title         TEXT,
+          variant_title         TEXT,
+          unit_cost             NUMERIC(20, 6),
+          currency_code         TEXT,
+          source_updated_at     TIMESTAMPTZ,
+          observed_at           TIMESTAMPTZ NOT NULL,
+          sync_token            UUID NOT NULL,
+          active                BOOLEAN NOT NULL DEFAULT true,
+          created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, variant_id),
+          CHECK (unit_cost IS NULL OR unit_cost >= 0),
+          CHECK ((unit_cost IS NULL) = (currency_code IS NULL)),
+          CHECK (currency_code IS NULL OR currency_code ~ '^[A-Z]{3}$')
+        )`,
+          // Append-only observations of cost changes and catalog removal. A
+          // later profit cutover may use this evidence to reason about dates,
+          // while still refusing to call current Shopify cost historical COGS.
+          sql`CREATE TABLE IF NOT EXISTS shopify_variant_unit_cost_history (
+          id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id           UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id   TEXT NOT NULL,
+          product_id            TEXT NOT NULL,
+          variant_id            TEXT NOT NULL,
+          inventory_item_id     TEXT NOT NULL,
+          sku                   TEXT,
+          product_title         TEXT,
+          variant_title         TEXT,
+          unit_cost             NUMERIC(20, 6),
+          currency_code         TEXT,
+          source_updated_at     TIMESTAMPTZ,
+          observed_at           TIMESTAMPTZ NOT NULL,
+          active                BOOLEAN NOT NULL,
+          change_kind           TEXT NOT NULL CHECK (change_kind IN ('observed', 'removed')),
+          created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (unit_cost IS NULL OR unit_cost >= 0),
+          CHECK ((unit_cost IS NULL) = (currency_code IS NULL)),
+          CHECK (currency_code IS NULL OR currency_code ~ '^[A-Z]{3}$')
+        )`,
           sql`CREATE TABLE IF NOT EXISTS business_country_economics (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -6209,6 +6326,43 @@ export async function runMigrations(options?: {
           ),
           sql`CREATE INDEX IF NOT EXISTS idx_business_target_pack_history_business_effective
           ON business_target_pack_history (business_id, effective_at DESC, recorded_at DESC, id DESC)`.catch(
+            () => {},
+          ),
+          sql`CREATE INDEX IF NOT EXISTS idx_business_commerce_cost_structures_business_ref
+          ON business_commerce_cost_structures (business_ref_id)`.catch(
+            () => {},
+          ),
+          // What makes the history append-only rather than merely append-mostly:
+          // version N for a business can be inserted once, so a writer that
+          // recomputed a stale version fails loudly instead of rewriting it.
+          sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_business_commerce_cost_history_version
+          ON business_commerce_cost_structure_history (business_id, version)`.catch(
+            () => {},
+          ),
+          // Transaction-time read: the newest version first.
+          sql`CREATE INDEX IF NOT EXISTS idx_business_commerce_cost_history_recorded
+          ON business_commerce_cost_structure_history (business_id, recorded_at DESC, version DESC, id DESC)`.catch(
+            () => {},
+          ),
+          // Valid-time read: which structure applied on a given day.
+          sql`CREATE INDEX IF NOT EXISTS idx_business_commerce_cost_history_effective
+          ON business_commerce_cost_structure_history (business_id, effective_from DESC, recorded_at DESC, id DESC)`.catch(
+            () => {},
+          ),
+          sql`CREATE INDEX IF NOT EXISTS idx_business_commerce_cost_history_business_ref
+          ON business_commerce_cost_structure_history (business_ref_id)`.catch(
+            () => {},
+          ),
+          sql`CREATE INDEX IF NOT EXISTS idx_shopify_variant_unit_costs_business_active
+          ON shopify_variant_unit_costs (business_id, active, product_title, variant_title)`.catch(
+            () => {},
+          ),
+          sql`CREATE INDEX IF NOT EXISTS idx_shopify_variant_unit_costs_missing
+          ON shopify_variant_unit_costs (business_id, active, variant_id)
+          WHERE unit_cost IS NULL`.catch(() => {}),
+          sql`CREATE INDEX IF NOT EXISTS idx_shopify_variant_unit_cost_history_variant
+          ON shopify_variant_unit_cost_history
+            (business_id, provider_account_id, variant_id, observed_at DESC, id DESC)`.catch(
             () => {},
           ),
           sql`INSERT INTO business_target_pack_history (

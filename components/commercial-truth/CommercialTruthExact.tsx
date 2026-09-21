@@ -8,7 +8,7 @@
  * columns are the one piece of local state, because the design makes them a
  * what-if the operator drives from the keyboard.
  */
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import styles from "@/components/commercial-truth/CommercialTruthExact.module.css";
 import {
@@ -29,6 +29,7 @@ export interface CommercialTruthExactProps {
   onFieldChange: (field: CommercialTruthFieldId, value: string) => void;
   onSave: () => void;
   onDiscard: () => void;
+  costModelEditor?: ReactNode;
 }
 
 interface ScenarioColumn {
@@ -82,6 +83,7 @@ export function CommercialTruthExact({
   onFieldChange,
   onSave,
   onDiscard,
+  costModelEditor,
 }: CommercialTruthExactProps) {
   const { scenario } = model;
   const [spends, setSpends] = useState<string[]>(scenario.defaultSpends);
@@ -262,6 +264,8 @@ export function CommercialTruthExact({
           </span>
         ))}
       </div>
+
+      {costModelEditor}
 
       <div className={styles.grid}>
         <div className={styles.column}>

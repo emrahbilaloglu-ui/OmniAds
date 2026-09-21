@@ -1166,7 +1166,7 @@ export function BusinessView({
                 embed survives only for the zero-base frame harness and its tests;
                 the header stays suppressed because this shell supplies one. */}
             <div style={{ marginTop: 16 }} data-commercial-truth-editor="">
-              <CommercialTruthScreen businessId={businessId} showHeader={false} />
+              <CommercialTruthScreen key={businessId} businessId={businessId} showHeader={false} />
             </div>
           </>
         ) : (

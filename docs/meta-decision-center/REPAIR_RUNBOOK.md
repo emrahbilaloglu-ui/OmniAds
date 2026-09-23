@@ -429,11 +429,17 @@ change and reversal was impossible.
    transaction may exceed a statement limit because it covers multiple reads.
    Re-run after any source-query change.
 5. Freeze the release source manifest, pass the full gate, then deploy the
-   same tested SHA under the user's authorized scope. Read back build identity,
-   source, persisted calibration and decisions, API, and mounted UI. Only
-   after deployment, accept three natural production waves and at least 24
-   hours of source-to-UI readback; a manual replay does not count as a natural
-   wave. Keep automation permission disabled.
+   same tested SHA under the user's authorized scope. Before deployment, run
+   point-in-time historical simulations for representative accounts and a
+   real source-gap negative control. Report source-backed presentation
+   separately from a source-authorized hard action; a presence pass cannot
+   certify the latter. Read back build identity, source, persisted calibration
+   and decisions, API, and mounted UI immediately after deployment. Natural
+   production waves provide forward source-health evidence, but no fixed
+   24-hour wait substitutes for the historical and immediate live checks.
+   If historical data cannot establish hard-action authority, say so and do
+   not treat a simulated positive verdict as a live authorization. Keep
+   automation permission disabled.
 
 The historical D077 release manifest remains pinned to its own completed
 source tree. This repair has a separate

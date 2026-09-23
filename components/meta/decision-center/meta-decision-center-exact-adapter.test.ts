@@ -4233,6 +4233,74 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     );
   });
 
+  it("leads with the source-backed profile hold and keeps a config gap secondary on the card", () => {
+    const held = heldRefreshFixture({
+      heldAction: "scale",
+      rawLabel: "scale",
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "scale",
+        postAuthorityRawLabel: "scale",
+        publishedLabel: "keep",
+        firstBlocker: {
+          code: "profile_hard_action_ineligible",
+          label: "Internal producer label",
+          explanation: "Internal producer explanation",
+        },
+      },
+      heldResolution: {
+        code: "complete_hard_action_evidence",
+        category: "system",
+        owner: "system",
+        label: "Scale Held — Calibration Sample Thin",
+        nextStep: "Internal producer next step",
+      },
+    });
+    const canonical = canonicalFixture({
+      decisionId: held.decisionId,
+      configEvidence: { verified: false } as MetaCanonicalDecision["configEvidence"],
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({ creatives: [held], canonical: [canonical] }),
+    });
+    const row = model.creativeDecisions?.[0];
+    expect(row?.note).toMatch(/^The account has too few mature creatives for the Scale calibration floor\./);
+    expect(row?.note).toContain("Verify provider campaign configuration for the evaluation day and every economic day");
+    expect(row?.heldVerdictNextStep).toBe(row?.note);
+    expect(JSON.stringify(row)).not.toContain("Internal producer");
+  });
+
+  it("names the first profile or role hold before a secondary config gap without guessing its sub-cause", () => {
+    const canonical = canonicalFixture({
+      configEvidence: { verified: false } as MetaCanonicalDecision["configEvidence"],
+    });
+    const held = heldRefreshFixture({
+      heldResolution: {
+        code: "complete_hard_action_evidence",
+        category: "system",
+        owner: "system",
+        label: "Complete Hard-Action Evidence",
+        nextStep: "Internal producer next step",
+      },
+    });
+    const firstBlocker = (code: "profile_hard_action_ineligible" | "campaign_context") => ({
+      ...held,
+      authorityProvenance: {
+        availability: "available" as const,
+        preAuthorityLabel: "refresh",
+        postAuthorityRawLabel: "refresh",
+        publishedLabel: "keep",
+        firstBlocker: { code, label: "Internal", explanation: "Internal" },
+      },
+    });
+    expect(heldCreativeVerdict(firstBlocker("profile_hard_action_ineligible"), canonical)?.nextStep).toMatch(
+      /^The decision profile does not yet authorize this change\./,
+    );
+    expect(heldCreativeVerdict(firstBlocker("campaign_context"), canonical)?.nextStep).toMatch(
+      /^The campaign role is still unresolved\./,
+    );
+  });
+
   it("names every typed prerequisite behind a held Cut without offering an action", () => {
     const heldCut = heldRefreshFixture({
       heldAction: "cut",

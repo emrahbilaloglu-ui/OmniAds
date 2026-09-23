@@ -2424,6 +2424,39 @@ export interface CreativeHeldVerdict {
 }
 
 /**
+ * A resolution code can cover several independent holds. Name the persisted
+ * first blocker before appending secondary prerequisites, using only exact
+ * server-owned codes and labels. Never interpret producer prose or blocker
+ * labels as a new decision.
+ */
+function heldPrimaryStep(
+  decision: MetaOsAdDecision,
+  firstBlocker: string | null,
+): string | null {
+  const resolution = decision.heldResolution;
+  if (!resolution) return null;
+  if (
+    firstBlocker === "profile_hard_action_ineligible" &&
+    resolution.code === "complete_hard_action_evidence"
+  ) {
+    if (decision.heldAction === "scale" && resolution.label === "Scale Held — Calibration Sample Thin") {
+      return "The account has too few mature creatives for the Scale calibration floor. Wait for more mature creatives before scaling.";
+    }
+    if (decision.heldAction === "scale" && resolution.label === "Scale Held — Winner Benchmark Missing") {
+      return "The account winner purchase benchmark is missing. Wait for enough winning ads before scaling.";
+    }
+    return "The decision profile does not yet authorize this change. Review its action-specific evidence and missing requirement before applying it.";
+  }
+  if (
+    firstBlocker === "campaign_context" &&
+    resolution.code === "complete_hard_action_evidence"
+  ) {
+    return "The campaign role is still unresolved. Verify its context before deciding how to apply this change.";
+  }
+  return null;
+}
+
+/**
  * The held verdict this row reached, or null when none was served.
  *
  * WHY THIS EXISTS. A held Refresh publishes `keep`, so
@@ -2437,13 +2470,10 @@ export interface CreativeHeldVerdict {
  * always accompanies an unauthorized published label, so re-deriving that from
  * the lane here would add a second opinion about a fact already served.
  *
- * THE NEXT STEP IS THE HELD RESOLUTION'S, and the reason code itself is never
- * printed: `heldResolution.code` selects a sentence from this surface's own
- * buyer catalog, exactly as the served resolution's code does. When the code
- * is one this surface has no sentence for, the fallback still names the held
- * verdict rather than falling through to "Review the missing evidence before
- * taking action.", which is the generic sentence this whole reader exists to
- * replace.
+ * THE NEXT STEP follows the held resolution's typed code and persisted first
+ * blocker. Known server resolution labels can refine the buyer copy; producer
+ * prose and unknown labels never pass through. When no safe mapping exists,
+ * the fallback still names the held verdict.
  */
 export function heldCreativeVerdict(
   decision: MetaOsAdDecision,
@@ -2454,15 +2484,14 @@ export function heldCreativeVerdict(
     return null;
   }
   const verdict = BUYER_HELD_VERDICT_COPY[action];
-  const genericStep = knownBuyerCopy(
-    BUYER_CREATIVE_RESOLUTION_COPY,
-    decision.heldResolution?.code,
-  );
   const blockerCodes = new Set((decision.blockers ?? []).map((blocker) => blocker.code));
   const authorityBlocker =
     decision.authorityProvenance?.firstBlocker?.code ??
     canonical?.sourceDecision?.authorityBlocker ??
     null;
+  const genericStep =
+    heldPrimaryStep(decision, authorityBlocker) ??
+    knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, decision.heldResolution?.code);
   const needsConfig =
     canonical?.configEvidence?.verified === false ||
     authorityBlocker === "config_source_authority" ||

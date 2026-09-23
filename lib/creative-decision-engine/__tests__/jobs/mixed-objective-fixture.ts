@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION } from "@/lib/meta/creatives-types";
 
 export interface MixedObjectiveFixture {
   businessId: string;
@@ -161,7 +162,7 @@ export async function setupMixedObjectiveFixture(
       payload_json
     )
     SELECT
-      $1,
+      $1::text,
       $1::uuid,
       $2,
       $3::date,
@@ -184,6 +185,20 @@ export async function setupMixedObjectiveFixture(
       'ACTIVE',
       row.creative_format,
       jsonb_build_object(
+        'source_identity_version', '${META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION}',
+        'source_parent_grain_complete', true,
+        'source_ad_ids', jsonb_build_array('ad_' || row.creative_id),
+        'source_ad_ids_complete', true,
+        'source_creative_ids', jsonb_build_array(row.creative_id),
+        'associated_ads_count', 1,
+        'historical_config_provenance', 'provider_receipt_day_bracketed',
+        'historical_config_proof', jsonb_build_object(
+          'knowledge_cutoff_at', ($3::date::text || 'T12:00:00.000Z'),
+          'last_receipt_observed_at', ($3::date::text || 'T11:00:00.000Z'),
+          'objective', row.objective,
+          'optimization_goal', NULL,
+          'custom_event_type', NULL
+        ),
         'creative_format', row.creative_format,
         'landing_page_views', row.link_clicks * 0.8,
         'add_to_cart', row.link_clicks * 0.2,

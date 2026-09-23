@@ -485,6 +485,10 @@ export interface CreativeIdentityFields {
   source_ad_ids_complete?: boolean;
   /** Every creative id a member of this grouped row carried. */
   source_creative_ids?: string[];
+  /** True only when every member Ad shares one known campaign and Ad set. */
+  source_parent_grain_complete?: boolean;
+  source_campaign_ids?: string[];
+  source_adset_ids?: string[];
   account_id: string;
   account_name: string | null;
   campaign_id: string | null;
@@ -502,6 +506,17 @@ export type CreativeSourceIdentityFields = Required<
     "source_ad_ids" | "source_ad_ids_complete" | "source_creative_ids"
   >
 >;
+
+/** A display-only identity when Meta did not return a provider creative ID. */
+export const META_UNRESOLVED_CREATIVE_ID_PREFIX = "unresolved_ad:";
+
+/** Certifies a complete provider-creative/day Ad membership list at write time. */
+export const META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION = "meta-creative-membership.v2";
+export const META_CREATIVE_DAY_PARENT_GRAIN_CONTRACT_VERSION = "meta-creative-parent-grain.v1";
+
+export function isMetaUnresolvedCreativeId(value: string | null | undefined) {
+  return typeof value === "string" && value.startsWith(META_UNRESOLVED_CREATIVE_ID_PREFIX);
+}
 
 function uniqueNonBlankIds(values: readonly unknown[]): string[] {
   const ids: string[] = [];
@@ -577,7 +592,21 @@ export interface CreativePreviewFields {
   image_hashes?: string[];
 }
 
+export type CreativeReachAggregation =
+  | "single_ad_provider_reach"
+  | "sum_of_daily_single_ad_reach"
+  | "sum_of_ad_reach_not_deduplicated"
+  | "unknown";
+
 export interface CreativeWarehouseCommonFields {
+  /** Internal fact date used to prove that summed daily reach has no duplicate day. */
+  reach_observation_day?: string;
+  /**
+   * Provenance of `reach`. A sum of Ad reach is not unique creative reach;
+   * a sum over single-Ad days supports only a daily-average frequency.
+   * Missing on older rows means the aggregation cannot be established.
+   */
+  reach_aggregation?: CreativeReachAggregation;
   reach?: number;
   frequency?: number | null;
   outbound_clicks?: number;

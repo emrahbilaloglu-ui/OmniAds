@@ -2,6 +2,10 @@ import { getDb, runDbTransaction } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import {
+  creativeDayDecisionAdmissionSql,
+  creativeDayOutcomeSourceCoverageSql,
+} from "@/lib/meta/creative-day-decision-admission";
+import {
   classifyCreativeDecisionOutcome,
   CREATIVE_OUTCOME_CLASSIFIER_VERSION,
 } from "../outcome-classifier";
@@ -21,9 +25,10 @@ export const DECISION_OUTCOME_LOOKBACK_DAYS = 120;
 export const DECISION_OUTCOME_BATCH_LIMIT = 5_000;
 // Runs after the daily decision jobs are expected to finish; realized outcomes still fill on 7d/14d lag.
 export const DECISION_OUTCOME_DAILY_UTC_HOUR = 4;
-// The legacy outcome path has no manifest/hash contract of its own. Provenance
-// is copied as nullable evidence, while outcome classification remains keyed to
-// the published label, so there is no local contract version to bump here.
+// New-epoch realized outcomes require the D101 Ad-day source and verified
+// creative membership across their exact post-decision window. The outcome
+// classifier still has its own version; prior-epoch stored outcomes are not
+// reclassified by this producer.
 
 type JobStatus = "success" | "failed" | "skipped";
 
@@ -89,6 +94,7 @@ type OutcomeSourceRow = Record<string, unknown> & {
   outcome_purchases: unknown;
   outcome_revenue: unknown;
   outcome_roas: unknown;
+  outcome_source_complete: unknown;
 };
 
 interface OutcomePayloadRow {
@@ -120,7 +126,7 @@ interface OutcomePayloadRow {
   computed_at: string;
 }
 
-const READ_OUTCOME_SOURCE_ROWS_QUERY = `
+export const READ_OUTCOME_SOURCE_ROWS_QUERY = `
 WITH windows AS (
   SELECT unnest($3::integer[]) AS outcome_window_days
 ),
@@ -128,6 +134,7 @@ eligible_snapshots AS (
   SELECT s.*
   FROM engine_v3_decision_snapshots_daily s
   WHERE (s.business_ref_id::text = $1 OR s.business_id = $1)
+    AND s.engine_version = $7::text
     AND s.scope_type = 'account'
     AND s.scope_id = '*'
     AND s.as_of_date BETWEEN ($2::date - (($4::integer - 1) * INTERVAL '1 day')) AND $2::date
@@ -185,13 +192,17 @@ SELECT
   CASE
     WHEN COALESCE(SUM(d.spend), 0) > 0
     THEN COALESCE(SUM(d.revenue), 0) / NULLIF(SUM(d.spend), 0)
-  END AS outcome_roas
+  END AS outcome_roas,
+  (COUNT(d.id) > 0 AND ${creativeDayOutcomeSourceCoverageSql("c", "$2")}) AS outcome_source_complete
 FROM candidate_windows c
 LEFT JOIN meta_creative_daily d
   ON (d.business_ref_id::text = $1 OR d.business_id = $1)
  AND d.creative_id = c.creative_id
  AND d.date > c.decision_as_of_date
  AND d.date <= (c.decision_as_of_date + (c.outcome_window_days * INTERVAL '1 day'))::date
+ AND ${creativeDayDecisionAdmissionSql("d")}
+ AND d.created_at <= LEAST(now(), (($2::date + INTERVAL '1 day') AT TIME ZONE 'UTC'))
+ AND d.updated_at <= LEAST(now(), (($2::date + INTERVAL '1 day') AT TIME ZONE 'UTC'))
 GROUP BY
   c.decision_snapshot_id,
   c.business_ref_id,
@@ -574,6 +585,7 @@ async function readOutcomeSourceRows(input: DecisionOutcomesJobInput) {
     input.lookbackDays ?? DECISION_OUTCOME_LOOKBACK_DAYS,
     input.batchLimit ?? DECISION_OUTCOME_BATCH_LIMIT,
     CREATIVE_OUTCOME_CLASSIFIER_VERSION,
+    ENGINE_VERSION,
   ]);
 }
 
@@ -596,7 +608,7 @@ function toOutcomePayloadRow(input: {
   const outcomeWindowDays =
     toIntegerOrNull(input.row.outcome_window_days) ??
     DECISION_OUTCOME_WINDOWS_DAYS[0];
-  const classification = classifyCreativeDecisionOutcome({
+  const classified = classifyCreativeDecisionOutcome({
     label,
     confidence,
     effectiveTargetRoas,
@@ -609,6 +621,18 @@ function toOutcomePayloadRow(input: {
     outcomeRoas,
     outcomeWindowDays,
   });
+  const classification = input.row.outcome_source_complete === true
+    ? classified
+    : {
+        ...classified,
+        realizedOutcome: "unknown" as const,
+        severity: "low" as const,
+        evidence: {
+          ...classified.evidence,
+          rule: "creative_source_coverage_incomplete",
+          sourceCoverageStatus: "incomplete",
+        },
+      };
 
   return {
     decision_snapshot_id: requiredString(

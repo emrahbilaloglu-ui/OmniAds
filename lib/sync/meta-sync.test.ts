@@ -13,9 +13,13 @@ import {
   getMetaHistoricalCoreFairnessLimit,
   isMetaAuthoritativeHistoricalSource,
   logMetaQueueVisibility,
+  metaCreativeMembershipUpgradeCooldownMinutes,
+  metaCreativeMembershipUpgradeNeeded,
+  metaCreativeRecentRepairNeeded,
   normalizeMetaPartitionDate,
   resolveMetaBackgroundLoopDelayMs,
   resolveMetaTruthState,
+  resolveMetaCreativePartitionAction,
   resolveMetaHistoricalReplaySource,
   resolveMetaWorkerRequestedLimit,
   shouldBypassMetaCreativeCoverageShortCircuit,
@@ -485,6 +489,103 @@ describe("meta creatives sync gating", () => {
         truthState: "finalized",
       }),
     ).toBe(false);
+  });
+
+  it("re-runs only recent finalized days with decision-bearing legacy membership", () => {
+    const base = {
+      truthState: "finalized" as const,
+      providerLocalToday: "2026-09-24",
+      legacyDecisionBearingRows: 1,
+    };
+    expect(shouldBypassMetaCreativeCoverageShortCircuit({
+      ...base, day: "2026-09-23",
+    })).toBe(true);
+    expect(shouldBypassMetaCreativeCoverageShortCircuit({
+      ...base, day: "2026-09-22",
+    })).toBe(true);
+    expect(shouldBypassMetaCreativeCoverageShortCircuit({
+      ...base, day: "2026-09-21",
+    })).toBe(false);
+    expect(shouldBypassMetaCreativeCoverageShortCircuit({
+      ...base, day: "2026-09-24",
+    })).toBe(false);
+    expect(shouldBypassMetaCreativeCoverageShortCircuit({
+      ...base, day: "2026-09-23", legacyDecisionBearingRows: 0,
+    })).toBe(false);
+    expect(shouldBypassMetaCreativeCoverageShortCircuit({
+      ...base, day: "2026-09-23", legacyDecisionBearingRows: 0,
+      unmatchedDecisionBearingAds: 1,
+    })).toBe(true);
+    expect(shouldBypassMetaCreativeCoverageShortCircuit({
+      ...base, day: "2026-09-23", providerLocalToday: undefined,
+    })).toBe(false);
+  });
+
+  it("keeps a mixed v2/legacy day in the writer path and later certifies v2 without Meta", () => {
+    const base = {
+      truthState: "finalized" as const,
+      coverageComplete: true,
+      day: "2026-09-23",
+      providerLocalToday: "2026-09-24",
+    };
+    const mixedDay = {
+      legacyDecisionBearingRows: 1,
+      unmatchedDecisionBearingAds: 0,
+      configPendingRows: 1,
+    };
+    expect(metaCreativeMembershipUpgradeNeeded(mixedDay)).toBe(true);
+    expect(resolveMetaCreativePartitionAction({
+      ...base, membershipState: mixedDay,
+    })).toBe("sync_writer");
+    expect(resolveMetaCreativePartitionAction({
+      ...base, membershipState: {
+        legacyDecisionBearingRows: 0,
+        unmatchedDecisionBearingAds: 1,
+        configPendingRows: 0,
+      },
+    })).toBe("sync_writer");
+
+    // Once every economic Ad-day member has one v2 creative row, a receipt
+    // arriving on a later pass needs DB-only certification, not provider fetch.
+    const membershipProvenConfigWaiting = {
+      legacyDecisionBearingRows: 0,
+      unmatchedDecisionBearingAds: 0,
+      configPendingRows: 1,
+    };
+    expect(metaCreativeMembershipUpgradeNeeded(
+      membershipProvenConfigWaiting,
+    )).toBe(false);
+    expect(metaCreativeRecentRepairNeeded(
+      membershipProvenConfigWaiting,
+    )).toBe(true);
+    expect(resolveMetaCreativePartitionAction({
+      ...base, membershipState: membershipProvenConfigWaiting,
+    })).toBe("certify_config");
+    expect(resolveMetaCreativePartitionAction({
+      ...base, membershipState: {
+        ...membershipProvenConfigWaiting, configPendingRows: 0,
+      },
+    })).toBe("skip");
+    expect(resolveMetaCreativePartitionAction({
+      ...base, day: "2026-09-21",
+      membershipState: membershipProvenConfigWaiting,
+    })).toBe("skip");
+  });
+
+  it("throttles only an actual recent membership upgrade retry", () => {
+    expect(metaCreativeMembershipUpgradeCooldownMinutes({
+      legacyMembershipUpgradeNeeded: true,
+      previousSource: "repair_recent_day",
+    })).toBe(360);
+    // A pre-release succeeded no-op was never a strict upgrade attempt.
+    expect(metaCreativeMembershipUpgradeCooldownMinutes({
+      legacyMembershipUpgradeNeeded: true,
+      previousSource: "finalize_day",
+    })).toBe(55);
+    expect(metaCreativeMembershipUpgradeCooldownMinutes({
+      legacyMembershipUpgradeNeeded: false,
+      previousSource: "repair_recent_day",
+    })).toBe(55);
   });
 });
 

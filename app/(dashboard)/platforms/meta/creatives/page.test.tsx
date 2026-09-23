@@ -345,6 +345,27 @@ describe("Creative Studio Assets: a 200 with no rows is not automatically empty"
     expect(html).toContain("No data for this view.");
     expect(html).toContain("0 creatives");
   });
+
+  it("shows an unverified historical membership gap instead of an empty or measured-zero result", () => {
+    const reason =
+      "7 historical creative-day rows have unverified provider membership; their metrics are withheld until source-backed repair.";
+    const html = renderPage({
+      businessId: "biz_1",
+      providerAccounts: [{ id: "act_1", timezone: "UTC", currency: "USD" }],
+      creativeApiRows: [],
+      creativeEnvelope: {
+        status: "ok",
+        isPartial: true,
+        notReadyReason: reason,
+      },
+    });
+
+    expect(html).toContain('data-assets-state="unavailable"');
+    expect(html).toContain(reason);
+    expect(html).not.toContain("No creatives found for this date range.");
+    expect(html).not.toContain("No data for this view.");
+    expect(html).not.toContain("0 creatives");
+  });
 });
 
 describe("Creative Studio Assets projection", () => {

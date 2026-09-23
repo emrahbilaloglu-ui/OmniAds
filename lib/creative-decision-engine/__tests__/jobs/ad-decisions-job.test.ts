@@ -1327,6 +1327,33 @@ describe("native ad decision computation", () => {
         expect.objectContaining({ type: "ad_metrics_unavailable" }),
       ]),
     );
+    if (!result) throw new Error("Expected missing-metrics computation.");
+    const persist = (computation: typeof result) => toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000755",
+      scope: profile.scope,
+      computation,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000756",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: "ad-no-creative",
+        inputHash: "7".repeat(64),
+        decisionHash: "8".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:10:00.000Z`,
+    });
+    // An empty rollup uses resolver zeros to fail closed, but those zeros are
+    // not measurements. A finalized Ad row containing measured zero is.
+    expect(persist(result)).toMatchObject({ spend: null, purchases: null });
+    expect(persist({ ...result, input: { ...result.input,
+      spend: 0, purchases: 0,
+      metricEvidence: { ...result.input.metricEvidence,
+        sourceRowCount: 1, performanceMetricsObserved: true },
+    } })).toMatchObject({ spend: 0, purchases: 0 });
   });
 
   it("preserves the first campaign authority blocker when metrics are also unavailable", () => {

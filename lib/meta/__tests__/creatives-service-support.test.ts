@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMetaCreativeApiRow,
   buildMetaCreativeApiRowLightweight,
+  collectUnresolvedCreativeIds,
 } from "@/lib/meta/creatives-service-support";
 import type { RawCreativeRow } from "@/lib/meta/creatives-types";
 
@@ -111,7 +112,25 @@ function buildRawRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
   };
 }
 
+it("does not send synthetic missing-creative handles to Meta detail recovery", () => {
+  expect(collectUnresolvedCreativeIds([
+    buildRawRow({ creative_id: "unresolved_ad:ad_1" }),
+    buildRawRow({ creative_id: "cr_2" }),
+  ])).toEqual(["cr_2"]);
+});
+
 describe("buildMetaCreativeApiRowLightweight", () => {
+  it("carries reach provenance and unavailable frequency without projection fallback", () => {
+    const row = buildMetaCreativeApiRowLightweight({
+      row: buildRawRow({ reach: 200, reach_aggregation: "sum_of_ad_reach_not_deduplicated",
+        frequency: null, metric_presence: { frequency: false } }),
+      includeDebugFields: false,
+    });
+    expect(row.reach_aggregation).toBe("sum_of_ad_reach_not_deduplicated");
+    expect(row.frequency).toBeNull();
+    expect(row.metric_presence?.frequency).toBe(false);
+  });
+
   it("preserves expanded funnel metrics from persisted rows", () => {
     const row = buildMetaCreativeApiRowLightweight({
       row: buildRawRow({

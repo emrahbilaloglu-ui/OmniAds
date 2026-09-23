@@ -5,6 +5,13 @@ import {
 } from "@/lib/meta/funnel-stage-parse";
 import { buildAdDayAuthoritativeLinkClicksSql } from "@/lib/meta/link-click-parse";
 import {
+  creativeDayConfigDecisionAdmissionSql,
+  creativeDayCompleteWindowSql,
+  creativeDayDecisionAdmissionSql,
+  creativeDaySourceCoverageSql,
+} from "@/lib/meta/creative-day-decision-admission";
+import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION } from "@/lib/meta/creatives-types";
+import {
   buildMetaCreativeDayMetricEvidenceLateralSql,
   META_CREATIVE_DAY_METRIC_STAGES,
   type MetaCreativeDayMetricStage,
@@ -898,6 +905,9 @@ type CreativeHydrationRow = Record<string, unknown> & {
   cpa: unknown;
   ctr: unknown;
   frequency: unknown;
+  config_authority_verified?: unknown;
+  source_coverage_verified?: unknown;
+  source_coverage_after_cutoff?: unknown;
   frequency_pressure_threshold: unknown;
   recent_spend: unknown;
   recent_purchases: unknown;
@@ -3682,6 +3692,7 @@ latest_status AS (
     d.effective_status
   FROM meta_creative_daily d
   WHERE NOT $4::boolean
+    AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.business_ref_id = $1::uuid
     AND d.date <= $2::date
   ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
@@ -3695,15 +3706,50 @@ selected_creatives AS (
   SELECT DISTINCT d.creative_id
   FROM meta_creative_daily d
   WHERE NOT $4::boolean
+    AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.business_ref_id = $1::uuid
     AND d.date BETWEEN ($2::date - INTERVAL '29 days') AND $2::date
-    AND d.spend > 0
+    AND (d.spend <> 0 OR d.conversions <> 0 OR d.revenue <> 0 OR d.impressions <> 0 OR d.clicks <> 0)
 
   UNION
 
   SELECT creative_id
   FROM latest_status
   WHERE effective_status = 'ACTIVE'
+),
+config_authority AS (
+  SELECT
+    d.creative_id,
+    COALESCE(BOOL_AND(
+      ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
+    ) FILTER (WHERE d.spend <> 0 OR d.conversions <> 0 OR d.revenue <> 0 OR d.impressions <> 0 OR d.clicks <> 0), FALSE) AS config_authority_verified
+  FROM meta_creative_daily d
+  INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  WHERE d.business_ref_id = $1::uuid
+    AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+  GROUP BY d.creative_id
+),
+source_authority AS (
+  SELECT s.creative_id,
+    COALESCE((
+      SELECT ${creativeDaySourceCoverageSql("d", "$2", 90, undefined, "$1")}
+      FROM meta_creative_daily d
+      WHERE d.business_ref_id = $1::uuid AND d.creative_id = s.creative_id
+        AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+      LIMIT 1
+    ), FALSE) AS source_coverage_verified,
+    EXISTS (
+      SELECT 1
+      FROM meta_creative_daily later
+      WHERE later.business_ref_id = $1::uuid
+        AND later.creative_id = s.creative_id
+        AND later.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+        AND (later.spend <> 0 OR later.conversions <> 0 OR later.revenue <> 0
+             OR later.impressions <> 0 OR later.clicks <> 0)
+        AND (later.created_at > LEAST(now(), (($2::date + INTERVAL '1 day') AT TIME ZONE 'UTC'))
+             OR later.updated_at > LEAST(now(), (($2::date + INTERVAL '1 day') AT TIME ZONE 'UTC')))
+    ) AS source_coverage_after_cutoff
+  FROM selected_creatives s
 ),
 cumulative AS (
   SELECT
@@ -3727,7 +3773,9 @@ cumulative AS (
       WHEN SUM(d.impressions) > 0
       THEN SUM(d.clicks)::numeric / NULLIF(SUM(d.impressions), 0) * 100
     END AS ctr,
-    AVG(d.frequency) FILTER (WHERE d.frequency > 0) AS frequency,
+    -- Creative-day reach can sum distinct Ad reaches. The frequency population
+    -- below is the only admitted source of creative-grain frequency.
+    NULL::double precision AS frequency,
     CASE
       WHEN SUM(d.impressions) > 0
       THEN SUM(d.spend) / NULLIF(SUM(d.impressions), 0) * 1000
@@ -3748,15 +3796,23 @@ cumulative AS (
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   ${CREATIVE_HYDRATION_EVIDENCE.lateralSql}
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
   GROUP BY d.creative_id
 ),
 frequency_population AS (
   SELECT
     d.creative_id,
-    AVG(d.frequency) FILTER (WHERE d.frequency > 0) AS frequency
+    CASE WHEN COUNT(DISTINCT d.provider_account_id) = 1
+      AND COALESCE(BOOL_AND(
+        d.payload_json->>'reach_aggregation' = 'single_ad_provider_reach'
+        AND d.frequency IS NOT NULL AND d.frequency > 0
+      ) FILTER (WHERE d.impressions > 0), FALSE)
+      THEN AVG(d.frequency) FILTER (WHERE d.frequency > 0)
+    END AS frequency
   FROM meta_creative_daily d
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
   GROUP BY d.creative_id
 ),
@@ -3778,27 +3834,16 @@ decision_context_sources AS (
     NULLIF(BTRIM(d.provider_account_id), '') AS provider_account_id,
     NULLIF(BTRIM(d.campaign_id), '') AS campaign_id,
     NULLIF(BTRIM(d.adset_id), '') AS adset_id,
-    COALESCE(
-      NULLIF(BTRIM(a.optimization_goal), ''),
-      NULLIF(BTRIM(d.optimization_goal), '')
-    ) AS optimization_goal,
-    COALESCE(
-      NULLIF(BTRIM(a.custom_event_type), ''),
-      NULLIF(BTRIM(d.payload_json->>'customEventType'), ''),
-      NULLIF(BTRIM(d.payload_json->>'custom_event_type'), '')
-    ) AS custom_event_type,
-    NULLIF(BTRIM(d.objective), '') AS objective,
+    NULLIF(BTRIM(d.payload_json#>>'{historical_config_proof,optimization_goal}'), '') AS optimization_goal,
+    NULLIF(BTRIM(d.payload_json#>>'{historical_config_proof,custom_event_type}'), '') AS custom_event_type,
+    NULLIF(BTRIM(d.payload_json#>>'{historical_config_proof,objective}'), '') AS objective,
     d.spend
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
-  LEFT JOIN meta_adset_daily a
-    ON a.business_ref_id = d.business_ref_id
-   AND a.provider_account_id = d.provider_account_id
-   AND a.date = d.date
-   AND a.adset_id = d.adset_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
-    AND d.spend > 0
+    AND (d.spend <> 0 OR d.conversions <> 0 OR d.revenue <> 0 OR d.impressions <> 0 OR d.clicks <> 0)
 ),
 context_grain AS (
   SELECT
@@ -3855,6 +3900,7 @@ recent AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '6 days') AND $2::date
   GROUP BY d.creative_id
 ),
@@ -3866,6 +3912,7 @@ recent_24h AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date = $2::date
   GROUP BY d.creative_id
 ),
@@ -3873,7 +3920,7 @@ latest_meta AS (
   SELECT DISTINCT ON (d.creative_id)
     d.creative_id,
     d.effective_status,
-    d.objective,
+    d.payload_json#>>'{historical_config_proof,objective}' AS objective,
     d.campaign_id,
     d.creative_name,
     d.first_seen_at,
@@ -3920,6 +3967,7 @@ latest_meta AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
   ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 ),
@@ -3928,6 +3976,7 @@ last_spend AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date <= $2::date
     AND d.spend > 0
   GROUP BY d.creative_id
@@ -3966,6 +4015,7 @@ historical_source AS (
       ('allHistory', d.date <= $2::date)
   ) AS windows(window_key, in_window)
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date <= $2::date
     AND windows.in_window
 ),
@@ -4038,7 +4088,10 @@ SELECT
   c.roas,
   c.cpa,
   c.ctr,
-  c.frequency,
+  fp.frequency,
+  ca.config_authority_verified,
+  sa.source_coverage_verified,
+  sa.source_coverage_after_cutoff,
   fb.frequency_p75 AS frequency_pressure_threshold,
   r.spend AS recent_spend,
   r.purchases AS recent_purchases,
@@ -4115,6 +4168,9 @@ SELECT
   h.all_history_purchases
 FROM cumulative c
 CROSS JOIN frequency_benchmark fb
+LEFT JOIN frequency_population fp USING (creative_id)
+LEFT JOIN config_authority ca USING (creative_id)
+LEFT JOIN source_authority sa USING (creative_id)
 LEFT JOIN recent r USING (creative_id)
 LEFT JOIN recent_24h r24 USING (creative_id)
 LEFT JOIN latest_meta m USING (creative_id)
@@ -4139,6 +4195,19 @@ const ACCOUNT_CALIBRATION_QUERY = `
 WITH target_pack AS (
   SELECT $3::double precision AS target_roas
 ),
+config_verified_creative_days AS MATERIALIZED (
+  SELECT d.*
+  FROM meta_creative_daily d
+  WHERE d.business_ref_id = $2::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$1")}
+    AND ($4::text IS NULL OR d.provider_account_id = $4::text)
+    AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+),
+admitted_creative_days AS MATERIALIZED (
+  SELECT d.*
+  FROM config_verified_creative_days d
+  WHERE ${creativeDayCompleteWindowSql("d", "$1", 90, "$4", "$2")}
+),
 per_creative_raw AS (
   SELECT
     creative_id,
@@ -4151,10 +4220,7 @@ per_creative_raw AS (
     SUM(clicks) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_clicks,
     SUM(spend) FILTER (WHERE date >= ($1::date - INTERVAL '6 days')) AS recent_7d_spend,
     SUM(revenue) FILTER (WHERE date >= ($1::date - INTERVAL '6 days')) AS recent_7d_revenue
-  FROM meta_creative_daily
-  WHERE business_ref_id = $2::uuid
-    AND ($4::text IS NULL OR provider_account_id = $4::text)
-    AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+  FROM admitted_creative_days
   GROUP BY creative_id
 ),
 per_creative AS (
@@ -4245,21 +4311,15 @@ meta_aov AS (
     CASE WHEN SUM(conversions) > 0 THEN SUM(revenue) / SUM(conversions) END AS aov_mean,
     COALESCE(SUM(conversions), 0)::integer AS purchase_count,
     COALESCE(SUM(revenue), 0) AS total_revenue
-  FROM meta_creative_daily
-  WHERE business_ref_id = $2::uuid
-    AND ($4::text IS NULL OR provider_account_id = $4::text)
-    AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
-    AND objective = 'OUTCOME_SALES'
+  FROM admitted_creative_days
+  WHERE objective = 'OUTCOME_SALES'
 ),
 source_bounds AS (
   SELECT
     MIN(date) AS source_min_date,
     MAX(date) AS source_max_date,
     MAX(updated_at) AS source_max_updated_at
-  FROM meta_creative_daily
-  WHERE business_ref_id = $2::uuid
-    AND ($4::text IS NULL OR provider_account_id = $4::text)
-    AND date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+  FROM admitted_creative_days
 )
 SELECT
   counts.converter_count AS mature_count,
@@ -4299,15 +4359,32 @@ CROSS JOIN meta_aov
 CROSS JOIN source_bounds
 `;
 
+// A positive config receipt and v2 membership are necessary for even one
+// admitted creative day. Probe those cheap markers before the D101 90-day
+// source reconciliation; otherwise an account with no eligible creative
+// evidence can time out while calculating a population known to be empty.
+const HAS_CREATIVE_CALIBRATION_SOURCE_QUERY = `
+SELECT EXISTS (
+  SELECT 1 FROM meta_creative_daily d
+  WHERE d.business_ref_id = $1::uuid
+    AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+    AND ($3::text IS NULL OR d.provider_account_id = $3::text)
+    AND d.payload_json->>'source_identity_version' = $4::text
+    AND d.payload_json->>'historical_config_provenance' IN
+      ('provider_receipt_day_bracketed', 'provider_receipt_legacy_bracketed')
+) AS has_source
+`;
+
 const SOURCE_MAX_UPDATED_AT_QUERY = `
 SELECT MAX(updated_at) AS source_max_updated_at
 FROM meta_creative_daily
 WHERE business_ref_id = $1::uuid
+  AND ${creativeDayConfigDecisionAdmissionSql(undefined, "$2")}
   AND date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
 `;
 
-// Calibration reads are engine_version-agnostic to avoid table invalidation on
-// ENGINE_VERSION bumps. Writes preserve engine_version for provenance.
+// The membership-integrity epoch must not inherit calibration computed from
+// unverified creative-day membership. Older rows stay readable as snapshots.
 const READ_ACCOUNT_CALIBRATION_QUERY = `
 SELECT
   business_ref_id,
@@ -4340,6 +4417,7 @@ SELECT
   quality_status
 FROM engine_v3_account_calibration_daily
 WHERE business_ref_id = $1::uuid
+  AND engine_version = $6::text
   AND scope_type = $3::text
   AND scope_id = $4::text
   AND campaign_kind = $5::text
@@ -4391,6 +4469,7 @@ SELECT
     SELECT 1
     FROM engine_v3_account_calibration_daily
     WHERE business_ref_id = $1::uuid
+      AND engine_version = $4::text
       AND scope_type = 'account'
       AND scope_id = $3::text
       AND as_of_date <= $2::date
@@ -4399,6 +4478,7 @@ SELECT
     SELECT 1
     FROM engine_v3_account_calibration_daily
     WHERE business_ref_id = $1::uuid
+      AND engine_version = $4::text
       AND scope_type = 'account'
       AND scope_id <> '*'
       AND as_of_date <= $2::date
@@ -4453,6 +4533,8 @@ WITH per_creative AS (
     SUM(revenue) AS total_revenue
   FROM meta_creative_daily
   WHERE business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql(undefined, "$2")}
+    AND ${creativeDayCompleteWindowSql(undefined, "$2", 90, undefined, "$1")}
     AND campaign_id = $3::text
     AND date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND objective = 'OUTCOME_SALES'
@@ -4475,6 +4557,7 @@ WITH latest_day AS (
   SELECT MAX(as_of_date) AS as_of_date
   FROM engine_v3_account_calibration_daily
   WHERE business_ref_id = $1::uuid
+    AND engine_version = $5::text
     AND scope_type = 'account'
     AND scope_id = $4::text
     AND campaign_kind = $3::text
@@ -4505,6 +4588,7 @@ SELECT
   funnel_quality_status
 FROM engine_v3_account_calibration_daily
 WHERE business_ref_id = $1::uuid
+  AND engine_version = $5::text
   AND scope_type = 'account'
   AND scope_id = $4::text
   AND campaign_kind = $3::text
@@ -4520,6 +4604,7 @@ WITH lifecycle_rows AS (
     AND l.as_of_date <= $2::date
     AND (NOT $4::boolean OR l.creative_id = ANY($3::text[]))
     AND l.engine_version = $5
+    AND ${creativeDayCompleteWindowSql("l", "$2", 90, undefined, "$1")}
   ORDER BY l.creative_id, l.as_of_date DESC, l.computed_at DESC
 ),
 latest_meta AS (
@@ -4551,6 +4636,7 @@ latest_meta AS (
   FROM meta_creative_daily d
   INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
     AND d.date <= $2::date
   ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 ),
@@ -4562,6 +4648,7 @@ recent_24h AS (
   FROM meta_creative_daily d
   INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
     AND d.date = $2::date
   GROUP BY d.creative_id
 ),
@@ -4573,27 +4660,16 @@ decision_context_sources AS (
     NULLIF(BTRIM(d.provider_account_id), '') AS provider_account_id,
     NULLIF(BTRIM(d.campaign_id), '') AS campaign_id,
     NULLIF(BTRIM(d.adset_id), '') AS adset_id,
-    COALESCE(
-      NULLIF(BTRIM(a.optimization_goal), ''),
-      NULLIF(BTRIM(d.optimization_goal), '')
-    ) AS optimization_goal,
-    COALESCE(
-      NULLIF(BTRIM(a.custom_event_type), ''),
-      NULLIF(BTRIM(d.payload_json->>'customEventType'), ''),
-      NULLIF(BTRIM(d.payload_json->>'custom_event_type'), '')
-    ) AS custom_event_type,
-    NULLIF(BTRIM(d.objective), '') AS objective,
+    NULLIF(BTRIM(d.payload_json#>>'{historical_config_proof,optimization_goal}'), '') AS optimization_goal,
+    NULLIF(BTRIM(d.payload_json#>>'{historical_config_proof,custom_event_type}'), '') AS custom_event_type,
+    NULLIF(BTRIM(d.payload_json#>>'{historical_config_proof,objective}'), '') AS objective,
     d.spend
   FROM meta_creative_daily d
   INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
-  LEFT JOIN meta_adset_daily a
-    ON a.business_ref_id = d.business_ref_id
-   AND a.provider_account_id = d.provider_account_id
-   AND a.date = d.date
-   AND a.adset_id = d.adset_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
-    AND d.spend > 0
+    AND (d.spend <> 0 OR d.conversions <> 0 OR d.revenue <> 0 OR d.impressions <> 0 OR d.clicks <> 0)
 ),
 context_grain AS (
   SELECT
@@ -6253,6 +6329,12 @@ function mapCreativeHydrationRow(input: {
     businessId: input.businessId,
     campaignId: toStringOrNull(input.row.campaign_id),
     objective: toCampaignObjective(input.row.objective),
+    configProvenanceStatus:
+      input.row.config_authority_verified === true ? "verified" : "unverified",
+    sourceCoverageStatus:
+      input.row.source_coverage_verified === true ? "verified"
+        : input.row.source_coverage_after_cutoff === true ? "after_cutoff"
+          : "incomplete",
     contextGrain: toCreativeDecisionContextGrain(input.row),
     effectiveCohort: toEffectiveCreativeCohort(
       input.row.effective_cohort_inputs,
@@ -6339,6 +6421,8 @@ function mapLifecycleHydrationRow(input: {
     businessId: input.businessId,
     campaignId: toStringOrNull(input.row.campaign_id),
     objective: toCampaignObjective(input.row.objective),
+    configProvenanceStatus: "verified",
+    sourceCoverageStatus: "verified",
     contextGrain: toCreativeDecisionContextGrain(input.row),
     effectiveCohort: toEffectiveCreativeCohort(
       input.row.effective_cohort_inputs,
@@ -7331,7 +7415,7 @@ export class WarehouseDataSource
     try {
       const rows = await getDb().query<Record<string, unknown>>(
         READ_ACCOUNT_SCOPE_MATERIALISATION_QUERY,
-        [input.businessId, input.asOf, scopeId],
+        [input.businessId, input.asOf, scopeId, ENGINE_VERSION],
       );
       const row = rows[0];
       // A statement that returns no row at all answered nothing, and an
@@ -7434,6 +7518,7 @@ export class WarehouseDataSource
           input.asOf,
           input.campaignKind,
           calibrationAccountScopeId(input.providerAccountId),
+          ENGINE_VERSION,
         ],
       );
     } catch {
@@ -7474,6 +7559,28 @@ export class WarehouseDataSource
     const computedAt = new Date().toISOString();
     let row: CalibrationRow | undefined;
     try {
+      const [source] = await getDb().query<{ has_source: boolean }>(
+        HAS_CREATIVE_CALIBRATION_SOURCE_QUERY,
+        [
+          input.businessId,
+          input.asOf,
+          normalizedProviderAccountId(input.providerAccountId),
+          META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
+        ],
+      );
+      if (source?.has_source === false) {
+        this.lastCalibrationMetadata = {
+          businessId: input.businessId,
+          requestedAsOf: input.asOf,
+          asOfDate: input.asOf,
+          computedAt,
+          sourceMaxUpdatedAt: null,
+          fallbackMode: "insufficient",
+          note: "No receipt-verified creative-day data in the 90-day calibration window",
+          staleTierOverride,
+        };
+        return zeroAccountCalibration(input.businessId, computedAt);
+      }
       const targetPack = await this.getBusinessTargetPack({
         businessId: input.businessId,
         asOf: input.asOf,
@@ -7587,7 +7694,7 @@ export class WarehouseDataSource
     try {
       [row] = await getDb().query<CalibrationTableRow>(
         READ_ACCOUNT_CALIBRATION_QUERY,
-        [businessId, asOf, scopeType, scopeId, campaignKind],
+        [businessId, asOf, scopeType, scopeId, campaignKind, ENGINE_VERSION],
       );
     } catch (error) {
       return {
@@ -7713,7 +7820,16 @@ export class WarehouseDataSource
     creativeIds?: string[];
   }): Promise<CreativeInput[]> {
     const fromTable = await this.readCreativeInputsFromLifecycleTable(input);
-    if (fromTable.length > 0 && input.creativeIds == null) return fromTable;
+    if (fromTable.length > 0 && input.creativeIds == null) {
+      // A partial lifecycle materialisation must not hide creatives whose
+      // membership is known but whose config receipts are still unverified.
+      const fallback = await this.computeCreativeInputsViaRuntimeSql(input);
+      const tableIds = new Set(fromTable.map((creative) => creative.creativeId));
+      return [
+        ...fromTable,
+        ...fallback.filter((creative) => !tableIds.has(creative.creativeId)),
+      ];
+    }
     if (fromTable.length > 0 && input.creativeIds != null) {
       const hydratedIds = new Set(
         fromTable.map((creative) => creative.creativeId),

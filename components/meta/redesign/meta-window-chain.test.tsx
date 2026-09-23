@@ -48,6 +48,7 @@ const SYSTEM_TIME = new Date("2026-08-18T06:00:00.000Z");
 const state = vi.hoisted(() => ({
   search: "",
   pathname: "/platforms/meta",
+  accountMetadataAvailable: true,
   captured: [] as Array<{
     queryKey: unknown[];
     queryFn?: (context: { signal: AbortSignal }) => unknown;
@@ -227,6 +228,7 @@ function emptyCanonicalSection(key: string) {
 
 function queryData(key: string): unknown {
   if (key === "meta-provider-accounts") {
+    if (!state.accountMetadataAvailable) return undefined;
     return [
       {
         id: "act_1",
@@ -260,11 +262,16 @@ function shellUrlForPreset(preset: "7d" | "14d" | "28d"): URLSearchParams {
 /** Render the Meta surface at `search` and return the requests it would send. */
 async function requestsAt(
   search: string,
+  businessTimezone?: string | null,
 ): Promise<Map<string, URLSearchParams>> {
   state.search = search;
   state.captured.length = 0;
   renderToStaticMarkup(
-    <MetaPlatformPage businessId="biz_1" serverProviderAccountId="act_1" />,
+    <MetaPlatformPage
+      businessId="biz_1"
+      businessTimezone={businessTimezone}
+      serverProviderAccountId="act_1"
+    />,
   );
 
   const requests = new Map<string, URLSearchParams>();
@@ -294,6 +301,7 @@ describe("one picked preset produces one window", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(SYSTEM_TIME);
     state.pathname = "/platforms/meta";
+    state.accountMetadataAvailable = true;
   });
 
   afterEach(() => {
@@ -390,6 +398,24 @@ describe("one picked preset produces one window", () => {
     expect(shellUrlForPreset("7d").get("endDate")).toBe(
       workspace.get("endDate"),
     );
+  });
+
+  it("uses the workspace clock for a bare preset when Meta account metadata is unreadable", async () => {
+    // UTC is still August 17; the Istanbul workspace has reached August 18.
+    // Falling back to UTC would make the page request a window ending August
+    // 16 while the shell's completed-day window ends August 17.
+    vi.setSystemTime(new Date("2026-08-17T22:30:00.000Z"));
+    state.accountMetadataAvailable = false;
+    const requests = await requestsAt(
+      "businessId=biz_1&providerAccountId=act_1&window=7d",
+      "Europe/Istanbul",
+    );
+    const workspace = requests.get("/api/meta/decisions-workspace")!;
+    expect(workspace.get("startDate")).toBe("2026-08-11");
+    expect(workspace.get("endDate")).toBe("2026-08-17");
+    const series = requests.get("/api/meta/ads/series")!;
+    expect(series.get("start")).toBe("2026-08-11");
+    expect(series.get("end")).toBe("2026-08-17");
   });
 
   it("keeps the shared resolver and the shell writer in exact agreement for every preset", () => {

@@ -100,19 +100,13 @@ const TABS: ReadonlyArray<{ id: CreativeStudioTabId; label: string }> = [
  * unjudged newcomer green for being new. Neither is a verdict this column may
  * hand a buyer, so it is never coloured at all.
  *
- * THE FREQUENCY RULING, made explicitly rather than left to ride. The Decision
- * Center refuses to render frequency at all, in writing
- * (components/meta/redesign/MetaPlatformPage.tsx), because `groupRows`
- * discards the stored per-day figure and recomputes
- * `impressions / SUM(daily reach)` (lib/meta/creatives-row-mappers.ts:~868) —
- * reach summed across days counts one person once PER DAY, so the ratio is
- * below the window's true frequency. That objection is to the LABEL, not to the
- * number: sum(daily impressions) / sum(daily reach) is exactly the
- * impression-weighted average DAILY frequency, which is a real measurement and
- * the only fatigue signal this grain carries. So it stays, under a name that
- * says which period it is a frequency over. Both surfaces are now right: the
- * Decision Center declines to publish a window frequency, and this column never
- * claims to be one.
+ * THE FREQUENCY RULING. A creative-day may combine several Ads, whose summed
+ * reach is not deduplicated. The Studio shows `impressions / SUM(daily reach)`
+ * as a daily-average frequency only when every contributing day has verified
+ * single-Ad provider reach and measured frequency. This is a reach-weighted
+ * daily average, not a unique-reach window frequency. Unknown or multi-Ad
+ * reach stays unavailable; the Decision Center's own frequency comes from
+ * finalized Ad decisions and does not use this creative aggregate.
  */
 const METRICS: readonly MetricDefinition[] = [
   /*
@@ -457,8 +451,9 @@ function modelMessage(
     case "account_required":
       return "Select a Meta account to continue.";
     case "error":
-    case "unavailable":
       return "Creative data is temporarily unavailable.";
+    case "unavailable":
+      return model.message?.trim() || "Creative data is temporarily unavailable.";
     case "empty":
     case "ready":
     default:

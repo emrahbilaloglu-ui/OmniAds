@@ -9,11 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
-  keepPreviousData,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   TrackingConfirmModal,
   useDeferState,
@@ -140,6 +136,8 @@ interface MetaPlatformPageProps {
   businessId: string;
   businessName?: string | null;
   currency?: string | null;
+  /** The shell's workspace clock, resolved from the same authorized business. */
+  businessTimezone?: string | null;
   /**
    * The provider account the server already resolved, assignment-verified.
    *
@@ -561,6 +559,18 @@ export function parseMetaRowSearch(params: {
   return (params.get("q") ?? "")
     .trim()
     .slice(0, META_DEEP_LINK_SEARCH_MAX_LENGTH);
+}
+
+/** Restore filters only when a new URL arrives outside this page's own edits. */
+export function metaExternalUrlFilters(
+  params: { get(name: string): string | null; toString(): string },
+  lastAuthoredQuery: string,
+): { rowSearch: string; levels: MetaDecisionLevel[] } | null {
+  if (params.toString() === lastAuthoredQuery) return null;
+  return {
+    rowSearch: parseMetaRowSearch(params),
+    levels: parseMetaDecisionLevels(params),
+  };
 }
 
 export interface MetaDeepLinkCompatibilityEntry {
@@ -2795,34 +2805,34 @@ function launchpadHandoffHref(input: {
 }
 
 /**
- * Compare in Studio, scoped by whichever envelope named the creative.
+ * Compare in Studio, scoped to the served business and provider account.
  *
  * This is navigation, not authority: both envelopes state the provider account
  * and the creative id as plain served identity, and reading the presentation
  * decision's copy when the canonical one is absent asserts nothing about
  * eligibility. Returns null when neither names an account, because a Studio
- * link with no scope is a link to the wrong account's creatives.
+ * link with no scope is a link to the wrong account's creatives. The explicit
+ * `/c/:businessId` route is required here: session-scoped `/app` and legacy
+ * routes can resolve a different active business after opening a new tab.
  */
-function creativeEvidenceStudioHref(input: {
+export function creativeEvidenceStudioHref(input: {
+  businessId: string;
   canonical: MetaCanonicalDecision | null;
   decision: MetaOsAdDecision | null;
-  pathname: string | null;
 }): string | null {
+  const businessId = input.businessId.trim();
   const providerAccountId =
     input.canonical?.providerAccountId?.trim() ||
     input.decision?.providerAccountId?.trim() ||
     null;
-  if (!providerAccountId) return null;
+  if (!businessId || !providerAccountId) return null;
   const params = new URLSearchParams({ providerAccountId });
   const creativeId =
     input.canonical?.parentChain.creative?.id?.trim() ||
     input.decision?.creativeId?.trim() ||
     null;
   if (creativeId) params.set("creativeId", creativeId);
-  return dashboardHrefForRouteFamily(
-    `/platforms/meta/creatives?${params.toString()}`,
-    input.pathname ?? "",
-  );
+  return `/c/${encodeURIComponent(businessId)}/creative/performance?${params.toString()}`;
 }
 
 /**
@@ -3590,6 +3600,7 @@ function MetaNativeAdPauseDialog({
 export function MetaPlatformPage({
   businessId,
   businessName,
+  businessTimezone = null,
   serverProviderAccountId = null,
   accountSelection = "shared",
   decisionWorkflowUiEnabled: authorizedWorkflowUiEnabled,
@@ -3741,7 +3752,11 @@ export function MetaPlatformPage({
 
   useEffect(() => {
     const incomingQuery = searchParams.toString();
-    if (incomingQuery !== latestSearchParamsRef.current) {
+    const externalFilters = metaExternalUrlFilters(
+      searchParams,
+      latestSearchParamsRef.current,
+    );
+    if (externalFilters) {
       // An external link or history navigation can reuse this page instance.
       // Own lane changes already updated the ref in replaceMetaParams.
       explicitLaneSelectionRef.current =
@@ -3750,6 +3765,11 @@ export function MetaPlatformPage({
         searchParams.get("segment") !== null ||
         searchParams.get("entity") !== null ||
         searchParams.get("row") !== null;
+      // A business switch also reuses this component. Keep its search and
+      // level controls aligned with the new URL so an old account's query
+      // cannot leave the new account looking empty after its rows load.
+      setRowSearch(externalFilters.rowSearch);
+      setActiveLevels(externalFilters.levels);
     }
     latestSearchParamsRef.current = incomingQuery;
     setActiveLane(parseMetaWorkspaceLane(searchParams));
@@ -3804,17 +3824,12 @@ export function MetaPlatformPage({
    */
   const providerAccountId =
     selectedProviderAccount?.id ?? serverProviderAccountId ?? null;
-  // KNOWN GAP, recorded rather than papered over. This clock only decides how
-  // a BARE preset expands; a URL that states startDate/endDate wins outright,
-  // and the shell states them on every navigation, so this is the first-load
-  // edge. When the account record is unreadable the page falls to UTC while
-  // the shell falls to the workspace timezone (app-topbar.tsx:259-263), so on
-  // that edge the two can name different days. Closing it means forwarding the
-  // business timezone as a server-owned prop through the shared shim; this
-  // component deliberately has no client-store access, and reaching for one
-  // here would rebuild the store-vs-server scope split just removed.
-  const selectedAccountTimeZone = selectedProviderAccount?.timezone || "UTC";
-  const selectedReferenceDate = getTodayIsoForTimeZone(selectedAccountTimeZone);
+  // The shell expands a bare preset on the workspace business clock. Use that
+  // same clock here, including when the account-metadata read fails; explicit
+  // start/end dates in the URL still win in metaDateRangeFromParams.
+  const workspaceTimeZone =
+    businessTimezone || selectedProviderAccount?.timezone || "UTC";
+  const selectedReferenceDate = getTodayIsoForTimeZone(workspaceTimeZone);
   const selectedDateRange = metaDateRangeFromParams(
     searchParams,
     selectedReferenceDate,
@@ -3906,17 +3921,17 @@ export function MetaPlatformPage({
     retry: false,
     refetchOnWindowFocus: false,
     /**
-     * Keep the rows that are already on screen while the next window loads.
-     *
-     * §9 is explicit that a refresh is not a first load: *"Old data still on
-     * screen while new data is fetched is not a first load, and blanking it to
-     * a skeleton throws away readable evidence to show a spinner."* Changing
-     * the window changes this query's key, so without this the operator's whole
-     * queue was replaced by a skeleton every time — and the honest cost of
-     * keeping it, that the previous window's figures are briefly under the new
-     * window's label, is precisely what `refreshing-with-stale` discloses.
+     * Preserve readable rows during a same-account window refresh, but never
+     * present another business or provider account's decisions under the new
+     * account heading. A scope switch is a first load, not stale refresh data.
      */
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData) =>
+      previousData?.businessId === businessId &&
+      previousData.decisionReadModel?.scope?.businessId === businessId &&
+      previousData.decisionReadModel.scope.providerAccountId ===
+        providerAccountId
+        ? previousData
+        : undefined,
   });
 
   /**
@@ -6021,17 +6036,23 @@ export function MetaPlatformPage({
             onLevelsChange={selectLevels}
             onSearchChange={setRowSearchParam}
             initialQuery={rowSearch}
-            onOpenCreativeStudio={() => {
-              const query = providerAccountId
-                ? "?providerAccountId=" + encodeURIComponent(providerAccountId)
-                : "";
-              router.push(
-                dashboardHrefForRouteFamily(
-                  "/platforms/meta/creatives" + query,
-                  pathname,
-                ),
-              );
-            }}
+            onOpenCreativeStudio={
+              providerAccountId
+                ? () => {
+                    // The Studio route reads and authorizes both identities
+                    // and the selected window. A session business can change
+                    // before an /app link opens in another tab.
+                    const params = new URLSearchParams({
+                      providerAccountId,
+                      startDate: selectedDateRange.start,
+                      endDate: selectedDateRange.end,
+                    });
+                    router.push(
+                      `/c/${encodeURIComponent(businessId)}/creative/performance?${params.toString()}`,
+                    );
+                  }
+                : undefined
+            }
           />
         ) : null}
         {/*
@@ -6136,9 +6157,9 @@ export function MetaPlatformPage({
               hrefs: {
                 primary: null,
                 compareInStudio: creativeEvidenceStudioHref({
+                  businessId,
                   canonical: creativeDrill.canonical,
                   decision: creativeDrill.decision,
-                  pathname,
                 }),
                 adsManager: buildMetaAdsManagerHref({
                   providerAccountId:

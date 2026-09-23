@@ -19,6 +19,7 @@ import {
   type MetaCreativeDayMetricStage,
 } from "@/lib/meta/creative-day-metric-evidence";
 import { buildMetaCompleteWindowSql } from "@/lib/meta/funnel-stage-parse";
+import { creativeDayCompleteWindowSql, creativeDayConfigDecisionAdmissionSql } from "@/lib/meta/creative-day-decision-admission";
 import { hashAdvisoryLock } from "./advisory-lock";
 
 export { hashAdvisoryLock } from "./advisory-lock";
@@ -199,8 +200,8 @@ type CampaignScopeRow = Record<string, unknown> & {
   aggregates per day; the two are the same test (a window is incomplete iff one
   of its decision-bearing rows is missing).
 
-  ENGINE_VERSION keys the calibration rows and has never shipped, so it is
-  amended in place rather than bumped.
+  The creative membership repair has its own ENGINE_VERSION epoch. Unstamped
+  creative-day rows are excluded from that epoch until source-backed repair.
 */
 const CREATIVE_DAY_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql({
   payloadExpression: "d.payload_json",
@@ -240,6 +241,19 @@ WITH target_pack AS (
   ) target_history
   WHERE operation = 'upsert'
 ),
+config_verified_creative_days AS MATERIALIZED (
+  SELECT d.*
+  FROM meta_creative_daily d
+  WHERE d.business_ref_id = $2::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$1")}
+    AND ($8::text IS NULL OR d.provider_account_id = $8::text)
+    AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+),
+admitted_creative_days AS MATERIALIZED (
+  SELECT d.*
+  FROM config_verified_creative_days d
+  WHERE ${creativeDayCompleteWindowSql("d", "$1", 90, "$8", "$2")}
+),
 per_creative_raw AS (
   SELECT
     d.creative_id,
@@ -278,7 +292,7 @@ per_creative_raw AS (
     SUM(d.clicks) FILTER (WHERE d.date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_clicks,
     SUM(d.spend) FILTER (WHERE d.date >= ($1::date - INTERVAL '6 days')) AS recent_7d_spend,
     SUM(d.revenue) FILTER (WHERE d.date >= ($1::date - INTERVAL '6 days')) AS recent_7d_revenue
-  FROM meta_creative_daily d
+  FROM admitted_creative_days d
   LEFT JOIN LATERAL (
     SELECT
       context.inferred_kind,
@@ -295,10 +309,7 @@ per_creative_raw AS (
     LIMIT 1
   ) campaign_context ON true
   ${CREATIVE_DAY_EVIDENCE.lateralSql}
-  WHERE d.business_ref_id = $2::uuid
-    AND ($8::text IS NULL OR d.provider_account_id = $8::text)
-    AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
-    AND d.objective = ANY($5::text[])
+  WHERE d.objective = ANY($5::text[])
     AND ($6::text IS NULL OR d.campaign_id = $6::text)
     AND (
       $7::text = 'all'
@@ -524,7 +535,7 @@ source_bounds AS (
     MIN(d.date) AS source_min_date,
     MAX(d.date) AS source_max_date,
     MAX(d.updated_at) AS source_max_updated_at
-  FROM meta_creative_daily d
+  FROM admitted_creative_days d
   LEFT JOIN LATERAL (
     SELECT
       context.inferred_kind,
@@ -540,10 +551,7 @@ source_bounds AS (
     ORDER BY context.as_of_date DESC, context.updated_at DESC, context.id DESC
     LIMIT 1
   ) campaign_context ON true
-  WHERE d.business_ref_id = $2::uuid
-    AND ($8::text IS NULL OR d.provider_account_id = $8::text)
-    AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
-    AND d.objective = ANY($5::text[])
+  WHERE d.objective = ANY($5::text[])
     AND ($6::text IS NULL OR d.campaign_id = $6::text)
     AND (
       $7::text = 'all'
@@ -660,6 +668,8 @@ WITH per_creative AS (
     SUM(revenue) AS total_revenue
   FROM meta_creative_daily
   WHERE business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql(undefined, "$2")}
+    AND ${creativeDayCompleteWindowSql(undefined, "$2", 90, undefined, "$1")}
     AND date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND objective = ANY($4::text[])
     AND campaign_id IS NOT NULL

@@ -12,6 +12,7 @@ interface MetaPageProps {
   businessId?: string | null;
   businessName?: string | null;
   currency?: string | null;
+  businessTimezone?: string | null;
   // The canonical route already resolves the provider account on the server.
   // Forwarding it lets the body fall back to that answer when the client-side
   // accounts read is down, instead of leaving the whole surface empty behind an
@@ -147,6 +148,7 @@ export default function MetaPage({
   businessId: authorizedBusinessId = null,
   businessName: authorizedBusinessName = null,
   currency: authorizedCurrency = null,
+  businessTimezone: authorizedBusinessTimezone = null,
   serverProviderAccountId = null,
   accountSelection = "local",
   decisionWorkflowUiEnabled,
@@ -201,6 +203,7 @@ export default function MetaPage({
       businessId={businessId}
       businessName={authorizedBusinessName ?? business?.name ?? null}
       currency={authorizedCurrency ?? business?.currency ?? null}
+      businessTimezone={authorizedBusinessTimezone ?? business?.timezone ?? null}
       serverProviderAccountId={serverProviderAccountId}
       accountSelection={accountSelection}
       decisionWorkflowUiEnabled={decisionWorkflowUiEnabled}

@@ -209,6 +209,22 @@ describe("hasSuspiciousMissingFunnelMetrics", () => {
 });
 
 describe("toRawRow funnel metrics", () => {
+  it("does not invent provider reach from impressions when reach is absent or invalid", () => {
+    const missing = mapInsight({ impressions: "120", reach: undefined, frequency: "2" });
+    const invalid = mapInsight({ impressions: "120", reach: "invalid", frequency: "2" });
+    const measuredZero = mapInsight({ impressions: "0", reach: "0", frequency: "0" });
+    expect(missing).toMatchObject({ reach: undefined, reach_aggregation: "unknown", metric_presence: { frequency: false } });
+    expect(invalid).toMatchObject({ reach: undefined, reach_aggregation: "unknown", metric_presence: { frequency: false } });
+    expect(measuredZero).toMatchObject({ reach: 0, frequency: 0,
+      reach_aggregation: "single_ad_provider_reach", metric_presence: { frequency: true } });
+  });
+
+  it("does not mislabel an Ad ID as a provider creative ID when details are absent", () => {
+    const row = mapInsight({ ad_id: "ad_9" });
+    expect(row?.id).toBe("ad_9");
+    expect(row?.creative_id).toBe("unresolved_ad:ad_9");
+  });
+
   it("maps video_thruplay_watched_actions into thruplay_actions", () => {
     const row = mapInsight({ video_thruplay_watched_actions: [{ action_type: "video_view", value: "42" }] });
 
@@ -323,6 +339,64 @@ describe("groupRows", () => {
     expect(groupA?.associated_ads_count).toBe(2);
   });
 
+  it("uses provider creative IDs only for source-day groups", () => {
+    const rows = [
+      makeRow({ id: "ad-1", creative_id: "provider-1", name: "Name A", spend: 23.61 }),
+      makeRow({ id: "ad-2", creative_id: "provider-1", name: "Name B", spend: 24.35 }),
+      makeRow({ id: "ad-3", creative_id: "provider-2", name: "Name A", spend: 10 }),
+    ];
+
+    const displayGroups = groupRows(rows, "creative", new Map());
+    expect(displayGroups).toHaveLength(2);
+    const sourceGroups = groupRows(rows, "creative", new Map(), {
+      keyByProviderCreativeId: true,
+    });
+    expect(sourceGroups).toHaveLength(2);
+    expect(sourceGroups.find((row) => row.creative_id === "provider-1")).toMatchObject({
+      spend: 47.96,
+      associated_ads_count: 2,
+      source_ad_ids: ["ad-1", "ad-2"],
+      source_ad_ids_complete: true,
+      source_creative_ids: ["provider-1"],
+    });
+    expect(sourceGroups.find((row) => row.creative_id === "provider-2")).toMatchObject({
+      spend: 10,
+      source_ad_ids: ["ad-3"],
+      source_creative_ids: ["provider-2"],
+    });
+  });
+
+  it("keeps unknown provider creatives separate and their membership incomplete", () => {
+    const rows = [
+      makeRow({ id: "ad-1", creative_id: "unresolved_ad:ad-1", name: "Same name" }),
+      makeRow({ id: "ad-2", creative_id: "unresolved_ad:ad-2", name: "Same name" }),
+    ];
+    const sourceGroups = groupRows(rows, "creative", new Map(), {
+      keyByProviderCreativeId: true,
+    });
+    expect(sourceGroups).toHaveLength(2);
+    expect(sourceGroups.every((row) => row.source_ad_ids_complete === false)).toBe(true);
+    expect(sourceGroups.every((row) => row.source_creative_ids?.length === 0)).toBe(true);
+  });
+
+  it("keeps cross-campaign creative totals without asserting one parent context", () => {
+    const rows = [
+      makeRow({ id: "ad-1", creative_id: "provider-1", campaign_id: "cmp-1", adset_id: "set-1", spend: 10 }),
+      makeRow({ id: "ad-2", creative_id: "provider-1", campaign_id: "cmp-2", adset_id: "set-2", spend: 20 }),
+    ];
+    const [group] = groupRows(rows, "creative", new Map(), {
+      keyByProviderCreativeId: true,
+    });
+    expect(group).toMatchObject({
+      spend: 30,
+      campaign_id: null,
+      adset_id: null,
+      source_parent_grain_complete: false,
+      source_campaign_ids: ["cmp-1", "cmp-2"],
+      source_adset_ids: ["set-1", "set-2"],
+    });
+  });
+
   it("counts distinct real ad ids for grouped creative placement totals", () => {
     const rows = [
       makeRow({ id: "creative_1", real_ad_id: "ad_1", creative_id: "cre_1", name: "Creative A", spend: 100 }),
@@ -384,7 +458,7 @@ describe("groupRows", () => {
     expect(result[0].link_clicks).toBe(140);
   });
 
-  it("computes grouped frequency from aggregate impressions and reach", () => {
+  it("withholds grouped frequency when reach provenance is unknown", () => {
     const rows = [
       makeRow({ id: "a1", name: "Ad X", format: "image", impressions: 100, reach: 100, frequency: 10 }),
       makeRow({ id: "a2", name: "Ad X", format: "image", impressions: 300, reach: 100, frequency: 1 }),
@@ -394,7 +468,66 @@ describe("groupRows", () => {
 
     expect(result[0].impressions).toBe(400);
     expect(result[0].reach).toBe(200);
-    expect(result[0].frequency).toBe(2);
+    expect(result[0].frequency).toBeNull();
+    expect(result[0].metric_presence?.frequency).toBe(false);
+    expect(result[0].reach_aggregation).toBe("unknown");
+  });
+
+  it("computes only a daily-average frequency when every day has proven single-Ad provider reach", () => {
+    const rows = [
+      makeRow({ id: "a1", impressions: 100, reach: 100, frequency: 1,
+        reach_aggregation: "single_ad_provider_reach", reach_observation_day: "2026-09-01",
+        source_ad_ids: ["a1"], source_ad_ids_complete: true,
+        metric_presence: { frequency: true } }),
+      makeRow({ id: "a2", impressions: 300, reach: 100, frequency: 3,
+        reach_aggregation: "single_ad_provider_reach", reach_observation_day: "2026-09-02",
+        source_ad_ids: ["a2"], source_ad_ids_complete: true,
+        metric_presence: { frequency: true } }),
+    ];
+    const [result] = groupRows(rows, "creative", new Map());
+    expect(result.frequency).toBe(2);
+    expect(result.metric_presence?.frequency).toBe(true);
+    expect(result.reach_aggregation).toBe("sum_of_daily_single_ad_reach");
+  });
+
+  it("withholds daily-average frequency for duplicate fact days or merged provider creatives", () => {
+    const base = {
+      reach_aggregation: "single_ad_provider_reach" as const,
+      source_ad_ids_complete: true,
+      metric_presence: { frequency: true },
+      impressions: 100,
+      reach: 100,
+      frequency: 1,
+    };
+    const first = makeRow({ ...base, id: "a1", source_ad_ids: ["a1"],
+      reach_observation_day: "2026-09-01" });
+    const duplicateDay = makeRow({ ...base, id: "a2", source_ad_ids: ["a2"],
+      reach_observation_day: "2026-09-01" });
+    const differentCreative = makeRow({ ...base, id: "a3", creative_id: "cre_2",
+      source_ad_ids: ["a3"], reach_observation_day: "2026-09-02" });
+    expect(groupRows([first, duplicateDay], "creative", new Map())[0].frequency).toBeNull();
+    expect(groupRows([first, differentCreative], "creative", new Map())[0].frequency).toBeNull();
+  });
+
+  it("does not derive frequency from summed reaches of multiple Ads or a day without reach", () => {
+    const multiAd = [
+      makeRow({ id: "a1", real_ad_id: "a1", reach: 100, frequency: 1,
+        reach_aggregation: "single_ad_provider_reach", metric_presence: { frequency: true } }),
+      makeRow({ id: "a2", real_ad_id: "a2", reach: 100, frequency: 3,
+        reach_aggregation: "single_ad_provider_reach", metric_presence: { frequency: true } }),
+    ];
+    const [providerDay] = groupRows(multiAd, "creative", new Map(), { keyByProviderCreativeId: true });
+    expect(providerDay.reach_aggregation).toBe("sum_of_ad_reach_not_deduplicated");
+    expect(providerDay.frequency).toBeNull();
+    expect(providerDay.metric_presence?.frequency).toBe(false);
+
+    const [missingReach] = groupRows([
+      makeRow({ id: "a1", impressions: 100, reach: undefined, frequency: 2,
+        reach_aggregation: "unknown", metric_presence: { frequency: false } }),
+    ], "creative", new Map(), { keyByProviderCreativeId: true });
+    expect(missingReach.reach).toBe(0);
+    expect(missingReach.frequency).toBeNull();
+    expect(missingReach.metric_presence?.frequency).toBe(false);
   });
 
   it("groups by adset_id for groupBy=adset", () => {
@@ -597,6 +730,7 @@ describe("toRawRow creative-day measurement stamp", () => {
     });
     expect(row?.thumbstop).toBe(30);
     expect(row?.metric_presence).toEqual({
+      frequency: false,
       thumbstop: false, video25: false, video50: false, video75: false, video100: false,
     });
     // No new claim about whether funnel/link-click fields were measured.

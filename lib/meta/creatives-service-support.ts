@@ -23,6 +23,7 @@ import type {
 } from "@/lib/meta/creatives-types";
 import {
   isCreativeMetricAvailable,
+  isMetaUnresolvedCreativeId,
   readCreativeSourceIdentity,
 } from "@/lib/meta/creatives-types";
 import { isLikelyLowResCreativeUrl, isThumbnailLikeUrl } from "@/lib/meta/creatives-preview";
@@ -94,7 +95,11 @@ export function collectUnresolvedCreativeIds(rows: RawCreativeRow[]) {
     new Set(
       rows
         .map((row) => row.creative_id)
-        .filter((creativeId): creativeId is string => typeof creativeId === "string" && creativeId.trim().length > 0)
+        .filter((creativeId): creativeId is string =>
+          typeof creativeId === "string" &&
+          creativeId.trim().length > 0 &&
+          !isMetaUnresolvedCreativeId(creativeId),
+        )
     )
   ).slice(0, 50);
 }
@@ -516,6 +521,10 @@ export function buildMetaCreativeApiRow(params: {
     // none and gains no key. This row is also what the creative-day writer
     // persists, which is how a later read learns that day's members.
     ...readCreativeSourceIdentity(row),
+    source_parent_grain_complete: row.source_parent_grain_complete,
+    source_campaign_ids: row.source_campaign_ids,
+    source_adset_ids: row.source_adset_ids,
+    reach_aggregation: row.reach_aggregation,
     account_id: row.account_id,
     account_name: row.account_name,
     campaign_id: row.campaign_id,
@@ -586,7 +595,7 @@ export function buildMetaCreativeApiRow(params: {
     ctr_all: r2(normalizedCtrAll),
     purchases: Math.round(safePurchases),
     impressions: Math.round(safeImpressions),
-    reach: Math.round(Number(row.reach ?? row.impressions ?? 0)),
+    reach: Math.round(Number(row.reach ?? 0)),
     frequency: row.frequency ?? null,
     clicks: Math.round(Number(row.clicks ?? row.link_clicks ?? 0)),
     link_clicks: Math.round(safeLinkClicks),
@@ -701,6 +710,10 @@ export function buildMetaCreativeApiRowLightweight(params: {
     post_id: row.post_id ?? null,
     associated_ads_count: row.associated_ads_count,
     ...readCreativeSourceIdentity(row),
+    source_parent_grain_complete: row.source_parent_grain_complete,
+    source_campaign_ids: row.source_campaign_ids,
+    source_adset_ids: row.source_adset_ids,
+    reach_aggregation: row.reach_aggregation,
     account_id: row.account_id,
     account_name: row.account_name,
     campaign_id: row.campaign_id,
@@ -762,7 +775,7 @@ export function buildMetaCreativeApiRowLightweight(params: {
     ctr_all: normalizedMetrics.ctr_all,
     purchases: normalizedMetrics.purchases,
     impressions: normalizedMetrics.impressions,
-    reach: Math.round(Number(row.reach ?? row.impressions ?? 0)),
+    reach: Math.round(Number(row.reach ?? 0)),
     frequency: row.frequency ?? null,
     clicks: Math.round(Number(row.clicks ?? row.link_clicks ?? 0)),
     link_clicks: normalizedMetrics.link_clicks,

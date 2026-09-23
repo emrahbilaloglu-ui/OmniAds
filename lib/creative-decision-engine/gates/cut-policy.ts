@@ -141,7 +141,10 @@ function hasCommercialStopLossCutRepair(
 ): boolean {
   const canonical = profile.commercialStopLossCanonicalHardActionEligibility;
   return (
-    profile.commercialStopLossSpendUnit != null &&
+    profile.commercialStopLossSpendUnit?.spendUnitSource ===
+      "meta_derived_aov" &&
+    profile.commercialStopLossSpendUnit.hardEligibleByDefault &&
+    positiveFinite(profile.commercialStopLossSpendUnit.spendUnit) &&
     profile.commercialStopLossThresholds != null &&
     canonical != null &&
     !canonical.cut &&
@@ -287,15 +290,27 @@ export type ExpandedEconomicRecentEvidence =
     };
 
 /**
- * Recent confirmation for the D063-only economic strip. Account-AOV overlay
- * thresholds are intentionally ignored; recent proof stays canonical.
+ * Recent confirmation for the D063-only economic strip. The exact-cell floor
+ * governs whenever it exists. A P25-null Cut-only repair has no exact-cell
+ * spend unit and thus no canonical floor; only then may its already-validated
+ * physical-account AOV supply the recent spend floor. This does not borrow a
+ * peer boundary or change Scale/Refresh. Config, source coverage, and campaign
+ * role authority remain separate downstream gates.
  */
 export function resolveExpandedEconomicRecentEvidence(
   ctx: GateContext,
 ): ExpandedEconomicRecentEvidence {
   const recentSpend = ctx.input.recent7dSpend;
   const recentRoas = ctx.input.recent7dRoas;
-  const recentSpendThreshold = ctx.profile.thresholds.recentSampleMinSpend;
+  const canonicalRecentSpendThreshold =
+    ctx.profile.thresholds.recentSampleMinSpend;
+  const recentSpendThreshold =
+    canonicalRecentSpendThreshold === null &&
+    hasCommercialStopLossCutRepair(ctx.profile) &&
+    resolveCutBoundary(ctx).accountP25 === null &&
+    resolveCanonicalCutZoneGeometry(ctx) === "expanded_economic_loss"
+      ? ctx.profile.commercialStopLossThresholds!.recentSampleMinSpend
+      : canonicalRecentSpendThreshold;
   const breakEvenRoas = ctx.profile.spendUnitEvidence.breakEvenRoas;
 
   if (

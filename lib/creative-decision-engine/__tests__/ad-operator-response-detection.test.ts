@@ -1028,14 +1028,20 @@ describe("native ad operator-response detection", () => {
       verificationLineage: null,
     });
 
-    // The digest covers `sourceEngineVersion`, which `episode()` fills from
-    // NATIVE_AD_ENGINE_VERSION, so it moves with the producer epoch. What this
-    // pin protects is the null-lineage ENCODING, not the constant: re-derived
-    // for the D101 native epoch. Prior-epoch receipts retain their original
-    // immutable digest and remain verifiable under their recorded version.
-    // The D097/D098 epoch's value was
-    // c58a611fe2bae2dd25e82d6ac2bbfe6fbd95e72b544af3dc7b063192c21db51e.
+    // The digest includes sourceEngineVersion. Pin both the new producer epoch
+    // and the previous immutable receipt contract: an engine bump must not
+    // reinterpret a receipt already stored under its recorded version.
     expect(legacy.receiptHash).toBe(
+      "f8c046c255300b62b60caae9153f8968b712000993f94030ac44b2149ef848b0",
+    );
+    const priorEpoch = action(target, {
+      receiptId: "receipt-legacy-null-lineage",
+      actionLogId: "log-legacy-null-lineage",
+      idempotencyKey: "idem-legacy-null-lineage",
+      verificationLineage: null,
+      sourceEngineVersion: "v3-ad-2026-09-23-verified-coverage-freshness-shadow",
+    });
+    expect(priorEpoch.receiptHash).toBe(
       "5d925d987ff6bdf5d0371f7005f8f62b780c07563a0231ad929cbfa6b39e4b00",
     );
 

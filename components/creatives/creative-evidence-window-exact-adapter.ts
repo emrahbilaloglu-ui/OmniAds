@@ -637,6 +637,7 @@ function buildAdSets(input: {
   rows: readonly CreativeEvidenceWindowExactAdRow[] | undefined;
   decision: MetaOsAdDecision | null;
   canonical: MetaCanonicalDecision | null;
+  decisionPerformanceMissing: boolean;
   currency: string | null;
   target: number | null;
   unresolved: string | null;
@@ -690,12 +691,12 @@ function buildAdSets(input: {
         },
       ];
     }
-    const spend = finite(
-      input.decision?.metrics.spend ?? input.canonical?.metrics.spend,
-    );
-    const roas = finite(
-      input.decision?.metrics.roas ?? input.canonical?.metrics.roas,
-    );
+    const spend = input.decisionPerformanceMissing
+      ? null
+      : finite(input.decision?.metrics.spend ?? input.canonical?.metrics.spend);
+    const roas = input.decisionPerformanceMissing
+      ? null
+      : finite(input.decision?.metrics.roas ?? input.canonical?.metrics.roas);
     return [
       {
         id: nonBlank(input.canonical?.parentChain.adset?.id) ?? "adset-1",
@@ -730,6 +731,7 @@ function buildFunnel(input: {
   rows: readonly CreativeEvidenceWindowExactAdRow[] | undefined;
   decision: MetaOsAdDecision | null;
   canonical: MetaCanonicalDecision | null;
+  decisionPerformanceMissing: boolean;
   unresolved: string | null;
 }): CreativeEvidenceWindowExactFunnelStep[] {
   const rows = input.rows ?? [];
@@ -751,9 +753,11 @@ function buildFunnel(input: {
           (row) => row.purchases,
           (row) => row.purchasesObserved,
         )
-      : finite(
-          input.decision?.metrics.purchases ?? input.canonical?.metrics.purchases,
-        );
+      : input.decisionPerformanceMissing
+        ? null
+        : finite(
+            input.decision?.metrics.purchases ?? input.canonical?.metrics.purchases,
+          );
   const values = [impressions, linkClicks, addToCart, purchases];
   const subs = [
     "",
@@ -841,10 +845,13 @@ function buildFacts(input: {
   rows: readonly CreativeEvidenceWindowExactAdRow[] | undefined;
   decision: MetaOsAdDecision | null;
   canonical: MetaCanonicalDecision | null;
+  decisionPerformanceMissing: boolean;
   unresolved: string | null;
 }): CreativeEvidenceWindowExactFact[] {
   const rows = input.rows ?? [];
-  const frequency = finite(input.decision?.metrics.frequency);
+  const frequency = input.decisionPerformanceMissing
+    ? null
+    : finite(input.decision?.metrics.frequency);
   // A partial weighted mean would silently drop delivered ads whose video
   // numerator is missing, so all contributing rows must declare coverage.
   const thumbstopCoverageComplete =
@@ -2090,6 +2097,7 @@ const CANONICAL_ONLY_DIAGNOSTICS: ReadonlySet<string> = new Set([
  * permanent "loaded" banner would train the eye to ignore the strip.
  */
 function readNotice(input: {
+  adRows: readonly CreativeEvidenceWindowExactAdRow[] | undefined;
   adRowsState: CreativeEvidenceWindowExactReadState | undefined;
   adSeriesState: CreativeEvidenceWindowExactReadState | undefined;
   adRowsErrorMessage: string | null | undefined;
@@ -2111,6 +2119,12 @@ function readNotice(input: {
     return {
       tone: "negative",
       text: "Creative performance data is unavailable for this row.",
+    };
+  }
+  if (input.adRowsState === "loaded" && input.adRows?.length === 0) {
+    return {
+      tone: "info",
+      text: "No verified ad-day rows were found for this creative in the selected dates. Any purchase count shown below comes from the separate 28-day decision.",
     };
   }
   return null;
@@ -2219,6 +2233,8 @@ export function buildCreativeEvidenceWindowExactViewModel(
 ): CreativeEvidenceWindowExactViewModel {
   const decision = input.decision ?? null;
   const canonical = input.canonical ?? null;
+  const decisionPerformanceMissing =
+    canonical?.sourceDecision?.badges?.includes("ad_metrics_unavailable") === true;
   const sourceDegraded = retainedGenerationIsDegraded(input.source, decision);
   const currency =
     currencyCode(decision?.metrics.currency) ??
@@ -2234,8 +2250,12 @@ export function buildCreativeEvidenceWindowExactViewModel(
   const tone = decisionTone(
     canonical?.classification.buyerLabel ?? decision?.publishedLabel,
   );
-  const spend = finite(decision?.metrics.spend ?? canonical?.metrics.spend);
-  const roas = finite(decision?.metrics.roas ?? canonical?.metrics.roas);
+  const spend = decisionPerformanceMissing
+    ? null
+    : finite(decision?.metrics.spend ?? canonical?.metrics.spend);
+  const roas = decisionPerformanceMissing
+    ? null
+    : finite(decision?.metrics.roas ?? canonical?.metrics.roas);
   const rowsUnresolved =
     input.adRows === undefined ? pendingToken(input.adRowsState) : null;
   const seriesUnresolved =
@@ -2244,6 +2264,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
   const selectedPeriod = selectedPeriodLabel(input.helperRange);
   const hasAdRows = (input.adRows?.length ?? 0) > 0;
   const hasDecisionPurchases =
+    !decisionPerformanceMissing &&
     finite(decision?.metrics.purchases ?? canonical?.metrics.purchases) !== null;
   const periodLabels: CreativeEvidenceWindowExactPeriodLabels = {
     decision: "28d",
@@ -2261,6 +2282,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
     rows: input.adRows,
     decision,
     canonical,
+    decisionPerformanceMissing,
     currency,
     target,
     unresolved: rowsUnresolved,
@@ -2359,6 +2381,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
       rows: input.adRows,
       decision,
       canonical,
+      decisionPerformanceMissing,
       unresolved: rowsUnresolved,
     }),
     placements: buildPlacements(),
@@ -2367,10 +2390,12 @@ export function buildCreativeEvidenceWindowExactViewModel(
       rows: input.adRows,
       decision,
       canonical,
+      decisionPerformanceMissing,
       unresolved: rowsUnresolved,
     }),
     periodLabels,
     readNotice: readNotice({
+      adRows: input.adRows,
       adRowsState: input.adRowsState,
       adSeriesState: input.adSeriesState,
       adRowsErrorMessage: input.adRowsErrorMessage,

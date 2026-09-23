@@ -516,7 +516,7 @@ describe("MetaAudiencesPage", () => {
     const html = renderToStaticMarkup(<MetaAudiencesPage />);
 
     expect(html).toContain('data-audiences-state="unavailable"');
-    expect(html).toContain("Creative data is temporarily unavailable.");
+    expect(html).toContain("Audience breakdowns are unavailable for this date range.");
     expect(html).not.toContain("Meta integration is not connected.");
   });
 

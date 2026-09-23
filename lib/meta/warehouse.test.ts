@@ -1353,7 +1353,7 @@ describe("meta warehouse ownership safety", () => {
         providerAccountId: "acct-1",
         date: "2026-04-03T12:00:00.000Z",
         campaignId: "cmp-1",
-        adsetId: "adset-2",
+        adsetId: "adset-1",
         adId: "ad-2",
         creativeId: "creative-1",
         creativeName: "Creative 1",
@@ -1557,7 +1557,230 @@ describe("meta warehouse ownership safety", () => {
       reason: "evidence_absent",
     });
 
-    expect(payloadFor("cre-none")).toEqual({ creative_format: "image" });
+    expect(payloadFor("cre-none")).toEqual({
+      creative_format: "image",
+      historical_config_provenance: "unverified",
+    });
+  });
+
+  it("merges every same-day Ad member before certifying provider creative identity", async () => {
+    const queryMock = vi.fn(async (_query: string, _values?: unknown[]) => []);
+    const sql = vi.fn(async () => []);
+    Object.assign(sql, { query: queryMock });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const first = {
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      date: "2026-09-21",
+      campaignId: "cmp-1",
+      adsetId: "set-1",
+      adId: "creative-group-1",
+      creativeId: "provider-creative-1",
+      creativeName: "First name",
+      headline: null,
+      primaryText: null,
+      destinationUrl: null,
+      thumbnailUrl: null,
+      assetType: "image",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      spend: 23.61,
+      impressions: 100,
+      clicks: 5,
+      reach: 80,
+      conversions: 0,
+      revenue: 0,
+      roas: 0,
+      ctr: 5,
+      cpc: 4.722,
+      linkClicks: 4,
+      sourceSnapshotId: null,
+      payloadJson: {
+        real_ad_id: "ad-1",
+        associated_ads_count: 1,
+        source_ad_ids: ["ad-1"],
+        source_ad_ids_complete: true,
+        source_creative_ids: ["provider-creative-1"],
+      },
+    };
+    await upsertMetaCreativeDailyRows([
+      first,
+      {
+        ...first,
+        adId: "creative-group-2",
+        spend: 24.35,
+        payloadJson: {
+          real_ad_id: "ad-2",
+          associated_ads_count: 1,
+          source_ad_ids: ["ad-2"],
+          source_ad_ids_complete: true,
+          source_creative_ids: ["provider-creative-1"],
+        },
+      },
+    ] as never);
+
+    const call = queryMock.mock.calls.find(([query]) =>
+      String(query).includes("INSERT INTO meta_creative_daily"),
+    );
+    expect(call).toBeDefined();
+    const values = call?.[1] as unknown[];
+    expect(values).toHaveLength(61);
+    expect(values[24]).toBeCloseTo(47.96);
+    expect(JSON.parse(String(values[60]))).toMatchObject({
+      associated_ads_count: 2,
+      source_ad_ids: ["ad-1", "ad-2"],
+      source_ad_ids_complete: true,
+      source_creative_ids: ["provider-creative-1"],
+      source_identity_version: "meta-creative-membership.v2",
+    });
+  });
+
+  it("rejects a display group that mixes provider creative IDs before writing", async () => {
+    const queryMock = vi.fn(async (_query: string, _values?: unknown[]) => []);
+    const sql = vi.fn(async () => []);
+    Object.assign(sql, { query: queryMock });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    const row = {
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      date: "2026-09-21",
+      campaignId: "cmp-1",
+      adsetId: "set-1",
+      adId: "display-group",
+      creativeId: "provider-creative-1",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      spend: 10,
+      impressions: 100,
+      clicks: 5,
+      reach: 80,
+      conversions: 0,
+      revenue: 0,
+      payloadJson: {
+        associated_ads_count: 2,
+        source_ad_ids: ["ad-1", "ad-2"],
+        source_ad_ids_complete: true,
+        source_creative_ids: ["provider-creative-1", "provider-creative-2"],
+      },
+    };
+    await expect(upsertMetaCreativeDailyRows([row] as never)).rejects.toThrow(
+      "meta_creative_day_mixed_provider_creative_ids",
+    );
+    expect(queryMock.mock.calls.some(([query]) =>
+      String(query).includes("INSERT INTO meta_creative_daily"),
+    )).toBe(false);
+  });
+
+  it("does not write synthetic unknown creatives as provider facts or dimensions", async () => {
+    const queryMock = vi.fn(async () => []);
+    const sql = vi.fn(async () => []);
+    Object.assign(sql, { query: queryMock });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    await upsertMetaCreativeDailyRows([{
+      creativeId: "unresolved_ad:ad-1",
+      adId: "ad-1",
+    }] as never);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it("clears first-member campaign authority when one creative spans parents", async () => {
+    const queryMock = vi.fn(async (_query: string, _values?: unknown[]) => []);
+    const sql = vi.fn(async () => []);
+    Object.assign(sql, { query: queryMock });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    const row = {
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      date: "2026-09-21",
+      campaignId: "cmp-1",
+      adsetId: "set-1",
+      adId: "group-1",
+      creativeId: "provider-creative-1",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      spend: 10,
+      impressions: 100,
+      clicks: 5,
+      reach: 80,
+      conversions: 0,
+      revenue: 0,
+      objective: "OUTCOME_SALES",
+      payloadJson: {
+        associated_ads_count: 1,
+        source_ad_ids: ["ad-1"],
+        source_ad_ids_complete: true,
+        source_creative_ids: ["provider-creative-1"],
+        source_parent_grain_complete: true,
+        source_campaign_ids: ["cmp-1"],
+        source_adset_ids: ["set-1"],
+      },
+    };
+    await upsertMetaCreativeDailyRows([
+      row,
+      {
+        ...row,
+        campaignId: "cmp-2",
+        adsetId: "set-2",
+        adId: "group-2",
+        spend: 20,
+        payloadJson: {
+          ...row.payloadJson,
+          source_ad_ids: ["ad-2"],
+          source_campaign_ids: ["cmp-2"],
+          source_adset_ids: ["set-2"],
+        },
+      },
+    ] as never);
+    const values = queryMock.mock.calls.find(([query]) =>
+      String(query).includes("INSERT INTO meta_creative_daily"),
+    )?.[1] as unknown[];
+    expect(values[5]).toBeNull();
+    expect(values[6]).toBeNull();
+    expect(values[44]).toBeNull();
+    expect(JSON.parse(String(values[60]))).toMatchObject({
+      source_identity_version: "meta-creative-membership.v2",
+      source_parent_grain_complete: false,
+      source_campaign_ids: ["cmp-1", "cmp-2"],
+      source_adset_ids: ["set-1", "set-2"],
+    });
+  });
+
+  it("strips caller config proof and preserves only a stored receipt on an unchanged verified parent", async () => {
+    const queryMock = vi.fn(async (_query: string, _values?: unknown[]) => []);
+    const sql = vi.fn(async () => []);
+    Object.assign(sql, { query: queryMock });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    await upsertMetaCreativeDailyRows([{
+      businessId: "biz-1", providerAccountId: "acct-1", date: "2026-09-21",
+      campaignId: "cmp-1", adsetId: "set-1", adId: "ad-1",
+      creativeId: "provider-creative-1", accountTimezone: "UTC",
+      accountCurrency: "USD", spend: 10, impressions: 100, clicks: 5,
+      reach: 80, conversions: 0, revenue: 0, objective: null,
+      optimizationGoal: null,
+      payloadJson: {
+        source_ad_ids: ["ad-1"], source_ad_ids_complete: true,
+        source_creative_ids: ["provider-creative-1"], associated_ads_count: 1,
+        source_parent_grain_complete: true,
+        source_campaign_ids: ["cmp-1"], source_adset_ids: ["set-1"],
+        historical_config_provenance: "provider_receipt_day_bracketed",
+        historical_config_proof: { objective: "OUTCOME_SALES" },
+      },
+    }] as never);
+    const call = queryMock.mock.calls.find(([query]) =>
+      String(query).includes("INSERT INTO meta_creative_daily"));
+    const query = String(call?.[0]);
+    const values = call?.[1] as unknown[];
+    expect(JSON.parse(String(values[60]))).toMatchObject({
+      historical_config_provenance: "unverified",
+      source_identity_version: "meta-creative-membership.v2",
+    });
+    expect(JSON.parse(String(values[60])).historical_config_proof).toBeUndefined();
+    expect(query).toContain("meta_creative_daily.campaign_id = EXCLUDED.campaign_id");
+    expect(query).toContain("meta_creative_daily.adset_id = EXCLUDED.adset_id");
+    expect(query).toContain("THEN meta_creative_daily.objective ELSE EXCLUDED.objective");
+    expect(query).toContain("THEN meta_creative_daily.optimization_goal ELSE EXCLUDED.optimization_goal");
+    expect(query).toContain("'historical_config_proof',");
   });
 
   it("batches meta ad daily upserts instead of writing one row per query", async () => {

@@ -29,6 +29,7 @@ import {
   type MetaCreativeDayMetricStage,
 } from "@/lib/meta/creative-day-metric-evidence";
 import { buildMetaCompleteWindowSql } from "@/lib/meta/funnel-stage-parse";
+import { creativeDayCompleteWindowSql, creativeDayConfigDecisionAdmissionSql } from "@/lib/meta/creative-day-decision-admission";
 
 export const JOB_NAME = "engine_v3_lifecycle_job";
 
@@ -290,8 +291,8 @@ interface ComputedLifecycleBatch {
       writer has is video STARTS over all impressions, which is not a
       three-second view, and no verified provider contract exists to replace it.
 
-  ENGINE_VERSION is not bumped: the lifecycle rows it keys have never shipped,
-  so the version is amended in place.
+  The creative membership repair has its own ENGINE_VERSION epoch. Unstamped
+  creative-day rows are excluded from that epoch until source-backed repair.
 */
 const CREATIVE_DAY_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql({
   payloadExpression: "d.payload_json",
@@ -350,6 +351,8 @@ WITH selected_creatives AS (
   SELECT d.creative_id
   FROM meta_creative_daily d
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
+    AND ${creativeDayCompleteWindowSql("d", "$2", 90, undefined, "$1")}
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND d.objective = ANY($3::text[])
   GROUP BY d.creative_id
@@ -374,11 +377,18 @@ daily AS (
     ${creativeDayStageSumSql("add_to_cart")} AS add_to_cart,
     ${creativeDayStageSumSql("initiate_checkout")} AS initiate_checkout,
     BOOL_OR(${CREATIVE_DAY_EVIDENCE.activitySql}) AS decision_bearing_activity,
-    AVG(NULLIF(d.frequency, 0)) AS frequency
+    CASE WHEN COUNT(DISTINCT d.provider_account_id) = 1
+      AND COALESCE(BOOL_AND(
+        d.payload_json->>'reach_aggregation' = 'single_ad_provider_reach'
+        AND d.frequency IS NOT NULL AND d.frequency > 0
+      ) FILTER (WHERE d.impressions > 0), FALSE)
+      THEN AVG(NULLIF(d.frequency, 0))
+    END AS frequency
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   ${CREATIVE_DAY_EVIDENCE.lateralSql}
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND d.objective = ANY($3::text[])
   GROUP BY d.business_ref_id, d.creative_id, d.date
@@ -396,6 +406,7 @@ source_bounds AS (
     MAX(d.updated_at) AS source_max_updated_at
   FROM meta_creative_daily d
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND d.objective = ANY($3::text[])
 ),
@@ -406,6 +417,7 @@ all_history_bounds AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
     AND d.date <= $2::date
     AND d.objective = ANY($3::text[])
   GROUP BY d.creative_id
@@ -433,7 +445,11 @@ windows AS (
       THEN SUM(clicks) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::numeric /
         NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0) * 100
     END AS ctr_28d,
-    AVG(frequency) FILTER (WHERE date >= ($2::date - INTERVAL '27 days') AND frequency > 0) AS frequency_28d,
+    CASE WHEN COALESCE(BOOL_AND(frequency IS NOT NULL) FILTER (
+      WHERE date >= ($2::date - INTERVAL '27 days') AND impressions > 0
+    ), FALSE) THEN AVG(frequency) FILTER (
+      WHERE date >= ($2::date - INTERVAL '27 days') AND frequency > 0
+    ) END AS frequency_28d,
     CASE
       WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
       THEN SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
@@ -551,6 +567,7 @@ latest_meta AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
     AND d.date <= $2::date
     AND d.objective = ANY($3::text[])
   ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
@@ -588,6 +605,7 @@ historical_source AS (
       ('allHistory', d.date <= $2::date)
   ) AS windows(window_key, in_window)
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
     AND d.date <= $2::date
     AND d.objective = ANY($3::text[])
     AND windows.in_window

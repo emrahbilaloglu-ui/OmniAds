@@ -18,6 +18,7 @@ import {
   META_CREATIVE_DAY_METRIC_EVIDENCE_KEY,
   buildMeasuredMetaCreativeDayMetricEvidence,
 } from "@/lib/meta/creative-day-metric-evidence";
+import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION } from "@/lib/meta/creatives-types";
 
 const AS_OF = "2026-05-04";
 const MIXED_OBJECTIVE_FIXTURE: MixedObjectiveFixture = {
@@ -268,6 +269,20 @@ async function setupCampaignScopeFixture(
         conversions: 1,
         revenue: 220 + index * 10,
         payload_json: {
+          source_identity_version: META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
+          source_parent_grain_complete: true,
+          source_ad_ids: [`ad_${campaignId}_creative_${index + 1}`],
+          source_ad_ids_complete: true,
+          source_creative_ids: [`${campaignId}_creative_${index + 1}`],
+          associated_ads_count: 1,
+          historical_config_provenance: "provider_receipt_day_bracketed",
+          historical_config_proof: {
+            knowledge_cutoff_at: `${AS_OF}T12:00:00.000Z`,
+            last_receipt_observed_at: `${AS_OF}T11:00:00.000Z`,
+            objective: "OUTCOME_SALES",
+            optimization_goal: null,
+            custom_event_type: null,
+          },
           creative_format: creativeFormat,
           landing_page_views: linkClicks * 0.8,
           add_to_cart: linkClicks * 0.2,
@@ -447,7 +462,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     const businessId = TEST_BUSINESS_IDS[0]!;
     const result = await runCalibrationJob({ businessId, asOf: AS_OF });
 
-    expect(result.status).toBe("success");
+    expect(result.status, result.errorMessage).toBe("success");
     expect(result.jobRunId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );

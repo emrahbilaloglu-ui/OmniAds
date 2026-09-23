@@ -268,8 +268,8 @@ export interface NativeSnapshotPayloadRow {
   ratio_to_target: number | null;
   badges: DecisionOutput["badges"];
   reason: string;
-  spend: number;
-  purchases: number;
+  spend: number | null;
+  purchases: number | null;
   roas: number | null;
   recent7d_roas: number | null;
   label_transform: DecisionLabelTransform | null;
@@ -2821,9 +2821,13 @@ export function toNativeSnapshotPayload(input: {
     ]
       .filter((part): part is string => Boolean(part))
       .join(" "),
-    spend: ad.spend,
-    purchases: ad.purchases,
-    roas: ad.roas,
+    // The resolver uses numeric zero internally when there are no Ad rows so
+    // it can fail closed. That fallback is not a measured performance zero and
+    // must not be persisted as one. The native snapshot/OS/UI already support
+    // nullable metrics; a finalized measured zero remains 0.
+    spend: ad.metricEvidence.performanceMetricsObserved ? ad.spend : null,
+    purchases: ad.metricEvidence.performanceMetricsObserved ? ad.purchases : null,
+    roas: ad.metricEvidence.performanceMetricsObserved ? ad.roas : null,
     recent7d_roas: ad.recent7dRoas,
     label_transform: decision.labelTransform ?? null,
     /*

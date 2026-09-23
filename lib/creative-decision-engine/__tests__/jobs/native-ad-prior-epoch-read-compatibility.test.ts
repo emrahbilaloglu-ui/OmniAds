@@ -52,7 +52,8 @@ import {
 import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "../../execution-safety";
 import { ENGINE_VERSION, NATIVE_AD_ENGINE_VERSION } from "../../types";
 import currentEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.v1.json";
-import immediatePriorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-22-prior-epoch.v1.json";
+import immediatePriorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-23-prior-epoch.v1.json";
+import earlierPriorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-22-prior-epoch.v1.json";
 import priorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.prior-epoch.v1.json";
 
 /*
@@ -110,8 +111,12 @@ interface FrozenEpochFixture {
 const priorFixture = priorEpochRawFixture as unknown as FrozenEpochFixture;
 const immediatePriorFixture =
   immediatePriorEpochRawFixture as unknown as FrozenEpochFixture;
+const earlierPriorFixture =
+  earlierPriorEpochRawFixture as unknown as FrozenEpochFixture;
 const currentFixture = currentEpochRawFixture as unknown as FrozenEpochFixture;
 const IMMEDIATE_PRIOR_NATIVE_AD_ENGINE_VERSION =
+  "v3-ad-2026-09-23-verified-coverage-freshness-shadow";
+const EARLIER_PRIOR_NATIVE_AD_ENGINE_VERSION =
   "v3-ad-2026-09-22-meta-config-economics-shadow";
 
 /**
@@ -160,6 +165,8 @@ describe("prior-epoch frozen evidence is distinguishable from the current epoch"
     // Historical compatibility means preserving the exact old body and epoch,
     // not restamping it with the new freshness meaning.
     expect(immediatePriorFixture.archetypes).toEqual(currentFixture.archetypes);
+    expect(earlierPriorFixture.engineVersion).toBe(EARLIER_PRIOR_NATIVE_AD_ENGINE_VERSION);
+    expect(earlierPriorFixture.archetypes).toEqual(currentFixture.archetypes);
     expect(immediatePriorFixture.engineVersion).toBe(
       IMMEDIATE_PRIOR_NATIVE_AD_ENGINE_VERSION,
     );

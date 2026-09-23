@@ -493,6 +493,7 @@ describe.skipIf(!RUNNABLE)(
           sql,
           rows,
           write: upsertMetaAdDailyRows,
+          certifyCreativeDecisionSource: true,
         });
       };
 

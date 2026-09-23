@@ -2015,8 +2015,11 @@ function creativeKindShort(format: string | null | undefined): string {
   }
 }
 
-function creativeChips(decision: MetaOsAdDecision): string[] {
-  const roas = finite(decision.metrics.roas);
+function creativeChips(
+  decision: MetaOsAdDecision,
+  performanceMissing: boolean,
+): string[] {
+  const roas = performanceMissing ? null : finite(decision.metrics.roas);
   const chips = [
     titleToken(decision.lifecycleRole),
     roas === null ? null : `ROAS ${roas.toFixed(2)}`,
@@ -2436,14 +2439,19 @@ function heldPrimaryStep(
   const resolution = decision.heldResolution;
   if (!resolution) return null;
   if (
+    firstBlocker === "native_metrics_unavailable" &&
+    resolution.code === "complete_hard_action_evidence" &&
+    decision.heldAction === "scale" &&
+    resolution.label === "Scale Held — Winner Benchmark Missing"
+  ) {
+    return "The account winner purchase benchmark is missing. Wait for enough winning ads before scaling.";
+  }
+  if (
     firstBlocker === "profile_hard_action_ineligible" &&
     resolution.code === "complete_hard_action_evidence"
   ) {
     if (decision.heldAction === "scale" && resolution.label === "Scale Held — Calibration Sample Thin") {
       return "The account has too few mature creatives for the Scale calibration floor. Wait for more mature creatives before scaling.";
-    }
-    if (decision.heldAction === "scale" && resolution.label === "Scale Held — Winner Benchmark Missing") {
-      return "The account winner purchase benchmark is missing. Wait for enough winning ads before scaling.";
     }
     return "The decision profile does not yet authorize this change. Review its action-specific evidence and missing requirement before applying it.";
   }
@@ -2489,8 +2497,9 @@ export function heldCreativeVerdict(
     decision.authorityProvenance?.firstBlocker?.code ??
     canonical?.sourceDecision?.authorityBlocker ??
     null;
+  const primaryStep = heldPrimaryStep(decision, authorityBlocker);
   const genericStep =
-    heldPrimaryStep(decision, authorityBlocker) ??
+    primaryStep ??
     knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, decision.heldResolution?.code);
   const needsConfig =
     canonical?.configEvidence?.verified === false ||
@@ -2518,7 +2527,7 @@ export function heldCreativeVerdict(
     needsConfirmation
       ? "Wait for the required consecutive decision confirmation."
       : null,
-    needsCampaignContext && (needsConfig || needsFreshSource || needsConfirmation)
+    needsCampaignContext && primaryStep === null && (needsConfig || needsFreshSource || needsConfirmation)
       ? "Campaign context must also be verified before the change can be applied."
       : null,
   ].filter((part): part is string => Boolean(part));
@@ -2700,6 +2709,11 @@ function creativeRows(input: {
     const review = input.callbacks.onCreativeReview
       ? () => input.callbacks.onCreativeReview?.(decision, canonicalDecision)
       : null;
+    // Older native snapshots stored the resolver's fail-closed zero even when
+    // the producer explicitly said no Ad performance row was observed. The
+    // source badge, not the numeric sentinel, controls display presence.
+    const adPerformanceMissing =
+      canonicalDecision?.sourceDecision?.badges?.includes("ad_metrics_unavailable") === true;
     const held = heldCreativeVerdict(decision, canonicalDecision);
     /*
      * THE PUBLISHED LABEL KEEPS ITS WORDS AND LOSES ITS APPROVAL COLOUR.
@@ -2771,7 +2785,7 @@ function creativeRows(input: {
           }
         : {}),
       ...(state ? { stateLabel: state.label, stateTone: state.tone } : {}),
-      chips: creativeChips(decision),
+      chips: creativeChips(decision, adPerformanceMissing),
       /*
        * The HELD verdict's own next step outranks the published row's.
        *
@@ -2794,14 +2808,16 @@ function creativeRows(input: {
         held?.nextStep ??
         blockedNextStep ??
         buyerFacingCreativeReason(decision),
-      sparkPath: sparkPath(input.ctrSeriesByAdId.get(decision.adId) ?? null),
+      sparkPath: adPerformanceMissing
+        ? null
+        : sparkPath(input.ctrSeriesByAdId.get(decision.adId) ?? null),
       ctrValue:
-        finite(decision.metrics.ctr) === null
+        adPerformanceMissing || finite(decision.metrics.ctr) === null
           ? null
           : formatPercent(decision.metrics.ctr),
       money: moneyAndRoas({
-        spend: decision.metrics.spend,
-        roas: decision.metrics.roas,
+        spend: adPerformanceMissing ? null : decision.metrics.spend,
+        roas: adPerformanceMissing ? null : decision.metrics.roas,
         currency: rowCurrency,
       }),
       moneySub: creativeMoneySub(decision),
@@ -2820,10 +2836,12 @@ function creativeRows(input: {
  * moves no row between states and invents no state: a group only exists when
  * the server put rows in it.
  *
- * The header counts are two different facts kept apart. `shown` is what this
- * screen is rendering after the operator's search; `eligible pre-cap` is the
- * server's own population for that state before selection. Calling the second
- * number "served" was false: only the selected rows were actually served.
+   * The header counts are two different facts kept apart. `shown` is what this
+   * screen is rendering after the operator's search; the second count is the
+   * server's own decision population for that state before the list limit and
+   * filters. A bare "50 of 58 decisions" obscured why the scope tab showed 60
+   * served cards (50 blocked plus 10 monitoring): eight more blocked decisions
+   * existed before the response cap, not as hidden cards in this lane.
  *
  * A THIRD number rides the Blocked header and is kept apart from both: the
  * served held-verdict split. It is NOT a count of this group's rows — it is
@@ -2857,9 +2875,9 @@ function creativeGroups(input: {
         count:
           eligiblePreCap === null || eligiblePreCap === rows.length
             ? `${formatNumber(rows.length)} ${rows.length === 1 ? "decision" : "decisions"}`
-            : `${formatNumber(rows.length)} of ${formatNumber(
+            : `${formatNumber(rows.length)} shown · ${formatNumber(
                 eligiblePreCap,
-              )} decisions`,
+              )} decisions before filters and list limit`,
         note: slot.id === "blocked" ? input.heldNote : null,
         rows,
       },
@@ -3269,6 +3287,8 @@ function creativeInspector(input: {
    * is also about deleting duplicate mapping tables, not adding one.
    */
   const held = heldCreativeVerdict(decision, canonicalDecision);
+  const adPerformanceMissing =
+    canonicalDecision?.sourceDecision?.badges?.includes("ad_metrics_unavailable") === true;
   return {
     entityName: nonBlank(decision.adName) ?? EM_DASH,
     entityMeta:
@@ -3308,8 +3328,8 @@ function creativeInspector(input: {
         EM_DASH,
     reasons: [buyerFacingCreativeReason(decision)],
     moneyValue: moneyAndRoas({
-      spend: decision.metrics.spend,
-      roas: decision.metrics.roas,
+      spend: adPerformanceMissing ? null : decision.metrics.spend,
+      roas: adPerformanceMissing ? null : decision.metrics.roas,
       currency: rowCurrency,
     }),
     targetComparison:
@@ -3324,8 +3344,8 @@ function creativeInspector(input: {
     blockerTone: blockers.length > 0 ? "warning" : "neutral",
     advisories: EM_DASH,
     evidence: metricEvidence({
-      spend: decision.metrics.spend,
-      purchases: decision.metrics.purchases,
+      spend: adPerformanceMissing ? null : decision.metrics.spend,
+      purchases: adPerformanceMissing ? null : decision.metrics.purchases,
       snapshot: decision.snapshotAsOf,
       lifecycle: decision.lifecycleRole,
       currency: rowCurrency,

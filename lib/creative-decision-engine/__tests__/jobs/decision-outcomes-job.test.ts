@@ -29,7 +29,10 @@ describe("decision outcomes job SQL contracts", () => {
       "ON CONFLICT (decision_snapshot_id, outcome_window_days)",
     );
     expect(source).toContain("classifyCreativeDecisionOutcome");
-    expect(source).not.toContain("AND s.engine_version =");
+    expect(source).toContain("AND s.engine_version = $7::text");
+    expect(source).toContain("creativeDayOutcomeSourceCoverageSql");
+    expect(source).toContain("outcome_source_complete");
+    expect(source).toContain('rule: "creative_source_coverage_incomplete"');
     expect(source).toContain("($4::integer - 1)");
     expect(source).toContain("LIMIT $5::integer");
     expect(source).toContain("existing.realized_outcome = 'unknown'");
@@ -49,13 +52,13 @@ describe("decision outcomes job SQL contracts", () => {
     );
 
     const classifierCall = source.match(
-      /const classification = classifyCreativeDecisionOutcome\(\{[\s\S]*?\n  \}\);/,
+      /const classified = classifyCreativeDecisionOutcome\(\{[\s\S]*?\n  \}\);/,
     )?.[0];
     expect(classifierCall).toContain("label,");
     expect(classifierCall).not.toContain("preAuthorityLabel");
     expect(classifierCall).not.toContain("pre_authority_label");
     expect(source).toContain(
-      "The legacy outcome path has no manifest/hash contract of its own",
+      "prior-epoch stored outcomes are not",
     );
   });
 

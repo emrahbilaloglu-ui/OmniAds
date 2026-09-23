@@ -154,9 +154,9 @@ describe("the epoch moved with the behaviour", () => {
   it("publishes under a new producer version", () => {
     // INVARIANTS.md: a change to canonical decision provenance requires a new
     // versioned producer contract; old snapshots stay readable under theirs.
-    expect(ENGINE_VERSION).toBe("v3-2026-09-21-role-held-verdict-preservation");
+    expect(ENGINE_VERSION).toBe("v3-2026-09-24-creative-membership-integrity");
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
-      "v3-ad-2026-09-23-verified-coverage-freshness-shadow",
+      "v3-ad-2026-09-24-cut-recent-overlay-proof-shadow",
     );
   });
 });

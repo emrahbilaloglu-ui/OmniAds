@@ -450,11 +450,12 @@ describe.skipIf(!RUNNABLE)(
             });
           }
           await upsertMetaCreativeDailyRows(rows);
-          await seedCanonicalMetaAdDailyFacts({
-            sql,
-            rows,
-            write: upsertMetaAdDailyRows,
-          });
+        await seedCanonicalMetaAdDailyFacts({
+          sql,
+          rows,
+          write: upsertMetaAdDailyRows,
+          certifyCreativeDecisionSource: true,
+        });
         }
       };
 
@@ -652,13 +653,12 @@ describe.skipIf(!RUNNABLE)(
       ).toBe(beforeP);
     });
 
-    it("still decides a creative whose warehouse rows name no account", async () => {
+    it("keeps an unbound creative visible without granting hard authority", async () => {
       /*
         `meta_creative_daily.provider_account_id` is NOT NULL, so a creative
-        with no account is one whose binding is blank rather than missing. Both
-        readers behind the account lookup normalise a blank to absent, and the
-        job must answer it from the business-wide profile rather than skip it:
-        a creative without a decision is invisible to the operator.
+        with no account has a blank binding. A business-wide profile cannot
+        certify its missing physical-account source lineage; the operator
+        still needs a visible diagnostic rather than a fabricated hard action.
       */
       const sql = db.getDb();
       const [orphan] = (await sql.query(
@@ -690,11 +690,12 @@ describe.skipIf(!RUNNABLE)(
       expect(result.status).toBe("success");
 
       const [row] = (await sql.query(
-        `SELECT label FROM engine_v3_decision_snapshots_daily
+        `SELECT label, reason FROM engine_v3_decision_snapshots_daily
           WHERE business_id = $1 AND as_of_date = $2::date AND creative_id = $3`,
         [DECISIONS_BUSINESS, AS_OF, orphan!.creative_id],
-      )) as Array<{ label: string }>;
-      expect(row?.label).toBeTruthy();
+      )) as Array<{ label: string; reason: string }>;
+      expect(row?.label).toBe("diagnose");
+      expect(row?.reason).toContain("creative_source_coverage_incomplete");
     });
   },
 );

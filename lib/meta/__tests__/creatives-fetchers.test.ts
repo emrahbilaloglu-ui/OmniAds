@@ -88,6 +88,38 @@ describe("fetchAccountInsights", () => {
       },
     ]);
   });
+
+  it("refuses an incomplete provider page in strict repair mode", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [{ ad_id: "ad_1", spend: "12", date_start: "2026-09-21" }],
+        paging: { next: "https://graph.facebook.com/v25.0/missing-page" },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("quota", { status: 429 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchAccountInsights(
+      "act_strict_incomplete",
+      "token-strict-incomplete",
+      "2026-09-21",
+      "2026-09-21",
+      { strictComplete: true },
+    )).rejects.toThrow("meta_creative_insights_page_unavailable:insights_base");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires a data array on every successful strict page", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      paging: {},
+    }), { status: 200 })));
+    await expect(fetchAccountInsights(
+      "act_strict_invalid",
+      "token-strict-invalid",
+      "2026-09-21",
+      "2026-09-21",
+      { strictComplete: true },
+    )).rejects.toThrow("meta_creative_insights_page_invalid:insights_base");
+  });
 });
 
 describe("fetchAdImageUrlMap", () => {

@@ -814,6 +814,17 @@ already fails closed on `null`. For USD, TRY, GBP, JPY and KRW — every currenc
 the warehouse holds — the two authorities agree, so no stored row's value
 changes and no state hash moves.
 
+### D101 creative-day identity reader addendum (2026-09-24)
+
+`lib/meta/creatives-warehouse.ts` enters the closure ledger with **2** literal
+references, category `content-reader`. Its strict Ad-to-creative recovery reads
+the latest provider Ad state before the account-local reporting day and refuses
+absent, missing or conflicting campaign/adset/creative state. It requires a
+cutoff-safe complete D075 account receipt shortly after that day, and refuses
+an intervening conflicting state or tombstone. An unresolved Ad stays
+unverified; current Ad detail cannot supply a historical creative ID. The
+closure test pins those predicates as well as the exact reference count.
+
 ### Decisions to Creatives acceptance addendum (2026-09-23)
 
 The read-only historical acceptance runner adds two classified references:

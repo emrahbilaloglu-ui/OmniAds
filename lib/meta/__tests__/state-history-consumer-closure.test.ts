@@ -139,6 +139,17 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     count: 1,
   },
   /*
+    D101 creative identity recovery. One cutoff-bounded state-history query
+    brackets the Ad's provider-local day with a complete D075 receipt; its
+    two literals are the before-day and no-conflicting-change reads.
+    Absence and tombstones refuse identity rather than choosing current detail.
+  */
+  {
+    file: "lib/meta/creatives-warehouse.ts",
+    category: "content-reader",
+    count: 2,
+  },
+  /*
     AREA 2b 2026-09-07 — the partial-lane rewrite storm. The writer gained two
     reads of this table: the partial-manifest dedupe baseline (the exact
     `stateSelect` winner order, so suppressing a write cannot change a reader's
@@ -709,6 +720,20 @@ describe("D075 state-history consumer closure", () => {
     );
     expect(src).toContain("AND prior.presence = 'present'");
     expect(src).toContain("AND entity_state.presence = 'present'");
+  });
+
+  it("creative-day recovery requires a present before-day state and complete cutoff-safe bracket", () => {
+    const src = readFileSync(join(ROOT, "lib/meta/creatives-warehouse.ts"), "utf8");
+    for (const predicate of [
+      "AND h.observed_at <= d.day_start",
+      "AND h.captured_at < $6::timestamptz",
+      "run.delta_stats_json ->> 'manifestContract' = 'd075.complete-scope-manifest.v1'",
+      "authoritative.observed_at >= bounds.day_end",
+      "before_day.presence = 'present'",
+      "change.creative_id IS DISTINCT FROM before_day.creative_id",
+      "FROM meta_entity_tombstones gone",
+      "gone.captured_at < $6::timestamptz",
+    ]) expect(src).toContain(predicate);
   });
 
   it("the natural-wave verifier counts manifest membership kind-aware, never run-bound for delta runs", () => {

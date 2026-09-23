@@ -3748,7 +3748,15 @@ async function main() {
       databaseUrl,
       path.join("lib", "creative-decision-engine", "creative-day-metric-evidence.db.test.ts"),
       "Creative-day measurement stamp DB seam check",
-      10,
+      13,
+    );
+
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "creative-day-source-coverage.db.test.ts"),
+      "Creative-day D101 full source coverage DB seam check",
+      15,
     );
 
     /*

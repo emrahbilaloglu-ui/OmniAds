@@ -15,6 +15,8 @@ import type {
 } from "@/lib/meta/creatives-types";
 import {
   intersectCreativeMetricPresence,
+  isMetaUnresolvedCreativeId,
+  META_UNRESOLVED_CREATIVE_ID_PREFIX,
   readCreativeSourceIdentity,
   type CreativeSourceIdentityFields,
 } from "@/lib/meta/creatives-types";
@@ -474,8 +476,21 @@ export function toRawRow(
   const clicks = Math.round(parseFloat(insight.clicks ?? "0") || 0);
 
   const impressions = parseFloat(insight.impressions ?? "0") || 0;
-  const reach = parseFloat(insight.reach ?? "0") || impressions;
-  const frequency = parseFloat(insight.frequency ?? "0") || null;
+  // Reach is a provider measurement, never an impressions fallback. Keep an
+  // absent/invalid value distinct from a measured zero so grouped frequency
+  // cannot become a synthetic 1.0.
+  const parsedReach = insight.reach == null || insight.reach.trim() === ""
+    ? NaN
+    : Number(insight.reach);
+  const reach = Number.isFinite(parsedReach) && parsedReach >= 0
+    ? parsedReach
+    : undefined;
+  const parsedFrequency = insight.frequency == null || insight.frequency.trim() === ""
+    ? NaN
+    : Number(insight.frequency);
+  const frequency = Number.isFinite(parsedFrequency) && parsedFrequency >= 0
+    ? parsedFrequency
+    : null;
   const inlineLinkClicks = parseFloat(insight.inline_link_clicks ?? "0") || 0;
   const effectiveLinkClicks = linkClicks || inlineLinkClicks;
   const outboundClicks = Math.round(
@@ -537,7 +552,7 @@ export function toRawRow(
   const allActionTotal = parseActionTotal(insight.actions);
   const shouldRetainZeroSpendActivity = hasRetainedZeroSpendActivity({
     impressions,
-    reach,
+    reach: reach ?? 0,
     clicks,
     effectiveLinkClicks,
     outboundClicks,
@@ -632,7 +647,9 @@ export function toRawRow(
   const launchDate = cleanDate(ad?.created_time) || cleanDate(insight.date_start) || toISODate(new Date());
   const name = insight.ad_name ?? ad?.name ?? creative?.name ?? "Unnamed ad";
   const copyExtraction = resolveCreativeCopyExtraction(creative);
-  const creativeId = creative?.id ?? adId;
+  // An Ad ID is not a provider creative ID. Keep a stable display handle while
+  // preventing unknown creative identity from being used as provider evidence.
+  const creativeId = creative?.id?.trim() || `${META_UNRESOLVED_CREATIVE_ID_PREFIX}${adId}`;
   const imageHashes = extractImageHashesFromCreative(creative);
   const objectStoryId =
     typeof creative?.object_story_id === "string" && creative.object_story_id.trim().length > 0
@@ -743,6 +760,8 @@ export function toRawRow(
     creative_secondary_label: creativeTaxonomy.creative_secondary_label,
     classification_signals: creativeTaxonomy.classification_signals,
     metric_presence: {
+      frequency: frequency != null && reach != null &&
+        (impressions <= 0 || (reach > 0 && frequency > 0)),
       thumbstop: false,
       video25: false,
       video50: false,
@@ -760,6 +779,7 @@ export function toRawRow(
     purchases,
     impressions,
     reach,
+    reach_aggregation: reach == null ? "unknown" : "single_ad_provider_reach",
     frequency,
     link_clicks: effectiveLinkClicks,
     outbound_clicks: outboundClicks,
@@ -860,7 +880,8 @@ function mergeGroupedSourceIdentity(
 export function groupRows(
   rows: RawCreativeRow[],
   groupBy: GroupBy,
-  creativeUsageMap: Map<string, Set<string>>
+  creativeUsageMap: Map<string, Set<string>>,
+  options: { keyByProviderCreativeId?: boolean } = {},
 ): RawCreativeRow[] {
   const debugGrouping = process.env.META_CREATIVES_DEBUG_GROUPING === "1";
   if (groupBy === "adName") {
@@ -880,10 +901,15 @@ export function groupRows(
   for (const row of rows) {
     const key =
       groupBy === "creative"
-        ? `${row.name}\0${row.format}`
+        ? options.keyByProviderCreativeId
+          ? row.creative_id.trim()
+          : `${row.name}\0${row.format}`
         : groupBy === "ad"
           ? row.id
           : row.adset_id ?? `adset:${row.id}`;
+    if (groupBy === "creative" && options.keyByProviderCreativeId && !key) {
+      throw new Error("meta_creative_day_source_creative_id_missing");
+    }
     const list = map.get(key) ?? [];
     list.push(row);
     map.set(key, list);
@@ -904,6 +930,12 @@ export function groupRows(
 
   const grouped: RawCreativeRow[] = [];
   for (const [key, list] of map.entries()) {
+    if (groupBy === "creative" && options.keyByProviderCreativeId) {
+      const memberAdIds = list.map((item) => (item.real_ad_id ?? item.id).trim());
+      if (memberAdIds.some((id) => !id) || new Set(memberAdIds).size !== memberAdIds.length) {
+        throw new Error("meta_creative_day_duplicate_or_missing_source_ad_id");
+      }
+    }
     const spend = list.reduce((acc, item) => acc + item.spend, 0);
     const purchaseValue = list.reduce((acc, item) => acc + item.purchase_value, 0);
     const purchases = list.reduce((acc, item) => acc + item.purchases, 0);
@@ -925,8 +957,46 @@ export function groupRows(
     const video75Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video75 / 100) * item.impressions : 0), 0);
     const video100Views = list.reduce((acc, item) => acc + (item.impressions > 0 ? (item.video100 / 100) * item.impressions : 0), 0);
     const weightedCtr = impressions > 0 ? list.reduce((acc, item) => acc + item.ctr_all * item.impressions, 0) / impressions : 0;
-    const reach = list.reduce((acc, item) => acc + Number(item.reach ?? item.impressions ?? 0), 0);
-    const groupedFrequency = reach > 0 ? impressions / reach : null;
+    const reach = list.reduce((acc, item) => acc + Number(item.reach ?? 0), 0);
+    const providerDayGroup = groupBy === "creative" && options.keyByProviderCreativeId === true;
+    const verifiedDailyDates = list.every((item) =>
+      typeof item.reach_observation_day === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(item.reach_observation_day)
+    ) && new Set(list.map((item) => item.reach_observation_day)).size === list.length;
+    const everyCreativeDaySingleAd =
+      groupBy === "creative" && !providerDayGroup && verifiedDailyDates &&
+      new Set(list.map((item) => item.creative_id)).size === 1 &&
+      list.every((item) =>
+        item.reach_aggregation === "single_ad_provider_reach" &&
+        item.source_ad_ids_complete === true &&
+        item.source_ad_ids?.length === 1 &&
+        (item.impressions <= 0 || item.metric_presence?.frequency === true)
+      );
+    const everyAdDaySingleAd =
+      groupBy === "ad" && verifiedDailyDates &&
+      list.every((item) =>
+        item.reach_aggregation === "single_ad_provider_reach" &&
+        (item.impressions <= 0 || item.metric_presence?.frequency === true)
+      );
+    const oneProviderAd =
+      providerDayGroup && list.length === 1 &&
+      list[0]!.metric_presence?.frequency === true;
+    const reachMeasured = list.every((item) =>
+      typeof item.reach === "number" && Number.isFinite(item.reach) &&
+      item.reach >= 0 && (item.impressions <= 0 || item.reach > 0)
+    );
+    const frequencyMeasured =
+      reachMeasured && reach > 0 &&
+      (oneProviderAd || everyCreativeDaySingleAd || everyAdDaySingleAd);
+    const groupedFrequency = frequencyMeasured ? impressions / reach : null;
+    const reachAggregation: RawCreativeRow["reach_aggregation"] =
+      providerDayGroup
+        ? list.length === 1
+          ? "single_ad_provider_reach"
+          : "sum_of_ad_reach_not_deduplicated"
+        : everyCreativeDaySingleAd || everyAdDaySingleAd
+          ? "sum_of_daily_single_ad_reach"
+          : "unknown";
     const weightedCpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
     const weightedCpc = linkClicks > 0 ? spend / linkClicks : 0;
     const earliestLaunch = [...list]
@@ -1013,6 +1083,17 @@ export function groupRows(
     // `creative_id` / `real_ad_id` below stay the first member's, unchanged.
     // The lists carry the rest, so no member identity is lost to the sample.
     const groupedSourceIdentity = mergeGroupedSourceIdentity(list);
+    if (groupBy === "creative" && options.keyByProviderCreativeId && isMetaUnresolvedCreativeId(sample.creative_id)) {
+      // The Ad itself is known, but its provider creative membership is not.
+      groupedSourceIdentity.source_ad_ids_complete = false;
+      groupedSourceIdentity.source_creative_ids = [];
+    }
+    const providerSourceGroup = groupBy === "creative" && options.keyByProviderCreativeId;
+    const sourceCampaignIds = Array.from(new Set(list.map((item) => item.campaign_id?.trim()).filter(Boolean))) as string[];
+    const sourceAdsetIds = Array.from(new Set(list.map((item) => item.adset_id?.trim()).filter(Boolean))) as string[];
+    const sourceParentComplete = providerSourceGroup &&
+      list.every((item) => Boolean(item.campaign_id?.trim() && item.adset_id?.trim())) &&
+      sourceCampaignIds.length === 1 && sourceAdsetIds.length === 1;
 
     const stableId =
       groupBy === "creative"
@@ -1031,7 +1112,10 @@ export function groupRows(
     const groupedMetricEvidence = mergeCarriedMetaCreativeDayMetricEvidence(list);
     const groupedRow: RawCreativeRow = {
       id: stableId,
-      creative_id: sample.creative_id,
+      creative_id:
+        groupBy === "creative" && options.keyByProviderCreativeId
+          ? key
+          : sample.creative_id,
       real_ad_id: groupBy === "ad" ? (sample.real_ad_id ?? sample.id) : (groupedRealAdIds[0] ?? null),
       object_story_id: groupedObjectStoryId,
       effective_object_story_id: groupedEffectiveObjectStoryId,
@@ -1043,13 +1127,18 @@ export function groupRows(
             ? 1
             : (creativeUsageMap.get(sample.creative_id)?.size ?? 1),
       ...groupedSourceIdentity,
+      ...(providerSourceGroup ? {
+        source_parent_grain_complete: sourceParentComplete,
+        source_campaign_ids: sourceCampaignIds,
+        source_adset_ids: sourceAdsetIds,
+      } : {}),
       account_id: sample.account_id,
       account_name: sample.account_name,
-      campaign_id: sample.campaign_id,
-      campaign_name: sample.campaign_name,
+      campaign_id: providerSourceGroup && !sourceParentComplete ? null : sample.campaign_id,
+      campaign_name: providerSourceGroup && !sourceParentComplete ? null : sample.campaign_name,
       currency: sample.currency,
-      adset_id: sample.adset_id,
-      adset_name: sample.adset_name,
+      adset_id: providerSourceGroup && !sourceParentComplete ? null : sample.adset_id,
+      adset_name: providerSourceGroup && !sourceParentComplete ? null : sample.adset_name,
       name:
         groupBy === "creative" || groupBy === "ad"
           ? sample.name
@@ -1119,21 +1208,22 @@ export function groupRows(
       purchases,
       impressions,
       reach,
+      reach_aggregation: reachAggregation,
       frequency: groupedFrequency == null ? null : r2(groupedFrequency),
       link_clicks: linkClicks,
       outbound_clicks: outboundClicks,
-      effective_status: list.map((item) => item.effective_status ?? null).find((value): value is string => Boolean(value)) ?? null,
-      objective: list.map((item) => item.objective ?? null).find((value): value is string => Boolean(value)) ?? null,
-      attribution_setting: list.map((item) => item.attribution_setting ?? null).find((value): value is string => Boolean(value)) ?? null,
-      quality_ranking: list.map((item) => item.quality_ranking ?? null).find((value): value is string => Boolean(value)) ?? null,
-      engagement_rate_ranking: list.map((item) => item.engagement_rate_ranking ?? null).find((value): value is string => Boolean(value)) ?? null,
-      conversion_rate_ranking: list.map((item) => item.conversion_rate_ranking ?? null).find((value): value is string => Boolean(value)) ?? null,
-      bid_strategy: list.map((item) => item.bid_strategy ?? null).find((value): value is string => Boolean(value)) ?? null,
-      optimization_goal: list.map((item) => item.optimization_goal ?? null).find((value): value is string => Boolean(value)) ?? null,
-      campaign_daily_budget: list.map((item) => item.campaign_daily_budget ?? null).find((value): value is number => value != null) ?? null,
-      adset_daily_budget: list.map((item) => item.adset_daily_budget ?? null).find((value): value is number => value != null) ?? null,
-      campaign_lifetime_budget: list.map((item) => item.campaign_lifetime_budget ?? null).find((value): value is number => value != null) ?? null,
-      adset_lifetime_budget: list.map((item) => item.adset_lifetime_budget ?? null).find((value): value is number => value != null) ?? null,
+      effective_status: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.effective_status ?? null).find((value): value is string => Boolean(value)) ?? null : null,
+      objective: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.objective ?? null).find((value): value is string => Boolean(value)) ?? null : null,
+      attribution_setting: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.attribution_setting ?? null).find((value): value is string => Boolean(value)) ?? null : null,
+      quality_ranking: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.quality_ranking ?? null).find((value): value is string => Boolean(value)) ?? null : null,
+      engagement_rate_ranking: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.engagement_rate_ranking ?? null).find((value): value is string => Boolean(value)) ?? null : null,
+      conversion_rate_ranking: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.conversion_rate_ranking ?? null).find((value): value is string => Boolean(value)) ?? null : null,
+      bid_strategy: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.bid_strategy ?? null).find((value): value is string => Boolean(value)) ?? null : null,
+      optimization_goal: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.optimization_goal ?? null).find((value): value is string => Boolean(value)) ?? null : null,
+      campaign_daily_budget: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.campaign_daily_budget ?? null).find((value): value is number => value != null) ?? null : null,
+      adset_daily_budget: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.adset_daily_budget ?? null).find((value): value is number => value != null) ?? null : null,
+      campaign_lifetime_budget: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.campaign_lifetime_budget ?? null).find((value): value is number => value != null) ?? null : null,
+      adset_lifetime_budget: sourceParentComplete || !providerSourceGroup ? list.map((item) => item.adset_lifetime_budget ?? null).find((value): value is number => value != null) ?? null : null,
       destination_url: list.map((item) => item.destination_url ?? null).find((value): value is string => Boolean(value)) ?? null,
       destination_url_raw: list.map((item) => item.destination_url_raw ?? null).find((value): value is string => Boolean(value)) ?? null,
       destination_url_source: list.map((item) => item.destination_url_source ?? null).find((value): value is string => Boolean(value)) ?? null,
@@ -1161,7 +1251,10 @@ export function groupRows(
       // the intersection, not the union. Each member's `?? 0` above still
       // happened — the numbers are unchanged — and this is what stops the
       // surface reading the shortfall as a result.
-      metric_presence: intersectCreativeMetricPresence(list),
+      metric_presence: {
+        ...intersectCreativeMetricPresence(list),
+      frequency: frequencyMeasured,
+      },
     };
     grouped.push(withMetaCreativeDayMetricEvidence(groupedRow, groupedMetricEvidence));
   }

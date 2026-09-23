@@ -11,12 +11,14 @@ import {
 } from "@/components/meta/redesign/test-fixtures";
 import {
   MetaPlatformPage,
+  creativeEvidenceStudioHref,
   campaignKindMatchesMetaLabelFilter,
   metaActionFailureMessage,
   metaAdsetPauseNotice,
   metaBidApplyNotice,
   isTrackingWriteBlocked,
   metaEvidenceSourceNotice,
+  metaExternalUrlFilters,
   metaSilentActionFailureNotice,
   trackingConfirmLabelForRec,
   metaRecSearchMatch,
@@ -112,6 +114,7 @@ const state = vi.hoisted(() => ({
   exactScope: null as "structure" | "creatives" | null,
   exactProps: null as any,
   selectBusiness: vi.fn(),
+  previousWorkspacePayload: null as any,
   queryOverrides: {} as Record<
     string,
     { data?: unknown; isLoading?: boolean; error?: Error | null }
@@ -137,6 +140,23 @@ function queryState(
   };
 }
 
+describe("creativeEvidenceStudioHref", () => {
+  it("keeps the served business on a native Ad evidence link when another workspace is active", () => {
+    expect(creativeEvidenceStudioHref({
+      businessId: "biz_theswaf",
+      canonical: null,
+      decision: exactNativeAdDecision({ providerAccountId: "act_theswaf", creativeId: "cr_1" }),
+    })).toBe("/c/biz_theswaf/creative/performance?providerAccountId=act_theswaf&creativeId=cr_1");
+  });
+
+  it("does not mint a Studio link without served business and account identity", () => {
+    const decision = exactNativeAdDecision();
+    expect(creativeEvidenceStudioHref({ businessId: "", canonical: null, decision })).toBeNull();
+    expect(creativeEvidenceStudioHref({ businessId: "biz_1", canonical: null,
+      decision: { ...decision, providerAccountId: "" } })).toBeNull();
+  });
+});
+
 describe("resolveMetaDecisionMoneyCurrency", () => {
   it("prefers the cutoff-safe decision currency over mutable provider metadata", () => {
     expect(resolveMetaDecisionMoneyCurrency("TRY", "USD")).toBe("TRY");
@@ -146,6 +166,26 @@ describe("resolveMetaDecisionMoneyCurrency", () => {
     expect(resolveMetaDecisionMoneyCurrency(null, "EUR")).toBe("EUR");
     expect(resolveMetaDecisionMoneyCurrency("   ", " GBP ")).toBe("GBP");
     expect(resolveMetaDecisionMoneyCurrency(undefined, undefined)).toBeNull();
+  });
+});
+
+describe("metaExternalUrlFilters", () => {
+  it("clears the prior account's search and level filters when the new URL omits them", () => {
+    expect(
+      metaExternalUrlFilters(
+        new URLSearchParams("window=7d"),
+        "window=7d&q=W5-Animated&levels=ad",
+      ),
+    ).toEqual({ rowSearch: "", levels: [] });
+  });
+
+  it("restores filters from an external link without resetting this page's own edits", () => {
+    const link = new URLSearchParams("window=7d&q=Q007&levels=ad");
+    expect(metaExternalUrlFilters(link, "window=28d")).toEqual({
+      rowSearch: "Q007",
+      levels: ["ad"],
+    });
+    expect(metaExternalUrlFilters(link, link.toString())).toBeNull();
   });
 });
 
@@ -620,19 +660,27 @@ vi.mock("@/store/app-store", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-  /**
-   * The real sentinel's identity is all the page uses: it hands it to
-   * `placeholderData` so a window change keeps the previous rows on screen
-   * rather than blanking the queue to a skeleton. This mock never reads it, so
-   * a stand-in with the same name is enough for the page to mount.
-   */
-  keepPreviousData: Symbol.for("keepPreviousData"),
-  useQuery: (input: { queryKey: unknown[] }) => {
+  useQuery: (input: {
+    queryKey: unknown[];
+    placeholderData?: (previousData: any) => any;
+  }) => {
     state.queryKeys.push(input.queryKey);
     const key = String(input.queryKey[0]);
     const override = state.queryOverrides[key];
-    if (key === "meta-decisions-workspace")
-      return queryState(workspacePayload(), override);
+    if (key === "meta-decisions-workspace") {
+      const result = queryState(workspacePayload(), override);
+      if (result.data === undefined && state.previousWorkspacePayload) {
+        const data = input.placeholderData?.(state.previousWorkspacePayload);
+        return {
+          ...result,
+          data,
+          isLoading: data === undefined,
+          isFetching: true,
+          isPlaceholderData: data !== undefined,
+        };
+      }
+      return result;
+    }
     if (key === "meta-provider-accounts")
       return queryState(state.providerAccounts, override);
     if (key === "meta-anomalies") {
@@ -704,6 +752,7 @@ describe("MetaPlatformPage", () => {
     state.osPresentation = null;
     state.exactScope = null;
     state.exactProps = null;
+    state.previousWorkspacePayload = null;
     state.queryOverrides = {};
     state.selectBusiness.mockClear();
     state.routerPush.mockClear();
@@ -863,37 +912,38 @@ describe("MetaPlatformPage", () => {
       decisions: `/platforms/meta?window=14d&${FOURTEEN_DAYS}`,
       launchpad:
         "/platforms/meta/launchpad?providerAccountId=act_1&launchpadMode=new_campaign&launchpadStep=source",
-      creativeStudio: "/platforms/meta/creatives?providerAccountId=act_1",
+      creativeStudio: `/c/biz_1/creative/performance?providerAccountId=act_1&${FOURTEEN_DAYS}`,
     },
     {
       pathname: "/app/meta/decisions",
       decisions: `/app/meta/decisions?window=14d&${FOURTEEN_DAYS}`,
       launchpad:
         "/app/meta/launchpad?providerAccountId=act_1&launchpadMode=new_campaign&launchpadStep=source",
-      creativeStudio: "/app/creative/performance?providerAccountId=act_1",
+      creativeStudio: `/c/biz_1/creative/performance?providerAccountId=act_1&${FOURTEEN_DAYS}`,
     },
     {
       pathname: "/c/biz_1/meta/decisions",
       decisions: `/c/biz_1/meta/decisions?window=14d&${FOURTEEN_DAYS}`,
       launchpad:
         "/c/biz_1/meta/launchpad?providerAccountId=act_1&launchpadMode=new_campaign&launchpadStep=source",
-      creativeStudio: "/c/biz_1/creative/performance?providerAccountId=act_1",
+      creativeStudio: `/c/biz_1/creative/performance?providerAccountId=act_1&${FOURTEEN_DAYS}`,
     },
   ])(
-    "keeps CTA navigation inside $pathname",
+    "keeps campaign routing inside $pathname and scopes Studio to the served business",
     ({ pathname, launchpad, creativeStudio }) => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.setSystemTime(WINDOW_CLOCK);
       try {
         state.pathname = pathname;
+        state.search = `window=custom&${FOURTEEN_DAYS}`;
         renderToStaticMarkup(
           <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
         );
 
         // The in-page window control is gone — the shell topbar picker owns the
         // window, and this header carrying its own was a second writer for one
-        // value. What this case still protects is that a CTA never navigates
-        // OUT of the route family the operator is in.
+        // value. Launchpad stays in the current route family; Studio carries
+        // explicit business, account and dates even from a session route.
         state.exactProps.onNewCampaign();
         state.exactProps.onOpenCreativeStudio();
       } finally {
@@ -911,6 +961,14 @@ describe("MetaPlatformPage", () => {
       );
     },
   );
+
+  it("does not open an unscoped Studio when no Meta account was assigned", () => {
+    state.providerAccounts = [];
+    renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    expect(state.exactProps.onOpenCreativeStudio).toBeUndefined();
+  });
 
   // The degraded-source banner was removed from the screen on request. The
   // authority it announced is unchanged and still server-side: when the read
@@ -1408,6 +1466,41 @@ describe("MetaPlatformPage", () => {
     expect(html).not.toContain("$0");
     expect(html).not.toContain(">0.00<");
     expect(html).not.toContain("snapshot 0");
+  });
+
+  it("keeps stale rows only within the same business and provider account", () => {
+    state.previousWorkspacePayload = workspacePayload();
+    state.queryOverrides = {
+      "meta-decisions-workspace": { data: undefined, isLoading: true },
+    };
+
+    const sameAccountRefresh = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    expect(sameAccountRefresh).toContain('data-meta-exact-section="kpis"');
+    expect(sameAccountRefresh).toContain("$401");
+
+    const newBusiness = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_2" businessName="Grandmix" />,
+    );
+    expect(newBusiness).toContain("Loading decision data.");
+    expect(newBusiness).not.toContain('data-meta-exact-section="kpis"');
+    expect(newBusiness).not.toContain("$401");
+
+    state.providerAccounts = [
+      {
+        id: "act_2",
+        name: "Second Meta",
+        currency: "USD",
+        timezone: "Europe/Istanbul",
+      },
+    ];
+    const newProvider = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    expect(newProvider).toContain("Loading decision data.");
+    expect(newProvider).not.toContain('data-meta-exact-section="kpis"');
+    expect(newProvider).not.toContain("$401");
   });
 
   it("surfaces workspace query errors before rendering briefing summaries", () => {

@@ -339,6 +339,58 @@ describe("getMetaCreativesApiPayload", () => {
     expect(service.buildCreativesResponse).not.toHaveBeenCalled();
   });
 
+  it("does not send unresolved Ad display identities to the Meta creative thumbnail endpoint", async () => {
+    vi.mocked(warehouse.getMetaAdDailyCoverage).mockResolvedValue({
+      completed_days: 31,
+      ready_through_date: "2026-03-31",
+      latest_updated_at: "2026-04-01T03:00:00.000Z",
+    } as never);
+    vi.mocked(warehousePayloads.getMetaCreativesWarehousePayload).mockResolvedValue({
+      status: "ok", media_mode: "full", media_hydrated: false,
+      rows: [
+        { id: "ad_1", creative_id: "unresolved_ad:ad_1", account_id: "act_1" },
+        { id: "ad_2", creative_id: "cr_2", account_id: "act_1",
+          preview: { render_mode: "unavailable", image_url: null, video_url: null,
+            poster_url: null, source: null, is_catalog: false } },
+      ],
+      snapshot_source: "persisted",
+    } as never);
+    vi.mocked(fetchers.fetchCreativeThumbnailMap).mockResolvedValue(
+      new Map([["cr_2", "https://example.com/proven.jpg"]]),
+    );
+
+    const result = await getMetaCreativesApiPayload({ ...buildInput(), groupBy: "ad" });
+    expect(fetchers.fetchCreativeThumbnailMap).toHaveBeenCalledTimes(2);
+    expect(fetchers.fetchCreativeThumbnailMap).toHaveBeenCalledWith(
+      ["cr_2"], "token", 150, 120, false,
+    );
+    expect(result.rows[0]?.creative_id).toBe("unresolved_ad:ad_1");
+    expect(result.rows[1]?.thumbnail_url).toBe("https://example.com/proven.jpg");
+  });
+
+  it("serves partial historical Ad warehouse facts without projecting current creative detail backward", async () => {
+    vi.mocked(warehouse.getMetaAdDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: "2026-03-01",
+      latest_updated_at: "2026-03-02T03:00:00.000Z",
+    } as never);
+    vi.mocked(warehousePayloads.getMetaCreativesWarehousePayload).mockResolvedValue({
+      status: "ok",
+      rows: [{ id: "ad_1", creative_id: "cr_1", account_id: "act_1" }],
+      snapshot_source: "persisted",
+      isPartial: false,
+      notReadyReason: null,
+    } as never);
+
+    const result = await getMetaCreativesApiPayload({ ...buildInput(), groupBy: "ad" });
+    expect(result).toMatchObject({ status: "ok", readSource: "warehouse",
+      isPartial: true, freshness_state: "stale",
+      rows: [{ id: "ad_1" }] });
+    expect((result as { notReadyReason?: string }).notReadyReason)
+      .toContain("Historical Ad-day warehouse coverage is incomplete");
+    expect(service.buildCreativesResponse).not.toHaveBeenCalled();
+  });
+
   it("preserves a warehouse account-scope failure instead of overwriting it", async () => {
     vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
       completed_days: 31,
@@ -479,11 +531,12 @@ describe("getMetaCreativesApiPayload", () => {
       ...buildInput(request),
       start: "2026-03-31",
       end: "2026-03-31",
+      groupBy: "ad",
     });
 
     expect((result as { readSource?: string }).readSource).toBe("current_day_live");
     expect((result as { isPartial?: boolean }).isPartial).toBe(true);
-    expect(warehouse.getMetaCreativeDailyCoverage).not.toHaveBeenCalled();
+    expect(warehouse.getMetaAdDailyCoverage).not.toHaveBeenCalled();
     expect(warehousePayloads.getMetaCreativesWarehousePayload).not.toHaveBeenCalled();
     expect(service.buildCreativesResponse).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -673,12 +726,10 @@ describe("getMetaCreativesApiPayload", () => {
 
     const first = await getMetaCreativesApiPayload({
       ...buildInput(request),
-      groupBy: "ad",
       creativeId: "cr-1",
     });
     const second = await getMetaCreativesApiPayload({
       ...buildInput(request),
-      groupBy: "ad",
       creativeId: " cr-2 ",
     });
 

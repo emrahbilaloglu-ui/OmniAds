@@ -2364,8 +2364,9 @@ resolver owns two disjoint Cut regions. Let `L` be
 
 The expanded strip requires explicit recent evidence against break-even rather
 than against target. The canonical recent-spend sample threshold is reused
-without an account-AOV overlay. Sufficient recent spend with recent ROAS below
-break-even confirms the loss and may produce Cut through the existing
+without an account-AOV overlay (subject to the P25-null amendment below).
+Sufficient recent spend with recent ROAS below break-even confirms the loss
+and may produce Cut through the existing
 hard/sustained/loss-budget maturity rules. Recent ROAS equal to or above
 break-even is recovery and produces Keep. Missing recent ROAS/spend/threshold,
 or spend below that threshold, preserves the pre-authority Cut but holds it as
@@ -2381,8 +2382,9 @@ evidence sufficiency with independent-date stability. Serving therefore
 projects an explicit wait/refresh-recent-evidence resolution and never turns
 the compatibility `test_more` label into an operator instruction.
 
-D061 account-AOV authority remains isolated to Cut loss-budget maturity. It
-cannot change `L`, `B`, the recent sample threshold, recovery, Scale, Refresh,
+D061 account-AOV authority remains isolated to Cut economic evidence. It
+cannot change `L`, `B`, the recent sample threshold (except for the P25-null
+Cut-only evidence floor in the amendment below), recovery, Scale, Refresh,
 or confidence. Target age remains advisory under D058 and is not an economic
 veto. Pooled/non-purchase cells, invalid or cutoff-unsafe commercial anchors,
 and all existing source/status/context/profile blockers continue to fail
@@ -2392,6 +2394,35 @@ to emit D063's held-Cut provenance (`pre_authority_label: cut`,
 `recent_recovery_unverifiable`); confirmed recovery restores the canonical
 profile. This is not executable Cut authority and never creates a D036 pending
 transition.
+
+### D063 amendment — P25-null Cut-only recent evidence floor (2026-09-24)
+
+An exact-cell recent-spend threshold remains authoritative whenever it exists.
+When it is `NULL`, the expanded economic-loss strip may instead use the
+authenticated physical-account AOV repair's **Cut-only**
+`commercialStopLossThresholds.recentSampleMinSpend`. This exception applies
+only if account P25 is also `NULL`, the canonical Cut is ineligible, the
+effective Cut is eligible, and the repair has a positive finite
+`meta_derived_aov` spend unit marked hard-eligible. An absent, invalid, or
+insufficient replacement floor remains `recent_recovery_unverifiable`; no
+threshold is inferred from purchases or from another cell. A confirmed recent
+ROAS at or above explicit break-even restores the canonical non-Cut verdict.
+
+This floor only tests whether recent economic loss is sufficiently observed.
+It does not change the Cut boundary, loss budget, Scale, Refresh, confidence,
+or the independent-date D036 confirmation. D098 configuration, D101 source
+coverage, campaign-role and other hard-action gates must still independently
+pass before an action is authorized. In the observed TheSwaf shape, lifetime
+spend 155.30 and recent spend 129.28 exceed the authenticated 147.78 Cut
+budget and 24.63 recent floor, respectively; recent ROAS 0 is below explicit
+break-even 1.71. The same shape with recent ROAS 2.149 is recovery. The live
+row is **not** thereby an authorized Cut: its configuration evidence was not
+fully verified at the sampled evaluation cutoff.
+
+This changes the economic evidence verdict for the narrow P25-null case and
+must ship with a new native evaluation and producer epoch. Prior snapshots
+retain their original meaning; the current epoch must be regenerated before
+serving the amended verdict.
 
 When the row is geometrically inside the expanded strip but its native
 expanded-zone capability is explicitly unavailable, the resolver remains
@@ -9877,3 +9908,117 @@ moves.
 
 **Rollback.** Remove the route opt-in. The reader stripping is inert without it
 and may stay. Nothing is persisted; no write path changes.
+
+## D103 — Admit only source-verified creative-day membership and parent grain into current decisions (2026-09-24)
+
+**Failure.** The old creative-day writer could combine different Meta creatives
+by name and format. Even when a new row identifies one provider creative, that
+creative can be reused by Ads under different campaigns or adsets; its summed
+metrics have no single parent in that case. The legacy lifecycle, calibration,
+and creative decision readers previously treated both shapes as authoritative.
+Native-Ad economics stays on `meta_ad_daily`, but its hashed input also carries
+the creative lifecycle overlay.
+
+**Decision.** The creative-day writer retains exact source Ad/creative members
+and stamps `meta-creative-membership.v2` only when that list is complete. It
+stamps `source_parent_grain_complete: true` only when every member Ad has the
+same non-empty campaign and adset. Current creative-grain lifecycle,
+calibration, and decision inputs admit rows only with both proofs AND an
+independent full-day configuration receipt for the campaign objective and
+adset optimization context. The membership writer first marks config
+`unverified` even when membership is v2: its nested campaign/adset fields can
+come from a current API GET and cannot speak for an earlier reporting day. A
+separate D098 day-bracketed receipt certifier can then mint positive provenance
+while atomically writing the proved objective, optimization goal and event.
+Old, mixed-parent and config-unverified rows
+remain available for historical display and repair; they do not grant current
+legacy creative decision authority. Native Ad decisions resolve D098 receipts
+directly and remain the served decision path where evidence supports them.
+The runtime creative diagnostic read retains complete v2 member rows even when
+configuration is unverified and emits the typed
+`config_provenance_unverified` diagnosis; a partial lifecycle materialisation
+cannot silently remove those rows from the creative list. A separate receipt
+certifier may stamp positive provenance only while atomically writing the
+proved objective, optimization goal and event; admission also checks those
+stored values and custom conversion identity against the proof. The read uses
+the proof fields instead of a current adset-day fallback for optimization
+context. A single unverified delivered day excludes the whole creative from a
+90-day lifecycle/calibration population; filtering only that day would make a
+partial window look complete and could falsely grant authority. Runtime
+diagnostics retain the creative with a typed held reason. The date-only legacy
+as-of contract bounds source knowledge and the
+latest cited receipt to the earlier of query time and the exclusive next UTC
+midnight. Thus historical replays cannot borrow later receipts, but an actual
+next-day 00:00–03:00 UTC receipt can remain conservatively held for the prior
+UTC date until an explicit evaluation cutoff is added to the legacy API.
+Persisted calibration from an
+older engine epoch cannot fill a new-epoch input, including format funnel
+calibration. Historical source-backed repair may make a row admissible, after
+which the producer chain must regenerate its own current-epoch outputs.
+
+**D101 coverage extension.** Per-row v2 membership is insufficient when an
+entire account/day was skipped: that day leaves no creative row to reject. The
+current legacy lifecycle, calibration, decision and outcome paths compare each
+decision-bearing finalized Ad-day against the same-run published D101 manifest,
+one-to-one source Ad membership, and account/day economics. Each known physical
+account also needs a published D101 Ad-day receipt for every day of the legacy
+decision window, including explicit zero-Ad days. First observed activity is
+not proof that an earlier account day was empty; a positive creative day with
+no matching economic Ad fact also fails coverage. A valid v2
+mixed-parent group contributes to account totals but cannot itself authorize a
+campaign-scoped creative decision. Rows and receipts written after the replay
+cutoff cannot authorize a historical decision. Incomplete source windows remain
+visible as `creative_source_coverage_incomplete` diagnoses; outcome learning
+stays `unknown` and operator-response promotion is withheld. This is
+intentionally conservative when an Ad's dated creative identity was never
+observed: an unobserved Ad might have reused the candidate creative, even
+under another campaign. A creative first **observed** after such an account-day
+may still be held because first observation does not prove it did not exist or
+serve earlier. This is a known conservative bound, not a permanent requirement:
+a future candidate-specific exclusion must cite a cutoff-safe provider creation
+or complete dated Ad-to-creative identity record before narrowing it. Do not
+present a held legacy creative as a failed
+native Ad decision. The native Ad lane retains its own D101 proof and may
+produce an evidence-backed card.
+
+The legacy creative date-only cutoff is the exclusive next UTC midnight, not
+the provider account's local evaluation instant. That conservatively holds
+some valid late-finalized western-timezone days. A source-backed historical
+repair also advances the mutable creative-day row's `created_at`/`updated_at`
+past an old evaluation cutoff; the held historical result means **knowledge
+arrived later**, not that Meta had no source data. Accordingly this legacy
+lane does not claim faithful historical replay after repair. Such replay
+requires an explicit, persisted evaluation instant and immutable source
+knowledge/revision clocks for creative membership, economics, configuration,
+and published day coverage. Native Ad replay follows its separate cutoff
+contract. Current creative diagnostics must distinguish a post-cutoff repair
+from a missing or incomplete source day.
+
+As of the 2026-09-24 read-only representative audit, Grandmix had 90/90 and
+TheSwaf 90/90 plus 57/57 Ad-active account-days with D101 pointers in the
+June 25–September 22 window, but neither business had a v2 creative-day row
+before repair. Repairing only September 21–22 cannot complete a 90-day creative
+window: among 78 TheSwaf creatives active on those days, none first became
+economic-active then. TheSwaf adset-config raw receipts begin July 13, so the
+June 25–July 12 portion lacks independently observed D098 adset config. A
+full-window legacy positive cannot be claimed from the current historical DB.
+
+**Versioning.** `ENGINE_VERSION` moves to
+`v3-2026-09-24-creative-membership-integrity` so corrected lifecycle and
+calibration rows do not overwrite old snapshots. Native evaluation moves to
+`engine-v3-canonical-ad-evaluation.v14`, hashes both creative-day source
+contracts, and keeps `.v13` rows readable under their original key.
+`NATIVE_AD_ENGINE_VERSION` moves to
+`v3-ad-2026-09-24-creative-membership-evidence-shadow` so a current-day
+generation is produced rather than an old-epoch success being served as new.
+Native-Ad economic metrics, resolver thresholds, and write authority do not
+change. An ambiguous creative-day parent does not withhold an independently
+proved Ad-grain economic decision.
+Separately, a native Ad snapshot whose metric evidence says performance was
+not observed serializes spend, purchases and ROAS as unavailable instead of
+displaying an invented zero. Historical creative membership repair also keeps
+multi-Ad summed reach out of unique creative frequency; only a single-Ad
+provider reach can produce that frequency.
+
+**Rollback.** Restore the prior producer/evaluation versions together and keep
+both epochs' rows. Do not reinterpret old rows as source-verified.

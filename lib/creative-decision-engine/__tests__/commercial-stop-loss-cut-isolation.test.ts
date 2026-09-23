@@ -23,7 +23,7 @@ function canonicalProfile(input: {
   cut: boolean;
   maturity: number;
   hardCut?: number;
-  recentSample?: number;
+  recentSample?: number | null;
   bottomQuartileRatio?: number | null;
   severeLoserRatio?: number;
   breakEvenRoas?: number | null;
@@ -45,7 +45,8 @@ function canonicalProfile(input: {
       commercialMaturitySpend: input.maturity,
       hardCutSpend: input.hardCut ?? input.maturity,
       sustainedLoserSpend: input.maturity,
-      recentSampleMinSpend: input.recentSample ?? 50,
+      recentSampleMinSpend:
+        input.recentSample === undefined ? 50 : input.recentSample,
     },
     hardActionEligibility: canonicalEligibility(input.cut),
   });
@@ -213,6 +214,137 @@ describe("commercial stop-loss Cut isolation", () => {
 
     expect(decideCreative(input, canonical).label).not.toBe("cut");
     expect(decideCreative(input, overlaid).label).toBe("cut");
+  });
+
+  it("uses a proved Cut-only AOV floor when the exact cell has no recent floor", () => {
+    // Frozen TheSwaf-like shape: the exact purchase cell is thin, while the
+    // physical account has a ready AOV proof. The observed 7d loss can be
+    // tested against that proof without inventing an exact-cell threshold.
+    const canonical = canonicalProfile({
+      cut: false,
+      maturity: 500,
+      recentSample: null,
+      bottomQuartileRatio: null,
+      breakEvenRoas: 1.71,
+    });
+    const overlaid = withAccountAovRepair(canonical, 98.52);
+    overlaid.commercialStopLossThresholds = {
+      ...overlaid.commercialStopLossThresholds!,
+      commercialMaturitySpend: 147.78,
+      cutCandidateSpend: 147.78,
+      recentSampleMinSpend: 24.63,
+    };
+    const losing = {
+      ...creative({
+        ratio: 0.725,
+        spend: 155.3,
+        purchases: 1,
+        recent7dSpend: 129.28,
+        recent7dRoas: 0,
+        recent7dPurchases: 0,
+      }),
+      outboundClicks: 10,
+      linkClicks: 12,
+      landingPageViews: 9,
+      addToCart: 4,
+      initiateCheckout: 2,
+    };
+
+    expect(decideCreative(losing, canonical).label).not.toBe("cut");
+    expect(decideCreative(losing, overlaid)).toMatchObject({
+      label: "cut",
+      preAuthorityLabel: "cut",
+      authorityBlocker: null,
+      blockedActionType: null,
+    });
+    for (const missingAuthority of [
+      { ...losing, configProvenanceStatus: "unverified" as const },
+      { ...losing, sourceCoverageStatus: "incomplete" as const },
+    ]) {
+      expect(decideCreative(missingAuthority, overlaid).label).toBe(
+        "diagnose",
+      );
+    }
+
+    // The same source-backed recent window can instead prove recovery, or be
+    // too thin/absent; neither state may become a hard economic Cut.
+    const recoveryInput = {
+      ...losing,
+      recent7dRoas: 2.149,
+      recent7dPurchases: 1,
+    };
+    const recovered = decideCreative(recoveryInput, overlaid);
+    expect(recovered.label).not.toBe("cut");
+    expect(decisionProjection(recovered)).toEqual(
+      decisionProjection(decideCreative(recoveryInput, canonical)),
+    );
+    for (const incomplete of [
+      { ...losing, recent7dSpend: 10 },
+      { ...losing, recent7dRoas: null },
+    ]) {
+      expect(decideCreative(incomplete, overlaid)).toMatchObject({
+        label: "test_more",
+        preAuthorityLabel: "cut",
+        authorityBlocker: "recent_recovery_unverifiable",
+        blockedActionType: "cut",
+      });
+    }
+  });
+
+  it("does not borrow a recent floor from an untrusted or non-Cut overlay", () => {
+    const canonical = canonicalProfile({
+      cut: false,
+      maturity: 500,
+      recentSample: null,
+      bottomQuartileRatio: null,
+    });
+    const trusted = withAccountAovRepair(canonical, 100);
+    const input = creative({
+      ratio: 0.75,
+      spend: 300,
+      recent7dRoas: 0,
+      recent7dSpend: 100,
+    });
+    for (const untrusted of [
+      {
+        ...trusted,
+        commercialStopLossSpendUnit: {
+          ...trusted.commercialStopLossSpendUnit!,
+          hardEligibleByDefault: false,
+        },
+      },
+      {
+        ...trusted,
+        commercialStopLossSpendUnit: {
+          ...trusted.commercialStopLossSpendUnit!,
+          spendUnitSource: "target_cpa" as const,
+        },
+      },
+      {
+        ...trusted,
+        commercialStopLossCanonicalHardActionEligibility:
+          canonicalEligibility(true),
+      },
+      {
+        ...trusted,
+        commercialStopLossThresholds: {
+          ...trusted.commercialStopLossThresholds!,
+          recentSampleMinSpend: null,
+        },
+      },
+    ]) {
+      expect(decideCreative(input, untrusted).label).not.toBe("cut");
+    }
+
+    const p25Backed = canonicalProfile({
+      cut: false,
+      maturity: 500,
+      recentSample: null,
+      bottomQuartileRatio: 0.7,
+    });
+    expect(
+      decideCreative(input, withAccountAovRepair(p25Backed, 100)).label,
+    ).not.toBe("cut");
   });
 
   it("keeps calibrated-relative-only native authority inside the legacy Cut region", () => {

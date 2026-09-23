@@ -1,5 +1,9 @@
 import { getDb, runDbTransaction } from "@/lib/db";
 import {
+  creativeDayCompleteWindowSql,
+  creativeDayConfigDecisionAdmissionSql,
+} from "@/lib/meta/creative-day-decision-admission";
+import {
   CAMPAIGN_CONTEXT_MAX_AGE_DAYS,
   campaignContextAuthorityResolverVersion,
 } from "../campaign-context/source";
@@ -134,6 +138,7 @@ WITH snapshots AS (
   SELECT *
   FROM engine_v3_decision_snapshots_daily
   WHERE business_ref_id = $1::uuid
+    AND engine_version = $5::text
     AND label IN ('scale', 'refresh')
     AND as_of_date BETWEEN ($2::date - ($3::integer * INTERVAL '1 day')) AND $2::date
 ),
@@ -189,6 +194,7 @@ WITH snapshots AS (
   FROM engine_v3_decision_snapshots_daily
   WHERE business_ref_id = $1::uuid
     AND creative_id = $2
+    AND engine_version = $6::text
     AND as_of_date BETWEEN ($3::date - ($4::integer * INTERVAL '1 day')) AND $3::date
 ),
 guarded AS (
@@ -274,6 +280,7 @@ SELECT
 FROM meta_creative_daily d
 WHERE d.business_ref_id = $1::uuid
   AND d.creative_id = $2
+  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3")}
   AND d.date BETWEEN ($3::date - ($4::integer * INTERVAL '1 day')) AND $3::date
 GROUP BY d.date
 ORDER BY d.date ASC
@@ -287,19 +294,35 @@ SELECT DISTINCT ON (d.creative_id)
 FROM meta_creative_daily d
 WHERE d.business_ref_id = $1::uuid
   AND d.creative_id = $2
+  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3")}
   AND d.date <= $3::date
 ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 `;
 
 const FIND_RECENT_7D_FREQUENCY_QUERY = `
-SELECT AVG(d.frequency) FILTER (
-  WHERE d.frequency > 0
-    AND d.date BETWEEN ($3::date - INTERVAL '6 days') AND $3::date
-) AS recent7d_frequency
+SELECT CASE WHEN COUNT(DISTINCT d.provider_account_id) = 1
+  AND COALESCE(BOOL_AND(
+    d.payload_json->>'reach_aggregation' = 'single_ad_provider_reach'
+    AND d.frequency IS NOT NULL AND d.frequency > 0
+  ) FILTER (WHERE d.impressions > 0 AND d.date BETWEEN ($3::date - INTERVAL '6 days') AND $3::date), FALSE)
+  THEN AVG(d.frequency) FILTER (
+    WHERE d.frequency > 0 AND d.date BETWEEN ($3::date - INTERVAL '6 days') AND $3::date)
+END AS recent7d_frequency
 FROM meta_creative_daily d
 WHERE d.business_ref_id = $1::uuid
   AND d.creative_id = $2
+  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3")}
   AND d.date BETWEEN ($3::date - INTERVAL '27 days') AND $3::date
+`;
+
+const FIND_COMPLETE_RESPONSE_SOURCE_QUERY = `
+SELECT COALESCE((
+  SELECT ${creativeDayCompleteWindowSql("d", "$3", RESPONSE_WINDOW_DAYS + 1, undefined, "$1")}
+  FROM meta_creative_daily d
+  WHERE d.business_ref_id = $1::uuid AND d.creative_id = $2
+    AND d.date BETWEEN ($3::date - (${RESPONSE_WINDOW_DAYS} * INTERVAL '1 day')) AND $3::date
+  LIMIT 1
+), FALSE) AS complete
 `;
 
 const FIND_ADSET_BUDGET_HISTORY_QUERY = `
@@ -497,6 +520,12 @@ export async function runOperatorResponseJob(
       let lifecyclePromotions = 0;
 
       for (const creativeId of recommendedCreatives) {
+        if (!(await hasCompleteResponseSource({ creativeId, businessId: input.businessId, asOf: input.asOf }))) {
+          // Missing Ad-day membership is unknown operator response, never a
+          // zero-spend pause or a lifecycle promotion inferred from a partial
+          // creative window. Existing snapshots remain readable.
+          continue;
+        }
         const gathered = await gatherSignalInputs({
           creativeId,
           businessId: input.businessId,
@@ -613,12 +642,23 @@ async function findRecommendedCreativeIds(input: OperatorResponseJobInput) {
       input.asOf,
       RESPONSE_WINDOW_DAYS,
       campaignContextAuthorityResolverVersion(),
+      ENGINE_VERSION,
     ],
   );
   return rows.flatMap((row) => {
     const creativeId = toStringOrNull(row.creative_id);
     return creativeId === null ? [] : [creativeId];
   });
+}
+
+async function hasCompleteResponseSource(input: {
+  creativeId: string;
+  businessId: string;
+  asOf: string;
+}) {
+  const [row] = await getDb().query<{ complete: boolean }>(FIND_COMPLETE_RESPONSE_SOURCE_QUERY,
+    [input.businessId, input.creativeId, input.asOf]);
+  return row?.complete === true;
 }
 
 async function gatherSignalInputs(input: {
@@ -719,6 +759,7 @@ async function findRecommendations(input: {
     input.asOf,
     RESPONSE_WINDOW_DAYS,
     campaignContextAuthorityResolverVersion(),
+    ENGINE_VERSION,
   ]);
 }
 

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "9c35d123e43cfcd5c5e1c87c0e51d7ccb180c5c9b3ab17117360926f41ae13a6",
+  "manifestHash": "e9af0c8b5085d76020716f2cbdebc006d95ea7c6a6b87bfad5e5fa0a29ffd726",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -248,7 +248,7 @@
     },
     {
       "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
-      "sha256": "d4b690e259c34dcaa0675f4711b671f2a7df05e2b2d8bd4ee7cbaa601cd9b8d8"
+      "sha256": "a5e9bc0ff07b013a732cdc629e060990b3d98b23e031abb191d1cb4e68ebf668"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
@@ -352,7 +352,7 @@
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
-      "sha256": "483fd1d0e9ea56140fe28f50a1eacc4dc483de9a801b3b7afa67da059c669498"
+      "sha256": "01e1a957b73fe4074e666c7ff7777410ec801edcc792f45cfec1837dd3cda653"
     },
     {
       "path": "docs/creative-decision-center/CONTRACTS.md",
@@ -784,7 +784,7 @@
     },
     {
       "path": "lib/meta/__tests__/state-history-consumer-closure.test.ts",
-      "sha256": "110703275a463bead3ffb5886e1cc99d50667728eafc80e2b67fa6bed86d4fec"
+      "sha256": "0c638e85975b964b3c26f974485715a41a45776fcd54c7b5f574471543015fb2"
     },
     {
       "path": "lib/meta/action-count-parse.test.ts",

@@ -820,5 +820,5 @@ The read-only historical acceptance runner adds two classified references:
 
 | file | references | verdict |
 | --- | ---: | --- |
-| `scripts/creative-decision-center/meta-decisions-creatives-acceptance-core.ts` | 1 | Comment only; it describes the state-history source and issues no query. |
-| `scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts` | 5 | Read-only audit: three point reads for campaign, ad set and ad status, plus two explanatory references. It uses the latest winner whose observation, capture and creation clocks are all at or before the simulated cutoff. Only a `presence = 'present'` winner contributes a provider status; absence remains unknown. The runner requires a read-only database session and does not serve a product route or write a decision. |
+| `scripts/creative-decision-center/meta-decisions-creatives-acceptance-core.ts` | 5 | Read-only audit: three point reads for campaign, ad set and ad status, plus two explanatory references. It uses the latest winner whose observation, capture and creation clocks are all at or before the simulated cutoff. Only a `presence = 'present'` winner contributes a provider status; absence remains unknown. The runner requires a read-only database session and does not serve a product route or write a decision. |
+| `scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts` | 1 | Comment only; it describes the state-history source and issues no query. |

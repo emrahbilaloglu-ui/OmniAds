@@ -21,6 +21,10 @@ import {
 } from "@/lib/creative-decision-engine/execution-safety";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import {
+  hasVerifiedNativeConfigActionEvidence,
+  nativeConfigActionAuthoritySql,
+} from "@/lib/meta/native-config-action-authority";
+import {
   META_AD_DUPLICATE_ATTEMPT_CONTRACT_VERSION,
   prepareMetaAdDuplicateAttempt,
   type MetaAdDuplicateTarget,
@@ -960,20 +964,27 @@ export async function readDecisionOriginSourceDecision(input: {
       snapshot.label AS decision_label,
       snapshot.blocked_action_type,
       snapshot.authorized_action AS native_authorized_action,
+      input_evidence.input_evidence_json AS config_input_evidence,
       snapshot.computed_at::text AS computed_at
     FROM engine_v3_ad_decision_snapshots_daily snapshot
     INNER JOIN engine_v3_ad_decision_evaluations evaluation
       ON evaluation.id = snapshot.evaluation_id
      AND evaluation.business_ref_id = snapshot.business_ref_id
+     AND evaluation.business_id = snapshot.business_id
+     AND evaluation.provider_account_ref_id = snapshot.provider_account_ref_id
      AND evaluation.provider_account_id = snapshot.provider_account_id
      AND evaluation.decision_entity_type = snapshot.decision_entity_type
      AND evaluation.decision_entity_id = snapshot.decision_entity_id
      AND evaluation.ad_id = snapshot.ad_id
+     AND evaluation.as_of_date = snapshot.as_of_date
      AND evaluation.engine_version = snapshot.engine_version
      AND evaluation.scope_type = snapshot.scope_type
      AND evaluation.scope_id = snapshot.scope_id
      AND evaluation.input_hash = snapshot.input_hash
      AND evaluation.decision_hash = snapshot.decision_hash
+    LEFT JOIN engine_v3_ad_decision_input_evidence input_evidence
+      ON input_evidence.contract_version = evaluation.contract_version
+     AND input_evidence.input_hash = evaluation.input_hash
     WHERE snapshot.id = ${input.snapshotId}
       AND evaluation.id = ${input.evaluationId}
     LIMIT 1
@@ -993,6 +1004,7 @@ export async function readDecisionOriginSourceDecision(input: {
     decision_label: string | null;
     blocked_action_type: string | null;
     native_authorized_action: string | null;
+    config_input_evidence: unknown;
     computed_at: string | null;
   }>;
   const row = rows[0];
@@ -1014,12 +1026,19 @@ export async function readDecisionOriginSourceDecision(input: {
       decisionLabel: null,
       blockedActionType: null,
       explicitAuthorizedAction: null,
+      configAuthorityVerified: null,
       computedAt: null,
     };
   }
-  const explicitAuthorizedAction = providerActionForNativeAuthorization(
-    row.native_authorized_action,
-  );
+  const configAuthorityVerified =
+    row.engine_version === NATIVE_AD_ENGINE_VERSION
+      ? hasVerifiedNativeConfigActionEvidence(row.config_input_evidence)
+      : null;
+  const explicitAuthorizedAction =
+    row.engine_version === NATIVE_AD_ENGINE_VERSION &&
+    configAuthorityVerified !== true
+      ? null
+      : providerActionForNativeAuthorization(row.native_authorized_action);
   return {
     found: true,
     businessId: row.business_id,
@@ -1037,6 +1056,7 @@ export async function readDecisionOriginSourceDecision(input: {
     decisionLabel: row.decision_label,
     blockedActionType: row.blocked_action_type,
     explicitAuthorizedAction,
+    configAuthorityVerified,
     computedAt: row.computed_at,
   };
 }
@@ -1774,6 +1794,7 @@ WITH source_lineage AS (
       WHEN 'resume' THEN 'scale'
       ELSE NULL
     END
+    AND ${nativeConfigActionAuthoritySql("snapshot")}
 )
 INSERT INTO meta_ads_action_log (
   business_id, ad_id, creative_id, action, source, requested_by,

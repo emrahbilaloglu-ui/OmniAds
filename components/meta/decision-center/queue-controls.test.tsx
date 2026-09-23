@@ -79,6 +79,44 @@ describe("the search box answers the / key", () => {
 });
 
 describe("secondary navigation", () => {
+  it("points an empty Action Now lane to served creative decisions awaiting resolution", () => {
+    render(
+      <MetaDecisionCenterExact
+        viewModel={{
+          actionRows: [],
+          creativeGroups: [
+            {
+              id: "blocked",
+              label: "Blocked",
+              rows: [
+                { id: "held_cut_1", name: "Held Cut 1" },
+                { id: "held_cut_2", name: "Held Cut 2" },
+              ],
+            },
+          ],
+          operatorSummary: {
+            scopeCounts: {
+              creatives: { action: 0, needsResolution: 2, watching: 0 },
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("status").textContent).toContain(
+      "2 creative decisions are under Creatives → Needs Resolution",
+    );
+    expect(document.querySelector('[data-meta-exact-lane="action"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(document.querySelector('[data-meta-exact-creative-row="held_cut_1"]')).toBeNull();
+
+    fireEvent.click(document.querySelector('[data-meta-exact-scope="creatives"]')!);
+    expect(screen.getByRole("status").textContent).toContain(
+      "2 creative decisions are under Creatives → Needs Resolution",
+    );
+    fireEvent.click(document.querySelector('[data-meta-exact-creative-lane="needsres"]')!);
+    expect(document.querySelector('[data-meta-exact-creative-row="held_cut_1"]')).toBeTruthy();
+  });
+
   it("keeps the removed inactive strip and archive lane out of the main queue", () => {
     const onLaneChange = vi.fn();
     render(

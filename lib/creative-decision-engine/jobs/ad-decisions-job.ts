@@ -1,5 +1,9 @@
 import { getDb, runDbTransaction, type DbClient } from "@/lib/db";
 import {
+  providerLocalCalendarDate,
+  providerLocalDayEndExclusive,
+} from "@/lib/meta/provider-local-day";
+import {
   NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
   resolveNativeAdAccountDecisionProfile,
   type NativeAdAccountProfileDataSource,
@@ -55,6 +59,7 @@ import {
 } from "../evaluation-store";
 import { resolveEngineV3Flags, type EngineV3Flags } from "../feature-flags";
 import {
+  META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
   NATIVE_AD_ENGINE_VERSION,
   type AccountDecisionProfile,
   type AdDecisionInput,
@@ -2733,9 +2738,36 @@ export function toNativeSnapshotPayload(input: {
     isHardLabel(input.computation.rawLabel) &&
     (!ad.configAuthority.currentValueEvidence.observed ||
       !ad.configAuthority.decisionEconomics.fullyVerified);
+  const sourceCoverageFailure = isHardLabel(input.computation.rawLabel)
+    ? nativeAdSourceCoverageAuthorityFailure({
+        ad,
+        asOf: input.asOf,
+        computedAt: input.computedAt,
+      })
+    : null;
+  const sourceCoverageBlocked = sourceCoverageFailure !== null;
+  // The first authority blocker remains stable, but a later D101 failure must
+  // survive as typed evidence. Otherwise a role-held Cut can be presented as
+  // manually ready even though its source coverage is incomplete.
+  const badges =
+    sourceCoverageBlocked &&
+    !decision.badges.some((badge) => badge.type === "source_coverage_unverified")
+      ? [
+          ...decision.badges,
+          {
+            type: "source_coverage_unverified" as const,
+            label: "Verified daily source coverage incomplete",
+            severity: "warning" as const,
+          },
+        ]
+      : decision.badges;
   const authorityBlocker: DecisionAuthorityBlocker | null =
     decision.authorityBlocker ??
-    (configSourceBlocked ? "config_source_authority" : null);
+    (sourceCoverageBlocked
+      ? "source_freshness"
+      : configSourceBlocked
+        ? "config_source_authority"
+        : null);
   const authorizedAction = resolveNativeSnapshotAuthorizedAction({
     rawLabel: input.computation.rawLabel,
     publishedLabel: decision.label,
@@ -2765,34 +2797,44 @@ export function toNativeSnapshotPayload(input: {
     truth_source: decision.truthSource,
     effective_target_roas: decision.effectiveTargetRoas,
     ratio_to_target: decision.ratioToTarget,
-    badges: decision.badges,
+    badges,
     /*
       The REASON carries it too, not only the enum. A blocker code tells a
       surface which branch to render; the operator reading the decision needs to
       know which field was unobserved and as of when, and that is not
       reconstructable from the code alone.
     */
-    reason: configSourceBlocked
-      ? !ad.configAuthority.currentValueEvidence.observed
-        ? `[Config source not established for the evaluation day - ${
-            ad.configAuthority.currentValueEvidence.weakestTier ?? "no receipt"
-          } as of ${ad.configAuthority.currentConfigDay ?? "no receipt day"}] ${decision.reason}`
-        : `[Decision economics include ${
-            ad.configAuthority.decisionEconomics.unverifiedEconomicDayCount
-          } unverified economic day(s)] ${decision.reason}`
-      : decision.reason,
+    reason: [
+      sourceCoverageBlocked
+        ? `[Verified daily source coverage does not authorize a hard action - ${sourceCoverageFailure}]`
+        : null,
+      configSourceBlocked
+        ? !ad.configAuthority.currentValueEvidence.observed
+          ? `[Config source not established for the evaluation day - ${
+              ad.configAuthority.currentValueEvidence.weakestTier ?? "no receipt"
+            } as of ${ad.configAuthority.currentConfigDay ?? "no receipt day"}]`
+          : `[Decision economics include ${
+              ad.configAuthority.decisionEconomics.unverifiedEconomicDayCount
+            } unverified economic day(s)]`
+        : null,
+      decision.reason,
+    ]
+      .filter((part): part is string => Boolean(part))
+      .join(" "),
     spend: ad.spend,
     purchases: ad.purchases,
     roas: ad.roas,
     recent7d_roas: ad.recent7dRoas,
     label_transform: decision.labelTransform ?? null,
     /*
-      A hard verdict held ONLY by the config-source gate keeps its held action.
+      A hard verdict held ONLY by an emission-boundary source gate keeps its
+      held action.
 
       Every upstream hold (role, profile, freshness, hysteresis) sets
       `decision.blockedActionType` itself. This gate runs here, after the
       decision, so a CONFIRMED hard label with no earlier blocker reached
-      the row with `authority_blocker = config_source_authority` and
+      the row with `authority_blocker = config_source_authority` (or the D101
+      defensive `source_freshness` guard) and
       `blocked_action_type = NULL` — and the served projection, which keys the
       held state on `blocked_action_type`, then presented it as an actionable
       Cut, Scale or Refresh. INVARIANTS.md requires a held hard verdict to
@@ -2802,7 +2844,8 @@ export function toNativeSnapshotPayload(input: {
     */
     blocked_action_type: isHardLabel(decision.blockedActionType)
       ? decision.blockedActionType
-      : authorityBlocker === "config_source_authority" &&
+      : (authorityBlocker === "config_source_authority" ||
+            authorityBlocker === "source_freshness") &&
           isHardLabel(decision.label)
         ? decision.label
         : null,
@@ -2816,6 +2859,105 @@ export function toNativeSnapshotPayload(input: {
     decision_hash: input.stored.decisionHash,
     computed_at: input.computedAt,
   };
+}
+
+/**
+ * Re-validates D101 at the last producer boundary.
+ *
+ * Hydration normally constructs this proof from cutoff-safe SQL and the mapper
+ * normalizes contradictions to unavailable. The persistence boundary still
+ * must reject a hand-built, stale replay, or corrupt in-memory input that pairs
+ * a numeric freshness value with an incomplete typed proof. Older persisted
+ * epochs are read through compatibility paths and never call this current-epoch
+ * producer.
+ */
+function nativeAdSourceCoverageAuthorityFailure(input: {
+  ad: AdDecisionInput;
+  asOf: string;
+  computedAt: string;
+}): string | null {
+  const coverage = input.ad.metricEvidence.sourceCoverage;
+  if (!coverage) return "coverage proof missing";
+  if (
+    coverage.contractVersion !==
+    META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION
+  ) {
+    return "coverage contract version mismatch";
+  }
+  if (coverage.status !== "complete") {
+    return `coverage status ${coverage.status}`;
+  }
+
+  const expectedThroughDay = parseIsoDate(coverage.expectedThroughDay);
+  const coverageThroughDay = parseIsoDate(coverage.coverageThroughDay);
+  const asOfDay = parseIsoDate(input.asOf);
+  const computedAt = parseCanonicalIsoTimestamp(input.computedAt);
+  const providerLocalAsOfDay =
+    computedAt === null || !input.ad.accountTimezone
+      ? null
+      : providerLocalCalendarDate({
+          instant: computedAt,
+          timeZone: input.ad.accountTimezone,
+        });
+  const providerLocalAsOfMs = parseIsoDate(providerLocalAsOfDay);
+  const requiredExpectedThroughDay =
+    providerLocalAsOfMs === null
+      ? null
+      : new Date(providerLocalAsOfMs - MS_PER_DAY).toISOString().slice(0, 10);
+  if (
+    expectedThroughDay === null ||
+    coverageThroughDay === null ||
+    asOfDay === null ||
+    computedAt === null ||
+    coverage.expectedThroughDay !== coverage.coverageThroughDay ||
+    coverage.expectedThroughDay !== requiredExpectedThroughDay ||
+    coverageThroughDay > asOfDay
+  ) {
+    return "coverage day identity is incoherent";
+  }
+
+  const coverageDayEnd = input.ad.accountTimezone
+    ? providerLocalDayEndExclusive({
+        day: coverage.coverageThroughDay!,
+        timeZone: input.ad.accountTimezone,
+      })
+    : null;
+  const coverageDayEndMs = coverageDayEnd?.getTime() ?? Number.NaN;
+
+  const sourceCompletedAt = parseCanonicalIsoTimestamp(
+    coverage.sourceCompletedAt,
+  );
+  const publishedAt = parseCanonicalIsoTimestamp(coverage.publishedAt);
+  if (
+    sourceCompletedAt === null ||
+    publishedAt === null ||
+    !Number.isFinite(coverageDayEndMs) ||
+    sourceCompletedAt < coverageDayEndMs ||
+    sourceCompletedAt > publishedAt ||
+    publishedAt > computedAt
+  ) {
+    return "coverage clocks are incoherent at the decision cutoff";
+  }
+  if (
+    !Number.isInteger(input.ad.dataFreshnessHours) ||
+    input.ad.dataFreshnessHours !==
+      Math.max(
+        0,
+        Math.floor((computedAt - coverageDayEndMs) / (60 * 60 * 1_000)),
+      )
+  ) {
+    return "coverage age does not match the closed provider-local interval";
+  }
+  return null;
+}
+
+function parseCanonicalIsoTimestamp(
+  value: string | null | undefined,
+): number | null {
+  if (typeof value !== "string") return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toISOString() === value ? parsed : null;
 }
 
 function resolveNativeSnapshotAuthorizedAction(input: {

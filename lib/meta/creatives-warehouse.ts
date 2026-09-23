@@ -11,6 +11,7 @@ import { buildCreativesResponse } from "@/lib/meta/creatives-service";
 import type {
   CreativeMetricPresence,
   CreativeMetricPresenceKey,
+  CreativeSourceIdentityFields,
   FormatFilter,
   GroupBy,
   MetaCreativeApiRow,
@@ -21,6 +22,7 @@ import type {
 import {
   CREATIVE_METRIC_PRESENCE_KEYS,
   isCreativeMetricDeclaredAvailable,
+  readCreativeSourceIdentity,
 } from "@/lib/meta/creatives-types";
 import { buildMetaCreativeApiRow } from "@/lib/meta/creatives-service-support";
 import { buildMetaCreativeApiRowLightweight } from "@/lib/meta/creatives-service-support";
@@ -693,6 +695,55 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
   } satisfies RawCreativeRow;
 }
 
+/**
+ * The members one persisted creative day stood for, read from that day's own
+ * payload.
+ *
+ * A `meta_creative_daily` row is itself a group: its `ad_id` is the group's
+ * synthesised handle (`creative_1w1r1ne` on Grandmix), and its `creative_id` is
+ * the one member the sync met first that day. A payload written since the
+ * source lists existed carries every member. An older one names only that
+ * first member's Ad (`real_ad_id`) — an exact member, and ALL of them only when
+ * the day counted one Ad: `associated_ads_count` has been the day's distinct
+ * member-Ad count since `real_ad_id` was first written (0bd944db9), so `1`
+ * beside a `real_ad_id` means that Ad was the whole group. Measured on Grandmix
+ * (act_805150454596350, 2026-08-24..09-22): 964 of 1,287 creative days counted
+ * one Ad. Otherwise the list is marked incomplete. The group's own handle is
+ * never a member Ad.
+ */
+function readCreativeDaySourceIdentity(
+  factRow: MetaCreativeDailyRow,
+): CreativeSourceIdentityFields {
+  const payload =
+    factRow.payloadJson && typeof factRow.payloadJson === "object"
+      ? (factRow.payloadJson as Record<string, unknown>)
+      : null;
+  const carried = readCreativeSourceIdentity(payload);
+  const groupHandle = factRow.adId?.trim() || null;
+  const legacyAdId =
+    typeof payload?.real_ad_id === "string" ? payload.real_ad_id.trim() : "";
+  const statedAdIds = carried
+    ? carried.source_ad_ids
+    : legacyAdId
+      ? [legacyAdId]
+      : [];
+  const statedComplete = carried
+    ? carried.source_ad_ids_complete
+    : legacyAdId !== "" && payload?.associated_ads_count === 1;
+  const adIds = statedAdIds.filter((id) => id && id !== groupHandle);
+  const creativeIds = [...(carried?.source_creative_ids ?? [])];
+  const dayCreativeId = factRow.creativeId?.trim();
+  if (dayCreativeId && !creativeIds.includes(dayCreativeId)) {
+    creativeIds.push(dayCreativeId);
+  }
+  return {
+    source_ad_ids: adIds,
+    source_ad_ids_complete:
+      statedComplete && adIds.length > 0 && adIds.length === statedAdIds.length,
+    source_creative_ids: creativeIds,
+  };
+}
+
 export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input: {
   row: T;
   factRow: MetaAdDailyRow | MetaCreativeDailyRow;
@@ -722,6 +773,12 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
       "creativeId" in input.factRow
         ? (input.factRow.creativeId ?? input.row.creative_id)
         : input.row.creative_id,
+    // A creative day's members come from the day's own payload — `real_ad_id`
+    // above is the group's handle there, and the projection spread above is
+    // whichever day synced last. An ad day adds nothing: it is one Ad.
+    ...("creativeId" in input.factRow
+      ? readCreativeDaySourceIdentity(input.factRow)
+      : {}),
     name:
       input.row.name ??
       ("creativeName" in input.factRow ? input.factRow.creativeName : null) ??

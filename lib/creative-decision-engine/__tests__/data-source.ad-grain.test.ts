@@ -106,6 +106,8 @@ function hydrationRow(overrides: Record<string, unknown> = {}) {
     ...bandColumns(),
     provider_account_id: "act_account_1",
     provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
+    account_timezone: "UTC",
+    account_currency: "USD",
     ad_id: "ad-1",
     ad_name: "Ad 1",
     creative_id: "creative-shared",
@@ -141,7 +143,12 @@ function hydrationRow(overrides: Record<string, unknown> = {}) {
     first_seen_at: "2026-06-01T00:00:00.000Z",
     first_spend_at: "2026-06-02",
     last_spend_date: "2026-07-10",
-    data_freshness_hours: 1,
+    source_coverage_status: "complete",
+    source_coverage_expected_through_day: "2026-07-09",
+    source_coverage_through_day: "2026-07-09",
+    source_coverage_source_completed_at: "2026-07-10T00:30:00.000Z",
+    source_coverage_published_at: "2026-07-10T01:00:00.000Z",
+    data_freshness_hours: 3,
     target_roas: 2,
     break_even_roas: 1.5,
     target_pack_updated_at: "2026-07-09T00:00:00.000Z",
@@ -411,6 +418,119 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
     });
   });
 
+  it("ages complete coverage from the verified provider-local day, not the latest spending row or publication clock", async () => {
+    const warehouse = warehouseWithRows({
+      hydration: [
+        hydrationRow({
+          last_spend_date: "2026-07-03",
+          source_coverage_status: "complete",
+          source_coverage_expected_through_day: "2026-07-09",
+          source_coverage_through_day: "2026-07-09",
+          source_coverage_source_completed_at: "2026-07-10T00:30:00.000Z",
+          source_coverage_published_at: "2026-07-10T01:00:00.000Z",
+          data_freshness_hours: 3,
+        }),
+      ],
+    });
+
+    const [result] = await warehouse.listAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: HISTORICAL_AS_OF,
+      decisionCutoff: HISTORICAL_CUTOFF,
+    });
+
+    expect(result).toMatchObject({
+      dataFreshnessHours: 3,
+      metricEvidence: {
+        sourceCoverage: {
+          contractVersion: "meta-ad-source-coverage-freshness.v1",
+          status: "complete",
+          expectedThroughDay: "2026-07-09",
+          coverageThroughDay: "2026-07-09",
+          sourceCompletedAt: "2026-07-10T00:30:00.000Z",
+          publishedAt: "2026-07-10T01:00:00.000Z",
+        },
+      },
+    });
+  });
+
+  it("keeps a recently republished older day partial and refuses to turn it into fresh coverage", async () => {
+    const warehouse = warehouseWithRows({
+      hydration: [
+        hydrationRow({
+          source_coverage_status: "partial",
+          source_coverage_expected_through_day: "2026-07-09",
+          source_coverage_through_day: "2026-07-08",
+          source_coverage_source_completed_at: "2026-07-10T02:45:00.000Z",
+          source_coverage_published_at: "2026-07-10T03:00:00.000Z",
+          // A producer bug must not make this authoritative while the expected
+          // provider-local day is absent.
+          data_freshness_hours: 1,
+        }),
+      ],
+    });
+
+    const [result] = await warehouse.listAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: HISTORICAL_AS_OF,
+      decisionCutoff: HISTORICAL_CUTOFF,
+    });
+
+    expect(result).toMatchObject({
+      dataFreshnessHours: null,
+      metricEvidence: {
+        sourceCoverage: {
+          status: "partial",
+          expectedThroughDay: "2026-07-09",
+          coverageThroughDay: "2026-07-08",
+          sourceCompletedAt: "2026-07-10T02:45:00.000Z",
+          publishedAt: "2026-07-10T03:00:00.000Z",
+        },
+      },
+    });
+  });
+
+  it.each([
+    {
+      name: "publication after the decision cutoff",
+      sourceCompletedAt: "2026-07-10T03:00:00.000Z",
+      publishedAt: "2026-07-10T03:30:00.000Z",
+    },
+    {
+      name: "source completion after publication",
+      sourceCompletedAt: "2026-07-10T02:30:00.000Z",
+      publishedAt: "2026-07-10T02:00:00.000Z",
+    },
+  ])("fails malformed coverage clocks closed: $name", async (clock) => {
+    const warehouse = warehouseWithRows({
+      hydration: [
+        hydrationRow({
+          source_coverage_source_completed_at: clock.sourceCompletedAt,
+          source_coverage_published_at: clock.publishedAt,
+          data_freshness_hours: 0,
+        }),
+      ],
+    });
+
+    const [result] = await warehouse.listAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: HISTORICAL_AS_OF,
+      decisionCutoff: HISTORICAL_CUTOFF,
+    });
+
+    expect(result).toMatchObject({
+      dataFreshnessHours: null,
+      metricEvidence: {
+        sourceCoverage: {
+          status: "unavailable",
+          coverageThroughDay: null,
+          sourceCompletedAt: null,
+          publishedAt: null,
+        },
+      },
+    });
+  });
+
   it("uses cutoff-strict state history ahead of current dimension status", async () => {
     const warehouse = warehouseWithRows({
       hydration: [hydrationRow()],
@@ -677,9 +797,11 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
           adId: "paused-no-metrics",
           effectiveStatus: "PAUSED",
           spend: 0,
+          dataFreshnessHours: 3,
           metricEvidence: expect.objectContaining({
             sourceRowCount: 0,
             performanceMetricsObserved: false,
+            sourceCoverage: expect.objectContaining({ status: "complete" }),
           }),
         }),
         expect.objectContaining({
@@ -810,7 +932,6 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
               recent_impressions: null,
               spend_24h: null,
               impressions_24h: null,
-              data_freshness_hours: null,
             }),
           ];
         }
@@ -835,11 +956,12 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
       impressions: null,
       outboundClicks: null,
       landingPageViews: null,
-      dataFreshnessHours: null,
+      dataFreshnessHours: 3,
       metricEvidence: {
         sourceRowCount: 0,
         performanceMetricsObserved: false,
         eventMetricsObserved: false,
+        sourceCoverage: expect.objectContaining({ status: "complete" }),
       },
     });
   });
@@ -1481,6 +1603,19 @@ describe("native ad 14/14 band hydration", () => {
 });
 
 describe("native ad hydration SQL contract", () => {
+  const coverageSql = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
+    HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf(
+      "source_coverage_manifest_identity AS (",
+    ),
+    HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("current_config_scope AS ("),
+  );
+  const accountIdentitySql = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
+    HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("account_identity AS ("),
+    HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf(
+      "source_coverage_manifest_identity AS (",
+    ),
+  );
+
   it("aggregates 28d, 7d and 24h windows at provider-account/ad grain", () => {
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
       "d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date",
@@ -1494,6 +1629,94 @@ describe("native ad hydration SQL contract", () => {
     );
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
       "ORDER BY cumulative.provider_account_id, cumulative.ad_id",
+    );
+  });
+
+  it("binds freshness proof to the exact business, physical account, surface, day and run", () => {
+    expect(accountIdentitySql).toContain(
+      "assignment.provider_account_ref_id = d.provider_account_ref_id",
+    );
+    expect(coverageSql).toContain(
+      "pointer.business_ref_id::text = scope.business_id",
+    );
+    expect(coverageSql).toContain(
+      "pointer.provider_account_ref_id = scope.provider_account_ref_id",
+    );
+    expect(coverageSql).toContain(
+      "pointer.provider_account_id = scope.provider_account_id",
+    );
+    expect(coverageSql).toContain("pointer.surface = 'ad_daily'");
+    expect(coverageSql).toContain("slice.day = pointer.day");
+    expect(coverageSql).toContain("manifest.day = slice.day");
+    expect(coverageSql).toContain(
+      "pointer.published_by_run_id = slice.source_run_id",
+    );
+    expect(coverageSql).toContain("manifest.run_id = slice.source_run_id");
+  });
+
+  it("admits only cutoff-safe finalized verified publication lineage", () => {
+    expect(coverageSql).toContain("manifest.fetch_status = 'completed'");
+    expect(coverageSql).toContain("slice.state = 'finalized_verified'");
+    expect(coverageSql).toContain("slice.truth_state = 'finalized'");
+    expect(coverageSql).toContain("slice.validation_status = 'passed'");
+    expect(coverageSql).toContain("slice.status = 'published'");
+    expect(coverageSql).toContain(
+      "manifest.completed_at <= pointer.published_at",
+    );
+    for (const clock of [
+      "manifest.created_at",
+      "manifest.updated_at",
+      "manifest.completed_at",
+      "slice.created_at",
+      "slice.updated_at",
+      "slice.published_at",
+      "pointer.created_at",
+      "pointer.updated_at",
+      "pointer.published_at",
+    ]) {
+      expect(coverageSql).toContain(`${clock} <= $11::timestamptz`);
+    }
+  });
+
+  it("defines complete coverage by the last closed provider-local day and keeps older repairs partial", () => {
+    expect(coverageSql).toContain(
+      "$11::timestamptz AT TIME ZONE COALESCE(",
+    );
+    expect(coverageSql).toContain(
+      "coverage.coverage_through_day = scope.expected_through_day",
+    );
+    expect(coverageSql).toContain("ELSE 'partial'");
+    expect(coverageSql).toContain(
+      "(pointer.day + 1)::timestamp AT TIME ZONE scope.account_timezone",
+    );
+  });
+
+  it("derives freshness age from the reporting-day boundary and not a row, sync or publication clock", () => {
+    const projectionSql = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
+      HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf(
+        "source_coverage.coverage_status AS source_coverage_status",
+      ),
+      HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf(
+        "$7::double precision AS target_roas",
+      ),
+    );
+    expect(projectionSql).toContain(
+      "(source_coverage.coverage_through_day + 1)::timestamp",
+    );
+    expect(projectionSql).toContain(
+      "AT TIME ZONE source_coverage.account_timezone",
+    );
+    expect(projectionSql).not.toContain("source_max_updated_at");
+    expect(projectionSql).not.toContain("source_completed_at))");
+    expect(projectionSql).not.toContain("published_at))");
+  });
+
+  it("computes account coverage independently of whether a target ad has a metric row", () => {
+    expect(coverageSql).toContain("FROM selected_accounts selected");
+    expect(coverageSql).not.toContain("FROM meta_ad_daily");
+    expect(coverageSql).not.toContain("ad_id");
+    expect(coverageSql).toContain(
+      "ELSE COALESCE(\n        account_identity.account_timezone,\n        manifest_identity.account_timezone",
     );
   });
 

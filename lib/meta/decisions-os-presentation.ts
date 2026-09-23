@@ -1,6 +1,7 @@
 import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import {
   META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
+  META_DECISION_SOURCE_DEGRADED_REASON,
   type MetaCanonicalDecision,
   type MetaDecisionAuthorityBlocker,
   type MetaDecisionsWorkspaceReadModel,
@@ -563,13 +564,18 @@ function priorityForDecision(
       : decision.sourceDecision.confidenceBand === "medium"
         ? 2
         : 1;
-  const priorityAction =
-    decision.classification.heldAction ??
-    decision.classification.legacyBuyerAction;
+  const heldAction = decision.classification.heldAction;
+  const priorityAction = heldAction ?? decision.classification.legacyBuyerAction;
   return {
     band: decision.sourceDecision.confidenceBand,
     rank:
-      (actionWeight[priorityAction] ?? 0) * 100 +
+      // Match exact-Ad candidate selection v3: a typed held verdict carries
+      // a specific finding even though the published compatibility label is
+      // soft. It stays below policy/delivery repair and above generic diagnosis.
+      (heldAction !== null
+        ? actionWeight.cut
+        : (actionWeight[priorityAction] ?? 0)) *
+        100 +
       confidenceWeight * 10,
     version: META_OS_DECISIONS_PRESENTATION_VERSION,
   };
@@ -1577,6 +1583,7 @@ function adDecision(
   decision: MetaCanonicalDecision,
   contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
   targetHardActionEligibility: MetaTargetHardActionEligibility,
+  sourceDegraded: boolean,
 ): MetaOsAdDecision | null {
   const ad = decision.parentChain.ad;
   if (!ad?.id?.trim() || !/^\d+$/.test(ad.id.trim())) return null;
@@ -1586,7 +1593,25 @@ function adDecision(
   ) {
     return null;
   }
-  const mapped = adAction(decision, targetHardActionEligibility);
+  const original = adAction(decision, targetHardActionEligibility);
+  // A retained generation keeps its verdict but is no longer current action
+  // evidence. D097's role-held Cut may live in Act for a healthy source; the
+  // same row must move to review when the latest native run failed.
+  const retainedForReview = sourceDegraded && original.lane === "act";
+  const mapped = retainedForReview
+    ? {
+        lane: "blocked" as const,
+        action: {
+          ...original.action,
+          code: "review_retained_decision",
+          label: "Review retained decision",
+          intent: "review" as const,
+          providerMutation: null,
+          scopeNote:
+            "The latest decision run failed. Wait for a current successful run before acting on this earlier verdict.",
+        },
+      }
+    : original;
   const campaignRole = presentedCampaignRole({
     campaignId: decision.parentChain.campaign?.id ?? null,
     campaignName: decision.parentChain.campaign?.name ?? null,
@@ -2143,12 +2168,16 @@ export function buildMetaOsDecisionsPresentation(input: {
   const countsProvidedByCandidateEnvelope = Boolean(
     input.decisionReadModel.queue?.adCandidates,
   );
+  const sourceDegraded =
+    input.decisionReadModel.source?.degraded?.reason ===
+    META_DECISION_SOURCE_DEGRADED_REASON;
   const adBuckets = new Map<string, MetaOsAdDecision[]>();
   for (const decision of canonical) {
     const item = adDecision(
       decision,
       currentAdCampaignContexts,
       targetHardActionEligibility,
+      sourceDegraded,
     );
     if (!item) {
       if (
@@ -2165,16 +2194,14 @@ export function buildMetaOsDecisionsPresentation(input: {
     bucket.push(item);
     adBuckets.set(item.adId, bucket);
   }
-  const canonicalAds = Array.from(adBuckets.values())
-    .map(
-      (bucket) =>
-        bucket.sort(
-          (a, b) =>
-            (b.priority.rank ?? -1) - (a.priority.rank ?? -1) ||
-            a.decisionId.localeCompare(b.decisionId),
-        )[0]!,
-    )
-    .sort(compareOsAdDecisions);
+  const canonicalAds = Array.from(adBuckets.values()).map(
+    (bucket) =>
+      bucket.sort(
+        (a, b) =>
+          (b.priority.rank ?? -1) - (a.priority.rank ?? -1) ||
+          a.decisionId.localeCompare(b.decisionId),
+      )[0]!,
+  );
   const canonicalAdIds = new Set(canonicalAds.map((item) => item.adId));
   const canonicalAdUniverseIds =
     readCanonicalAdUniverseIds(input.decisionReadModel) ?? canonicalAdIds;
@@ -2222,7 +2249,25 @@ export function buildMetaOsDecisionsPresentation(input: {
    * remains is `activeInventoryAdId`, a census that answers only "is this
    * un-decided ACTIVE inventory" with an identity. @see activeInventoryAdId
    */
-  const ads = selectOsAdDecisions(canonicalAds, adLimit);
+  // The current read model has already selected these exact Ads in a stable
+  // lane-aware order. Sorting that bounded subset a second time can move a
+  // newly admitted row ahead of an earlier page when the limit grows from 60
+  // to 120. Preserve the producer's sequence; only the old section-only
+  // envelope still needs OS-side selection.
+  const ads = input.decisionReadModel.queue?.adCandidates
+    ? canonicalAds.slice(0, adLimit)
+    : selectOsAdDecisions(canonicalAds, adLimit);
+  const candidateStateCounts =
+    input.decisionReadModel.queue?.adCandidates?.stateCounts;
+  const originalActPreCap =
+    candidateStateCounts?.act?.preCapCount ??
+    ads.filter((item) => item.lane === "act").length;
+  const originalBlockedPreCap =
+    candidateStateCounts?.blocked?.preCapCount ??
+    canonicalAds.filter((item) => item.lane === "blocked").length;
+  const originalMonitorPreCap =
+    candidateStateCounts?.monitor?.preCapCount ??
+    ads.filter((item) => item.lane === "monitor").length;
   const pendingInventoryPreCapCount = pendingInventoryAdIds.size;
   const pendingInventoryLimitation =
     pendingInventoryPreCapCount === 0
@@ -2313,20 +2358,14 @@ export function buildMetaOsDecisionsPresentation(input: {
         refresh: ads.filter((item) => item.heldAction === "refresh").length,
       },
       statePreCapCounts: {
-        act:
-          input.decisionReadModel.queue?.adCandidates?.stateCounts?.act
-            ?.preCapCount ?? ads.filter((item) => item.lane === "act").length,
+        act: sourceDegraded ? 0 : originalActPreCap,
         // Withheld VERDICTS only. Un-evaluated ACTIVE inventory is counted by
         // `pendingInventoryCount`, never added here: adding it made "blocked"
         // a mixture of two populations that need different operator answers.
-        blocked:
-          input.decisionReadModel.queue?.adCandidates?.stateCounts?.blocked
-            ?.preCapCount ??
-          canonicalAds.filter((item) => item.lane === "blocked").length,
-        monitor:
-          input.decisionReadModel.queue?.adCandidates?.stateCounts?.monitor
-            ?.preCapCount ??
-          ads.filter((item) => item.lane === "monitor").length,
+        blocked: sourceDegraded
+          ? originalBlockedPreCap + originalActPreCap
+          : originalBlockedPreCap,
+        monitor: originalMonitorPreCap,
       },
       // The pre-cap size of the population that produced `items`, which is now
       // the canonical decisions alone. The surface pairs this with the shown

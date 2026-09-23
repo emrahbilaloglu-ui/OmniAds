@@ -471,6 +471,7 @@ function nativeEvidence(
       decisionLabel: "cut",
       blockedActionType: null,
       explicitAuthorizedAction: "pause",
+      configAuthorityVerified: true,
       computedAt: "2026-07-12T09:30:00.000Z",
       ...overrides.sourceDecision,
     },
@@ -479,6 +480,18 @@ function nativeEvidence(
 }
 
 describe("exact native-ad decision execution", () => {
+  it("rejects a current hard action whose exact config receipts are unverified", () => {
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest(),
+      evidence: nativeEvidence({
+        sourceDecision: { configAuthorityVerified: false },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+    expect(result.shouldMutate).toBe(false);
+    expect(result.blockers).toContain("config_source_authority_unverified");
+  });
+
   it("uses one fail-closed 12-hour decision clock for presentation and preflight", () => {
     const now = new Date("2026-07-12T18:00:00.000Z");
     expect(

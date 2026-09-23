@@ -34,7 +34,11 @@ import {
   readMetaDecisionPipelineOperationalHealth,
 } from "@/lib/meta/decision-pipeline-health";
 import { readDemoNativeCanonicalDecisionInventory } from "@/lib/meta/demo-native-canonical-fixture";
-import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import {
+  META_DECISION_SOURCE_DEGRADED_REASON,
+  type MetaCanonicalDecision,
+  type MetaDecisionSourceDegradation,
+} from "@/lib/meta/decisions-workspace-contract";
 import { readTriageState } from "@/lib/triage-events";
 import { CREATIVE_DECISION_ENGINE_CONFIG_VERSION } from "@/lib/creative-decision-engine/config-values";
 import { safeNumber } from "./card-serialization";
@@ -272,6 +276,21 @@ function parseDateOnly(value: unknown): string | null {
     : null;
 }
 
+/**
+ * A caller-stated calendar day, or null. Unlike `parseDateOnly` it refuses to
+ * roll an impossible day forward (`2026-02-30` is not `2026-03-02`): a stated
+ * point in time is either honoured exactly or rejected.
+ */
+function parseStrictDateOnly(value: string | null): string | null {
+  const match = value ? /^(\d{4}-\d{2}-\d{2})$/.exec(value) : null;
+  if (!match) return null;
+  const date = new Date(`${match[1]}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) &&
+    date.toISOString().slice(0, 10) === match[1]
+    ? match[1]
+    : null;
+}
+
 function subtractDaysDateOnly(value: string, days: number): string | null {
   const date = new Date(`${value}T00:00:00.000Z`);
   if (!Number.isFinite(date.getTime())) return null;
@@ -471,23 +490,75 @@ function canonicalNativeDecisionCreativeScopeId(
   );
 }
 
+/**
+ * D102. The only fault a retained generation may stand in for. Its code is the
+ * reader's own authoritative reason for that run, so a consumer that ignores
+ * the retained rows still hears exactly what an unavailable read would say.
+ */
+const RETAINED_GENERATION_LATEST_FAULT = "native_latest_job_failed";
+
+/**
+ * D102. A retained generation is served only when the reader already stripped
+ * every item and the two run identities agree with what is being served. The
+ * governance pass cannot grant eligibility, so this is the serving boundary's
+ * own proof, not a second decision: anything else is refused whole rather than
+ * served partly executable.
+ */
+function retainedGenerationIsReadOnly(input: {
+  generation: { jobRunId: string; asOfDate: string };
+  items: readonly MetaCanonicalDecision[];
+  degradation: MetaDecisionSourceDegradation;
+}): boolean {
+  return (
+    input.degradation.reason === META_DECISION_SOURCE_DEGRADED_REASON &&
+    input.degradation.latestTerminalRun.status === "failed" &&
+    input.degradation.latestTerminalRun.jobRunId !==
+      input.generation.jobRunId &&
+    input.degradation.servedGeneration.jobRunId === input.generation.jobRunId &&
+    input.degradation.servedGeneration.asOfDate === input.generation.asOfDate &&
+    input.items.every(
+      (decision) =>
+        decision.sourceAuthority?.actionEligible === false &&
+        decision.sourceAuthority.authorizedAction === null,
+    )
+  );
+}
+
 export async function GET(request: NextRequest) {
   const requestEvaluatedAt = new Date();
   const businessId =
     request.nextUrl.searchParams.get("businessId")?.trim() ?? "";
-  const asOf =
-    request.nextUrl.searchParams.get("asOf")?.trim() || toISODate(new Date());
+  // Two dates, two facts (D090). `start`/`end` scope the metric rows only;
+  // `asOf` is an explicit point-in-time bound on the decision generation, and
+  // without it the current generation is read. A caller that sends `end` gets
+  // them decoupled. A caller that sends no `end` keeps the historical contract,
+  // where `asOf` is both the metric end and the decision bound.
+  const rawAsOf = request.nextUrl.searchParams.get("asOf")?.trim() ?? null;
+  const rawEnd = request.nextUrl.searchParams.get("end")?.trim() ?? null;
+  const requestedDecisionAsOf = parseStrictDateOnly(rawAsOf);
+  const requestedEnd = parseStrictDateOnly(rawEnd);
+  const asOf = rawAsOf || toISODate(new Date());
   const requestedStart = parseDateOnly(
     request.nextUrl.searchParams.get("start"),
   );
   const parsedAsOf = parseDateOnly(asOf);
+  const metricEnd = requestedEnd ?? asOf;
+  const metricEndDate = requestedEnd ?? parsedAsOf;
   const currentFallbackStart = new Date();
   currentFallbackStart.setUTCDate(currentFallbackStart.getUTCDate() - 29);
   const start =
-    requestedStart && (!parsedAsOf || requestedStart <= parsedAsOf)
+    requestedStart && (!metricEndDate || requestedStart <= metricEndDate)
       ? requestedStart
-      : ((parsedAsOf ? subtractDaysDateOnly(parsedAsOf, 29) : null) ??
+      : ((metricEndDate ? subtractDaysDateOnly(metricEndDate, 29) : null) ??
         toISODate(currentFallbackStart));
+  // Null means "the current generation" even for a caller that omitted both
+  // dates. Only an explicitly stated asOf bounds the decision read; the
+  // default metric end must not hide a newer account-local generation.
+  const decisionAsOfDate = requestedDecisionAsOf;
+  const requestDateScope = {
+    metricWindow: { start, end: metricEnd },
+    decisionAsOfRequested: decisionAsOfDate,
+  };
   const campaignId =
     request.nextUrl.searchParams.get("campaignId")?.trim() || undefined;
   const requestedProviderAccountId =
@@ -505,6 +576,24 @@ export async function GET(request: NextRequest) {
   if (!businessId) {
     return NextResponse.json(
       { error: "missing_business_id", message: "businessId is required." },
+      { status: 400 },
+    );
+  }
+  if (rawAsOf !== null && !requestedDecisionAsOf) {
+    return NextResponse.json(
+      {
+        error: "invalid_as_of",
+        message: "asOf must be a calendar date (YYYY-MM-DD).",
+      },
+      { status: 400 },
+    );
+  }
+  if (rawEnd !== null && !requestedEnd) {
+    return NextResponse.json(
+      {
+        error: "invalid_end",
+        message: "end must be a calendar date (YYYY-MM-DD).",
+      },
       { status: 400 },
     );
   }
@@ -572,6 +661,18 @@ export async function GET(request: NextRequest) {
         engineVersion: "disabled",
         trackingAnomalyActive: false,
       },
+      source: {
+        dataSource: "native_ad_generation",
+        asOf: decisionAsOfDate,
+        ...requestDateScope,
+        canonicalDecisionInventory: {
+          contractVersion: BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
+          status: "unavailable",
+          unavailableReason: "engine_v3_disabled_for_business",
+          generation: null,
+          itemCount: 0,
+        },
+      },
     };
     if (includeDecisionCenter) {
       disabledBody.decisionCenter = buildDecisionCenterSnapshot({
@@ -588,8 +689,14 @@ export async function GET(request: NextRequest) {
     : readMetaNativeCanonicalDecisionInventory({
         businessId: resolvedBusinessId,
         providerAccountId,
-        asOfDate: parsedAsOf ?? undefined,
+        asOfDate: decisionAsOfDate ?? undefined,
         generatedAt: requestEvaluatedAt.toISOString(),
+        // D102: only a CURRENT read may be shown the retained same-epoch
+        // generation after a failed latest run, and only read-only. An
+        // explicit asOf asks a historical question and keeps failing closed.
+        ...(decisionAsOfDate === null
+          ? { allowLastSuccessfulGenerationFallback: true }
+          : {}),
       });
   const liveExecutionGovernancePromise = demoBusiness
     ? null
@@ -607,7 +714,7 @@ export async function GET(request: NextRequest) {
       businessId: resolvedBusinessId,
       providerAccountId,
       start,
-      end: asOf,
+      end: metricEnd,
     }).catch(() => [] as MetaCreativeApiRow[]),
     readTriageState({
       businessId: resolvedBusinessId,
@@ -629,21 +736,27 @@ export async function GET(request: NextRequest) {
             liveExecutionGovernancePromise!,
             liveOperationalPipelineHealthPromise!,
           ]);
-          const pipelineHealth =
-            buildMetaDecisionPipelineHealthFromCanonicalInventory({
-              operational,
-              inventory: rawCanonicalInventory,
-              now: requestEvaluatedAt,
-            });
+          // D102: the pipeline health gate reads a retained generation as
+          // `available`, so it is not consulted for one. Its pipeline is
+          // neither verified nor execution-ready, whatever operations report.
+          const pipelineHealth = rawCanonicalInventory.sourceDegradation
+            ? null
+            : buildMetaDecisionPipelineHealthFromCanonicalInventory({
+                operational,
+                inventory: rawCanonicalInventory,
+                now: requestEvaluatedAt,
+              });
           return {
             ...rawCanonicalInventory,
             items: applyMetaExecutionGovernanceToCanonicalDecisions({
               decisions: rawCanonicalInventory.items,
               governance,
-              pipeline: {
-                verified: pipelineHealth.overall !== "unavailable",
-                executionReady: pipelineHealth.executionReady,
-              },
+              pipeline: pipelineHealth
+                ? {
+                    verified: pipelineHealth.overall !== "unavailable",
+                    executionReady: pipelineHealth.executionReady,
+                  }
+                : { verified: false, executionReady: false },
               now: requestEvaluatedAt,
             }),
           };
@@ -675,7 +788,8 @@ export async function GET(request: NextRequest) {
       };
     const decisionCenterSnapshot = includeDecisionCenter
       ? buildDecisionCenterSnapshot({
-          asOf,
+          asOf:
+            decisionAsOfDate ?? requestEvaluatedAt.toISOString().slice(0, 10),
           engineVersion: "native_unavailable",
           adapterVersion: BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
           dataHealthDegraded: true,
@@ -704,7 +818,10 @@ export async function GET(request: NextRequest) {
       trackingDetail: `Canonical ad decision bundle unavailable: ${reason}.`,
       source: {
         dataSource: "native_ad_generation",
-        asOf,
+        // No generation was served. Echo only an explicit historical bound,
+        // never the metric window's end as if it were a decision day.
+        asOf: decisionAsOfDate,
+        ...requestDateScope,
         dataHealth: null,
         accountProfile: null,
         measurementReconciliation,
@@ -730,6 +847,24 @@ export async function GET(request: NextRequest) {
   if (canonicalInventory.status === "unavailable") {
     return unavailableResponse(canonicalInventory.unavailableReason);
   }
+  // D102: the latest native run failed and this is the retained same-epoch
+  // generation. It is shown read-only, or not at all.
+  const sourceDegradation = canonicalInventory.sourceDegradation ?? null;
+  if (
+    sourceDegradation &&
+    (demoBusiness ||
+      !retainedGenerationIsReadOnly({
+        generation: canonicalInventory.generation,
+        items: canonicalInventory.items,
+        degradation: sourceDegradation,
+      }))
+  ) {
+    return unavailableResponse("native_retained_generation_not_read_only");
+  }
+  const retainedGenerationDetail = sourceDegradation
+    ? `The latest native decision run (as of ${sourceDegradation.latestTerminalRun.asOfDate}) failed. ` +
+      `Showing the last successful generation (as of ${sourceDegradation.servedGeneration.asOfDate}) read-only; none of these decisions can be executed.`
+    : null;
 
   const creativeRowsByAdId = buildExactAdRowMap(creativeRows);
   const deferredIds = new Set(
@@ -781,6 +916,11 @@ export async function GET(request: NextRequest) {
       ? projection.card
       : { ...projection.card, decisionCenterRow: null };
     lanes[projection.lane].push(card);
+  }
+  // D102: whatever the projection's lane rules become, a retained generation
+  // never offers an Action Now card.
+  if (sourceDegradation && lanes.action.length > 0) {
+    return unavailableResponse("native_retained_generation_not_read_only");
   }
 
   const sortCards = (left: BriefingCreativeCard, right: BriefingCreativeCard) =>
@@ -835,7 +975,8 @@ export async function GET(request: NextRequest) {
     engineVersion: responseEngineVersion,
     rowCount: canonicalInventory.items.length,
     conflictingGroups: 0,
-    staleRows: 0,
+    // Every row of a retained generation is stale evidence by definition.
+    staleRows: sourceDegradation ? canonicalInventory.items.length : 0,
     lifecycleRowCount: null,
   };
   const decisionCenterRows = includeDecisionCenter
@@ -861,9 +1002,11 @@ export async function GET(request: NextRequest) {
       outcome: null,
       dataCompleteness: buildDataCompletenessSummary([]),
       notes: [
-        demoBusiness
-          ? "demo_synthetic_review_only_authority"
-          : "native_ad_generation_authority",
+        ...(demoBusiness
+          ? ["demo_synthetic_review_only_authority"]
+          : sourceDegradation
+            ? [sourceDegradation.reason, RETAINED_GENERATION_LATEST_FAULT]
+            : ["native_ad_generation_authority"]),
         "request_time_profile_and_data_health_not_serving_authority",
       ],
     };
@@ -873,7 +1016,7 @@ export async function GET(request: NextRequest) {
       asOf: canonicalInventory.generation.asOfDate,
       engineVersion: responseEngineVersion,
       adapterVersion: BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
-      dataHealthDegraded: false,
+      dataHealthDegraded: sourceDegradation !== null,
       snapshotLatest,
       rowDecisions: decisionCenterRows,
       aggregateDecisions: aggregateBuild.aggregateDecisions,
@@ -883,6 +1026,15 @@ export async function GET(request: NextRequest) {
     decisionCenterSnapshot === undefined
       ? null
       : (decisionCenterSnapshot?.rowDecisions.length ?? null);
+  const trackingDetail =
+    [
+      retainedGenerationDetail,
+      trackingAnomalyActive
+        ? "The persisted native decision set flagged a tracking anomaly."
+        : null,
+    ]
+      .filter((sentence): sentence is string => sentence !== null)
+      .join(" ") || null;
 
   const responseBody: CreativesBriefingResponse & {
     statusFilter: typeof statusFilter;
@@ -904,18 +1056,15 @@ export async function GET(request: NextRequest) {
       engineVersion: responseEngineVersion,
       calibratedAgo: canonicalComputedAt,
       trackingAnomalyActive,
-      trackingDetail: trackingAnomalyActive
-        ? "The persisted native decision set flagged a tracking anomaly."
-        : null,
+      trackingDetail,
     },
     trackingAnomalyActive,
-    trackingBlocked: trackingAnomalyActive,
-    trackingDetail: trackingAnomalyActive
-      ? "The persisted native decision set flagged a tracking anomaly."
-      : null,
+    trackingBlocked: trackingAnomalyActive || sourceDegradation !== null,
+    trackingDetail,
     source: {
       dataSource: "native_ad_generation",
       asOf: canonicalInventory.generation.asOfDate,
+      ...requestDateScope,
       dataHealth: null,
       accountProfile: null,
       measurementReconciliation,
@@ -923,8 +1072,10 @@ export async function GET(request: NextRequest) {
       aggregateSuppressionTrace: aggregateBuild.trace,
       canonicalDecisionInventory: {
         contractVersion: BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
-        status: "available",
-        unavailableReason: null,
+        status: sourceDegradation ? "degraded" : "available",
+        unavailableReason: sourceDegradation
+          ? RETAINED_GENERATION_LATEST_FAULT
+          : null,
         generation: {
           jobRunId: canonicalInventory.generation.jobRunId,
           asOfDate: canonicalInventory.generation.asOfDate,
@@ -937,6 +1088,7 @@ export async function GET(request: NextRequest) {
             : "native_exact",
         },
         itemCount: canonicalInventory.items.length,
+        ...(sourceDegradation ? { degradation: sourceDegradation } : {}),
       },
     },
   };

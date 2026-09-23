@@ -328,7 +328,7 @@ describe("diagnoseGate", () => {
       expect(result.context.badges).toContainEqual({
         type: "stale_evidence",
         label:
-          "Stale evidence: last sync 72h ago - refresh pipeline before applying.",
+          "Stale evidence: latest verified daily coverage ended 72h before this decision - refresh pipeline before applying.",
         severity: "warning",
       });
       expect(result.context.badges).not.toContainEqual(
@@ -499,7 +499,7 @@ describe("diagnoseGate", () => {
       expect(result.context.badges).toContainEqual({
         type: "stale_evidence",
         label:
-          "Stale evidence: last sync 72h ago - refresh pipeline before applying.",
+          "Stale evidence: latest verified daily coverage ended 72h before this decision - refresh pipeline before applying.",
         severity: "warning",
       });
     }
@@ -658,7 +658,7 @@ describe("diagnoseGate", () => {
         {
           type: "stale_evidence",
           label:
-            "Stale evidence: last sync 72h ago - refresh pipeline before applying.",
+            "Stale evidence: latest verified daily coverage ended 72h before this decision - refresh pipeline before applying.",
           severity: "warning",
         },
       ]);

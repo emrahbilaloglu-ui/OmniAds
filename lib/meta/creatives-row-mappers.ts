@@ -13,7 +13,11 @@ import type {
   RawCreativeRow,
   SortKey,
 } from "@/lib/meta/creatives-types";
-import { intersectCreativeMetricPresence } from "@/lib/meta/creatives-types";
+import {
+  intersectCreativeMetricPresence,
+  readCreativeSourceIdentity,
+  type CreativeSourceIdentityFields,
+} from "@/lib/meta/creatives-types";
 import {
   aggregateCreativeTaxonomy,
   classifyMetaCreative,
@@ -812,6 +816,47 @@ export function toRawRow(
   return withMetaCreativeDayMetricEvidence(rawRow, metricEvidence);
 }
 
+/**
+ * Every provider identity the members of one group carry, unioned in the
+ * order the grouping met them.
+ *
+ * A member that already carries source lists is itself a group — a persisted
+ * creative day, read back by the warehouse — and contributes those lists. Any
+ * other member is one Ad, and its own `real_ad_id ?? id` and `creative_id` are
+ * its whole identity, which is exactly what `groupedRealAdIds` below has always
+ * assumed. The Ad list is complete only when every member's is: one member
+ * whose Ads were not recorded makes the union a partial list, never an exact
+ * one.
+ */
+function mergeGroupedSourceIdentity(
+  list: readonly RawCreativeRow[],
+): CreativeSourceIdentityFields {
+  const adIds: string[] = [];
+  const creativeIds: string[] = [];
+  let complete = list.length > 0;
+  const add = (target: string[], value: string | null | undefined) => {
+    const id = typeof value === "string" ? value.trim() : "";
+    if (id && !target.includes(id)) target.push(id);
+    return Boolean(id);
+  };
+  for (const item of list) {
+    const carried = readCreativeSourceIdentity(item);
+    if (carried) {
+      for (const id of carried.source_ad_ids) add(adIds, id);
+      for (const id of carried.source_creative_ids) add(creativeIds, id);
+      complete = complete && carried.source_ad_ids_complete;
+    } else {
+      complete = add(adIds, item.real_ad_id ?? item.id) && complete;
+    }
+    add(creativeIds, item.creative_id);
+  }
+  return {
+    source_ad_ids: adIds,
+    source_ad_ids_complete: complete && adIds.length > 0,
+    source_creative_ids: creativeIds,
+  };
+}
+
 export function groupRows(
   rows: RawCreativeRow[],
   groupBy: GroupBy,
@@ -965,6 +1010,9 @@ export function groupRows(
           .filter((value): value is string => typeof value === "string" && value.trim().length > 0),
       ),
     );
+    // `creative_id` / `real_ad_id` below stay the first member's, unchanged.
+    // The lists carry the rest, so no member identity is lost to the sample.
+    const groupedSourceIdentity = mergeGroupedSourceIdentity(list);
 
     const stableId =
       groupBy === "creative"
@@ -994,6 +1042,7 @@ export function groupRows(
           : groupBy === "ad"
             ? 1
             : (creativeUsageMap.get(sample.creative_id)?.size ?? 1),
+      ...groupedSourceIdentity,
       account_id: sample.account_id,
       account_name: sample.account_name,
       campaign_id: sample.campaign_id,

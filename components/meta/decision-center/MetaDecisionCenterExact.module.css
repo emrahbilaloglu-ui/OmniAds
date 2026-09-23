@@ -965,11 +965,21 @@
   height: 58px;
   flex-shrink: 0;
   place-items: center;
+  overflow: hidden;
   border: 1px solid #e4e8f0;
   border-radius: 12px;
 }
 
+.creativeThumbImage {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .creativeKind {
+  grid-area: 1 / 1;
+  z-index: 1;
   padding: 1px 5px;
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.85);
@@ -1077,6 +1087,14 @@
   text-transform: uppercase;
 }
 
+.creativeSparkValue {
+  margin: 0;
+  color: #344054;
+  font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .creativeSparkBlock svg {
   display: block;
   width: 100%;
@@ -1086,6 +1104,52 @@
 .creativeMoneyBlock {
   min-width: 0;
   flex: 1.1;
+}
+
+/* Keep the reference's desktop flex items; group them into one mobile row. */
+.creativeMetrics {
+  display: contents;
+}
+
+@media (max-width: 720px) {
+  .creativeCard {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    align-items: start;
+    gap: 12px 14px;
+  }
+
+  .creativeThumb {
+    grid-column: 1;
+  }
+
+  .creativeIdentity {
+    grid-column: 2;
+    width: 100%;
+  }
+
+  .creativeMetrics {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr));
+    align-items: start;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .creativeSparkBlock {
+    width: auto;
+  }
+
+  .creativeMoneyBlock {
+    flex: none;
+  }
+
+  .creativeServedAction,
+  .creativeCard .primaryAction {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
 }
 
 .evidenceLink {

@@ -37,6 +37,8 @@ import { Client } from "pg";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { AD_DECISION_EVALUATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/evaluation-store";
+import { validNativeConfigInputEvidence } from "@/lib/meta/native-config-action-authority.fixture";
 
 const SEAM = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
 
@@ -805,6 +807,7 @@ describe.runIf(SEAM)("native proposal generation authority", () => {
     const adId = "ad_native_generation_authority";
     const creativeId = "creative_native_generation_authority";
     const decisionHash = "d".repeat(64);
+    const inputHash = "a".repeat(64);
     const manifestHash = "e".repeat(64);
     const decisionKey = `ad:${adId}`;
     const completeReceipt = {
@@ -839,19 +842,47 @@ describe.runIf(SEAM)("native proposal generation authority", () => {
         );
         CREATE TEMP TABLE engine_v3_ad_decision_snapshots_daily (
           id UUID PRIMARY KEY,
+          business_ref_id UUID NOT NULL,
           business_id TEXT NOT NULL,
           provider_account_ref_id UUID NOT NULL,
           provider_account_id TEXT NOT NULL,
+          decision_entity_type TEXT NOT NULL,
+          decision_entity_id TEXT NOT NULL,
           ad_id TEXT NOT NULL,
           creative_id TEXT,
           as_of_date DATE NOT NULL,
           engine_version TEXT NOT NULL,
+          scope_type TEXT NOT NULL,
+          scope_id TEXT NOT NULL,
+          input_hash TEXT NOT NULL,
           label TEXT NOT NULL,
           authorized_action TEXT,
           job_run_id UUID NOT NULL,
           evaluation_id UUID NOT NULL,
           decision_hash TEXT NOT NULL,
           computed_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE TEMP TABLE engine_v3_ad_decision_evaluations (
+          id UUID PRIMARY KEY,
+          business_ref_id UUID NOT NULL,
+          business_id TEXT NOT NULL,
+          provider_account_ref_id UUID NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          decision_entity_type TEXT NOT NULL,
+          decision_entity_id TEXT NOT NULL,
+          ad_id TEXT NOT NULL,
+          as_of_date DATE NOT NULL,
+          engine_version TEXT NOT NULL,
+          scope_type TEXT NOT NULL,
+          scope_id TEXT NOT NULL,
+          contract_version TEXT NOT NULL,
+          input_hash TEXT NOT NULL,
+          decision_hash TEXT NOT NULL
+        );
+        CREATE TEMP TABLE engine_v3_ad_decision_input_evidence (
+          contract_version TEXT NOT NULL,
+          input_hash TEXT NOT NULL,
+          input_evidence_json JSONB NOT NULL
         );
         CREATE TEMP TABLE native_proposal_fixture (
           id UUID PRIMARY KEY,
@@ -889,14 +920,16 @@ describe.runIf(SEAM)("native proposal generation authority", () => {
       );
       await client.query(
         `INSERT INTO engine_v3_ad_decision_snapshots_daily (
-           id, business_id, provider_account_ref_id, provider_account_id,
-           ad_id, creative_id, as_of_date, engine_version, label,
+           id, business_ref_id, business_id, provider_account_ref_id, provider_account_id,
+           decision_entity_type, decision_entity_id, ad_id, creative_id,
+           as_of_date, engine_version, scope_type, scope_id, input_hash, label,
            authorized_action, job_run_id, evaluation_id, decision_hash,
            computed_at
          ) VALUES (
-           $1::uuid, $2, $3::uuid, $4, $5, $6,
+           $1::uuid, $2::uuid, $2, $3::uuid, $4,
+           'ad', $5, $5, $6,
            (statement_timestamp() AT TIME ZONE 'UTC')::date, $7,
-           'cut', 'cut', $8::uuid, $9::uuid, $10,
+           'account', $4, $11, 'cut', 'cut', $8::uuid, $9::uuid, $10,
            NOW() - INTERVAL '29 minutes'
          )`,
         [
@@ -910,6 +943,34 @@ describe.runIf(SEAM)("native proposal generation authority", () => {
           successfulRunId,
           evaluationId,
           decisionHash,
+          inputHash,
+        ],
+      );
+      await client.query(
+        `INSERT INTO engine_v3_ad_decision_evaluations (
+           id, business_ref_id, business_id, provider_account_ref_id,
+           provider_account_id, decision_entity_type, decision_entity_id,
+           ad_id, as_of_date, engine_version, scope_type, scope_id,
+           contract_version, input_hash, decision_hash
+         ) VALUES (
+           $1::uuid, $2::uuid, $2, $3::uuid, $4, 'ad', $5, $5,
+           (statement_timestamp() AT TIME ZONE 'UTC')::date, $6,
+           'account', $4, $7, $8, $9
+         )`,
+        [
+          evaluationId, businessId, accountRefId, accountId, adId,
+          NATIVE_AD_ENGINE_VERSION, AD_DECISION_EVALUATION_CONTRACT_VERSION,
+          inputHash, decisionHash,
+        ],
+      );
+      await client.query(
+        `INSERT INTO engine_v3_ad_decision_input_evidence
+           (contract_version, input_hash, input_evidence_json)
+         VALUES ($1, $2, $3::jsonb)`,
+        [
+          AD_DECISION_EVALUATION_CONTRACT_VERSION,
+          inputHash,
+          JSON.stringify(validNativeConfigInputEvidence()),
         ],
       );
       await client.query(
@@ -963,6 +1024,29 @@ describe.runIf(SEAM)("native proposal generation authority", () => {
           [proposalId],
         );
 
+      expect((await read()).rows.map((row) => row.id)).toEqual([proposalId]);
+
+      // A stored TRUE verdict and authorized_action cannot preserve approval
+      // authority after the exact input mapping's selected receipt is damaged.
+      // Both queue visibility and the atomic claim repeat the source gate.
+      await client.query(
+        `UPDATE engine_v3_ad_decision_input_evidence
+            SET input_evidence_json = jsonb_set(
+              input_evidence_json,
+              '{configEvidence,currentValueEvidence,refs,objective,observationId}',
+              '"mutated-after-evaluation"'::jsonb
+            )
+          WHERE input_hash = $1`,
+        [inputHash],
+      );
+      expect((await read()).rows).toHaveLength(0);
+      expect((await claim()).rows).toHaveLength(0);
+      await client.query(
+        `UPDATE engine_v3_ad_decision_input_evidence
+            SET input_evidence_json = $2::jsonb
+          WHERE input_hash = $1`,
+        [inputHash, JSON.stringify(validNativeConfigInputEvidence())],
+      );
       expect((await read()).rows.map((row) => row.id)).toEqual([proposalId]);
 
       // A later failure from another business, an older day, or another job is

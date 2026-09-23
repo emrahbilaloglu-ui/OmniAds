@@ -692,7 +692,7 @@ describe("creative-decision-engine v3", () => {
     expect(output.badges).toContainEqual({
       type: "stale_evidence",
       label:
-        "Stale evidence: last sync 57h ago - refresh pipeline before applying.",
+        "Stale evidence: latest verified daily coverage ended 57h before this decision - refresh pipeline before applying.",
       severity: "warning",
     });
     expect(output.confidence).toBeLessThanOrEqual(STALE_CONFIDENCE_CAP);

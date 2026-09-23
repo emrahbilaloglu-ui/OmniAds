@@ -3,6 +3,7 @@ import {
   formatAccountCurrencySpend,
   type GateContext,
   type GateResult,
+  verifiedCoverageAgePhrase,
 } from "./types";
 import { computeFunnelDiagnosis } from "../funnel";
 import {
@@ -191,7 +192,6 @@ function withFreshnessEvidence(ctx: GateContext): GateContext {
   }
 
   if (!isStaleData(ctx)) return ctx;
-  const hours = Math.round(ctx.input.dataFreshnessHours ?? 0);
   if (ctx.badges.some((badge) => badge.type === "stale_evidence")) {
     return ctx;
   }
@@ -201,7 +201,9 @@ function withFreshnessEvidence(ctx: GateContext): GateContext {
       ...ctx.badges,
       {
         type: "stale_evidence",
-        label: `Stale evidence: last sync ${hours}h ago - refresh pipeline before applying.`,
+        label: `Stale evidence: ${verifiedCoverageAgePhrase(
+          ctx.input.dataFreshnessHours,
+        )} - refresh pipeline before applying.`,
         severity: "warning",
       },
     ],

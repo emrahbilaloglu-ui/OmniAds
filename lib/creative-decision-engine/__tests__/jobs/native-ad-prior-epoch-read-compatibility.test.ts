@@ -52,6 +52,7 @@ import {
 import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "../../execution-safety";
 import { ENGINE_VERSION, NATIVE_AD_ENGINE_VERSION } from "../../types";
 import currentEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.v1.json";
+import immediatePriorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-22-prior-epoch.v1.json";
 import priorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.prior-epoch.v1.json";
 
 /*
@@ -107,7 +108,11 @@ interface FrozenEpochFixture {
 }
 
 const priorFixture = priorEpochRawFixture as unknown as FrozenEpochFixture;
+const immediatePriorFixture =
+  immediatePriorEpochRawFixture as unknown as FrozenEpochFixture;
 const currentFixture = currentEpochRawFixture as unknown as FrozenEpochFixture;
+const IMMEDIATE_PRIOR_NATIVE_AD_ENGINE_VERSION =
+  "v3-ad-2026-09-22-meta-config-economics-shadow";
 
 /**
  * The admission rule the acceptance replay applies to its fixture: a frozen
@@ -139,6 +144,27 @@ function readPriorEpochFixture(
 }
 
 describe("prior-epoch frozen evidence is distinguishable from the current epoch", () => {
+  it("keeps the immediately previous persisted input body readable under its own epoch while refusing it as current", () => {
+    expect(immediatePriorFixture.engineVersion).toBe(
+      IMMEDIATE_PRIOR_NATIVE_AD_ENGINE_VERSION,
+    );
+    expect(immediatePriorFixture.engineVersion).not.toBe(
+      NATIVE_AD_ENGINE_VERSION,
+    );
+    expect(() =>
+      admitAsCurrentEpochAcceptanceFixture(immediatePriorFixture),
+    ).toThrow(
+      `Frozen acceptance fixture belongs to epoch ${IMMEDIATE_PRIOR_NATIVE_AD_ENGINE_VERSION}, not ${NATIVE_AD_ENGINE_VERSION}.`,
+    );
+
+    // Historical compatibility means preserving the exact old body and epoch,
+    // not restamping it with the new freshness meaning.
+    expect(immediatePriorFixture.archetypes).toEqual(currentFixture.archetypes);
+    expect(immediatePriorFixture.engineVersion).toBe(
+      IMMEDIATE_PRIOR_NATIVE_AD_ENGINE_VERSION,
+    );
+  });
+
   it("stamps the two frozen artifacts with different producer epochs", () => {
     expect(priorFixture.engineVersion).toBe(PRIOR_NATIVE_AD_ENGINE_VERSION);
     expect(currentFixture.engineVersion).toBe(NATIVE_AD_ENGINE_VERSION);

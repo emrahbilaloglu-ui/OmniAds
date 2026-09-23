@@ -963,7 +963,7 @@ describe("MetaPlatformPage", () => {
             provenance: {},
           },
           classification: {
-            overlayVersion: "meta-decisions-classification-overlay.v4",
+            overlayVersion: "meta-decisions-classification-overlay.v5",
             queueSection: "creative_rotation",
             lifecycleRole: { value: "test" },
             assessment: { value: "proven_winner" },
@@ -1254,7 +1254,7 @@ describe("MetaPlatformPage", () => {
             provenance: {},
           },
           classification: {
-            overlayVersion: "meta-decisions-classification-overlay.v4",
+            overlayVersion: "meta-decisions-classification-overlay.v5",
             queueSection: "creative_rotation",
             lifecycleRole: { value: "main" },
             assessment: { value: "below_target" },

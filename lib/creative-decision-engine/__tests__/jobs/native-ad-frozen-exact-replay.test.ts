@@ -29,6 +29,7 @@ import {
 } from "../../jobs/ad-decisions-job";
 import { NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION } from "../../jobs/ad-operator-response-job";
 import {
+  META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
   NATIVE_AD_ENGINE_VERSION,
   type AccountDecisionProfile,
   type AdDecisionInput,
@@ -145,6 +146,13 @@ interface FrozenFixture {
   sourceFactFinalizedAt: string;
   sourceFactCreatedAt: string;
   sourceFactUpdatedAt: string;
+  sourceCoverage: Record<"first" | "confirmation", {
+    expectedThroughDay: string;
+    coverageThroughDay: string;
+    sourceCompletedAt: string;
+    publishedAt: string;
+    dataFreshnessHours: number;
+  }>;
   targetAuthority: NativeAdTargetAuthorityInput;
   calibrationEvidence: {
     exactContextPurchaseFacts: number;
@@ -424,7 +432,11 @@ async function resolveFrozenGroup(
   return group;
 }
 
-function makeNativeInput(archetype: FrozenNativeArchetype): AdDecisionInput {
+function makeNativeInput(
+  archetype: FrozenNativeArchetype,
+  coverageDay: "first" | "confirmation" = "first",
+): AdDecisionInput {
+  const coverage = fixture.sourceCoverage[coverageDay];
   const creative = makeCreativeInput({
     businessId: fixture.businessId,
     creativeId: `creative-for-${archetype.adId}`,
@@ -446,7 +458,7 @@ function makeNativeInput(archetype: FrozenNativeArchetype): AdDecisionInput {
     addToCart: 30,
     initiateCheckout: 10,
     ageDays: 21,
-    dataFreshnessHours: 1,
+    dataFreshnessHours: coverage.dataFreshnessHours,
     ...archetype.metrics,
   });
   return {
@@ -467,6 +479,14 @@ function makeNativeInput(archetype: FrozenNativeArchetype): AdDecisionInput {
       sourceRowCount: 28,
       performanceMetricsObserved: true,
       eventMetricsObserved: true,
+      sourceCoverage: {
+        contractVersion: META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
+        status: "complete",
+        expectedThroughDay: coverage.expectedThroughDay,
+        coverageThroughDay: coverage.coverageThroughDay,
+        sourceCompletedAt: coverage.sourceCompletedAt,
+        publishedAt: coverage.publishedAt,
+      },
     },
     statusEvidence: {
       source: "entity_state_history",
@@ -1037,14 +1057,14 @@ describe("native Ad frozen exact replay acceptance", () => {
       },
     };
     const nativeInputs = [loss, aboveBreakEven, recovery, scale].map(
-      makeNativeInput,
+      (archetype) => makeNativeInput(archetype),
     );
     nativeInputs.push(refreshInput);
     const firstProfileResult = await resolveFrozenGroup(
       fixture.firstAsOfDate,
       nativeInputs,
     );
-    const confirmationInput = makeNativeInput(loss);
+    const confirmationInput = makeNativeInput(loss, "confirmation");
     const confirmationProfileResult = await resolveFrozenGroup(
       fixture.confirmationAsOfDate,
       [confirmationInput],
@@ -1237,6 +1257,58 @@ describe("native Ad frozen exact replay acceptance", () => {
       loss.expected.confirmationAuthorizedAction,
     );
   });
+
+  it.each(["partial", "unavailable"] as const)(
+    "refuses a numeric freshness value when D101 source coverage is %s",
+    async (status) => {
+      const loss = fixture.archetypes.belowBreakEvenLoss;
+      const firstInput = makeNativeInput(loss);
+      const firstGroup = await resolveFrozenGroup(
+        fixture.firstAsOfDate,
+        [firstInput],
+      );
+      const firstLoss = compute(firstGroup, [firstInput])[0]!;
+      expect(firstLoss.rawLabel).toBe("cut");
+
+      const confirmedInput = makeNativeInput(loss, "confirmation");
+      const coverage = confirmedInput.metricEvidence.sourceCoverage!;
+      const contradictoryInput: AdDecisionInput = {
+        ...confirmedInput,
+        // A current-epoch producer must not trust this numeric age if the
+        // exact provider-local closed-day publication proof is not complete.
+        dataFreshnessHours: confirmedInput.dataFreshnessHours,
+        metricEvidence: {
+          ...confirmedInput.metricEvidence,
+          sourceCoverage: {
+            ...coverage,
+            status,
+            coverageThroughDay:
+              status === "partial"
+                ? fixture.sourceCoverage.first.coverageThroughDay
+                : null,
+            sourceCompletedAt: status === "partial" ? coverage.sourceCompletedAt : null,
+            publishedAt: status === "partial" ? coverage.publishedAt : null,
+          },
+        },
+      };
+      const confirmedGroup = await resolveFrozenGroup(
+        fixture.confirmationAsOfDate,
+        [contradictoryInput],
+      );
+      const confirmation = compute(
+        confirmedGroup,
+        [contradictoryInput],
+        nextDayPrior(firstLoss),
+      )[0]!;
+      const payload = snapshotPayload({
+        asOfDate: fixture.confirmationAsOfDate,
+        computation: confirmation,
+        profile: confirmedGroup.profile as AccountDecisionProfile,
+        suffix: "71",
+      });
+      expect(payload.authorized_action).toBeNull();
+    },
+  );
 });
 
 describe("native Ad fixed-cohort replay parity", () => {

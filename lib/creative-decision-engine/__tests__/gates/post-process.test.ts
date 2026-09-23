@@ -550,6 +550,14 @@ describe("finalizeDecision - stale hard-action authority", () => {
     expect(decision.confidence).toBeLessThanOrEqual(65);
     expect(decision.badges.some((b) => b.type === "stale_evidence")).toBe(true);
     expect(
+      decision.badges.find((badge) => badge.type === "stale_evidence")?.label,
+    ).toBe(
+      "Stale evidence: latest verified daily coverage ended 480h before this decision - refresh before applying.",
+    );
+    expect(
+      decision.badges.some((badge) => badge.label.includes("last sync")),
+    ).toBe(false);
+    expect(
       decision.badges.some((b) => b.type === "stale_hard_ceiling_advisory"),
     ).toBe(true);
   });

@@ -233,7 +233,7 @@ function canonicalAdDecision(
       },
     },
     classification: {
-      overlayVersion: "meta-decisions-classification-overlay.v4",
+      overlayVersion: "meta-decisions-classification-overlay.v5",
       queueSection: "creative_rotation",
       lifecycleRole: {
         value: "main",

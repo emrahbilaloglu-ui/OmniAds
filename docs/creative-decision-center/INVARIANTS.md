@@ -22,7 +22,7 @@ These rules are hard gates for V2.1.
 - (ADR D097) This binds the DECISION STATE, not the presentation lane. A held
   row whose verdict stands on its own economics — today only a Cut held solely
   by an unresolved automatic campaign role, carrying resolution
-  `execute_stop_loss_manually` — may be presented in the action lane so a
+  `apply_cut_manually` — may be presented in the action lane so a
   confirmed stop-loss is not filed among genuine evidence gaps. Every authority
   fact is unchanged and is what keeps this safe: `decisionState` stays
   `blocked`, `buyerAction` stays null, `authorized_action` stays null because
@@ -32,7 +32,10 @@ These rules are hard gates for V2.1.
   `decisionState === "act"`. A lane may inform urgency, counts and grouping; it
   may never be read as authority. Scale and Refresh held on the same unresolved
   role are NOT covered: both answer "where", so without the role they have no
-  answer, and they stay in the held lane.
+  answer, and they stay in the held lane. An incomplete D101 source-coverage
+  proof is an additional hold even when `campaign_context` remains the first
+  blocker; it must be persisted as typed evidence and must suppress the manual
+  Cut invitation and action-lane placement.
 - A blocked, held, review-only, or action-ineligible canonical decision must
   not map to any Launchpad mode. In particular, a held Cut with compatibility
   label `test_more` must never appear as `Fresh Test`.
@@ -52,6 +55,10 @@ These rules are hard gates for V2.1.
 - Exact-ad candidate caps must run after server state/action classification and
   must preserve representation for every non-empty Act Now, Needs Resolution,
   and Monitoring lane.
+- Within a blocked exact-Ad lane, a typed held hard verdict precedes ordinary
+  `diagnose_data`; a soft compatibility label must not demote the held finding.
+  Expanding 60 to 120 must preserve the first 60 decision IDs in order,
+  including after OS composition.
 - Creative decisions with ambiguous multi-ad identity remain withheld until an
   ad-grain producer exists; they must never be attached to an arbitrary ad.
 - No row-level `brief_variation`.

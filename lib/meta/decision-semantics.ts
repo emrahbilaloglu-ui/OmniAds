@@ -113,7 +113,7 @@ function configSourceHeldResolution(held: string): MetaDecisionResolution {
     category: "system",
     owner: "system",
     label: "Complete Hard-Action Evidence",
-    nextStep: `The held ${held} verdict stands, but the campaign configuration it would act on was not confirmed by a provider receipt for the evaluation day, or some economic days it was computed from have unverified configuration. No provider action is authorized until fresh configuration receipts cover the decision window.`,
+    nextStep: `The held ${held} verdict stands, but the campaign configuration it would act on was not confirmed by a provider receipt for the evaluation day, or some economic days it was computed from have unverified configuration. No provider action is authorized until date-authoritative evidence verifies the missing days, or a new decision window accrues with configuration verified on every economic day. A later current-value fetch cannot be assigned to a past day without such proof.`,
   };
 }
 
@@ -257,6 +257,25 @@ function resolutionForAuthorityBlocker(
     };
   }
   if (authorityBlocker === "source_freshness") {
+    // A pending transition has not passed the second-evaluation gate. Restoring
+    // the source alone cannot make that held verdict actionable. A recorded
+    // config gap remains independent of both conditions.
+    if (codes.has("pending_transition")) {
+      return {
+        code: "await_decision_confirmation",
+        category: "system",
+        owner: "system",
+        label: "Hard Action Pending Confirmation",
+        nextStep: `Wait until verified daily source coverage is fresh and the held ${held} verdict has the required consecutive engine confirmation.${configAuthorityVerified === false ? " Date-authoritative provider configuration must also cover every economic day behind the verdict." : ""} No provider action is authorized while a required condition is missing.`,
+      };
+    }
+    if (configAuthorityVerified === false) {
+      const configResolution = configSourceHeldResolution(held);
+      return {
+        ...configResolution,
+        nextStep: `${configResolution.nextStep} Fresh, verified daily source coverage is also required.`,
+      };
+    }
     return {
       code: "refresh_decision_data",
       category: "data",
@@ -266,6 +285,19 @@ function resolutionForAuthorityBlocker(
     };
   }
   if (authorityBlocker === "campaign_context") {
+    // D101 may fail after the engine has already recorded campaign_context as
+    // the first blocker. A Cut is manually reviewable only when role is its
+    // sole hold; retain the first blocker while resolving the later typed
+    // source-coverage failure before offering a manual pause.
+    if (codes.has("source_coverage_unverified")) {
+      return resolutionForAuthorityBlocker(
+        "source_freshness",
+        codes,
+        heldAction,
+        predicateBlockers,
+        configAuthorityVerified,
+      );
+    }
     /*
       ADR D097 round 2. A held Cut and a held Scale are not waiting for the same
       thing, and serving them the same sentence told a buyer to ignore a

@@ -193,7 +193,9 @@ describe("ratioZonesGate - scale zone", () => {
     );
 
     expect(output.label).toBe("keep");
-    expect(output.reason).toContain("source evidence freshness is unknown");
+    expect(output.reason).toContain(
+      "source coverage is incomplete or unknown",
+    );
     expect(output.badges.map((badge) => badge.type)).toContain(
       "scale_readiness_blocked",
     );
@@ -202,7 +204,7 @@ describe("ratioZonesGate - scale zone", () => {
         expect.objectContaining({
           predicate: "scale_recent_freshness",
           observed:
-            "source evidence freshness is unknown; scale requires fresh recent performance proof",
+            "source coverage is incomplete or unknown; scale requires fresh recent performance proof",
           status: "missing",
         }),
       ]),

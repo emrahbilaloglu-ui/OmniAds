@@ -1432,6 +1432,32 @@ describe("POST /api/meta/ads/[adId]/pause", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("does not pause from a cached healthy Cut when fresh pipeline preflight finds the latest run failed", async () => {
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: false,
+      disposition: "reject",
+      shouldMutate: false,
+      blockers: ["source_pipeline_unready"],
+      errorCode: "source_pipeline_unready",
+      duplicateReceipt: null,
+      decisionAgeHours: 0.5,
+      currentAdStateAgeMinutes: 1,
+    });
+
+    const response = await POST(
+      request(decisionOriginPauseBody()),
+      params(),
+    );
+    const payload = await response.json();
+
+    expect(payload.error.code).toBe("source_pipeline_unready");
+    expect(actionLog.createDecisionOriginMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(adsWrite.pauseAd).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed dryRun instead of falling through to execute", async () => {
     const response = await POST(
       request({ ...decisionOriginPauseBody(), dryRun: "true" }),

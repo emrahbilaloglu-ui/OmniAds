@@ -2,7 +2,7 @@ export const META_DECISIONS_WORKSPACE_CONTRACT_VERSION =
   "meta-decisions-workspace.read.v4" as const;
 
 export const META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION =
-  "meta-decisions-classification-overlay.v4" as const;
+  "meta-decisions-classification-overlay.v5" as const;
 
 export const META_DECISIONS_SECTION_SELECTION_VERSION =
   "meta-decisions-section-selection.v1" as const;
@@ -12,7 +12,7 @@ export const META_DECISIONS_AD_CANDIDATE_LIMIT = 60;
 export const META_DECISIONS_AD_CANDIDATE_MAX_LIMIT = 300;
 export const META_DECISIONS_AD_CANDIDATE_LANE_RESERVE = 10;
 export const META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION =
-  "meta-decisions-ad-candidate-selection.v2" as const;
+  "meta-decisions-ad-candidate-selection.v3" as const;
 
 export const META_DECISION_QUEUE_SECTION_KEYS = [
   "integrity_fires",
@@ -641,7 +641,10 @@ export interface MetaDecisionsWorkspaceReadModel {
      * Optional preserves compatibility with previously serialized v1 payloads.
      */
     adCandidates?: {
-      selectionVersion: typeof META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION;
+      // Old, already-served envelopes remain readable across a release.
+      selectionVersion:
+        | typeof META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION
+        | "meta-decisions-ad-candidate-selection.v2";
       limit: number;
       preCapCount: number;
       eligiblePreCapCount: number;

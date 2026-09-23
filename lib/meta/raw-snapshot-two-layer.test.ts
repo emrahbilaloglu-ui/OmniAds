@@ -248,6 +248,8 @@ describe("receipt-first readers", () => {
     // The legacy arm must be restricted to pre-model rows, or a new row would
     // be counted twice by the UNION ALL.
     expect(query).toContain("legacy.content_key IS NULL");
+    // Legacy supersession mutates the raw row rather than appending a receipt.
+    expect(query).toContain("legacy.status <> 'superseded'");
   });
 
   it("returns exactly one resume authority per page while keeping the timeline", async () => {
@@ -264,8 +266,14 @@ describe("receipt-first readers", () => {
     // that needed it.
     expect(query).toContain("DISTINCT ON (receipt.page_index)");
     expect(query).toContain("receipt.observed_at DESC");
-    // Superseded evidence is retired, not resumable.
-    expect(query).toContain("receipt.status <> 'superseded'");
+    // The retirement event must win DISTINCT ON before it is filtered. If the
+    // filter runs inside that CTE, an older fetched receipt is resurrected
+    // after freshStart deletes its checkpoint and resume fails as an orphan.
+    expect(query).toContain("SELECT * FROM latest_receipt WHERE status <> 'superseded'");
+    expect(query).not.toContain("AND receipt.status <> 'superseded'");
+    expect(query.indexOf("WHERE status <> 'superseded'")).toBeGreaterThan(
+      query.indexOf("ORDER BY receipt.page_index, receipt.observed_at DESC"),
+    );
     // The narrowing is scoped to the resume view; nothing deletes or rewrites
     // a receipt, so the point-in-time timeline is unaffected.
     expect(query).not.toMatch(/DELETE|UPDATE/);

@@ -1102,6 +1102,33 @@ async function createHydrationSourceSchema(client: Client) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (business_id, provider_account_id, date, ad_id)
     );
+    -- D101 hydration reads exact ad_daily publication lineage even when this
+    -- seam seeds only ad-config observations. Keep these tables empty here:
+    -- a complete ad-config manifest is not proof of finalized metric coverage.
+    CREATE TABLE meta_authoritative_source_manifests (
+      id UUID PRIMARY KEY, business_ref_id UUID, business_id TEXT NOT NULL,
+      provider_account_ref_id UUID, provider_account_id TEXT NOT NULL,
+      day DATE NOT NULL, surface TEXT NOT NULL, account_timezone TEXT,
+      run_id TEXT, fetch_status TEXT NOT NULL, completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+    );
+    CREATE TABLE meta_authoritative_slice_versions (
+      id UUID PRIMARY KEY, business_ref_id UUID, business_id TEXT NOT NULL,
+      provider_account_ref_id UUID, provider_account_id TEXT NOT NULL,
+      day DATE NOT NULL, surface TEXT NOT NULL, manifest_id UUID,
+      candidate_version INTEGER NOT NULL, state TEXT NOT NULL,
+      truth_state TEXT NOT NULL, validation_status TEXT NOT NULL,
+      status TEXT NOT NULL, source_run_id TEXT, published_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+    );
+    CREATE TABLE meta_authoritative_publication_pointers (
+      id UUID PRIMARY KEY, business_ref_id UUID, business_id TEXT NOT NULL,
+      provider_account_ref_id UUID, provider_account_id TEXT NOT NULL,
+      day DATE NOT NULL, surface TEXT NOT NULL,
+      active_slice_version_id UUID NOT NULL,
+      published_by_run_id TEXT, published_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+    );
     CREATE TABLE meta_ad_dimensions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
       business_ref_id UUID, provider_account_id TEXT NOT NULL,
@@ -2672,14 +2699,16 @@ async function verifyTombstoneAndHistoricalCutoff(client: Client) {
 
   await client.query(
     `INSERT INTO meta_ad_daily (
-       business_id, provider_account_id, date, ad_id, ad_name_current,
+       business_id, business_ref_id, provider_account_id,
+       provider_account_ref_id, date, ad_id, ad_name_current,
        account_timezone, account_currency, truth_state, validation_status,
        spend, conversions, revenue, impressions, link_clicks, clicks, reach,
        created_at, updated_at
-     ) VALUES ($1, $2, '2026-07-10', 'ad-historical', 'Historical ad',
+     ) VALUES ($1::text, $1::uuid, $2, $3::uuid,
+       '2026-07-10', 'ad-historical', 'Historical ad',
        'Europe/Istanbul', 'USD', 'finalized', 'passed', 100, 2, 250,
        1000, 20, 25, 800, '2026-07-10T01:00:00Z', '2026-07-10T02:00:00Z')`,
-    [BUSINESS_ID, ACCOUNT_ID],
+    [BUSINESS_ID, ACCOUNT_ID, ACCOUNT_REF_ID],
   );
   await client.query(
     `INSERT INTO meta_ad_dimensions (
@@ -2735,14 +2764,16 @@ async function verifyCurrentIdentityAndConfigSource(client: Client) {
   const adsetId = "adset-current-context";
   await client.query(
     `INSERT INTO meta_ad_daily (
-       business_id, provider_account_id, date, ad_id, ad_name_current,
+       business_id, business_ref_id, provider_account_id,
+       provider_account_ref_id, date, ad_id, ad_name_current,
        campaign_id, adset_id, account_timezone, account_currency,
        truth_state, validation_status, spend, conversions, revenue,
        impressions, link_clicks, clicks, reach, created_at, updated_at
-     ) VALUES ($1, $2, $3, $4, 'Current context ad', $5, $6, 'UTC', 'USD',
+     ) VALUES ($1::text, $1::uuid, $2, $7::uuid, $3, $4,
+       'Current context ad', $5, $6, 'UTC', 'USD',
        'finalized', 'passed', 100, 2, 250, 1000, 20, 25, 800,
        '2026-07-12T01:00:00Z', '2026-07-12T02:00:00Z')`,
-    [BUSINESS_ID, ACCOUNT_ID, AS_OF, adId, campaignId, adsetId],
+    [BUSINESS_ID, ACCOUNT_ID, AS_OF, adId, campaignId, adsetId, ACCOUNT_REF_ID],
   );
   await client.query(
     `INSERT INTO meta_campaign_config_history (

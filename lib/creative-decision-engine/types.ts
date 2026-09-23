@@ -70,7 +70,7 @@ import type {
 export const ENGINE_VERSION = "v3-2026-09-21-role-held-verdict-preservation";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-09-22-meta-config-economics-shadow";
+  "v3-ad-2026-09-23-verified-coverage-freshness-shadow";
 
 /**
  * Whether a HELD hard verdict stands on its own economics, or whether it needs
@@ -491,6 +491,31 @@ export interface AdCreativeEvidenceOverlay {
   creativeFormat: CreativeFormat | null;
 }
 
+export const META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION =
+  "meta-ad-source-coverage-freshness.v1" as const;
+
+export type AdDecisionSourceCoverageStatus =
+  | "complete"
+  | "partial"
+  | "unavailable";
+
+/**
+ * Account/day coverage proof used only for source freshness.
+ *
+ * `coverageThroughDay` is the reporting day whose closed interval was
+ * verified. `publishedAt` and `sourceCompletedAt` are observation/publication
+ * clocks and may never make an older reporting day current. Keeping them
+ * separate prevents an old-day repair published today from looking fresh.
+ */
+export interface AdDecisionSourceCoverageEvidence {
+  contractVersion: typeof META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION;
+  status: AdDecisionSourceCoverageStatus;
+  expectedThroughDay: string | null;
+  coverageThroughDay: string | null;
+  sourceCompletedAt: string | null;
+  publishedAt: string | null;
+}
+
 export interface AdDecisionMetricEvidence {
   /** Number of finalized, validated native ad-day rows in the 28d window. */
   sourceRowCount: number;
@@ -501,6 +526,11 @@ export interface AdDecisionMetricEvidence {
    * unknown, not a measured zero.
    */
   eventMetricsObserved: boolean;
+  /**
+   * Exact business/account/ad_daily publication coverage. Optional only for
+   * legacy fixtures and persisted inputs written before this contract.
+   */
+  sourceCoverage?: AdDecisionSourceCoverageEvidence;
 }
 
 /**
@@ -815,6 +845,7 @@ export interface DecisionBadge {
     | "campaign_context_conflict"
     | "native_calibration_unavailable"
     | "ad_metrics_unavailable"
+    | "source_coverage_unverified"
     | "pending_transition"
     | "stale_hard_ceiling_advisory"
     | "resume_candidate"
@@ -883,6 +914,10 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
   ad_metrics_unavailable: {
     label: "Ad performance data unavailable",
+    severity: "warning",
+  },
+  source_coverage_unverified: {
+    label: "Verified daily source coverage incomplete",
     severity: "warning",
   },
   pending_transition: {

@@ -286,6 +286,7 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   id: string;
   name?: MetaDecisionCenterExactDisplayValue;
   kindShort?: MetaDecisionCenterExactDisplayValue;
+  thumbnailUrl?: string | null;
   stripeA?: string | null;
   stripeB?: string | null;
   edgeTone?: MetaDecisionCenterExactTone;
@@ -344,6 +345,8 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   /** The server's `blockers` and `resolution.nextStep`, joined, never invented. */
   blockedNote?: MetaDecisionCenterExactDisplayValue;
   sparkPath?: string | null;
+  /** Measured 28-day CTR, used when the daily trail was not served. */
+  ctrValue?: MetaDecisionCenterExactDisplayValue;
   money?: MetaDecisionCenterExactDisplayValue;
   moneySub?: MetaDecisionCenterExactDisplayValue;
   actionLabel?: MetaDecisionCenterExactDisplayValue;
@@ -1898,6 +1901,19 @@ function CreativeCard({
           backgroundImage: `repeating-linear-gradient(135deg,${stripeA},${stripeA} 8px,${stripeB} 8px,${stripeB} 16px)`,
         }}
       >
+        {row.thumbnailUrl ? (
+          // Meta CDN hosts vary by account; a native image keeps the existing
+          // striped fallback visible if the URL expires or fails to load.
+          <img
+            className={styles.creativeThumbImage}
+            src={row.thumbnailUrl}
+            alt=""
+            loading="lazy"
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+            }}
+          />
+        ) : null}
         <span className={styles.creativeKind}>{display(row.kindShort)}</span>
       </span>
       <div className={styles.creativeIdentity}>
@@ -1946,21 +1962,31 @@ function CreativeCard({
           </p>
         ) : null}
       </div>
-      <div className={styles.creativeSparkBlock}>
-        <p className={styles.creativeSparkLabel}>{copy.ctrWindowed}</p>
-        <svg aria-hidden="true" viewBox="0 0 100 22" preserveAspectRatio="none">
-          <path
-            d={row.sparkPath ?? ""}
-            fill="none"
-            stroke="var(--tone-solid)"
-            strokeWidth="1.6"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-      </div>
-      <div className={styles.creativeMoneyBlock}>
-        <p className={styles.moneyValue}>{display(row.money)}</p>
-        <p className={styles.moneySub}>{display(row.moneySub)}</p>
+      <div className={styles.creativeMetrics}>
+        {row.sparkPath || nonBlankDisplay(row.ctrValue) ? (
+          <div className={styles.creativeSparkBlock}>
+            <p className={styles.creativeSparkLabel}>{copy.ctrWindowed}</p>
+            {row.sparkPath ? (
+              <svg aria-hidden="true" viewBox="0 0 100 22" preserveAspectRatio="none">
+                <path
+                  d={row.sparkPath}
+                  fill="none"
+                  stroke="var(--tone-solid)"
+                  strokeWidth="1.6"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+            ) : (
+              <p className={styles.creativeSparkValue} data-meta-exact-creative-ctr-value>
+                {display(row.ctrValue)}
+              </p>
+            )}
+          </div>
+        ) : null}
+        <div className={styles.creativeMoneyBlock}>
+          <p className={styles.moneyValue}>{display(row.money)}</p>
+          <p className={styles.moneySub}>{display(row.moneySub)}</p>
+        </div>
       </div>
       {/* The served action label is DECISION INFORMATION and stays on the row
           as text. It used to be the caption of the button below, which only
@@ -2010,6 +2036,7 @@ function CreativesScope({
   decisions,
   groups,
   lane,
+  emptyReason,
   footnote,
   notice,
   onOpenCreativeStudio,
@@ -2018,6 +2045,7 @@ function CreativesScope({
   decisions: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
   groups?: readonly MetaDecisionCenterExactCreativeGroupViewModel[];
   lane: MetaDecisionCenterExactLane;
+  emptyReason: string;
   footnote?: MetaDecisionCenterExactDisplayValue;
   /**
    * The served source-health sentence, when the server sent one.
@@ -2069,7 +2097,7 @@ function CreativesScope({
         </p>
       ) : null}
       {hasGroupedDecisions && visibleGroups.length === 0 ? (
-        <LaneEmpty lane={`creatives-${lane}`} reason={copy.laneServedNoRows} />
+        <LaneEmpty lane={`creatives-${lane}`} reason={emptyReason} />
       ) : hasGroupedDecisions ? (
         visibleGroups.map((group) => (
           <section
@@ -2097,6 +2125,8 @@ function CreativesScope({
             ))}
           </section>
         ))
+      ) : decisions.length === 0 ? (
+        <LaneEmpty lane={`creatives-${lane}`} reason={emptyReason} />
       ) : (
         decisions.map((row) => <CreativeCard key={row.id} row={row} />)
       )}
@@ -2702,6 +2732,18 @@ export function MetaDecisionCenterExact({
     activeFilters.length > 0
       ? copy.noRowMatchesFilters.replace("{filters}", activeFilters.join(" · "))
       : copy.laneServedNoRows;
+  const blockedCreativeRows =
+    viewModel.creativeGroups?.find((group) => group.id === "blocked")?.rows
+      .length ?? 0;
+  // An empty Action Now lane is not an empty account. Point to the served
+  // blocked creative decisions without moving them or changing the lane the
+  // operator deliberately selected.
+  const actionEmptyReason =
+    activeFilters.length === 0 && blockedCreativeRows > 0
+      ? language === "tr"
+        ? `Bu ${copy.laneActionNow} bölümünde uygulanabilir karar yok. ${blockedCreativeRows} kreatif kararı ${copy.creatives} → ${copy.laneNeedsResolution} bölümünde.`
+        : `No decisions are ready in this ${copy.laneActionNow} lane. ${blockedCreativeRows} creative decision${blockedCreativeRows === 1 ? " is" : "s are"} under ${copy.creatives} → ${copy.laneNeedsResolution}.`
+      : laneEmptyReason;
   const activeWindow =
     viewModel.activeWindow === undefined ? "28d" : viewModel.activeWindow;
   const counts = viewModel.counts;
@@ -3072,7 +3114,7 @@ export function MetaDecisionCenterExact({
         <div className={styles.queue}>
           {activeScope === "structure" && activeLane === "action" ? (
             <ActionLane
-              emptyReason={laneEmptyReason}
+              emptyReason={actionEmptyReason}
               onLoadMore={loadMoreFor("action")}
               rows={viewModel.actionRows ?? []}
               shown={shownFor("action")}
@@ -3108,6 +3150,11 @@ export function MetaDecisionCenterExact({
           {activeScope === "creatives" ? (
             <CreativesScope
               decisions={viewModel.creativeDecisions ?? []}
+              emptyReason={
+                activeCreativeLane === "action"
+                  ? actionEmptyReason
+                  : laneEmptyReason
+              }
               footnote={viewModel.creativeFootnote}
               groups={viewModel.creativeGroups}
               lane={activeCreativeLane}

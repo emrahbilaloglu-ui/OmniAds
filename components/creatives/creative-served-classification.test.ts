@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildServedCreativeClassifications,
   creativeDecisionStatusFallback,
+  servedClassificationForRow,
 } from "@/components/creatives/creative-served-classification";
 import type { CreativesBriefingResponse } from "@/components/creatives/briefing/types";
 
@@ -18,6 +19,7 @@ function responseWithCanonical(input: {
         id: "card_1",
         creativeId: "creative_1",
         canonicalDecision: {
+          adId: "ad_1",
           creativeId: "creative_1",
           decisionId: "decision_1",
           sourceDecision: { label: input.sourceLabel },
@@ -106,5 +108,40 @@ describe("served creative classification copy", () => {
 
     expect(result?.label).toBe("Recommendation available");
     expect(result?.label).not.toContain("internal_future_action");
+  });
+
+  it("does not treat a malformed Ad-grain card as a creative-grain decision", () => {
+    const response = responseWithCanonical({
+      sourceLabel: "cut",
+      buyerLabel: "Stop",
+      buyerAction: "cut",
+      heldAction: null,
+    });
+    delete (response.actionNow[0] as unknown as { canonicalDecision: { adId?: string } }).canonicalDecision.adId;
+
+    expect(buildServedCreativeClassifications(response).get("creative_1")).toBeUndefined();
+  });
+
+  it("does not assign a collapsed creative-only map to an Ad-grain row", () => {
+    const collapsed = new Map([
+      [
+        "shared_creative",
+        {
+          label: "Cut",
+          tone: "negative" as const,
+          segment: "Act",
+          detail: null,
+          decisionCount: 1,
+          source: "canonical_decision" as const,
+        },
+      ],
+    ]);
+    expect(
+      servedClassificationForRow(collapsed, {
+        creativeId: "shared_creative",
+        sourceAdIds: ["different_ad"],
+        sourceAdIdsComplete: false,
+      }),
+    ).toBeNull();
   });
 });

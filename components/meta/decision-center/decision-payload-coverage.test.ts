@@ -3392,7 +3392,9 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     */
     expect(fields.length).toBe(797);
     expect(new Set(fields.map((field) => field.iface)).size).toBe(66);
-    expect(fields.filter((field) => field.varies).length).toBe(744);
+    // Candidate selection v3 retains v2 payload compatibility. Its version
+    // leaf now has two values instead of one pinned literal.
+    expect(fields.filter((field) => field.varies).length).toBe(745);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3592,7 +3594,14 @@ const PROBE_SURFACE: Record<string, string> = {
  * of that chain its turn.
  */
 const SCENARIOS: readonly ProbeScenario[] = [
-  { name: "full" },
+  {
+    name: "full",
+    // A current healthy source does not carry the optional retained-generation
+    // marker. Without this omission the synthetic full payload made every
+    // evidence drawer suppress historical resolution fields as if it were
+    // degraded, so the probe could no longer prove their healthy-path rendering.
+    omit: ["decisionReadModel.source.degraded"],
+  },
   {
     // Grandmix: sixty served ads, not one of which joins a decision snapshot.
     // Everything the row carries has to come off the served decision.
@@ -4055,7 +4064,9 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // server-side executable flag. Each is classified with its own reason above;
 // this is their total.
 // 371 -> 373 with ROUND 8 ITEM 7: the two superseded prose leaves above.
-const NOWHERE_LEAVES = 373;
+// v2/v3 compatibility makes the intentionally hidden selectionVersion leaf
+// variable: 373 -> 374.
+const NOWHERE_LEAVES = 374;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4870,8 +4881,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // 707 -> 708 with `ads.pendingInventoryCount`; -> 713 with the six
     // `MetaDecisionSourceDegradation` leaves; -> 717 with `heldAction` and the
     // three `ads.heldCounts` members; -> 738 with the original receipt
-    // lineage leaves; -> 744 with their six contract-identity leaves.
-    expect(outcomes.size).toBe(744);
+    // lineage leaves; -> 744 with their six contract-identity leaves; -> 745
+    // when candidate-selection v2/v3 became a variable protocol tag.
+    expect(outcomes.size).toBe(745);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {

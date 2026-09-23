@@ -137,6 +137,7 @@ export type DecisionOriginAdExecutionBlocker =
   | "decision_hash_mismatch"
   | "decision_stale"
   | "action_not_authorized"
+  | "config_source_authority_unverified"
   | "policy_state_unverified"
   | "policy_blocked"
   | "ad_status_incompatible"
@@ -221,6 +222,8 @@ export interface DecisionOriginSourceDecisionEvidence {
   decisionLabel: string | null;
   blockedActionType?: string | null;
   explicitAuthorizedAction?: DecisionOriginAdAction | null;
+  /** Current-epoch exact input receipts, independently checked at read time. */
+  configAuthorityVerified?: boolean | null;
   computedAt: string | null;
 }
 
@@ -713,6 +716,12 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
     }
     if (source.decisionHash !== request.decisionHash) {
       blockers.push("decision_hash_mismatch");
+    }
+    if (
+      source.engineVersion === NATIVE_AD_ENGINE_VERSION &&
+      source.configAuthorityVerified !== true
+    ) {
+      blockers.push("config_source_authority_unverified");
     }
   }
 

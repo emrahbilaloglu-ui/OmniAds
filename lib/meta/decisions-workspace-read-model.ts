@@ -162,6 +162,8 @@ const BLOCKER_LABELS: Record<string, string> = {
   campaign_role_unresolved: "Campaign context is missing",
   // Pre-D074b alias key: only older persisted payloads carry it.
   campaign_label_missing: "Campaign context is missing",
+  config_source_authority: "Campaign configuration evidence is unverified",
+  source_coverage_unverified: "Verified daily source coverage is incomplete",
   data_health: "Data health is degraded",
   delivery_proof: "Delivery proof is missing",
   fatigue_proof_not_persisted: "Composite fatigue proof is unavailable",
@@ -462,7 +464,16 @@ export interface BuildMetaDecisionsWorkspaceReadModelInput {
   adCandidateLimit?: number;
   requireActiveHierarchy?: boolean;
   authorityMode?: "legacy_review_only" | "native_exact";
+  /** Native-only read safety; absent on retained creative-grain rows. */
+  nativeConfigSafetyBySnapshot?: ReadonlyMap<string, NativeConfigSafety>;
 }
+
+type NativeConfigSafety = {
+  currentEpoch: boolean;
+  authorizedAction: "scale" | "cut" | "refresh" | null;
+  hardAction: "scale" | "cut" | "refresh" | null;
+  inputHash: string;
+};
 
 function stableId(prefix: string, values: readonly unknown[]) {
   const digest = createHash("sha256")
@@ -1202,8 +1213,14 @@ function buildBlockers(input: {
   role: MetaDecisionLifecycleRoleOverlay;
   assessment: MetaDecisionAssessmentOverlay;
   snapshot: MetaDecisionSnapshotSourceRow;
+  nativeConfigSafety?: NativeConfigSafety;
 }): MetaDecisionBlocker[] {
-  const entries: Array<{ code: string; source: string; field: string }> =
+  const entries: Array<{
+    code: string;
+    source: string;
+    field: string;
+    recordId?: string;
+  }> =
     input.bridgeCodes.map((code) => ({
       code,
       source: CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION,
@@ -1226,11 +1243,40 @@ function buildBlockers(input: {
   const authorityBlocker = persistedAuthorityBlocker(
     input.snapshot.authority_blocker,
   );
+  if (
+    Array.isArray(input.snapshot.badges) &&
+    input.snapshot.badges.some(
+      (badge) =>
+        badge !== null &&
+        typeof badge === "object" &&
+        (badge as { type?: unknown }).type === "source_coverage_unverified",
+    )
+  ) {
+    entries.push({
+      code: "source_coverage_unverified",
+      source: "engine_v3_decision_snapshots_daily",
+      field: "badges",
+    });
+  }
   if (authorityBlocker) {
     entries.push({
       code: authorityBlocker,
       source: "engine_v3_decision_snapshots_daily",
       field: "authority_blocker",
+    });
+  }
+  if (
+    input.nativeConfigSafety?.currentEpoch &&
+    input.nativeConfigSafety.hardAction !== null &&
+    input.snapshot.config_authority_verified !== true
+  ) {
+    // D098/D099: the first persisted authority blocker remains untouched, but
+    // a second, receipt-backed config gap must not disappear behind it.
+    entries.push({
+      code: "config_source_authority",
+      source: "engine_v3_ad_decision_input_evidence",
+      field: "configEvidence.currentValueEvidence,decisionEconomics,receiptManifest",
+      recordId: input.nativeConfigSafety.inputHash,
     });
   }
   const unique = new Map(entries.map((entry) => [entry.code, entry]));
@@ -1243,7 +1289,7 @@ function buildBlockers(input: {
       provenance: provenance({
         source: entry.source,
         field: entry.field,
-        recordId: input.snapshot.snapshot_id,
+        recordId: entry.recordId ?? input.snapshot.snapshot_id,
         asOf: input.snapshot.as_of_date,
         version: META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION,
       }),
@@ -1499,6 +1545,7 @@ function buildCanonicalDecision(input: {
   outcomeRows: readonly MetaDecisionOutcomeSourceRow[];
   eventSourceAvailable: boolean;
   outcomeSourceAvailable: boolean;
+  nativeConfigSafety?: NativeConfigSafety;
 }): { decision: MetaCanonicalDecision | null; omissionReason: string | null } {
   const parsedBadges = parseBadges(input.snapshot.badges);
   const role = campaignRole({
@@ -1514,8 +1561,24 @@ function buildCanonicalDecision(input: {
   if (!decisionOutput) {
     return { decision: null, omissionReason: "snapshot_contract_invalid" };
   }
+  const configSafetyHold =
+    input.nativeConfigSafety?.currentEpoch &&
+    input.snapshot.config_authority_verified !== true
+      ? input.nativeConfigSafety.authorizedAction
+      : null;
+  // A current-epoch snapshot can claim an authorized hard action while its
+  // input mapping has missing/incoherent receipts. Keep the persisted source
+  // fields intact, but serve the typed action as held review evidence. This
+  // safety overlay cannot create provider authority or rewrite the snapshot.
+  const presentationDecisionOutput = configSafetyHold
+    ? {
+        ...decisionOutput,
+        authorityBlocker: "config_source_authority" as const,
+        blockedActionType: configSafetyHold,
+      }
+    : decisionOutput;
   const presentation = projectCanonicalMetaDecisionPresentation({
-    decision: decisionOutput,
+    decision: presentationDecisionOutput,
     context: {
       creativeId: input.snapshot.creative_id,
       identityGrain: "creative",
@@ -1559,6 +1622,7 @@ function buildCanonicalDecision(input: {
     role,
     assessment,
     snapshot: input.snapshot,
+    nativeConfigSafety: input.nativeConfigSafety,
   });
   const advisories = buildAdvisories({ snapshot: input.snapshot });
   const semantics = {
@@ -1783,6 +1847,18 @@ const AD_CANDIDATE_ACTION_WEIGHT: Record<MetaDecisionBuyerAction, number> = {
   watch_launch: 1,
 };
 
+/**
+ * A typed held verdict is still blocked and cannot grant action authority, but
+ * it is a more specific buyer finding than an ordinary evidence diagnosis.
+ * Keep policy and delivery repairs ahead of it, and rank every held hard
+ * verdict ahead of diagnose_data regardless of its soft published label.
+ */
+function adCandidateActionWeight(decision: MetaCanonicalDecision): number {
+  return decision.classification.heldAction !== null
+    ? AD_CANDIDATE_ACTION_WEIGHT.cut
+    : AD_CANDIDATE_ACTION_WEIGHT[decision.classification.legacyBuyerAction];
+}
+
 type SelectableAdState = keyof typeof AD_CANDIDATE_STATE_WEIGHT;
 
 function compareAdCandidates(
@@ -1794,8 +1870,7 @@ function compareAdCandidates(
   return (
     AD_CANDIDATE_STATE_WEIGHT[rightState] -
       AD_CANDIDATE_STATE_WEIGHT[leftState] ||
-    AD_CANDIDATE_ACTION_WEIGHT[right.classification.legacyBuyerAction] -
-      AD_CANDIDATE_ACTION_WEIGHT[left.classification.legacyBuyerAction] ||
+    adCandidateActionWeight(right) - adCandidateActionWeight(left) ||
     compareDecisions(left, right)
   );
 }
@@ -2110,6 +2185,9 @@ export function buildMetaDecisionsWorkspaceReadModel(
       providerAccountId: input.providerAccountId,
       authorityMode: input.authorityMode ?? "legacy_review_only",
       snapshot,
+      nativeConfigSafety: input.nativeConfigSafetyBySnapshot?.get(
+        snapshot.snapshot_id,
+      ),
       identity,
       campaignContext: identity.campaign_id
         ? (contextByCampaignId.get(identity.campaign_id) ?? null)
@@ -2337,8 +2415,9 @@ export interface ReadValidatedMetaNativeDecisionGenerationBundleInput {
   adIds?: readonly string[];
   /**
    * AREA 3 opt-in: serve the last COMPLETE successful generation, read-only and
-   * explicitly marked, when the latest terminal run FAILED. Only the Decisions
-   * workspace envelope carries that marker, so only it may ask.
+   * explicitly marked, when the latest terminal run FAILED. Decisions workspace
+   * and Creative Briefing opt in only when their response carries the source
+   * degradation marker and strips execution authority.
    */
   allowLastSuccessfulGenerationFallback?: boolean;
 }
@@ -2347,6 +2426,19 @@ function nativeSnapshotHardAction(value: string | null) {
   return value === "scale" || value === "cut" || value === "refresh"
     ? value
     : null;
+}
+
+function nativeConfigSafetyForRow(
+  row: MetaNativeDecisionSnapshotSourceRow,
+): NativeConfigSafety {
+  return {
+    currentEpoch: row.engine_version === NATIVE_AD_ENGINE_VERSION,
+    authorizedAction: nativeSnapshotHardAction(row.authorized_action),
+    hardAction:
+      nativeSnapshotHardAction(row.blocked_action_type) ??
+      nativeSnapshotHardAction(row.authorized_action),
+    inputHash: row.input_hash,
+  };
 }
 
 function hasValidNativeSnapshotAuthority(
@@ -2400,6 +2492,14 @@ export type MetaNativeCanonicalDecisionInventory =
       generation: Readonly<MetaNativeDecisionGeneration>;
       items: readonly MetaCanonicalDecision[];
       unavailableReason: null;
+      /**
+       * D102. Absent or null means `generation` IS the latest terminal native
+       * run. Present only for a caller that opted in to the last-successful-
+       * generation fallback when the latest run FAILED: `generation` is then
+       * the retained same-epoch generation and every item has already lost
+       * its execution authority. It is evidence to show, never to act on.
+       */
+      sourceDegradation?: MetaDecisionSourceDegradation | null;
     }
   | {
       status: "unavailable";
@@ -2582,16 +2682,17 @@ function nativeSnapshotToInternalSnapshot(
     verified: recordedVerified,
   });
   /*
-    A stored TRUE can authorize the D098 presentation branch only when the
-    evidence it cites still passes the current receipt contract. A missing or
-    malformed lineage is an evidence failure, not a legacy TRUE.
+    Current D099 rows need both a recorded TRUE and coherent receipts. NULL is
+    a missing current-epoch mapping, never historical permission. Older rows
+    retain their recorded nullable verdict under their own epoch; native
+    generation validation already prevents them from authorizing today.
   */
   const verifiedForPresentation =
-    recordedVerified === true
-      ? servedEvidence?.verified === true
-        ? true
-        : false
-      : recordedVerified;
+    row.engine_version === NATIVE_AD_ENGINE_VERSION
+      ? recordedVerified === true && servedEvidence?.verified === true
+      : recordedVerified === true
+        ? servedEvidence?.verified === true
+        : recordedVerified;
   return {
     snapshot_id: row.snapshot_id,
     provider_account_id: row.provider_account_id,
@@ -2832,9 +2933,23 @@ function applyNativeCanonicalDecisionAuthority(input: {
       ? row.authorized_action
       : null;
   const activeHierarchy = decision.deliveryScope.state === "active";
+  /*
+    D099's persisted input mapping is part of current-epoch authorization.
+    The generation lineage join proves that a mapping exists, but it does not
+    prove that its config receipts still pass the shared receipt parser. A
+    stored TRUE with missing or incoherent references must therefore lose
+    serving/write eligibility even if the snapshot says `authorized_action`.
+    Older epochs predate this evidence contract and remain readable under
+    their own rules (the version-drift gate still prevents execution).
+  */
+  const currentConfigAuthorityVerified =
+    row.engine_version !== NATIVE_AD_ENGINE_VERSION ||
+    authorizedAction === null ||
+    decision.configEvidence?.verified === true;
   const actionEligible =
     activeHierarchy &&
     hasExactCreativeIdentity &&
+    currentConfigAuthorityVerified &&
     decision.classification.decisionState === "act" &&
     authorizedAction !== null &&
     decision.classification.buyerAction === authorizedAction;
@@ -2858,6 +2973,8 @@ function applyNativeCanonicalDecisionAuthority(input: {
         ? decision.deliveryScope.state === "inactive"
           ? "current_hierarchy_is_not_active"
           : "current_hierarchy_status_is_unknown"
+        : !currentConfigAuthorityVerified
+          ? "native_config_receipt_authority_unverified"
         : decision.classification.decisionState !== "act"
           ? "served_decision_is_not_actionable"
           : authorizedAction !== null &&
@@ -2955,11 +3072,13 @@ export function buildNativeMetaCanonicalDecisionInventory(
   for (const row of [...validatedBundle.snapshotRows].sort((left, right) =>
     left.ad_id.localeCompare(right.ad_id),
   )) {
+    const snapshot = nativeSnapshotToInternalSnapshot(row);
     const canonical = buildCanonicalDecision({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       authorityMode: "native_exact",
-      snapshot: nativeSnapshotToInternalSnapshot(row),
+      snapshot,
+      nativeConfigSafety: nativeConfigSafetyForRow(row),
       identity: nativeSnapshotToIdentity(row),
       campaignContext: row.campaign_id
         ? (contextByCampaignId.get(row.campaign_id) ?? null)
@@ -3096,20 +3215,27 @@ function markNativeReadModelSourceDegraded(
 ): MetaDecisionsWorkspaceReadModel {
   model.source.status = "unavailable";
   model.source.fallbackReason = NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON;
-  const degraded: MetaDecisionSourceDegradation = {
-    reason: degradation.reason,
-    servedGeneration: {
-      jobRunId: degradation.generation.jobRunId,
-      asOfDate: degradation.generation.asOfDate,
-    },
-    latestTerminalRun: {
-      jobRunId: degradation.latestTerminalJobRunId,
-      status: degradation.latestTerminalJobStatus,
-      asOfDate: degradation.latestTerminalAsOfDate,
-    },
-  };
-  model.source.degraded = degraded;
-  for (const decision of collectMetaCanonicalDecisions(model)) {
+  model.source.degraded = stripNativeSourceDegradedDecisionAuthority(
+    collectMetaCanonicalDecisions(model),
+    degradation,
+  );
+  return model;
+}
+
+/**
+ * The per-decision half of AREA 3, and the served block naming both runs.
+ *
+ * Shared by the workspace envelope (`markNativeReadModelSourceDegraded`) and by
+ * `readMetaNativeCanonicalDecisionInventory` (D102), so a retained generation
+ * loses exactly the same authority on every surface that may show it. The
+ * inventory reader used to accept the opt-in flag and ignore the degradation,
+ * which would have served the retained generation with FULL authority.
+ */
+function stripNativeSourceDegradedDecisionAuthority(
+  decisions: Iterable<MetaCanonicalDecision>,
+  degradation: MetaNativeDecisionSourceDegradation,
+): MetaDecisionSourceDegradation {
+  for (const decision of decisions) {
     decision.sourceDecision.confidence = Math.min(
       decision.sourceDecision.confidence,
       STALE_CONFIDENCE_CAP,
@@ -3130,7 +3256,18 @@ function markNativeReadModelSourceDegraded(
     // depending on whether governance ran.
     authority.executionReadiness = "decision_not_authorized";
   }
-  return model;
+  return {
+    reason: degradation.reason,
+    servedGeneration: {
+      jobRunId: degradation.generation.jobRunId,
+      asOfDate: degradation.generation.asOfDate,
+    },
+    latestTerminalRun: {
+      jobRunId: degradation.latestTerminalJobRunId,
+      status: degradation.latestTerminalJobStatus,
+      asOfDate: degradation.latestTerminalAsOfDate,
+    },
+  };
 }
 
 function collectMetaCanonicalDecisions(
@@ -3164,6 +3301,12 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
     nativeSnapshotToInternalSnapshot,
   );
   const identityRows = input.snapshotRows.map(nativeSnapshotToIdentity);
+  const nativeConfigSafetyBySnapshot = new Map(
+    input.snapshotRows.map((row) => [
+      row.snapshot_id,
+      nativeConfigSafetyForRow(row),
+    ]),
+  );
 
   if (input.snapshotRows.length === 0) {
     const empty = buildUnavailableMetaDecisionsWorkspaceReadModel({
@@ -3217,6 +3360,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
     adCandidateLimit: input.adCandidateLimit,
     requireActiveHierarchy: true,
     authorityMode: "native_exact",
+    nativeConfigSafetyBySnapshot,
   });
   const nativeBySnapshot = new Map(
     input.snapshotRows.map((row) => [row.snapshot_id, row]),
@@ -3656,12 +3800,10 @@ async function readNativeGeneration(input: {
   providerAccountId: string;
   asOfDate?: string;
   /**
-   * AREA 3 opt-in. Only the Decisions workspace envelope can carry the STALE /
-   * SOURCE DEGRADED marker and strip execution authority, so only it may ask
-   * for the last good generation. Creative Briefing and the engine-v3 evidence
-   * route reach this same function through
-   * `readMetaNativeCanonicalDecisionInventory`, never pass the flag, and must
-   * keep failing closed (D054).
+   * Explicit read-only opt-in for the current Decisions workspace or Creative
+   * Briefing envelope. Both carry source degradation and strip execution
+   * authority before serving a retained same-epoch generation. The engine-v3
+   * evidence route does not opt in and keeps failing closed (D054/D102).
    */
   allowLastSuccessfulGenerationFallback?: boolean;
   /**
@@ -4760,9 +4902,20 @@ export async function readMetaNativeCanonicalDecisionInventory(
         ...ancillary,
         generatedAt: input.generatedAt,
       });
-      return subset.status === "available"
-        ? { ...subset, generation: subsetRead.fullGeneration }
-        : subset;
+      if (subset.status === "unavailable") return subset;
+      // D102: a retained generation is served only after the same stripping
+      // the workspace envelope applies. @see stripNativeSourceDegradedDecisionAuthority
+      const sourceDegradation = subsetRead.sourceDegradation
+        ? stripNativeSourceDegradedDecisionAuthority(
+            subset.items,
+            subsetRead.sourceDegradation,
+          )
+        : null;
+      return {
+        ...subset,
+        generation: subsetRead.fullGeneration,
+        ...(sourceDegradation ? { sourceDegradation } : {}),
+      };
     } catch {
       return {
         status: "unavailable",
@@ -4787,7 +4940,7 @@ export async function readMetaNativeCanonicalDecisionInventory(
       providerAccountId: input.providerAccountId,
       bundle,
     });
-    return buildNativeMetaCanonicalDecisionInventory({
+    const inventory = buildNativeMetaCanonicalDecisionInventory({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       generation: bundle.generation,
@@ -4795,6 +4948,16 @@ export async function readMetaNativeCanonicalDecisionInventory(
       ...ancillary,
       generatedAt: input.generatedAt,
     });
+    if (inventory.status === "unavailable" || !bundle.sourceDegradation) {
+      return inventory;
+    }
+    return {
+      ...inventory,
+      sourceDegradation: stripNativeSourceDegradedDecisionAuthority(
+        inventory.items,
+        bundle.sourceDegradation,
+      ),
+    };
   } catch {
     return {
       status: "unavailable",
@@ -5514,11 +5677,9 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
   sectionLimit?: number;
   adCandidateLimit?: number;
 }): Promise<MetaDecisionsWorkspaceReadModel> {
-  // AREA 3 is opted into HERE and nowhere else: this envelope is the only one
-  // that carries the STALE / SOURCE DEGRADED marker and strips execution
-  // authority. Creative Briefing and the engine-v3 evidence route read the same
-  // native functions through readMetaNativeCanonicalDecisionInventory and keep
-  // failing closed on a failed latest run (D054).
+  // AREA 3 is opted into this workspace envelope. Creative Briefing also opts
+  // in with its own source-degraded marker and stripped execution authority.
+  // The engine-v3 evidence route does not opt in and keeps failing closed.
   const nativeReadInput = {
     ...input,
     allowLastSuccessfulGenerationFallback: true,

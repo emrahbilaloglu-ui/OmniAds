@@ -21,7 +21,10 @@ import type {
   NormalizedRenderPreviewPayload,
   RawCreativeRow,
 } from "@/lib/meta/creatives-types";
-import { isCreativeMetricAvailable } from "@/lib/meta/creatives-types";
+import {
+  isCreativeMetricAvailable,
+  readCreativeSourceIdentity,
+} from "@/lib/meta/creatives-types";
 import { isLikelyLowResCreativeUrl, isThumbnailLikeUrl } from "@/lib/meta/creatives-preview";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
 import { resolveAiTagsForRow } from "@/lib/meta/creatives-copy";
@@ -509,6 +512,10 @@ export function buildMetaCreativeApiRow(params: {
     effective_object_story_id: row.effective_object_story_id ?? null,
     post_id: row.post_id ?? null,
     associated_ads_count: row.associated_ads_count,
+    // A grouped row's member identities, verbatim; an ungrouped row carries
+    // none and gains no key. This row is also what the creative-day writer
+    // persists, which is how a later read learns that day's members.
+    ...readCreativeSourceIdentity(row),
     account_id: row.account_id,
     account_name: row.account_name,
     campaign_id: row.campaign_id,
@@ -693,6 +700,7 @@ export function buildMetaCreativeApiRowLightweight(params: {
     effective_object_story_id: row.effective_object_story_id ?? null,
     post_id: row.post_id ?? null,
     associated_ads_count: row.associated_ads_count,
+    ...readCreativeSourceIdentity(row),
     account_id: row.account_id,
     account_name: row.account_name,
     campaign_id: row.campaign_id,

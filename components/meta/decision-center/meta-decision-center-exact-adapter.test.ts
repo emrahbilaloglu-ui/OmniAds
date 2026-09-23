@@ -10,7 +10,10 @@ import type {
   MetaStructureInventoryEntity,
   MetaWatchingSegment,
 } from "@/components/meta/redesign/types";
-import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import {
+  META_DECISION_SOURCE_DEGRADED_REASON,
+  type MetaCanonicalDecision,
+} from "@/lib/meta/decisions-workspace-contract";
 import {
   emptyAuthorityBlockerCounts,
   projectMetaCommercialAnchorPanel,
@@ -42,6 +45,8 @@ import {
   buildMetaDecisionCenterExactViewModel,
   buildMetaStructureInventoryViewModel,
   buyerFacingCreativeDecisionLabel,
+  buyerFacingCreativeResolution,
+  heldCreativeVerdict,
 } from "./meta-decision-center-exact-adapter";
 
 const priority = {
@@ -703,6 +708,98 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     expect(onCreativeReview).toHaveBeenLastCalledWith(creative, canonical);
   });
 
+  it("puts missing ad metrics ahead of campaign-role copy and does not invent an out-of-scope cause", () => {
+    const noMetrics = creativeFixture({
+      id: "no_metrics",
+      decisionId: "missing_decision",
+      adId: "missing_ad",
+      thumbnailUrl: "//example.com/native-thumb.jpg",
+      lane: "blocked",
+      metrics: { ...creativeFixture().metrics, spend: 0, roas: null, ctr: null },
+      resolution: {
+        code: "resolve_campaign_role",
+        category: "campaign_context",
+        owner: "system",
+        label: "Automatic classification pending",
+        nextStep: "Internal producer copy",
+      },
+    });
+    const unknownScope = creativeFixture({
+      id: "unknown_scope",
+      decisionId: "unknown_scope_decision",
+      adId: "unknown_scope_ad",
+      lane: "blocked",
+      publishedLabel: "out_of_scope",
+      resolution: null,
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({
+        os: fullOs({ creatives: [noMetrics, unknownScope] }),
+        canonical: [
+          canonicalFixture({
+            decisionId: "missing_decision",
+            sourceDecision: {
+              badges: ["ad_metrics_unavailable"],
+            } as unknown as MetaCanonicalDecision["sourceDecision"],
+          }),
+          canonicalFixture({
+            decisionId: "unknown_scope_decision",
+            sourceDecision: {
+              reason: "Objective unknown; purchase decision scope cannot be verified.",
+              badges: [],
+            } as unknown as MetaCanonicalDecision["sourceDecision"],
+          }),
+        ],
+      }),
+    });
+    const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
+    expect(rows.get("no_metrics")?.note).toBe(
+      "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance. Wait for campaign context verification before acting.",
+    );
+    expect(rows.get("no_metrics")?.thumbnailUrl).toBe("https://example.com/native-thumb.jpg");
+    expect(rows.get("unknown_scope")?.note).toContain(
+      "outside the verified purchase-ROAS decision scope",
+    );
+    expect(rows.get("unknown_scope")?.note).not.toContain("non-purchase outcome");
+    expect(rows.get("unknown_scope")?.note).not.toContain("This decision is incomplete");
+
+    // A numeric zero alone says nothing about delivery or read completeness.
+    expect(buyerFacingCreativeResolution(noMetrics)).toBe(
+      "Wait for campaign context verification before acting.",
+    );
+    // This broad blocker also covers an observed ad whose account winner
+    // benchmark is missing; it must not claim the ad has no performance day.
+    expect(
+      buyerFacingCreativeResolution({
+        ...noMetrics,
+        blockers: [{ code: "native_metrics_unavailable", label: "Winner benchmark missing" }],
+        resolution: {
+          code: "complete_hard_action_evidence",
+          category: "system",
+          owner: "system",
+          label: "Winner benchmark missing",
+          nextStep: "Wait for account winner purchase evidence.",
+        },
+      }),
+    ).toBe("Complete the missing evidence before applying this change.");
+    expect(
+      buyerFacingCreativeResolution({
+        ...noMetrics,
+        blockers: [{ code: "delivery_no_spend_24h", label: "No recent spend" }],
+      }),
+    ).toContain("No spend was measured in the last 24 hours.");
+
+    // Source badges annotate a served resolution; they never mint one.
+    expect(
+      buyerFacingCreativeResolution(
+        { ...noMetrics, resolution: null },
+        canonicalFixture({
+          sourceDecision: { badges: ["ad_metrics_unavailable"] } as MetaCanonicalDecision["sourceDecision"],
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it("keeps the served advisories out of the Blockers line and states them with their reason", () => {
     /*
      * `risk_tier_unclassified` used to arrive inside
@@ -1269,6 +1366,123 @@ describe("the lineage read fills what the reference draws", () => {
 });
 
 describe("the creative queue is the served set, split by the served state", () => {
+  it("shows a retained Cut only in the review group when the native source is degraded", () => {
+    const retained = creativeFixture({
+      rawLabel: "cut",
+      publishedLabel: "cut",
+      lane: "blocked",
+      action: actionFixture({
+        code: "cut",
+        label: "Review retained Cut",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+      }),
+    });
+    const os = fullOs({ creatives: [retained] });
+    os.source.health = "degraded";
+    os.source.fallbackReason = "native_latest_job_failed";
+    os.ads.actCount = 0;
+    os.ads.blockedCount = 1;
+    os.ads.statePreCapCounts = { act: 0, blocked: 1, monitor: 0 };
+    const workspace = workspaceFixture({ os });
+    Object.assign(workspace.decisionReadModel.source, {
+      degraded: {
+        reason: META_DECISION_SOURCE_DEGRADED_REASON,
+        servedGeneration: {
+          jobRunId: "20000000-0000-4000-8000-000000000001",
+          asOfDate: "2026-08-16",
+        },
+        latestTerminalRun: {
+          jobRunId: "20000000-0000-4000-8000-000000000002",
+          status: "failed",
+          asOfDate: "2026-08-17",
+        },
+      },
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(model.creativeGroups?.map((group) => group.id)).toEqual([
+      "blocked",
+    ]);
+    expect(model.creativeGroups?.[0]).toMatchObject({
+      count: "1 decision",
+      rows: [{ stateLabel: "Blocked" }],
+    });
+    expect(model.creativeDecisions?.[0]).toMatchObject({
+      actionLabel: "Review spend reduction",
+      note: "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+    });
+  });
+
+  it("does not tell an operator to pause a retained role-held Cut manually", () => {
+    const retained = creativeFixture({
+      rawLabel: "cut",
+      publishedLabel: "test_more",
+      heldAction: "cut",
+      lane: "blocked",
+      action: actionFixture({
+        code: "review_retained_decision",
+        label: "Review retained decision",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+      }),
+      resolution: {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Apply Cut manually",
+        nextStep: "Pause this ad yourself if you agree.",
+      },
+      heldResolution: {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Apply Cut manually",
+        nextStep: "Pause this ad yourself if you agree.",
+      },
+    });
+    const os = fullOs({ creatives: [retained] });
+    os.source.health = "degraded";
+    os.source.fallbackReason = "native_latest_job_failed";
+    os.ads.actCount = 0;
+    os.ads.blockedCount = 1;
+    os.ads.statePreCapCounts = { act: 0, blocked: 1, monitor: 0 };
+    const workspace = workspaceFixture({ os });
+    Object.assign(workspace.decisionReadModel.source, {
+      degraded: {
+        reason: META_DECISION_SOURCE_DEGRADED_REASON,
+        servedGeneration: {
+          jobRunId: "20000000-0000-4000-8000-000000000001",
+          asOfDate: "2026-08-16",
+        },
+        latestTerminalRun: {
+          jobRunId: "20000000-0000-4000-8000-000000000002",
+          status: "failed",
+          asOfDate: "2026-08-17",
+        },
+      },
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace,
+      selection: {
+        kind: "creative",
+        decisionId: retained.decisionId,
+        sourceSnapshotId: retained.sourceSnapshotId,
+      },
+    });
+    const row = model.creativeDecisions?.[0];
+    expect(row?.moneySub).toContain("No Meta change can be applied");
+    expect(row?.heldVerdictNextStep).toContain("current run before acting");
+    expect(model.inspector?.contractDetail).toContain("current run before acting");
+    expect(model.inspector?.moneyDetail).toContain("No Meta change can be applied");
+    expect(JSON.stringify({ row, inspector: model.inspector })).not.toMatch(
+      /pause this ad (in Meta )?(yourself|if you agree)/i,
+    );
+  });
+
   /**
    * LAW: `os.ads.items` is the served creative queue. A section is a RANKING.
    *
@@ -3897,9 +4111,11 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     */
     creatives: MetaOsAdDecision[];
     heldCounts?: { scale: number; cut: number; refresh: number } | null;
+    canonical?: MetaCanonicalDecision[];
   }): MetaDecisionsWorkspacePayload {
     const workspace = workspaceFixture({
       os: fullOs({ creatives: input.creatives }),
+      canonical: input.canonical,
     });
     const ads = workspace.os.ads as unknown as Record<string, unknown>;
     ads.actCount = input.creatives.filter((ad) => ad.lane === "act").length;
@@ -3942,6 +4158,47 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(row?.decisionTone).toBe("warning");
   });
 
+  it("distinguishes a persisted raw Cut from a softer held Cut signal", () => {
+    const rawCut = heldRefreshFixture({
+      id: "os_raw_cut",
+      decisionId: "decision_raw_cut",
+      adId: "ad_raw_cut",
+      rawLabel: "cut",
+      publishedLabel: "test_more",
+      heldAction: "cut",
+    });
+    const pendingSignal = heldRefreshFixture({
+      id: "os_pending_cut_signal",
+      decisionId: "decision_pending_cut_signal",
+      adId: "ad_pending_cut_signal",
+      rawLabel: "test_more",
+      publishedLabel: "test_more",
+      heldAction: "cut",
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({ creatives: [rawCut, pendingSignal] }),
+    });
+    const [verdictRow, signalRow] = model.creativeGroups?.find(
+      (group) => group.id === "blocked",
+    )?.rows ?? [];
+
+    expect(verdictRow?.decisionLabel).toBe("Continue testing");
+    expect(verdictRow?.heldVerdictLabel).toBe(
+      "Recommendation awaiting review: Reduce spend",
+    );
+    expect(signalRow?.decisionLabel).toBe("Continue testing");
+    expect(signalRow?.heldVerdictLabel).toBe(
+      "Spend reduction signal awaiting verification",
+    );
+    expect(signalRow?.heldVerdictNextStep).toContain(
+      "Then reassess whether to reduce spend.",
+    );
+    expect(model.operatorSummary?.scopeCounts?.creatives?.action).toBe(0);
+    expect(model.operatorSummary?.scopeCounts?.creatives?.needsResolution).toBe(2);
+    expect(rawCut.action.intent).toBe("review");
+    expect(pendingSignal.action.providerMutation).toBeNull();
+  });
+
   it("keeps the held verdict's OWN resolution instead of the generic evidence sentence", () => {
     const model = buildMetaDecisionCenterExactViewModel({
       workspace: heldWorkspace({ creatives: [heldRefreshFixture()] }),
@@ -3960,6 +4217,117 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(serialized).not.toContain("confirm_commercial_target");
     expect(serialized).not.toContain("commercial_truth");
     expect(serialized).not.toContain("restoring this verdict's authority");
+  });
+
+  it("keeps the specific held resolution when provider configuration also needs verification", () => {
+    const held = heldRefreshFixture();
+    const canonical = canonicalFixture({
+      decisionId: held.decisionId,
+      configEvidence: { verified: false } as MetaCanonicalDecision["configEvidence"],
+    });
+    const verdict = heldCreativeVerdict(held, canonical);
+
+    expect(verdict?.nextStep).toContain("Confirm the commercial target before acting.");
+    expect(verdict?.nextStep).toContain(
+      "Verify provider campaign configuration for the evaluation day and every economic day",
+    );
+  });
+
+  it("names every typed prerequisite behind a held Cut without offering an action", () => {
+    const heldCut = heldRefreshFixture({
+      heldAction: "cut",
+      rawLabel: "cut",
+      publishedLabel: "test_more",
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "cut",
+        publishedLabel: "test_more",
+        firstBlocker: {
+          code: "source_freshness",
+          label: "Source not fresh",
+          explanation: "Internal producer copy",
+        },
+      },
+      blockers: [{ code: "pending_transition", label: "Internal producer copy" }],
+      heldResolution: {
+        code: "await_decision_confirmation",
+        category: "system",
+        owner: "system",
+        label: "Pending",
+        nextStep: "Internal producer copy",
+      },
+    });
+    const canonical = canonicalFixture({
+      decisionId: heldCut.decisionId,
+      configEvidence: { verified: false } as MetaCanonicalDecision["configEvidence"],
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({
+        creatives: [heldCut],
+        canonical: [canonical],
+      }),
+    });
+    const row = model.creativeDecisions?.[0];
+    expect(row?.note).toContain("evaluation day and every economic day");
+    expect(row?.note).toContain("fresh, completed Meta source data");
+    expect(row?.note).toContain("required consecutive decision confirmation");
+    expect(row?.note).not.toContain("Pause this ad");
+    expect(row?.note).not.toContain("Internal producer copy");
+    expect(row?.actionLabel).not.toBe("Reduce spend");
+    expect(
+      heldCreativeVerdict({ ...heldCut, heldResolution: null }, canonical)?.nextStep,
+    ).toBe(
+      "Confirm the missing information, then review this Reduce spend recommendation again.",
+    );
+    expect(
+      heldCreativeVerdict(
+        {
+          ...heldCut,
+          authorityProvenance: {
+            ...heldCut.authorityProvenance!,
+            firstBlocker: {
+              code: "campaign_context",
+              label: "Campaign context pending",
+              explanation: "Internal producer copy",
+            },
+          },
+        },
+        canonical,
+      )?.nextStep,
+    ).toContain("Campaign context must also be verified");
+  });
+
+  it("keeps a role-first Cut with a later D101 gap in evidence-repair copy", () => {
+    const held = heldRefreshFixture({
+      heldAction: "cut",
+      blockers: [{
+        code: "source_coverage_unverified",
+        label: "Verified daily source coverage incomplete",
+      }],
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "cut",
+        publishedLabel: "keep",
+        firstBlocker: {
+          code: "campaign_context",
+          label: "Campaign context pending",
+          explanation: "Internal producer copy",
+        },
+      },
+      heldResolution: {
+        code: "refresh_decision_data",
+        category: "data",
+        owner: "integration",
+        label: "Refresh Decision Data",
+        nextStep: "Internal producer copy",
+      },
+    });
+    const verdict = heldCreativeVerdict(held);
+    expect(verdict?.nextStep).toContain("Restore fresh, completed Meta source data");
+    expect(verdict?.nextStep).toContain("Campaign context must also be verified");
+    expect(verdict?.nextStep).not.toContain("Pause this ad");
   });
 
   it("still names the held verdict when the resolution code has no buyer sentence", () => {
@@ -4066,6 +4434,23 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(inspector?.decisionLabel).toBe("Keep monitoring");
     expect(inspector?.heldVerdictLabel).toBe("Recommendation awaiting review: Refresh creative");
     expect(inspector?.heldVerdictTone).toBe("warning");
+  });
+
+  it("names a secondary config-source blocker in buyer language", () => {
+    const inspector = heldInspector(
+      heldRefreshFixture({
+        blockers: [
+          {
+            code: "config_source_authority",
+            label: "Internal config source authority",
+          },
+        ],
+      }),
+    );
+    expect(inspector?.blockers).toBe(
+      "The campaign configuration behind this decision is not verified for the evaluation day or its economic window.",
+    );
+    expect(JSON.stringify(inspector)).not.toContain("Internal config source authority");
   });
 
   it("explains the inspector's held verdict with the held resolution, not the published one", () => {
@@ -4202,7 +4587,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       the useful half and are kept verbatim; the noun is now the buyer's.
     */
     expect(blocked?.note).toBe(
-      "3 ads need more evidence before action (scale 1 · cut 0 · refresh 2), counted apart from this group's total",
+      "3 ads need more evidence before action (scale 1 · cut 0 · refresh 2). These ads are already included in the lane totals above.",
     );
     expect(blocked?.note).not.toMatch(/verdict/i);
 

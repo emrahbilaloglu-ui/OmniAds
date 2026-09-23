@@ -81,6 +81,14 @@ export interface CreativeEvidenceWindowExactReadNotice {
   text: string;
 }
 
+/** Each caption names the period of the values directly beneath it. */
+export interface CreativeEvidenceWindowExactPeriodLabels {
+  decision: string;
+  series: string;
+  funnel: string;
+  adSets: string;
+}
+
 /**
  * Which half of this row's evidence the window is actually holding.
  *
@@ -132,6 +140,7 @@ export interface CreativeEvidenceWindowExactViewModel {
   placements?: readonly CreativeEvidenceWindowExactPlacement[];
   adSets?: readonly CreativeEvidenceWindowExactAdSet[];
   facts?: readonly CreativeEvidenceWindowExactFact[];
+  periodLabels?: CreativeEvidenceWindowExactPeriodLabels;
   /** Loading / failed state of the ad-grain helper reads. Null when resolved. */
   readNotice?: CreativeEvidenceWindowExactReadNotice | null;
   /** Concise buyer-facing reason an otherwise visible action is unavailable. */
@@ -424,7 +433,10 @@ export function CreativeEvidenceWindowExact({
             <BodyCard
               className={`${styles.contractCard} ${toneClass(viewModel.decisionTone)}`}
             >
-              <p className={styles.cardEyebrow}>Decision</p>
+              <p className={styles.cardEyebrow}>
+                Decision ·{" "}
+                {viewModel.periodLabels?.decision ?? "period unavailable"}
+              </p>
               <p className={styles.verdictLine}>
                 <b>{display(viewModel.verdict)}</b>{" "}
                 {display(viewModel.verdictSub)}
@@ -468,7 +480,10 @@ export function CreativeEvidenceWindowExact({
             <div className={styles.pairGrid}>
               {showCtr ? (
                 <BodyCard className={toneClass(viewModel.decisionTone)}>
-                  <p className={styles.cardEyebrow}>CTR · 28d</p>
+                  <p className={styles.cardEyebrow}>
+                    CTR ·{" "}
+                    {viewModel.periodLabels?.series ?? "period unavailable"}
+                  </p>
                   <svg
                     aria-hidden="true"
                     className={styles.sparkline}
@@ -490,7 +505,10 @@ export function CreativeEvidenceWindowExact({
               ) : null}
               {showFrequency ? (
                 <BodyCard>
-                  <p className={styles.cardEyebrow}>Frequency · 28d</p>
+                  <p className={styles.cardEyebrow}>
+                    Frequency ·{" "}
+                    {viewModel.periodLabels?.series ?? "period unavailable"}
+                  </p>
                   <svg
                     aria-hidden="true"
                     className={styles.sparkline}
@@ -516,7 +534,8 @@ export function CreativeEvidenceWindowExact({
           {funnel.length > 0 ? (
             <BodyCard>
               <p className={styles.cardEyebrowSpaced}>
-                Click-to-purchase funnel · 28d
+                Click-to-purchase funnel ·{" "}
+                {viewModel.periodLabels?.funnel ?? "period unavailable"}
               </p>
               <div className={styles.funnelRows}>
                 {funnel.map((step, index) => (
@@ -589,7 +608,8 @@ export function CreativeEvidenceWindowExact({
                     </div>
                   ))}
                   <p className={styles.adSetNote}>
-                    ROAS per ad set · same 28d window
+                    {viewModel.periodLabels?.adSets ??
+                      "Ad set period unavailable"}
                   </p>
                 </BodyCard>
               ) : null}

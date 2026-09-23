@@ -10,6 +10,9 @@ import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { getDb, resetDbClientCache } from "@/lib/db";
+import { AD_DECISION_EVALUATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/evaluation-store";
+import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { validNativeConfigInputEvidence } from "@/lib/meta/native-config-action-authority.fixture";
 import {
   NATIVE_AD_PAUSE_PROJECTION_SQL,
   projectMetaAutomationProposals,
@@ -44,6 +47,106 @@ let ruleId = "";
 const RACE_GATE_TABLE = "meta_pause_projection_race_gates_test";
 const RACE_GATE_FUNCTION = "meta_pause_projection_race_block_test";
 const RACE_GATE_TRIGGER = "trg_meta_pause_projection_race_block_test";
+
+async function installNativeConfigAuthoritySourceShape(client: Client) {
+  // The native open-slot cases use current-epoch rows and their exact hashed
+  // config input. These tables are session-local; the proposal table/indexes
+  // remain the migrated production shape used by the concurrent writers.
+  await client.query(`
+    ALTER TABLE engine_v3_ad_decision_snapshots_daily
+      ADD COLUMN business_ref_id UUID,
+      ADD COLUMN provider_account_ref_id UUID,
+      ADD COLUMN decision_entity_type TEXT,
+      ADD COLUMN decision_entity_id TEXT,
+      ADD COLUMN scope_type TEXT,
+      ADD COLUMN scope_id TEXT,
+      ADD COLUMN input_hash TEXT;
+    CREATE TEMP TABLE engine_v3_ad_decision_evaluations (
+      id UUID,
+      business_ref_id UUID,
+      business_id TEXT,
+      provider_account_ref_id UUID,
+      provider_account_id TEXT,
+      decision_entity_type TEXT,
+      decision_entity_id TEXT,
+      ad_id TEXT,
+      as_of_date DATE,
+      engine_version TEXT,
+      scope_type TEXT,
+      scope_id TEXT,
+      contract_version TEXT,
+      input_hash TEXT,
+      decision_hash TEXT
+    );
+    CREATE TEMP TABLE engine_v3_ad_decision_input_evidence (
+      contract_version TEXT,
+      input_hash TEXT,
+      input_evidence_json JSONB
+    );
+  `);
+}
+
+async function insertNativeCutFixture(
+  client: Client,
+  input: {
+    scopeId: string;
+    snapshotDate: string;
+    decisionHash: string;
+    reason: string;
+  },
+) {
+  const evaluationId = randomUUID();
+  const accountRefId = randomUUID();
+  const inputHash = randomUUID().replaceAll("-", "").repeat(2);
+  const creativeId = `creative-${input.scopeId}`;
+  await client.query(
+    `INSERT INTO engine_v3_ad_decision_snapshots_daily (
+       evaluation_id, business_ref_id, business_id,
+       provider_account_ref_id, provider_account_id,
+       decision_entity_type, decision_entity_id, ad_id, creative_id,
+       as_of_date, computed_at, engine_version, scope_type, scope_id,
+       input_hash, label, authorized_action, reason, decision_hash,
+       roas, spend, effective_target_roas
+     ) VALUES (
+       $1::uuid, $2::uuid, $2, $3::uuid, $4,
+       'ad', $5, $5, $6,
+       $7::date, NOW(), $8, 'account', $4,
+       $9, 'cut', 'cut', $10, $11, 0.5, 100, 2.0
+     )`,
+    [
+      evaluationId, businessId, accountRefId, ACCOUNT, input.scopeId,
+      creativeId, input.snapshotDate, NATIVE_AD_ENGINE_VERSION,
+      inputHash, input.reason, input.decisionHash,
+    ],
+  );
+  await client.query(
+    `INSERT INTO engine_v3_ad_decision_evaluations (
+       id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, decision_entity_type, decision_entity_id,
+       ad_id, as_of_date, engine_version, scope_type, scope_id,
+       contract_version, input_hash, decision_hash
+     ) VALUES (
+       $1::uuid, $2::uuid, $2, $3::uuid, $4, 'ad', $5, $5,
+       $6::date, $7, 'account', $4, $8, $9, $10
+     )`,
+    [
+      evaluationId, businessId, accountRefId, ACCOUNT, input.scopeId,
+      input.snapshotDate, NATIVE_AD_ENGINE_VERSION,
+      AD_DECISION_EVALUATION_CONTRACT_VERSION, inputHash,
+      input.decisionHash,
+    ],
+  );
+  await client.query(
+    `INSERT INTO engine_v3_ad_decision_input_evidence
+       (contract_version, input_hash, input_evidence_json)
+     VALUES ($1, $2, $3::jsonb)`,
+    [
+      AD_DECISION_EVALUATION_CONTRACT_VERSION,
+      inputHash,
+      JSON.stringify(validNativeConfigInputEvidence()),
+    ],
+  );
+}
 
 async function waitForProjectionAtGate(client: Client) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -736,6 +839,7 @@ describe.runIf(SEAM)("budget and bid projection open-slot arbitration", () => {
         UNIQUE (business_id, provider_account_id, ad_id)
       );
     `);
+    await installNativeConfigAuthoritySourceShape(projectionClient);
     for (const scopeId of [contestedScope, independentScope]) {
       await projectionClient.query(
         `INSERT INTO meta_ad_dimensions
@@ -743,25 +847,12 @@ describe.runIf(SEAM)("budget and bid projection open-slot arbitration", () => {
          VALUES ($1, $2, $3, $4, 'ACTIVE')`,
         [businessId, ACCOUNT, scopeId, `Native ${scopeId}`],
       );
-      await projectionClient.query(
-        `INSERT INTO engine_v3_ad_decision_snapshots_daily (
-           business_id, provider_account_id, ad_id, creative_id, as_of_date,
-           computed_at, engine_version, label, authorized_action, reason,
-           decision_hash, roas, spend, effective_target_roas
-         ) VALUES (
-           $1, $2, $3, $4, $5::date, NOW(), 'meta-v3', 'cut', 'cut',
-           'Native ad ROAS is below the configured commercial floor.',
-           $6, 0.5, 100, 2.0
-         )`,
-        [
-          businessId,
-          ACCOUNT,
-          scopeId,
-          `creative-${scopeId}`,
-          snapshotDate,
-          randomUUID().replaceAll("-", "").repeat(2),
-        ],
-      );
+      await insertNativeCutFixture(projectionClient, {
+        scopeId,
+        snapshotDate,
+        decisionHash: randomUUID().replaceAll("-", "").repeat(2),
+        reason: "Native ad ROAS is below the configured commercial floor.",
+      });
     }
 
     const decisionKey = `ad:${contestedScope}`;
@@ -849,25 +940,20 @@ describe.runIf(SEAM)("budget and bid projection open-slot arbitration", () => {
           UNIQUE (business_id, provider_account_id, ad_id)
         );
       `);
+      await installNativeConfigAuthoritySourceShape(client);
       await client.query(
         `INSERT INTO meta_ad_dimensions
            (business_id, provider_account_id, ad_id, ad_name_current, ad_status)
          VALUES ($1, $2, $3, 'Cross-date native ad', 'ACTIVE')`,
         [businessId, ACCOUNT, scopeId],
       );
-      const insertCut = async (snapshotDate: string, hash: string) =>
-        client.query(
-          `INSERT INTO engine_v3_ad_decision_snapshots_daily (
-             business_id, provider_account_id, ad_id, creative_id, as_of_date,
-             computed_at, engine_version, label, authorized_action, reason,
-             decision_hash, roas, spend, effective_target_roas
-           ) VALUES (
-             $1, $2, $3, $4, $5::date, NOW(), 'meta-v3', 'cut', 'cut',
-             'Native ad remains below the configured commercial floor.',
-             $6, 0.5, 100, 2.0
-           )`,
-          [businessId, ACCOUNT, scopeId, `creative-${scopeId}`, snapshotDate, hash],
-        );
+      const insertCut = (snapshotDate: string, hash: string) =>
+        insertNativeCutFixture(client, {
+          scopeId,
+          snapshotDate,
+          decisionHash: hash,
+          reason: "Native ad remains below the configured commercial floor.",
+        });
 
       await insertCut(yesterday, "a".repeat(64));
       const first = await client.query(NATIVE_AD_PAUSE_PROJECTION_SQL, [

@@ -68,7 +68,7 @@ describe("held-verdict authority release epoch contract", () => {
       "v3-2026-09-21-role-held-verdict-preservation",
     );
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
-      "v3-ad-2026-09-22-meta-config-economics-shadow",
+      "v3-ad-2026-09-23-verified-coverage-freshness-shadow",
     );
     /*
       ROUND 9 ITEM 10. These three had drifted a full version behind the
@@ -95,7 +95,7 @@ describe("held-verdict authority release epoch contract", () => {
       "engine-v3-canonical-evaluation.v9",
     );
     expect(AD_DECISION_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-ad-evaluation.v12",
+      "engine-v3-canonical-ad-evaluation.v13",
     );
     expect(NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION).toBe(
       "v3-ad-2026-07-15-commercial-stop-loss-shadow",

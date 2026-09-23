@@ -5969,14 +5969,14 @@ export async function listMetaRawSnapshotsForRun(input: {
   // which is exactly how the two layers divide. The legacy arm is restricted to
   // `content_key IS NULL` so a new row can never be counted twice.
   return (sql`
-    WITH resume_authority AS (
+    WITH latest_receipt AS (
       -- Exactly ONE row per page. Receipts are append-only and deliberately
       -- retain every observation instant for point-in-time, so a retried page
       -- has two receipts and a superseded partition has a third — and resume
       -- validation rejects a duplicate page_index outright, which would break
       -- restore on exactly the runs that needed it most.
       --
-      -- DISTINCT ON keeps the newest live receipt per page. The full timeline is
+      -- DISTINCT ON keeps the newest receipt event per page. The full timeline is
       -- untouched: this narrows the RESUME view, not the evidence.
       SELECT DISTINCT ON (receipt.page_index)
         receipt.snapshot_id,
@@ -5991,9 +5991,13 @@ export async function listMetaRawSnapshotsForRun(input: {
       WHERE receipt.partition_id = ${input.partitionId}::uuid
         AND receipt.run_id = ${input.runId}
         AND receipt.endpoint_name = ${input.endpointName}
-        -- A superseded page is retired evidence, not resumable work.
-        AND receipt.status <> 'superseded'
       ORDER BY receipt.page_index, receipt.observed_at DESC, receipt.id DESC
+    ), resume_authority AS (
+      -- A superseded receipt retires the page. Choose the latest event first:
+      -- filtering it inside latest_receipt resurrects an older fetched event
+      -- after freshStart deletes the checkpoint, then every retry reports an
+      -- orphan raw generation even though that generation was retired.
+      SELECT * FROM latest_receipt WHERE status <> 'superseded'
     )
     SELECT
       snapshot.id,
@@ -6023,6 +6027,7 @@ export async function listMetaRawSnapshotsForRun(input: {
       AND legacy.partition_id = ${input.partitionId}::uuid
       AND legacy.run_id = ${input.runId}
       AND legacy.endpoint_name = ${input.endpointName}
+      AND legacy.status <> 'superseded'
     ORDER BY fetched_at ASC, id ASC
   ` as unknown) as Array<{
     id: string;

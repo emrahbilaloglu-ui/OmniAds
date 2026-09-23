@@ -3837,6 +3837,24 @@ async function main() {
     );
 
     /*
+      Freshness authority is the exact finalized/published account-day slice,
+      not MAX(updated_at) on an Ad row. Execute the CTE imported from the
+      production hydration query against adversarial PostgreSQL lineage and
+      pin both its fail-closed choices and the D099 30-second statement cap.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "lib",
+        "creative-decision-engine",
+        "data-source-coverage-freshness.db.test.ts",
+      ),
+      "Native ad source coverage freshness DB seam check",
+      14,
+    );
+
+    /*
       The REPAIR half, and its readback verifier.
 
       Forward-only accrual is not closure: the engine's fatigue verdict needs

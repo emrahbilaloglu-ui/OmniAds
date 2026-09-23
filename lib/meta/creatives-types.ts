@@ -462,6 +462,29 @@ export interface CreativeIdentityFields {
   effective_object_story_id?: string | null;
   post_id?: string | null;
   associated_ads_count: number;
+  /**
+   * Every provider Ad a GROUPED row stands for.
+   *
+   * `creative_id` and `real_ad_id` each name ONE member — the first the
+   * grouping met, which for a warehouse read is the earliest day. A
+   * creative-grain row routinely represents several Ads, and an Ad whose
+   * creative was replaced inside the window (common for catalog ads)
+   * represents several creatives, so the single id can name a creative no
+   * current decision was ever made for. Decision lookups read these lists
+   * instead. Written by `groupRows`, and for a persisted creative day read back
+   * from that day's own payload; ABSENT on an ungrouped row, whose
+   * `real_ad_id` / `creative_id` already are its whole identity.
+   */
+  source_ad_ids?: string[];
+  /**
+   * True only when `source_ad_ids` names EVERY member Ad, so an Ad missing
+   * from it is known not to be a member. False when some member's Ads were not
+   * recorded — a creative day persisted before this list existed carries only
+   * its first member's Ad.
+   */
+  source_ad_ids_complete?: boolean;
+  /** Every creative id a member of this grouped row carried. */
+  source_creative_ids?: string[];
   account_id: string;
   account_name: string | null;
   campaign_id: string | null;
@@ -471,6 +494,56 @@ export interface CreativeIdentityFields {
   currency: string | null;
   name: string;
   launch_date: string;
+}
+
+export type CreativeSourceIdentityFields = Required<
+  Pick<
+    CreativeIdentityFields,
+    "source_ad_ids" | "source_ad_ids_complete" | "source_creative_ids"
+  >
+>;
+
+function uniqueNonBlankIds(values: readonly unknown[]): string[] {
+  const ids: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const id = value.trim();
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * The source identities a row (or a stored payload) carries, or `null` when it
+ * carries none — an ungrouped row, or a payload written before the lists
+ * existed. Both lists must be present; one without the other is not a
+ * statement about the group. A list holding anything but non-blank ids cannot
+ * vouch for completeness, so it reads as incomplete rather than exact.
+ *
+ * Lives in the types module for the same reason as the presence helpers below:
+ * the grouping, the API row builders, the warehouse reader and the page adapter
+ * all read it, and the page adapter runs in the browser.
+ */
+export function readCreativeSourceIdentity(
+  value: unknown,
+): CreativeSourceIdentityFields | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const adIds = record.source_ad_ids;
+  const creativeIds = record.source_creative_ids;
+  if (!Array.isArray(adIds) || !Array.isArray(creativeIds)) return null;
+  const sourceAdIds = uniqueNonBlankIds(adIds);
+  const everyAdIdReadable = adIds.every(
+    (id) => typeof id === "string" && id.trim().length > 0,
+  );
+  return {
+    source_ad_ids: sourceAdIds,
+    source_ad_ids_complete:
+      record.source_ad_ids_complete === true &&
+      everyAdIdReadable &&
+      sourceAdIds.length > 0,
+    source_creative_ids: uniqueNonBlankIds(creativeIds),
+  };
 }
 
 export interface CreativeCopyFields {

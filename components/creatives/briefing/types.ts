@@ -19,6 +19,7 @@ import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
 import type { MetaCreativeAssessmentPresentation } from "@/lib/meta/creative-assessment";
 import type {
   MetaCanonicalDecision,
+  MetaDecisionSourceDegradation,
 } from "@/lib/meta/decisions-workspace-contract";
 // Type-only imports so the response interface can carry the production-default
 // decisionCenter snapshot and its server-supplied row decision. UI components
@@ -189,7 +190,15 @@ export interface BriefingCanonicalNativeAdDecision {
 
 export interface BriefingCanonicalInventorySource {
   contractVersion: "briefing-canonical-native-ad.v1";
-  status: "available" | "unavailable";
+  /**
+   * `degraded` (D102): the latest native run FAILED and `generation` is the
+   * retained same-epoch last success, served read-only. It is deliberately not
+   * `available`, so a consumer that switches on `available` treats it as not
+   * current; one that switches only on `unavailable` would show the stripped
+   * decisions unmarked. `unavailableReason` then names the latest run's fault and
+   * `degradation` names both runs.
+   */
+  status: "available" | "degraded" | "unavailable";
   unavailableReason: string | null;
   generation: {
     jobRunId: string;
@@ -200,6 +209,8 @@ export interface BriefingCanonicalInventorySource {
     authorityStatus?: "native_exact" | "demo_synthetic_review_only";
   } | null;
   itemCount: number;
+  /** Present only with `status: "degraded"`; absent means not degraded. */
+  degradation?: MetaDecisionSourceDegradation | null;
 }
 
 export interface BriefingPlacement {
@@ -449,6 +460,13 @@ export interface CreativesBriefingResponse {
   source?: {
     dataSource?: string | null;
     asOf?: string | null;
+    /** The date range the metric rows were read for. Not a decision date. */
+    metricWindow?: { start: string; end: string } | null;
+    /**
+     * The point-in-time bound the decision read was asked for. Null means the
+     * current generation. The day actually served is `generation.asOfDate`.
+     */
+    decisionAsOfRequested?: string | null;
     dataHealth?: DataHealth | null;
     accountProfile?: AccountDecisionProfile | null;
     measurementReconciliation?: CreativesBriefingMeasurementReconciliation | null;

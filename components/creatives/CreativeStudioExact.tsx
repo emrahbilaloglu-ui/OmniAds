@@ -22,6 +22,7 @@ import type {
   CreativeStudioInboxColumn,
   CreativeStudioLandingModel,
   CreativeStudioReadItem,
+  CreativeStudioRetainedDecisionGeneration,
   CreativeStudioTabId,
   CreativeStudioTone,
 } from "./creative-studio-exact-types";
@@ -465,6 +466,38 @@ function modelMessage(
   }
 }
 
+/**
+ * D102. The two days a retained-generation notice names, or null when either
+ * is missing: a notice that cannot say which run it shows and which one failed
+ * must not claim either.
+ */
+function readRetainedDecisionGeneration(
+  value: CreativeStudioRetainedDecisionGeneration | null | undefined,
+): CreativeStudioRetainedDecisionGeneration | null {
+  const servedAsOfDate = value?.servedAsOfDate?.trim() ?? "";
+  const failedRunAsOfDate = value?.failedRunAsOfDate?.trim() ?? "";
+  return servedAsOfDate && failedRunAsOfDate
+    ? { servedAsOfDate, failedRunAsOfDate }
+    : null;
+}
+
+/**
+ * One sentence for Assets and Inbox, so both describe a retained generation in
+ * the same words: which run failed, which run is shown, and that nothing shown
+ * can be applied. The served day is only ever named beside the failed one.
+ */
+function retainedDecisionGenerationSentence(
+  generation: CreativeStudioRetainedDecisionGeneration,
+  noun: "recommendation" | "decision",
+): string {
+  return (
+    `The latest ${noun} run (as of ${generation.failedRunAsOfDate}) failed. ` +
+    `These ${noun}s are from the last successful run (as of ` +
+    `${generation.servedAsOfDate}), read-only, and cannot be applied until ` +
+    "a current run succeeds."
+  );
+}
+
 function metricDirectionLabel(direction: MetricDirection): string {
   if (direction > 0) return "↑";
   if (direction < 0) return "↓";
@@ -807,7 +840,19 @@ function AssetsView({
   model: CreativeStudioAssetsModel | undefined;
 }) {
   const rows = model?.rows ?? [];
-  const decisionDataUnavailable = model?.decisionReadState === "unavailable";
+  const retainedGeneration =
+    model?.decisionReadState === "degraded"
+      ? readRetainedDecisionGeneration(model.decisionRetainedGeneration)
+      : null;
+  // A degraded read that cannot name both of its runs says nothing it can
+  // stand behind, so it reads as unavailable rather than as current.
+  const decisionDataUnavailable =
+    model?.decisionReadState === "unavailable" ||
+    (model?.decisionReadState === "degraded" && !retainedGeneration);
+  const decisionAsOfDate =
+    model?.decisionReadState === "available"
+      ? model.decisionAsOfDate?.trim() || null
+      : null;
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [metricSet, setMetricSet] = useState<MetricSetId>("performance");
   const [customMetrics, setCustomMetrics] = useState<CreativeAssetMetricId[]>([
@@ -1044,6 +1089,35 @@ function AssetsView({
         >
           Recommendations are temporarily unavailable. Creative performance is
           still shown below.
+        </p>
+      ) : retainedGeneration ? (
+        // D102: real recommendations, from a run that is no longer the latest.
+        // Its day is never offered as "as of" on its own.
+        <p
+          className={styles.decisionAvailabilityNotice}
+          data-creative-decision-availability="degraded"
+          data-creative-decision-failed-run-as-of={
+            retainedGeneration.failedRunAsOfDate
+          }
+          data-creative-decision-retained-as-of={
+            retainedGeneration.servedAsOfDate
+          }
+          role="note"
+        >
+          {retainedDecisionGenerationSentence(
+            retainedGeneration,
+            "recommendation",
+          )}{" "}
+          Performance figures cover the selected date range.
+        </p>
+      ) : decisionAsOfDate ? (
+        <p
+          className={styles.decisionAvailabilityNotice}
+          data-creative-decision-as-of={decisionAsOfDate}
+          role="note"
+        >
+          Recommendations as of {decisionAsOfDate}. Performance figures cover
+          the selected date range.
         </p>
       ) : null}
 
@@ -1862,9 +1936,26 @@ function InboxView({ model }: { model: CreativeStudioExactProps["inbox"] }) {
     cards: sourceColumns.get(definition.id)?.cards ?? [],
   }));
   const allEmpty = columns.every((column) => column.cards.length === 0);
+  // Only a served read can be a retained one; a loading or failed board has
+  // no run to name.
+  const retainedGeneration =
+    model?.state === "ready" || model?.state === "empty"
+      ? readRetainedDecisionGeneration(model.retainedGeneration)
+      : null;
 
   return (
     <>
+      {retainedGeneration ? (
+        <p
+          className={styles.decisionAvailabilityNotice}
+          data-inbox-decision-availability="degraded"
+          data-inbox-failed-run-as-of={retainedGeneration.failedRunAsOfDate}
+          data-inbox-retained-as-of={retainedGeneration.servedAsOfDate}
+          role="note"
+        >
+          {retainedDecisionGenerationSentence(retainedGeneration, "decision")}
+        </p>
+      ) : null}
       {allEmpty ? (
         <div
           className={styles.readEmpty}

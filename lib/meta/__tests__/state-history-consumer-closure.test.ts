@@ -642,6 +642,22 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     category: "read-only-audit",
     count: 2,
   },
+  /*
+    Decisions -> Creatives historical acceptance (2026-09-23). The core has
+    three cutoff-capped point reads for campaign/adset/ad status plus two
+    explanatory references; the runner has one explanatory reference. It is
+    read-only, guards absence through presence='present', and serves no route.
+  */
+  {
+    file: "scripts/creative-decision-center/meta-decisions-creatives-acceptance-core.ts",
+    category: "read-only-audit",
+    count: 5,
+  },
+  {
+    file: "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts",
+    category: "comment-only",
+    count: 1,
+  },
 ];
 const LEDGER = new Map(
   STATE_HISTORY_REFERENCE_LEDGER.map((entry) => [entry.file, entry]),

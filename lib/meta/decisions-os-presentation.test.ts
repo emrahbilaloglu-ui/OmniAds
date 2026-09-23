@@ -5,6 +5,7 @@ import type {
   MetaDecisionBuyerAction,
   MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
+import { META_DECISION_SOURCE_DEGRADED_REASON } from "@/lib/meta/decisions-workspace-contract";
 import type { MetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-contract";
 import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
@@ -141,7 +142,7 @@ function canonicalDecision(input: {
       },
     },
     classification: {
-      overlayVersion: "meta-decisions-classification-overlay.v4",
+      overlayVersion: "meta-decisions-classification-overlay.v5",
       queueSection: "creative_rotation",
       lifecycleRole: {
         value: input.role ?? "main",
@@ -1492,6 +1493,93 @@ describe("buildMetaOsDecisionsPresentation", () => {
     });
   });
 
+  it("moves retained-generation Cuts out of Action Now without losing their verdict", () => {
+    const cut = canonicalDecision({
+      id: "retained-native-cut",
+      adId: "120000000000000097",
+      buyerAction: "cut",
+    });
+    cut.identityGrain = "ad";
+    cut.sourceAuthority = {
+      status: "native_exact",
+      actionEligible: false,
+      reviewOnlyReason: "native_latest_job_failed_last_successful_generation_is_not_current",
+      snapshotId: cut.sourceSnapshotId,
+      evaluationId: "10000000-0000-4000-8000-000000000097",
+      inputHash: "a".repeat(64),
+      decisionHash: "b".repeat(64),
+      providerAccountRefId: "30000000-0000-4000-8000-000000000001",
+      engineVersion: "v3-ad-test",
+      realAdId: "120000000000000097",
+      authorizedAction: null,
+      jobRunId: "20000000-0000-4000-8000-000000000001",
+      executionReadiness: "decision_not_authorized",
+      decisionFreshness: {
+        status: "fresh",
+        computedAt: cut.sourceDecision.computedAt,
+        ageHours: 1,
+        maxAgeHours: 12,
+      },
+    };
+    const model = readModel([cut]);
+    model.source.authority = "native_ad";
+    model.source.table = "engine_v3_ad_decision_snapshots_daily";
+    model.source.status = "unavailable";
+    model.source.fallbackReason = "native_latest_job_failed";
+    model.source.degraded = {
+      reason: META_DECISION_SOURCE_DEGRADED_REASON,
+      servedGeneration: {
+        jobRunId: "20000000-0000-4000-8000-000000000001",
+        asOfDate: "2026-07-10",
+      },
+      latestTerminalRun: {
+        jobRunId: "20000000-0000-4000-8000-000000000002",
+        status: "failed",
+        asOfDate: "2026-07-11",
+      },
+    };
+    model.queue.adCandidates = {
+      selectionVersion: "meta-decisions-ad-candidate-selection.v2",
+      limit: 60,
+      preCapCount: 1,
+      eligiblePreCapCount: 1,
+      selectedCount: 1,
+      stateCounts: {
+        act: { preCapCount: 1, selectedCount: 1 },
+        blocked: { preCapCount: 0, selectedCount: 0 },
+        monitor: { preCapCount: 0, selectedCount: 0 },
+      },
+      omittedAmbiguousIdentity: 0,
+      omittedWithoutVerifiedAdId: 0,
+      omittedNotApplicable: 0,
+      items: [cut],
+    };
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: model,
+      currency: "EUR",
+    });
+
+    expect(result.ads).toMatchObject({
+      actCount: 0,
+      blockedCount: 1,
+      statePreCapCounts: { act: 0, blocked: 1, monitor: 0 },
+    });
+    expect(result.ads.items[0]).toMatchObject({
+      lane: "blocked",
+      rawLabel: "cut",
+      publishedLabel: "cut",
+      action: {
+        code: "review_retained_decision",
+        intent: "review",
+        providerMutation: null,
+      },
+    });
+  });
+
   it("exposes legacy fallback as degraded with the exact read-model reason", () => {
     const model = readModel([
       canonicalDecision({
@@ -2378,6 +2466,63 @@ describe("held verdicts on the served Ad decision", () => {
       expect(item.action.intent).not.toBe("execute");
       expect(item.heldResolution).not.toBeNull();
     }
+  });
+
+  it("keeps a healthy role-held Cut urgent but treats a retained one as review only", () => {
+    const decision = heldCanonicalDecision({
+      id: "role-held-cut-retained",
+      adId: "120000000000000506",
+      heldAction: "cut",
+      publishedLabel: "test_more",
+      authorityBlocker: "campaign_context",
+      legacyBuyerAction: "cut",
+    });
+    const model = nativeReadModel([decision]);
+    const build = () =>
+      buildMetaOsDecisionsPresentation({
+        actionNow: [],
+        watching: [],
+        nonSales: [],
+        decisionReadModel: model,
+        currency: "EUR",
+      });
+    expect(build().ads.items[0]).toMatchObject({
+      lane: "act",
+      heldAction: "cut",
+      action: { code: "apply_cut_manually", providerMutation: null },
+    });
+
+    decision.sourceAuthority!.actionEligible = false;
+    decision.sourceAuthority!.authorizedAction = null;
+    decision.sourceAuthority!.executionReadiness = "decision_not_authorized";
+    model.source.status = "unavailable";
+    model.source.fallbackReason = "native_latest_job_failed";
+    model.source.degraded = {
+      reason: META_DECISION_SOURCE_DEGRADED_REASON,
+      servedGeneration: {
+        jobRunId: "20000000-0000-4000-8000-000000000001",
+        asOfDate: "2026-07-10",
+      },
+      latestTerminalRun: {
+        jobRunId: "20000000-0000-4000-8000-000000000002",
+        status: "failed",
+        asOfDate: "2026-07-11",
+      },
+    };
+    const degraded = build();
+    expect(degraded.ads).toMatchObject({ actCount: 0, blockedCount: 1 });
+    expect(degraded.ads.items[0]).toMatchObject({
+      lane: "blocked",
+      heldAction: "cut",
+      action: {
+        code: "review_retained_decision",
+        label: "Review retained decision",
+        intent: "review",
+        providerMutation: null,
+      },
+      resolution: { code: "apply_cut_manually" },
+      heldResolution: { code: "apply_cut_manually" },
+    });
   });
 
   it("refuses a provider mutation for a held verdict a payload claims is actionable", () => {

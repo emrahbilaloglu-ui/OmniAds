@@ -2746,6 +2746,21 @@ export function toNativeSnapshotPayload(input: {
       })
     : null;
   const sourceCoverageBlocked = sourceCoverageFailure !== null;
+  // The first authority blocker remains stable, but a later D101 failure must
+  // survive as typed evidence. Otherwise a role-held Cut can be presented as
+  // manually ready even though its source coverage is incomplete.
+  const badges =
+    sourceCoverageBlocked &&
+    !decision.badges.some((badge) => badge.type === "source_coverage_unverified")
+      ? [
+          ...decision.badges,
+          {
+            type: "source_coverage_unverified" as const,
+            label: "Verified daily source coverage incomplete",
+            severity: "warning" as const,
+          },
+        ]
+      : decision.badges;
   const authorityBlocker: DecisionAuthorityBlocker | null =
     decision.authorityBlocker ??
     (sourceCoverageBlocked
@@ -2782,29 +2797,30 @@ export function toNativeSnapshotPayload(input: {
     truth_source: decision.truthSource,
     effective_target_roas: decision.effectiveTargetRoas,
     ratio_to_target: decision.ratioToTarget,
-    badges: decision.badges,
+    badges,
     /*
       The REASON carries it too, not only the enum. A blocker code tells a
       surface which branch to render; the operator reading the decision needs to
       know which field was unobserved and as of when, and that is not
       reconstructable from the code alone.
     */
-    reason:
-      sourceCoverageBlocked && decision.authorityBlocker === null
-        ? `[Verified daily source coverage does not authorize a hard action - ${sourceCoverageFailure}] ${decision.reason}`
-        : configSourceBlocked
-          ? !ad.configAuthority.currentValueEvidence.observed
-            ? `[Config source not established for the evaluation day - ${
-                ad.configAuthority.currentValueEvidence.weakestTier ??
-                "no receipt"
-              } as of ${
-                ad.configAuthority.currentConfigDay ?? "no receipt day"
-              }] ${decision.reason}`
-            : `[Decision economics include ${
-                ad.configAuthority.decisionEconomics
-                  .unverifiedEconomicDayCount
-              } unverified economic day(s)] ${decision.reason}`
-          : decision.reason,
+    reason: [
+      sourceCoverageBlocked
+        ? `[Verified daily source coverage does not authorize a hard action - ${sourceCoverageFailure}]`
+        : null,
+      configSourceBlocked
+        ? !ad.configAuthority.currentValueEvidence.observed
+          ? `[Config source not established for the evaluation day - ${
+              ad.configAuthority.currentValueEvidence.weakestTier ?? "no receipt"
+            } as of ${ad.configAuthority.currentConfigDay ?? "no receipt day"}]`
+          : `[Decision economics include ${
+              ad.configAuthority.decisionEconomics.unverifiedEconomicDayCount
+            } unverified economic day(s)]`
+        : null,
+      decision.reason,
+    ]
+      .filter((part): part is string => Boolean(part))
+      .join(" "),
     spend: ad.spend,
     purchases: ad.purchases,
     roas: ad.roas,

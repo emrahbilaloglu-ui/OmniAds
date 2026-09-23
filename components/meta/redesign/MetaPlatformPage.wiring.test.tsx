@@ -1368,6 +1368,12 @@ describe("Decisions deep-link compatibility matrix", () => {
         pendingOsDecision({
           heldAction: "refresh",
           heldResolution: { code: "commercial_target_missing" },
+          metrics: {
+            ...pendingOsDecision().metrics,
+            spend: 100,
+            purchases: 2,
+            roas: 1.5,
+          },
         } as never),
       ]),
     } as never;
@@ -1404,6 +1410,10 @@ describe("Decisions deep-link compatibility matrix", () => {
     // published outcome — all three on screen together.
     expect(text).toContain("Recommendation awaiting review: Refresh creative");
     expect(text).toContain("review this Refresh creative recommendation again");
+    expect(text).toContain("Decision · 28d");
+    expect(text).toContain(
+      "Click-to-purchase funnel · decision 28d · purchases only",
+    );
     expect(
       dom.querySelector("[data-mobile-evidence-held-next-step]"),
     ).not.toBeNull();

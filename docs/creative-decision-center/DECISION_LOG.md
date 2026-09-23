@@ -1290,6 +1290,31 @@ Rejected alternatives:
   confidence-only cap can still starve an urgent or blocked lane on a larger
   account.
 
+### D035 follow-up — typed held verdicts precede ordinary diagnoses (2026-09-23)
+
+The exact-Ad candidate selector now mints
+`meta-decisions-ad-candidate-selection.v3`. Within a blocked state, a typed
+held Cut, Scale, or Refresh ranks after policy and delivery repairs but before
+ordinary `diagnose_data`, regardless of the held verdict's soft published
+label. It reads only `classification.heldAction` already produced by the
+server; it changes neither `decisionState` nor `buyerAction`, authorization,
+resolver thresholds, or provider-write eligibility. Previously served v2
+envelopes remain readable.
+
+This ordering is required by the Grandmix 2026-09-23 native generation: the
+first 60 served 50 blocked and 10 monitoring decisions with no held Cut, while
+expanding to 120 served 80 decisions including eight held Cuts. All eight
+Cuts were already present in the generation and currently active. Their
+published `test_more`/`keep` labels sorted behind the 50 blocked rows selected
+by the old comparator. The fixture tests the same starvation mechanism with
+ordinary diagnoses and all three typed held action kinds.
+The OS presentation preserves the v3 server-selected sequence rather than
+re-sorting each bounded response; otherwise a 120-row response could move new
+rows ahead of the first 60. Section-only compatibility envelopes retain the
+older OS-side lane selection. The first 60 of an expanded response must be
+identical by decision ID, and the lane-count and authority receipts remain
+unchanged.
+
 ## D036 - Safety-Dominant Hard-Action Hysteresis
 
 Decision: hard-action hysteresis is asymmetric. Exiting a `scale`, `cut`, or
@@ -9756,6 +9781,16 @@ an old complete-looking day with a fake fresh age, and post-cutoff clocks. The
 production hydration plan must remain below D099's 30-second statement limit.
 Current live Cut rows still require independent config/economic and role
 authority; removing a false freshness hold does not authorize them.
+
+**Combined hold correction.** The emission check can discover incomplete D101
+coverage after the engine has already recorded `campaign_context` as the first
+authority blocker. The first blocker remains unchanged, but the current-epoch
+snapshot now carries `source_coverage_unverified` as typed secondary evidence
+and names the failed coverage check in its reason. A role-held Cut with this
+badge resolves to a source-data hold, not `apply_cut_manually` or the Act lane.
+The same snapshot records config and coverage gaps together when both exist.
+Older snapshots retain their original interpretation and cannot gain authority
+from this correction.
 
 **Rollback.** Restore the 2026-09-22 epoch and `.v12` evaluation together, keep
 all `.v13` snapshots under their own key, and never reinterpret their coverage

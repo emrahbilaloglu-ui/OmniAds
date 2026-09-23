@@ -40,6 +40,89 @@ describe("projectMetaDecisionSemantics", () => {
     },
   );
 
+  it("names both missing source coverage and confirmation for a pending held Cut", () => {
+    const projection = projectMetaDecisionSemantics({
+      legacyBuyerAction: "protect",
+      sourceLabel: "keep",
+      lifecycleRole: "main",
+      badgeCodes: ["pending_transition"],
+      heldAction: "cut",
+      authorityBlocker: "source_freshness",
+      configAuthorityVerified: false,
+    });
+
+    expect(projection).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: "cut",
+      resolution: {
+        code: "await_decision_confirmation",
+        category: "system",
+        owner: "system",
+      },
+    });
+    expect(projection.resolution?.nextStep).toContain("verified daily source coverage");
+    expect(projection.resolution?.nextStep).toContain("consecutive engine confirmation");
+    expect(projection.resolution?.nextStep).toContain("every economic day");
+    expect(projection.resolution?.nextStep).toContain("No provider action is authorized");
+  });
+
+  it("does not hide a verified config gap beneath a source-freshness hold", () => {
+    const projection = projectMetaDecisionSemantics({
+      legacyBuyerAction: "cut",
+      sourceLabel: "cut",
+      lifecycleRole: "main",
+      badgeCodes: [],
+      heldAction: "cut",
+      authorityBlocker: "source_freshness",
+      configAuthorityVerified: false,
+    });
+
+    expect(projection.resolution).toMatchObject({
+      code: "complete_hard_action_evidence",
+      owner: "system",
+    });
+    expect(projection.resolution?.nextStep).toContain("every economic day");
+    expect(projection.resolution?.nextStep).toContain("Fresh, verified daily source coverage");
+  });
+
+  it("keeps a source-only hold assigned to data freshness", () => {
+    const projection = projectMetaDecisionSemantics({
+      legacyBuyerAction: "cut",
+      sourceLabel: "cut",
+      lifecycleRole: "main",
+      badgeCodes: [],
+      heldAction: "cut",
+      authorityBlocker: "source_freshness",
+      configAuthorityVerified: true,
+    });
+
+    expect(projection.resolution).toMatchObject({
+      code: "refresh_decision_data",
+      category: "data",
+      owner: "integration",
+    });
+  });
+
+  it("does not offer a manual Cut when role is first but daily source coverage also failed", () => {
+    const projection = projectMetaDecisionSemantics({
+      legacyBuyerAction: "cut",
+      sourceLabel: "keep",
+      lifecycleRole: "label_needed",
+      badgeCodes: ["campaign_context_unresolved", "source_coverage_unverified"],
+      heldAction: "cut",
+      authorityBlocker: "campaign_context",
+      configAuthorityVerified: true,
+    });
+    expect(projection).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: "cut",
+      resolution: { code: "refresh_decision_data", owner: "integration" },
+    });
+    expect(projection.resolution?.nextStep).toContain("fresh, complete evidence window");
+  });
+
   it("uses the persisted engine authority blocker before secondary evidence on a held verdict", () => {
     expect(
       projectMetaDecisionSemantics({

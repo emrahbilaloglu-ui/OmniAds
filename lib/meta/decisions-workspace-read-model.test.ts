@@ -1799,7 +1799,7 @@ describe("Meta Decisions workspace canonical read model", () => {
     });
 
     expect(model.queue.adCandidates).toMatchObject({
-      selectionVersion: "meta-decisions-ad-candidate-selection.v2",
+      selectionVersion: "meta-decisions-ad-candidate-selection.v3",
       eligiblePreCapCount: 101,
       selectedCount: 60,
       stateCounts: {
@@ -2009,6 +2009,101 @@ describe("Meta Decisions workspace canonical read model", () => {
         .slice(20, 30)
         .every((item) => item.classification.decisionState === "monitor"),
     ).toBe(true);
+  });
+
+  it("keeps typed held verdicts ahead of ordinary diagnoses at the 60-row cap", () => {
+    const adId = (index: number) =>
+      `120001${String(index + 1).padStart(12, "0")}`;
+    const ordinaryDiagnoses = Array.from({ length: 50 }, (_, index) =>
+      nativeSnapshot(adId(index), {
+        label: "diagnose",
+        raw_label: "diagnose",
+        authorized_action: null,
+        confidence: 95,
+      }),
+    );
+    const heldTypes = [
+      ...Array.from({ length: 8 }, () => "cut" as const),
+      "scale" as const,
+      "refresh" as const,
+    ];
+    const held = heldTypes.map((action, index) =>
+      nativeSnapshot(adId(50 + index), {
+        label: action === "cut" ? "test_more" : "keep",
+        raw_label: action === "cut" ? "test_more" : "keep",
+        pre_authority_label: action,
+        authority_blocker: "profile_hard_action_ineligible",
+        blocked_action_type: action,
+        authorized_action: null,
+        confidence: 50,
+        spend: 100 + index,
+      }),
+    );
+    const monitoring = Array.from({ length: 20 }, (_, index) =>
+      nativeSnapshot(adId(60 + index), {
+        label: "keep",
+        raw_label: "keep",
+        authorized_action: null,
+      }),
+    );
+    const rows = [...ordinaryDiagnoses, ...held, ...monitoring];
+    const first = nativeModel(rows);
+    const expanded = nativeModel(rows, { adCandidateLimit: 120 });
+    const firstItems = first.queue.adCandidates?.items ?? [];
+    const expandedItems = expanded.queue.adCandidates?.items ?? [];
+    const selectedHeld = firstItems.filter(
+      (item) => item.classification.heldAction !== null,
+    );
+
+    expect(first.queue.adCandidates).toMatchObject({
+      selectionVersion: "meta-decisions-ad-candidate-selection.v3",
+      limit: 60,
+      eligiblePreCapCount: 80,
+      selectedCount: 60,
+      stateCounts: {
+        blocked: { preCapCount: 60, selectedCount: 50 },
+        monitor: { preCapCount: 20, selectedCount: 10 },
+      },
+    });
+    expect(selectedHeld).toHaveLength(10);
+    expect(
+      selectedHeld.map((item) => item.classification.heldAction).sort(),
+    ).toEqual(
+      ["cut", "cut", "cut", "cut", "cut", "cut", "cut", "cut", "refresh", "scale"],
+    );
+    expect(
+      selectedHeld.every((item) => item.classification.buyerAction === null),
+    ).toBe(true);
+    expect(
+      selectedHeld.every((item) => item.sourceAuthority?.actionEligible === false),
+    ).toBe(true);
+    expect(expanded.queue.adCandidates).toMatchObject({
+      limit: 120,
+      eligiblePreCapCount: 80,
+      selectedCount: 80,
+    });
+    expect(expandedItems.slice(0, 60).map((item) => item.decisionId)).toEqual(
+      firstItems.map((item) => item.decisionId),
+    );
+
+    const present = (model: ReturnType<typeof nativeModel>) =>
+      buildMetaOsDecisionsPresentation({
+        actionNow: [],
+        watching: [],
+        nonSales: [],
+        decisionReadModel: model,
+        currency: "USD",
+      });
+    const firstOs = present(first);
+    const expandedOs = present(expanded);
+    expect(
+      firstOs.ads.items.filter((item) => item.heldAction !== null),
+    ).toHaveLength(10);
+    expect(
+      expandedOs.ads.items.slice(0, 60).map((item) => item.decisionId),
+    ).toEqual(
+      firstOs.ads.items.map((item) => item.decisionId),
+    );
   });
 
   it("serves a held cut as blocked resolution without erasing its assessment", () => {
@@ -4988,6 +5083,36 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
     ]);
     const item = model.queue.adCandidates?.items[0];
     expect(item?.classification.resolution?.code).toBe("apply_cut_manually");
+  });
+
+  it("keeps a role-held Cut out of the action lane when its later D101 check failed", () => {
+    const model = nativeModel([
+      roleHeldCutRow("120000000000000923", {
+        config_authority_verified: true,
+        config_evidence_lineage: completeConfigLineage(),
+        badges: [{
+          type: "source_coverage_unverified",
+          label: "Verified daily source coverage incomplete",
+          severity: "warning",
+        }],
+      }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.sourceDecision.authorityBlocker).toBe("campaign_context");
+    expect(item?.classification).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: "cut",
+      resolution: { code: "refresh_decision_data" },
+    });
+    expect(item?.classification.blockers.map((blocker) => blocker.code)).toContain(
+      "source_coverage_unverified",
+    );
+    if (!item) throw new Error("Expected current native decision");
+    expect(adAction(item, { scale: true, cut: true, refresh: true })).toMatchObject({
+      lane: "blocked",
+      action: { intent: "review", providerMutation: null },
+    });
   });
 
   it("NEGATIVE: a stored TRUE without coherent lineage is downgraded before presentation", () => {

@@ -5,6 +5,7 @@ import type {
   CreativeEvidenceWindowExactFact,
   CreativeEvidenceWindowExactFunnelStep,
   CreativeEvidenceWindowExactPlacement,
+  CreativeEvidenceWindowExactPeriodLabels,
   CreativeEvidenceWindowExactReadNotice,
   CreativeEvidenceWindowExactTone,
   CreativeEvidenceWindowExactViewModel,
@@ -135,9 +136,17 @@ export interface CreativeEvidenceWindowExactAdRow {
   roas: number | null;
   impressions: number | null;
   linkClicks: number | null;
+  /** True only when every contributing ad day supplied link clicks. */
+  linkClicksObserved?: boolean;
   addToCart: number | null;
+  /** True only when every contributing ad day supplied add-to-cart actions. */
+  addToCartObserved?: boolean;
   purchases: number | null;
+  /** True only when every contributing ad day supplied purchases. */
+  purchasesObserved?: boolean;
   thumbstop: number | null;
+  /** True only when the provider-backed video numerator and denominator were verified. */
+  thumbstopObserved?: boolean;
   launchDate: string | null;
 }
 
@@ -154,10 +163,10 @@ export interface CreativeEvidenceWindowExactSeriesPoint {
   linkCtr: number | null;
   /**
    * All-clicks CTR, percent, as the provider stored it on `meta_ad_daily.ctr`.
-   * The design captions this card plainly "CTR · 28d" (design file 3052), and
-   * this is the measure that caption names — the same clicks-over-impressions
-   * definition the engine's own `ctr_28d` uses (lib/meta/calibration.ts:353),
-   * so this trail and the decision's own CTR speak about one number.
+   * This is the measure named by the generic CTR caption, over the selected
+   * helper-read dates. It uses the same clicks-over-impressions definition as
+   * the engine's `ctr_28d` (lib/meta/calibration.ts:353), but its period may
+   * differ from the decision's 28d window.
    */
   ctr: number | null;
   frequency: number | null;
@@ -177,6 +186,8 @@ export interface CreativeEvidenceWindowExactAdapterInput {
   adRows?: readonly CreativeEvidenceWindowExactAdRow[];
   /** Daily CTR / frequency trail. Undefined means the read has not resolved. */
   adSeries?: CreativeEvidenceWindowExactSeriesPayload | null;
+  /** Exact account-calendar dates sent to both ad-grain helper reads. */
+  helperRange?: { start: string; end: string } | null;
   /**
    * Why `adRows` is undefined, when it is. Omitted behaves exactly as before
    * this field existed (absent === no data), so callers that cannot report a
@@ -398,6 +409,26 @@ function isoDate(value: string | null | undefined): string | null {
   return parsed.toISOString().slice(0, 10);
 }
 
+function exactCalendarDay(value: string | null | undefined): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+    ? value
+    : null;
+}
+
+function selectedPeriodLabel(
+  range: CreativeEvidenceWindowExactAdapterInput["helperRange"],
+): string {
+  const start = exactCalendarDay(range?.start);
+  const end = exactCalendarDay(range?.end);
+  if (!start || !end || start > end) return "selected dates unavailable";
+  // These are provider-account calendar dates. Parsing into the browser's
+  // timezone would move a boundary for some accounts; preserve them verbatim.
+  return `selected ${start}–${end}`;
+}
+
 function formatDecisionFreshness(
   freshness:
     | NonNullable<MetaCanonicalDecision["sourceAuthority"]>["decisionFreshness"]
@@ -473,9 +504,9 @@ function mean(values: readonly number[]): number | null {
 }
 
 /**
- * Percent change of the trailing half of the window against the leading half —
- * the design's "vs 14d baseline" on a 28-day series, computed from the series
- * itself rather than from a second, unserved baseline.
+ * Percent change of the trailing half of the selected window against its
+ * leading half, computed from the served series rather than an unserved
+ * baseline. A seven-day selection therefore does not claim a 14-day baseline.
  */
 function halfWindowDelta(
   values: readonly number[],
@@ -510,11 +541,10 @@ function buildSeriesPair(
   }
   const suffix = adCountSuffix(payload.adCount);
 
-  // The card's caption is the generic "CTR · 28d", so it draws the generic
-  // all-clicks CTR the route serves. Reading `linkCtr` under that caption drew
-  // a flat zero for every creative, because link clicks are not ingested; and
-  // relabelling the card "link CTR" is not available either — the caption is
-  // drawn by the design. No fallback between the two: they are different
+  // The card draws the generic all-clicks CTR the route serves. Reading
+  // `linkCtr` under the generic CTR caption drew
+  // a flat zero for every creative, because link clicks are not ingested.
+  // No fallback between the two: they are different
   // measures and one line must not silently switch between them.
   const ctrValues = payload.points
     .map((point) => finite(point.ctr))
@@ -560,6 +590,23 @@ function sumRows(
     total += value;
   }
   return seen ? total : null;
+}
+
+function sumObservedRows(
+  rows: readonly CreativeEvidenceWindowExactAdRow[],
+  pick: (row: CreativeEvidenceWindowExactAdRow) => number | null,
+  observed: (row: CreativeEvidenceWindowExactAdRow) => boolean | undefined,
+): number | null {
+  if (rows.length === 0) return null;
+  let total = 0;
+  for (const row of rows) {
+    const value = finite(pick(row));
+    // A displayed total or derived rate must cover the entire creative, not
+    // just the ads whose metric happened to be available. Zero is valid here.
+    if (observed(row) !== true || value === null) return null;
+    total += value;
+  }
+  return total;
 }
 
 /**
@@ -687,13 +734,26 @@ function buildFunnel(input: {
 }): CreativeEvidenceWindowExactFunnelStep[] {
   const rows = input.rows ?? [];
   const impressions = sumRows(rows, (row) => row.impressions);
-  const linkClicks = sumRows(rows, (row) => row.linkClicks);
-  const addToCart = sumRows(rows, (row) => row.addToCart);
+  const linkClicks = sumObservedRows(
+    rows,
+    (row) => row.linkClicks,
+    (row) => row.linkClicksObserved,
+  );
+  const addToCart = sumObservedRows(
+    rows,
+    (row) => row.addToCart,
+    (row) => row.addToCartObserved,
+  );
   const purchases =
-    sumRows(rows, (row) => row.purchases) ??
-    finite(
-      input.decision?.metrics.purchases ?? input.canonical?.metrics.purchases,
-    );
+    rows.length > 0
+      ? sumObservedRows(
+          rows,
+          (row) => row.purchases,
+          (row) => row.purchasesObserved,
+        )
+      : finite(
+          input.decision?.metrics.purchases ?? input.canonical?.metrics.purchases,
+        );
   const values = [impressions, linkClicks, addToCart, purchases];
   const subs = [
     "",
@@ -785,7 +845,20 @@ function buildFacts(input: {
 }): CreativeEvidenceWindowExactFact[] {
   const rows = input.rows ?? [];
   const frequency = finite(input.decision?.metrics.frequency);
-  const thumbstop = impressionWeightedRate(rows, (row) => row.thumbstop);
+  // A partial weighted mean would silently drop delivered ads whose video
+  // numerator is missing, so all contributing rows must declare coverage.
+  const thumbstopCoverageComplete =
+    rows.length > 0 &&
+    rows.every((row) => {
+      const impressions = finite(row.impressions);
+      return (
+        impressions !== null &&
+        (impressions <= 0 || row.thumbstopObserved === true)
+      );
+    });
+  const thumbstop = thumbstopCoverageComplete
+    ? impressionWeightedRate(rows, (row) => row.thumbstop)
+    : null;
   const firstSeen = rows
     .map((row) => isoDate(row.launchDate))
     .filter((value): value is string => Boolean(value))
@@ -865,7 +938,7 @@ function buildVerdictSub(input: {
   const parts = [
     buyerFacingCreativeScope(decision),
     ...blockers,
-    buyerFacingCreativeResolution(decision),
+    buyerFacingCreativeResolution(decision, input.canonical),
   ].filter((part): part is string => Boolean(part));
   return [...new Set(parts)].join(" ") || EM_DASH;
 }
@@ -1337,7 +1410,7 @@ function authorityRows(input: {
     `canonical.classification.heldAction !== null`, so a held row's primary
     authority is already `offered: false`. Naming the verdict does not offer it.
   */
-  const heldVerdict = decision ? heldCreativeVerdict(decision) : null;
+  const heldVerdict = decision ? heldCreativeVerdict(decision, canonical) : null;
   const heldActionCode =
     decision?.heldAction ?? canonical?.classification?.heldAction ?? null;
   if (heldVerdict) {
@@ -2168,6 +2241,22 @@ export function buildCreativeEvidenceWindowExactViewModel(
   const seriesUnresolved =
     input.adSeries == null ? pendingToken(input.adSeriesState) : null;
   const series = buildSeriesPair(input.adSeries, seriesUnresolved);
+  const selectedPeriod = selectedPeriodLabel(input.helperRange);
+  const hasAdRows = (input.adRows?.length ?? 0) > 0;
+  const hasDecisionPurchases =
+    finite(decision?.metrics.purchases ?? canonical?.metrics.purchases) !== null;
+  const periodLabels: CreativeEvidenceWindowExactPeriodLabels = {
+    decision: "28d",
+    series: selectedPeriod,
+    funnel: hasAdRows
+      ? selectedPeriod
+      : hasDecisionPurchases
+        ? "decision 28d · purchases only"
+        : selectedPeriod,
+    adSets: hasAdRows
+      ? `ROAS per ad set · ${selectedPeriod}`
+      : "Ad set context · decision 28d metrics when available",
+  };
   const adSets = buildAdSets({
     rows: input.adRows,
     decision,
@@ -2213,7 +2302,9 @@ export function buildCreativeEvidenceWindowExactViewModel(
    * live control onto a row the server has already refused. Route omitted
    * entirely is unchanged behaviour — the caller made no claim either way.
    */
-  const heldVerdict = input.decision ? heldCreativeVerdict(input.decision) : null;
+  const heldVerdict = input.decision
+    ? heldCreativeVerdict(input.decision, input.canonical)
+    : null;
   const primaryAuthority = input.primaryActionAuthority;
   const primaryOffered =
     primaryAuthority?.offered ?? input.launchpadRoute?.offered ?? null;
@@ -2278,6 +2369,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
       canonical,
       unresolved: rowsUnresolved,
     }),
+    periodLabels,
     readNotice: readNotice({
       adRowsState: input.adRowsState,
       adSeriesState: input.adSeriesState,

@@ -28,6 +28,7 @@ import {
   resolveNativeAdDecisionProfileGroups,
   toNativeSnapshotPayload,
   upsertNativeAdDecisionSnapshots,
+  type AdDecisionComputation,
   type NativeSnapshotPayloadRow,
 } from "../../jobs/ad-decisions-job";
 import {
@@ -2153,6 +2154,7 @@ describe("hard-authority source gates at the emission boundary", () => {
   function cutPayload(
     configAuthority: AdDecisionInput["configAuthority"],
     mutateInput: (input: AdDecisionInput) => AdDecisionInput = (value) => value,
+    mutateComputation: (input: AdDecisionComputation) => AdDecisionComputation = (value) => value,
   ) {
     const adId = "ad-config-gate";
     const profile = makeAccountDecisionProfile({
@@ -2208,7 +2210,7 @@ describe("hard-authority source gates at the emission boundary", () => {
       asOf: AS_OF,
       jobRunId: "00000000-0000-4000-8000-000000000751",
       scope: profile.scope,
-      computation,
+      computation: mutateComputation(computation),
       stored: {
         evaluationId: "00000000-0000-4000-8000-000000000752",
         providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
@@ -2289,6 +2291,40 @@ describe("hard-authority source gates at the emission boundary", () => {
     expect(payload.reason).toContain(
       "Verified daily source coverage does not authorize a hard action",
     );
+  });
+
+  it("retains the first role blocker and exposes a later D101 failure on a held Cut", () => {
+    const payload = cutPayload(
+      observedConfigAuthority(),
+      (input) => ({
+        ...input,
+        metricEvidence: {
+          ...input.metricEvidence,
+          sourceCoverage: {
+            ...input.metricEvidence.sourceCoverage!,
+            status: "partial",
+          },
+        },
+      }),
+      (computation) => ({
+        ...computation,
+        decision: {
+          ...computation.decision,
+          label: "keep",
+          authorityBlocker: "campaign_context",
+          blockedActionType: "cut",
+        },
+      }),
+    );
+    expect(payload.authority_blocker).toBe("campaign_context");
+    expect(payload.blocked_action_type).toBe("cut");
+    expect(payload.authorized_action).toBeNull();
+    expect(payload.badges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "source_coverage_unverified" }),
+      ]),
+    );
+    expect(payload.reason).toContain("Verified daily source coverage");
   });
 
   it("NEGATIVE: refuses to authorize a Cut on a configuration no receipt named", () => {

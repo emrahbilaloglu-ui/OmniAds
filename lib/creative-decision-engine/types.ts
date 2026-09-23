@@ -845,6 +845,7 @@ export interface DecisionBadge {
     | "campaign_context_conflict"
     | "native_calibration_unavailable"
     | "ad_metrics_unavailable"
+    | "source_coverage_unverified"
     | "pending_transition"
     | "stale_hard_ceiling_advisory"
     | "resume_candidate"
@@ -913,6 +914,10 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
   ad_metrics_unavailable: {
     label: "Ad performance data unavailable",
+    severity: "warning",
+  },
+  source_coverage_unverified: {
+    label: "Verified daily source coverage incomplete",
     severity: "warning",
   },
   pending_transition: {

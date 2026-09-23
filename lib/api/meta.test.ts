@@ -1148,7 +1148,23 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
                 updated_time: "2026-07-01T09:30:00.000Z",
                 daily_budget: "25",
                 optimization_goal: "OFFSITE_CONVERSIONS",
-                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+                // Real Graph config responses may encode bids as JSON numbers.
+                // A string-only .trim() used to abort the entire core sync.
+                bid_amount: 750,
+              },
+              {
+                id: "adset-roas",
+                name: "ROAS Adset",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITH_MIN_ROAS",
+                bid_constraints: { roas_average_floor: 23300 },
+                daily_budget: "not-a-number",
+                lifetime_budget: "0",
               },
             ],
           }),
@@ -1205,9 +1221,21 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       .find((row) => row.entityLevel === "adset" && row.entityId === "adset-1");
     expect(adsetSnapshot?.payload).toMatchObject({
       optimizationGoal: "OFFSITE_CONVERSIONS",
-      bidValue: null,
+      bidValue: 750,
+      bidValueFormat: "currency",
       dailyBudget: 25,
     });
+    const roasSnapshot = vi.mocked(configSnapshots.appendMetaConfigSnapshots)
+      .mock.calls.flatMap(([rows]) => rows)
+      .find((row) => row.entityLevel === "adset" && row.entityId === "adset-roas");
+    expect(roasSnapshot).toBeTruthy();
+    expect(roasSnapshot?.payload.dailyBudget).toBeNull();
+    expect(roasSnapshot?.payload.lifetimeBudget).toBe(0);
+    // This file mocks the common normalizer. The ingestion boundary must hand
+    // it Meta's raw scaled floor; configuration tests prove the 2.33x result.
+    expect(configuration.buildConfigSnapshotPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ targetRoas: 23300 }),
+    );
     expect(adsetSnapshot?.payload.customEventType).toBeUndefined();
     expect(adsetSnapshot?.payload.pixelId).toBeUndefined();
     expect(adsetSnapshot?.providerObservation).toMatchObject({
@@ -1278,7 +1306,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     expect(currentConfigCall.campaignReceipt.complete).toBe(true);
     expect(currentConfigCall.adsetReceipt.complete).toBe(true);
     expect(currentConfigCall.campaignReceipt.observedEntityIds).toEqual(["cmp-1", "cmp-no-objective"]);
-    expect(currentConfigCall.adsetReceipt.observedEntityIds).toEqual(["adset-1"]);
+    expect(currentConfigCall.adsetReceipt.observedEntityIds).toEqual(["adset-1", "adset-roas"]);
     expect(currentConfigCall.campaignReceipt.rowObservedAtByEntityId?.["cmp-1"])
       .toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(currentConfigCall.adsetReceipt.rowObservedAtByEntityId?.["adset-1"])
@@ -1288,7 +1316,11 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     expect(adsetSnapshot?.providerObservation?.observedAt)
       .toBe(currentConfigCall.adsetReceipt.rowObservedAtByEntityId?.["adset-1"]);
     expect(currentConfigCall.campaignRows.map((row) => row.campaignId)).toEqual(["cmp-1", "cmp-no-objective"]);
-    expect(currentConfigCall.adsetRows.map((row) => row.adsetId)).toEqual(["adset-1"]);
+    expect(currentConfigCall.adsetRows.map((row) => row.adsetId)).toEqual(["adset-1", "adset-roas"]);
+    expect(currentConfigCall.adsetRows.find((row) => row.adsetId === "adset-roas")).toMatchObject({
+      dailyBudget: null,
+      lifetimeBudget: 0,
+    });
     expect(currentConfigCall.campaignReceipt.sourceSnapshotId).toBe("snapshot-id");
     expect(currentConfigCall.adsetReceipt.sourceSnapshotId).toBe("snapshot-id");
     for (const endpointName of ["campaign_configs", "adset_configs", "ad_configs"]) {

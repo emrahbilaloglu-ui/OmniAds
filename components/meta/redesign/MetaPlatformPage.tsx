@@ -1815,10 +1815,20 @@ function MetaMobileCreativeEvidenceScreen({
               {isMeaningful(viewModel.verdict) ? (
                 <strong>{mobileDisplay(viewModel.verdict)}</strong>
               ) : null}
-              {money ? <span>{money}</span> : null}
+              {money ? (
+                <span>
+                  Decision · {viewModel.periodLabels?.decision ?? "period unavailable"}: {money}
+                </span>
+              ) : null}
             </article>
           ) : null}
           {reason ? <p className="ad-mobile-copy">{reason}</p> : null}
+          {funnel.length > 0 ? (
+            <p className="ad-mobile-copy">
+              Click-to-purchase funnel ·{" "}
+              {viewModel.periodLabels?.funnel ?? "period unavailable"}
+            </p>
+          ) : null}
           <MetaMobileCitationList
             items={funnel.map((step) => ({
               label: mobileDisplay(step.label),
@@ -2491,9 +2501,14 @@ async function fetchCreativeEvidenceAdRows(input: {
       roas: numberOrNull(row.roas),
       impressions: numberOrNull(row.impressions),
       linkClicks: numberOrNull(row.link_clicks),
+      linkClicksObserved: row.metric_presence?.link_clicks === true,
       addToCart: numberOrNull(row.add_to_cart),
+      addToCartObserved: row.metric_presence?.add_to_cart === true,
       purchases: numberOrNull(row.purchases),
+      purchasesObserved: row.metric_presence?.purchases === true,
       thumbstop: numberOrNull(row.thumbstop),
+      thumbstopObserved:
+        row.format === "video" && row.metric_presence?.thumbstop === true,
       launchDate: row.launch_date ?? null,
     }));
 }
@@ -5594,6 +5609,13 @@ export function MetaPlatformPage({
         canonical: creativeDrill.canonical,
         adRows: creativeEvidenceQuery.data,
         adSeries: creativeEvidenceSeriesQuery.data,
+        // Both helper reads use these exact account-calendar dates. The
+        // decision card has its own 28d horizon, so the drawer must label the
+        // helper evidence with the selected dates rather than borrowing 28d.
+        helperRange: {
+          start: selectedDateRange.start,
+          end: selectedDateRange.end,
+        },
         // An unresolved helper read and an account with no ad-grain rows used
         // to reach the drawer identically (both `undefined`), so a failing
         // query printed the same em-dash as a real absence. The state travels

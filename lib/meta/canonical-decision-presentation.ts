@@ -91,6 +91,11 @@ export function projectCanonicalMetaDecisionPresentation(input: {
         ...(input.blockerCodes ?? []),
         assessment.blockerCode,
         input.decision.authorityBlocker,
+        input.decision.badges.some(
+          (badge) => badge.type === "source_coverage_unverified",
+        )
+          ? "source_coverage_unverified"
+          : null,
       ].filter((code): code is string => Boolean(code)),
     ),
   ).sort();

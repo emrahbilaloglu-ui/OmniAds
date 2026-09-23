@@ -47,6 +47,7 @@ import type {
   MetaOsStructureNode,
 } from "@/lib/meta/decisions-os-contract";
 import { canCreateBrief } from "@/lib/zero-base/creative/studio-adapters";
+import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
 
 const EM_DASH = "—";
 
@@ -2109,7 +2110,9 @@ const BUYER_CREATIVE_BLOCKER_COPY: Readonly<Record<string, string>> = {
   freshness: "Recent performance data is incomplete.",
   data_health: "Decision data needs attention.",
   source_freshness: "Decision evidence is out of date.",
-  native_metrics_unavailable: "Ad-level performance data is unavailable.",
+  source_coverage_unverified:
+    "Verified daily source coverage is incomplete.",
+  native_metrics_unavailable: "Action-specific evidence is incomplete.",
   pending_transition: "A recent change still needs confirmation.",
   recent_recovery_unverifiable: "Recent recovery evidence is inconclusive.",
   profile_hard_action_ineligible:
@@ -2225,7 +2228,7 @@ function knownBuyerCopy(
 export function buyerFacingCreativeBlockers(
   decision: MetaOsAdDecision,
 ): string[] {
-  const mapped = decision.blockers.map((blocker) =>
+  const mapped = (decision.blockers ?? []).map((blocker) =>
     buyerFacingCreativeBlocker(blocker.code),
   );
   return [...new Set(mapped)];
@@ -2242,11 +2245,30 @@ export function buyerFacingCreativeBlocker(
 
 export function buyerFacingCreativeResolution(
   decision: MetaOsAdDecision,
+  canonical: MetaCanonicalDecision | null = null,
 ): string | null {
   const resolution = decision.resolution;
   if (!resolution) return null;
-  const known = knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
-  if (known) return known;
+  const mapped = knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
+  // The badge is only supplementary evidence for an already blocked row with
+  // a server-produced resolution. It never creates a blocked resolution.
+  // `native_metrics_unavailable` also represents a missing account winner
+  // benchmark or fatigue verdict on an otherwise fully measured ad. Only the
+  // producer's explicit ad-metrics badge proves that the performance day is
+  // absent; the broad blocker alone cannot support that sentence.
+  const missingMetrics =
+    decision.lane === "blocked" &&
+    canonical?.sourceDecision?.badges?.includes("ad_metrics_unavailable") === true;
+  const noRecentDelivery = (decision.blockers ?? []).some(
+    (blocker) => blocker.code === "delivery_no_spend_24h",
+  );
+  if (decision.lane === "blocked" && (missingMetrics || noRecentDelivery)) {
+    const prerequisite = missingMetrics
+      ? "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance."
+      : "No spend was measured in the last 24 hours. Check delivery before judging performance.";
+    return mapped ? `${prerequisite} ${mapped}` : prerequisite;
+  }
+  if (mapped) return mapped;
   if (resolution.owner === "integration") {
     return "Refresh the connected data, then review this ad again.";
   }
@@ -2259,6 +2281,9 @@ export function buyerFacingCreativeResolution(
 export function buyerFacingCreativeReason(decision: MetaOsAdDecision): string {
   if (decision.decisionAvailability === "pending_native_evidence") {
     return "This active ad is waiting for an ad-level decision.";
+  }
+  if (decision.publishedLabel === "out_of_scope") {
+    return "This ad is outside the verified purchase-ROAS decision scope. This workflow makes no scale, spend-reduction, or creative-refresh call for it.";
   }
   return (
     knownBuyerCopy(BUYER_CREATIVE_ACTION_CONTEXT_COPY, decision.action.code) ??
@@ -2422,16 +2447,70 @@ export interface CreativeHeldVerdict {
  */
 export function heldCreativeVerdict(
   decision: MetaOsAdDecision,
+  canonical: MetaCanonicalDecision | null = null,
 ): CreativeHeldVerdict | null {
   const action = decision.heldAction ?? null;
   if (action !== "scale" && action !== "cut" && action !== "refresh") {
     return null;
   }
   const verdict = BUYER_HELD_VERDICT_COPY[action];
-  const step = knownBuyerCopy(
+  const genericStep = knownBuyerCopy(
     BUYER_CREATIVE_RESOLUTION_COPY,
     decision.heldResolution?.code,
   );
+  const blockerCodes = new Set((decision.blockers ?? []).map((blocker) => blocker.code));
+  const authorityBlocker =
+    decision.authorityProvenance?.firstBlocker?.code ??
+    canonical?.sourceDecision?.authorityBlocker ??
+    null;
+  const needsConfig =
+    canonical?.configEvidence?.verified === false ||
+    authorityBlocker === "config_source_authority" ||
+    blockerCodes.has("config_source_authority");
+  const needsFreshSource =
+    authorityBlocker === "source_freshness" ||
+    blockerCodes.has("source_freshness") ||
+    blockerCodes.has("source_coverage_unverified") ||
+    canonical?.sourceDecision?.badges?.includes("source_coverage_unverified") === true;
+  const needsConfirmation =
+    blockerCodes.has("pending_transition") ||
+    decision.heldResolution?.code === "await_decision_confirmation";
+  const needsCampaignContext =
+    authorityBlocker === "campaign_context" ||
+    blockerCodes.has("campaign_context") ||
+    blockerCodes.has("campaign_context_unresolved");
+  const prerequisites = [
+    needsConfig
+      ? "Verify provider campaign configuration for the evaluation day and every economic day behind this recommendation."
+      : null,
+    needsFreshSource
+      ? "Restore fresh, completed Meta source data."
+      : null,
+    needsConfirmation
+      ? "Wait for the required consecutive decision confirmation."
+      : null,
+    needsCampaignContext && (needsConfig || needsFreshSource || needsConfirmation)
+      ? "Campaign context must also be verified before the change can be applied."
+      : null,
+  ].filter((part): part is string => Boolean(part));
+  const resolutionCode = decision.heldResolution?.code;
+  const specificStep =
+    resolutionCode === "apply_cut_manually" && prerequisites.length > 0
+      ? "Review the campaign role and these checks before considering a manual pause."
+      : resolutionCode === "await_decision_confirmation"
+        ? "Wait for the required consecutive decision confirmation."
+      : genericStep;
+  const additionalPrerequisites = prerequisites.filter((part) =>
+    !(
+      (resolutionCode === "await_decision_confirmation" &&
+        part === "Wait for the required consecutive decision confirmation.") ||
+      (resolutionCode === "resolve_campaign_role" &&
+        part === "Campaign context must also be verified before the change can be applied.")
+    ),
+  );
+  const step = decision.heldResolution
+    ? [specificStep, ...additionalPrerequisites].filter(Boolean).join(" ")
+    : genericStep;
   // `rawLabel` is the persisted post-authority verdict before hysteresis.
   // A held Cut whose raw label is still `test_more` is a reduction signal,
   // not the same served verdict as a raw Cut. This changes buyer copy only;
@@ -2474,13 +2553,13 @@ export function heldCreativeVerdict(
 /**
  * The served held-verdict counts, formatted for the two places they are shown.
  *
- * COUNTED APART FROM THE LANE TOTALS, on purpose. `ads.actCount`,
+ * REPORTED SEPARATELY FROM THE LANE TOTALS, on purpose. `ads.actCount`,
  * `ads.blockedCount` and `ads.monitorCount` answer "where did the server put
  * this row"; these three answer "what did the engine conclude before authority
  * withheld it". Adding a held Refresh into any lane total would make one of
- * those numbers mean two things, and the row it counts is already inside
- * `blockedCount` — so the summary below is rendered as its own fact and the
- * lane totals are not touched.
+ * those numbers mean two things, and every row it counts is already inside
+ * one of the lane totals — so the summary below is rendered as its own fact
+ * and the lane totals are not touched.
  *
  * A measured zero prints as 0 and an unserved block returns null, so an older
  * payload renders an em dash rather than three fabricated zeros.
@@ -2514,7 +2593,7 @@ function heldVerdictCounts(
     */
     note: `${formatNumber(total)} ${
       total === 1 ? "ad needs" : "ads need"
-    } more evidence before action (${split}), counted apart from this group's total`,
+    } more evidence before action (${split}). These ads are already included in the lane totals above.`,
   };
 }
 
@@ -2592,7 +2671,7 @@ function creativeRows(input: {
     const review = input.callbacks.onCreativeReview
       ? () => input.callbacks.onCreativeReview?.(decision, canonicalDecision)
       : null;
-    const held = heldCreativeVerdict(decision);
+    const held = heldCreativeVerdict(decision, canonicalDecision);
     /*
      * THE PUBLISHED LABEL KEEPS ITS WORDS AND LOSES ITS APPROVAL COLOUR.
      *
@@ -2624,7 +2703,9 @@ function creativeRows(input: {
      */
     const blockedNextStep =
       decision.lane === "blocked"
-        ? (buyerFacingCreativeResolution(decision) ??
+        ? (decision.publishedLabel === "out_of_scope"
+            ? buyerFacingCreativeReason(decision)
+            : buyerFacingCreativeResolution(decision, canonicalDecision) ??
           buyerFacingCreativeBlockers(decision)[0] ??
           knownBuyerCopy(
             BUYER_CREATIVE_RESOLUTION_COPY,
@@ -2640,6 +2721,7 @@ function creativeRows(input: {
       id: decision.id,
       name: nonBlank(decision.adName) ?? EM_DASH,
       kindShort: creativeKindShort(decision.creativeFormat),
+      thumbnailUrl: normalizeMediaUrl(decision.thumbnailUrl),
       // The reference's thumb is a neutral striped placeholder. Colouring it by
       // verdict would let the strip read as a second opinion beside the label
       // that already carries the tone, so it keeps the design's default pair.
@@ -2684,6 +2766,10 @@ function creativeRows(input: {
         blockedNextStep ??
         buyerFacingCreativeReason(decision),
       sparkPath: sparkPath(input.ctrSeriesByAdId.get(decision.adId) ?? null),
+      ctrValue:
+        finite(decision.metrics.ctr) === null
+          ? null
+          : formatPercent(decision.metrics.ctr),
       money: moneyAndRoas({
         spend: decision.metrics.spend,
         roas: decision.metrics.roas,
@@ -3153,7 +3239,7 @@ function creativeInspector(input: {
    * halves of a surface come to disagree about one fact, and this review round
    * is also about deleting duplicate mapping tables, not adding one.
    */
-  const held = heldCreativeVerdict(decision);
+  const held = heldCreativeVerdict(decision, canonicalDecision);
   return {
     entityName: nonBlank(decision.adName) ?? EM_DASH,
     entityMeta:
@@ -3188,7 +3274,7 @@ function creativeInspector(input: {
     serverVerdict: actionLabel,
     contractDetail: input.sourceDegraded
       ? RETAINED_GENERATION_REVIEW_COPY
-      : buyerFacingCreativeResolution(decision) ??
+      : buyerFacingCreativeResolution(decision, canonicalDecision) ??
         buyerFacingCreativeScope(decision) ??
         EM_DASH,
     reasons: [buyerFacingCreativeReason(decision)],

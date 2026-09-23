@@ -367,9 +367,9 @@ interface RawCampaign {
   start_time?: string;
   stop_time?: string;
   bid_strategy?: string;
-  bid_amount?: string;
+  bid_amount?: string | number;
   bid_constraints?: {
-    roas_average_floor?: string;
+    roas_average_floor?: string | number;
   };
 }
 
@@ -432,9 +432,9 @@ interface RawAdSet {
   end_time?: string;
   optimization_goal?: string;
   bid_strategy?: string;
-  bid_amount?: string;
+  bid_amount?: string | number;
   bid_constraints?: {
-    roas_average_floor?: string;
+    roas_average_floor?: string | number;
   };
   promoted_object?: {
     pixel_id?: string;
@@ -962,27 +962,27 @@ function buildMetaAdSetConfigPayload(input: {
     null;
   const effectiveManualBid =
     input.adset?.bid_amount != null
-      ? parseNum(input.adset.bid_amount)
+      ? optionalProviderNumber(input.adset.bid_amount)
       : input.campaignConfig?.bid_amount != null
-        ? parseNum(input.campaignConfig.bid_amount)
+        ? optionalProviderNumber(input.campaignConfig.bid_amount)
         : null;
   const effectiveTargetRoas =
     input.adset?.bid_constraints?.roas_average_floor != null
-      ? parseNum(input.adset.bid_constraints.roas_average_floor)
+      ? optionalProviderNumber(input.adset.bid_constraints.roas_average_floor)
       : input.campaignConfig?.bid_constraints?.roas_average_floor != null
-        ? parseNum(input.campaignConfig.bid_constraints.roas_average_floor)
+        ? optionalProviderNumber(input.campaignConfig.bid_constraints.roas_average_floor)
         : null;
   const effectiveDailyBudget =
     input.adset?.daily_budget != null
-      ? parseNum(input.adset.daily_budget)
+      ? optionalProviderNumber(input.adset.daily_budget)
       : input.campaignConfig?.daily_budget != null
-        ? parseNum(input.campaignConfig.daily_budget)
+        ? optionalProviderNumber(input.campaignConfig.daily_budget)
         : null;
   const effectiveLifetimeBudget =
     input.adset?.lifetime_budget != null
-      ? parseNum(input.adset.lifetime_budget)
+      ? optionalProviderNumber(input.adset.lifetime_budget)
       : input.campaignConfig?.lifetime_budget != null
-        ? parseNum(input.campaignConfig.lifetime_budget)
+        ? optionalProviderNumber(input.campaignConfig.lifetime_budget)
         : null;
 
   return {
@@ -1022,20 +1022,20 @@ function buildMetaCampaignDailyConfigRow(input: {
     campaignId: input.campaignRow.campaignId,
     campaignDailyBudget:
       input.campaignConfig?.daily_budget != null
-        ? parseNum(input.campaignConfig.daily_budget)
+        ? optionalProviderNumber(input.campaignConfig.daily_budget)
         : null,
     campaignLifetimeBudget:
       input.campaignConfig?.lifetime_budget != null
-        ? parseNum(input.campaignConfig.lifetime_budget)
+        ? optionalProviderNumber(input.campaignConfig.lifetime_budget)
         : null,
     campaignBidStrategy: input.campaignConfig?.bid_strategy ?? null,
     campaignManualBidAmount:
       input.campaignConfig?.bid_amount != null
-        ? parseNum(input.campaignConfig.bid_amount)
+        ? optionalProviderNumber(input.campaignConfig.bid_amount)
         : null,
     targetRoas:
       input.campaignConfig?.bid_constraints?.roas_average_floor != null
-        ? parseNum(input.campaignConfig.bid_constraints.roas_average_floor)
+        ? optionalProviderNumber(input.campaignConfig.bid_constraints.roas_average_floor)
         : null,
     adsets: input.adsetPayloads,
   });
@@ -1070,8 +1070,12 @@ function buildMetaCampaignDailyConfigRow(input: {
   );
 }
 
-function optionalProviderNumber(value: string | undefined): number | null {
-  if (value == null || value.trim() === "") return null;
+function optionalProviderNumber(value: unknown): number | null {
+  // Graph config fields are not consistently string-encoded: live adset
+  // bid_amount and roas_average_floor also arrive as JSON numbers. Refuse
+  // other types rather than throwing after a successful raw capture.
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  if (typeof value === "string" && value.trim() === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -7215,19 +7219,10 @@ async function persistMetaCampaignConfigSnapshots(input: {
           campaignId,
           objective: campaign.objective ?? null,
           bidStrategy: campaign.bid_strategy ?? null,
-          manualBidAmount:
-            campaign.bid_amount != null ? parseNum(campaign.bid_amount) : null,
-          targetRoas: campaign.bid_constraints?.roas_average_floor
-            ? parseNum(campaign.bid_constraints.roas_average_floor)
-            : null,
-          dailyBudget:
-            campaign.daily_budget != null
-              ? parseNum(campaign.daily_budget)
-              : null,
-          lifetimeBudget:
-            campaign.lifetime_budget != null
-              ? parseNum(campaign.lifetime_budget)
-              : null,
+          manualBidAmount: optionalProviderNumber(campaign.bid_amount),
+          targetRoas: optionalProviderNumber(campaign.bid_constraints?.roas_average_floor),
+          dailyBudget: optionalProviderNumber(campaign.daily_budget),
+          lifetimeBudget: optionalProviderNumber(campaign.lifetime_budget),
         }),
       };
     })
@@ -7397,22 +7392,10 @@ export async function getCampaigns(
               campaignId,
               objective: campaignConfig?.objective ?? null,
               bidStrategy: campaignConfig?.bid_strategy ?? null,
-              manualBidAmount:
-                campaignConfig?.bid_amount != null
-                  ? parseNum(campaignConfig.bid_amount)
-                  : null,
-              targetRoas:
-                campaignConfig?.bid_constraints?.roas_average_floor != null
-                  ? parseNum(campaignConfig.bid_constraints.roas_average_floor)
-                  : null,
-              dailyBudget:
-                campaignConfig?.daily_budget != null
-                  ? parseNum(campaignConfig.daily_budget)
-                  : null,
-              lifetimeBudget:
-                campaignConfig?.lifetime_budget != null
-                  ? parseNum(campaignConfig.lifetime_budget)
-                  : null,
+              manualBidAmount: optionalProviderNumber(campaignConfig?.bid_amount),
+              targetRoas: optionalProviderNumber(campaignConfig?.bid_constraints?.roas_average_floor),
+              dailyBudget: optionalProviderNumber(campaignConfig?.daily_budget),
+              lifetimeBudget: optionalProviderNumber(campaignConfig?.lifetime_budget),
             });
             allRows.push({
               id: campaignId,

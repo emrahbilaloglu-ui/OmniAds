@@ -736,6 +736,30 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(onOpenCreativeStudio).toHaveBeenCalledOnce();
   });
 
+  it("shows measured CTR without a daily trail and leaves an unserved CTR slot absent", () => {
+    const viewModel = exactViewModel();
+    viewModel.creativeDecisions = [
+      { id: "measured-zero", name: "Measured zero", ctrValue: "0.00%", sparkPath: null, thumbnailUrl: "https://example.com/creative.jpg", money: "$100 · ROAS 1.00" },
+      { id: "unserved", name: "Unserved", ctrValue: null, sparkPath: null },
+    ];
+    render(<MetaDecisionCenterExact defaultScope="creatives" viewModel={viewModel} />);
+
+    const measured = document.querySelector('[data-meta-exact-creative-row="measured-zero"]');
+    const unserved = document.querySelector('[data-meta-exact-creative-row="unserved"]');
+    const metrics = measured?.querySelector(`.${styles.creativeMetrics}`);
+    expect(metrics?.textContent).toContain("0.00%");
+    expect(metrics?.textContent).toContain("$100 · ROAS 1.00");
+    expect(measured?.querySelector('[data-meta-exact-creative-ctr-value]')?.textContent).toBe("0.00%");
+    expect(measured?.textContent).toContain("CTR · 28d");
+    const thumbnail = measured?.querySelector("img");
+    expect(thumbnail?.getAttribute("src")).toBe("https://example.com/creative.jpg");
+    fireEvent.error(thumbnail!);
+    expect(thumbnail?.getAttribute("style")).toContain("display: none");
+    expect(unserved?.textContent).not.toContain("CTR · 28d");
+    expect(unserved?.querySelector("img")).toBeNull();
+    expect(unserved?.querySelector("svg")).toBeNull();
+  });
+
   /**
    * LAW: un-decided ACTIVE inventory reaches NO lane, NO count and NO control.
    *
@@ -1707,7 +1731,7 @@ describe("a held verdict renders as evidence and never as an affordance", () => 
           label: "Blocked",
           tone: "warning",
           count: "1 decision",
-          note: "3 ads need more evidence before action (scale 1 · cut 0 · refresh 2), counted apart from this group's total",
+          note: "3 ads need more evidence before action (scale 1 · cut 0 · refresh 2). These ads are already included in the lane totals above.",
           rows: [
             {
               id: "row-held",
@@ -1754,11 +1778,11 @@ describe("a held verdict renders as evidence and never as an affordance", () => 
     ).toBe(
       "Confirm the commercial target before acting. Then review this Refresh creative recommendation again.",
     );
-    // The group states the held split apart from its own total.
+    // The group states the held split without asking the buyer to add it to a lane.
     expect(screen.getByText("1 decision")).toBeTruthy();
     expect(
       screen.getByText(
-        "3 ads need more evidence before action (scale 1 · cut 0 · refresh 2), counted apart from this group's total",
+        "3 ads need more evidence before action (scale 1 · cut 0 · refresh 2). These ads are already included in the lane totals above.",
       ),
     ).toBeTruthy();
   });

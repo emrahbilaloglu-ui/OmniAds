@@ -564,13 +564,18 @@ function priorityForDecision(
       : decision.sourceDecision.confidenceBand === "medium"
         ? 2
         : 1;
-  const priorityAction =
-    decision.classification.heldAction ??
-    decision.classification.legacyBuyerAction;
+  const heldAction = decision.classification.heldAction;
+  const priorityAction = heldAction ?? decision.classification.legacyBuyerAction;
   return {
     band: decision.sourceDecision.confidenceBand,
     rank:
-      (actionWeight[priorityAction] ?? 0) * 100 +
+      // Match exact-Ad candidate selection v3: a typed held verdict carries
+      // a specific finding even though the published compatibility label is
+      // soft. It stays below policy/delivery repair and above generic diagnosis.
+      (heldAction !== null
+        ? actionWeight.cut
+        : (actionWeight[priorityAction] ?? 0)) *
+        100 +
       confidenceWeight * 10,
     version: META_OS_DECISIONS_PRESENTATION_VERSION,
   };
@@ -2189,16 +2194,14 @@ export function buildMetaOsDecisionsPresentation(input: {
     bucket.push(item);
     adBuckets.set(item.adId, bucket);
   }
-  const canonicalAds = Array.from(adBuckets.values())
-    .map(
-      (bucket) =>
-        bucket.sort(
-          (a, b) =>
-            (b.priority.rank ?? -1) - (a.priority.rank ?? -1) ||
-            a.decisionId.localeCompare(b.decisionId),
-        )[0]!,
-    )
-    .sort(compareOsAdDecisions);
+  const canonicalAds = Array.from(adBuckets.values()).map(
+    (bucket) =>
+      bucket.sort(
+        (a, b) =>
+          (b.priority.rank ?? -1) - (a.priority.rank ?? -1) ||
+          a.decisionId.localeCompare(b.decisionId),
+      )[0]!,
+  );
   const canonicalAdIds = new Set(canonicalAds.map((item) => item.adId));
   const canonicalAdUniverseIds =
     readCanonicalAdUniverseIds(input.decisionReadModel) ?? canonicalAdIds;
@@ -2246,7 +2249,14 @@ export function buildMetaOsDecisionsPresentation(input: {
    * remains is `activeInventoryAdId`, a census that answers only "is this
    * un-decided ACTIVE inventory" with an identity. @see activeInventoryAdId
    */
-  const ads = selectOsAdDecisions(canonicalAds, adLimit);
+  // The current read model has already selected these exact Ads in a stable
+  // lane-aware order. Sorting that bounded subset a second time can move a
+  // newly admitted row ahead of an earlier page when the limit grows from 60
+  // to 120. Preserve the producer's sequence; only the old section-only
+  // envelope still needs OS-side selection.
+  const ads = input.decisionReadModel.queue?.adCandidates
+    ? canonicalAds.slice(0, adLimit)
+    : selectOsAdDecisions(canonicalAds, adLimit);
   const candidateStateCounts =
     input.decisionReadModel.queue?.adCandidates?.stateCounts;
   const originalActPreCap =

@@ -286,6 +286,7 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   id: string;
   name?: MetaDecisionCenterExactDisplayValue;
   kindShort?: MetaDecisionCenterExactDisplayValue;
+  thumbnailUrl?: string | null;
   stripeA?: string | null;
   stripeB?: string | null;
   edgeTone?: MetaDecisionCenterExactTone;
@@ -344,6 +345,8 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   /** The server's `blockers` and `resolution.nextStep`, joined, never invented. */
   blockedNote?: MetaDecisionCenterExactDisplayValue;
   sparkPath?: string | null;
+  /** Measured 28-day CTR, used when the daily trail was not served. */
+  ctrValue?: MetaDecisionCenterExactDisplayValue;
   money?: MetaDecisionCenterExactDisplayValue;
   moneySub?: MetaDecisionCenterExactDisplayValue;
   actionLabel?: MetaDecisionCenterExactDisplayValue;
@@ -1898,6 +1901,19 @@ function CreativeCard({
           backgroundImage: `repeating-linear-gradient(135deg,${stripeA},${stripeA} 8px,${stripeB} 8px,${stripeB} 16px)`,
         }}
       >
+        {row.thumbnailUrl ? (
+          // Meta CDN hosts vary by account; a native image keeps the existing
+          // striped fallback visible if the URL expires or fails to load.
+          <img
+            className={styles.creativeThumbImage}
+            src={row.thumbnailUrl}
+            alt=""
+            loading="lazy"
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+            }}
+          />
+        ) : null}
         <span className={styles.creativeKind}>{display(row.kindShort)}</span>
       </span>
       <div className={styles.creativeIdentity}>
@@ -1946,21 +1962,31 @@ function CreativeCard({
           </p>
         ) : null}
       </div>
-      <div className={styles.creativeSparkBlock}>
-        <p className={styles.creativeSparkLabel}>{copy.ctrWindowed}</p>
-        <svg aria-hidden="true" viewBox="0 0 100 22" preserveAspectRatio="none">
-          <path
-            d={row.sparkPath ?? ""}
-            fill="none"
-            stroke="var(--tone-solid)"
-            strokeWidth="1.6"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-      </div>
-      <div className={styles.creativeMoneyBlock}>
-        <p className={styles.moneyValue}>{display(row.money)}</p>
-        <p className={styles.moneySub}>{display(row.moneySub)}</p>
+      <div className={styles.creativeMetrics}>
+        {row.sparkPath || nonBlankDisplay(row.ctrValue) ? (
+          <div className={styles.creativeSparkBlock}>
+            <p className={styles.creativeSparkLabel}>{copy.ctrWindowed}</p>
+            {row.sparkPath ? (
+              <svg aria-hidden="true" viewBox="0 0 100 22" preserveAspectRatio="none">
+                <path
+                  d={row.sparkPath}
+                  fill="none"
+                  stroke="var(--tone-solid)"
+                  strokeWidth="1.6"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+            ) : (
+              <p className={styles.creativeSparkValue} data-meta-exact-creative-ctr-value>
+                {display(row.ctrValue)}
+              </p>
+            )}
+          </div>
+        ) : null}
+        <div className={styles.creativeMoneyBlock}>
+          <p className={styles.moneyValue}>{display(row.money)}</p>
+          <p className={styles.moneySub}>{display(row.moneySub)}</p>
+        </div>
       </div>
       {/* The served action label is DECISION INFORMATION and stays on the row
           as text. It used to be the caption of the button below, which only

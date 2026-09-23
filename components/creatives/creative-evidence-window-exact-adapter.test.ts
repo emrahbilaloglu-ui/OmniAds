@@ -146,8 +146,11 @@ function adRow(
     roas: 2.5,
     impressions: 1_420_000,
     linkClicks: 15_200,
+    linkClicksObserved: true,
     addToCart: 942,
+    addToCartObserved: true,
     purchases: 318,
+    purchasesObserved: true,
     thumbstop: 22,
     launchDate: "2026-06-02",
     ...overrides,
@@ -289,6 +292,64 @@ describe("buildCreativeEvidenceWindowExactViewModel identity and contract", () =
 });
 
 describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
+  it("labels selected helper dates separately from the 28d decision and its fallback", () => {
+    const helperRange = { start: "2026-09-16", end: "2026-09-22" };
+    const measured = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical: canonicalFixture(),
+      helperRange,
+      adRows: [adRow({ spend: 6100, purchases: 5 })],
+      adSeries: {
+        adCount: 1,
+        points: [
+          { date: "2026-09-21", ctr: 1.5, linkCtr: null, frequency: 1.2 },
+          { date: "2026-09-22", ctr: 1.7, linkCtr: null, frequency: 1.3 },
+        ],
+      },
+    });
+    expect(measured.periodLabels).toEqual({
+      decision: "28d",
+      series: "selected 2026-09-16–2026-09-22",
+      funnel: "selected 2026-09-16–2026-09-22",
+      adSets: "ROAS per ad set · selected 2026-09-16–2026-09-22",
+    });
+    expect(measured.money).toBe("$9,700 · ROAS 2.70");
+    expect(measured.adSets?.[0]?.spend).toBe("$6,100");
+    expect(measured.funnel?.[3]?.value).toBe("5");
+
+    const fallback = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical: canonicalFixture(),
+      helperRange,
+      adRows: [],
+      adRowsState: "loaded",
+    });
+    expect(fallback.periodLabels?.funnel).toBe("decision 28d · purchases only");
+    expect(fallback.periodLabels?.adSets).toBe(
+      "Ad set context · decision 28d metrics when available",
+    );
+    expect(fallback.funnel?.[0]?.value).toBe("—");
+    expect(fallback.funnel?.[3]?.value).toBe("318");
+    expect(fallback.adSets?.[0]?.spend).toBe("$9,700");
+
+    const unreadable = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      helperRange,
+      adRowsState: "error",
+    });
+    expect(unreadable.periodLabels?.funnel).toBe("decision 28d · purchases only");
+    expect(unreadable.readNotice?.tone).toBe("negative");
+  });
+
+  it("does not invent selected dates when a helper period is invalid", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      helperRange: { start: "2026-09-31", end: "2026-09-22" },
+      adRows: [adRow()],
+    });
+    expect(model.periodLabels?.series).toBe("selected dates unavailable");
+    expect(model.periodLabels?.funnel).toBe("selected dates unavailable");
+  });
+
   it("builds the design's four funnel steps from ad-grain rows", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
@@ -310,6 +371,53 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(model.funnel?.[1]?.sub).toBe("CTR 1.07%");
     expect(model.funnel?.[2]?.sub).toBe("ATC 6.2%");
     expect(model.funnel?.[3]?.sub).toBe("CVR 2.1%");
+  });
+
+  it("withholds incomplete funnel totals and rates without losing measured zeros", () => {
+    const partial = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical: canonicalFixture(),
+      adRows: [
+        adRow({ id: "observed", linkClicks: 100, addToCart: 4, purchases: 1 }),
+        adRow({
+          id: "missing",
+          linkClicks: 0,
+          linkClicksObserved: false,
+          addToCart: 0,
+          addToCartObserved: false,
+          purchases: 0,
+          purchasesObserved: false,
+        }),
+      ],
+    });
+    expect(partial.funnel?.slice(1).map((step) => step.value)).toEqual([
+      "—", "—", "—",
+    ]);
+    expect(partial.funnel?.slice(1).map((step) => step.sub)).toEqual([
+      "—", "—", "—",
+    ]);
+    expect(partial.funnel?.slice(1).map((step) => step.share)).toEqual([
+      null, null, null,
+    ]);
+
+    const missingOnlyAtc = buildCreativeEvidenceWindowExactViewModel({
+      adRows: [
+        adRow({ id: "observed", linkClicks: 100, addToCart: 4, purchases: 1 }),
+        adRow({ id: "missing-atc", linkClicks: 50, addToCart: 0, addToCartObserved: false, purchases: 0 }),
+      ],
+    });
+    expect(missingOnlyAtc.funnel?.[1]?.value).toBe("150");
+    expect(missingOnlyAtc.funnel?.[2]?.value).toBe("—");
+    expect(missingOnlyAtc.funnel?.[2]?.sub).toBe("—");
+    expect(missingOnlyAtc.funnel?.[3]?.value).toBe("1");
+
+    const measuredZero = buildCreativeEvidenceWindowExactViewModel({
+      adRows: [adRow({ linkClicks: 100, addToCart: 0, purchases: 0 })],
+    });
+    expect(measuredZero.funnel?.[1]?.value).toBe("100");
+    expect(measuredZero.funnel?.[2]?.value).toBe("0");
+    expect(measuredZero.funnel?.[2]?.sub).toBe("ATC 0.0%");
+    expect(measuredZero.funnel?.[3]?.value).toBe("0");
   });
 
   it("draws the funnel bars on the design's own decade scale", () => {
@@ -427,7 +535,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
       canonical: canonicalFixture(),
-      adRows: [adRow()],
+      adRows: [adRow({ thumbstopObserved: true })],
     });
     expect(model.facts?.map((fact) => fact.label)).toEqual([
       "Frequency",
@@ -490,13 +598,31 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       decision: decisionFixture(),
       canonical: canonicalFixture(),
       adRows: [
-        adRow({ id: "r1", impressions: 300, thumbstop: 10 }),
-        adRow({ id: "r2", impressions: 100, thumbstop: 30 }),
+        adRow({ id: "r1", impressions: 300, thumbstop: 10, thumbstopObserved: true }),
+        adRow({ id: "r2", impressions: 100, thumbstop: 30, thumbstopObserved: true }),
       ],
     });
     expect(model.facts?.find((fact) => fact.id === "thumbstop")?.value).toBe(
       "15.0%",
     );
+  });
+
+  it("does not present a synthetic zero or partially observed video rate as thumbstop", () => {
+    const catalog = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture({ creativeFormat: "catalog" }),
+      canonical: canonicalFixture(),
+      adRows: [adRow({ thumbstop: 0, thumbstopObserved: false })],
+    });
+    const partial = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture({ creativeFormat: "video" }),
+      canonical: canonicalFixture(),
+      adRows: [
+        adRow({ id: "observed", impressions: 300, thumbstop: 10, thumbstopObserved: true }),
+        adRow({ id: "missing", impressions: 100, thumbstop: 0, thumbstopObserved: false }),
+      ],
+    });
+    expect(catalog.facts?.find((fact) => fact.id === "thumbstop")?.value).toBe("—");
+    expect(partial.facts?.find((fact) => fact.id === "thumbstop")?.value).toBe("—");
   });
 
   it("leaves both sparkline series unserved rather than interpolating point values", () => {
@@ -925,6 +1051,54 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     // pixel — the same rule the served resolution follows on this surface.
     const held = decisionFixture().heldResolution?.code ?? null;
     if (held) expect(reason).not.toContain(held);
+  });
+
+  it("carries config, freshness, and confirmation requirements into the creative drawer", () => {
+    const decision = decisionFixture({
+      heldAction: "cut",
+      rawLabel: "cut",
+      publishedLabel: "test_more",
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "cut",
+        publishedLabel: "test_more",
+        firstBlocker: {
+          code: "source_freshness",
+          label: "Source not fresh",
+          explanation: "Internal producer copy",
+        },
+      },
+      blockers: [{ code: "pending_transition", label: "Internal producer copy" }],
+      heldResolution: {
+        code: "await_decision_confirmation",
+        category: "system",
+        owner: "system",
+        label: "Pending",
+        nextStep: "Internal producer copy",
+      },
+    });
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision,
+      canonical: canonicalFixture({
+        configEvidence: {
+          evaluationContractVersion: "test",
+          verified: false,
+          lineageSupplied: true,
+          currentConfigDay: "2026-09-22",
+          refs: [],
+          refusedFields: [],
+          economicWindow: null,
+          metricContract: null,
+        },
+      }),
+    });
+    const reason = String(value(model.authority, "held-reason"));
+    expect(reason).toContain("evaluation day and every economic day");
+    expect(reason).toContain("fresh, completed Meta source data");
+    expect(reason).toContain("required consecutive decision confirmation");
+    expect(reason).not.toContain("Internal producer copy");
+    expect(reason).not.toContain("Pause this ad");
   });
 
   it("keeps a retained role-held Cut inspectable without stale manual-pause advice", () => {

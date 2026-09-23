@@ -163,6 +163,7 @@ const BLOCKER_LABELS: Record<string, string> = {
   // Pre-D074b alias key: only older persisted payloads carry it.
   campaign_label_missing: "Campaign context is missing",
   config_source_authority: "Campaign configuration evidence is unverified",
+  source_coverage_unverified: "Verified daily source coverage is incomplete",
   data_health: "Data health is degraded",
   delivery_proof: "Delivery proof is missing",
   fatigue_proof_not_persisted: "Composite fatigue proof is unavailable",
@@ -1242,6 +1243,21 @@ function buildBlockers(input: {
   const authorityBlocker = persistedAuthorityBlocker(
     input.snapshot.authority_blocker,
   );
+  if (
+    Array.isArray(input.snapshot.badges) &&
+    input.snapshot.badges.some(
+      (badge) =>
+        badge !== null &&
+        typeof badge === "object" &&
+        (badge as { type?: unknown }).type === "source_coverage_unverified",
+    )
+  ) {
+    entries.push({
+      code: "source_coverage_unverified",
+      source: "engine_v3_decision_snapshots_daily",
+      field: "badges",
+    });
+  }
   if (authorityBlocker) {
     entries.push({
       code: authorityBlocker,
@@ -1831,6 +1847,18 @@ const AD_CANDIDATE_ACTION_WEIGHT: Record<MetaDecisionBuyerAction, number> = {
   watch_launch: 1,
 };
 
+/**
+ * A typed held verdict is still blocked and cannot grant action authority, but
+ * it is a more specific buyer finding than an ordinary evidence diagnosis.
+ * Keep policy and delivery repairs ahead of it, and rank every held hard
+ * verdict ahead of diagnose_data regardless of its soft published label.
+ */
+function adCandidateActionWeight(decision: MetaCanonicalDecision): number {
+  return decision.classification.heldAction !== null
+    ? AD_CANDIDATE_ACTION_WEIGHT.cut
+    : AD_CANDIDATE_ACTION_WEIGHT[decision.classification.legacyBuyerAction];
+}
+
 type SelectableAdState = keyof typeof AD_CANDIDATE_STATE_WEIGHT;
 
 function compareAdCandidates(
@@ -1842,8 +1870,7 @@ function compareAdCandidates(
   return (
     AD_CANDIDATE_STATE_WEIGHT[rightState] -
       AD_CANDIDATE_STATE_WEIGHT[leftState] ||
-    AD_CANDIDATE_ACTION_WEIGHT[right.classification.legacyBuyerAction] -
-      AD_CANDIDATE_ACTION_WEIGHT[left.classification.legacyBuyerAction] ||
+    adCandidateActionWeight(right) - adCandidateActionWeight(left) ||
     compareDecisions(left, right)
   );
 }

@@ -400,6 +400,7 @@ change persisted engine labels or formula outputs.
 | MOG-013 | constrained bid winner with complete 30d under-utilization                         | Money move            | current/previous bid shown | server-proposed bid review                      |
 | MOG-014 | USD daily budget `100000`, bid `15000`, spend `124`                                | Structure             | USD 1,000 / USD 150 shown  | utilization uses major units; write stays minor |
 | MOG-015 | campaign `WITH_ISSUES`, paused, or unknown; or active ad set under paused campaign | Inactive assets       | prior verdict advisory     | no Structure row and no provider mutation       |
+| MOG-016 | 50 ordinary blocked diagnoses + typed held Cut/Scale/Refresh + Monitoring, cap 60 | Held verdicts visible | server resolution retained | 60-row IDs prefix expanded response; no new authority |
 
 - MOG-003 through MOG-006 require `buyerAction: null`, a non-null resolution,
   and no provider mutation.
@@ -409,6 +410,9 @@ change persisted engine labels or formula outputs.
   server decision or action.
 - MOG-010 requires server recomposition. The UI must not concatenate, re-rank,
   or classify raw decisions locally.
+- MOG-016 requires the v3 candidate selector to read typed `heldAction`, not a
+  soft published compatibility label. OS composition preserves the selected
+  order; a held verdict remains blocked and review-only.
 - MOG-011 requires all three current hierarchy statuses to be live before an Ad
   can enter the main queue; unknown fails closed into the inactive envelope.
 - MOG-012 preserves the mathematical label while blocking action authority;
@@ -758,6 +762,7 @@ contract. At AD grain:
 | `high` trust beside a non-`high` inference class | same contradiction, same withholding |
 | medium / low / unknown / conflict | held; verdict visible, `buyerAction` null, `authorizedAction` null |
 | missing map, or no campaign id | held; no generic `diagnose` substituted for a typed verdict |
+| role-held Cut plus failed D101 closed-day coverage | first `campaign_context` blocker preserved, `source_coverage_unverified` badge persisted, no manual-pause invitation, blocked lane, no authorized action |
 
 ### The canonical commercial rule (D092)
 

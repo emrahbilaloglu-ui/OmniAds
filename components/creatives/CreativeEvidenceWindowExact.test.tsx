@@ -35,6 +35,12 @@ function viewModel(
     verdictSub: "Creates a replacement brief and keeps this ad running.",
     money: "$fixture · ROAS 2.70",
     moneySub: "vs 3.80 target",
+    periodLabels: {
+      decision: "28d",
+      series: "selected 2026-09-16–2026-09-22",
+      funnel: "selected 2026-09-16–2026-09-22",
+      adSets: "ROAS per ad set · selected 2026-09-16–2026-09-22",
+    },
     reasons: ["This ad is ready for a creative refresh review."],
     ctr: { path: null, note: "—" },
     frequency: { path: null, note: "—" },
@@ -157,20 +163,43 @@ describe("CreativeEvidenceWindowExact composition", () => {
       <CreativeEvidenceWindowExact onClose={vi.fn()} viewModel={viewModel()} />,
     );
     for (const eyebrow of [
-      "Decision",
+      "Decision · 28d",
       "Why",
-      "Click-to-purchase funnel · 28d",
+      "Click-to-purchase funnel · selected 2026-09-16–2026-09-22",
       "Where it runs",
     ]) {
       expect(screen.getByText(eyebrow)).toBeInTheDocument();
     }
     expect(
-      screen.getByText("ROAS per ad set · same 28d window"),
+      screen.getByText("ROAS per ad set · selected 2026-09-16–2026-09-22"),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("internal provenance that must stay hidden"),
     ).toBeNull();
     expect(container.querySelectorAll("svg")).toHaveLength(0);
+  });
+
+  it("distinguishes a decision-window purchase fallback from selected-period helper metrics", () => {
+    render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          periodLabels: {
+            decision: "28d",
+            series: "selected 2026-09-16–2026-09-22",
+            funnel: "decision 28d · purchases only",
+            adSets: "Ad set context · decision 28d metrics when available",
+          },
+        })}
+      />,
+    );
+    expect(
+      screen.getByText("Click-to-purchase funnel · decision 28d · purchases only"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Ad set context · decision 28d metrics when available"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("ROAS per ad set · same 28d window")).toBeNull();
   });
 
   it("carries none of the sections the design does not define", () => {

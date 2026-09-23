@@ -52,7 +52,7 @@ vi.mock("@/lib/meta/serving", () => ({
 }));
 
 vi.mock("@/lib/meta/live", () => ({
-  getMetaLiveCampaignRows: vi.fn(),
+  getMetaLiveCampaignRowsWithReceipt: vi.fn(),
 }));
 
 vi.mock("@/lib/sync/meta-sync", () => ({
@@ -170,7 +170,7 @@ describe("GET /api/meta/campaigns", () => {
         includePrev: false,
       })
     );
-    expect(live.getMetaLiveCampaignRows).not.toHaveBeenCalled();
+    expect(live.getMetaLiveCampaignRowsWithReceipt).not.toHaveBeenCalled();
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 
@@ -190,7 +190,7 @@ describe("GET /api/meta/campaigns", () => {
       historicalReadMode: "current_day_live",
       breakdownReadMode: "current_day_live",
     });
-    vi.mocked(live.getMetaLiveCampaignRows).mockResolvedValue([
+    vi.mocked(live.getMetaLiveCampaignRowsWithReceipt).mockResolvedValue({ rows: [
       {
         id: "cmp_live",
         name: "Today Campaign",
@@ -206,7 +206,7 @@ describe("GET /api/meta/campaigns", () => {
         previousLifetimeBudget: null,
         previousBudgetCapturedAt: null,
       },
-    ] as never);
+    ] as never, configPartial: false, configNotReadyReason: null });
 
     const response = await GET(
       new NextRequest(
@@ -219,7 +219,7 @@ describe("GET /api/meta/campaigns", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(payload.rows).toHaveLength(1);
     assertMetaCampaignRowPageContract(payload.rows[0]);
-    expect(live.getMetaLiveCampaignRows).toHaveBeenCalledTimes(1);
+    expect(live.getMetaLiveCampaignRowsWithReceipt).toHaveBeenCalledTimes(1);
     expect(serving.getMetaWarehouseCampaignTable).not.toHaveBeenCalled();
   });
 
@@ -239,7 +239,9 @@ describe("GET /api/meta/campaigns", () => {
       historicalReadMode: "current_day_live",
       breakdownReadMode: "current_day_live",
     });
-    vi.mocked(live.getMetaLiveCampaignRows).mockResolvedValue([] as never);
+    vi.mocked(live.getMetaLiveCampaignRowsWithReceipt).mockResolvedValue({
+      rows: [], configPartial: false, configNotReadyReason: null,
+    });
     const response = await GET(
       new NextRequest(
         "http://localhost/api/meta/campaigns?businessId=biz&startDate=2026-03-31&endDate=2026-03-31"
@@ -252,8 +254,43 @@ describe("GET /api/meta/campaigns", () => {
     expect(payload.rows).toHaveLength(0);
     expect(payload.isPartial).toBe(true);
     expect(payload.notReadyReason).toContain("Current-day live Meta campaign data");
-    expect(live.getMetaLiveCampaignRows).toHaveBeenCalledTimes(1);
+    expect(live.getMetaLiveCampaignRowsWithReceipt).toHaveBeenCalledTimes(1);
     expect(serving.getMetaWarehouseCampaignTable).not.toHaveBeenCalled();
+  });
+
+  it("keeps current-day metrics while identifying an unavailable config edge", async () => {
+    vi.mocked(integrations.getIntegration).mockResolvedValue({
+      status: "connected",
+    } as never);
+    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
+      isSelectedCurrentDay: true,
+      selectedRangeIncludesCurrentDay: false,
+      selectedRangeHistoricalEndDate: "2026-03-31",
+      selectedRangeTruthEndDate: "2026-03-31",
+      currentDateInTimezone: "2026-03-31",
+      primaryAccountTimezone: "UTC",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "current_day_live",
+      breakdownReadMode: "current_day_live",
+    });
+    vi.mocked(live.getMetaLiveCampaignRowsWithReceipt).mockResolvedValue({
+      rows: [{ id: "cmp_live", accountId: "act_1", spend: 50, objective: null }] as never,
+      configPartial: true,
+      configNotReadyReason: "Current Meta configuration could not be fully read.",
+    });
+
+    const response = await GET(new NextRequest(
+      "http://localhost/api/meta/campaigns?businessId=biz&startDate=2026-03-31&endDate=2026-03-31",
+    ));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows).toMatchObject([{ id: "cmp_live", spend: 50, objective: null }]);
+    expect(payload.isPartial).toBe(false);
+    expect(payload.evidenceSource).toBe("live");
+    expect(payload.configPartial).toBe(true);
+    expect(payload.configNotReadyReason).toContain("configuration");
   });
 
   it("uses the historical truth end date when a selected range includes today", async () => {
@@ -309,7 +346,7 @@ describe("GET /api/meta/campaigns", () => {
         includePrev: false,
       })
     );
-    expect(live.getMetaLiveCampaignRows).not.toHaveBeenCalled();
+    expect(live.getMetaLiveCampaignRowsWithReceipt).not.toHaveBeenCalled();
   });
 
   it("forwards includePrev for the current page budget-change contract", async () => {

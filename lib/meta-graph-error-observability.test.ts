@@ -302,11 +302,11 @@ describe("campaign config schedule fields", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     // The retry narrows the request by exactly those two fields. Everything
-    // else survives, including the nested field whose braces contain a comma —
-    // splitting the list naively would have sent Meta a new kind of invalid
-    // request.
+    // else survives. The unsupported campaign bid_constraints expansion is
+    // absent from both attempts; the adset request owns that field.
     const retried = campaignFieldsOf(fetchMock.mock.calls[1]![0]);
-    expect(retried).toContain("bid_constraints{roas_average_floor}");
+    expect(retried).toContain("objective");
+    expect(retried).not.toContain("bid_constraints");
     expect(retried).not.toContain("start_time");
     expect(retried).not.toContain("stop_time");
     const first = campaignFieldsOf(fetchMock.mock.calls[0]![0]).split(",");

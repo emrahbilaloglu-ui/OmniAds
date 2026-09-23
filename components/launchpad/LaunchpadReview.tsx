@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import { AlertTriangle, Save, Send, ShieldCheck } from "lucide-react";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { DecisionOutput } from "@/lib/creative-decision-engine";
@@ -145,6 +146,23 @@ export function buildLaunchpadValidationRequest(input: {
   };
 }
 
+/**
+ * A provider minor-unit amount, rendered at the PROVIDER's own scale.
+ *
+ * The three sites below used a constant `/ 100`. That is Meta's offset for
+ * USD, TRY and GBP, and it understates by 100x on every currency Meta lists at
+ * offset 1 (JPY, KRW, CLP, ISK, VND, HUF, IDR, TWD, COP). `"Unavailable"` is
+ * the string the no-amount case already shows, so an unknown currency degrades
+ * into an existing, visible gap instead of a confident wrong number.
+ */
+function formatProviderMinorUnits(
+  minorUnits: number | null | undefined,
+  currencyCode: string | null,
+) {
+  const major = metaMinorUnitsToMajor({ minorUnits, currency: currencyCode });
+  return major.ok ? formatMoney(major.majorUnits, currencyCode) : null;
+}
+
 export function buildLaunchpadBudgetReview(
   payload: MetaLaunchPayload | MetaAddToExistingPayload,
   currencyCode: string | null,
@@ -159,13 +177,14 @@ export function buildLaunchpadBudgetReview(
 
   if (payload.budget.mode === "CBO") {
     const amountMinor = payload.budget.amountMinor;
+    const amountText = formatProviderMinorUnits(amountMinor, currencyCode);
     return {
       amount:
-        amountMinor == null
+        amountText == null
           ? "Unavailable"
-          : `${formatMoney(amountMinor / 100, currencyCode)}/${payload.budget.schedule === "lifetime" ? "lifetime" : "day"}`,
+          : `${amountText}/${payload.budget.schedule === "lifetime" ? "lifetime" : "day"}`,
       detail: "Campaign budget",
-      complete: amountMinor != null && Boolean(currencyCode),
+      complete: amountText != null,
     };
   }
 
@@ -179,13 +198,11 @@ export function buildLaunchpadBudgetReview(
   const totalMinor = amounts.every((amount) => amount != null)
     ? amounts.reduce((sum, amount) => sum + (amount ?? 0), 0)
     : null;
+  const totalText = formatProviderMinorUnits(totalMinor, currencyCode);
   return {
-    amount:
-      totalMinor == null
-        ? "Unavailable"
-        : `${formatMoney(totalMinor / 100, currencyCode)}/day`,
+    amount: totalText == null ? "Unavailable" : `${totalText}/day`,
     detail: `Total across ${payload.adSets.length} ad set${payload.adSets.length === 1 ? "" : "s"}`,
-    complete,
+    complete: complete && totalText != null,
   };
 }
 
@@ -575,9 +592,13 @@ export function LaunchpadReview({
                     {line.label}
                   </span>
                   <strong className="shrink-0 text-right font-semibold text-[var(--ink)]">
-                    {line.amountMinor == null
+                    {formatProviderMinorUnits(line.amountMinor, currencyCode) ==
+                    null
                       ? "Unavailable"
-                      : `${formatMoney(line.amountMinor / 100, currencyCode)}/${
+                      : `${formatProviderMinorUnits(
+                          line.amountMinor,
+                          currencyCode,
+                        )}/${
                           line.schedule === "daily"
                             ? "day"
                             : line.schedule === "lifetime"

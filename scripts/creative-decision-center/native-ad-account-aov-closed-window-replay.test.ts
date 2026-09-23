@@ -180,8 +180,7 @@ function validSchedulerPopulationCompactArtifact() {
       identityHashSetSha256: "1".repeat(64),
       calibrationContextProofSetCommitment: {
         contractVersion: "native-ad-replay-calibration-context-proof-set.v1",
-        proofContractVersion:
-          "native-ad-replay-calibration-context-proof.v1",
+        proofContractVersion: "native-ad-replay-calibration-context-proof.v1",
         contextCount: 1,
         associationCount: 1,
         proofSetHash: "c".repeat(64),
@@ -573,9 +572,7 @@ describe("D061 closed-window replay producer", () => {
         sourceRowId: "source-b",
       };
 
-      expect(
-        deduplicateD061RestatedFacts([first, conflicting]),
-      ).toMatchObject({
+      expect(deduplicateD061RestatedFacts([first, conflicting])).toMatchObject({
         facts: [],
         conflictingDuplicateGroups: 1,
       });
@@ -588,8 +585,7 @@ describe("D061 closed-window replay producer", () => {
       ...first,
       sourceRowId: " source-0 ",
       businessId: " business-a ",
-      providerAccountRefId:
-        " 00000000-0000-4000-8000-000000000001 ",
+      providerAccountRefId: " 00000000-0000-4000-8000-000000000001 ",
       providerAccountId: " act_a ",
       date: "2026-06-01T23:59:59.000Z",
       campaignId: " campaign-a ",
@@ -723,9 +719,7 @@ describe("D061 closed-window replay producer", () => {
       "--authority-as-of=YYYY-MM-DD is required",
     );
     expect(() =>
-      parseD061ClosedWindowReplayArgs([
-        "--authority-as-of=2026-02-30",
-      ]),
+      parseD061ClosedWindowReplayArgs(["--authority-as-of=2026-02-30"]),
     ).toThrow("--authority-as-of is invalid");
     expect(() =>
       parseD061ClosedWindowReplayArgs([
@@ -740,22 +734,17 @@ describe("D061 closed-window replay producer", () => {
       ]),
     ).toThrow("--authority-as-of must be provided exactly once");
 
-    const safeDefaults = parseD061ClosedWindowReplayArgs([
-      AUTHORITY_AS_OF_ARG,
-    ]);
+    const safeDefaults = parseD061ClosedWindowReplayArgs([AUTHORITY_AS_OF_ARG]);
     expect(safeDefaults).toMatchObject({
       authorityAsOfDate: "2026-07-19",
       jsonOut:
         "/tmp/native-ad-account-aov-closed-window-replay-2026-07-19.json",
-      mdOut:
-        "/tmp/native-ad-account-aov-closed-window-replay-2026-07-19.md",
+      mdOut: "/tmp/native-ad-account-aov-closed-window-replay-2026-07-19.md",
       writeFiles: false,
     });
     expect(
-      parseD061ClosedWindowReplayArgs([
-        AUTHORITY_AS_OF_ARG,
-        "--write-files",
-      ]).writeFiles,
+      parseD061ClosedWindowReplayArgs([AUTHORITY_AS_OF_ARG, "--write-files"])
+        .writeFiles,
     ).toBe(true);
   });
 
@@ -932,9 +921,9 @@ describe("D061 closed-window replay producer", () => {
     const artifactPath = join(repoRoot, artifactRepositoryPath);
     const sidecarPath = artifactPath.replace(/\.json$/, ".sha256");
     mkdirSync(dirname(artifactPath), { recursive: true });
-    const writePair = (artifact: ReturnType<
-      typeof validSchedulerPopulationCompactArtifact
-    >) => {
+    const writePair = (
+      artifact: ReturnType<typeof validSchedulerPopulationCompactArtifact>,
+    ) => {
       const content = `${JSON.stringify(artifact)}\n`;
       const checksum = createHash("sha256").update(content).digest("hex");
       writeFileSync(artifactPath, content, "utf8");
@@ -981,10 +970,8 @@ describe("D061 closed-window replay producer", () => {
       );
 
       const contradictoryArtifact = structuredClone(validArtifact);
-      contradictoryArtifact.releaseGate.checks.authorityProofOrLineageContradictions =
-        1;
-      contradictoryArtifact.waveCoverageProof.accounts[0]!.calibrationLineageValid =
-        false;
+      contradictoryArtifact.releaseGate.checks.authorityProofOrLineageContradictions = 1;
+      contradictoryArtifact.waveCoverageProof.accounts[0]!.calibrationLineageValid = false;
       writePair(contradictoryArtifact);
       const contradictoryProof = verify();
       expect(contradictoryProof.checksum.valid).toBe(true);
@@ -1015,14 +1002,10 @@ describe("D061 closed-window replay producer", () => {
       const incompleteWaveArtifact = structuredClone(validArtifact);
       incompleteWaveArtifact.waveCoverageProof.businesses[0]!.decisionJobRunId =
         "";
-      incompleteWaveArtifact.waveCoverageProof.businesses[0]!.calibrationJobProviderAccountCount =
-        0;
-      incompleteWaveArtifact.waveCoverageProof.businesses[0]!.calibrationWaveReceiptCount =
-        0;
-      incompleteWaveArtifact.waveCoverageProof.accounts[0]!.calibrationReceiptCount =
-        0;
-      incompleteWaveArtifact.waveCoverageProof.accounts[0]!.hydrationReceiptCount =
-        0;
+      incompleteWaveArtifact.waveCoverageProof.businesses[0]!.calibrationJobProviderAccountCount = 0;
+      incompleteWaveArtifact.waveCoverageProof.businesses[0]!.calibrationWaveReceiptCount = 0;
+      incompleteWaveArtifact.waveCoverageProof.accounts[0]!.calibrationReceiptCount = 0;
+      incompleteWaveArtifact.waveCoverageProof.accounts[0]!.hydrationReceiptCount = 0;
       writePair(incompleteWaveArtifact);
       expect(verify()).toMatchObject({
         valid: false,
@@ -1084,14 +1067,15 @@ describe("D061 closed-window replay producer", () => {
   });
 
   // Hashes the entire repository several times over — once for the real
-  // provenance manifest and again for each forged variant — so it costs ~4s and
-  // grows with the repo. It relies on the raised testTimeout in vitest.config.
+  // provenance manifest and again for each forged variant. The cost grows with
+  // the worktree and exceeded the global timeout while another worker was
+  // running PostgreSQL seams, so this repository-scale proof owns its explicit
+  // liveness bound.
   it("derives exact authority provenance exclusions and verifies the full source hash scope", () => {
     const repoRoot = process.cwd();
     const authorityAsOfDate = "2026-07-20";
     const plan = buildD061AuthorityArtifactPlan(authorityAsOfDate);
-    const focusedArtifactPath =
-      plan.focusedArtifactPath;
+    const focusedArtifactPath = plan.focusedArtifactPath;
     const provenance = readAuthorityReplayCodeProvenance(
       {
         jsonOut: "/tmp/native-ad-authority-full.json",
@@ -1155,7 +1139,7 @@ describe("D061 closed-window replay producer", () => {
         authorityAsOfDate,
       }),
     ).toBe(false);
-  });
+  }, 60_000);
 
   it("proves that skipping an intermediate soft day would falsely confirm a later Cut", () => {
     const firstCut = applyLabelHysteresis("cut", null);
@@ -1227,9 +1211,7 @@ describe("D061 closed-window replay producer", () => {
     expect(source).toContain('"restated_daily_hierarchy" as const');
     expect(source).toContain('source: "missing"');
     expect(source).toContain("if (candidate.scoreEligible) rows.push(row)");
-    expect(source).toContain(
-      "chronologicalIntegrityRows: chronologicalRows",
-    );
+    expect(source).toContain("chronologicalIntegrityRows: chronologicalRows");
     expect(source).toContain(
       "conflictingDuplicateFactGroups: deduplicated.conflictingDuplicateGroups",
     );
@@ -1240,9 +1222,7 @@ describe("D061 closed-window replay producer", () => {
     expect(source).toContain(
       "adsecute.meta.native-ad-account-aov-current-day-production-parity.v7",
     );
-    expect(source).toContain(
-      "COMPACT_REPLAY_PROOF_CONTRACT_VERSION",
-    );
+    expect(source).toContain("COMPACT_REPLAY_PROOF_CONTRACT_VERSION");
     expect(source).toContain(
       "authority_calibration_context_proof_commitment_invalid",
     );

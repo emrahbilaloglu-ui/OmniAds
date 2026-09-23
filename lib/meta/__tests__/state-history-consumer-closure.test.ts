@@ -57,22 +57,87 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   count: number;
 }> = [
   /*
-    AREA R5 2026-09-07 — 3 -> 4. The Graph error-observability slice added one
-    COMMENT reference and no query: the block above
-    META_CAMPAIGN_SCHEDULE_FIELDS records the production measurement that
-    motivated the recoverable field narrowing (this table received no `campaign`
-    row for five days while `campaign_configs` returned only 400s). The file's
-    classification is unchanged and set by its two `readMetaEntityStatesAsOf`
-    recovery calls; the presence-guard byte pin below still holds at 2.
+    The 2026-09-21 campaign field fix replaced the old schedule-only refusal
+    comment with the measured unsupported bid_constraints cause. That removed
+    one COMMENT literal, not a reader; the two `readMetaEntityStatesAsOf`
+    recovery calls and their presence guards are unchanged.
   */
-  { file: "lib/api/meta.ts", category: "content-reader", count: 4 },
-  { file: "lib/creative-decision-engine/ad-operator-response-detection.ts", category: "content-reader", count: 2 },
-  { file: "lib/creative-decision-engine/data-source.ts", category: "content-reader", count: 5 },
-  { file: "lib/creative-decision-engine/jobs/ad-decision-outcomes-job.ts", category: "content-reader", count: 3 },
-  { file: "lib/creative-decision-engine/jobs/ad-operator-response-job.ts", category: "content-reader", count: 17 },
-  { file: "lib/meta/decisions-workspace-read-model.ts", category: "content-reader", count: 7 },
-  { file: "lib/meta/history-read-model.ts", category: "content-reader", count: 4 },
-  { file: "lib/meta/history-contract.ts", category: "content-reader", count: 1 },
+  { file: "lib/api/meta.ts", category: "content-reader", count: 3 },
+  {
+    file: "lib/creative-decision-engine/ad-operator-response-detection.ts",
+    category: "content-reader",
+    count: 2,
+  },
+  {
+    file: "lib/creative-decision-engine/data-source.ts",
+    category: "content-reader",
+    count: 5,
+  },
+  /*
+    ADR D097 follow-up 2026-09-21 — the campaign-role reader moved to ad grain.
+
+    `readCampaignContextCreativeDays` used to select from `meta_creative_daily`,
+    which is keyed without `campaign_id`: one creative running in two campaigns
+    on one day collapsed to a single row whose campaign was decided by input
+    order (1,298 such creative-days over 90 days of production). It now reads
+    `meta_ad_daily`, which keeps the relationship, and joins the ad-to-creative
+    map AS OF the day from this table — `meta_ad_dimensions` holds only the
+    current state and is null for 41% of ads, while every one of this table's
+    2.38M ad rows carries `creative_id` with an `observed_at`.
+
+    Two references: the join in the `creative_intervals` CTE and the module
+    docblock that records why that source was chosen. Content reader only; it
+    writes nothing and derives no presence or absence from the table.
+  */
+  {
+    file: "lib/creative-decision-engine/campaign-context/data.ts",
+    category: "content-reader",
+    count: 2,
+  },
+  /* The test that pins the reader above. */
+  {
+    file: "lib/creative-decision-engine/__tests__/campaign-context-data.test.ts",
+    category: "content-reader",
+    count: 2,
+  },
+  {
+    file: "lib/creative-decision-engine/jobs/ad-decision-outcomes-job.ts",
+    category: "content-reader",
+    count: 3,
+  },
+  {
+    file: "lib/creative-decision-engine/jobs/ad-operator-response-job.ts",
+    category: "content-reader",
+    count: 17,
+  },
+  /*
+    2026-09-22 native decision retry admission. The scheduler's calibration
+    receipt query treats a full-manifest observation run as usable only when
+    the run either observed an empty account or retained at least one physical
+    state row. Delta manifests remain reconstruction-authoritative through
+    their base chain. This is a membership/existence guard; it reads no entity
+    values and grants no decision authority by itself.
+  */
+  {
+    file: "lib/creative-decision-engine/jobs/native-ad-scheduled.ts",
+    category: "admission",
+    count: 1,
+  },
+  {
+    file: "lib/meta/decisions-workspace-read-model.ts",
+    category: "content-reader",
+    count: 7,
+  },
+  {
+    file: "lib/meta/history-read-model.ts",
+    category: "content-reader",
+    count: 4,
+  },
+  {
+    file: "lib/meta/history-contract.ts",
+    category: "content-reader",
+    count: 1,
+  },
   /*
     AREA 2b 2026-09-07 — the partial-lane rewrite storm. The writer gained two
     reads of this table: the partial-manifest dedupe baseline (the exact
@@ -99,10 +164,18 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   // size measurements, index catalog validation, budget lookups and diagnostic
   // labels. It reads no entity content and changes no D075 winner predicate.
   { file: "lib/migrations.ts", category: "ddl", count: 50 },
-  { file: "lib/meta/__tests__/migration-relation-budget.test.ts", category: "test", count: 3 },
+  {
+    file: "lib/meta/__tests__/migration-relation-budget.test.ts",
+    category: "test",
+    count: 3,
+  },
   // Explicit small-catalog SQL mocks and migration refusal controls; no
   // production connection or entity-content reader.
-  { file: "lib/__tests__/pinned-migration-client-mock.ts", category: "test", count: 9 },
+  {
+    file: "lib/__tests__/pinned-migration-client-mock.ts",
+    category: "test",
+    count: 9,
+  },
   { file: "lib/migrations.test.ts", category: "test", count: 2 },
   /*
     D086 correction 7. Readiness stopped reading transition-only config history
@@ -111,67 +184,206 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     and every budget judgment on the rows is D083's `buildCanonicalBudgetFact` —
     so it is a content reader with no independent budget authority of its own.
   */
-  { file: "lib/meta/budget-readiness-read-model.ts", category: "content-reader", count: 4 },
+  {
+    file: "lib/meta/budget-readiness-read-model.ts",
+    category: "content-reader",
+    count: 4,
+  },
   // Names the table only inside the required-column contract and the capability
   // probe, both of which are schema statements, not content reads.
-  { file: "lib/meta/budget-readiness-retention.ts", category: "schema-contract", count: 8 },
+  {
+    file: "lib/meta/budget-readiness-retention.ts",
+    category: "schema-contract",
+    count: 8,
+  },
   // The artifact records which queries ran; the test drives the read model over
   // fixtures shaped like that table. Neither reads production content.
-  { file: "scripts/audits/d086-budget-readiness-input-pack.ts", category: "reporting-only", count: 4 },
-  { file: "scripts/audits/d086-budget-readiness-input-pack.test.ts", category: "test-fixture", count: 7 },
+  {
+    file: "scripts/audits/d086-budget-readiness-input-pack.ts",
+    category: "reporting-only",
+    count: 4,
+  },
+  {
+    file: "scripts/audits/d086-budget-readiness-input-pack.test.ts",
+    category: "test-fixture",
+    count: 7,
+  },
   /*
     D086 correction 8. The capture-to-readiness seam drives the REAL writers
     against an ephemeral cluster, so it names the table where it asserts what
     the writer stored; the seam wrapper names it only in a comment about what
     the delta case proves. Neither reads production content.
   */
-  { file: "scripts/d086-capture-to-readiness-child.ts", category: "local-seam", count: 3 },
-  { file: "scripts/ephemeral-postgres-d086-readiness-seam.ts", category: "local-seam", count: 2 },
+  {
+    file: "scripts/d086-capture-to-readiness-child.ts",
+    category: "local-seam",
+    count: 3,
+  },
+  {
+    file: "scripts/ephemeral-postgres-d086-readiness-seam.ts",
+    category: "local-seam",
+    count: 2,
+  },
   { file: "lib/sync/db-growth-fence.ts", category: "size-only", count: 14 },
-  { file: "lib/sync/state-history-effective-size.ts", category: "size-only", count: 2 },
+  {
+    file: "lib/sync/state-history-effective-size.ts",
+    category: "size-only",
+    count: 2,
+  },
   // 10th reference (correction 3): the strict count-parser LABEL
   // "live_rows census of meta_entity_state_history" names the table in its
   // refusal message — a diagnostic string, not a new reader.
-  { file: "lib/meta/state-history-compaction.ts", category: "compaction-d077", count: 10 },
-  { file: "lib/meta/state-history-compaction-executor.ts", category: "compaction-d077", count: 7 },
+  {
+    file: "lib/meta/state-history-compaction.ts",
+    category: "compaction-d077",
+    count: 10,
+  },
+  {
+    file: "lib/meta/state-history-compaction-executor.ts",
+    category: "compaction-d077",
+    count: 7,
+  },
   { file: "lib/meta/briefing-filter.ts", category: "comment-only", count: 1 },
-  { file: "lib/meta/current-evidence-gate.ts", category: "comment-only", count: 1 },
-  { file: "lib/sync/staged-worker-predicate.ts", category: "comment-only", count: 1 },
+  {
+    file: "lib/meta/current-evidence-gate.ts",
+    category: "comment-only",
+    count: 1,
+  },
+  {
+    file: "lib/sync/staged-worker-predicate.ts",
+    category: "comment-only",
+    count: 1,
+  },
   { file: "lib/sync/worker-runtime.ts", category: "comment-only", count: 1 },
-  { file: "scripts/creative-decision-center/h11b-context-lifecycle-bundle.ts", category: "frozen-offline", count: 2 },
-  { file: "scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts", category: "operational-verifier", count: 3 },
+  {
+    file: "scripts/creative-decision-center/h11b-context-lifecycle-bundle.ts",
+    category: "frozen-offline",
+    count: 2,
+  },
+  {
+    file: "scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts",
+    category: "operational-verifier",
+    count: 3,
+  },
   // D078 evidence bundle: one pg_total_relation_size() literal — a byte
   // measurement for the frozen audit bundle, never a content read.
-  { file: "scripts/audits/d078-six-business-evidence-bundle.ts", category: "size-only", count: 1 },
+  {
+    file: "scripts/audits/d078-six-business-evidence-bundle.ts",
+    category: "size-only",
+    count: 1,
+  },
   // D077 recovery preflight: read-only audit evidence collector — relation
   // size/stat probes, schema-presence checks, and the global
   // last-accepted-write clock inside one REPEATABLE READ READ ONLY
   // transaction that ends in ROLLBACK. No content consumer, no writer.
-  { file: "scripts/audits/d077-production-recovery-readonly-preflight.ts", category: "size-only", count: 11 },
+  {
+    file: "scripts/audits/d077-production-recovery-readonly-preflight.ts",
+    category: "size-only",
+    count: 11,
+  },
   // Correction-1 artifact generator: emits the operator approval packets;
   // its 4 literals are SQL SHAPES and prose inside packet text (VACUUM
   // read-back command, executor DELETE description). It executes no SQL at
   // all — not a reader, not a writer.
-  { file: "scripts/audits/d077-correction1-artifact-generator.ts", category: "size-only", count: 4 },
-  { file: "scripts/ephemeral-postgres-entity-state-history-seam-child.ts", category: "harness", count: 23 },
-  { file: "scripts/ephemeral-postgres-entrypoint-admission-seam.ts", category: "harness", count: 1 },
-  { file: "scripts/ephemeral-postgres-migrations-check.ts", category: "harness", count: 19 },
-  { file: "scripts/audits/d080-meta-budget-edit-evidence.ts", category: "read-only-audit", count: 21 },
-  { file: "scripts/audits/d080b-meta-budget-policy-simulation.ts", category: "read-only-audit", count: 6 },
-  { file: "scripts/audits/d083-meta-budget-fact-observation.ts", category: "read-only-audit", count: 7 },
-  { file: "scripts/audits/d083-meta-budget-fact-observation.test.ts", category: "read-only-audit", count: 2 },
+  {
+    file: "scripts/audits/d077-correction1-artifact-generator.ts",
+    category: "size-only",
+    count: 4,
+  },
+  {
+    file: "scripts/ephemeral-postgres-entity-state-history-seam-child.ts",
+    category: "harness",
+    count: 23,
+  },
+  {
+    file: "scripts/ephemeral-postgres-entrypoint-admission-seam.ts",
+    category: "harness",
+    count: 1,
+  },
+  {
+    file: "scripts/ephemeral-postgres-migrations-check.ts",
+    category: "harness",
+    count: 19,
+  },
+  {
+    file: "scripts/audits/d080-meta-budget-edit-evidence.ts",
+    category: "read-only-audit",
+    count: 21,
+  },
+  {
+    file: "scripts/audits/d080b-meta-budget-policy-simulation.ts",
+    category: "read-only-audit",
+    count: 6,
+  },
+  {
+    file: "scripts/audits/d083-meta-budget-fact-observation.ts",
+    category: "read-only-audit",
+    count: 7,
+  },
+  {
+    file: "scripts/audits/d083-meta-budget-fact-observation.test.ts",
+    category: "read-only-audit",
+    count: 2,
+  },
   { file: "lib/meta/budget-fact.ts", category: "comment-only", count: 1 },
-  { file: "scripts/ephemeral-postgres-schema-upgrade-seam.ts", category: "harness", count: 1 },
-  { file: "scripts/ephemeral-postgres-native-ad-decision-seam.ts", category: "harness", count: 5 },
-  { file: "scripts/ephemeral-postgres-provider-fixture-seam.ts", category: "harness", count: 1 },
-  { file: "scripts/ephemeral-postgres-state-history-compaction-seam-child.ts", category: "harness", count: 8 },
-  { file: "scripts/ephemeral-postgres-sync-retention-seam.ts", category: "harness", count: 1 },
-  { file: "app/api/meta/decisions-workspace/route.test.ts", category: "test", count: 1 },
-  { file: "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts", category: "test", count: 2 },
-  { file: "lib/api/meta-campaign-status-fallback.test.ts", category: "test", count: 1 },
+  {
+    file: "scripts/ephemeral-postgres-schema-upgrade-seam.ts",
+    category: "harness",
+    count: 1,
+  },
+  {
+    file: "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
+    category: "harness",
+    count: 6,
+  },
+  {
+    file: "scripts/ephemeral-postgres-provider-fixture-seam.ts",
+    category: "harness",
+    count: 1,
+  },
+  {
+    file: "scripts/ephemeral-postgres-state-history-compaction-seam-child.ts",
+    category: "harness",
+    count: 8,
+  },
+  {
+    file: "scripts/ephemeral-postgres-sync-retention-seam.ts",
+    category: "harness",
+    count: 1,
+  },
+  {
+    file: "app/api/meta/decisions-workspace/route.test.ts",
+    category: "test",
+    count: 1,
+  },
+  {
+    file: "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
+    category: "test",
+    count: 2,
+  },
+  {
+    file: "lib/api/meta-campaign-status-fallback.test.ts",
+    category: "test",
+    count: 1,
+  },
   { file: "lib/api/meta.test.ts", category: "test", count: 1 },
-  { file: "lib/creative-decision-engine/__tests__/jobs/ad-operator-response-job.test.ts", category: "test", count: 1 },
+  {
+    file: "lib/creative-decision-engine/__tests__/jobs/ad-operator-response-job.test.ts",
+    category: "test",
+    count: 1,
+  },
   { file: "lib/meta/briefing-filter.test.ts", category: "test", count: 1 },
+  /*
+    2026-09-22 currency-unit repair — new file, 1 reference, comment only.
+    `metaBudgetCurrencyProvenance` decides what may be written into this
+    table's `budget_currency_exponent`; the suite names the destination in its
+    docblock and issues no query of any kind.
+  */
+  {
+    file: "lib/currency/meta-currency-provenance.test.ts",
+    category: "test",
+    count: 1,
+  },
   /*
     AREA R5 2026-09-07 — new file, 1 reference. The Graph error-observability
     suite drives the real `fetchMetaCampaignConfigsReceipt` /
@@ -182,10 +394,26 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   */
   // 1 -> 2: the Round 4 error-boundary work added a second literal reference
   // while proving the Graph envelope never leaks a provider message.
-  { file: "lib/meta-graph-error-observability.test.ts", category: "test", count: 2 },
-  { file: "lib/meta/decision-pipeline-health.test.ts", category: "test", count: 2 },
-  { file: "lib/meta/decisions-os-presentation.test.ts", category: "test", count: 2 },
-  { file: "lib/meta/decisions-workspace-read-model.test.ts", category: "test", count: 2 },
+  {
+    file: "lib/meta-graph-error-observability.test.ts",
+    category: "test",
+    count: 2,
+  },
+  {
+    file: "lib/meta/decision-pipeline-health.test.ts",
+    category: "test",
+    count: 2,
+  },
+  {
+    file: "lib/meta/decisions-os-presentation.test.ts",
+    category: "test",
+    count: 2,
+  },
+  {
+    file: "lib/meta/decisions-workspace-read-model.test.ts",
+    category: "test",
+    count: 2,
+  },
   /*
     AREA S4 2026-09-07 — 3 -> 4. The partial-storage-semantic proofs added one
     query over this table: `storedAdsetRows`, the row-level readback the
@@ -195,24 +423,48 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   */
   // 4 -> 5: exact same-observed coalescing order is proven by a real-PG
   // transition readback; the added literal belongs only to that test query.
-  { file: "lib/meta/entity-state-history-partial-delta.db.test.ts", category: "test", count: 5 },
+  {
+    file: "lib/meta/entity-state-history-partial-delta.db.test.ts",
+    category: "test",
+    count: 5,
+  },
   /*
     Codex Round 4 item 7. Names the table to seed and read back a schedule the
     provider answered with an unusable value: PostgreSQL used to be the first
     thing that looked at it, inside the transaction, so one bad string aborted
     the whole account's capture. A test reference, not a content consumer.
   */
-  { file: "lib/meta/schedule-timestamp-normalization.db.test.ts", category: "test", count: 1 },
-  { file: "lib/meta/history-external-change-levels.test.ts", category: "test", count: 3 },
+  {
+    file: "lib/meta/schedule-timestamp-normalization.db.test.ts",
+    category: "test",
+    count: 1,
+  },
+  {
+    file: "lib/meta/history-external-change-levels.test.ts",
+    category: "test",
+    count: 3,
+  },
   { file: "lib/meta/history-read-model.test.ts", category: "test", count: 1 },
-  { file: "lib/meta/__tests__/state-history-compaction-observation-order.test.ts", category: "test", count: 1 },
+  {
+    file: "lib/meta/__tests__/state-history-compaction-observation-order.test.ts",
+    category: "test",
+    count: 1,
+  },
   // PRE-DEPLOY AUDIT 2026-09-03 — the provider-family collateral-admission
   // slice (installMetaTableOverBudget() fixture + its 4 dependent tests)
   // added 7 more literal references, 11 -> 18. All fixture/assertion
   // strings; no new query. See D075_STATE_HISTORY_CONSUMER_SWEEP addendum.
   { file: "lib/sync/db-growth-fence.test.ts", category: "test", count: 18 },
-  { file: "lib/sync/staged-worker-predicate.test.ts", category: "test", count: 1 },
-  { file: "lib/sync/worker-boot-growth-fence.test.ts", category: "test", count: 3 },
+  {
+    file: "lib/sync/staged-worker-predicate.test.ts",
+    category: "test",
+    count: 1,
+  },
+  {
+    file: "lib/sync/worker-boot-growth-fence.test.ts",
+    category: "test",
+    count: 3,
+  },
   /*
     PRE-DEPLOY AUDIT 2026-09-03 — the D087/D088 budget slice, classified.
 
@@ -231,11 +483,31 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     provenance STRING that says which tables a measured policy flag was read
     from. It issues no query.
   */
-  { file: "lib/meta/budget-proposal-server-readers.ts", category: "content-reader", count: 1 },
-  { file: "lib/meta/budget-write-safety-projection.ts", category: "comment-only", count: 1 },
-  { file: "lib/meta/budget-production-path.c3.test.ts", category: "test", count: 1 },
-  { file: "lib/meta/budget-no-fabricated-defaults.test.ts", category: "test", count: 1 },
-  { file: "app/api/meta/automation/proposals/budget-execution-paths.c3.test.ts", category: "test", count: 1 },
+  {
+    file: "lib/meta/budget-proposal-server-readers.ts",
+    category: "content-reader",
+    count: 1,
+  },
+  {
+    file: "lib/meta/budget-write-safety-projection.ts",
+    category: "comment-only",
+    count: 1,
+  },
+  {
+    file: "lib/meta/budget-production-path.c3.test.ts",
+    category: "test",
+    count: 1,
+  },
+  {
+    file: "lib/meta/budget-no-fabricated-defaults.test.ts",
+    category: "test",
+    count: 1,
+  },
+  {
+    file: "app/api/meta/automation/proposals/budget-execution-paths.c3.test.ts",
+    category: "test",
+    count: 1,
+  },
   /*
     OPERATOR-READINESS 2026-09-05 — the sizing projection source, classified.
 
@@ -252,9 +524,21 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     The other two are its proofs — a unit test and the throwaway-database seam
     that runs the same query against a migrated schema.
   */
-  { file: "lib/meta/intent-projection-context.ts", category: "content-reader", count: 2 },
-  { file: "lib/meta/intent-projection-context.test.ts", category: "test", count: 2 },
-  { file: "scripts/ephemeral-postgres-intent-projection-seam-child.ts", category: "harness", count: 2 },
+  {
+    file: "lib/meta/intent-projection-context.ts",
+    category: "content-reader",
+    count: 2,
+  },
+  {
+    file: "lib/meta/intent-projection-context.test.ts",
+    category: "test",
+    count: 2,
+  },
+  {
+    file: "scripts/ephemeral-postgres-intent-projection-seam-child.ts",
+    category: "harness",
+    count: 2,
+  },
   /*
     OPERATOR-READINESS 2026-09-05 — the end-to-end economics seam.
 
@@ -268,7 +552,11 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     null. The one remaining literal is prose in a comment; the seam issues no
     production query of its own.
   */
-  { file: "scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts", category: "harness", count: 1 },
+  {
+    file: "scripts/ephemeral-postgres-economics-bid-chain-seam-child.ts",
+    category: "harness",
+    count: 1,
+  },
   /*
     OPERATOR-READINESS 2026-09-05 — the mounted Decision Center harness.
 
@@ -280,7 +568,11 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     its observation run has to exist first. It issues no production query over
     this table; the shipped snapshot does that.
   */
-  { file: "scripts/meta-decision-card-apply-harness.ts", category: "harness", count: 2 },
+  {
+    file: "scripts/meta-decision-card-apply-harness.ts",
+    category: "harness",
+    count: 2,
+  },
   /*
     AREA R25 2026-09-08 — the Rounds 15-24 additions, measured rather than
     estimated. Every entry below was counted from the current tree by the same
@@ -338,6 +630,18 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     category: "comment-only",
     count: 1,
   },
+  /*
+    The native ad repair differential replay (2026-09-22). READ ONLY and
+    offline: it refuses to run against a connection that is not read-only, emits
+    no DML, and is not reachable from any served route. One SELECT joins the
+    state history to date an ad's serving window; the second reference is a
+    comment recording why a `source_snapshot_id` correlation was not available.
+  */
+  {
+    file: "scripts/creative-decision-center/native-ad-repair-differential-replay.ts",
+    category: "read-only-audit",
+    count: 2,
+  },
 ];
 const LEDGER = new Map(
   STATE_HISTORY_REFERENCE_LEDGER.map((entry) => [entry.file, entry]),
@@ -357,41 +661,63 @@ describe("D075 state-history consumer closure", () => {
       if (entry) seen.add(rel);
       const allowed = entry?.count ?? 0;
       if (count !== allowed) {
-        mismatches.push(`${rel}: expected ${allowed}, found ${count} — classify it in the ledger AND in docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md`);
+        mismatches.push(
+          `${rel}: expected ${allowed}, found ${count} — classify it in the ledger AND in docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md`,
+        );
       }
     }
     for (const entry of STATE_HISTORY_REFERENCE_LEDGER) {
-      if (!seen.has(entry.file)) mismatches.push(`${entry.file}: ledger entry has no matching file`);
+      if (!seen.has(entry.file))
+        mismatches.push(`${entry.file}: ledger entry has no matching file`);
     }
     expect(mismatches).toEqual([]);
   });
 
   it("the workspace read model never fabricates DELETED from absence and never resurrects a dimension status past an absent winner", () => {
-    const src = readFileSync(join(ROOT, "lib/meta/decisions-workspace-read-model.ts"), "utf8");
+    const src = readFileSync(
+      join(ROOT, "lib/meta/decisions-workspace-read-model.ts"),
+      "utf8",
+    );
     expect(src).not.toContain("ELSE 'DELETED'");
     for (const grain of ["campaign_state", "adset_state", "ad_state"]) {
-      expect(src).toContain(`WHEN ${grain}.presence = 'present' THEN COALESCE(`);
+      expect(src).toContain(
+        `WHEN ${grain}.presence = 'present' THEN COALESCE(`,
+      );
     }
   });
 
   it("the history feed computes status transitions over present rows only", () => {
-    const src = readFileSync(join(ROOT, "lib/meta/history-read-model.ts"), "utf8");
+    const src = readFileSync(
+      join(ROOT, "lib/meta/history-read-model.ts"),
+      "utf8",
+    );
     expect(src).toContain("AND prior.presence = 'present'");
     expect(src).toContain("AND entity_state.presence = 'present'");
   });
 
   it("the natural-wave verifier counts manifest membership kind-aware, never run-bound for delta runs", () => {
     const src = readFileSync(
-      join(ROOT, "scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts"),
+      join(
+        ROOT,
+        "scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts",
+      ),
       "utf8",
     );
-    expect(src).toContain("WHEN run.manifest_kind = 'delta' THEN recon.member_count");
+    expect(src).toContain(
+      "WHEN run.manifest_kind = 'delta' THEN recon.member_count",
+    );
     expect(src).toContain("run.manifest_kind IS DISTINCT FROM 'delta'");
     expect(src).toContain("AND state.captured_at <= run.captured_at");
   });
 
   it("the operator-response truth query certifies window-end truth from confirmed_until", () => {
-    const job = readFileSync(join(ROOT, "lib/creative-decision-engine/jobs/ad-operator-response-job.ts"), "utf8");
+    const job = readFileSync(
+      join(
+        ROOT,
+        "lib/creative-decision-engine/jobs/ad-operator-response-job.ts",
+      ),
+      "utf8",
+    );
     for (const line of [
       ") AS confirmed_until,",
       "CASE WHEN observation_run.last_captured_at <= target.cutoff",
@@ -412,23 +738,32 @@ describe("D075 state-history consumer closure", () => {
       expect(job).toContain(line);
     }
     expect(job).not.toContain("AND newer.captured_at > state.captured_at");
-    const detection = readFileSync(join(ROOT, "lib/creative-decision-engine/ad-operator-response-detection.ts"), "utf8");
+    const detection = readFileSync(
+      join(
+        ROOT,
+        "lib/creative-decision-engine/ad-operator-response-detection.ts",
+      ),
+      "utf8",
+    );
     expect(detection).toContain("truthConfirmedUntil(truth) >= windowEndTime");
-    expect(detection).toContain('"engine-v3-native-ad-operator-source-proof.v3"');
+    expect(detection).toContain(
+      '"engine-v3-native-ad-operator-source-proof.v3"',
+    );
   });
 
   it("the semantic-coalescing heartbeat keeps monotonic clocks (replay-safe)", () => {
     // Acceptance correction 1 (gap B): the early coalescing UPDATE must
     // GREATEST-guard both heartbeat clocks — an accepted older exact replay
     // must not move them backward and erase confirmed_until evidence.
-    const writer = readFileSync(join(ROOT, "lib/meta/entity-state-history.ts"), "utf8");
+    const writer = readFileSync(
+      join(ROOT, "lib/meta/entity-state-history.ts"),
+      "utf8",
+    );
     expect(writer).toContain("SET last_seen_at = GREATEST(");
     expect(writer).toContain("COALESCE(last_seen_at, observed_at),");
     expect(writer).toContain("last_captured_at = GREATEST(");
     expect(writer).toContain("COALESCE(last_captured_at, captured_at),");
-    expect(writer).not.toMatch(
-      /SET last_seen_at = \$\{observedAt\}/,
-    );
+    expect(writer).not.toMatch(/SET last_seen_at = \$\{observedAt\}/);
   });
 
   /*
@@ -448,7 +783,10 @@ describe("D075 state-history consumer closure", () => {
     would turn a deduped partial run into a scope claim.
   */
   it("the partial lane declares its storage contract instead of leaving it to be inferred", () => {
-    const writer = readFileSync(join(ROOT, "lib/meta/entity-state-history.ts"), "utf8");
+    const writer = readFileSync(
+      join(ROOT, "lib/meta/entity-state-history.ts"),
+      "utf8",
+    );
     expect(writer).toContain(
       'export const META_PARTIAL_MANIFEST_CONTRACT =\n  "d075.partial-observed-present-delta.v1" as const;',
     );
@@ -467,9 +805,14 @@ describe("D075 state-history consumer closure", () => {
   });
 
   it("the D086 readiness attestation refuses a partial capture before it compares membership", () => {
-    const src = readFileSync(join(ROOT, "lib/meta/budget-readiness-read-model.ts"), "utf8");
+    const src = readFileSync(
+      join(ROOT, "lib/meta/budget-readiness-read-model.ts"),
+      "utf8",
+    );
     expect(src).toContain('partial: "capture_partial",');
-    const blockerAt = src.indexOf("const statusBlocker = D086_CAPTURE_STATUS_BLOCKER[run.captureStatus];");
+    const blockerAt = src.indexOf(
+      "const statusBlocker = D086_CAPTURE_STATUS_BLOCKER[run.captureStatus];",
+    );
     const unknownAt = src.indexOf('if (run.captureStatus !== "complete") {');
     const membershipAt = src.indexOf("run.persistedMembers");
     expect(blockerAt).toBeGreaterThan(-1);
@@ -479,7 +822,10 @@ describe("D075 state-history consumer closure", () => {
 
   it("the natural-wave verifier compares expected against persisted rows only on the complete lane", () => {
     const src = readFileSync(
-      join(ROOT, "scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts"),
+      join(
+        ROOT,
+        "scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts",
+      ),
       "utf8",
     );
     const laneGuardAt = src.indexOf('source.completeness === "complete" &&');
@@ -489,7 +835,13 @@ describe("D075 state-history consumer closure", () => {
   });
 
   it("scope confirmation is complete-lane on every side, so a partial run neither grants nor revokes it", () => {
-    const job = readFileSync(join(ROOT, "lib/creative-decision-engine/jobs/ad-operator-response-job.ts"), "utf8");
+    const job = readFileSync(
+      join(
+        ROOT,
+        "lib/creative-decision-engine/jobs/ad-operator-response-job.ts",
+      ),
+      "utf8",
+    );
     for (const line of [
       "WHERE state.run_completeness = 'complete'",
       "AND later_run.completeness = 'complete'",
@@ -497,17 +849,25 @@ describe("D075 state-history consumer closure", () => {
     ]) {
       expect(job).toContain(line);
     }
-    const hydration = readFileSync(join(ROOT, "lib/creative-decision-engine/data-source.ts"), "utf8");
+    const hydration = readFileSync(
+      join(ROOT, "lib/creative-decision-engine/data-source.ts"),
+      "utf8",
+    );
     // The run-bound membership arm can only ever see complete-lane runs,
     // because `complete_runs` is filtered before the arm is reached.
     const laneFilterAt = hydration.indexOf("AND run.completeness = 'complete'");
-    const boundArmAt = hydration.indexOf("AND run.source_manifest_kind IS DISTINCT FROM 'delta'");
+    const boundArmAt = hydration.indexOf(
+      "AND run.source_manifest_kind IS DISTINCT FROM 'delta'",
+    );
     expect(laneFilterAt).toBeGreaterThan(-1);
     expect(boundArmAt).toBeGreaterThan(laneFilterAt);
   });
 
   it("D077 compaction plans the complete lane only, and partial rows can only protect a duplicate", () => {
-    const planner = readFileSync(join(ROOT, "lib/meta/state-history-compaction.ts"), "utf8");
+    const planner = readFileSync(
+      join(ROOT, "lib/meta/state-history-compaction.ts"),
+      "utf8",
+    );
     expect(planner).toContain("WHERE r.completeness = 'complete'");
     expect(planner).toContain("AND run_completeness = 'complete'");
     // The only role a partial row plays: it makes a complete duplicate
@@ -518,23 +878,36 @@ describe("D075 state-history consumer closure", () => {
   });
 
   it("the semantic hash carries the failure but not the request that produced it", () => {
-    const writer = readFileSync(join(ROOT, "lib/meta/entity-state-history.ts"), "utf8");
+    const writer = readFileSync(
+      join(ROOT, "lib/meta/entity-state-history.ts"),
+      "utf8",
+    );
     // Request identity is stripped before the truth is hashed, or every retry
     // of a repeating provider failure is a distinct observation and the run and
     // receipt tables grow one row per attempt with no per-table fence.
-    expect(writer).toContain("error: canonicalizeSemanticError(input.error ?? null),");
-    for (const field of ['"fbtraceId"', '"message"', '"pageUrl"', '"attempts"']) {
+    expect(writer).toContain(
+      "error: canonicalizeSemanticError(input.error ?? null),",
+    );
+    for (const field of [
+      '"fbtraceId"',
+      '"message"',
+      '"pageUrl"',
+      '"attempts"',
+    ]) {
       expect(writer).toContain(field);
     }
     // The run hash and the stored receipt stay byte-faithful to what arrived.
     expect(writer).toContain("    error: input.error ?? null,\n  });");
     // The input rule changed, so the version key changed with it.
-    expect(writer).toContain('contractVersion: "meta-entity-observation-semantic.v2",');
+    expect(writer).toContain(
+      'contractVersion: "meta-entity-observation-semantic.v2",',
+    );
   });
 
   it("the status-recovery callers guard on presence before claiming a recovered status", () => {
     const src = readFileSync(join(ROOT, "lib/api/meta.ts"), "utf8");
-    const guards = src.match(/if \(state\.presence !== "present"\) continue;/g) ?? [];
+    const guards =
+      src.match(/if \(state\.presence !== "present"\) continue;/g) ?? [];
     expect(guards.length).toBe(2);
   });
 });

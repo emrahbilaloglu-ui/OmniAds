@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CREATE_NATIVE_AD_DECISION_INDEXES_SQL,
   CREATE_NATIVE_AD_EVALUATION_CONTEXTS_SQL,
+  CREATE_NATIVE_AD_INPUT_EVIDENCE_SQL,
   CREATE_NATIVE_AD_EVALUATIONS_SQL,
   CREATE_NATIVE_AD_EVENTS_SQL,
   CREATE_NATIVE_AD_SNAPSHOTS_SQL,
@@ -14,6 +15,7 @@ import {
 } from "../ad-evaluation-schema";
 import {
   AD_DECISION_SCHEMA_REQUIRED_COLUMNS,
+  AD_DECISION_INPUT_EVIDENCE_TABLE,
   AD_EVALUATION_CONTEXTS_TABLE,
   AD_EVALUATIONS_TABLE,
   AD_EVENTS_TABLE,
@@ -24,6 +26,7 @@ describe("D047 native ad parallel schema SQL", () => {
   it("contains every capability column in its owning CREATE TABLE", () => {
     const sqlByTable = new Map([
       [AD_EVALUATION_CONTEXTS_TABLE, CREATE_NATIVE_AD_EVALUATION_CONTEXTS_SQL],
+      [AD_DECISION_INPUT_EVIDENCE_TABLE, CREATE_NATIVE_AD_INPUT_EVIDENCE_SQL],
       [AD_EVALUATIONS_TABLE, CREATE_NATIVE_AD_EVALUATIONS_SQL],
       [AD_SNAPSHOTS_TABLE, CREATE_NATIVE_AD_SNAPSHOTS_SQL],
       [AD_EVENTS_TABLE, CREATE_NATIVE_AD_EVENTS_SQL],
@@ -37,6 +40,18 @@ describe("D047 native ad parallel schema SQL", () => {
         expect(sql).toMatch(new RegExp(`\\b${column}\\b`));
       }
     }
+  });
+
+  it("stores input evidence once per contract and hash without widening evaluations", () => {
+    const normalized = CREATE_NATIVE_AD_INPUT_EVIDENCE_SQL.replace(/\s+/g, " ");
+    expect(normalized).toContain("PRIMARY KEY (contract_version, input_hash)");
+    expect(normalized).toContain(
+      "CHECK (jsonb_typeof(input_evidence_json) = 'object')",
+    );
+    expect(CREATE_NATIVE_AD_EVALUATIONS_SQL).not.toContain("input_evidence_json");
+    expect(NATIVE_AD_DECISION_SCHEMA_SQL.join("\n")).not.toContain(
+      "ALTER TABLE engine_v3_ad_decision_evaluations ADD COLUMN input_evidence_json",
+    );
   });
 
   it("exports the exact named lineage constraints expected by the runtime gate", () => {

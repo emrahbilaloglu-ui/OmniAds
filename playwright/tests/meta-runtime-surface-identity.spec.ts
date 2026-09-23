@@ -13,8 +13,8 @@
  * So this asks the server. For every surface and every spelling of it:
  *
  *   - the page resolves rather than 404ing;
- *   - exactly ONE Meta rail row is active, and it is this surface's row (or its
- *     hub's, for a tab);
+ *   - the registered Meta rail row is active (or its hub's, for a tab); the
+ *     explicit Account Intelligence exception lights no leaf;
  *   - the twin mounts the same body as the canonical route, compared on the
  *     heading and the §9 region rather than on the whole text, so a figure that
  *     moves between two reads cannot make two identical screens look different.
@@ -39,22 +39,28 @@ const ROUTED = META_SURFACES.filter(
     !surface.canonicalRoute.includes("[creativeId]"),
 );
 
+/** The product intentionally gives these routed surfaces no rail leaf. */
+const NO_LEAF_SURFACE_IDS = new Set(["meta-intelligence"]);
+
 /**
  * The rail row that should light for a surface.
  *
  * Three cases, and the registry states which applies. A `hub` owns a row in the
  * Meta group and lights it. A `tab` or `sub` WITH a hub has no row of its own
- * and lights its hub's — reading Copies must light Creative Studio. A `sub`
- * with no hub is a workspace surface (Integrations) that owns a row elsewhere
- * in the rail and lights that.
+ * and lights its hub's — reading Copies must light Creative Studio. A route
+ * outside the Meta family can own a row elsewhere in the rail (Integrations).
+ * A Meta route with no row and no parent (Account Intelligence) lights no leaf
+ * while the Meta family remains active.
  */
-function expectedRailLabel(surfaceId: string): string {
+function expectedRailLabel(surfaceId: string): string | null {
   const surface = META_SURFACES.find((item) => item.surfaceId === surfaceId)!;
+  if (NO_LEAF_SURFACE_IDS.has(surfaceId)) return null;
   if (surface.railOrder !== null) return surface.label;
   const parent = META_SURFACES.find(
     (item) => item.surfaceId === surface.parentSurfaceId,
   );
-  return parent ? parent.label : surface.label;
+  if (parent) return parent.label;
+  return surface.label;
 }
 
 /**
@@ -138,8 +144,11 @@ test.describe("every canonical Meta route resolves and lights its own rail row",
 
       // Not a 404 dressed as a page: the rail is only rendered by the shell.
       const rail = await railState(page);
-      expect(rail.leaves, `${surface.surfaceId} lit no rail row`).toHaveLength(1);
-      expect(rail.leaves[0]).toContain(expectedRailLabel(surface.surfaceId));
+      const expected = expectedRailLabel(surface.surfaceId);
+      expect(rail.leaves, `${surface.surfaceId} lit the wrong number of rail rows`).toHaveLength(
+        expected ? 1 : 0,
+      );
+      if (expected) expect(rail.leaves[0]).toContain(expected);
       /*
        * And the product row agrees. This is the other half of the WP2 defect:
        * the Meta group collapsed to inactive the moment an operator opened
@@ -199,22 +208,24 @@ test.describe("every pre-v2 spelling still lands on its surface", () => {
          * end on this surface, with this surface's row lit.
          */
         const rail = await railState(page);
-        expect(rail.leaves, `${legacy} lit no rail row`).toHaveLength(1);
-        expect(rail.leaves[0]).toContain(expectedRailLabel(surface.surfaceId));
+        const expected = expectedRailLabel(surface.surfaceId);
+        expect(rail.leaves, `${legacy} lit the wrong number of rail rows`).toHaveLength(
+          expected ? 1 : 0,
+        );
+        if (expected) expect(rail.leaves[0]).toContain(expected);
         expect(await bodyIdentity(page)).toMatchObject({ heading: canonical.heading });
       });
     }
   }
 });
 
-test("no surface leaves the Meta rail with two rows lit at once", async ({ page }) => {
+test("every surface leaves only its registered Meta rail leaf lit", async ({ page }) => {
   /**
    * The WP2 defect stated as an invariant rather than per-route.
    *
-   * Two lit rows and zero lit rows are the same lie in opposite directions:
-   * the operator cannot tell from the rail which screen they are on. Walking
-   * every surface in one session also catches the case a per-route test cannot
-   * — a row that stays lit after navigating away.
+   * Two lit rows are always wrong. Zero is correct only for the explicit
+   * Account Intelligence exception. Walking every surface in one session also
+   * catches a row that stays lit after navigating away.
    */
   const wrong: string[] = [];
   for (const surface of ROUTED) {
@@ -224,9 +235,12 @@ test("no surface leaves the Meta rail with two rows lit at once", async ({ page 
       surface.canonicalRoute.replace("[businessId]", handle.businesses.oneAccount),
     );
     const rail = await railState(page);
+    const expected = expectedRailLabel(surface.surfaceId);
+    const leafMatches = expected
+      ? rail.leaves.length === 1 && rail.leaves[0]!.includes(expected)
+      : rail.leaves.length === 0;
     if (
-      rail.leaves.length !== 1 ||
-      !rail.leaves[0]!.includes(expectedRailLabel(surface.surfaceId)) ||
+      !leafMatches ||
       rail.families.includes("meta") !== isMetaFamily(surface.canonicalRoute)
     ) {
       wrong.push(

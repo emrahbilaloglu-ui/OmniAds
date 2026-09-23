@@ -61,6 +61,12 @@ export function projectCanonicalMetaDecisionPresentation(input: {
   lifecycleRole: MetaDecisionLifecycleRole;
   blockerCodes?: readonly string[];
   reviewOnly?: boolean;
+  /**
+   * ADR D098 config authority as the engine recorded it (native ad path).
+   * `false` means the verdict was computed without a current-day provider
+   * config receipt or with unverified economic days; `null` means unknown.
+   */
+  configAuthorityVerified?: boolean | null;
 }): CanonicalMetaDecisionPresentationProjection {
   const bridge = bridgeV3DecisionToV21({
     decision: input.decision,
@@ -112,6 +118,7 @@ export function projectCanonicalMetaDecisionPresentation(input: {
       without it falls back to the same generic resolution as before.
     */
     predicateBlockers: input.decision.blockers ?? [],
+    configAuthorityVerified: input.configAuthorityVerified ?? null,
   });
 
   return {

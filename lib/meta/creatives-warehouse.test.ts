@@ -951,7 +951,7 @@ describe("meta creatives warehouse", () => {
     });
   });
 
-  it("backfills sparse ad-name funnel metrics from a unique creative daily row", async () => {
+  it.each([0, 18])("keeps missing ad-day funnel unmeasured despite a unique creative display value of %s", async (creativeLinkClicks) => {
     vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
       {
         businessId: "biz-1",
@@ -976,10 +976,10 @@ describe("meta creatives warehouse", () => {
         cpa: 12,
         ctr: 0,
         cpc: 0,
-        linkClicks: 0,
-        landingPageViews: 0,
-        addToCart: 0,
-        initiateCheckout: 0,
+        linkClicks: null,
+        landingPageViews: null,
+        addToCart: null,
+        initiateCheckout: null,
         sourceSnapshotId: null,
         truthState: "finalized",
         truthVersion: 1,
@@ -1012,7 +1012,7 @@ describe("meta creatives warehouse", () => {
         cpa: 12,
         ctr: 3.75,
         cpc: 4,
-        linkClicks: 18,
+        linkClicks: creativeLinkClicks,
         landingPageViews: 10,
         addToCart: 2,
         initiateCheckout: 1,
@@ -1030,6 +1030,10 @@ describe("meta creatives warehouse", () => {
               id: "ad-1",
               creative_id: "crt-1",
               name: "Dimension Ad",
+              metric_presence: {
+                link_clicks: true, landing_page_views: true,
+                add_to_cart: true, initiate_checkout: true,
+              },
             }),
           },
         ],
@@ -1048,15 +1052,52 @@ describe("meta creatives warehouse", () => {
 
     expect(payload.rows[0]).toMatchObject({
       id: "ad-1",
-      link_clicks: 18,
-      landing_page_views: 10,
-      add_to_cart: 2,
-      initiate_checkout: 1,
-      ctr_all: 22.5,
-      cpc_link: 0.67,
-      click_to_atc: 11.11,
-      atc_to_purchase: 50,
+      link_clicks: 0,
+      landing_page_views: 0,
+      add_to_cart: 0,
+      initiate_checkout: 0,
+      metric_presence: {
+        link_clicks: false, landing_page_views: false,
+        add_to_cart: false, initiate_checkout: false,
+      },
     });
+    expect(warehouse.getMetaCreativeDailyRange).not.toHaveBeenCalled();
+  });
+
+  it("keeps measured ad-day zeros even when a creative-day fallback is positive", async () => {
+    vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
+      buildAdFactRow({
+        linkClicks: 0, outboundClicks: 0, landingPageViews: 0,
+        addToCart: 0, initiateCheckout: 0,
+      }),
+    ] as never);
+    vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
+      buildCreativeFactRow({
+        linkClicks: 18, outboundClicks: 8, landingPageViews: 10,
+        addToCart: 2, initiateCheckout: 1,
+      }),
+    ] as never);
+    vi.mocked(requestModelStore.readMetaAdDimensions).mockResolvedValue(
+      new Map([["ad-1", { creativeId: "crt-1", projectionJson: buildProjectionRow() }]]) as never,
+    );
+
+    const payload = await getMetaCreativesWarehousePayload({
+      businessId: "biz-1", start: "2026-04-03", end: "2026-04-03",
+      groupBy: "adName", format: "all", sort: "spend", mediaMode: "metadata",
+    });
+
+    expect(payload.rows[0]).toMatchObject({
+      link_clicks: 0,
+      outbound_clicks: 0,
+      landing_page_views: 0,
+      add_to_cart: 0,
+      initiate_checkout: 0,
+      metric_presence: {
+        link_clicks: true, landing_page_views: true,
+        add_to_cart: true, initiate_checkout: true,
+      },
+    });
+    expect(warehouse.getMetaCreativeDailyRange).not.toHaveBeenCalled();
   });
 
   it("hydrates ad-name warehouse rows from retained creative media", async () => {

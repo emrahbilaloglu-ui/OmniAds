@@ -125,7 +125,7 @@ export const META_SURFACES: readonly MetaSurface[] = [
     // resolver. The picker drives the first and never the second.
     windowCapability: "mixed",
     actionCapability: "gated_provider_write",
-    gate: "META_DECISION_WORKFLOW_UI",
+    gate: "META_AUTOMATION_LIVE_WRITES",
     // History is deliberately ABSENT here. It used to be listed, so reading
     // History lit up Decisions — the plan's §5.1 finding 4. History owns a row
     // of its own now, and a row cannot be active for a surface it does not own.

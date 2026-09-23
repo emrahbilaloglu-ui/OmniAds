@@ -179,7 +179,7 @@ async function seed() {
         account_timezone, account_currency, spend, revenue, conversions,
         impressions, clicks, bid_strategy_type, bid_value, bid_value_format)
      VALUES ($1, $2, $3::date, $4, $5, 'Europe/Istanbul', 'USD',
-             4200, 5040, 500, 90000, 1800, 'cost_cap', 12.00, 'currency')`,
+             4200, 5040, 500, 90000, 1800, 'cost_cap', 1200, 'currency')`,
     [BUSINESS_TEXT, ACCOUNT, AS_OF, CBO, CBO_ADSET],
   );
   await sql.query(
@@ -248,10 +248,19 @@ async function main() {
   expectEqual(abo.currentMinorUnits, 50_000, "abo_amount_minor");
 
   /*
-    The bid cap, in minor units, from bid_value + bid_value_format.
+    The bid cap, in minor units, read straight out of bid_value.
 
-    $12.00 at exponent 2 is 1200. There is no `bid_amount` column; a
-    `roas`-formatted value is a Target ROAS ratio and must never become an
+    `bid_value` (format `currency`) IS the provider's `bid_amount`, which Meta
+    documents as minor units: "The bid amount's unit is cents for currencies
+    like USD, EUR, and the basic unit for currencies like JPY, KRW". So a
+    $12.00 cap is stored as 1200 and read as 1200 — it is NOT rescaled by the
+    exponent a second time.
+
+    This fixture previously inserted `12.00` and expected `1200`, encoding the
+    major-unit misreading. No provider read can produce that row: across
+    294,991 retained currency bid rows there is not one fractional value.
+
+    A `roas`-formatted value is a Target ROAS ratio and must never become an
     amount.
   */
   const bid = contexts.bidByAdsetId.get(CBO_ADSET);

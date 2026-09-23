@@ -1,12 +1,23 @@
 import { getDb, type DbClient } from "@/lib/db";
 import { chunkDecisionRows } from "./batching";
 import {
+  canonicalConfigFieldEvidenceRef,
+  canonicalConfigReceiptWindowManifest,
+  META_CONFIG_EVIDENCE_FIELDS,
+} from "@/lib/meta/config-field-evidence-ref";
+import {
+  META_FUNNEL_STAGE_CONTRACT_VERSION,
+  META_METRIC_WINDOW_COMPLETENESS_RULE,
+} from "@/lib/meta/funnel-stage-parse";
+import { META_AD_DAY_LINK_CLICK_CONTRACT_VERSION } from "@/lib/meta/link-click-parse";
+import {
   canonicalSha256,
   stableCanonicalJson,
   type CanonicalEvaluationProvenance,
   type CanonicalJsonObject,
 } from "./canonical-evaluation";
 import {
+  type AdDecisionInput,
   DECISION_AUTHORITY_BLOCKERS,
   type DecisionAuthorityBlocker,
   type DecisionLabel,
@@ -36,6 +47,21 @@ export type { DecisionAuthorityBlocker };
  */
 export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   /*
+  `.v12` — the ad-grain input envelope binds the custom-conversion identity and
+  the config observation/verified-window verdict. Before this, a provider
+  receipt could change hard-action authority without changing any of the three
+  evaluation hashes. Prior rows stay under their own contract key.
+
+  AMENDED IN PLACE on 2026-09-22, before any `.v12` row existed (verified
+  read-only on production: every stored ad evaluation is `.v11`): the envelope
+  also binds WHICH receipt each current-day field rests on
+  (ConfigFieldEvidenceRef, lib/meta/config-field-evidence-ref.ts), the economic
+  window's receipt manifest, and the metric parsing contracts
+  (`metricContract`). The hashed evidence is persisted once per
+  `(contract_version, input_hash)` in
+  `engine_v3_ad_decision_input_evidence`, so the input hash can be recomputed
+  without widening the high-volume evaluation fact table.
+
   `.v11` — the ad-grain envelope stamps the canonical evaluation contract,
   which moved to `.v9` when the account-CPA projection was extended from
   `spendUnitEvidence` to `accountBaselines` / `accountBaselinesByKind`. Those
@@ -49,7 +75,17 @@ export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   readable under their own key and are never recomputed under current
   semantics.
 */
-  "engine-v3-canonical-ad-evaluation.v11" as const;
+  "engine-v3-canonical-ad-evaluation.v12" as const;
+
+/**
+ * The metric parsing rules a `.v12` ad evaluation's inputs were read under.
+ * Enumerated and hashed (see `metricContract` in the input envelope).
+ */
+export const NATIVE_AD_METRIC_CONTRACT = {
+  funnelStage: META_FUNNEL_STAGE_CONTRACT_VERSION,
+  windowRule: META_METRIC_WINDOW_COMPLETENESS_RULE,
+  adDayLinkClick: META_AD_DAY_LINK_CLICK_CONTRACT_VERSION,
+} as const;
 
 export interface AdDecisionEvaluationIdentity {
   decisionEntityType: "ad";
@@ -127,8 +163,16 @@ type StoredEvaluationRow = Record<string, unknown> & {
   decision_hash: unknown;
 };
 
+type StoredInputEvidenceRow = Record<string, unknown> & {
+  contract_version: unknown;
+  input_hash: unknown;
+  evidence_matches: unknown;
+};
+
 export const AD_EVALUATION_CONTEXTS_TABLE =
   "engine_v3_ad_decision_evaluation_contexts";
+export const AD_DECISION_INPUT_EVIDENCE_TABLE =
+  "engine_v3_ad_decision_input_evidence";
 export const AD_EVALUATIONS_TABLE = "engine_v3_ad_decision_evaluations";
 export const AD_SNAPSHOTS_TABLE = "engine_v3_ad_decision_snapshots_daily";
 export const AD_EVENTS_TABLE = "engine_v3_ad_decision_events";
@@ -155,6 +199,13 @@ export const AD_DECISION_SCHEMA_REQUIRED_COLUMNS: Readonly<
     "job_run_id",
     "evaluated_at",
     "created_at",
+  ],
+  [AD_DECISION_INPUT_EVIDENCE_TABLE]: [
+    "contract_version",
+    "input_hash",
+    "input_evidence_json",
+    "created_at",
+    "updated_at",
   ],
   [AD_EVALUATIONS_TABLE]: [
     "id",
@@ -307,6 +358,7 @@ const JSONB_COLUMNS = new Set([
   "creative_input_json",
   "campaign_context_json",
   "prior_hysteresis_json",
+  "input_evidence_json",
   "decision_output_json",
   "badges",
   "operator_evidence",
@@ -369,11 +421,23 @@ export function expectedAdDecisionColumnContract(
 export interface RequiredConstraintContract {
   table: string;
   name: string;
-  type: "c" | "f" | "u";
+  type: "c" | "f" | "p" | "u";
   allOf: readonly string[];
 }
 
 export const AD_DECISION_REQUIRED_CONSTRAINTS: readonly RequiredConstraintContract[] = [
+  {
+    table: AD_DECISION_INPUT_EVIDENCE_TABLE,
+    name: "engine_v3_ad_input_evidence_pkey",
+    type: "p",
+    allOf: ["primary key (contract_version, input_hash)"],
+  },
+  {
+    table: AD_DECISION_INPUT_EVIDENCE_TABLE,
+    name: "engine_v3_ad_input_evidence_json_check",
+    type: "c",
+    allOf: ["jsonb_typeof(input_evidence_json) = 'object'::text"],
+  },
   {
     table: "engine_v3_job_runs",
     name: "engine_v3_job_runs_native_lineage_unique",
@@ -831,6 +895,7 @@ function withoutKeys(
 export function buildAdCanonicalEvaluationProvenance(input: {
   identity: AdDecisionEvaluationIdentity;
   base: CanonicalEvaluationProvenance;
+  adEvidence: Pick<AdDecisionInput, "customConversionId" | "configAuthority">;
 }): AdCanonicalEvaluationProvenance {
   const identity = normalizeAdDecisionEvaluationIdentity(input.identity);
   const contextPayload = {
@@ -850,6 +915,107 @@ export function buildAdCanonicalEvaluationProvenance(input: {
       providerAccountRefId: identity.providerAccountRefId,
       creativeGroupingId: identity.creativeId,
     },
+    configEvidence: {
+          customConversionId: input.adEvidence.customConversionId ?? null,
+          latestDay: {
+            readiness: input.adEvidence.configAuthority.latestDay.readiness,
+            blockingField: input.adEvidence.configAuthority.latestDay.blockingField,
+            pendingCorroborationOnly:
+              input.adEvidence.configAuthority.latestDay.pendingCorroborationOnly,
+            purchaseCohortWithoutEvent:
+              input.adEvidence.configAuthority.latestDay.purchaseCohortWithoutEvent,
+            valueEstablished:
+              input.adEvidence.configAuthority.latestDay.valueEstablished,
+          },
+          observedDate: input.adEvidence.configAuthority.observedDate,
+          evaluationDay: input.adEvidence.configAuthority.evaluationDay,
+          currentConfigDay: input.adEvidence.configAuthority.currentConfigDay,
+          currentValueEvidence: {
+            observed: input.adEvidence.configAuthority.currentValueEvidence.observed,
+            bracketed: input.adEvidence.configAuthority.currentValueEvidence.bracketed,
+            weakestTier:
+              input.adEvidence.configAuthority.currentValueEvidence.weakestTier,
+            /*
+              WHICH RECEIPT each field rests on. Hashed so that the same value
+              and tier on a different receipt — or a different observation of
+              the same canonical snapshot — is a different input. Enumerated per
+              field and per member; explicit null where there is none.
+            */
+            lineageSupplied:
+              input.adEvidence.configAuthority.currentValueEvidence.lineageSupplied,
+            refs: Object.fromEntries(
+              META_CONFIG_EVIDENCE_FIELDS.map((field) => [
+                field,
+                canonicalConfigFieldEvidenceRef(
+                  input.adEvidence.configAuthority.currentValueEvidence.refs[field],
+                ),
+              ]),
+            ),
+            refRefusals: Object.fromEntries(
+              META_CONFIG_EVIDENCE_FIELDS.map((field) => [
+                field,
+                input.adEvidence.configAuthority.currentValueEvidence.refRefusals[field] ??
+                  null,
+              ]),
+            ),
+          },
+          decisionEconomics: {
+            fullyVerified:
+              input.adEvidence.configAuthority.decisionEconomics.fullyVerified,
+            economicDayCount:
+              input.adEvidence.configAuthority.decisionEconomics.economicDayCount,
+            unverifiedEconomicDayCount:
+              input.adEvidence.configAuthority.decisionEconomics.unverifiedEconomicDayCount,
+            /* The economic window's receipts, as a compact manifest. */
+            receiptManifest: canonicalConfigReceiptWindowManifest(
+              input.adEvidence.configAuthority.decisionEconomics.receiptManifest,
+            ),
+          },
+          counts: {
+            decisionAuthorityDays:
+              input.adEvidence.configAuthority.counts.decisionAuthorityDays,
+            reviewOnlyPendingDays:
+              input.adEvidence.configAuthority.counts.reviewOnlyPendingDays,
+            reviewOnlySettledDays:
+              input.adEvidence.configAuthority.counts.reviewOnlySettledDays,
+            noneDays: input.adEvidence.configAuthority.counts.noneDays,
+            decisionAuthoritySpend:
+              input.adEvidence.configAuthority.counts.decisionAuthoritySpend,
+            reviewOnlyPendingSpend:
+              input.adEvidence.configAuthority.counts.reviewOnlyPendingSpend,
+            reviewOnlySettledSpend:
+              input.adEvidence.configAuthority.counts.reviewOnlySettledSpend,
+            noneSpend: input.adEvidence.configAuthority.counts.noneSpend,
+          },
+          suffix: {
+            startDate: input.adEvidence.configAuthority.suffix.startDate,
+            endDate: input.adEvidence.configAuthority.suffix.endDate,
+            dayCount: input.adEvidence.configAuthority.suffix.dayCount,
+            spend: input.adEvidence.configAuthority.suffix.spend,
+            pendingTrailingDays:
+              input.adEvidence.configAuthority.suffix.pendingTrailingDays,
+            reason: input.adEvidence.configAuthority.suffix.reason,
+          },
+          window: {
+            readiness: input.adEvidence.configAuthority.window.readiness,
+            reason: input.adEvidence.configAuthority.window.reason,
+            authoritativeSpendShare:
+              input.adEvidence.configAuthority.window.authoritativeSpendShare,
+          },
+          receiptDisagreements: {
+            objective:
+              input.adEvidence.configAuthority.receiptDisagreements.objective,
+            optimizationGoal:
+              input.adEvidence.configAuthority.receiptDisagreements.optimizationGoal,
+          },
+        },
+    /*
+      THE RULES the metric inputs above were read under. A stored funnel or
+      link-click figure is only interpretable beside the parsing contract, the
+      window rule and the D095 authority rule that produced it, so they are
+      named in the hashed input rather than implied by the engine version.
+    */
+    metricContract: NATIVE_AD_METRIC_CONTRACT,
   } satisfies Record<string, unknown>;
   const inputHash = canonicalSha256(inputPayload);
   const decisionPayload = {
@@ -949,6 +1115,7 @@ export async function inspectEvaluationStoreSchemaCapability(
     [
       [
         AD_EVALUATION_CONTEXTS_TABLE,
+        AD_DECISION_INPUT_EVIDENCE_TABLE,
         AD_EVALUATIONS_TABLE,
         AD_SNAPSHOTS_TABLE,
         AD_EVENTS_TABLE,
@@ -965,6 +1132,7 @@ export async function inspectEvaluationStoreSchemaCapability(
     [
       [
         AD_EVALUATION_CONTEXTS_TABLE,
+        AD_DECISION_INPUT_EVIDENCE_TABLE,
         AD_EVALUATIONS_TABLE,
         AD_SNAPSHOTS_TABLE,
         AD_EVENTS_TABLE,
@@ -988,6 +1156,7 @@ export async function inspectEvaluationStoreSchemaCapability(
     [
       [
         AD_EVALUATION_CONTEXTS_TABLE,
+        AD_DECISION_INPUT_EVIDENCE_TABLE,
         AD_EVALUATIONS_TABLE,
         AD_SNAPSHOTS_TABLE,
         AD_EVENTS_TABLE,
@@ -1116,6 +1285,46 @@ WHERE job_run_id = $15::uuid
   AND scope_id = $8
   AND context_hash = $14
 LIMIT 1
+`;
+
+export const INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY = `
+WITH payload AS (
+  SELECT *
+  FROM jsonb_to_recordset($1::jsonb) AS row(
+    contract_version text,
+    input_hash text,
+    input_evidence_json jsonb
+  )
+)
+INSERT INTO engine_v3_ad_decision_input_evidence (
+  contract_version, input_hash, input_evidence_json
+)
+SELECT contract_version, input_hash, input_evidence_json
+FROM payload
+ON CONFLICT (contract_version, input_hash) DO NOTHING
+`;
+
+export const READ_AD_DECISION_INPUT_EVIDENCE_QUERY = `
+WITH payload AS (
+  SELECT *
+  FROM jsonb_to_recordset($1::jsonb) AS row(
+    contract_version text,
+    input_hash text,
+    input_evidence_json jsonb
+  )
+)
+SELECT
+  payload.contract_version,
+  payload.input_hash,
+  COALESCE(
+    stored.input_evidence_json = payload.input_evidence_json,
+    FALSE
+  ) AS evidence_matches
+FROM payload
+LEFT JOIN engine_v3_ad_decision_input_evidence stored
+  ON stored.contract_version = payload.contract_version
+ AND stored.input_hash = payload.input_hash
+ORDER BY payload.contract_version, payload.input_hash
 `;
 
 export const INSERT_AD_DECISION_EVALUATIONS_QUERY = `
@@ -1477,6 +1686,71 @@ export async function persistAdDecisionEvaluations(
     ],
   );
   const contextId = nonEmpty(contextRows[0]?.id, "contextId");
+  const inputEvidenceByIdentity = new Map<
+    string,
+    {
+      contract_version: string;
+      input_hash: string;
+      input_evidence_json: CanonicalJsonObject;
+      canonicalJson: string;
+    }
+  >();
+  for (const evaluation of input.evaluations) {
+    const evidence = {
+      configEvidence: evaluation.inputPayload.configEvidence ?? null,
+      metricContract: evaluation.inputPayload.metricContract ?? null,
+    } satisfies CanonicalJsonObject;
+    const identity = `${AD_DECISION_EVALUATION_CONTRACT_VERSION}:${evaluation.inputHash}`;
+    const canonicalJson = stableCanonicalJson(evidence);
+    const prior = inputEvidenceByIdentity.get(identity);
+    if (prior && prior.canonicalJson !== canonicalJson) {
+      throw new Error(
+        `Ad decision input evidence differs inside one hash identity: ${identity}.`,
+      );
+    }
+    inputEvidenceByIdentity.set(identity, {
+      contract_version: AD_DECISION_EVALUATION_CONTRACT_VERSION,
+      input_hash: evaluation.inputHash,
+      input_evidence_json: evidence,
+      canonicalJson,
+    });
+  }
+  const inputEvidenceRows = [...inputEvidenceByIdentity.values()].map((row) => ({
+    contract_version: row.contract_version,
+    input_hash: row.input_hash,
+    input_evidence_json: row.input_evidence_json,
+  }));
+
+  /*
+    Mappings are resolved before the first evaluation INSERT. The caller owns
+    the surrounding transaction, so any missing/colliding mapping aborts the
+    complete context/evidence/evaluation batch. ON CONFLICT is intentionally a
+    no-op: an existing identity is acceptable only when the following equality
+    read proves its JSON is byte-equivalent as jsonb.
+  */
+  for (const batch of chunkDecisionRows(inputEvidenceRows)) {
+    await db.query(INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY, [
+      JSON.stringify(batch),
+    ]);
+    const resolved = await db.query<StoredInputEvidenceRow>(
+      READ_AD_DECISION_INPUT_EVIDENCE_QUERY,
+      [JSON.stringify(batch)],
+    );
+    const matched = new Set(
+      resolved
+        .filter((row) => row.evidence_matches === true)
+        .map((row) => `${String(row.contract_version)}:${String(row.input_hash)}`),
+    );
+    for (const row of batch) {
+      const identity = `${row.contract_version}:${row.input_hash}`;
+      if (!matched.has(identity)) {
+        throw new Error(
+          `Ad decision input evidence missing or hash collision: ${identity}.`,
+        );
+      }
+    }
+  }
+
   const rows = input.evaluations.map((evaluation) => ({
     context_id: contextId,
     business_ref_id: input.businessId,

@@ -14,6 +14,10 @@ import {
 } from "@/lib/meta/provider-local-day";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import {
+  META_METRIC_WINDOW_COMPLETENESS_RULE,
+  resolveMetaCompleteWindowSum,
+} from "@/lib/meta/funnel-stage-parse";
+import {
   getMetaAdDailyRange,
   getMetaAdSetDailyRange,
   getMetaBreakdownDailyRange,
@@ -194,14 +198,60 @@ type TrackingQualityStatus =
   | "lpv_drop_suspected"
   | "click_to_lpv_observed"
   | "click_to_lpv_borderline"
-  | "insufficient_click_sample";
+  | "insufficient_click_sample"
+  | "click_to_lpv_unmeasured";
 
+/**
+ * A count the warehouse reader classified as measured, or null.
+ *
+ * `n()` maps null to 0, which is right for spend and impressions (NOT NULL
+ * columns) and wrong for an ad-day link-click or funnel-stage reading, where
+ * null means the provider never measured it. Malformed shapes (non-finite,
+ * negative, non-numeric) are unmeasured too, never coerced (R4).
+ */
+function measuredCountOrNull(value: unknown): number | null {
+  if (typeof value !== "number") return null;
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/**
+ * CLICK-TO-LPV TRACKING QUALITY NEEDS TWO OBSERVATIONS THAT DISAGREE.
+ *
+ * `lpv_drop_suspected` is a claim about an integration — the pixel or the
+ * landing page is losing visitors between the click and the page view — and it
+ * drives `scenario_h1_dedup_tracking` plus a hold on every performance
+ * scenario (`trackingQualityIssue` in scenario-emitters/high-priority.ts).
+ * Both inputs used to arrive through `n()`, so an UNMEASURED landing-page-view
+ * window beside a measured link-click window read as 0 LPVs over 500+ clicks: a
+ * 0% capture rate, the strongest possible "tracking drop", manufactured from
+ * the absence of an observation. D091 in INVARIANTS.md: an absent figure is
+ * not a contradictory one, and a tracking anomaly must not be raised from an
+ * absence.
+ *
+ * So either side being null yields `click_to_lpv_unmeasured`, a status no
+ * consumer treats as an issue or as a ready signal, with both figures and the
+ * rate carried out as null rather than zero.
+ */
 export function computeTrackingQualityStatus(input: {
-  linkClicks: number;
-  landingPageViews: number;
+  linkClicks: number | null;
+  landingPageViews: number | null;
 }) {
-  const linkClicks = Math.max(0, n(input.linkClicks));
-  const landingPageViews = Math.max(0, n(input.landingPageViews));
+  const linkClicks = measuredCountOrNull(input.linkClicks);
+  const landingPageViews = measuredCountOrNull(input.landingPageViews);
+  const thresholds = {
+    click_sample_floor: TRACKING_CLICK_SAMPLE_MIN,
+    lpv_drop_ratio_max: TRACKING_LPV_DROP_RATIO_MAX,
+    lpv_observed_ratio_min: TRACKING_LPV_OBSERVED_RATIO_MIN,
+  };
+  if (linkClicks === null || landingPageViews === null) {
+    return {
+      status: "click_to_lpv_unmeasured" as TrackingQualityStatus,
+      link_clicks: linkClicks,
+      landing_page_views: landingPageViews,
+      landing_page_view_rate: null,
+      ...thresholds,
+    };
+  }
   const landingPageViewRate = linkClicks > 0 ? landingPageViews / linkClicks : null;
   let status: TrackingQualityStatus = "insufficient_click_sample";
   if (linkClicks >= TRACKING_CLICK_SAMPLE_MIN && landingPageViewRate != null) {
@@ -215,27 +265,57 @@ export function computeTrackingQualityStatus(input: {
   }
   return {
     status,
-    link_clicks: linkClicks,
-    landing_page_views: landingPageViews,
+    link_clicks: linkClicks as number | null,
+    landing_page_views: landingPageViews as number | null,
     landing_page_view_rate: landingPageViewRate == null ? null : r2(landingPageViewRate),
-    click_sample_floor: TRACKING_CLICK_SAMPLE_MIN,
-    lpv_drop_ratio_max: TRACKING_LPV_DROP_RATIO_MAX,
-    lpv_observed_ratio_min: TRACKING_LPV_OBSERVED_RATIO_MIN,
+    ...thresholds,
   };
 }
 
-function trackingQualityFromAdRows(rows: MetaAdDailyRow[], startDate: string, endDate: string) {
+/**
+ * The 28-day click-to-LPV window over an entity's ad-days.
+ *
+ * Every ad-derived figure is summed under `META_METRIC_WINDOW_COMPLETENESS_RULE`
+ * via `resolveMetaCompleteWindowSum`: the window is a measurement only when
+ * every decision-bearing ad-day in it was measured (zero + missing -> null,
+ * zero + zero -> 0), and an ad-day that did nothing at all is not a gap. The
+ * reduce-with-`n()` it replaces summed the measured days and silently counted
+ * the rest as zeros, so a partial window looked complete and an unmeasured one
+ * looked like a measured zero.
+ *
+ * `row.linkClicks` is taken as `getMetaAdDailyRange` classifies it — D095's
+ * column-versus-payload ladder (`resolveAdDayAuthoritativeLinkClicks`) — and
+ * the funnel stages as `readMetaFunnelStageFromPayload` classifies them; this
+ * function does not re-derive either. Purchases come from the NOT NULL
+ * `conversions` column and keep plain summation.
+ */
+export function trackingQualityFromAdRows(rows: MetaAdDailyRow[], startDate: string, endDate: string) {
   const filtered = rows.filter((row) => row.date >= normalizeDate(startDate) && row.date <= normalizeDate(endDate));
-  const linkClicks = filtered.reduce((sum, row) => sum + n(row.linkClicks), 0);
-  const landingPageViews = filtered.reduce((sum, row) => sum + n(row.landingPageViews), 0);
-  const addToCart = filtered.reduce((sum, row) => sum + n(row.addToCart), 0);
-  const initiateCheckout = filtered.reduce((sum, row) => sum + n(row.initiateCheckout), 0);
+  /* AD_DAY_DECISION_BEARING_ACTIVITY_SQL, in TypeScript. */
+  const decisionBearing = (row: MetaAdDailyRow) =>
+    n(row.impressions) > 0 ||
+    n(row.spend) > 0 ||
+    n(row.clicks) > 0 ||
+    n(row.conversions) > 0 ||
+    n(row.revenue) > 0;
+  const windowSum = (read: (row: MetaAdDailyRow) => unknown) =>
+    resolveMetaCompleteWindowSum(
+      filtered.map((row) => ({
+        value: measuredCountOrNull(read(row)),
+        active: decisionBearing(row),
+      })),
+    );
+  const linkClicks = windowSum((row) => row.linkClicks);
+  const landingPageViews = windowSum((row) => row.landingPageViews);
+  const addToCart = windowSum((row) => row.addToCart);
+  const initiateCheckout = windowSum((row) => row.initiateCheckout);
   const purchases = filtered.reduce((sum, row) => sum + n(row.conversions), 0);
   return {
     ...computeTrackingQualityStatus({ linkClicks, landingPageViews }),
     add_to_cart: addToCart,
     initiate_checkout: initiateCheckout,
     purchases,
+    window_completeness_rule: META_METRIC_WINDOW_COMPLETENESS_RULE,
     source: "meta_ad_daily_click_to_lpv_28d",
   };
 }

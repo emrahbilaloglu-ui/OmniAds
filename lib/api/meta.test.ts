@@ -1023,6 +1023,45 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     // UTC, so this is deterministic without freezing the clock.
     const accountToday = new Date().toISOString().slice(0, 10);
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockImplementation(
+      async ({ entityLevel }) => entityLevel === "campaign"
+        ? new Map([
+            ["cmp-1", {
+              objective: "OUTCOME_LEADS",
+              optimizationGoal: "Purchase",
+              bidStrategyType: "lowest_cost",
+              bidStrategyLabel: "Lowest Cost",
+              manualBidAmount: null,
+              bidValue: null,
+              bidValueFormat: null,
+              dailyBudget: 999,
+              lifetimeBudget: null,
+            }],
+            ["cmp-no-objective", {
+              objective: "OUTCOME_LEADS",
+              optimizationGoal: null,
+              bidStrategyType: null,
+              bidStrategyLabel: null,
+              manualBidAmount: null,
+              bidValue: null,
+              bidValueFormat: null,
+              dailyBudget: 999,
+              lifetimeBudget: null,
+            }],
+          ])
+        : new Map([["adset-1", {
+            optimizationGoal: "LEAD_GENERATION",
+            customEventType: "LEAD",
+            pixelId: "stale-pixel",
+            bidStrategyType: "minimum_roas",
+            bidStrategyLabel: "Minimum ROAS",
+            manualBidAmount: null,
+            bidValue: 9,
+            bidValueFormat: "roas" as const,
+            dailyBudget: 999,
+            lifetimeBudget: null,
+          }]]),
+    );
 
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights")) {
@@ -1047,6 +1086,19 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
                 action_values: [],
                 purchase_roas: [],
               },
+              {
+                campaign_id: "cmp-metric-only",
+                campaign_name: "Metric Only",
+                adset_id: "adset-metric-only",
+                adset_name: "Metric Only Adset",
+                ad_id: "ad-metric-only",
+                ad_name: "Metric Only Ad",
+                spend: "1.00",
+                impressions: "10",
+                clicks: "1",
+                actions: [],
+                action_values: [],
+              },
             ],
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -1059,6 +1111,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
               {
                 id: "cmp-1",
                 name: "Campaign 1",
+                objective: "OUTCOME_SALES",
                 effective_status: "ACTIVE",
                 status: "ACTIVE",
                 updated_time: "2026-07-01T09:30:00.000Z",
@@ -1066,6 +1119,12 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
                 daily_budget: "25",
                 bid_strategy: "LOWEST_COST_WITH_BID_CAP",
                 bid_amount: "7.5",
+              },
+              {
+                id: "cmp-no-objective",
+                name: "Campaign Without Objective",
+                effective_status: "ACTIVE",
+                daily_budget: "5",
               },
             ],
           }),
@@ -1141,9 +1200,50 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     // Without this the amplification fix would have silently disabled real
     // current-state tracking, which is what A->B->A point-in-time depends on.
     expect(configSnapshots.appendMetaConfigSnapshots).toHaveBeenCalled();
+    const adsetSnapshot = vi.mocked(configSnapshots.appendMetaConfigSnapshots)
+      .mock.calls.flatMap(([rows]) => rows)
+      .find((row) => row.entityLevel === "adset" && row.entityId === "adset-1");
+    expect(adsetSnapshot?.payload).toMatchObject({
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      bidValue: null,
+      dailyBudget: 25,
+    });
+    expect(adsetSnapshot?.payload.customEventType).toBeUndefined();
+    expect(adsetSnapshot?.payload.pixelId).toBeUndefined();
+    expect(adsetSnapshot?.providerObservation).toMatchObject({
+      kind: "provider_config_receipt",
+      sourceSnapshotId: "snapshot-id",
+      normalizationVersion: 2,
+    });
+    expect(adsetSnapshot?.providerObservation?.fieldScope).toContain("optimization_goal");
+    expect(adsetSnapshot?.providerObservation?.fieldScope).toContain("bid_constraints{roas_average_floor}");
+    expect(adsetSnapshot?.providerObservation?.fieldScope).not.toContain(
+      expect.stringContaining("id,name,campaign_id"),
+    );
+    const campaignSnapshot = vi.mocked(configSnapshots.appendMetaConfigSnapshots)
+      .mock.calls.flatMap(([rows]) => rows)
+      .find((row) => row.entityLevel === "campaign" && row.entityId === "cmp-1");
+    expect(campaignSnapshot?.providerObservation?.fieldScope).toContain("objective");
+    expect(campaignSnapshot?.providerObservation?.fieldScope).not.toContain("bid_constraints{roas_average_floor}");
+    const partialCampaignSnapshot = vi.mocked(configSnapshots.appendMetaConfigSnapshots)
+      .mock.calls.flatMap(([rows]) => rows)
+      .find((row) => row.entityLevel === "campaign" && row.entityId === "cmp-no-objective");
+    expect(partialCampaignSnapshot?.payload.objective).toBeNull();
+    expect(partialCampaignSnapshot?.providerObservation?.fieldScope).toContain("objective");
+    expect(partialCampaignSnapshot?.providerObservation?.observedFieldScope).not.toContain("objective");
     expect(
       fetchMock.mock.calls.some(([url]) => String(url).includes("buying_type")),
     ).toBe(true);
+    const campaignConfigUrl = new URL(String(fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/campaigns") && String(url).includes("buying_type")
+    )?.[0]));
+    const adsetConfigUrl = new URL(String(fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/adsets") && String(url).includes("optimization_goal")
+    )?.[0]));
+    expect(campaignConfigUrl.searchParams.get("fields")).toContain("objective");
+    expect(campaignConfigUrl.searchParams.get("fields")).toContain("start_time,stop_time");
+    expect(campaignConfigUrl.searchParams.get("fields")).not.toContain("bid_constraints");
+    expect(adsetConfigUrl.searchParams.get("fields")).toContain("bid_constraints");
     // The metric facts are still written — only the CURRENT-inventory evidence
     // is withheld — and the daily writer must be told not to append config
     // history for a historical day.
@@ -1177,6 +1277,63 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     // entities, and absence reads as deletion to anything downstream.
     expect(currentConfigCall.campaignReceipt.complete).toBe(true);
     expect(currentConfigCall.adsetReceipt.complete).toBe(true);
+    expect(currentConfigCall.campaignReceipt.observedEntityIds).toEqual(["cmp-1", "cmp-no-objective"]);
+    expect(currentConfigCall.adsetReceipt.observedEntityIds).toEqual(["adset-1"]);
+    expect(currentConfigCall.campaignReceipt.rowObservedAtByEntityId?.["cmp-1"])
+      .toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(currentConfigCall.adsetReceipt.rowObservedAtByEntityId?.["adset-1"])
+      .toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(campaignSnapshot?.providerObservation?.observedAt)
+      .toBe(currentConfigCall.campaignReceipt.rowObservedAtByEntityId?.["cmp-1"]);
+    expect(adsetSnapshot?.providerObservation?.observedAt)
+      .toBe(currentConfigCall.adsetReceipt.rowObservedAtByEntityId?.["adset-1"]);
+    expect(currentConfigCall.campaignRows.map((row) => row.campaignId)).toEqual(["cmp-1", "cmp-no-objective"]);
+    expect(currentConfigCall.adsetRows.map((row) => row.adsetId)).toEqual(["adset-1"]);
+    expect(currentConfigCall.campaignReceipt.sourceSnapshotId).toBe("snapshot-id");
+    expect(currentConfigCall.adsetReceipt.sourceSnapshotId).toBe("snapshot-id");
+    for (const endpointName of ["campaign_configs", "adset_configs", "ad_configs"]) {
+      const rawCall = vi.mocked(warehouse.persistMetaRawSnapshot).mock.calls
+        .map(([call]) => call)
+        .find((call) => call.endpointName === endpointName);
+      expect(rawCall, `${endpointName} raw observation`).toBeTruthy();
+      expect(rawCall!.partitionId).toBe("partition-1");
+      expect(rawCall!.runId).toBe("11111111-2222-4333-8444-555555555555");
+      expect(rawCall!.providerHttpStatus).toBe(200);
+      expect(rawCall!.requestContext).toMatchObject({
+        pagination: { complete: true, termination: "natural_end" },
+      });
+      if (endpointName === "campaign_configs") {
+        expect(rawCall!.requestContext?.fields).toContain("objective");
+        expect(rawCall!.requestContext?.rowObservedAtByEntityId).toHaveProperty("cmp-1");
+      }
+      if (endpointName === "adset_configs") {
+        expect(rawCall!.requestContext?.fields).toContain("optimization_goal");
+        expect(rawCall!.requestContext?.rowObservedAtByEntityId).toHaveProperty("adset-1");
+      }
+    }
+    expect(currentConfigCall.campaignReceipt.runId).toBe("11111111-2222-4333-8444-555555555555");
+    expect(currentConfigCall.adsetReceipt.runId).toBe("11111111-2222-4333-8444-555555555555");
+    expect(currentConfigCall.campaignReceipt.fieldScope).toContain("objective");
+    expect(currentConfigCall.adsetReceipt.fieldScope).toContain("optimization_goal");
+    expect(currentConfigCall.campaignRows[0]).toMatchObject({
+      campaignId: "cmp-1",
+      objective: "OUTCOME_SALES",
+      optimizationGoal: null,
+      dailyBudget: 25,
+    });
+    expect(currentConfigCall.campaignRows[1]).toMatchObject({
+      campaignId: "cmp-no-objective",
+      objective: null,
+      dailyBudget: 5,
+    });
+    // Old snapshots say LEADS and LEAD here. The current-provider pass must
+    // not read them into its provisional in-memory config representation;
+    // only finalized metric slices write typed daily rows.
+    expect(configSnapshots.readLatestMetaConfigSnapshots).not.toHaveBeenCalled();
+    expect(currentConfigCall.adsetRows[0]).toMatchObject({
+      optimizationGoal: "OFFSITE_CONVERSIONS", customEventType: undefined,
+      pixelId: undefined, dailyBudget: 25,
+    });
     /*
       ── ROUND 15, DEFECT 6: THE ATTEMPT REACHES BOTH RECEIPTS ──────────────
 
@@ -1208,13 +1365,13 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     expect(campaignObservationCall).toMatchObject({
       entityType: "campaign",
       completeness: "complete",
-      states: [
+      states: expect.arrayContaining([
         expect.objectContaining({
           entityId: "cmp-1",
           observedAt: "2026-07-01T09:30:00.000Z",
           providerUpdatedAt: "2026-07-01T09:30:00.000Z",
         }),
-      ],
+      ]),
     });
     // The state's observedAt is the provider's own updated_time, not the day
     // being synced — that is what makes A->B->A reconstructable from real
@@ -2094,6 +2251,28 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     // objective, bid strategy and budgets onto a day months in the past.
     const accountToday = "2026-04-03";
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockImplementation(
+      async (input) =>
+        new Map([
+          input.entityLevel === "campaign"
+            ? [
+                "cmp-1",
+                configuration.buildConfigSnapshotPayload({
+                  campaignId: "cmp-1",
+                  objective: "OUTCOME_SALES",
+                  dailyBudget: 25,
+                }),
+              ]
+            : [
+                "adset-1",
+                configuration.buildConfigSnapshotPayload({
+                  campaignId: "cmp-1",
+                  optimizationGoal: "OFFSITE_CONVERSIONS",
+                  dailyBudget: 10,
+                }),
+              ],
+        ]) as never,
+    );
 
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights")) {
@@ -2234,6 +2413,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       expect.arrayContaining([
         expect.objectContaining({
           campaignId: "cmp-1",
+          objective: null,
           dailyBudget: null,
           optimizationGoal: null,
           bidStrategyType: null,
@@ -2241,6 +2421,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       ]),
     );
     for (const row of adsetRows) {
+      expect(row.optimizationGoal).toBeNull();
       expect(row.bidStrategyType).toBeNull();
       expect(row.dailyBudget).toBeNull();
     }
@@ -2428,6 +2609,14 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     // The account's own local today. Driving a historical day here is what the
     // write-back gate now refuses; that case has its own test below.
     const accountToday = new Date().toISOString().slice(0, 10);
+    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(
+      new Map([["adset-1", {
+        optimizationGoal: "LEAD_GENERATION",
+        customEventType: "LEAD",
+        pixelId: "stale-pixel",
+        dailyBudget: 999,
+      }]]) as never,
+    );
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/adsets")) {
         return new Response(
@@ -2527,7 +2716,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await getAdSets(
+    const adsetResult = await getAdSets(
       {
         businessId: "biz-1",
         accessToken: "token-1",
@@ -2563,6 +2752,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         }),
       ]),
     );
+    expect(adsetResult[0]?.customEventType ?? null).toBeNull();
+    expect(adsetResult[0]?.pixelId ?? null).toBeNull();
+    expect(configSnapshots.readLatestMetaConfigSnapshots).not.toHaveBeenCalled();
   });
 
   it("writes nothing back when the single-day adset read is a historical day", async () => {
@@ -2817,7 +3009,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("fails core sync when required config truth is still missing", async () => {
+  it("reports missing current configuration without failing the core capture", async () => {
     // Config truth is only required where config is fetched — the account's own
     // today.
     const accountToday = new Date().toISOString().slice(0, 10);
@@ -2963,7 +3155,14 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         attemptCount: 1,
         leaseMinutes: 15,
       }),
-    ).rejects.toThrow("Meta core truth incomplete");
+    ).resolves.toMatchObject({
+      accountRowsWritten: 1,
+      campaignRowsWritten: 1,
+      incompleteTruthCounts: { campaigns: 1, adsets: 1 },
+    });
+    // The account's provisional current-day capture records provider config;
+    // finalized metric slices are published by their separate dated run.
+    expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
   });
 
   it("emits ordered account core sub-stage logs on success", async () => {
@@ -3118,7 +3317,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       "syncMetaAccountCoreWarehouseDay.fetch_source_pages",
       "syncMetaAccountCoreWarehouseDay.fetch_remote_configs",
       "syncMetaAccountCoreWarehouseDay.fetch_source_account_spend",
-      "syncMetaAccountCoreWarehouseDay.read_latest_config_snapshots",
+      "syncMetaAccountCoreWarehouseDay.resolve_current_entity_scope",
       "syncMetaAccountCoreWarehouseDay.build_daily_rows",
       "syncMetaAccountCoreWarehouseDay.create_authoritative_manifest",
       "syncMetaAccountCoreWarehouseDay.create_slice_versions",
@@ -3381,7 +3580,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await getCampaigns(
+    const rows = await getCampaigns(
       {
         businessId: "biz-1",
         accessToken: "token-1",
@@ -3401,6 +3600,11 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
 
     expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
     expect(warehouse.upsertMetaAccountDailyRows).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({
+      objective: null,
+      dailyBudget: null,
+      bidStrategyType: null,
+    });
     // The config snapshot write sat ABOVE the today-only gate and ran
     // unconditionally, so every historical window a dashboard requested
     // persisted the account's CURRENT campaign inventory — the same

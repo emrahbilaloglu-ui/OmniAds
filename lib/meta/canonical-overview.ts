@@ -1,6 +1,6 @@
 import { getIntegration } from "@/lib/integrations";
 import { getMetaHistoricalVerificationReason } from "@/lib/meta/historical-verification";
-import { getMetaLiveSummaryTotals } from "@/lib/meta/live";
+import { getMetaLiveSummaryTotals, getMetaLiveSummaryWithReceipt } from "@/lib/meta/live";
 import {
   getMetaPartialReason,
   getMetaRangePreparationContext,
@@ -19,6 +19,9 @@ export type MetaCanonicalOverviewSummary = Awaited<
   effectiveEndDate: string;
   isPartial: boolean;
   notReadyReason?: string | null;
+  /** Config availability is independent of the reported Insights totals. */
+  configPartial?: boolean;
+  configNotReadyReason?: string | null;
   readSource:
     | "warehouse_published"
     | "current_day_live"
@@ -86,10 +89,12 @@ export async function getMetaCanonicalOverviewSummary(input: {
   const connected = integration?.status === "connected";
   if (rangeContext.isSelectedCurrentDay && connected) {
     try {
-      const liveTotals = await getMetaLiveSummaryTotals({
+      const live = await getMetaLiveSummaryWithReceipt({
         ...input,
         providerAccountIds,
+        expectedCurrentDay: true,
       });
+      const liveTotals = live.totals;
       logRuntimeDebug("meta-canonical", "summary_read", {
         businessId: input.businessId,
         startDate: input.startDate,
@@ -114,6 +119,8 @@ export async function getMetaCanonicalOverviewSummary(input: {
                   "Current-day live Meta totals are still being prepared.",
               })
             : null,
+        configPartial: live.configPartial,
+        configNotReadyReason: live.configNotReadyReason,
         readSource: "current_day_live",
       };
     } catch (error: unknown) {

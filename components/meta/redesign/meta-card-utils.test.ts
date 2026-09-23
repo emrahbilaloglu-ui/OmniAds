@@ -69,7 +69,46 @@ describe("Meta card currency honesty", () => {
       proposedAction: { kind: "apply_bid", bidAmountMinor: 2200 },
     });
 
-    expect(proposedBidDisplayValue(rec)).toBe(22);
+    /* Major units, at the provider's offset for the currency the overlay will
+       render beside the number. */
+    expect(proposedBidDisplayValue(rec, "TRY")).toBe(22);
+  });
+
+  it("scales a display bid by the provider's offset, not a constant 100", () => {
+    const rec = recommendation({
+      proposedAction: { kind: "apply_bid", bidAmountMinor: 2200 },
+    });
+
+    /* Meta lists JPY at offset 1: ¥2,200 stays ¥2,200. The old constant
+       divisor showed ¥22 for the bid cap about to be written. */
+    expect(proposedBidDisplayValue(rec, "JPY")).toBe(2200);
+  });
+
+  it("shows no display bid at all when the currency has no provider offset", () => {
+    const rec = recommendation({
+      proposedAction: { kind: "apply_bid", bidAmountMinor: 2200 },
+    });
+
+    /* The overlay renders "—" for null. A missing bid cap in the confirmation
+       dialog is recoverable; one that is wrong by 100x is not. */
+    expect(proposedBidDisplayValue(rec, null)).toBeNull();
+    expect(proposedBidDisplayValue(rec, "KWD")).toBeNull();
+  });
+
+  it("does not guess a unit for an undiscriminated targetValue amount", () => {
+    /*
+      `targetValue.bidValue` / `.bidAmount` / `.proposedBidCap` used to be
+      returned untouched, so the function answered in minor units on one
+      branch and major units on another. No producer writes those keys (the
+      bid intent projection writes `proposedMinorUnits` / `currency` /
+      `currencyExponent`) and none carries a `bidValueFormat`, so there is no
+      evidence for what unit such a value would be in.
+    */
+    const rec = recommendation({
+      targetValue: { bidValue: 2200 },
+    });
+
+    expect(proposedBidDisplayValue(rec, "TRY")).toBeNull();
   });
 });
 

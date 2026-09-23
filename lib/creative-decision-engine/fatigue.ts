@@ -17,7 +17,13 @@ export interface HistoricalWindow {
   spend: number;
   ctr: number;
   roas: number;
-  clickToPurchaseRate: number;
+  /**
+   * NULL when the window's link clicks were not measured on every
+   * decision-bearing day (the complete-or-null window rule). It used to be
+   * coerced to 0 by the callers, and a 0 here reads as a 100% collapse against
+   * any positive baseline — decay fabricated out of an unreported window.
+   */
+  clickToPurchaseRate: number | null;
   purchases: number;
 }
 
@@ -126,7 +132,8 @@ export function deriveDisjointWindows(windows: {
       purchases,
       roas: revenue > 0 ? revenue / spend : 0,
       ctr: 0,
-      clickToPurchaseRate: 0,
+      // Not derivable from cumulative windows, and not a measured zero.
+      clickToPurchaseRate: null,
     });
     previous = window;
   }
@@ -226,8 +233,14 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
     : [...baselineCandidates].sort((a, b) => b.roas - a.roas)[0] ?? null;
 
   const currentCtr = recentWindow?.ctr ?? input.ctr;
-  const currentClickToPurchaseRate =
-    recentWindow?.clickToPurchaseRate ?? input.clickToPurchaseRate;
+  /*
+    The recent window's OWN rate when there is a recent window, even when that
+    rate is unknown. Falling back to the 28-day cumulative would compare a
+    different window against the prior-14 baseline.
+  */
+  const currentClickToPurchaseRate = recentWindow
+    ? recentWindow.clickToPurchaseRate
+    : input.clickToPurchaseRate;
   const currentRoas = recentWindow?.roas ?? input.roas;
 
   const ctrDecay =
@@ -236,6 +249,7 @@ export function computeFatigue(input: FatigueInput): FatigueOutput {
       : null;
   const clickToPurchaseDecay =
     bestWindow &&
+    bestWindow.clickToPurchaseRate != null &&
     bestWindow.clickToPurchaseRate > 0 &&
     currentClickToPurchaseRate != null
       ? (bestWindow.clickToPurchaseRate - currentClickToPurchaseRate) /

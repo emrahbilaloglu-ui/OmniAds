@@ -65,6 +65,7 @@ export default async function CreativeAudiencesPage({
     <LegacyCreativeAudiencesPage
       businessId={businessId}
       providerAccountId={providerAccountId}
+      initialReadState={readState}
     />
     </>
   );

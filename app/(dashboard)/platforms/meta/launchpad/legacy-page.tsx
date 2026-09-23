@@ -307,6 +307,10 @@ function attributionSpecFromState(adSet: LaunchpadAdSetState) {
 function stateFromPayloadAdSet(
   adSet: MetaLaunchPayload["adSets"][number],
   index: number,
+  /* The draft's stored amounts are provider minor units; turning them back
+     into an operator-readable figure needs Meta's offset for THIS account's
+     currency, not a constant 100. */
+  currency: string | null,
 ): LaunchpadAdSetState {
   const attributionSpec: MetaAttributionSpecItem[] = adSet.attributionSpec.map(
     (item) => ({
@@ -338,11 +342,11 @@ function stateFromPayloadAdSet(
             { event_type: "CLICK_THROUGH", window_days: 7 },
           ]),
     budgetAmount: adSet.budget?.amountMinor
-      ? amountFromMinorUnits(adSet.budget.amountMinor)
+      ? amountFromMinorUnits(adSet.budget.amountMinor, currency)
       : "",
     bidStrategy: adSet.budget?.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP",
     bidAmount: adSet.budget?.bidAmountMinor
-      ? amountFromMinorUnits(adSet.budget.bidAmountMinor)
+      ? amountFromMinorUnits(adSet.budget.bidAmountMinor, currency)
       : "",
   };
 }
@@ -1664,9 +1668,9 @@ export default function MetaLaunchpadPage({
             ? {
                 mode: "CBO",
                 schedule: budget.schedule ?? "daily",
-                amountMinor: amountToMinorUnits(budget.amount ?? ""),
+                amountMinor: amountToMinorUnits(budget.amount ?? "", currency),
                 bidStrategy: budget.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP",
-                bidAmountMinor: amountToMinorUnits(budget.bidAmount ?? ""),
+                bidAmountMinor: amountToMinorUnits(budget.bidAmount ?? "", currency),
               }
             : {
                 mode: "ABO",
@@ -1698,9 +1702,9 @@ export default function MetaLaunchpadPage({
               ? {
                   mode: "ABO",
                   schedule: "daily",
-                  amountMinor: amountToMinorUnits(adSet.budgetAmount ?? ""),
+                  amountMinor: amountToMinorUnits(adSet.budgetAmount ?? "", currency),
                   bidStrategy: adSet.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP",
-                  bidAmountMinor: amountToMinorUnits(adSet.bidAmount ?? ""),
+                  bidAmountMinor: amountToMinorUnits(adSet.bidAmount ?? "", currency),
                 }
               : null,
         })),
@@ -1929,16 +1933,18 @@ export default function MetaLaunchpadPage({
       mode: next.budget.mode,
       schedule: next.budget.schedule,
       amount: next.budget.amountMinor
-        ? amountFromMinorUnits(next.budget.amountMinor)
+        ? amountFromMinorUnits(next.budget.amountMinor, currency)
         : budget.amount,
       bidStrategy: next.budget.bidStrategy ?? "LOWEST_COST_WITHOUT_CAP",
       bidAmount: next.budget.bidAmountMinor
-        ? amountFromMinorUnits(next.budget.bidAmountMinor)
+        ? amountFromMinorUnits(next.budget.bidAmountMinor, currency)
         : "",
     });
     setAdSets(
       next.adSets.length > 0
-        ? next.adSets.map(stateFromPayloadAdSet)
+        ? next.adSets.map((adSet, index) =>
+            stateFromPayloadAdSet(adSet, index, currency),
+          )
         : [makeDefaultLaunchpadAdSet(1, defaultCampaignName())],
     );
     setSelectedCreativeIds(next.creativeIds);

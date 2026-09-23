@@ -47,9 +47,10 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
   resolveProviderAccountScope: async (input: unknown) => {
     // Reaches the same mock through the module itself, because the factory
     // runs before the file's own bindings exist and cannot close over one.
-    const { resolveProviderAccountId: resolveId } = (await import(
-      "@/lib/zero-base/provider-scope-server"
-    )) as { resolveProviderAccountId: (value: unknown) => Promise<string | null> };
+    const { resolveProviderAccountId: resolveId } =
+      (await import("@/lib/zero-base/provider-scope-server")) as {
+        resolveProviderAccountId: (value: unknown) => Promise<string | null>;
+      };
     const id = await resolveId(input);
     return id
       ? { providerAccountId: id, refusal: null, requestedButUnassigned: null }
@@ -59,7 +60,10 @@ vi.mock("@/lib/zero-base/provider-scope-server", () => ({
           requestedButUnassigned: null,
         };
   },
-  readProviderScopeCatalog: async () => ({ provider: "meta" as const, accounts: [] }),
+  readProviderScopeCatalog: async () => ({
+    provider: "meta" as const,
+    accounts: [],
+  }),
   resolveProviderAccountId: vi.fn(),
 }));
 
@@ -75,24 +79,18 @@ vi.mock("@/app/(dashboard)/platforms/meta/copies/legacy-page", () => ({
     return null;
   },
 }));
-vi.mock(
-  "@/app/(dashboard)/platforms/meta/landing-pages/legacy-page",
-  () => ({
-    default: (props: LegacyCreativePageProps) => {
-      routeMocks.landingPagesBody(props);
-      return null;
-    },
-  }),
-);
-vi.mock(
-  "@/app/(dashboard)/platforms/meta/creative-inbox/legacy-page",
-  () => ({
-    default: (props: LegacyCreativePageProps) => {
-      routeMocks.inboxBody(props);
-      return null;
-    },
-  }),
-);
+vi.mock("@/app/(dashboard)/platforms/meta/landing-pages/legacy-page", () => ({
+  default: (props: LegacyCreativePageProps) => {
+    routeMocks.landingPagesBody(props);
+    return null;
+  },
+}));
+vi.mock("@/app/(dashboard)/platforms/meta/creative-inbox/legacy-page", () => ({
+  default: (props: LegacyCreativePageProps) => {
+    routeMocks.inboxBody(props);
+    return null;
+  },
+}));
 vi.mock("@/app/(dashboard)/platforms/meta/audiences/legacy-page", () => ({
   default: (props: LegacyCreativePageProps) => {
     routeMocks.audiencesBody(props);
@@ -103,23 +101,20 @@ vi.mock("@/app/(dashboard)/platforms/meta/audiences/legacy-page", () => ({
 const PerformancePage = (
   await import("@/app/c/[businessId]/creative/performance/page")
 ).default;
-const CopiesPage = (
-  await import("@/app/c/[businessId]/creative/copies/page")
-).default;
+const CopiesPage = (await import("@/app/c/[businessId]/creative/copies/page"))
+  .default;
 const LandingPagesPage = (
   await import("@/app/c/[businessId]/creative/landing-pages/page")
 ).default;
-const InboxPage = (
-  await import("@/app/c/[businessId]/creative/inbox/page")
-).default;
+const InboxPage = (await import("@/app/c/[businessId]/creative/inbox/page"))
+  .default;
 const AudiencesPage = (
   await import("@/app/c/[businessId]/creative/audiences/page")
 ).default;
 
 const auth = await import("@/lib/auth");
-const businessPageAccess = await import(
-  "@/lib/access/require-business-page-context"
-);
+const businessPageAccess =
+  await import("@/lib/access/require-business-page-context");
 const providerScope = await import("@/lib/zero-base/provider-scope-server");
 
 type CreativeRoutePage = typeof PerformancePage;
@@ -194,14 +189,32 @@ function expectedBodyProps(
   const shareMint = route.mintsShares
     ? { shareMintRefusalReason: META_GATE_REFUSAL_REASONS.publicShareMint }
     : {};
+  const audienceReadState =
+    route.path === "audiences"
+      ? {
+          initialReadState: expect.objectContaining({
+            state: "loading",
+            scope: {
+              businessId: "biz_route",
+              providerAccountId: "act_assigned",
+            },
+          }),
+        }
+      : {};
   return route.forwardsWindow
     ? {
         businessId: "biz_route",
         providerAccountId: "act_assigned",
         serverDateWindow,
         ...shareMint,
+        ...audienceReadState,
       }
-    : { businessId: "biz_route", providerAccountId: "act_assigned", ...shareMint };
+    : {
+        businessId: "biz_route",
+        providerAccountId: "act_assigned",
+        ...shareMint,
+        ...audienceReadState,
+      };
 }
 
 function session() {
@@ -252,9 +265,9 @@ async function renderPage(
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(auth.getSessionFromCookies).mockResolvedValue(session() as never);
-  vi.mocked(
-    businessPageAccess.requireBusinessPageContext,
-  ).mockResolvedValue(authorizedContext("biz_route") as never);
+  vi.mocked(businessPageAccess.requireBusinessPageContext).mockResolvedValue(
+    authorizedContext("biz_route") as never,
+  );
   vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(
     "act_assigned",
   );
@@ -283,7 +296,9 @@ describe("Creative Studio canonical route authority", () => {
   it.each(routes)(
     "$label redirects an unauthenticated request before membership and provider resolution",
     async ({ path, Page, body }) => {
-      vi.mocked(auth.getSessionFromCookies).mockResolvedValueOnce(null as never);
+      vi.mocked(auth.getSessionFromCookies).mockResolvedValueOnce(
+        null as never,
+      );
 
       await expect(
         Page({
@@ -448,9 +463,7 @@ describe("Creative Studio canonical route authority", () => {
   );
 
   it("forwards a refused provider account as null instead of widening scope", async () => {
-    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValueOnce(
-      null,
-    );
+    vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(null);
 
     await renderPage(AudiencesPage, {
       providerAccountId: "act_unassigned",
@@ -459,6 +472,13 @@ describe("Creative Studio canonical route authority", () => {
     expect(routeMocks.audiencesBody).toHaveBeenCalledWith({
       businessId: "biz_route",
       providerAccountId: null,
+      initialReadState: expect.objectContaining({
+        state: "refused",
+        scope: {
+          businessId: "biz_route",
+          providerAccountId: null,
+        },
+      }),
     });
   });
 });

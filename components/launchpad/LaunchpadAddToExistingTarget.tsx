@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import { Search } from "lucide-react";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
@@ -141,7 +142,14 @@ function formatMoneyMinor(
   currency: string | null,
 ) {
   if (value == null || !Number.isFinite(value)) return "Budget unavailable";
-  return formatAccountMoney(value / 100, currency);
+  /* Provider minor units divided by META's offset for the currency, not a
+     constant 100 — the two differ for every currency Meta lists at offset 1
+     (JPY, KRW, CLP, ISK, VND) and for HUF, IDR, TWD and COP, which the ISO
+     registry calls two-decimal and Meta does not. An unresolvable currency
+     shows no amount rather than one at a guessed scale. */
+  const major = metaMinorUnitsToMajor({ minorUnits: value, currency });
+  if (!major.ok) return "Budget unavailable";
+  return formatAccountMoney(major.majorUnits, currency);
 }
 
 function formatMoney(

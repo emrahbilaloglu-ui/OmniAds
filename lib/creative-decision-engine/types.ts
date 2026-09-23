@@ -67,10 +67,33 @@ import type {
   three payloads, so on the native Ad path it is the only key that ever labels a
   persisted row.
 */
-export const ENGINE_VERSION = "v3-2026-09-07-held-verdict-authority";
+export const ENGINE_VERSION = "v3-2026-09-21-role-held-verdict-preservation";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-09-07-held-verdict-authority-shadow";
+  "v3-ad-2026-09-22-meta-config-economics-shadow";
+
+/**
+ * Whether a HELD hard verdict stands on its own economics, or whether it needs
+ * the campaign role before it even means anything.
+ *
+ * This is deliberately NOT an execution grant. `authorized_action` keeps every
+ * precondition it had; this field only stops the two questions being asked as
+ * one. A Cut says "stop spending on this ad" — true whichever campaign the ad
+ * sits in, so an unresolved role withholds the WRITE, not the finding. A Scale
+ * says "put more budget here" and a Refresh says "replace this in its rotation";
+ * both are answers to "where", so an unresolved role leaves them genuinely
+ * undetermined rather than merely unexecutable.
+ *
+ * The freshness gate already draws this exact line for stale evidence
+ * (`gates/types.ts`: `hardLabelNeedsFreshEvidence = scale || refresh`, with a
+ * Cut keeping its label and a "stop-loss verdict visible" sentence). The role
+ * gate collapsed all three into one predicate; this type is that missing half.
+ */
+export type DecisionRecommendationReadiness =
+  /** The economics decide this verdict without reference to a campaign role. */
+  | "economically_self_sufficient"
+  /** The verdict is only meaningful once the automatic role resolves. */
+  | "role_conditional";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -541,6 +564,8 @@ export interface AdDisjointBandEvidence {
  * Native Meta Ads decision input. Identity is business/account/ad; creativeId
  * is nullable portfolio grouping only and must never own provider execution.
  */
+import type { HydratedConfigAuthority } from "./native-ad-hydration-authority";
+
 export interface AdDecisionInput extends Omit<
   CreativeInput,
   | "creativeId"
@@ -565,6 +590,22 @@ export interface AdDecisionInput extends Omit<
   creativeId: string | null;
   optimizationGoal: string | null;
   customEventType: string | null;
+  /** Provider custom-conversion target identity; distinct IDs never share a calibration cell. */
+  customConversionId?: string | null;
+  /**
+   * How well the three config fields above were actually observed.
+   *
+   * The loader used to hydrate those values with no provenance at all, so the
+   * decision path could act on a configuration that calibration had already
+   * judged too weakly observed to enter a sample. This carries the SAME
+   * field-level contract calibration reads — see
+   * `lib/creative-decision-engine/native-ad-hydration-authority.ts` — so both
+   * halves of the engine answer "may we act on this" from one rule.
+   *
+   * PRODUCER EVIDENCE, like `bands` below: it describes how the input was
+   * obtained, not what the resolver computes from it.
+   */
+  configAuthority: HydratedConfigAuthority;
   metricEvidence: AdDecisionMetricEvidence;
   statusEvidence: AdDecisionStatusEvidence;
   creativeEvidence: AdCreativeEvidenceOverlay;
@@ -967,6 +1008,16 @@ export const DECISION_AUTHORITY_BLOCKERS = [
   "native_metrics_unavailable",
   "native_profile_unavailable",
   "recent_recovery_unverifiable",
+  /**
+   * The configuration this action would act on was not well enough observed.
+   *
+   * Calibration already refused such a day a place in its sample; before this
+   * existed the decision path could still authorise a hard action on the very
+   * same evidence, because the loader hydrated config VALUES with no provenance
+   * at all. The two halves now answer from one rule — see
+   * `lib/meta/config-field-readiness.ts` — and this is how the decision says so.
+   */
+  "config_source_authority",
 ] as const;
 
 export type DecisionAuthorityBlocker =
@@ -1033,6 +1084,13 @@ export interface DecisionOutput {
   /** First effective authority restriction; later restrictions must preserve it. */
   authorityBlocker: DecisionAuthorityBlocker | null;
   blockedActionType?: DecisionLabel | null;
+  /**
+   * Additive, read-only. Present only on a row held by campaign-role
+   * uncertainty. Absence is never "ready": consumers that do not understand
+   * this field see exactly the held row they saw before it existed, and it
+   * never relaxes `authorized_action`.
+   */
+  recommendationReadiness?: DecisionRecommendationReadiness | null;
   /**
    * Read-only diagnostic: tells audit/API consumers whether the decision used
    * kind-specific baselines or the canonical account-wide fallback. UI must not

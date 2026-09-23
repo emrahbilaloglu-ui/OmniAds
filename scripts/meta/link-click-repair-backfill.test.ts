@@ -55,6 +55,7 @@ function optionsFor(overrides: Partial<LinkClickRepairOptions> = {}): LinkClickR
     pageSize: LINK_CLICK_REPAIR_BOUNDS.pageSizeDefault,
     maxAttempts: LINK_CLICK_REPAIR_BOUNDS.maxAttemptsDefault,
     execute: false,
+    expectedManifestHash: null,
     allowPartial: false,
     skipMeasuredZero: false,
     receiptOutPath: null,
@@ -105,14 +106,23 @@ function pageRow(input: {
   stored?: string | null;
   actionsPresent?: boolean;
   values?: string[];
+  sourceSnapshotId?: string | null;
+  actionsPreImage?: string;
 }) {
+  const values = input.values ?? [];
   return {
     provider_account_id: input.account ?? "act_1",
     date: input.date,
     ad_id: input.adId,
+    source_snapshot_id: input.sourceSnapshotId ?? null,
+    actions_pre_image:
+      input.actionsPreImage ??
+      (input.actionsPresent === false
+        ? ""
+        : JSON.stringify(values.map((value) => ({ action_type: "link_click", value })))),
     stored_link_clicks: input.stored === undefined ? null : input.stored,
     actions_present: input.actionsPresent ?? true,
-    link_click_values: input.values ?? [],
+    link_click_values: values,
   };
 }
 
@@ -196,6 +206,45 @@ describe("band planning produces the equal, disjoint, directly adjacent pair", (
   });
 });
 
+describe("the historical raw-positive population is inside the shipped window model", () => {
+  /*
+    Measured read-only on production 2026-09-21: 2,936 ad-days carry a positive
+    `link_click` entry in `payload_json->'actions'` while the column is NULL,
+    and EVERY one of them falls in 2026-08-25 .. 2026-09-06. After 2026-09-09
+    there are none — the forward parser fix is working and what is left is the
+    history behind it.
+
+    These cases exist so that population is not re-solved by a second repair
+    tool. A sibling command would be a second owner of one column, which is the
+    divergence `lib/meta/link-click-parse.ts` was written to end; the shipped
+    band model already reaches the rows.
+  */
+  it("covers the whole 2026-08-25..2026-09-06 population from a single as-of", () => {
+    const scope = planLinkClickRepairScope({ asOfDate: "2026-09-21", bandDays: 14 });
+
+    expect(scope.windowStartDate).toBe("2026-08-25");
+    expect(scope.windowEndDate).toBe("2026-09-21");
+    expect(scope.prior).toEqual({
+      key: "prior14",
+      startDate: "2026-08-25",
+      endDate: "2026-09-07",
+    });
+    for (const date of ["2026-08-25", "2026-08-31", "2026-09-06"]) {
+      expect(bandKeyForDate(scope, date)).toBe("prior14");
+    }
+  });
+
+  it("does not reach that population from an as-of that only spans later bands", () => {
+    // The window is anchored to --as-of, so a later one walks off the front of
+    // the affected range. Recording the boundary here means the operator does
+    // not have to rediscover it.
+    const tooLate = planLinkClickRepairScope({ asOfDate: "2026-10-05", bandDays: 14 });
+
+    expect(tooLate.windowStartDate).toBe("2026-09-08");
+    expect(bandKeyForDate(tooLate, "2026-09-06")).toBeNull();
+  });
+});
+
 describe("argument parsing is strict, and every bound is enforced at the parser", () => {
   it("requires a business and never runs across all of them", () => {
     expect(() => parseLinkClickRepairArgs([], {})).toThrow(/--business/);
@@ -272,17 +321,44 @@ describe("argument parsing is strict, and every bound is enforced at the parser"
         [LINK_CLICK_REPAIR_EXECUTE_ENV]: "0",
       }),
     ).toThrow(new RegExp(LINK_CLICK_REPAIR_EXECUTE_ENV));
-    expect(
+    expect(() =>
       parseLinkClickRepairArgs(baseArgv(["--execute"]), {
         [LINK_CLICK_REPAIR_EXECUTE_ENV]: "1",
-      }).execute,
-    ).toBe(true);
+      }),
+    ).toThrow(/expected-manifest-hash/);
+    const hash = "a".repeat(64);
+    const parsed = parseLinkClickRepairArgs(
+      baseArgv(["--execute", "--expected-manifest-hash", hash]),
+      { [LINK_CLICK_REPAIR_EXECUTE_ENV]: "1" },
+    );
+    expect(parsed.execute).toBe(true);
+    expect(parsed.expectedManifestHash).toBe(hash);
+    expect(() =>
+      parseLinkClickRepairArgs(
+        baseArgv(["--expected-manifest-hash", hash]),
+        {},
+      ),
+    ).toThrow(/only with --execute/);
   });
 
   it("validates --as-of at parse time, before anything opens a connection", () => {
     expect(() =>
       parseLinkClickRepairArgs(["--business", "biz-1", "--as-of", "2026-13-01"], {}),
     ).toThrow(LinkClickRepairUsageError);
+  });
+
+  it("keeps the report-day pair separate from the warehouse knowledge cutoff", () => {
+    const parsed = parseLinkClickRepairArgs(
+      baseArgv(["--admissibility-cutoff", "2026-09-22T14:15:16.000Z"]),
+      {},
+    );
+    expect(parsed.asOfDate).toBe("2026-09-06");
+    expect(parsed.admissibilityCutoff).toBe("2026-09-22T14:15:16.000Z");
+    for (const invalid of ["2026-09-22", "2026-09-22T14:15:16Z", "2026-09-31T14:15:16.000Z"]) {
+      expect(() => parseLinkClickRepairArgs(
+        baseArgv(["--admissibility-cutoff", invalid]), {},
+      )).toThrow(/--admissibility-cutoff/);
+    }
   });
 
   it("falls back to today only when --as-of is omitted", () => {
@@ -541,7 +617,7 @@ describe("the repair writes exactly one column", () => {
     own provenance lives in the run receipt instead.
   */
   it("never restamps the source freshness clock", () => {
-    expect(LINK_CLICK_REPAIR_UPDATE_SQL).not.toContain("updated_at");
+    expect(LINK_CLICK_REPAIR_UPDATE_SQL).not.toMatch(/\bupdated_at\s*=\s*/i);
     expect(() =>
       assertSingleColumnRepairStatement(
         LINK_CLICK_REPAIR_UPDATE_SQL.replace(
@@ -570,6 +646,20 @@ describe("the repair writes exactly one column", () => {
     expect(LINK_CLICK_REPAIR_UPDATE_SQL).toContain(
       "d.link_clicks IS NOT DISTINCT FROM v.pre_image",
     );
+    expect(LINK_CLICK_REPAIR_UPDATE_SQL).toContain(
+      "d.source_snapshot_id IS NOT DISTINCT FROM v.source_snapshot_id",
+    );
+    expect(LINK_CLICK_REPAIR_UPDATE_SQL).toContain(
+      "COALESCE((d.payload_json->'actions')::text, '') = v.actions_pre_image",
+    );
+    for (const predicate of [
+      "d.truth_state = 'finalized'",
+      "d.validation_status = 'passed'",
+      "d.created_at <= $9::timestamptz",
+      "d.updated_at <= $9::timestamptz",
+    ]) {
+      expect(LINK_CLICK_REPAIR_UPDATE_SQL).toContain(predicate);
+    }
   });
 
   it("never fetches a stored positive as a candidate", () => {
@@ -681,11 +771,48 @@ describe("a dry run writes nothing, and an execute writes only the planned rows"
     expect(result.mode).toBe("dry_run");
     expect(result.rowsPlanned).toBe(3);
     expect(result.rowsWritten).toBe(0);
+    expect(result.manifest).toHaveLength(3);
+    expect(result.manifestHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.manifest[0]).toEqual({
+      providerAccountId: "act_1",
+      date: "2026-08-24",
+      adId: "ad-fill",
+      field: "link_clicks",
+      oldValue: null,
+      newValue: 141,
+      source: {
+        kind: "meta_ad_daily.payload_json.actions",
+        sourceSnapshotId: null,
+        actionsSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+      reason: "fill_measured_count",
+    });
     expect(result.residualNeedingProviderResync).toBe(1);
     expect(result.actions.fill_measured_count).toBe(1);
     expect(result.actions.fill_measured_zero).toBe(1);
     expect(result.actions.correct_fabricated_zero).toBe(1);
     expect(result.actions.unmeasurable_no_actions_payload).toBe(1);
+  });
+
+  it("binds the manifest hash to the warehouse knowledge cutoff", async () => {
+    const preview = async (admissibilityCutoff: string) => {
+      const { db } = recordingDb((text, _values, callIndex) =>
+        text.includes("UPDATE meta_ad_daily") || callIndex > 0 ? [] : page,
+      );
+      return runLinkClickRepair({
+        db,
+        options: optionsFor({
+          pageSize: 10,
+          maxRows: 100,
+          admissibilityCutoff,
+        }),
+        sleep: noSleep,
+      });
+    };
+    const historical = await preview("2026-09-06T23:59:59.999Z");
+    const restated = await preview("2026-09-22T16:00:00.000Z");
+    expect(historical.manifest).toEqual(restated.manifest);
+    expect(historical.manifestHash).not.toBe(restated.manifestHash);
   });
 
   it("counts every unrepairable payload classification as requiring provider resync", async () => {
@@ -735,7 +862,58 @@ describe("a dry run writes nothing, and an execute writes only the planned rows"
   });
 
   it("binds the pre-image of every write, including a NULL", async () => {
+    const { db: previewDb } = recordingDb((text, _values, callIndex) =>
+      text.includes("UPDATE meta_ad_daily") || callIndex > 0 ? [] : page,
+    );
+    const preview = await runLinkClickRepair({
+      db: previewDb,
+      options: optionsFor({ pageSize: 10, maxRows: 100 }),
+      sleep: noSleep,
+    });
     const { db, queries } = recordingDb((text, _values, callIndex) => {
+      if (text.includes("UPDATE meta_ad_daily")) {
+        return [
+          { provider_account_id: "act_1", date: "2026-08-24", ad_id: "ad-fill" },
+          { provider_account_id: "act_1", date: "2026-08-11", ad_id: "ad-zero" },
+          { provider_account_id: "act_1", date: "2026-08-13", ad_id: "ad-fab" },
+        ];
+      }
+      return callIndex > 0 ? [] : page;
+    });
+    const result = await runLinkClickRepair({
+      db,
+      options: optionsFor({
+        pageSize: 10,
+        maxRows: 100,
+        execute: true,
+        expectedManifestHash: preview.manifestHash,
+      }),
+      sleep: noSleep,
+    });
+    const update = queries.find((query) => query.text.includes("UPDATE meta_ad_daily"))!;
+    expect(update.values[4]).toEqual([141, 0, 9]);
+    expect(update.values[5]).toEqual([null, null, 0]);
+    expect(update.values[6]).toEqual([null, null, null]);
+    expect(update.values[7]).toEqual([
+      JSON.stringify([{ action_type: "link_click", value: "141" }]),
+      JSON.stringify([]),
+      JSON.stringify([{ action_type: "link_click", value: "9" }]),
+    ]);
+    expect(update.values[8]).toBe("2026-09-06T23:59:59.999Z");
+    expect(result.rowsWritten).toBe(3);
+    expect(result.rowsSkippedByPreImageDrift).toBe(0);
+  });
+
+  it("aborts the complete reviewed plan when one RETURNING row drifts", async () => {
+    const { db: previewDb } = recordingDb((text, _values, callIndex) =>
+      text.includes("UPDATE meta_ad_daily") || callIndex > 0 ? [] : page,
+    );
+    const preview = await runLinkClickRepair({
+      db: previewDb,
+      options: optionsFor({ pageSize: 10, maxRows: 100 }),
+      sleep: noSleep,
+    });
+    const { db } = recordingDb((text, _values, callIndex) => {
       if (text.includes("UPDATE meta_ad_daily")) {
         return [
           { provider_account_id: "act_1", date: "2026-08-24", ad_id: "ad-fill" },
@@ -744,18 +922,50 @@ describe("a dry run writes nothing, and an execute writes only the planned rows"
       }
       return callIndex > 0 ? [] : page;
     });
-    const result = await runLinkClickRepair({
-      db,
-      options: optionsFor({ pageSize: 10, maxRows: 100, execute: true }),
-      sleep: noSleep,
-    });
-    const update = queries.find((query) => query.text.includes("UPDATE meta_ad_daily"))!;
-    expect(update.values[4]).toEqual([141, 0, 9]);
-    expect(update.values[5]).toEqual([null, null, 0]);
-    // The third planned row was not in RETURNING, so it is reported as skipped
-    // by pre-image drift rather than silently counted as written.
-    expect(result.rowsWritten).toBe(2);
-    expect(result.rowsSkippedByPreImageDrift).toBe(1);
+    await expect(
+      runLinkClickRepair({
+        db,
+        options: optionsFor({
+          pageSize: 10,
+          maxRows: 100,
+          execute: true,
+          expectedManifestHash: preview.manifestHash,
+        }),
+        sleep: noSleep,
+      }),
+    ).rejects.toThrow(/link_click_repair_preimage_drift/);
+  });
+
+  it("refuses every programmatic execute that lacks a reviewed hash", async () => {
+    const { db, queries } = recordingDb(() => page);
+    await expect(
+      runLinkClickRepair({
+        db,
+        options: optionsFor({ execute: true }),
+        sleep: noSleep,
+      }),
+    ).rejects.toThrow(/manifest_hash_required/);
+    expect(queries).toHaveLength(0);
+  });
+
+  it("writes nothing when the recomputed plan differs from the reviewed hash", async () => {
+    const { db, queries } = recordingDb((text, _values, callIndex) =>
+      text.includes("UPDATE meta_ad_daily") || callIndex > 0 ? [] : page,
+    );
+    await expect(
+      runLinkClickRepair({
+        db,
+        options: optionsFor({
+          pageSize: 10,
+          maxRows: 100,
+          execute: true,
+          expectedManifestHash: "0".repeat(64),
+        }),
+        sleep: noSleep,
+      }),
+    ).rejects.toThrow(/manifest_hash_mismatch/);
+    expect(queries.some((query) => query.text.includes("UPDATE meta_ad_daily")))
+      .toBe(false);
   });
 });
 

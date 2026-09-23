@@ -177,7 +177,7 @@ describe("Meta Decisions canonical route authority", () => {
       serverProviderAccountId: "act_assigned",
       accountSelection: "local",
       // Stated rather than left absent, and false because nothing set
-      // META_DECISION_WORKFLOW_UI here. The workflow overlay's shipped state is
+      // META_AUTOMATION_LIVE_WRITES here. The workflow overlay's shipped state is
       // off (§18: the design draws no ownership controls, so they wait for the
       // owner's separately approved round), and a route forwarding `undefined`
       // would leave the body guessing at a fact the server just read.

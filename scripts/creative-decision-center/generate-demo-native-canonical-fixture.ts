@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { EMPTY_HYDRATED_CONFIG_AUTHORITY } from "@/lib/creative-decision-engine/native-ad-hydration-authority";
 import { pathToFileURL } from "node:url";
 import { getDemoMetaCreatives, DEMO_BUSINESS_ID } from "@/lib/demo-business";
 import {
@@ -109,6 +110,8 @@ function toAdDecisionInput(
   const recent7dSpend = Math.min(spend, Math.max(0, spend * 0.35));
   const recent7dPurchases = Math.max(0, Math.round(purchases * 0.3));
   return {
+    /* Producer evidence; `toResolverInput` strips it before the resolver runs. */
+    configAuthority: EMPTY_HYDRATED_CONFIG_AUTHORITY,
     businessId: DEMO_BUSINESS_ID,
     decisionEntityType: "ad",
     decisionEntityId: row.real_ad_id,

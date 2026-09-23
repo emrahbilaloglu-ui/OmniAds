@@ -1,0 +1,385 @@
+{
+  "contractVersion": "meta-funnel-stage-actions.v1",
+  "stageContractVersion": "meta-funnel-stage.v1",
+  "sourceProvenance": {
+    "mode": "anonymized_production_actions_array",
+    "capturedReadOnlyOn": "2026-09-21",
+    "note": "Only action_type/value pairs were extracted. No ad, adset, campaign, account or business identifier, name, spend or revenue figure is present.",
+    "containsLiveIdentifiers": false
+  },
+  "cases": [
+    {
+      "name": "a real ad-day carrying the full funnel and every competing alias",
+      "actions": [
+        {
+          "value": "5",
+          "action_type": "add_payment_info"
+        },
+        {
+          "value": "16",
+          "action_type": "add_to_cart"
+        },
+        {
+          "value": "1",
+          "action_type": "comment"
+        },
+        {
+          "value": "3",
+          "action_type": "initiate_checkout"
+        },
+        {
+          "value": "200",
+          "action_type": "landing_page_view"
+        },
+        {
+          "value": "3",
+          "action_type": "lead"
+        },
+        {
+          "value": "1",
+          "action_type": "like"
+        },
+        {
+          "value": "227",
+          "action_type": "link_click"
+        },
+        {
+          "value": "16",
+          "action_type": "offsite_add_to_cart_add_20_s_calls"
+        },
+        {
+          "value": "356",
+          "action_type": "offsite_content_view_add_20_s_calls"
+        },
+        {
+          "value": "356",
+          "action_type": "offsite_content_view_add_meta_leads"
+        },
+        {
+          "value": "5",
+          "action_type": "offsite_conversion.fb_pixel_add_payment_info"
+        },
+        {
+          "value": "16",
+          "action_type": "offsite_conversion.fb_pixel_add_to_cart"
+        },
+        {
+          "value": "3",
+          "action_type": "offsite_conversion.fb_pixel_initiate_checkout"
+        },
+        {
+          "value": "3",
+          "action_type": "offsite_conversion.fb_pixel_lead"
+        },
+        {
+          "value": "7",
+          "action_type": "offsite_conversion.fb_pixel_purchase"
+        },
+        {
+          "value": "1",
+          "action_type": "offsite_conversion.fb_pixel_search"
+        },
+        {
+          "value": "356",
+          "action_type": "offsite_conversion.fb_pixel_view_content"
+        },
+        {
+          "value": "3",
+          "action_type": "offsite_initiate_checkout_add_20_s_calls"
+        },
+        {
+          "value": "3",
+          "action_type": "offsite_lead_add_20_s_calls"
+        },
+        {
+          "value": "7",
+          "action_type": "offsite_purchase_add_20_s_calls"
+        },
+        {
+          "value": "1",
+          "action_type": "offsite_search_add_meta_leads"
+        },
+        {
+          "value": "25",
+          "action_type": "omni_add_to_cart"
+        },
+        {
+          "value": "2",
+          "action_type": "omni_add_to_wishlist"
+        },
+        {
+          "value": "5",
+          "action_type": "omni_initiated_checkout"
+        },
+        {
+          "value": "200",
+          "action_type": "omni_landing_page_view"
+        },
+        {
+          "value": "7",
+          "action_type": "omni_purchase"
+        },
+        {
+          "value": "1",
+          "action_type": "omni_search"
+        },
+        {
+          "value": "415",
+          "action_type": "omni_view_content"
+        },
+        {
+          "value": "9",
+          "action_type": "onsite_app_add_to_cart"
+        },
+        {
+          "value": "59",
+          "action_type": "onsite_app_view_content"
+        },
+        {
+          "value": "9",
+          "action_type": "onsite_conversion.add_to_cart"
+        },
+        {
+          "value": "2",
+          "action_type": "onsite_conversion.add_to_wishlist"
+        },
+        {
+          "value": "2",
+          "action_type": "onsite_conversion.initiate_checkout"
+        },
+        {
+          "value": "1",
+          "action_type": "onsite_conversion.messaging_conversation_replied_7d"
+        },
+        {
+          "value": "3",
+          "action_type": "onsite_conversion.messaging_conversation_started_7d"
+        },
+        {
+          "value": "3",
+          "action_type": "onsite_conversion.messaging_first_reply"
+        },
+        {
+          "value": "1",
+          "action_type": "onsite_conversion.post_net_comment"
+        },
+        {
+          "value": "82",
+          "action_type": "onsite_conversion.post_net_like"
+        },
+        {
+          "value": "41",
+          "action_type": "onsite_conversion.post_net_save"
+        },
+        {
+          "value": "41",
+          "action_type": "onsite_conversion.post_save"
+        },
+        {
+          "value": "1",
+          "action_type": "onsite_conversion.post_unlike"
+        },
+        {
+          "value": "3",
+          "action_type": "onsite_conversion.total_messaging_connection"
+        },
+        {
+          "value": "59",
+          "action_type": "onsite_conversion.view_content"
+        },
+        {
+          "value": "25",
+          "action_type": "onsite_web_add_to_cart"
+        },
+        {
+          "value": "25",
+          "action_type": "onsite_web_app_add_to_cart"
+        },
+        {
+          "value": "7",
+          "action_type": "onsite_web_app_purchase"
+        },
+        {
+          "value": "415",
+          "action_type": "onsite_web_app_view_content"
+        },
+        {
+          "value": "5",
+          "action_type": "onsite_web_initiate_checkout"
+        },
+        {
+          "value": "3",
+          "action_type": "onsite_web_lead"
+        },
+        {
+          "value": "7",
+          "action_type": "onsite_web_purchase"
+        },
+        {
+          "value": "415",
+          "action_type": "onsite_web_view_content"
+        },
+        {
+          "value": "2833",
+          "action_type": "page_engagement"
+        },
+        {
+          "value": "19",
+          "action_type": "post"
+        },
+        {
+          "value": "2832",
+          "action_type": "post_engagement"
+        },
+        {
+          "value": "144",
+          "action_type": "post_interaction_gross"
+        },
+        {
+          "value": "145",
+          "action_type": "post_interaction_net"
+        },
+        {
+          "value": "83",
+          "action_type": "post_reaction"
+        },
+        {
+          "value": "7",
+          "action_type": "purchase"
+        },
+        {
+          "value": "1",
+          "action_type": "search"
+        },
+        {
+          "value": "2461",
+          "action_type": "video_view"
+        },
+        {
+          "value": "356",
+          "action_type": "view_content"
+        },
+        {
+          "value": "7",
+          "action_type": "web_app_in_store_purchase"
+        },
+        {
+          "value": "7",
+          "action_type": "web_in_store_purchase"
+        }
+      ],
+      "expected": {
+        "landing_page_view": {
+          "state": "measured",
+          "value": 200
+        },
+        "add_to_cart": {
+          "state": "measured",
+          "value": 16
+        },
+        "initiate_checkout": {
+          "state": "measured",
+          "value": 3
+        },
+        "view_content": {
+          "state": "measured",
+          "value": 356
+        },
+        "post_engagement": {
+          "state": "measured",
+          "value": 2832
+        },
+        "lead": {
+          "state": "measured",
+          "value": 3
+        },
+        "link_click": {
+          "state": "measured",
+          "value": 227
+        }
+      },
+      "divergentAliasValues": {
+        "omni_add_to_cart": 25,
+        "omni_initiated_checkout": 5,
+        "omni_view_content": 415,
+        "page_engagement": 2833,
+        "omni_landing_page_view": 200
+      }
+    },
+    {
+      "name": "an actions array that simply omits a stage \u2014 Meta's measured zero",
+      "actions": [
+        {
+          "action_type": "link_click",
+          "value": "12"
+        }
+      ],
+      "expected": {
+        "landing_page_view": {
+          "state": "measured",
+          "value": 0
+        },
+        "add_to_cart": {
+          "state": "measured",
+          "value": 0
+        },
+        "initiate_checkout": {
+          "state": "measured",
+          "value": 0
+        },
+        "view_content": {
+          "state": "measured",
+          "value": 0
+        },
+        "post_engagement": {
+          "state": "measured",
+          "value": 0
+        },
+        "lead": {
+          "state": "measured",
+          "value": 0
+        },
+        "link_click": {
+          "state": "measured",
+          "value": 12
+        }
+      },
+      "divergentAliasValues": {}
+    },
+    {
+      "name": "an explicit zero entry, which Meta does emit",
+      "actions": [
+        {
+          "action_type": "add_to_cart",
+          "value": "0"
+        }
+      ],
+      "expected": {
+        "add_to_cart": {
+          "state": "measured",
+          "value": 0
+        }
+      },
+      "divergentAliasValues": {}
+    },
+    {
+      "name": "no actions array at all \u2014 never observed, never a zero",
+      "actions": null,
+      "expected": {
+        "landing_page_view": {
+          "state": "unmeasurable",
+          "reason": "actions_absent"
+        },
+        "add_to_cart": {
+          "state": "unmeasurable",
+          "reason": "actions_absent"
+        },
+        "link_click": {
+          "state": "unmeasurable",
+          "reason": "actions_absent"
+        }
+      },
+      "divergentAliasValues": {}
+    }
+  ]
+}

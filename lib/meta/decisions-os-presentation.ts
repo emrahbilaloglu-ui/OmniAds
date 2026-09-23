@@ -1,3 +1,4 @@
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import {
   META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
   type MetaCanonicalDecision,
@@ -67,6 +68,11 @@ const AUTHORITY_BLOCKER_PRESENTATION: Record<
   MetaDecisionAuthorityBlocker,
   { label: string; explanation: string }
 > = {
+  config_source_authority: {
+    label: "Campaign configuration was not well enough observed",
+    explanation:
+      "The objective or optimisation goal this action would act on was not confirmed by a complete provider configuration receipt, so the verdict is shown without authorising a provider action.",
+  },
   profile_hard_action_ineligible: {
     label: "Profile is not eligible for a hard action",
     explanation:
@@ -490,18 +496,39 @@ export function revalidateMetaStructureLanesForAccountProfile(
   );
 }
 
+/**
+ * A stored bid value, at the scale a person reads it.
+ *
+ * `format` is the unit discriminator the config snapshot writes beside the
+ * number (lib/meta/configuration.ts): `"currency"` means provider minor units,
+ * `"roas"` means a plain multiplier that must never be divided.
+ *
+ * The divisor for the minor-unit branch is Meta's OWN per-currency offset, not
+ * a constant 100 and not the ISO-4217 exponent — the two disagree for HUF,
+ * IDR, TWD and COP (100x) and for BHD and JOD (10x). `currency` is therefore
+ * required, and an unknown one yields `null` rather than a guessed amount.
+ */
 export function providerCurrencyValue(
   value: number | null | undefined,
   format: "currency" | "roas" | null | undefined,
+  currency: string | null | undefined,
 ) {
   const numeric = finite(value);
   if (numeric === null) return null;
-  return format === "currency" ? numeric / 100 : numeric;
+  if (format !== "currency") return numeric;
+  const major = metaMinorUnitsToMajor({ minorUnits: numeric, currency });
+  return major.ok ? major.majorUnits : null;
 }
 
-export function providerBudgetValue(value: number | null | undefined) {
+/** A stored budget, at the provider's own scale. See `providerCurrencyValue`. */
+export function providerBudgetValue(
+  value: number | null | undefined,
+  currency: string | null | undefined,
+) {
   const numeric = finite(value);
-  return numeric === null ? null : numeric / 100;
+  if (numeric === null) return null;
+  const major = metaMinorUnitsToMajor({ minorUnits: numeric, currency });
+  return major.ok ? major.majorUnits : null;
 }
 
 function priorityForRecommendation(
@@ -911,19 +938,25 @@ function structureNode(
           currentValue: providerCurrencyValue(
             rec.entityConfiguration.bidValue,
             rec.entityConfiguration.bidValueFormat,
+            currency,
           ),
           currentValueFormat: rec.entityConfiguration.bidValueFormat ?? null,
           previousValue: providerCurrencyValue(
             rec.entityConfiguration.previousBidValue,
             rec.entityConfiguration.previousBidValueFormat,
+            currency,
           ),
           previousValueFormat:
             rec.entityConfiguration.previousBidValueFormat ?? null,
           previousValueCapturedAt:
             rec.entityConfiguration.previousBidValueCapturedAt ?? null,
-          dailyBudget: providerBudgetValue(rec.entityConfiguration.dailyBudget),
+          dailyBudget: providerBudgetValue(
+            rec.entityConfiguration.dailyBudget,
+            currency,
+          ),
           lifetimeBudget: providerBudgetValue(
             rec.entityConfiguration.lifetimeBudget,
+            currency,
           ),
           budgetUtilization: rec.entityConfiguration.budgetUtilization ?? null,
         }
@@ -992,16 +1025,21 @@ function inventoryStructureNode(
       currentValue: providerCurrencyValue(
         configuration.bidValue,
         configuration.bidValueFormat,
+        currency,
       ),
       currentValueFormat: configuration.bidValueFormat ?? null,
       previousValue: providerCurrencyValue(
         configuration.previousBidValue,
         configuration.previousBidValueFormat,
+        currency,
       ),
       previousValueFormat: configuration.previousBidValueFormat ?? null,
       previousValueCapturedAt: configuration.previousBidValueCapturedAt ?? null,
-      dailyBudget: providerBudgetValue(configuration.dailyBudget),
-      lifetimeBudget: providerBudgetValue(configuration.lifetimeBudget),
+      dailyBudget: providerBudgetValue(configuration.dailyBudget, currency),
+      lifetimeBudget: providerBudgetValue(
+        configuration.lifetimeBudget,
+        currency,
+      ),
       budgetUtilization: configuration.budgetUtilization ?? null,
     },
     action: {
@@ -1114,7 +1152,12 @@ function adAssessment(decision: MetaCanonicalDecision) {
   return "Evidence Incomplete";
 }
 
-function adAction(
+/**
+ * Exported for the ADR D097 lane test, which has to prove that moving a
+ * role-held Cut into the action lane moves NOTHING about its authority. That
+ * claim is only checkable against the real builder.
+ */
+export function adAction(
   decision: MetaCanonicalDecision,
   targetHardActionEligibility: MetaTargetHardActionEligibility,
 ): {
@@ -1170,8 +1213,43 @@ function adAction(
     decision.classification.heldAction !== null
   ) {
     const resolution = decision.classification.resolution;
+    /*
+      ADR D097 round 3. One held row is not like the others.
+
+      Every branch here filed held rows under "blocked", which the surface
+      presents as "needs review before any action". For a Scale or a Refresh
+      held on an unresolved campaign role that is exactly right: both answer
+      "where", and without the role there is no answer yet. For a CUT it was
+      false. The cut verdict is settled by the ad's own performance evidence;
+      the role decides how the stop is applied, not whether the evidence is
+      complete. Filing a completed cut beside genuine evidence gaps buried it,
+      and the operator was told nothing was required of them.
+
+      The copy deliberately stops short of asserting a realised loss: a Cut can
+      arrive here from a relative boundary with no economic unit, and on
+      2026-09-21 none of production's 19 Cut decisions cited break-even.
+
+      WHAT THIS DOES NOT TOUCH — the row is not becoming executable:
+
+        - `decisionState` stays "blocked" and `buyerAction` stays null, as
+          INVARIANTS.md binds for a non-null `blocked_action_type`.
+        - `intent` stays "review" and `providerMutation` stays null, which is
+          the pair the surface actually gates a Meta write on
+          (`intent === "execute" && providerMutation === "pause"`).
+        - `authorized_action` is null upstream, because `authorityBlocker` is
+          still set.
+        - Launchpad still refuses it: `launchpad-handoff-contract.ts` requires
+          `actionEligible === true` AND `decisionState === "act"`.
+
+      So the lane moves and the authority does not. The lane drives urgency,
+      counts and grouping; it grants nothing.
+    */
+    const isRoleHeldCut =
+      decision.classification.heldAction === "cut" &&
+      resolution?.code === "apply_cut_manually";
+
     return {
-      lane: "blocked",
+      lane: isRoleHeldCut ? "act" : "blocked",
       action: base({
         code: resolution?.code ?? "resolve_evidence_gap",
         label: resolution?.label ?? "Resolve Evidence Gap",

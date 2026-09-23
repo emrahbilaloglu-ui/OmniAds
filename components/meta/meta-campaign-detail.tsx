@@ -11,9 +11,10 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { useCurrencySymbol } from "@/hooks/use-currency";
+import { useCurrencyCode, useCurrencySymbol } from "@/hooks/use-currency";
 import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import type { MetaRecommendation, MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import {
@@ -52,6 +53,27 @@ function formatRelativeAge(isoValue: string | null | undefined): string | null {
 function fmt$(n: number, sym: string | null) {
   if (sym === null) return "—";
   return `${sym}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * A provider minor-unit amount at the PROVIDER's own scale, or the missing mark.
+ *
+ * The divisor used to be a constant 100 — Meta's offset for USD, TRY and GBP,
+ * and wrong by 100x for every currency Meta lists at offset 1 (JPY, KRW, CLP,
+ * ISK, VND) and for HUF, IDR, TWD and COP, which the ISO registry calls
+ * two-decimal and Meta does not.
+ *
+ * The code is needed alongside the symbol because a symbol does not identify a
+ * currency: "kr" is SEK, NOK and DKK at once. An unknown code renders the same
+ * em-dash an unknown symbol already does — same rule, same reason.
+ */
+function fmtProviderMinor(
+  minorUnits: number,
+  sym: string | null,
+  code: string | null,
+) {
+  const major = metaMinorUnitsToMajor({ minorUnits, currency: code });
+  return major.ok ? fmt$(major.majorUnits, sym) : "—";
 }
 
 function fmtK(n: number, sym: string | null) {
@@ -213,6 +235,7 @@ function AdSetList({
   since,
   until,
   sym,
+  code,
   language,
 }: {
   campaignId: string;
@@ -220,6 +243,9 @@ function AdSetList({
   since: string;
   until: string;
   sym: string | null;
+  /* The currency CODE, not just its glyph: the minor-unit divisor is Meta's
+     per-currency offset and a symbol does not identify a currency. */
+  code: string | null;
   language: "en" | "tr";
 }) {
   const { data, isLoading, isError } = useQuery<MetaAdSetsResponse>({
@@ -262,12 +288,12 @@ function AdSetList({
         const bidValueStr = adset.bidValue != null
           ? adset.bidValueFormat === "roas"
             ? `${adset.bidValue.toFixed(2)}×`
-            : fmt$(adset.bidValue / 100, sym)
+            : fmtProviderMinor(adset.bidValue, sym, code)
           : null;
         const prevBidValueStr = adset.previousBidValue != null
           ? (adset.previousBidValueFormat ?? adset.bidValueFormat) === "roas"
             ? `${adset.previousBidValue.toFixed(2)}×`
-            : fmt$(adset.previousBidValue / 100, sym)
+            : fmtProviderMinor(adset.previousBidValue, sym, code)
           : null;
         const prevBidAge = adset.previousBidValueCapturedAt
           ? formatRelativeAge(adset.previousBidValueCapturedAt)
@@ -441,6 +467,7 @@ export function MetaCampaignDetail({
   language,
 }: MetaCampaignDetailProps) {
   const sym = useCurrencySymbol();
+  const code = useCurrencyCode();
   const [supportingContextOpen, setSupportingContextOpen] = useState(false);
   const shouldLoadBreakdowns = Boolean(
     !campaign && supportingContextOpen && businessId && since && until
@@ -566,12 +593,12 @@ export function MetaCampaignDetail({
           <MetricTile
             label={language === "tr" ? "Bütçe" : "Budget"}
             value={campaign.dailyBudget != null
-              ? `${fmt$(campaign.dailyBudget / 100, sym)}/day`
-              : `${fmt$(campaign.lifetimeBudget! / 100, sym)} lifetime`}
+              ? `${fmtProviderMinor(campaign.dailyBudget, sym, code)}/day`
+              : `${fmtProviderMinor(campaign.lifetimeBudget!, sym, code)} lifetime`}
             sub={(campaign.previousDailyBudget != null || campaign.previousLifetimeBudget != null)
               ? `prev ${campaign.previousDailyBudget != null
-                  ? `${fmt$(campaign.previousDailyBudget / 100, sym)}/d`
-                  : `${fmt$(campaign.previousLifetimeBudget! / 100, sym)}`}${campaign.previousBudgetCapturedAt ? ` · ${formatRelativeAge(campaign.previousBudgetCapturedAt)}` : ""}`
+                  ? `${fmtProviderMinor(campaign.previousDailyBudget, sym, code)}/d`
+                  : `${fmtProviderMinor(campaign.previousLifetimeBudget!, sym, code)}`}${campaign.previousBudgetCapturedAt ? ` · ${formatRelativeAge(campaign.previousBudgetCapturedAt)}` : ""}`
               : undefined}
           />
         )}
@@ -588,6 +615,7 @@ export function MetaCampaignDetail({
           since={since}
           until={until}
           sym={sym}
+          code={code}
           language={language}
         />
       </div>

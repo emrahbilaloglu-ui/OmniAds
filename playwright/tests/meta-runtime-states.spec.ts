@@ -114,10 +114,51 @@ test.describe("D7 — the evidence window is stated where a surface claims one",
   const WINDOWED = ["meta-intelligence", "meta-history", "creative-audiences"];
   for (const route of routes.filter((entry) => WINDOWED.includes(entry.surfaceId))) {
     test(`${route.surfaceId} names its evidence window`, async ({ page }) => {
-      await openSurface(page, handle, route.path);
+      const expectedStart = "2026-07-01";
+      const expectedEnd = "2026-07-07";
+      const customWindowPath =
+        `${route.path}?window=custom&startDate=${expectedStart}` +
+        `&endDate=${expectedEnd}&start=${expectedStart}&end=${expectedEnd}`;
+      if (route.surfaceId === "creative-audiences") {
+        const requested = page.waitForRequest(
+          (request) => request.url().includes("/api/meta/breakdowns?"),
+          { timeout: 15_000 },
+        );
+        await openSurface(page, handle, customWindowPath);
+        const url = new URL((await requested).url());
+        const start = url.searchParams.get("startDate");
+        const end = url.searchParams.get("endDate");
+        expect(start).toBe(expectedStart);
+        expect(end).toBe(expectedEnd);
+        await expect(
+          page.locator('[data-meta-surface-state="creative-audiences"]'),
+        ).not.toHaveAttribute("data-read-state", "loading");
+        await expect(page.locator("[data-audience-window-label]")).toContainText(
+          `${start} → ${end}`,
+        );
+        return;
+      }
+
+      await openSurface(
+        page,
+        handle,
+        route.surfaceId === "meta-history" ? customWindowPath : route.path,
+      );
+      if (route.surfaceId === "meta-history") {
+        const surface = page
+          .locator("[data-history-window-start][data-history-window-end]")
+          .first();
+        const start = await surface.getAttribute("data-history-window-start");
+        const end = await surface.getAttribute("data-history-window-end");
+        expect(start).toBe(expectedStart);
+        expect(end).toBe(expectedEnd);
+        return;
+      }
+
       const text = (await page.locator("main").first().innerText()).replace(/\s+/g, " ");
-      // An ISO date pair. The exact wording differs per surface and is not the
-      // contract; naming the period is.
+      // Intelligence owns several evidence cards, and states their ISO window
+      // in the body. History and Audiences use their stronger, source-bound
+      // assertions above rather than relying on duplicated display text.
       expect(
         /\d{4}-\d{2}-\d{2}\s*(?:to|→|-|–)\s*\d{4}-\d{2}-\d{2}/.test(text),
         `${route.path} did not state the window it read:\n${text.slice(0, 300)}`,

@@ -188,7 +188,9 @@ test.describe("the filters exist on the screen, not only in the URL", () => {
 
     const kind = page.locator('[data-history-filter="kind"]');
     await expect(kind).toHaveCount(1);
-    const kindOptions = await kind.locator("option").allTextContents();
+    const kindOptions = await kind.locator("option").evaluateAll((options) =>
+      options.map((option) => (option as HTMLOptionElement).value),
+    );
     expect(kindOptions).toEqual(["all", ...META_HISTORY_KINDS]);
 
     const entity = page.locator('[data-history-filter="entity"]');

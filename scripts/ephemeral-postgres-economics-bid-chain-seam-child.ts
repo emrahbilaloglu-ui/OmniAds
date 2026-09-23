@@ -1419,16 +1419,81 @@ async function seedWarehouseFacts() {
       // The current-config reader still selects this as the latest receipt,
       // while recent-edit authority correctly treats it as outside cooldown.
       const stableConfigObservedAt = `${addDays(AS_OF, -90)}T03:00:00.000Z`;
+      const rawSql = getDb();
+      const sourceIds = await Promise.all(
+        (["campaign", "adset"] as const).map(async (level) => {
+          const [source] = await rawSql.query<{ id: string }>(
+            `INSERT INTO meta_raw_snapshots (
+               business_id, provider_account_id, endpoint_name, entity_scope,
+               start_date, end_date, payload_json, payload_hash,
+               request_context, status, fetched_at
+             ) VALUES ($1, $2, $3, $4, $5::date, $5::date,
+                       $6::jsonb, $7, $8::jsonb, 'fetched', $9::timestamptz)
+             RETURNING id::text AS id`,
+            [BUSINESS, ACCOUNT, `${level}_configs`, level, AS_OF,
+              JSON.stringify(level === "campaign"
+                ? campaignRows.map((row) => ({
+                    id: row.campaignId,
+                    objective: row.objective,
+                    bid_strategy: row.bidStrategyType?.toUpperCase() ?? null,
+                    bid_amount: row.bidValueFormat === "currency"
+                      ? row.bidValue : null,
+                    daily_budget: row.dailyBudget,
+                    lifetime_budget: row.lifetimeBudget,
+                  }))
+                : adsetRows.map((row) => ({
+                    id: row.adsetId,
+                    campaign_id: row.campaignId,
+                    optimization_goal: row.optimizationGoal,
+                    promoted_object: row.customEventType
+                      ? { custom_event_type: row.customEventType } : null,
+                    bid_strategy: row.bidStrategyType?.toUpperCase() ?? null,
+                    bid_amount: row.bidValueFormat === "currency"
+                      ? row.bidValue : null,
+                    bid_constraints: row.bidValueFormat === "roas"
+                      ? { roas_average_floor: row.bidValue } : null,
+                    daily_budget: row.dailyBudget,
+                    lifetime_budget: row.lifetimeBudget,
+                  }))),
+              `economics-bid-chain-${level}-${AS_OF}`,
+              JSON.stringify({ pagination: { complete: true, termination: "natural_end" } }),
+              stableConfigObservedAt],
+          );
+          if (!source) throw new Error(`missing ${level} config receipt fixture`);
+          await rawSql.query(
+            `INSERT INTO meta_raw_snapshot_observations (
+               snapshot_id, business_id, provider_account_id, endpoint_name,
+               entity_scope, status, provider_http_status, request_context, observed_at
+             ) VALUES ($1::uuid, $2, $3, $4, $5, 'fetched', 200, $6::jsonb, $7::timestamptz)`,
+            [source.id, BUSINESS, ACCOUNT, `${level}_configs`, level,
+              JSON.stringify({ pagination: { complete: true, termination: "natural_end" } }),
+              stableConfigObservedAt],
+          );
+          return source.id;
+        }),
+      );
       await appendMetaCurrentConfigHistory({
-        campaignRows,
+        campaignRows: campaignRows.map((row) => ({
+          ...row,
+          // A campaign config response cannot attest an adset-derived goal,
+          // event or ROAS-floor value carried on its daily summary row.
+          optimizationGoal: null,
+          customEventType: null,
+          bidValue: row.bidValueFormat === "roas" ? null : row.bidValue,
+          bidValueFormat: row.bidValueFormat === "roas" ? null : row.bidValueFormat,
+        })),
         adsetRows,
         campaignReceipt: {
           complete: true,
           observedAt: stableConfigObservedAt,
+          sourceSnapshotId: sourceIds[0],
+          partitionId: null,
         },
         adsetReceipt: {
           complete: true,
           observedAt: stableConfigObservedAt,
+          sourceSnapshotId: sourceIds[1],
+          partitionId: null,
         },
       });
     }

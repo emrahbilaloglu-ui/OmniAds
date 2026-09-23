@@ -3199,8 +3199,8 @@ describe("Meta Decisions workspace canonical read model", () => {
     );
     expect(candidate).toContain("receipt->>'authoritative_for_prune' = 'true'");
     // …in this engine epoch, inside the age ceiling, newest first.
-    expect(candidate).toContain("candidate.engine_version = $6");
-    expect(candidate).toContain("candidate.as_of_date >= $7::date - $8::int");
+    expect(candidate).toContain("candidate.engine_version = $5");
+    expect(candidate).toContain("candidate.as_of_date >= $6::date - $7::int");
     expect(candidate).toContain("ORDER BY candidate.as_of_date DESC");
 
     // The AUTHORITATIVE selection stays business-global and cross-epoch: it is
@@ -3209,7 +3209,7 @@ describe("Meta Decisions workspace canonical read model", () => {
     // same way would hide the fault the operator has to fix.
     expect(latest).not.toContain("receipt");
     expect(latest).not.toContain("engine_version");
-    expect(latest).not.toContain("$6");
+    expect(latest).not.toContain("$5");
 
     // Candidate order is part of the answer, so the outer join must not decide
     // it. @see lastSuccessfulGenerationDegradation
@@ -3801,14 +3801,13 @@ describe("Meta Decisions workspace canonical read model", () => {
       "engine_version",
     );
     expect(cteBody(sql, "last_success_candidates")).toContain(
-      "candidate.engine_version = $6",
+      "candidate.engine_version = $5",
     );
     expect(generationCall?.[1]).toEqual([
       "biz_1",
       "act_1",
       expect.any(String),
       null,
-      expect.any(Number),
       NATIVE_AD_ENGINE_VERSION,
       // The serving day the age ceiling is measured against, and the ceiling.
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
@@ -3914,11 +3913,10 @@ describe("Meta Decisions workspace canonical read model", () => {
       "act_1",
       "engine_v3_native_ad_decisions_shadow_job",
       "2026-07-10",
-      120_000,
       NATIVE_AD_ENGINE_VERSION,
       // The as-of BOUND ($4) and the last-success age ceiling's serving day
-      // ($7) are different clocks on purpose: $4 bounds which runs may be
-      // considered at all, $7 measures how old the retained one is right now.
+      // ($6) are different clocks on purpose: $4 bounds which runs may be
+      // considered at all, $6 measures how old the retained one is right now.
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
     ]);
@@ -3963,7 +3961,7 @@ describe("Meta Decisions workspace canonical read model", () => {
     );
   });
 
-  it("keeps the last valid success visible during a fresh running attempt", async () => {
+  it("keeps the last terminal success visible regardless of running-attempt age", async () => {
     const row = nativeSnapshot("120000000000000024", {
       job_run_id: "20000000-0000-4000-8000-000000000024",
     });
@@ -3987,11 +3985,10 @@ describe("Meta Decisions workspace canonical read model", () => {
       authority: "native_ad",
       generation: { jobRunId: row.job_run_id },
     });
-    expect(generationSql).toContain("WHEN run.status = 'running'");
     expect(generationSql).toContain(
-      "make_interval(secs => $5::double precision / 1000.0)",
+      "WHEN run.status = 'running' THEN 'running'",
     );
-    expect(generationSql).toContain("THEN 'failed'");
+    expect(generationSql).not.toContain("make_interval(secs =>");
     expect(generationSql).toContain(
       "WHEN run.finished_at IS NULL\n            OR run.finished_at > statement_timestamp()\n          THEN 'failed'",
     );
@@ -4869,5 +4866,302 @@ describe("served held-verdict resolutions carry the engine's predicate blockers"
     );
     expect(legacySql).toContain("AS predicate_blockers");
     expect(legacySql).toContain("FROM engine_v3_decision_evaluations evaluation");
+  });
+});
+
+/*
+ * Role-held Cut whose configuration the engine never established.
+ *
+ * `toNativeSnapshotPayload` keeps the FIRST authority blocker, so a Cut held by
+ * the campaign role AND by an unverified configuration persists only
+ * `campaign_context`. The config verdict is still recorded, in the evaluation's
+ * `configEvidence`, and the reader projects it as `config_authority_verified`.
+ * These cases drive the real read model so the seam, not the projector, is
+ * what they prove.
+ */
+describe("served role-held Cut resolution reads the recorded config evidence", () => {
+  const completeConfigLineage = () => {
+    const receipt = (field: string) => ({
+      refContractVersion: "meta-config-field-evidence-ref.v1",
+      field,
+      sourceContractVersion: "meta-config-field-source.v1",
+      normalizationVersion: 1,
+      tier: "provider_receipt_point_in_day",
+      readiness: "review_only",
+      sourceClass: "modern",
+      pitClass: "as_of_known",
+      sourceSnapshotId: "11111111-1111-4111-8111-111111111111",
+      observationId: "33333333-3333-4333-8333-333333333333",
+      observedAt: "2026-07-12T09:00:00.000Z",
+      fieldScopeHash: "a".repeat(64),
+      corroboratingSnapshotId: null,
+      corroboratingObservationId: null,
+      corroboratingObservedAt: null,
+    });
+    const unknown = (field: string) => ({
+      refContractVersion: "meta-config-field-evidence-ref.v1",
+      field,
+      sourceContractVersion: "meta-config-field-source.v1",
+      normalizationVersion: null,
+      tier: "unknown",
+      readiness: "none",
+      sourceClass: "none",
+      pitClass: null,
+      sourceSnapshotId: null,
+      observationId: null,
+      observedAt: null,
+      fieldScopeHash: null,
+      corroboratingSnapshotId: null,
+      corroboratingObservationId: null,
+      corroboratingObservedAt: null,
+    });
+    return {
+      contractVersion: "engine-v3-canonical-ad-evaluation.v12",
+      refs: {
+        objective: receipt("objective"),
+        optimization_goal: receipt("optimization_goal"),
+        custom_event_type: receipt("custom_event_type"),
+        custom_conversion_id: unknown("custom_conversion_id"),
+      },
+      refRefusals: {},
+      lineageSupplied: true,
+      receiptManifest: {
+        manifestVersion: "meta-config-receipt-window-manifest.v1",
+        refContractVersion: "meta-config-field-evidence-ref.v1",
+        hash: "c".repeat(64),
+        economicDayCount: 3,
+        nullObservationIdCount: 0,
+        incoherentDayCount: 0,
+      },
+      currentConfigDay: "2026-07-12",
+      metricContract: {
+        funnelStage: "meta-funnel-stage.v1",
+        windowRule: "meta-metric-window.complete-or-null.v1",
+        adDayLinkClick: "meta-ad-day-link-click.v1",
+      },
+    };
+  };
+  const roleHeldCutRow = (
+    adId: string,
+    overrides: Partial<MetaNativeDecisionSnapshotSourceRow>,
+  ) =>
+    nativeSnapshot(adId, {
+      label: "keep",
+      raw_label: "cut",
+      pre_authority_label: "cut",
+      authority_blocker: "campaign_context",
+      blocked_action_type: "cut",
+      authorized_action: null,
+      ...overrides,
+    });
+
+  it("NEGATIVE: an unverified configuration serves the held evidence gap, not a completed Cut", () => {
+    const model = nativeModel([
+      roleHeldCutRow("120000000000000921", { config_authority_verified: false }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.classification.heldAction).toBe("cut");
+    expect(item?.classification.resolution?.code).toBe(
+      "complete_hard_action_evidence",
+    );
+    expect(item?.classification.decisionState).toBe("blocked");
+    expect(item?.classification.buyerAction).toBeNull();
+  });
+
+  it("POSITIVE: a verified configuration keeps the completed-evidence Cut", () => {
+    const model = nativeModel([
+      roleHeldCutRow("120000000000000922", {
+        config_authority_verified: true,
+        config_evidence_lineage: completeConfigLineage(),
+      }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.classification.resolution?.code).toBe("apply_cut_manually");
+  });
+
+  it("NEGATIVE: a stored TRUE without coherent lineage is downgraded before presentation", () => {
+    const model = nativeModel([
+      roleHeldCutRow("1200000000000009221", {
+        config_authority_verified: true,
+        config_evidence_lineage: null,
+      }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.classification.resolution?.code).toBe(
+      "complete_hard_action_evidence",
+    );
+    expect(item?.configEvidence).toBeNull();
+  });
+
+  it("a row with no recorded config evidence is served exactly as before", () => {
+    const model = nativeModel([
+      roleHeldCutRow("120000000000000923", { config_authority_verified: null }),
+    ]);
+    expect(model.queue.adCandidates?.items[0]?.classification.resolution?.code).toBe(
+      "apply_cut_manually",
+    );
+  });
+
+  it("projects the config verdict from the evaluation input in the native read", async () => {
+    const rows = [nativeSnapshot("120000000000000924")];
+    const nativeQuery = workspaceReadQuery({
+      generationRows: [nativeGenerationForRows(rows)],
+      nativeRows: rows,
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query: nativeQuery } as never);
+    await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adIds: rows.map((row) => row.ad_id),
+      generatedAt: "2026-07-13T12:00:00.000Z",
+    });
+    const nativeSql = String(
+      nativeQuery.mock.calls.find(
+        ([sql]) =>
+          String(sql).includes(
+            "FROM engine_v3_ad_decision_snapshots_daily snapshot",
+          ) && String(sql).includes("AS lineage_valid"),
+      )?.[0],
+    );
+    expect(nativeSql).toContain("AS config_authority_verified");
+    /*
+      From the hash-keyed mapping the engine WRITES. creative_input_json holds
+      only the creative input; configEvidence is its sibling in the hashed
+      envelope and was never persisted there.
+    */
+    expect(nativeSql).toContain(
+      "input_evidence.input_evidence_json #>> '{configEvidence,currentValueEvidence,observed}'",
+    );
+    expect(nativeSql).toContain(
+      "input_evidence.input_evidence_json #>> '{configEvidence,decisionEconomics,fullyVerified}'",
+    );
+    expect(nativeSql).toContain(
+      "LEFT JOIN engine_v3_ad_decision_input_evidence input_evidence",
+    );
+    expect(nativeSql).toContain(
+      "input_evidence.contract_version = evaluation.contract_version",
+    );
+    expect(nativeSql).toContain(
+      "input_evidence.input_hash = evaluation.input_hash",
+    );
+    expect(nativeSql).toContain("input_evidence.input_hash IS NOT NULL");
+    expect(nativeSql).not.toContain("creative_input_json -> 'configEvidence'");
+    expect(nativeSql).toContain("AS config_evidence_lineage");
+  });
+
+  describe("serves the recorded receipts read-only, re-validated", () => {
+    const OBS = "33333333-3333-4333-8333-333333333333";
+    const receipt = (over: Record<string, unknown> = {}) => ({
+      refContractVersion: "meta-config-field-evidence-ref.v1",
+      field: "objective",
+      sourceContractVersion: "meta-config-field-source.v1",
+      normalizationVersion: 1,
+      tier: "provider_receipt_point_in_day",
+      readiness: "review_only",
+      sourceClass: "modern",
+      pitClass: "as_of_known",
+      sourceSnapshotId: "11111111-1111-4111-8111-111111111111",
+      observationId: OBS,
+      observedAt: "2026-07-12T09:00:00.000Z",
+      fieldScopeHash: "a".repeat(64),
+      corroboratingSnapshotId: null,
+      corroboratingObservationId: null,
+      corroboratingObservedAt: null,
+      ...over,
+    });
+    const lineage = (objective: unknown) => ({
+      contractVersion: "engine-v3-canonical-ad-evaluation.v12",
+      refs: {
+        objective,
+        optimization_goal: null,
+        custom_event_type: null,
+        custom_conversion_id: null,
+      },
+      refRefusals: { optimization_goal: "absent" },
+      lineageSupplied: true,
+      receiptManifest: {
+        manifestVersion: "meta-config-receipt-window-manifest.v1",
+        refContractVersion: "meta-config-field-evidence-ref.v1",
+        hash: "c".repeat(64),
+        economicDayCount: 3,
+        nullObservationIdCount: 1,
+        incoherentDayCount: 0,
+      },
+      currentConfigDay: "2026-07-12",
+      metricContract: {
+        funnelStage: "meta-funnel-stage.v1",
+        windowRule: "meta-metric-window.complete-or-null.v1",
+        adDayLinkClick: "meta-ad-day-link-click.v1",
+      },
+    });
+
+    it("POSITIVE: names the receipt, the window manifest and the rules", () => {
+      const model = nativeModel([
+        nativeSnapshot("120000000000000931", {
+          config_authority_verified: false,
+          config_evidence_lineage: lineage(receipt()),
+        }),
+      ]);
+      const evidence = model.queue.adCandidates?.items[0]?.configEvidence;
+      expect(evidence?.verified).toBe(false);
+      expect(evidence?.refs).toHaveLength(1);
+      expect(evidence?.refs[0]).toMatchObject({ field: "objective", observationId: OBS });
+      expect(evidence?.refusedFields).toEqual([
+        "optimization_goal:absent",
+        "optimization_goal:served_absent",
+        "custom_event_type:served_absent",
+        "custom_conversion_id:served_absent",
+      ]);
+      expect(evidence?.economicWindow).toEqual({
+        manifestVersion: "meta-config-receipt-window-manifest.v1",
+        refContractVersion: "meta-config-field-evidence-ref.v1",
+        manifestHash: "c".repeat(64),
+        economicDayCount: 3,
+        nullObservationIdCount: 1,
+        incoherentDayCount: 0,
+      });
+      expect(evidence?.metricContract).toContain("meta-funnel-stage.v1");
+    });
+
+    it("NEGATIVE: a malformed stored reference is listed as refused, never printed as evidence", () => {
+      const model = nativeModel([
+        nativeSnapshot("120000000000000932", {
+          config_evidence_lineage: lineage(receipt({ observationId: "junk" })),
+        }),
+      ]);
+      const evidence = model.queue.adCandidates?.items[0]?.configEvidence;
+      expect(evidence?.refs).toEqual([]);
+      expect(evidence?.refusedFields).toContain("objective:served_identity_malformed");
+    });
+
+    it("POSITIVE: a recorded TRUE survives only with four coherent refs and a versioned manifest", () => {
+      const model = nativeModel([
+        nativeSnapshot("120000000000000934", {
+          config_authority_verified: true,
+          config_evidence_lineage: completeConfigLineage(),
+        }),
+      ]);
+      const evidence = model.queue.adCandidates?.items[0]?.configEvidence;
+      expect(evidence?.verified).toBe(true);
+      expect(evidence?.refs).toHaveLength(4);
+      expect(evidence?.refusedFields).toEqual([]);
+    });
+
+    it("NEGATIVE: an unversioned manifest cannot preserve a recorded TRUE", () => {
+      const bad = completeConfigLineage();
+      delete (bad.receiptManifest as { manifestVersion?: string }).manifestVersion;
+      const model = nativeModel([
+        nativeSnapshot("120000000000000935", {
+          config_authority_verified: true,
+          config_evidence_lineage: bad,
+        }),
+      ]);
+      expect(model.queue.adCandidates?.items[0]?.configEvidence?.verified).toBe(false);
+    });
+
+    it("serves null, not an inferred identity, for a row that predates lineage", () => {
+      const model = nativeModel([nativeSnapshot("120000000000000933")]);
+      expect(model.queue.adCandidates?.items[0]?.configEvidence).toBeNull();
+    });
   });
 });

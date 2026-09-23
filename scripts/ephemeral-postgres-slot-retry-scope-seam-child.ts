@@ -23,13 +23,13 @@
 // production entry point the cron calls — four times in a row, changing only
 // the world between ticks.
 //
-// Nothing about the rejection is faked either. The business throws because a
-// single ad-level row carries `payload_json->>'add_to_cart' = 'n/a'`, and
-// `readAggregatedAdsetMetricRows` casts that text to numeric with no guard
-// (`lib/meta/calibration.ts:464`). That is one corrupt provider payload under
-// ONE account's ad set taking the whole business's shared calibration down —
-// the trigger this defect is about — and the repair between the third and
-// fourth tick is that value becoming a number again.
+// The rejection is injected at the throwaway-database boundary instead of
+// depending on an application parsing bug: immediately around tick 2 this
+// seam renames `meta_ad_daily.payload_json`. Schema admission still sees the
+// table, while the shared calibration query fails before the per-account loop.
+// Tick 3 restores the column. That gives the scheduler a deterministic real
+// PostgreSQL rejection without preserving an unsafe cast just to keep a test
+// trigger alive.
 import { getDb, resetDbClientCache } from "@/lib/db";
 import {
   metaSnapshotMissingPairsForSlot,
@@ -124,14 +124,10 @@ async function assignAccount(externalAccountId: string, position: number) {
 }
 
 /**
- * The corrupt provider payload that takes the shared calibration down.
- *
- * The ad-set row is what makes the aggregate query return anything at all; the
- * ad row underneath it carries the value that cannot be cast. Both belong to
- * account B, so the account whose slot must survive owns none of this data —
- * the failure reaching A is precisely what is being tested.
+ * Valid ad-set/ad fixture for the outstanding account. The explicit schema
+ * fault below, rather than a malformed metric value, takes calibration down.
  */
-async function writeAdSetWithAddToCart(addToCart: string) {
+async function writeAdSetFixture() {
   const sql = getDb();
   await sql.query(
     `INSERT INTO meta_adset_daily
@@ -151,10 +147,22 @@ async function writeAdSetWithAddToCart(addToCart: string) {
         conversions, revenue, roas, link_clicks, payload_json)
      VALUES ($1, $2, $3::date, 'camp_1', $4, 'ad_1', 'UTC', 'USD',
              120, 4000, 80, 3000, 4, 300, 2.5, 60,
-             jsonb_build_object('add_to_cart', $5::text))
+             jsonb_build_object('actions', '[]'::jsonb))
      ON CONFLICT (business_id, provider_account_id, date, ad_id)
      DO UPDATE SET payload_json = EXCLUDED.payload_json`,
-    [BUSINESS, ACCOUNT_B, FACT_DATE, ADSET, addToCart],
+    [BUSINESS, ACCOUNT_B, FACT_DATE, ADSET],
+  );
+}
+
+async function breakSharedCalibrationQuery() {
+  await getDb().query(
+    `ALTER TABLE meta_ad_daily RENAME COLUMN payload_json TO payload_json_fault_injection`,
+  );
+}
+
+async function repairSharedCalibrationQuery() {
+  await getDb().query(
+    `ALTER TABLE meta_ad_daily RENAME COLUMN payload_json_fault_injection TO payload_json`,
   );
 }
 
@@ -197,13 +205,13 @@ async function main() {
   if (!aFinishedAt) fail("tick1_no_finished_at");
 
   /*
-    The operator assigns two more ad accounts, and one of them brings a corrupt
-    payload with it. The slot now REQUIRES three accounts and has ATTEMPTED
-    one; the difference between those two sets is the whole finding.
+    The operator assigns two more ad accounts and account B has a valid fact
+    row. The slot now REQUIRES three accounts and has ATTEMPTED one; the
+    difference between those two sets is the whole finding.
   */
   await assignAccount(ACCOUNT_B, 1);
   await assignAccount(ACCOUNT_C, 2);
-  await writeAdSetWithAddToCart("n/a");
+  await writeAdSetFixture();
 
   expectEqual(
     await metaSnapshotMissingPairsForSlot(SNAPSHOT_DATE, SLOT),
@@ -221,6 +229,7 @@ async function main() {
     per-account loop, which is exactly the case that used to be answered with
     the required set.
   */
+  await breakSharedCalibrationQuery();
   const second = await runMetaSnapshotJobIfDue(TICK);
   if (second.skipped) fail("tick2_skipped", JSON.stringify(second));
   expectEqual(second.slot, SLOT, "tick2_slot");
@@ -255,12 +264,12 @@ async function main() {
   );
 
   /*
-    TICK 3 — the payload is repaired and the retry completes.
+    TICK 3 — the explicit schema fault is repaired and the retry completes.
 
     A's row must STILL carry the timestamp it was written with at tick 1: not
     re-attempted, not re-recorded, not regenerated.
   */
-  await writeAdSetWithAddToCart("7");
+  await repairSharedCalibrationQuery();
   const third = await runMetaSnapshotJobIfDue(TICK);
   if (third.skipped) fail("tick3_skipped", JSON.stringify(third));
   const thirdBusiness = third.result?.results?.[0];

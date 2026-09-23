@@ -88,6 +88,14 @@ export interface MetaBreakdownsResponse {
   isPartial?: boolean;
   notReadyReason?: string | null;
   /**
+   * True only when a published breakdown slice proves the requested window
+   * completed with zero relevant rows. A timestamp from some other dimension
+   * is not empty-window evidence.
+   */
+  emptyObserved?: boolean;
+  /** Publication/source instant supporting `emptyObserved`. */
+  emptyObservedAt?: string | null;
+  /**
    * When the warehouse was last observed for these rows.
    *
    * Served so a reader can bind an as-of to a measured instant instead of

@@ -801,11 +801,11 @@ describe("Creative Studio: link_clicks separates a measured zero from an unsuppl
    * row could not exist — `upsertMetaAdDailyRows` turned the null into a 0 at
    * write time and the distinction was destroyed before any reader saw it.
    *
-   * Note what `buildFallbackAdRawRow` does with the null: it substitutes
-   * `factRow.clicks` (90 ALL clicks, not link clicks) so the numeric field
-   * stays a number. That substitution is exactly the kind of plausible-looking
-   * fabrication the sidecar exists to catch, and this asserts BOTH halves — the
-   * legacy number is still 90 on the wire, and the operator is shown nothing.
+   * The legacy wire still requires a numeric field, so an unavailable link
+   * click count carries a neutral 0 beside `metric_presence.link_clicks=false`.
+   * It must never borrow the 90 ALL clicks from the same row: that
+   * plausible-looking substitution was the original fabrication this chain
+   * closes. The operator sees no link-click value or derived ratio.
    */
   it("withholds an unsupplied link_clicks and every ratio divided by it", () => {
     const rows = buildApiRowsFromWarehouse({
@@ -835,8 +835,9 @@ describe("Creative Studio: link_clicks separates a measured zero from an unsuppl
       cpc_link: false,
       click_to_atc: false,
     });
-    // Additive: the wire keeps the substituted number, unchanged in shape.
-    expect(rows[0].link_clicks).toBe(90);
+    // Compatibility keeps the numeric shape without inventing a link-click
+    // count from the separately measured all-click field.
+    expect(rows[0].link_clicks).toBe(0);
 
     const observed = mapApiRowToUiRow(rows[0]).observedMetrics;
     expect(observed?.linkClicks).toBeNull();

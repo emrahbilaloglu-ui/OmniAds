@@ -1,5 +1,9 @@
 import { useAppStore } from "@/store/app-store";
-import { CURRENCY_SYMBOLS, resolveCurrencySymbol } from "@/hooks/currency-support";
+import {
+  CURRENCY_SYMBOLS,
+  resolveCurrencyCode,
+  resolveCurrencySymbol,
+} from "@/hooks/currency-support";
 
 /**
  * Use inside React components.
@@ -18,4 +22,15 @@ export function useCurrencySymbol(): string | null {
 export function getCurrencySymbol(): string | null {
   const state = useAppStore.getState();
   return resolveCurrencySymbol(state.businesses, state.selectedBusinessId);
+}
+
+/**
+ * The selected workspace's currency CODE, for callers that need to scale a
+ * provider minor-unit amount rather than only label it. `null` = unknown, and
+ * the caller must render the amount as unavailable rather than assume a scale.
+ */
+export function useCurrencyCode(): string | null {
+  const businesses = useAppStore((s) => s.businesses);
+  const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
+  return resolveCurrencyCode(businesses, selectedBusinessId);
 }

@@ -1,3 +1,5 @@
+import { observedConfigAuthority } from "@/lib/creative-decision-engine/__tests__/config-authority-fixture";
+import { EMPTY_HYDRATED_CONFIG_AUTHORITY } from "@/lib/creative-decision-engine/native-ad-hydration-authority";
 import { readFileSync } from "node:fs";
 import { NATIVE_AD_CALIBRATION_CONTRACT_VERSION } from "../../jobs/ad-calibration-job";
 import { describe, expect, it, vi } from "vitest";
@@ -253,6 +255,27 @@ function readyNativeCalibrationCell(): NativeAdCalibrationCell {
     batchInputManifestHash: "8".repeat(64),
     inputManifestHash: "0".repeat(64),
     sourceManifestHash: "6".repeat(64),
+    /*
+      A fully authoritative sample, so this fixture keeps testing what it was
+      written to test. The cases where the sample is NOT authoritative belong in
+      their own fixtures rather than silently weakening this one.
+    */
+    configAuthorityCounts: {
+      decisionAuthorityDays: 50,
+      reviewOnlyPendingDays: 0,
+      reviewOnlySettledDays: 0,
+      noneDays: 0,
+      decisionAuthoritySpend: 5000,
+      reviewOnlyPendingSpend: 0,
+      reviewOnlySettledSpend: 0,
+      noneSpend: 0,
+      decisionAuthorityAds: 50,
+      reviewOnlyAds: 0,
+      noneAds: 0,
+      verifiedSuffixAds: 50,
+      verifiedSuffixDays: 1500,
+      verifiedSuffixSpend: 5000,
+    },
     qualityCounts: {
       candidateSourceRowCount: 50,
       cutoffSafeSourceRowCount: 50,
@@ -263,6 +286,10 @@ function readyNativeCalibrationCell(): NativeAdCalibrationCell {
       duplicateConflictAdExclusionCount: 0,
       missingContextAdExclusionCount: 0,
       mixedContextAdExclusionCount: 0,
+      contextWindowTruncatedAdCount: 0,
+      contextWindowTruncatedSourceRowCount: 0,
+      contextChangeTruncatedAdCount: 0,
+      contextGapTruncatedAdCount: 0,
       mixedCurrencyAdExclusionCount: 0,
       mixedObjectiveAdExclusionCount: 0,
       mixedCohortAdExclusionCount: 0,
@@ -289,6 +316,7 @@ function adInput(input: {
   effectiveCohort?: AdDecisionInput["effectiveCohort"];
   optimizationGoal?: string | null;
   customEventType?: string | null;
+  configAuthority?: AdDecisionInput["configAuthority"];
 }): AdDecisionInput {
   const creative = makeCreativeInput({
     businessId: BUSINESS_ID,
@@ -307,6 +335,8 @@ function adInput(input: {
     },
   });
   return {
+    /* Producer evidence; the config is known, which is what this fixture always meant. */
+    configAuthority: input.configAuthority ?? observedConfigAuthority(),
     ...creative,
     decisionEntityType: "ad",
     decisionEntityId: input.adId,
@@ -2058,5 +2088,277 @@ describe("native ad producer persistence contract", () => {
     expect(savepoint).toBeLessThan(evaluationWrite);
     expect(evaluationWrite).toBeLessThan(snapshotWrite);
     expect(snapshotWrite).toBeLessThan(rollback);
+  });
+});
+
+describe("the config source gate at the emission boundary", () => {
+  /*
+    A hard provider action changes an ad whose objective and optimisation goal
+    decide what "better" means. Calibration already refuses a weakly observed
+    day a place in its sample; before this gate the decision path could still
+    authorise an action on the very same evidence, because the loader hydrated
+    those values with no provenance at all.
+
+    WHAT IS REQUIRED is that a complete provider receipt NAMED the values, not
+    that the whole day was bracketed. A bracket needs an observation after the
+    day ends, so the freshest day of any natural run cannot have one — and
+    requiring it would make every hard output review-only, every run, forever.
+  */
+  const unobservedConfig = (): AdDecisionInput["configAuthority"] => ({
+    ...EMPTY_HYDRATED_CONFIG_AUTHORITY,
+    observedDate: "2026-07-12",
+    evaluationDay: "2026-07-12",
+    describesAsOfDay: true,
+    observedAgeDays: 0,
+    /* No receipt for the evaluation day at all: the gate's own condition. */
+    currentConfigDay: null,
+    currentValueEvidence: {
+      ...EMPTY_HYDRATED_CONFIG_AUTHORITY.currentValueEvidence,
+      observed: false,
+      bracketed: false,
+      weakestTier: "unknown",
+    },
+  });
+
+  const pendingButObservedConfig = (): AdDecisionInput["configAuthority"] => ({
+    ...observedConfigAuthority(),
+    currentValueEvidence: {
+      ...observedConfigAuthority().currentValueEvidence,
+      observed: true,
+      bracketed: false,
+      weakestTier: "provider_receipt_pending_corroboration",
+    },
+  });
+
+  function cutPayload(configAuthority: AdDecisionInput["configAuthority"]) {
+    const adId = "ad-config-gate";
+    const profile = makeAccountDecisionProfile({
+      asOfDate: AS_OF,
+      quality: {
+        commercialTruthReady: true,
+        commercialTruthFreshness: "fresh",
+        calibrationReady: true,
+        metaAovQuality: "ready",
+        thresholdQuality: "ready",
+      },
+    });
+    const [computation] = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile,
+      dataHealth: makeDataHealth(),
+      adInputs: [
+        adInput({ adId, campaignId: "campaign-a", configAuthority }),
+      ],
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      /* A prior published Cut, so hysteresis publishes the hard label rather
+         than holding it — the gate under test is the config one, not that. */
+      previousLabels: new Map([
+        [
+          `${BUSINESS_ID}\u0000${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000${adId}\u0000account\u0000*`,
+          {
+            businessId: BUSINESS_ID,
+            providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+            providerAccountId: "act-1",
+            decisionEntityType: "ad" as const,
+            decisionEntityId: adId,
+            sourceSnapshotId: "snapshot-prior-cut",
+            sourceEvaluationId: "evaluation-prior-cut",
+            sourceEngineVersion: NATIVE_AD_ENGINE_VERSION,
+            sourceAsOfDate: "2026-07-11",
+            sourceComputedAt: "2026-07-11T03:15:00.000Z",
+            sourceInputHash: "a".repeat(64),
+            sourceDecisionHash: "b".repeat(64),
+            publishedLabel: "keep" as const,
+            rawLabel: "cut" as const,
+          },
+        ],
+      ]),
+      resolveDecision: (resolverInput) =>
+        hardCutDecision({ creativeId: resolverInput.creativeId }),
+    });
+    if (!computation) throw new Error("Expected native Ad computation.");
+    return toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000751",
+      scope: profile.scope,
+      computation,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000752",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: adId,
+        inputHash: "3".repeat(64),
+        decisionHash: "4".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:10:00.000Z`,
+    });
+  }
+
+  it("NEGATIVE: refuses to authorize a Cut on a configuration no receipt named", () => {
+    const payload = cutPayload(unobservedConfig());
+    expect(payload.raw_label).toBe("cut");
+    expect(payload.authority_blocker).toBe("config_source_authority");
+    expect(payload.authorized_action).toBeNull();
+    /* The reason names the field and the day, which the enum cannot. */
+    expect(payload.reason).toContain(
+      "Config source not established for the evaluation day",
+    );
+    expect(payload.reason).toContain("unknown");
+    expect(payload.reason).toContain("no receipt day");
+  });
+
+  it("NEGATIVE: refuses a Cut when its own economics include an unverified day", () => {
+    const observed = observedConfigAuthority(AS_OF);
+    const payload = cutPayload({
+      ...observed,
+      decisionEconomics: {
+        fullyVerified: false,
+        economicDayCount: 2,
+        unverifiedEconomicDayCount: 1,
+        receiptManifest: null,
+      },
+    });
+    expect(payload.raw_label).toBe("cut");
+    expect(payload.authority_blocker).toBe("config_source_authority");
+    expect(payload.authorized_action).toBeNull();
+    expect(payload.reason).toContain("1 unverified economic day");
+  });
+
+  it("POSITIVE: authorizes the same Cut when a receipt named the values", () => {
+    const payload = cutPayload(observedConfigAuthority(AS_OF));
+    expect(payload.raw_label).toBe("cut");
+    /*
+      THE GATE'S OWN CLAIM. Asserted on the blocker and the reason rather than on
+      authorized_action, because authorisation has several other gates — label
+      hysteresis, profile eligibility, calibration lineage — and a test that
+      asserted the final action would fail whenever one of THOSE changed, which
+      is not what this file is about. The negative case below does assert
+      authorized_action, because there the gate is what forces it to null.
+    */
+    expect(payload.authority_blocker).toBeNull();
+    expect(payload.reason).not.toContain("Config source not established");
+    /*
+      THE CONTRAST, which is the whole claim: the same computation, the same
+      profile, the same hysteresis — only the config provenance differs, and only
+      the blocker moves. Anything else that changed would show up here.
+    */
+    const blocked = cutPayload(unobservedConfig());
+    expect(blocked.raw_label).toBe(payload.raw_label);
+    expect(blocked.label).toBe(payload.label);
+    expect(blocked.confidence).toBe(payload.confidence);
+    expect(blocked.authority_blocker).toBe("config_source_authority");
+  });
+
+  /*
+    A CONFIRMED hard verdict held only by this gate must round-trip as held.
+
+    Every upstream hold sets `decision.blockedActionType`; this gate runs after
+    the decision, so the confirmed Cut here arrived with no held action and was
+    persisted with `blocked_action_type = NULL`. The served projection keys the
+    held state on that column, so the row was presented as an actionable Cut.
+  */
+  it("NEGATIVE: a config-held confirmed Cut persists its held action", () => {
+    for (const payload of [
+      cutPayload(unobservedConfig()),
+      cutPayload({
+        ...observedConfigAuthority(AS_OF),
+        decisionEconomics: {
+          fullyVerified: false,
+          economicDayCount: 2,
+          unverifiedEconomicDayCount: 1,
+          receiptManifest: null,
+        },
+      }),
+    ]) {
+      expect(payload.label).toBe("cut");
+      expect(payload.authority_blocker).toBe("config_source_authority");
+      expect(payload.blocked_action_type).toBe("cut");
+      expect(payload.authorized_action).toBeNull();
+    }
+  });
+
+  it("POSITIVE: the same confirmed Cut with a named configuration carries no held action", () => {
+    const payload = cutPayload(observedConfigAuthority(AS_OF));
+    expect(payload.authority_blocker).toBeNull();
+    expect(payload.blocked_action_type).toBeNull();
+  });
+
+  /*
+    THE NATURAL-RUN CASE, and the one that decides whether this gate is usable.
+    Today's receipt is complete and names every field; it simply has no next-day
+    corroboration yet. That is a fact about when we looked, not about the
+    evidence, and it must not block the action.
+  */
+  it("POSITIVE: does not block on a freshest-day receipt that cannot be bracketed yet", () => {
+    const payload = cutPayload(pendingButObservedConfig());
+    expect(payload.authority_blocker).toBeNull();
+    expect(payload.reason).not.toContain("Config source not established");
+    /* The strict per-day verdict is still review_only; the gate reads the
+       weaker, correct question and lets the natural run through. */
+    expect(
+      pendingButObservedConfig().currentValueEvidence.bracketed,
+    ).toBe(false);
+  });
+
+  it("leaves a SOFT decision untouched: it was never asking for authority", () => {
+    const adId = "ad-config-gate-soft";
+    const profile = makeAccountDecisionProfile({
+      asOfDate: AS_OF,
+      quality: {
+        commercialTruthReady: true,
+        commercialTruthFreshness: "fresh",
+        calibrationReady: true,
+        metaAovQuality: "ready",
+        thresholdQuality: "ready",
+      },
+    });
+    const [computation] = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile,
+      dataHealth: makeDataHealth(),
+      adInputs: [
+        adInput({
+          adId,
+          campaignId: "campaign-a",
+          configAuthority: unobservedConfig(),
+        }),
+      ],
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      previousLabels: new Map(),
+      resolveDecision: (resolverInput) => ({
+        ...hardCutDecision({ creativeId: resolverInput.creativeId }),
+        label: "keep" as const,
+      }),
+    });
+    if (!computation) throw new Error("Expected native Ad computation.");
+    if (computation.rawLabel === "cut") {
+      /* The raw label is what the gate reads; a published soft label with a
+         hard RAW label is still an authority question. */
+      return;
+    }
+    const payload = toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000753",
+      scope: profile.scope,
+      computation,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000754",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: adId,
+        inputHash: "5".repeat(64),
+        decisionHash: "6".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:10:00.000Z`,
+    });
+    expect(payload.authority_blocker).not.toBe("config_source_authority");
   });
 });

@@ -156,13 +156,29 @@ async function seed() {
  * has to answer for that shape as well as for an explicit `null`. Spreading a
  * conditional object is the only way to reproduce it — `{ linkClicks: undefined }`
  * is a different object.
+ *
+ * A measured ZERO carries the payload that makes it one. The forward writer
+ * (`lib/api/meta.ts`) derives the column from the insight's own `actions` array
+ * and stores that insight verbatim, so every zero it writes sits beside an
+ * `actions` array without a `link_click` entry — Meta's measured-zero encoding.
+ * That payload is what D095 (`resolveAdDayAuthoritativeLinkClicks`, the reader
+ * `getMetaAdDailyRange` uses) requires before it believes a stored 0, because
+ * the column alone also holds the historical zeros the old `NOT NULL DEFAULT 0`
+ * writer typed on the provider's behalf. `payloadJson` overrides the default.
  */
 function adRow(input: {
   adId: string;
   date: string;
   linkClicks?: number | null;
   spend?: number;
+  payloadJson?: unknown;
 }): MetaAdDailyRow {
+  const payloadJson =
+    input.payloadJson !== undefined
+      ? input.payloadJson
+      : input.linkClicks === 0
+        ? { actions: [] }
+        : undefined;
   return {
     businessId,
     providerAccountId: ACCOUNT_ID,
@@ -189,6 +205,7 @@ function adRow(input: {
     ctr: 6,
     cpc: 0.4,
     ...(input.linkClicks === undefined ? {} : { linkClicks: input.linkClicks }),
+    ...(payloadJson === undefined ? {} : { payloadJson }),
   };
 }
 
@@ -266,10 +283,13 @@ const AD_WRITERS: Array<{
 /**
  * Read one ad-day back through the SHIPPED reader.
  *
- * `getMetaAdDailyRange` is what the product uses, and it maps the column with
- * `row.link_clicks == null ? null : Number(row.link_clicks)` — so a stored NULL
- * and a stored 0 are still distinguishable after the read, which is the half of
- * the contract a write-side assertion alone cannot reach.
+ * `getMetaAdDailyRange` is what the product uses, and it classifies the
+ * link-click count with D095 exactly as the SQL readers do: a positive column
+ * is the count, a zero column is a measurement only beside an `actions` array
+ * that proves it, and a NULL column stays unknown (the payload is never read
+ * to fill it). So a stored NULL and a stored measured 0 are still
+ * distinguishable after the read, which is the half of the contract a
+ * write-side assertion alone cannot reach.
  */
 async function readAdDay(adId: string, date: string) {
   const rows = await getMetaAdDailyRange({
@@ -576,6 +596,20 @@ describe.skipIf(!SEAM)("ad-day link-click persistence (real PostgreSQL)", () => 
 
     expect((await readAdDay("lc_pruned_kept", date))?.linkClicks).toBe(141);
     expect(await readAdDay("lc_pruned_gone", date)).toBeNull();
+  });
+
+  it("stores a bare zero as 0 but reads it back as unknown when no actions payload proves it (D095)", async () => {
+    // The historical shape: a 0 in the column with nothing beside it to say it
+    // was measured. The WRITER stores exactly what it was given — the column
+    // is 0, not NULL — and the READER refuses to vouch for it, the same answer
+    // `buildAdDayAuthoritativeLinkClicksSql` gives every SQL reader of the row.
+    const date = "2026-05-30";
+    await writeDirect([adRow({ adId: "lc_bare_zero", date, linkClicks: 0, payloadJson: {} })]);
+
+    const stored = await storedAdDay("lc_bare_zero", date);
+    expect(stored?.link_clicks_is_null).toBe(false);
+    expect(Number(stored?.link_clicks)).toBe(0);
+    expect((await readAdDay("lc_bare_zero", date))?.linkClicks).toBeNull();
   });
 
   it("stores a count larger than a 32-bit integer without truncating it", async () => {

@@ -2003,6 +2003,9 @@ function AudiencesView({
         data-creative-studio-exact-section="audiences"
       >
         {message}
+        {model?.windowLabel ? (
+          <span data-audience-window-label=""> {model.windowLabel}</span>
+        ) : null}
       </div>
     );
   }
@@ -2063,7 +2066,9 @@ function AudiencesView({
             A hardcoded "28d" here labelled a 7-day or custom selection as a
             28-day one, which is a caption asserting a measurement nobody
             performed. Unknown withholds instead of guessing. */}
-            {model?.windowLabel ? <span>{model.windowLabel}</span> : null}
+            {model?.windowLabel ? (
+              <span data-audience-window-label="">{model.windowLabel}</span>
+            ) : null}
           </div>
           <div className={styles.breakdownGrid}>
             {breakdownSlots.map((breakdown) => (

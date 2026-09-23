@@ -149,8 +149,26 @@ describe("normalizeMetaAddToExistingPayload", () => {
 });
 
 describe("minor unit conversion", () => {
-  it("round-trips amounts through minor units", () => {
-    expect(amountToMinorUnits("12.34")).toBe(1234);
-    expect(amountFromMinorUnits(1234)).toBe("12.34");
+  it("round-trips amounts at the provider's offset for the currency", () => {
+    expect(amountToMinorUnits("12.34", "USD")).toBe(1234);
+    expect(amountFromMinorUnits(1234, "USD")).toBe("12.34");
+  });
+
+  it("does not scale a currency Meta lists at offset 1", () => {
+    /* A ¥5,000 daily budget is 5000 on the wire. The old constant 100 would
+       have submitted ¥500,000 — a hundredfold overspend on a live account. */
+    expect(amountToMinorUnits("5000", "JPY")).toBe(5000);
+    expect(amountFromMinorUnits(5000, "JPY")).toBe("5000");
+  });
+
+  it("refuses a currency the provider publishes no offset for", () => {
+    /* 0 is the same sentinel a blank amount produces, so the launch stops at
+       the existing budget_required blocker instead of posting an unscaled
+       number. KWD is real and in the ISO registry — it is Meta's table that
+       does not list it, and Meta's table is the authority here. */
+    expect(amountToMinorUnits("12.34", "KWD")).toBe(0);
+    expect(amountToMinorUnits("12.34", null)).toBe(0);
+    expect(amountFromMinorUnits(1234, "KWD")).toBe("");
+    expect(amountFromMinorUnits(1234, null)).toBe("");
   });
 });

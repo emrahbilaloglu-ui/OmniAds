@@ -1,3 +1,5 @@
+import { DECISION_AUTHORITY_BLOCKERS } from "./types";
+
 /**
  * Exact migration input for D047 native-ad authority. Runtime never executes
  * this module and no statement targets a legacy creative decision table.
@@ -197,6 +199,21 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_evaluations (
 )
 `;
 
+/** Hash-deduplicated input evidence shared by native-Ad evaluations. */
+export const CREATE_NATIVE_AD_INPUT_EVIDENCE_SQL = `
+CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_input_evidence (
+  contract_version TEXT NOT NULL,
+  input_hash CHAR(64) NOT NULL CHECK (input_hash ~ '^[0-9a-f]{64}$'),
+  input_evidence_json JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT engine_v3_ad_input_evidence_pkey
+    PRIMARY KEY (contract_version, input_hash),
+  CONSTRAINT engine_v3_ad_input_evidence_json_check
+    CHECK (jsonb_typeof(input_evidence_json) = 'object')
+)
+`;
+
 export const CREATE_NATIVE_AD_SNAPSHOTS_SQL = `
 CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_snapshots_daily (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -261,9 +278,7 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_snapshots_daily (
   ),
   CONSTRAINT engine_v3_ad_snapshots_authority_blocker_check CHECK (
     authority_blocker IS NULL OR authority_blocker IN (
-      'profile_hard_action_ineligible', 'source_freshness',
-      'campaign_context', 'native_metrics_unavailable',
-      'native_profile_unavailable', 'recent_recovery_unverifiable'
+      ${authorityBlockerInList()}
     )
   ),
   CONSTRAINT engine_v3_ad_snapshots_binding_fk FOREIGN KEY (
@@ -299,6 +314,18 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_snapshots_daily (
 )
 `;
 
+/**
+ * The authority-blocker enum as SQL, GENERATED from the TypeScript constant.
+ *
+ * Two hand-written copies of this list already existed in this file and had to
+ * be kept in step with `DECISION_AUTHORITY_BLOCKERS` by hand. A value added to
+ * the constant but missed here does not fail loudly — it fails at INSERT time,
+ * in production, on the first decision that needs it.
+ */
+function authorityBlockerInList(): string {
+  return DECISION_AUTHORITY_BLOCKERS.map((value) => `'${value}'`).join(", ");
+}
+
 export const ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL = `
 ALTER TABLE IF EXISTS engine_v3_ad_decision_snapshots_daily
   ADD COLUMN IF NOT EXISTS pre_authority_label TEXT,
@@ -321,9 +348,28 @@ BEGIN
       ALTER TABLE engine_v3_ad_decision_snapshots_daily
         ADD CONSTRAINT engine_v3_ad_snapshots_authority_blocker_check
         CHECK (authority_blocker IS NULL OR authority_blocker IN (
-          'profile_hard_action_ineligible', 'source_freshness',
-          'campaign_context', 'native_metrics_unavailable',
-          'native_profile_unavailable', 'recent_recovery_unverifiable'
+          ${authorityBlockerInList()}
+        ));
+    END IF;
+    /*
+      A CONSTRAINT THAT ALREADY EXISTS IS NOT UPDATED by the IF NOT EXISTS above,
+      so a value added to the enum would pass every from-zero check and then fail
+      at INSERT time against the live table, which still carries the old list.
+      The definition is therefore inspected for the current values and rebuilt
+      when it is behind — the same shape
+      ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL uses, for the same reason.
+    */
+    IF EXISTS (SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'engine_v3_ad_decision_snapshots_daily'::regclass
+        AND conname = 'engine_v3_ad_snapshots_authority_blocker_check'
+        AND pg_get_constraintdef(oid, true) NOT LIKE '%config_source_authority%')
+    THEN
+      ALTER TABLE engine_v3_ad_decision_snapshots_daily
+        DROP CONSTRAINT engine_v3_ad_snapshots_authority_blocker_check;
+      ALTER TABLE engine_v3_ad_decision_snapshots_daily
+        ADD CONSTRAINT engine_v3_ad_snapshots_authority_blocker_check
+        CHECK (authority_blocker IS NULL OR authority_blocker IN (
+          ${authorityBlockerInList()}
         ));
     END IF;
   END IF;
@@ -639,6 +685,7 @@ export const CREATE_NATIVE_AD_DECISION_INDEXES_SQL = [
 export const NATIVE_AD_DECISION_SCHEMA_SQL = [
   ALTER_NATIVE_AD_JOB_RUN_LINEAGE_SQL,
   CREATE_NATIVE_AD_EVALUATION_CONTEXTS_SQL,
+  CREATE_NATIVE_AD_INPUT_EVIDENCE_SQL,
   CREATE_NATIVE_AD_EVALUATIONS_SQL,
   CREATE_NATIVE_AD_SNAPSHOTS_SQL,
   CREATE_NATIVE_AD_EVENTS_SQL,

@@ -8,6 +8,7 @@ import {
 import {
   readLatestMetaAdSetConfigHistory,
   readLatestMetaCampaignConfigHistory,
+  readMetaAccountCurrency,
   readMetaAdSetDimensions,
   readMetaCampaignDimensions,
   readPreviousDifferentMetaAdSetConfigHistoryDiffs,
@@ -31,6 +32,18 @@ async function readConfiguration(input: {
   entityId: string;
 }): Promise<MetaOsStructureBidConfiguration | null> {
   const entityIds = [input.entityId];
+  /*
+    The config-history rows carry amounts in provider minor units with no
+    currency beside them, and Meta's minor-unit offset is per currency (1 for
+    JPY/KRW/CLP/ISK/VND/HUF/IDR/TWD/COP, 100 for the rest of its list). The
+    account currency is read here so the presented amounts can be scaled by
+    the provider's own offset; when it cannot be resolved the amount fields
+    come back null rather than divided by an assumed 100.
+  */
+  const currency = await readMetaAccountCurrency({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  }).catch(() => null);
   const [dimensions, currentById, previousById] =
     input.level === "campaign"
       ? await Promise.all([
@@ -78,16 +91,18 @@ async function readConfiguration(input: {
     currentValue: providerCurrencyValue(
       current.bidValue,
       current.bidValueFormat,
+      currency,
     ),
     currentValueFormat: current.bidValueFormat ?? null,
     previousValue: providerCurrencyValue(
       previous?.previousBidValue,
       previous?.previousBidValueFormat,
+      currency,
     ),
     previousValueFormat: previous?.previousBidValueFormat ?? null,
     previousValueCapturedAt: previous?.previousBidCapturedAt ?? null,
-    dailyBudget: providerBudgetValue(current.dailyBudget),
-    lifetimeBudget: providerBudgetValue(current.lifetimeBudget),
+    dailyBudget: providerBudgetValue(current.dailyBudget, currency),
+    lifetimeBudget: providerBudgetValue(current.lifetimeBudget, currency),
     budgetUtilization: null,
   };
 }

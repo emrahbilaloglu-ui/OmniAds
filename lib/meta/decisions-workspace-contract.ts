@@ -49,7 +49,15 @@ export type MetaDecisionAuthorityBlocker =
   | "campaign_context"
   | "native_metrics_unavailable"
   | "native_profile_unavailable"
-  | "recent_recovery_unverifiable";
+  | "recent_recovery_unverifiable"
+  /**
+   * The configuration the action would act on was not well enough observed.
+   *
+   * Mirrors `DECISION_AUTHORITY_BLOCKERS` in the engine; the two unions describe
+   * the same persisted column and a value present in one and missing from the
+   * other is a served surface that cannot name a blocker the engine writes.
+   */
+  | "config_source_authority";
 
 export type MetaDecisionState =
   "act" | "monitor" | "blocked" | "not_applicable";
@@ -311,6 +319,61 @@ export interface MetaDecisionSourceAuthority {
   };
 }
 
+/**
+ * One config field's receipt, as the native engine recorded it in the hashed
+ * evaluation input (ConfigFieldEvidenceRef, lib/meta/config-field-evidence-ref.ts).
+ * READ-ONLY evidence: it explains a decision and grants nothing.
+ */
+export interface MetaDecisionConfigEvidenceRef {
+  refContractVersion: string;
+  field: string;
+  sourceContractVersion: string;
+  normalizationVersion: number | null;
+  tier: string;
+  readiness: string;
+  sourceClass: string;
+  pitClass: string | null;
+  sourceSnapshotId: string | null;
+  observationId: string | null;
+  observedAt: string | null;
+  fieldScopeHash: string | null;
+  corroboratingSnapshotId: string | null;
+  corroboratingObservationId: string | null;
+  corroboratingObservedAt: string | null;
+}
+
+/**
+ * WHICH RECEIPTS a native ad decision's configuration rests on (ADR D098 plus
+ * receipt lineage), served read-only for the evidence window. The surface
+ * prints it; it never computes an action from it. Null for rows written before
+ * the evaluation input carried receipt lineage — never inferred.
+ */
+export interface MetaDecisionConfigEvidence {
+  /** The evaluation contract the evidence was hashed under. */
+  evaluationContractVersion: string;
+  /** D098's verdict: a receipt named the current config AND every economic day had authority. */
+  verified: boolean | null;
+  /** False when the engine had no receipt lineage to record (explicit, never inferred). */
+  lineageSupplied: boolean;
+  /** The provider-local day the current receipts describe. */
+  currentConfigDay: string | null;
+  /** The current day's coherent receipts, one per field that has one. */
+  refs: MetaDecisionConfigEvidenceRef[];
+  /** Fields whose reference was refused, as "field:reason". A refused field grants nothing. */
+  refusedFields: string[];
+  /** The economic window's receipts, as a compact manifest. */
+  economicWindow: {
+    manifestVersion: string;
+    refContractVersion: string;
+    manifestHash: string;
+    economicDayCount: number;
+    nullObservationIdCount: number;
+    incoherentDayCount: number;
+  } | null;
+  /** The metric parsing rules the inputs were read under, joined for display. */
+  metricContract: string | null;
+}
+
 export interface MetaCanonicalDecision {
   decisionId: string;
   episodeId: string;
@@ -319,6 +382,8 @@ export interface MetaCanonicalDecision {
   identityGrain: "ad" | "creative";
   sourceSnapshotId: string;
   sourceAuthority?: MetaDecisionSourceAuthority;
+  /** @see MetaDecisionConfigEvidence. Native ad rows only; absent elsewhere. */
+  configEvidence?: MetaDecisionConfigEvidence | null;
   sourceDecision: {
     label: string;
     /** Persisted mathematical/semantic verdict before the first authority gate.

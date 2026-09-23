@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { EMPTY_HYDRATED_CONFIG_AUTHORITY } from "@/lib/creative-decision-engine/native-ad-hydration-authority";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
@@ -1596,6 +1597,8 @@ function buildAdInput(
     candidate.window28.initiateCheckout !== null ||
     candidate.window28.thumbstop !== null;
   return {
+    /* Producer evidence; `toResolverInput` strips it before the resolver runs. */
+    configAuthority: EMPTY_HYDRATED_CONFIG_AUTHORITY,
     decisionEntityType: "ad",
     decisionEntityId: candidate.adId,
     adId: candidate.adId,

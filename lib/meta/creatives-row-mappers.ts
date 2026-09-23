@@ -31,6 +31,11 @@ import {
   buildCreativeDebugInfo,
 } from "@/lib/meta/creatives-copy";
 import { resolveMetaLandingUrl } from "@/lib/meta/landing-url-resolver";
+import {
+  buildMetaCreativeDayMetricEvidence,
+  mergeCarriedMetaCreativeDayMetricEvidence,
+  withMetaCreativeDayMetricEvidence,
+} from "@/lib/meta/creative-day-metric-evidence";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 export function r2(n: number) {
@@ -377,22 +382,11 @@ export function resolvePreviewOrigin(input: {
 }
 
 /**
- * The LIVE insights path deliberately publishes no `metric_presence`.
- *
- * Not an oversight, and not a gap to be filled later by pattern-matching the
- * warehouse path. Meta's insights endpoint OMITS `actions`, `action_values` and
- * the video arrays when the count for the window is zero, so on this path an
- * absent array is a measured zero — the exact opposite of what absence means in
- * `meta_ad_daily`, where a null column or a missing `payload_json` key means the
- * sync never captured the field. Stamping `false` for every array this payload
- * happens not to carry would replace real zeros with em dashes across every
- * live-served row.
- *
- * A row from here therefore carries no map, `isCreativeMetricAvailable` defaults
- * to available, and the numbers stand exactly as they do today. The one field
- * this path genuinely cannot establish, `frequency`, already leaves as `null`
- * (`parseFloat(...) || null` below) and reaches the surface as an em dash
- * without any sidecar.
+ * The live path preserves its existing funnel/link-click presence policy.
+ * Video rates are explicitly unavailable: video_play_actions measures starts,
+ * not three-second views, and the legacy video display rates have no verified
+ * event/denominator contract here. Positive legacy arithmetic does not confer
+ * measurement authority. The sidecar carries that absence to every UI consumer.
  */
 export function toRawRow(
   insight: {
@@ -446,6 +440,20 @@ export function toRawRow(
 ): RawCreativeRow | null {
   const adId = insight.ad_id ?? ad?.id ?? "";
   if (!adId) return null;
+
+  /*
+    THE DECISION-GRADE READING, taken from the raw insight BEFORE any of the
+    display fallbacks below run. Every display number this function computes
+    is a finite value by construction — `parseFloat(value) || 0`, the first
+    positive alias (omni-first for add-to-cart and initiate-checkout, which
+    `lib/meta/funnel-stage-parse.ts` measured to be a wider population),
+    `linkClicks || inline_link_clicks`, video starts over impressions as
+    "thumbstop" — so a stored creative-day 0 could never say whether anything
+    was observed. Those display fields are unchanged; the decision readers read
+    THIS stamp instead, which keeps measured, unmeasurable and unreadable apart
+    per stage under the shared alias table and strict value guard.
+  */
+  const metricEvidence = buildMetaCreativeDayMetricEvidence(insight);
 
   const spend = parseFloat(insight.spend ?? "0") || 0;
   const purchases = Math.round(parsePurchaseCount(insight.actions));
@@ -676,7 +684,7 @@ export function toRawRow(
     ...normalizedPreview.debug,
   };
 
-  return {
+  const rawRow: RawCreativeRow = {
     id: adId,
     creative_id: creativeId,
     real_ad_id: adId,
@@ -730,6 +738,13 @@ export function toRawRow(
     creative_secondary_type: creativeTaxonomy.creative_secondary_type,
     creative_secondary_label: creativeTaxonomy.creative_secondary_label,
     classification_signals: creativeTaxonomy.classification_signals,
+    metric_presence: {
+      thumbstop: false,
+      video25: false,
+      video50: false,
+      video75: false,
+      video100: false,
+    },
     spend: r2(spend),
     purchase_value: r2(derivedPurchaseValue),
     roas: r2(spend > 0 && derivedPurchaseValue > 0 ? derivedPurchaseValue / spend : 0),
@@ -794,6 +809,7 @@ export function toRawRow(
     video100: video100Rate,
     debug,
   };
+  return withMetaCreativeDayMetricEvidence(rawRow, metricEvidence);
 }
 
 export function groupRows(
@@ -956,7 +972,16 @@ export function groupRows(
         : groupBy === "ad"
           ? sample.id
           : `adset_${key}`;
-    grouped.push({
+    /*
+      Every display sum above adds members that did and did not report a stage
+      (`?? 0` on each), so the grouped number cannot say whether it is a
+      measurement. The stamp is folded STRICTLY instead: a stage is measured
+      for the group only when every member measured it, and one member without
+      a stamp makes every stage incomplete. The stamp is what the creative-day
+      writer persists and what the decision readers read.
+    */
+    const groupedMetricEvidence = mergeCarriedMetaCreativeDayMetricEvidence(list);
+    const groupedRow: RawCreativeRow = {
       id: stableId,
       creative_id: sample.creative_id,
       real_ad_id: groupBy === "ad" ? (sample.real_ad_id ?? sample.id) : (groupedRealAdIds[0] ?? null),
@@ -1088,7 +1113,8 @@ export function groupRows(
       // happened — the numbers are unchanged — and this is what stops the
       // surface reading the shortfall as a result.
       metric_presence: intersectCreativeMetricPresence(list),
-    });
+    };
+    grouped.push(withMetaCreativeDayMetricEvidence(groupedRow, groupedMetricEvidence));
   }
 
   return grouped;

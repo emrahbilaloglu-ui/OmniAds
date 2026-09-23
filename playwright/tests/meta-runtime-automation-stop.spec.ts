@@ -21,8 +21,8 @@
  *    was attempted. Its age is on screen because a confirmation typed against
  *    an old reading is a confirmation of a screen.
  * 3. **Typed confirmation.** The phrase gates the submit, in both directions.
- * 4. **The gate.** `META_AUTOMATION_STOP_UI` holds ENGAGE and never holds
- *    RELEASE, on the server as well as on the screen.
+ * 4. **Incident reachability.** STOP remains available in both shipped and
+ *    rollout-open postures; ordinary provider-write gates cannot hide it.
  * 5. **The read-back.** No status banner may come from a 200. Only a
  *    confirming READ may say "automation is stopped".
  * 6. **Reversibility.** Engage → read-back → release → read-back, in one
@@ -32,13 +32,67 @@
  * actions writes control-plane rows, `dryRunOnly` stays true throughout, and
  * the assertions below check the database rather than Meta.
  */
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { Client } from "pg";
 
 import { openSurface, runtimeHandle } from "../helpers/meta-runtime";
 
 const handle = runtimeHandle();
 const AUTOMATION = `/c/${handle.businesses.oneAccount}/meta/automation`;
+
+/**
+ * The responsive Automation view keeps the desktop and mobile controls mounted
+ * and hides one with CSS. Runtime evidence must drive the control an operator
+ * can reach at the current viewport; counting both mounted copies as two
+ * ceremonies mistakes the responsive implementation for duplicate UI.
+ */
+function visibleStop(page: Page, selector: string): Locator {
+  return page.locator(`:is(${selector}):visible`);
+}
+
+/** Open the desktop disclosure; mobile already renders the stop inline. */
+async function revealStop(page: Page): Promise<void> {
+  if ((await visibleStop(page, "[data-stop-trigger]").count()) > 0) return;
+  const desktopControls = page.locator(
+    'details:has([data-stop-trigger][data-surface="desktop"]):visible',
+  );
+  await expect(desktopControls).toHaveCount(1);
+  if ((await desktopControls.getAttribute("open")) === null) {
+    await desktopControls.locator(":scope > summary").click();
+  }
+  await expect(visibleStop(page, "[data-stop-trigger]")).toHaveCount(1);
+}
+
+async function postStop(
+  page: Page,
+  action: "engage_kill_switch" | "release_kill_switch",
+) {
+  return page.evaluate(
+    async ({ businessId, providerAccountId, requestedAction }) => {
+      const response = await fetch(
+        `/api/meta/automation?businessId=${businessId}&providerAccountId=${providerAccountId}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            action: requestedAction,
+            reason: "runtime evidence — emergency stop reachability",
+          }),
+        },
+      );
+      return {
+        status: response.status,
+        body: (await response.text()).slice(0, 400),
+      };
+    },
+    {
+      businessId: handle.businesses.oneAccount,
+      providerAccountId: handle.accounts.one,
+      requestedAction: action,
+    },
+  );
+}
 
 /**
  * Whether the trigger will actually act.
@@ -78,26 +132,50 @@ async function storedKillSwitch(): Promise<boolean | null> {
   }
 }
 
+/** Restore the shared fixture even when an assertion interrupts a ceremony. */
+async function resetStoredKillSwitch(): Promise<void> {
+  const client = new Client({ connectionString: handle.databaseUrl });
+  await client.connect();
+  try {
+    await client.query(
+      `UPDATE meta_automation_business_controls
+          SET kill_switch_engaged = FALSE,
+              kill_switch_reason = NULL,
+              updated_at = NOW()
+        WHERE business_id = $1`,
+      [handle.businesses.oneAccount],
+    );
+  } finally {
+    await client.end();
+  }
+}
+
 test.describe("the ceremony refuses before it acts", () => {
-  test("the trigger stays on screen and states the reason it cannot be used", async ({
+  test.afterEach(async () => {
+    await resetStoredKillSwitch();
+  });
+
+  test("the trigger is reachable and states the reason it cannot be used", async ({
     page,
   }) => {
     await openSurface(page, handle, AUTOMATION);
+    await revealStop(page);
 
-    const trigger = page.locator("[data-stop-trigger]");
+    const trigger = visibleStop(page, "[data-stop-trigger]");
     await expect(trigger).toHaveCount(1);
 
     /*
-     * Present, whatever the posture. A control that vanishes teaches an
-     * operator there is nothing here to reach for, which is at its most
-     * dangerous in the moment they need it.
+     * Reachable from the mounted Controls and limits disclosure, whatever the
+     * posture, with the refusal still attached to the actual trigger.
      */
-    const blocked = page.locator("[data-stop-blocked]");
+    const blocked = visibleStop(page, "[data-stop-blocked]");
     if ((await blocked.count()) > 0) {
       // Refused: the code is addressable and the sentence is not empty.
       const code = await blocked.first().getAttribute("data-stop-blocked");
       expect(code, "the refusal names which rule refused").toBeTruthy();
-      expect((await blocked.first().innerText()).trim().length).toBeGreaterThan(10);
+      expect((await blocked.first().innerText()).trim().length).toBeGreaterThan(
+        10,
+      );
       await expect(trigger).toBeDisabled();
     }
   });
@@ -106,15 +184,19 @@ test.describe("the ceremony refuses before it acts", () => {
     page,
   }) => {
     await openSurface(page, handle, AUTOMATION);
+    await revealStop(page);
 
-    const preflight = page.locator("[data-stop-preflight]");
+    const preflight = visibleStop(page, "[data-stop-preflight]");
     await expect(preflight).toHaveCount(1);
     const status = await preflight.getAttribute("data-stop-preflight");
     // One of the server's own section statuses, or the honest "this payload
     // did not carry one". Never a word this surface invented.
-    expect(["complete", "unavailable", "migration_required", "unproven"]).toContain(
-      status,
-    );
+    expect([
+      "complete",
+      "unavailable",
+      "migration_required",
+      "unproven",
+    ]).toContain(status);
 
     const text = (await preflight.innerText()).replace(/\s+/g, " ");
     // The window is stated, so an operator knows a stale reading will refuse
@@ -129,45 +211,28 @@ test.describe("the ceremony refuses before it acts", () => {
     }
   });
 
-  test("the engage gate is shut on the shipped server and open on the gates-open one", async ({
+  test("the emergency stop stays reachable in both rollout postures", async ({
     page,
   }) => {
     /*
-     * The same request to two processes that differ only in gate environment.
-     * One process can only show one half of a gate; the difference between the
-     * two answers IS the gate.
+     * STOP is an incident control, not a release capability. It must remain
+     * reachable while normal provider writes are closed and while the other
+     * UI gates are open. Each probe restores the precondition in `finally`.
      */
-    await openSurface(page, handle, AUTOMATION);
-    const shipped = await page.evaluate(
-      async ({ businessId, providerAccountId }) => {
-        const response = await fetch(
-          `/api/meta/automation?businessId=${businessId}&providerAccountId=${providerAccountId}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              action: "engage_kill_switch",
-              reason: "runtime evidence — gate probe",
-            }),
-          },
-        );
-        return { status: response.status, body: (await response.text()).slice(0, 400) };
-      },
-      {
-        businessId: handle.businesses.oneAccount,
-        providerAccountId: handle.accounts.one,
-      },
-    );
-
-    expect(shipped.status).toBe(503);
-    // The §9.1 code for this gate, which is what the guard actually answers.
-    expect(shipped.body).toContain("automation_stop_disabled");
-    // The refusal never names the variable to an operator.
-    expect(shipped.body).not.toMatch(/META_[A-Z0-9_]{4,}/);
+    for (const baseUrl of [handle.baseUrl, handle.gatesOpenBaseUrl]) {
+      await openSurface(page, handle, AUTOMATION, baseUrl);
+      await postStop(page, "release_kill_switch");
+      const engaged = await postStop(page, "engage_kill_switch");
+      expect(engaged.status).toBe(200);
+      expect(engaged.body).not.toContain("automation_stop_disabled");
+      const released = await postStop(page, "release_kill_switch");
+      expect(released.status).toBe(200);
+    }
   });
 
-  test("releasing is refused by no gate, at either setting", async ({ page }) => {
+  test("releasing is refused by no gate, at either setting", async ({
+    page,
+  }) => {
     /*
      * A stop that cannot be lifted is worse than no stop. Whatever the rollout
      * state, an existing stop must always be liftable — so RELEASE is checked
@@ -189,7 +254,10 @@ test.describe("the ceremony refuses before it acts", () => {
             }),
           },
         );
-        return { status: response.status, body: (await response.text()).slice(0, 400) };
+        return {
+          status: response.status,
+          body: (await response.text()).slice(0, 400),
+        };
       },
       {
         businessId: handle.businesses.oneAccount,
@@ -206,9 +274,10 @@ test.describe("the typed confirmation is what sends the request", () => {
   test("the phrase gates the submit, and no request is made without it", async ({
     page,
   }) => {
-    await openSurface(page, handle, AUTOMATION, handle.gatesOpenBaseUrl);
+    await openSurface(page, handle, AUTOMATION, handle.baseUrl);
+    await revealStop(page);
 
-    const trigger = page.locator("[data-stop-trigger]");
+    const trigger = visibleStop(page, "[data-stop-trigger]");
     await expect(trigger).toHaveCount(1);
     if (!(await triggerActs(trigger))) {
       test.skip(
@@ -230,40 +299,45 @@ test.describe("the typed confirmation is what sends the request", () => {
     });
 
     await trigger.click();
-    const form = page.locator("[data-stop-confirm]");
+    const form = visibleStop(page, "[data-stop-confirm]");
     await expect(form).toHaveCount(1);
-    const submit = page.locator("[data-stop-confirm-submit]");
+    const submit = visibleStop(page, "[data-stop-confirm-submit]");
     // Opening the ceremony is not taking the action.
     await expect(submit).toBeDisabled();
     expect(posted, "opening the confirmation issued a request").toEqual([]);
 
     // A wrong phrase never enables it.
-    await page.locator("[data-stop-confirm-input]").fill("STOP");
+    await visibleStop(page, "[data-stop-confirm-input]").fill("STOP");
     await expect(submit).toBeDisabled();
     expect(posted).toEqual([]);
 
     // The direction's own phrase does.
     const direction = await form.getAttribute("data-stop-confirm");
-    await page
-      .locator("[data-stop-confirm-input]")
-      .fill(direction === "engage" ? "STOP META" : "RESUME META");
+    await visibleStop(page, "[data-stop-confirm-input]").fill(
+      direction === "engage" ? "STOP META" : "RESUME META",
+    );
     await expect(submit).toBeEnabled();
     expect(posted, "enabling the submit issued a request").toEqual([]);
 
     // Cancelling closes it, still without a request.
-    await page.locator("[data-stop-confirm-cancel]").click();
-    await expect(page.locator("[data-stop-confirm]")).toHaveCount(0);
+    await visibleStop(page, "[data-stop-confirm-cancel]").click();
+    await expect(visibleStop(page, "[data-stop-confirm]")).toHaveCount(0);
     expect(posted).toEqual([]);
   });
 });
 
 test.describe("only a read-back may announce an outcome", () => {
+  test.afterEach(async () => {
+    await resetStoredKillSwitch();
+  });
+
   test("engage → read-back → release → read-back, in one mounted session", async ({
     page,
   }) => {
     await openSurface(page, handle, AUTOMATION, handle.gatesOpenBaseUrl);
+    await revealStop(page);
 
-    const trigger = page.locator("[data-stop-trigger]");
+    const trigger = visibleStop(page, "[data-stop-trigger]");
     if (!(await triggerActs(trigger))) {
       test.skip(true, "this viewer cannot change the stop on this server");
     }
@@ -272,13 +346,15 @@ test.describe("only a read-back may announce an outcome", () => {
 
     // ---- engage -----------------------------------------------------------
     await trigger.click();
-    const firstDirection = await page
-      .locator("[data-stop-confirm]")
-      .getAttribute("data-stop-confirm");
-    await page
-      .locator("[data-stop-confirm-input]")
-      .fill(firstDirection === "engage" ? "STOP META" : "RESUME META");
-    await page.locator("[data-stop-confirm-submit]").click();
+    const firstDirection = await visibleStop(
+      page,
+      "[data-stop-confirm]",
+    ).getAttribute("data-stop-confirm");
+    await visibleStop(page, "[data-stop-confirm-input]").fill(
+      firstDirection === "engage" ? "STOP META" : "RESUME META",
+    );
+    await visibleStop(page, "[data-stop-confirm-submit]").click();
+    await revealStop(page);
 
     /*
      * The banner is the read-back's, not the request's.
@@ -288,44 +364,51 @@ test.describe("only a read-back may announce an outcome", () => {
      * proves the surface reached a settled opinion; asserting the text proves
      * which opinion it is.
      */
-    const settled = page.locator("[data-stop-status], [data-stop-unconfirmed]");
+    const settled = visibleStop(
+      page,
+      "[data-stop-status], [data-stop-unconfirmed]",
+    );
     await expect(settled).toHaveCount(1, { timeout: 15_000 });
 
-    const confirmed = page.locator("[data-stop-status]");
+    const confirmed = visibleStop(page, "[data-stop-status]");
     if ((await confirmed.count()) === 1) {
       const message = (await confirmed.innerText()).replace(/\s+/g, " ");
       // The claim carries the evidence for itself.
       expect(message).toMatch(/Confirmed by read-back at /);
       // And the database agrees with the screen.
       const stored = await storedKillSwitch();
-      expect(stored, "the screen claimed a state the database does not hold").toBe(
-        firstDirection === "engage",
-      );
+      expect(
+        stored,
+        "the screen claimed a state the database does not hold",
+      ).toBe(firstDirection === "engage");
     } else {
       // Unconfirmed is a legitimate outcome and must never read as success.
       const message = (
-        await page.locator("[data-stop-unconfirmed]").innerText()
+        await visibleStop(page, "[data-stop-unconfirmed]").innerText()
       ).replace(/\s+/g, " ");
       expect(message).toMatch(/unknown|does not confirm|could not be read/i);
       expect(message).not.toMatch(/Confirmed by read-back/);
     }
 
     // ---- and back again ---------------------------------------------------
-    const backTrigger = page.locator("[data-stop-trigger]");
+    await revealStop(page);
+    const backTrigger = visibleStop(page, "[data-stop-trigger]");
     await expect(backTrigger).toHaveCount(1);
     if (await triggerActs(backTrigger)) {
       await backTrigger.click();
-      const secondDirection = await page
-        .locator("[data-stop-confirm]")
-        .getAttribute("data-stop-confirm");
+      const secondDirection = await visibleStop(
+        page,
+        "[data-stop-confirm]",
+      ).getAttribute("data-stop-confirm");
       // The direction flipped, which is what reversibility means.
       expect(secondDirection).not.toBe(firstDirection);
-      await page
-        .locator("[data-stop-confirm-input]")
-        .fill(secondDirection === "engage" ? "STOP META" : "RESUME META");
-      await page.locator("[data-stop-confirm-submit]").click();
+      await visibleStop(page, "[data-stop-confirm-input]").fill(
+        secondDirection === "engage" ? "STOP META" : "RESUME META",
+      );
+      await visibleStop(page, "[data-stop-confirm-submit]").click();
+      await revealStop(page);
       await expect(
-        page.locator("[data-stop-status], [data-stop-unconfirmed]"),
+        visibleStop(page, "[data-stop-status], [data-stop-unconfirmed]"),
       ).toHaveCount(1, { timeout: 15_000 });
 
       /*
@@ -338,14 +421,18 @@ test.describe("only a read-back may announce an outcome", () => {
        * about the state, not about whether a row exists.
        */
       const after = await storedKillSwitch();
-      expect(after !== null, "the engage never reached the control table").toBe(true);
+      expect(after !== null, "the engage never reached the control table").toBe(
+        true,
+      );
       expect(after === true, "the session did not end where it started").toBe(
         before === true,
       );
     }
   });
 
-  test("no automation control on this surface reaches a provider", async ({ page }) => {
+  test("no automation control on this surface reaches a provider", async ({
+    page,
+  }) => {
     /*
      * The strongest form of the claim available from a browser: nothing on this
      * page addresses Meta at all. The guardrail row states the same fact from
@@ -355,12 +442,17 @@ test.describe("only a read-back may announce an outcome", () => {
     const external: string[] = [];
     page.on("request", (request) => {
       const url = request.url();
-      if (/facebook\.com|fbcdn\.net|graph\.facebook/.test(url)) external.push(url);
+      if (/facebook\.com|fbcdn\.net|graph\.facebook/.test(url))
+        external.push(url);
     });
 
-    await openSurface(page, handle, AUTOMATION, handle.gatesOpenBaseUrl);
-    const text = (await page.locator("main").first().innerText()).replace(/\s+/g, " ");
-    expect(text).toMatch(/dry run only/i);
+    await openSurface(page, handle, AUTOMATION, handle.baseUrl);
+    await revealStop(page);
+    const text = (await page.locator("main").first().innerText()).replace(
+      /\s+/g,
+      " ",
+    );
+    expect(text).toMatch(/preview only/i);
     expect(external, "the Automation surface addressed Meta").toEqual([]);
   });
 });

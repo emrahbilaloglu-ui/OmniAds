@@ -19,6 +19,9 @@ vi.mock("@/lib/db", () => ({
 
 import {
   AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL,
+  AD_DAY_DECISION_BEARING_ACTIVITY_SQL,
+  CHOSEN_OBJECTIVE_SQL,
+  CHOSEN_OPTIMIZATION_GOAL_SQL,
   HYDRATE_AD_DECISION_INPUTS_QUERY,
   READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
   READ_AD_ENTITY_STATE_AS_OF_QUERY,
@@ -27,6 +30,8 @@ import {
   isPresentDayAdDecisionAsOf,
 } from "../data-source";
 import { NATIVE_AD_DB_BATCH_SIZE } from "../batching";
+import { buildAdDayAuthoritativeLinkClicksSql } from "@/lib/meta/link-click-parse";
+import { buildMetaCompleteWindowSql } from "@/lib/meta/funnel-stage-parse";
 import {
   // Imported rather than spelled: a contract bump must not require editing a
   // string literal in a test that is not about the version.
@@ -931,6 +936,48 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
     });
   });
 
+  it("does not infer a native purchase cohort from purchase results when config is absent", async () => {
+    const warehouse = warehouseWithRows({
+      hydration: [
+        hydrationRow({
+          objective: null,
+          optimization_goal: null,
+          custom_event_type: null,
+          conversions: 4,
+          revenue: 300,
+          roas: 3,
+          cpa: 25,
+          recent_conversions: 1,
+          recent_roas: 3,
+          campaign_count: 1,
+          adset_count: 1,
+          optimization_context_count: 1,
+          objective_count: 1,
+          context_identity_unknown: false,
+        }),
+      ],
+    });
+
+    const [result] = await warehouse.listAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: HISTORICAL_AS_OF,
+      decisionCutoff: HISTORICAL_CUTOFF,
+    });
+
+    expect(result).toMatchObject({
+      objective: null,
+      optimizationGoal: null,
+      customEventType: null,
+      effectiveCohort: "unknown",
+      purchases: 0,
+      purchaseValue: null,
+      roas: null,
+      cpa: null,
+      recent7dPurchases: 0,
+      recent7dRoas: null,
+    });
+  });
+
   it("passes exact account/ad filters through getAdDecisionInput", async () => {
     const warehouse = warehouseWithRows({ hydration: [hydrationRow()] });
 
@@ -1466,12 +1513,80 @@ describe("native ad hydration SQL contract", () => {
     );
   });
 
-  it("fills missing current hierarchy context from cutoff-safe config history", () => {
+  it("keys the as-of config on the OBSERVATION clock, not the validity clock", () => {
+    /*
+      meta_campaign_config_history carries effective_from, captured_at and
+      created_at. Measured on production, captured_at precedes created_at on all
+      305,176 rows by up to 103 DAYS, so the choice is load-bearing: a decision
+      input must answer "what did we know on that day", and effective_from would
+      back-date a late observation into a day nobody could have acted on.
+
+      Cost, measured over 90 days and 38,326 spending ad-days: effective_from
+      finds an objective on 40 rows captured_at does not, and where both find
+      one they disagree on 0. Those 40 are real missing evidence. This case
+      exists so a later reader does not close them by switching clocks.
+    */
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain("config.captured_at <");
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).not.toContain("config.effective_from");
+  });
+
+  it("keeps the daily arm ahead of the as-of lateral, which is where a repair lands", () => {
+    /*
+      The historical config repair writes meta_campaign_daily / meta_adset_daily
+      config columns and does NOT create typed history, so a repaired day can
+      only be seen through the daily value. If the COALESCE ever put the
+      lateral first, every repaired day would be silently overridden by whatever
+      typed history happened to hold.
+    */
+    /*
+      Asserted on the EXPRESSION, not on a byte offset in the whole query. The
+      offset search used to look for the first "AS objective" and read the 400
+      characters before it; the field-source contract's own CTE now also
+      projects a column by that name, so the locator found the wrong expression
+      and the test passed or failed for reasons unrelated to the COALESCE.
+    */
+    expect(CHOSEN_OBJECTIVE_SQL.indexOf("c.objective")).toBeLessThan(
+      CHOSEN_OBJECTIVE_SQL.indexOf("asof_campaign_config.objective"),
+    );
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(CHOSEN_OBJECTIVE_SQL);
+    /* The same order for the ad-set fields, which the repair also writes. */
+    expect(CHOSEN_OPTIMIZATION_GOAL_SQL.indexOf("a.optimization_goal")).toBeLessThan(
+      CHOSEN_OPTIMIZATION_GOAL_SQL.indexOf("asof_adset_config.optimization_goal"),
+    );
+  });
+
+  it("fills missing hierarchy context from config history AS OF THE METRIC DAY", () => {
+    /*
+      The aliases are `asof_*` and the laterals carry a `d.date` bound.
+
+      They used to be `current_*` bounded only by the evaluation cutoff, so a
+      July metric day could take the newest configuration captured up to TODAY —
+      one that did not exist on the day whose spend it was classifying.
+
+      The boundary is PROVIDER-LOCAL. d.date is a provider-local reporting day,
+      and a bare (d.date + 1) casts through the SESSION zone (Etc/UTC here),
+      which is the wrong midnight twice over: it admits the next local day for
+      UTC+ accounts and truncates the real one for UTC- accounts.
+
+      Measured read-only on production over 90 days, 38,326 spending ad-days:
+      the naive UTC bound left 126 genuine future leaks AND removed 171 real
+      same-day configs; the provider-local bound keeps 35,037 true as-of
+      objectives and removes both errors.
+    */
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
-      "current_adset_config ON $12::boolean",
+      "asof_adset_config ON $12::boolean",
     );
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
-      "current_campaign_config ON $12::boolean",
+      "asof_campaign_config ON $12::boolean",
+    );
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).not.toContain("current_adset_config");
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).not.toContain("current_campaign_config");
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "config.captured_at < ((d.date + 1)::timestamp AT TIME ZONE COALESCE(NULLIF(BTRIM(d.account_timezone), ''), 'UTC'))",
+    );
+    // A bare date bound would cast through the session zone.
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).not.toContain(
+      "config.captured_at < (d.date + 1)\n",
     );
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
       "config.captured_at <= $11::timestamptz",
@@ -1479,6 +1594,24 @@ describe("native ad hydration SQL contract", () => {
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
       "config.created_at <= $11::timestamptz",
     );
+    /*
+      The day bound belongs to the metric-day CTE only; the present-day context
+      CTE stays anchored to $2::date, which is a different question.
+
+      Counted on the DAY BOUND itself, which only the two as-of laterals emit —
+      the present-day laterals bound by the cutoff alone.
+      The previous proxy counted every use of the provider-local timezone
+      expression, and the field-source contract legitimately uses it many times
+      for its own day boundaries — so the count measured the contract's size
+      rather than this rule.
+    */
+    expect(
+      (
+        HYDRATE_AD_DECISION_INPUTS_QUERY.match(
+          /config\.captured_at < \(\(d\.date \+ 1\)/g,
+        ) ?? []
+      ).length,
+    ).toBe(2);
   });
 
   it("prefers cutoff-safe fact timezone and currency over current provider dimensions for hydration", () => {
@@ -1557,6 +1690,17 @@ describe("native ad hydration SQL contract", () => {
   });
 
   it("requires a same-day complete account run for a prune receipt", () => {
+    for (const query of [
+      HYDRATE_AD_DECISION_INPUTS_QUERY,
+      READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
+    ]) {
+      expect(query).toContain("JOIN provider_accounts account");
+      expect(query).toContain("account.provider = binding.provider");
+      expect(query).toContain(
+        "account.external_account_id = binding.provider_account_id",
+      );
+      expect(query).toContain("AND binding.is_selected");
+    }
     expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
       "run.completeness = 'complete'",
     );
@@ -1614,8 +1758,22 @@ describe("native ad hydration SQL contract", () => {
   });
 
   it("keeps absent event payload metrics null instead of coercing them to zero", () => {
-    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
-      "FILTER (WHERE payload_json ? 'outbound_clicks')",
+    // outbound/thumbstop/video are not requested at ad grain and have no
+    // verified numerator or denominator there: NULL by contract, with no cast
+    // of unvalidated payload text that a malformed value could make raise.
+    for (const column of [
+      "NULL::numeric AS outbound_clicks",
+      "NULL::double precision AS thumbstop",
+      "NULL::double precision AS video25_rate",
+      "NULL::double precision AS video100_rate",
+    ]) {
+      expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(column);
+    }
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).not.toContain(
+      "payload_json->>'outbound_clicks'",
+    );
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).not.toContain(
+      "payload_json->>'thumbstop'",
     );
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).not.toContain(
       "SUM(COALESCE((NULLIF(payload_json->>'outbound_clicks', ''))::numeric, 0))",
@@ -1649,12 +1807,12 @@ describe("native ad hydration SQL contract", () => {
   });
 
   it("draws the bands only from cutoff-bound, finalized, validated ad days", () => {
-    // `ad_band_days` reads `selected_ad_days`, which is already bounded to the
-    // 28 days ending at the cutoff and to finalized/validated rows created and
-    // updated before the decision cutoff. Reading `meta_ad_daily` directly
-    // would let a row dated after the cutoff into a band.
+    // `ad_band_days` reads the context-admitted subset of selected_ad_days.
+    // selected_ad_days is bounded to the cutoff and finalized/validated rows;
+    // the admitted subset also prevents older, different config economics from
+    // being silently counted under the current context.
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
-      "  FROM selected_ad_days d\n  CROSS JOIN LATERAL (\n    VALUES\n      ('recent14'",
+      "  FROM decision_ad_days d\n  CROSS JOIN LATERAL (\n    VALUES\n      ('recent14'",
     );
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
       "$2::date::text AS band_cutoff_date",
@@ -1664,19 +1822,25 @@ describe("native ad hydration SQL contract", () => {
     );
   });
 
+  it("requires today's custom-conversion identity to match the admitted decision context", () => {
+    const sql = HYDRATE_AD_DECISION_INPUTS_QUERY;
+    expect(sql).toContain(
+      "NULLIF(BTRIM(today_config.custom_conversion_id), '')\n        IS NOT DISTINCT FROM NULLIF(BTRIM(latest.custom_conversion_id), '')",
+    );
+    expect(sql).toContain(
+      "ELSE 'none'\n  END AS current_optimization_goal_readiness",
+    );
+    expect(sql).toContain(
+      "ELSE 'none'\n  END AS current_custom_conversion_id_readiness",
+    );
+  });
+
   it("keeps an unsupplied band link-click sum null instead of coercing it to zero", () => {
     /*
-      `metric_cumulative` wraps the same column in COALESCE(x, 0) so its 28-day
-      answer stays byte-identical to the one it gave when `link_clicks` was NOT
-      NULL. The band columns are new and carry the honest three-valued answer
-      instead: NULL when every day in the window was unsupplied, 0 when the
-      days were measured and were zero.
-    */
-    /*
-      Scoped to the BAND aggregate, not the whole query: `metric_cumulative`
-      legitimately coalesces the same column so its 28-day answer stays
-      byte-identical to the one it gave when `link_clicks` was NOT NULL. An
-      unscoped negative would match that one and mean nothing.
+      The band columns carry the honest three-valued answer: NULL when every
+      day in the window was unsupplied, 0 when the days were measured and were
+      zero. Scoped to the BAND aggregate so the assertion names the block it is
+      about.
     */
     const bandBlock = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
       HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("ad_band_aggregates AS ("),
@@ -1693,17 +1857,22 @@ describe("native ad hydration SQL contract", () => {
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
       "link_clicks_missing_delivered_rows",
     );
-    // The 28-day rollup keeps its coalesce; this test must not be read as
-    // having changed that one.
-    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+    // The 28-day rollup no longer coalesces (see the next describe block).
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).not.toContain(
       "SUM(COALESCE(link_clicks, 0)) AS link_clicks",
     );
     const bandDaysBlock = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
       HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("ad_band_days AS ("),
       HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("ad_band_aggregates AS ("),
     );
-    expect(bandDaysBlock).toContain(
-      `${AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL} AS link_clicks`,
+    // The band reads the D095 value computed once per row in decision_ad_days.
+    expect(bandDaysBlock).toContain("d.authoritative_link_clicks AS link_clicks");
+    const decisionDaysBlock = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
+      HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("decision_ad_days AS ("),
+      HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("admitted_metric_context_days AS ("),
+    );
+    expect(decisionDaysBlock).toContain(
+      `${buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d" })} AS authoritative_link_clicks`,
     );
     expect(AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL).toContain(
       "jsonb_typeof(payload_json->'actions') = 'array'",
@@ -1714,6 +1883,73 @@ describe("native ad hydration SQL contract", () => {
     expect(AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL).toContain(
       "ELSE '[]'::jsonb",
     );
+  });
+});
+
+/*
+  THE 28-DAY ROLLUP READS UNDER THE WINDOW RULE (2026-09-22).
+
+  metric_cumulative used SUM(COALESCE(link_clicks, 0)) over the raw column and
+  SUM(stage) FILTER (WHERE measured) for the funnel stages. Both fabricate: an
+  unsupplied day became a measured zero, a partially reported window passed as
+  complete, and the raw column admitted legacy zeros the bands in the same
+  query refuse under D095. These pins hold the replacement in place; the
+  PostgreSQL behaviour is proven in ad-band-completeness.db.test.ts.
+*/
+describe("the native 28-day rollup aggregates complete-or-null", () => {
+  // Executable lines only: the comments legitimately name the old expressions.
+  const cumulative = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
+    HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("metric_cumulative AS ("),
+    HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("cumulative AS (", HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("metric_cumulative AS (") + 10),
+  )
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+
+  it("sums the D095 row value only when no decision-bearing day is missing", () => {
+    const window = buildMetaCompleteWindowSql({
+      valueSql: "authoritative_link_clicks",
+      missingSql: "authoritative_link_clicks IS NULL",
+      activitySql: AD_DAY_DECISION_BEARING_ACTIVITY_SQL,
+    });
+    expect(cumulative).toContain(`${window.sumSql} AS link_clicks`);
+    expect(cumulative).not.toContain("COALESCE(link_clicks");
+  });
+
+  it("gives every funnel stage the same window rule instead of a partial FILTER sum", () => {
+    for (const column of ["landing_page_views", "add_to_cart", "initiate_checkout"]) {
+      const line = cumulative
+        .split("\n")
+        .find((candidate) => candidate.trimEnd().endsWith(`AS ${column},`));
+      expect(line, column).toBeDefined();
+    }
+    expect(cumulative).not.toMatch(/FILTER \(WHERE [^)]*measured[^)]*\) AS landing_page_views/);
+    expect(cumulative.match(/WHEN COUNT\(\*\) FILTER \(WHERE TRUE AND/g)?.length).toBe(4);
+  });
+
+  it("no longer claims an event observation from keys meta_ad_daily never carries", () => {
+    expect(cumulative).not.toContain("payload_json ? 'thumbstop'");
+    expect(cumulative).not.toContain("payload_json ? 'outbound_clicks'");
+    expect(cumulative).toContain("OR authoritative_link_clicks IS NOT NULL");
+  });
+});
+
+/*
+  THE RECEIPT-REFERENCE LATERALS ARE OPTIMIZATION FENCES (2026-09-22).
+
+  Each reference is a scalar subquery over the whole tier ladder, and the
+  coherence gate reads the column about thirty times per field. Without
+  OFFSET 0 the planner inlined the subquery into every reader: measured
+  read-only on production (TheSwaf, 183 ads) the hydration statement took
+  176.8 s — past the job's 30 s statement timeout — against 8.5 s fenced.
+*/
+describe("the receipt-reference laterals are evaluated once per row", () => {
+  it.each(["config_refs", "today_refs"])("%s ends in an OFFSET 0 fence", (alias) => {
+    const end = HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf(`) ${alias} ON TRUE`);
+    expect(end).toBeGreaterThan(0);
+    const start = HYDRATE_AD_DECISION_INPUTS_QUERY.lastIndexOf("LEFT JOIN LATERAL (", end);
+    const lateral = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(start, end);
+    expect(lateral).toMatch(/OFFSET 0\s*$/);
   });
 });
 
@@ -1823,5 +2059,35 @@ describe("band link-click completeness", () => {
       recent14_link_clicks_missing_delivered_rows: undefined,
     });
     expect(band?.linkClicks).toBeNull();
+  });
+});
+
+/*
+  ── ONE EVALUATION DAY PER ACCOUNT, EVEN WHEN ITS STORED TIMEZONE CHANGED ───
+
+  `current_config_scope` derived the account's own as-of day from each ROW's
+  timezone label. An account whose stored timezone changed inside the 28-day
+  window got one scope row per timezone; `current_config` fanned out with it;
+  the final join matched on account+campaign+adset only, duplicated every ad of
+  that account, and the whole business hydration threw "Duplicate ad decision
+  hydration row". Reproduced read-only on production: Tiles Workshop
+  (act_904404985140555, America/Chicago until 2026-07-24, UTC from 07-25) at
+  as-of 2026-08-10. `provider_local_as_of_date` in the same query already used
+  `account_identity`; the scope now does too.
+*/
+describe("current-config scope takes the account's timezone once", () => {
+  const scope = HYDRATE_AD_DECISION_INPUTS_QUERY.slice(
+    HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("current_config_scope AS ("),
+    HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("current_config AS ("),
+  );
+
+  it("joins account_identity for the day boundary", () => {
+    expect(scope).toContain("LEFT JOIN account_identity scope_account");
+    expect(scope).toContain("COALESCE(scope_account.account_timezone, 'UTC')");
+  });
+
+  it("NEGATIVE: never reads the per-row timezone label for the scope", () => {
+    const code = scope.replace(/\/\*[\s\S]*?\*\//g, " ");
+    expect(code).not.toContain("d.account_timezone");
   });
 });

@@ -131,8 +131,8 @@ test.describe("the screen says the same thing the server does", () => {
 
     // The posture is stated on the surface: PAUSED-only creates, a separate
     // activation step, and a lineage record for every write.
-    expect(text).toMatch(/PAUSED/);
-    expect(text).toMatch(/Activation is a separate/i);
+    expect(text).toMatch(/New campaigns start paused\./);
+    expect(text).toMatch(/You can activate them after review\./);
     // And no environment variable name is shown to an operator.
     expect(text).not.toMatch(/META_[A-Z_]+/);
   });

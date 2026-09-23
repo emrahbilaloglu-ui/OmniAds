@@ -46,7 +46,8 @@ describe("GET /api/launchpad/meta/adsets", () => {
         billing_event: "IMPRESSIONS",
         pixel_id: "pixel_1",
         custom_event_type: "PURCHASE",
-        daily_budget: 25,
+        /* Provider minor units, unscaled. See the campaign route test. */
+        daily_budget: 2500,
         lifetime_budget: null,
         attribution_spec: [
           { event_type: "CLICK_THROUGH", window_days: 7 },

@@ -535,7 +535,7 @@
   {
     "caseId": "GC-042",
     "inputSummary": "unlabeled campaign with would-be scale after kind-aware resolver",
-    "expectedPrimaryDecision": "Diagnose",
+    "expectedPrimaryDecision": "Scale",
     "expectedBuyerAction": "diagnose_data",
     "expectedActionability": "review_only",
     "expectedProblemClass": "data_quality",
@@ -613,7 +613,7 @@
   {
     "caseId": "GC-047",
     "inputSummary": "unlabeled creative with gate-emitted refresh signal",
-    "expectedPrimaryDecision": "Diagnose",
+    "expectedPrimaryDecision": "Refresh",
     "expectedBuyerAction": "diagnose_data",
     "expectedActionability": "review_only",
     "expectedProblemClass": "data_quality",

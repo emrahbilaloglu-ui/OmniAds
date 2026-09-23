@@ -125,7 +125,29 @@ describe("preparation route — one parser, both sides", () => {
     const contract = codeOf(
       readFileSync("lib/meta/budget-automation-config-contract.ts", "utf8"));
     expect(contract).not.toContain("@/lib/db");
-    expect(contract).not.toMatch(/^import /m);
+    /*
+      This used to assert ZERO imports. The rule it is protecting is that this
+      module ships to the browser with the preparation form, so it must not
+      drag a database, a server helper or a transitive tree behind it — not
+      that it may never import anything.
+
+      `@/lib/currency/meta-currency-offsets` is admitted by name and by
+      property: it is the provider's published offset table, it has NO imports
+      of its own (asserted below, so this cannot become a doorway), and the
+      contract genuinely needs it. A per-action spend ceiling is compared
+      unscaled against a provider minor-unit amount, so a currency the provider
+      publishes no offset for has no scale to be compared at — and that has to
+      be refused on the SERVER, where a raw POST arrives, not only in the
+      editor. Inlining a copy of the table to satisfy a stricter-than-needed
+      assertion would put the same registry in two places, which is the defect
+      this pass spent its time removing elsewhere.
+    */
+    const imports = [...contract.matchAll(/^import[\s\S]*?from "([^"]+)";/gm)]
+      .map((match) => match[1]!);
+    expect(imports).toEqual(["@/lib/currency/meta-currency-offsets"]);
+    const registry = codeOf(
+      readFileSync("lib/currency/meta-currency-offsets.ts", "utf8"));
+    expect(registry).not.toMatch(/^import /m);
     const view = codeOf(readFileSync("lib/meta/budget-preparation-contract.ts", "utf8"));
     expect(view).not.toContain("@/lib/db");
     // It may import a TYPE from the config contract, which carries no runtime.

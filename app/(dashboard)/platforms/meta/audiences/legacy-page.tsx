@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useSearchParams } from "next/navigation";
 
@@ -20,14 +20,22 @@ import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { DATE_WINDOW_INCLUDES_CURRENT_DAY } from "@/lib/dashboard/date-window-url";
 import { buildCreativeStudioTabHrefs } from "@/lib/meta/creative-studio-tab-hrefs";
+import type { MetaResponseEnvelope } from "@/lib/meta/read-state-contract";
+import {
+  resolveMetaSurfaceReadState,
+  type MetaSurfaceSource,
+} from "@/lib/meta/surface-read-state";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import type { MetaWarehouseFreshness } from "@/lib/meta/warehouse-types";
 import { windowFromSearchParams } from "@/lib/zero-base/creative/route-scope";
 import { useAppStore } from "@/store/app-store";
+import { publishMetaSurfaceState } from "@/components/meta/meta-surface-state-live";
 
 export interface MetaAudiencesPageProps {
   businessId?: string;
   providerAccountId?: string | null;
+  /** The page's already-authorized scope and permission envelope. */
+  initialReadState?: MetaResponseEnvelope<null>;
 }
 
 const BREAKDOWN_TITLES = [
@@ -90,7 +98,91 @@ interface BreakdownApiResponse {
   placement?: BreakdownApiRow[];
   isPartial?: boolean;
   notReadyReason?: string | null;
+  emptyObserved?: boolean;
+  emptyObservedAt?: string | null;
   freshness?: MetaWarehouseFreshness | null;
+}
+
+/**
+ * Convert the breakdown request's outcome into the shared surface vocabulary.
+ *
+ * A provider/integration refusal is not an empty account. An answered `ok`
+ * payload with no rows is proven empty only when a finalized breakdown slice
+ * explicitly carries that result and its observation instant. A generic
+ * warehouse timestamp may belong to another dimension, so it cannot prove this
+ * view empty. Keeping the mapping pure prevents the body state and the §9
+ * banner from drifting apart.
+ */
+export function audienceBreakdownSurfaceSource(input: {
+  payload: BreakdownApiResponse | null;
+  readFailed: boolean;
+}): MetaSurfaceSource {
+  const { payload, readFailed } = input;
+  if (readFailed) {
+    return {
+      id: "breakdowns",
+      outcome: "failed",
+      rowCount: 0,
+      failureCode: "source_read_failed",
+    };
+  }
+  if (!payload || payload.status !== "ok") {
+    return {
+      id: "breakdowns",
+      outcome: "not-ready",
+      rowCount: 0,
+      failureCode:
+        payload?.status === "no_access_token"
+          ? "provider_auth_expired"
+          : "source_read_failed",
+    };
+  }
+  const rowCount =
+    (payload.age?.length ?? 0) +
+    (payload.gender?.length ?? 0) +
+    (payload.placement?.length ?? 0);
+  const sourceIsPartial =
+    payload.isPartial === true ||
+    payload.freshness?.isPartial === true ||
+    (payload.freshness?.missingWindows?.length ?? 0) > 0 ||
+    Boolean(payload.notReadyReason?.trim());
+  if (sourceIsPartial) {
+    return {
+      id: "breakdowns",
+      outcome: "partial",
+      rowCount,
+    };
+  }
+  const hasTimestampedEmptyEvidence =
+    payload.emptyObserved === true &&
+    typeof payload.emptyObservedAt === "string" &&
+    payload.emptyObservedAt.trim().length > 0;
+  if (rowCount === 0 && !hasTimestampedEmptyEvidence) {
+    return {
+      id: "breakdowns",
+      outcome: "not-ready",
+      rowCount: 0,
+      failureCode: "source_read_failed",
+    };
+  }
+  return {
+    id: "breakdowns",
+    outcome: rowCount > 0 ? "served" : "empty",
+    rowCount,
+  };
+}
+
+/**
+ * The client may only finish the page's provisional loading state.
+ *
+ * A server-owned refusal or degraded scope is already the stronger fact. The
+ * breakdown request cannot overturn it, and publishing a second envelope would
+ * replace a precise scope failure with a generic source failure.
+ */
+export function mayPublishAudienceBreakdownState(
+  initialReadState: MetaResponseEnvelope<null> | null | undefined,
+): boolean {
+  return !initialReadState || initialReadState.state === "loading";
 }
 
 function toneForRoas(roas: number | null): CreativeStudioTone {
@@ -238,6 +330,7 @@ export function buildAudienceBreakdowns(
 export default function MetaAudiencesPage({
   businessId: authorizedBusinessId,
   providerAccountId: authorizedProviderAccountId,
+  initialReadState,
 }: MetaAudiencesPageProps = {}) {
   const pathname = usePathname() || "/platforms/meta/audiences";
   const searchParams = useSearchParams();
@@ -366,9 +459,10 @@ export default function MetaAudiencesPage({
     refetchOnWindowFocus: false,
   });
 
-  // Five states, because the design declares five. Collapsing loading, error
-  // and partial into "empty" told the operator the account has no audience data
-  // when the read had simply failed or had not finished.
+  // Six states, because the design separates a provider non-read from a failed
+  // HTTP read and from a measured empty result. Collapsing any of those into
+  // "empty" tells the operator the account has no audience data when the read
+  // did not establish that fact.
   const scopeLoading = !hasAuthorizedScope && !workspaceResolved;
   const readError = breakdownsQuery.isError;
   const payload = breakdownsQuery.data ?? null;
@@ -376,6 +470,14 @@ export default function MetaAudiencesPage({
   const errorText = readError
     ? "Audience data could not be loaded. Try again."
     : null;
+  const breakdownSource = useMemo(
+    () =>
+      audienceBreakdownSurfaceSource({
+        payload,
+        readFailed: readError,
+      }),
+    [payload, readError],
+  );
   const breakdowns = useMemo(
     () => buildAudienceBreakdowns(payload, errorText),
     [payload, errorText],
@@ -389,9 +491,13 @@ export default function MetaAudiencesPage({
         ? "loading"
         : readError
           ? "error"
-          : hasBreakdownRows
-            ? "ready"
-            : "empty";
+          : breakdownSource.outcome === "failed" ||
+              breakdownSource.outcome === "not-ready" ||
+              (breakdownSource.outcome === "partial" && !hasBreakdownRows)
+            ? "unavailable"
+            : hasBreakdownRows
+              ? "ready"
+              : "empty";
   const message =
     state === "loading"
       ? scopeLoading
@@ -401,15 +507,17 @@ export default function MetaAudiencesPage({
         ? "Select a Meta ad account to view audiences."
         : state === "error"
           ? errorText
-          : state === "ready"
-            ? // Rows exist, but say so when the range is still being prepared.
-              payload?.isPartial
-              ? "Some audience data is unavailable. Try again."
-              : null
-            : // Empty. The route names the reason for every non-"ok" status and
-              // for a range still backfilling; only a genuinely empty account
-              // falls through to the generic sentence.
-              "No audience breakdowns found for this date range.";
+          : state === "unavailable"
+            ? "Audience breakdowns are unavailable for this date range."
+            : state === "ready"
+              ? // Rows exist, but say so when the range is still being prepared.
+                payload?.isPartial
+                ? "Some audience data is unavailable. Try again."
+                : null
+              : // Empty. The route names the reason for every non-"ok" status and
+                // for a range still backfilling; only a genuinely empty account
+                // falls through to the generic sentence.
+                "No audience breakdowns found for this date range.";
   const model: CreativeStudioAudiencesModel = {
     state,
     message,
@@ -426,6 +534,71 @@ export default function MetaAudiencesPage({
     matrixColumns: [],
     matrixRows: [],
   };
+
+  /**
+   * Close the server page's initial `loading` envelope with the request that
+   * actually powers this tab. Without this publication the body can finish and
+   * render an empty/error/ready state while the shared surface banner remains
+   * `loading` forever.
+   */
+  useEffect(() => {
+    if (!mayPublishAudienceBreakdownState(initialReadState)) {
+      publishMetaSurfaceState("creative-audiences", null);
+      return;
+    }
+    if (!hasAuthorizedScope || !providerAccountId) {
+      publishMetaSurfaceState("creative-audiences", null);
+      return;
+    }
+    if (scopeLoading || breakdownsQuery.isLoading) {
+      publishMetaSurfaceState("creative-audiences", null);
+      return;
+    }
+    publishMetaSurfaceState(
+      "creative-audiences",
+      resolveMetaSurfaceReadState({
+        businessId,
+        providerAccountId,
+        requiresProviderAccount: true,
+        permissions: initialReadState?.permissions ?? {
+          role: null,
+          reviewerReadOnly: false,
+          demo: false,
+        },
+        capability: initialReadState?.capability ?? {
+          canRead: true,
+          canWrite: false,
+        },
+        sources: [breakdownSource],
+        refreshing:
+          breakdownsQuery.isFetching && breakdownSource.outcome !== "empty",
+        evidence: {
+          sourceUpdatedAt:
+            payload?.emptyObservedAt ??
+            payload?.freshness?.lastSyncedAt ??
+            null,
+          observedAt:
+            payload?.emptyObservedAt ??
+            payload?.freshness?.lastSyncedAt ??
+            null,
+          window: { startDate, endDate },
+        },
+      }),
+    );
+  }, [
+    businessId,
+    breakdownSource,
+    breakdownsQuery.isFetching,
+    breakdownsQuery.isLoading,
+    endDate,
+    hasAuthorizedScope,
+    initialReadState,
+    payload,
+    providerAccountId,
+    readError,
+    scopeLoading,
+    startDate,
+  ]);
   /**
    * ITEM 17 — the shared Studio builder, so a tab hop keeps the account AND
    * the window.

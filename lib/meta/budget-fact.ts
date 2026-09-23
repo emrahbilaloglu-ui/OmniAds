@@ -29,6 +29,7 @@ import {
   ISO_4217_REGISTRY_VERSION,
   resolveMinorUnitExponent,
 } from "@/lib/currency/iso-4217-minor-units";
+import { resolveProviderCorroboratedExponent } from "@/lib/currency/provider-corroborated-minor-units";
 import { providerLocalDayStartInclusive } from "@/lib/meta/provider-local-day";
 
 export const BUDGET_FACT_CONTRACT_VERSION = "meta.budget-fact.v4" as const;
@@ -104,6 +105,12 @@ export const BUDGET_FACT_BLOCKERS = [
   "currency_exponent_mismatch",
   "currency_registry_unrecognised",
   "currency_exponent_disagrees_with_registry",
+  /**
+   * The ISO registry and Meta's published per-currency offset imply different
+   * scales for this currency, or Meta publishes none. A retained fact may not
+   * be honoured at a scale the provider denies.
+   */
+  "currency_scale_not_provider_corroborated",
   // schedule
   "lifetime_schedule_unretained",
   "lifetime_schedule_invalid",
@@ -1252,6 +1259,22 @@ export function buildCanonicalBudgetFact(request: BudgetFactRequest): CanonicalB
     ) {
       blockers.push("currency_exponent_disagrees_with_registry");
     }
+    /*
+      And the registry itself must agree with the PROVIDER, not only with the
+      captured value. The amount this exponent scales is a Meta amount, and
+      Meta's published offset contradicts ISO for COP, HUF, IDR and TWD (100x)
+      and BHD and JOD (10x), and covers none of KWD, OMR, TND, IQD or LYD.
+
+      `metaBudgetCurrencyProvenance` already refuses to CAPTURE an exponent for
+      those, so a fact captured today cannot reach here with one. This is the
+      read-side half of the same rule: a row retained before that gate existed
+      must not be honoured now on a scale the provider denies. No live account
+      is affected — every currency ever stored is USD, TRY, GBP or EUR, and all
+      four agree between the two registries.
+    */
+    else if (resolveProviderCorroboratedExponent(currency).status !== "resolved") {
+      blockers.push("currency_scale_not_provider_corroborated");
+    }
     if (capturedExponent !== null && (!Number.isInteger(capturedExponent) || capturedExponent < 0)) {
       blockers.push("currency_exponent_mismatch");
     }
@@ -1281,6 +1304,7 @@ export function buildCanonicalBudgetFact(request: BudgetFactRequest): CanonicalB
     "currency_exponent_mismatch",
     "currency_registry_unrecognised",
     "currency_exponent_disagrees_with_registry",
+    "currency_scale_not_provider_corroborated",
     "currency_unknown",
     "currency_retired",
     "lifetime_schedule_unretained",

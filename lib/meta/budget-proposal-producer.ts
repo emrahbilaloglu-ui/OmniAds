@@ -23,6 +23,7 @@ import {
   isBudgetIntentSemanticTuple,
   type BudgetDirection,
 } from "@/lib/meta/budget-intent-contract";
+import { exactProviderMoneyLabel } from "@/lib/meta/provider-money-label";
 import { randomUUID } from "node:crypto";
 
 import { getDb } from "@/lib/db";
@@ -58,23 +59,6 @@ function isOpenSlotUniqueViolation(error: unknown): boolean {
       && (error as { constraint?: unknown }).constraint
         === "uq_meta_automation_proposals_open_slot",
   );
-}
-
-function exactMoneyLabel(input: {
-  currency: string;
-  currencyExponent: number;
-  minorUnits: number;
-}): string {
-  const negative = input.minorUnits < 0;
-  const digits = String(Math.abs(input.minorUnits))
-    .padStart(input.currencyExponent + 1, "0");
-  const whole = input.currencyExponent === 0
-    ? digits
-    : digits.slice(0, digits.length - input.currencyExponent);
-  const fraction = input.currencyExponent === 0
-    ? ""
-    : `.${digits.slice(digits.length - input.currencyExponent)}`;
-  return `${input.currency.toUpperCase()} ${negative ? "-" : ""}${whole}${fraction}`;
 }
 
 /**
@@ -537,11 +521,11 @@ export async function insertBudgetProposalRow(input: {
     engineVersion: input.candidate.engineVersion,
   });
   if (!validatedEnvelope) return null;
-  const evidenceLabel = `Budget: ${exactMoneyLabel({
+  const evidenceLabel = `Budget: ${exactProviderMoneyLabel({
     currency: validatedEnvelope.currency,
     currencyExponent: validatedEnvelope.currencyExponent,
     minorUnits: validatedEnvelope.currentAmountMinor,
-  })} → ${exactMoneyLabel({
+  })} → ${exactProviderMoneyLabel({
     currency: validatedEnvelope.currency,
     currencyExponent: validatedEnvelope.currencyExponent,
     minorUnits: validatedEnvelope.intendedAmountMinor,

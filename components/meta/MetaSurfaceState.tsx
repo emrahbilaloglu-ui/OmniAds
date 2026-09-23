@@ -48,9 +48,10 @@
  * the time — and the design package draws no such gap, so the fidelity gates
  * would refuse it for the same reason an operator would.
  */
-import type {
-  MetaReadState,
-  MetaResponseEnvelope,
+import {
+  metaFailureMessage,
+  type MetaReadState,
+  type MetaResponseEnvelope,
 } from "@/lib/meta/read-state-contract";
 
 /** States that speak. The other two are the quiet, correct ones. */
@@ -141,7 +142,12 @@ export function MetaSurfaceState({
 }: MetaSurfaceStateProps) {
   if (!envelope) return null;
   const { state, failure } = envelope;
-  const message = STATE_MESSAGE[state] ?? null;
+  // The canonical producer already uses the closed failure dictionary. Resolve
+  // it here from the code too, so the visible sentence names the actual reason
+  // and the component never has to trust a free-text envelope message.
+  const message = failure
+    ? metaFailureMessage(failure.code) ?? STATE_MESSAGE[state] ?? null
+    : STATE_MESSAGE[state] ?? null;
   const announced = ANNOUNCED.includes(state);
   const transient = TRANSIENT.includes(state);
 

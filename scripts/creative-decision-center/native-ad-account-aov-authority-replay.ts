@@ -837,6 +837,7 @@ SELECT
   evaluation.creative_input_json,
   evaluation.campaign_context_json,
   evaluation.prior_hysteresis_json,
+  input_evidence.input_evidence_json,
   evaluation.decision_output_json,
   CASE
     WHEN evaluation.prior_hysteresis_json->>'source' = 'none' THEN TRUE
@@ -908,6 +909,9 @@ JOIN engine_v3_ad_decision_evaluation_contexts context
  AND context.engine_version = evaluation.engine_version
  AND context.scope_type = evaluation.scope_type
  AND context.scope_id = evaluation.scope_id
+LEFT JOIN engine_v3_ad_decision_input_evidence input_evidence
+  ON input_evidence.contract_version = evaluation.contract_version
+ AND input_evidence.input_hash = evaluation.input_hash
 LEFT JOIN engine_v3_ad_decision_snapshots_daily prior_snapshot
   ON evaluation.prior_hysteresis_json->>'source' = 'persisted_evaluation'
  AND prior_snapshot.id = CASE
@@ -2424,6 +2428,12 @@ function mapBaselineRow(row: DbRow): BaselineRow {
     creativeInput: persistedCreativeInput,
     campaignContext: campaignContextJson,
     priorHysteresis: priorHysteresisJson,
+    /*
+      A `.v12` input also hashes configEvidence and metricContract, persisted
+      in the hash-keyed input-evidence mapping (NULL on older rows). Rebuilt only when present,
+      so a `.v12` row without them still fails its hash comparison.
+    */
+    ...persistedInputEvidenceMembers(row.input_evidence_json),
     decisionIdentity: {
       decisionEntityType: "ad",
       decisionEntityId: persistedAdId,
@@ -8090,4 +8100,18 @@ if (isMain) {
     );
     process.exitCode = 1;
   });
+}
+
+/**
+ * The `.v12` input members persisted in the hash-keyed evidence mapping,
+ * exactly as hashed;
+ * nothing for an older row whose column is NULL.
+ */
+function persistedInputEvidenceMembers(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const evidence = value as Record<string, unknown>;
+  return {
+    ...("configEvidence" in evidence ? { configEvidence: evidence.configEvidence } : {}),
+    ...("metricContract" in evidence ? { metricContract: evidence.metricContract } : {}),
+  };
 }

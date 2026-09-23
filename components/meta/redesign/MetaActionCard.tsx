@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import {
   ArrowRight,
   Copy,
@@ -151,9 +152,14 @@ function configuredBidValue(
   currency: string | null | undefined,
 ) {
   if (value == null || !Number.isFinite(value)) return null;
-  return format === "roas"
-    ? `${value.toFixed(2)}×`
-    : formatMoney(value / 100, currency);
+  if (format === "roas") return `${value.toFixed(2)}×`;
+  /* Provider minor units divided by META's offset for the currency, not a
+     constant 100 — the two differ for every currency Meta lists at offset 1
+     (JPY, KRW, CLP, ISK, VND) and for HUF, IDR, TWD and COP, which the ISO
+     registry calls two-decimal and Meta does not. An unresolvable currency
+     shows no amount rather than one at a guessed scale. */
+  const major = metaMinorUnitsToMajor({ minorUnits: value, currency });
+  return major.ok ? formatMoney(major.majorUnits, currency) : null;
 }
 
 function bidConfigurationSummary(

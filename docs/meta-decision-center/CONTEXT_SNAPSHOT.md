@@ -1,6 +1,33 @@
 # Meta Decision Center Context Snapshot
 
-Last updated: 2026-08-26
+Last updated: 2026-09-21
+
+## Local Meta data-path repair in progress — 2026-09-21
+
+The approved repair-first scope is being implemented jointly by Codex and
+Claude Code in one uncommitted worktree. Nothing from this change set has been
+deployed or accepted live. The operational sequence and remaining evidence
+gates are in [REPAIR_RUNBOOK.md](./REPAIR_RUNBOOK.md).
+
+- The unsupported campaign `bid_constraints` selector was removed while
+  objective, budget/bid, status, and schedule remain requested. Current typed
+  history now takes only fields actually returned by complete, raw-linked
+  campaign/adset receipts and preserves each level's observation time.
+- New config snapshots identify raw-linked version-2 observations; historical
+  repair reads only those from the same provider-local day, emits a field-level
+  manifest, and requires its reviewed hash before the CLI write path. Legacy
+  or direct-UI snapshots remain usable as current display context but have no
+  automatic historical repair authority.
+- The ad-day UI reader now uses the shared strict `actions` parser for funnel
+  stages. Creative-day flattened payloads retain their own shape. Claude's
+  ad-day calibration/native hydration work and campaign-role correction are
+  integrated only after their own tests and the full repository gate.
+- The outcomes job has account-scoped state-history predicates, a two-business
+  concurrency bound, and measured stage durations. These are local code facts;
+  runtime latency improvement is not yet proven.
+- Dated Insights config semantics, legacy source reconstruction, and the
+  post-deploy three-wave/24-hour acceptance are still open gates. An old
+  purchase result must not be converted into an optimization event.
 
 ## Latest Local Update — 2026-08-26 (D-M009, D-M010)
 

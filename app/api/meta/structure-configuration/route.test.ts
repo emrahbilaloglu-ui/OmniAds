@@ -9,6 +9,10 @@ const assignmentsMock = vi.hoisted(() => ({
   getProviderAccountAssignments: vi.fn(),
 }));
 const storeMock = vi.hoisted(() => ({
+  /* The config-history rows carry no currency column, so the route reads the
+     account currency separately: without it there is no provider offset and
+     no amount can be presented. */
+  readMetaAccountCurrency: vi.fn(),
   readLatestMetaAdSetConfigHistory: vi.fn(),
   readLatestMetaCampaignConfigHistory: vi.fn(),
   readMetaAdSetDimensions: vi.fn(),
@@ -36,6 +40,7 @@ describe("GET /api/meta/structure-configuration", () => {
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       account_ids: ["act_1"],
     });
+    storeMock.readMetaAccountCurrency.mockResolvedValue("USD");
     storeMock.readMetaCampaignDimensions.mockResolvedValue(
       new Map([
         ["cmp_1", { providerAccountId: "act_1" }],

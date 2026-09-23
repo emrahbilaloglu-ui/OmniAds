@@ -180,6 +180,12 @@ export interface DecisionEvaluationFact extends NativeLineageBase {
   creativeInputJson: unknown;
   campaignContextJson: unknown;
   priorHysteresisJson: unknown;
+  /**
+   * The hashed-but-not-creative half of a `.v12` input envelope
+   * (`configEvidence`, `metricContract`). Without it the input hash cannot be
+   * recomputed from storage at all.
+   */
+  inputEvidenceJson: unknown;
   decisionOutputJson: unknown;
   rawLabel: string;
   hysteresisSuppressed: boolean;
@@ -575,19 +581,25 @@ ORDER BY job_run_id, id
 
 const EVALUATIONS_SQL = `
 SELECT
-  id::text AS id, context_id::text AS context_id,
-  business_ref_id::text AS business_ref_id, business_id,
-  provider_account_ref_id::text AS provider_account_ref_id,
-  provider_account_id, decision_entity_type, decision_entity_id, ad_id,
-  creative_id,
-  as_of_date::text AS as_of_date, engine_version, scope_type, scope_id,
-  contract_version, creative_input_json, campaign_context_json,
-  prior_hysteresis_json, decision_output_json, raw_label,
-  hysteresis_suppressed, input_hash, decision_hash,
-  job_run_id::text AS job_run_id
-FROM engine_v3_ad_decision_evaluations
-WHERE job_run_id = ANY($1::uuid[])
-ORDER BY job_run_id, provider_account_ref_id, provider_account_id, ad_id, id
+  evaluation.id::text AS id, evaluation.context_id::text AS context_id,
+  evaluation.business_ref_id::text AS business_ref_id, evaluation.business_id,
+  evaluation.provider_account_ref_id::text AS provider_account_ref_id,
+  evaluation.provider_account_id, evaluation.decision_entity_type,
+  evaluation.decision_entity_id, evaluation.ad_id, evaluation.creative_id,
+  evaluation.as_of_date::text AS as_of_date, evaluation.engine_version,
+  evaluation.scope_type, evaluation.scope_id, evaluation.contract_version,
+  evaluation.creative_input_json, evaluation.campaign_context_json,
+  evaluation.prior_hysteresis_json, input_evidence.input_evidence_json,
+  evaluation.decision_output_json, evaluation.raw_label,
+  evaluation.hysteresis_suppressed, evaluation.input_hash,
+  evaluation.decision_hash, evaluation.job_run_id::text AS job_run_id
+FROM engine_v3_ad_decision_evaluations evaluation
+LEFT JOIN engine_v3_ad_decision_input_evidence input_evidence
+  ON input_evidence.contract_version = evaluation.contract_version
+ AND input_evidence.input_hash = evaluation.input_hash
+WHERE evaluation.job_run_id = ANY($1::uuid[])
+ORDER BY evaluation.job_run_id, evaluation.provider_account_ref_id,
+  evaluation.provider_account_id, evaluation.ad_id, evaluation.id
 `;
 
 const SNAPSHOTS_SQL = `
@@ -1297,7 +1309,15 @@ function canonicalEvaluationProofValid(
     !isObject(evaluation.creativeInputJson) ||
     !isObject(evaluation.campaignContextJson) ||
     !isObject(evaluation.priorHysteresisJson) ||
-    !isObject(evaluation.decisionOutputJson)
+    !isObject(evaluation.decisionOutputJson) ||
+    /*
+      A `.v12` input hashes configEvidence and metricContract beside the
+      creative input. A row without them cannot prove its input hash, and is
+      refused rather than hashed over a partial envelope.
+    */
+    !isObject(evaluation.inputEvidenceJson) ||
+    !isObject(evaluation.inputEvidenceJson.configEvidence) ||
+    !isObject(evaluation.inputEvidenceJson.metricContract)
   ) {
     return false;
   }
@@ -1328,6 +1348,8 @@ function canonicalEvaluationProofValid(
     creativeInput: evaluation.creativeInputJson,
     campaignContext: evaluation.campaignContextJson,
     priorHysteresis: evaluation.priorHysteresisJson,
+    configEvidence: evaluation.inputEvidenceJson.configEvidence,
+    metricContract: evaluation.inputEvidenceJson.metricContract,
     decisionIdentity: {
       decisionEntityType: evaluation.decisionEntityType,
       decisionEntityId: evaluation.decisionEntityId,
@@ -2837,6 +2859,7 @@ export async function loadOperationalFacts(
     creativeInputJson: row.creative_input_json,
     campaignContextJson: row.campaign_context_json,
     priorHysteresisJson: row.prior_hysteresis_json,
+    inputEvidenceJson: row.input_evidence_json,
     decisionOutputJson: row.decision_output_json,
     rawLabel: stringRow(row, "raw_label"),
     hysteresisSuppressed: row.hysteresis_suppressed === true,

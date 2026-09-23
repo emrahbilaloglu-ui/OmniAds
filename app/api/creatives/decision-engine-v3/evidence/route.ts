@@ -54,6 +54,8 @@ interface NativeDecisionEvidenceDbRow {
   creative_input_json: unknown;
   campaign_context_json: unknown;
   prior_hysteresis_json: unknown;
+  /** The hashed-but-not-creative half of a `.v12` input; NULL on older rows. */
+  input_evidence_json: unknown;
   decision_output_json: unknown;
   context_json: unknown;
   account_profile_json: unknown;
@@ -230,6 +232,7 @@ async function readPersistedNativeEvidence(input: {
       evaluation.creative_input_json,
       evaluation.campaign_context_json,
       evaluation.prior_hysteresis_json,
+      input_evidence.input_evidence_json,
       evaluation.decision_output_json,
       context.context_json,
       context.account_profile_json,
@@ -253,6 +256,9 @@ async function readPersistedNativeEvidence(input: {
      AND evaluation.input_hash = snapshot.input_hash
      AND evaluation.decision_hash = snapshot.decision_hash
      AND evaluation.job_run_id = snapshot.job_run_id
+    LEFT JOIN engine_v3_ad_decision_input_evidence input_evidence
+      ON input_evidence.contract_version = evaluation.contract_version
+     AND input_evidence.input_hash = evaluation.input_hash
     INNER JOIN engine_v3_ad_decision_evaluation_contexts context
       ON context.id = evaluation.context_id
      AND context.business_ref_id = evaluation.business_ref_id
@@ -427,6 +433,16 @@ function evidenceRowMatches(input: {
     canonicalSha256(contextDataHealth) === canonicalSha256(dataHealth) &&
     canonicalSha256(contextFlags) === canonicalSha256(persistedFlags) &&
     canonicalSha256(contextJson) === row.context_hash;
+  /*
+    A `.v12` input also hashes configEvidence and metricContract, persisted in
+    the hash-keyed input-evidence mapping; an older row has no mapping.
+    Rebuilding without them made every `.v12` row fail its own proof here. A
+    member is included only when the mapping carries it, so a `.v12` row whose
+    mapping is missing still fails closed on the hash comparison below.
+  */
+  const inputEvidence = canonicalJsonObject(row.input_evidence_json)
+    ? row.input_evidence_json
+    : null;
   const recomputedInputHash = canonicalSha256({
     contractVersion: row.evaluation_contract_version,
     envelopeType: "input",
@@ -435,6 +451,12 @@ function evidenceRowMatches(input: {
     creativeInput,
     campaignContext,
     priorHysteresis,
+    ...(inputEvidence && "configEvidence" in inputEvidence
+      ? { configEvidence: inputEvidence.configEvidence }
+      : {}),
+    ...(inputEvidence && "metricContract" in inputEvidence
+      ? { metricContract: inputEvidence.metricContract }
+      : {}),
     decisionIdentity: {
       decisionEntityType: "ad",
       decisionEntityId: input.adId,

@@ -19,6 +19,20 @@ These rules are hard gates for V2.1.
   `buyerAction: null`, a server-produced resolution, and a held-action label.
   It must never inherit an affirmative soft label such as `Continue Test` from
   the published compatibility label, and it never grants provider authority.
+- (ADR D097) This binds the DECISION STATE, not the presentation lane. A held
+  row whose verdict stands on its own economics — today only a Cut held solely
+  by an unresolved automatic campaign role, carrying resolution
+  `execute_stop_loss_manually` — may be presented in the action lane so a
+  confirmed stop-loss is not filed among genuine evidence gaps. Every authority
+  fact is unchanged and is what keeps this safe: `decisionState` stays
+  `blocked`, `buyerAction` stays null, `authorized_action` stays null because
+  `authorityBlocker` is still set, the served action keeps
+  `intent: "review"` with `providerMutation: null` (the pair the surface gates a
+  provider write on), and Launchpad still refuses the row because it requires
+  `decisionState === "act"`. A lane may inform urgency, counts and grouping; it
+  may never be read as authority. Scale and Refresh held on the same unresolved
+  role are NOT covered: both answer "where", so without the role they have no
+  answer, and they stay in the held lane.
 - A blocked, held, review-only, or action-ineligible canonical decision must
   not map to any Launchpad mode. In particular, a held Cut with compatibility
   label `test_more` must never appear as `Fresh Test`.
@@ -1188,3 +1202,26 @@ inadmissible. An impossible date may not silently redefine the window it bounds.
 > listed once in
 > [`CONTRACTS.md` → *Current authority vs historical record — the tables*](./CONTRACTS.md#current-authority-vs-historical-record--the-tables).
 > A value from the retained list may EXPLAIN a decision and may never GRANT one.
+
+## Missing is not zero, across a window (D099)
+
+A window sum of an event count is a measurement only when every
+decision-bearing day in it measured the count; otherwise it is NULL
+(`buildMetaCompleteWindowSql` / `resolveMetaCompleteWindowSum`). No reader may
+`COALESCE` an event count to 0, sum only the measured days, or cast unvalidated
+payload text. Creative-grain decision readers read only the stamped
+`metric_evidence`. Thumbstop and video rates are NULL until a verified provider
+contract exists.
+
+## A config verdict names its receipt (D099)
+
+A native ad decision's config authority binds the SELECTED receipt per field
+(`ConfigFieldEvidenceRef`) and the economic window's receipt manifest into its
+input hash, and persists them in `engine_v3_ad_decision_input_evidence` under
+the exact `(contract_version, input_hash)` identity. The evaluation table is
+not widened. Writers insert and equality-verify the mapping before evaluation
+rows; a missing mapping or the same identity with different JSON fails closed.
+Readers use a two-key LEFT JOIN so unmapped historical rows stay observable but
+cannot pass lineage or hash proof. An absent, malformed or incoherent reference
+is not evidence: its field's readiness is `none`. A reference explains a
+decision and never grants one.

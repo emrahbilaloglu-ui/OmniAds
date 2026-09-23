@@ -219,7 +219,7 @@ afterEach(() => {
 });
 
 describe("the reading the confirmation is made against", () => {
-  it("keeps the preflight evidence in attributes without exposing backend copy", () => {
+  it("states the preflight reading and expiry without exposing backend copy", () => {
     wire();
     const { container } = mount(controlPlane({}));
 
@@ -229,7 +229,9 @@ describe("the reading the confirmation is made against", () => {
       new Date(NOW - 30_000).toISOString(),
     );
     expect(preflight.textContent).not.toContain("control-plane");
-    expect(preflight.textContent).not.toContain("older than");
+    expect(preflight.textContent).toContain("State read");
+    expect(preflight.textContent).toContain("UTC");
+    expect(preflight.textContent).toContain("older than 5 minutes is refused");
   });
 
   it("refuses a stale reading with a short recovery message", () => {
@@ -449,9 +451,9 @@ describe("only a read-back may announce an outcome", () => {
     await waitFor(() =>
       expect(container.querySelector("[data-stop-status]")).not.toBeNull(),
     );
-    expect(
-      container.querySelector("[data-stop-status]")!.textContent,
-    ).toContain("Meta automation stopped.");
+    expect(container.querySelector("[data-stop-status]")!.textContent).toMatch(
+      /Meta automation is stopped for this business\. Confirmed by read-back at /,
+    );
     expect(server.posts.length).toBe(1);
   });
 

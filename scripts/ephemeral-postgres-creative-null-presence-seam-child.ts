@@ -30,6 +30,10 @@ import { getDb } from "@/lib/db";
 import { runCalibrationJob } from "@/lib/creative-decision-engine/jobs/calibration-job";
 import { runLifecycleJob } from "@/lib/creative-decision-engine/jobs/lifecycle-job";
 import { groupRows } from "@/lib/meta/creatives-row-mappers";
+import {
+  META_CREATIVE_DAY_METRIC_EVIDENCE_KEY,
+  buildMeasuredMetaCreativeDayMetricEvidence,
+} from "@/lib/meta/creative-day-metric-evidence";
 import { buildMetaCreativeApiRow } from "@/lib/meta/creatives-service-support";
 import {
   buildCreativeUsageMap,
@@ -139,8 +143,8 @@ async function main() {
   // Row A: a real all-zero day. The ad ran (or was paused) and measured
   // nothing. Every NOT NULL economic column is written as 0 on purpose.
   // Row B: the same shape, but with the nullable column left NULL and the
-  // funnel keys absent from payload_json — exactly what a sync that never
-  // captured them leaves behind.
+  // `actions` absent from payload_json — exactly what a sync that never
+  // captured the ad-day action array leaves behind.
   await upsertMetaAdDailyRows(
     [
       baseAdDailyRow({
@@ -157,9 +161,11 @@ async function main() {
         roas: 0,
         linkClicks: 0,
         payloadJson: {
-          add_to_cart: 0,
-          landing_page_views: 0,
-          initiate_checkout: 0,
+          actions: [
+            { action_type: "add_to_cart", value: "0" },
+            { action_type: "landing_page_view", value: "0" },
+            { action_type: "initiate_checkout", value: "0" },
+          ],
         },
       }),
       baseAdDailyRow({
@@ -177,7 +183,7 @@ async function main() {
         revenue: 0,
         roas: 0,
         linkClicks: null,
-        // No funnel keys at all.
+        // No actions array at all.
         payloadJson: { ad_id: UNREAD_AD_ID },
       }),
     ],
@@ -512,9 +518,11 @@ async function proveAdDailyLinkClicksStorage() {
         roas: 0,
         linkClicks: 0,
         payloadJson: {
-          add_to_cart: 0,
-          landing_page_views: 0,
-          initiate_checkout: 0,
+          actions: [
+            { action_type: "add_to_cart", value: "0" },
+            { action_type: "landing_page_view", value: "0" },
+            { action_type: "initiate_checkout", value: "0" },
+          ],
         },
       }),
     ],
@@ -1243,20 +1251,26 @@ async function proveCreativeDailyLinkClicksStorage() {
  * "SUM ignores nulls" rule bites, and only a real database can settle it.
  *
  * So this runs the REAL `runCalibrationJob` twice over the SAME seeded
- * creative-days, changing exactly one thing between the runs: `link_clicks`
- * goes from a stored 0 to NULL. The calibration it returns carries the funnel
- * percentiles that are DIVIDED BY this column — link-to-LPV, link-to-ATC and
- * click-to-purchase — so if `SUM(link_clicks)` had been left uncoalesced, the
- * second run would produce nulls where the first produced numbers, and the
- * comparison below would fail.
+ * creative-days, changing exactly one thing between the runs: the
+ * `link_clicks` DISPLAY column goes from a stored 0 to NULL. The calibration it
+ * returns carries the funnel percentiles that are divided by a link-click
+ * denominator — link-to-LPV, link-to-ATC and click-to-purchase.
+ *
+ * WHAT CHANGED, AND WHY THE EQUIVALENCE STILL HOLDS. These readers used to take
+ * that denominator from the column as `SUM(COALESCE(link_clicks, 0))`, so the
+ * equivalence rested on the coalesce. They no longer read the column at all:
+ * the creative-day writer stored it (and every payload funnel scalar) as a
+ * finite number whether or not the provider reported anything, so a stored 0
+ * could never be told from "not observed". The readers now take each stage
+ * ONLY from the per-stage measurement stamp the writer records
+ * (`lib/meta/creative-day-metric-evidence.ts`), complete-or-NULL over the
+ * window. Here the measured half carries that stamp and the flipped half
+ * carries none — exactly an unstamped legacy row — so the column flip must move
+ * nothing, and the flipped half must contribute no funnel rate in EITHER world.
  *
  * The assertion is deep equality on the whole calibration payload, minus the
  * fields that are wall-clock or per-run by construction. Nothing is spot
  * checked, so a moved percentile or a changed sample count fails here.
- *
- * This proves (A): the engine's numbers are unchanged. It deliberately does not
- * supply a real link-click count from anywhere — that would be (B), and it
- * would move exactly these numbers.
  */
 async function proveCreativeGrainEngineEquivalence() {
   const db = getDb();
@@ -1280,16 +1294,14 @@ async function proveCreativeGrainEngineEquivalence() {
     [BUSINESS_ID],
   );
 
-  // A spread wide enough for percentiles to be non-degenerate. Every row
-  // carries a positive link_clicks so the funnel rates are real numbers in the
-  // ZERO world -- a fixture whose rates were already null could not detect a
-  // NULL leaking through.
-  // HALF the pool carries a positive link-click measurement that is IDENTICAL in
-  // both worlds; the other half is the population under test, moving from a
-  // stored 0 to NULL. That mix is what makes the comparison meaningful: the
-  // measured half keeps the funnel percentiles real numbers, so a NULL leaking
-  // out of an uncoalesced SUM would visibly move them, while an all-zero pool
-  // would produce null rates on both sides and prove nothing.
+  // A spread wide enough for percentiles to be non-degenerate.
+  // HALF the pool carries a positive, STAMPED link-click measurement that is
+  // IDENTICAL in both worlds; the other half is the population under test,
+  // moving from a stored 0 to NULL in the display column and carrying no stamp.
+  // That mix is what makes the comparison meaningful: the measured half keeps
+  // the funnel percentiles real numbers, so anything the flip leaked into a
+  // reader would visibly move them, while an all-unmeasured pool would produce
+  // null rates on both sides and prove nothing.
   const rows = Array.from({ length: CREATIVE_COUNT }, (_, index) => {
     const measured = index % 2 === 0;
     const linkClicks = measured ? 40 + index * 11 : 0;
@@ -1345,6 +1357,19 @@ async function proveCreativeGrainEngineEquivalence() {
           add_to_cart: row.linkClicks * 0.2,
           initiate_checkout: row.linkClicks * 0.1,
           thumbstop: 0.3,
+          // Only the measured half is stamped. The display scalars above stay
+          // on every row, as the writer has always left them; no reader reads
+          // them any more.
+          ...(row.measured
+            ? {
+                [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: buildMeasuredMetaCreativeDayMetricEvidence({
+                  link_click: row.linkClicks,
+                  landing_page_view: Math.floor(row.linkClicks * 0.8),
+                  add_to_cart: Math.floor(row.linkClicks * 0.2),
+                  initiate_checkout: Math.floor(row.linkClicks * 0.1),
+                }),
+              }
+            : {}),
         },
       }) as never,
     ),
@@ -1493,21 +1518,22 @@ async function proveCreativeGrainEngineEquivalence() {
     "the returned AccountCalibration is identical across the two worlds",
   );
 
-  // ── The one place the coalesce is OBSERVABLE ──────────────────────────────
+  // ── The one place the old coalesce was OBSERVABLE, and is now reversed ─────
   //
-  // The calibration equivalence above is a genuine end-to-end guard, but it is
-  // NOT load-bearing for `SUM(COALESCE(link_clicks, 0))` on its own: every
-  // funnel rate in that job is guarded by `CASE WHEN total_link_clicks > 0`,
-  // and that guard treats NULL and 0 alike, so the job is structurally
-  // insensitive to the distinction. Verified by reverting the coalesce and
-  // watching the comparison still pass.
+  // The calibration equivalence above cannot see the NULL-versus-0 question on
+  // its own: every funnel rate in that job is guarded by
+  // `CASE WHEN total_link_clicks > 0`, which treats NULL and 0 alike.
   //
   // The lifecycle job is where it bites, because it does not consume the sum —
-  // it STORES it. `link_clicks_28d` is a persisted engine artifact, and without
-  // the coalesce an all-unsupplied creative writes NULL there where it writes 0
-  // today. That is a real change to a value the engine hands to its own
-  // downstream reader (`data-source.ts` selects `l.link_clicks_28d AS
-  // link_clicks`), so it is asserted directly rather than inferred.
+  // it STORES it, and `data-source.ts` hands `l.link_clicks_28d` on as the
+  // creative's link clicks. This assertion used to pin the fabrication: an
+  // all-unsupplied creative stored `link_clicks_28d = 0` "exactly as it did
+  // when the column held zeros", because the reader coalesced a NULL column
+  // into a measured zero. That 0 was never a measurement — the column's zeros
+  // were written by a writer that could not tell "zero clicks" from "nothing
+  // reported". The creative carries no measurement stamp, so it has NOT been
+  // measured, and the persisted artifact now says so: NULL. It becomes a number
+  // when the creative-day is re-synced by the stamping writer, and not before.
   const lifecycle = await runLifecycleJob({ businessId: BUSINESS_ID, asOf: ASOF });
   if (lifecycle.status !== "success") {
     fail("lifecycle job", `status=${lifecycle.status} ${lifecycle.errorMessage ?? ""}`);
@@ -1530,23 +1556,24 @@ async function proveCreativeGrainEngineEquivalence() {
     unmeasuredLifecycle.link_clicks_28d == null
       ? null
       : Number(unmeasuredLifecycle.link_clicks_28d),
-    0,
-    "an all-unsupplied creative still stores link_clicks_28d = 0, exactly as it did when the column held zeros",
+    null,
+    "an unmeasured (unstamped) creative stores link_clicks_28d = NULL, never a fabricated 0",
   );
   expectEqual(
     Number(measuredLifecycle.link_clicks_28d),
     rows.find((row) => row.creativeId === measuredId)!.linkClicks,
-    "a measured creative's link_clicks_28d is untouched by the coalesce",
+    "a measured creative's link_clicks_28d is its stamped measurement",
   );
 
   await db.query(`DELETE FROM meta_creative_daily WHERE business_id = $1`, [BUSINESS_ID]);
 
   console.log(
     `[${LABEL}] creative-grain engine equivalence: runCalibrationJob over ${CREATIVE_COUNT} creative-days ` +
-      `produced an identical calibration payload when every link_clicks moved from a stored 0 to NULL ` +
+      `produced an identical calibration payload when the link_clicks display column moved from a stored 0 to NULL ` +
       `across ${zeroRows.length} persisted calibration rows including every link-click-denominated funnel ` +
-      `percentile (link-to-ATC p50 = ${linkToAtc}, funnel_quality_status=ready, so the comparison is not vacuous); ` +
-      `and runLifecycleJob stored link_clicks_28d = 0 for an all-unsupplied creative rather than NULL.`,
+      `percentile (link-to-ATC p50 = ${linkToAtc}, funnel_quality_status=ready, so the comparison is not vacuous), ` +
+      `because the readers take the funnel only from the measurement stamp; ` +
+      `and runLifecycleJob stored link_clicks_28d = NULL for an unmeasured creative rather than a fabricated 0.`,
   );
 }
 

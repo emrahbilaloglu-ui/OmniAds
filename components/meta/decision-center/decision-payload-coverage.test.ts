@@ -2338,6 +2338,90 @@ const COVERAGE: Record<string, Coverage> = {
     "the diagnostics' snapshot id",
     "snapshot-id",
   ),
+  // RECEIPT LINEAGE (2026-09-22): the config receipts a native decision rests
+  // on, printed read-only in the evidence window's diagnostics.
+  "MetaDecisionConfigEvidence.verified": R(
+    S.EVIDENCE,
+    "the diagnostics' D098 config-authority verdict",
+    "config-verified",
+  ),
+  "MetaDecisionConfigEvidence.currentConfigDay": R(
+    S.EVIDENCE,
+    "the diagnostics' config receipt day",
+    "config-current-day",
+  ),
+  "MetaDecisionConfigEvidence.lineageSupplied": R(
+    S.EVIDENCE,
+    "the config receipts row, which says so when the evaluation recorded no lineage",
+    "config-receipts",
+  ),
+  "MetaDecisionConfigEvidence.refusedFields": R(
+    S.EVIDENCE,
+    "the diagnostics' refused config receipts",
+    "config-refused",
+  ),
+  "MetaDecisionConfigEvidence.economicWindow.manifestHash": R(
+    S.EVIDENCE,
+    "the economic window's receipt manifest hash",
+    "config-window-manifest",
+  ),
+  "MetaDecisionConfigEvidence.economicWindow.manifestVersion": R(
+    S.EVIDENCE,
+    "the economic window receipt-manifest contract",
+    "config-window-manifest",
+  ),
+  "MetaDecisionConfigEvidence.economicWindow.refContractVersion": R(
+    S.EVIDENCE,
+    "the economic window field-reference contract",
+    "config-window-manifest",
+  ),
+  "MetaDecisionConfigEvidence.economicWindow.economicDayCount": R(
+    S.EVIDENCE,
+    "the economic window's day count",
+    "config-window-manifest",
+  ),
+  "MetaDecisionConfigEvidence.economicWindow.nullObservationIdCount": R(
+    S.EVIDENCE,
+    "the economic window's snapshot-only receipt count",
+    "config-window-manifest",
+  ),
+  "MetaDecisionConfigEvidence.economicWindow.incoherentDayCount": R(
+    S.EVIDENCE,
+    "the economic window's incoherent day count",
+    "config-window-manifest",
+  ),
+  "MetaDecisionConfigEvidence.evaluationContractVersion": R(
+    S.EVIDENCE,
+    "the config evidence contract row",
+    "config-evaluation-contract",
+  ),
+  "MetaDecisionConfigEvidence.metricContract": R(
+    S.EVIDENCE,
+    "the config evidence contract row, beside the evaluation contract",
+    "config-evaluation-contract",
+  ),
+  ...Object.fromEntries(
+    [
+      "refContractVersion",
+      "field",
+      "sourceContractVersion",
+      "normalizationVersion",
+      "tier",
+      "readiness",
+      "sourceClass",
+      "pitClass",
+      "sourceSnapshotId",
+      "observationId",
+      "observedAt",
+      "fieldScopeHash",
+      "corroboratingSnapshotId",
+      "corroboratingObservationId",
+      "corroboratingObservedAt",
+    ].map((member) => [
+      `MetaDecisionConfigEvidenceRef.${member}`,
+      R(S.EVIDENCE, `the config receipts row's ${member}`, "config-receipts"),
+    ]),
+  ),
   "MetaDecisionSourceAuthority.evaluationId": R(
     S.EVIDENCE,
     "the diagnostics' evaluation id",
@@ -3300,9 +3384,15 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
       interface instead of to `MetaOsAdDecision`, which still has leaves of its
       own. Five keys renamed, no leaf added or lost.
     */
-    expect(fields.length).toBe(770);
-    expect(new Set(fields.map((field) => field.iface)).size).toBe(64);
-    expect(fields.filter((field) => field.varies).length).toBe(717);
+    /*
+      797: RECEIPT LINEAGE (2026-09-22) — the twenty-seven leaves of the two new
+      read-only interfaces `MetaDecisionConfigEvidence` (twelve) and
+      `MetaDecisionConfigEvidenceRef` (fifteen), all varying. The interface
+      total moves 64 -> 66 with them.
+    */
+    expect(fields.length).toBe(797);
+    expect(new Set(fields.map((field) => field.iface)).size).toBe(66);
+    expect(fields.filter((field) => field.varies).length).toBe(744);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3824,7 +3914,10 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // the placeholder rows that carried it in the queue stopped being built.
   CREATIVES: [0, 10],
   // 94 -> 93: `firstBlocker.explanation` is no longer rendered (Round 8 item 7).
-  EVIDENCE: [93, 17],
+  // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
+  // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
+  // six labelled config rows the diagnostics now print.
+  EVIDENCE: [120, 17],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
@@ -3905,7 +3998,9 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   MOBILE: [0, 1],
   // 107 -> 106: `firstBlocker.explanation` is no longer rendered, so it leaves
   // the behind-a-control half of the evidence window (Round 8 item 7).
-  EVIDENCE: [0, 106],
+  // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
+  // contract-identity leaves. All sit behind the evidence-window control.
+  EVIDENCE: [0, 133],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including
@@ -3933,7 +4028,9 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // buyer-language mapping of the served CODE instead of the engine's own
 // sentence, and `limitations[].code` / `firstBlocker.code` still prove those
 // rows.
-const DOM_PROOF_TOTALS: [number, number] = [32, 312];
+// 312 -> 333 with the original receipt-lineage leaves; -> 339 with the six
+// contract-identity leaves. All are behind the evidence-window control.
+const DOM_PROOF_TOTALS: [number, number] = [32, 339];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4772,8 +4869,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // PRE-DEPLOY AUDIT: 620 -> 707, tracking the walk's own varying-leaf pin.
     // 707 -> 708 with `ads.pendingInventoryCount`; -> 713 with the six
     // `MetaDecisionSourceDegradation` leaves; -> 717 with `heldAction` and the
-    // three `ads.heldCounts` members.
-    expect(outcomes.size).toBe(717);
+    // three `ads.heldCounts` members; -> 738 with the original receipt
+    // lineage leaves; -> 744 with their six contract-identity leaves.
+    expect(outcomes.size).toBe(744);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -5023,8 +5121,11 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // `served-first-blocker-explanation`) are no longer rendered at all, so one
     // leaves each half. The rows themselves remain and are now proven by the
     // CODE leaves that feed the buyer-language mapping.
-    expect(rendered.length).toBe(351);
-    expect(withElement.length).toBe(204);
+    // -> 372/225/147 with the original receipt-lineage leaves; ->
+    // 378/231/147 with their six contract-identity leaves. Every one is keyed
+    // on a labelled diagnostics row.
+    expect(rendered.length).toBe(378);
+    expect(withElement.length).toBe(231);
     expect(withoutElement.length).toBe(147);
 
     /*

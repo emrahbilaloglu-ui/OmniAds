@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ADSET_CALIBRATION_AD_DAY_ACTIVITY_SQL,
+  ADSET_CALIBRATION_ADSET_DAY_ACTIVITY_SQL,
+  ADSET_FUNNEL_STAGE_SQL,
   computeMetaPercentiles,
   getMetaCalibrationScope,
   MIN_CAMPAIGN_CALIBRATION_SAMPLE,
+  readAggregatedAdsetMetricRows,
   runMetaCalibrationForBusiness,
 } from "@/lib/meta/calibration";
+import {
+  buildAdDayAuthoritativeLinkClicksSql,
+  buildAdDayLinkClicksMissingSql,
+} from "@/lib/meta/link-click-parse";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
@@ -20,9 +28,15 @@ function makeSqlMock(input: {
 }) {
   const queryCalls: Array<{ text: string; params?: unknown[] }> = [];
   const tagCalls: string[] = [];
-  const tag = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-    const text = strings.join("?");
-    tagCalls.push(text);
+  /*
+    ONE router for both call forms. `readAggregatedAdsetMetricRows` now uses
+    `sql.query(text, params)` because its SQL carries a generated funnel-stage
+    fragment, and the tagged form binds every `${}` as a parameter — a raw
+    fragment cannot be interpolated into it. A `.query` stub that always
+    resolved `[]` modelled the client incompletely and would report a reader
+    that returns nothing as a pass.
+  */
+  const route = (text: string, values: unknown[]) => {
     if (text.includes("GROUP BY adset.provider_account_id, adset.campaign_id, adset.adset_id")) {
       return Promise.resolve(input.metricRows ?? []);
     }
@@ -42,11 +56,16 @@ function makeSqlMock(input: {
       return Promise.resolve(input.calibrationRows?.(values) ?? []);
     }
     return Promise.resolve([]);
+  };
+  const tag = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join("?");
+    tagCalls.push(text);
+    return route(text, values);
   }) as unknown as ReturnType<typeof db.getDb>;
   tag.query = vi.fn((text: string, params?: unknown[]) => {
     queryCalls.push({ text, params });
-    return Promise.resolve([]);
-  });
+    return route(text, params ?? []);
+  }) as unknown as typeof tag.query;
   return { tag, queryCalls, tagCalls };
 }
 
@@ -96,8 +115,17 @@ function metricRow(input: {
   };
 }
 
+/*
+  Located by SQL text, not by call index. `readAggregatedAdsetMetricRows` also
+  uses `sql.query` now, so `queryCalls[0]` is the metric read and its first
+  parameter is the business id — an index-based lookup here reported that as a
+  malformed payload rather than as a test that was pinned to call ordering.
+*/
 function insertedPayload(sql: ReturnType<typeof makeSqlMock>) {
-  return JSON.parse(String(sql.queryCalls[0]?.params?.[0] ?? "[]")) as Array<{
+  const upsert = sql.queryCalls.find((call) =>
+    call.text.includes("jsonb_to_recordset"),
+  );
+  return JSON.parse(String(upsert?.params?.[0] ?? "[]")) as Array<{
     scope_type: string;
     scope_id: string;
     metric_name: string;
@@ -323,8 +351,15 @@ describe("meta calibration", () => {
     vi.mocked(db.getDb).mockReturnValue(sql.tag);
 
     const result = await runMetaCalibrationForBusiness("biz_1", "2026-05-06");
-    const aggregateSql = sql.tagCalls.find((text) =>
-      text.includes("FROM meta_adset_daily") && text.includes("GROUP BY adset.provider_account_id")
+    // The aggregate read moved from the tagged form to `sql.query`, so look in
+    // both rather than pinning the test to which form the reader uses.
+    const aggregateSql = [
+      ...sql.tagCalls,
+      ...sql.queryCalls.map((call) => call.text),
+    ].find(
+      (text) =>
+        text.includes("FROM meta_adset_daily") &&
+        text.includes("GROUP BY adset.provider_account_id"),
     );
     const roasRow = insertedPayload(sql).find((row) =>
       row.scope_type === "account" && row.scope_id === "act_1" && row.metric_name === "roas_28d"
@@ -356,7 +391,11 @@ describe("meta calibration", () => {
     expect(result.sampleRowsTotal).toBe(2);
     expect(result.sampleRowsByCohort.purchase).toBe(0);
     expect(result.sampleRowsByCohort.upper_funnel).toBe(2);
-    expect(sql.queryCalls).toHaveLength(0);
+    // The WRITE is what must not happen. The metric read is also a `sql.query`
+    // call now, so counting every call would assert "nothing was read either".
+    expect(
+      sql.queryCalls.filter((call) => call.text.includes("jsonb_to_recordset")),
+    ).toHaveLength(0);
   });
 
   it("excludes ADD_TO_CART custom-event adsets even under a sales optimization goal", async () => {
@@ -399,7 +438,11 @@ describe("meta calibration", () => {
 
     expect(result.rowsWritten).toBe(0);
     expect(result.sampleRowsByCohort.unknown).toBe(1);
-    expect(sql.queryCalls).toHaveLength(0);
+    // The WRITE is what must not happen. The metric read is also a `sql.query`
+    // call now, so counting every call would assert "nothing was read either".
+    expect(
+      sql.queryCalls.filter((call) => call.text.includes("jsonb_to_recordset")),
+    ).toHaveLength(0);
   });
 
   it("coexists purchase and mid_funnel rows for the same scope and metric through the cohort PK", async () => {
@@ -441,7 +484,10 @@ describe("meta calibration", () => {
 
     expect(accountCtrRows.map((row) => row.cohort).sort()).toEqual(["mid_funnel", "purchase"]);
     expect(payload.every((row) => row.campaign_kind === "all")).toBe(true);
-    expect(sql.queryCalls[0]?.text).toContain(
+    const upsertCall = sql.queryCalls.find((call) =>
+      call.text.includes("jsonb_to_recordset"),
+    );
+    expect(upsertCall?.text).toContain(
       "ON CONFLICT (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort, campaign_kind)",
     );
   });
@@ -545,5 +591,69 @@ describe("meta calibration", () => {
     });
     expect(noAccount.reason).toBe("account_calibration_missing");
     expect(noAccount.thresholds.source).toBe("legacy_fallback");
+  });
+});
+
+/*
+  The adset reader's SQL, pinned by construction rather than by a DB run (the
+  real-PostgreSQL half lives in lib/meta/calibration-window.db.test.ts).
+*/
+describe("adset calibration reader wiring", () => {
+  async function readerSql() {
+    const sql = makeSqlMock({});
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    await readAggregatedAdsetMetricRows("biz_1", "2026-05-06");
+    const call = sql.queryCalls.find((entry) =>
+      entry.text.includes("GROUP BY adset.provider_account_id, adset.campaign_id, adset.adset_id"),
+    );
+    if (!call) throw new Error("reader SQL not issued");
+    return call;
+  }
+
+  it("classifies each ad-day's link clicks with the D095 authority rule, not the raw column", async () => {
+    const { text, params } = await readerSql();
+    expect(params).toEqual(["biz_1", "2026-05-06"]);
+    expect(text).toContain(buildAdDayAuthoritativeLinkClicksSql({ qualifier: "ad_day" }));
+    expect(text).toContain(buildAdDayLinkClicksMissingSql({ qualifier: "ad_day" }));
+    expect(text).not.toMatch(/SUM\((ad_day\.)?link_clicks\)/);
+    expect(text).toContain("FROM meta_ad_daily ad_day");
+  });
+
+  it("takes every ad-derived 28-day figure from the complete-or-null window", async () => {
+    const { text } = await readerSql();
+    // No partial "sum of the measured days" survives anywhere.
+    expect(text).not.toMatch(/FILTER \(WHERE CASE\s+WHEN jsonb_typeof/);
+    for (const column of [
+      "link_clicks",
+      "add_to_cart",
+      "initiate_checkout",
+      "view_content",
+      "landing_page_views",
+      "post_engagement",
+      "leads",
+    ]) {
+      expect(text).toContain(`AS ${column}_28d,`);
+      expect(text).toContain(`AS ${column}_28d_missing_days`);
+      expect(text).toContain(`(ad_events.${column} IS NULL)`);
+      expect(text).toContain(`${column}_missing`);
+    }
+    // Per-row stage missingness comes from the shared contract.
+    expect(text).toContain(ADSET_FUNNEL_STAGE_SQL.missingSql("add_to_cart"));
+    expect(text).toContain(ADSET_FUNNEL_STAGE_SQL.valueSql("lead"));
+  });
+
+  it("counts a delivered adset-day with no ad rows as missing, and an inert one as not", async () => {
+    const { text } = await readerSql();
+    expect(text).toContain(`${ADSET_CALIBRATION_AD_DAY_ACTIVITY_SQL} AS decision_bearing`);
+    expect(text).toContain(
+      `(${ADSET_CALIBRATION_ADSET_DAY_ACTIVITY_SQL} OR COALESCE(ad_events.decision_bearing_ad_rows, 0) > 0)`,
+    );
+    expect(text).toContain("LEFT JOIN ad_event_daily ad_events");
+  });
+
+  it("emits thruplay as NULL rather than reading an unverified key", async () => {
+    const { text } = await readerSql();
+    expect(text).toContain("NULL::double precision AS thruplay_actions_28d");
+    expect(text).not.toContain("thruplay_actions'");
   });
 });

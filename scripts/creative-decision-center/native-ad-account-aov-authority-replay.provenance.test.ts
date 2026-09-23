@@ -7,11 +7,24 @@ import {
   assertReplayOutputPlan,
   buildRepositoryContentManifest,
   parseArgs,
+  READ_FIXED_BASELINE_ROW_PAYLOAD_SQL,
   resolveReplayProfileDimensions,
   resolveReplayRepositoryOutputExclusions,
 } from "@/scripts/creative-decision-center/native-ad-account-aov-authority-replay";
 
 describe("native-ad current-day replay provenance", () => {
+  it("loads input evidence by both contract version and input hash", () => {
+    expect(READ_FIXED_BASELINE_ROW_PAYLOAD_SQL).toContain(
+      "LEFT JOIN engine_v3_ad_decision_input_evidence input_evidence",
+    );
+    expect(READ_FIXED_BASELINE_ROW_PAYLOAD_SQL).toContain(
+      "input_evidence.contract_version = evaluation.contract_version",
+    );
+    expect(READ_FIXED_BASELINE_ROW_PAYLOAD_SQL).toContain(
+      "input_evidence.input_hash = evaluation.input_hash",
+    );
+  });
+
   it("uses the immutable source receipt when an account legitimately has zero calibration cells", () => {
     expect(
       resolveReplayProfileDimensions({

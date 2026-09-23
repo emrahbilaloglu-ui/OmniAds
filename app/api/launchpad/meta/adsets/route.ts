@@ -5,9 +5,23 @@ import { jsonError, requireLaunchpadAssignedAccountScope } from "../route-utils"
 
 export const dynamic = "force-dynamic";
 
-function toMinorUnits(value: unknown) {
+/**
+ * The stored config-history budget, unchanged.
+ *
+ * This used to be `Math.round(number * 100)`, which was a 100x inflation: the
+ * column already holds the provider's own minor-unit integer. `lib/meta/live.ts`
+ * parses Meta's `daily_budget` with a bare `parseFloat` and never scales it,
+ * `roundCurrencyAmount` is a two-decimal round rather than a scale, and
+ * `lib/meta/warehouse.ts` throws `meta_current_config_history_daily_budget_source_mismatch`
+ * unless the stored value equals the raw provider number.
+ *
+ * The field is named `...Minor` and the consumer converts it back for display
+ * at the provider's offset, so nothing here needs a currency — and there is
+ * none to have: `meta_*_config_history` carries no currency column at all.
+ */
+function storedBudgetMinorUnits(value: unknown) {
   const number = Number(value ?? 0);
-  return Number.isFinite(number) && number > 0 ? Math.round(number * 100) : null;
+  return Number.isFinite(number) && number > 0 ? Math.round(number) : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -222,8 +236,8 @@ export async function GET(request: NextRequest) {
           billingEvent: row.billing_event,
           pixelId: row.pixel_id,
           customEventType: row.custom_event_type,
-          dailyBudgetMinor: toMinorUnits(row.daily_budget),
-          lifetimeBudgetMinor: toMinorUnits(row.lifetime_budget),
+          dailyBudgetMinor: storedBudgetMinorUnits(row.daily_budget),
+          lifetimeBudgetMinor: storedBudgetMinorUnits(row.lifetime_budget),
           attributionSpec,
           attributionSummary: summarizeAttributionSpec(attributionSpec),
           targeting: readTargetingSummary(row.targeting),

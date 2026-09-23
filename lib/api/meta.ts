@@ -18,12 +18,11 @@ import { parseMetaLinkClicksFromActions } from "@/lib/meta/link-click-parse";
 import { sanitizeMetaGraphTraceId } from "@/lib/meta/graph-trace-id";
 import { formatMetaFailureForStorage } from "@/lib/sync/meta-error-classification";
 import { classifyAmountField } from "@/lib/meta/budget-fact";
-import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
+import { resolveProviderCorroboratedExponent } from "@/lib/currency/provider-corroborated-minor-units";
 import { getDb } from "@/lib/db";
 import { fetchWithTimeout } from "@/lib/http-fetch-with-timeout";
 import {
   appendMetaConfigSnapshots,
-  readLatestMetaConfigSnapshots,
   readPreviousDifferentMetaConfigDiffs,
 } from "@/lib/meta/config-snapshots";
 import {
@@ -133,7 +132,7 @@ type MetaAccountCoreSubStageName =
   | "syncMetaAccountCoreWarehouseDay.fetch_source_pages"
   | "syncMetaAccountCoreWarehouseDay.fetch_remote_configs"
   | "syncMetaAccountCoreWarehouseDay.fetch_source_account_spend"
-  | "syncMetaAccountCoreWarehouseDay.read_latest_config_snapshots"
+  | "syncMetaAccountCoreWarehouseDay.resolve_current_entity_scope"
   | "syncMetaAccountCoreWarehouseDay.build_daily_rows"
   | "syncMetaAccountCoreWarehouseDay.create_authoritative_manifest"
   | "syncMetaAccountCoreWarehouseDay.create_slice_versions"
@@ -375,28 +374,14 @@ interface RawCampaign {
 }
 
 const META_CAMPAIGN_CONFIG_FIELDS =
-  "id,name,objective,effective_status,status,updated_time,buying_type,daily_budget,lifetime_budget,start_time,stop_time,bid_strategy,bid_amount,bid_constraints{roas_average_floor}";
+  "id,name,objective,effective_status,status,updated_time,buying_type,daily_budget,lifetime_budget,start_time,stop_time,bid_strategy,bid_amount";
 
 /*
-  The two fields the campaigns edge started rejecting.
-
-  Measured in production on 2026-09-07: with `start_time,stop_time` in the list
-  (added by 5172235ad on 2026-09-03) `campaign_configs` is 47 HTTP 400s and 0
-  successes since 2026-09-04, every one of them on page 0, on all 12 accounts it
-  was attempted against, and meta_entity_state_history has not received a single
-  `campaign` row in five days. The identical list WITHOUT those two fields
-  returned 34,496 successes against 21 failures. The ad-set edge took
-  `start_time,end_time` in the same commit and did not move (28,107 of 28,129
-  adset rows carry adset_start_time), so the rejection is specific to these
-  names on this edge.
-
-  Which of the two, and Meta's code for it, was unknowable: the failure path
-  never read the error body. It is recoverable rather than removed — the fetch
-  asks for them, and only if the first page is refused does it retry without
-  them. The receipt then carries `fieldDegradation.recovered`: true only when
-  the narrowed request was accepted, which is the case that proves this edge
-  refuses these names. A page-0 refusal that survives the narrowing proves
-  nothing about them and is reported as `recovered: false`.
+  A live field-isolation request on 2026-09-21 showed that the campaigns edge
+  accepts start_time, stop_time and bid_amount, but rejects the adset-only
+  bid_constraints expansion with code 100. Keep the schedule fields and their
+  field-specific fallback for API-version variation; the adset request still
+  asks for its supported bid_constraints field.
 */
 const META_CAMPAIGN_SCHEDULE_FIELDS = ["start_time", "stop_time"] as const;
 
@@ -405,6 +390,16 @@ const META_ADSET_CONFIG_FIELDS =
 
 const META_AD_CONFIG_FIELDS =
   "id,name,campaign_id,adset_id,effective_status,status,updated_time,created_time,creative{id}";
+
+function observedMetaConfigFieldScope(
+  selector: string[],
+  entity: Record<string, unknown>,
+): string[] {
+  return selector.filter((field) => {
+    const name = field.split(/[({]/, 1)[0]!;
+    return Object.hasOwn(entity, name) && entity[name] !== undefined;
+  });
+}
 
 const META_ACTIVE_AD_CONFIG_FIELDS =
   `${META_AD_CONFIG_FIELDS},campaign{id,name}`;
@@ -571,18 +566,56 @@ export function deriveMetaBudgetOrigin(
  * observation, so the version travels with the row rather than being re-derived
  * at read time. An unresolvable currency records nothing rather than assuming
  * two decimals.
+ *
+ * ── THE STORED EXPONENT MUST SATISFY BOTH AUTHORITIES ──────────────────────
+ *
+ * The number written here scales a PROVIDER amount, and the ISO registry is
+ * not the provider. Meta publishes its own per-currency `offset` and the two
+ * disagree on six codes: HUF, IDR, TWD and COP (Meta offset 1 -> 0 digits,
+ * ISO 2) and BHD and JOD (Meta offset 100 -> 2 digits, ISO 3). Meta also
+ * publishes no offset above 100 anywhere, while ISO holds KWD, OMR, TND, IQD
+ * and LYD at three.
+ *
+ * So an exponent is recorded only when the provider's own offset implies the
+ * same number of subdivision digits. Where they disagree, or where Meta
+ * publishes no offset at all, nothing is recorded — the same `null` an
+ * unresolvable currency already produces, and every reader of
+ * `budget_currency_exponent` already fails closed on it rather than assuming
+ * two decimals.
+ *
+ * What this does NOT do: it does not restate anything. `budgetCurrencyExponent`
+ * is inside the entity state hash, so a changed value materialises a new
+ * observation rather than editing an old one — and for every currency the
+ * warehouse actually holds (USD, TRY, GBP, and JPY and KRW besides) the two
+ * authorities already agree, so no live account produces a different value
+ * than it did before. The refusal only ever bites an account this product has
+ * not seen.
+ *
+ * The registry version recorded stays the ISO one, because that is the
+ * registry the number comes from; Meta's table is a corroborator here, not the
+ * source. A stored exponent therefore means "ISO said this and Meta did not
+ * contradict it", which is the claim a reader needs.
  */
 export function metaBudgetCurrencyProvenance(currency: string | null): {
   budgetCurrencyExponent: number | null;
   budgetCurrencyRegistryVersion: string | null;
 } {
-  const resolution = resolveMinorUnitExponent(currency);
-  return resolution.status === "resolved"
-    ? {
-        budgetCurrencyExponent: resolution.exponent,
-        budgetCurrencyRegistryVersion: resolution.registryVersion,
-      }
-    : { budgetCurrencyExponent: null, budgetCurrencyRegistryVersion: null };
+  /*
+    The rule itself lives in `resolveProviderCorroboratedExponent`, which this
+    function used to open-code. Two copies of one agreement test is how the
+    two ends of a chain drift apart, and this is the gate the whole bid arm
+    fails closed behind — `intent-projection-context` reads the column back and
+    `metaBidValueToMinorUnits` refuses on null — so it must say exactly what
+    the contracts, the retained facts and the dry-run validator say.
+  */
+  const corroborated = resolveProviderCorroboratedExponent(currency);
+  if (corroborated.status !== "resolved") {
+    return { budgetCurrencyExponent: null, budgetCurrencyRegistryVersion: null };
+  }
+  return {
+    budgetCurrencyExponent: corroborated.exponent,
+    budgetCurrencyRegistryVersion: corroborated.registryVersion,
+  };
 }
 
 export function resolveMetaCurrencyForAccount(
@@ -915,8 +948,6 @@ function buildMetaAdSetConfigPayload(input: {
   campaignId: string;
   adset?: RawAdSet | null;
   campaignConfig?: RawCampaign | null;
-  latestSnapshot?: MetaConfigSnapshotPayload | null;
-  latestCampaignSnapshot?: MetaConfigSnapshotPayload | null;
 }) {
   const usesCampaignBidFallback =
     input.adset?.bid_strategy == null &&
@@ -927,76 +958,50 @@ function buildMetaAdSetConfigPayload(input: {
       input.campaignConfig?.bid_constraints?.roas_average_floor != null);
   const effectiveBidStrategy =
     input.adset?.bid_strategy ??
-    input.latestSnapshot?.bidStrategyType ??
-    input.latestCampaignSnapshot?.bidStrategyType ??
     input.campaignConfig?.bid_strategy ??
     null;
   const effectiveManualBid =
     input.adset?.bid_amount != null
       ? parseNum(input.adset.bid_amount)
-      : input.latestSnapshot?.manualBidAmount != null
-        ? input.latestSnapshot.manualBidAmount
-        : input.latestCampaignSnapshot?.manualBidAmount != null
-          ? input.latestCampaignSnapshot.manualBidAmount
-          : input.campaignConfig?.bid_amount != null
-            ? parseNum(input.campaignConfig.bid_amount)
-            : null;
+      : input.campaignConfig?.bid_amount != null
+        ? parseNum(input.campaignConfig.bid_amount)
+        : null;
   const effectiveTargetRoas =
     input.adset?.bid_constraints?.roas_average_floor != null
       ? parseNum(input.adset.bid_constraints.roas_average_floor)
-      : input.latestSnapshot?.bidValueFormat === "roas" &&
-          input.latestSnapshot.bidValue != null
-        ? input.latestSnapshot.bidValue
-        : input.latestCampaignSnapshot?.bidValueFormat === "roas" &&
-            input.latestCampaignSnapshot.bidValue != null
-          ? input.latestCampaignSnapshot.bidValue
-          : input.campaignConfig?.bid_constraints?.roas_average_floor != null
-            ? parseNum(input.campaignConfig.bid_constraints.roas_average_floor)
-            : null;
+      : input.campaignConfig?.bid_constraints?.roas_average_floor != null
+        ? parseNum(input.campaignConfig.bid_constraints.roas_average_floor)
+        : null;
   const effectiveDailyBudget =
     input.adset?.daily_budget != null
       ? parseNum(input.adset.daily_budget)
-      : input.latestSnapshot?.dailyBudget != null
-        ? input.latestSnapshot.dailyBudget
-        : input.latestCampaignSnapshot?.dailyBudget != null
-          ? input.latestCampaignSnapshot.dailyBudget
-          : input.campaignConfig?.daily_budget != null
-            ? parseNum(input.campaignConfig.daily_budget)
-            : null;
+      : input.campaignConfig?.daily_budget != null
+        ? parseNum(input.campaignConfig.daily_budget)
+        : null;
   const effectiveLifetimeBudget =
     input.adset?.lifetime_budget != null
       ? parseNum(input.adset.lifetime_budget)
-      : input.latestSnapshot?.lifetimeBudget != null
-        ? input.latestSnapshot.lifetimeBudget
-        : input.latestCampaignSnapshot?.lifetimeBudget != null
-          ? input.latestCampaignSnapshot.lifetimeBudget
-          : input.campaignConfig?.lifetime_budget != null
-            ? parseNum(input.campaignConfig.lifetime_budget)
-            : null;
+      : input.campaignConfig?.lifetime_budget != null
+        ? parseNum(input.campaignConfig.lifetime_budget)
+        : null;
 
   return {
     payload: buildConfigSnapshotPayload({
       campaignId: input.campaignId,
       optimizationGoal:
         input.adset?.optimization_goal ??
-        input.latestSnapshot?.optimizationGoal ??
-        input.latestCampaignSnapshot?.optimizationGoal ??
         null,
       customEventType:
         input.adset?.promoted_object?.custom_event_type ??
-        input.latestSnapshot?.customEventType ??
         null,
       pixelId:
         input.adset?.promoted_object?.pixel_id ??
-        input.latestSnapshot?.pixelId ??
         null,
       customConversionId:
         input.adset?.promoted_object?.custom_conversion_id ??
-        input.latestSnapshot?.customConversionId ??
         null,
       promotedObject:
         input.adset?.promoted_object ??
-        input.latestSnapshot?.promotedObject ??
         null,
       bidStrategy: effectiveBidStrategy,
       manualBidAmount: effectiveManualBid,
@@ -1011,7 +1016,6 @@ function buildMetaAdSetConfigPayload(input: {
 function buildMetaCampaignDailyConfigRow(input: {
   campaignRow: MetaCampaignDailyRow;
   campaignConfig?: RawCampaign | null;
-  latestCampaignSnapshot?: MetaConfigSnapshotPayload | null;
   adsetPayloads: MetaConfigSnapshotPayload[];
 }): MetaCampaignDailyRow {
   const campaignSummary = summarizeCampaignConfig({
@@ -1039,10 +1043,7 @@ function buildMetaCampaignDailyConfigRow(input: {
   return applyConfigPayloadToDailyRow(
     {
       ...input.campaignRow,
-      objective:
-        input.campaignRow.objective ??
-        input.latestCampaignSnapshot?.objective ??
-        null,
+      objective: input.campaignRow.objective ?? null,
       buyingType:
         input.campaignRow.buyingType ??
         input.campaignConfig?.buying_type ??
@@ -1050,62 +1051,72 @@ function buildMetaCampaignDailyConfigRow(input: {
     },
     {
       ...campaignSummary,
-      optimizationGoal:
-        campaignSummary.optimizationGoal ??
-        input.latestCampaignSnapshot?.optimizationGoal ??
-        null,
-      customEventType:
-        campaignSummary.customEventType ??
-        input.latestCampaignSnapshot?.customEventType ??
-        null,
-      bidStrategyType:
-        campaignSummary.bidStrategyType ??
-        input.latestCampaignSnapshot?.bidStrategyType ??
-        null,
-      bidStrategyLabel:
-        campaignSummary.bidStrategyLabel ??
-        input.latestCampaignSnapshot?.bidStrategyLabel ??
-        null,
-      manualBidAmount:
-        campaignSummary.manualBidAmount ??
-        input.latestCampaignSnapshot?.manualBidAmount ??
-        null,
-      bidValue:
-        campaignSummary.bidValue ??
-        input.latestCampaignSnapshot?.bidValue ??
-        null,
-      bidValueFormat:
-        campaignSummary.bidValueFormat ??
-        input.latestCampaignSnapshot?.bidValueFormat ??
-        null,
-      dailyBudget:
-        campaignSummary.dailyBudget ??
-        input.latestCampaignSnapshot?.dailyBudget ??
-        null,
-      lifetimeBudget:
-        campaignSummary.lifetimeBudget ??
-        input.latestCampaignSnapshot?.lifetimeBudget ??
-        null,
-      isBudgetMixed:
-        Boolean(campaignSummary.isBudgetMixed) ||
-        Boolean(input.latestCampaignSnapshot?.isBudgetMixed),
-      isConfigMixed:
-        Boolean(campaignSummary.isConfigMixed) ||
-        Boolean(input.latestCampaignSnapshot?.isConfigMixed),
-      isOptimizationGoalMixed:
-        Boolean(campaignSummary.isOptimizationGoalMixed) ||
-        Boolean(input.latestCampaignSnapshot?.isOptimizationGoalMixed),
-      isCustomEventTypeMixed:
-        Boolean(campaignSummary.isCustomEventTypeMixed) ||
-        Boolean(input.latestCampaignSnapshot?.isCustomEventTypeMixed),
-      isBidStrategyMixed:
-        Boolean(campaignSummary.isBidStrategyMixed) ||
-        Boolean(input.latestCampaignSnapshot?.isBidStrategyMixed),
-      isBidValueMixed:
-        Boolean(campaignSummary.isBidValueMixed) ||
-        Boolean(input.latestCampaignSnapshot?.isBidValueMixed),
+      optimizationGoal: campaignSummary.optimizationGoal ?? null,
+      customEventType: campaignSummary.customEventType ?? null,
+      bidStrategyType: campaignSummary.bidStrategyType ?? null,
+      bidStrategyLabel: campaignSummary.bidStrategyLabel ?? null,
+      manualBidAmount: campaignSummary.manualBidAmount ?? null,
+      bidValue: campaignSummary.bidValue ?? null,
+      bidValueFormat: campaignSummary.bidValueFormat ?? null,
+      dailyBudget: campaignSummary.dailyBudget ?? null,
+      lifetimeBudget: campaignSummary.lifetimeBudget ?? null,
+      isBudgetMixed: Boolean(campaignSummary.isBudgetMixed),
+      isConfigMixed: Boolean(campaignSummary.isConfigMixed),
+      isOptimizationGoalMixed: Boolean(campaignSummary.isOptimizationGoalMixed),
+      isCustomEventTypeMixed: Boolean(campaignSummary.isCustomEventTypeMixed),
+      isBidStrategyMixed: Boolean(campaignSummary.isBidStrategyMixed),
+      isBidValueMixed: Boolean(campaignSummary.isBidValueMixed),
     },
   );
+}
+
+function optionalProviderNumber(value: string | undefined): number | null {
+  if (value == null || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Config history records only fields in the campaign response itself. */
+function campaignHistoryRowFromProvider(
+  row: MetaCampaignDailyRow,
+  campaign: RawCampaign,
+): MetaCampaignDailyRow {
+  const payload = buildConfigSnapshotPayload({
+    campaignId: campaign.id,
+    objective: campaign.objective ?? null,
+    bidStrategy: campaign.bid_strategy ?? null,
+    manualBidAmount: optionalProviderNumber(campaign.bid_amount),
+    dailyBudget: optionalProviderNumber(campaign.daily_budget),
+    lifetimeBudget: optionalProviderNumber(campaign.lifetime_budget),
+  });
+  return applyConfigPayloadToDailyRow(
+    { ...row, objective: null, optimizationGoal: null, customEventType: null },
+    payload,
+  );
+}
+
+/** A missing adset field is missing in its own receipt, not a parent fallback. */
+function adsetSnapshotPayloadFromProvider(adset: RawAdSet): MetaConfigSnapshotPayload {
+  return buildConfigSnapshotPayload({
+    campaignId: adset.campaign_id ?? null,
+    optimizationGoal: adset.optimization_goal ?? null,
+    customEventType: adset.promoted_object?.custom_event_type ?? null,
+    pixelId: adset.promoted_object?.pixel_id ?? null,
+    customConversionId: adset.promoted_object?.custom_conversion_id ?? null,
+    promotedObject: adset.promoted_object ?? null,
+    bidStrategy: adset.bid_strategy ?? null,
+    manualBidAmount: optionalProviderNumber(adset.bid_amount),
+    targetRoas: optionalProviderNumber(adset.bid_constraints?.roas_average_floor),
+    dailyBudget: optionalProviderNumber(adset.daily_budget),
+    lifetimeBudget: optionalProviderNumber(adset.lifetime_budget),
+  });
+}
+
+function adsetHistoryRowFromProvider(
+  row: MetaAdSetDailyRow,
+  adset: RawAdSet,
+): MetaAdSetDailyRow {
+  return applyConfigPayloadToDailyRow(row, adsetSnapshotPayloadFromProvider(adset));
 }
 
 export type MetaPaginationTermination =
@@ -2027,6 +2038,8 @@ function paginationReceiptContext(
     complete: receipt.complete,
     termination: receipt.termination,
     failure: receipt.failure,
+    startedAt: receipt.startedAt,
+    completedAt: receipt.completedAt,
     // A capture that only completed after the request was narrowed is not the
     // capture the `fields` alongside this receipt describes. Without this the
     // snapshot would claim schedule coverage the response never carried.
@@ -2036,6 +2049,17 @@ function paginationReceiptContext(
     // the field names here are not its cause. See MetaPagedFieldDegradation.
     fieldDegradation: receipt.fieldDegradation,
   };
+}
+
+function rowObservedAtByEntityId<T extends { id: string }>(
+  receipt: MetaPagedCollectionReceipt<T>,
+): Record<string, string> {
+  return Object.fromEntries(
+    receipt.rows.flatMap((row, index) => {
+      const observedAt = receipt.rowObservedAt[index];
+      return row.id && observedAt ? [[row.id, observedAt]] : [];
+    }),
+  );
 }
 
 /**
@@ -2620,6 +2644,30 @@ function mapAdObservationState(input: {
       campaignLifetimeBudgetRaw: null,
       adsetDailyBudgetRaw: null,
       adsetLifetimeBudgetRaw: null,
+      /*
+        ── WHY AN AD ROW HAS A CURRENCY AND NO EXPONENT ──────────────────────
+        An ad owns no budget: all four budget fields above are null and
+        `budgetOrigin` is `not_applicable` by construction, not by observation.
+        There is no amount here to scale, so there is no exponent to record,
+        and this mapper deliberately does NOT spread
+        `metaBudgetCurrencyProvenance` the way the campaign and ad-set mappers
+        do.
+
+        This is the dominant arm of the "70% of state-history rows have a null
+        budget_currency_exponent" figure, and it is not a gap: a 90-day
+        read-only count on production returned ad 265,349 rows with 0 carrying
+        an exponent, ad-set 167,840 with 6,802, campaign 10,094 with 0. The ad
+        share is structural and permanent. Reading that headline as missing
+        data leads to backfilling a scale for amounts that do not exist.
+
+        The currency IS kept, because it labels the ad's own spend figures,
+        which are major-unit and need no offset.
+
+        Adding the stamp here would be worse than useless: `budgetCurrencyExponent`
+        is inside the entity state hash, so it would restate every ad row in
+        every account at once — and the growth fence on this table has already
+        killed a full day of Meta observation writes for far less.
+      */
       budgetCurrency:
         resolveMetaCurrencyForAccount(input.credentials, input.accountId) ??
         null,
@@ -3386,6 +3434,22 @@ type MetaAggregateTotals = {
    * `deriveWarehouseMetrics` resolves it to `number | null` for the warehouse.
    */
   linkClicks?: number;
+  /**
+   * TRUE once any contributing provider row that DID something (impressions,
+   * spend, clicks, purchases or revenue) carried no link-click MEASUREMENT —
+   * no `actions` array, or an unreadable `link_click` entry.
+   *
+   * `linkClicks` alone cannot say that. It is a running sum of the rows that
+   * were measured, so a target whose other rows were not measured still ends
+   * up holding a number, and that partial sum was written to the warehouse as
+   * if it were the ad's whole day. This flag is the other half of
+   * `META_METRIC_WINDOW_COMPLETENESS_RULE` (`lib/meta/funnel-stage-parse.ts`):
+   * once set, `deriveWarehouseMetrics` resolves the target to null no matter
+   * what the sum says. A row that did nothing at all is not a gap — it had no
+   * clicks, so it had no link clicks — which is the same exemption the window
+   * rule gives an inert day.
+   */
+  linkClicksIncomplete?: boolean;
 };
 
 function createEmptyTotals(): MetaAggregateTotals {
@@ -3432,12 +3496,26 @@ function accumulateAdInsight(
   // across pages without any de-duplication of its own — see the
   // no-double-count note on `applyAdInsightRowsToAggregates`.
   //
-  // The null arm is a skip, not a zero: a row Meta reported no actions for
-  // must not drag an ad's measured total down, and must not by itself turn an
-  // unmeasured ad into a measured zero.
+  // The null arm is NOT a skip. It used to be: a row Meta reported no actions
+  // for "contributed nothing", so one measured page rescued an ad whose other
+  // page was never measured and the partial sum was stored as the ad's day
+  // (zero + missing became 0; value + missing became the value). A row that
+  // delivered and carried no measurement now marks the target INCOMPLETE,
+  // which `deriveWarehouseMetrics` resolves to null — the same
+  // complete-or-null rule `resolveMetaCompleteWindowSum` applies to a window
+  // of days. It still never turns an unmeasured ad into a measured zero: with
+  // no measured row, `linkClicks` stays `undefined` and resolves to null.
   const rowLinkClicks = readMetaLinkClicksFromInsight(row);
   if (rowLinkClicks !== null) {
     target.linkClicks = (target.linkClicks ?? 0) + rowLinkClicks;
+  } else if (
+    metrics.impressions > 0 ||
+    metrics.spend > 0 ||
+    metrics.clicks > 0 ||
+    metrics.purchases > 0 ||
+    metrics.revenue > 0
+  ) {
+    target.linkClicksIncomplete = true;
   }
   const frequency = parseNum(row.frequency);
   if (frequency > 0 && metrics.impressions > 0) {
@@ -3472,9 +3550,10 @@ function deriveWarehouseMetrics(
     roas,
     // The one place the optional running total becomes the warehouse's
     // `number | null`. `undefined` (no contributing row carried a measurement)
-    // and `0` (at least one row did, and it measured zero) are kept apart all
-    // the way to the column.
-    linkClicks: input.linkClicks ?? null,
+    // and `0` (every delivering row did, and they measured zero) are kept
+    // apart all the way to the column; an INCOMPLETE target (a delivering row
+    // carried no measurement) is null whatever its partial sum says.
+    linkClicks: input.linkClicksIncomplete ? null : (input.linkClicks ?? null),
   };
 }
 
@@ -4293,10 +4372,22 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   let currentCampaignConfigReceipt: {
     complete: boolean;
     observedAt: string;
+    observedEntityIds: string[];
+    rowObservedAtByEntityId: Record<string, string>;
+    sourceSnapshotId: string | null;
+    fieldScope: string[];
+    partitionId: string;
+    runId: string | null;
   } | null = null;
   let currentAdsetConfigReceipt: {
     complete: boolean;
     observedAt: string;
+    observedEntityIds: string[];
+    rowObservedAtByEntityId: Record<string, string>;
+    sourceSnapshotId: string | null;
+    fieldScope: string[];
+    partitionId: string;
+    runId: string | null;
   } | null = null;
   await captureMetaAccountCoreSubStage({
     businessId: input.credentials.businessId,
@@ -4372,6 +4463,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
                 // without their partition, so nothing linked a capture receipt
                 // back to the payload it was mapped from.
                 partitionId: input.partitionId,
+                runId: input.syncRunId ?? null,
                 since: normalizedDay,
                 until: normalizedDay,
                 payload: campaignReceipt.rows,
@@ -4383,6 +4475,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
                   fields: META_CAMPAIGN_CONFIG_FIELDS,
                   source: "bulk_core_sync",
                   pagination: paginationReceiptContext(campaignReceipt),
+                  rowObservedAtByEntityId: rowObservedAtByEntityId(campaignReceipt),
                 },
               }),
               recordMetaRawSnapshot({
@@ -4394,6 +4487,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
                 // without their partition, so nothing linked a capture receipt
                 // back to the payload it was mapped from.
                 partitionId: input.partitionId,
+                runId: input.syncRunId ?? null,
                 since: normalizedDay,
                 until: normalizedDay,
                 payload: adsetReceipt.rows,
@@ -4405,6 +4499,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
                   fields: META_ADSET_CONFIG_FIELDS,
                   source: "bulk_core_sync",
                   pagination: paginationReceiptContext(adsetReceipt),
+                  rowObservedAtByEntityId: rowObservedAtByEntityId(adsetReceipt),
                 },
               }),
               recordMetaRawSnapshot({
@@ -4416,6 +4511,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
                 // without their partition, so nothing linked a capture receipt
                 // back to the payload it was mapped from.
                 partitionId: input.partitionId,
+                runId: input.syncRunId ?? null,
                 since: normalizedDay,
                 until: normalizedDay,
                 payload: adReceipt.rows,
@@ -4510,10 +4606,32 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         complete: campaignReceipt.complete,
         observedAt:
           campaignReceipt.lastResponseObservedAt ?? campaignReceipt.completedAt,
+        observedEntityIds: campaignReceipt.rows.map((row) => row.id),
+        rowObservedAtByEntityId: rowObservedAtByEntityId(campaignReceipt),
+        sourceSnapshotId: campaignSnapshotId,
+        partitionId: input.partitionId,
+        runId: input.syncRunId ?? null,
+        fieldScope: splitMetaFieldList(META_CAMPAIGN_CONFIG_FIELDS).filter(
+          (field) => !(
+            campaignReceipt.fieldDegradation?.recovered &&
+            campaignReceipt.fieldDegradation.droppedFields.includes(metaFieldName(field))
+          ),
+        ),
       };
       currentAdsetConfigReceipt = {
         complete: adsetReceipt.complete,
         observedAt: adsetReceipt.lastResponseObservedAt ?? adsetReceipt.completedAt,
+        observedEntityIds: adsetReceipt.rows.map((row) => row.id),
+        rowObservedAtByEntityId: rowObservedAtByEntityId(adsetReceipt),
+        sourceSnapshotId: adsetSnapshotId,
+        partitionId: input.partitionId,
+        runId: input.syncRunId ?? null,
+        fieldScope: splitMetaFieldList(META_ADSET_CONFIG_FIELDS).filter(
+          (field) => !(
+            adsetReceipt.fieldDegradation?.recovered &&
+            adsetReceipt.fieldDegradation.droppedFields.includes(metaFieldName(field))
+          ),
+        ),
       };
       campaignConfigs = new Map(
         campaignReceipt.rows.map((campaign) => [campaign.id, campaign]),
@@ -4551,10 +4669,6 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           : null;
     },
   });
-  let campaignIds: string[] = [];
-  let adsetIds: string[] = [];
-  let latestCampaignSnapshots = new Map<string, MetaConfigSnapshotPayload>();
-  let latestAdsetSnapshots = new Map<string, MetaConfigSnapshotPayload>();
   await captureMetaAccountCoreSubStage({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -4563,30 +4677,15 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     lane: partitionLane,
     source: partitionSource,
     day: normalizedDay,
-    stage: "syncMetaAccountCoreWarehouseDay.read_latest_config_snapshots",
+    stage: "syncMetaAccountCoreWarehouseDay.resolve_current_entity_scope",
     run: async () => {
       seedMissingMetaEntitiesFromConfigs(aggregates, {
         campaignConfigs,
         adsetConfigs,
       });
-      campaignIds = Array.from(aggregates.campaigns.keys());
-      adsetIds = Array.from(aggregates.adsets.keys());
-      [latestCampaignSnapshots, latestAdsetSnapshots] = await Promise.all([
-        campaignIds.length > 0
-          ? readLatestMetaConfigSnapshots({
-              businessId: input.credentials.businessId,
-              entityLevel: "campaign",
-              entityIds: campaignIds,
-            })
-          : Promise.resolve(new Map<string, MetaConfigSnapshotPayload>()),
-        adsetIds.length > 0
-          ? readLatestMetaConfigSnapshots({
-              businessId: input.credentials.businessId,
-              entityLevel: "adset",
-              entityIds: adsetIds,
-            })
-          : Promise.resolve(new Map<string, MetaConfigSnapshotPayload>()),
-      ]);
+      // A prior snapshot is a last-known value, not an observation from this
+      // response. Borrowing it for a field the provider omitted made a stale
+      // objective, goal, event or budget look like today's typed config.
     },
   });
   let sourceSnapshotId: string | null = latestSnapshotId;
@@ -4666,11 +4765,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           const adsetConfig = adsetConfigs.get(adsetId) ?? null;
           const configPayload = buildMetaAdSetConfigPayload({
             campaignId: campaignId ?? "",
-            adset: adsetConfig,
-            campaignConfig,
-            latestSnapshot: latestAdsetSnapshots.get(adsetId) ?? null,
-            latestCampaignSnapshot: campaignId
-              ? (latestCampaignSnapshots.get(campaignId) ?? null)
+            // Account inventory is current, even when Insights is dated. The
+            // historical config repair writes separately from dated receipts.
+            adset: persistsCurrentConfigEvidence ? adsetConfig : null,
+            campaignConfig: persistsCurrentConfigEvidence
+              ? campaignConfig
               : null,
           }).payload;
           if (campaignId) {
@@ -4768,10 +4867,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
               campaignNameHistorical: value.name ?? null,
               campaignStatus: campaignStatuses.get(campaignId) ?? null,
               objective:
-                campaignConfigs.get(campaignId)?.objective ??
-                latestCampaignSnapshots.get(campaignId)?.objective ??
-                null,
-              buyingType: campaignConfigs.get(campaignId)?.buying_type ?? null,
+                persistsCurrentConfigEvidence
+                  ? (campaignConfigs.get(campaignId)?.objective ?? null)
+                  : null,
+              buyingType: persistsCurrentConfigEvidence
+                ? (campaignConfigs.get(campaignId)?.buying_type ?? null)
+                : null,
               optimizationGoal: null,
               bidStrategyType: null,
               bidStrategyLabel: null,
@@ -4805,9 +4906,9 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
               validationStatus,
               sourceRunId,
             },
-            campaignConfig: campaignConfigs.get(campaignId) ?? null,
-            latestCampaignSnapshot:
-              latestCampaignSnapshots.get(campaignId) ?? null,
+            campaignConfig: persistsCurrentConfigEvidence
+              ? (campaignConfigs.get(campaignId) ?? null)
+              : null,
             adsetPayloads: adsetPayloadsByCampaign.get(campaignId) ?? [],
           });
         },
@@ -4869,8 +4970,9 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
            * `link_click` entry per provider row, `accumulateAdInsight` sums it
            * per ad across pages, and `deriveWarehouseMetrics` resolves the
            * running total to `number | null`. Null now means exactly what the
-           * warehouse merge already assumes it means: no contributing row
-           * carried a measurement, so
+           * warehouse merge already assumes it means: no complete measurement
+           * exists for this ad-day (no contributing row carried one, or a
+           * delivering row did not — a partial sum is never written), so
            * `link_clicks = COALESCE(EXCLUDED.link_clicks, meta_ad_daily.link_clicks)`
            * leaves whatever was previously measured alone instead of erasing it.
            *
@@ -5148,68 +5250,37 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         incompleteCampaignTruth.length > 0 ||
         incompleteAdSetTruth.length > 0
       ) {
+        // These are configuration gaps, not missing or mismatched Insights
+        // metrics. A historical report cannot borrow today's inventory to
+        // fill them. Keep the config gap visible without failing the core
+        // capture; the decision authority gate handles fields it actually
+        // requires.
         if (authoritativeFinalizationV2Enabled) {
-          await Promise.all([
-            sourceManifestId
-              ? updateMetaAuthoritativeSourceManifest({
-                  manifestId: sourceManifestId,
-                  fetchStatus: "failed",
-                })
-              : Promise.resolve(null),
-            accountSliceVersionId
-              ? updateMetaAuthoritativeSliceVersion({
-                  sliceVersionId: accountSliceVersionId,
-                  state: "failed",
-                  validationStatus: "failed",
-                  status: "failed",
-                })
-              : Promise.resolve(null),
-            campaignSliceVersionId
-              ? updateMetaAuthoritativeSliceVersion({
-                  sliceVersionId: campaignSliceVersionId,
-                  state: "failed",
-                  validationStatus: "failed",
-                  status: "failed",
-                })
-              : Promise.resolve(null),
-            adsetSliceVersionId
-              ? updateMetaAuthoritativeSliceVersion({
-                  sliceVersionId: adsetSliceVersionId,
-                  state: "failed",
-                  validationStatus: "failed",
-                  status: "failed",
-                })
-              : Promise.resolve(null),
-            adSliceVersionId
-              ? updateMetaAuthoritativeSliceVersion({
-                  sliceVersionId: adSliceVersionId,
-                  state: "failed",
-                  validationStatus: "failed",
-                  status: "failed",
-                })
-              : Promise.resolve(null),
-            createMetaAuthoritativeReconciliationEvent({
+          await createMetaAuthoritativeReconciliationEvent({
               businessId: input.credentials.businessId,
               providerAccountId: input.accountId,
               day: normalizedDay,
               surface: "account_daily",
               sliceVersionId: accountSliceVersionId,
               manifestId: sourceManifestId,
-              eventKind: "incomplete_truth",
-              severity: "error",
+              eventKind: "config_fields_missing_from_metric_day",
+              severity: "warning",
               sourceSpend: sourceAccountSpend,
               warehouseAccountSpend: accountRows[0]?.spend ?? 0,
               warehouseCampaignSpend: sumRowSpend(campaignRows),
               toleranceApplied: 0.001,
-              result: "failed",
+              // Reconciliation health is about the metric slice. A config gap
+              // is audited here but must not turn a valid metric publication
+              // into a provider-repair failure.
+              result: "passed",
               detailsJson: {
+                reason: "config_fields_missing_from_metric_day",
                 incompleteCampaignTruth,
                 incompleteAdSetTruth,
               },
-            }),
-          ]);
+            });
         }
-        console.warn("[meta-sync] incomplete_core_truth_detected", {
+        console.warn("[meta-sync] config_fields_missing_from_metric_day", {
           businessId: input.credentials.businessId,
           providerAccountId: input.accountId,
           date: normalizedDay,
@@ -5218,9 +5289,6 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           campaignSample: incompleteCampaignTruth.slice(0, 5),
           adsetSample: incompleteAdSetTruth.slice(0, 5),
         });
-        throw new Error(
-          `Meta core truth incomplete for ${normalizedDay}: campaigns=${incompleteCampaignTruth.length}, adsets=${incompleteAdSetTruth.length}`,
-        );
       }
     },
   });
@@ -5448,12 +5516,23 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     stage: "syncMetaAccountCoreWarehouseDay.persist_campaign_config_snapshots",
     run: async () => {
       persistedCampaignConfigCount =
-        persistsCurrentConfigEvidence
+        persistsCurrentConfigEvidence && currentCampaignConfigReceipt?.complete
           ? await persistMetaCampaignConfigSnapshots({
               businessId: input.credentials.businessId,
               accountId: input.accountId,
               campaignConfigs,
               entityIds: campaignRows.map((row) => row.campaignId),
+              rowObservedAtByEntityId:
+                currentCampaignConfigReceipt.rowObservedAtByEntityId,
+              providerObservation: currentCampaignConfigReceipt?.complete && currentCampaignConfigReceipt.sourceSnapshotId
+                ? {
+                    kind: "provider_config_receipt",
+                    sourceSnapshotId: currentCampaignConfigReceipt.sourceSnapshotId,
+                    observedAt: currentCampaignConfigReceipt.observedAt,
+                    normalizationVersion: 2,
+                    fieldScope: currentCampaignConfigReceipt.fieldScope,
+                  }
+                : undefined,
             })
           : 0;
     },
@@ -5478,6 +5557,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     entityLevel: "adset";
     entityId: string;
     payload: MetaConfigSnapshotPayload;
+    providerObservation?: NonNullable<MetaConfigSnapshotPayload["providerObservation"]>;
   }> = [];
   await captureMetaAccountCoreSubStage({
     businessId: input.credentials.businessId,
@@ -5491,28 +5571,40 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     run: async () => {
       adsetSnapshotRows = adsetRows
         .map((row) => {
-          const campaignConfig =
-            row.campaignId != null
-              ? (campaignConfigs.get(row.campaignId) ?? null)
-              : null;
           const adsetConfig = adsetConfigs.get(row.adsetId) ?? null;
-          if (!adsetConfig && !campaignConfig) return null;
+          if (!adsetConfig) return null;
+          if (
+            currentAdsetConfigReceipt?.complete &&
+            !currentAdsetConfigReceipt.rowObservedAtByEntityId[row.adsetId]
+          ) return null;
           return {
             businessId: input.credentials.businessId,
             accountId: input.accountId,
             entityLevel: "adset" as const,
             entityId: row.adsetId,
-            payload: buildMetaAdSetConfigPayload({
-              campaignId: row.campaignId ?? "",
-              adset: adsetConfig,
-              campaignConfig,
-            }).payload,
+            payload: adsetSnapshotPayloadFromProvider(adsetConfig),
+            ...(currentAdsetConfigReceipt?.complete && currentAdsetConfigReceipt.sourceSnapshotId
+              ? { providerObservation: {
+                  kind: "provider_config_receipt" as const,
+                  sourceSnapshotId: currentAdsetConfigReceipt.sourceSnapshotId,
+                  observedAt:
+                    currentAdsetConfigReceipt.rowObservedAtByEntityId[row.adsetId] ??
+                    currentAdsetConfigReceipt.observedAt,
+                  entityUpdatedAt: adsetConfig.updated_time ?? null,
+                  observedFieldScope: observedMetaConfigFieldScope(
+                    currentAdsetConfigReceipt.fieldScope,
+                    adsetConfig as unknown as Record<string, unknown>,
+                  ),
+                  normalizationVersion: 2,
+                  fieldScope: currentAdsetConfigReceipt.fieldScope,
+                } }
+              : {}),
           };
         })
         .filter((row): row is NonNullable<typeof row> => Boolean(row));
       // Same inversion as campaign snapshots above: current adset inventory
       // must not be appended as config history for a historical effective day.
-      if (persistsCurrentConfigEvidence && adsetSnapshotRows.length > 0) {
+      if (persistsCurrentConfigEvidence && currentAdsetConfigReceipt?.complete && adsetSnapshotRows.length > 0) {
         await appendMetaConfigSnapshots(adsetSnapshotRows);
       }
     },
@@ -5554,9 +5646,42 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             `${input.credentials.businessId}:${input.accountId}:${normalizedDay}`,
         );
       }
+      if (
+        (currentCampaignConfigReceipt.complete &&
+          currentCampaignConfigReceipt.observedEntityIds.length > 0 &&
+          !currentCampaignConfigReceipt.sourceSnapshotId) ||
+        (currentAdsetConfigReceipt.complete &&
+          currentAdsetConfigReceipt.observedEntityIds.length > 0 &&
+          !currentAdsetConfigReceipt.sourceSnapshotId)
+      ) {
+        throw new Error("meta_current_config_history_missing_raw_source");
+      }
+      const missingCampaignObjectiveCount = campaignRows.filter((row) => {
+        const observed = campaignConfigs.get(row.campaignId);
+        return observed && !observed.objective?.trim();
+      }).length;
+      const missingAdsetGoalCount = adsetRows.filter((row) => {
+        const observed = adsetConfigs.get(row.adsetId);
+        return observed && !observed.optimization_goal?.trim();
+      }).length;
+      if (missingCampaignObjectiveCount || missingAdsetGoalCount) {
+        console.warn("[meta-config-history] mandatory_fields_missing_in_complete_receipt", {
+          businessId: input.credentials.businessId,
+          providerAccountId: input.accountId,
+          date: normalizedDay,
+          missingCampaignObjectiveCount,
+          missingAdsetGoalCount,
+        });
+      }
       currentConfigHistoryWritten = await appendMetaCurrentConfigHistory({
-        campaignRows,
-        adsetRows,
+        campaignRows: campaignRows.flatMap((row) => {
+          const observed = campaignConfigs.get(row.campaignId);
+          return observed ? [campaignHistoryRowFromProvider(row, observed)] : [];
+        }),
+        adsetRows: adsetRows.flatMap((row) => {
+          const observed = adsetConfigs.get(row.adsetId);
+          return observed ? [adsetHistoryRowFromProvider(row, observed)] : [];
+        }),
         campaignReceipt: currentCampaignConfigReceipt,
         adsetReceipt: currentAdsetConfigReceipt,
       });
@@ -6880,7 +7005,7 @@ async function fetchCampaignStatuses(
     until: today,
     payload: receipt.rows,
     status: receipt.complete ? "fetched" : "failed",
-    providerHttpStatus: receipt.failure?.httpStatus ?? null,
+    providerHttpStatus: receipt.complete ? 200 : (receipt.failure?.httpStatus ?? null),
     requestContext: {
       fields: "id,name,effective_status,status,updated_time",
       pagination: paginationReceiptContext(receipt),
@@ -6916,19 +7041,29 @@ export async function fetchMetaCampaignStatusReceipt(
   return fetchMetaPagedCollectionReceipt<RawCampaign>(url.toString());
 }
 
+interface MetaCurrentCampaignReceiptObservation {
+  sourceSnapshotId: string | null;
+  observedAt: string;
+  rowObservedAtByEntityId: Record<string, string>;
+  fieldScope: string[];
+}
+
 export async function fetchMetaCampaignConfigs(
   credentials: MetaCredentials,
   accountId: string,
   accessToken: string,
-  options?: { recordRawSnapshots?: boolean },
+  options?: {
+    recordRawSnapshots?: boolean;
+    onReceipt?: (observation: MetaCurrentCampaignReceiptObservation) => void;
+  },
 ): Promise<Map<string, RawCampaign>> {
   const receipt = await fetchMetaCampaignConfigsReceipt(accountId, accessToken);
   const today = new Date().toISOString().slice(0, 10);
   // Capture by default, because the sync path uses this to capture. A read-only
   // caller passes false: this is current inventory keyed by today, and appending
   // it on every page load is a write the caller did not ask for.
-  if (options?.recordRawSnapshots !== false)
-    await recordMetaRawSnapshot({
+  const sourceSnapshotId = options?.recordRawSnapshots !== false
+    ? await recordMetaRawSnapshot({
       credentials,
       accountId,
       endpointName: "campaign_configs",
@@ -6937,18 +7072,31 @@ export async function fetchMetaCampaignConfigs(
       until: today,
       payload: receipt.rows,
       status: receipt.complete ? "fetched" : "failed",
-      providerHttpStatus: receipt.failure?.httpStatus ?? null,
+      providerHttpStatus: receipt.complete ? 200 : (receipt.failure?.httpStatus ?? null),
       requestContext: {
         fields: META_CAMPAIGN_CONFIG_FIELDS,
         pagination: paginationReceiptContext(receipt),
+        rowObservedAtByEntityId: rowObservedAtByEntityId(receipt),
       },
-    });
+    })
+    : null;
   if (!receipt.complete) {
     throw new MetaGraphRequestError(
       `meta_campaign_configs_incomplete:${receipt.termination}`,
       receipt,
     );
   }
+  options?.onReceipt?.({
+    sourceSnapshotId,
+    observedAt: receipt.lastResponseObservedAt ?? receipt.completedAt,
+    rowObservedAtByEntityId: rowObservedAtByEntityId(receipt),
+    fieldScope: splitMetaFieldList(META_CAMPAIGN_CONFIG_FIELDS).filter(
+      (field) => !(
+        receipt.fieldDegradation?.recovered &&
+        receipt.fieldDegradation.droppedFields.includes(metaFieldName(field))
+      ),
+    ),
+  });
   return new Map(receipt.rows.map((campaign) => [campaign.id, campaign]));
 }
 
@@ -7031,6 +7179,8 @@ async function persistMetaCampaignConfigSnapshots(input: {
   accountId: string;
   campaignConfigs: Map<string, RawCampaign>;
   entityIds?: string[] | null;
+  rowObservedAtByEntityId?: Readonly<Record<string, string>>;
+  providerObservation?: NonNullable<MetaConfigSnapshotPayload["providerObservation"]>;
 }): Promise<number> {
   const entityIds = input.entityIds?.length
     ? Array.from(new Set(input.entityIds.filter(Boolean)))
@@ -7041,11 +7191,26 @@ async function persistMetaCampaignConfigSnapshots(input: {
     .map((campaignId) => {
       const campaign = input.campaignConfigs.get(campaignId);
       if (!campaign) return null;
+      if (input.rowObservedAtByEntityId &&
+          !input.rowObservedAtByEntityId[campaignId]) return null;
       return {
         businessId: input.businessId,
         accountId: input.accountId,
         entityLevel: "campaign" as const,
         entityId: campaignId,
+        providerObservation: input.providerObservation
+          ? {
+              ...input.providerObservation,
+              observedAt:
+                input.rowObservedAtByEntityId?.[campaignId] ??
+                input.providerObservation.observedAt,
+              entityUpdatedAt: campaign.updated_time ?? null,
+              observedFieldScope: observedMetaConfigFieldScope(
+                input.providerObservation.fieldScope,
+                campaign as unknown as Record<string, unknown>,
+              ),
+            }
+          : undefined,
         payload: buildConfigSnapshotPayload({
           campaignId,
           objective: campaign.objective ?? null,
@@ -7163,6 +7328,9 @@ export async function getCampaigns(
         since: normalizedSince,
         until: normalizedUntil,
         run: async () => {
+          const campaignReceipt = {
+            value: null as MetaCurrentCampaignReceiptObservation | null,
+          };
           const [statusMap, insights, campaignConfigs] = await Promise.all([
             fetchCampaignStatuses(
               credentials,
@@ -7180,6 +7348,7 @@ export async function getCampaigns(
               credentials,
               accountId,
               credentials.accessToken,
+              { onReceipt: (observation) => { campaignReceipt.value = observation; } },
             ),
           ]);
           const profile = credentials.accountProfiles[accountId];
@@ -7196,17 +7365,34 @@ export async function getCampaigns(
             normalizedDay: normalizedDate,
             accountToday: getTodayIsoForTimeZone(profile?.timezone ?? "UTC"),
           });
-          if (campaignCurrentEvidence.persistsCurrentConfigEvidence) {
+          const campaignReceiptObservation = campaignReceipt.value;
+          if (campaignCurrentEvidence.persistsCurrentConfigEvidence &&
+              campaignReceiptObservation?.sourceSnapshotId) {
             await persistMetaCampaignConfigSnapshots({
               businessId: credentials.businessId,
               accountId,
               campaignConfigs,
+              rowObservedAtByEntityId:
+                campaignReceiptObservation.rowObservedAtByEntityId,
+              providerObservation: {
+                kind: "provider_config_receipt",
+                sourceSnapshotId: campaignReceiptObservation.sourceSnapshotId,
+                observedAt: campaignReceiptObservation.observedAt,
+                normalizationVersion: 2,
+                fieldScope: campaignReceiptObservation.fieldScope,
+              },
             });
           }
 
           for (const insight of insights) {
             const campaignId = insight.campaign_id ?? "";
-            const campaignConfig = campaignConfigs.get(campaignId);
+            // A date-scoped Insights row does not make the undated campaign
+            // inventory a historical configuration observation.
+            const campaignConfig =
+              isSingleDayWindow(normalizedSince, normalizedUntil) &&
+              campaignCurrentEvidence.persistsCurrentConfigEvidence
+                ? campaignConfigs.get(campaignId)
+                : undefined;
             const config = buildConfigSnapshotPayload({
               campaignId,
               objective: campaignConfig?.objective ?? null,
@@ -7438,15 +7624,30 @@ export async function backfillMetaCampaignConfigSnapshots(input: {
 
   await Promise.all(
     accountIds.map(async (accountId) => {
+      const campaignReceipt = {
+        value: null as MetaCurrentCampaignReceiptObservation | null,
+      };
       const campaignConfigs = await fetchMetaCampaignConfigs(
         credentials,
         accountId,
         credentials.accessToken,
+        { onReceipt: (observation) => { campaignReceipt.value = observation; } },
       ).catch(() => new Map<string, RawCampaign>());
+      const campaignReceiptObservation = campaignReceipt.value;
+      if (!campaignReceiptObservation?.sourceSnapshotId) return;
       persistedSnapshots += await persistMetaCampaignConfigSnapshots({
         businessId: credentials.businessId,
         accountId,
         campaignConfigs,
+        rowObservedAtByEntityId:
+          campaignReceiptObservation.rowObservedAtByEntityId,
+        providerObservation: {
+          kind: "provider_config_receipt",
+          sourceSnapshotId: campaignReceiptObservation.sourceSnapshotId,
+          observedAt: campaignReceiptObservation.observedAt,
+          normalizationVersion: 2,
+          fieldScope: campaignReceiptObservation.fieldScope,
+        },
       });
     }),
   );
@@ -7503,6 +7704,12 @@ export async function getAdSets(
 
   await Promise.all(
     targetAccountIds.map(async (accountId) => {
+      const profile = credentials.accountProfiles[accountId];
+      const isAccountCurrentDay =
+        Boolean(profile?.timezone) &&
+        isSingleDayWindow(normalizedSince, normalizedUntil) &&
+        isCurrentDayForTimezone(normalizedSince, profile?.timezone ?? null);
+      const captureCurrentConfig = recordRawSnapshots && isAccountCurrentDay;
       // Fetch adset metadata (status, budget) scoped to the campaign
       const statusUrl = new URL(
         `https://graph.facebook.com/v25.0/${accountId}/adsets`,
@@ -7539,12 +7746,11 @@ export async function getAdSets(
       insightUrl.searchParams.set("access_token", credentials.accessToken);
 
       try {
-        const [statusRes, insightRes, campaignConfigs] = await Promise.all([
-          fetchWithTimeout(
-            statusUrl.toString(),
-            { cache: "no-store" },
-            { timeoutMs: META_FETCH_TIMEOUT_MS, label: "Meta adset status" },
-          ),
+        const campaignReceipt = {
+          value: null as MetaCurrentCampaignReceiptObservation | null,
+        };
+        const [statusReceipt, insightRes, campaignConfigs] = await Promise.all([
+          fetchMetaPagedCollectionReceipt<RawAdSet>(statusUrl.toString()),
           fetchWithTimeout(
             insightUrl.toString(),
             { cache: "no-store" },
@@ -7554,33 +7760,40 @@ export async function getAdSets(
             credentials,
             accountId,
             credentials.accessToken,
-            { recordRawSnapshots },
+            {
+              recordRawSnapshots: captureCurrentConfig,
+              onReceipt: (observation) => {
+                campaignReceipt.value = observation;
+              },
+            },
           ),
         ]);
 
-        const statusJson = statusRes.ok
-          ? ((await statusRes.json()) as MetaGraphCollectionResponse<RawAdSet>)
-          : { data: [] as RawAdSet[] };
         const insightJson = insightRes.ok
           ? ((await insightRes.json()) as { data?: RawAdSetInsight[] })
           : { data: [] as RawAdSetInsight[] };
-        if (recordRawSnapshots)
-          await recordMetaRawSnapshot({
+        const campaignReceiptObservation = campaignReceipt.value;
+        const statusObservedAtById = rowObservedAtByEntityId(statusReceipt);
+        const statusSourceSnapshotId = captureCurrentConfig
+          ? await recordMetaRawSnapshot({
             credentials,
             accountId,
             endpointName: "adset_statuses",
             entityScope: "adset",
             since: normalizedSince,
             until: normalizedUntil,
-            payload: statusJson.data ?? [],
-            status: statusRes.ok ? "fetched" : "failed",
-            providerHttpStatus: statusRes.status,
+            payload: statusReceipt.rows,
+            status: statusReceipt.complete ? "fetched" : "failed",
+            providerHttpStatus: statusReceipt.failure?.httpStatus ??
+              (statusReceipt.complete ? 200 : null),
             requestContext: {
               campaignId,
-              fields:
-                "id,name,campaign_id,effective_status,status,updated_time,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}",
+              fields: statusUrl.searchParams.get("fields"),
+              pagination: paginationReceiptContext(statusReceipt),
+              rowObservedAtByEntityId: statusObservedAtById,
             },
-          });
+          })
+          : null;
         if (recordRawSnapshots)
           await recordMetaRawSnapshot({
             credentials,
@@ -7594,57 +7807,26 @@ export async function getAdSets(
             providerHttpStatus: insightRes.status,
             requestContext: { campaignId: campaignId ?? null, level: "adset" },
           });
-        const allStatusRows = statusJson.paging?.next
-          ? await fetchPagedCollection<RawAdSet>(statusUrl.toString())
-          : (statusJson.data ?? []);
+        const allStatusRows = statusReceipt.rows;
         const statusRows = campaignId
           ? allStatusRows.filter((adset) => adset.campaign_id === campaignId)
           : allStatusRows;
         const statusMap = new Map<string, RawAdSet>(
           statusRows.map((a) => [a.id, a]),
         );
-        const profile = credentials.accountProfiles[accountId];
         // Snapshot reads are intentionally limited to the current-day live path.
         const allowSnapshotReadForTodayLive =
-          businessId != null &&
-          isSingleDayWindow(normalizedSince, normalizedUntil) &&
-          isCurrentDayForTimezone(normalizedSince, profile?.timezone ?? null);
-        const [
-          latestSnapshots,
-          latestCampaignSnapshots,
-          previousDiffs,
-          previousCampaignDiffs,
-        ] = allowSnapshotReadForTodayLive
-          ? await Promise.all([
-              readLatestMetaConfigSnapshots({
-                businessId,
-                entityLevel: "adset",
-                entityIds: Array.from(
-                  new Set([
-                    ...statusRows.map((adset) => adset.id),
-                    ...(insightJson.data ?? [])
-                      .map((adset) => adset.adset_id ?? "")
-                      .filter(Boolean),
-                  ]),
-                ),
-              }),
-              readLatestMetaConfigSnapshots({
-                businessId,
-                entityLevel: "campaign",
-                entityIds: Array.from(
-                  new Set(
-                    [
-                      ...statusRows.map((adset) => adset.campaign_id ?? ""),
-                      ...(insightJson.data ?? []).map(
-                        (adset) => adset.campaign_id ?? "",
-                      ),
-                    ].filter(Boolean),
-                  ),
-                ),
-              }),
-              includePrev
-                ? readPreviousDifferentMetaConfigDiffs({
+          businessId != null && isAccountCurrentDay;
+        // A fresh status response missing one field cannot silently borrow
+        // that field from an older snapshot and write it as today's config.
+        // Previous values remain available only for explicitly historical
+        // comparison fields.
+        const [previousDiffs, previousCampaignDiffs] =
+          allowSnapshotReadForTodayLive && includePrev
+            ? await Promise.all([
+                readPreviousDifferentMetaConfigDiffs({
                     businessId,
+                    providerAccountId: accountId,
                     entityLevel: "adset",
                     entityIds: Array.from(
                       new Set([
@@ -7654,11 +7836,10 @@ export async function getAdSets(
                           .filter(Boolean),
                       ]),
                     ),
-                  })
-                : Promise.resolve(new Map()),
-              includePrev
-                ? readPreviousDifferentMetaConfigDiffs({
+                  }),
+                readPreviousDifferentMetaConfigDiffs({
                     businessId,
+                    providerAccountId: accountId,
                     entityLevel: "campaign",
                     entityIds: Array.from(
                       new Set(
@@ -7670,10 +7851,9 @@ export async function getAdSets(
                         ].filter(Boolean),
                       ),
                     ),
-                  })
-                : Promise.resolve(new Map()),
-            ])
-          : [new Map(), new Map(), new Map(), new Map()];
+                  }),
+              ])
+            : [new Map(), new Map()];
 
         for (const insight of insightJson.data ?? []) {
           if (campaignId && insight.campaign_id !== campaignId) continue;
@@ -7682,26 +7862,25 @@ export async function getAdSets(
           const resolvedCampaignId =
             insight.campaign_id ?? statusMap.get(adsetId)?.campaign_id ?? "";
           const meta = statusMap.get(adsetId);
-          const latestSnapshot = latestSnapshots.get(adsetId);
-          const latestCampaignSnapshot =
-            latestCampaignSnapshots.get(resolvedCampaignId);
           const campaignConfig =
             campaignConfigs.get(resolvedCampaignId) ?? null;
+          const observedAdset = allowSnapshotReadForTodayLive ? meta : null;
+          const observedCampaign = allowSnapshotReadForTodayLive
+            ? campaignConfig
+            : null;
           const previousDiff = previousDiffs.get(adsetId);
           const previousCampaignDiff =
             previousCampaignDiffs.get(resolvedCampaignId);
           const usesCampaignBudgetFallback =
-            meta?.daily_budget == null &&
-            meta?.lifetime_budget == null &&
-            (campaignConfig?.daily_budget != null ||
-              campaignConfig?.lifetime_budget != null);
+            observedAdset?.daily_budget == null &&
+            observedAdset?.lifetime_budget == null &&
+            (observedCampaign?.daily_budget != null ||
+              observedCampaign?.lifetime_budget != null);
           const { payload: config, usesCampaignBidFallback } =
             buildMetaAdSetConfigPayload({
               campaignId: resolvedCampaignId,
-              adset: meta,
-              campaignConfig,
-              latestSnapshot,
-              latestCampaignSnapshot,
+              adset: observedAdset,
+              campaignConfig: observedCampaign,
             });
           results.push({
             id: adsetId,
@@ -7715,7 +7894,9 @@ export async function getAdSets(
               campaignConfig?.status ??
               "UNKNOWN",
             statusUpdatedAt: meta?.updated_time ?? null,
-            budgetLevel: usesCampaignBudgetFallback ? "campaign" : "adset",
+            budgetLevel: allowSnapshotReadForTodayLive
+              ? usesCampaignBudgetFallback ? "campaign" : "adset"
+              : null,
             dailyBudget: config.dailyBudget,
             lifetimeBudget: config.lifetimeBudget,
             optimizationGoal: config.optimizationGoal,
@@ -7866,65 +8047,55 @@ export async function getAdSets(
                     .filter(Boolean),
                 ),
               );
+          const adsetFieldScope = splitMetaFieldList(
+            statusUrl.searchParams.get("fields") ?? "",
+          );
           await Promise.all([
-            appendMetaConfigSnapshots(
-              statusRows.map((meta) => {
-                const resolvedCampaignId =
-                  meta.campaign_id ?? campaignId ?? null;
-                const campaignConfig = resolvedCampaignId
-                  ? (campaignConfigs.get(resolvedCampaignId) ?? null)
-                  : null;
-                return {
+            statusReceipt.complete && statusSourceSnapshotId
+              ? appendMetaConfigSnapshots(
+                  statusRows.flatMap((meta) => {
+                    const observedAt = statusObservedAtById[meta.id];
+                    if (!observedAt) return [];
+                    return [{
+                      businessId,
+                      accountId,
+                      entityLevel: "adset" as const,
+                      entityId: meta.id,
+                      payload: adsetSnapshotPayloadFromProvider(meta),
+                      providerObservation: {
+                        kind: "provider_config_receipt" as const,
+                        sourceSnapshotId: statusSourceSnapshotId,
+                        observedAt,
+                        entityUpdatedAt: meta.updated_time ?? null,
+                        normalizationVersion: 2 as const,
+                        fieldScope: adsetFieldScope,
+                        observedFieldScope: observedMetaConfigFieldScope(
+                          adsetFieldScope,
+                          meta as unknown as Record<string, unknown>,
+                        ),
+                      },
+                    }];
+                  }),
+                )
+              : Promise.resolve(),
+            campaignReceiptObservation?.sourceSnapshotId
+              ? persistMetaCampaignConfigSnapshots({
                   businessId,
                   accountId,
-                  entityLevel: "adset" as const,
-                  entityId: meta.id,
-                  payload: buildConfigSnapshotPayload({
-                    campaignId: resolvedCampaignId,
-                    optimizationGoal: meta.optimization_goal ?? null,
-                    customEventType:
-                      meta.promoted_object?.custom_event_type ?? null,
-                    pixelId: meta.promoted_object?.pixel_id ?? null,
-                    customConversionId:
-                      meta.promoted_object?.custom_conversion_id ?? null,
-                    promotedObject: meta.promoted_object ?? null,
-                    bidStrategy:
-                      meta.bid_strategy ?? campaignConfig?.bid_strategy ?? null,
-                    manualBidAmount:
-                      meta.bid_amount != null
-                        ? parseNum(meta.bid_amount)
-                        : campaignConfig?.bid_amount != null
-                          ? parseNum(campaignConfig.bid_amount)
-                          : null,
-                    targetRoas: meta.bid_constraints?.roas_average_floor
-                      ? parseNum(meta.bid_constraints.roas_average_floor)
-                      : campaignConfig?.bid_constraints?.roas_average_floor
-                        ? parseNum(
-                            campaignConfig.bid_constraints.roas_average_floor,
-                          )
-                        : null,
-                    dailyBudget:
-                      meta.daily_budget != null
-                        ? parseNum(meta.daily_budget)
-                        : campaignConfig?.daily_budget != null
-                          ? parseNum(campaignConfig.daily_budget)
-                          : null,
-                    lifetimeBudget:
-                      meta.lifetime_budget != null
-                        ? parseNum(meta.lifetime_budget)
-                        : campaignConfig?.lifetime_budget != null
-                          ? parseNum(campaignConfig.lifetime_budget)
-                          : null,
-                  }),
-                };
-              }),
-            ),
-            persistMetaCampaignConfigSnapshots({
-              businessId,
-              accountId,
-              campaignConfigs,
-              entityIds: campaignEntityIds,
-            }),
+                  campaignConfigs,
+                  entityIds: campaignEntityIds,
+                  rowObservedAtByEntityId:
+                    campaignReceiptObservation.rowObservedAtByEntityId,
+                  providerObservation: {
+                    kind: "provider_config_receipt",
+                    sourceSnapshotId:
+                      campaignReceiptObservation.sourceSnapshotId,
+                    observedAt: campaignReceiptObservation.observedAt,
+                    normalizationVersion: 2,
+                    fieldScope: campaignReceiptObservation.fieldScope,
+                  },
+                })
+              : Promise.resolve(0),
           ]);
         }
       } catch {

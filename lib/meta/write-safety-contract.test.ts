@@ -16,7 +16,6 @@ afterEach(() => {
   for (const key of [
     "META_LAUNCHPAD_EXECUTION",
     "META_AUTOMATION_LIVE_WRITES",
-    "META_DECISION_WORKFLOW_UI",
   ]) {
     if (ORIGINAL[key] === undefined) delete process.env[key];
     else process.env[key] = ORIGINAL[key];
@@ -110,7 +109,6 @@ describe("an open gate requires a conforming family", () => {
     for (const key of [
       "META_LAUNCHPAD_EXECUTION",
       "META_AUTOMATION_LIVE_WRITES",
-      "META_DECISION_WORKFLOW_UI",
     ]) {
       delete process.env[key];
     }
@@ -141,7 +139,6 @@ describe("an open gate requires a conforming family", () => {
 
   it("lets the two conforming families open their gates without complaint", () => {
     process.env.META_AUTOMATION_LIVE_WRITES = "true";
-    process.env.META_DECISION_WORKFLOW_UI = "true";
     delete process.env.META_LAUNCHPAD_EXECUTION;
     expect(openGatesWithMissingSteps()).toEqual([]);
   });

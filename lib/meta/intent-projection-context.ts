@@ -1,3 +1,4 @@
+import { metaBidValueToMinorUnits } from "@/lib/meta/configuration";
 /**
  * The per-entity facts the budget and bid sizing policies need, read once.
  *
@@ -345,16 +346,26 @@ export async function readIntentProjectionContexts(input: {
     /*
       A cap in MINOR units, or nothing.
 
-      `bid_value` is a major-unit currency amount and the sizing contract works
-      in minor units throughout. Without a captured exponent the scale is
-      unknown, and a number whose scale is unknown is not a number.
+      This used to read `bid_value` as a MAJOR-unit amount and multiply it by
+      `10 ** exponent`. It is already in provider minor units — `live.ts` stores
+      Meta's `bid_amount` unscaled — so that squared the scale: a $120.00 cap
+      became $12,000.00 on USD, and 1000x on KWD. On JPY (exponent 0) the same
+      bug is invisible, which is why it survived.
+
+      Verified read-only against the provider: ad set `120251964734540042`
+      returns a bid amount of 120 USD and this warehouse stores 12000 for it.
+      See `metaBidValueToMinorUnits` for the full evidence and the contract.
+
+      The conversion now lives in exactly one place and fails closed: a ROAS
+      ratio, an unknown currency scale, or a value that is not a whole number of
+      minor units yields no cap rather than a guessed one.
     */
-    const capMinor =
-      bid?.bid_value_format === "currency"
-      && num(bid.bid_value) !== null
-      && exponent !== null
-        ? Math.round(num(bid.bid_value)! * 10 ** exponent)
-        : null;
+    const capRead = metaBidValueToMinorUnits({
+      bidValue: num(bid?.bid_value),
+      bidValueFormat: bid?.bid_value_format,
+      currencyExponent: exponent,
+    });
+    const capMinor = capRead.ok ? capRead.minorUnits : null;
 
     bidByAdsetId.set(row.entity_id, {
       bidStrategyType: bid?.bid_strategy_type ?? null,

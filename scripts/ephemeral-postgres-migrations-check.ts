@@ -31,7 +31,11 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { Client } from "pg";
 import type { DbClient } from "@/lib/db";
-import { inspectEvaluationStoreSchemaCapability } from "@/lib/creative-decision-engine/evaluation-store";
+import {
+  INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY,
+  READ_AD_DECISION_INPUT_EVIDENCE_QUERY,
+  inspectEvaluationStoreSchemaCapability,
+} from "@/lib/creative-decision-engine/evaluation-store";
 import { inspectNativeAdCalibrationSchemaCapability } from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
 import { inspectAdDecisionOutcomeSchemaCapability } from "@/lib/creative-decision-engine/jobs/ad-decision-outcomes-job";
 import {
@@ -40,11 +44,11 @@ import {
   NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION,
 } from "@/lib/creative-decision-engine/jobs/ad-operator-response-job";
 import { AD_DECISIONS_JOB_NAME } from "@/lib/creative-decision-engine/jobs/ad-decisions-job";
+import { READ_NATIVE_AD_DECISION_RETRY_BACKOFFS_SQL } from "@/lib/creative-decision-engine/jobs/native-ad-scheduled";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/execution-safety";
 import {
   NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
-  NATIVE_DECISION_RUNNING_GRACE_MS,
   READ_NATIVE_DECISION_GENERATION_QUERY,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { createControlledExperimentRegistryStore } from "@/lib/meta/controlled-experiment-registry";
@@ -75,6 +79,7 @@ const REQUIRED_TABLES = [
   "engine_v3_ad_account_calibration_batches",
   "engine_v3_ad_account_calibration_daily",
   "engine_v3_ad_decision_evaluation_contexts",
+  "engine_v3_ad_decision_input_evidence",
   "engine_v3_ad_decision_evaluations",
   "engine_v3_ad_decision_snapshots_daily",
   "engine_v3_ad_decision_events",
@@ -1305,6 +1310,104 @@ async function assertNativeSchemaCapabilities(
   }
 }
 
+async function assertNativeInputEvidenceSeam(
+  client: Client,
+  failures: string[],
+): Promise<void> {
+  const contractVersion = "ephemeral-input-evidence-seam.v1";
+  const inputHash = "e".repeat(64);
+  const expectedPayload = [
+    {
+      contract_version: contractVersion,
+      input_hash: inputHash,
+      input_evidence_json: { marker: "expected" },
+    },
+  ];
+  const conflictingPayload = [
+    {
+      contract_version: contractVersion,
+      input_hash: inputHash,
+      input_evidence_json: { marker: "conflict" },
+    },
+  ];
+
+  const { rows: inlineColumnRows } = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'engine_v3_ad_decision_evaluations'
+         AND column_name = 'input_evidence_json'
+     ) AS exists`,
+  );
+  if (inlineColumnRows[0]?.exists) {
+    failures.push(
+      "engine_v3_ad_decision_evaluations was widened with input_evidence_json",
+    );
+  } else {
+    log("native evaluation table has no inline input-evidence column");
+  }
+
+  await client.query(INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY, [
+    JSON.stringify(expectedPayload),
+  ]);
+  const { rows: firstRows } = await client.query<{
+    created_at: string;
+    updated_at: string;
+  }>(
+    `SELECT created_at::text, updated_at::text
+       FROM engine_v3_ad_decision_input_evidence
+      WHERE contract_version = $1 AND input_hash = $2`,
+    [contractVersion, inputHash],
+  );
+  await client.query(INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY, [
+    JSON.stringify(expectedPayload),
+  ]);
+  const { rows: idempotentRows } = await client.query<{
+    row_count: string;
+    created_at: string;
+    updated_at: string;
+  }>(
+    `SELECT count(*)::text AS row_count,
+            min(created_at)::text AS created_at,
+            min(updated_at)::text AS updated_at
+       FROM engine_v3_ad_decision_input_evidence
+      WHERE contract_version = $1 AND input_hash = $2`,
+    [contractVersion, inputHash],
+  );
+  const idempotent = idempotentRows[0];
+  if (
+    idempotent?.row_count !== "1" ||
+    idempotent.created_at !== firstRows[0]?.created_at ||
+    idempotent.updated_at !== firstRows[0]?.updated_at
+  ) {
+    failures.push(
+      "native input-evidence retry was not an idempotent timestamp-preserving no-op",
+    );
+  }
+
+  const { rows: matchedRows } = await client.query<{
+    evidence_matches: boolean;
+  }>(READ_AD_DECISION_INPUT_EVIDENCE_QUERY, [JSON.stringify(expectedPayload)]);
+  if (matchedRows[0]?.evidence_matches !== true) {
+    failures.push("native input-evidence readback did not match its JSON");
+  }
+
+  await client.query(INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY, [
+    JSON.stringify(conflictingPayload),
+  ]);
+  const { rows: conflictRows } = await client.query<{
+    evidence_matches: boolean;
+  }>(READ_AD_DECISION_INPUT_EVIDENCE_QUERY, [
+    JSON.stringify(conflictingPayload),
+  ]);
+  if (conflictRows[0]?.evidence_matches !== false) {
+    failures.push("native input-evidence hash/JSON collision was not detected");
+  } else {
+    log("native input-evidence idempotency and collision seam ok");
+  }
+}
+
 
 /**
  * The proposal lineage widening, and the reason it needs watching.
@@ -1604,6 +1707,18 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
+    // Parse and bind the production retry-fingerprint statement against the
+    // fully migrated catalog. Unit tests drive its decision table with mocks;
+    // this empty scope is the schema/SQL half of that gate.
+    await client.query(READ_NATIVE_AD_DECISION_RETRY_BACKOFFS_SQL, [
+      [],
+      "2026-07-10",
+      NATIVE_AD_ENGINE_VERSION,
+      AD_DECISIONS_JOB_NAME,
+      "2026-07-10T12:00:00.000Z",
+      "2026-07-10T03:00:00.000Z",
+    ]);
+
     const failures: string[] = [];
 
     for (const table of REQUIRED_TABLES) {
@@ -1813,6 +1928,7 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
     }
 
     await assertNativeSchemaCapabilities(client, failures);
+    await assertNativeInputEvidenceSeam(client, failures);
     await assertProposalLineageWidening(client, failures);
     await assertRoleAuthorityRetention(client, failures);
     await assertAccountProfileOutputRetention(client, failures);
@@ -2784,12 +2900,11 @@ async function assertNativeDecisionAttemptDurability(
         "act_seam",
         AD_DECISIONS_JOB_NAME,
         asOf,
-        NATIVE_DECISION_RUNNING_GRACE_MS,
         /*
           THE LAST THREE ARE THE LAST-GOOD FALLBACK'S OWN BOUNDS, and the seam
           must pass them or it tests a different statement than production runs.
-          $6 pins the engine epoch a retained generation may come from, $7 is
-          the serving day the age ceiling is measured against, and $8 is that
+          $5 pins the engine epoch a retained generation may come from, $6 is
+          the serving day the age ceiling is measured against, and $7 is that
           ceiling in days. This call supplied five and the statement wanted
           eight — the seam failed with "bind message supplies 5 parameters, but
           prepared statement requires 8", which is the honest outcome and is why
@@ -2876,17 +2991,20 @@ async function assertNativeDecisionAttemptDurability(
       );
     }
 
-    const staleRunning = await insertRun({
+    const oldRunning = await insertRun({
       asOf: "2026-07-12",
       status: "running",
-      startedOffsetSeconds: -(NATIVE_DECISION_RUNNING_GRACE_MS / 1000 + 60),
+      startedOffsetSeconds: -600,
     });
-    const stale = await readGeneration("2026-07-12");
+    const whileRunning = await readGeneration("2026-07-12");
     if (
-      latestOf(stale)?.job_run_id !== staleRunning ||
-      latestOf(stale)?.job_status !== "failed"
+      latestOf(whileRunning)?.job_run_id !== d2Failure ||
+      latestOf(whileRunning)?.job_status !== "failed" ||
+      latestOf(whileRunning)?.job_run_id === oldRunning
     ) {
-      throw new Error("Stale running native attempt did not fail closed.");
+      throw new Error(
+        "A running native attempt displaced the last terminal generation.",
+      );
     }
 
     const holder = await insertRun({
@@ -2956,7 +3074,7 @@ async function assertNativeDecisionAttemptDurability(
     }
 
     log(
-      "native decision attempt seam ok: newer/cross-epoch failure, stale running, and advisory overlap all resolve fail-closed.",
+      "native decision attempt seam ok: newer/cross-epoch failure, running isolation, and advisory overlap all resolve fail-closed.",
     );
   } finally {
     await client.query("ROLLBACK").catch(() => {});
@@ -3129,6 +3247,12 @@ async function main() {
     await assertNativeDecisionAttemptDurability(
       databaseUrl,
       targetHistoryCases.missingHistoryBusinessId,
+    );
+
+    await runChildScript(
+      repoRoot, databaseUrl,
+      path.join("scripts", "ephemeral-postgres-meta-config-repair-seam-child.ts"),
+      "Meta config repair atomic/CAS and audit DB seam check",
     );
 
     await runChildScript(
@@ -3595,14 +3719,121 @@ async function main() {
       skipped database test reads exactly like a pass".
 
       Measured against a freshly migrated ephemeral cluster on this branch:
-      29 passed, 0 skipped.
+      30 passed, 0 skipped. The thirtieth case pins the READER half of D095:
+      a bare stored 0 with no `actions` payload is stored as 0 and read back
+      as unknown, exactly as every SQL reader of the row classifies it.
     */
     await runChildVitest(
       repoRoot,
       databaseUrl,
       path.join("lib", "meta", "ad-day-link-click-persistence.db.test.ts"),
       "Meta ad-day link-click persistence DB seam check",
-      29,
+      30,
+    );
+
+    /*
+      The creative-day measurement stamp, end to end on real storage.
+
+      The creative-day writer stores every funnel number as a finite value
+      whether or not the provider reported it, so the creative-grain readers
+      (the lifecycle and calibration jobs) now read ONLY the per-stage stamp in
+      lib/meta/creative-day-metric-evidence.ts, complete-or-NULL per day and
+      per window. Whether zero + missing is NULL, zero + zero is 0, an alias is
+      never summed, a malformed stamp is NULL without aborting the job, and
+      thumbstop/video are NULL is decided by PostgreSQL over rows the shipped
+      writer committed, so it runs here with its exact passing count.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "creative-decision-engine", "creative-day-metric-evidence.db.test.ts"),
+      "Creative-day measurement stamp DB seam check",
+      10,
+    );
+
+    /*
+      The legacy adset calibration reader builds its 28-day ad-derived windows
+      from the D095 link-click ladder, the funnel-stage ladder and the
+      complete-or-null window rule, joined onto the meta_adset_daily spine.
+      Whether a missing delivered day, a LEFT JOIN miss or a legacy stored zero
+      becomes NULL (and a malformed value neither 0 nor a query abort) is a
+      PostgreSQL NULL-semantics question, so it runs here with its exact count.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "calibration-window.db.test.ts"),
+      "Meta adset calibration window DB seam check",
+      10,
+    );
+
+    /*
+      The objective source contract emits SQL shared by native calibration and
+      decision hydration. String-level tests missed a record/jsonb operator
+      error in its first version, so its parse, payload, field-scope, page-clock
+      and bracket cases must execute against the freshly migrated PostgreSQL
+      schema. The file skips outside this ephemeral seam; pin the passing count
+      so an all-skipped ordinary vitest run cannot masquerade as verification.
+      Six of the cases seed real receipts and hold the emitted receipt
+      reference (evidenceRefSql) to the parser and SQL coherence rule in
+      lib/meta/config-field-evidence-ref.ts: modern bracket, same snapshot on
+      two days, snapshot-only, typed/unknown/no-timezone, corrupted refs, and
+      the same-instant tie on the observation id.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "config-field-source-contract.db.test.ts"),
+      "Meta config-field source contract DB seam check",
+      20,
+    );
+
+    // D099: the ConfigFieldEvidenceRef coherence rule and the economic-window
+    // manifest give one answer in SQL and TypeScript, on every shared fixture.
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "config-field-evidence-ref.db.test.ts"),
+      "Meta config-field evidence reference SQL/TypeScript parity DB seam check",
+      2,
+    );
+
+    /*
+      The emitted source SQL must keep an observed field removal ahead of an
+      older typed witness, distinguish a later restore from the as-of answer,
+      and cap legacy multi-page or malformed-page-count receipts at review-only.
+      It must also read a recorded fetch window correctly: a multi-page receipt
+      proven to have run inside one provider-local day may bracket, while one
+      that straddled local midnight, carries another sighting's timings, lost the
+      time off an end, or runs backwards stays uncertain. All of it turns on
+      PostgreSQL timezone arithmetic, ranking and NULL semantics, so ordinary
+      unit tests are insufficient. Pin the non-skipped case count in this same
+      fresh cluster rather than allowing the standalone file's skip guard to pass.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "config-field-source-removal-restore.db.test.ts"),
+      "Meta config-field removal and restore DB seam check",
+      21,
+    );
+
+    /*
+      Provider config enums and historical warehouse display labels are read
+      by the native decision loader in the same query. The SQL agreement
+      predicate must recognize formatting-only differences without equating
+      different optimization or conversion targets. Pin the non-skipped count.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "lib",
+        "creative-decision-engine",
+        "data-source-config-agreement.db.test.ts",
+      ),
+      "Native ad config value agreement DB seam check",
+      3,
     );
 
     /*
@@ -3627,8 +3858,8 @@ async function main() {
       table rather than by counting the statements the command chose to issue.
 
       Measured against a freshly migrated ephemeral cluster on this branch:
-      10 passed, 0 skipped. With `ADSECUTE_EPHEMERAL_DB_SEAM` unset the same
-      file reports "10 skipped (10)" and exits 0, which is why the passing
+      38 passed, 0 skipped. With `ADSECUTE_EPHEMERAL_DB_SEAM` unset the same
+      file reports every case skipped and exits 0, which is why the passing
       COUNT is asserted and not just the exit code.
     */
     await runChildVitest(
@@ -3672,8 +3903,12 @@ async function main() {
         impressions-or-spend predicate already caught), the composition with
         the admissibility contract, and the empty-account behaviour under the
         new predicate.
+
+        ROUND 7 adds the reviewed-CAS drift case: when one row's source or
+        raw-actions pre-image changes after preview, the guarded UPDATE returns
+        fewer rows and the pinned transaction rolls every sibling write back.
       */
-      37,
+      38,
     );
 
     /*
@@ -3705,7 +3940,7 @@ async function main() {
         "ad-band-completeness.db.test.ts",
       ),
       "Native ad band link-click completeness DB seam check",
-      4,
+      8,
     );
 
     /*
@@ -3756,7 +3991,7 @@ async function main() {
         "decisions-workspace-sixty-ad-acceptance.db.test.ts",
       ),
       "Meta decisions >60-Ad canonical universe acceptance DB seam check",
-      8,
+      9,
     );
 
     /*

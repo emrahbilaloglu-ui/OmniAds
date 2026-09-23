@@ -237,8 +237,16 @@ describe("LaunchpadReview", () => {
       detail: "Campaign budget",
       complete: true,
     });
+    /*
+      With no currency there is no divisor. `amountMinor` is provider minor
+      units and Meta's offset is per currency — 100 for USD, 1 for JPY — so
+      "50" was not a unitless rendering of 5000, it was 5000 scaled under an
+      assumption. The review already blocks the launch on a missing currency
+      ("Confirm the Meta account currency before continuing."), so the amount
+      now reads as the same "Unavailable" the no-amount case shows.
+    */
     expect(buildLaunchpadBudgetReview(payload, null)).toMatchObject({
-      amount: "50 (Currency unavailable)/day",
+      amount: "Unavailable",
       complete: false,
     });
   });
@@ -287,7 +295,10 @@ describe("LaunchpadReview", () => {
     expect(html).toContain(
       "Confirm the Meta account currency before continuing.",
     );
-    expect(html).toContain("50 (Currency unavailable)/day");
+    /* See buildLaunchpadBudgetReview above: an unknown currency has no
+       offset, so no scaled amount is printed. */
+    expect(html).toContain("Unavailable");
+    expect(html).not.toContain("50 (Currency unavailable)/day");
     expect(html).toContain("Create as paused");
     expect(html).toContain("disabled");
   });

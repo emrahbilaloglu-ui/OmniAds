@@ -70,6 +70,10 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedCanonicalMetaAdDailyFacts } from "@/lib/creative-decision-engine/meta-aov-calculator.test-helpers";
+import {
+  META_CREATIVE_DAY_METRIC_EVIDENCE_KEY,
+  buildMeasuredMetaCreativeDayMetricEvidence,
+} from "@/lib/meta/creative-day-metric-evidence";
 
 /** Never the local volume, never the production tunnel. */
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
@@ -435,6 +439,13 @@ describe.skipIf(!RUNNABLE)(
                 add_to_cart: input.addToCart,
                 initiate_checkout: input.initiateCheckout,
                 outbound_clicks: input.linkClicks,
+                [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: buildMeasuredMetaCreativeDayMetricEvidence({
+                  link_click: input.linkClicks,
+                  landing_page_view: input.landingPageViews,
+                  add_to_cart: input.addToCart,
+                  initiate_checkout: input.initiateCheckout,
+                  outbound_click: input.linkClicks,
+                }),
               },
             });
           }

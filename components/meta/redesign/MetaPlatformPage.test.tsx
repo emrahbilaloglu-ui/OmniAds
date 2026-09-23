@@ -1628,15 +1628,35 @@ describe("MetaPlatformPage", () => {
   });
 
   it("keeps apply-bid dry-run feedback distinct from a real write", () => {
+    /*
+      With no currency there is no divisor: `bidAmountMinor` is provider minor
+      units and Meta's offset is per currency. "22 (Currency unavailable)" was
+      2200 scaled under an assumption the currency could not support, so the
+      notice falls back to the unnumbered string the no-amount case already
+      uses rather than naming an amount it cannot scale.
+    */
     expect(metaBidApplyNotice({ dryRun: true, bidAmountMinor: 2200 })).toEqual({
       tone: "info",
-      title: "Dry run: bid cap would apply at 22 (Currency unavailable).",
+      title: "Dry run completed.",
+      detail: "No Meta write was performed; Meta verification completed.",
+    });
+    expect(
+      metaBidApplyNotice({ dryRun: true, bidAmountMinor: 2200 }, "USD"),
+    ).toEqual({
+      tone: "info",
+      title: "Dry run: bid cap would apply at $22.00.",
       detail: "No Meta write was performed; Meta verification completed.",
     });
     expect(metaBidApplyNotice({ bidAmountMinor: 2200 }, "USD")).toEqual({
       tone: "success",
       title: "Bid cap applied at $22.00.",
       detail: "Meta verified the ad set bid.",
+    });
+    /* Meta lists JPY at offset 1: the notice must report the ¥2,200 that was
+       actually written, not ¥22. */
+    expect(metaBidApplyNotice({ bidAmountMinor: 2200 }, "JPY")).toMatchObject({
+      tone: "success",
+      title: expect.stringContaining("2,200"),
     });
   });
 

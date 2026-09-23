@@ -19,6 +19,7 @@ import { assertMetaAutomationClaimSchema } from "@/lib/meta/automation-claim-sch
 import {
   ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL,
   ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
+  CREATE_NATIVE_AD_INPUT_EVIDENCE_SQL,
   NATIVE_AD_DECISION_SCHEMA_SQL,
 } from "@/lib/creative-decision-engine/ad-evaluation-schema";
 import { inspectEvaluationStoreSchemaCapability } from "@/lib/creative-decision-engine/evaluation-store";
@@ -129,6 +130,10 @@ export const SHOPIFY_SYNC_STATE_RETAINED_WINDOW_BACKFILL_SQL = `
      AND latest_sync_window_start <= ready_through_date
      AND lower(btrim(latest_sync_status)) IN ('succeeded', 'ready')
 `;
+/** The newest blocker, used as the "is this constraint current" probe below. */
+const AUTHORITY_BLOCKER_NEWEST_VALUE =
+  DECISION_AUTHORITY_BLOCKERS[DECISION_AUTHORITY_BLOCKERS.length - 1];
+
 const AUTHORITY_BLOCKER_CHECK_VALUES_SQL = DECISION_AUTHORITY_BLOCKERS.map(
   (value) => `'${value.replaceAll("'", "''")}'`,
 ).join(", ");
@@ -1681,9 +1686,23 @@ BEGIN
     CONTINUE WHEN to_regclass(target.table_name) IS NULL;
 
     canonical_ready := FALSE;
+    /*
+      THE PROBE MUST MOVE WITH THE LIST.
+
+      This asked for 'recent_recovery_unverifiable', the newest value at the time
+      it was written. A later value added to DECISION_AUTHORITY_BLOCKERS is
+      therefore invisible here: every live constraint still contains the old
+      probe, the loop skips the rebuild, and the first INSERT carrying the new
+      value fails against a constraint the migration believed it had updated.
+      That is exactly what happened when config_source_authority was minted.
+
+      Probing the LAST element keeps the test in step with the list it is
+      testing, because the list is the same one the rebuilt definition is
+      generated from.
+    */
     SELECT constraint_row.convalidated
       AND POSITION(
-        'recent_recovery_unverifiable' IN
+        '${AUTHORITY_BLOCKER_NEWEST_VALUE}' IN
         LOWER(pg_get_constraintdef(constraint_row.oid, TRUE))
       ) > 0
     INTO canonical_ready
@@ -1888,6 +1907,9 @@ async function runNativeAdSchemaMigrations(input: {
       await runNativeAdCalibrationSchemaGate({ db, inspectorDb });
 
       await db.query(ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL);
+      // Additive and narrow: existing native-decision schemas receive the
+      // hash-keyed evidence table without widening the large evaluations table.
+      await db.query(CREATE_NATIVE_AD_INPUT_EVIDENCE_SQL);
       await db.query(ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL);
       let decisions = await inspectEvaluationStoreSchemaCapability(inspectorDb);
       if (!decisions.ready) {
@@ -3818,6 +3840,20 @@ export async function runMigrations(options?: {
           captured_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
           created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+          sql`CREATE TABLE IF NOT EXISTS meta_config_repair_audits (
+          id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          manifest_hash TEXT NOT NULL UNIQUE,
+          business_id   TEXT NOT NULL,
+          start_date    DATE NOT NULL,
+          end_date      DATE NOT NULL,
+          changes_json  JSONB NOT NULL,
+          rows_updated  INTEGER NOT NULL,
+          applied_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+          sql`CREATE INDEX IF NOT EXISTS idx_meta_config_repair_audits_scope
+          ON meta_config_repair_audits (business_id, start_date, end_date, applied_at DESC)`.catch(
+            () => {},
+          ),
           sql`CREATE TABLE IF NOT EXISTS creative_decision_os_snapshots (
           id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           surface                   TEXT NOT NULL DEFAULT 'creative',

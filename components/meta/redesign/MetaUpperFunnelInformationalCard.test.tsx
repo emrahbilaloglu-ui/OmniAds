@@ -40,7 +40,7 @@ describe("MetaUpperFunnelInformationalCard", () => {
     expect(html).toContain("$2.00");
     expect(html).toContain("ThruPlay rate");
     expect(html).toContain("4.2%");
-    expect(html).toContain("Hook rate (3s)");
+    expect(html).toContain("Video-view rate");
     expect(html).toContain("10.0%");
     expect(html).toContain("Frequency");
     expect(html).toContain("1.7");

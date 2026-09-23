@@ -6,6 +6,7 @@ vi.mock("@/lib/integrations", () => ({
 
 vi.mock("@/lib/meta/live", () => ({
   getMetaLiveSummaryTotals: vi.fn(),
+  getMetaLiveSummaryWithReceipt: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/readiness", () => ({
@@ -70,6 +71,14 @@ describe("meta canonical overview summary", () => {
       clicks: 0,
       reach: 0,
     } as never);
+    vi.mocked(live.getMetaLiveSummaryWithReceipt).mockResolvedValue({
+      totals: {
+        spend: 0, revenue: 0, conversions: 0, roas: 0,
+        cpa: null, ctr: null, cpc: null, impressions: 0, clicks: 0, reach: 0,
+      },
+      configPartial: false,
+      configNotReadyReason: null,
+    });
     vi.mocked(serving.getMetaWarehouseTrends).mockResolvedValue({
       freshness: {
         dataState: "ready",
@@ -137,6 +146,35 @@ describe("meta canonical overview summary", () => {
     expect(result.isPartial).toBe(true);
     expect(result.notReadyReason).toContain("being prepared");
     expect(result.readSource).toBe("warehouse_published");
+  });
+
+  it("keeps complete live Insights totals when current config is unavailable", async () => {
+    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
+      isSelectedCurrentDay: true,
+      selectedRangeIncludesCurrentDay: true,
+      selectedRangeTruthEndDate: null,
+      currentDateInTimezone: "2026-04-08",
+      primaryAccountTimezone: "UTC",
+    } as never);
+    vi.mocked(serving.getMetaWarehouseSummary).mockResolvedValue({
+      totals: { spend: 0, revenue: 0, conversions: 0, roas: 0,
+        cpa: null, ctr: null, cpc: null, impressions: 0, clicks: 0, reach: 0 },
+      accounts: [],
+      isPartial: true,
+    } as never);
+    vi.mocked(live.getMetaLiveSummaryWithReceipt).mockResolvedValue({
+      totals: { spend: 42, revenue: 84, conversions: 2, roas: 2,
+        cpa: 21, ctr: 1, cpc: 2, impressions: 1000, clicks: 10, reach: 0 },
+      configPartial: true,
+      configNotReadyReason: "Current Meta configuration could not be fully read.",
+    });
+    const result = await canonical.getMetaCanonicalOverviewSummary({
+      businessId: "biz-1", startDate: "2026-04-08", endDate: "2026-04-08",
+    });
+    expect(result.totals).toMatchObject({ spend: 42, revenue: 84, conversions: 2 });
+    expect(result.isPartial).toBe(false);
+    expect(result.configPartial).toBe(true);
+    expect(result.configNotReadyReason).toContain("configuration");
   });
 
   it("uses the historical truth end date when a selected range includes today", async () => {

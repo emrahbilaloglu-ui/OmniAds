@@ -4400,3 +4400,49 @@ describe("the refresh posture tile separates authorized from held", () => {
     expect(byId.get("refresh-pipeline")?.detail).not.toContain("held");
   });
 });
+
+describe("the native economics caption claims no window it cannot substantiate", () => {
+  /*
+    D098 metrics can cover fewer than 28 days, and the served row carries no
+    admitted-window dates. The captions must not claim a fixed period.
+  */
+  const inspectorFor = (metrics: Partial<MetaCanonicalDecision["metrics"]>) => {
+    const creative = creativeFixture({ blockers: [] });
+    const canonical = canonicalFixture({
+      decisionId: creative.decisionId,
+      sourceSnapshotId: creative.sourceSnapshotId,
+      metrics,
+    } as unknown as Partial<MetaCanonicalDecision>);
+    return buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({
+        os: fullOs({ creatives: [creative] }),
+        canonical: [canonical],
+      }),
+      selection: {
+        kind: "creative",
+        decisionId: creative.decisionId,
+        sourceSnapshotId: creative.sourceSnapshotId,
+      },
+    }).inspector;
+  };
+
+  it("labels the decision's own spend and purchases without a day count", () => {
+    const evidence = inspectorFor({ spend: 1234, purchases: 7 })?.evidence ?? [];
+    const byId = new Map(evidence.map((row) => [row.id, row]));
+    expect(byId.get("spend")?.label).toBe("Spend");
+    expect(byId.get("purchases")?.label).toBe("Purchases");
+    /* The values still render; only the unsupported caption is gone. The
+       numbers themselves are the fixture's and are not what this pins. */
+    expect(byId.get("spend")?.value).not.toBe("—");
+    expect(byId.get("purchases")?.value).not.toBe("—");
+  });
+
+  it("asserts no fixed window anywhere in the inspector's evidence", () => {
+    const evidence = inspectorFor({ spend: 1234, purchases: 7 })?.evidence ?? [];
+    for (const row of evidence) {
+      expect(row.label, row.id).not.toMatch(/\b\d+\s*d(ays)?\b/i);
+      expect(row.label, row.id).not.toContain("28");
+    }
+  });
+
+});

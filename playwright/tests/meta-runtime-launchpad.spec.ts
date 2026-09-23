@@ -265,8 +265,8 @@ test.describe("the screen states the posture it is actually in", () => {
     // The two halves of the posture, both stated: what is available now, and
     // what is not and why. A Launchpad that stated neither would look broken;
     // one that stated only the refusal would look like it does nothing.
-    expect(text).toMatch(/PAUSED/);
-    expect(text).toMatch(/Activation is a separate/i);
+    expect(text).toMatch(/New campaigns start paused\./);
+    expect(text).toMatch(/You can activate them after review\./);
     expect(text).not.toMatch(/META_[A-Z_]+/);
 
     // And its §9 region agrees that the surface itself is readable.

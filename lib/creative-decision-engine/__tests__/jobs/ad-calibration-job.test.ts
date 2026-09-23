@@ -52,15 +52,20 @@ import {
   type NativeAdCalibrationSourceRow,
   type NativeAdTargetAuthorityInput,
   type NativeAdTargetAuthorityStatus,
+  nativeAdCalibrationBatchGenerationContent,
+  nativeAdCalibrationSourceContentSignatureForVersion,
 } from "../../jobs/ad-calibration-job";
+import { canonicalSha256 } from "../../canonical-evaluation";
+import { configFieldEvidenceRefCoherentSql } from "@/lib/meta/config-field-evidence-ref";
 import { NATIVE_AD_ENGINE_VERSION } from "../../types";
 
 const BUSINESS_ID = "00000000-0000-4000-8000-000000000701";
 const PROVIDER_ACCOUNT_REF_ID = "00000000-0000-4000-8000-000000000702";
 const PROVIDER_ACCOUNT_ID = "act-native-1";
-const SECOND_PROVIDER_ACCOUNT_REF_ID =
-  "00000000-0000-4000-8000-000000000712";
+const SECOND_PROVIDER_ACCOUNT_REF_ID = "00000000-0000-4000-8000-000000000712";
 const SECOND_PROVIDER_ACCOUNT_ID = "act-native-2";
+const CROSS_PROVIDER_ACCOUNT_REF_ID = "00000000-0000-4000-8000-000000000722";
+const CROSS_PROVIDER_ACCOUNT_ID = "act-cross-provider";
 const JOB_RUN_ID = "00000000-0000-4000-8000-000000000703";
 const BATCH_ID = "00000000-0000-4000-8000-000000000704";
 const SECOND_BATCH_ID = "00000000-0000-4000-8000-000000000714";
@@ -113,6 +118,23 @@ function makeRow(
     objective: "OUTCOME_SALES",
     optimizationGoal: "PURCHASE",
     customEventType: "PURCHASE",
+    /*
+      PROVENANCE IS STATED, and it has to be.
+
+      These fixtures were written when a config VALUE was all a day needed to
+      enter the cell's economics. It now also needs to have been well enough
+      observed: the cell's hard sample is the verified suffix, so a row that
+      states no provenance contributes nothing to it — absent is not
+      authorised. Defaulting to a bracketed provider receipt keeps each test
+      measuring the thing it was written to measure; a test about weak or
+      missing provenance overrides these explicitly.
+    */
+    objectiveTier: "provider_receipt_legacy_bracketed",
+    objectiveReadiness: "decision_authority",
+    optimizationGoalTier: "provider_receipt_legacy_bracketed",
+    optimizationGoalReadiness: "decision_authority",
+    customEventTypeTier: "provider_receipt_legacy_bracketed",
+    customEventTypeReadiness: "decision_authority",
     spend: 100,
     impressions: 10_000,
     clicks: 300,
@@ -160,6 +182,26 @@ function toDbSourceRow(row: NativeAdCalibrationSourceRow) {
     objective: row.objective,
     optimization_goal: row.optimizationGoal,
     custom_event_type: row.customEventType,
+    /*
+      THE PROVENANCE COLUMNS, round-tripped like everything else.
+
+      Omitting them made this helper an unfaithful mirror of the reader: the job
+      mapped rows with no provenance while the test's own source rows had it, so
+      the two produced different observations and the generation hash mismatched.
+      A row shape that drops a column the mapper reads is a silent divergence,
+      which is exactly what the hash caught.
+    */
+    objective_tier: row.objectiveTier ?? null,
+    objective_readiness: row.objectiveReadiness ?? null,
+    objective_source_class: row.objectiveSourceClass ?? null,
+    objective_pit_class: row.objectivePitClass ?? null,
+    optimization_goal_tier: row.optimizationGoalTier ?? null,
+    optimization_goal_readiness: row.optimizationGoalReadiness ?? null,
+    optimization_goal_source_class: row.optimizationGoalSourceClass ?? null,
+    custom_event_type_tier: row.customEventTypeTier ?? null,
+    custom_event_type_readiness: row.customEventTypeReadiness ?? null,
+    custom_conversion_id: row.customConversionId ?? null,
+    custom_conversion_id_readiness: row.customConversionIdReadiness ?? null,
     spend: row.spend,
     impressions: row.impressions,
     clicks: row.clicks,
@@ -227,7 +269,7 @@ function fakeDb(
   handler: (query: string, params?: unknown[]) => Record<string, unknown>[],
 ): DbClient {
   const query = vi.fn(async (sql: string, params?: unknown[]) =>
-    handler(sql, params),
+    sql === "SET LOCAL work_mem = '16MB'" ? [] : handler(sql, params),
   );
   return Object.assign(vi.fn(), { query }) as unknown as DbClient;
 }
@@ -658,15 +700,13 @@ describe("native ad calibration computation", () => {
       conversions: 0,
       revenue: 100,
     });
-    const batch = compute(
-      [...purchaseRows, contradictoryValueContext],
-      { target: AOV_ONLY_TARGET },
-    );
+    const batch = compute([...purchaseRows, contradictoryValueContext], {
+      target: AOV_ONLY_TARGET,
+    });
     const purchaseExact = batch.cells.find(
       (cell) =>
         cell.key.cellScope === "objective_cohort_context" &&
-        cell.key.optimizationContext ===
-          "goal=PURCHASE|event=PURCHASE",
+        cell.key.optimizationContext === "goal=PURCHASE|event=PURCHASE",
     );
 
     expect(batch.spendUnitAuthority).toMatchObject({
@@ -679,8 +719,7 @@ describe("native ad calibration computation", () => {
     expect(batch.qualityCounts.censoredAdExclusionCount).toBe(1);
     expect(
       batch.cells.some(
-        (cell) =>
-          cell.key.optimizationContext === "goal=VALUE|event=VALUE",
+        (cell) => cell.key.optimizationContext === "goal=VALUE|event=VALUE",
       ),
     ).toBe(false);
     expect(purchaseExact?.accountCalibration.roasRatioP25).toBeGreaterThan(0);
@@ -907,7 +946,9 @@ describe("native ad calibration computation", () => {
         cellBatchInputManifestHashes: batch.cells.map(
           (cell) => cell.batchInputManifestHash,
         ),
-        cellInputManifestHashes: batch.cells.map((cell) => cell.inputManifestHash),
+        cellInputManifestHashes: batch.cells.map(
+          (cell) => cell.inputManifestHash,
+        ),
       };
     }
 
@@ -963,7 +1004,9 @@ describe("native ad calibration computation", () => {
       const base = compute(rows(), { target: legacy });
       const withCpa = compute(rows(), { target: { ...legacy, targetCpa: 31 } });
       expect(base.targetAuthority.targetRoasAuthority).toBe(false);
-      expect(withCpa.generationContentHash).not.toBe(base.generationContentHash);
+      expect(withCpa.generationContentHash).not.toBe(
+        base.generationContentHash,
+      );
       expect(withCpa.inputManifestHash).not.toBe(base.inputManifestHash);
       expect(withCpa.cellSetHash).not.toBe(base.cellSetHash);
     });
@@ -1023,7 +1066,10 @@ describe("native ad calibration computation", () => {
       never by a commercial blocker that does not apply.
     */
     const rows = Array.from({ length: 30 }, (_, index) =>
-      makeRow({ sourceRowId: `legacy-gate-${index}`, adId: `legacy-gate-${index}` }),
+      makeRow({
+        sourceRowId: `legacy-gate-${index}`,
+        adId: `legacy-gate-${index}`,
+      }),
     );
     const batch = compute(rows, {
       target: { ...AOV_ONLY_TARGET, targetRoas: null },
@@ -1102,15 +1148,13 @@ describe("native ad calibration computation", () => {
       conversions: 2,
       revenue: 0,
     });
-    const batch = compute(
-      [...thinPurchaseRows, ...valueRows, contradiction],
-      { target: AOV_ONLY_TARGET },
-    );
+    const batch = compute([...thinPurchaseRows, ...valueRows, contradiction], {
+      target: AOV_ONLY_TARGET,
+    });
     const purchaseExact = batch.cells.find(
       (cell) =>
         cell.key.cellScope === "objective_cohort_context" &&
-        cell.key.optimizationContext ===
-          "goal=PURCHASE|event=PURCHASE",
+        cell.key.optimizationContext === "goal=PURCHASE|event=PURCHASE",
     );
 
     expect(batch.spendUnitAuthority).toMatchObject({
@@ -1607,9 +1651,9 @@ describe("native ad calibration computation", () => {
     expect(
       new Set(batch.observations.map((row) => row.accountTimezone)),
     ).toEqual(new Set(["Europe/Istanbul"]));
-    expect(new Set(batch.cells.map((cell) => cell.key.accountTimezone))).toEqual(
-      new Set(["Europe/Istanbul"]),
-    );
+    expect(
+      new Set(batch.cells.map((cell) => cell.key.accountTimezone)),
+    ).toEqual(new Set(["Europe/Istanbul"]));
 
     const olderSourceRestated = compute([
       {
@@ -2235,6 +2279,17 @@ describe("native ad calibration producer and SQL contract", () => {
     expect(READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL).toContain(
       "history.recorded_at <= $4::timestamptz",
     );
+    for (const query of [
+      LIST_NATIVE_AD_PROVIDER_BINDINGS_SQL,
+      ASSERT_NATIVE_AD_PROVIDER_BINDINGS_SQL,
+    ]) {
+      expect(query).toContain("JOIN provider_accounts account");
+      expect(query).toContain("account.provider = binding.provider");
+      expect(query).toContain(
+        "account.external_account_id = binding.provider_account_id",
+      );
+      expect(query).toContain("AND binding.is_selected");
+    }
     expect(INSERT_NATIVE_AD_CALIBRATION_BATCH_SQL).toContain(
       "generation_content_hash",
     );
@@ -2356,7 +2411,7 @@ describe("native ad calibration producer and SQL contract", () => {
     const result = await runAdCalibrationJob(
       { businessId: BUSINESS_ID, asOf: AS_OF },
       {
-      /*
+        /*
         The store was NEVER CONSULTED for these cases, which is what
         `undefined` means in the authority contract.
 
@@ -2367,7 +2422,7 @@ describe("native ad calibration producer and SQL contract", () => {
         nothing to do with what these cases measure. The store's own wiring is
         proven in `shopify-anchor-wiring` and in the ephemeral-database seam.
       */
-      resolveObservedAov: async () => undefined,
+        resolveObservedAov: async () => undefined,
         db,
         transaction: async (operation) => operation(),
         businessGuard: async () => null,
@@ -2513,9 +2568,7 @@ describe("native ad calibration producer and SQL contract", () => {
       }
       if (query === INSERT_NATIVE_AD_CALIBRATION_SQL) return [];
       if (query === READ_NATIVE_AD_CALIBRATION_CELL_SET_PROOF_SQL) {
-        return params?.[0] === SECOND_BATCH_ID
-          ? []
-          : proofRows(healthyBatch);
+        return params?.[0] === SECOND_BATCH_ID ? [] : proofRows(healthyBatch);
       }
       if (query === COMPLETE_NATIVE_AD_CALIBRATION_BATCH_SQL) {
         return [{ id: params?.[0] }];
@@ -2533,7 +2586,7 @@ describe("native ad calibration producer and SQL contract", () => {
     const result = await runAdCalibrationJob(
       { businessId: BUSINESS_ID, asOf: AS_OF },
       {
-      /*
+        /*
         The store was NEVER CONSULTED for these cases, which is what
         `undefined` means in the authority contract.
 
@@ -2544,7 +2597,7 @@ describe("native ad calibration producer and SQL contract", () => {
         nothing to do with what these cases measure. The store's own wiring is
         proven in `shopify-anchor-wiring` and in the ephemeral-database seam.
       */
-      resolveObservedAov: async () => undefined,
+        resolveObservedAov: async () => undefined,
         db,
         transaction: async (operation) => operation(),
         businessGuard: async () => null,
@@ -2673,7 +2726,7 @@ describe("native ad calibration producer and SQL contract", () => {
     const result = await runAdCalibrationJob(
       { businessId: BUSINESS_ID, asOf: AS_OF },
       {
-      /*
+        /*
         The store was NEVER CONSULTED for these cases, which is what
         `undefined` means in the authority contract.
 
@@ -2684,7 +2737,7 @@ describe("native ad calibration producer and SQL contract", () => {
         nothing to do with what these cases measure. The store's own wiring is
         proven in `shopify-anchor-wiring` and in the ephemeral-database seam.
       */
-      resolveObservedAov: async () => undefined,
+        resolveObservedAov: async () => undefined,
         db,
         transaction: async (operation) => operation(),
         businessGuard: async () => null,
@@ -2732,7 +2785,7 @@ describe("native ad calibration producer and SQL contract", () => {
     const result = await runAdCalibrationJob(
       { businessId: BUSINESS_ID, asOf: AS_OF },
       {
-      /*
+        /*
         The store was NEVER CONSULTED for these cases, which is what
         `undefined` means in the authority contract.
 
@@ -2743,7 +2796,7 @@ describe("native ad calibration producer and SQL contract", () => {
         nothing to do with what these cases measure. The store's own wiring is
         proven in `shopify-anchor-wiring` and in the ephemeral-database seam.
       */
-      resolveObservedAov: async () => undefined,
+        resolveObservedAov: async () => undefined,
         db,
         transaction: async (operation) => operation(),
         businessGuard: async () => null,
@@ -2789,7 +2842,7 @@ describe("native ad calibration producer and SQL contract", () => {
     const result = await runAdCalibrationJob(
       { businessId: BUSINESS_ID, asOf: "2026-07-11" },
       {
-      /*
+        /*
         The store was NEVER CONSULTED for these cases, which is what
         `undefined` means in the authority contract.
 
@@ -2800,7 +2853,7 @@ describe("native ad calibration producer and SQL contract", () => {
         nothing to do with what these cases measure. The store's own wiring is
         proven in `shopify-anchor-wiring` and in the ephemeral-database seam.
       */
-      resolveObservedAov: async () => undefined,
+        resolveObservedAov: async () => undefined,
         db,
         transaction: async (operation) => operation(),
         businessGuard: async () => null,
@@ -2855,6 +2908,98 @@ const postgresAvailable = postgresCandidates.some((candidate) =>
 describe.runIf(postgresAvailable)(
   "native ad calibration PostgreSQL seam",
   () => {
+    it("PRODUCTION GATE: a pre-.v6 table gains the counts column and keeps old rows silent", async () => {
+      /*
+        THE BUG THIS EXISTS FOR, verified read-only against the live catalog
+        before the fix (the table had `contract_version` and no
+        `config_authority_counts_json`): the column was declared only in
+        `CREATE TABLE IF NOT EXISTS`. On a fresh database that IS the schema and
+        every check passed; on the live table the CREATE is a no-op, so the
+        column never appeared and the first `.v6` INSERT would have failed with
+        `undefined_column`. A migration-from-zero run cannot see it — it never
+        has an old table — so the old table is built here on purpose.
+      */
+      await withEphemeralPostgres(async (pool) => {
+        await createEphemeralSchema(pool);
+        const db = poolDb(pool);
+
+        /*
+          A row written by THIS build, i.e. stamped `.v6` with the counts already
+          in its manifest. It is not a `.v5` row and this test does not claim to
+          be one: the column is dropped afterwards to reproduce the SCHEMA the
+          live database has, not the row. What this proves is the DDL upgrade
+          path and that a row without the column reads back as null.
+
+          `.v5` MANIFEST compatibility — that a row minted under the old formula
+          still recomputes to its stored hash — is a different claim, proved
+          separately and hermetically in
+          `native-ad-historical-calibration-formulas.test.ts`. Neither test
+          stands in for the other.
+        */
+        const legacy = await inRepeatableRead(pool, async (client, receipt) => {
+          const row = makeRowForReceipt(receipt, "v6-upgrade");
+          const batch = computeForReceipt([row], receipt, null);
+          return replaceNativeAdCalibrationBatch(
+            { batch, jobRunId: JOB_RUN_ID },
+            {
+              db: clientDb(client),
+              transaction: async (operation) => operation(),
+            },
+          );
+        });
+        expect(legacy.rowsWritten).toBeGreaterThan(0);
+
+        // THE PRIOR SHAPE — of the SCHEMA. Dropping the column reproduces the
+        // live table's shape; it does not turn the row above into a `.v5` row.
+        await pool.query(`
+          ALTER TABLE engine_v3_ad_account_calibration_daily
+            DROP COLUMN config_authority_counts_json;
+        `);
+        const before = await inspectNativeAdCalibrationSchemaCapability(db);
+        expect(before.ready).toBe(false);
+        expect(before.missing).toEqual(
+          expect.arrayContaining([
+            "engine_v3_ad_account_calibration_daily.config_authority_counts_json",
+          ]),
+        );
+
+        // Proof the gap is real and not merely reported: the column is gone.
+        await expect(
+          pool.query(
+            "SELECT config_authority_counts_json FROM engine_v3_ad_account_calibration_daily LIMIT 1",
+          ),
+        ).rejects.toThrow(/config_authority_counts_json/);
+
+        const after = await runNativeAdCalibrationSchemaGate({
+          db,
+          inspectorDb: db,
+        });
+        expect(after.ready).toBe(true);
+
+        /*
+          The column is back, NULLABLE and without a default — and the row that
+          predates it reads back NULL rather than zeros. Zeros would say the cell
+          measured its sample and found nothing authoritative, which is a much
+          stronger claim than that it never measured.
+        */
+        const column = await pool.query(
+          `SELECT is_nullable, column_default, data_type
+             FROM information_schema.columns
+            WHERE table_name = 'engine_v3_ad_account_calibration_daily'
+              AND column_name = 'config_authority_counts_json'`,
+        );
+        expect(column.rows[0]).toEqual({
+          is_nullable: "YES",
+          column_default: null,
+          data_type: "jsonb",
+        });
+        const restored = await pool.query(
+          "SELECT config_authority_counts_json AS counts FROM engine_v3_ad_account_calibration_daily LIMIT 1",
+        );
+        expect(restored.rows[0]?.counts).toBeNull();
+      });
+    }, 240_000);
+
     it("PRODUCTION GATE: a pre-Round-9 schema is not ready, migrates, and then is", async () => {
       /*
         ── ROUND 10 ITEM 1 ─────────────────────────────────────────────────────
@@ -2941,10 +3086,12 @@ describe.runIf(postgresAvailable)(
           FROM pg_constraint
           WHERE conname = ANY($1::text[])
           `,
-          [[
-            "engine_v3_ad_calibration_batches_contract_version_check",
-            "engine_v3_ad_calibration_cells_contract_version_check",
-          ]],
+          [
+            [
+              "engine_v3_ad_calibration_batches_contract_version_check",
+              "engine_v3_ad_calibration_cells_contract_version_check",
+            ],
+          ],
         );
         expect(constraints.rows).toHaveLength(2);
         for (const row of constraints.rows) {
@@ -3019,18 +3166,21 @@ describe.runIf(postgresAvailable)(
           re-running the additive migration over a table that already has rows —
           the case the trigger would have blocked had this been an UPDATE.
         */
-        const written = await inRepeatableRead(pool, async (client, receipt) => {
-          const row = makeRowForReceipt(receipt, "legacy-lineage");
-          const batch = computeForReceipt([row], receipt, null);
-          const result = await replaceNativeAdCalibrationBatch(
-            { batch, jobRunId: JOB_RUN_ID },
-            {
-              db: clientDb(client),
-              transaction: async (operation) => operation(),
-            },
-          );
-          return { batch, result };
-        });
+        const written = await inRepeatableRead(
+          pool,
+          async (client, receipt) => {
+            const row = makeRowForReceipt(receipt, "legacy-lineage");
+            const batch = computeForReceipt([row], receipt, null);
+            const result = await replaceNativeAdCalibrationBatch(
+              { batch, jobRunId: JOB_RUN_ID },
+              {
+                db: clientDb(client),
+                transaction: async (operation) => operation(),
+              },
+            );
+            return { batch, result };
+          },
+        );
         expect(written.result.rowsWritten).toBeGreaterThan(0);
 
         await pool.query(`
@@ -3141,6 +3291,45 @@ describe.runIf(postgresAvailable)(
           inspectNativeAdCalibrationSchemaCapability(db),
         ).resolves.toEqual({ ready: true, missing: [], mismatched: [] });
 
+        await pool.query(
+          `INSERT INTO provider_accounts (
+             id, provider, external_account_id, timezone, currency
+           ) VALUES ($1::uuid, 'meta', $2, 'Europe/Istanbul', 'USD')`,
+          [SECOND_PROVIDER_ACCOUNT_REF_ID, SECOND_PROVIDER_ACCOUNT_ID],
+        );
+        await pool.query(
+          `INSERT INTO business_provider_accounts (
+             business_id, provider, provider_account_ref_id,
+             provider_account_id, is_selected
+           ) VALUES ($1, 'meta', $2::uuid, $3, FALSE)`,
+          [
+            BUSINESS_ID,
+            SECOND_PROVIDER_ACCOUNT_REF_ID,
+            SECOND_PROVIDER_ACCOUNT_ID,
+          ],
+        );
+        // A binding row can carry `provider = meta` while its referenced
+        // account belongs to another provider because the legacy binding table
+        // has no composite provider/ref/external FK. Exact physical identity
+        // therefore has to be a read predicate, not an assumption.
+        await pool.query(
+          `INSERT INTO provider_accounts (
+             id, provider, external_account_id, timezone, currency
+           ) VALUES ($1::uuid, 'google', $2, 'Europe/Istanbul', 'USD')`,
+          [CROSS_PROVIDER_ACCOUNT_REF_ID, CROSS_PROVIDER_ACCOUNT_ID],
+        );
+        await pool.query(
+          `INSERT INTO business_provider_accounts (
+             business_id, provider, provider_account_ref_id,
+             provider_account_id, is_selected
+           ) VALUES ($1, 'meta', $2::uuid, $3, TRUE)`,
+          [
+            BUSINESS_ID,
+            CROSS_PROVIDER_ACCOUNT_REF_ID,
+            CROSS_PROVIDER_ACCOUNT_ID,
+          ],
+        );
+
         const providerBindings = await pool.query(
           LIST_NATIVE_AD_PROVIDER_BINDINGS_SQL,
           [BUSINESS_ID],
@@ -3156,6 +3345,20 @@ describe.runIf(postgresAvailable)(
             provider_account_id: PROVIDER_ACCOUNT_ID,
           },
         ]);
+        await expect(
+          pool.query(ASSERT_NATIVE_AD_PROVIDER_BINDINGS_SQL, [
+            BUSINESS_ID,
+            SECOND_PROVIDER_ACCOUNT_REF_ID,
+            SECOND_PROVIDER_ACCOUNT_ID,
+          ]),
+        ).resolves.toMatchObject({ rowCount: 0 });
+        await expect(
+          pool.query(ASSERT_NATIVE_AD_PROVIDER_BINDINGS_SQL, [
+            BUSINESS_ID,
+            CROSS_PROVIDER_ACCOUNT_REF_ID,
+            CROSS_PROVIDER_ACCOUNT_ID,
+          ]),
+        ).resolves.toMatchObject({ rowCount: 0 });
 
         const empty = await inRepeatableRead(pool, async (client, receipt) => {
           const batch = computeForReceipt([], receipt, null);
@@ -3437,6 +3640,106 @@ function makeRowForReceipt(
   });
 }
 
+/**
+ * Give every seeded ad-day a real provider receipt.
+ *
+ * The source query no longer reads config off the daily warehouse tables: it
+ * reads the retained raw receipts, because a derived column has no provider
+ * statement behind it. A fixture that seeds only meta_campaign_daily therefore
+ * produces NULL objective and no exact contexts at all — which is the correct
+ * answer for data with no receipt, and useless as a fixture for everything else.
+ *
+ * So this mirrors what production holds: one complete, single-page,
+ * natural-end receipt per campaign-day and adset-day, observed inside the day,
+ * carrying the same values the daily rows carry. It also gives the calibration
+ * seam an end-to-end exercise of the contract rather than a stubbed value.
+ */
+async function seedConfigReceipts(
+  client: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  businessId: string,
+  providerAccountId: string,
+  options: { corroborated?: boolean } = {},
+): Promise<void> {
+  await client.query(
+    `WITH days AS (
+       SELECT DISTINCT d.business_id, d.provider_account_id, d.campaign_id,
+              d.adset_id, d.date, d.account_timezone
+       FROM meta_ad_daily d
+       WHERE d.business_id = $1 AND d.provider_account_id = $2
+         AND d.campaign_id IS NOT NULL AND d.adset_id IS NOT NULL
+     ),
+     shaped AS (
+       SELECT days.*, cfg.objective, cfg.optimization_goal, cfg.custom_event_type
+       FROM days
+       LEFT JOIN meta_campaign_daily cfg
+         ON cfg.provider_account_id = days.provider_account_id
+        AND cfg.campaign_id = days.campaign_id
+        AND cfg.date = days.date
+     ),
+     ins_campaign AS (
+       INSERT INTO meta_raw_snapshots (
+         business_id, provider_account_id, endpoint_name, entity_scope, status,
+         provider_http_status, start_date, end_date, payload_hash,
+         request_context, payload_json, fetched_at
+       )
+       SELECT s.business_id, s.provider_account_id, 'campaign_configs', 'campaign',
+              'fetched', 200, s.date, s.date,
+              'seam-c-' || s.campaign_id || '-' || s.date::text || '-' || receipt.day_offset::text,
+              '{"fields":"id,objective,updated_time","pagination":{"complete":true,"termination":"natural_end","pageCount":1}}'::jsonb,
+              jsonb_build_array(jsonb_build_object(
+                'id', s.campaign_id,
+                'objective', COALESCE(s.objective, 'OUTCOME_SALES'),
+                'updated_time', '2020-01-01T00:00:00+0000')),
+              (s.date::timestamp AT TIME ZONE COALESCE(NULLIF(BTRIM(s.account_timezone), ''), 'UTC'))
+                + INTERVAL '6 hours' + make_interval(days => receipt.day_offset)
+       FROM shaped s
+       CROSS JOIN generate_series(
+         0,
+         CASE WHEN $3::boolean THEN 1 ELSE 0 END
+       ) AS receipt(day_offset)
+       RETURNING id, business_id, provider_account_id, endpoint_name, entity_scope,
+                 request_context, fetched_at
+     ),
+     ins_adset AS (
+       INSERT INTO meta_raw_snapshots (
+         business_id, provider_account_id, endpoint_name, entity_scope, status,
+         provider_http_status, start_date, end_date, payload_hash,
+         request_context, payload_json, fetched_at
+       )
+       SELECT s.business_id, s.provider_account_id, 'adset_configs', 'adset',
+              'fetched', 200, s.date, s.date,
+              'seam-a-' || s.adset_id || '-' || s.date::text || '-' || receipt.day_offset::text,
+              '{"fields":"id,optimization_goal,promoted_object,updated_time","pagination":{"complete":true,"termination":"natural_end","pageCount":1}}'::jsonb,
+              jsonb_build_array(jsonb_build_object(
+                'id', s.adset_id,
+                'optimization_goal', COALESCE(s.optimization_goal, 'OFFSITE_CONVERSIONS'),
+                'updated_time', '2020-01-01T00:00:00+0000',
+                'promoted_object', jsonb_build_object(
+                  'custom_event_type', COALESCE(s.custom_event_type, 'PURCHASE')))),
+              (s.date::timestamp AT TIME ZONE COALESCE(NULLIF(BTRIM(s.account_timezone), ''), 'UTC'))
+                + INTERVAL '6 hours' + make_interval(days => receipt.day_offset)
+       FROM shaped s
+       CROSS JOIN generate_series(
+         0,
+         CASE WHEN $3::boolean THEN 1 ELSE 0 END
+       ) AS receipt(day_offset)
+       RETURNING id, business_id, provider_account_id, endpoint_name, entity_scope,
+                 request_context, fetched_at
+     ),
+     all_snaps AS (
+       SELECT * FROM ins_campaign UNION ALL SELECT * FROM ins_adset
+     )
+     INSERT INTO meta_raw_snapshot_observations (
+       snapshot_id, business_id, provider_account_id, endpoint_name, entity_scope,
+       status, provider_http_status, run_id, request_context, observed_at
+     )
+     SELECT id, business_id, provider_account_id, endpoint_name, entity_scope,
+            'fetched', 200, NULL, request_context, fetched_at
+     FROM all_snaps`,
+    [businessId, providerAccountId, options.corroborated === true],
+  );
+}
+
 async function proveLateSourceRowIsolation(pool: Pool) {
   const reader = await pool.connect();
   try {
@@ -3460,11 +3763,19 @@ async function proveLateSourceRowIsolation(pool: Pool) {
     );
     expect(before.rowCount).toBe(0);
 
+    const lateSourceDate = new Date(Date.parse(receipt) - 4 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+
     const writer = await pool.connect();
     try {
       await writer.query("BEGIN");
       const observedAt = new Date().toISOString();
-      const date = receipt.slice(0, 10);
+      // Keep the fixture old enough that its after-day receipt can exist at the
+      // next transaction cutoff. A same-day row cannot truthfully be bracketed
+      // by tomorrow's receipt yet, so it is review-only and must produce no
+      // decision cell under the production provenance contract.
+      const date = lateSourceDate;
       await writer.query(
         `INSERT INTO meta_campaign_daily (
           business_ref_id, provider_account_ref_id, provider_account_id, date,
@@ -3497,12 +3808,12 @@ async function proveLateSourceRowIsolation(pool: Pool) {
       );
       await writer.query(
         `INSERT INTO meta_ad_daily (
-          business_ref_id, provider_account_ref_id, provider_account_id, date,
+          business_ref_id, business_id, provider_account_ref_id, provider_account_id, date,
           campaign_id, adset_id, ad_id, account_timezone, account_currency,
           spend, impressions, clicks, link_clicks, conversions, revenue,
           payload_json, truth_state, validation_status, finalized_at,
           created_at, updated_at
-        ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'late-campaign',
+        ) VALUES ($1::uuid, $1::text, $2::uuid, $3, $4::date, 'late-campaign',
           'late-adset', 'late-ad', 'UTC', 'USD', 10, 1000, 20, 15, 1, 30,
           '{}'::jsonb, 'finalized', 'passed', $5, $5, $5)`,
         [
@@ -3524,6 +3835,20 @@ async function proveLateSourceRowIsolation(pool: Pool) {
     );
     expect(during.rowCount).toBe(0);
     await reader.query("COMMIT");
+
+    /*
+      The narrowest point that can work. Config now comes from retained provider
+      receipts, so the ad-day needs one — but the ad-day itself only exists after
+      the writer above committed, and the receipts have to predate the snapshot
+      the visible read opens below. Seeding earlier inserts nothing (there is no
+      ad-day yet); seeding inside that snapshot leaves them invisible to it. The
+      isolation this test proves is untouched: the reader's own transaction has
+      already committed, and receipts add no ad-day rows, so `during` stays empty
+      whatever happens here.
+    */
+    await seedConfigReceipts(pool, BUSINESS_ID, PROVIDER_ACCOUNT_ID, {
+      corroborated: true,
+    });
 
     await pool.query(
       "UPDATE provider_accounts SET timezone = 'Pacific/Honolulu' WHERE id = $1::uuid",
@@ -3562,7 +3887,7 @@ async function proveLateSourceRowIsolation(pool: Pool) {
         status: "ready",
         keyBasis: "immutable_latest_source_date",
         accountTimezone: "UTC",
-        latestSourceDate: nextReceipt.slice(0, 10),
+        latestSourceDate: lateSourceDate,
       });
       expect(
         new Set(batch.cells.map((cell) => cell.key.accountTimezone)),
@@ -3625,9 +3950,30 @@ describe.runIf(postgresAvailable)(
         const day = "2026-08-10";
         const observedAt = "2026-08-11T00:00:00.000Z";
         const fixture = [
-          { adId: "eq-ad-spending", spend: 120.5, impressions: 5000, clicks: 90, conversions: 3, revenue: 410.25 },
-          { adId: "eq-ad-silent", spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
-          { adId: "eq-ad-converting", spend: 88.75, impressions: 2400, clicks: 61, conversions: 7, revenue: 933.4 },
+          {
+            adId: "eq-ad-spending",
+            spend: 120.5,
+            impressions: 5000,
+            clicks: 90,
+            conversions: 3,
+            revenue: 410.25,
+          },
+          {
+            adId: "eq-ad-silent",
+            spend: 0,
+            impressions: 0,
+            clicks: 0,
+            conversions: 0,
+            revenue: 0,
+          },
+          {
+            adId: "eq-ad-converting",
+            spend: 88.75,
+            impressions: 2400,
+            clicks: 61,
+            conversions: 7,
+            revenue: 933.4,
+          },
         ];
 
         await pool.query(
@@ -3637,7 +3983,13 @@ describe.runIf(postgresAvailable)(
              truth_state, validation_status, created_at, updated_at
            ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-campaign',
              'OUTCOME_SALES', 'PURCHASE', 'PURCHASE', 'finalized', 'passed', $5, $5)`,
-          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID, day, observedAt],
+          [
+            BUSINESS_ID,
+            PROVIDER_ACCOUNT_REF_ID,
+            PROVIDER_ACCOUNT_ID,
+            day,
+            observedAt,
+          ],
         );
         await pool.query(
           `INSERT INTO meta_adset_daily (
@@ -3646,19 +3998,27 @@ describe.runIf(postgresAvailable)(
              truth_state, validation_status, created_at, updated_at
            ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-adset',
              'PURCHASE', 'PURCHASE', 'finalized', 'passed', $5, $5)`,
-          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID, day, observedAt],
+          [
+            BUSINESS_ID,
+            PROVIDER_ACCOUNT_REF_ID,
+            PROVIDER_ACCOUNT_ID,
+            day,
+            observedAt,
+          ],
         );
         for (const row of fixture) {
           await pool.query(
             `INSERT INTO meta_ad_daily (
-               business_ref_id, provider_account_ref_id, provider_account_id, date,
+               business_ref_id, business_id, provider_account_ref_id, provider_account_id, date,
                campaign_id, adset_id, ad_id, account_timezone, account_currency,
                spend, impressions, clicks, link_clicks, conversions, revenue,
                payload_json, truth_state, validation_status, finalized_at,
                created_at, updated_at
-             ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-campaign', 'eq-adset',
+             ) VALUES ($1::uuid, $1::text, $2::uuid, $3, $4::date, 'eq-campaign', 'eq-adset',
                $5, 'UTC', 'USD', $6, $7, $8, 0, $9, $10,
-               '{}'::jsonb, 'finalized', 'passed', $11, $11, $11)`,
+               /* Meta's measured-zero encoding (D095): an actions array with
+                  no link_click entry. Without it a stored 0 is unproven. */
+               '{"actions":[]}'::jsonb, 'finalized', 'passed', $11, $11, $11)`,
             [
               BUSINESS_ID,
               PROVIDER_ACCOUNT_REF_ID,
@@ -3693,6 +4053,7 @@ describe.runIf(postgresAvailable)(
             // difference that survives is attributable to link_clicks alone.
             return {
               linkClicks: mapped.map((mappedRow) => mappedRow.linkClicks),
+              rows: mapped,
               rowCount: source.rowCount,
               batch: computeForReceipt(mapped, `${day}T12:00:00.000Z`, null),
             };
@@ -3701,6 +4062,47 @@ describe.runIf(postgresAvailable)(
         const zeroWorld = await readWorld();
         expect(zeroWorld.rowCount).toBe(fixture.length);
         expect(zeroWorld.linkClicks).toEqual([0, 0, 0]);
+
+        /*
+          THE LEGACY ZERO (D095). The same stored 0 WITHOUT payload proof — no
+          actions array at all, which is what the old NOT NULL DEFAULT 0 writer
+          left behind — is not a measurement. The calibration read used to take
+          the raw column and count it as a click-free day; it now goes through
+          the shared classifier and reads as unknown, exactly as the decision
+          loader reads the same row. Then the proof is restored, so the NULL
+          world below starts from the same measured zeros as before.
+        */
+        await pool.query(
+          `UPDATE meta_ad_daily SET payload_json = '{}'::jsonb WHERE business_ref_id = $1::uuid`,
+          [BUSINESS_ID],
+        );
+        const legacyZeroWorld = await readWorld();
+        expect(legacyZeroWorld.rowCount).toBe(fixture.length);
+        expect(legacyZeroWorld.linkClicks).toEqual([null, null, null]);
+        // A contradicting entry is not proof either, and neither is junk.
+        await pool.query(
+          `UPDATE meta_ad_daily
+              SET payload_json = CASE ad_id
+                WHEN 'eq-ad-spending'
+                  THEN '{"actions":[{"action_type":"link_click","value":"3"}]}'::jsonb
+                WHEN 'eq-ad-silent'
+                  THEN '{"actions":[{"action_type":"link_click","value":"zero"}]}'::jsonb
+                ELSE '{"actions":[{"action_type":"link_click","value":"0"}]}'::jsonb
+              END
+            WHERE business_ref_id = $1::uuid`,
+          [BUSINESS_ID],
+        );
+        const provedWorld = await readWorld();
+        const provedByAd = new Map(
+          provedWorld.rows.map((row) => [row.adId, row.linkClicks]),
+        );
+        expect(provedByAd.get("eq-ad-spending")).toBeNull();
+        expect(provedByAd.get("eq-ad-silent")).toBeNull();
+        expect(provedByAd.get("eq-ad-converting")).toBe(0);
+        await pool.query(
+          `UPDATE meta_ad_daily SET payload_json = '{"actions":[]}'::jsonb WHERE business_ref_id = $1::uuid`,
+          [BUSINESS_ID],
+        );
 
         // The ONLY mutation: the stored zero becomes an unsupplied absence.
         const flipped = await pool.query(
@@ -3769,8 +4171,22 @@ describe.runIf(postgresAvailable)(
         const day = "2026-08-10";
         const observedAt = "2026-08-11T00:00:00.000Z";
         const fixture = [
-          { adId: "lc-ad-a", spend: 120.5, impressions: 5000, clicks: 90, conversions: 3, revenue: 410.25 },
-          { adId: "lc-ad-b", spend: 88.75, impressions: 2400, clicks: 61, conversions: 7, revenue: 933.4 },
+          {
+            adId: "lc-ad-a",
+            spend: 120.5,
+            impressions: 5000,
+            clicks: 90,
+            conversions: 3,
+            revenue: 410.25,
+          },
+          {
+            adId: "lc-ad-b",
+            spend: 88.75,
+            impressions: 2400,
+            clicks: 61,
+            conversions: 7,
+            revenue: 933.4,
+          },
         ];
         await pool.query(
           `INSERT INTO meta_campaign_daily (
@@ -3779,7 +4195,13 @@ describe.runIf(postgresAvailable)(
              truth_state, validation_status, created_at, updated_at
            ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-campaign',
              'OUTCOME_SALES', 'PURCHASE', 'PURCHASE', 'finalized', 'passed', $5, $5)`,
-          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID, day, observedAt],
+          [
+            BUSINESS_ID,
+            PROVIDER_ACCOUNT_REF_ID,
+            PROVIDER_ACCOUNT_ID,
+            day,
+            observedAt,
+          ],
         );
         await pool.query(
           `INSERT INTO meta_adset_daily (
@@ -3788,17 +4210,23 @@ describe.runIf(postgresAvailable)(
              truth_state, validation_status, created_at, updated_at
            ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-adset',
              'PURCHASE', 'PURCHASE', 'finalized', 'passed', $5, $5)`,
-          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID, day, observedAt],
+          [
+            BUSINESS_ID,
+            PROVIDER_ACCOUNT_REF_ID,
+            PROVIDER_ACCOUNT_ID,
+            day,
+            observedAt,
+          ],
         );
         for (const row of fixture) {
           await pool.query(
             `INSERT INTO meta_ad_daily (
-               business_ref_id, provider_account_ref_id, provider_account_id, date,
+               business_ref_id, business_id, provider_account_ref_id, provider_account_id, date,
                campaign_id, adset_id, ad_id, account_timezone, account_currency,
                spend, impressions, clicks, link_clicks, conversions, revenue,
                payload_json, truth_state, validation_status, finalized_at,
                created_at, updated_at
-             ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'eq-campaign', 'eq-adset',
+             ) VALUES ($1::uuid, $1::text, $2::uuid, $3, $4::date, 'eq-campaign', 'eq-adset',
                $5, 'UTC', 'USD', $6, $7, $8, 40, $9, $10,
                '{}'::jsonb, 'finalized', 'passed', $11, $11, $11)`,
             [
@@ -3821,10 +4249,20 @@ describe.runIf(postgresAvailable)(
           inRepeatableRead(pool, async (client, receipt) => {
             const source = await client.query(
               READ_NATIVE_AD_CALIBRATION_SOURCE_SQL,
-              [BUSINESS_ID, day, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID, receipt],
+              [
+                BUSINESS_ID,
+                day,
+                PROVIDER_ACCOUNT_REF_ID,
+                PROVIDER_ACCOUNT_ID,
+                receipt,
+              ],
             );
             const mapped = source.rows.map(mapNativeAdCalibrationSourceRow);
-            const batch = computeForReceipt(mapped, `${day}T12:00:00.000Z`, null);
+            const batch = computeForReceipt(
+              mapped,
+              `${day}T12:00:00.000Z`,
+              null,
+            );
             return {
               linkClicks: mapped.map((mappedRow) => mappedRow.linkClicks),
               // The observable consequence: how many ads contributed a
@@ -3859,8 +4297,9 @@ describe.runIf(postgresAvailable)(
           fixture can prove is what the coercion actually did: the unreported
           day now reaches the engine as `null` instead of as a fabricated `0`,
           so it contributes no denominator rather than a false one. The
-          rate-level consequence of that null is covered by
-          `sumOptionalComplete`, which every link-click rate now goes through.
+          rate-level consequence of that null is covered by the shared window
+          rule (`resolveMetaCompleteWindowSum`), which every link-click rate now
+          goes through.
         */
         expect(complete.linkClicks).not.toContain(null);
         expect(mixed.linkClicks).toContain(null);
@@ -3958,7 +4397,8 @@ async function createEphemeralSchema(pool: Pool) {
       business_id TEXT NOT NULL,
       provider TEXT NOT NULL,
       provider_account_ref_id UUID NOT NULL,
-      provider_account_id TEXT NOT NULL
+      provider_account_id TEXT NOT NULL,
+      is_selected BOOLEAN NOT NULL DEFAULT FALSE
     );
     CREATE TABLE engine_v3_job_runs (
       id UUID PRIMARY KEY,
@@ -4020,9 +4460,68 @@ async function createEphemeralSchema(pool: Pool) {
       created_at TIMESTAMPTZ NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL
     );
+    /*
+      The raw receipt tables the config-field source contract reads. Left EMPTY on
+      purpose: a fixture with no provider receipt must come back with no
+      authoritative config, and that is the honest answer rather than a derived
+      warehouse value standing in for one. Tests that need a real objective seed
+      a receipt of their own.
+    */
+    /* The contemporaneous typed witness the contract consults; empty here. */
+    CREATE TABLE meta_creative_daily (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id TEXT,
+      provider_account_id TEXT,
+      campaign_id TEXT,
+      date DATE,
+      creative_id TEXT,
+      objective TEXT,
+      spend DOUBLE PRECISION,
+      created_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ,
+      account_timezone TEXT,
+      account_currency TEXT,
+      payload_json JSONB
+    );
+    CREATE TABLE meta_raw_snapshots (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id TEXT,
+      provider_account_id TEXT,
+      endpoint_name TEXT,
+      entity_scope TEXT,
+      status TEXT,
+      provider_http_status INTEGER,
+      start_date DATE,
+      end_date DATE,
+      payload_hash TEXT,
+      request_context JSONB,
+      payload_json JSONB,
+      fetched_at TIMESTAMPTZ
+    );
+    CREATE TABLE meta_raw_snapshot_observations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      snapshot_id UUID,
+      business_id TEXT,
+      provider_account_id TEXT,
+      endpoint_name TEXT,
+      entity_scope TEXT,
+      status TEXT,
+      provider_http_status INTEGER,
+      run_id TEXT,
+      request_context JSONB,
+      observed_at TIMESTAMPTZ
+    );
+
     CREATE TABLE meta_ad_daily (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       business_ref_id UUID NOT NULL,
+      /*
+        The production table carries BOTH identities, and the source query asserts
+        they agree — nothing in the schema enforces it, so the query makes the
+        assumption a predicate and fails closed if they ever diverge. The fixture
+        has to carry both or that assertion has nothing to test against.
+      */
+      business_id TEXT NOT NULL,
       provider_account_ref_id UUID NOT NULL,
       provider_account_id TEXT NOT NULL,
       date DATE NOT NULL,
@@ -4058,9 +4557,11 @@ async function createEphemeralSchema(pool: Pool) {
       'Europe/Istanbul', 'USD'
     );
     INSERT INTO business_provider_accounts (
-      business_id, provider, provider_account_ref_id, provider_account_id
+      business_id, provider, provider_account_ref_id, provider_account_id,
+      is_selected
     ) VALUES (
-      '${BUSINESS_ID}', 'meta', '${PROVIDER_ACCOUNT_REF_ID}', '${PROVIDER_ACCOUNT_ID}'
+      '${BUSINESS_ID}', 'meta', '${PROVIDER_ACCOUNT_REF_ID}',
+      '${PROVIDER_ACCOUNT_ID}', TRUE
     );
     INSERT INTO engine_v3_job_runs (
       id, job_name, business_ref_id, business_id, as_of_date,
@@ -4244,3 +4745,662 @@ async function withEphemeralPostgres(operation: (pool: Pool) => Promise<void>) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 }
+
+describe("an old provenance gap must not kill an ad with a verified recent run", () => {
+  /** A day whose config VALUES are present but whose provenance is stated per case. */
+  const day = (
+    adId: string,
+    date: string,
+    provenance: Partial<NativeAdCalibrationSourceRow>,
+    metrics: Partial<NativeAdCalibrationSourceRow> = {},
+  ) =>
+    makeRow({
+      adId,
+      date,
+      sourceRowId: `${adId}-${date}`,
+      finalizedAt: null,
+      ...provenance,
+      ...metrics,
+    });
+
+  /** No receipt at all for the config: value present, provenance unknown. */
+  const UNPROVENANCED = {
+    objectiveTier: "unknown",
+    objectiveReadiness: "none",
+    optimizationGoalTier: "unknown",
+    optimizationGoalReadiness: "none",
+    customEventTypeTier: "unknown",
+    customEventTypeReadiness: "none",
+  } satisfies Partial<NativeAdCalibrationSourceRow>;
+
+  const VERIFIED = {
+    objectiveTier: "provider_receipt_legacy_bracketed",
+    objectiveReadiness: "decision_authority",
+    optimizationGoalTier: "provider_receipt_legacy_bracketed",
+    optimizationGoalReadiness: "decision_authority",
+    customEventTypeTier: "provider_receipt_legacy_bracketed",
+    customEventTypeReadiness: "decision_authority",
+  } satisfies Partial<NativeAdCalibrationSourceRow>;
+
+  /** Today's receipt: fine, but tomorrow has not happened. */
+  const PENDING = {
+    ...VERIFIED,
+    optimizationGoalTier: "provider_receipt_pending_corroboration",
+    optimizationGoalReadiness: "review_only",
+  } satisfies Partial<NativeAdCalibrationSourceRow>;
+
+  const dates = (from: string, count: number) =>
+    Array.from({ length: count }, (_, i) => {
+      const d = new Date(Date.parse(`${from}T00:00:00Z`) + i * 86_400_000);
+      return d.toISOString().slice(0, 10);
+    });
+
+  it("uses the provider-local evaluation day for pending config corroboration", () => {
+    const batch = computeNativeAdCalibrationBatch({
+      businessId: BUSINESS_ID,
+      providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: PROVIDER_ACCOUNT_ID,
+      asOf: "2026-09-21",
+      computationCutoff: "2026-09-21T03:00:00.000Z",
+      sourceRows: [
+        day("west-of-utc", "2026-09-17", PENDING, {
+          accountTimezone: "America/Los_Angeles",
+          sourceAccountTimezone: "America/Los_Angeles",
+        }),
+      ],
+      targetAuthority: FRESH_TARGET,
+    });
+    expect(batch.observations).toHaveLength(1);
+    expect(batch.observations[0]?.configAuthorityCounts).toMatchObject({
+      reviewOnlyPendingDays: 1,
+      reviewOnlySettledDays: 0,
+    });
+  });
+
+  /*
+    CODEX CASE 1. The all-or-nothing rule discarded an ad because of a day two
+    months earlier that nobody will ever observe again. With a recent verified
+    run the ad has real, current evidence and must reach the candidate sample —
+    judged by the SAME 20/30 floors, not by a relaxed one.
+  */
+  it("admits an ad whose old days are unprovenanced and whose recent 30 are verified", () => {
+    const rows = [
+      ...dates("2026-04-14", 60).map((d) => day("recovered", d, UNPROVENANCED)),
+      ...dates("2026-06-13", 30).map((d) => day("recovered", d, VERIFIED)),
+    ];
+    const batch = compute(rows);
+
+    expect(batch.qualityCounts.missingContextAdExclusionCount).toBe(0);
+    expect(batch.observations).toHaveLength(1);
+    const observation = batch.observations[0]!;
+    /*
+      THE TWO LEVELS, and the distinction is the design. Those old days state
+      their config VALUES, so they resolve a context and stay in the observation
+      — the ad is not discarded and its full history is still visible. What they
+      do not state is PROVENANCE, so they are outside the verified run and
+      contribute nothing to the hard economy.
+    */
+    expect(observation.sourceMinDate).toBe("2026-04-14");
+    expect(observation.sourceDayCount).toBe(90);
+    /* Not `none`: the ad DOES have authoritative days. Not `decision_authority`
+       either, because sixty of its ninety days have no provenance at all. */
+    expect(observation.configAuthority).toBe("review_only");
+    expect(observation.configAuthorityCounts).toMatchObject({
+      decisionAuthorityDays: 30,
+      noneDays: 60,
+    });
+    expect(observation.configAuthoritySuffix).toMatchObject({
+      startDate: "2026-06-13",
+      dayCount: 30,
+      reason: "verified",
+    });
+    /* The verified run is what reaches the cell, and it is enough to count. */
+    expect(observation.verifiedSample).not.toBeNull();
+    expect(observation.verifiedSample?.sourceDayCount).toBe(30);
+    const cell = batch.cells.find(
+      (c) => c.key.cellScope === "objective_cohort_context",
+    )!;
+    expect(cell.configAuthorityCounts?.verifiedSuffixAds).toBe(1);
+    expect(cell.matureAdCount).toBe(1);
+  });
+
+  /*
+    CODEX CASE 2. The trailing day is uncorroborated and carries almost all the
+    money. Its spend must not reach the hard economy the cell's percentiles and
+    the account's attributed AOV are built from.
+  */
+  it("keeps a trailing high-spend pending day OUT of the hard economy", () => {
+    const rows = [
+      ...dates("2026-06-13", 29).map((d) =>
+        day("pending-tail", d, VERIFIED, { spend: 10, revenue: 24 }),
+      ),
+      day("pending-tail", "2026-07-12", PENDING, {
+        spend: 9_000,
+        revenue: 90_000,
+        conversions: 300,
+      }),
+    ];
+    const batch = compute(rows);
+    const observation = batch.observations[0]!;
+
+    /* The full observation still sees every day — nothing is hidden. */
+    expect(observation.totalSpend).toBeCloseTo(29 * 10 + 9_000, 6);
+    /* The verified projection stops before the pending day. */
+    expect(observation.configAuthoritySuffix).toMatchObject({
+      dayCount: 29,
+      pendingTrailingDays: 1,
+    });
+    expect(observation.verifiedSample?.totalSpend).toBeCloseTo(290, 6);
+    expect(observation.verifiedSample?.totalRevenue).toBeCloseTo(29 * 24, 6);
+    /* And the cell's economics are built from the projection, not the whole. */
+    const cell = batch.cells.find(
+      (c) => c.key.cellScope === "objective_cohort_context",
+    )!;
+    expect(cell.accountCalibration.metaAttributedRevenue90d).toBeCloseTo(
+      29 * 24,
+      6,
+    );
+    expect(cell.accountCalibration.metaAttributedRevenue90d).not.toBeCloseTo(
+      90_000,
+      0,
+    );
+    expect(cell.configAuthorityCounts?.reviewOnlyPendingSpend).toBeCloseTo(
+      9_000,
+      6,
+    );
+  });
+
+  /*
+    CODEX CASE 3. A real configuration change is not a gap and not an anomaly:
+    it ends the run where it happened, and the ad keeps the post-change days.
+  */
+  it("splits the window at a genuine objective change instead of discarding the ad", () => {
+    const rows = [
+      ...dates("2026-06-13", 15).map((d) =>
+        day("changed", d, VERIFIED, { objective: "OUTCOME_TRAFFIC" }),
+      ),
+      ...dates("2026-06-28", 15).map((d) => day("changed", d, VERIFIED)),
+    ];
+    const batch = compute(rows);
+
+    expect(batch.qualityCounts.mixedContextAdExclusionCount).toBe(0);
+    expect(batch.qualityCounts.contextChangeTruncatedAdCount).toBe(1);
+    expect(batch.qualityCounts.contextGapTruncatedAdCount).toBe(0);
+    expect(batch.observations).toHaveLength(1);
+    const observation = batch.observations[0]!;
+    expect(observation.objective).toBe("OUTCOME_SALES");
+    expect(observation.sourceMinDate).toBe("2026-06-28");
+    expect(observation.sourceDayCount).toBe(15);
+  });
+
+  it("still refuses an ad whose every day is unprovenanced of any context", () => {
+    const rows = dates("2026-06-13", 20).map((d) =>
+      day("no-context", d, UNPROVENANCED, { objective: "" }),
+    );
+    const batch = compute(rows);
+    expect(batch.observations).toHaveLength(0);
+    expect(batch.qualityCounts.missingContextAdExclusionCount).toBe(1);
+  });
+
+  /*
+    Two ad sets, same goal and same event, DIFFERENT custom conversions. Live
+    `adset_configs` has exactly this: 21 ad sets on one account under
+    `OFFSITE_CONVERSIONS` + `OTHER` across 6 distinct conversion ids. Pooling
+    them averages six unrelated conversion definitions into one economy.
+  */
+  it("keeps two custom conversions in separate cells", () => {
+    const withConversion = (adId: string, adsetId: string, cc: string) =>
+      dates("2026-06-13", 10).map((d) =>
+        day(adId, d, {
+          ...VERIFIED,
+          adsetId,
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          customEventType: "PURCHASE",
+          customConversionId: cc,
+          customConversionIdReadiness: "decision_authority",
+          customConversionIdTier: "provider_receipt_legacy_bracketed",
+        } as Partial<NativeAdCalibrationSourceRow>),
+      );
+    const batch = compute([
+      ...withConversion("cc-a", "adset-a", "687098670133221"),
+      ...withConversion("cc-b", "adset-b", "918975106895502"),
+    ]);
+
+    const contexts = batch.cells
+      .map((cell) => cell.key.optimizationContext)
+      .filter((value) => value !== "*");
+    expect(new Set(contexts).size).toBe(2);
+    expect(contexts.some((value) => value.includes("cc=687098670133221"))).toBe(
+      true,
+    );
+    expect(contexts.some((value) => value.includes("cc=918975106895502"))).toBe(
+      true,
+    );
+  });
+
+  /*
+    And the placeholder case, end to end: `OTHER` names no purchase, so however
+    well the receipt was observed the day is review-only and lends nothing to a
+    hard economy. Reading the CustomConversion object does not rescue it — a
+    live GET of all six ids on the measured account returned
+    `custom_event_type = OTHER` for every one.
+  */
+  it("gives an OTHER-event purchase ad no verified sample at all", () => {
+    const rows = dates("2026-06-13", 30).map((d) =>
+      day("other-event", d, {
+        ...VERIFIED,
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        customEventType: "OTHER",
+        customConversionId: "687098670133221",
+        customConversionIdReadiness: "decision_authority",
+      } as Partial<NativeAdCalibrationSourceRow>),
+    );
+    const batch = compute(rows);
+    const observation = batch.observations[0]!;
+
+    /* The cohort still reads purchase — that comes from the goal, and this
+       change does not touch the shared cohort mapping. */
+    expect(observation.cohort).toBe("purchase");
+    expect(observation.configAuthority).toBe("none");
+    expect(observation.configAuthoritySuffix.dayCount).toBe(0);
+    expect(observation.verifiedSample).toBeNull();
+    const cell = batch.cells.find((c) => c.key.cohort === "purchase")!;
+    expect(cell.matureAdCount).toBe(0);
+    expect(cell.configAuthorityCounts?.verifiedSuffixAds).toBe(0);
+  });
+});
+
+describe("the batch hash can tell two verified selections apart", () => {
+  /*
+    CODEX'S ADVERSARIAL HASH CASE. Two source sets with the SAME rows — same
+    ids, same dates, same spend, same conversions, same revenue — differing only
+    in how well each day's config was observed. The economics are identical by
+    construction, so before provenance entered the digest the two were
+    indistinguishable: the observation entry hashed totals and row ids, and both
+    matched. They nevertheless build DIFFERENT hard samples, and a hash that
+    cannot separate them cannot authenticate the sample a decision rested on.
+  */
+  const VERIFIED = {
+    objectiveTier: "provider_receipt_legacy_bracketed",
+    objectiveReadiness: "decision_authority",
+    optimizationGoalTier: "provider_receipt_legacy_bracketed",
+    optimizationGoalReadiness: "decision_authority",
+    customEventTypeTier: "provider_receipt_legacy_bracketed",
+    customEventTypeReadiness: "decision_authority",
+  } satisfies Partial<NativeAdCalibrationSourceRow>;
+  const WEAK = {
+    ...VERIFIED,
+    optimizationGoalTier: "provider_receipt_legacy_interval_uncertain",
+    optimizationGoalReadiness: "review_only",
+  } satisfies Partial<NativeAdCalibrationSourceRow>;
+
+  const window = Array.from({ length: 30 }, (_, i) =>
+    new Date(Date.parse("2026-06-13T00:00:00Z") + i * 86_400_000)
+      .toISOString()
+      .slice(0, 10),
+  );
+  /** Identical rows; only the trailing VERIFIED run length differs. */
+  const build = (verifiedTail: number) =>
+    window.map((date, index) =>
+      makeRow({
+        adId: "hash-probe",
+        date,
+        sourceRowId: `hash-probe-${date}`,
+        finalizedAt: null,
+        ...(index >= window.length - verifiedTail ? VERIFIED : WEAK),
+      }),
+    );
+
+  const tenVerified = compute(build(10));
+  const twentyVerified = compute(build(20));
+
+  it("produces identical economics, so nothing else could separate them", () => {
+    expect(tenVerified.observations[0]!.totalSpend).toBe(
+      twentyVerified.observations[0]!.totalSpend,
+    );
+    expect(tenVerified.observations[0]!.totalRevenue).toBe(
+      twentyVerified.observations[0]!.totalRevenue,
+    );
+    expect(tenVerified.observations[0]!.sourceRowIds).toEqual(
+      twentyVerified.observations[0]!.sourceRowIds,
+    );
+  });
+
+  it("selects genuinely different hard samples", () => {
+    expect(tenVerified.observations[0]!.configAuthoritySuffix.dayCount).toBe(
+      10,
+    );
+    expect(twentyVerified.observations[0]!.configAuthoritySuffix.dayCount).toBe(
+      20,
+    );
+    expect(
+      tenVerified.observations[0]!.verifiedSample?.sourceRowIds,
+    ).not.toEqual(twentyVerified.observations[0]!.verifiedSample?.sourceRowIds);
+  });
+
+  it("gives them DIFFERENT generation and input manifest hashes", () => {
+    expect(tenVerified.generationContentHash).not.toBe(
+      twentyVerified.generationContentHash,
+    );
+    expect(tenVerified.inputManifestHash).not.toBe(
+      twentyVerified.inputManifestHash,
+    );
+    expect(tenVerified.cellSetHash).not.toBe(twentyVerified.cellSetHash);
+  });
+
+  it("separates them at the SOURCE signature too, so a duplicate day conflicts", () => {
+    /*
+      The same ad-day supplied twice with different provenance is a real
+      conflict, not a duplicate to be deduped by sort order.
+    */
+    const conflicting = compute([
+      makeRow({
+        adId: "dup",
+        date: "2026-07-11",
+        sourceRowId: "dup-a",
+        finalizedAt: null,
+        ...VERIFIED,
+      }),
+      makeRow({
+        adId: "dup",
+        date: "2026-07-11",
+        sourceRowId: "dup-b",
+        finalizedAt: null,
+        ...WEAK,
+      }),
+    ]);
+    expect(conflicting.qualityCounts.duplicateConflictAdExclusionCount).toBe(1);
+    expect(conflicting.observations).toHaveLength(0);
+  });
+
+  it("isolates the OBSERVATION entry as the thing that changed", () => {
+    /*
+      Holding everything else equal, because the rest of the batch is no longer
+      equal: the hard economy now depends on provenance, so the cells and the
+      spend-unit authority legitimately differ between these two runs. The claim
+      under test is narrower and is the one Codex raised — that the observation
+      ENTRY itself could not tell two verified selections apart.
+
+      So: one batch, its observations swapped for the other's, everything else
+      byte-identical. Under `.v6` the digest moves. Under `.v5` it does not,
+      because `.v5` omits the authority block — which is the version boundary
+      stated rather than assumed, and the reason `.v6` had to be minted at all.
+      The 1,855 `.v5` rows on disk were written without any of this.
+    */
+    const digest = (
+      observations: typeof tenVerified.observations,
+      contractVersion: string,
+    ) =>
+      canonicalSha256(
+        nativeAdCalibrationBatchGenerationContent({
+          ...tenVerified,
+          contractVersion,
+          observations,
+        } as never),
+      );
+    const current = NATIVE_AD_CALIBRATION_CONTRACT_VERSION;
+    expect(digest(tenVerified.observations, current)).not.toBe(
+      digest(twentyVerified.observations, current),
+    );
+    const v5 = "engine-v3-native-ad-calibration.v5";
+    expect(digest(tenVerified.observations, v5)).toBe(
+      digest(twentyVerified.observations, v5),
+    );
+  });
+});
+
+/*
+  CONFIG RECEIPT LINEAGE IN THE SOURCE MANIFEST.
+
+  A source row said how WELL each config field was observed (tier, readiness)
+  and never by WHAT. Two cohorts resting on different provider receipts with
+  the same tiers produced the same source content, so the same source manifest,
+  input manifest and cell set hashes. `.v6` (unshipped, amended in place) binds
+  a per-row digest of the ad-day's receipt manifest line; `.v5` must not move.
+*/
+describe("native ad calibration binds each ad-day's config receipts (.v6 only)", () => {
+  const V5 = "engine-v3-native-ad-calibration.v5" as const;
+  const V6 = NATIVE_AD_CALIBRATION_CONTRACT_VERSION;
+  const digestOf = (label: string) =>
+    canonicalSha256({ receiptManifestLineFixture: label });
+  const signature = (
+    row: NativeAdCalibrationSourceRow,
+    version: typeof V5 | typeof V6,
+  ) => nativeAdCalibrationSourceContentSignatureForVersion(row, version);
+
+  it("keeps the .v5 source content signature byte-identical to the pre-lineage formula", () => {
+    /*
+      PINNED from this exact fixture BEFORE the digest existed, through the same
+      function. If `.v5` ever starts seeing the digest, or any other key, this
+      literal stops matching.
+    */
+    expect(signature(makeRow(), V5)).toBe(
+      "6a443672634a6f88ebc1359955a8b3ef276d72cf545bb26423ff6553bd6afdab",
+    );
+    /* ...and a digest attached to the row is invisible to it. */
+    expect(signature(makeRow({ configReceiptDigest: digestOf("a") }), V5)).toBe(
+      signature(makeRow(), V5),
+    );
+  });
+
+  it("moves the .v6 signature when ONLY the receipt identity changes", () => {
+    const onA = makeRow({ configReceiptDigest: digestOf("a") });
+    const onB = makeRow({ configReceiptDigest: digestOf("b") });
+    expect(signature(onA, V6)).not.toBe(signature(onB, V6));
+    expect(signature(onA, V5)).toBe(signature(onB, V5));
+    /* An unstated receipt is an explicit null, not the same as any receipt. */
+    expect(signature(makeRow(), V6)).not.toBe(signature(onA, V6));
+    /* The key is bound even when null, so .v6 differs from .v5 on a bare row. */
+    expect(signature(makeRow(), V6)).not.toBe(signature(makeRow(), V5));
+    /* Something that is not a sha256 is not an identity: it reads as absent. */
+    expect(
+      signature(makeRow({ configReceiptDigest: "not-a-digest" }), V6),
+    ).toBe(signature(makeRow(), V6));
+  });
+
+  it("moves the batch source manifest when only the receipts behind the same tiers differ", () => {
+    const rows = (label: string) => [
+      makeRow({ adId: "ad-1", configReceiptDigest: digestOf(`${label}-1`) }),
+      makeRow({ adId: "ad-2", configReceiptDigest: digestOf(`${label}-2`) }),
+    ];
+    const first = compute(rows("a"));
+    const second = compute(rows("b"));
+    const again = compute(rows("a"));
+    expect(first.sourceManifestHash).not.toBe(second.sourceManifestHash);
+    expect(first.sourceManifestHash).toBe(again.sourceManifestHash);
+    /* Nothing else about the economics moved: same observations, same totals. */
+    expect(second.observations.map((row) => row.totalSpend)).toEqual(
+      first.observations.map((row) => row.totalSpend),
+    );
+  });
+
+  it("maps the digest through the reader, and gates every readiness on reference coherence", () => {
+    expect(
+      mapNativeAdCalibrationSourceRow({
+        ...toDbSourceRow(makeRow()),
+        config_receipt_digest: digestOf("mapped"),
+      }).configReceiptDigest,
+    ).toBe(digestOf("mapped"));
+    expect(
+      mapNativeAdCalibrationSourceRow(toDbSourceRow(makeRow()))
+        .configReceiptDigest,
+    ).toBeNull();
+
+    for (const field of [
+      "objective",
+      "optimization_goal",
+      "custom_event_type",
+      "custom_conversion_id",
+    ] as const) {
+      expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL, field).toContain(
+        `(CASE WHEN ${configFieldEvidenceRefCoherentSql(`calib_cfg_evidence.${field}_ref`, field)}
+      THEN (calib_cfg_evidence.${field}_ref->>'readiness') ELSE 'none' END) AS ${field}_readiness`,
+      );
+    }
+    /* Computed once per row behind a planner fence, then read by name. */
+    expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL).toMatch(
+      /OFFSET 0\s*\) calib_cfg_evidence/,
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL).toContain(
+      "'hex') AS config_receipt_digest",
+    );
+    /* Per row, never an aggregate text blob. */
+    expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL).not.toContain("string_agg(");
+  });
+});
+
+describe.runIf(postgresAvailable)(
+  "native ad calibration config receipt lineage (real PostgreSQL)",
+  () => {
+    it("carries a receipt digest per ad-day and moves it when only the observation changes", async () => {
+      await withEphemeralPostgres(async (pool) => {
+        await createEphemeralSchema(pool);
+        const day = "2026-08-10";
+        const observedAt = "2026-08-11T00:00:00.000Z";
+        await pool.query(
+          `INSERT INTO meta_campaign_daily (
+             business_ref_id, provider_account_ref_id, provider_account_id, date,
+             campaign_id, objective, optimization_goal, custom_event_type,
+             truth_state, validation_status, created_at, updated_at
+           ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'lineage-campaign',
+             'OUTCOME_SALES', 'PURCHASE', 'PURCHASE', 'finalized', 'passed', $5, $5)`,
+          [
+            BUSINESS_ID,
+            PROVIDER_ACCOUNT_REF_ID,
+            PROVIDER_ACCOUNT_ID,
+            day,
+            observedAt,
+          ],
+        );
+        await pool.query(
+          `INSERT INTO meta_adset_daily (
+             business_ref_id, provider_account_ref_id, provider_account_id, date,
+             adset_id, optimization_goal, custom_event_type,
+             truth_state, validation_status, created_at, updated_at
+           ) VALUES ($1::uuid, $2::uuid, $3, $4::date, 'lineage-adset',
+             'PURCHASE', 'PURCHASE', 'finalized', 'passed', $5, $5)`,
+          [
+            BUSINESS_ID,
+            PROVIDER_ACCOUNT_REF_ID,
+            PROVIDER_ACCOUNT_ID,
+            day,
+            observedAt,
+          ],
+        );
+        for (const adId of ["lineage-ad-a", "lineage-ad-b"]) {
+          await pool.query(
+            `INSERT INTO meta_ad_daily (
+               business_ref_id, business_id, provider_account_ref_id, provider_account_id, date,
+               campaign_id, adset_id, ad_id, account_timezone, account_currency,
+               spend, impressions, clicks, link_clicks, conversions, revenue,
+               payload_json, truth_state, validation_status, finalized_at,
+               created_at, updated_at
+             ) VALUES ($1::uuid, $1::text, $2::uuid, $3, $4::date,
+               'lineage-campaign', 'lineage-adset', $5, 'UTC', 'USD',
+               50, 1000, 30, 20, 1, 80,
+               '{"actions":[{"action_type":"link_click","value":"20"}]}'::jsonb,
+               'finalized', 'passed', $6, $6, $6)`,
+            [
+              BUSINESS_ID,
+              PROVIDER_ACCOUNT_REF_ID,
+              PROVIDER_ACCOUNT_ID,
+              day,
+              adId,
+              observedAt,
+            ],
+          );
+        }
+        await seedConfigReceipts(pool, BUSINESS_ID, PROVIDER_ACCOUNT_ID);
+
+        const readWorld = (receipt?: string) =>
+          inRepeatableRead(pool, async (client, cutoff) => {
+            const source = await client.query(
+              READ_NATIVE_AD_CALIBRATION_SOURCE_SQL,
+              [
+                BUSINESS_ID,
+                day,
+                PROVIDER_ACCOUNT_REF_ID,
+                PROVIDER_ACCOUNT_ID,
+                cutoff,
+              ],
+            );
+            const mapped = source.rows.map(mapNativeAdCalibrationSourceRow);
+            return {
+              raw: source.rows as Record<string, unknown>[],
+              mapped,
+              /* After every fixture clock, so the rows are cutoff-safe and
+                 actually enter the source manifest being compared. */
+              batch: computeForReceipt(
+                mapped,
+                receipt ?? "2026-08-12T00:00:00.000Z",
+                null,
+              ),
+            };
+          });
+
+        const before = await readWorld();
+        expect(before.raw).toHaveLength(2);
+        for (const row of before.raw) {
+          expect(row.config_receipt_digest).toMatch(/^[0-9a-f]{64}$/);
+          /*
+            Every reference the source read built was coherent, so every
+            readiness is exactly the contract readiness of its tier: one
+            unbracketed legacy receipt per field is review only, and the
+            custom conversion the payload never carried is an observed absence.
+          */
+          expect(row.objective_tier).toBe(
+            "provider_receipt_legacy_single_page",
+          );
+          expect(row.objective_readiness).toBe("review_only");
+          expect(row.optimization_goal_readiness).toBe("review_only");
+          expect(row.custom_event_type_readiness).toBe("review_only");
+          expect(row.custom_conversion_id_readiness).toBe("none");
+          expect(row.link_clicks).not.toBeNull();
+        }
+        /* One campaign, one ad set, one day: the same receipts, the same digest. */
+        expect(before.raw[0]?.config_receipt_digest).toBe(
+          before.raw[1]?.config_receipt_digest,
+        );
+        expect(before.mapped.map((row) => row.configReceiptDigest)).toEqual(
+          before.raw.map((row) => row.config_receipt_digest),
+        );
+
+        /*
+          THE ONLY MUTATION: every receipt gets a new observation id. Same
+          snapshots, same clocks, same scope, same values — so the same tiers
+          and readiness. Only the identity of the receipts moved.
+        */
+        await pool.query(
+          `UPDATE meta_raw_snapshot_observations SET id = gen_random_uuid()`,
+        );
+        const after = await readWorld();
+        const strip = (rows: Record<string, unknown>[]) =>
+          rows.map(({ config_receipt_digest: _digest, ...rest }) => rest);
+        expect(strip(after.raw)).toEqual(strip(before.raw));
+        for (const [index, row] of after.raw.entries()) {
+          expect(row.config_receipt_digest).not.toBe(
+            before.raw[index]?.config_receipt_digest,
+          );
+        }
+        /* `.v6` sees it in the source manifest; `.v5` cannot. */
+        expect(after.batch.sourceManifestHash).not.toBe(
+          before.batch.sourceManifestHash,
+        );
+        for (const [index, row] of after.mapped.entries()) {
+          const prior = before.mapped[index]!;
+          expect(
+            nativeAdCalibrationSourceContentSignatureForVersion(
+              row,
+              "engine-v3-native-ad-calibration.v5",
+            ),
+          ).toBe(
+            nativeAdCalibrationSourceContentSignatureForVersion(
+              prior,
+              "engine-v3-native-ad-calibration.v5",
+            ),
+          );
+        }
+      });
+    }, 120_000);
+  },
+);

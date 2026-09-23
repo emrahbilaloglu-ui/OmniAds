@@ -26,6 +26,10 @@ import { isLikelyLowResCreativeUrl, isThumbnailLikeUrl } from "@/lib/meta/creati
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
 import { resolveAiTagsForRow } from "@/lib/meta/creatives-copy";
 import { r2, resolvePreviewOrigin } from "@/lib/meta/creatives-row-mappers";
+import {
+  readMetaCreativeDayMetricEvidence,
+  withMetaCreativeDayMetricEvidence,
+} from "@/lib/meta/creative-day-metric-evidence";
 
 type PerfSummary = {
   total_ms: number;
@@ -616,9 +620,22 @@ export function buildMetaCreativeApiRow(params: {
     preview_status: previewStatus,
     preview_origin: previewOrigin,
   };
+  /*
+    Every metric key above is re-emitted as a finite number (`?? 0`, `: 0`),
+    which is what the Creatives surface displays and is left exactly as it is.
+    It is also this row that the creative-day writer persists as
+    `meta_creative_daily.payload_json`, so the per-stage measurement stamp the
+    row carries must survive the rebuild — without it a decision reader would
+    be back to guessing whether a stored 0 was measured. A row that carries no
+    valid stamp gets none (and reads as unmeasured), never an invented one.
+  */
+  const stampedRow = withMetaCreativeDayMetricEvidence(
+    baseRow,
+    readMetaCreativeDayMetricEvidence(row),
+  );
 
   if (!includeDebugFields) {
-    return baseRow;
+    return stampedRow;
   }
 
   const baseDebug: CreativeDebugInfo = row.debug ?? {};
@@ -630,7 +647,7 @@ export function buildMetaCreativeApiRow(params: {
   };
 
   return {
-    ...baseRow,
+    ...stampedRow,
     debug,
   };
 }

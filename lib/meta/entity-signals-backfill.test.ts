@@ -6,7 +6,9 @@ import {
   computeTrackingQualityStatus,
   findLastSignificantEditAt,
   inferLearningState,
+  trackingQualityFromAdRows,
 } from "@/lib/meta/entity-signals-backfill";
+import type { MetaAdDailyRow } from "@/lib/meta/warehouse-types";
 
 function daily(overrides: Partial<{
   date: string;
@@ -302,5 +304,154 @@ describe("the recent-edit veto is measured in the advertiser's calendar", () => 
     expect(
       findLastSignificantEditAt(editAt("2026-09-05T21:30:00.000Z"), AS_OF, IST),
     ).toBeNull();
+  });
+});
+
+/*
+  A CONTRADICTION NEEDS TWO OBSERVATIONS THAT DISAGREE (D091).
+
+  `lpv_drop_suspected` claims the pixel or the landing page is losing visitors
+  between the click and the page view, and it holds every performance scenario
+  for the entity. Both of its inputs used to arrive through `n()`, which maps
+  null to 0: an unmeasured landing-page-view window beside 500+ measured link
+  clicks read as a 0% capture rate — the strongest "tracking drop" there is,
+  manufactured from an absence.
+*/
+function adDay(
+  overrides: Partial<MetaAdDailyRow> & Pick<MetaAdDailyRow, "date">,
+): MetaAdDailyRow {
+  return {
+    businessId: "biz_1",
+    providerAccountId: "act_1",
+    accountTimezone: "UTC",
+    accountCurrency: "USD",
+    sourceSnapshotId: null,
+    campaignId: "cmp_1",
+    adsetId: "adset_1",
+    adId: "ad_1",
+    adNameCurrent: null,
+    adNameHistorical: null,
+    adStatus: "ACTIVE",
+    spend: 100,
+    impressions: 5_000,
+    clicks: 700,
+    reach: 4_000,
+    frequency: 1.25,
+    conversions: 3,
+    revenue: 300,
+    roas: 3,
+    cpa: 33,
+    ctr: 14,
+    cpc: 0.14,
+    linkClicks: null,
+    landingPageViews: null,
+    addToCart: null,
+    initiateCheckout: null,
+    ...overrides,
+  };
+}
+
+const INERT_DAY = {
+  spend: 0,
+  impressions: 0,
+  clicks: 0,
+  conversions: 0,
+  revenue: 0,
+};
+
+describe("click-to-LPV tracking quality never raises an anomaly from an absence", () => {
+  it("reports unmeasured, not lpv_drop_suspected, when landing-page views were never measured", () => {
+    const result = computeTrackingQualityStatus({ linkClicks: 600, landingPageViews: null });
+    expect(result.status).toBe("click_to_lpv_unmeasured");
+    expect(result.landing_page_views).toBeNull();
+    expect(result.landing_page_view_rate).toBeNull();
+    expect(result.link_clicks).toBe(600);
+  });
+
+  it("reports unmeasured when link clicks were never measured", () => {
+    const result = computeTrackingQualityStatus({ linkClicks: null, landingPageViews: 40 });
+    expect(result.status).toBe("click_to_lpv_unmeasured");
+    expect(result.link_clicks).toBeNull();
+  });
+
+  it("treats a malformed count as unmeasured, never as a zero", () => {
+    for (const malformed of [Number.NaN, -5, Number.POSITIVE_INFINITY]) {
+      expect(
+        computeTrackingQualityStatus({ linkClicks: 600, landingPageViews: malformed }).status,
+      ).toBe("click_to_lpv_unmeasured");
+    }
+  });
+
+  it("still flags a MEASURED zero against a dense click sample: that is two observations disagreeing", () => {
+    // The control: without it, "never flags" would pass for the wrong reason.
+    expect(computeTrackingQualityStatus({ linkClicks: 600, landingPageViews: 0 }).status).toBe(
+      "lpv_drop_suspected",
+    );
+  });
+});
+
+describe("trackingQualityFromAdRows sums every window complete-or-null", () => {
+  const window = (rows: MetaAdDailyRow[]) =>
+    trackingQualityFromAdRows(rows, "2026-05-01", "2026-05-28");
+
+  it("does not fabricate an LPV drop from a delivered day whose LPVs were not measured", () => {
+    // The old reduce read this as 5 LPVs over 610 clicks: lpv_drop_suspected.
+    const result = window([
+      adDay({ date: "2026-05-10", linkClicks: 600, landingPageViews: null }),
+      adDay({ date: "2026-05-11", linkClicks: 10, landingPageViews: 5 }),
+    ]);
+    expect(result.status).toBe("click_to_lpv_unmeasured");
+    expect(result.landing_page_views).toBeNull();
+    expect(result.link_clicks).toBe(610);
+  });
+
+  it("zero + missing is null, zero + zero is 0", () => {
+    const missing = window([
+      adDay({ date: "2026-05-10", linkClicks: 600, landingPageViews: 0, addToCart: 0 }),
+      adDay({ date: "2026-05-11", linkClicks: 0, landingPageViews: null, addToCart: null }),
+    ]);
+    expect(missing.landing_page_views).toBeNull();
+    expect(missing.add_to_cart).toBeNull();
+
+    const measured = window([
+      adDay({ date: "2026-05-10", linkClicks: 600, landingPageViews: 0, addToCart: 0 }),
+      adDay({ date: "2026-05-11", linkClicks: 0, landingPageViews: 0, addToCart: 0 }),
+    ]);
+    expect(measured.landing_page_views).toBe(0);
+    expect(measured.add_to_cart).toBe(0);
+    expect(measured.status).toBe("lpv_drop_suspected");
+  });
+
+  it("a partial link-click window is null, never the sum of the measured days", () => {
+    const result = window([
+      adDay({ date: "2026-05-10", linkClicks: 600, landingPageViews: 300 }),
+      adDay({ date: "2026-05-11", linkClicks: null, landingPageViews: 20 }),
+    ]);
+    expect(result.link_clicks).toBeNull();
+    expect(result.status).toBe("click_to_lpv_unmeasured");
+  });
+
+  it("an ad-day that did nothing at all is not a gap", () => {
+    // The over-correction guard: an inert day has no events to have missed.
+    const result = window([
+      adDay({ date: "2026-05-10", linkClicks: 600, landingPageViews: 300 }),
+      adDay({ date: "2026-05-11", ...INERT_DAY, linkClicks: null, landingPageViews: null }),
+    ]);
+    expect(result.link_clicks).toBe(600);
+    expect(result.landing_page_views).toBe(300);
+    expect(result.status).toBe("click_to_lpv_observed");
+  });
+
+  it("an entity with no measured ad-day is unmeasured rather than an empty zero sample", () => {
+    expect(window([]).status).toBe("click_to_lpv_unmeasured");
+    expect(window([]).link_clicks).toBeNull();
+  });
+
+  it("keeps purchases on plain summation: they come from a NOT NULL column", () => {
+    const result = window([
+      adDay({ date: "2026-05-10", conversions: 2 }),
+      adDay({ date: "2026-05-11", conversions: 3 }),
+    ]);
+    expect(result.purchases).toBe(5);
   });
 });

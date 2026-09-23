@@ -88,11 +88,34 @@ function options(overrides: Partial<LinkClickRepairOptions> = {}): LinkClickRepa
     pageSize: 3,
     maxAttempts: 1,
     execute: false,
+    expectedManifestHash: null,
     allowPartial: false,
     skipMeasuredZero: false,
     receiptOutPath: null,
     ...overrides,
   };
+}
+
+async function runReviewedExecute(input: {
+  db: LinkClickRepairDb;
+  options: LinkClickRepairOptions;
+}) {
+  const preview = await runLinkClickRepair({
+    db: input.db,
+    options: {
+      ...input.options,
+      execute: false,
+      expectedManifestHash: null,
+    },
+  });
+  return runLinkClickRepair({
+    db: input.db,
+    options: {
+      ...input.options,
+      execute: true,
+      expectedManifestHash: preview.manifestHash,
+    },
+  });
 }
 
 interface Seed {
@@ -323,9 +346,9 @@ describe.runIf(SEAM)("link-click repair against real PostgreSQL", () => {
   });
 
   it("writes only the rows the stored payload authorizes", async () => {
-    const result = await runLinkClickRepair({
+    const result = await runReviewedExecute({
       db: db(),
-      options: options({ execute: true }),
+      options: options(),
     });
     expect(result.mode).toBe("execute");
     expect(result.rowsWritten).toBe(10);
@@ -355,9 +378,9 @@ describe.runIf(SEAM)("link-click repair against real PostgreSQL", () => {
   });
 
   it("is idempotent: a second execute finds nothing left to write", async () => {
-    const result = await runLinkClickRepair({
+    const result = await runReviewedExecute({
       db: db(),
-      options: options({ execute: true }),
+      options: options(),
     });
     expect(result.rowsPlanned).toBe(0);
     expect(result.rowsWritten).toBe(0);
@@ -425,9 +448,9 @@ describe.runIf(SEAM)("link-click repair against real PostgreSQL", () => {
   });
 
   it("compares the repair's receipt against what the table actually holds", async () => {
-    const receipt = await runLinkClickRepair({
+    const receipt = await runReviewedExecute({
       db: db(),
-      options: options({ execute: true }),
+      options: options(),
     });
     const verdict = await runLinkClickReadbackVerify({
       db: db(),
@@ -482,6 +505,18 @@ describe.runIf(SEAM)("link-click repair against real PostgreSQL", () => {
     // planned against a NULL, the authoritative writer stored 33 in between,
     // and the guard must decline the write instead of overwriting it.
     const sql = getDb();
+    const [evidence] = await sql.query<{
+      source_snapshot_id: string | null;
+      actions_pre_image: string;
+    }>(
+      `SELECT source_snapshot_id::text AS source_snapshot_id,
+              COALESCE((payload_json->'actions')::text, '') AS actions_pre_image
+         FROM meta_ad_daily
+        WHERE business_id = $1 AND provider_account_id = $2
+          AND date = $3::date AND ad_id = $4`,
+      [BUSINESS_ID, ACCOUNT_A, "2026-08-24", "ad-A"],
+    );
+    expect(evidence).toBeDefined();
     const updated = (await sql.query(LINK_CLICK_REPAIR_UPDATE_SQL, [
       BUSINESS_ID,
       [ACCOUNT_A],
@@ -489,6 +524,9 @@ describe.runIf(SEAM)("link-click repair against real PostgreSQL", () => {
       ["ad-A"],
       [999],
       [null],
+      [evidence!.source_snapshot_id],
+      [evidence!.actions_pre_image],
+      options().admissibilityCutoff,
     ])) as { ad_id: string }[];
     expect(updated).toHaveLength(0);
     const after = await storedLinkClicks();
@@ -503,10 +541,80 @@ describe.runIf(SEAM)("link-click repair against real PostgreSQL", () => {
       ["ad-A"],
       [999],
       [10],
+      [evidence!.source_snapshot_id],
+      [evidence!.actions_pre_image],
+      options().admissibilityCutoff,
     ])) as { ad_id: string }[];
     expect(applied).toHaveLength(1);
     const restored = await storedLinkClicks();
     expect(restored[key(ACCOUNT_A, "2026-08-24", "ad-A")]).toBe(999);
+
+    // A concurrent sync can replace the raw actions while leaving the
+    // projection itself untouched. The reviewed evidence must then be stale
+    // even though the numeric pre-image still matches.
+    await sql.query(
+      `UPDATE meta_ad_daily
+          SET payload_json = jsonb_set(
+            COALESCE(payload_json, '{}'::jsonb),
+            '{actions}',
+            '[{"action_type":"link_click","value":"77"}]'::jsonb,
+            true
+          )
+        WHERE business_id = $1 AND provider_account_id = $2
+          AND date = $3::date AND ad_id = $4`,
+      [BUSINESS_ID, ACCOUNT_A, "2026-08-24", "ad-A"],
+    );
+    const staleEvidenceWrite = await sql.query(LINK_CLICK_REPAIR_UPDATE_SQL, [
+      BUSINESS_ID,
+      [ACCOUNT_A],
+      ["2026-08-24"],
+      ["ad-A"],
+      [111],
+      [999],
+      [evidence!.source_snapshot_id],
+      [evidence!.actions_pre_image],
+      options().admissibilityCutoff,
+    ]);
+    expect(staleEvidenceWrite).toHaveLength(0);
+    const afterEvidenceDrift = await storedLinkClicks();
+    expect(afterEvidenceDrift[key(ACCOUNT_A, "2026-08-24", "ad-A")]).toBe(999);
+
+    // Admission can also change without changing the projection or source id.
+    // Restore the reviewed actions, then make the row provisional: the same
+    // update must still be refused at write time.
+    await sql.query(
+      `UPDATE meta_ad_daily
+          SET payload_json = jsonb_set(
+                COALESCE(payload_json, '{}'::jsonb),
+                '{actions}',
+                $5::jsonb,
+                true
+              ),
+              truth_state = 'provisional'
+        WHERE business_id = $1 AND provider_account_id = $2
+          AND date = $3::date AND ad_id = $4`,
+      [
+        BUSINESS_ID,
+        ACCOUNT_A,
+        "2026-08-24",
+        "ad-A",
+        evidence!.actions_pre_image,
+      ],
+    );
+    const inadmissibleWrite = await sql.query(LINK_CLICK_REPAIR_UPDATE_SQL, [
+      BUSINESS_ID,
+      [ACCOUNT_A],
+      ["2026-08-24"],
+      ["ad-A"],
+      [222],
+      [999],
+      [evidence!.source_snapshot_id],
+      [evidence!.actions_pre_image],
+      options().admissibilityCutoff,
+    ]);
+    expect(inadmissibleWrite).toHaveLength(0);
+    const afterAdmissionDrift = await storedLinkClicks();
+    expect(afterAdmissionDrift[key(ACCOUNT_A, "2026-08-24", "ad-A")]).toBe(999);
   });
 
   it("narrows to the accounts it was given", async () => {
@@ -556,10 +664,9 @@ describe.runIf(SEAM)("link-click repair: plan, freshness and admissibility", () 
     // Small enough to stop mid-window, and a page size small enough that the
     // old design would certainly have committed at least one page first.
     await expect(
-      runLinkClickRepair({
+      runReviewedExecute({
         db: db(),
         options: options({
-          execute: true,
           maxRows: 3,
           pageSize: 1,
           allowPartial: false,
@@ -587,9 +694,9 @@ describe.runIf(SEAM)("link-click repair: plan, freshness and admissibility", () 
       ).map((row) => `${row.ad_id}:${row.updated_at}`);
 
     const before = await clockOf();
-    const result = await runLinkClickRepair({
+    const result = await runReviewedExecute({
       db: db(),
-      options: options({ execute: true }),
+      options: options(),
     });
     expect(result.rowsWritten).toBeGreaterThan(0);
     const after = await clockOf();
@@ -848,7 +955,7 @@ describe.runIf(SEAM)("link-click repair writes inside ONE pinned transaction", (
     });
 
     await expect(
-      runLinkClickRepair({ db: adapter, options: txOptions({ execute: true }) }),
+      runReviewedExecute({ db: adapter, options: txOptions() }),
     ).rejects.toThrow("injected_failure_in_third_batch");
 
     // The failure really was in the third batch, after two had been applied.
@@ -858,12 +965,34 @@ describe.runIf(SEAM)("link-click repair writes inside ONE pinned transaction", (
     expect(await txStoredLinkClicks(getDb())).toEqual([null, null, null, null, null, null]);
   });
 
+  it("rolls back every row when one reviewed CAS pre-image drifts", async () => {
+    let updateCalls = 0;
+    const adapter = db({
+      query: (async <TRow,>(text: string, values: unknown[]) => {
+        const rows = (await getDb().query(text, values)) as TRow[];
+        if (text !== LINK_CLICK_REPAIR_UPDATE_SQL) return rows;
+        updateCalls += 1;
+        // Simulate one guarded row disappearing from RETURNING after the
+        // reviewed plan was built. The underlying UPDATEs have already run
+        // inside the pinned transaction; the executor must throw and roll all
+        // of them back rather than commit the other row in this batch.
+        return updateCalls === 1 ? rows.slice(0, -1) : rows;
+      }) as LinkClickRepairDb["query"],
+    });
+
+    await expect(
+      runReviewedExecute({ db: adapter, options: txOptions() }),
+    ).rejects.toThrow(/link_click_repair_preimage_drift/);
+    expect(updateCalls).toBe(1);
+    expect(await txStoredLinkClicks(getDb())).toEqual([null, null, null, null, null, null]);
+  });
+
   it("commits every batch when nothing fails", async () => {
     // The control, without which the rollback above would be satisfied by a
     // repair that never writes at all.
-    const result = await runLinkClickRepair({
+    const result = await runReviewedExecute({
       db: db(),
-      options: txOptions({ execute: true }),
+      options: txOptions(),
     });
     expect(result.rowsPlanned).toBe(6);
     expect(result.rowsWritten).toBe(6);
@@ -878,7 +1007,7 @@ describe.runIf(SEAM)("link-click repair writes inside ONE pinned transaction", (
         getDb().query(text, values) as Promise<TRow[]>,
     };
     await expect(
-      runLinkClickRepair({ db: poolOnly, options: txOptions({ execute: true }) }),
+      runReviewedExecute({ db: poolOnly, options: txOptions() }),
     ).rejects.toThrow("link_click_repair_no_transaction_boundary");
     expect(await txStoredLinkClicks(getDb())).toEqual([null, null, null, null, null, null]);
   });

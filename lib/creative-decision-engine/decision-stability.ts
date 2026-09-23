@@ -221,6 +221,12 @@ WHERE snapshot.business_ref_id = $1::uuid
   AND snapshot.as_of_date < $4::date
   AND snapshot.scope_type = $5
   AND snapshot.scope_id = $6
+  -- Point-in-time bound for historical replay. NULL on the production path,
+  -- which reads at "now" and so can never see a row from its own future.
+  -- created_at is the insert clock and survives an upsert, so this admits
+  -- exactly the rows that existed at the cutoff; a row that existed but was
+  -- overwritten afterwards is detected by the caller from computed_at.
+  AND ($7::timestamptz IS NULL OR snapshot.created_at <= $7::timestamptz)
 ORDER BY
   snapshot.provider_account_ref_id,
   snapshot.provider_account_id,
@@ -231,6 +237,18 @@ ORDER BY
   snapshot.id DESC
 `;
 
+/**
+ * Why a persisted prior label was withheld from a point-in-time read.
+ *
+ * `overwritten_after_cutoff`: the row that was the latest prior label at the
+ * cutoff still exists, but an upsert on the same identity replaced its label
+ * after the cutoff (`computed_at` moved past it). The value the job saw is
+ * gone. Falling back to an older day would fabricate a different hysteresis
+ * history, so the identity is treated as having no prior — which is the
+ * conservative side: `applyLabelHysteresis` holds an unconfirmed hard label.
+ */
+export type PreviousLabelPitExclusion = "overwritten_after_cutoff";
+
 export async function readPreviousPublishedAdLabels(
   input: {
     businessId: string;
@@ -238,12 +256,25 @@ export async function readPreviousPublishedAdLabels(
     identities: AdDecisionStabilityIdentity[];
     scopeType?: "account" | "campaign";
     scopeId?: string;
+    /**
+     * Historical replay only. When set, a prior row is admitted only if it
+     * existed at this instant AND had not been overwritten since. Omitted on
+     * the production path, which is unchanged.
+     */
+    visibleAtCutoff?: string | null;
+    /** Receives every identity withheld by `visibleAtCutoff`, keyed like the result. */
+    pitExclusions?: Map<string, PreviousLabelPitExclusion>;
   },
   db: DbClient = getDb(),
 ): Promise<Map<string, PreviousAdPublishedLabel>> {
   if (input.identities.length === 0) return new Map();
   const scopeType = input.scopeType ?? "account";
   const scopeId = input.scopeId ?? "*";
+  const visibleAtCutoff = input.visibleAtCutoff ?? null;
+  const cutoffMs = visibleAtCutoff === null ? null : Date.parse(visibleAtCutoff);
+  if (cutoffMs !== null && !Number.isFinite(cutoffMs)) {
+    throw new Error(`visibleAtCutoff is not an instant: ${visibleAtCutoff}`);
+  }
   const map = new Map<string, PreviousAdPublishedLabel>();
   for (const identityBatch of chunkDecisionRows(input.identities)) {
     const rows = await db.query<Row>(READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY, [
@@ -260,6 +291,7 @@ export async function readPreviousPublishedAdLabels(
       input.asOf,
       scopeType,
       scopeId,
+      visibleAtCutoff,
     ]);
     for (const row of rows) {
       const providerAccountId = requiredText(row.provider_account_id);
@@ -317,6 +349,13 @@ export async function readPreviousPublishedAdLabels(
       });
       if (map.has(key)) {
         throw new Error(`Duplicate persisted ad hysteresis identity: ${key}`);
+      }
+      if (cutoffMs !== null) {
+        const computedMs = Date.parse(sourceComputedAt);
+        if (!Number.isFinite(computedMs) || computedMs > cutoffMs) {
+          input.pitExclusions?.set(key, "overwritten_after_cutoff");
+          continue;
+        }
       }
       map.set(key, value);
     }

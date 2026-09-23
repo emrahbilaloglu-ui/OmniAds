@@ -17,6 +17,10 @@ import {
   applyPercentToMinorUnits,
   resolveMinorUnitExponent,
 } from "@/lib/currency/iso-4217-minor-units";
+import {
+  metaMinorUnitsToMajor,
+  resolveMetaCurrencyOffset,
+} from "@/lib/currency/meta-currency-offsets";
 import type { MetaBidRegime, MetaCampaignRole } from "@/lib/meta/types";
 import type { MetaEntityDecisionSignal } from "@/lib/meta/entity-signals";
 import { metaRecentEditAuthorityReady } from "@/lib/meta/recent-edit-authority";
@@ -212,9 +216,20 @@ function budgetAmount(row: MetaCampaignRow) {
   const providerMinorAmount =
     row.dailyBudget ?? (row.lifetimeBudget ? row.lifetimeBudget / 30 : null);
   if (providerMinorAmount == null) return null;
-  const exponent = resolveMinorUnitExponent(row.currency);
-  if (exponent.status !== "resolved") return null;
-  return providerMinorAmount / 10 ** exponent.exponent;
+  /*
+    The divisor is the PROVIDER's offset, not the ISO exponent. This used to
+    read `iso-4217-minor-units.ts`, which is the right authority for a bank
+    amount and the wrong one for a Meta budget: Meta publishes offset 1 for
+    HUF, IDR, TWD and COP where ISO says two decimals (100x), offset 100 for
+    BHD and JOD where ISO says three (10x), and lists no offset at all for
+    KWD, OMR, TND, IQD and LYD — so the ISO reading for those was a scale for
+    a currency the provider does not appear to transact in.
+  */
+  const major = metaMinorUnitsToMajor({
+    minorUnits: providerMinorAmount,
+    currency: row.currency,
+  });
+  return major.ok ? major.majorUnits : null;
 }
 
 function budgetUtilization(row: MetaCampaignRow | undefined, windowDays: number) {
@@ -768,9 +783,31 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
 
     The exponent is resolved from the ISO 4217 registry, which REFUSES an
     unknown or retired code rather than assuming two decimals.
+
+    ── AND THE PROVIDER MUST AGREE WITH IT ──────────────────────────────────
+
+    The emitted `minorUnitExponent` travels into the bid-intent contract,
+    which re-derives it from the SAME ISO registry, so the two ends are
+    consistent with each other and not necessarily with Meta. Where Meta's
+    published offset implies a different number of subdivision digits — BHD
+    and JOD (Meta 100, ISO 3) and HUF, IDR, TWD, COP (Meta 1, ISO 2) — a
+    proposal built on the ISO scale would be a bid cap wrong by 10x or 100x on
+    a real provider write. Where Meta lists no offset at all (KWD, OMR, TND,
+    IQD, LYD) there is no provider scale to build on.
+
+    Both cases refuse here rather than pick a side: a withheld proposal is a
+    visible absence, a mis-scaled one is a live overpay. The ISO exponent is
+    still what the contract carries, so nothing downstream is reinterpreted.
   */
   const exponent = resolveMinorUnitExponent(row.currency);
   if (exponent.status !== "resolved") return null;
+  const providerOffset = resolveMetaCurrencyOffset(row.currency);
+  if (
+    providerOffset.status !== "resolved" ||
+    providerOffset.subdivisionDigits !== exponent.exponent
+  ) {
+    return null;
+  }
   const scale = 10 ** exponent.exponent;
   if (!Number.isSafeInteger(bid) || bid <= 0) return null;
   /*

@@ -1,3 +1,5 @@
+import { resolveMetaCurrencyOffset } from "@/lib/currency/meta-currency-offsets";
+
 /**
  * PRE-DEPLOY AUDIT — the budget automation configuration CONTRACT, with no
  * database in it.
@@ -39,7 +41,12 @@ export type BudgetAutomationConfigRejection =
   | "max_account_concentration_pct_invalid"
   | "max_budget_increase_pct_invalid"
   | "per_action_spend_ceiling_invalid"
-  | "per_action_spend_ceiling_currency_invalid";
+  | "per_action_spend_ceiling_currency_invalid"
+  /**
+   * Well-formed ISO code, but Meta publishes no minor-unit offset for it — so
+   * this product cannot say what scale the stored integer is in.
+   */
+  | "per_action_spend_ceiling_currency_unsupported_by_provider";
 
 export type BudgetAutomationConfigParse =
   | { ok: true; config: BudgetAutomationConfigInput }
@@ -113,6 +120,38 @@ export function parseBudgetAutomationConfig(
       message:
         "perActionSpendCeilingCurrency must be a three-letter ISO-4217 code whenever a ceiling is set.",
     };
+  }
+  /*
+    ── THE SCALE HAS TO BE NAMEABLE, NOT ONLY THE CODE ───────────────────────
+
+    `perActionSpendCeilingMinor` is compared UNSCALED against the provider
+    minor-unit amount an automated budget write would send, so a ceiling is
+    only meaningful if this product knows how many subdivision digits the
+    provider uses for that currency. Meta publishes an offset table; a code it
+    does not list has no such scale here.
+
+    A well-formed code is therefore not enough, and this check has to live on
+    the SERVER: the editor already refuses to mint an unscaleable ceiling, but
+    a raw POST bypasses the editor entirely and this is the only thing between
+    it and a persisted guardrail nobody can interpret. The read path fails
+    closed too (`automation-control-plane.ts` marks the pair invalid, which
+    withholds the budget change rather than allowing an unlimited one), so this
+    is the third of three independent gates — stated because a safety ceiling
+    that fails OPEN is worse than no ceiling at all.
+
+    Costs the live currencies nothing: Meta lists USD, TRY, GBP and EUR.
+  */
+  if (!ceilingCleared) {
+    const code = (currency as string).trim().toUpperCase();
+    if (resolveMetaCurrencyOffset(code).status !== "resolved") {
+      return {
+        ok: false,
+        rejection: "per_action_spend_ceiling_currency_unsupported_by_provider",
+        message:
+          `The provider publishes no minor-unit offset for ${code}, so a spend `
+          + "ceiling in it cannot be compared against a budget amount.",
+      };
+    }
   }
 
   return {

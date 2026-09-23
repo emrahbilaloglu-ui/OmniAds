@@ -12,11 +12,40 @@ import {
   isCommercialTargetInstant,
   isCommercialTargetInstantOlderThan,
 } from "@/lib/meta/commercial-target-instant";
+import { resolveAdmittedContextWindow } from "@/lib/creative-decision-engine/native-ad-admitted-window";
 import {
-  resolveMetaFunnelCohort,
+  addConfigAuthorityDay,
+  classifyConfigAuthorityDay,
+  EMPTY_CONFIG_SAMPLE_AUTHORITY_COUNTS,
+  mergeConfigAuthorityCounts,
+  resolveCalibrationSampleAuthority,
+  resolveNativeAdConfigAuthority,
+  resolveVerifiedAuthoritySuffix,
+  type MetaConfigDayAuthorityClass,
+  type MetaConfigSampleAuthorityCounts,
+  type VerifiedAuthoritySuffix,
+} from "@/lib/meta/config-field-readiness";
+import type { MetaConfigFieldReadiness } from "@/lib/meta/config-field-source-contract";
+import {
+  resolveMetaFunnelCohortFromConfigOnly,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
 import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metrics";
+import {
+  buildMetaAdsetConfigFieldSourceSql,
+  buildMetaConfigFieldSourceSql,
+} from "@/lib/meta/config-field-source-contract";
+import {
+  configFieldEvidenceRefCoherentSql,
+  configReceiptManifestLineSql,
+  type MetaConfigEvidenceField,
+} from "@/lib/meta/config-field-evidence-ref";
+import { buildAdDayAuthoritativeLinkClicksSql } from "@/lib/meta/link-click-parse";
+import {
+  buildMetaFunnelStageSql,
+  resolveMetaCompleteWindowSum,
+} from "@/lib/meta/funnel-stage-parse";
+import { providerLocalCalendarDate } from "@/lib/meta/provider-local-day";
 import { resolveMinorUnitExponent } from "@/lib/currency/iso-4217-minor-units";
 import { getDb, runDbTransaction, type DbClient } from "@/lib/db";
 import { canonicalSha256 } from "../canonical-evaluation";
@@ -35,7 +64,11 @@ import {
 } from "../types";
 import { getBusinessGuardFailure } from "./business-guard";
 import { hashAdvisoryLock } from "./calibration-job";
-import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
+// The source SELECT spans retained provider receipts for up to 90 days. A
+// current 9,078-row production read took 29.4s and then exceeded the generic
+// 30s per-statement limit on a repeat. Keep the larger limit local to native
+// ad calibration; the other jobs retain their existing bound.
+const NATIVE_AD_CALIBRATION_QUERY_TIMEOUT_MS = 60_000;
 
 export const NATIVE_AD_CALIBRATION_TABLE =
   "engine_v3_ad_account_calibration_daily" as const;
@@ -43,6 +76,34 @@ export const NATIVE_AD_CALIBRATION_BATCH_TABLE =
   "engine_v3_ad_account_calibration_batches" as const;
 export const NATIVE_AD_CALIBRATION_CONTRACT_VERSION =
   /*
+  `.v6` — ONE change: the cell manifest now binds `configAuthorityCounts`, the
+  split of the cell's own sample by what each contributing ad-day's config
+  provenance permits.
+
+  It has to be bound, because it is part of what the cell IS. Two cells built
+  from the same ads over the same window, one from corroborated provider
+  receipts and one from receipts whose page timing is unknowable, produce the
+  same economy and are not the same evidence. A manifest that cannot tell them
+  apart lets a decision inherit an authority its yardstick never had, and the
+  hash is the only thing that makes the distinction durable rather than a
+  comment.
+
+  AMENDED IN PLACE, while `.v6` is unshipped (no production row carries it),
+  with a second binding of the same kind: each source row's config RECEIPT
+  identity. `sourceContentSignature` now digests `configReceiptDigest`, sha256
+  over the ad-day's `ConfigFieldEvidenceRef` manifest line, so two cohorts that
+  rest on different provider receipts with the same tiers no longer share a
+  source manifest, input manifest or cell set hash. Gated by
+  `nativeAdCalibrationBindsConfigReceipts`, so `.v5` and earlier are untouched.
+  The source read also changed what two columns MEAN, not how they hash:
+  `link_clicks` is the D095 authoritative classification rather than the raw
+  column, and `thumbstop` is NULL until a verified provider contract exists.
+
+  `.v5` keeps its formula below and is now a READABLE historical rung: 1,855
+  rows carry it on the live database (2026-09-08..09-21) and must keep
+  recomputing byte-identically.
+
+  ── `.v5`, retained verbatim ───────────────────────────────────────────────
   `.v5` — three changes, all of which move the bytes this key labels, so one
   version carries them together rather than letting `.v4` mean four encodings.
 
@@ -72,7 +133,7 @@ export const NATIVE_AD_CALIBRATION_CONTRACT_VERSION =
   batch whose `contractVersion` is not the current one before any hash is
   re-derived, so a historical row is history and not a candidate.
 */
-  "engine-v3-native-ad-calibration.v5" as const;
+  "engine-v3-native-ad-calibration.v6" as const;
 /**
  * The stamp a row written BEFORE `contract_version` existed carries.
  *
@@ -132,6 +193,7 @@ export const NATIVE_AD_CALIBRATION_DURABLE_CONTRACT_VALUES: readonly string[] =
     "engine-v3-native-ad-calibration.v1",
     "engine-v3-native-ad-calibration.v2",
     "engine-v3-native-ad-calibration.v3",
+    "engine-v3-native-ad-calibration.v5",
     NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
     NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
   ]);
@@ -492,6 +554,57 @@ export interface NativeAdCalibrationSourceRow {
   objective: string | null;
   optimizationGoal: string | null;
   customEventType: string | null;
+  /*
+    Where each config field came from and what it may do.
+
+    Carried on the row rather than left in the query, because a non-null value no
+    longer means the same thing for every field: one may be a same-day provider
+    receipt corroborated past the day's end, another a receipt whose page timing
+    is unknowable, another a contemporaneous typed value with no receipt at all.
+    A consumer that reads only the value cannot tell an authority from a
+    recommendation, and would quietly treat them alike.
+
+    Optional because a row built by hand — a fixture, a replay — legitimately has
+    no provenance to state. Absent is not "authoritative"; a consumer that needs
+    authority tests the readiness and gets undefined, which is not
+    "decision_authority".
+  */
+  objectiveTier?: string | null;
+  objectiveReadiness?: string | null;
+  objectiveSourceClass?: string | null;
+  objectivePitClass?: string | null;
+  optimizationGoalTier?: string | null;
+  optimizationGoalReadiness?: string | null;
+  optimizationGoalSourceClass?: string | null;
+  customEventTypeTier?: string | null;
+  customEventTypeReadiness?: string | null;
+  /**
+   * The OTHER field that can carry a conversion target.
+   *
+   * Nothing supplied this until now, which made the safeguard that reads it
+   * inert: a rule whose input is always undefined cannot withhold a wrong claim.
+   * All NULL on the current cohort and read anyway, because the failure it
+   * prevents — calling a real purchase target an absence — is silent.
+   */
+  customConversionId?: string | null;
+  customConversionIdReadiness?: string | null;
+  /**
+   * WHICH receipts this ad-day's config rests on, as one sha256 hex digest.
+   *
+   * The tiers and readiness above say how WELL each field was observed; they
+   * cannot say by WHAT. Two ad-days whose four fields rest on different provider
+   * receipts — another snapshot, or another observation of the same snapshot —
+   * with the same tiers were indistinguishable here, so two cohorts built on
+   * different evidence produced the same source and input manifest hashes. The
+   * digest is sha256 over this day's `configReceiptManifestLine` (the same line
+   * the decision loader's economic-window manifest is built from,
+   * `lib/meta/config-field-evidence-ref.ts`), computed per row in the source
+   * query so no aggregate text blob ever crosses the wire.
+   *
+   * Optional, and an explicit NULL when absent: a hand-built or replayed row
+   * has no receipt to name, and nothing is inferred for it.
+   */
+  configReceiptDigest?: string | null;
   spend: number;
   impressions: number;
   clicks: number;
@@ -543,7 +656,63 @@ export interface NativeAdCalibrationObservation {
   objective: string;
   optimizationGoal: string | null;
   customEventType: string | null;
+  /** The other field that can name a conversion target; part of the cell key. */
+  customConversionId: string | null;
+  /**
+   * The context this observation was admitted under, CARRIED rather than rebuilt.
+   *
+   * The cell grouping used to reconstruct it from `optimizationGoal` and
+   * `customEventType` alone, which is a second construction site and drifted the
+   * moment a third field joined the key: two ad sets with different custom
+   * conversions rebuilt to the same context and shared a cell, even though the
+   * admitted window had already told them apart. Carrying the value the window
+   * was keyed by makes that impossible instead of merely fixed.
+   */
+  optimizationContext: string;
   cohort: MetaFunnelCohort;
+  /**
+   * This ad's own ad-days and spend, split by what their config provenance
+   * permits. See `MetaConfigSampleAuthorityCounts` for why the grain is days
+   * and not "the weakest day of the window".
+   */
+  configAuthorityCounts: MetaConfigSampleAuthorityCounts;
+  /**
+   * The contiguous run of authority-verified days at the recent end of this ad's
+   * window. See `resolveVerifiedAuthoritySuffix` for why a suffix and not a
+   * share: it is the only shape that survives an OLD provenance gap without
+   * forgiving a FRESH one.
+   *
+   * Carried, not yet spent. The hard economic aggregate below is still computed
+   * over the whole window; re-pointing it at this suffix moves every persisted
+   * percentile and is a separate change with its own before/after measurement.
+   */
+  configAuthoritySuffix: VerifiedAuthoritySuffix;
+  /**
+   * THE SAME AGGREGATE, recomputed over the verified suffix alone.
+   *
+   * `null` when the ad has no verified run at all, in which case it lends
+   * nothing to a hard economy — it is still a real observation and still
+   * counted, it simply has no authoritative evidence to contribute.
+   *
+   * This is what makes the authority split operative instead of decorative. The
+   * cell's economics are computed from these projections, so a day that is
+   * review-only or merely uncorroborated cannot put its spend, its conversions
+   * or its ROAS into the yardstick a hard Cut or Scale is measured against —
+   * which is exactly what counting it while still averaging it would have done.
+   */
+  verifiedSample: NativeAdCalibrationObservation | null;
+  /**
+   * The horizon-aware roll-up of the counts beside it — NOT the weakest day.
+   *
+   * The first version of this field was the weakest day, and it was wrong in a
+   * way that only production shows: on any natural run the current day's
+   * receipt cannot yet be corroborated, so every ad that spent today resolved to
+   * review-only and the authoritative count across a whole account was zero.
+   * `resolveCalibrationSampleAuthority` forgives exactly that — a receipt inside
+   * the corroboration horizon whose only defect is that tomorrow has not
+   * happened — and forgives nothing else.
+   */
+  configAuthority: MetaConfigFieldReadiness;
   sourceRowIds: string[];
   sourceDayCount: number;
   sourceMinDate: string;
@@ -588,7 +757,23 @@ export interface NativeAdCalibrationQualityCounts {
   duplicateSourceRowExclusionCount: number;
   duplicateConflictAdExclusionCount: number;
   missingContextAdExclusionCount: number;
+  /**
+   * Ads EXCLUDED for a mixed context.
+   *
+   * Expected to be zero since the admitted window landed: a genuine context
+   * change now ends an ad's window instead of discarding the ad, so mixedness
+   * cannot exclude. Kept, and still asserted, because a non-zero value means the
+   * window walk and `contextCardinality` have drifted apart.
+   */
   mixedContextAdExclusionCount: number;
+  /** Ads admitted on a SUB-WINDOW, with older or newer days dropped. */
+  contextWindowTruncatedAdCount: number;
+  /** Ad-days dropped by that truncation. */
+  contextWindowTruncatedSourceRowCount: number;
+  /** Of those, ads whose window ended at a real configuration CHANGE. */
+  contextChangeTruncatedAdCount: number;
+  /** And ads whose window ended at a day that resolved no context at all. */
+  contextGapTruncatedAdCount: number;
   mixedCurrencyAdExclusionCount: number;
   mixedObjectiveAdExclusionCount: number;
   mixedCohortAdExclusionCount: number;
@@ -675,6 +860,52 @@ export interface NativeAdCalibrationCell {
   inputManifestHash: string;
   sourceManifestHash: string;
   qualityCounts: NativeAdCalibrationQualityCounts;
+  /**
+   * How much of this cell's sample rested on authoritative config.
+   *
+   * Without this the cell is a number with no provenance: a cohort economy
+   * averaged from ninety days of review-only rows looks exactly like one averaged
+   * from corroborated receipts, and a decision leaning on it inherits an authority
+   * the evidence never had. Reading the deciding ad's own readiness does not
+   * substitute — the ad can be authoritative while the yardstick it is measured
+   * against was not.
+   *
+   * Counts only. No threshold is applied here and none of the existing sample
+   * floors change; what to require is the consumer's decision, stated where the
+   * action is taken.
+   */
+  /**
+   * `null` ONLY for a row minted before `.v6`, which did not measure this.
+   *
+   * Not zeros: a cell that measured no authoritative day and a cell that never
+   * looked are different claims, and the zeros would read as the first. A
+   * consumer that needs authority must treat `null` as "cannot prove it", which
+   * is what `resolveCalibrationSampleAuthority` answers for an empty sample too
+   * — but it has to face the distinction rather than inherit it silently.
+   */
+  configAuthorityCounts: NativeAdCalibrationConfigAuthorityCounts | null;
+}
+
+/**
+ * The cell's sample, split by what its config provenance permits.
+ *
+ * TWO GRAINS, because they answer different questions and the coarser one alone
+ * was useless. The ad-day/spend grain (inherited from
+ * `MetaConfigSampleAuthorityCounts`) says how much of the EVIDENCE was
+ * authoritative; the ad counts say how many of the ads contributing to the cell
+ * could each individually carry a decision. One trailing uncorroborated day
+ * moves the first by a day and the second not at all.
+ */
+export interface NativeAdCalibrationConfigAuthorityCounts
+  extends MetaConfigSampleAuthorityCounts {
+  decisionAuthorityAds: number;
+  reviewOnlyAds: number;
+  noneAds: number;
+  /** Ads that have ANY contiguous verified run at the recent end of the window. */
+  verifiedSuffixAds: number;
+  /** Ad-days and spend inside those runs — the sample a hard economy may use. */
+  verifiedSuffixDays: number;
+  verifiedSuffixSpend: number;
 }
 
 export interface NativeAdCalibrationBatch {
@@ -812,8 +1043,167 @@ class NativeAdCalibrationSchemaNotReadyError extends Error {
   }
 }
 
+/*
+  The funnel stages are read from `payload_json->'actions'`, which is where the
+  provider actually puts them, through the one contract in
+  `lib/meta/funnel-stage-parse.ts`. The previous expressions reached for
+  top-level `payload_json->>'landing_page_views'` keys that `meta_ad_daily` has
+  never carried, so every ad-grain funnel rate was unconditionally null.
+
+  `thumbstop` is deliberately NOT moved: it is not an `actions` entry, it needs a
+  real provider field and denominator, and on this table it has no source at
+  all. It stays null-honest rather than being given a fabricated reading.
+*/
+const NATIVE_AD_FUNNEL_STAGE_SQL = buildMetaFunnelStageSql({
+  payloadExpression: "d.payload_json",
+  lateralAlias: "funnel_actions",
+  stages: ["landing_page_view", "add_to_cart", "initiate_checkout"],
+});
+
+/*
+ * The config fields this query is allowed to trust, and on what terms.
+ *
+ * Calibration used to take `campaign.objective` straight off
+ * `meta_campaign_daily`, and the goal as
+ * COALESCE(adset.optimization_goal, campaign.optimization_goal). Both are
+ * derived warehouse columns with no provider receipt behind them, and the
+ * campaign-level goal fallback is wrong by construction: one campaign can hold
+ * ad sets with different goals, so a campaign-wide value is right for at most
+ * one of them.
+ *
+ * `$1` carries the business, and the observation tables key on a TEXT business
+ * id which is byte-identical to `business_ref_id` (verified on production: 942
+ * of 942 ad-days, and every one of 27,247 recent observations is uuid-shaped),
+ * so the same parameter serves both casts.
+ *
+ * The window is `$2 - 89 days .. $2`, and `$5` is already the computation
+ * cutoff, so the contract's as-of semantics come from the query's own
+ * parameters rather than a new one.
+ */
+const CALIBRATION_CAMPAIGN_CONFIG = buildMetaConfigFieldSourceSql({
+  dayExpression: "d.date",
+  timezoneExpression: "d.account_timezone",
+  businessParam: "$1::text",
+  scopeStartParam: "($2::date - INTERVAL '89 days')",
+  scopeEndParam: "$2",
+  evaluationCutoffParam: "$5",
+  accountExpression: "d.provider_account_id",
+  campaignExpression: "d.campaign_id",
+  campaignScopeSql:
+    "SELECT DISTINCT campaign_id FROM calibration_scope WHERE campaign_id IS NOT NULL",
+  /* One account per calibration batch; see `accountScopeSql` for what it buys. */
+  accountScopeSql: "SELECT $4::text",
+  scopeRelationSql: `SELECT provider_account_id, campaign_id, date, account_timezone
+     FROM calibration_scope WHERE campaign_id IS NOT NULL`,
+  aliasPrefix: "calib_campaign_cfg",
+  /*
+    This query is the one reader of a restated value anywhere in production:
+    `objective_restated` below. The ad-set contract deliberately does not ask,
+    because nothing reads its diagnostic - see `includeRestated`, and the ~1.2 s
+    that not asking is worth on the largest account.
+  */
+  includeRestated: true,
+});
+
+const CALIBRATION_ADSET_CONFIG = buildMetaAdsetConfigFieldSourceSql({
+  dayExpression: "d.date",
+  timezoneExpression: "d.account_timezone",
+  businessParam: "$1::text",
+  scopeStartParam: "($2::date - INTERVAL '89 days')",
+  scopeEndParam: "$2",
+  evaluationCutoffParam: "$5",
+  accountExpression: "d.provider_account_id",
+  adsetExpression: "d.adset_id",
+  adsetScopeSql:
+    "SELECT DISTINCT adset_id FROM calibration_scope WHERE adset_id IS NOT NULL",
+  accountScopeSql: "SELECT $4::text",
+  scopeRelationSql: `SELECT provider_account_id, adset_id, date, account_timezone
+     FROM calibration_scope WHERE adset_id IS NOT NULL`,
+  aliasPrefix: "calib_adset_cfg",
+});
+
+/*
+  RECEIPT LINEAGE, per source row.
+
+  The contracts above resolve each field to a value, a tier and a readiness, and
+  until now dropped WHICH receipt earned them. `evidenceRefSql` restores it as a
+  `ConfigFieldEvidenceRef` (lib/meta/config-field-evidence-ref.ts). Three uses:
+
+    1. Fail-closed readiness. A reference that is malformed or incoherent with
+       the tier it claims is not evidence, so that field's readiness is forced to
+       'none' before any authority rule reads it. A coherent reference's
+       readiness IS the contract readiness for its tier, so on every well-formed
+       row this is the same value the contract emitted before.
+    2. Identity. `config_receipt_digest` is sha256 over this day's manifest line,
+       so two ad-days resting on different receipts with the same tiers are no
+       longer the same source content (see `configReceiptDigest`).
+    3. Nothing else. A reference explains a decision; it never grants one.
+
+  COST. The four references are computed ONCE per row inside a lateral fenced by
+  OFFSET 0. Without the fence the planner flattens the subquery and substitutes
+  each jsonb_build_object into every place its column is read — the coherence
+  predicate alone reads each reference some thirty times — re-running the tier
+  ladder behind it every time, inside a statement that already runs close to its
+  timeout. The digest is per row: never an aggregate text blob.
+*/
+const CALIBRATION_CONFIG_EVIDENCE_ALIAS = "calib_cfg_evidence";
+const CALIBRATION_CONFIG_EVIDENCE_REF: Record<MetaConfigEvidenceField, string> = {
+  objective: `${CALIBRATION_CONFIG_EVIDENCE_ALIAS}.objective_ref`,
+  optimization_goal: `${CALIBRATION_CONFIG_EVIDENCE_ALIAS}.optimization_goal_ref`,
+  custom_event_type: `${CALIBRATION_CONFIG_EVIDENCE_ALIAS}.custom_event_type_ref`,
+  custom_conversion_id: `${CALIBRATION_CONFIG_EVIDENCE_ALIAS}.custom_conversion_id_ref`,
+};
+const CALIBRATION_CONFIG_EVIDENCE_LATERAL_SQL = `
+CROSS JOIN LATERAL (
+  SELECT
+    ${CALIBRATION_CAMPAIGN_CONFIG.evidenceRefSql("objective")} AS objective_ref,
+    ${CALIBRATION_ADSET_CONFIG.evidenceRefSql("optimization_goal")} AS optimization_goal_ref,
+    ${CALIBRATION_ADSET_CONFIG.evidenceRefSql("custom_event_type")} AS custom_event_type_ref,
+    ${CALIBRATION_ADSET_CONFIG.evidenceRefSql("custom_conversion_id")} AS custom_conversion_id_ref
+  /* Optimization fence: compute each reference once per row; see above. */
+  OFFSET 0
+) ${CALIBRATION_CONFIG_EVIDENCE_ALIAS}`;
+
+/** The contract readiness for `field`, forced to 'none' unless its reference is coherent. */
+function calibrationCoherentReadinessSql(field: MetaConfigEvidenceField): string {
+  const ref = CALIBRATION_CONFIG_EVIDENCE_REF[field];
+  return `(CASE WHEN ${configFieldEvidenceRefCoherentSql(ref, field)}
+      THEN (${ref}->>'readiness') ELSE 'none' END)`;
+}
+
 export const READ_NATIVE_AD_CALIBRATION_SOURCE_SQL = `
 /* native-ad-calibration-source: one physical account inside the transaction snapshot */
+WITH calibration_scope AS MATERIALIZED (
+  /* The same bounds as the main query, so the contracts resolve exactly the
+     ad-days this read will return and nothing wider. */
+  SELECT DISTINCT
+    d.provider_account_id,
+    d.campaign_id,
+    d.adset_id,
+    d.date,
+    NULLIF(BTRIM(d.account_timezone), '') AS account_timezone
+  FROM meta_ad_daily d
+  WHERE d.business_ref_id = $1::uuid
+    /*
+      The contracts key the observation tables on a TEXT business id, and nothing
+      in the schema ENFORCES that it equals business_ref_id: meta_ad_daily has a
+      businesses FK on business_ref_id and a UNIQUE on
+      (business_id, provider_account_id, date, ad_id), and no CHECK tying the two.
+      They are byte-identical in today's data (14,018 of 14,018 on one business,
+      11,381 of 11,381 over the decision window), but an unstated assumption that
+      is load-bearing should be a predicate. Asserting it here makes a divergence
+      fail closed and visible — the scope goes empty — instead of silently mixing
+      two identity spaces.
+    */
+    AND d.business_id = $1::text
+    AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+    AND d.provider_account_ref_id = $3::uuid
+    AND d.provider_account_id = $4
+    AND d.created_at <= $5::timestamptz
+    AND d.updated_at <= $5::timestamptz
+),
+  ${CALIBRATION_CAMPAIGN_CONFIG.withSql},
+  ${CALIBRATION_ADSET_CONFIG.withSql}
 SELECT
   d.id::text AS source_row_id,
   d.business_ref_id::text AS business_id,
@@ -831,19 +1221,66 @@ SELECT
   NULLIF(BTRIM(d.account_timezone), '') AS source_account_timezone,
   NULLIF(BTRIM(d.account_currency), '') AS source_account_currency,
   d.metric_schema_version,
-  campaign.objective,
-  COALESCE(adset.optimization_goal, campaign.optimization_goal) AS optimization_goal,
-  COALESCE(adset.custom_event_type, campaign.custom_event_type) AS custom_event_type,
+  /* Source-qualified, as-of the computation cutoff. A field with no admissible
+     receipt is NULL here rather than a derived warehouse value. */
+  ${CALIBRATION_CAMPAIGN_CONFIG.valueSql("objective")} AS objective,
+  ${CALIBRATION_ADSET_CONFIG.valueSql("optimization_goal")} AS optimization_goal,
+  ${CALIBRATION_ADSET_CONFIG.valueSql("custom_event_type")} AS custom_event_type,
+  /* Provenance, carried so a consumer can tell authority from a recommendation
+     instead of inferring it from a non-null value. */
+  ${CALIBRATION_CAMPAIGN_CONFIG.tierSql("objective")} AS objective_tier,
+  /* Readiness is gated by the receipt reference's coherence; see
+     CALIBRATION_CONFIG_EVIDENCE_LATERAL_SQL. */
+  ${calibrationCoherentReadinessSql("objective")} AS objective_readiness,
+  ${CALIBRATION_CAMPAIGN_CONFIG.sourceClassSql("objective")} AS objective_source_class,
+  ${CALIBRATION_CAMPAIGN_CONFIG.pitClassSql("objective")} AS objective_pit_class,
+  ${CALIBRATION_CAMPAIGN_CONFIG.restatedValueSql("objective")} AS objective_restated,
+  ${CALIBRATION_ADSET_CONFIG.tierSql("optimization_goal")} AS optimization_goal_tier,
+  ${calibrationCoherentReadinessSql("optimization_goal")} AS optimization_goal_readiness,
+  ${CALIBRATION_ADSET_CONFIG.sourceClassSql("optimization_goal")} AS optimization_goal_source_class,
+  ${CALIBRATION_ADSET_CONFIG.tierSql("custom_event_type")} AS custom_event_type_tier,
+  ${calibrationCoherentReadinessSql("custom_event_type")} AS custom_event_type_readiness,
+  /*
+    READ, not assumed absent. The promoted object carries a custom conversion as
+    a field of its own, and the rule that reads a missing standard event as "no
+    conversion target configured" is only sound if this one was looked at.
+  */
+  ${CALIBRATION_ADSET_CONFIG.valueSql("custom_conversion_id")} AS custom_conversion_id,
+  ${calibrationCoherentReadinessSql("custom_conversion_id")} AS custom_conversion_id_readiness,
+  /* WHICH receipts this ad-day rests on: sha256 of its manifest line. */
+  encode(sha256(convert_to(${configReceiptManifestLineSql({
+    dateSql: "d.date",
+    refSql: CALIBRATION_CONFIG_EVIDENCE_REF,
+  })}, 'UTF8')), 'hex') AS config_receipt_digest,
   d.spend,
   d.impressions,
   d.clicks,
-  d.link_clicks,
+  /*
+    D095, not the raw column. meta_ad_daily.link_clicks was NOT NULL DEFAULT 0
+    and the nullable migration kept the historical zeros, so a stored 0 cannot by
+    itself prove a measurement: only a payload whose actions array carries no
+    link_click entry (Meta's measured-zero encoding) or exactly one all-zero
+    string can. Anything else is unknown and reaches the engine as NULL, where
+    the shared window rule (resolveMetaCompleteWindowSum) keeps a delivering
+    day's unknown out of every link-click denominator instead of counting it as
+    a click-free day. The shared classifier is the one the
+    decision loader uses, so the two cannot call one ad-day different things.
+  */
+  ${buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d" })} AS link_clicks,
   d.conversions,
   d.revenue,
-  (NULLIF(d.payload_json->>'landing_page_views', ''))::double precision AS landing_page_views,
-  (NULLIF(d.payload_json->>'add_to_cart', ''))::double precision AS add_to_cart,
-  (NULLIF(d.payload_json->>'initiate_checkout', ''))::double precision AS initiate_checkout,
-  (NULLIF(d.payload_json->>'thumbstop', ''))::double precision AS thumbstop,
+  ${NATIVE_AD_FUNNEL_STAGE_SQL.valueSql("landing_page_view")} AS landing_page_views,
+  ${NATIVE_AD_FUNNEL_STAGE_SQL.valueSql("add_to_cart")} AS add_to_cart,
+  ${NATIVE_AD_FUNNEL_STAGE_SQL.valueSql("initiate_checkout")} AS initiate_checkout,
+  /*
+    NULL, by contract rather than by accident. meta_ad_daily has no verified
+    provider thumbstop field and no verified denominator for one, and this read
+    used to cast payload_json->>'thumbstop' to double precision, which RAISES on
+    any junk string and would have failed the whole calibration statement over
+    one malformed ad-day. Emitting a reading nobody verified would be worse. The
+    column stays in the row shape so the mapper and manifests keep their keys.
+  */
+  NULL::double precision AS thumbstop,
   d.truth_state,
   d.validation_status,
   d.finalized_at,
@@ -860,6 +1297,7 @@ SELECT
   adset.created_at AS adset_created_at,
   adset.updated_at AS adset_updated_at
 FROM meta_ad_daily d
+${NATIVE_AD_FUNNEL_STAGE_SQL.lateralSql}
 JOIN business_provider_accounts binding
  ON binding.business_id = d.business_ref_id::text
  AND binding.provider = 'meta'
@@ -867,6 +1305,7 @@ JOIN business_provider_accounts binding
  AND binding.provider_account_ref_id = d.provider_account_ref_id
 JOIN provider_accounts account
   ON account.id = binding.provider_account_ref_id
+ AND account.provider = binding.provider
  AND account.external_account_id = binding.provider_account_id
 LEFT JOIN meta_campaign_daily campaign
   ON campaign.business_ref_id = d.business_ref_id
@@ -884,6 +1323,7 @@ LEFT JOIN meta_adset_daily adset
  AND adset.date = d.date
  AND adset.created_at <= $5::timestamptz
  AND adset.updated_at <= $5::timestamptz
+${CALIBRATION_CAMPAIGN_CONFIG.lateralSql}${CALIBRATION_ADSET_CONFIG.lateralSql}${CALIBRATION_CONFIG_EVIDENCE_LATERAL_SQL}
 WHERE d.business_ref_id = $1::uuid
   AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
   AND d.provider_account_ref_id = $3::uuid
@@ -914,6 +1354,7 @@ JOIN business_provider_accounts binding
  AND binding.provider_account_id = $3
 JOIN provider_accounts account
   ON account.id = binding.provider_account_ref_id
+ AND account.provider = binding.provider
  AND account.external_account_id = binding.provider_account_id
 WHERE history.business_id = $1::uuid
   AND history.effective_at <= $4::timestamptz
@@ -1079,6 +1520,10 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_account_calibration_daily (
   metric_sample_counts_json JSONB NOT NULL,
   action_readiness_json JSONB NOT NULL,
   quality_counts_json JSONB NOT NULL,
+  -- NULLABLE on purpose. 1,855 .v5 rows already exist and were minted without
+  -- this measurement; a NOT NULL DEFAULT would stamp them with zeros, and zeros
+  -- here mean "measured, none authoritative" rather than "never measured".
+  config_authority_counts_json JSONB,
   quality_status TEXT NOT NULL,
   target_authority_status TEXT NOT NULL,
   target_roas DOUBLE PRECISION,
@@ -1292,7 +1737,17 @@ ALTER TABLE engine_v3_ad_account_calibration_daily
   DROP CONSTRAINT IF EXISTS engine_v3_ad_calibration_cells_contract_version_check;
 ALTER TABLE engine_v3_ad_account_calibration_daily
   ADD CONSTRAINT engine_v3_ad_calibration_cells_contract_version_check
-  ${nativeAdCalibrationContractVersionCheck()}
+  ${nativeAdCalibrationContractVersionCheck()};
+
+-- .v6 ADDED A COLUMN, so the existing table needs it too.
+-- The CREATE TABLE above declares it only on a database that has no table yet;
+-- on the live one that statement is a no-op, and without this ALTER the first
+-- .v6 INSERT and every SELECT of the column fail with undefined_column. A
+-- migration-from-zero run cannot catch that: it never has an old table.
+-- NULL, with no default: a .v5 row genuinely never measured this, and a zeroed
+-- default would state that it measured and found nothing authoritative.
+ALTER TABLE engine_v3_ad_account_calibration_daily
+  ADD COLUMN IF NOT EXISTS config_authority_counts_json JSONB
 `;
 
 export const NATIVE_AD_CALIBRATION_MIGRATION_SQL = [
@@ -1354,6 +1809,7 @@ INSERT INTO engine_v3_ad_account_calibration_daily (
   metric_sample_counts_json,
   action_readiness_json,
   quality_counts_json,
+  config_authority_counts_json,
   quality_status,
   target_authority_status,
   target_roas,
@@ -1419,6 +1875,7 @@ SELECT
   row.metric_sample_counts_json,
   row.action_readiness_json,
   row.quality_counts_json,
+  row.config_authority_counts_json,
   row.quality_status,
   row.target_authority_status,
   row.target_roas,
@@ -1483,6 +1940,7 @@ FROM jsonb_to_recordset($1::jsonb) AS row(
   metric_sample_counts_json jsonb,
   action_readiness_json jsonb,
   quality_counts_json jsonb,
+  config_authority_counts_json jsonb,
   quality_status text,
   target_authority_status text,
   target_roas double precision,
@@ -1511,9 +1969,11 @@ SELECT DISTINCT
 FROM business_provider_accounts binding
 JOIN provider_accounts account
   ON account.id = binding.provider_account_ref_id
+ AND account.provider = binding.provider
  AND account.external_account_id = binding.provider_account_id
 WHERE binding.business_id = $1
   AND binding.provider = 'meta'
+  AND binding.is_selected
 ORDER BY provider_account_ref_id, provider_account_id
 `;
 
@@ -1524,9 +1984,11 @@ SELECT
 FROM business_provider_accounts binding
 JOIN provider_accounts account
   ON account.id = binding.provider_account_ref_id
+ AND account.provider = binding.provider
  AND account.external_account_id = binding.provider_account_id
 WHERE binding.business_id = $1
   AND binding.provider = 'meta'
+  AND binding.is_selected
   AND binding.provider_account_ref_id = $2::uuid
   AND binding.provider_account_id = $3
 `;
@@ -1649,6 +2111,8 @@ interface NormalizedSourceRow extends NativeAdCalibrationSourceRow {
   objective: string | null;
   optimizationGoal: string | null;
   customEventType: string | null;
+  /** Always present once normalized: the digest, or an explicit null. */
+  configReceiptDigest: string | null;
   finalizedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -2200,6 +2664,23 @@ type NativeAdCalibrationCellInputManifestSource = Omit<
   "inputManifestHash"
 >;
 
+/**
+ * The cell manifest content for a NAMED version, for tests that have to prove a
+ * historical formula still reproduces. Production always digests through
+ * `recomputeNativeAdCalibrationCellInputManifestHash`; this exposes the object
+ * itself so a test can assert which KEYS a version carries, which is the thing
+ * that moves a digest.
+ */
+export function nativeAdCalibrationCellInputManifestContentForVersion(
+  cell: NativeAdCalibrationCellInputManifestSource,
+  contractVersion: NativeAdCalibrationReadableContractVersion,
+): Record<string, unknown> {
+  return nativeAdCalibrationCellInputManifestContent(
+    cell,
+    contractVersion,
+  ) as Record<string, unknown>;
+}
+
 function nativeAdCalibrationCellInputManifestContent(
   cell: NativeAdCalibrationCellInputManifestSource,
   contractVersion: NativeAdCalibrationReadableContractVersion =
@@ -2323,6 +2804,15 @@ function nativeAdCalibrationCellInputManifestContent(
     batchInputManifestHash: cell.batchInputManifestHash,
     sourceManifestHash: cell.sourceManifestHash,
     qualityCounts: cell.qualityCounts,
+    /*
+      `.v6` ONLY, and spread conditionally rather than written as `null` on the
+      older rungs: a key whose value is null is still a key, and adding one to
+      `.v5`'s object would change its digest exactly as much as adding the real
+      counts would. Omitting the key entirely is what keeps `.v5` byte-identical.
+    */
+    ...(nativeAdCalibrationBindsConfigAuthority(contractVersion)
+      ? { configAuthorityCounts: cell.configAuthorityCounts }
+      : {}),
   };
 }
 
@@ -2462,7 +2952,9 @@ export function nativeAdCalibrationBatchGenerationContent(
         }
       : {}),
     qualityCounts: batch.qualityCounts,
-    observations: batch.observations.map(observationManifestEntry),
+    observations: batch.observations.map((row) =>
+      observationManifestEntry(row, batch.contractVersion),
+    ),
   };
 }
 
@@ -2604,6 +3096,7 @@ export type NativeAdCalibrationReadableContractVersion =
   | "engine-v3-native-ad-calibration.v1"
   | "engine-v3-native-ad-calibration.v2"
   | "engine-v3-native-ad-calibration.v3"
+  | "engine-v3-native-ad-calibration.v5"
   | typeof NATIVE_AD_CALIBRATION_CONTRACT_VERSION;
 
 /*
@@ -2647,6 +3140,7 @@ export function isNativeAdCalibrationReadableContract(
     value === "engine-v3-native-ad-calibration.v1" ||
     value === "engine-v3-native-ad-calibration.v2" ||
     value === "engine-v3-native-ad-calibration.v3" ||
+    value === "engine-v3-native-ad-calibration.v5" ||
     value === NATIVE_AD_CALIBRATION_CONTRACT_VERSION
   );
 }
@@ -2659,6 +3153,7 @@ function nativeAdCalibrationProjectsAccountCpa(
     case "engine-v3-native-ad-calibration.v2":
     case "engine-v3-native-ad-calibration.v3":
       return false;
+    case "engine-v3-native-ad-calibration.v5":
     case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
       return true;
     default: {
@@ -2714,6 +3209,7 @@ function nativeAdCalibrationBatchHashesSpendUnitAuthority(
     case "engine-v3-native-ad-calibration.v2":
       return false;
     case "engine-v3-native-ad-calibration.v3":
+    case "engine-v3-native-ad-calibration.v5":
     case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
       return true;
     default: {
@@ -2742,8 +3238,9 @@ function nativeAdCalibrationBatchHashesSpendUnitAuthority(
  * have been recomputed under a v3-era formula, mismatched, and been reported as
  * CORRUPT rather than as unverifiable.
  *
- * `.v3` and `.v5` are durably recomputable: every field their formulas read is
- * a persisted column.
+ * `.v3`, `.v5` and `.v6` are durably recomputable: every field their formulas
+ * read is a persisted column. `.v6` added one — `config_authority_counts_json`
+ * — precisely so that staying recomputable did not cost the new evidence.
  */
 export function nativeAdCalibrationDurablyRecomputable(
   contractVersion: NativeAdCalibrationReadableContractVersion,
@@ -2753,6 +3250,7 @@ export function nativeAdCalibrationDurablyRecomputable(
     case "engine-v3-native-ad-calibration.v2":
       return false;
     case "engine-v3-native-ad-calibration.v3":
+    case "engine-v3-native-ad-calibration.v5":
     case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
       return true;
     default: {
@@ -2810,6 +3308,73 @@ export function nativeAdCalibrationCellInputManifestContentV1V2(input: {
   };
 }
 
+/**
+ * Does THIS version bind the cell's config-authority counts into its manifest?
+ *
+ * Only `.v6`. The 1,855 `.v5` rows on the live database were written without the
+ * counts and without them in the digest; recomputing one under `.v6`'s formula
+ * would change every historical hash and report the whole table as corrupt for a
+ * reason that has nothing to do with any row.
+ *
+ * `default` is `never`-checked like its siblings, so a seventh version cannot be
+ * minted without answering this question explicitly.
+ */
+function nativeAdCalibrationBindsConfigAuthority(
+  contractVersion: NativeAdCalibrationReadableContractVersion,
+): boolean {
+  switch (contractVersion) {
+    case "engine-v3-native-ad-calibration.v1":
+    case "engine-v3-native-ad-calibration.v2":
+    case "engine-v3-native-ad-calibration.v3":
+    case "engine-v3-native-ad-calibration.v5":
+      return false;
+    case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
+      return true;
+    default: {
+      const unsupported: never = contractVersion;
+      throw new Error(
+        `Unsupported native ad calibration contract ${String(unsupported)}.`,
+      );
+    }
+  }
+}
+
+/**
+ * Does THIS version bind each source row's config RECEIPT identity
+ * (`configReceiptDigest`) into its source content signature?
+ *
+ * Only `.v6`, amended in place while it is unshipped (no production row carries
+ * it; `.v5` and `legacy_unknown` are the only stamps on the live table). Without
+ * it, two ad-days whose config rests on different provider receipts but reports
+ * the same tiers were the same source content, so `sourceManifestHash` — and
+ * through `generationContentHash` the input manifest and the cell set — could
+ * not tell two cohorts built on different evidence apart.
+ *
+ * `.v5` and earlier never saw the digest and must not start seeing it. The
+ * source manifest is not re-derived for a persisted row (its hash is stored),
+ * so this gate is what keeps the formula a historical version names
+ * reproducible; it is `never`-checked so a later version must answer it.
+ */
+function nativeAdCalibrationBindsConfigReceipts(
+  contractVersion: NativeAdCalibrationReadableContractVersion,
+): boolean {
+  switch (contractVersion) {
+    case "engine-v3-native-ad-calibration.v1":
+    case "engine-v3-native-ad-calibration.v2":
+    case "engine-v3-native-ad-calibration.v3":
+    case "engine-v3-native-ad-calibration.v5":
+      return false;
+    case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
+      return true;
+    default: {
+      const unsupported: never = contractVersion;
+      throw new Error(
+        `Unsupported native ad calibration contract ${String(unsupported)}.`,
+      );
+    }
+  }
+}
+
 function nativeAdCalibrationProjectsTargetAuthority(
   contractVersion: NativeAdCalibrationReadableContractVersion,
 ): boolean {
@@ -2818,6 +3383,7 @@ function nativeAdCalibrationProjectsTargetAuthority(
     case "engine-v3-native-ad-calibration.v2":
     case "engine-v3-native-ad-calibration.v3":
       return false;
+    case "engine-v3-native-ad-calibration.v5":
     case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
       return true;
     default: {
@@ -3414,6 +3980,7 @@ export function buildNativeAdCalibrationPersistencePayload(
     metric_sample_counts_json: cell.metricSampleCounts,
     action_readiness_json: cell.actionReadiness,
     quality_counts_json: cell.qualityCounts,
+    config_authority_counts_json: cell.configAuthorityCounts,
     quality_status: cell.qualityStatus,
     target_authority_status: cell.targetAuthority.status,
     target_roas: cell.targetAuthority.targetRoas,
@@ -3539,6 +4106,23 @@ const BATCH_COLUMN_CONTRACT: Record<string, NativeAdCalibrationColumnContract> =
     },
   };
 
+/**
+ * The column contracts, exposed so a test can assert the thing that broke: every
+ * column this build REQUIRES must be reachable on an EXISTING table, not only on
+ * one created from scratch.
+ *
+ * `config_authority_counts_json` was added to `CREATE TABLE` alone. On a fresh
+ * database — which is all a migration-from-zero run ever sees — everything
+ * passed; on the live table, where `CREATE TABLE IF NOT EXISTS` is a no-op, the
+ * column simply never appeared, and the first `.v6` INSERT would have failed with
+ * `undefined_column`. Verified read-only against the live catalog before the
+ * ALTER below existed.
+ */
+export const NATIVE_AD_CALIBRATION_COLUMN_CONTRACTS = () => ({
+  [NATIVE_AD_CALIBRATION_BATCH_TABLE]: BATCH_COLUMN_CONTRACT,
+  [NATIVE_AD_CALIBRATION_TABLE]: CELL_COLUMN_CONTRACT,
+});
+
 const CELL_COLUMN_CONTRACT: Record<string, NativeAdCalibrationColumnContract> =
   Object.fromEntries(
     [
@@ -3593,6 +4177,7 @@ const CELL_COLUMN_CONTRACT: Record<string, NativeAdCalibrationColumnContract> =
       ["metric_sample_counts_json", "jsonb", true, null],
       ["action_readiness_json", "jsonb", true, null],
       ["quality_counts_json", "jsonb", true, null],
+      ["config_authority_counts_json", "jsonb", false, null],
       ["quality_status", "text", true, null],
       ["target_authority_status", "text", true, null],
       ["target_roas", "double precision", false, null],
@@ -4492,7 +5077,7 @@ export async function runAdCalibrationJob(
     options.transaction ??
     (<T>(fn: () => Promise<T>) =>
       runDbTransaction(fn, {
-        timeoutMs: ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS,
+        timeoutMs: NATIVE_AD_CALIBRATION_QUERY_TIMEOUT_MS,
       }));
   return transaction(async () => {
     const db = options.db ?? getDb();
@@ -4577,6 +5162,13 @@ export async function runAdCalibrationJob(
         batch: NativeAdCalibrationBatch;
         replacement: NativeAdCalibrationReplacementResult;
       }> = [];
+      // The provider-receipt resolution contains several independent sorts.
+      // The production default is 4MB; at 9,078 rows it spilled temporary
+      // blocks and approached the statement limit. 16MB is session-local and
+      // bounded by this transaction; repeated read-only comparisons returned
+      // identical row hashes at 4MB and 16MB, with warm reads at 6.7s and
+      // 5.1s respectively. No server-wide setting changes.
+      await db.query("SET LOCAL work_mem = '16MB'");
       for (const binding of bindings) {
         const sourceRows = await db.query<Record<string, unknown>>(
           READ_NATIVE_AD_CALIBRATION_SOURCE_SQL,
@@ -4971,7 +5563,10 @@ function buildObservations(input: {
     const deduplicated: NormalizedSourceRow[] = [];
     let duplicateConflict = false;
     for (const dayRows of [...dayGroups.values()]) {
-      const signatures = new Set(dayRows.map(sourceContentSignature));
+      /* Not point-free: map's index would land in the version parameter. */
+      const signatures = new Set(
+        dayRows.map((row) => sourceContentSignature(row)),
+      );
       if (signatures.size > 1) {
         qualityCounts.duplicateSourceRowExclusionCount += dayRows.length;
         duplicateConflict = true;
@@ -4999,17 +5594,102 @@ function buildObservations(input: {
       continue;
     }
 
-    const positiveSpendRows = deduplicated.filter((row) => row.spend > 0);
-    const contexts = positiveSpendRows.map(normalizedExactContext);
-    if (contexts.some((context) => context === null)) {
+    /*
+      ── THE ADMITTED WINDOW ─────────────────────────────────────────────────
+
+      This used to be all-or-nothing: `positiveSpendRows.map(normalizedExactContext)`
+      and any single null eliminated the ad. Measured on ColorFull at 2026-09-22
+      over a full 90-day window that rule discarded 25 of 30 candidate ads, and
+      it could not have done otherwise — 311 of 1,409 ad-days carry no objective
+      provenance and 517 no goal provenance after the provider-side
+      `campaign_configs` break, so at ~47 ad-days per ad almost every ad had one.
+      Worse, it compounds: an August gap keeps killing an ad until it ages out of
+      the window, a full quarter after the source is repaired, while fresh
+      corroborated receipts arrive daily and change nothing.
+
+      `resolveAdmittedContextWindow` takes the LATEST contiguous run of
+      economically meaningful days sharing one context. An old gap falls outside
+      it instead of killing the ad; a genuine configuration change ENDS the run
+      instead of discarding the ad; and no run is bridged across a day nobody
+      observed, so an unobserved day is never counted as evidence that the
+      configuration held.
+    */
+    const contextByRow = new Map<string, ExactContext | null>();
+    const contextOf = (row: NormalizedSourceRow): ExactContext | null => {
+      if (!contextByRow.has(row.sourceRowId)) {
+        contextByRow.set(row.sourceRowId, normalizedExactContext(row));
+      }
+      return contextByRow.get(row.sourceRowId) ?? null;
+    };
+    /*
+      IMMUTABLE DIMENSIONS FIRST, and they still exclude.
+
+      An account's timezone and currency do not change day to day. A window that
+      disagrees about either is an anomaly, not a history, and truncating to the
+      latest segment would admit a one-day observation built on the anomaly. This
+      runs over every day that could carry economic weight, before the window
+      walk, so the walk never has to decide what to do with one.
+    */
+    const immutableKeys = new Set(
+      deduplicated
+        .filter(
+          (row) => row.spend > 0 || row.conversions > 0 || row.revenue > 0,
+        )
+        .map((row) => exactContextImmutableKey(contextOf(row)))
+        .filter((key): key is string => key !== null),
+    );
+    if (immutableKeys.size > 1) {
+      const resolved = deduplicated
+        .map(contextOf)
+        .filter((context): context is ExactContext => context !== null);
+      qualityCounts.mixedContextAdExclusionCount += 1;
+      if (distinctCount(resolved.map((row) => row.accountCurrency)) > 1) {
+        qualityCounts.mixedCurrencyAdExclusionCount += 1;
+      }
+      continue;
+    }
+
+    const admitted = resolveAdmittedContextWindow(deduplicated, (row) => ({
+      date: row.date,
+      spend: row.spend,
+      conversions: row.conversions,
+      revenue: row.revenue,
+      contextKey: exactContextIdentityKey(contextOf(row)),
+    }));
+    if (admitted.reason !== "admitted") {
+      /*
+        No day in this ad's window resolved a context, or it had no economically
+        meaningful day at all. Both are the ad having nothing to say, which is
+        what `missingContext` has always meant.
+      */
       qualityCounts.missingContextAdExclusionCount += 1;
       continue;
     }
-    const exactContexts = contexts.filter(
-      (context): context is NonNullable<typeof context> => context !== null,
+    const admittedRows = admitted.rows;
+    const dropped = deduplicated.length - admittedRows.length;
+    if (dropped > 0) {
+      qualityCounts.contextWindowTruncatedAdCount += 1;
+      qualityCounts.contextWindowTruncatedSourceRowCount += dropped;
+      if (admitted.truncatedByChange) {
+        qualityCounts.contextChangeTruncatedAdCount += 1;
+      }
+      if (admitted.truncatedByGap) {
+        qualityCounts.contextGapTruncatedAdCount += 1;
+      }
+    }
+    /*
+      The mixed-* exclusion counters are kept and are now expected to be ZERO: a
+      context change truncates a window rather than excluding an ad, so no ad is
+      excluded for mixedness any more. The phenomenon is still counted, under
+      `contextChangeTruncatedAdCount`, which is what actually happens to it.
+    */
+    const cardinality = contextCardinality(
+      admittedRows
+        .map(contextOf)
+        .filter((context): context is ExactContext => context !== null),
     );
-    const cardinality = contextCardinality(exactContexts);
     if (cardinality.mixed) {
+      /* Unreachable by construction; fail closed rather than trust the walk. */
       qualityCounts.mixedContextAdExclusionCount += 1;
       if (cardinality.currency > 1) {
         qualityCounts.mixedCurrencyAdExclusionCount += 1;
@@ -5023,23 +5703,34 @@ function buildObservations(input: {
       continue;
     }
 
-    const context = exactContexts[0];
+    const context = contextOf(admittedRows[admittedRows.length - 1]!);
     if (!context) {
       qualityCounts.missingContextAdExclusionCount += 1;
       continue;
     }
-    const acceptedSourceRowIds = deduplicated
+    const providerLocalAsOfDate = providerLocalCalendarDate({
+      instant: input.asOfCutoff,
+      timeZone: context.accountTimezone,
+    });
+    if (providerLocalAsOfDate === null) {
+      throw new Error("native_ad_calibration_invalid_account_timezone");
+    }
+    const acceptedSourceRowIds = admittedRows
       .map((row) => row.sourceRowId)
       .sort((left, right) => left.localeCompare(right));
-    eligibleSourceRows.push(...deduplicated);
+    eligibleSourceRows.push(...admittedRows);
     observations.push(
       aggregateObservation({
-        rows: deduplicated.sort((left, right) =>
+        rows: [...admittedRows].sort((left, right) =>
           left.date.localeCompare(right.date),
         ),
         sourceRowIds: acceptedSourceRowIds,
         context,
         sampleWindowEnd: input.sampleWindowEnd,
+        /* Metric dates are provider-local; the 3-day pending-corroboration
+           horizon must use the same calendar. The persisted batch asOfDate
+           remains the scheduler's UTC date and is not relabelled. */
+        asOfDate: providerLocalAsOfDate,
       }),
     );
   }
@@ -5068,11 +5759,13 @@ function buildCells(
   >();
 
   for (const observation of batch.observations) {
-    const optimizationContext = buildNativeAdOptimizationContext(
-      observation.optimizationGoal,
-      observation.customEventType,
-    );
-    if (optimizationContext === null) {
+    /*
+      CARRIED, not rebuilt. See `NativeAdCalibrationObservation.optimizationContext`:
+      rebuilding it here from two of the three fields it is made of is what let
+      two different custom conversions share a cell.
+    */
+    const optimizationContext = observation.optimizationContext;
+    if (!optimizationContext) {
       throw new Error("Native ad observation is missing optimization context.");
     }
     const exactKey: NativeAdCalibrationCellKey = {
@@ -5111,8 +5804,24 @@ function computeCell(
   observations: NativeAdCalibrationObservation[],
 ): NativeAdCalibrationCell {
   const purchase = key.cohort === "purchase";
+  /*
+    ── THE HARD POPULATION ─────────────────────────────────────────────────
+
+    Every economic number below is computed from the VERIFIED PROJECTIONS, not
+    from the full observations. An ad with no verified run contributes nothing
+    here: it is still counted in `sourceAdCount` and in the authority counts, so
+    the cell can say how much of its population it had to set aside, but its
+    unverified spend and conversions never enter the yardstick.
+
+    The existing sample floors are untouched and now judge THIS population,
+    which is the point: 20 and 30 mean the same thing they always did, applied
+    to evidence that was actually shown to be what it claims.
+  */
+  const hardObservations = observations
+    .map((row) => row.verifiedSample)
+    .filter((row): row is NativeAdCalibrationObservation => row !== null);
   const converterPopulation = purchase
-    ? observations.filter(
+    ? hardObservations.filter(
         (row) =>
           row.totalConversions >= 1 &&
           row.totalRevenue > 0 &&
@@ -5144,25 +5853,32 @@ function computeCell(
           .filter(isFiniteNumber)
       : [];
   const refreshRatios = purchase
-    ? observations.map((row) => row.recentTotalRatio).filter(isFiniteNumber)
+    ? hardObservations.map((row) => row.recentTotalRatio).filter(isFiniteNumber)
     : [];
-  const lowCtrValues = observations
+  const lowCtrValues = hardObservations
     .map((row) => row.cumulative28dCtr)
     .filter(isFiniteNumber);
+  /*
+    THE ACCOUNT'S ATTRIBUTED AOV, which sizes a Scale. Summing unverified
+    conversions and revenue into it would let a day whose optimisation target we
+    could not establish set the unit a hard decision is sized in.
+  */
   const purchaseCount = purchase
-    ? sum(observations, (row) => row.totalConversions)
+    ? sum(hardObservations, (row) => row.totalConversions)
     : 0;
   const purchaseRevenue = purchase
-    ? sum(observations, (row) => row.totalRevenue)
+    ? sum(hardObservations, (row) => row.totalRevenue)
     : 0;
   const metaAovQuality = classifyMetaAovQuality(purchaseCount);
-  const funnelCalibration = buildFunnelCalibration(observations);
+  const funnelCalibration = buildFunnelCalibration(hardObservations);
   const baseline = funnelCalibration.byFormat.overall;
   if (!baseline) {
     throw new Error("Native ad overall funnel baseline was not built.");
   }
   const metricSampleCounts = buildMetricSampleCounts({
-    observations,
+    /* Sample COUNTS describe the hard population, because they are what the
+       floors below are read against. */
+    observations: hardObservations,
     roasValues,
     roasRatios,
     cpaValues,
@@ -5279,6 +5995,35 @@ function computeCell(
     qualityStatus,
     sourceAdCount: observations.length,
     sourceDayCount,
+    configAuthorityCounts: {
+      ...observations.reduce(
+        (merged, row) =>
+          mergeConfigAuthorityCounts(merged, row.configAuthorityCounts),
+        EMPTY_CONFIG_SAMPLE_AUTHORITY_COUNTS,
+      ),
+      decisionAuthorityAds: observations.filter(
+        (row) => row.configAuthority === "decision_authority",
+      ).length,
+      reviewOnlyAds: observations.filter(
+        (row) => row.configAuthority === "review_only",
+      ).length,
+      noneAds: observations.filter((row) => row.configAuthority === "none")
+        .length,
+      verifiedSuffixAds: observations.filter(
+        (row) => row.configAuthoritySuffix.dayCount > 0,
+      ).length,
+      verifiedSuffixDays: observations.reduce(
+        (total, row) => total + row.configAuthoritySuffix.dayCount,
+        0,
+      ),
+      verifiedSuffixSpend:
+        Math.round(
+          observations.reduce(
+            (total, row) => total + row.configAuthoritySuffix.spend,
+            0,
+          ) * 1e6,
+        ) / 1e6,
+    },
     eligibleAdCount: observations.length,
     matureAdCount: converterPopulation.length,
     zeroConversionAdCount: observations.filter(
@@ -5391,6 +6136,13 @@ function aggregateObservation(input: {
   sourceRowIds: string[];
   context: ExactContext;
   sampleWindowEnd: string;
+  /** The evaluation day, for measuring a receipt's age against the horizon. */
+  asOfDate: string;
+  /**
+   * Set while building the verified projection of another observation, so the
+   * recursion is exactly one level deep and a projection never projects itself.
+   */
+  verifiedProjection?: boolean;
 }): NativeAdCalibrationObservation {
   const first = input.rows[0];
   if (!first) throw new Error("Cannot aggregate an empty ad-day set.");
@@ -5406,24 +6158,24 @@ function aggregateObservation(input: {
   const totalImpressions = sum(input.rows, (row) => row.impressions);
   const totalClicks = sum(input.rows, (row) => row.clicks);
   /*
-    COMPLETE-ONLY, like the other optional provider metrics beside it. `sum`
-    would have added the coerced zeros; `sumOptionalComplete` answers null the
-    moment any contributing row is unreported, so a link-click rate is either
-    measured across the whole population or absent.
+    THE SHARED WINDOW RULE (resolveMetaCompleteWindowSum, D099), the same one
+    hydration applies to these ad-days: a sum exists only when every
+    decision-bearing day measured the metric. `sum` would have added the coerced
+    zeros; the previous complete-only sum was right about that but also treated
+    a day that did nothing at all as a gap, so calibration and the decision
+    path read the same admitted days two ways.
   */
-  const totalLinkClicks = sumOptionalComplete(input.rows, (row) => row.linkClicks);
-  const totalLandingPageViews = sumOptionalComplete(
-    input.rows,
-    (row) => row.landingPageViews,
-  );
-  const totalAddToCart = sumOptionalComplete(
-    input.rows,
-    (row) => row.addToCart,
-  );
-  const totalInitiateCheckout = sumOptionalComplete(
-    input.rows,
-    (row) => row.initiateCheckout,
-  );
+  const windowSum = (value: (row: NormalizedSourceRow) => number | null | undefined) =>
+    resolveMetaCompleteWindowSum(
+      input.rows.map((row) => ({
+        value: value(row) ?? null,
+        active: sourceRowIsDecisionBearing(row),
+      })),
+    );
+  const totalLinkClicks = windowSum((row) => row.linkClicks);
+  const totalLandingPageViews = windowSum((row) => row.landingPageViews);
+  const totalAddToCart = windowSum((row) => row.addToCart);
+  const totalInitiateCheckout = windowSum((row) => row.initiateCheckout);
   const cumulative28Spend = sum(cumulative28Rows, (row) => row.spend);
   const cumulative28Revenue = sum(cumulative28Rows, (row) => row.revenue);
   const cumulative28Impressions = sum(
@@ -5438,6 +6190,79 @@ function aggregateObservation(input: {
   const thumbstopWeighted = input.rows.every((row) => row.thumbstop != null)
     ? sum(input.rows, (row) => (row.thumbstop as number) * row.impressions)
     : null;
+  const configAuthorityCounts = (() => {
+    let counts = EMPTY_CONFIG_SAMPLE_AUTHORITY_COUNTS;
+    const classified: Array<{
+      date: string;
+      spend: number;
+      conversions: number;
+      revenue: number;
+      dayClass: MetaConfigDayAuthorityClass;
+    }> = [];
+    for (const row of input.rows) {
+      const dayClass = classifyConfigAuthorityDay({
+        cohort: input.context.cohort,
+        objectiveReadiness: row.objectiveReadiness,
+        objectiveTier: row.objectiveTier,
+        optimizationGoalReadiness: row.optimizationGoalReadiness,
+        optimizationGoalTier: row.optimizationGoalTier,
+        customEventTypeReadiness: row.customEventTypeReadiness,
+        customEventTypeTier: row.customEventTypeTier,
+        /* The VALUE, not only its provenance: in a purchase cohort an event of
+           OTHER names no purchase, whatever tier it was observed at. */
+        customEventType: row.customEventType,
+        customConversionId: row.customConversionId,
+        customConversionIdReadiness: row.customConversionIdReadiness,
+        date: row.date,
+        asOfDate: input.asOfDate,
+      });
+      classified.push({
+        date: row.date,
+        spend: row.spend,
+        /* Both carried, so a zero-spend day with a late conversion or revenue is
+           still economically real and still has to be classified. */
+        conversions: row.conversions,
+        revenue: row.revenue,
+        dayClass,
+      });
+      counts = addConfigAuthorityDay(counts, dayClass, row.spend);
+    }
+    return {
+      counts,
+      rollUp: resolveCalibrationSampleAuthority(counts),
+      suffix: resolveVerifiedAuthoritySuffix(classified),
+    };
+  })();
+
+  /*
+    The verified projection: the same aggregate over the suffix's own date range.
+
+    Taken as a DATE RANGE rather than as "the decision_authority rows", because
+    an economically empty day inside the run belongs to the same stretch of time
+    and dropping it would silently reshape the window. Every day in the range
+    that carries economic weight is authoritative by construction of the walk.
+  */
+  const verifiedSample = (): NativeAdCalibrationObservation | null => {
+    if (input.verifiedProjection) return null;
+    const suffix = configAuthorityCounts.suffix;
+    if (suffix.dayCount === 0 || !suffix.startDate || !suffix.endDate) {
+      return null;
+    }
+    const verifiedRows = input.rows.filter(
+      (row) => row.date >= suffix.startDate! && row.date <= suffix.endDate!,
+    );
+    if (verifiedRows.length === 0) return null;
+    return aggregateObservation({
+      rows: verifiedRows,
+      sourceRowIds: verifiedRows
+        .map((row) => row.sourceRowId)
+        .sort((left, right) => left.localeCompare(right)),
+      context: input.context,
+      sampleWindowEnd: input.sampleWindowEnd,
+      asOfDate: input.asOfDate,
+      verifiedProjection: true,
+    });
+  };
 
   return {
     businessId: first.businessId,
@@ -5451,7 +6276,18 @@ function aggregateObservation(input: {
     objective: input.context.objective,
     optimizationGoal: input.context.optimizationGoal,
     customEventType: input.context.customEventType,
+    customConversionId: input.context.customConversionId,
+    optimizationContext: input.context.optimizationContext,
     cohort: input.context.cohort,
+    /*
+      PER AD-DAY, with that day's own spend. A row that states no provenance at
+      all — a fixture, a replay — is treated as stating nothing rather than as
+      authorised, which is why an absent readiness classifies as `none`.
+    */
+    configAuthorityCounts: configAuthorityCounts.counts,
+    configAuthority: configAuthorityCounts.rollUp.readiness,
+    configAuthoritySuffix: configAuthorityCounts.suffix,
+    verifiedSample: verifiedSample(),
     sourceRowIds: input.sourceRowIds,
     sourceDayCount: input.rows.length,
     sourceMinDate: input.rows[0]?.date ?? input.sampleWindowEnd,
@@ -5533,6 +6369,8 @@ interface ExactContext {
   objective: string;
   optimizationGoal: string | null;
   customEventType: string | null;
+  /** The OTHER field that can name a conversion target; see the context builder. */
+  customConversionId: string | null;
   optimizationContext: string;
   cohort: MetaFunnelCohort;
 }
@@ -5548,14 +6386,40 @@ function normalizedExactContext(row: NormalizedSourceRow): ExactContext | null {
   ) {
     return null;
   }
-  const cohort = resolveMetaFunnelCohort({
+  /*
+    Config only. The general resolver has a branch that reads a positive purchase
+    count or revenue as a purchase INTENT when no config field is known — an
+    optimization goal invented from the result it produced. The guard above
+    already keeps that branch unreachable here, and no result is passed either,
+    but a native decision must not depend on two incidental facts staying true:
+    this variant cannot infer from results at all.
+  */
+  const cohort = resolveMetaFunnelCohortFromConfigOnly({
     objective: row.objective,
     optimizationGoal: row.optimizationGoal,
     customEventType: row.customEventType,
   });
+  /*
+    Provenance is carried, NOT gated here, and the distinction is the point.
+
+    Requiring decision authority for sample membership was tried and is wrong:
+    calibration estimates a cohort's economics, and for that the config only has
+    to be KNOWN for the day. A legacy single-page receipt is a real provider
+    statement about that day even though it is too weak to authorise an action on
+    one ad. Gating here would have dropped roughly three ad-days in five on live
+    data, pushing cells under the sample floors and making calibration unavailable
+    — blocking decisions in the name of strengthening them.
+
+    Authority belongs at the ACTION boundary, where resolveNativeAdConfigAuthority
+    turns these same per-field tiers into one verdict. The value guard above
+    already ensures membership means the config was stated at all: a value is only
+    non-null when a receipt or a contemporaneous witness supplied it.
+  */
+  const customConversionId = normalizeText(row.customConversionId) ?? null;
   const optimizationContext = buildNativeAdOptimizationContext(
     row.optimizationGoal,
     row.customEventType,
+    customConversionId,
   );
   if (optimizationContext === null) return null;
   return {
@@ -5566,19 +6430,88 @@ function normalizedExactContext(row: NormalizedSourceRow): ExactContext | null {
     objective: row.objective,
     optimizationGoal: row.optimizationGoal,
     customEventType: row.customEventType,
+    customConversionId,
     optimizationContext,
     cohort,
   };
 }
 
+/**
+ * The key that says "these ads were optimising for the same thing".
+ *
+ * ── WHY THE CUSTOM CONVERSION IS PART OF IT ─────────────────────────────────
+ *
+ * It was `goal` and `custom_event_type` only, and that pools ad sets whose
+ * conversion targets are genuinely different. Measured on live `adset_configs`
+ * payloads over the last 30 days: 441 of 87,545 elements carry a
+ * `custom_conversion_id`, across 6 distinct ids — and on one account
+ * (`act_840779107261785`) all six sit under the SAME `goal=OFFSITE_CONVERSIONS`
+ * and `event=OTHER`, spread over 21 ad sets. Under the old key those 21 ad sets
+ * shared one cell, so six unrelated conversion definitions were averaged into a
+ * single economy and each was then measured against it.
+ *
+ * `event=OTHER` is precisely the case where the standard event says nothing and
+ * the custom conversion IS the definition of the target, which is why pooling
+ * them is not a conservative simplification but a wrong claim.
+ *
+ * APPENDED, never interpolated into the existing segments, and only when a value
+ * is present. Every key an account has ever written stays byte-identical, so no
+ * existing cell changes identity; the ad sets that actually name a custom
+ * conversion separate out going forward, which is the correction.
+ */
 export function buildNativeAdOptimizationContext(
   optimizationGoal: string | null | undefined,
   customEventType: string | null | undefined,
+  customConversionId?: string | null | undefined,
 ): string | null {
   const goal = normalizeGoal(optimizationGoal);
   const event = normalizeGoal(customEventType);
-  if (!goal && !event) return null;
-  return `goal=${goal ?? ""}|event=${event ?? ""}`;
+  const conversion = normalizeText(customConversionId);
+  if (!goal && !event && !conversion) return null;
+  const base = `goal=${goal ?? ""}|event=${event ?? ""}`;
+  /*
+    A named custom conversion alone is a target, so it can carry a context even
+    when both other fields are absent — but then the base segments are empty and
+    the key is still unambiguous because the id follows them.
+  */
+  return conversion ? `${base}|cc=${conversion}` : base;
+}
+
+/**
+ * A stable key for "the same CONFIGURATION", for the admitted-window walk.
+ *
+ * Deliberately narrower than `contextCardinality`. The account's timezone and
+ * currency are IMMUTABLE DIMENSIONS, not configuration: an ad's currency does
+ * not change from one day to the next, and a window that disagrees about it is
+ * an anomaly rather than a history. Truncating such an ad to its latest segment
+ * would admit a one-day observation built on the anomaly itself, so those two
+ * are checked separately and still EXCLUDE the ad.
+ *
+ * What remains here are the fields that legitimately change over an ad's life
+ * and that the cell is keyed by. `optimizationGoal`, `customEventType` and
+ * `customConversionId` are absent as separate entries because all three are
+ * folded into `optimizationContext` — so an ad that switches custom conversion
+ * mid-window has its run split there, like any other configuration change.
+ */
+export function exactContextIdentityKey(
+  context: ExactContext | null,
+): string | null {
+  if (!context) return null;
+  return JSON.stringify([
+    context.campaignId,
+    context.adsetId,
+    context.objective,
+    context.optimizationContext,
+    context.cohort,
+  ]);
+}
+
+/** The dimensions a single ad may never disagree about; see above. */
+export function exactContextImmutableKey(
+  context: ExactContext | null,
+): string | null {
+  if (!context) return null;
+  return JSON.stringify([context.accountTimezone, context.accountCurrency]);
 }
 
 function contextCardinality(contexts: ExactContext[]) {
@@ -5626,6 +6559,16 @@ function normalizeSourceRow(
     objective: normalizeGoal(row.objective),
     optimizationGoal: normalizeGoal(row.optimizationGoal),
     customEventType: normalizeGoal(row.customEventType),
+    /*
+      A digest or nothing. Anything that is not a sha256 hex string is not an
+      identity and is carried as an explicit null rather than normalized into
+      one; a hand-built row that states no receipt gets the same null.
+    */
+    configReceiptDigest:
+      typeof row.configReceiptDigest === "string" &&
+      /^[0-9a-f]{64}$/.test(row.configReceiptDigest)
+        ? row.configReceiptDigest
+        : null,
     truthState: normalizeGoal(row.truthState),
     validationStatus: normalizeGoal(row.validationStatus),
     finalizedAt: normalizeTimestamp(row.finalizedAt),
@@ -5721,8 +6664,21 @@ function hasInvalidMetric(row: NormalizedSourceRow) {
   );
 }
 
-function sourceContentSignature(row: NormalizedSourceRow) {
+function sourceContentSignature(
+  row: NormalizedSourceRow,
+  contractVersion: NativeAdCalibrationReadableContractVersion =
+    NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+) {
+  /*
+    `.v6` ONLY, spread rather than nulled: a key whose value is null is still a
+    key, and the `.v5` formula must stay byte-identical. See
+    `nativeAdCalibrationBindsConfigReceipts`.
+  */
+  const receipts = nativeAdCalibrationBindsConfigReceipts(contractVersion)
+    ? { configReceiptDigest: row.configReceiptDigest }
+    : {};
   return canonicalSha256({
+    ...receipts,
     businessId: row.businessId,
     providerAccountRefId: row.providerAccountRefId,
     providerAccountId: row.providerAccountId,
@@ -5738,6 +6694,25 @@ function sourceContentSignature(row: NormalizedSourceRow) {
     objective: row.objective,
     optimizationGoal: row.optimizationGoal,
     customEventType: row.customEventType,
+    /*
+      PROVENANCE IS PART OF THE CONTENT, because it is now part of what the row
+      DOES. Two rows for one ad-day that agree on every value and disagree on
+      how well it was observed choose different verified samples and therefore
+      different economics; a signature blind to that would silently dedup them
+      to whichever sorted first. `customConversionId` is here for the same
+      reason — it is a cell-key field.
+    */
+    customConversionId: row.customConversionId ?? null,
+    objectiveTier: row.objectiveTier ?? null,
+    objectiveReadiness: row.objectiveReadiness ?? null,
+    objectiveSourceClass: row.objectiveSourceClass ?? null,
+    objectivePitClass: row.objectivePitClass ?? null,
+    optimizationGoalTier: row.optimizationGoalTier ?? null,
+    optimizationGoalReadiness: row.optimizationGoalReadiness ?? null,
+    optimizationGoalSourceClass: row.optimizationGoalSourceClass ?? null,
+    customEventTypeTier: row.customEventTypeTier ?? null,
+    customEventTypeReadiness: row.customEventTypeReadiness ?? null,
+    customConversionIdReadiness: row.customConversionIdReadiness ?? null,
     spend: manifestNumber(row.spend),
     impressions: manifestNumber(row.impressions),
     clicks: manifestNumber(row.clicks),
@@ -5749,6 +6724,19 @@ function sourceContentSignature(row: NormalizedSourceRow) {
     initiateCheckout: manifestNumber(row.initiateCheckout ?? null),
     thumbstop: manifestNumber(row.thumbstop ?? null),
   });
+}
+
+/**
+ * `sourceContentSignature` for one hand-built source row under a NAMED contract
+ * version. Exported so the byte-identity of a historical version's formula is
+ * pinned by a test against the real function rather than against a restatement
+ * of it, which could drift in ways the function does not.
+ */
+export function nativeAdCalibrationSourceContentSignatureForVersion(
+  row: NativeAdCalibrationSourceRow,
+  contractVersion: NativeAdCalibrationReadableContractVersion,
+): string {
+  return sourceContentSignature(normalizeSourceRow(row), contractVersion);
 }
 
 function accountAovFactSignature(row: NormalizedSourceRow) {
@@ -5799,8 +6787,45 @@ function sourceManifestEntry(row: NormalizedSourceRow) {
   };
 }
 
-function observationManifestEntry(row: NativeAdCalibrationObservation) {
+function observationManifestEntry(
+  row: NativeAdCalibrationObservation,
+  contractVersion: NativeAdCalibrationReadableContractVersion =
+    NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+) {
+  /*
+    `.v6` ONLY, spread rather than nulled, for the same reason the cell manifest
+    does it: a key whose value is null is still a key, and `.v3`/`.v5` batch
+    digests must stay byte-identical.
+
+    WHAT IT CLOSES. Before this, two source sets with the same economics and a
+    DIFFERENT set of authoritative days produced the same observation entry —
+    the totals matched and nothing else was hashed — so the batch's generation
+    hash could not tell apart two runs whose hard samples were built from
+    different evidence. The verified sample's own row ids are included, not just
+    its size, because "thirty verified days" is not an identity: WHICH thirty is.
+  */
+  const authority = nativeAdCalibrationBindsConfigAuthority(contractVersion)
+    ? {
+        customConversionId: row.customConversionId,
+        optimizationContext: row.optimizationContext,
+        configAuthority: row.configAuthority,
+        configAuthorityCounts: row.configAuthorityCounts,
+        configAuthoritySuffix: row.configAuthoritySuffix,
+        verifiedSampleRowIds: row.verifiedSample?.sourceRowIds ?? null,
+        verifiedSampleTotals: row.verifiedSample
+          ? {
+              sourceDayCount: row.verifiedSample.sourceDayCount,
+              totalSpend: manifestNumber(row.verifiedSample.totalSpend),
+              totalConversions: manifestNumber(
+                row.verifiedSample.totalConversions,
+              ),
+              totalRevenue: manifestNumber(row.verifiedSample.totalRevenue),
+            }
+          : null,
+      }
+    : {};
   return {
+    ...authority,
     businessId: row.businessId,
     providerAccountRefId: row.providerAccountRefId,
     providerAccountId: row.providerAccountId,
@@ -6182,6 +7207,10 @@ function emptyQualityCounts(
     duplicateConflictAdExclusionCount: 0,
     missingContextAdExclusionCount: 0,
     mixedContextAdExclusionCount: 0,
+    contextWindowTruncatedAdCount: 0,
+    contextWindowTruncatedSourceRowCount: 0,
+    contextChangeTruncatedAdCount: 0,
+    contextGapTruncatedAdCount: 0,
     mixedCurrencyAdExclusionCount: 0,
     mixedObjectiveAdExclusionCount: 0,
     mixedCohortAdExclusionCount: 0,
@@ -6263,22 +7292,19 @@ function sum<T>(rows: T[], value: (row: T) => number) {
   return rows.reduce((total, row) => total + value(row), 0);
 }
 
-function sumOptionalComplete<T>(
-  rows: T[],
-  value: (row: T) => number | null | undefined,
-): number | null {
-  const values = rows.map(value);
-  if (
-    values.some(
-      (entry) =>
-        entry === null || entry === undefined || !Number.isFinite(entry),
-    )
-  ) {
-    return null;
-  }
-  let total = 0;
-  for (const entry of values) total += entry as number;
-  return total;
+/**
+ * The TypeScript twin of AD_DAY_DECISION_BEARING_ACTIVITY_SQL: a day that had
+ * impressions, spend, clicks, conversions or revenue. Only such a day has to
+ * have measured an event count for a window over it to be complete.
+ */
+function sourceRowIsDecisionBearing(row: NormalizedSourceRow): boolean {
+  return (
+    row.impressions > 0 ||
+    row.spend > 0 ||
+    row.clicks > 0 ||
+    row.conversions > 0 ||
+    row.revenue > 0
+  );
 }
 
 function groupBy<T>(rows: T[], key: (row: T) => string) {
@@ -6464,6 +7490,22 @@ export function mapNativeAdCalibrationSourceRow(
     objective: dbOptionalText(row.objective),
     optimizationGoal: dbOptionalText(row.optimization_goal),
     customEventType: dbOptionalText(row.custom_event_type),
+    objectiveTier: dbOptionalText(row.objective_tier),
+    objectiveReadiness: dbOptionalText(row.objective_readiness),
+    objectiveSourceClass: dbOptionalText(row.objective_source_class),
+    objectivePitClass: dbOptionalText(row.objective_pit_class),
+    optimizationGoalTier: dbOptionalText(row.optimization_goal_tier),
+    optimizationGoalReadiness: dbOptionalText(row.optimization_goal_readiness),
+    optimizationGoalSourceClass: dbOptionalText(
+      row.optimization_goal_source_class,
+    ),
+    customEventTypeTier: dbOptionalText(row.custom_event_type_tier),
+    customEventTypeReadiness: dbOptionalText(row.custom_event_type_readiness),
+    customConversionId: dbOptionalText(row.custom_conversion_id),
+    customConversionIdReadiness: dbOptionalText(
+      row.custom_conversion_id_readiness,
+    ),
+    configReceiptDigest: dbOptionalText(row.config_receipt_digest),
     spend: dbRequiredNumber(row.spend, "spend"),
     impressions: dbRequiredNumber(row.impressions, "impressions"),
     clicks: dbRequiredNumber(row.clicks, "clicks"),

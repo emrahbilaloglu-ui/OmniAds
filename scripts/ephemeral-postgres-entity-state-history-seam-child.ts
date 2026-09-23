@@ -1281,13 +1281,48 @@ async function verifyConfigHistoryTransitions(context: {
     cpc: 0,
   });
 
-  const write = (dailyBudget: number, observedAt: string, complete = true) =>
-    appendMetaCurrentConfigHistory({
+  const write = async (
+    dailyBudget: number,
+    observedAt: string,
+    complete = true,
+    fields = "id,objective,daily_budget",
+    observedRunId: string | null = null,
+    receiptRunId: string | null = observedRunId,
+  ) => {
+    const [source] = await sql<{ id: string }>`
+      INSERT INTO meta_raw_snapshots (
+        business_id, provider_account_id, endpoint_name, entity_scope,
+        start_date, end_date, payload_json, payload_hash, request_context,
+        status, fetched_at
+      ) VALUES (
+        ${businessId}, ${providerAccountId}, 'campaign_configs', 'campaign',
+        '2026-10-01', '2026-10-01',
+        ${JSON.stringify([{ id: CAMPAIGN_ID, objective: "OUTCOME_SALES", daily_budget: String(dailyBudget) }])}::jsonb,
+        ${`transition-probe-${dailyBudget}-${observedAt}`},
+        ${JSON.stringify({ fields, pagination: { complete: true, termination: "natural_end" } })}::jsonb,
+        'fetched', ${observedAt}::timestamptz
+      ) RETURNING id::text AS id
+    `;
+    assert(source, "config transition probe did not retain its raw receipt");
+    await sql`
+      INSERT INTO meta_raw_snapshot_observations (
+        snapshot_id, business_id, provider_account_id, endpoint_name,
+        entity_scope, run_id, status, provider_http_status, request_context, observed_at
+      ) VALUES (
+        ${source.id}::uuid, ${businessId}, ${providerAccountId},
+        'campaign_configs', 'campaign', ${observedRunId}, 'fetched', 200,
+        ${JSON.stringify({ fields, pagination: { complete: true, termination: "natural_end" } })}::jsonb,
+        ${observedAt}::timestamptz
+      )
+    `;
+    return appendMetaCurrentConfigHistory({
       campaignRows: [campaignRow(dailyBudget) as never],
       adsetRows: [],
-      campaignReceipt: { complete, observedAt },
-      adsetReceipt: { complete: true, observedAt },
+      campaignReceipt: { complete, observedAt, sourceSnapshotId: source.id,
+        partitionId: null, runId: receiptRunId },
+      adsetReceipt: { complete: true, observedAt, partitionId: null },
     });
+  };
 
   const history = async () =>
     (
@@ -1300,6 +1335,161 @@ async function verifyConfigHistoryTransitions(context: {
         ORDER BY captured_at ASC, id ASC
       `
     ).map((row) => row.config_fingerprint);
+
+  const [insightsSource] = await sql<{ id: string }>`
+    INSERT INTO meta_raw_snapshots (
+      business_id, provider_account_id, endpoint_name, entity_scope,
+      start_date, end_date, payload_json, payload_hash, request_context, status
+    ) VALUES (
+      ${businessId}, ${providerAccountId}, 'ad_insights_bulk', 'ad',
+      '2026-10-01', '2026-10-01', '[]'::jsonb, 'wrong-config-source-probe',
+      ${JSON.stringify({ pagination: { complete: true, termination: "natural_end" } })}::jsonb,
+      'fetched'
+    ) RETURNING id::text AS id
+  `;
+  let wrongSourceRejected = false;
+  try {
+    await appendMetaCurrentConfigHistory({
+      campaignRows: [campaignRow(1000) as never],
+      adsetRows: [],
+      campaignReceipt: {
+        complete: true,
+        observedAt: "2026-10-01T08:00:00Z",
+        sourceSnapshotId: insightsSource!.id,
+        partitionId: null,
+      },
+      adsetReceipt: { complete: true, observedAt: "2026-10-01T08:00:00Z", partitionId: null },
+    });
+  } catch (error) {
+    wrongSourceRejected = String(error).includes("invalid_raw_source:campaign_configs");
+  }
+  assert(wrongSourceRejected && (await history()).length === 0,
+    "H14: an ad Insights snapshot was accepted as a campaign config receipt");
+
+  // Shared raw content is not an observation. The same payload may have been
+  // retained by a failed attempt, so its canonical row alone cannot authorize
+  // a provider transition in this attempt.
+  const [contentWithoutReceipt] = await sql<{ id: string }>`
+    INSERT INTO meta_raw_snapshots (
+      business_id, provider_account_id, endpoint_name, entity_scope,
+      start_date, end_date, payload_json, payload_hash, request_context, status
+    ) VALUES (
+      ${businessId}, ${providerAccountId}, 'campaign_configs', 'campaign',
+      '2026-10-01', '2026-10-01',
+      ${JSON.stringify([{ id: CAMPAIGN_ID, objective: "OUTCOME_SALES" }])}::jsonb,
+      'config-content-without-observation',
+      ${JSON.stringify({ pagination: { complete: true, termination: "natural_end" } })}::jsonb,
+      'fetched'
+    ) RETURNING id::text AS id
+  `;
+  let missingObservationRejected = false;
+  try {
+    await appendMetaCurrentConfigHistory({
+      campaignRows: [campaignRow(1000) as never],
+      adsetRows: [],
+      campaignReceipt: { complete: true, observedAt: "2026-10-01T08:15:00Z",
+        sourceSnapshotId: contentWithoutReceipt!.id, partitionId: null },
+      adsetReceipt: { complete: true, observedAt: "2026-10-01T08:15:00Z", partitionId: null },
+    });
+  } catch (error) {
+    missingObservationRejected = String(error).includes("invalid_raw_source:campaign_configs");
+  }
+  assert(missingObservationRejected && (await history()).length === 0,
+    "H14: config content without a complete observation receipt was accepted");
+
+  let missingRunRejected = false;
+  try {
+    await appendMetaCurrentConfigHistory({
+      campaignRows: [campaignRow(1000) as never],
+      adsetRows: [],
+      campaignReceipt: { complete: true, observedAt: "2026-10-01T08:16:00Z",
+        sourceSnapshotId: contentWithoutReceipt!.id,
+        partitionId: "00000000-0000-0000-0000-000000000001" },
+      adsetReceipt: { complete: true, observedAt: "2026-10-01T08:16:00Z", partitionId: null },
+    });
+  } catch (error) {
+    missingRunRejected = String(error).includes("missing_run_id:campaign_configs");
+  }
+  assert(missingRunRejected && (await history()).length === 0,
+    "H14: a partitioned config receipt without an attempt id was accepted");
+
+  const [mismatchedSource] = await sql<{ id: string }>`
+    INSERT INTO meta_raw_snapshots (
+      business_id, provider_account_id, endpoint_name, entity_scope,
+      start_date, end_date, payload_json, payload_hash, request_context, status
+    ) VALUES (
+      ${businessId}, ${providerAccountId}, 'campaign_configs', 'campaign',
+      '2026-10-01', '2026-10-01',
+      ${JSON.stringify([{ id: CAMPAIGN_ID, objective: "OUTCOME_LEADS", daily_budget: "1000" }])}::jsonb,
+      'config-objective-mismatch',
+      ${JSON.stringify({ pagination: { complete: true, termination: "natural_end" } })}::jsonb,
+      'fetched'
+    ) RETURNING id::text AS id
+  `;
+  await sql`
+    INSERT INTO meta_raw_snapshot_observations (
+      snapshot_id, business_id, provider_account_id, endpoint_name,
+      entity_scope, status, provider_http_status, request_context, observed_at
+    ) VALUES (
+      ${mismatchedSource!.id}::uuid, ${businessId}, ${providerAccountId},
+      'campaign_configs', 'campaign', 'fetched', 200,
+      ${JSON.stringify({ pagination: { complete: true, termination: "natural_end" } })}::jsonb,
+      '2026-10-01T08:30:00Z'::timestamptz
+    )
+  `;
+  let fieldMismatchRejected = false;
+  try {
+    await appendMetaCurrentConfigHistory({
+      campaignRows: [campaignRow(1000) as never],
+      adsetRows: [],
+      campaignReceipt: { complete: true, observedAt: "2026-10-01T08:30:00Z",
+        sourceSnapshotId: mismatchedSource!.id, partitionId: null },
+      adsetReceipt: { complete: true, observedAt: "2026-10-01T08:30:00Z", partitionId: null },
+    });
+  } catch (error) {
+    fieldMismatchRejected = String(error).includes("objective_source_mismatch");
+  }
+  assert(fieldMismatchRejected && (await history()).length === 0,
+    "H14: config history objective disagreed with its raw provider response");
+
+  const [wrongBudgetSource] = await sql<{ id: string }>`
+    INSERT INTO meta_raw_snapshots (
+      business_id, provider_account_id, endpoint_name, entity_scope,
+      start_date, end_date, payload_json, payload_hash, request_context, status
+    ) VALUES (
+      ${businessId}, ${providerAccountId}, 'campaign_configs', 'campaign',
+      '2026-10-01', '2026-10-01',
+      ${JSON.stringify([{ id: CAMPAIGN_ID, objective: "OUTCOME_SALES", daily_budget: "2000" }])}::jsonb,
+      'config-budget-mismatch',
+      ${JSON.stringify({ fields: "id,objective,daily_budget", pagination: { complete: true, termination: "natural_end" } })}::jsonb,
+      'fetched'
+    ) RETURNING id::text AS id
+  `;
+  await sql`
+    INSERT INTO meta_raw_snapshot_observations (
+      snapshot_id, business_id, provider_account_id, endpoint_name,
+      entity_scope, status, provider_http_status, request_context, observed_at
+    ) VALUES (
+      ${wrongBudgetSource!.id}::uuid, ${businessId}, ${providerAccountId},
+      'campaign_configs', 'campaign', 'fetched', 200,
+      ${JSON.stringify({ fields: "id,objective,daily_budget", pagination: { complete: true, termination: "natural_end" } })}::jsonb,
+      '2026-10-01T08:35:00Z'::timestamptz
+    )
+  `;
+  let wrongBudgetRejected = false;
+  try {
+    await appendMetaCurrentConfigHistory({
+      campaignRows: [campaignRow(1000) as never],
+      adsetRows: [],
+      campaignReceipt: { complete: true, observedAt: "2026-10-01T08:35:00Z",
+        sourceSnapshotId: wrongBudgetSource!.id, partitionId: null },
+      adsetReceipt: { complete: true, observedAt: "2026-10-01T08:35:00Z", partitionId: null },
+    });
+  } catch (error) {
+    wrongBudgetRejected = String(error).includes("daily_budget_source_mismatch:campaign_configs");
+  }
+  assert(wrongBudgetRejected && (await history()).length === 0,
+    "H14: config history budget disagreed with its raw provider response");
 
   // H14: an INCOMPLETE receipt records nothing. A partial page set is missing
   // entities, and absence is indistinguishable from deletion downstream.
@@ -1323,6 +1513,26 @@ async function verifyConfigHistoryTransitions(context: {
     repeatWrite.campaignRowsWritten === 0,
     `H15: an identical repeat reported ${repeatWrite.campaignRowsWritten} rows written; the arbiter rejected it, so the count must be 0.`,
   );
+  let missingFieldRejected = false;
+  try {
+    await write(1000, "2026-10-01T10:05:00Z", true, "id,daily_budget");
+  } catch (error) {
+    missingFieldRejected = String(error).includes("field_not_observed:campaign_configs:objective");
+  }
+  assert(missingFieldRejected && (await history()).length === 1,
+    "H15: a receipt that never requested objective authorized an objective transition");
+  const sameRun = await write(1000, "2026-10-01T10:06:00Z", true,
+    "id,objective,daily_budget", "run-source", "run-source");
+  let wrongRunRejected = false;
+  try {
+    await write(1000, "2026-10-01T10:07:00Z", true,
+      "id,objective,daily_budget", "run-source", "run-other");
+  } catch (error) {
+    wrongRunRejected = String(error).includes("invalid_raw_source:campaign_configs");
+  }
+  assert(sameRun.campaignRowsWritten === 0 && wrongRunRejected &&
+    (await history()).length === 1,
+  "H15: config history accepted an observation from a different sync run");
 
   // H16a: CONCURRENT identical observations. Eight writers, eight distinct
   // instants, one configuration. `captured_at` is part of the arbiter, so
@@ -1397,6 +1607,103 @@ async function verifyConfigHistoryTransitions(context: {
     `H17: the out-of-order row was not filed at its own observation instant: ${JSON.stringify(afterOutOfOrder[0])}`,
   );
 
+  // A derived historical row can coincidentally have the same fields as the
+  // first real campaign receipt. The writer must record that first receipt:
+  // the fingerprint alone cannot upgrade a warehouse_daily inference into a
+  // provider observation.
+  await sql`
+    UPDATE meta_campaign_config_history SET source_kind = 'warehouse_daily'
+    WHERE id = (
+      SELECT id FROM meta_campaign_config_history
+      WHERE business_id = ${businessId}
+        AND provider_account_id = ${providerAccountId}
+        AND campaign_id = ${CAMPAIGN_ID}
+      ORDER BY captured_at DESC, id DESC LIMIT 1
+    )
+  `;
+  const firstVerifiedReceipt = await write(6000, "2026-10-01T14:00:00Z");
+  const repeatedVerifiedReceipt = await write(6000, "2026-10-01T14:01:00Z");
+  const [verifiedLatest] = await sql<{
+    source_kind: string;
+    endpoint_name: string | null;
+  }>`
+    SELECT h.source_kind, raw.endpoint_name
+    FROM meta_campaign_config_history h
+    LEFT JOIN meta_raw_snapshots raw ON raw.id = h.source_snapshot_id
+    WHERE h.business_id = ${businessId}
+      AND h.provider_account_id = ${providerAccountId}
+      AND h.campaign_id = ${CAMPAIGN_ID}
+    ORDER BY h.captured_at DESC, h.id DESC LIMIT 1
+  `;
+  assert(
+    firstVerifiedReceipt.campaignRowsWritten === 1 &&
+      repeatedVerifiedReceipt.campaignRowsWritten === 0 &&
+      verifiedLatest?.source_kind === "provider_config_receipt" &&
+      verifiedLatest.endpoint_name === "campaign_configs",
+    `H17b: first verified receipt did not supersede a same-value legacy row: ${JSON.stringify({ firstVerifiedReceipt, repeatedVerifiedReceipt, verifiedLatest })}`,
+  );
+
+  // The adset INSERT fingerprints promoted_object_json as promotedObject.
+  // The pre-insert transition filter must use the same key; otherwise an
+  // unchanged promoted object is appended at every complete observation.
+  const ADSET_ID = "adset_promoted_object_transition_probe";
+  const adsetConfig = [{
+    id: ADSET_ID,
+    campaign_id: CAMPAIGN_ID,
+    optimization_goal: "OFFSITE_CONVERSIONS",
+    promoted_object: { pixel_id: "pixel-1", custom_event_type: "PURCHASE" },
+  }];
+  const [adsetSource] = await sql<{ id: string }>`
+    INSERT INTO meta_raw_snapshots (
+      business_id, provider_account_id, endpoint_name, entity_scope,
+      start_date, end_date, payload_json, payload_hash, request_context, status
+    ) VALUES (
+      ${businessId}, ${providerAccountId}, 'adset_configs', 'adset',
+      '2026-10-01', '2026-10-01', ${JSON.stringify(adsetConfig)}::jsonb,
+      'adset-promoted-object-transition-probe',
+      ${JSON.stringify({ pagination: { complete: true, termination: "natural_end" } })}::jsonb,
+      'fetched'
+    ) RETURNING id::text AS id
+  `;
+  assert(adsetSource, "adset promoted-object probe has no raw source");
+  const adsetRow = {
+    ...campaignRow(1000),
+    adsetId: ADSET_ID,
+    adsetNameCurrent: "Promoted object probe",
+    adsetNameHistorical: "Promoted object probe",
+    optimizationGoal: "OFFSITE_CONVERSIONS",
+    customEventType: "PURCHASE",
+    pixelId: "pixel-1",
+    promotedObjectJson: adsetConfig[0]!.promoted_object,
+    dailyBudget: null,
+  };
+  const writeAdset = async (observedAt: string) => {
+    await sql`
+      INSERT INTO meta_raw_snapshot_observations (
+        snapshot_id, business_id, provider_account_id, endpoint_name,
+        entity_scope, status, provider_http_status, request_context, observed_at
+      ) VALUES (
+        ${adsetSource.id}::uuid, ${businessId}, ${providerAccountId},
+        'adset_configs', 'adset', 'fetched', 200,
+        ${JSON.stringify({ pagination: { complete: true, termination: "natural_end" } })}::jsonb,
+        ${observedAt}::timestamptz
+      )
+    `;
+    return appendMetaCurrentConfigHistory({
+      campaignRows: [],
+      adsetRows: [adsetRow as never],
+      campaignReceipt: { complete: true, observedAt, partitionId: null },
+      adsetReceipt: { complete: true, observedAt,
+        sourceSnapshotId: adsetSource.id, partitionId: null },
+    });
+  };
+  const firstAdset = await writeAdset("2026-10-01T15:00:00Z");
+  const repeatedAdset = await writeAdset("2026-10-01T15:01:00Z");
+  assert(
+    firstAdset.adsetRowsWritten === 1 && repeatedAdset.adsetRowsWritten === 0,
+    `H17c: unchanged promoted object appended a new adset transition: ${JSON.stringify({ firstAdset, repeatedAdset })}`,
+  );
+
   // The triggers that used to make this racy are GONE.
   const triggers = await sql<{ count: string }>`
     SELECT COUNT(*)::text AS count
@@ -1413,7 +1720,7 @@ async function verifyConfigHistoryTransitions(context: {
   );
 
   console.log(
-    `[entity-state-history-seam] H14-H17 PASS config transitions: an incomplete receipt records nothing; counts come from RETURNING so an identical repeat reports 0; 8 concurrent identical observations append 0 rows while 3 concurrent DISTINCT transitions all land; a sequential A->B->A preserves the revert; an out-of-order observation is filed at its own instant; and both racy triggers are gone`,
+    `[entity-state-history-seam] H14-H17 PASS config transitions: an incomplete receipt records nothing; counts come from RETURNING so an identical repeat reports 0; 8 concurrent identical observations append 0 rows while 3 concurrent DISTINCT transitions all land; a sequential A->B->A preserves the revert; an out-of-order observation is filed at its own instant; a same-value legacy row is upgraded by a raw-linked receipt; an unchanged promoted object does not add an adset transition; and both racy triggers are gone`,
   );
 }
 
@@ -1467,10 +1774,10 @@ async function verifyStorageContainment(context: {
     `H18: the bounded pass did not reach the end of the table: ${JSON.stringify(dryRun.lineageCollapse)}`,
   );
 
-  // FORWARD GROWTH. Every config-history row written in the last day must be a
-  // genuine transition. A redundant row is the per-observation append that made
-  // the table 22 GB, and it is the only measurement that says the writer-side
-  // containment actually holds.
+  // FORWARD GROWTH. A new row must either change config or upgrade a legacy
+  // derived value to its first raw-linked provider observation. Repeated
+  // provider receipts still must coalesce; otherwise the old 22 GB growth
+  // pattern has returned.
   for (const measurement of dryRun.configGrowth) {
     assert(
       measurement.redundantLastDay === 0,
@@ -3409,8 +3716,14 @@ ${AD_OPERATOR_SCOPE_CONFIRMATION_LATERAL_SQL}
     const credentials = {
       businessId,
       accountIds: [providerAccountId],
-      currency: "KWD",
-      accountProfiles: { [providerAccountId]: { currency: "KWD" } },
+      // JPY is deliberately non-default: Meta and ISO both say the provider
+      // amount has zero subdivision digits. This proves the round trip keeps
+      // an exponent of 0 rather than losing it through a truthiness check.
+      // KWD used to be the fixture here, but Meta's published currency table
+      // does not list a KWD offset; the production mapper now correctly
+      // refuses to mint an exponent from ISO alone for a provider amount.
+      currency: "JPY",
+      accountProfiles: { [providerAccountId]: { currency: "JPY" } },
     } as never;
     const observedAt = "2026-07-14T09:00:00Z";
     const capturedAt = "2026-07-14T09:00:01Z";
@@ -3470,9 +3783,9 @@ ${AD_OPERATOR_SCOPE_CONFIRMATION_LATERAL_SQL}
       "D16b: raw amounts were not carried verbatim by the mapper.",
     );
     assert(
-      campaignState.budgetCurrencyExponent === 3 &&
+      campaignState.budgetCurrencyExponent === 0 &&
         typeof campaignState.budgetCurrencyRegistryVersion === "string",
-      `D16b: the mapper did not stamp the KWD exponent: ${JSON.stringify(campaignState.budgetCurrencyExponent)}`,
+      `D16b: the mapper did not stamp the JPY exponent: ${JSON.stringify(campaignState.budgetCurrencyExponent)}`,
     );
     assert(
       campaignState.providerApiVersion === meta.META_GRAPH_API_VERSION,
@@ -3528,7 +3841,7 @@ ${AD_OPERATOR_SCOPE_CONFIRMATION_LATERAL_SQL}
     });
     assert(
       storedCampaign?.providerApiVersion === meta.META_GRAPH_API_VERSION &&
-        storedCampaign?.budgetCurrencyExponent === 3 &&
+        storedCampaign?.budgetCurrencyExponent === 0 &&
         storedCampaign?.campaignStartTime !== null &&
         storedCampaign?.campaignEndTime !== null,
       `D16c: the new fields did not survive writer to reader: ${JSON.stringify(storedCampaign)}`,
@@ -3590,7 +3903,7 @@ ${AD_OPERATOR_SCOPE_CONFIRMATION_LATERAL_SQL}
     );
     assert(
       observation!.providerApiVersion === meta.META_GRAPH_API_VERSION &&
-        observation!.budgetCurrencyExponent === 3 &&
+        observation!.budgetCurrencyExponent === 0 &&
         observation!.startTime !== null &&
         observation!.endTime !== null,
       `D16e: the audit mapper lost a persisted field: ${JSON.stringify(observation)}`,
@@ -3975,7 +4288,7 @@ ${AD_OPERATOR_SCOPE_CONFIRMATION_LATERAL_SQL}
     }
 
     console.log(
-      "[entity-state-history-seam] D16 PASS D083 real round trip: raw Graph rows through the ACTUAL production campaign and ad-set mappers derive owner from explicit zero-sentinel semantics, stamp the KWD exponent, registry version, client-known API version and exact coverage bits; the writer persists them; the API version is bound into the state hash; the point-in-time reader and audit mapper return them intact with the campaign parent normalised to null and payload and run hashes kept apart; and the canonical builder resolves the owner and lifetime amount while refusing intent on exactly budget_shape_not_observed.",
+      "[entity-state-history-seam] D16 PASS D083 real round trip: raw Graph rows through the ACTUAL production campaign and ad-set mappers derive owner from explicit zero-sentinel semantics, stamp the provider-corroborated JPY zero exponent, registry version, client-known API version and exact coverage bits; the writer persists them without losing zero through truthiness; the API version is bound into the state hash; the point-in-time reader and audit mapper return them intact with the campaign parent normalised to null and payload and run hashes kept apart; and the canonical builder resolves the owner and lifetime amount while refusing intent on exactly budget_shape_not_observed.",
     );
   }
 

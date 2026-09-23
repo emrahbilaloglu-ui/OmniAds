@@ -23,6 +23,7 @@
  * gate proven in D080B still applies afterwards.
  */
 import { createHash } from "node:crypto";
+import { resolveProviderCorroboratedExponent } from "@/lib/currency/provider-corroborated-minor-units";
 
 import {
   ISO_4217_REGISTRY_SOURCE,
@@ -152,6 +153,11 @@ export const BUDGET_INTENT_EXECUTION_STATES = ["validated_only", "not_validated"
 export type BudgetIntentExecutionState = (typeof BUDGET_INTENT_EXECUTION_STATES)[number];
 
 export const BUDGET_INTENT_REJECTIONS = [
+  /**
+   * ISO names a scale for this currency and the provider contradicts it, or
+   * publishes none at all. See the gate in `validateBudgetIntent`.
+   */
+  "currency_scale_not_provider_corroborated",
   "scope_identity_cross_paired",
   "scope_identity_unknown",
   "grain_unsupported",
@@ -424,11 +430,28 @@ function validateBudgetIntentMap(
   }
 
   // --- currency and units --------------------------------------------------
+  /*
+    The exponent is STAMPED into the intent, hashed into `budgetIntentKey` and
+    carried beside a registry version that names ISO as its source — and the
+    amounts it describes are PROVIDER minor units. Meta's own offset disagrees
+    with ISO for COP, HUF, IDR and TWD (100x) and BHD and JOD (10x), and it
+    publishes none for KWD, OMR, TND, IQD and LYD, so stamping ISO's number for
+    one of those asserts a scale the provider denies.
+
+    A gate, not a substitution: where the two agree the value and the registry
+    version are unchanged, so every existing key re-derives byte-identically.
+    See `lib/meta/bid-intent-contract.ts` for the same gate on the bid side.
+  */
   const exponent = resolveMinorUnitExponent(input.accountCurrency);
   if (exponent.status === "retired_currency") {
     reject("currency_retired", `${exponent.currency}: ${exponent.reason}`);
   } else if (exponent.status !== "resolved") {
     reject("currency_exponent_unknown", `${String(exponent.currency)}: ${exponent.reason}`);
+  } else {
+    const corroborated = resolveProviderCorroboratedExponent(input.accountCurrency);
+    if (corroborated.status !== "resolved") {
+      reject("currency_scale_not_provider_corroborated", corroborated.reason);
+    }
   }
 
   // --- magnitude ----------------------------------------------------------

@@ -7,7 +7,10 @@ import {
 } from "@/lib/creative-decision-engine/ad-operator-response-detection";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { canonicalSha256 } from "@/lib/creative-decision-engine/canonical-evaluation";
-import { AD_DECISION_EVALUATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/evaluation-store";
+import {
+  AD_DECISION_EVALUATION_CONTRACT_VERSION,
+  NATIVE_AD_METRIC_CONTRACT,
+} from "@/lib/creative-decision-engine/evaluation-store";
 import {
   AD_CALIBRATION_JOB_NAME,
   computeNativeAdCalibrationCellSetHash,
@@ -195,6 +198,16 @@ function validFacts(): OperationalFacts {
       campaignId: "campaign-1",
     };
     const priorHysteresisJson = { source: "none" };
+    // The hashed-but-not-creative half of a `.v12` input, as persisted in the
+    // hash-keyed evidence mapping by evaluation-store.ts.
+    const inputEvidenceJson = {
+      configEvidence: {
+        customConversionId: null,
+        currentValueEvidence: { observed: true, lineageSupplied: true },
+        decisionEconomics: { fullyVerified: true, receiptManifest: null },
+      },
+      metricContract: { ...NATIVE_AD_METRIC_CONTRACT },
+    };
     const decisionOutputJson = {
       creativeId: null,
       decisionEntityType: "ad",
@@ -222,6 +235,8 @@ function validFacts(): OperationalFacts {
       creativeInput: creativeInputJson,
       campaignContext: campaignContextJson,
       priorHysteresis: priorHysteresisJson,
+      configEvidence: inputEvidenceJson.configEvidence,
+      metricContract: inputEvidenceJson.metricContract,
       decisionIdentity: {
         decisionEntityType: "ad",
         decisionEntityId: adId,
@@ -260,6 +275,7 @@ function validFacts(): OperationalFacts {
       creativeInputJson,
       campaignContextJson,
       priorHysteresisJson,
+      inputEvidenceJson,
       decisionOutputJson,
       rawLabel: "keep",
       hysteresisSuppressed: false,
@@ -650,6 +666,10 @@ function rebuildCanonicalHashes(facts: OperationalFacts) {
       creativeInput: evaluation.creativeInputJson,
       campaignContext: evaluation.campaignContextJson,
       priorHysteresis: evaluation.priorHysteresisJson,
+      configEvidence: (evaluation.inputEvidenceJson as Record<string, unknown>)
+        .configEvidence,
+      metricContract: (evaluation.inputEvidenceJson as Record<string, unknown>)
+        .metricContract,
       decisionIdentity: {
         decisionEntityType: evaluation.decisionEntityType,
         decisionEntityId: evaluation.decisionEntityId,
@@ -770,6 +790,30 @@ describe("native ad natural-wave operational evaluator", () => {
       cells: 1,
       rowsWritten: 0,
     });
+  });
+
+  /*
+    A `.v12` input hashes configEvidence and metricContract beside the creative
+    input. Before the evidence mapping existed the verifier rebuilt the envelope
+    without them, so every real `.v12` row failed its own hash check while this
+    fixture — hashed the same incomplete way — passed.
+  */
+  it("NEGATIVE: refuses a .v12 evaluation whose persisted input evidence is missing", () => {
+    const facts = clonedFacts();
+    (facts.evaluations[0] as { inputEvidenceJson: unknown }).inputEvidenceJson = null;
+    const report = evaluateOperationalFacts(args, facts);
+    expect(report.result).toBe("fail");
+    expect(report.blockers.length).toBeGreaterThan(0);
+  });
+
+  it("NEGATIVE: refuses a .v12 evaluation whose persisted receipts differ from what was hashed", () => {
+    const facts = clonedFacts();
+    const evidence = facts.evaluations[0]!.inputEvidenceJson as {
+      configEvidence: Record<string, unknown>;
+    };
+    evidence.configEvidence = { ...evidence.configEvidence, customConversionId: "999" };
+    const report = evaluateOperationalFacts(args, facts);
+    expect(report.result).toBe("fail");
   });
 
   it("accepts a current response that evaluates an exact episode captured by an earlier operator job", () => {
@@ -1228,6 +1272,21 @@ describe("native ad natural-wave verifier safety boundary", () => {
         /\b(?:INSERT|UPDATE|DELETE|MERGE|ALTER|CREATE|DROP|TRUNCATE|CALL|COPY)\b/i,
       );
     }
+  });
+
+  it("loads persisted input evidence with the full hash identity", () => {
+    const evaluationSql = OPERATIONAL_SELECT_QUERIES.find((sql) =>
+      sql.includes("FROM engine_v3_ad_decision_evaluations evaluation"),
+    );
+    expect(evaluationSql).toContain(
+      "LEFT JOIN engine_v3_ad_decision_input_evidence input_evidence",
+    );
+    expect(evaluationSql).toContain(
+      "input_evidence.contract_version = evaluation.contract_version",
+    );
+    expect(evaluationSql).toContain(
+      "input_evidence.input_hash = evaluation.input_hash",
+    );
   });
 
   it("parses required release anchors and repeatable exact selectors", () => {

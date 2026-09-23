@@ -390,7 +390,7 @@ test.describe("what the product announces", () => {
      * settings.** The two that announce progress and outcome —
      * `workflow-overlay.tsx`'s `data-workflow-live` and
      * `mutation-ceremony-panel.tsx`'s `data-mutation-live` — sit behind
-     * `META_DECISION_WORKFLOW_UI` and the mutation ceremony, both of which ship
+     * the single Meta live-write capability and the mutation ceremony, both of which ship
      * shut; their politeness and their announcements are held by
      * `workflow-ui.test.tsx` and `mutation-ceremony.test.tsx`. Driving one here
      * would mean opening a gate to prove an announcement, and an announcement

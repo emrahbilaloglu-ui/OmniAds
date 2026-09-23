@@ -56,11 +56,19 @@ describe("held-verdict authority release epoch contract", () => {
     not move, only which fields the envelopes hash.
   */
   it("locks current contracts and the exact immediately previous rollback epoch", () => {
+    /*
+      ADR D097 moved both epochs. The producer's SEMANTICS moved this time:
+      campaign-role uncertainty no longer overwrites a computed
+      Scale/Cut/Refresh with `diagnose`, so a row published under the new epoch
+      can carry a hard label where the old epoch published `diagnose`. Rows
+      written under `...2026-09-07-held-verdict-authority` keep that key and
+      remain readable under it.
+    */
     expect(ENGINE_VERSION).toBe(
-      "v3-2026-09-07-held-verdict-authority",
+      "v3-2026-09-21-role-held-verdict-preservation",
     );
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
-      "v3-ad-2026-09-07-held-verdict-authority-shadow",
+      "v3-ad-2026-09-22-meta-config-economics-shadow",
     );
     /*
       ROUND 9 ITEM 10. These three had drifted a full version behind the
@@ -74,14 +82,20 @@ describe("held-verdict authority release epoch contract", () => {
       Round 9 therefore amends the candidates in place rather than minting a
       further bump for its own changes.
     */
+    /*
+      `.v6`, minted for the config-authority counts the cell manifest now binds.
+      `.v5` is a REAL deployed rung, unlike the `.v4` candidate described above:
+      1,855 rows carry it on the live database, so it stays readable and its
+      formula stays reproducible rather than being amended in place.
+    */
     expect(NATIVE_AD_CALIBRATION_CONTRACT_VERSION).toBe(
-      "engine-v3-native-ad-calibration.v5",
+      "engine-v3-native-ad-calibration.v6",
     );
     expect(CANONICAL_EVALUATION_CONTRACT_VERSION).toBe(
       "engine-v3-canonical-evaluation.v9",
     );
     expect(AD_DECISION_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-ad-evaluation.v11",
+      "engine-v3-canonical-ad-evaluation.v12",
     );
     expect(NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION).toBe(
       "v3-ad-2026-07-15-commercial-stop-loss-shadow",

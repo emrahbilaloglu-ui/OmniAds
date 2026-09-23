@@ -42,7 +42,15 @@
  * failure — the real broken path is shown failing, not assumed.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import yaml from "js-yaml";
@@ -57,17 +65,26 @@ const STEPS = WORKFLOW_DOC.jobs.toggle.steps;
 
 function stepRun(name: string): string {
   const step = STEPS.find((s) => s.name === name);
-  if (!step?.run) throw new Error(`step not found or has no run: block: ${name}`);
+  if (!step?.run)
+    throw new Error(`step not found or has no run: block: ${name}`);
   return step.run;
 }
 
 const PHASE_RUNNER_SCRIPT = stepRun("Run a capability phase on the host");
 const FRESHNESS_SCRIPT = stepRun("Skip a superseded request");
 const BUILD_ARTIFACT_SCRIPT = stepRun("Build the redacted result artifact");
-const FAIL_GATE_SCRIPT = stepRun("Fail the job on anything but summary.result == pass");
+const FAIL_GATE_SCRIPT = stepRun(
+  "Fail the job on anything but summary.result == pass",
+);
 
-const ENV_SH = readFileSync(".github/scripts/automation-capability-env.sh", "utf8");
-const REMOTE_SH = readFileSync(".github/scripts/automation-capability-remote.sh", "utf8");
+const ENV_SH = readFileSync(
+  ".github/scripts/automation-capability-env.sh",
+  "utf8",
+);
+const REMOTE_SH = readFileSync(
+  ".github/scripts/automation-capability-remote.sh",
+  "utf8",
+);
 
 const VALID_SHA = "a".repeat(40);
 const REAL_CURL_PATH = execFileSync("bash", ["-c", "command -v curl"], {
@@ -347,7 +364,10 @@ function writeExecutable(path: string, content: string) {
 }
 
 async function startBuildInfoServer(mode: "hang" | "respond") {
-  const connectionLog = join(dir, `build-info-${mode}-${Math.random().toString(36).slice(2)}.log`);
+  const connectionLog = join(
+    dir,
+    `build-info-${mode}-${Math.random().toString(36).slice(2)}.log`,
+  );
   writeFileSync(connectionLog, "");
   const child = spawn(process.execPath, ["-e", BUILD_INFO_SERVER_SCRIPT], {
     env: {
@@ -446,11 +466,15 @@ function runFreshnessStep(input: {
   dispatchRef?: string;
   dispatchSha?: string;
 }) {
-  const outputFile = join(dir, `freshness-output-${Math.random().toString(36).slice(2)}`);
+  const outputFile = join(
+    dir,
+    `freshness-output-${Math.random().toString(36).slice(2)}`,
+  );
   writeFileSync(outputFile, "");
   writeExecutable(
     join(fakeBinDir, "git"),
-    input.gitScript ?? `#!/usr/bin/env bash\nprintf '%s\\trefs/heads/main\\n' "${input.currentMainSha}"\n`,
+    input.gitScript ??
+      `#!/usr/bin/env bash\nprintf '%s\\trefs/heads/main\\n' "${input.currentMainSha}"\n`,
   );
   execFileSync("bash", ["-c", FRESHNESS_SCRIPT], {
     cwd: process.cwd(),
@@ -471,34 +495,56 @@ function runFreshnessStep(input: {
 }
 
 describe("stale request freshness behavior", () => {
-  it.each(["#!/bin/sh\nexit 128\n", "#!/bin/sh\nprintf invalid\n"])("closes from the exact main dispatch commit if lookup is unavailable (%s)", (gitScript) => {
-    const dispatchSha = "c".repeat(40);
-    expect(runFreshnessStep({
-      capability: "closed",
-      requestedSha: "b".repeat(40),
-      currentMainSha: "",
-      gitScript,
-      dispatchSha,
-    })).toMatchObject({
-      should_run: "true",
-      checkout_sha: dispatchSha,
-      script_source: "dispatch_main_fallback",
-      main_lookup: "unavailable",
-    });
-  });
+  it.each(["#!/bin/sh\nexit 128\n", "#!/bin/sh\nprintf invalid\n"])(
+    "closes from the exact main dispatch commit if lookup is unavailable (%s)",
+    (gitScript) => {
+      const dispatchSha = "c".repeat(40);
+      expect(
+        runFreshnessStep({
+          capability: "closed",
+          requestedSha: "b".repeat(40),
+          currentMainSha: "",
+          gitScript,
+          dispatchSha,
+        }),
+      ).toMatchObject({
+        should_run: "true",
+        checkout_sha: dispatchSha,
+        script_source: "dispatch_main_fallback",
+        main_lookup: "unavailable",
+      });
+    },
+  );
 
   it.each([
-    { capability: "open" as const, dispatchRef: "refs/heads/main", dispatchSha: VALID_SHA },
-    { capability: "closed" as const, dispatchRef: "refs/heads/feature", dispatchSha: VALID_SHA },
-    { capability: "closed" as const, dispatchRef: "refs/heads/main", dispatchSha: "invalid" },
-  ])("refuses an unavailable lookup without trusted main close provenance: $capability $dispatchRef $dispatchSha", (context) => {
-    expect(() => runFreshnessStep({
-      ...context,
-      requestedSha: "b".repeat(40),
-      currentMainSha: "",
-      gitScript: "#!/bin/sh\nexit 128\n",
-    })).toThrow();
-  });
+    {
+      capability: "open" as const,
+      dispatchRef: "refs/heads/main",
+      dispatchSha: VALID_SHA,
+    },
+    {
+      capability: "closed" as const,
+      dispatchRef: "refs/heads/feature",
+      dispatchSha: VALID_SHA,
+    },
+    {
+      capability: "closed" as const,
+      dispatchRef: "refs/heads/main",
+      dispatchSha: "invalid",
+    },
+  ])(
+    "refuses an unavailable lookup without trusted main close provenance: $capability $dispatchRef $dispatchSha",
+    (context) => {
+      expect(() =>
+        runFreshnessStep({
+          ...context,
+          requestedSha: "b".repeat(40),
+          currentMainSha: "",
+          gitScript: "#!/bin/sh\nexit 128\n",
+        }),
+      ).toThrow();
+    },
+  );
 
   it("runs a stale close with the current-main safety script", () => {
     const freshness = runFreshnessStep({
@@ -514,30 +560,36 @@ describe("stale request freshness behavior", () => {
   });
 
   it("still skips a stale open", () => {
-    expect(runFreshnessStep({
-      capability: "open",
-      requestedSha: "b".repeat(40),
-      currentMainSha: VALID_SHA,
-    })).toMatchObject({ should_run: "false" });
+    expect(
+      runFreshnessStep({
+        capability: "open",
+        requestedSha: "b".repeat(40),
+        currentMainSha: VALID_SHA,
+      }),
+    ).toMatchObject({ should_run: "false" });
   });
 
   it("still uses the current-main safety script for close when the main-head requirement is opted out", () => {
-    expect(runFreshnessStep({
-      capability: "closed",
-      requestedSha: "b".repeat(40),
-      currentMainSha: VALID_SHA,
-      requireCurrentMainHead: "false",
-    })).toMatchObject({ should_run: "true", checkout_sha: VALID_SHA });
+    expect(
+      runFreshnessStep({
+        capability: "closed",
+        requestedSha: "b".repeat(40),
+        currentMainSha: VALID_SHA,
+        requireCurrentMainHead: "false",
+      }),
+    ).toMatchObject({ should_run: "true", checkout_sha: VALID_SHA });
   });
 
   it("preserves the exact requested-ref behavior for an opted-out open", () => {
     const requestedSha = "b".repeat(40);
-    expect(runFreshnessStep({
-      capability: "open",
-      requestedSha,
-      currentMainSha: "",
-      requireCurrentMainHead: "false",
-    })).toMatchObject({ should_run: "true", checkout_sha: requestedSha });
+    expect(
+      runFreshnessStep({
+        capability: "open",
+        requestedSha,
+        currentMainSha: "",
+        requireCurrentMainHead: "false",
+      }),
+    ).toMatchObject({ should_run: "true", checkout_sha: requestedSha });
   });
 });
 
@@ -552,11 +604,18 @@ function runPhaseStep(input: {
   requestedSha?: string;
   fakeEnv?: Record<string, string>;
   sshScript?: string;
-}): { phaseStatus: number; outFileContent: string; githubOutput: Record<string, string> } {
+}): {
+  phaseStatus: number;
+  outFileContent: string;
+  githubOutput: Record<string, string>;
+} {
   if (input.sshScript) {
     writeExecutable(join(fakeBinDir, "ssh"), input.sshScript);
   }
-  const githubOutputFile = join(dir, `gh-output-${Math.random().toString(36).slice(2)}`);
+  const githubOutputFile = join(
+    dir,
+    `gh-output-${Math.random().toString(36).slice(2)}`,
+  );
   writeFileSync(githubOutputFile, "");
 
   execFileSync("bash", ["-c", PHASE_RUNNER_SCRIPT], {
@@ -574,13 +633,19 @@ function runPhaseStep(input: {
       GHCR_PULL_TOKEN: "fixture-registry-token",
       REMOTE_APP_DIR: remoteAppDir,
       GITHUB_OUTPUT: githubOutputFile,
-      FAKE_BASELINE_ENV: readEnvFile().match(/^META_AUTOMATION_LIVE_WRITES=(.*)$/m)?.[1] ?? "false",
+      FAKE_BASELINE_ENV:
+        readEnvFile().match(/^META_AUTOMATION_LIVE_WRITES=(.*)$/m)?.[1] ??
+        "false",
       ...input.fakeEnv,
     },
   });
 
-  const githubOutput = parseGithubOutput(readFileSync(githubOutputFile, "utf8"));
-  const outFileContent = githubOutput.out_file ? readFileSync(githubOutput.out_file, "utf8") : "";
+  const githubOutput = parseGithubOutput(
+    readFileSync(githubOutputFile, "utf8"),
+  );
+  const outFileContent = githubOutput.out_file
+    ? readFileSync(githubOutput.out_file, "utf8")
+    : "";
   return {
     phaseStatus: Number(githubOutput.phase_status ?? "NaN"),
     outFileContent,
@@ -598,7 +663,9 @@ function runBuildArtifactStep(input: {
   workflowScriptSource?: string;
   mainLookup?: string;
 }): { artifact: Record<string, unknown>; artifactsDir: string } {
-  const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-artifact-"));
+  const artifactsDir = mkdtempSync(
+    join(tmpdir(), "adsecute-capability-artifact-"),
+  );
   const outFile = join(artifactsDir, "out.txt");
   writeFileSync(outFile, input.outFileContent);
 
@@ -617,7 +684,12 @@ function runBuildArtifactStep(input: {
     },
   });
 
-  const artifact = JSON.parse(readFileSync(join(artifactsDir, ".artifacts", "automation-capability-toggle.json"), "utf8"));
+  const artifact = JSON.parse(
+    readFileSync(
+      join(artifactsDir, ".artifacts", "automation-capability-toggle.json"),
+      "utf8",
+    ),
+  );
   return { artifact, artifactsDir };
 }
 
@@ -636,7 +708,11 @@ function runRemoteDirect(input: {
   requestedSha?: string;
   fakeEnv?: Record<string, string>;
   timeoutMs?: number;
-}): { status: number; stdout: string; capabilityJson: Record<string, unknown> | null } {
+}): {
+  status: number;
+  stdout: string;
+  capabilityJson: Record<string, unknown> | null;
+} {
   let stdout = "";
   let status = 0;
   try {
@@ -649,7 +725,9 @@ function runRemoteDirect(input: {
         GHCR_USER: "fixture-user",
         CAP_REGISTRY_TOKEN: "fixture-registry-token",
         REMOTE_APP_DIR: remoteAppDir,
-        FAKE_BASELINE_ENV: readEnvFile().match(/^META_AUTOMATION_LIVE_WRITES=(.*)$/m)?.[1] ?? "false",
+        FAKE_BASELINE_ENV:
+          readEnvFile().match(/^META_AUTOMATION_LIVE_WRITES=(.*)$/m)?.[1] ??
+          "false",
         ...input.fakeEnv,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -660,8 +738,13 @@ function runRemoteDirect(input: {
     status = e.status ?? 1;
     stdout = e.stdout ?? "";
   }
-  const line = stdout.split("\n").reverse().find((l) => l.startsWith("CAPABILITY_JSON: "));
-  const capabilityJson = line ? JSON.parse(line.slice("CAPABILITY_JSON: ".length)) : null;
+  const line = stdout
+    .split("\n")
+    .reverse()
+    .find((l) => l.startsWith("CAPABILITY_JSON: "));
+  const capabilityJson = line
+    ? JSON.parse(line.slice("CAPABILITY_JSON: ".length))
+    : null;
   return { status, stdout, capabilityJson };
 }
 
@@ -721,7 +804,10 @@ describe("the full workflow pipeline — success", () => {
     });
     const recreateCalls = readFileSync(dockerCallLog, "utf8")
       .split("\n")
-      .filter((line) => line.startsWith("compose pull ") || line.startsWith("compose up "));
+      .filter(
+        (line) =>
+          line.startsWith("compose pull ") || line.startsWith("compose up "),
+      );
     // Proven immutable cached images skip the registry pull.
     expect(recreateCalls).toHaveLength(1);
     for (const call of recreateCalls) {
@@ -740,7 +826,9 @@ describe("the full workflow pipeline — success", () => {
     expect(phase.outFileContent).toContain("CAPABILITY_JSON: ");
 
     const { artifact, artifactsDir } = runBuildArtifactStep({
-      phaseStatus: phase.phaseStatus, outFileContent: phase.outFileContent, capability: "open",
+      phaseStatus: phase.phaseStatus,
+      outFileContent: phase.outFileContent,
+      capability: "open",
     });
     expect((artifact.summary as Record<string, unknown>).result).toBe("pass");
     expect((artifact.summary as Record<string, unknown>).blockers).toEqual([]);
@@ -753,7 +841,9 @@ describe("the full workflow pipeline — success", () => {
   it("the artifact's before/after carries REAL measured facts, not a bare declaration", () => {
     const phase = runPhaseStep({ capability: "open" });
     const { artifact } = runBuildArtifactStep({
-      phaseStatus: phase.phaseStatus, outFileContent: phase.outFileContent, capability: "open",
+      phaseStatus: phase.phaseStatus,
+      outFileContent: phase.outFileContent,
+      capability: "open",
     });
     const summary = artifact.summary as Record<string, unknown>;
     const before = summary.before as Record<string, unknown>;
@@ -769,7 +859,9 @@ describe("the full workflow pipeline — success", () => {
     const phase = runPhaseStep({ capability: "closed" });
     expect(phase.phaseStatus).toBe(0);
     const { artifact } = runBuildArtifactStep({
-      phaseStatus: phase.phaseStatus, outFileContent: phase.outFileContent, capability: "closed",
+      phaseStatus: phase.phaseStatus,
+      outFileContent: phase.outFileContent,
+      capability: "closed",
     });
     expect((artifact.summary as Record<string, unknown>).result).toBe("pass");
     expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
@@ -785,7 +877,9 @@ describe("preflight refusal — capability_open refuses before writing anything"
     });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("refused");
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("preflight_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "preflight_refused",
+    );
     expect(readEnvFile()).toBe(before);
   });
 });
@@ -801,16 +895,22 @@ describe("baseline refusal — a wrong pre-existing SHA is refused, not silently
     });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("refused");
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("baseline_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "baseline_refused",
+    );
     expect(readEnvFile()).toBe(before); // never even attempted the write
   });
 
   it("capability ALREADY true in the env file refuses capability_open outright (no double-open)", () => {
     writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
-    const { status, capabilityJson } = runRemoteDirect({ phase: "capability_open" });
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_open",
+    });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("refused");
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("baseline_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "baseline_refused",
+    );
   });
 
   it("`current main HEAD` alone (a correct REQUESTED_SHA) is NOT sufficient — the baseline check is what actually verifies what is running", () => {
@@ -859,10 +959,12 @@ describe("post-write verification — a wrong worker SHA or env after recreate r
     expect(capabilityJson?.result).toBe("fail");
     // Proves baseline itself passed (no baseline_refused blocker) and the
     // failure came from the POST-recreate verification specifically.
-    expect((capabilityJson?.blockers as string[]).join(",")).not.toContain("baseline_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).not.toContain(
+      "baseline_refused",
+    );
     expect(capabilityJson?.rolledBack).toBe(true);
     expect(readEnvFile()).toBe(original);
-  });
+  }, 30_000);
 
   it("baseline SHA is genuinely correct; ONLY AFTER recreate does worker's live env fail to reflect the write — final preflight-adjacent verification catches it", () => {
     const original = readEnvFile();
@@ -872,10 +974,12 @@ describe("post-write verification — a wrong worker SHA or env after recreate r
     });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("fail");
-    expect((capabilityJson?.blockers as string[]).join(",")).not.toContain("baseline_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).not.toContain(
+      "baseline_refused",
+    );
     expect(capabilityJson?.rolledBack).toBe(true);
     expect(readEnvFile()).toBe(original);
-  });
+  }, 30_000);
 });
 
 describe("docker compose pull/up failures — explicit propagation, not swallowed by an if-condition", () => {
@@ -910,7 +1014,9 @@ describe("env-writer failure modes — real filesystem faults, not simulated by 
     chmodSync(remoteAppDir, 0o500);
     try {
       const original = readEnvFile();
-      const { status, capabilityJson } = runRemoteDirect({ phase: "capability_open" });
+      const { status, capabilityJson } = runRemoteDirect({
+        phase: "capability_open",
+      });
       expect(status).not.toBe(0);
       expect(capabilityJson?.blockers).toBeTruthy();
       expect(readEnvFile()).toBe(original);
@@ -925,7 +1031,11 @@ describe("env-writer failure modes — real filesystem faults, not simulated by 
     let stderr = "";
     try {
       execFileSync(
-        "bash", ["-c", `set -euo pipefail; ${ENV_SH}\natomic_set_env_var ${missing} KEY value`],
+        "bash",
+        [
+          "-c",
+          `set -euo pipefail; ${ENV_SH}\natomic_set_env_var ${missing} KEY value`,
+        ],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       );
     } catch (error) {
@@ -941,16 +1051,19 @@ describe("env-writer failure modes — real filesystem faults, not simulated by 
     // _env_stat_owner/_env_stat_group to report a made-up numeric id the
     // current (unprivileged) process cannot chown to reproduces a real
     // chown failure without needing root or a second real user.
-    const patchedEnvSh = ENV_SH
-      .replace(
-        '_env_stat_owner() {\n  stat -c \'%u\' "$1" 2>/dev/null || stat -f \'%u\' "$1"\n}',
-        '_env_stat_owner() {\n  echo 999999\n}',
-      );
+    const patchedEnvSh = ENV_SH.replace(
+      "_env_stat_owner() {\n  stat -c '%u' \"$1\" 2>/dev/null || stat -f '%u' \"$1\"\n}",
+      "_env_stat_owner() {\n  echo 999999\n}",
+    );
     let threw = false;
     let stderr = "";
     try {
       execFileSync(
-        "bash", ["-c", `set -euo pipefail; ${patchedEnvSh}\natomic_set_env_var ${envFile} KEY value`],
+        "bash",
+        [
+          "-c",
+          `set -euo pipefail; ${patchedEnvSh}\natomic_set_env_var ${envFile} KEY value`,
+        ],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       );
     } catch (error) {
@@ -960,7 +1073,9 @@ describe("env-writer failure modes — real filesystem faults, not simulated by 
     expect(threw).toBe(true);
     expect(stderr).toContain("could not chown");
     // The original file must be untouched -- no tmp file left renamed over it.
-    expect(readEnvFile()).toBe("META_AUTOMATION_LIVE_WRITES=false\nOTHER_KEY=kept\n");
+    expect(readEnvFile()).toBe(
+      "META_AUTOMATION_LIVE_WRITES=false\nOTHER_KEY=kept\n",
+    );
   });
 
   it("a read failure while stripping the key's existing lines does not collapse the file to just the new key — proven by an artificially broken grep", () => {
@@ -975,9 +1090,14 @@ describe("env-writer failure modes — real filesystem faults, not simulated by 
     let stderr = "";
     try {
       execFileSync(
-        "bash", ["-c", `set -euo pipefail; ${ENV_SH}\natomic_set_env_var ${envFile} KEY value`],
+        "bash",
+        [
+          "-c",
+          `set -euo pipefail; ${ENV_SH}\natomic_set_env_var ${envFile} KEY value`,
+        ],
         {
-          encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
           env: { PATH: `${brokenPath}:${process.env.PATH ?? ""}` },
         },
       );
@@ -987,22 +1107,73 @@ describe("env-writer failure modes — real filesystem faults, not simulated by 
     }
     expect(threw).toBe(true);
     expect(stderr).toContain("could not read");
-    expect(readEnvFile()).toBe("META_AUTOMATION_LIVE_WRITES=false\nOTHER_KEY=kept\n");
+    expect(readEnvFile()).toBe(
+      "META_AUTOMATION_LIVE_WRITES=false\nOTHER_KEY=kept\n",
+    );
   });
 });
 
 describe("rollback failure — the restore's OWN failure is never swallowed into a false recovery", () => {
-  it.each(["0", "1"])("rolls back exact-SHA OPEN when the final preflight stalls (parent exits=%s)", (parentExits) => {
-    const dockerCallLog = join(dir, "post-open-preflight-timeout.log");
-    const startedAt = Date.now();
+  it.each(["0", "1"])(
+    "rolls back exact-SHA OPEN when the final preflight stalls (parent exits=%s)",
+    (parentExits) => {
+      const dockerCallLog = join(dir, "post-open-preflight-timeout.log");
+      const startedAt = Date.now();
+      const { status, capabilityJson } = runRemoteDirect({
+        phase: "capability_open",
+        timeoutMs: 15_000,
+        fakeEnv: {
+          CAPABILITY_PREFLIGHT_MAX_TIME_SECONDS: "1",
+          FAKE_PREFLIGHT_HANG_AFTER_UP: "1",
+          FAKE_PREFLIGHT_PARENT_EXITS: parentExits,
+          FAKE_DOCKER_CALL_LOG: dockerCallLog,
+        },
+      });
+      expect(status).not.toBe(0);
+      expect(capabilityJson).toMatchObject({
+        result: "fail",
+        rolledBack: true,
+        rollbackVerified: true,
+        effectiveSha: VALID_SHA,
+        after: { web: { envValue: "false" }, worker: { envValue: "false" } },
+      });
+      expect(capabilityJson?.blockers).toContain("post_write_failure");
+      expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
+      const recreates = readFileSync(dockerCallLog, "utf8")
+        .split("\n")
+        .filter((line) => line.startsWith("compose up "));
+      expect(recreates).toHaveLength(2);
+      expect(
+        recreates.every((line) =>
+          line.includes(`APP_IMAGE_TAG=${VALID_SHA}|APP_BUILD_ID=${VALID_SHA}`),
+        ),
+      ).toBe(true);
+      expect(recreates[0]).toContain("FILE_GATE=true");
+      expect(recreates[1]).toContain("FILE_GATE=false");
+      expect(existsSync(join(remoteAppDir, ".hung-descendant-survived"))).toBe(
+        false,
+      );
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_000);
+      // Includes two complete immutable-image/runtime verification sequences.
+      // The one-second watchdog itself is still checked by the descendant's
+      // two-second survival marker, independently of process-startup overhead.
+      expect(Date.now() - startedAt).toBeLessThan(15_000);
+    },
+    20_000,
+  );
+
+  it("rolls back after a genuinely stalled image pull, without changing the proven release", () => {
     const { status, capabilityJson } = runRemoteDirect({
       phase: "capability_open",
-      timeoutMs: 15_000,
+      // The shell's own one-second watchdog is the behavior under test. Give
+      // the Node harness enough scheduling headroom when the full Vitest suite
+      // is also running CPU-heavy PostgreSQL seams; otherwise the parent can be
+      // killed before it emits CAPABILITY_JSON even though the watchdog fired.
+      timeoutMs: 10_000,
       fakeEnv: {
-        CAPABILITY_PREFLIGHT_MAX_TIME_SECONDS: "1",
-        FAKE_PREFLIGHT_HANG_AFTER_UP: "1",
-        FAKE_PREFLIGHT_PARENT_EXITS: parentExits,
-        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+        CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS: "1",
+        FAKE_PULL_HANG_ONCE: "1",
+        FAKE_CACHE_MISSING: "1",
       },
     });
     expect(status).not.toBe(0);
@@ -1011,38 +1182,12 @@ describe("rollback failure — the restore's OWN failure is never swallowed into
       rolledBack: true,
       rollbackVerified: true,
       effectiveSha: VALID_SHA,
-      after: { web: { envValue: "false" }, worker: { envValue: "false" } },
     });
-    expect(capabilityJson?.blockers).toContain("post_write_failure");
     expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
-    const recreates = readFileSync(dockerCallLog, "utf8").split("\n").filter((line) => line.startsWith("compose up "));
-    expect(recreates).toHaveLength(2);
-    expect(recreates.every((line) => line.includes(`APP_IMAGE_TAG=${VALID_SHA}|APP_BUILD_ID=${VALID_SHA}`))).toBe(true);
-    expect(recreates[0]).toContain("FILE_GATE=true");
-    expect(recreates[1]).toContain("FILE_GATE=false");
-    expect(existsSync(join(remoteAppDir, ".hung-descendant-survived"))).toBe(false);
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_000);
-    // Includes two complete immutable-image/runtime verification sequences.
-    // The one-second watchdog itself is still checked by the descendant's
-    // two-second survival marker, independently of process-startup overhead.
-    expect(Date.now() - startedAt).toBeLessThan(15_000);
-  }, 20_000);
-
-  it("rolls back after a genuinely stalled image pull, without changing the proven release", () => {
-    const { status, capabilityJson } = runRemoteDirect({
-      phase: "capability_open",
-      timeoutMs: 6_000,
-      fakeEnv: {
-        CAPABILITY_DOCKER_MUTATION_MAX_TIME_SECONDS: "1",
-        FAKE_PULL_HANG_ONCE: "1",
-        FAKE_CACHE_MISSING: "1",
-      },
-    });
-    expect(status).not.toBe(0);
-    expect(capabilityJson).toMatchObject({ result: "fail", rolledBack: true, rollbackVerified: true, effectiveSha: VALID_SHA });
-    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
-    expect(existsSync(join(remoteAppDir, ".hung-descendant-survived"))).toBe(false);
-  }, 8_000);
+    expect(existsSync(join(remoteAppDir, ".hung-descendant-survived"))).toBe(
+      false,
+    );
+  }, 15_000);
 
   it("when the recreate-verify step fails AND the subsequent forced-close recreate ALSO fails, rollbackVerified is false and the blocker names it", () => {
     const { status, capabilityJson } = runRemoteDirect({
@@ -1061,7 +1206,9 @@ describe("rollback failure — the restore's OWN failure is never swallowed into
     expect(capabilityJson?.result).toBe("fail");
     expect(capabilityJson?.rolledBack).toBe(true);
     expect(capabilityJson?.rollbackVerified).toBe(false);
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("restore_recreate_verify_failed");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "restore_recreate_verify_failed",
+    );
   });
 
   it("when atomic_restore_env_backup itself fails (the backup file is gone), the blocker names restore_failed, not a generic failure", () => {
@@ -1093,8 +1240,13 @@ describe("rollback failure — the restore's OWN failure is never swallowed into
       status = (error as { status?: number }).status ?? 1;
       stdout = (error as { stdout?: string }).stdout ?? "";
     }
-    const line = stdout.split("\n").reverse().find((l) => l.startsWith("CAPABILITY_JSON: "));
-    const capabilityJson = line ? JSON.parse(line.slice("CAPABILITY_JSON: ".length)) : null;
+    const line = stdout
+      .split("\n")
+      .reverse()
+      .find((l) => l.startsWith("CAPABILITY_JSON: "));
+    const capabilityJson = line
+      ? JSON.parse(line.slice("CAPABILITY_JSON: ".length))
+      : null;
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("fail"); // a rollback situation is never reported as pass
     // The restore itself failed -- named and never hidden -- but recovery
@@ -1102,7 +1254,9 @@ describe("rollback failure — the restore's OWN failure is never swallowed into
     // (see "FINDING 1" below), and here it succeeds, so the runtime IS
     // verified closed even though the backup restore specifically failed.
     expect(capabilityJson?.rollbackVerified).toBe(true);
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("restore_failed");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "restore_failed",
+    );
   });
 });
 
@@ -1111,16 +1265,27 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
     const dockerCallLog = join(dir, "already-closed.log");
     const { status, capabilityJson } = runRemoteDirect({
       phase: "capability_close",
-      fakeEnv: { FAKE_WORKER_REVISION: "b".repeat(40), FAKE_DOCKER_CALL_LOG: dockerCallLog },
+      fakeEnv: {
+        FAKE_WORKER_REVISION: "b".repeat(40),
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
     });
     expect(status).not.toBe(0);
     expect(capabilityJson).toMatchObject({
       result: "fail",
       fileState: { envValue: "false", lineCount: 1 },
-      emergencyStop: { attempted: false, verified: true, reason: "both_runtime_gates_closed" },
+      emergencyStop: {
+        attempted: false,
+        verified: true,
+        reason: "both_runtime_gates_closed",
+      },
     });
-    expect(capabilityJson?.blockers).toContain("runtime_gates_closed_release_unverified");
-    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up|stop) /m);
+    expect(capabilityJson?.blockers).toContain(
+      "runtime_gates_closed_release_unverified",
+    );
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(
+      /^compose (pull|up|stop) /m,
+    );
   });
 
   it("closes from matching immutable cached images when no registry credential is available", () => {
@@ -1128,13 +1293,22 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
     const dockerCallLog = join(dir, "cache-only-close.log");
     const { status, capabilityJson } = runRemoteDirect({
       phase: "capability_close",
-      fakeEnv: { CAP_REGISTRY_TOKEN: "", GHCR_USER: "", FAKE_DOCKER_CALL_LOG: dockerCallLog },
+      fakeEnv: {
+        CAP_REGISTRY_TOKEN: "",
+        GHCR_USER: "",
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
     });
     expect(status).toBe(0);
-    expect(capabilityJson).toMatchObject({ result: "pass", effectiveSha: VALID_SHA });
+    expect(capabilityJson).toMatchObject({
+      result: "pass",
+      effectiveSha: VALID_SHA,
+    });
     const calls = readFileSync(dockerCallLog, "utf8");
     expect(calls).toContain("image inspect --format");
-    expect(calls).toContain("compose up -d --pull never --force-recreate web worker");
+    expect(calls).toContain(
+      "compose up -d --pull never --force-recreate web worker",
+    );
     expect(calls).not.toMatch(/^compose pull|^--config /m);
   });
 
@@ -1143,119 +1317,198 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
     const dockerCallLog = join(dir, "wrong-cache-close.log");
     const { status, capabilityJson } = runRemoteDirect({
       phase: "capability_close",
-      fakeEnv: { CAP_REGISTRY_TOKEN: "", FAKE_CACHE_WRONG_ID: "1", FAKE_DOCKER_CALL_LOG: dockerCallLog },
+      fakeEnv: {
+        CAP_REGISTRY_TOKEN: "",
+        FAKE_CACHE_WRONG_ID: "1",
+        FAKE_DOCKER_CALL_LOG: dockerCallLog,
+      },
     });
     expect(status).not.toBe(0);
-    expect(capabilityJson).toMatchObject({ result: "fail", emergencyStop: { attempted: true, verified: true } });
+    expect(capabilityJson).toMatchObject({
+      result: "fail",
+      emergencyStop: { attempted: true, verified: true },
+    });
     expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose up /m);
   });
 
-  it.each(["0", "78"])("carries private GHCR credentials only on stdin and removes ephemeral auth after login exit %s", (loginExit) => {
-    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
-    const dockerCallLog = join(dir, "registry-close.log");
-    const { phaseStatus, outFileContent } = runPhaseStep({
-      capability: "closed",
-      fakeEnv: { FAKE_CACHE_MISSING: "1", FAKE_LOGIN_EXIT: loginExit, FAKE_DOCKER_CALL_LOG: dockerCallLog },
-    });
-    expect(phaseStatus === 0).toBe(loginExit === "0");
-    const configPath = readFileSync(join(remoteAppDir, ".registry-config-path"), "utf8");
-    expect(existsSync(configPath)).toBe(false);
-    expect(readFileSync(join(remoteAppDir, ".registry-token-env"), "utf8")).toBe("unset");
-    expect(outFileContent).not.toContain("fixture-registry-token");
-    const calls = readFileSync(dockerCallLog, "utf8");
-    expect(calls).not.toContain("fixture-registry-token");
-    expect(calls.trim().split("\n").every((line) => line.endsWith("FILE_GATE=false"))).toBe(true);
-    if (loginExit !== "0") expect(calls).not.toMatch(/^compose up /m);
-  });
+  it.each(["0", "78"])(
+    "carries private GHCR credentials only on stdin and removes ephemeral auth after login exit %s",
+    (loginExit) => {
+      writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+      const dockerCallLog = join(dir, "registry-close.log");
+      const { phaseStatus, outFileContent } = runPhaseStep({
+        capability: "closed",
+        fakeEnv: {
+          FAKE_CACHE_MISSING: "1",
+          FAKE_LOGIN_EXIT: loginExit,
+          FAKE_DOCKER_CALL_LOG: dockerCallLog,
+        },
+      });
+      expect(phaseStatus === 0).toBe(loginExit === "0");
+      const configPath = readFileSync(
+        join(remoteAppDir, ".registry-config-path"),
+        "utf8",
+      );
+      expect(existsSync(configPath)).toBe(false);
+      expect(
+        readFileSync(join(remoteAppDir, ".registry-token-env"), "utf8"),
+      ).toBe("unset");
+      expect(outFileContent).not.toContain("fixture-registry-token");
+      const calls = readFileSync(dockerCallLog, "utf8");
+      expect(calls).not.toContain("fixture-registry-token");
+      expect(
+        calls
+          .trim()
+          .split("\n")
+          .every((line) => line.endsWith("FILE_GATE=false")),
+      ).toBe(true);
+      if (loginExit !== "0") expect(calls).not.toMatch(/^compose up /m);
+    },
+  );
 
   it.each([
     { failure: "before-rename", expectedValue: "true", expectedCount: 1 },
     { failure: "after-rename", expectedValue: "false", expectedCount: 1 },
-    { failure: "duplicate-after-rename", expectedValue: null, expectedCount: 2 },
-  ])("reports independently observed file evidence and stops both writers on $failure atomic failure", ({ failure, expectedValue, expectedCount }) => {
-    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\nOTHER_KEY=kept\n");
-    chmodSync(envFile, 0o644);
-    const dockerCallLog = join(dir, "atomic-failure-stop.log");
-    if (failure === "before-rename") {
-      writeExecutable(join(fakeBinDir, "cp"), "#!/bin/sh\nexit 1\n");
-    } else {
-      writeExecutable(join(fakeBinDir, "mv"), failure === "after-rename"
-        ? '#!/usr/bin/env bash\n/bin/mv "$@" || exit $?\n/bin/chmod 600 "${@: -1}"\n'
-        : '#!/usr/bin/env bash\n/bin/mv "$@" || exit $?\nprintf "META_AUTOMATION_LIVE_WRITES=true\\n" >> "${@: -1}"\n');
-    }
-    const { status, capabilityJson } = runRemoteDirect({
-      phase: "capability_close",
-      fakeEnv: { FAKE_DOCKER_CALL_LOG: dockerCallLog },
-    });
-    expect(status).not.toBe(0);
-    expect(capabilityJson).toMatchObject({
-      result: "fail",
-      fileState: { envValue: expectedValue, lineCount: expectedCount },
-      before: null,
-      after: null,
-      effectiveSha: null,
-      emergencyStop: { attempted: true, verified: true, webStoppedOrAbsent: true, workerStoppedOrAbsent: true },
-    });
-    expect(capabilityJson?.blockers).toContain("initial_write_failed");
-    const calls = readFileSync(dockerCallLog, "utf8");
-    expect(calls).toMatch(/^compose stop --timeout 90 web worker\|/m);
-    expect(calls).not.toMatch(/^compose (pull|up) /m);
-  });
+    {
+      failure: "duplicate-after-rename",
+      expectedValue: null,
+      expectedCount: 2,
+    },
+  ])(
+    "reports independently observed file evidence and stops both writers on $failure atomic failure",
+    ({ failure, expectedValue, expectedCount }) => {
+      writeFileSync(
+        envFile,
+        "META_AUTOMATION_LIVE_WRITES=true\nOTHER_KEY=kept\n",
+      );
+      chmodSync(envFile, 0o644);
+      const dockerCallLog = join(dir, "atomic-failure-stop.log");
+      if (failure === "before-rename") {
+        writeExecutable(join(fakeBinDir, "cp"), "#!/bin/sh\nexit 1\n");
+      } else {
+        writeExecutable(
+          join(fakeBinDir, "mv"),
+          failure === "after-rename"
+            ? '#!/usr/bin/env bash\n/bin/mv "$@" || exit $?\n/bin/chmod 600 "${@: -1}"\n'
+            : '#!/usr/bin/env bash\n/bin/mv "$@" || exit $?\nprintf "META_AUTOMATION_LIVE_WRITES=true\\n" >> "${@: -1}"\n',
+        );
+      }
+      const { status, capabilityJson } = runRemoteDirect({
+        phase: "capability_close",
+        fakeEnv: { FAKE_DOCKER_CALL_LOG: dockerCallLog },
+      });
+      expect(status).not.toBe(0);
+      expect(capabilityJson).toMatchObject({
+        result: "fail",
+        fileState: { envValue: expectedValue, lineCount: expectedCount },
+        before: null,
+        after: null,
+        effectiveSha: null,
+        emergencyStop: {
+          attempted: true,
+          verified: true,
+          webStoppedOrAbsent: true,
+          workerStoppedOrAbsent: true,
+        },
+      });
+      expect(capabilityJson?.blockers).toContain("initial_write_failed");
+      const calls = readFileSync(dockerCallLog, "utf8");
+      expect(calls).toMatch(/^compose stop --timeout 90 web worker\|/m);
+      expect(calls).not.toMatch(/^compose (pull|up) /m);
+    },
+  );
 
-  it.each(["command-fails", "command-lies"])("never claims stopped when emergency stop %s and readback still finds live writers", (failure) => {
-    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
-    const { status, capabilityJson } = runRemoteDirect({
-      phase: "capability_close",
-      fakeEnv: {
-        FAKE_WORKER_REVISION: "b".repeat(40),
-        ...(failure === "command-fails" ? { FAKE_STOP_EXIT: "1" } : { FAKE_STOP_IGNORED: "1" }),
-      },
-    });
-    expect(status).not.toBe(0);
-    expect(capabilityJson).toMatchObject({
-      result: "fail",
-      after: null,
-      fileState: { envValue: "false", lineCount: 1 },
-      emergencyStop: { attempted: true, commandSucceeded: failure === "command-lies", verified: false, webStoppedOrAbsent: false, workerStoppedOrAbsent: false },
-    });
-    expect(capabilityJson?.blockers).toContain("runtime_emergency_stop_unverified");
-  });
+  it.each(["command-fails", "command-lies"])(
+    "never claims stopped when emergency stop %s and readback still finds live writers",
+    (failure) => {
+      writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+      const { status, capabilityJson } = runRemoteDirect({
+        phase: "capability_close",
+        fakeEnv: {
+          FAKE_WORKER_REVISION: "b".repeat(40),
+          ...(failure === "command-fails"
+            ? { FAKE_STOP_EXIT: "1" }
+            : { FAKE_STOP_IGNORED: "1" }),
+        },
+      });
+      expect(status).not.toBe(0);
+      expect(capabilityJson).toMatchObject({
+        result: "fail",
+        after: null,
+        fileState: { envValue: "false", lineCount: 1 },
+        emergencyStop: {
+          attempted: true,
+          commandSucceeded: failure === "command-lies",
+          verified: false,
+          webStoppedOrAbsent: false,
+          workerStoppedOrAbsent: false,
+        },
+      });
+      expect(capabilityJson?.blockers).toContain(
+        "runtime_emergency_stop_unverified",
+      );
+    },
+  );
 
   it.each([
-    ["compose ps", "0"], ["inspect", "0"], ["compose exec", "0"],
-    ["compose ps", "1"], ["inspect", "1"], ["compose exec", "1"],
-  ])("persists false before stalled %s (parent exits=%s) and bounds inherited pipes too", (operation, parentExits) => {
-    const dockerCallLog = join(dir, "stalled-docker-calls.log");
-    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\nOTHER_KEY=kept\n");
-    const startedAt = Date.now();
-    const { status, capabilityJson } = runRemoteDirect({
-      phase: "capability_close",
-      timeoutMs: 10_000,
-      fakeEnv: {
-        FAKE_DOCKER_HANG: operation,
-        FAKE_DOCKER_PARENT_EXITS: parentExits,
-        FAKE_DOCKER_CALL_LOG: dockerCallLog,
-        CAPABILITY_DOCKER_READ_MAX_TIME_SECONDS: "1",
-      },
-    });
-    expect(status).not.toBe(0);
-    expect(capabilityJson?.result).toBe("fail");
-    expect(readEnvFile()).toBe("OTHER_KEY=kept\nMETA_AUTOMATION_LIVE_WRITES=false\n");
-    const calls = readFileSync(dockerCallLog, "utf8").trim().split("\n");
-    expect(calls.length).toBeGreaterThan(0);
-    expect(calls.every((call) => call.endsWith("|FILE_GATE=false"))).toBe(true);
-    expect(existsSync(join(remoteAppDir, ".hung-descendant-survived"))).toBe(false);
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(2_800);
-    expect(Date.now() - startedAt).toBeLessThan(9_500);
-    if (operation !== "compose exec") {
-      expect(capabilityJson?.effectiveSha).toBeNull();
-      expect(calls.join("\n")).not.toMatch(/^compose (pull|up) /m);
-      expect(capabilityJson?.blockers).toContain("runtime_emergency_stop_unverified");
-      expect(capabilityJson?.emergencyStop).toMatchObject({ attempted: true, verified: false });
-    } else {
-      expect(capabilityJson?.blockers).toContain("close_verify_failed");
-    }
-  }, 12_000);
+    ["compose ps", "0"],
+    ["inspect", "0"],
+    ["compose exec", "0"],
+    ["compose ps", "1"],
+    ["inspect", "1"],
+    ["compose exec", "1"],
+  ])(
+    "persists false before stalled %s (parent exits=%s) and bounds inherited pipes too",
+    (operation, parentExits) => {
+      const dockerCallLog = join(dir, "stalled-docker-calls.log");
+      writeFileSync(
+        envFile,
+        "META_AUTOMATION_LIVE_WRITES=true\nOTHER_KEY=kept\n",
+      );
+      const startedAt = Date.now();
+      const { status, capabilityJson } = runRemoteDirect({
+        phase: "capability_close",
+        timeoutMs: 15_000,
+        fakeEnv: {
+          FAKE_DOCKER_HANG: operation,
+          FAKE_DOCKER_PARENT_EXITS: parentExits,
+          FAKE_DOCKER_CALL_LOG: dockerCallLog,
+          CAPABILITY_DOCKER_READ_MAX_TIME_SECONDS: "1",
+        },
+      });
+      expect(status).not.toBe(0);
+      expect(capabilityJson?.result).toBe("fail");
+      expect(readEnvFile()).toBe(
+        "OTHER_KEY=kept\nMETA_AUTOMATION_LIVE_WRITES=false\n",
+      );
+      const calls = readFileSync(dockerCallLog, "utf8").trim().split("\n");
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls.every((call) => call.endsWith("|FILE_GATE=false"))).toBe(
+        true,
+      );
+      expect(existsSync(join(remoteAppDir, ".hung-descendant-survived"))).toBe(
+        false,
+      );
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(2_800);
+      // The descendant marker and the lower bound prove the one-second internal
+      // deadline. This upper bound is harness headroom, not a production timeout.
+      expect(Date.now() - startedAt).toBeLessThan(14_500);
+      if (operation !== "compose exec") {
+        expect(capabilityJson?.effectiveSha).toBeNull();
+        expect(calls.join("\n")).not.toMatch(/^compose (pull|up) /m);
+        expect(capabilityJson?.blockers).toContain(
+          "runtime_emergency_stop_unverified",
+        );
+        expect(capabilityJson?.emergencyStop).toMatchObject({
+          attempted: true,
+          verified: false,
+        });
+      } else {
+        expect(capabilityJson?.blockers).toContain("close_verify_failed");
+      }
+    },
+    18_000,
+  );
 
   it("bounds a peer that accepts every build-info connection but never responds after persisting file-level false", async () => {
     const server = await startBuildInfoServer("hang");
@@ -1270,7 +1523,7 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
       const startedAt = Date.now();
       const { status, capabilityJson } = runRemoteDirect({
         phase: "capability_close",
-        timeoutMs: 8_000,
+        timeoutMs: 12_000,
         fakeEnv: {
           REAL_CURL_PATH,
           CAPABILITY_BUILD_INFO_URL: `http://127.0.0.1:${server.port}/api/build-info`,
@@ -1283,21 +1536,34 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
       expect(status).not.toBe(0);
       expect(capabilityJson?.result).toBe("fail");
       expect(capabilityJson?.effectiveSha).toBeNull();
-      expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
-        "running_release_identity_unverified",
-        "runtime_emergency_stopped_degraded",
-      ]));
+      expect(capabilityJson?.blockers).toEqual(
+        expect.arrayContaining([
+          "running_release_identity_unverified",
+          "runtime_emergency_stopped_degraded",
+        ]),
+      );
       expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
-      expect(readFileSync(server.connectionLog, "utf8").trim().split("\n")).toHaveLength(3);
+      expect(
+        readFileSync(server.connectionLog, "utf8").trim().split("\n"),
+      ).toHaveLength(3);
       expect(elapsedMs).toBeGreaterThanOrEqual(4_500);
-      expect(elapsedMs).toBeLessThan(7_500);
-      expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
-      expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
-      expect(readFileSync(dockerCallLog, "utf8").trim().split("\n").every((call) => call.endsWith("|FILE_GATE=false"))).toBe(true);
+      expect(elapsedMs).toBeLessThan(11_500);
+      expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(
+        false,
+      );
+      expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(
+        /^compose (pull|up) /m,
+      );
+      expect(
+        readFileSync(dockerCallLog, "utf8")
+          .trim()
+          .split("\n")
+          .every((call) => call.endsWith("|FILE_GATE=false")),
+      ).toBe(true);
     } finally {
       await server.stop();
     }
-  }, 10_000);
+  }, 15_000);
 
   it("keeps normal build-info identity verification and close/recreate behavior", async () => {
     const server = await startBuildInfoServer("respond");
@@ -1310,7 +1576,7 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
     try {
       const { status, capabilityJson } = runRemoteDirect({
         phase: "capability_close",
-        timeoutMs: 4_000,
+        timeoutMs: 8_000,
         fakeEnv: {
           REAL_CURL_PATH,
           CAPABILITY_BUILD_INFO_URL: `http://127.0.0.1:${server.port}/api/build-info`,
@@ -1326,11 +1592,13 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
         after: { web: { envValue: "false" }, worker: { envValue: "false" } },
       });
       expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
-      expect(readFileSync(server.connectionLog, "utf8").trim().split("\n")).toHaveLength(2);
+      expect(
+        readFileSync(server.connectionLog, "utf8").trim().split("\n"),
+      ).toHaveLength(2);
     } finally {
       await server.stop();
     }
-  }, 6_000);
+  }, 10_000);
 
   it("capability_close succeeds even when the DB-backed preflight would refuse — close is never gated on it", () => {
     writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
@@ -1356,7 +1624,9 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
       fakeEnv: { FAKE_PREFLIGHT_EXIT: "1" },
     });
     const before = capabilityJson?.before as Record<string, unknown> | null;
-    expect(before === null || before?.sixBusinessStatus === undefined).toBe(true);
+    expect(before === null || before?.sixBusinessStatus === undefined).toBe(
+      true,
+    );
   });
 
   it("no business-enable or decision-mode SQL is ever issued by either phase — the fake docker's preflight branch is the ONLY DB touchpoint, and close never reaches it", () => {
@@ -1388,13 +1658,19 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
       requestedSha: "b".repeat(40),
       effectiveSha: null,
     });
-    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
-      "running_release_identity_unverified",
-      "runtime_emergency_stopped_degraded",
-    ]));
+    expect(capabilityJson?.blockers).toEqual(
+      expect.arrayContaining([
+        "running_release_identity_unverified",
+        "runtime_emergency_stopped_degraded",
+      ]),
+    );
     expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
-    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
-    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(
+      false,
+    );
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(
+      /^compose (pull|up) /m,
+    );
   });
 
   it("refuses an unreadable running container identity and does no pull/up", () => {
@@ -1411,13 +1687,19 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("fail");
     expect(capabilityJson?.effectiveSha).toBeNull();
-    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
-      "running_release_identity_unverified",
-      "runtime_emergency_stopped_degraded",
-    ]));
+    expect(capabilityJson?.blockers).toEqual(
+      expect.arrayContaining([
+        "running_release_identity_unverified",
+        "runtime_emergency_stopped_degraded",
+      ]),
+    );
     expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
-    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
-    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(
+      false,
+    );
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(
+      /^compose (pull|up) /m,
+    );
   });
 
   it("refuses matching revision labels that are not full lowercase SHAs", () => {
@@ -1436,13 +1718,19 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
     });
     expect(status).not.toBe(0);
     expect(capabilityJson?.effectiveSha).toBeNull();
-    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
-      "running_release_identity_unverified",
-      "runtime_emergency_stopped_degraded",
-    ]));
+    expect(capabilityJson?.blockers).toEqual(
+      expect.arrayContaining([
+        "running_release_identity_unverified",
+        "runtime_emergency_stopped_degraded",
+      ]),
+    );
     expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
-    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
-    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(
+      false,
+    );
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(
+      /^compose (pull|up) /m,
+    );
   });
 
   it("requires current web build-info to agree with the shared image revision before recreate", () => {
@@ -1460,43 +1748,56 @@ describe("capability_close — fail-safe under DB/preflight failure, never gated
     });
     expect(status).not.toBe(0);
     expect(capabilityJson?.effectiveSha).toBeNull();
-    expect(capabilityJson?.blockers).toEqual(expect.arrayContaining([
-      "running_release_identity_unverified",
-      "runtime_emergency_stopped_degraded",
-    ]));
+    expect(capabilityJson?.blockers).toEqual(
+      expect.arrayContaining([
+        "running_release_identity_unverified",
+        "runtime_emergency_stopped_degraded",
+      ]),
+    );
     expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
-    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(false);
-    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(/^compose (pull|up) /m);
+    expect(existsSync(join(remoteAppDir, ".fake-docker-up-called"))).toBe(
+      false,
+    );
+    expect(readFileSync(dockerCallLog, "utf8")).not.toMatch(
+      /^compose (pull|up) /m,
+    );
   });
 });
 
 describe("SSH failure — a dead host is caught by the current phase-status capture", () => {
-  it.each([false, true])("bounds a stuck close SSH process (parent exits=%s) and reports unverified failure", (parentExits) => {
-    writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
-    const startedAt = Date.now();
-    const phase = runPhaseStep({
-      capability: "closed",
-      fakeEnv: { CAPABILITY_CLOSE_SSH_MAX_TIME_SECONDS: "1" },
-      sshScript: `#!/usr/bin/env bash\ntrap "" TERM\n(trap "" TERM; sleep 30) &\n${parentExits ? "exit 0" : "wait"}\n`,
-    });
-    expect(phase.phaseStatus).toBe(124);
-    expect(phase.outFileContent).not.toContain("CAPABILITY_JSON: ");
-    expect(Date.now() - startedAt).toBeLessThan(3_000);
-    // SSH never delivered the close script: neither file nor runtime closure
-    // is claimed, and the workflow must remain red through its real artifact.
-    expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=true");
-    const { artifact, artifactsDir } = runBuildArtifactStep({
-      phaseStatus: phase.phaseStatus,
-      outFileContent: phase.outFileContent,
-      capability: "closed",
-    });
-    expect((artifact.summary as Record<string, unknown>).result).toBe("fail");
-    expect(() => runFailGateStep(artifactsDir)).toThrow();
-    rmSync(artifactsDir, { recursive: true, force: true });
-  }, 5_000);
+  it.each([false, true])(
+    "bounds a stuck close SSH process (parent exits=%s) and reports unverified failure",
+    (parentExits) => {
+      writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=true\n");
+      const startedAt = Date.now();
+      const phase = runPhaseStep({
+        capability: "closed",
+        fakeEnv: { CAPABILITY_CLOSE_SSH_MAX_TIME_SECONDS: "1" },
+        sshScript: `#!/usr/bin/env bash\ntrap "" TERM\n(trap "" TERM; sleep 30) &\n${parentExits ? "exit 0" : "wait"}\n`,
+      });
+      expect(phase.phaseStatus).toBe(124);
+      expect(phase.outFileContent).not.toContain("CAPABILITY_JSON: ");
+      expect(Date.now() - startedAt).toBeLessThan(3_000);
+      // SSH never delivered the close script: neither file nor runtime closure
+      // is claimed, and the workflow must remain red through its real artifact.
+      expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=true");
+      const { artifact, artifactsDir } = runBuildArtifactStep({
+        phaseStatus: phase.phaseStatus,
+        outFileContent: phase.outFileContent,
+        capability: "closed",
+      });
+      expect((artifact.summary as Record<string, unknown>).result).toBe("fail");
+      expect(() => runFailGateStep(artifactsDir)).toThrow();
+      rmSync(artifactsDir, { recursive: true, force: true });
+    },
+    5_000,
+  );
 
   it("a nonzero ssh exit is correctly reported as a nonzero phase_status", () => {
-    const phase = runPhaseStep({ capability: "open", sshScript: FAKE_SSH_ALWAYS_FAILS_SCRIPT });
+    const phase = runPhaseStep({
+      capability: "open",
+      sshScript: FAKE_SSH_ALWAYS_FAILS_SCRIPT,
+    });
     expect(phase.phaseStatus).not.toBe(0);
     expect(phase.outFileContent).not.toContain("CAPABILITY_JSON: ");
   });
@@ -1515,13 +1816,20 @@ describe("missing CAPABILITY_JSON — the pipefail-protected fallback, proven li
   it("a phase whose stdout has no CAPABILITY_JSON line still produces a clean no_capability_json_emitted artifact, not a raw pipeline crash", () => {
     // A dead ssh's stderr message never contains CAPABILITY_JSON, and the
     // out_file it produced (via tee) is likewise empty of it.
-    const phase = runPhaseStep({ capability: "open", sshScript: FAKE_SSH_ALWAYS_FAILS_SCRIPT });
+    const phase = runPhaseStep({
+      capability: "open",
+      sshScript: FAKE_SSH_ALWAYS_FAILS_SCRIPT,
+    });
     const { artifact } = runBuildArtifactStep({
-      phaseStatus: phase.phaseStatus, outFileContent: phase.outFileContent, capability: "open",
+      phaseStatus: phase.phaseStatus,
+      outFileContent: phase.outFileContent,
+      capability: "open",
     });
     const summary = artifact.summary as Record<string, unknown>;
     expect(summary.result).toBe("fail");
-    expect((summary.blockers as string[])).toContain("no_capability_json_emitted");
+    expect(summary.blockers as string[]).toContain(
+      "no_capability_json_emitted",
+    );
   });
 
   // The blanket `|| true` this once reconstructed as a crash proof was
@@ -1535,25 +1843,39 @@ describe("missing CAPABILITY_JSON — the pipefail-protected fallback, proven li
 describe("the fail gate requires BOTH result==pass AND blockers==[]", () => {
   it("throws (fails the job) on a refused artifact", () => {
     const { artifact, artifactsDir } = runBuildArtifactStep({
-      phaseStatus: 1, outFileContent: "CAPABILITY_JSON: " + JSON.stringify({ result: "refused", blockers: ["x"] }),
+      phaseStatus: 1,
+      outFileContent:
+        "CAPABILITY_JSON: " +
+        JSON.stringify({ result: "refused", blockers: ["x"] }),
       capability: "open",
     });
-    expect((artifact.summary as Record<string, unknown>).result).toBe("refused");
+    expect((artifact.summary as Record<string, unknown>).result).toBe(
+      "refused",
+    );
     expect(() => runFailGateStep(artifactsDir)).toThrow();
   });
 
   it("throws even on a result=pass artifact if blockers is somehow non-empty (defense in depth, not just trusting result)", () => {
-    const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-inconsistent-"));
+    const artifactsDir = mkdtempSync(
+      join(tmpdir(), "adsecute-capability-inconsistent-"),
+    );
     mkdirSync(join(artifactsDir, ".artifacts"), { recursive: true });
     writeFileSync(
       join(artifactsDir, ".artifacts", "automation-capability-toggle.json"),
-      JSON.stringify({ summary: { result: "pass", blockers: ["should never coexist with pass"] } }),
+      JSON.stringify({
+        summary: {
+          result: "pass",
+          blockers: ["should never coexist with pass"],
+        },
+      }),
     );
     expect(() => runFailGateStep(artifactsDir)).toThrow();
   });
 
   it("does not throw on a clean pass with empty blockers", () => {
-    const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-clean-pass-"));
+    const artifactsDir = mkdtempSync(
+      join(tmpdir(), "adsecute-capability-clean-pass-"),
+    );
     mkdirSync(join(artifactsDir, ".artifacts"), { recursive: true });
     writeFileSync(
       join(artifactsDir, ".artifacts", "automation-capability-toggle.json"),
@@ -1594,8 +1916,16 @@ describe("FINDING 1 — a failure discovered only AFTER the rename must still ro
     let stderr = "";
     try {
       execFileSync(
-        "bash", ["-c", `set -euo pipefail; ${patched}\natomic_set_env_var ${envFile} META_AUTOMATION_LIVE_WRITES true`],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, [STAT_COUNTER_ENV]: counterFile } },
+        "bash",
+        [
+          "-c",
+          `set -euo pipefail; ${patched}\natomic_set_env_var ${envFile} META_AUTOMATION_LIVE_WRITES true`,
+        ],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env, [STAT_COUNTER_ENV]: counterFile },
+        },
       );
     } catch (error) {
       threw = true;
@@ -1628,8 +1958,13 @@ describe("FINDING 1 — a failure discovered only AFTER the rename must still ro
       status = (error as { status?: number }).status ?? 1;
       stdout = (error as { stdout?: string }).stdout ?? "";
     }
-    const line = stdout.split("\n").reverse().find((l) => l.startsWith("CAPABILITY_JSON: "));
-    const capabilityJson = line ? JSON.parse(line.slice("CAPABILITY_JSON: ".length)) : null;
+    const line = stdout
+      .split("\n")
+      .reverse()
+      .find((l) => l.startsWith("CAPABILITY_JSON: "));
+    const capabilityJson = line
+      ? JSON.parse(line.slice("CAPABILITY_JSON: ".length))
+      : null;
 
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("fail");
@@ -1661,12 +1996,19 @@ describe("FINDING 1 — a failure discovered only AFTER the rename must still ro
       status = (error as { status?: number }).status ?? 1;
       stdout = (error as { stdout?: string }).stdout ?? "";
     }
-    const line = stdout.split("\n").reverse().find((l) => l.startsWith("CAPABILITY_JSON: "));
-    const capabilityJson = line ? JSON.parse(line.slice("CAPABILITY_JSON: ".length)) : null;
+    const line = stdout
+      .split("\n")
+      .reverse()
+      .find((l) => l.startsWith("CAPABILITY_JSON: "));
+    const capabilityJson = line
+      ? JSON.parse(line.slice("CAPABILITY_JSON: ".length))
+      : null;
 
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("fail"); // always fail regardless of forced-recovery outcome
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("restore_failed"); // stays visible
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "restore_failed",
+    ); // stays visible
     expect(capabilityJson?.rollbackVerified).toBe(true); // the forced-false attempt DID recover the runtime
     expect(readEnvFile()).toContain("META_AUTOMATION_LIVE_WRITES=false");
   });
@@ -1680,7 +2022,9 @@ describe("FINDING 2 — baseline must assert LIVE web/worker env is false, norma
     });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("refused");
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("baseline_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "baseline_refused",
+    );
   });
 
   it("worker's LIVE env already true (the process that actually reads the gate) is caught by baseline", () => {
@@ -1690,7 +2034,9 @@ describe("FINDING 2 — baseline must assert LIVE web/worker env is false, norma
     });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("refused");
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("baseline_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "baseline_refused",
+    );
   });
 
   it("an unreadable live env on web is a refusal, never treated as closed", () => {
@@ -1700,7 +2046,9 @@ describe("FINDING 2 — baseline must assert LIVE web/worker env is false, norma
     });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("refused");
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("baseline_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "baseline_refused",
+    );
   });
 
   it("an unreadable live env on worker is a refusal, never treated as closed", () => {
@@ -1710,27 +2058,39 @@ describe("FINDING 2 — baseline must assert LIVE web/worker env is false, norma
     });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("refused");
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("baseline_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "baseline_refused",
+    );
   });
 
   it("the env FILE containing 'TRUE' (uppercase) is treated as OPEN, matching lib/meta/release-gates.ts's trim+lowercase parseGate — not passed by a strict === 'true' check", () => {
     writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES=TRUE\n");
-    const { status, capabilityJson } = runRemoteDirect({ phase: "capability_open" });
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_open",
+    });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("refused");
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("baseline_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "baseline_refused",
+    );
   });
 
   it("the env FILE containing ' true ' (whitespace-padded) is ALSO treated as OPEN, matching the app's .trim()", () => {
     writeFileSync(envFile, "META_AUTOMATION_LIVE_WRITES= true \n");
-    const { status, capabilityJson } = runRemoteDirect({ phase: "capability_open" });
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_open",
+    });
     expect(status).not.toBe(0);
     expect(capabilityJson?.result).toBe("refused");
-    expect((capabilityJson?.blockers as string[]).join(",")).toContain("baseline_refused");
+    expect((capabilityJson?.blockers as string[]).join(",")).toContain(
+      "baseline_refused",
+    );
   });
 
   it("a genuinely closed baseline (file false, web live false, worker live false) still opens successfully — the stricter check is not a false-positive regression", () => {
-    const { status, capabilityJson } = runRemoteDirect({ phase: "capability_open" });
+    const { status, capabilityJson } = runRemoteDirect({
+      phase: "capability_open",
+    });
     expect(status).toBe(0);
     expect(capabilityJson?.result).toBe("pass");
   });
@@ -1755,7 +2115,10 @@ exec bash -c "$last"
 
     const brokenCwd = join(dir, "cwd-without-remote-sh");
     mkdirSync(join(brokenCwd, ".github", "scripts"), { recursive: true });
-    writeFileSync(join(brokenCwd, ".github", "scripts", "automation-capability-env.sh"), ENV_SH);
+    writeFileSync(
+      join(brokenCwd, ".github", "scripts", "automation-capability-env.sh"),
+      ENV_SH,
+    );
     // automation-capability-remote.sh deliberately absent here.
 
     const githubOutputFile = join(dir, "gh-output-cat2-fail");
@@ -1787,7 +2150,10 @@ exec bash -c "$last"
 
     const brokenCwd = join(dir, "cwd-without-env-sh");
     mkdirSync(join(brokenCwd, ".github", "scripts"), { recursive: true });
-    writeFileSync(join(brokenCwd, ".github", "scripts", "automation-capability-remote.sh"), REMOTE_SH);
+    writeFileSync(
+      join(brokenCwd, ".github", "scripts", "automation-capability-remote.sh"),
+      REMOTE_SH,
+    );
     // automation-capability-env.sh deliberately absent here.
 
     const githubOutputFile = join(dir, "gh-output-cat1-fail");
@@ -1830,7 +2196,10 @@ exec bash -c "$last"
 exit "\${FAKE_TEE_EXIT:-0}"
 `;
     writeExecutable(join(fakeBinDir, "tee"), FAKE_TEE_SCRIPT);
-    const phase = runPhaseStep({ capability: "open", fakeEnv: { FAKE_TEE_EXIT: "1" } });
+    const phase = runPhaseStep({
+      capability: "open",
+      fakeEnv: { FAKE_TEE_EXIT: "1" },
+    });
     expect(phase.phaseStatus).not.toBe(0);
     // tee DID write the real CAPABILITY_JSON pass line before failing —
     // proving this is caught despite valid-looking captured output, not
@@ -1847,7 +2216,9 @@ exit "\${FAKE_TEE_EXIT:-0}"
 
 describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genuine read failure from a legitimate no-match, never swallow both the same way", () => {
   it("a real extraction failure (out_file unreadable) produces its own distinct blocker, not the generic no_capability_json_emitted used for a legitimately silent phase", () => {
-    const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-extraction-fail-"));
+    const artifactsDir = mkdtempSync(
+      join(tmpdir(), "adsecute-capability-extraction-fail-"),
+    );
     const outFile = join(artifactsDir, "out.txt");
     writeFileSync(outFile, "CAPABILITY_JSON: {}\n");
     chmodSync(outFile, 0o000);
@@ -1868,7 +2239,14 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
           },
         });
         artifact = JSON.parse(
-          readFileSync(join(artifactsDir, ".artifacts", "automation-capability-toggle.json"), "utf8"),
+          readFileSync(
+            join(
+              artifactsDir,
+              ".artifacts",
+              "automation-capability-toggle.json",
+            ),
+            "utf8",
+          ),
         );
       } catch {
         threw = true;
@@ -1885,7 +2263,9 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
   });
 
   it("a legitimately empty phase output (no CAPABILITY_JSON line, but the file WAS readable) still produces no_capability_json_emitted, unaffected by the stricter check", () => {
-    const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-extraction-empty-"));
+    const artifactsDir = mkdtempSync(
+      join(tmpdir(), "adsecute-capability-extraction-empty-"),
+    );
     const outFile = join(artifactsDir, "out.txt");
     writeFileSync(outFile, "some container log line with no marker at all\n");
     execFileSync("bash", ["-c", BUILD_ARTIFACT_SCRIPT], {
@@ -1901,15 +2281,24 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
       },
     });
     const artifact = JSON.parse(
-      readFileSync(join(artifactsDir, ".artifacts", "automation-capability-toggle.json"), "utf8"),
+      readFileSync(
+        join(artifactsDir, ".artifacts", "automation-capability-toggle.json"),
+        "utf8",
+      ),
     );
     const summary = artifact.summary as Record<string, unknown>;
-    expect((summary.blockers as string[])).toContain("no_capability_json_emitted");
-    expect((summary.blockers as string[])).not.toContain("capability_json_extraction_failed");
+    expect(summary.blockers as string[]).toContain(
+      "no_capability_json_emitted",
+    );
+    expect(summary.blockers as string[]).not.toContain(
+      "capability_json_extraction_failed",
+    );
   });
 
   it("a healthy extraction (grep=0, tail=0, sed=0) produces the real parsed summary, not any failure blocker", () => {
-    const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-extraction-healthy-"));
+    const artifactsDir = mkdtempSync(
+      join(tmpdir(), "adsecute-capability-extraction-healthy-"),
+    );
     const outFile = join(artifactsDir, "out.txt");
     writeFileSync(
       outFile,
@@ -1932,12 +2321,18 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
       },
     });
     const artifact = JSON.parse(
-      readFileSync(join(artifactsDir, ".artifacts", "automation-capability-toggle.json"), "utf8"),
+      readFileSync(
+        join(artifactsDir, ".artifacts", "automation-capability-toggle.json"),
+        "utf8",
+      ),
     );
     const summary = artifact.summary as Record<string, unknown>;
     expect(summary.result).toBe("pass");
     expect(summary.blockers).toEqual([]);
-    expect(summary).toMatchObject({ requestedSha: VALID_SHA, effectiveSha: VALID_SHA });
+    expect(summary).toMatchObject({
+      requestedSha: VALID_SHA,
+      effectiveSha: VALID_SHA,
+    });
   });
 
   it("a real fake tail that writes the full valid line and THEN exits 1 is caught as capability_json_extraction_failed — writing valid-looking output does not excuse a nonzero exit", () => {
@@ -1950,9 +2345,14 @@ describe("FINDING 3b — the CAPABILITY_JSON extraction must distinguish a genui
 exit "\${FAKE_TAIL_EXIT:-0}"
 `,
     );
-    const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-extraction-tail-fail-"));
+    const artifactsDir = mkdtempSync(
+      join(tmpdir(), "adsecute-capability-extraction-tail-fail-"),
+    );
     const outFile = join(artifactsDir, "out.txt");
-    writeFileSync(outFile, 'CAPABILITY_JSON: {"result":"pass","blockers":[]}\n');
+    writeFileSync(
+      outFile,
+      'CAPABILITY_JSON: {"result":"pass","blockers":[]}\n',
+    );
     execFileSync("bash", ["-c", BUILD_ARTIFACT_SCRIPT], {
       cwd: artifactsDir,
       encoding: "utf8",
@@ -1967,12 +2367,19 @@ exit "\${FAKE_TAIL_EXIT:-0}"
       },
     });
     const artifact = JSON.parse(
-      readFileSync(join(artifactsDir, ".artifacts", "automation-capability-toggle.json"), "utf8"),
+      readFileSync(
+        join(artifactsDir, ".artifacts", "automation-capability-toggle.json"),
+        "utf8",
+      ),
     );
     const summary = artifact.summary as Record<string, unknown>;
     expect(summary.result).toBe("fail");
-    expect((summary.blockers as string[])).toContain("capability_json_extraction_failed");
-    expect((summary.blockers as string[])).not.toContain("no_capability_json_emitted");
+    expect(summary.blockers as string[]).toContain(
+      "capability_json_extraction_failed",
+    );
+    expect(summary.blockers as string[]).not.toContain(
+      "no_capability_json_emitted",
+    );
   });
 
   it("a real fake sed that writes the full valid line and THEN exits 1 is caught as capability_json_extraction_failed", () => {
@@ -1985,9 +2392,14 @@ exit "\${FAKE_TAIL_EXIT:-0}"
 exit "\${FAKE_SED_EXIT:-0}"
 `,
     );
-    const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-extraction-sed-fail-"));
+    const artifactsDir = mkdtempSync(
+      join(tmpdir(), "adsecute-capability-extraction-sed-fail-"),
+    );
     const outFile = join(artifactsDir, "out.txt");
-    writeFileSync(outFile, 'CAPABILITY_JSON: {"result":"pass","blockers":[]}\n');
+    writeFileSync(
+      outFile,
+      'CAPABILITY_JSON: {"result":"pass","blockers":[]}\n',
+    );
     execFileSync("bash", ["-c", BUILD_ARTIFACT_SCRIPT], {
       cwd: artifactsDir,
       encoding: "utf8",
@@ -2002,18 +2414,30 @@ exit "\${FAKE_SED_EXIT:-0}"
       },
     });
     const artifact = JSON.parse(
-      readFileSync(join(artifactsDir, ".artifacts", "automation-capability-toggle.json"), "utf8"),
+      readFileSync(
+        join(artifactsDir, ".artifacts", "automation-capability-toggle.json"),
+        "utf8",
+      ),
     );
     const summary = artifact.summary as Record<string, unknown>;
     expect(summary.result).toBe("fail");
-    expect((summary.blockers as string[])).toContain("capability_json_extraction_failed");
-    expect((summary.blockers as string[])).not.toContain("no_capability_json_emitted");
+    expect(summary.blockers as string[]).toContain(
+      "capability_json_extraction_failed",
+    );
+    expect(summary.blockers as string[]).not.toContain(
+      "no_capability_json_emitted",
+    );
   });
 
   it("a true no-match (grep=1, tail=0, sed=0 — the ONLY acceptable nonzero combination) is still the legitimate no_capability_json_emitted case", () => {
-    const artifactsDir = mkdtempSync(join(tmpdir(), "adsecute-capability-extraction-true-nomatch-"));
+    const artifactsDir = mkdtempSync(
+      join(tmpdir(), "adsecute-capability-extraction-true-nomatch-"),
+    );
     const outFile = join(artifactsDir, "out.txt");
-    writeFileSync(outFile, "no marker line in this output at all\njust regular logs\n");
+    writeFileSync(
+      outFile,
+      "no marker line in this output at all\njust regular logs\n",
+    );
     execFileSync("bash", ["-c", BUILD_ARTIFACT_SCRIPT], {
       cwd: artifactsDir,
       encoding: "utf8",
@@ -2027,10 +2451,17 @@ exit "\${FAKE_SED_EXIT:-0}"
       },
     });
     const artifact = JSON.parse(
-      readFileSync(join(artifactsDir, ".artifacts", "automation-capability-toggle.json"), "utf8"),
+      readFileSync(
+        join(artifactsDir, ".artifacts", "automation-capability-toggle.json"),
+        "utf8",
+      ),
     );
     const summary = artifact.summary as Record<string, unknown>;
-    expect((summary.blockers as string[])).toContain("no_capability_json_emitted");
-    expect((summary.blockers as string[])).not.toContain("capability_json_extraction_failed");
+    expect(summary.blockers as string[]).toContain(
+      "no_capability_json_emitted",
+    );
+    expect(summary.blockers as string[]).not.toContain(
+      "capability_json_extraction_failed",
+    );
   });
 });

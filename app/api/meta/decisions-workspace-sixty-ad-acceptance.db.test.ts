@@ -71,6 +71,7 @@
  * fails the gate on a skipped or short run. Adding or removing a case here
  * means updating the expected passing count in that registration.
  */
+import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import { createHash, randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -594,6 +595,13 @@ async function seed() {
 
     for (let index = 0; index < AD_COUNT; index += 1) {
       const plan = adPlan(index);
+      const inputHash = sha(`sixty-in-${plan.adId}`);
+      await client.query(
+        `INSERT INTO engine_v3_ad_decision_input_evidence
+           (contract_version, input_hash, input_evidence_json)
+         VALUES ('sixty-ad-seam', $1, $2::jsonb)`,
+        [inputHash, JSON.stringify(seamInputEvidence(index))],
+      );
       const evaluationId = (
         await client.query(
           `INSERT INTO engine_v3_ad_decision_evaluations
@@ -652,7 +660,7 @@ async function seed() {
               campaignKind: "main",
             }),
             plan.label,
-            sha(`sixty-in-${plan.adId}`),
+            inputHash,
             sha(`sixty-dec-${plan.adId}`),
             decisionsJobRunId,
           ],
@@ -691,7 +699,7 @@ async function seed() {
           plan.authorizedAction,
           calibrationRowId,
           evaluationId,
-          sha(`sixty-in-${plan.adId}`),
+          inputHash,
           sha(`sixty-dec-${plan.adId}`),
           decisionsJobRunId,
           `sixty-${plan.adId}`,
@@ -757,6 +765,86 @@ async function workspaceGet(): Promise<{
   return {
     status: response.status,
     payload: (await response.json()) as WorkspacePayload,
+  };
+}
+
+/*
+  RECEIPT LINEAGE (2026-09-22): what evaluation-store.ts persists in the
+  hash-keyed input-evidence table. Even-indexed Ads rest on a verified, receipt-named
+  configuration; odd-indexed Ads carry one refused field and are not verified.
+  The route must serve both read-only, exactly as persisted.
+*/
+function seamObservationId(index: number): string {
+  return `33333333-3333-4333-8333-${String(index).padStart(12, "0")}`;
+}
+
+function seamInputEvidence(index: number) {
+  const verified = index % 2 === 0;
+  const receiptRef = (
+    field:
+      | "objective"
+      | "optimization_goal"
+      | "custom_event_type"
+      | "custom_conversion_id",
+    tier: "provider_receipt_point_in_day" | "observed_absent" =
+      "provider_receipt_point_in_day",
+  ) => ({
+    refContractVersion: "meta-config-field-evidence-ref.v1",
+    field,
+    sourceContractVersion: "meta-config-field-source.v1",
+    normalizationVersion: 1,
+    tier,
+    readiness: tier === "observed_absent" ? "none" : "review_only",
+    sourceClass: "modern",
+    pitClass: "as_of_known",
+    sourceSnapshotId: "11111111-1111-4111-8111-111111111111",
+    observationId: seamObservationId(index),
+    observedAt: "2026-08-29T09:00:00.000Z",
+    fieldScopeHash: "a".repeat(64),
+    corroboratingSnapshotId: null,
+    corroboratingObservationId: null,
+    corroboratingObservedAt: null,
+  });
+  return {
+    configEvidence: {
+      customConversionId: null,
+      currentConfigDay: "2026-08-29",
+      currentValueEvidence: {
+        observed: verified,
+        lineageSupplied: true,
+        refs: {
+          objective: receiptRef("objective"),
+          optimization_goal: verified
+            ? receiptRef("optimization_goal")
+            : null,
+          custom_event_type: receiptRef("custom_event_type"),
+          // An optional absent field still has a receipt: the provider was
+          // asked and returned no custom conversion. It is not a reason to
+          // discard the objective/goal/event evidence or to invent a value.
+          custom_conversion_id: receiptRef(
+            "custom_conversion_id",
+            "observed_absent",
+          ),
+        },
+        refRefusals: verified ? {} : { optimization_goal: "absent" },
+      },
+      decisionEconomics: {
+        fullyVerified: verified,
+        receiptManifest: {
+          manifestVersion: "meta-config-receipt-window-manifest.v1",
+          refContractVersion: "meta-config-field-evidence-ref.v1",
+          hash: "c".repeat(64),
+          economicDayCount: 5,
+          nullObservationIdCount: 0,
+          incoherentDayCount: 0,
+        },
+      },
+    },
+    metricContract: {
+      funnelStage: "meta-funnel-stage.v1",
+      windowRule: "meta-metric-window.complete-or-null.v1",
+      adDayLinkClick: "meta-ad-day-link-click.v1",
+    },
   };
 }
 
@@ -848,6 +936,53 @@ describe.skipIf(!SEAM)(
       expect(servedAdIds.size).toBe(META_DECISIONS_AD_CANDIDATE_LIMIT);
       const omitted = AD_IDS.filter((adId) => !servedAdIds.has(adId));
       expect(omitted.length).toBe(CAPPED_OUT_COUNT);
+    });
+
+    it("serves each decision's persisted config receipts read-only, through the real route", () => {
+      // The route serves the full canonical rows; the payload type in this
+      // file narrows adCandidates to its counts, so name the served shape.
+      const items =
+        (
+          payload.decisionReadModel.queue?.adCandidates as
+            | { items?: MetaCanonicalDecision[] }
+            | undefined
+        )?.items ?? [];
+      expect(items.length).toBe(META_DECISIONS_AD_CANDIDATE_LIMIT);
+      for (const item of items) {
+        const adId = item.parentChain.ad?.id ?? "";
+        const index = AD_IDS.indexOf(adId);
+        expect(index, adId).toBeGreaterThanOrEqual(0);
+        const evidence = item.configEvidence;
+        expect(evidence, adId).toBeTruthy();
+        // The D098 verdict comes from the persisted input evidence, not from
+        // creative_input_json (which never carried it).
+        expect(evidence?.verified).toBe(index % 2 === 0);
+        expect(
+          evidence?.refs.map((ref) => [ref.field, ref.observationId]),
+        ).toEqual(
+          index % 2 === 0
+            ? [
+                ["objective", seamObservationId(index)],
+                ["optimization_goal", seamObservationId(index)],
+                ["custom_event_type", seamObservationId(index)],
+                ["custom_conversion_id", seamObservationId(index)],
+              ]
+            : [
+                ["objective", seamObservationId(index)],
+                ["custom_event_type", seamObservationId(index)],
+                ["custom_conversion_id", seamObservationId(index)],
+              ],
+        );
+        expect(evidence?.refusedFields).toEqual(
+          index % 2 === 0
+            ? []
+            : [
+                "optimization_goal:absent",
+                "optimization_goal:served_absent",
+              ],
+        );
+        expect(evidence?.economicWindow?.manifestHash).toBe("c".repeat(64));
+      }
     });
 
     it("made no network call of any kind", () => {

@@ -14,6 +14,10 @@ import {
   setupMixedObjectiveFixture,
   type MixedObjectiveFixture,
 } from "./mixed-objective-fixture";
+import {
+  META_CREATIVE_DAY_METRIC_EVIDENCE_KEY,
+  buildMeasuredMetaCreativeDayMetricEvidence,
+} from "@/lib/meta/creative-day-metric-evidence";
 
 const AS_OF = "2026-05-04";
 const MIXED_OBJECTIVE_FIXTURE: MixedObjectiveFixture = {
@@ -242,18 +246,43 @@ async function setupCampaignScopeFixture(
     [fixture.businessId],
   );
 
+  /*
+    The funnel is read ONLY from the creative-day measurement stamp
+    (`lib/meta/creative-day-metric-evidence.ts`); the `link_clicks` column and
+    the payload display scalars are what the Creatives surface shows and no
+    longer feed calibration. So every fixture creative-day carries the stamp the
+    writer would have recorded, with the same counts the display fields hold.
+  */
   const rows = Object.entries(campaignCounts).flatMap(([campaignId, count]) =>
-    Array.from({ length: count }, (_, index) => ({
-      campaign_id: campaignId,
-      creative_id: `${campaignId}_creative_${index + 1}`,
-      creative_format: index % 2 === 0 ? "image" : "video",
-      spend: 100 + index * 10,
-      impressions: 10_000,
-      clicks: 100 + index * 5,
-      link_clicks: 90 + index * 5,
-      conversions: 1,
-      revenue: 220 + index * 10,
-    })),
+    Array.from({ length: count }, (_, index) => {
+      const creativeFormat = index % 2 === 0 ? "image" : "video";
+      const linkClicks = 90 + index * 5;
+      return {
+        campaign_id: campaignId,
+        creative_id: `${campaignId}_creative_${index + 1}`,
+        creative_format: creativeFormat,
+        spend: 100 + index * 10,
+        impressions: 10_000,
+        clicks: 100 + index * 5,
+        link_clicks: linkClicks,
+        conversions: 1,
+        revenue: 220 + index * 10,
+        payload_json: {
+          creative_format: creativeFormat,
+          landing_page_views: linkClicks * 0.8,
+          add_to_cart: linkClicks * 0.2,
+          initiate_checkout: linkClicks * 0.1,
+          thumbstop: 0.3,
+          [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: buildMeasuredMetaCreativeDayMetricEvidence({
+            link_click: linkClicks,
+            landing_page_view: Math.floor(linkClicks * 0.8),
+            add_to_cart: Math.floor(linkClicks * 0.2),
+            initiate_checkout: Math.floor(linkClicks * 0.1),
+            outbound_click: linkClicks,
+          }),
+        },
+      };
+    }),
   );
 
   await db.query(
@@ -306,13 +335,7 @@ async function setupCampaignScopeFixture(
       'OUTCOME_SALES',
       'ACTIVE',
       row.creative_format,
-      jsonb_build_object(
-        'creative_format', row.creative_format,
-        'landing_page_views', row.link_clicks * 0.8,
-        'add_to_cart', row.link_clicks * 0.2,
-        'initiate_checkout', row.link_clicks * 0.1,
-        'thumbstop', 0.3
-      )
+      row.payload_json
     FROM jsonb_to_recordset($4::jsonb) AS row(
       campaign_id text,
       creative_id text,
@@ -322,7 +345,8 @@ async function setupCampaignScopeFixture(
       clicks bigint,
       link_clicks bigint,
       conversions double precision,
-      revenue double precision
+      revenue double precision,
+      payload_json jsonb
     )
     `,
     [
@@ -351,7 +375,17 @@ async function setClickToPurchaseSampleCount(
     UPDATE meta_creative_daily AS daily
     SET
       link_clicks = CASE WHEN ranked.sample_rank <= $3::integer THEN 100 ELSE 0 END,
-      outbound_clicks = CASE WHEN ranked.sample_rank <= $3::integer THEN 100 ELSE 0 END
+      outbound_clicks = CASE WHEN ranked.sample_rank <= $3::integer THEN 100 ELSE 0 END,
+      -- The stamped measurement is what calibration reads: a measured 0 keeps
+      -- the click-to-purchase rate undefined exactly as a zero column did.
+      payload_json = jsonb_set(
+        daily.payload_json,
+        '{metric_evidence,stages,link_click}',
+        jsonb_build_object(
+          'state', 'measured',
+          'value', CASE WHEN ranked.sample_rank <= $3::integer THEN 100 ELSE 0 END
+        )
+      )
     FROM ranked
     WHERE daily.business_ref_id = $1::uuid
       AND daily.date = $2::date

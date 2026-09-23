@@ -1206,9 +1206,7 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_outcomes_daily (
   ),
   CONSTRAINT engine_v3_ad_outcomes_authority_blocker_check CHECK (
     authority_blocker IS NULL OR authority_blocker IN (
-      'profile_hard_action_ineligible', 'source_freshness',
-      'campaign_context', 'native_metrics_unavailable',
-      'native_profile_unavailable', 'recent_recovery_unverifiable'
+      ${DECISION_AUTHORITY_BLOCKERS.map((value) => `'${value}'`).join(", ")}
     )
   ),
   CONSTRAINT engine_v3_ad_outcomes_account_binding_fk FOREIGN KEY (
@@ -1717,7 +1715,8 @@ CROSS JOIN LATERAL (
     (
       SELECT history.*
       FROM meta_entity_state_history history
-      WHERE history.business_ref_id = candidate.business_ref_id
+      WHERE history.business_id = candidate.business_id
+        AND history.business_ref_id = candidate.business_ref_id
         AND history.provider_account_ref_id = candidate.provider_account_ref_id
         AND history.provider_account_id = candidate.provider_account_id
         AND history.entity_type = 'ad'
@@ -1733,7 +1732,8 @@ CROSS JOIN LATERAL (
     UNION ALL
     SELECT history.*
     FROM meta_entity_state_history history
-    WHERE history.business_ref_id = candidate.business_ref_id
+    WHERE history.business_id = candidate.business_id
+      AND history.business_ref_id = candidate.business_ref_id
       AND history.provider_account_ref_id = candidate.provider_account_ref_id
       AND history.provider_account_id = candidate.provider_account_id
       AND history.entity_type = 'ad'
@@ -2420,6 +2420,7 @@ export interface AccrueAdDecisionOutcomesResult {
   sourceSetHash: string;
   publishedWindowCount: number;
   outcomes: StoredAdDecisionOutcome[];
+  stageTimingsMs: Record<string, number>;
 }
 
 export interface AdDecisionOutcomesJobInput {
@@ -2534,7 +2535,29 @@ export async function accrueAdDecisionOutcomes(
   const runInTransaction =
     options.runInTransaction ?? ((fn) => runDbTransaction(fn));
   return runInTransaction(async () => {
-    const sourceRows = await query<AdDecisionOutcomeSourceRow>(
+    const stageTimingsMs: Record<string, number> = {};
+    const measured = async <T>(stage: string, run: () => Promise<T>): Promise<T> => {
+      const started = Date.now();
+      let status: "success" | "failed" = "failed";
+      try {
+        const result = await run();
+        status = "success";
+        return result;
+      } finally {
+        const durationMs = Date.now() - started;
+        stageTimingsMs[stage] = durationMs;
+        if (process.env.NODE_ENV !== "test") {
+          console.info("[native-ad-outcome-stage] finished", {
+            businessId: normalized.businessId,
+            evaluationDate: normalized.evaluationDate,
+            stage,
+            durationMs,
+            status,
+          });
+        }
+      }
+    };
+    const sourceRows = await measured("read_source_rows", () => query<AdDecisionOutcomeSourceRow>(
       READ_AD_DECISION_OUTCOME_SOURCE_ROWS_SQL,
       [
         normalized.businessId,
@@ -2544,14 +2567,14 @@ export async function accrueAdDecisionOutcomes(
         normalized.batchLimit,
         NATIVE_AD_ENGINE_VERSION,
       ],
-    );
+    ));
     assertCompleteSourceSet(sourceRows, normalized.batchLimit);
     const drafts = sourceRows.map(buildAdDecisionOutcomeDraft);
     assertUniqueDrafts(drafts);
-    const controlledByDraft = await hydrateControlledEvidenceForAdOutcomes(
+    const controlledByDraft = await measured("hydrate_controlled_evidence", () => hydrateControlledEvidenceForAdOutcomes(
       drafts,
       options.readControlledEvidence ?? defaultControlledEvidenceReader,
-    );
+    ));
     const computedAt = (options.now ?? (() => new Date()))().toISOString();
     const provisionalRows = drafts.map((draft) =>
       buildAdDecisionOutcomePayload({
@@ -2579,7 +2602,7 @@ export async function accrueAdDecisionOutcomes(
           .length,
       ]),
     );
-    const [rawRun] = await query<Record<string, unknown>>(
+    const [rawRun] = await measured("start_outcome_run", () => query<Record<string, unknown>>(
       START_AD_DECISION_OUTCOME_RUN_SQL,
       [
         normalized.jobRunId,
@@ -2594,7 +2617,7 @@ export async function accrueAdDecisionOutcomes(
         JSON.stringify(windowCounts),
         sourceSetHash,
       ],
-    );
+    ));
     const outcomeRun = mapAndValidateOutcomeRun(rawRun, {
       ...normalized,
       sourceSetHash,
@@ -2608,10 +2631,10 @@ export async function accrueAdDecisionOutcomes(
     const storedRows =
       payloadRows.length === 0
         ? []
-        : await query<Record<string, unknown>>(
+        : await measured("insert_outcomes", () => query<Record<string, unknown>>(
             INSERT_AD_DECISION_OUTCOMES_SQL,
             [JSON.stringify(payloadRows)],
-          );
+          ));
     if (storedRows.length !== payloadRows.length) {
       throw new Error(
         `Native ad outcome lineage rejected ${payloadRows.length - storedRows.length} row(s).`,
@@ -2627,7 +2650,7 @@ export async function accrueAdDecisionOutcomes(
     ) {
       throw new Error("Native outcome persistence returned a stale run row.");
     }
-    const [finalizedRaw] = await query<Record<string, unknown>>(
+    const [finalizedRaw] = await measured("finalize_outcome_run", () => query<Record<string, unknown>>(
       FINALIZE_AD_DECISION_OUTCOME_RUN_SQL,
       [
         outcomeRun.id,
@@ -2639,7 +2662,7 @@ export async function accrueAdDecisionOutcomes(
         AD_DECISION_OUTCOME_CLASSIFIER_VERSION,
         sourceSetHash,
       ],
-    );
+    ));
     const finalized = validateFinalizedOutcomeRun(finalizedRaw, {
       outcomeRunId: outcomeRun.id,
       sourceSetHash,
@@ -2659,6 +2682,7 @@ export async function accrueAdDecisionOutcomes(
       sourceSetHash,
       publishedWindowCount: finalized.publishedWindowCount,
       outcomes,
+      stageTimingsMs,
     };
   });
 }
@@ -2899,17 +2923,25 @@ export async function runAdDecisionOutcomesJobForActiveBusinessesIfDue(
   if (pending.length === 0) {
     return { skipped: true, reason: "already_ran", asOf };
   }
-  const results = await Promise.all(
-    pending.map(async (business) => ({
-      businessId: business.id,
-      businessName: business.name ?? null,
-      ...(await (options.runJob ?? runAdDecisionOutcomesJob)({
+  // Each business owns a transaction. An unbounded Promise.all made all ten
+  // production businesses compete for the same history indexes at once.
+  const results = new Array<NonNullable<AdDecisionOutcomesJobDueResult["results"]>[number]>(pending.length);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(2, pending.length) }, async () => {
+    while (cursor < pending.length) {
+      const index = cursor++;
+      const business = pending[index]!;
+      results[index] = {
         businessId: business.id,
-        asOf,
-        windowsDays: AD_DECISION_OUTCOME_WINDOWS_DAYS,
-      })),
-    })),
-  );
+        businessName: business.name ?? null,
+        ...(await (options.runJob ?? runAdDecisionOutcomesJob)({
+          businessId: business.id,
+          asOf,
+          windowsDays: AD_DECISION_OUTCOME_WINDOWS_DAYS,
+        })),
+      };
+    }
+  }));
   return { skipped: false, asOf, results };
 }
 
@@ -3059,6 +3091,7 @@ async function markAdDecisionOutcomeJobSuccess(
           published_window_count: input.result.publishedWindowCount,
           controlled_registry_available:
             input.result.controlledRegistryAvailable,
+          stage_timings_ms: input.result.stageTimingsMs,
         },
       }),
       input.jobRunId,

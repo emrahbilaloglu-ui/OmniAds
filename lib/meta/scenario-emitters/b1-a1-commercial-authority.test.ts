@@ -334,8 +334,10 @@ describe("B1 minor-unit arithmetic is currency-correct", () => {
     // JPY has NO minor unit. The old /100 read a 1000-yen cap as 10.00 and
     // compared it against a unit scaled by 100 — wrong by two orders.
     ["JPY", 0, 50, 55],
-    // KWD has THREE. The old code was wrong by a factor of ten the other way.
-    ["KWD", 3, 50_000, 55_000],
+    // TRY and GBP are the other currencies this product actually runs, and
+    // both authorities agree on them. A three-decimal case cannot appear in
+    // this table at all — see the refusal cases below for why.
+    ["TRY", 2, 5_000, 5_500],
   ])("raises a %s cap by 10%% in real minor units", (currency, exponent, bid, expected) => {
     const rec = b1(READY_TARGETS, { currency, bidValue: bid });
     const proposal = rec?.targetValue as
@@ -344,6 +346,31 @@ describe("B1 minor-unit arithmetic is currency-correct", () => {
     expect(proposal?.bid.current).toBe(bid);
     expect(proposal?.bid.proposed).toBe(Math.min(expected, unitMinorFor(exponent)));
     expect(proposal?.bid.minorUnitExponent).toBe(exponent);
+  });
+
+  it.each([
+    // Meta's own table lists BHD and JOD at offset 100 — two subdivision
+    // digits — while the ISO registry calls them three-decimal. Building the
+    // proposal on the ISO scale would submit a bid cap ten times the intended
+    // one, so nothing is proposed.
+    ["BHD, where Meta says 100 and ISO says three decimals", "BHD"],
+    ["JOD, the same disagreement", "JOD"],
+    // Meta publishes NO offset above 100 anywhere in its table, and does not
+    // list KWD at all. The two three-decimal currencies it does list are
+    // mapped to 100, so an ISO-derived ÷1000 for KWD is more likely wrong
+    // than right — and either way it is a scale no provider document
+    // supports. This case used to assert a 55,000-fils proposal.
+    ["KWD, which Meta's offset table does not list", "KWD"],
+    ["OMR, likewise unlisted", "OMR"],
+  ])("proposes nothing for %s", (_label, currency) => {
+    /*
+      A withheld proposal is a visible absence; a mis-scaled one is a live
+      overpay on a real provider write. The refusal is deliberate and is not
+      a claim that Meta refuses the currency — only that this repository has
+      no provider-published offset for it.
+    */
+    const rec = b1(READY_TARGETS, { currency, bidValue: 5_000 });
+    expect(rec?.targetValue ?? null).toBeNull();
   });
 
   it("clips to the canonical unit in the account's own exponent", () => {
@@ -516,11 +543,12 @@ describe("budget major-unit conversion is currency-correct", () => {
     expect(utilization).toBe("50%");
   });
 
-  it("KWD: B1 sees real utilization instead of a 10x understatement", () => {
+  it("KWD: B1 reports no budget at all, because there is no provider offset", () => {
     /*
-      Daily budget 50,000 fils (exponent 3 -> 50.000 KWD). 30-day spend 1,500
-      -> 50/day -> utilization 1.0, which is AT the 0.95 ceiling and must be
-      refused. Under /100 the budget read as 500 and utilization 0.1 passed.
+      This case used to assert an ISO ÷1000 reading. Meta's published offset
+      table does not list KWD and publishes no offset above 100 anywhere, so
+      there is no provider scale to divide by and no utilisation to report.
+      Null budget is what every caller already treats as "no budget signal".
     */
     const rec = b1(READY_TARGETS, {
       currency: "KWD",
@@ -564,19 +592,54 @@ describe("budget major-unit conversion is currency-correct", () => {
     expect(rec).toBeNull();
   });
 
-  it("KWD: the same floor is decided three decimal places over", () => {
-    // 1,000,000 fils = 1000.000 KWD/day -> 1000*7/81.82 = 85.6 -> above the
-    // floor, so nothing is emitted. Under /100 it read as 10,000 and also
-    // cleared; the failing direction is a SMALL budget read as large.
+  it("KWD: the floor is not decided at all, because no provider scale exists", () => {
+    /*
+      This case used to assert ÷1000 on both sides. It rested on the ISO
+      exponent, and the provider's own table neither lists KWD nor publishes
+      any offset above 100 — the two three-decimal currencies Meta DOES list,
+      BHD and JOD, are both mapped to 100. So a ÷1000 reading here was a
+      scale nothing supports, and both budgets now yield no budget rather
+      than a confident verdict at a contested scale.
+
+      This is a refusal, not a claim that Meta cannot serve KWD accounts. If a
+      provider-published offset for it is ever transcribed into the registry,
+      these become ordinary cases again.
+    */
     expect(
       a1(READY_TARGETS, 90, { currency: "KWD", dailyBudget: 1_000_000 }),
     ).toBeNull();
-    // 100,000 fils = 100.000 KWD/day -> 8.56 weekly -> under the floor, emits.
-    // Under /100 it read as 1000 -> 85.6 -> cleared, and A1 stayed silent on an
-    // account that genuinely cannot reach the floor.
     expect(
-      a1(READY_TARGETS, 90, { currency: "KWD", dailyBudget: 100_000 })?.type,
+      a1(READY_TARGETS, 90, { currency: "KWD", dailyBudget: 100_000 }),
+    ).toBeNull();
+  });
+
+  it("HUF: the ISO exponent would have understated the budget 100x", () => {
+    /*
+      The divergence in the other direction, and the reason this repository
+      cannot simply read ISO for a provider amount. Meta lists HUF at offset
+      1; ISO calls it two-decimal.
+
+      100,000 HUF/day funds 100000*7/81.82 = 8,555 weekly conversions, far
+      over the 50 floor, so A1 emits nothing. Read through ISO the same budget
+      would be 1,000 -> 85.6 -> still over. The discriminating budget is the
+      small one below.
+    */
+    expect(
+      a1(READY_TARGETS, 90, { currency: "HUF", dailyBudget: 100_000 }),
+    ).toBeNull();
+    /*
+      500 HUF/day funds 500*7/81.82 = 42.8 weekly -> under the floor, so A1
+      emits. Read through ISO it would be 5 HUF -> 0.43 -> also under, and the
+      verdict would agree by accident. 600 HUF/day is the one that separates
+      them: 51.3 weekly clears the floor, while the ISO reading of 6 gives
+      0.51 and would report the floor as unreachable.
+    */
+    expect(
+      a1(READY_TARGETS, 90, { currency: "HUF", dailyBudget: 500 })?.type,
     ).toBe("scenario_a1_math_floor_unmet");
+    expect(
+      a1(READY_TARGETS, 90, { currency: "HUF", dailyBudget: 600 }),
+    ).toBeNull();
   });
 });
 describe("B1 checks its OWN eligibility before it checks AOV authority", () => {

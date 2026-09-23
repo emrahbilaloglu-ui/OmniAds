@@ -377,9 +377,6 @@ function calibrationProjection(row: Record<string, unknown>) {
     landingPageViews: number(row.landing_page_views),
     addToCart: number(row.add_to_cart),
     initiateCheckout: number(row.initiate_checkout),
-    objective: String(row.objective),
-    optimizationGoal: String(row.optimization_goal),
-    customEventType: String(row.custom_event_type),
   };
 }
 
@@ -387,10 +384,6 @@ function warehouseCalibrationProjection(
   row: MetaAdDailyRow,
   providerAccountRefId: string,
 ) {
-  const payload =
-    row.payloadJson && typeof row.payloadJson === "object"
-      ? (row.payloadJson as Record<string, unknown>)
-      : {};
   return {
     businessId: row.businessId,
     providerAccountRefId,
@@ -413,12 +406,9 @@ function warehouseCalibrationProjection(
     finalizedAt: timestamp(row.finalizedAt),
     createdAt: timestamp(row.createdAt),
     updatedAt: timestamp(row.updatedAt),
-    landingPageViews: number(payload.landing_page_views),
-    addToCart: number(payload.add_to_cart),
-    initiateCheckout: number(payload.initiate_checkout),
-    objective: "OUTCOME_SALES",
-    optimizationGoal: "OFFSITE_CONVERSIONS",
-    customEventType: "PURCHASE",
+    landingPageViews: number(row.landingPageViews),
+    addToCart: number(row.addToCart),
+    initiateCheckout: number(row.initiateCheckout),
   };
 }
 
@@ -3568,9 +3558,13 @@ async function main() {
           revenue: 400,
           linkClicks: 80,
           payload: {
-            landing_page_views: "71",
-            add_to_cart: "9",
-            initiate_checkout: "4",
+            actions: [
+              { action_type: "landing_page_view", value: "71" },
+              { action_type: "add_to_cart", value: "9" },
+              { action_type: "offsite_conversion.fb_pixel_add_to_cart", value: "9" },
+              { action_type: "omni_add_to_cart", value: "12" },
+              { action_type: "initiate_checkout", value: "4" },
+            ],
             preview_url: "https://media.invalid/should-not-persist",
             preview: {
               image_url: "https://media.invalid/nested-should-not-persist",
@@ -3592,9 +3586,11 @@ async function main() {
           revenue: 30,
           linkClicks: 8,
           payload: {
-            landing_page_views: "7",
-            add_to_cart: "2",
-            initiate_checkout: "1",
+            actions: [
+              { action_type: "landing_page_view", value: "7" },
+              { action_type: "add_to_cart", value: "2" },
+              { action_type: "initiate_checkout", value: "1" },
+            ],
           },
         }),
       ],
@@ -3725,6 +3721,12 @@ async function main() {
       (row) => row.adId === SAFE_AD_ID,
     );
     assert(safeWarehouseRow, "Cutoff-safe warehouse fact is missing.");
+    assert(
+      safeWarehouseRow.landingPageViews === 71 &&
+        safeWarehouseRow.addToCart === 9 &&
+        safeWarehouseRow.initiateCheckout === 4,
+      "Current warehouse reader did not use the raw actions without summing aliases.",
+    );
     const safePayload = safeWarehouseRow.payloadJson as Record<string, unknown>;
     assert(
       safePayload.preview_url === undefined &&
@@ -3772,7 +3774,16 @@ async function main() {
         safeWarehouseRow,
         providerAccountRefId,
       ),
-      "Calibration/current warehouse shared decision-fact bytes",
+      "Calibration/current warehouse shared metric-fact bytes",
+    );
+    assert(
+      calibrationRows[0]?.objective === null &&
+        calibrationRows[0]?.optimization_goal === null &&
+        calibrationRows[0]?.custom_event_type === null &&
+        calibrationRows[0]?.objective_readiness === "none" &&
+        calibrationRows[0]?.optimization_goal_readiness === "none" &&
+        calibrationRows[0]?.custom_event_type_readiness === "none",
+      "Calibration granted config authority from typed daily rows without a provider config receipt.",
     );
 
     await admin.query(

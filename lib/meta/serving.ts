@@ -4,13 +4,10 @@
  */
 
 import { resolveMetaCredentials } from "@/lib/api/meta";
-import {
-  fetchMetaAdSetConfigs,
-  fetchMetaCampaignConfigs,
-} from "@/lib/api/meta";
 import { getMetaBreakdownSupportedStart } from "@/lib/meta/constraints";
 import {
   readLatestMetaConfigSnapshots,
+  type MetaConfigSnapshotObservation,
   type MetaPreviousConfigDiff,
   readPreviousDifferentMetaConfigDiffs,
 } from "@/lib/meta/config-snapshots";
@@ -51,9 +48,11 @@ import {
   dayCountInclusive,
   getHistoricalWindowStart,
 } from "@/lib/meta/history";
-import { buildConfigSnapshotPayload } from "@/lib/meta/configuration";
+import type { MetaConfigEntityLevel } from "@/lib/meta/config-snapshots";
+import type { MetaConfigSnapshotPayload } from "@/lib/meta/configuration";
 import { isMetaAuthoritativeFinalizationV2EnabledForBusiness } from "@/lib/meta/authoritative-finalization-config";
 import { normalizeMetaCurrencyCode } from "@/lib/meta/account-context";
+import { readDatedRawConfigReceipts } from "@/lib/meta/raw-config-receipts";
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -446,15 +445,15 @@ export interface MetaWarehouseBreakdownsResponse {
 }
 
 interface MetaAdSetFunnelEventTotals {
-  linkClicks: number;
-  landingPageViews: number;
-  addToCart: number;
-  initiateCheckout: number;
-  viewContent: number;
-  leads: number;
-  postEngagement: number;
-  thruplayActions: number;
-  videoViews3s: number;
+  linkClicks: number | null;
+  landingPageViews: number | null;
+  addToCart: number | null;
+  initiateCheckout: number | null;
+  viewContent: number | null;
+  leads: number | null;
+  postEngagement: number | null;
+  thruplayActions: number | null;
+  videoViews3s: number | null;
 }
 
 export interface MetaWarehouseCountryBreakdownsResponse {
@@ -597,11 +596,13 @@ function filterBreakdownRowsToPublishedKeys<
   rows: T[];
   verification: MetaPublishedVerificationSummary | null | undefined;
   requiredBreakdownTypes: string[];
-}) {
+}): { rows: T[]; incompletePublishedKeys: number } {
   const publishedKeys = new Set(
-    input.verification?.publishedKeysBySurface.account_daily ?? [],
+    input.verification?.publishedKeysBySurface.breakdown_daily ?? [],
   );
-  if (publishedKeys.size === 0) return [] as T[];
+  if (publishedKeys.size === 0) {
+    return { rows: [] as T[], incompletePublishedKeys: 0 };
+  }
 
   const requiredTypes = new Set(input.requiredBreakdownTypes);
   const breakdownTypesByKey = new Map<string, Set<string>>();
@@ -616,16 +617,27 @@ function filterBreakdownRowsToPublishedKeys<
     }
   }
 
-  return input.rows.filter((row) => {
-    const key = `${row.providerAccountId}:${normalizeMetaServingDate(row.date)}`;
-    if (!publishedKeys.has(key)) return false;
-    const presentTypes = breakdownTypesByKey.get(key);
-    if (!presentTypes) return false;
+  let incompletePublishedKeys = 0;
+  const completeKeys = new Set<string>();
+  for (const [key, presentTypes] of breakdownTypesByKey) {
+    let complete = true;
     for (const requiredType of requiredTypes) {
-      if (!presentTypes.has(requiredType)) return false;
+      if (!presentTypes.has(requiredType)) {
+        complete = false;
+        break;
+      }
     }
-    return true;
-  });
+    if (complete) completeKeys.add(key);
+    else incompletePublishedKeys += 1;
+  }
+
+  return {
+    rows: input.rows.filter((row) => {
+      const key = `${row.providerAccountId}:${normalizeMetaServingDate(row.date)}`;
+      return publishedKeys.has(key) && completeKeys.has(key);
+    }),
+    incompletePublishedKeys,
+  };
 }
 
 type RequestedMetaBreakdownType = "age" | "gender" | "country" | "placement";
@@ -796,7 +808,7 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
           startDate: input.startDate,
           endDate: input.endDate,
           providerAccountIds,
-          surfaces: ["account_daily", "campaign_daily"],
+          surfaces: ["breakdown_daily"],
         }).catch(() => null)
       : Promise.resolve(null),
     getMetaCampaignDailyRange({
@@ -813,7 +825,7 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
       campaignIds: null,
     }).catch(() => []),
   ]);
-  const breakdownRows = v2Enabled
+  const filteredBreakdowns = v2Enabled
     ? filterBreakdownRowsToPublishedKeys({
         rows: rawBreakdownRows,
         verification,
@@ -821,7 +833,8 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
           ...(input.requiredBreakdownTypes ?? input.requestedBreakdownTypes),
         ],
       })
-    : rawBreakdownRows;
+    : { rows: rawBreakdownRows, incompletePublishedKeys: 0 };
+  const breakdownRows = filteredBreakdowns.rows;
 
   return {
     breakdownRows,
@@ -830,7 +843,9 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
       adset: aggregateMetaAdSetBreakdownBudgetRows(adsetRows),
     },
     verification,
-    isPartial: v2Enabled ? !verification?.truthReady : breakdownRows.length === 0,
+    isPartial: v2Enabled
+      ? !verification?.truthReady || filteredBreakdowns.incompletePublishedKeys > 0
+      : breakdownRows.length === 0,
   };
 }
 
@@ -1596,123 +1611,104 @@ function buildCurrentConfigFromSnapshot(payload: {
   };
 }
 
-async function readCurrentConfigFallbacks(input: {
+async function readDatedConfigSnapshots<T extends {
+  providerAccountId: string;
+  date: string;
+}>(input: {
   businessId: string;
-  providerAccountIds: string[];
-}): Promise<{
-  campaignConfigsByAccount: Map<string, Map<string, MetaWarehouseCurrentConfig>>;
-  adsetConfigsByAccount: Map<string, Map<string, MetaWarehouseCurrentConfig>>;
-}> {
-  const providerAccountIds = Array.from(new Set(input.providerAccountIds.filter(Boolean)));
-  if (providerAccountIds.length === 0) {
-    return {
-      campaignConfigsByAccount: new Map(),
-      adsetConfigsByAccount: new Map(),
+  entityLevel: MetaConfigEntityLevel;
+  rows: T[];
+  entityIdOf: (row: T) => string;
+  onObservation?: (key: string, source: MetaConfigSnapshotObservation) => void;
+  requireProviderReceipt?: boolean;
+}): Promise<Map<string, MetaConfigSnapshotPayload>> {
+  const groups = new Map<string, { accountId: string; day: string; ids: Set<string> }>();
+  for (const row of input.rows) {
+    const entityId = input.entityIdOf(row);
+    if (!entityId || !row.providerAccountId || !row.date) continue;
+    const key = `${row.providerAccountId}:${row.date}`;
+    const group = groups.get(key) ?? {
+      accountId: row.providerAccountId,
+      day: row.date,
+      ids: new Set<string>(),
     };
+    group.ids.add(entityId);
+    groups.set(key, group);
   }
-
-  const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
-  if (!credentials?.accessToken) {
-    return {
-      campaignConfigsByAccount: new Map(),
-      adsetConfigsByAccount: new Map(),
-    };
-  }
-
-  const campaignConfigsByAccount = new Map<string, Map<string, MetaWarehouseCurrentConfig>>();
-  const adsetConfigsByAccount = new Map<string, Map<string, MetaWarehouseCurrentConfig>>();
-
-  await Promise.all(
-    providerAccountIds.map(async (providerAccountId) => {
-      const [campaignConfigs, adsetConfigs] = await Promise.all([
-        fetchMetaCampaignConfigs(credentials, providerAccountId, credentials.accessToken).catch(
-          () => new Map()
-        ),
-        fetchMetaAdSetConfigs(providerAccountId, credentials.accessToken).catch(
-          () => new Map()
-        ),
-      ]);
-
-      const campaignMap = new Map<string, MetaWarehouseCurrentConfig>();
-      for (const [campaignId, campaignConfig] of campaignConfigs.entries()) {
-        campaignMap.set(
-          campaignId,
-          buildCurrentConfigFromSnapshot(
-            buildConfigSnapshotPayload({
-              campaignId,
-              objective: campaignConfig.objective ?? null,
-              bidStrategy: campaignConfig.bid_strategy ?? null,
-              manualBidAmount:
-                campaignConfig.bid_amount != null ? Number(campaignConfig.bid_amount) : null,
-              targetRoas:
-                campaignConfig.bid_constraints?.roas_average_floor != null
-                  ? Number(campaignConfig.bid_constraints.roas_average_floor)
-                  : null,
-              dailyBudget:
-                campaignConfig.daily_budget != null ? Number(campaignConfig.daily_budget) : null,
-              lifetimeBudget:
-                campaignConfig.lifetime_budget != null
-                  ? Number(campaignConfig.lifetime_budget)
-                  : null,
-            })
-          )
-        );
+  // A repair range may contain hundreds of provider days across many accounts.
+  // Bound the read fan-out so a historical repair does not exhaust the DB pool.
+  const pending = [...groups.entries()];
+  const results: Array<{ key: string; rows: Map<string, MetaConfigSnapshotPayload> }> = [];
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
+    while (next < pending.length) {
+      const [key, group] = pending[next++]!;
+      if (input.requireProviderReceipt) {
+        // A derived config snapshot is never stronger evidence than its raw
+        // source. Read the original complete provider receipt directly so an
+        // orphaned/misattributed snapshot cannot repair a historical fact.
+        const rawRows = await readDatedRawConfigReceipts({
+          businessId: input.businessId,
+          providerAccountId: group.accountId,
+          day: group.day,
+          level: input.entityLevel,
+          entityIds: [...group.ids],
+        });
+        const selected = new Map<string, MetaConfigSnapshotPayload>();
+        for (const [entityId, raw] of rawRows) {
+          selected.set(entityId, raw.payload);
+          input.onObservation?.(`${key}:${entityId}`, {
+            id: raw.source.id,
+            accountId: group.accountId,
+            accountTimezone: raw.source.accountTimezone,
+            capturedAt: raw.source.observedAt,
+            sourceKind: "meta_raw_snapshots",
+            providerObservation: {
+              kind: "provider_config_receipt",
+              sourceSnapshotId: raw.source.id,
+              sourceObservationId: raw.source.observationId,
+              observedAt: raw.source.observedAt,
+              entityUpdatedAt: raw.source.entityUpdatedAt,
+              corroboratingSourceSnapshotId: raw.source.corroboratingSourceSnapshotId,
+              corroboratingObservationId: raw.source.corroboratingObservationId,
+              corroboratingObservedAt: raw.source.corroboratingObservedAt,
+              normalizationVersion: raw.source.normalizationVersion,
+              fieldScope: raw.source.fieldScope,
+              observedFieldScope: raw.source.observedFieldScope,
+            },
+          });
+        }
+        results.push({ key, rows: selected });
+        continue;
       }
-      campaignConfigsByAccount.set(providerAccountId, campaignMap);
-
-      const adsetMap = new Map<string, MetaWarehouseCurrentConfig>();
-      for (const [adsetId, adsetConfig] of adsetConfigs.entries()) {
-        const parentCampaign = adsetConfig.campaign_id
-          ? campaignConfigs.get(adsetConfig.campaign_id) ?? null
-          : null;
-        adsetMap.set(
-          adsetId,
-          buildCurrentConfigFromSnapshot(
-            buildConfigSnapshotPayload({
-              campaignId: adsetConfig.campaign_id ?? null,
-              optimizationGoal: adsetConfig.optimization_goal ?? null,
-              customEventType: adsetConfig.promoted_object?.custom_event_type ?? null,
-              pixelId: adsetConfig.promoted_object?.pixel_id ?? null,
-              customConversionId: adsetConfig.promoted_object?.custom_conversion_id ?? null,
-              promotedObject: adsetConfig.promoted_object ?? null,
-              bidStrategy:
-                adsetConfig.bid_strategy ?? parentCampaign?.bid_strategy ?? null,
-              manualBidAmount:
-                adsetConfig.bid_amount != null
-                  ? Number(adsetConfig.bid_amount)
-                  : parentCampaign?.bid_amount != null
-                    ? Number(parentCampaign.bid_amount)
-                    : null,
-              targetRoas:
-                adsetConfig.bid_constraints?.roas_average_floor != null
-                  ? Number(adsetConfig.bid_constraints.roas_average_floor)
-                  : parentCampaign?.bid_constraints?.roas_average_floor != null
-                    ? Number(parentCampaign.bid_constraints.roas_average_floor)
-                    : null,
-              dailyBudget:
-                adsetConfig.daily_budget != null
-                  ? Number(adsetConfig.daily_budget)
-                  : parentCampaign?.daily_budget != null
-                    ? Number(parentCampaign.daily_budget)
-                    : null,
-              lifetimeBudget:
-                adsetConfig.lifetime_budget != null
-                  ? Number(adsetConfig.lifetime_budget)
-                  : parentCampaign?.lifetime_budget != null
-                    ? Number(parentCampaign.lifetime_budget)
-                    : null,
-            })
-          )
-        );
+      const snapshotSources = new Map<string, MetaConfigSnapshotObservation>();
+      const snapshotRows = await readLatestMetaConfigSnapshots({
+        businessId: input.businessId,
+        providerAccountId: group.accountId,
+        entityLevel: input.entityLevel,
+        entityIds: [...group.ids],
+        asOfDay: group.day,
+        requireProviderReceipt: input.requireProviderReceipt,
+        onObservation: (entityId, source) => snapshotSources.set(entityId, source),
+      });
+      const selected = new Map<string, MetaConfigSnapshotPayload>();
+      for (const entityId of group.ids) {
+        const snapshotPayload = snapshotRows.get(entityId);
+        const snapshotSource = snapshotSources.get(entityId);
+        if (snapshotPayload) {
+          selected.set(entityId, snapshotPayload);
+          if (snapshotSource) input.onObservation?.(`${key}:${entityId}`, snapshotSource);
+        }
       }
-      adsetConfigsByAccount.set(providerAccountId, adsetMap);
-    })
-  );
-
-  return {
-    campaignConfigsByAccount,
-    adsetConfigsByAccount,
-  };
+      results.push({
+        key,
+        rows: selected,
+      });
+    }
+  }));
+  return new Map(results.flatMap(({ key, rows }) =>
+    [...rows.entries()].map(([entityId, payload]) => [`${key}:${entityId}`, payload] as const)
+  ));
 }
 
 function mergePreviousConfig(
@@ -1741,11 +1737,10 @@ function mergePreviousConfig(
 export async function hydrateCampaignRowsFromSnapshotsForServing(input: {
   businessId: string;
   rows: MetaCampaignDailyRow[];
+  onObservation?: (key: string, source: MetaConfigSnapshotObservation) => void;
+  requireProviderReceipt?: boolean;
 }) {
-  const candidateIds = Array.from(
-    new Set(
-      input.rows
-        .filter((row) =>
+  const candidates = input.rows.filter((row) =>
           hasMissingConfigValues({
             objective: row.objective,
             optimizationGoal: row.optimizationGoal,
@@ -1758,35 +1753,20 @@ export async function hydrateCampaignRowsFromSnapshotsForServing(input: {
             dailyBudget: row.dailyBudget,
             lifetimeBudget: row.lifetimeBudget,
           })
-        )
-        .map((row) => row.campaignId)
-        .filter(Boolean)
-    )
-  );
-  if (candidateIds.length === 0) return input.rows;
-
-  const [snapshots, currentConfigs] = await Promise.all([
-    readLatestMetaConfigSnapshots({
-      businessId: input.businessId,
-      entityLevel: "campaign",
-      entityIds: candidateIds,
-    }),
-    readCurrentConfigFallbacks({
-      businessId: input.businessId,
-      providerAccountIds: input.rows.map((row) => row.providerAccountId),
-    }),
-  ]);
+        );
+  if (candidates.length === 0) return input.rows;
+  const snapshots = await readDatedConfigSnapshots({
+    businessId: input.businessId,
+    entityLevel: "campaign",
+    rows: candidates,
+    entityIdOf: (row) => row.campaignId,
+    onObservation: input.onObservation,
+    requireProviderReceipt: input.requireProviderReceipt,
+  });
 
   const repairedRows = input.rows.map((row) => {
-    const snapshot = snapshots.get(row.campaignId);
-    const currentConfig =
-      currentConfigs.campaignConfigsByAccount
-        .get(row.providerAccountId)
-        ?.get(row.campaignId) ?? null;
-    return mergeCurrentConfig(
-      mergeCurrentConfig(row, currentConfig),
-      snapshot ? buildCurrentConfigFromSnapshot(snapshot) : null,
-    );
+    const snapshot = snapshots.get(`${row.providerAccountId}:${row.date}:${row.campaignId}`);
+    return mergeCurrentConfig(row, snapshot ? buildCurrentConfigFromSnapshot(snapshot) : null);
   });
 
   return repairedRows;
@@ -1795,18 +1775,18 @@ export async function hydrateCampaignRowsFromSnapshotsForServing(input: {
 export async function repairCampaignRowsFromSnapshots(input: {
   businessId: string;
   rows: MetaCampaignDailyRow[];
+  onObservation?: (key: string, source: MetaConfigSnapshotObservation) => void;
 }) {
-  return hydrateCampaignRowsFromSnapshotsForServing(input);
+  return hydrateCampaignRowsFromSnapshotsForServing({ ...input, requireProviderReceipt: true });
 }
 
 export async function hydrateAdSetRowsFromSnapshotsForServing(input: {
   businessId: string;
   rows: MetaAdSetDailyRow[];
+  onObservation?: (key: string, source: MetaConfigSnapshotObservation) => void;
+  requireProviderReceipt?: boolean;
 }) {
-  const candidateIds = Array.from(
-    new Set(
-      input.rows
-        .filter((row) =>
+  const candidates = input.rows.filter((row) =>
           hasMissingConfigValues({
             optimizationGoal: row.optimizationGoal,
             customEventType: row.customEventType,
@@ -1818,35 +1798,20 @@ export async function hydrateAdSetRowsFromSnapshotsForServing(input: {
             dailyBudget: row.dailyBudget,
             lifetimeBudget: row.lifetimeBudget,
           })
-        )
-        .map((row) => row.adsetId)
-        .filter(Boolean)
-    )
-  );
-  if (candidateIds.length === 0) return input.rows;
-
-  const [snapshots, currentConfigs] = await Promise.all([
-    readLatestMetaConfigSnapshots({
-      businessId: input.businessId,
-      entityLevel: "adset",
-      entityIds: candidateIds,
-    }),
-    readCurrentConfigFallbacks({
-      businessId: input.businessId,
-      providerAccountIds: input.rows.map((row) => row.providerAccountId),
-    }),
-  ]);
+        );
+  if (candidates.length === 0) return input.rows;
+  const snapshots = await readDatedConfigSnapshots({
+    businessId: input.businessId,
+    entityLevel: "adset",
+    rows: candidates,
+    entityIdOf: (row) => row.adsetId,
+    onObservation: input.onObservation,
+    requireProviderReceipt: input.requireProviderReceipt,
+  });
 
   const repairedRows = input.rows.map((row) => {
-    const snapshot = snapshots.get(row.adsetId);
-    const currentConfig =
-      currentConfigs.adsetConfigsByAccount
-        .get(row.providerAccountId)
-        ?.get(row.adsetId) ?? null;
-    return mergeCurrentConfig(
-      mergeCurrentConfig(row, currentConfig),
-      snapshot ? buildCurrentConfigFromSnapshot(snapshot) : null,
-    );
+    const snapshot = snapshots.get(`${row.providerAccountId}:${row.date}:${row.adsetId}`);
+    return mergeCurrentConfig(row, snapshot ? buildCurrentConfigFromSnapshot(snapshot) : null);
   });
 
   return repairedRows;
@@ -1855,8 +1820,9 @@ export async function hydrateAdSetRowsFromSnapshotsForServing(input: {
 export async function repairAdSetRowsFromSnapshots(input: {
   businessId: string;
   rows: MetaAdSetDailyRow[];
+  onObservation?: (key: string, source: MetaConfigSnapshotObservation) => void;
 }) {
-  return hydrateAdSetRowsFromSnapshotsForServing(input);
+  return hydrateAdSetRowsFromSnapshotsForServing({ ...input, requireProviderReceipt: true });
 }
 
 function zeroDetailedMetrics() {
@@ -2107,6 +2073,13 @@ function addToAdsetFunnelTotals(
   row: MetaAdDailyRow,
 ) {
   if (!row.adsetId) return;
+  const delivered =
+    row.spend > 0 || row.impressions > 0 || row.clicks > 0 ||
+    row.conversions > 0 || row.revenue > 0;
+  const addMeasured = (total: number | null, observed: number | null | undefined) => {
+    if (observed == null) return delivered ? null : total;
+    return total == null ? null : total + observed;
+  };
   const current = totals.get(row.adsetId) ?? {
     linkClicks: 0,
     landingPageViews: 0,
@@ -2118,15 +2091,15 @@ function addToAdsetFunnelTotals(
     thruplayActions: 0,
     videoViews3s: 0,
   };
-  current.linkClicks += Number(row.linkClicks ?? 0);
-  current.landingPageViews += Number(row.landingPageViews ?? 0);
-  current.addToCart += Number(row.addToCart ?? 0);
-  current.initiateCheckout += Number(row.initiateCheckout ?? 0);
-  current.viewContent += Number(row.viewContent ?? 0);
-  current.leads += Number(row.leads ?? 0);
-  current.postEngagement += Number(row.postEngagement ?? 0);
-  current.thruplayActions += Number(row.thruplayActions ?? 0);
-  current.videoViews3s += Number(row.videoViews3s ?? 0);
+  current.linkClicks = addMeasured(current.linkClicks, row.linkClicks);
+  current.landingPageViews = addMeasured(current.landingPageViews, row.landingPageViews);
+  current.addToCart = addMeasured(current.addToCart, row.addToCart);
+  current.initiateCheckout = addMeasured(current.initiateCheckout, row.initiateCheckout);
+  current.viewContent = addMeasured(current.viewContent, row.viewContent);
+  current.leads = addMeasured(current.leads, row.leads);
+  current.postEngagement = addMeasured(current.postEngagement, row.postEngagement);
+  current.thruplayActions = addMeasured(current.thruplayActions, row.thruplayActions);
+  current.videoViews3s = addMeasured(current.videoViews3s, row.videoViews3s);
   totals.set(row.adsetId, current);
 }
 

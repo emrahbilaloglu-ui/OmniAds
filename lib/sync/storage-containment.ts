@@ -36,15 +36,9 @@ export interface ConfigHistoryGrowthMeasurement {
   rowsLastHour: number;
   /** Rows written in the last day. */
   rowsLastDay: number;
-  /**
-   * Rows that are a genuine transition from the entity's previous row.
-   *
-   * The number that matters: growth is only legitimate when every new row is a
-   * configuration change. Anything else is the per-observation append that made
-   * these tables what they are.
-   */
+  /** Rows that change configuration or upgrade a legacy value to a raw-linked provider receipt. */
   transitionsLastDay: number;
-  /** Redundant rows in the last day — the defect, if it is still happening. */
+  /** Repeated values without new source authority — the growth defect. */
   redundantLastDay: number;
 }
 
@@ -52,8 +46,9 @@ export interface ConfigHistoryGrowthMeasurement {
  * Is the forward growth of a config-history table legitimate?
  *
  * READ-ONLY. It compares each recent row against the previous row for the same
- * entity and counts how many are genuine transitions. A contained table has
- * `redundantLastDay === 0`: every row it gained described a change.
+ * entity and counts configuration changes plus the one-time promotion of a
+ * legacy derived value to a raw-linked provider observation. A contained table
+ * has `redundantLastDay === 0`: repeated provider receipts still coalesce.
  *
  * Bounded by an explicit row cap so this cannot become a full-table window scan
  * on a 22 GB relation.
@@ -68,7 +63,7 @@ export async function measureConfigHistoryForwardGrowth(input: {
   const rows = (await sql.query(
     `WITH recent AS (
        SELECT business_id, provider_account_id, ${input.entityColumn} AS entity_id,
-              config_fingerprint, captured_at, id
+              config_fingerprint, source_kind, source_snapshot_id, captured_at, id
        FROM ${input.table}
        WHERE captured_at >= now() - interval '1 day'
        ORDER BY captured_at DESC, id DESC
@@ -79,7 +74,11 @@ export async function measureConfigHistoryForwardGrowth(input: {
               LAG(config_fingerprint) OVER (
                 PARTITION BY business_id, provider_account_id, entity_id
                 ORDER BY captured_at ASC, id ASC
-              ) AS previous_fingerprint
+              ) AS previous_fingerprint,
+              LAG(source_kind) OVER (
+                PARTITION BY business_id, provider_account_id, entity_id
+                ORDER BY captured_at ASC, id ASC
+              ) AS previous_source_kind
        FROM recent
      )
      SELECT
@@ -89,10 +88,16 @@ export async function measureConfigHistoryForwardGrowth(input: {
        COUNT(*) FILTER (
          WHERE previous_fingerprint IS NULL
             OR previous_fingerprint IS DISTINCT FROM config_fingerprint
+            OR (source_kind = 'provider_config_receipt'
+                AND source_snapshot_id IS NOT NULL
+                AND previous_source_kind IS DISTINCT FROM 'provider_config_receipt')
        )::int AS transitions_last_day,
        COUNT(*) FILTER (
          WHERE previous_fingerprint IS NOT NULL
            AND previous_fingerprint = config_fingerprint
+           AND NOT (source_kind = 'provider_config_receipt'
+                    AND source_snapshot_id IS NOT NULL
+                    AND previous_source_kind IS DISTINCT FROM 'provider_config_receipt')
        )::int AS redundant_last_day
      FROM ordered`,
     [sampleLimit],

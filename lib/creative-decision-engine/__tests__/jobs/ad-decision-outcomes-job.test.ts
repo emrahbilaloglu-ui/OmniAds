@@ -44,6 +44,12 @@ it("does not use PostgreSQL's reserved WINDOW keyword as a finalize alias", () =
   expect(FINALIZE_AD_DECISION_OUTCOME_RUN_SQL).not.toContain("AS window(days)");
 });
 
+it("scopes both state-history reads by the leading business_id index key", () => {
+  expect(READ_AD_DECISION_OUTCOME_SOURCE_ROWS_SQL.match(
+    /WHERE history\.business_id = candidate\.business_id/g,
+  )).toHaveLength(2);
+});
+
 function accountReceipt(date: string) {
   const published = new Date(`${date}T00:00:00.000Z`);
   published.setUTCDate(published.getUTCDate() + 1);
@@ -1183,6 +1189,45 @@ describe("native ad decision outcome contract", () => {
       reason: "already_ran",
       asOf: "2026-07-12",
     });
+  });
+
+  it("runs at most two business outcome jobs concurrently", async () => {
+    let running = 0;
+    let maxRunning = 0;
+    const businesses = Array.from({ length: 5 }, (_, index) => ({
+      id: `business-${index}`,
+    }));
+    const result = await runAdDecisionOutcomesJobForActiveBusinessesIfDue(
+      new Date("2026-07-12T04:20:00.000Z"),
+      businesses,
+      {
+        jobsDisabled: () => false,
+        inspectSchema: async () => ({ ready: true, missing: [] }),
+        readCompletedBusinessIds: async () => [],
+        runJob: async () => {
+          running += 1;
+          maxRunning = Math.max(maxRunning, running);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          running -= 1;
+          return {
+            jobRunId: "job-run-due",
+            status: "success",
+            engineVersion: NATIVE_AD_ENGINE_VERSION,
+            sourceRowCount: 0,
+            outcomeRowCount: 0,
+            insertedRowCount: 0,
+            publishedWindowCount: 3,
+            controlledRegistryAvailable: true,
+            sourceSetHash: HASH_A,
+            durationMs: 5,
+          };
+        },
+      },
+    );
+    expect(maxRunning).toBe(2);
+    expect(result.results?.map((row) => row.businessId)).toEqual(
+      businesses.map((business) => business.id),
+    );
   });
 
   it("runs the scheduler-callable native job under lock, job-run, savepoint, and atomic publication", async () => {

@@ -208,6 +208,10 @@ function nativeCellRow(
     duplicateConflictAdExclusionCount: 0,
     missingContextAdExclusionCount: 0,
     mixedContextAdExclusionCount: 0,
+    contextWindowTruncatedAdCount: 0,
+    contextWindowTruncatedSourceRowCount: 0,
+    contextChangeTruncatedAdCount: 0,
+    contextGapTruncatedAdCount: 0,
     mixedCurrencyAdExclusionCount: 0,
     mixedObjectiveAdExclusionCount: 0,
     mixedCohortAdExclusionCount: 0,
@@ -268,6 +272,7 @@ function nativeCellRow(
     metric_sample_counts_json: metricCounts,
     action_readiness_json: actionReadiness,
     quality_counts_json: qualityCounts,
+    config_authority_counts_json: CONFIG_AUTHORITY_COUNTS,
     quality_status: "ready",
     target_authority_status: target.status,
     target_roas: target.targetRoas,
@@ -323,12 +328,36 @@ function nativeCellRow(
     inputManifestHash: "0".repeat(64),
     sourceManifestHash: String(row.source_manifest_hash),
     qualityCounts,
+    /*
+      A real value, not null: the round-trip has to prove the counts survive the
+      column AND that they are what the `.v6` manifest hashes. A fixture that
+      passed null here would round-trip a field the writer never wrote.
+    */
+    configAuthorityCounts: CONFIG_AUTHORITY_COUNTS,
     contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
   } satisfies NativeAdCalibrationCell;
   row.input_manifest_hash =
     recomputeNativeAdCalibrationCellInputManifestHash(cell);
   return row;
 }
+
+/** Deliberately uneven, so a mapper that zeroed or reordered fields shows up. */
+const CONFIG_AUTHORITY_COUNTS = {
+  decisionAuthorityDays: 27,
+  reviewOnlyPendingDays: 2,
+  reviewOnlySettledDays: 1,
+  noneDays: 0,
+  decisionAuthoritySpend: 2700.5,
+  reviewOnlyPendingSpend: 200.25,
+  reviewOnlySettledSpend: 100,
+  noneSpend: 0,
+  decisionAuthorityAds: 27,
+  reviewOnlyAds: 3,
+  noneAds: 0,
+  verifiedSuffixAds: 27,
+  verifiedSuffixDays: 640,
+  verifiedSuffixSpend: 2700.5,
+} as const;
 
 function productionSourceRow(index: number): NativeAdCalibrationSourceRow {
   return {

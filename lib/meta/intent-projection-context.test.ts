@@ -93,6 +93,12 @@ const STATE = [
     budget_origin: "adset", owned_minor: "50000", owned_field_count: 1,
     budget_currency: "USD", budget_currency_exponent: 2,
   },
+  {
+    // Carries a fractional bid value, which no provider read can produce.
+    entity_type: "adset", entity_id: "set_fractional", campaign_id: "camp_cbo",
+    budget_origin: "campaign", owned_minor: null, owned_field_count: 0,
+    budget_currency: "USD", budget_currency_exponent: 2,
+  },
 ];
 
 const METRICS = [
@@ -102,12 +108,22 @@ const METRICS = [
 
 const BIDS = [
   {
+    /* A $12.00 cap. Meta returns `bid_amount` in minor units and this column
+       stores it unscaled, so $12.00 IS 1200 — not 12. The fixture previously
+       carried 12 and expected 1200, which encoded the major-unit misreading
+       this file now pins against. */
     entity_id: "set_under_cbo", campaign_id: "camp_cbo",
-    bid_strategy_type: "cost_cap", bid_value: 12, bid_value_format: "currency",
+    bid_strategy_type: "cost_cap", bid_value: 1200, bid_value_format: "currency",
   },
   {
     entity_id: "set_abo", campaign_id: "camp_abo",
     bid_strategy_type: "target_roas", bid_value: 2.2, bid_value_format: "roas",
+  },
+  /* A fractional currency value cannot be a whole number of minor units. No
+     provider read produces one; it is refused rather than rounded. */
+  {
+    entity_id: "set_fractional", campaign_id: "camp_cbo",
+    bid_strategy_type: "bid_cap", bid_value: 12.5, bid_value_format: "currency",
   },
 ];
 
@@ -172,13 +188,28 @@ describe("the budget owner comes from budget_origin, never from an amount", () =
 });
 
 describe("a bid cap is a currency amount, never a ratio", () => {
-  it("scales a currency-format value into minor units", async () => {
+  /*
+    Meta's Ad Set reference: "The bid amount's unit is cents for currencies like
+    USD, EUR, and the basic unit for currencies like JPY, KRW." `live.ts` stores
+    that number unscaled, so the stored value is ALREADY minor units. This
+    reader used to multiply it by `10 ** exponent` a second time, turning a
+    $120.00 cap into $12,000.00 on USD and 1000x on KWD.
+  */
+  it("reads a currency-format value as minor units, without rescaling it", async () => {
     const contexts = await read();
     expect(contexts!.bidByAdsetId.get("set_under_cbo")).toMatchObject({
       bidStrategyType: "cost_cap",
       currentBidMinor: 1200,
       deliveryConstrained: true,
     });
+    /* The old reader would have produced 1200 * 10**2 here. */
+    expect(contexts!.bidByAdsetId.get("set_under_cbo")?.currentBidMinor)
+      .not.toBe(120_000);
+  });
+
+  it("refuses a fractional value rather than rounding it into minor units", async () => {
+    const contexts = await read();
+    expect(contexts!.bidByAdsetId.get("set_fractional")?.currentBidMinor).toBeNull();
   });
 
   it("refuses a roas-format value as a cap", async () => {

@@ -80,7 +80,94 @@ describe("automatic campaign context source", () => {
       "2026-07-12",
       2,
       "act_1",
+      // No point-in-time bound on the production path: it reads at "now".
+      null,
     ]);
+  });
+
+  /*
+    ── HISTORICAL REPLAY: ONLY WHAT EXISTED AT THE CUTOFF ────────────────────
+
+    engine_v3_campaign_context_daily is written with ON CONFLICT ... DO UPDATE
+    ... updated_at = now(), so a row that existed at a replay's cutoff can have
+    been rewritten since. The role the job read is then gone. It is withheld —
+    never replaced by an older day the job did not read — and the campaign is
+    left unresolved, which holds hard actions.
+  */
+  it("binds the read to rows created at or before a replay cutoff", async () => {
+    mocks.query.mockResolvedValue([INFERRED_ROW]);
+    await readCampaignContextMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      campaignIds: ["campaign-inferred"],
+      asOf: "2026-07-12",
+      mode: "automatic",
+      visibleAtCutoff: "2026-07-12T03:05:00.000Z",
+    });
+    expect(mocks.query.mock.calls[0]?.[0]).toContain(
+      "AND ($6::timestamptz IS NULL OR created_at <= $6::timestamptz)",
+    );
+    expect(mocks.query.mock.calls[0]?.[1]?.[5]).toBe("2026-07-12T03:05:00.000Z");
+  });
+
+  it("POSITIVE: keeps a row last written before the cutoff", async () => {
+    mocks.query.mockResolvedValue([INFERRED_ROW]); // updated 02:00
+    const exclusions = new Map<string, string>();
+    const map = await readCampaignContextMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      campaignIds: ["campaign-inferred"],
+      asOf: "2026-07-12",
+      mode: "automatic",
+      visibleAtCutoff: "2026-07-12T03:05:00.000Z",
+      pitExclusions: exclusions as never,
+    });
+    expect(map.get("campaign-inferred")?.kind).toBe("main");
+    expect(exclusions.size).toBe(0);
+  });
+
+  it("NEGATIVE: withholds a row rewritten after the cutoff instead of trusting it", async () => {
+    mocks.query.mockResolvedValue([
+      { ...INFERRED_ROW, source_updated_at: "2026-07-12 09:00:00+00" },
+    ]);
+    const exclusions = new Map<string, string>();
+    const map = await readCampaignContextMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      campaignIds: ["campaign-inferred"],
+      asOf: "2026-07-12",
+      mode: "automatic",
+      visibleAtCutoff: "2026-07-12T03:05:00.000Z",
+      pitExclusions: exclusions as never,
+    });
+    expect(exclusions.get("campaign-inferred")).toBe("overwritten_after_cutoff");
+    // Unresolved, not the rewritten role and not an older one.
+    expect(map.get("campaign-inferred")).toMatchObject({
+      kind: null,
+      contextTrust: "unknown",
+    });
+    // The same row with no cutoff is the production read and is trusted as before.
+    const live = await readCampaignContextMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      campaignIds: ["campaign-inferred"],
+      asOf: "2026-07-12",
+      mode: "automatic",
+    });
+    expect(live.get("campaign-inferred")?.kind).toBe("main");
+  });
+
+  it("refuses a cutoff that is not an instant", async () => {
+    await expect(
+      readCampaignContextMap({
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        campaignIds: ["campaign-inferred"],
+        asOf: "2026-07-12",
+        mode: "automatic",
+        visibleAtCutoff: "yesterday",
+      }),
+    ).rejects.toThrow(/not an instant/);
   });
 
   it("grants high trust only to the exact independently approved resolver version", async () => {

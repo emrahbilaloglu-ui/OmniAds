@@ -509,6 +509,67 @@ describe("Meta History read model", () => {
     );
   });
 
+  it("never serves a bid value without the unit discriminator beside it", () => {
+    /*
+      `bid_value` holds two number systems: provider minor units when
+      `bid_value_format` is "currency", and a plain ROAS multiplier when it is
+      "roas". The journal emitted the number and not the discriminator, so a
+      consumer had nothing to tell a 12000 minor-unit bid cap from a 12000x
+      ROAS target. The column is written by the same INSERT as the value and
+      exists on both tables, so this was a projection omission, not a gap in
+      the data.
+
+      Both the current value and its predecessor are asserted, because a
+      journal entry exists to show a movement and a movement needs both ends
+      in the same unit system.
+    */
+    for (const key of [
+      "'bidValueFormat', config.bid_value_format",
+      "'previousBidValueFormat', config.prev_bid_value_format",
+      "'bidValueFormat', adset_config.bid_value_format",
+      "'previousBidValueFormat', adset_config.prev_bid_value_format",
+    ]) {
+      expect(META_HISTORY_READ_SQL).toContain(key);
+    }
+    expect(META_HISTORY_READ_SQL).toContain(
+      "LAG(config.bid_value_format) OVER w AS prev_bid_value_format",
+    );
+    expect(META_HISTORY_READ_SQL).toContain(
+      "LAG(adset_config.bid_value_format) OVER w AS prev_bid_value_format",
+    );
+  });
+
+  it("carries a predecessor for every budget its change predicate fires on", () => {
+    /*
+      The ad-set change predicate treats a lifetime-budget move as an edit, but
+      the detail object omitted `previousLifetimeBudget` — so an ABO ad set
+      whose lifetime budget changed served the new figure with nothing to
+      compare it against. Budget lives on the ad set for ABO accounts, which
+      makes that the common case.
+    */
+    expect(META_HISTORY_READ_SQL).toContain(
+      "'previousLifetimeBudget', adset_config.prev_lifetime_budget",
+    );
+    expect(META_HISTORY_READ_SQL).toContain(
+      "'previousLifetimeBudget', config.prev_lifetime_budget",
+    );
+  });
+
+  it("does not put the unit discriminator into the change predicate", () => {
+    /*
+      Deliberate. `bid_value_format` is an input to the config fingerprint, and
+      the fingerprint is part of the history table's unique key — so a
+      discriminator flip materialises a NEW row rather than updating one.
+      Adding it to the predicate would surface that new row as a
+      "configuration changed" entry for an edit nobody made. Nothing is lost:
+      the format is a pure function of the bid strategy and whether the bid
+      value is null, and both are already in the predicate.
+    */
+    expect(META_HISTORY_READ_SQL).not.toMatch(
+      /bid_value_format\s+IS\s+DISTINCT\s+FROM/i,
+    );
+  });
+
   it("uses grain-specific unnamed labels instead of provider ids in titles", () => {
     for (const label of [
       "Unnamed campaign",

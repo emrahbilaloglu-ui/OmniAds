@@ -1,3 +1,4 @@
+import { EMPTY_HYDRATED_CONFIG_AUTHORITY } from "@/lib/creative-decision-engine/native-ad-hydration-authority";
 import { describe, expect, it } from "vitest";
 
 import type { CampaignContextLabelMap } from "../../campaign-context/source";
@@ -182,6 +183,8 @@ function adInput(shape: AdShape): AdDecisionInput {
     fatigueStatus: shape.creativeFatigue ?? null,
   });
   return {
+    /* Producer evidence; `toResolverInput` strips it before the resolver runs. */
+    configAuthority: EMPTY_HYDRATED_CONFIG_AUTHORITY,
     ...creative,
     decisionEntityType: "ad",
     decisionEntityId: shape.adId,

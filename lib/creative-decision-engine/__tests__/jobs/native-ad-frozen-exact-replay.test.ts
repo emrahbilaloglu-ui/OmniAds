@@ -1,3 +1,4 @@
+import { observedConfigAuthority } from "@/lib/creative-decision-engine/__tests__/config-authority-fixture";
 import { describe, expect, it } from "vitest";
 import { type NativeAdCalibrationCellQuery } from "../../ad-account-decision-profile";
 import type { CampaignContextLabelMap } from "../../campaign-context/source";
@@ -108,6 +109,22 @@ interface FrozenFixture {
    */
   engineVersion: string;
   sourceMode: "anonymized_frozen_acceptance_fixture";
+  /**
+   * How well the replayed day's configuration was observed.
+   *
+   * Frozen with the case because the cell's hard sample is the verified suffix:
+   * a row that states no provenance lends nothing to it, so leaving this absent
+   * would have quietly turned a READY acceptance case into an unprovenanced one.
+   */
+  configProvenance: {
+    _why: string;
+    objectiveTier: string;
+    objectiveReadiness: string;
+    optimizationGoalTier: string;
+    optimizationGoalReadiness: string;
+    customEventTypeTier: string;
+    customEventTypeReadiness: string;
+  };
   sourceProvenance: {
     mode: "synthetic_anonymized_production_contract_fixture";
     productionFunctions: string[];
@@ -292,6 +309,15 @@ function makeCalibrationSourceRow(input: {
     objective: fixture.objective,
     optimizationGoal: fixture.optimizationGoal,
     customEventType: fixture.customEventType,
+    /* Frozen with the case; see `configProvenance._why` in the fixture. */
+    objectiveTier: fixture.configProvenance.objectiveTier,
+    objectiveReadiness: fixture.configProvenance.objectiveReadiness,
+    optimizationGoalTier: fixture.configProvenance.optimizationGoalTier,
+    optimizationGoalReadiness:
+      fixture.configProvenance.optimizationGoalReadiness,
+    customEventTypeTier: fixture.configProvenance.customEventTypeTier,
+    customEventTypeReadiness:
+      fixture.configProvenance.customEventTypeReadiness,
     spend: 120 + input.index,
     impressions: 10_000,
     clicks: 300,
@@ -424,6 +450,8 @@ function makeNativeInput(archetype: FrozenNativeArchetype): AdDecisionInput {
     ...archetype.metrics,
   });
   return {
+    /* Producer evidence; the config is known, which is what this fixture always meant. */
+    configAuthority: observedConfigAuthority(),
     ...creative,
     decisionEntityType: "ad",
     decisionEntityId: archetype.adId,

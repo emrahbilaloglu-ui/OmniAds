@@ -48,6 +48,7 @@ import {
   readMetaAdDimensions,
   readMetaCreativeDimensions,
   type MetaAdDimensionRecord,
+  type MetaCreativeDimensionRecord,
 } from "@/lib/meta/request-model-store";
 import type { MetaAdDailyRow, MetaCreativeDailyRow, MetaCreativeMediaRow } from "@/lib/meta/warehouse-types";
 import { getCreativeMediaRetentionStart } from "@/lib/meta/history";
@@ -897,6 +898,106 @@ function resolveAdCreativeId(row: MetaAdDailyRow, dimension: MetaAdDimensionReco
   );
 }
 
+function adDayIdentityKey(row: {
+  providerAccountId: string;
+  date: string;
+}, adId: string) {
+  return JSON.stringify([row.providerAccountId, row.date, adId]);
+}
+
+function observedBeforeCutoff(value: string | null | undefined, cutoffMs: number) {
+  if (!value || !Number.isFinite(cutoffMs)) return false;
+  const observedMs = Date.parse(value);
+  return Number.isFinite(observedMs) && observedMs < cutoffMs;
+}
+
+/**
+ * Recover an Ad -> creative association only from an exact Ad-day membership.
+ * The current creative dimension corroborates the source Ad ID but cannot by
+ * itself project today's relationship into an earlier report day. Legacy
+ * creative days can prove a single member through `real_ad_id` plus the
+ * stored distinct-member count; `readCreativeDaySourceIdentity` implements
+ * that same contract for all creative-grain readers.
+ */
+function recoverAdCreativeIdsForDays(input: {
+  businessId: string;
+  providerAccountId: string;
+  requestedCreativeId: string;
+  adDays: MetaAdDailyRow[];
+  creativeDays: MetaCreativeDailyRow[];
+  creativeDimension: MetaCreativeDimensionRecord | undefined;
+  knowledgeCutoffAt: string;
+}) {
+  const recovered = new Map<string, string>();
+  const dimension = input.creativeDimension;
+  const cutoffMs = Date.parse(input.knowledgeCutoffAt);
+  const dimensionSources = readCreativeSourceIdentity(dimension?.projectionJson);
+  if (
+    !dimension ||
+    dimension.businessId !== input.businessId ||
+    dimension.providerAccountId !== input.providerAccountId ||
+    dimension.creativeId !== input.requestedCreativeId ||
+    !observedBeforeCutoff(dimension.updatedAt, cutoffMs) ||
+    !dimensionSources?.source_ad_ids_complete
+  ) return recovered;
+
+  const claims = new Map<string, Array<{
+    row: MetaCreativeDailyRow;
+    complete: boolean;
+  }>>();
+  for (const row of input.creativeDays) {
+    if (
+      row.businessId !== input.businessId ||
+      row.providerAccountId !== input.providerAccountId ||
+      !observedBeforeCutoff(row.createdAt, cutoffMs) ||
+      !observedBeforeCutoff(row.updatedAt, cutoffMs)
+    ) continue;
+    const membership = readCreativeDaySourceIdentity(row);
+    for (const adId of membership.source_ad_ids) {
+      const key = adDayIdentityKey(row, adId);
+      const entries = claims.get(key) ?? [];
+      entries.push({ row, complete: membership.source_ad_ids_complete });
+      claims.set(key, entries);
+    }
+  }
+
+  for (const adDay of input.adDays) {
+    if (
+      adDay.businessId !== input.businessId ||
+      adDay.providerAccountId !== input.providerAccountId ||
+      !observedBeforeCutoff(adDay.createdAt, cutoffMs) ||
+      !observedBeforeCutoff(adDay.updatedAt, cutoffMs) ||
+      !dimensionSources.source_ad_ids.includes(adDay.adId)
+    ) continue;
+    const key = adDayIdentityKey(adDay, adDay.adId);
+    const dayClaims = claims.get(key);
+    // Two creatives claiming the same Ad-day, even if one is incomplete, are
+    // not a unique source relationship. Never choose by spend or row order.
+    if (dayClaims?.length !== 1) continue;
+    const claim = dayClaims[0]!;
+    if (
+      !claim.complete ||
+      claim.row.creativeId !== input.requestedCreativeId ||
+      !adDay.campaignId ||
+      !adDay.adsetId ||
+      claim.row.campaignId !== adDay.campaignId ||
+      claim.row.adsetId !== adDay.adsetId ||
+      claim.row.accountCurrency !== adDay.accountCurrency ||
+      claim.row.accountTimezone !== adDay.accountTimezone
+    ) continue;
+    // The dimension's parent describes one Ad only when its complete source
+    // list has one member. Multi-Ad groups use the exact day's parent above.
+    if (
+      dimensionSources.source_ad_ids.length === 1 &&
+      ((dimension.campaignId != null &&
+        dimension.campaignId !== adDay.campaignId) ||
+        (dimension.adsetId != null && dimension.adsetId !== adDay.adsetId))
+    ) continue;
+    recovered.set(key, input.requestedCreativeId);
+  }
+  return recovered;
+}
+
 function buildPreviewCoverage(rows: MetaCreativeApiRow[]) {
   const totalCreatives = rows.length;
   const previewReadyCount = rows.filter((row) => row.preview_status === "ready").length;
@@ -1363,6 +1464,8 @@ export async function getMetaCreativesWarehousePayload(input: {
   format: FormatFilter;
   sort: SortKey;
   mediaMode: "metadata" | "full";
+  /** Optional exact read cutoff for historical consumers of recovered identity. */
+  knowledgeCutoffAt?: string;
 }) {
   const assignedAccountIds = await fetchAssignedAccountIds(input.businessId);
   const accountScope = resolveMetaCreativesAccountScope({
@@ -1421,6 +1524,36 @@ export async function getMetaCreativesWarehousePayload(input: {
           ?.map((row) => row.adId)
           .filter((value): value is string => Boolean(value)) ?? [],
       });
+  const unresolvedAdDays =
+    !useCreativeWarehouse && creativeId
+      ? (sourceRowsBeforeAdCreativeFilter as MetaAdDailyRow[]).filter(
+          (row) =>
+            resolveAdCreativeId(
+              row,
+              (dimensionRows as Map<string, MetaAdDimensionRecord>).get(row.adId),
+            ) == null,
+        )
+      : [];
+  const recoveredAdCreativeIds =
+    creativeId && unresolvedAdDays.length > 0
+      ? recoverAdCreativeIdsForDays({
+          businessId: input.businessId,
+          providerAccountId: accountScope.providerAccountId,
+          requestedCreativeId: creativeId,
+          adDays: unresolvedAdDays,
+          creativeDays: await getMetaCreativeDailyRange({
+            businessId: input.businessId,
+            startDate: input.start,
+            endDate: input.end,
+            providerAccountIds: scopedAccountIds,
+          }),
+          creativeDimension: (await readMetaCreativeDimensions({
+            businessId: input.businessId,
+            creativeIds: [creativeId],
+          })).get(creativeId),
+          knowledgeCutoffAt: input.knowledgeCutoffAt ?? new Date().toISOString(),
+        })
+      : new Map<string, string>();
   const sourceRows =
     !useCreativeWarehouse && creativeId
       ? (sourceRowsBeforeAdCreativeFilter as MetaAdDailyRow[]).filter(
@@ -1428,7 +1561,8 @@ export async function getMetaCreativesWarehousePayload(input: {
             resolveAdCreativeId(
               row,
               (dimensionRows as Map<string, MetaAdDimensionRecord>).get(row.adId),
-            ) === creativeId,
+            ) === creativeId ||
+            recoveredAdCreativeIds.get(adDayIdentityKey(row, row.adId)) === creativeId,
         )
       : sourceRowsBeforeAdCreativeFilter;
   const creativeSourceRows = useCreativeWarehouse
@@ -1476,7 +1610,12 @@ export async function getMetaCreativesWarehousePayload(input: {
           ? buildFallbackAdRawRow({
               factRow: row as MetaAdDailyRow,
               projectionJson: dimensionRow?.projectionJson,
-              creativeId: dimensionRow?.creativeId ?? null,
+              creativeId:
+                dimensionRow?.creativeId ??
+                recoveredAdCreativeIds.get(
+                  adDayIdentityKey(row as MetaAdDailyRow, (row as MetaAdDailyRow).adId),
+                ) ??
+                null,
             })
           : null);
       if (!projectionRow) return acc;

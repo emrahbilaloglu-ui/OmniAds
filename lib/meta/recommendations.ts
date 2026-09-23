@@ -6,6 +6,7 @@ import {
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { AppLanguage } from "@/lib/i18n";
 import { formatMoney } from "@/components/creatives/money";
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import type {
   MetaCalibrationScopeResult,
   MetaCalibrationThresholds,
@@ -2337,15 +2338,30 @@ function historicalBidRange(input: MetaRecommendationWindows) {
   };
 }
 
+/**
+ * A bid band, in provider minor units, rendered at the PROVIDER's scale.
+ *
+ * This used to divide by 100 unconditionally. That is Meta's offset for USD,
+ * TRY and GBP and it is wrong by 100x for JPY, KRW, CLP, ISK, VND and the rest
+ * of Meta's offset-1 list — and wrong in the same direction for HUF, IDR, TWD
+ * and COP, which the ISO registry calls two-decimal and Meta does not.
+ *
+ * Returns null when the provider has no offset for the currency. Every caller
+ * already treats a null band as "no band", so an unknown currency costs the
+ * operator a suggestion rather than handing them a number off by 100x.
+ */
 function fmtCurrencyRange(
   low: number,
   high: number,
   currency: string | null | undefined,
-) {
+): string | null {
+  const lowMajor = metaMinorUnitsToMajor({ minorUnits: low, currency });
+  const highMajor = metaMinorUnitsToMajor({ minorUnits: high, currency });
+  if (!lowMajor.ok || !highMajor.ok) return null;
   if (Math.abs(low - high) <= 1) {
-    return fmtCurrency(low / 100, currency);
+    return fmtCurrency(lowMajor.majorUnits, currency);
   }
-  return `${fmtCurrency(low / 100, currency)}-${fmtCurrency(high / 100, currency)}`;
+  return `${fmtCurrency(lowMajor.majorUnits, currency)}-${fmtCurrency(highMajor.majorUnits, currency)}`;
 }
 
 function widenBidRange(
@@ -2988,7 +3004,20 @@ function maybeBidRecommendation(
         ...(typeof row.bidValue === "number"
           ? [{
               label: "Bid value",
-              value: row.bidValueFormat === "roas" ? fmtRoas(row.bidValue) : fmtCurrency(row.bidValue / 100, bidCurrency),
+              /* `currency` format is provider minor units; `roas` is already a
+                 multiplier. The minor-unit divisor is the provider's offset,
+                 not a constant 100 — and when the provider has no offset for
+                 this currency we say so rather than print a guessed amount. */
+              value:
+                row.bidValueFormat === "roas"
+                  ? fmtRoas(row.bidValue)
+                  : (() => {
+                      const major = metaMinorUnitsToMajor({
+                        minorUnits: row.bidValue as number,
+                        currency: bidCurrency,
+                      });
+                      return major.ok ? fmtCurrency(major.majorUnits, bidCurrency) : "—";
+                    })(),
               tone: "neutral" as const,
             }]
           : []),

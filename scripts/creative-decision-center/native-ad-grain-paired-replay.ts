@@ -2588,7 +2588,8 @@ function computeFatigueForVariant(input: {
     recent && prior
       ? [
           decay(prior.ctr, recent.ctr),
-          decay(prior.clickToPurchaseRate, recent.clickToPurchaseRate),
+          // An unmeasured window rate is not assessable, never a zero.
+          decay(prior.clickToPurchaseRate ?? Number.NaN, recent.clickToPurchaseRate ?? Number.NaN),
           decay(prior.roas, recent.roas),
         ].flatMap((value) =>
           value === null || !Number.isFinite(value) ? [] : [value],

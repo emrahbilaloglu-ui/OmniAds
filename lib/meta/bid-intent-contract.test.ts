@@ -167,6 +167,46 @@ describe("every ambiguity is a named refusal", () => {
     expect(result.rejections).toContain("currency_unresolvable");
   });
 
+  it("refuses a scale the provider does not corroborate", () => {
+    /*
+      `currencyExponent` is stamped onto the intent, hashed into `bidIntentKey`
+      (which is also the idempotency key) and carried beside a registry
+      version naming ISO. The amounts are PROVIDER minor units, so an exponent
+      Meta contradicts is a false claim about a real money movement.
+
+      Two shapes, distinguished by their reasons: a code Meta does not publish
+      an offset for (KWD — Meta lists no offset above 100 at all), and one both
+      authorities name and disagree on (HUF, offset 1 versus two decimals).
+    */
+    for (const code of ["KWD", "OMR", "HUF", "IDR", "TWD", "COP", "BHD", "JOD"]) {
+      const result = validateBidIntent(input({ currency: code }), BINDINGS);
+      if (result.status !== "rejected") throw new Error(`expected rejection for ${code}`);
+      expect(result.rejections, code).toContain(
+        "currency_scale_not_provider_corroborated",
+      );
+    }
+  });
+
+  it("leaves the idempotency key byte-identical for every live currency", () => {
+    /*
+      The property that lets the gate land. It filters, it never substitutes,
+      so an agreeing currency re-derives exactly the key it always had — and
+      an idempotency key that moved would orphan every open proposal slot.
+    */
+    for (const [code, exponent] of [
+      ["USD", 2], ["TRY", 2], ["GBP", 2], ["JPY", 0], ["EUR", 2],
+    ] as const) {
+      const result = validateBidIntent(input({ currency: code }), BINDINGS);
+      expect(result.status, code).toBe("valid");
+      if (result.status !== "valid") continue;
+      expect(result.intent.currencyExponent, code).toBe(exponent);
+      expect(result.intent.intentKey, code).toBe(result.intent.idempotencyKey);
+      /* The recorded provenance must keep naming the ISO registry: it is
+         compared byte-for-byte against stored values elsewhere. */
+      expect(result.intent.currencyRegistry.version, code).toMatch(/^iso4217\./);
+    }
+  });
+
   it("returns a verdict for null rather than throwing", () => {
     // A thrown error is the absence of a verdict, and the caller then has to
     // guess which it was.

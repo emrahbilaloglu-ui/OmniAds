@@ -175,6 +175,28 @@ describe("AssetLibrarySection", () => {
     expect(html).toContain("Thumbstop");
     expect(html).toContain("25% views");
     expect(html).not.toContain("Avg CPA");
+    // Legacy video display rates do not establish a provider event/denominator.
+    expect(html).not.toContain("66.00%");
+    expect(html).not.toContain("45.00%");
+    expect(html).not.toContain("28.00%");
+  });
+
+  it("renders missing funnel measurements as unavailable while preserving a measured zero", () => {
+    const render = (measured: number | null) => renderToStaticMarkup(
+      <AssetLibrarySection
+        rows={[row({ landingPageViews: 0, observedMetrics: { landingPageViews: measured } as never })]}
+        defaultCurrency="USD"
+        selectedMetricIds={["landingPageViews"]}
+        onSelectedMetricIdsChange={() => undefined}
+        selectedRowIds={[]}
+        onToggleRow={() => undefined}
+        onToggleAll={() => undefined}
+        onOpenRow={() => undefined}
+      />,
+    );
+    expect(render(null)).toContain('class="num">—</td>');
+    expect(render(null)).not.toContain('class="num">0</td>');
+    expect(render(0)).toContain('class="num">0</td>');
   });
 
   it("renders the Creative teams table with score columns and creative-team language", () => {

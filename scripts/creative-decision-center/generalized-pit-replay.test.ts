@@ -1775,8 +1775,8 @@ describe("generalized PIT replay — UI truth on REAL frozen replay states", () 
 
   The evidence artifact records the SHA-256 of every source file it was frozen
   against. Four days of D079/D081/D084 and campaign-role-removal work have
-  moved seven of those eighteen files — and the 2026-09-06 account-scoping
-  correction has moved an eighth — so the frozen package no longer
+  moved seven of those eighteen files — and later account-scoping and Meta
+  decision repairs moved more — so the frozen package no longer
   describes the engine on disk — a true and important fact that must be stated
   rather than discovered as an unrelated assertion failure.
 
@@ -1798,6 +1798,9 @@ describe("generalized PIT replay — frozen package drift ledger", () => {
     "lib/creative-decision-engine/types.ts",
     // D074b/D081 automatic campaign-role removal.
     "lib/creative-decision-engine/campaign-context/resolver.ts",
+    // The 2026-09-21 role-input repair keeps campaign relationships at ad-day
+    // grain; it changes current source code, not the accepted frozen package.
+    "lib/creative-decision-engine/campaign-context/data.ts",
     "lib/creative-decision-engine/campaign-context/source.ts",
     // Pre-deploy audit: the upsert conflict target moved to the legacy key so
     // the migration stays survivable by the previous application image.
@@ -1815,6 +1818,9 @@ describe("generalized PIT replay — frozen package drift ledger", () => {
       an unrelated assertion failure.
     */
     "lib/creative-decision-engine/data-source.ts",
+    // The 2026-09-21 recommendation-readiness repair separates a supported
+    // economic Cut from permission to execute when campaign role is unknown.
+    "lib/creative-decision-engine/campaign-label-guard.ts",
     /*
       Codex Round 4, item 2/5: the presentation projector now forwards the
       engine's PERSISTED predicate blockers to `projectMetaDecisionSemantics`.
@@ -1839,6 +1845,16 @@ describe("generalized PIT replay — frozen package drift ledger", () => {
       re-derived difference.
     */
     "lib/db.ts",
+    /*
+      2026-09-22 historical-simulation PIT repair: `readPreviousPublishedAdLabels`
+      gains an OPTIONAL `visibleAtCutoff` so a historical replay admits only prior
+      rows that existed at its cutoff and withholds any rewritten after it. The
+      production job never passes it (the SQL predicate is `$7 IS NULL OR ...`),
+      and this replay never opens a database connection, so only the file's
+      hash moved; the semantic assertion below still names the sole re-derived
+      difference.
+    */
+    "lib/creative-decision-engine/decision-stability.ts",
     // The runner and its own test, edited alongside the work above.
     "scripts/creative-decision-center/generalized-pit-replay.ts",
     "scripts/creative-decision-center/generalized-pit-replay.test.ts",

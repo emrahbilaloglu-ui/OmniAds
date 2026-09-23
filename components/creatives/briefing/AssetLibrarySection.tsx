@@ -7,7 +7,7 @@ import {
   formatMoney as formatCreativeMoney,
   normalizeCurrencyCode,
 } from "@/components/creatives/money";
-import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import type { MetaCreativeRow, MetaObservedMetricKey } from "@/components/creatives/metricConfig";
 import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 import type { ShareLinkConfig } from "@/components/creatives/shareCreativeTypes";
@@ -188,9 +188,9 @@ const KPI_CATALOG: ReadonlyArray<KpiCatalogEntry> = [
   { key: "cpm", label: "CPM", group: "Delivery", description: "Cost per thousand impressions." },
   { key: "leads", label: "Leads", group: "Performance", description: "Lead conversions for SaaS accounts." },
   { key: "cpl", label: "CPL", group: "Performance", description: "Cost per lead." },
-  { key: "thumbstop", label: "Thumbstop", group: "Video", description: "3s view rate — does the creative stop the scroll?" },
-  { key: "videoHold", label: "Video hold", group: "Video", description: "% of viewers who watch past 15s." },
-  { key: "vtr", label: "VTR", group: "Video", description: "View-through rate." },
+  { key: "thumbstop", label: "Thumbstop", group: "Video", description: "Unavailable: a verified view event and denominator are not supplied.", unavailable: true },
+  { key: "videoHold", label: "Video hold", group: "Video", description: "Unavailable: watch-duration evidence is not supplied.", unavailable: true },
+  { key: "vtr", label: "VTR", group: "Video", description: "Unavailable: a verified view event and denominator are not supplied.", unavailable: true },
   {
     key: "score.hook",
     label: "Hook score",
@@ -388,18 +388,45 @@ function metric(
   formatter: (value: number, currency?: string | null) => string,
   shareKey?: ShareLinkConfig["metrics"][number],
 ): AssetMetricColumn {
+  // These legacy display rates have no verified provider-event/denominator
+  // contract on this surface. A finite display number is not that contract.
+  const unverifiedVideo = ["thumbstop", "video25", "video50", "video75", "video100"].includes(id);
+  const funnelKeys: Record<string, MetaObservedMetricKey[]> = {
+    linkClicks: ["linkClicks"],
+    landingPageViews: ["landingPageViews"],
+    addToCart: ["addToCart"],
+    initiateCheckout: ["initiateCheckout"],
+    linkCtr: ["linkClicks", "impressions"],
+    cpcLink: ["linkClicks", "spend"],
+    clickToAddToCart: ["linkClicks", "addToCart"],
+    atcToPurchaseRatio: ["addToCart", "purchases"],
+    clickToPurchase: ["linkClicks", "purchases"],
+  };
+  const observedValue = (row: MetaCreativeRow) => {
+    if (unverifiedVideo) return Number.NaN;
+    const keys = funnelKeys[id];
+    if (keys && !keys.every((key) => {
+      const value = row.observedMetrics?.[key];
+      return row.observedMetrics
+        ? typeof value === "number" && Number.isFinite(value)
+        : row.metricsAvailability === "available";
+    })) return Number.NaN;
+    return rawValue(row);
+  };
+  const formatObserved = (value: number, currency?: string | null) =>
+    Number.isFinite(value) ? formatter(value, currency) : "—";
   return {
     id,
     label,
     group,
-    description,
-    source,
+    description: unverifiedVideo ? "Unavailable: verified video measurement evidence is not supplied." : description,
+    source: unverifiedVideo ? "Measurement unavailable" : source,
     summaryMode,
     className: "num",
-    rawValue,
-    format: formatter,
-    value: (row) => formatter(rawValue(row), row.currency ?? null),
-    csvValue: (row) => formatter(rawValue(row), row.currency ?? null),
+    rawValue: observedValue,
+    format: formatObserved,
+    value: (row) => formatObserved(observedValue(row), row.currency ?? null),
+    csvValue: (row) => formatObserved(observedValue(row), row.currency ?? null),
     shareKey,
   };
 }
@@ -555,6 +582,7 @@ function summarizeMetric(
           : Number.NaN
         : total;
   const scoreMissing = column.group === "creative_scores" && values.length === 0;
+  const measurementMissing = column.group !== "creative_scores" && values.length < count;
   const isMoney = MONEY_METRIC_IDS.has(column.id);
   const normalizedCurrencies = rows.map((row) =>
     normalizeCurrencyCode(row.currency),
@@ -573,7 +601,7 @@ function summarizeMetric(
     isMoney &&
     count > 1 &&
     (knownCurrencies.size !== 1 || hasUnknownCurrency);
-  const formattedValue = aggregateCurrencyUnsafe
+  const formattedValue = aggregateCurrencyUnsafe || measurementMissing || values.length === 0
     ? "—"
     : column.format(value, aggregateCurrency) || formatDecimal2(value);
   return {

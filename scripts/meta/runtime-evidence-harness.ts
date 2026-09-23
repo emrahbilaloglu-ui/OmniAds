@@ -28,16 +28,36 @@
  *         npm run meta:runtime-evidence -- --keep   (leave the server running)
  */
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 
-import { findFreeSafePort, startEphemeralCluster } from "@/scripts/meta/runtime-evidence/cluster";
-import { seedRuntimeEvidence, type RuntimeSeed } from "@/scripts/meta/runtime-evidence/seed";
+import {
+  findFreeSafePort,
+  startEphemeralCluster,
+} from "@/scripts/meta/runtime-evidence/cluster";
+import {
+  seedRuntimeEvidence,
+  type RuntimeSeed,
+} from "@/scripts/meta/runtime-evidence/seed";
 
 const ROOT = process.cwd();
 const DB_NAME = "adsecute_runtime_evidence";
 const HANDLE_DIR = path.join(ROOT, "playwright", ".runtime");
 const HANDLE_FILE = path.join(HANDLE_DIR, "meta-runtime.json");
+const GRAPH_GUARD_MODULE = path.join(
+  ROOT,
+  "scripts",
+  "meta",
+  "runtime-evidence",
+  "block-meta-graph.mjs",
+);
+const GRAPH_ATTEMPT_FILE = path.join(HANDLE_DIR, "meta-graph-attempts.log");
 
 function log(message: string): void {
   console.log(`[runtime-evidence] ${message}`);
@@ -62,16 +82,23 @@ function runMigrations(databaseUrl: string): void {
     },
   );
   if (result.status !== 0) {
-    throw new Error(`migrations failed (${result.status}):\n${result.stdout}\n${result.stderr}`);
+    throw new Error(
+      `migrations failed (${result.status}):\n${result.stdout}\n${result.stderr}`,
+    );
   }
 }
 
-async function waitForServer(baseUrl: string, timeoutMs: number): Promise<void> {
+async function waitForServer(
+  baseUrl: string,
+  timeoutMs: number,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError = "no attempt made";
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${baseUrl}/api/healthz`, { cache: "no-store" });
+      const response = await fetch(`${baseUrl}/api/healthz`, {
+        cache: "no-store",
+      });
       if (response.status < 500) return;
       lastError = `status ${response.status}`;
     } catch (error) {
@@ -79,7 +106,9 @@ async function waitForServer(baseUrl: string, timeoutMs: number): Promise<void> 
     }
     await new Promise((resolve) => setTimeout(resolve, 400));
   }
-  throw new Error(`server did not become ready within ${timeoutMs}ms: ${lastError}`);
+  throw new Error(
+    `server did not become ready within ${timeoutMs}ms: ${lastError}`,
+  );
 }
 
 async function main(): Promise<void> {
@@ -92,6 +121,9 @@ async function main(): Promise<void> {
         "rendering path the operator gets.",
     );
   }
+
+  mkdirSync(HANDLE_DIR, { recursive: true });
+  writeFileSync(GRAPH_ATTEMPT_FILE, "", "utf8");
 
   const cluster = await startEphemeralCluster(DB_NAME);
   log(`postgres: 127.0.0.1:${cluster.port} (never 15432 / 5432)`);
@@ -122,13 +154,11 @@ async function main(): Promise<void> {
      * the same session can be asked what it does in each posture, and the
      * difference between the two answers IS the gate.
      *
-     * Only the two gates whose capability contacts no provider are opened on
-     * the second server: the Meta Stop (a row in our own control plane), the
-     * decision workflow (our own overlay), the share mint (our own ledger) and
-     * the account picker (a URL scope). `META_LAUNCHPAD_EXECUTION` and
-     * `META_AUTOMATION_LIVE_WRITES` are NOT opened anywhere in this harness —
-     * their next step is a call to Meta, and no local evidence may be produced
-     * by making one.
+     * The second server opens the single Meta write capability so the decision
+     * workflow's positive path can be exercised against the ephemeral database.
+     * No spec on that server invokes a provider mutation; Launchpad execution
+     * stays closed. Share mint and account selection are local capabilities.
+     * The Meta Stop is an incident control and stays available in both postures.
      *
      * The session cookie is issued for 127.0.0.1 and cookies ignore the port,
      * so one sign-in reaches both.
@@ -139,7 +169,9 @@ async function main(): Promise<void> {
     ): Promise<string> => {
       const port = await findFreeSafePort();
       const baseUrl = `http://127.0.0.1:${port}`;
-      log(`server(${label}): starting the standalone production build on ${baseUrl}`);
+      log(
+        `server(${label}): starting the standalone production build on ${baseUrl}`,
+      );
 
       const child = spawn(
         process.execPath,
@@ -149,6 +181,14 @@ async function main(): Promise<void> {
           stdio: ["ignore", "pipe", "pipe"],
           env: {
             ...process.env,
+            NODE_OPTIONS: [
+              process.env.NODE_OPTIONS?.trim(),
+              `--import=${GRAPH_GUARD_MODULE}`,
+            ]
+              .filter(Boolean)
+              .join(" "),
+            META_RUNTIME_GRAPH_ATTEMPT_FILE: GRAPH_ATTEMPT_FILE,
+            META_RUNTIME_SERVER_LABEL: label,
             NODE_ENV: "production",
             PORT: String(port),
             HOSTNAME: "127.0.0.1",
@@ -231,8 +271,7 @@ async function main(): Promise<void> {
     const baseUrl = await startServer("shipped-gates", { ...CANONICAL_ON });
     const gatesOpenBaseUrl = await startServer("gates-open", {
       ...CANONICAL_ON,
-      META_AUTOMATION_STOP_UI: "true",
-      META_DECISION_WORKFLOW_UI: "true",
+      META_AUTOMATION_LIVE_WRITES: "true",
       META_PUBLIC_SHARE_MINT: "true",
       META_ACCOUNT_PICKER: "true",
     });
@@ -293,7 +332,9 @@ async function main(): Promise<void> {
     );
 
     if (keep) {
-      log(`handle written to ${path.relative(ROOT, HANDLE_FILE)} — press Ctrl-C to tear down`);
+      log(
+        `handle written to ${path.relative(ROOT, HANDLE_FILE)} — press Ctrl-C to tear down`,
+      );
       await new Promise(() => {});
       return;
     }
@@ -310,23 +351,33 @@ async function main(): Promise<void> {
      * here is about authorization rather than about a surface.
      */
     log("role matrix: seeding principals and driving every leaf");
-    const roleSeed = spawnSync(process.execPath, [path.join(ROOT, "scripts", "zero-base", "seed-role-matrix.mjs")], {
-      cwd: ROOT,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        DATABASE_URL: cluster.databaseUrl,
-        DATABASE_URL_UNPOOLED: cluster.databaseUrl,
-        POSTGRES_URL: cluster.databaseUrl,
-        POSTGRES_URL_NON_POOLING: cluster.databaseUrl,
+    const roleSeed = spawnSync(
+      process.execPath,
+      [path.join(ROOT, "scripts", "zero-base", "seed-role-matrix.mjs")],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DATABASE_URL: cluster.databaseUrl,
+          DATABASE_URL_UNPOOLED: cluster.databaseUrl,
+          POSTGRES_URL: cluster.databaseUrl,
+          POSTGRES_URL_NON_POOLING: cluster.databaseUrl,
+        },
       },
-    });
+    );
     if (roleSeed.status !== 0) {
-      throw new Error(`role-matrix seed failed (${roleSeed.status}):\n${roleSeed.stderr}`);
+      throw new Error(
+        `role-matrix seed failed (${roleSeed.status}):\n${roleSeed.stderr}`,
+      );
     }
     const roleMatrix = spawnSync(
       process.execPath,
-      ["--import", "tsx", path.join(ROOT, "scripts", "zero-base", "route-role-matrix.ts")],
+      [
+        "--import",
+        "tsx",
+        path.join(ROOT, "scripts", "zero-base", "route-role-matrix.ts"),
+      ],
       {
         cwd: ROOT,
         stdio: "inherit",
@@ -377,8 +428,29 @@ async function main(): Promise<void> {
         },
       },
     );
+    const graphAttempts = readFileSync(GRAPH_ATTEMPT_FILE, "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const providerMutationAttempts = graphAttempts.filter(
+      (line) => !/\s(?:GET|HEAD|OPTIONS)$/.test(line),
+    );
+    if (providerMutationAttempts.length > 0) {
+      throw new Error(
+        "runtime evidence reached a forbidden Meta Graph mutation boundary:\n" +
+          providerMutationAttempts.join("\n"),
+      );
+    }
+    if (graphAttempts.length > 0) {
+      log(
+        `network guard: blocked ${graphAttempts.length} Meta Graph read attempt(s); ` +
+          "zero provider requests left the process and zero mutation methods were attempted.",
+      );
+    }
     if (test.status !== 0) {
-      throw new Error(`runtime evidence FAILED (playwright exit ${test.status})`);
+      throw new Error(
+        `runtime evidence FAILED (playwright exit ${test.status})`,
+      );
     }
     log("PASS: every runtime check held against the mounted routes.");
   } finally {

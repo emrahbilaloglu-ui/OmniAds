@@ -166,4 +166,30 @@ describe("GET /api/meta/ads/series", () => {
     expect(payload.points[0].linkCtr).toBeNull();
     expect(payload.points[0].frequency).toBeNull();
   });
+
+  it("does not publish a partial multi-ad link-click sum as a measured total", async () => {
+    vi.mocked(warehouse.getMetaAdDailySeries).mockResolvedValue([
+      {
+        adId: "ad_1", date: "2026-08-01", impressions: 1000, clicks: 20,
+        linkClicks: 10, reach: 500, frequency: 2, ctr: 2,
+      },
+      {
+        adId: "ad_2", date: "2026-08-01", impressions: 1000, clicks: 20,
+        linkClicks: null, reach: 500, frequency: null, ctr: null,
+      },
+    ]);
+    const response = await GET(url("businessId=biz_1&adIds=ad_1,ad_2&start=2026-07-20&end=2026-08-16&groupBy=ad"));
+    const payload = (await response.json()) as {
+      points: Array<{
+        linkClicks: number | null; linkCtr: number | null;
+        frequency: number | null; ctr: number | null;
+      }>;
+      series: Array<{ adId: string; points: Array<{ linkClicks: number | null }> }>;
+    };
+    expect(payload.points[0]).toMatchObject({
+      linkClicks: null, linkCtr: null, frequency: null, ctr: null,
+    });
+    expect(payload.series.find((item) => item.adId === "ad_1")?.points[0]?.linkClicks).toBe(10);
+    expect(payload.series.find((item) => item.adId === "ad_2")?.points[0]?.linkClicks).toBeNull();
+  });
 });

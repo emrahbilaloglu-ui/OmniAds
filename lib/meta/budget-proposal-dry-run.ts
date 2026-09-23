@@ -24,6 +24,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { resolveProviderCorroboratedExponent } from "@/lib/currency/provider-corroborated-minor-units";
 import {
   exactMap,
   exactMapElement,
@@ -973,6 +974,23 @@ export function validateWouldWriteSemantics(
       problems.push({ path: "request.currency", why: `request.currency ${JSON.stringify(request.currency)} is not a supported ISO-4217 registry entry (${resolved.status})` });
     } else if (resolved.exponent !== request.currencyExponent) {
       problems.push({ path: "request.currencyExponent", why: `request.currencyExponent is ${JSON.stringify(request.currencyExponent)}, but the registry exponent for ${request.currency} is ${resolved.exponent}` });
+    } else {
+      /*
+        Agreeing with ISO is necessary and not sufficient. The amount is a
+        PROVIDER minor-unit figure, and Meta's own offset contradicts ISO for
+        COP, HUF, IDR and TWD (100x) and BHD and JOD (10x), and covers none of
+        KWD, OMR, TND, IQD or LYD.
+
+        `budget-intent-contract.ts` refuses those at the producer, so a request
+        from that path cannot arrive here carrying one. This is the validator
+        half of the same rule, so a request minted anywhere else cannot mint a
+        receipt at a scale the provider denies. USD, TRY, GBP and EUR agree
+        between both registries, so nothing a live account produces changes.
+      */
+      const corroborated = resolveProviderCorroboratedExponent(request.currency);
+      if (corroborated.status !== "resolved") {
+        problems.push({ path: "request.currencyExponent", why: corroborated.reason });
+      }
     }
   }
   checkNamespacedFingerprint(request.casPrecondition.fingerprint, "request.casPrecondition.fingerprint", META_PROVIDER_READBACK_CONTRACT, problems);

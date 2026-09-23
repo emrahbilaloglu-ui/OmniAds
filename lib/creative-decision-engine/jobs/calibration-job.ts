@@ -14,6 +14,14 @@ import {
 import { getBusinessGuardFailure } from "./business-guard";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
 import { CAMPAIGN_CONTEXT_MAX_AGE_DAYS } from "../campaign-context/source";
+import {
+  buildMetaCreativeDayMetricEvidenceLateralSql,
+  type MetaCreativeDayMetricStage,
+} from "@/lib/meta/creative-day-metric-evidence";
+import { buildMetaCompleteWindowSql } from "@/lib/meta/funnel-stage-parse";
+import { hashAdvisoryLock } from "./advisory-lock";
+
+export { hashAdvisoryLock } from "./advisory-lock";
 
 export const JOB_NAME = "engine_v3_calibration_job";
 export const FUNNEL_METRIC_SAMPLE_FLOOR = 20;
@@ -175,6 +183,40 @@ type CampaignScopeRow = Record<string, unknown> & {
 };
 
 /*
+  THE FUNNEL TOTALS ARE THE CREATIVE-DAY MEASUREMENT STAMP, AND NOTHING ELSE.
+
+  Each stage is read per row from the stamp the creative-day writer computes out
+  of the raw provider insight (`lib/meta/creative-day-metric-evidence.ts`): one
+  canonical alias, strict count guard, and an unstamped legacy row counts as
+  UNMEASURED. A creative's 90-day total is then a measurement only when every
+  decision-bearing row in it measured the stage (`buildMetaCompleteWindowSql`):
+  zero + missing is NULL, zero + zero is 0, and a malformed value is missing
+  rather than an error that aborts the job. A creative with an incomplete
+  total contributes no funnel rate, so it cannot drag an account percentile
+  toward a zero it never measured.
+
+  This is row-level rather than day-then-window because this query never
+  aggregates per day; the two are the same test (a window is incomplete iff one
+  of its decision-bearing rows is missing).
+
+  ENGINE_VERSION keys the calibration rows and has never shipped, so it is
+  amended in place rather than bumped.
+*/
+const CREATIVE_DAY_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql({
+  payloadExpression: "d.payload_json",
+  rowAlias: "d",
+  lateralAlias: "creative_day_evidence",
+});
+
+function creativeWindowStageSumSql(stage: MetaCreativeDayMetricStage) {
+  return buildMetaCompleteWindowSql({
+    valueSql: CREATIVE_DAY_EVIDENCE.valueSql(stage),
+    missingSql: CREATIVE_DAY_EVIDENCE.missingSql(stage),
+    activitySql: CREATIVE_DAY_EVIDENCE.activitySql,
+  }).sumSql;
+}
+
+/*
   `$8` is the OPTIONAL provider account this calibration speaks for.
 
   NULL is the business's whole Meta footprint — every account it owns pooled
@@ -220,18 +262,16 @@ per_creative_raw AS (
     SUM(d.revenue) AS total_revenue,
     SUM(d.impressions) AS total_impressions,
     SUM(d.clicks) AS total_clicks,
-    -- NULL-SAFETY ONLY. NOT a decision change. total_link_clicks is the
-    -- denominator of link-to-LPV, link-to-ATC and click-to-purchase below, each
-    -- of which is already guarded by CASE WHEN total_link_clicks > 0. That
-    -- guard treats NULL and 0 alike, so the calibrated rates would not move --
-    -- but the coalesce keeps the SUM itself reporting the same 0 it reports
-    -- today rather than a NULL, so nothing downstream can tell the difference.
-    -- The engine saw 0 before and sees 0 now.
-    SUM(COALESCE(d.link_clicks, 0)) AS total_link_clicks,
-    SUM(COALESCE((NULLIF(d.payload_json->>'landing_page_views', ''))::numeric, 0)) AS lpv_total,
-    SUM(COALESCE((NULLIF(d.payload_json->>'add_to_cart', ''))::numeric, 0)) AS atc_total,
-    SUM(COALESCE((NULLIF(d.payload_json->>'initiate_checkout', ''))::numeric, 0)) AS ic_total,
-    SUM(COALESCE((NULLIF(d.payload_json->>'thumbstop', ''))::numeric, 0) * d.impressions) AS thumbstop_weighted,
+    -- The funnel totals are the stamped measurements, complete-or-NULL over
+    -- the creative's whole window. They used to be SUM(COALESCE(...,0)) over
+    -- the link_clicks column and the payload display scalars, which the writer
+    -- fills whether or not the provider reported anything: a creative with one
+    -- measured day and eighty-nine unreported ones calibrated the account's
+    -- funnel percentiles as if the one day were the whole window.
+    ${creativeWindowStageSumSql("link_click")} AS total_link_clicks,
+    ${creativeWindowStageSumSql("landing_page_view")} AS lpv_total,
+    ${creativeWindowStageSumSql("add_to_cart")} AS atc_total,
+    ${creativeWindowStageSumSql("initiate_checkout")} AS ic_total,
     SUM(d.spend) FILTER (WHERE d.date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_spend,
     SUM(d.revenue) FILTER (WHERE d.date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_revenue,
     SUM(d.impressions) FILTER (WHERE d.date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_impressions,
@@ -254,6 +294,7 @@ per_creative_raw AS (
     ORDER BY context.as_of_date DESC, context.updated_at DESC, context.id DESC
     LIMIT 1
   ) campaign_context ON true
+  ${CREATIVE_DAY_EVIDENCE.lateralSql}
   WHERE d.business_ref_id = $2::uuid
     AND ($8::text IS NULL OR d.provider_account_id = $8::text)
     AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
@@ -291,7 +332,10 @@ per_creative AS (
     CASE WHEN total_spend > 0 THEN total_revenue / total_spend END AS aggregate_roas,
     CASE WHEN total_impressions > 0 THEN total_clicks::numeric / NULLIF(total_impressions, 0) * 100 END AS ctr_rate,
     CASE WHEN total_impressions > 0 THEN total_spend / NULLIF(total_impressions, 0) * 1000 END AS cpm,
-    CASE WHEN total_impressions > 0 THEN thumbstop_weighted / NULLIF(total_impressions, 0) END AS thumbstop_rate,
+    -- No verified provider contract for a three-second view: the writer's
+    -- "thumbstop" is video starts over all impressions. NULL, never invented;
+    -- the thumbstop percentiles below therefore stay below their sample floor.
+    NULL::double precision AS thumbstop_rate,
     CASE WHEN total_link_clicks > 0 THEN lpv_total / NULLIF(total_link_clicks, 0) * 100 END AS link_to_lpv_rate,
     CASE WHEN total_link_clicks > 0 THEN atc_total / NULLIF(total_link_clicks, 0) * 100 END AS link_to_atc_rate,
     CASE WHEN lpv_total > 0 THEN atc_total / NULLIF(lpv_total, 0) * 100 END AS lpv_to_atc_rate,
@@ -1335,19 +1379,6 @@ function determineQualityStatus(input: {
   if (input.matureCreativeCount >= 30) return "ready";
   if (input.matureCreativeCount >= 10) return "low_sample";
   return "low_sample";
-}
-
-export function hashAdvisoryLock(key: string): bigint {
-  const uint64Size = BigInt(2) ** BigInt(64);
-  const int64Max = BigInt(2) ** BigInt(63) - BigInt(1);
-  let hash = BigInt("14695981039346656037");
-
-  for (let index = 0; index < key.length; index += 1) {
-    hash ^= BigInt(key.charCodeAt(index) & 0xff);
-    hash = (hash * BigInt("1099511628211")) % uint64Size;
-  }
-
-  return hash <= int64Max ? hash : hash - uint64Size;
 }
 
 function sampleWindowStartForAsOf(asOf: string) {

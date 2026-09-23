@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 
 import { META_CAMPAIGN_KINDS } from "@/lib/meta/campaign-label-types";
+import { META_FAILURES } from "@/lib/meta/read-state-contract";
 import { META_OS_DECISIONS_PRESENTATION_VERSION } from "@/lib/meta/decisions-os-contract";
 import { META_DECISION_PIPELINE_HEALTH_CONTRACT_VERSION } from "@/lib/meta/decision-pipeline-health";
 import { META_COMMERCIAL_ANCHOR_PANEL_CONTRACT } from "@/lib/meta/commercial-anchor-panel";
@@ -508,8 +509,7 @@ const OVERRIDES: Record<string, { base: unknown; alt: unknown }> = {
       permissions: { role: "admin", reviewerReadOnly: false, demo: false },
       failure: {
         code: "source_read_failed",
-        message:
-          "One of the sources behind this screen could not be read, so what is shown is incomplete. The missing part is unknown rather than zero.",
+        message: META_FAILURES.source_read_failed.message,
       },
       state: "partial",
     },

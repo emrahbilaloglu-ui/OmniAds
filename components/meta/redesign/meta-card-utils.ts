@@ -2,6 +2,7 @@ import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaLaunchMode } from "@/components/meta/redesign/types";
 import { normalizeCurrencyCode } from "@/components/creatives/money";
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 
 export const CURRENCY_UNAVAILABLE_LABEL = "Currency unavailable";
 
@@ -144,13 +145,39 @@ export function proposedBidMinorForExecute(
   return typedBidMinor(rec);
 }
 
-export function proposedBidDisplayValue(rec: MetaRecommendation) {
+/**
+ * The bid cap number an operator reads immediately before authorising a write,
+ * in MAJOR units — the same scale `formatBidCap` in the overlay assumes.
+ *
+ * Two things were wrong here and they compounded.
+ *
+ * 1. The typed branch divided provider minor units by a constant 100. That is
+ *    Meta's offset for USD/TRY/GBP and wrong by 100x for every currency Meta
+ *    lists at offset 1 (JPY, KRW, CLP, ISK, VND, HUF, IDR, TWD, COP …). The
+ *    divisor now comes from the provider's own offset table, and the currency
+ *    must be supplied — the same currency the overlay will render beside it.
+ *
+ * 2. A middle branch read `targetValue.bidValue / .bidAmount / .proposedBidCap`
+ *    and returned it untouched, so the function returned MINOR units on one
+ *    branch and MAJOR units on another with nothing to tell them apart. No
+ *    producer in this repo writes any of those three keys into `targetValue`
+ *    (the bid intent projection writes `proposedMinorUnits` / `currency` /
+ *    `currencyExponent`), and the value carries no `bidValueFormat`, so there
+ *    is no evidence anywhere for what unit such a key would be in. That branch
+ *    is removed rather than reinterpreted: guessing would print a bid cap
+ *    100x off in the confirmation dialog, while refusing prints "—".
+ *
+ * The remaining evidence-string fallbacks are already major units — they are
+ * parsed back out of strings this module's own formatters produced.
+ */
+export function proposedBidDisplayValue(
+  rec: MetaRecommendation,
+  currency?: string | null,
+) {
   const typedMinor = typedBidMinor(rec);
-  if (typedMinor) return typedMinor / 100;
-  if (rec.targetValue && typeof rec.targetValue === "object" && !Array.isArray(rec.targetValue)) {
-    const record = rec.targetValue as Record<string, unknown>;
-    const value = Number(record.bidValue ?? record.bidAmount ?? record.proposedBidCap ?? NaN);
-    if (Number.isFinite(value) && value > 0) return value;
+  if (typedMinor) {
+    const major = metaMinorUnitsToMajor({ minorUnits: typedMinor, currency });
+    return major.ok ? major.majorUnits : null;
   }
   return (
     parseFirstCurrencyAmount(evidenceValue(rec, "Suggested bid range")) ??

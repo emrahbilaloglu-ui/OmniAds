@@ -295,7 +295,7 @@ export const META_FAILURES: Readonly<Record<MetaFailureCode, FailureDescriptor>>
   },
   source_read_failed: {
     message:
-      "One of the sources behind this screen could not be read, so what is shown is incomplete. The missing part is unknown rather than zero.",
+      "One or more sources behind this screen could not be read. Any unavailable figures are unknown rather than zero.",
     state: "partial",
     operatorActionable: false,
   },

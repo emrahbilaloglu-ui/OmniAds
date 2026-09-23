@@ -106,11 +106,23 @@ function hasMissingScaleWinnerBenchmark(
   );
 }
 
+/** ADR D098: the held resolution when configuration was not established. */
+function configSourceHeldResolution(held: string): MetaDecisionResolution {
+  return {
+    code: "complete_hard_action_evidence",
+    category: "system",
+    owner: "system",
+    label: "Complete Hard-Action Evidence",
+    nextStep: `The held ${held} verdict stands, but the campaign configuration it would act on was not confirmed by a provider receipt for the evaluation day, or some economic days it was computed from have unverified configuration. No provider action is authorized until fresh configuration receipts cover the decision window.`,
+  };
+}
+
 function resolutionForAuthorityBlocker(
   authorityBlocker: MetaDecisionAuthorityBlocker,
   codes: ReadonlySet<string>,
   heldAction: "scale" | "cut" | "refresh",
   predicateBlockers: readonly MetaDecisionPredicateEvidence[],
+  configAuthorityVerified: boolean | null = null,
 ): MetaDecisionResolution {
   const held = heldActionNoun(heldAction);
   if (authorityBlocker === "profile_hard_action_ineligible") {
@@ -254,6 +266,86 @@ function resolutionForAuthorityBlocker(
     };
   }
   if (authorityBlocker === "campaign_context") {
+    /*
+      ADR D097 round 2. A held Cut and a held Scale are not waiting for the same
+      thing, and serving them the same sentence told a buyer to ignore a
+      completed Cut performance verdict.
+
+      A Scale asks "where do I add budget", so an unresolved role leaves it
+      genuinely undetermined and "the resolver will keep evaluating; no operator
+      input is required" is the truth. A Cut asks "should this keep spending",
+      which the ad's own performance evidence already answered. What the role is
+      missing for is the SHAPE of the stop (pause here, or convert the Test
+      placement), not whether the cut evidence is complete. Telling the buyer no
+      input is required, beside a completed cut verdict, is the one sentence
+      that should never appear there.
+
+      THE COPY DELIBERATELY DOES NOT ASSERT A REALISED FINANCIAL LOSS. A Cut can
+      reach this point from a RELATIVE boundary -- `calibrated_relative` is
+      described in ad-calibration-job.ts as "a relative boundary with NO
+      economic unit" -- so "below target" is not the same claim as "below
+      break-even". Measured on production 2026-09-21: all 19 Cut decisions that
+      day were relative or zero-conversion, and NONE cited break-even. Saying
+      the loss is established would have been an overclaim on every one of
+      them.
+
+      What this does NOT change, deliberately: `decisionState` stays `blocked`,
+      `buyerAction` stays null, and no provider authority is granted.
+      INVARIANTS.md binds all three to a non-null `blocked_action_type`
+      ("A non-null `blocked_action_type` must serve as `decisionState: blocked`,
+      `buyerAction: null`, a server-produced resolution, and a held-action
+      label"), and a held Cut must keep that field. The lane the row lands in is
+      therefore still the held lane; moving it needs that invariant amended,
+      which is a presentation-contract decision of its own.
+    */
+    /*
+      A Cut still WAITING for its second evaluation is not a completed verdict.
+
+      Hysteresis publishes an unconfirmed hard label as "keep" with a
+      `pending_transition` badge and keeps the Cut only as the held action, and
+      the role guard stamps `campaign_context` on the same row. Without this
+      check the early return below served that row as "Cut Evidence Complete"
+      in the action lane and invited a manual pause — skipping the
+      two-evaluation rule the published label was still honouring. The
+      confirmation sentence is the truth for it, whatever the role.
+    */
+    if (codes.has("pending_transition")) {
+      return {
+        code: "await_decision_confirmation",
+        category: "system",
+        owner: "system",
+        label: "Hard Action Pending Confirmation",
+        nextStep:
+          "Wait for the required consecutive engine confirmation. The held Scale/Cut/Refresh verdict is visible, but no provider action is authorized yet.",
+      };
+    }
+    /*
+      ADR D098 config hold, hidden under the role hold.
+
+      The role guard stamps `campaign_context` inside the decision; the D098
+      config-source gate runs later, at payload time, and keeps the FIRST
+      blocker (INVARIANTS.md: "The first effective authority blocker must be
+      preserved"). So a Cut computed from days whose configuration no receipt
+      established reached this branch and was served as "Cut Evidence
+      Complete" — which D098 says such evidence cannot be: an unverified
+      economic day "cannot authorize a Cut … computed from mixed evidence".
+      The engine's own recorded config evidence is consulted here instead of
+      overwriting the persisted blocker. `null` (no recorded evidence) keeps the
+      previous behaviour.
+    */
+    if (heldAction === "cut" && configAuthorityVerified === false) {
+      return configSourceHeldResolution(held);
+    }
+    if (heldAction === "cut") {
+      return {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Cut Evidence Complete - Automated Execution Held",
+        nextStep:
+          "The cut verdict rests on this ad's own performance evidence and does not depend on the campaign role. Automated execution stays held until the automatic resolver settles the role, because the role decides how the stop is applied. Review the evidence and pause this ad yourself if you agree.",
+      };
+    }
     return {
       code: "resolve_campaign_role",
       category: "campaign_context",
@@ -262,6 +354,28 @@ function resolutionForAuthorityBlocker(
       nextStep:
         "The automatic resolver will keep evaluating this campaign as fresh account-scoped evidence syncs. No operator input is required; hard actions stay review-only until the role resolves.",
     };
+  }
+  if (authorityBlocker === "config_source_authority") {
+    /*
+      ADR D098's config-source hold. It used to fall through to "Restore Native
+      Decision Profile", which names the wrong thing and the wrong owner: the
+      profile was available and ready. What is missing is a provider
+      configuration receipt for the evaluation day, or verified configuration on
+      every economic day the verdict was computed from. The code is the existing
+      evidence-completion code so every consumer already maps it; the label is
+      that code's own byte-stable label.
+    */
+    if (codes.has("pending_transition")) {
+      return {
+        code: "await_decision_confirmation",
+        category: "system",
+        owner: "system",
+        label: "Hard Action Pending Confirmation",
+        nextStep:
+          "Wait for the required consecutive engine confirmation. The held Scale/Cut/Refresh verdict is visible, but no provider action is authorized yet.",
+      };
+    }
+    return configSourceHeldResolution(held);
   }
   return {
     code: "restore_native_profile",
@@ -444,6 +558,13 @@ export function projectMetaDecisionSemantics(input: {
    * a snapshot whose evaluation row is absent legitimately has none.
    */
   predicateBlockers?: readonly MetaDecisionPredicateEvidence[];
+  /**
+   * ADR D098 config authority the engine recorded for this verdict (native ad
+   * path): `false` when the current-day config value was not observed by a
+   * provider receipt or an economic day behind the verdict is unverified.
+   * `null`/absent means the envelope carries no such evidence; nothing changes.
+   */
+  configAuthorityVerified?: boolean | null;
 }): MetaDecisionSemanticProjection {
   const evidenceCodes = new Set([
     ...input.badgeCodes,
@@ -463,6 +584,7 @@ export function projectMetaDecisionSemantics(input: {
             evidenceCodes,
             heldAction,
             input.predicateBlockers ?? [],
+            input.configAuthorityVerified ?? null,
           )
         : resolutionFor(evidenceCodes),
       heldAction,

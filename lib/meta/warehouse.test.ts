@@ -70,6 +70,7 @@ const {
   createMetaAuthoritativeSourceManifest,
   createMetaSyncJob,
   createMetaSyncRun,
+  effectiveRequestedMetaTopLevelFields,
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaAuthoritativeDayVerification,
   getMetaAuthoritativeDayState,
@@ -110,9 +111,24 @@ const {
   "@/lib/meta/warehouse"
 );
 const { createMetaFinalizationCompletenessProof } = await import("@/lib/meta/finalization-proof");
+const {
+  META_CREATIVE_DAY_METRIC_EVIDENCE_KEY,
+  buildMeasuredMetaCreativeDayMetricEvidence,
+  readMetaCreativeDayMetricEvidence,
+  readMetaCreativeDayStageValue,
+} = await import("@/lib/meta/creative-day-metric-evidence");
 const dbGrowthFence = await import("@/lib/sync/db-growth-fence");
 
 describe("meta warehouse ownership safety", () => {
+  it("withholds degraded config fields absent from the effective provider selector", () => {
+    expect([...effectiveRequestedMetaTopLevelFields(
+      "id,objective,daily_budget", { recovered: true, droppedFields: "objective" },
+    )!]).toEqual(["id", "daily_budget"]);
+    expect([...effectiveRequestedMetaTopLevelFields(
+      "id,objective,daily_budget", { recovered: true },
+    )!]).toEqual([]);
+  });
+
   const savedEnv = { ...process.env };
   beforeEach(() => {
     vi.resetAllMocks();
@@ -211,7 +227,7 @@ describe("meta warehouse ownership safety", () => {
         cpa: null,
         ctr: 5,
         cpc: 0.6,
-        link_clicks: 40,
+        link_clicks: null,
         source_snapshot_id: "snapshot-1",
         truth_state: "finalized_verified",
         truth_version: 2,
@@ -221,6 +237,10 @@ describe("meta warehouse ownership safety", () => {
         metric_schema_version: 1,
         payload_json: {
           actions: [
+            { action_type: "landing_page_view", value: "10" },
+            { action_type: "add_to_cart", value: "3" },
+            { action_type: "omni_add_to_cart", value: "5" },
+            { action_type: "link_click", value: "42" },
             { action_type: "video_thruplay_watched", value: "12" },
             { action_type: "video_view", value: "34" },
           ],
@@ -239,6 +259,103 @@ describe("meta warehouse ownership safety", () => {
 
     expect(rows[0]?.thruplayActions).toBe(12);
     expect(rows[0]?.videoViews3s).toBe(34);
+    expect(rows[0]?.landingPageViews).toBe(10);
+    expect(rows[0]?.addToCart).toBe(3);
+    expect(rows[0]?.initiateCheckout).toBe(0);
+    // D095: the COLUMN is the ad-day link-click authority, and a NULL column is
+    // unknown even when the payload carries a `link_click` entry — every SQL
+    // reader of this row (`buildAdDayAuthoritativeLinkClicksSql`) says so, and
+    // the TypeScript reader must not classify the same ad-day differently.
+    // Projecting the payload into the column is the repair backfill's job.
+    expect(rows[0]?.linkClicks).toBeNull();
+  });
+
+  it("reads ad-day link clicks through the D095 ladder, identical to the SQL classifier", async () => {
+    const base = {
+      business_id: "biz-1",
+      provider_account_id: "act_1",
+      date: "2026-05-14",
+      impressions: 1000,
+    };
+    const sql = vi.fn(async () => [
+      { ...base, ad_id: "positive", link_clicks: "37", payload_json: null },
+      { ...base, ad_id: "zero-proved-empty", link_clicks: "0", payload_json: { actions: [] } },
+      {
+        ...base,
+        ad_id: "zero-proved-entry",
+        link_clicks: 0,
+        payload_json: { actions: [{ action_type: "link_click", value: "0" }] },
+      },
+      { ...base, ad_id: "zero-unproved", link_clicks: 0, payload_json: { spend: "1" } },
+      {
+        ...base,
+        ad_id: "zero-contradicted",
+        link_clicks: 0,
+        payload_json: { actions: [{ action_type: "link_click", value: "4" }] },
+      },
+      {
+        ...base,
+        ad_id: "null-with-payload",
+        link_clicks: null,
+        payload_json: { actions: [{ action_type: "link_click", value: "9" }] },
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await getMetaAdDailyRange({
+      businessId: "biz-1",
+      startDate: "2026-05-14",
+      endDate: "2026-05-14",
+    });
+    const byAd = Object.fromEntries(rows.map((row) => [row.adId, row.linkClicks]));
+
+    expect(byAd).toEqual({
+      positive: 37,
+      "zero-proved-empty": 0,
+      "zero-proved-entry": 0,
+      "zero-unproved": null,
+      "zero-contradicted": null,
+      "null-with-payload": null,
+    });
+  });
+
+  it("does not call video starts or a derived thumbstop ratio three-second views", async () => {
+    const sql = vi.fn(async () => [
+      {
+        business_id: "biz-1",
+        provider_account_id: "act_1",
+        ad_id: "starts-only",
+        date: "2026-05-14",
+        impressions: 1000,
+        payload_json: {
+          video_play_actions: [{ value: "700" }],
+          thumbstop: 70,
+        },
+      },
+      {
+        business_id: "biz-1",
+        provider_account_id: "act_1",
+        ad_id: "measured-view",
+        date: "2026-05-14",
+        impressions: 1000,
+        payload_json: {
+          video_play_actions: [{ value: "700" }],
+          actions: [{ action_type: "video_view", value: "340" }],
+        },
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await getMetaAdDailyRange({
+      businessId: "biz-1",
+      startDate: "2026-05-14",
+      endDate: "2026-05-14",
+    });
+
+    expect(rows[0]?.videoViews3s).toBeNull();
+    expect(rows[0]?.thruplayActions).toBeNull();
+    expect(rows[1]?.videoViews3s).toBe(340);
+    expect(rows[1]?.thruplayActions).toBeNull();
   });
 
   it("builds a normalized authoritative day-state lookup key and required surface buckets", () => {
@@ -1352,6 +1469,95 @@ describe("meta warehouse ownership safety", () => {
     expect(valueFor("creative_primary_type")).toBe("image");
     expect(valueFor("creative_secondary_type")).toBe("static");
     expect(valueFor("image_hash")).toBe("hash-1");
+  });
+
+  it("merges the creative-day measurement stamp strictly instead of keeping the first payload's", async () => {
+    const queryMock = vi.fn(async (_query: string, _values?: unknown[]) => []);
+    const sql = vi.fn(async () => []);
+    Object.assign(sql, { query: queryMock });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const stamp = (counts: Parameters<typeof buildMeasuredMetaCreativeDayMetricEvidence>[0]) => ({
+      [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: buildMeasuredMetaCreativeDayMetricEvidence(counts),
+    });
+    const creativeDay = (creativeId: string, adId: string, payloadJson: unknown) => ({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      date: "2026-04-03",
+      campaignId: "cmp-1",
+      adsetId: "adset-1",
+      adId,
+      creativeId,
+      creativeName: creativeId,
+      headline: null,
+      primaryText: null,
+      destinationUrl: null,
+      thumbnailUrl: null,
+      assetType: "image",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      spend: 10,
+      impressions: 100,
+      clicks: 5,
+      reach: 50,
+      frequency: 2,
+      conversions: 1,
+      revenue: 20,
+      roas: 2,
+      cpa: 10,
+      ctr: 5,
+      cpc: 2,
+      linkClicks: 4,
+      sourceSnapshotId: null,
+      payloadJson,
+    });
+
+    await upsertMetaCreativeDailyRows([
+      // Both measured: the stamp sums, like the columns beside it.
+      creativeDay("cre-sum", "ad-1", { creative_format: "video", ...stamp({ link_click: 3, add_to_cart: 0 }) }),
+      creativeDay("cre-sum", "ad-2", { creative_format: "image", ...stamp({ link_click: 4, add_to_cart: 0 }) }),
+      // One measured 0 folded with a row that measured nothing: incomplete, never 0.
+      creativeDay("cre-partial", "ad-3", stamp({ link_click: 0 })),
+      creativeDay("cre-partial", "ad-4", stamp({})),
+      // One stamped, one legacy payload without a stamp: every stage incomplete.
+      creativeDay("cre-legacy", "ad-5", stamp({ link_click: 6 })),
+      creativeDay("cre-legacy", "ad-6", { creative_format: "image" }),
+      // Nobody stamped: the payload is left exactly as the first row carried it.
+      creativeDay("cre-none", "ad-7", { creative_format: "image" }),
+      creativeDay("cre-none", "ad-8", { creative_format: "video" }),
+    ] as never);
+
+    const call = queryMock.mock.calls.find(([query]) =>
+      String(query).includes("INSERT INTO meta_creative_daily"),
+    );
+    const values = call?.[1] as unknown[];
+    const payloadFor = (creativeId: string) => {
+      const rowIndex = [0, 1, 2, 3].find((index) => values[index * 61 + 8] === creativeId);
+      if (rowIndex === undefined) throw new Error(`no row for ${creativeId}`);
+      return JSON.parse(String(values[rowIndex * 61 + 60]));
+    };
+
+    const summed = payloadFor("cre-sum");
+    expect(summed.creative_format).toBe("video");
+    expect(readMetaCreativeDayStageValue(summed, "link_click")).toBe(7);
+    expect(readMetaCreativeDayStageValue(summed, "add_to_cart")).toBe(0);
+    expect(readMetaCreativeDayStageValue(summed, "landing_page_view")).toBeNull();
+
+    const partial = payloadFor("cre-partial");
+    expect(readMetaCreativeDayStageValue(partial, "link_click")).toBeNull();
+    expect(readMetaCreativeDayMetricEvidence(partial)?.stages.link_click).toEqual({
+      state: "incomplete",
+      reason: "merged_partial",
+    });
+
+    const legacy = payloadFor("cre-legacy");
+    expect(readMetaCreativeDayStageValue(legacy, "link_click")).toBeNull();
+    expect(readMetaCreativeDayMetricEvidence(legacy)?.stages.link_click).toEqual({
+      state: "incomplete",
+      reason: "evidence_absent",
+    });
+
+    expect(payloadFor("cre-none")).toEqual({ creative_format: "image" });
   });
 
   it("batches meta ad daily upserts instead of writing one row per query", async () => {

@@ -2304,7 +2304,6 @@ async function runAvailabilityMatrix(rootDir: string, pgBinDir: string, keep: bo
           MATRIX_OUT: outFile,
           MATRIX_AS_OF: asOf,
           META_AUTOMATION_LIVE_WRITES: posture.master ? "true" : "false",
-          META_DECISION_WORKFLOW_UI: "true",
           META_LAUNCHPAD_EXECUTION: "true",
           CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
           META_DECISIONS_UPSTREAM_TRANSPORT: "in_process",
@@ -2809,7 +2808,6 @@ cd ${JSON.stringify(process.cwd())}
 export DATABASE_URL=${JSON.stringify(input.databaseUrl)}
 export DATABASE_URL_UNPOOLED=${JSON.stringify(input.databaseUrl)}
 export META_AUTOMATION_LIVE_WRITES=true
-export META_DECISION_WORKFLOW_UI=true
 export ZERO_BASE_MUTATION_UI_ENABLED=true
 export ALLOW_INSECURE_LOCAL_AUTH_COOKIE=1
 export CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION=${JSON.stringify(

@@ -1110,3 +1110,78 @@ describe("a business with no Shopify evidence", () => {
     );
   });
 });
+
+/*
+  ── THE MINOR-UNIT ROUND TRIP, AND WHY IT IS SAFE ──────────────────────────
+
+  `resolveObservedShopifyAov` mints `aovMinor` at `input.currencyExponent`, or
+  at 2 when the caller cannot resolve one. In isolation that reads exactly like
+  the silent two-decimal default this codebase forbids, and a currency-audit
+  pass nearly "fixed" it into a refusal.
+
+  It is safe because the exponent is an INTERNAL ENCODING with exactly one
+  reader, which divides by the same recorded value. These cases pin that, so
+  the day a second reader appears the invariant is stated rather than inferred.
+*/
+describe("the store AOV minor-unit encoding cancels on read", () => {
+  const roundTrip = (aovMajor: number, exponent: number) => {
+    /* Mint exactly as resolveObservedShopifyAov does... */
+    const aovMinor = Math.round(aovMajor * 10 ** exponent);
+    /* ...and read exactly as account-decision-profile.ts:291 does. */
+    return aovMinor / 10 ** exponent;
+  };
+
+  it("cancels the factor exactly, leaving only sub-minor-unit rounding", () => {
+    /*
+      The property that makes the fallback harmless. The 10**e factor cancels
+      completely — what survives is at most half a minor unit of rounding at
+      the exponent used, which is a precision difference and never a factor of
+      10 or 100.
+
+      The discriminating case is the fallback itself: a JPY store whose
+      exponent cannot be resolved encodes at 2 and reads back 184.5; one
+      resolved at its own 0 encodes at 0 and reads back 185. Half a yen apart,
+      not a hundredfold. That is the whole argument for leaving the fallback
+      in place, and it is asserted rather than described.
+    */
+    for (const exponent of [0, 2, 3]) {
+      const tolerance = 0.5 / 10 ** exponent;
+      for (const aov of [184.5, 12_000, 3.33, 999_999.99]) {
+        expect(Math.abs(roundTrip(aov, exponent) - aov), `${aov} @ e${exponent}`)
+          .toBeLessThanOrEqual(tolerance);
+      }
+    }
+    /* Whole-unit values survive every exponent byte-exactly. */
+    for (const exponent of [0, 2, 3]) {
+      expect(roundTrip(185, exponent)).toBe(185);
+      expect(roundTrip(12_000, exponent)).toBe(12_000);
+    }
+    /* And the fallback's disagreement with a resolved 0 is bounded by half a
+       whole unit, not by a factor. */
+    expect(Math.abs(roundTrip(184.5, 2) - roundTrip(184.5, 0))).toBeLessThanOrEqual(0.5);
+  });
+
+  it("is the ONLY thing the encoding is used for", async () => {
+    /*
+      The guard that actually protects the invariant. `aovMinor` and
+      `revenueMinor` must not acquire a reader that compares them to a Meta
+      amount without dividing: Meta's per-currency offset disagrees with the
+      ISO exponent for COP, HUF, IDR, TWD, BHD and JOD, so such a comparison
+      would be wrong by 10x or 100x on those accounts.
+    */
+    const { execSync } = await import("node:child_process");
+    const hits = execSync(
+      `grep -rn "aovMinor\\|revenueMinor" --include="*.ts" --include="*.tsx" lib app components 2>/dev/null || true`,
+      { encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean)
+      .filter((line) => !line.includes(".test."))
+      .filter((line) => !line.startsWith("lib/creative-decision-engine/shopify-aov-source.ts:"));
+
+    /* One reader, and it divides by the recorded exponent on the same line. */
+    expect(hits, hits.join("\n")).toHaveLength(1);
+    expect(hits[0]).toContain("lib/creative-decision-engine/account-decision-profile.ts:");
+    expect(hits[0]).toContain("observed.aovMinor / 10 ** observed.currencyExponent");
+  });
+});

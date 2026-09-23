@@ -250,6 +250,10 @@ campaign_config_window AS (
     LAG(config.daily_budget) OVER w AS prev_daily_budget,
     LAG(config.lifetime_budget) OVER w AS prev_lifetime_budget,
     LAG(config.bid_value) OVER w AS prev_bid_value,
+    -- bid_value is two number systems in one column, and bid_value_format is
+    -- the only thing that says which. Served without it the journal amount is
+    -- not merely unscaled, it is uninterpretable.
+    LAG(config.bid_value_format) OVER w AS prev_bid_value_format,
     LAG(config.bid_strategy_type) OVER w AS prev_bid_strategy_type,
     LAG(config.optimization_goal) OVER w AS prev_optimization_goal
   FROM meta_campaign_config_history config
@@ -273,6 +277,8 @@ adset_config_window AS (
     LAG(adset_config.daily_budget) OVER w AS prev_daily_budget,
     LAG(adset_config.lifetime_budget) OVER w AS prev_lifetime_budget,
     LAG(adset_config.bid_value) OVER w AS prev_bid_value,
+    -- Same discriminator, same reason. See campaign_config_window.
+    LAG(adset_config.bid_value_format) OVER w AS prev_bid_value_format,
     LAG(adset_config.bid_strategy_type) OVER w AS prev_bid_strategy_type,
     LAG(adset_config.optimization_goal) OVER w AS prev_optimization_goal
   FROM meta_adset_config_history adset_config
@@ -1093,10 +1099,12 @@ history_entries AS (
       'lifetimeBudget', config.lifetime_budget,
       'bidStrategyType', config.bid_strategy_type,
       'bidValue', config.bid_value,
+      'bidValueFormat', config.bid_value_format,
       'optimizationGoal', config.optimization_goal,
       'previousDailyBudget', config.prev_daily_budget,
       'previousLifetimeBudget', config.prev_lifetime_budget,
       'previousBidValue', config.prev_bid_value,
+      'previousBidValueFormat', config.prev_bid_value_format,
       'previousBidStrategyType', config.prev_bid_strategy_type,
       'previousOptimizationGoal', config.prev_optimization_goal,
       'observedAt', config.captured_at
@@ -1172,9 +1180,17 @@ history_entries AS (
       'lifetimeBudget', adset_config.lifetime_budget,
       'bidStrategyType', adset_config.bid_strategy_type,
       'bidValue', adset_config.bid_value,
+      'bidValueFormat', adset_config.bid_value_format,
       'optimizationGoal', adset_config.optimization_goal,
       'previousDailyBudget', adset_config.prev_daily_budget,
+      -- The ad-set change predicate fires on a lifetime-budget move and this
+      -- object left out its predecessor, so an ABO ad set whose lifetime
+      -- budget changed produced an entry with the new figure and nothing to
+      -- compare it against. Budget lives on the ad set for ABO accounts, so
+      -- this is the common case rather than an edge.
+      'previousLifetimeBudget', adset_config.prev_lifetime_budget,
       'previousBidValue', adset_config.prev_bid_value,
+      'previousBidValueFormat', adset_config.prev_bid_value_format,
       'previousBidStrategyType', adset_config.prev_bid_strategy_type,
       'previousOptimizationGoal', adset_config.prev_optimization_goal,
       'observedAt', adset_config.captured_at

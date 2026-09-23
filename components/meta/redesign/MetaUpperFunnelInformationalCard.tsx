@@ -90,7 +90,7 @@ export function UpperFunnelKpiGrid({
         sub={p50Sub}
       />
       <KpiTile label="ThruPlay rate" value={formatRatioPercent(metrics.thruplayActions, metrics.impressions)} />
-      <KpiTile label="Hook rate (3s)" value={formatRatioPercent(metrics.videoViews3s, metrics.impressions)} />
+      <KpiTile label="Video-view rate" value={formatRatioPercent(metrics.videoViews3s, metrics.impressions)} />
       <KpiTile label="Frequency" value={formatFrequency(metrics.frequency)} />
     </div>
   );

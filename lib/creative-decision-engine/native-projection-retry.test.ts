@@ -92,8 +92,13 @@ function options(
     listEnabledIds: async () => BUSINESSES.map((business) => business.id),
     listMetaEligibleIds: async () => BUSINESSES.map((business) => business.id),
     readSuccessfulJobs: async () => new Map(),
+    readDecisionRetryBackoffs: async () => new Set(),
     readOperatorResponseRetryBackoffs: async () => new Set(),
     hasSuccessfulJob: async () => true,
+    withBusinessChainLock: async (_input, run) => ({
+      acquired: true,
+      value: await run(),
+    }),
     runCalibration: async () => calibrationResult() as never,
     runDecisions: async () => decisionsResult() as never,
     runOperatorResponse: async () => operatorResult() as never,

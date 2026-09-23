@@ -115,6 +115,8 @@ export interface MetaCampaignsResponse {
   rows: MetaCampaignRow[];
   isPartial?: boolean;
   notReadyReason?: string | null;
+  configPartial?: boolean;
+  configNotReadyReason?: string | null;
 }
 
 export async function GET(request: NextRequest) {

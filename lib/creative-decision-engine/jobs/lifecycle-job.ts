@@ -24,6 +24,11 @@ import {
 } from "./calibration-job";
 import { getBusinessGuardFailure } from "./business-guard";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
+import {
+  buildMetaCreativeDayMetricEvidenceLateralSql,
+  type MetaCreativeDayMetricStage,
+} from "@/lib/meta/creative-day-metric-evidence";
+import { buildMetaCompleteWindowSql } from "@/lib/meta/funnel-stage-parse";
 
 export const JOB_NAME = "engine_v3_lifecycle_job";
 
@@ -258,7 +263,89 @@ interface ComputedLifecycleBatch {
   sourceMaxUpdatedAt: string | null;
 }
 
-const COMPUTE_LIFECYCLE_ROWS_QUERY = `
+/*
+  THE CREATIVE-GRAIN FUNNEL IS READ FROM THE MEASUREMENT STAMP, AND NOTHING ELSE.
+
+  This query used to read `meta_creative_daily.link_clicks` and the payload
+  scalars `outbound_clicks`, `landing_page_views`, `add_to_cart`,
+  `initiate_checkout`, `thumbstop` and `video25..100`, each wrapped in
+  `COALESCE(..., 0)` and commented "NULL-SAFETY ONLY". It was not null safety.
+  The creative-day writer stores every one of those as a finite number whether
+  or not anything was observed (see `lib/meta/creative-day-metric-evidence.ts`
+  for the list), so the coalesce turned "the provider never reported this" into
+  a measured zero, summed it with real days, and persisted the result as
+  `link_clicks_28d` and the funnel counts every rate and diagnosis downstream
+  is built on.
+
+  THE RULE NOW:
+    - each stage is read per row from the stamp the writer computed out of the
+      raw insight (one canonical alias, strict count guard); an unstamped
+      legacy row is unmeasured, never 0;
+    - a creative-DAY sums its rows only when every decision-bearing row
+      measured the stage, and a WINDOW sums its days only when every
+      decision-bearing day did (`buildMetaCompleteWindowSql`, applied at both
+      levels): zero + missing is NULL, zero + zero is 0, and a malformed value
+      is missing rather than an error;
+    - thumbstop and the video quartile rates are NULL. The only numerator the
+      writer has is video STARTS over all impressions, which is not a
+      three-second view, and no verified provider contract exists to replace it.
+
+  ENGINE_VERSION is not bumped: the lifecycle rows it keys have never shipped,
+  so the version is amended in place.
+*/
+const CREATIVE_DAY_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql({
+  payloadExpression: "d.payload_json",
+  rowAlias: "d",
+  lateralAlias: "creative_day_evidence",
+});
+
+/** One creative-day: complete only when every decision-bearing row measured the stage. */
+function creativeDayStageSumSql(stage: MetaCreativeDayMetricStage) {
+  return buildMetaCompleteWindowSql({
+    valueSql: CREATIVE_DAY_EVIDENCE.valueSql(stage),
+    missingSql: CREATIVE_DAY_EVIDENCE.missingSql(stage),
+    activitySql: CREATIVE_DAY_EVIDENCE.activitySql,
+  }).sumSql;
+}
+
+const LAST_28_DAYS_SQL = "date >= ($2::date - INTERVAL '27 days')";
+
+/**
+ * A window over the per-day rows of the `daily` CTE: complete only when every
+ * decision-bearing day in it produced a value for the stage.
+ */
+function creativeWindowStageSumSql(dailyColumn: string, rowFilterSql: string) {
+  return buildMetaCompleteWindowSql({
+    valueSql: dailyColumn,
+    missingSql: `(${dailyColumn} IS NULL)`,
+    activitySql: "decision_bearing_activity",
+    rowFilterSql,
+  }).sumSql;
+}
+
+/**
+ * The persisted count columns are `integer`. A valid count too large for one is
+ * reported missing rather than raised: an out-of-range cast would abort the
+ * whole business's lifecycle run over a single implausible sum.
+ */
+function integerOrNullSql(expression: string) {
+  return `(CASE WHEN (${expression}) <= 2147483647 THEN ((${expression}))::integer END)`;
+}
+
+/** The historical click-to-purchase denominator, under the same window rule. */
+const HISTORICAL_LINK_CLICKS_SQL = buildMetaCompleteWindowSql({
+  valueSql: "link_clicks",
+  missingSql: "(link_clicks IS NULL)",
+  activitySql: "decision_bearing_activity",
+}).sumSql;
+
+/**
+ * Exported so the real-PostgreSQL seam
+ * (`lib/creative-decision-engine/creative-day-metric-evidence.db.test.ts`) can
+ * read the historical-window columns the job consumes but does not persist.
+ * Parameters: $1 business ref id, $2 as-of date, $3 supported objectives.
+ */
+export const COMPUTE_LIFECYCLE_ROWS_QUERY = `
 WITH selected_creatives AS (
   SELECT d.creative_id
   FROM meta_creative_daily d
@@ -278,26 +365,19 @@ daily AS (
     SUM(d.revenue)::double precision AS revenue,
     SUM(d.impressions)::bigint AS impressions,
     SUM(d.clicks)::bigint AS clicks,
-    -- NULL-SAFETY ONLY. NOT a decision change. meta_creative_daily.link_clicks
-    -- can now be NULL where the provider supplied nothing, and SUM ignores
-    -- nulls, so an all-unsupplied creative-day group would produce NULL here
-    -- and carry that NULL into link_clicks_28d and every rate built on it.
-    -- Coalescing inside the SUM reproduces today's stored 0 exactly, while an
-    -- empty group still yields NULL as it does today. The engine saw 0 before
-    -- and sees 0 now.
-    SUM(COALESCE(d.link_clicks, 0))::bigint AS link_clicks,
-    SUM(COALESCE((NULLIF(d.payload_json->>'outbound_clicks', ''))::numeric, d.outbound_clicks::numeric, 0)) AS outbound_clicks,
-    SUM(COALESCE((NULLIF(d.payload_json->>'landing_page_views', ''))::numeric, 0)) AS landing_page_views,
-    SUM(COALESCE((NULLIF(d.payload_json->>'add_to_cart', ''))::numeric, 0)) AS add_to_cart,
-    SUM(COALESCE((NULLIF(d.payload_json->>'initiate_checkout', ''))::numeric, 0)) AS initiate_checkout,
-    SUM(COALESCE((NULLIF(d.payload_json->>'thumbstop', ''))::numeric, 0) * d.impressions) AS thumbstop_weighted,
-    SUM(COALESCE((NULLIF(d.payload_json->>'video25', ''))::numeric, 0) * d.impressions) AS video25_weighted,
-    SUM(COALESCE((NULLIF(d.payload_json->>'video50', ''))::numeric, 0) * d.impressions) AS video50_weighted,
-    SUM(COALESCE((NULLIF(d.payload_json->>'video75', ''))::numeric, 0) * d.impressions) AS video75_weighted,
-    SUM(COALESCE((NULLIF(d.payload_json->>'video100', ''))::numeric, 0) * d.impressions) AS video100_weighted,
+    -- Stamped measurements only, complete-or-NULL per creative-day. Neither
+    -- the link_clicks column nor any payload display scalar is read here: the
+    -- writer fills those whether or not the provider reported anything.
+    ${creativeDayStageSumSql("link_click")} AS link_clicks,
+    ${creativeDayStageSumSql("outbound_click")} AS outbound_clicks,
+    ${creativeDayStageSumSql("landing_page_view")} AS landing_page_views,
+    ${creativeDayStageSumSql("add_to_cart")} AS add_to_cart,
+    ${creativeDayStageSumSql("initiate_checkout")} AS initiate_checkout,
+    BOOL_OR(${CREATIVE_DAY_EVIDENCE.activitySql}) AS decision_bearing_activity,
     AVG(NULLIF(d.frequency, 0)) AS frequency
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  ${CREATIVE_DAY_EVIDENCE.lateralSql}
   WHERE d.business_ref_id = $1::uuid
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND d.objective = ANY($3::text[])
@@ -337,7 +417,7 @@ windows AS (
     COALESCE(SUM(purchases) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)::double precision AS purchases_28d,
     SUM(revenue) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::double precision AS purchase_value_28d,
     SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::bigint AS impressions_28d,
-    SUM(link_clicks) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::bigint AS link_clicks_28d,
+    (${creativeWindowStageSumSql("link_clicks", LAST_28_DAYS_SQL)})::bigint AS link_clicks_28d,
     CASE
       WHEN SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
       THEN SUM(revenue) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
@@ -359,35 +439,17 @@ windows AS (
       THEN SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
         NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0) * 1000
     END AS cpm_28d,
-    SUM(outbound_clicks) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::integer AS outbound_clicks_28d,
-    SUM(landing_page_views) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::integer AS landing_page_views_28d,
-    SUM(add_to_cart) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::integer AS add_to_cart_28d,
-    SUM(initiate_checkout) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::integer AS initiate_checkout_28d,
-    CASE
-      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
-      THEN SUM(thumbstop_weighted) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
-        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
-    END AS thumbstop_28d,
-    CASE
-      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
-      THEN SUM(video25_weighted) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
-        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
-    END AS video25_rate_28d,
-    CASE
-      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
-      THEN SUM(video50_weighted) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
-        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
-    END AS video50_rate_28d,
-    CASE
-      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
-      THEN SUM(video75_weighted) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
-        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
-    END AS video75_rate_28d,
-    CASE
-      WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
-      THEN SUM(video100_weighted) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
-        NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
-    END AS video100_rate_28d,
+    ${integerOrNullSql(creativeWindowStageSumSql("outbound_clicks", LAST_28_DAYS_SQL))} AS outbound_clicks_28d,
+    ${integerOrNullSql(creativeWindowStageSumSql("landing_page_views", LAST_28_DAYS_SQL))} AS landing_page_views_28d,
+    ${integerOrNullSql(creativeWindowStageSumSql("add_to_cart", LAST_28_DAYS_SQL))} AS add_to_cart_28d,
+    ${integerOrNullSql(creativeWindowStageSumSql("initiate_checkout", LAST_28_DAYS_SQL))} AS initiate_checkout_28d,
+    -- No verified provider contract: the writer's "thumbstop" is video starts
+    -- over all impressions and its quartile rates share that denominator.
+    NULL::double precision AS thumbstop_28d,
+    NULL::double precision AS video25_rate_28d,
+    NULL::double precision AS video50_rate_28d,
+    NULL::double precision AS video75_rate_28d,
+    NULL::double precision AS video100_rate_28d,
     COALESCE(SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '6 days')), 0)::double precision AS spend_7d,
     COALESCE(SUM(purchases) FILTER (WHERE date >= ($2::date - INTERVAL '6 days')), 0)::double precision AS purchases_7d,
     CASE
@@ -509,13 +571,15 @@ historical_source AS (
     d.clicks,
     d.conversions,
     d.revenue,
-    -- NULL-SAFETY ONLY. NOT a decision change. Coalesced where the raw column
-    -- leaves the table so the click_to_purchase_rate aggregate below is
-    -- unchanged text producing unchanged numbers. The engine saw 0 for an
-    -- unsupplied row before and sees 0 for it now.
-    COALESCE(d.link_clicks, 0) AS link_clicks
+    -- The stamped link-click measurement, NULL when this row did not measure
+    -- it. The historical click-to-purchase rate below divides by it only when
+    -- the whole window measured it; a coalesced 0 here used to let a window
+    -- with one measured day and thirteen unreported ones divide by that day.
+    ${CREATIVE_DAY_EVIDENCE.valueSql("link_click")} AS link_clicks,
+    ${CREATIVE_DAY_EVIDENCE.activitySql} AS decision_bearing_activity
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  ${CREATIVE_DAY_EVIDENCE.lateralSql}
   CROSS JOIN LATERAL (
     VALUES
       ('last14', d.date BETWEEN ($2::date - INTERVAL '13 days') AND $2::date),
@@ -540,8 +604,8 @@ historical_aggregates AS (
     END AS ctr,
     CASE WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend) END AS roas,
     CASE
-      WHEN SUM(link_clicks) > 0
-      THEN SUM(conversions)::double precision / NULLIF(SUM(link_clicks), 0)
+      WHEN ${HISTORICAL_LINK_CLICKS_SQL} > 0
+      THEN SUM(conversions)::double precision / NULLIF(${HISTORICAL_LINK_CLICKS_SQL}, 0)
     END AS click_to_purchase_rate,
     SUM(conversions) AS purchases
   FROM historical_source
@@ -1834,8 +1898,11 @@ function toHistoricalWindow(
     spend: toNumberOrNull(row[`${prefix}_spend`]) ?? 0,
     ctr: toNumberOrNull(row[`${prefix}_ctr`]) ?? 0,
     roas: toNumberOrNull(row[`${prefix}_roas`]) ?? 0,
-    clickToPurchaseRate:
-      toNumberOrNull(row[`${prefix}_click_to_purchase_rate`]) ?? 0,
+    // The SQL rate is NULL when the window did not measure link clicks
+    // completely, and it stays NULL: `HistoricalWindow.clickToPurchaseRate`
+    // is `number | null`, and a 0 here would read as a 100% decay wherever a
+    // prior14 baseline is supplied.
+    clickToPurchaseRate: toNumberOrNull(row[`${prefix}_click_to_purchase_rate`]),
     purchases: toNumberOrNull(row[`${prefix}_purchases`]) ?? 0,
   };
 }

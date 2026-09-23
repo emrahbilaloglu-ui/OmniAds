@@ -50,18 +50,22 @@ npm run check:workflows
 # `link_clicks: false` — with CTR, CPC (link) and click-to-ATC going with it —
 # for exactly the rows the database could not supply.
 #
-# The child ALSO carries the engine-equivalence half, which is the claim the
-# whole change rests on: the engine's numbers must not move when a stored 0
-# becomes an unsupplied NULL. `runCalibrationJob` is run twice over the same 50
-# seeded creative-days with only that column flipped, and all 25 persisted
-# calibration rows are compared including every link-click-denominated funnel
-# percentile; then `runLifecycleJob` is asserted to still store
-# `link_clicks_28d = 0` for an all-unsupplied creative rather than NULL. That
-# last one is the load-bearing assertion for the `SUM(COALESCE(link_clicks, 0))`
-# aggregates — reverting the coalesce makes it fail with "expected 0, got null",
-# whereas the calibration comparison alone does NOT catch it, because every
-# funnel rate there is guarded by `CASE WHEN total_link_clicks > 0` and that
-# guard treats NULL and 0 alike.
+# The child ALSO carries the creative-grain engine half. `runCalibrationJob` is
+# run twice over the same 50 seeded creative-days with only the `link_clicks`
+# display column flipped from 0 to NULL, and all 25 persisted calibration rows
+# are compared including every link-click-denominated funnel percentile: they
+# must be identical, because the creative-grain readers no longer read that
+# column (or any payload display scalar) at all — they read only the per-stage
+# measurement stamp in `lib/meta/creative-day-metric-evidence.ts`. Then
+# `runLifecycleJob` is asserted to store `link_clicks_28d = NULL` for the
+# unstamped creative. That assertion was REVERSED on purpose: it used to pin
+# `link_clicks_28d = 0` for an all-unsupplied creative, which was the
+# `SUM(COALESCE(link_clicks, 0))` fabrication itself — the creative-day writer
+# stored that column as a number whether or not the provider reported anything,
+# so the 0 was never a measurement. An unstamped creative is unmeasured until it
+# is re-synced; the persisted engine artifact now says so. The per-stage
+# zero+missing / zero+zero / alias / malformed / thumbstop cases are proven by
+# `lib/creative-decision-engine/creative-day-metric-evidence.db.test.ts`.
 #
 # Deliberately NOT a separate stage: a second stage would boot a second cluster
 # to re-prove the same migrated schema.

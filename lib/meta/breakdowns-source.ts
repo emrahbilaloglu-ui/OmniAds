@@ -11,7 +11,10 @@ import {
 } from "@/lib/provider-account-assignments";
 import { getMetaBreakdownGuardrail } from "@/lib/meta/constraints";
 import { getMetaHistoricalVerificationReason } from "@/lib/meta/historical-verification";
-import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
+import {
+  getMetaPartialReason,
+  getMetaRangePreparationContext,
+} from "@/lib/meta/readiness";
 import {
   getMetaWarehouseBreakdowns,
   getMetaWarehouseCountryBreakdowns,
@@ -28,6 +31,59 @@ export interface MetaCountryBreakdownsSourceResult {
   verification: MetaWarehouseCountryBreakdownsResponse["verification"] | null;
   isPartial: boolean;
   notReadyReason: string | null;
+}
+
+export function resolveMetaBreakdownEmptyEvidence(input: {
+  isPartial: boolean | undefined;
+  hasRelevantBreakdownRows: boolean;
+  verification:
+    | {
+        verificationState: string;
+        sourceFetchedAt: string | null;
+        publishedAt: string | null;
+        asOf: string | null;
+      }
+    | null
+    | undefined;
+}): { observed: boolean; observedAt: string | null } {
+  const observedAt =
+    input.verification?.publishedAt ??
+    input.verification?.sourceFetchedAt ??
+    input.verification?.asOf ??
+    null;
+  const observed =
+    !input.hasRelevantBreakdownRows &&
+    input.isPartial === false &&
+    input.verification?.verificationState === "finalized_verified" &&
+    observedAt !== null;
+  return { observed, observedAt: observed ? observedAt : null };
+}
+
+export function resolveMetaBreakdownEmptyPublication(input: {
+  status: MetaBreakdownsResponse["status"];
+  isPartial: boolean;
+  notReadyReason: string | null;
+  evidence: { observed: boolean; observedAt: string | null };
+}): {
+  isPartial: boolean;
+  emptyObserved: boolean;
+  emptyObservedAt: string | null;
+} {
+  const isPartial =
+    input.status === "ok" && Boolean(input.notReadyReason?.trim())
+      ? true
+      : input.isPartial;
+  const emptyObserved =
+    input.status === "ok" &&
+    isPartial === false &&
+    input.notReadyReason === null &&
+    input.evidence.observed === true &&
+    input.evidence.observedAt !== null;
+  return {
+    isPartial,
+    emptyObserved,
+    emptyObservedAt: emptyObserved ? input.evidence.observedAt : null,
+  };
 }
 
 function toISODate(date: Date) {
@@ -58,7 +114,17 @@ function emptyBreakdowns(
   notReadyReason: string | null,
   isPartial: boolean,
   freshness: MetaBreakdownsResponse["freshness"] = null,
+  emptyEvidence: {
+    observed: boolean;
+    observedAt: string | null;
+  } = { observed: false, observedAt: null },
 ): MetaBreakdownsResponse {
+  const emptyPublication = resolveMetaBreakdownEmptyPublication({
+    status,
+    isPartial,
+    notReadyReason,
+    evidence: emptyEvidence,
+  });
   return {
     status,
     age: [],
@@ -76,8 +142,10 @@ function emptyBreakdowns(
       reason:
         "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
     },
-    isPartial,
+    isPartial: emptyPublication.isPartial,
     notReadyReason,
+    emptyObserved: emptyPublication.emptyObserved,
+    emptyObservedAt: emptyPublication.emptyObservedAt,
     freshness,
   };
 }
@@ -110,7 +178,11 @@ export async function getMetaBreakdownsForRange(input: {
     // `no_connection` is this module's own word for "there is nothing to read
     // from here" — the closest existing member, and reusing it keeps the status
     // union closed rather than widening a contract for one branch.
-    return emptyBreakdowns("no_connection", META_POSTURE_UNVERIFIED_REASON, false);
+    return emptyBreakdowns(
+      "no_connection",
+      META_POSTURE_UNVERIFIED_REASON,
+      false,
+    );
   }
   if (posture === "demo") {
     /**
@@ -140,7 +212,10 @@ export async function getMetaBreakdownsForRange(input: {
      * answer, which for one assigned account is the same rows either way.
      */
     const demoAssignedAccountIds = getDemoMetaStatus().assignedAccountIds ?? [];
-    if (requestedAccountId && !demoAssignedAccountIds.includes(requestedAccountId)) {
+    if (
+      requestedAccountId &&
+      !demoAssignedAccountIds.includes(requestedAccountId)
+    ) {
       return emptyBreakdowns(
         "account_not_assigned",
         "The requested Meta ad account is not assigned to this workspace.",
@@ -154,7 +229,9 @@ export async function getMetaBreakdownsForRange(input: {
     };
   }
 
-  const integration = await getIntegration(input.businessId, "meta").catch(() => null);
+  const integration = await getIntegration(input.businessId, "meta").catch(
+    () => null,
+  );
   if (!integration || integration.status !== "connected") {
     return emptyBreakdowns(
       "no_connection",
@@ -206,8 +283,7 @@ export async function getMetaBreakdownsForRange(input: {
     referenceToday: rangeContext.currentDateInTimezone,
   });
   const historicalTruth =
-    !rangeContext.isSelectedCurrentDay &&
-    rangeContext.withinBreakdownHistory
+    !rangeContext.isSelectedCurrentDay && rangeContext.withinBreakdownHistory
       ? await getMetaSelectedRangeTruthReadiness({
           businessId: input.businessId,
           startDate: resolvedStart,
@@ -228,6 +304,11 @@ export async function getMetaBreakdownsForRange(input: {
   // last observed. A failed read leaves it null — "age unknown" — rather than
   // borrowing a timestamp from a read that did not happen.
   let warehouseFreshness: MetaBreakdownsResponse["freshness"] = null;
+  let warehouseIsPartial = true;
+  let warehouseEmptyEvidence = {
+    observed: false,
+    observedAt: null as string | null,
+  };
   try {
     const warehouse = await getMetaWarehouseBreakdowns({
       businessId: input.businessId,
@@ -236,6 +317,16 @@ export async function getMetaBreakdownsForRange(input: {
       providerAccountIds: scopedAccountIds,
     });
     warehouseFreshness = warehouse.freshness ?? null;
+    warehouseIsPartial = warehouse.isPartial === true;
+    const hasRelevantBreakdownRows =
+      warehouse.age.length > 0 ||
+      warehouse.gender.length > 0 ||
+      warehouse.placement.length > 0;
+    warehouseEmptyEvidence = resolveMetaBreakdownEmptyEvidence({
+      isPartial: warehouse.isPartial,
+      hasRelevantBreakdownRows,
+      verification: warehouse.verification,
+    });
     const hasWarehouseRows =
       warehouse.age.length > 0 ||
       warehouse.location.length > 0 ||
@@ -243,6 +334,28 @@ export async function getMetaBreakdownsForRange(input: {
       warehouse.budget.campaign.length > 0 ||
       warehouse.budget.adset.length > 0;
     if (hasWarehouseRows) {
+      const warehouseResponseIsPartial =
+        warehouse.isPartial === true ||
+        (historicalTruth ? !historicalTruth.truthReady : false);
+      const warehouseNotReadyReason =
+        historicalTruth && !historicalTruth.truthReady
+          ? getMetaHistoricalVerificationReason({
+              verificationState:
+                historicalTruth.verificationState ??
+                historicalTruth.state ??
+                null,
+              fallbackReason:
+                "Breakdown warehouse data is still being prepared for the requested range.",
+            })
+          : warehouse.isPartial
+            ? "Breakdown warehouse data is still being prepared for the requested range."
+            : null;
+      const emptyPublication = resolveMetaBreakdownEmptyPublication({
+        status: "ok",
+        isPartial: warehouseResponseIsPartial,
+        notReadyReason: warehouseNotReadyReason,
+        evidence: warehouseEmptyEvidence,
+      });
       return {
         status: "ok",
         age: warehouse.age,
@@ -263,16 +376,10 @@ export async function getMetaBreakdownsForRange(input: {
           reason:
             "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
         },
-        isPartial: historicalTruth ? !historicalTruth.truthReady : false,
-        notReadyReason:
-          historicalTruth && !historicalTruth.truthReady
-            ? getMetaHistoricalVerificationReason({
-                verificationState:
-                  historicalTruth.verificationState ?? historicalTruth.state ?? null,
-                fallbackReason:
-                  "Breakdown warehouse data is still being prepared for the requested range.",
-              })
-            : null,
+        isPartial: emptyPublication.isPartial,
+        notReadyReason: warehouseNotReadyReason,
+        emptyObserved: emptyPublication.emptyObserved,
+        emptyObservedAt: emptyPublication.emptyObservedAt,
         freshness: warehouseFreshness,
       };
     }
@@ -283,15 +390,25 @@ export async function getMetaBreakdownsForRange(input: {
     });
   }
 
-  return emptyBreakdowns(
-    "ok",
-    breakdownGuardrail.message ??
+  const mayUseVerifiedEmpty =
+    breakdownGuardrail.message === null &&
+    warehouseEmptyEvidence.observed === true &&
+    warehouseEmptyEvidence.observedAt !== null &&
+    (!historicalTruth || historicalTruth.truthReady);
+  const emptyResponseIsPartial = mayUseVerifiedEmpty
+    ? false
+    : warehouseIsPartial ||
+      (historicalTruth ? !historicalTruth.truthReady : true);
+  const emptyResponseReason = emptyResponseIsPartial
+    ? (breakdownGuardrail.message ??
       (historicalTruth
         ? historicalTruth.truthReady
           ? null
           : getMetaHistoricalVerificationReason({
               verificationState:
-                historicalTruth.verificationState ?? historicalTruth.state ?? null,
+                historicalTruth.verificationState ??
+                historicalTruth.state ??
+                null,
               fallbackReason: getMetaPartialReason({
                 isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
                 currentDateInTimezone: rangeContext.currentDateInTimezone,
@@ -306,9 +423,17 @@ export async function getMetaBreakdownsForRange(input: {
             primaryAccountTimezone: rangeContext.primaryAccountTimezone,
             defaultReason:
               "Breakdown warehouse data is still being prepared for the requested range.",
-          })),
-    historicalTruth ? !historicalTruth.truthReady : true,
+          })))
+    : null;
+
+  return emptyBreakdowns(
+    "ok",
+    emptyResponseReason,
+    emptyResponseIsPartial,
     warehouseFreshness,
+    mayUseVerifiedEmpty
+      ? warehouseEmptyEvidence
+      : { observed: false, observedAt: null },
   );
 }
 
@@ -339,7 +464,9 @@ export async function getMetaCountryBreakdownsForRange(input: {
     };
   }
 
-  const integration = await getIntegration(input.businessId, "meta").catch(() => null);
+  const integration = await getIntegration(input.businessId, "meta").catch(
+    () => null,
+  );
   if (!integration || integration.status !== "connected") {
     return {
       status: "no_connection",
@@ -389,14 +516,13 @@ export async function getMetaCountryBreakdownsForRange(input: {
     endDate: resolvedEnd,
     referenceToday: rangeContext.currentDateInTimezone,
   });
-  const historicalTruth =
-    !rangeContext.isSelectedCurrentDay
-      ? await getMetaSelectedRangeTruthReadiness({
-          businessId: input.businessId,
-          startDate: resolvedStart,
-          endDate: effectiveEndDate,
-        }).catch(() => null)
-      : null;
+  const historicalTruth = !rangeContext.isSelectedCurrentDay
+    ? await getMetaSelectedRangeTruthReadiness({
+        businessId: input.businessId,
+        startDate: resolvedStart,
+        endDate: effectiveEndDate,
+      }).catch(() => null)
+    : null;
 
   try {
     const warehouse = await getMetaWarehouseCountryBreakdowns({
@@ -411,12 +537,16 @@ export async function getMetaCountryBreakdownsForRange(input: {
         rows: warehouse.rows,
         freshness: warehouse.freshness,
         verification: warehouse.verification ?? null,
-        isPartial: historicalTruth ? !historicalTruth.truthReady : Boolean(warehouse.isPartial),
+        isPartial: historicalTruth
+          ? !historicalTruth.truthReady
+          : Boolean(warehouse.isPartial),
         notReadyReason:
           historicalTruth && !historicalTruth.truthReady
             ? getMetaHistoricalVerificationReason({
                 verificationState:
-                  historicalTruth.verificationState ?? historicalTruth.state ?? null,
+                  historicalTruth.verificationState ??
+                  historicalTruth.state ??
+                  null,
                 fallbackReason:
                   "Country breakdown warehouse data is still being prepared for the requested range.",
               })
@@ -450,7 +580,9 @@ export async function getMetaCountryBreakdownsForRange(input: {
           ? null
           : getMetaHistoricalVerificationReason({
               verificationState:
-                historicalTruth.verificationState ?? historicalTruth.state ?? null,
+                historicalTruth.verificationState ??
+                historicalTruth.state ??
+                null,
               fallbackReason: getMetaPartialReason({
                 isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
                 currentDateInTimezone: rangeContext.currentDateInTimezone,

@@ -16,6 +16,8 @@
  * for an authority we do not own is worse than having none.
  */
 
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
+
 export type ProviderSourceState =
   | "serving"
   | "partial"
@@ -416,9 +418,34 @@ export function buildGuardrailRows(
 ): GuardrailRow[] {
   const value = (raw: unknown) =>
     raw === null || raw === undefined ? "Not configured" : String(raw);
+  /*
+    AUTO-06 is the only money row here; the rest are counts, hours and
+    percentages where a bare integer is the whole truth.
+
+    `perActionSpendCeilingMinor` is a PROVIDER minor-unit integer, so
+    `String(raw)` rendered "5000" for a $50.00 ceiling — a number an operator
+    reading a safety guardrail would take at face value. It is now shown at the
+    provider's own offset for the ceiling's currency, and where that offset is
+    unknown it is labelled as minor units rather than dressed up as an amount.
+    No division is applied that the provider does not publish.
+  */
+  const spendCeiling = (): string => {
+    const minor = guardrails.perActionSpendCeilingMinor;
+    if (minor === null || minor === undefined) return "Not configured";
+    const currency =
+      typeof guardrails.perActionSpendCeilingCurrency === "string"
+        ? guardrails.perActionSpendCeilingCurrency
+        : null;
+    const major = metaMinorUnitsToMajor({
+      minorUnits: typeof minor === "number" ? minor : Number(minor),
+      currency,
+    });
+    if (!major.ok || !currency) return `${String(minor)} minor units`;
+    return `${major.majorUnits.toFixed(major.subdivisionDigits)} ${currency}`;
+  };
   return [
     { id: "AUTO-05", label: "Daily automatic action cap", value: value(guardrails.dailyAutoActionCap), editable: false },
-    { id: "AUTO-06", label: "Per-action spend ceiling", value: value(guardrails.perActionSpendCeilingMinor), editable: false },
+    { id: "AUTO-06", label: "Per-action spend ceiling", value: spendCeiling(), editable: false },
     { id: "AUTO-07", label: "Minimum confidence to act", value: value(guardrails.minimumConfidence), editable: false },
     { id: "AUTO-08", label: "Cool-down between actions", value: value(guardrails.cooldownMinutes), editable: false },
     { id: "AUTO-09", label: "Required evidence freshness", value: value(guardrails.maxEvidenceAgeHours), editable: false },

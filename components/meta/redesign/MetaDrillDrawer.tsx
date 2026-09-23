@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import { ArrowRight, Clock, ExternalLink, X } from "lucide-react";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaEmpiricalOutcomeSummary } from "@/lib/meta/empirical-outcomes";
@@ -227,8 +228,19 @@ function changeSummary(change: NonNullable<MetaRecommendation["evidenceTrail"]>[
 
 /** Pretty-print a recent-change payload. Surfaces the two known keys (bid
  * amount, status); anything else falls back to a compact JSON string. Returns
- * null when the payload carries nothing to show, so the caller can omit it. */
-function formatChangeValue(value: unknown): string | null {
+ * null when the payload carries nothing to show, so the caller can omit it.
+ *
+ * `bid_amount` here is the provider's own minor-unit integer, straight off the
+ * action log. It used to be printed with a thousands separator and no scale
+ * and no currency — "bid amount 12,000" for a ₺120 bid cap, which reads as a
+ * hundredfold larger bid than the one that was written. It is now divided by
+ * Meta's offset for the account currency and rendered as money; when the
+ * currency is missing or the provider publishes no offset for it, the number
+ * is labelled as minor units rather than dressed up as an amount. */
+function formatChangeValue(
+  value: unknown,
+  currency: string | null | undefined,
+): string | null {
   if (value == null) return null;
   if (typeof value === "string") return value.trim() || null;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
@@ -238,10 +250,21 @@ function formatChangeValue(value: unknown): string | null {
   const parts: string[] = [];
 
   const rawBid = record.bid_amount ?? record.bidAmount ?? record.amount;
-  if (typeof rawBid === "number" && Number.isFinite(rawBid)) {
-    parts.push(`bid amount ${rawBid.toLocaleString("en-US")}`);
+  const bidNumber =
+    typeof rawBid === "number"
+      ? rawBid
+      : typeof rawBid === "string" && rawBid.trim()
+        ? Number(rawBid.trim())
+        : Number.NaN;
+  if (Number.isFinite(bidNumber)) {
+    const major = metaMinorUnitsToMajor({ minorUnits: bidNumber, currency });
+    parts.push(
+      major.ok
+        ? `bid amount ${formatMoney(major.majorUnits, currency)}`
+        : `bid amount ${bidNumber.toLocaleString("en-US")} (minor units)`,
+    );
   } else if (typeof rawBid === "string" && rawBid.trim()) {
-    parts.push(`bid amount ${rawBid.trim()}`);
+    parts.push(`bid amount ${rawBid.trim()} (minor units)`);
   }
 
   const rawStatus = record.status ?? record.effective_status;
@@ -356,9 +379,12 @@ function configuredBidDisplay(
   currency: string | null | undefined,
 ) {
   if (value == null || !Number.isFinite(value)) return "—";
-  return format === "roas"
-    ? `${value.toFixed(2)}×`
-    : formatMoney(value / 100, currency);
+  if (format === "roas") return `${value.toFixed(2)}×`;
+  /* Provider minor units divided by the PROVIDER's offset, not a constant 100:
+     the two differ for every currency Meta lists at offset 1. Unknown currency
+     reads as the same em-dash the absent case already shows. */
+  const major = metaMinorUnitsToMajor({ minorUnits: value, currency });
+  return major.ok ? formatMoney(major.majorUnits, currency) : "—";
 }
 
 function DecisionKpis({
@@ -905,7 +931,7 @@ export function MetaDrillDrawer({
               {item.rec.evidenceTrail?.recent_changes && item.rec.evidenceTrail.recent_changes.length > 0 ? (
                 <div style={{ display: "grid", gap: 6 }}>
                   {item.rec.evidenceTrail.recent_changes.slice(0, 6).map((change, index) => {
-                    const formattedValue = formatChangeValue(change.value);
+                    const formattedValue = formatChangeValue(change.value, moneyCurrency);
                     return (
                       <div key={`${change.type}-${change.applied_at}-${index}`} style={{ borderTop: index === 0 ? 0 : "1px solid var(--border)", paddingTop: index === 0 ? 0 : 6 }}>
                         <div className="mono" style={{ fontSize: 11, color: "var(--ink)" }}>{changeSummary(change)}</div>

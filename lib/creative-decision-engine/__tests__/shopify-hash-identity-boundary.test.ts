@@ -6,6 +6,7 @@ import {
   type BuildCanonicalEvaluationInput,
 } from "../canonical-evaluation";
 import { buildAdCanonicalEvaluationProvenance } from "../evaluation-store";
+import { observedConfigAuthority } from "./config-authority-fixture";
 import type { EngineV3Flags } from "../feature-flags";
 import {
   NATIVE_AD_SPEND_UNIT_AUTHORITY_CONTRACT_VERSION,
@@ -367,6 +368,10 @@ function evaluationFor(evidence: SpendUnitEvidence): BuildCanonicalEvaluationInp
 function evaluationIdentity(evidence: SpendUnitEvidence) {
   const base = buildCanonicalEvaluationProvenance(evaluationFor(evidence));
   const ad = buildAdCanonicalEvaluationProvenance({
+    adEvidence: {
+      customConversionId: null,
+      configAuthority: observedConfigAuthority(AS_OF),
+    },
     identity: {
       decisionEntityType: "ad",
       decisionEntityId: "ad-1",

@@ -16,11 +16,10 @@ export interface MetaAdSeriesPoint {
   /**
    * The provider's all-clicks CTR, as stored.
    *
-   * Distinct from `linkCtr` and not interchangeable with it: `link_clicks` is
-   * currently 0 on every warehouse row, so a surface captioned plainly "CTR"
-   * that read `linkCtr` drew a flat zero line for every creative. This is the
-   * same definition the engine's own `ctr_28d` uses, so a card showing the
-   * engine's number and a card showing this trail agree.
+   * Distinct from `linkCtr` and not interchangeable with it. This series uses
+   * provider all-clicks CTR for its own requested reporting dates; a native
+   * decision can use a shorter admitted economic context window, so its
+   * aggregate CTR need not equal an unrestricted 28-day series.
    */
   ctr: number | null;
   frequency: number | null;
@@ -43,10 +42,13 @@ export interface MetaAdSeriesResponse {
 interface SeriesBucket {
   impressions: number;
   linkClicks: number | null;
+  linkClicksMissing: boolean;
   frequencyWeighted: number;
   frequencyWeight: number;
+  frequencyMissing: boolean;
   ctrWeighted: number;
   ctrWeight: number;
+  ctrMissing: boolean;
 }
 
 type SeriesBuckets = Map<string, SeriesBucket>;
@@ -55,10 +57,13 @@ function emptySeriesBucket(): SeriesBucket {
   return {
     impressions: 0,
     linkClicks: null,
+    linkClicksMissing: false,
     frequencyWeighted: 0,
     frequencyWeight: 0,
+    frequencyMissing: false,
     ctrWeighted: 0,
     ctrWeight: 0,
+    ctrMissing: false,
   };
 }
 
@@ -68,14 +73,16 @@ function pointsFromBuckets(byDate: SeriesBuckets): MetaAdSeriesPoint[] {
     .map(([date, bucket]) => ({
       date,
       impressions: bucket.impressions,
-      linkClicks: bucket.linkClicks,
+      linkClicks: bucket.linkClicksMissing ? null : bucket.linkClicks,
       linkCtr:
-        bucket.linkClicks == null || bucket.impressions <= 0
+        bucket.linkClicksMissing || bucket.linkClicks == null || bucket.impressions <= 0
           ? null
           : (bucket.linkClicks / bucket.impressions) * 100,
-      ctr: bucket.ctrWeight > 0 ? bucket.ctrWeighted / bucket.ctrWeight : null,
+      ctr: !bucket.ctrMissing && bucket.ctrWeight > 0
+        ? bucket.ctrWeighted / bucket.ctrWeight
+        : null,
       frequency:
-        bucket.frequencyWeight > 0
+        !bucket.frequencyMissing && bucket.frequencyWeight > 0
           ? bucket.frequencyWeighted / bucket.frequencyWeight
           : null,
     }));
@@ -151,10 +158,14 @@ export async function GET(request: NextRequest) {
     bucket.impressions += row.impressions;
     if (row.linkClicks != null) {
       bucket.linkClicks = (bucket.linkClicks ?? 0) + row.linkClicks;
+    } else if (row.impressions > 0 || row.clicks > 0) {
+      bucket.linkClicksMissing = true;
     }
     if (row.ctr != null && row.impressions > 0) {
       bucket.ctrWeighted += row.ctr * row.impressions;
       bucket.ctrWeight += row.impressions;
+    } else if (row.impressions > 0) {
+      bucket.ctrMissing = true;
     }
     // One ad per day is the normal case and this is then that ad's own value.
     // With several ads it is the impression-weighted mean of their reported
@@ -163,6 +174,8 @@ export async function GET(request: NextRequest) {
     if (row.frequency != null && row.impressions > 0) {
       bucket.frequencyWeighted += row.frequency * row.impressions;
       bucket.frequencyWeight += row.impressions;
+    } else if (row.impressions > 0) {
+      bucket.frequencyMissing = true;
     }
     byDate.set(row.date, bucket);
   }
@@ -178,14 +191,20 @@ export async function GET(request: NextRequest) {
       bucket.impressions += row.impressions;
       if (row.linkClicks != null) {
         bucket.linkClicks = (bucket.linkClicks ?? 0) + row.linkClicks;
+      } else if (row.impressions > 0 || row.clicks > 0) {
+        bucket.linkClicksMissing = true;
       }
       if (row.ctr != null && row.impressions > 0) {
         bucket.ctrWeighted += row.ctr * row.impressions;
         bucket.ctrWeight += row.impressions;
+      } else if (row.impressions > 0) {
+        bucket.ctrMissing = true;
       }
       if (row.frequency != null && row.impressions > 0) {
         bucket.frequencyWeighted += row.frequency * row.impressions;
         bucket.frequencyWeight += row.impressions;
+      } else if (row.impressions > 0) {
+        bucket.frequencyMissing = true;
       }
       bucketsForAd.set(row.date, bucket);
       perAd.set(row.adId, bucketsForAd);

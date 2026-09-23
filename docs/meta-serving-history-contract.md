@@ -38,7 +38,12 @@ CURRENT dimension status and the LATEST config-history bid.
    stamped onto any window.
 7. **Repair-path backfill** — `repairMetaWarehouseTruthRange` (script-only,
    guarded off request paths by `scripts/check-request-path-side-effects.ts`)
-   permanently fills NULL per-date config from latest snapshots + live API.
+   can fill NULL per-date config only from an account-matched, raw-receipt-linked
+   version-2 snapshot captured on that provider-local reporting day. Legacy
+   snapshots and direct-UI captures lack this authority. It does not ask the live API
+   for today's config when repairing an older day. This is distinct from the
+   present-config-over-history serving rule above. A capture-time snapshot is
+   still not proof of config for a day before it was captured.
 8. **Names** — `*_name_current` preferred over `*_name_historical` for labels.
 
 Also intentional and out of scope for "fixing": lane-classify/briefing
@@ -55,10 +60,10 @@ status with NOW — lanes are an act-now surface) and the account-pulse
   operator is calibrated to. Do not ship without an explicit user decision.
 - **Data provenance gap — silently degraded reconstruction.** Per-date
   status/config columns are only observed-at-date from daily sync onward;
-  the initial 365d backfill and the repair path stamped older dates with
-  capture-time config, and there is NO provenance column to tell the two
-  apart. A window-honest mode would be honest only for recent spans and
-  cannot say where the boundary is.
+  the initial 365d backfill and earlier repairs could stamp older dates with
+  capture-time config. Current repair is date-bounded, but old rows still have
+  no field-level provenance that can distinguish a true dated observation from
+  an older stamped value. A window-honest mode needs that distinction first.
 - **Write-time capture gap — cannot be backfilled.** No table stores entity
   STATUS history (config snapshots exclude status; dimensions hold current
   only). A true status timeline requires a new append-on-change capture

@@ -3,7 +3,7 @@
   "businessId": "11111111-1111-4111-8111-111111111111",
   "computedAt": "2026-04-12T03:05:00.000Z",
   "contractVersion": "adsecute.demo-native-canonical-fixture.v1",
-  "engineVersion": "v3-ad-2026-09-07-held-verdict-authority-shadow",
+  "engineVersion": "v3-ad-2026-09-22-meta-config-economics-shadow",
   "expectedAdCount": 8,
   "items": [
     {
@@ -263,7 +263,7 @@
     }
   ],
   "jobRunId": "demo-synthetic-native-ad-generation-v1",
-  "manifestHash": "03b2d09ffc154e1b39f3b671a5844fe4cf1c026cfb35fe0718d8a3c583a86a2d",
+  "manifestHash": "f43426f15a4baf01a5c34f7918a4efb6ad841b9301b8ed70548f56c0576c1ae7",
   "providerAccountId": "act_210009998877",
   "providerAccountRefId": "demo-synthetic-provider-account-ref-urbantrail-dtc",
   "sourceInputHash": "93b17dfd7627504a34b39bf8cf701fbb981857c86489deccaa7359cfc7cb20ae"

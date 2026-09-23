@@ -314,3 +314,104 @@ describe("durable readability is claimed only where it is true", () => {
     ).toThrow(/Unsupported native ad calibration contract/);
   });
 });
+
+describe("the .v5 cell formula survives the .v6 mint", () => {
+  /*
+    1,855 rows carry `.v5` on the live database (as-of 2026-09-08..09-21). `.v6`
+    added `configAuthorityCounts` to the cell manifest, and the whole question is
+    whether adding it moved the digest of a row that was written before it
+    existed. If it did, every historical row would recompute to a different hash
+    and be reported as corrupt for a reason that has nothing to do with the row.
+  */
+  const v5 = "engine-v3-native-ad-calibration.v5" as const;
+  /* A `.v5` row cannot carry counts: the column did not exist when it was written. */
+  const persistedV5Cell = {
+    ...FROZEN.cells[0]!,
+    configAuthorityCounts: null,
+  };
+  const mintedV6Cell = {
+    ...FROZEN.cells[0]!,
+    configAuthorityCounts: {
+      decisionAuthorityDays: 12,
+      reviewOnlyPendingDays: 1,
+      reviewOnlySettledDays: 0,
+      noneDays: 0,
+      decisionAuthoritySpend: 1200,
+      reviewOnlyPendingSpend: 100,
+      reviewOnlySettledSpend: 0,
+      noneSpend: 0,
+      decisionAuthorityAds: 12,
+      reviewOnlyAds: 1,
+      noneAds: 0,
+      verifiedSuffixAds: 12,
+      verifiedSuffixDays: 144,
+      verifiedSuffixSpend: 1200,
+    },
+  };
+
+  it("omits the key entirely under .v5, so the digest cannot move", async () => {
+    const { nativeAdCalibrationCellInputManifestContentForVersion } =
+      await import("../../jobs/ad-calibration-job");
+    const content = nativeAdCalibrationCellInputManifestContentForVersion(
+      persistedV5Cell,
+      v5,
+    );
+    // ABSENT, not present-and-null: a null-valued key is still a key.
+    expect(Object.keys(content)).not.toContain("configAuthorityCounts");
+  });
+
+  it("carries it under .v6", async () => {
+    const { nativeAdCalibrationCellInputManifestContentForVersion } =
+      await import("../../jobs/ad-calibration-job");
+    expect(
+      Object.keys(
+        nativeAdCalibrationCellInputManifestContentForVersion(
+          mintedV6Cell,
+          NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+        ),
+      ),
+    ).toContain("configAuthorityCounts");
+  });
+
+  /*
+    THE DISCRIMINATING PAIR. A `.v5` row recomputes to the same hash whether or
+    not counts are attached, because `.v5` cannot see them; a `.v6` row's hash
+    moves when they change. Without the first, the version gate would be
+    decorative; without the second, binding them would be.
+  */
+  it("gives a .v5 row the same hash with and without counts attached", () => {
+    expect(
+      recomputeNativeAdCalibrationCellInputManifestHash(persistedV5Cell, v5),
+    ).toBe(
+      recomputeNativeAdCalibrationCellInputManifestHash(mintedV6Cell, v5),
+    );
+  });
+
+  it("moves a .v6 hash when the counts change", () => {
+    const current = NATIVE_AD_CALIBRATION_CONTRACT_VERSION;
+    const other = {
+      ...mintedV6Cell,
+      configAuthorityCounts: {
+        ...mintedV6Cell.configAuthorityCounts,
+        decisionAuthorityDays: 11,
+        reviewOnlySettledDays: 1,
+      },
+    };
+    expect(
+      recomputeNativeAdCalibrationCellInputManifestHash(mintedV6Cell, current),
+    ).not.toBe(
+      recomputeNativeAdCalibrationCellInputManifestHash(other, current),
+    );
+  });
+
+  it("gives .v5 and .v6 different digests for the SAME cell", () => {
+    expect(
+      recomputeNativeAdCalibrationCellInputManifestHash(mintedV6Cell, v5),
+    ).not.toBe(
+      recomputeNativeAdCalibrationCellInputManifestHash(
+        mintedV6Cell,
+        NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+      ),
+    );
+  });
+});

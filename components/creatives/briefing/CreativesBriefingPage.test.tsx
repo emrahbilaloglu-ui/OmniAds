@@ -32,6 +32,7 @@ const mockState = vi.hoisted(() => ({
   briefingData: {} as any,
   assetLibraryData: [] as any,
   metaStatusData: null as any,
+  metaSummaryTodayData: null as any,
   appStore: {
     selectedBusinessId: "biz_1",
     businesses: [
@@ -73,7 +74,8 @@ vi.mock("@tanstack/react-query", () => ({
       return baseQueryState({ data: mockState.briefingData });
     }
     if (key === "creatives-briefing-meta-summary-today") {
-      return baseQueryState({ data: { totals: { spend: 820, roas: 2.1 } } });
+      return baseQueryState({ data: mockState.metaSummaryTodayData ??
+        { totals: { spend: 820, roas: 2.1 } } });
     }
     if (key === "creatives-briefing-meta-summary-7d") {
       return baseQueryState({ data: { totals: { spend: 6120, roas: 3.2 } } });
@@ -327,6 +329,20 @@ describe("CreativesBriefingPage", () => {
     mockState.briefingData = makeBriefingData();
     mockState.assetLibraryData = [];
     mockState.metaStatusData = null;
+    mockState.metaSummaryTodayData = null;
+  });
+
+  it("shows incomplete live configuration beside complete metric tiles", () => {
+    mockState.metaSummaryTodayData = {
+      totals: { spend: 820, roas: 2.1, conversions: 4 },
+      configPartial: true,
+      configNotReadyReason: "Meta campaign config page 2 could not be read.",
+    };
+    const html = renderToStaticMarkup(<CreativesBriefingPage />);
+    expect(html).toContain('data-testid="meta-live-config-warning"');
+    expect(html).toContain("Meta configuration is incomplete.");
+    expect(html).toContain("Meta campaign config page 2 could not be read.");
+    expect(html).toContain("820 (Currency unavailable)");
   });
 
   it("renders pulse, action lane, and collapsed secondary lanes from briefing data", () => {

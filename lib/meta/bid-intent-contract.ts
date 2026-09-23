@@ -24,6 +24,7 @@
  * execution belongs to the queue and its authority.
  */
 import { createHash } from "node:crypto";
+import { resolveProviderCorroboratedExponent } from "@/lib/currency/provider-corroborated-minor-units";
 
 import {
   ISO_4217_REGISTRY_SOURCE,
@@ -96,6 +97,12 @@ export const BID_INTENT_REJECTIONS = [
   "proposal_not_positive",
   "proposal_overflows_minor_units",
   "currency_unresolvable",
+  /**
+   * ISO names a scale for this currency and the provider contradicts it, or
+   * publishes none at all. The amounts are PROVIDER minor units, so an
+   * exponent the provider denies cannot be stamped onto the intent.
+   */
+  "currency_scale_not_provider_corroborated",
   "clock_invalid",
   "authority_status_unknown",
   "identity_unstable",
@@ -249,9 +256,37 @@ export function validateBidIntent(
     reject("percent_math_inconsistent", `direction ${JSON.stringify(typed.direction)} is neither increase nor decrease`);
   }
 
+  /*
+    ── THE STAMPED EXPONENT IS A CLAIM, SO IT MUST BE TRUE ───────────────────
+
+    `resolved.exponent` does not scale anything in this function — the percent
+    arithmetic is on minor units and is scale-free. It is STAMPED into the
+    intent as `currencyExponent`, hashed into `bidIntentKey` (and therefore
+    into the idempotency key), and carried beside a `currencyRegistry` that
+    names the ISO registry as its source. Everything downstream that does
+    scale — `bid-proposal-producer`'s operator-facing money label, and any
+    reader of `target_value.currencyExponent` — takes it at face value.
+
+    The amounts are PROVIDER minor units. Meta publishes its own per-currency
+    offset and it disagrees with ISO for COP, HUF, IDR and TWD (100x) and for
+    BHD and JOD (10x), and publishes nothing for KWD, OMR, TND, IQD and LYD.
+    Stamping the ISO exponent for one of those is asserting a scale the
+    provider denies.
+
+    This is a GATE, not a substitution. Where the two agree the resolved value
+    and the recorded registry version are byte-identical to before, so every
+    existing idempotency key re-derives unchanged — USD, TRY and GBP included,
+    which is every currency the warehouse has ever held. Where they disagree
+    the intent is rejected with its own code rather than proceeding.
+  */
   const exponent = resolveMinorUnitExponent(typed.currency);
   if (exponent.status !== "resolved") {
     reject("currency_unresolvable", `currency ${JSON.stringify(typed.currency)} has no known minor-unit exponent`);
+  } else {
+    const corroborated = resolveProviderCorroboratedExponent(typed.currency);
+    if (corroborated.status !== "resolved") {
+      reject("currency_scale_not_provider_corroborated", corroborated.reason);
+    }
   }
 
   if (!isCalendarDate(typed.originDate)) reject("clock_invalid", "originDate is not a calendar date");

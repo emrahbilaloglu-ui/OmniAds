@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import { isContextTrustedForAction } from "@/lib/meta/campaign-label-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
@@ -158,9 +159,25 @@ function inclusiveRangeDays(startDate: string, endDate: string) {
   return Math.floor((end - start) / 86_400_000) + 1;
 }
 
+/**
+ * Spend against budget — two numbers that are NOT in the same units.
+ *
+ * `spend` arrives in major units; `dailyBudget` is the provider's own
+ * minor-unit integer. The divisor between them used to be a hardcoded 100,
+ * which is Meta's offset for USD, TRY and GBP and nothing else. On a currency
+ * Meta lists at offset 1 — JPY, KRW, CLP, ISK, VND, HUF, IDR, TWD, COP — a
+ * ¥50,000 daily budget read as ¥500 and utilisation came out a hundredfold
+ * too high.
+ *
+ * The offset comes from Meta's published table rather than the ISO exponent,
+ * because the two disagree on exactly those codes. `currency` is required and
+ * an unresolvable one yields `null`, which every consumer already treats as
+ * "no budget signal" rather than as zero utilisation.
+ */
 function rowBudgetUtilization(
   row: CampaignRow | AdsetRow,
   rangeDays: number | null,
+  currency: string | null,
 ) {
   if (
     rangeDays == null ||
@@ -173,7 +190,12 @@ function rowBudgetUtilization(
   }
   const spend = Number(row.spend);
   if (!Number.isFinite(spend) || spend < 0) return null;
-  return spend / ((row.dailyBudget / 100) * rangeDays);
+  const budgetMajor = metaMinorUnitsToMajor({
+    minorUnits: row.dailyBudget,
+    currency,
+  });
+  if (!budgetMajor.ok || budgetMajor.majorUnits <= 0) return null;
+  return spend / (budgetMajor.majorUnits * rangeDays);
 }
 
 type MetaCampaignRoleMap = ReadonlyMap<string, MetaCampaignKind>;
@@ -352,6 +374,12 @@ function attachEntityConfiguration(input: {
       level: input.rec.level,
       row,
       rangeDays: input.rangeDays,
+      currency:
+        input.rec.level === "campaign"
+          ? ((row as CampaignRow).currency ?? null)
+          : (input.rec.campaignId
+              ? (input.campaignsById.get(input.rec.campaignId)?.currency ?? null)
+              : null),
     }),
   };
 }
@@ -360,6 +388,10 @@ function entityConfigurationForRow(input: {
   level: "campaign" | "adset";
   row: CampaignRow | AdsetRow;
   rangeDays: number | null;
+  /* Campaign rows carry their own currency; ad-set rows do not, so the
+     caller supplies the parent campaign's. Without it there is no offset and
+     no utilisation is reported. */
+  currency: string | null;
 }): NonNullable<MetaRecommendation["entityConfiguration"]> {
   const row = input.row;
   const budgetOwner = row.isBudgetMixed
@@ -397,7 +429,11 @@ function entityConfigurationForRow(input: {
     previousBidValueCapturedAt: row.previousBidValueCapturedAt ?? null,
     dailyBudget: row.dailyBudget ?? null,
     lifetimeBudget: row.lifetimeBudget ?? null,
-    budgetUtilization: rowBudgetUtilization(row, input.rangeDays),
+    budgetUtilization: rowBudgetUtilization(
+      row,
+      input.rangeDays,
+      input.currency,
+    ),
   };
 }
 
@@ -409,6 +445,12 @@ function structureInventoryForRows(input: {
 }): MetaStructureInventoryEntity[] {
   const campaignNamesById = new Map(
     input.campaignRows.map((row) => [row.id, row.name]),
+  );
+  /* An ad-set row carries no currency of its own. The account currency is a
+     property of the campaign it belongs to, so it is taken from there rather
+     than assumed. */
+  const campaignCurrenciesById = new Map(
+    input.campaignRows.map((row) => [row.id, row.currency ?? null]),
   );
   const metrics = (row: CampaignRow | AdsetRow) => ({
     spend: nullableNumber(row.spend),
@@ -433,6 +475,7 @@ function structureInventoryForRows(input: {
         level: "campaign",
         row,
         rangeDays: input.rangeDays,
+        currency: row.currency ?? null,
       }),
     })),
     ...input.adsetRows.map((row) => ({
@@ -454,6 +497,9 @@ function structureInventoryForRows(input: {
         level: "adset",
         row,
         rangeDays: input.rangeDays,
+        currency: row.campaignId
+          ? (campaignCurrenciesById.get(row.campaignId) ?? null)
+          : null,
       }),
     })),
   ];

@@ -467,6 +467,8 @@ export interface CreativesBriefingResponse {
 }
 
 export interface MetaSummaryPulseResponse {
+  configPartial?: boolean;
+  configNotReadyReason?: string | null;
   totals?: {
     spend?: number | null;
     roas?: number | null;

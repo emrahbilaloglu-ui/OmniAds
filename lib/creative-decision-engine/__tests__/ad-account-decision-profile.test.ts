@@ -91,6 +91,17 @@ function makeSourceRow(
     objective: "OUTCOME_SALES",
     optimizationGoal: "PURCHASE",
     customEventType: "PURCHASE",
+    /*
+      Provenance stated. The cell's hard sample is the verified suffix, so a row
+      that states none contributes nothing to it — absent is not authorised.
+      Kept explicit here so each case still measures what it was written for.
+    */
+    objectiveTier: "provider_receipt_legacy_bracketed",
+    objectiveReadiness: "decision_authority",
+    optimizationGoalTier: "provider_receipt_legacy_bracketed",
+    optimizationGoalReadiness: "decision_authority",
+    customEventTypeTier: "provider_receipt_legacy_bracketed",
+    customEventTypeReadiness: "decision_authority",
     spend: 100 + index,
     impressions: 10_000,
     clicks: 300,
@@ -425,6 +436,26 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
         asOfCutoff: "2026-07-12T03:05:00.000Z",
       },
     ]);
+  });
+
+  it("selects the exact custom-conversion cell instead of pooling a different target", async () => {
+    const first = buildCells(30, { customConversionId: "conversion-A" });
+    const second = buildCells(30, { customConversionId: "conversion-B" });
+    const dataSource = new NativeOnlyProfileDataSource([...first, ...second]);
+
+    const result = await resolveWith(dataSource, {
+      customConversionId: "conversion-B",
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.calibrationSource).toBe("objective_cohort_context");
+    expect(result.selectedCell?.key.optimizationContext).toContain(
+      "conversion-B",
+    );
+    expect(result.selectedCell?.key.optimizationContext).not.toContain(
+      "conversion-A",
+    );
+    expect(dataSource.calibrationCalls).toHaveLength(1);
   });
 
   it.each(["2026-07-12T03:01:00.000Z", "2026-07-12T03:05:00.000Z"])(

@@ -4,8 +4,10 @@ import { NATIVE_AD_DB_BATCH_SIZE } from "../batching";
 import {
   adDecisionStabilityKey,
   applyLabelHysteresis,
+  READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY,
   readPreviousPublishedAdLabels,
   stabilizeDecisionLabel,
+  type PreviousLabelPitExclusion,
   type PreviousPublishedLabel,
 } from "../decision-stability";
 import type { DecisionLabel, DecisionOutput } from "../types";
@@ -417,5 +419,89 @@ describe("stabilizeDecisionLabel", () => {
     expect(suppressed).toBe(false);
     expect(decision).toBe(decision);
     expect(decision.badges).toHaveLength(0);
+  });
+});
+
+/*
+  ── HISTORICAL REPLAY: PRIOR LABELS AS THEY STOOD AT THE CUTOFF ─────────────
+
+  Snapshots are upserted on their identity with computed_at = EXCLUDED, so the
+  prior label a job read can later be rewritten in place. A replay admits only
+  rows that existed at its cutoff (created_at) and withholds one whose label
+  was rewritten afterwards (computed_at past the cutoff): the value the job saw
+  is gone, and an older day would be a different history. No prior is the
+  conservative side — an unconfirmed hard label is held.
+*/
+describe("point-in-time prior labels for a historical replay", () => {
+  const businessId = "00000000-0000-4000-8000-000000000101";
+  const ref = "00000000-0000-4000-8000-000000000121";
+  const row = (computedAt: string) => ({
+    source_snapshot_id: "00000000-0000-4000-8000-000000000201",
+    provider_account_ref_id: ref,
+    provider_account_id: "act-1",
+    decision_entity_type: "ad",
+    decision_entity_id: "ad-1",
+    source_as_of_date: "2026-07-13",
+    source_computed_at: computedAt,
+    source_engine_version: "engine-v3-native-ad.v1",
+    label: "keep",
+    raw_label: "cut",
+    source_evaluation_id: "00000000-0000-4000-8000-000000000202",
+    source_input_hash: "a".repeat(64),
+    source_decision_hash: "b".repeat(64),
+  });
+  const identities = [{
+    providerAccountRefId: ref,
+    providerAccountId: "act-1",
+    decisionEntityType: "ad" as const,
+    decisionEntityId: "ad-1",
+  }];
+
+  it("bounds candidate rows by their insert clock, and not at all in production", async () => {
+    expect(READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY).toContain(
+      "AND ($7::timestamptz IS NULL OR snapshot.created_at <= $7::timestamptz)",
+    );
+    const query = vi.fn(async () => [row("2026-07-13T03:10:00.000Z")]);
+    const db = Object.assign(vi.fn(), { query }) as unknown as DbClient;
+    await readPreviousPublishedAdLabels(
+      { businessId, asOf: "2026-07-14", identities, scopeType: "account", scopeId: "act-1" },
+      db,
+    );
+    expect((query.mock.calls[0] as unknown[])[1]).toHaveLength(7);
+    expect(((query.mock.calls[0] as unknown[])[1] as unknown[])[6]).toBeNull();
+  });
+
+  it("POSITIVE: admits a prior computed before the cutoff", async () => {
+    const query = vi.fn(async () => [row("2026-07-13T03:10:00.000Z")]);
+    const db = Object.assign(vi.fn(), { query }) as unknown as DbClient;
+    const withheld = new Map<string, PreviousLabelPitExclusion>();
+    const result = await readPreviousPublishedAdLabels(
+      {
+        businessId, asOf: "2026-07-14", identities, scopeType: "account", scopeId: "act-1",
+        visibleAtCutoff: "2026-07-14T03:05:00.000Z", pitExclusions: withheld,
+      },
+      db,
+    );
+    expect(result.size).toBe(1);
+    expect(withheld.size).toBe(0);
+    expect(((query.mock.calls[0] as unknown[])[1] as unknown[])[6]).toBe(
+      "2026-07-14T03:05:00.000Z",
+    );
+  });
+
+  it("NEGATIVE: withholds a prior rewritten after the cutoff and records why", async () => {
+    // The row existed at the cutoff but a rerun on 2026-07-15 replaced its label.
+    const query = vi.fn(async () => [row("2026-07-15T03:10:00.000Z")]);
+    const db = Object.assign(vi.fn(), { query }) as unknown as DbClient;
+    const withheld = new Map<string, PreviousLabelPitExclusion>();
+    const result = await readPreviousPublishedAdLabels(
+      {
+        businessId, asOf: "2026-07-14", identities, scopeType: "account", scopeId: "act-1",
+        visibleAtCutoff: "2026-07-14T03:05:00.000Z", pitExclusions: withheld,
+      },
+      db,
+    );
+    expect(result.size).toBe(0);
+    expect([...withheld.values()]).toEqual(["overwritten_after_cutoff"]);
   });
 });

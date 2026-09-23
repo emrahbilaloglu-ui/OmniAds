@@ -8,7 +8,6 @@ import {
 import {
   deriveManualBidAmount,
   formatBidStrategyLabel,
-  normalizeTargetRoasValue,
   stripIncompleteConstrainedBidFields,
   stripDerivedMetaConfigFields,
   type MetaConfigSnapshotPayload,
@@ -20,12 +19,22 @@ import {
 
 export type MetaConfigEntityLevel = "campaign" | "adset";
 
+export interface MetaConfigSnapshotObservation {
+  id: string;
+  accountId: string;
+  accountTimezone?: string;
+  capturedAt: string;
+  sourceKind?: "meta_config_snapshots" | "meta_raw_snapshots";
+  providerObservation: MetaConfigSnapshotPayload["providerObservation"] | null;
+}
+
 interface MetaConfigSnapshotInsert {
   businessId: string;
   accountId: string;
   entityLevel: MetaConfigEntityLevel;
   entityId: string;
   payload: MetaConfigSnapshotPayload;
+  providerObservation?: NonNullable<MetaConfigSnapshotPayload["providerObservation"]>;
 }
 
 export interface MetaPreviousConfigDiff {
@@ -74,11 +83,31 @@ function sanitizeForJson(value: unknown): unknown {
 
 export async function readLatestMetaConfigSnapshots(input: {
   businessId: string;
+  providerAccountId: string;
   entityLevel: MetaConfigEntityLevel;
   entityIds: string[];
+  /** Provider-local reporting day. Without this, the result is current only. */
+  asOfDay?: string;
+  /** Historical repair accepts only receipts linked to a raw provider response. */
+  requireProviderReceipt?: boolean;
+  /** Source identity for audited historical repair; never changes the payload. */
+  onObservation?: (entityId: string, source: MetaConfigSnapshotObservation) => void;
 }): Promise<Map<string, MetaConfigSnapshotPayload>> {
   const entityIds = Array.from(new Set(input.entityIds.filter(Boolean)));
-  if (entityIds.length === 0) return new Map();
+  if (entityIds.length === 0 || !input.providerAccountId?.trim()) return new Map();
+
+  // A snapshot captured after a historical reporting day cannot describe that
+  // day's configuration. Resolve the account's own day boundary, failing closed
+  // when its timezone is not available rather than using the server timezone.
+  const capturedBefore = input.asOfDay
+    ? await resolveMetaProviderLocalDayEnd({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        day: input.asOfDay,
+        query: (query, params) => getDb().query(query, params),
+      }).catch(() => null)
+    : null;
+  if (input.asOfDay && !capturedBefore) return new Map();
 
   try {
     const readiness = await getDbSchemaReadiness({
@@ -88,34 +117,60 @@ export async function readLatestMetaConfigSnapshots(input: {
       return new Map();
     }
     const sql = getDb();
-    const rows = await sql.query<{ entity_id: string; payload: MetaConfigSnapshotPayload }>(
+    const rows = await sql.query<{
+      entity_id: string;
+      id: string;
+      captured_at: Date | string;
+      payload: MetaConfigSnapshotPayload;
+    }>(
       `
         WITH requested_entities AS (
-          SELECT unnest($3::text[]) AS entity_id
+          SELECT unnest($4::text[]) AS entity_id
         )
         SELECT
           requested_entities.entity_id,
+          latest.id,
+          latest.captured_at,
           latest.payload
         FROM requested_entities
         JOIN LATERAL (
-          SELECT payload
+          SELECT id, captured_at, payload
           FROM meta_config_snapshots
           WHERE business_id = $1
             AND entity_level = $2
+            AND account_id = $3
             AND entity_id = requested_entities.entity_id
-          ORDER BY captured_at DESC
+            AND ($5::timestamptz IS NULL OR captured_at < $5::timestamptz)
+            AND (
+              NOT $6::boolean
+              OR (
+                payload->'providerObservation'->>'kind' = 'provider_config_receipt'
+                AND payload->'providerObservation'->>'normalizationVersion' = '2'
+                AND NULLIF(payload->'providerObservation'->>'sourceSnapshotId', '') IS NOT NULL
+              )
+            )
+          ORDER BY captured_at DESC, created_at DESC
           LIMIT 1
         ) latest ON true
       `,
-      [input.businessId, input.entityLevel, entityIds],
+      [input.businessId, input.entityLevel, input.providerAccountId, entityIds, capturedBefore?.toISOString() ?? null, Boolean(input.requireProviderReceipt)],
     );
 
-    return new Map(
-      rows.map((row) => [
+    return new Map(rows.map((row) => {
+      if (row.id && row.captured_at) {
+        input.onObservation?.(row.entity_id, {
+          id: row.id,
+          accountId: input.providerAccountId,
+          capturedAt: new Date(row.captured_at).toISOString(),
+          sourceKind: "meta_config_snapshots",
+          providerObservation: row.payload.providerObservation ?? null,
+        });
+      }
+      return [
         row.entity_id,
         stripIncompleteConstrainedBidFields(normalizeLegacySnapshotPayload(row.payload)),
-      ]),
-    );
+      ] as const;
+    }));
   } catch (error) {
     console.warn("[meta-config-snapshots] read_latest_failed", {
       businessId: input.businessId,
@@ -188,10 +243,19 @@ export async function readPreviousMetaConfigSnapshots(input: {
 }
 
 function normalizeLegacySnapshotPayload(payload: MetaConfigSnapshotPayload): MetaConfigSnapshotPayload {
-  const bidValue =
-    payload.bidValueFormat === "roas"
-      ? normalizeTargetRoasValue(payload.bidValue)
-      : payload.bidValue;
+  /*
+    A stored `bidValueFormat: "roas"` value is ALREADY a plain multiplier:
+    `buildConfigSnapshotPayload` divides Meta's scaled integer down once, at
+    capture. This branch used to run that divisor a SECOND time on the way
+    back out, which is a read of stored data that changes what the stored data
+    means. It was invisible only because the old magnitude guess made a second
+    pass a no-op below 100 — every retained ROAS row in the warehouse is inside
+    that range today, so no served number moves as a result of removing it.
+
+    The payload is passed through unchanged. Nothing else here reads `bidValue`
+    numerically; `deriveManualBidAmount` keys on `bidValueFormat`.
+  */
+  const bidValue = payload.bidValue;
   return {
     ...payload,
     bidValue,
@@ -205,11 +269,12 @@ function normalizeLegacySnapshotPayload(payload: MetaConfigSnapshotPayload): Met
 
 export async function readPreviousDifferentMetaConfigDiffs(input: {
   businessId: string;
+  providerAccountId: string;
   entityLevel: MetaConfigEntityLevel;
   entityIds: string[];
 }): Promise<Map<string, MetaPreviousConfigDiff>> {
   const entityIds = Array.from(new Set(input.entityIds.filter(Boolean)));
-  if (entityIds.length === 0) return new Map();
+  if (entityIds.length === 0 || !input.providerAccountId?.trim()) return new Map();
 
   try {
     const readiness = await getDbSchemaReadiness({
@@ -241,8 +306,12 @@ export async function readPreviousDifferentMetaConfigDiffs(input: {
             payload->>'lifetimeBudget' AS lifetime_budget
           FROM meta_config_snapshots
           WHERE business_id = ${input.businessId}
+            AND account_id = ${input.providerAccountId}
             AND entity_level = ${input.entityLevel}
             AND entity_id = requested_entities.entity_id
+            AND payload->'providerObservation'->>'kind' = 'provider_config_receipt'
+            AND payload->'providerObservation'->>'normalizationVersion' = '2'
+            AND NULLIF(payload->'providerObservation'->>'sourceSnapshotId', '') IS NOT NULL
             AND (
               payload->>'bidValue' IS NOT NULL
               OR payload->>'bidStrategyType' IS NOT NULL
@@ -271,8 +340,12 @@ export async function readPreviousDifferentMetaConfigDiffs(input: {
             payload->>'bidValueFormat' AS bid_value_format
           FROM meta_config_snapshots
           WHERE business_id = ${input.businessId}
+            AND account_id = ${input.providerAccountId}
             AND entity_level = ${input.entityLevel}
             AND entity_id = requested_entities.entity_id
+            AND payload->'providerObservation'->>'kind' = 'provider_config_receipt'
+            AND payload->'providerObservation'->>'normalizationVersion' = '2'
+            AND NULLIF(payload->'providerObservation'->>'sourceSnapshotId', '') IS NOT NULL
             AND payload->>'bidValue' IS NOT NULL
           ORDER BY captured_at DESC, created_at DESC
           LIMIT 1
@@ -290,8 +363,12 @@ export async function readPreviousDifferentMetaConfigDiffs(input: {
         SELECT captured_at, payload
         FROM meta_config_snapshots
         WHERE business_id = ${input.businessId}
+          AND account_id = ${input.providerAccountId}
           AND entity_level = ${input.entityLevel}
           AND entity_id = latest.entity_id
+          AND payload->'providerObservation'->>'kind' = 'provider_config_receipt'
+          AND payload->'providerObservation'->>'normalizationVersion' = '2'
+          AND NULLIF(payload->'providerObservation'->>'sourceSnapshotId', '') IS NOT NULL
           AND latest_bid.bid_value IS NOT NULL
           AND payload->>'bidValue' IS NOT NULL
           AND (
@@ -309,8 +386,12 @@ export async function readPreviousDifferentMetaConfigDiffs(input: {
         SELECT captured_at, payload
         FROM meta_config_snapshots
         WHERE business_id = ${input.businessId}
+          AND account_id = ${input.providerAccountId}
           AND entity_level = ${input.entityLevel}
           AND entity_id = latest.entity_id
+          AND payload->'providerObservation'->>'kind' = 'provider_config_receipt'
+          AND payload->'providerObservation'->>'normalizationVersion' = '2'
+          AND NULLIF(payload->'providerObservation'->>'sourceSnapshotId', '') IS NOT NULL
           AND (
             payload->>'dailyBudget' IS DISTINCT FROM latest.daily_budget
             OR payload->>'lifetimeBudget' IS DISTINCT FROM latest.lifetime_budget
@@ -392,9 +473,11 @@ export async function appendMetaConfigSnapshots(
         provider_account_ref_id: providerAccountRefIds.get(row.accountId) ?? null,
         entity_level: row.entityLevel,
         entity_id: row.entityId,
-        payload: sanitizeForJson(
-          stripIncompleteConstrainedBidFields(stripDerivedMetaConfigFields(row.payload)),
-        ),
+        captured_at: row.providerObservation?.observedAt ?? null,
+        payload: sanitizeForJson({
+          ...stripIncompleteConstrainedBidFields(stripDerivedMetaConfigFields(row.payload)),
+          ...(row.providerObservation ? { providerObservation: row.providerObservation } : {}),
+        }),
       }))
     );
 
@@ -406,6 +489,7 @@ export async function appendMetaConfigSnapshots(
         provider_account_ref_id,
         entity_level,
         entity_id,
+        captured_at,
         payload
       )
       SELECT
@@ -415,6 +499,7 @@ export async function appendMetaConfigSnapshots(
         item.provider_account_ref_id,
         item.entity_level,
         item.entity_id,
+        COALESCE(item.captured_at, now()),
         item.payload
       FROM jsonb_to_recordset(${payload}::jsonb) AS item(
         business_id text,
@@ -423,6 +508,7 @@ export async function appendMetaConfigSnapshots(
         provider_account_ref_id uuid,
         entity_level text,
         entity_id text,
+        captured_at timestamptz,
         payload jsonb
       )
       LEFT JOIN LATERAL (
@@ -435,7 +521,16 @@ export async function appendMetaConfigSnapshots(
         ORDER BY existing.captured_at DESC
         LIMIT 1
       ) latest ON TRUE
-      WHERE latest.payload IS DISTINCT FROM item.payload
+      WHERE (latest.payload - 'providerObservation') IS DISTINCT FROM (item.payload - 'providerObservation')
+         OR (
+           item.payload->'providerObservation'->>'kind' = 'provider_config_receipt'
+           AND (
+             latest.payload->'providerObservation'->>'kind' IS DISTINCT FROM
+               item.payload->'providerObservation'->>'kind'
+             OR latest.payload->'providerObservation'->>'normalizationVersion' IS DISTINCT FROM
+               item.payload->'providerObservation'->>'normalizationVersion'
+           )
+         )
     `;
   } catch (error) {
     // A schema that is not ready yet is a deployment state, not a failure: the
@@ -522,6 +617,9 @@ export async function readMetaBidRegimeHistorySummaries(input: {
         AND captured_at < ${capturedBefore.toISOString()}::timestamptz
         AND entity_level = ${input.entityLevel}
         AND entity_id = ANY(${entityIds}::text[])
+        AND payload->'providerObservation'->>'kind' = 'provider_config_receipt'
+        AND payload->'providerObservation'->>'normalizationVersion' = '2'
+        AND NULLIF(payload->'providerObservation'->>'sourceSnapshotId', '') IS NOT NULL
         AND (
           payload->>'bidStrategyType' IS NOT NULL
           OR payload->>'bidStrategyLabel' IS NOT NULL

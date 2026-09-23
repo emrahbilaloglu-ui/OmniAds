@@ -56,6 +56,16 @@ describe("budget automation configuration — every value is explicit", () => {
     ["fractional spend ceiling", { ...VALID, perActionSpendCeilingMinor: 1.5 }, "per_action_spend_ceiling_invalid"],
     ["a ceiling with no currency", { ...VALID, perActionSpendCeilingCurrency: null }, "per_action_spend_ceiling_currency_invalid"],
     ["a malformed currency", { ...VALID, perActionSpendCeilingCurrency: "try" }, "per_action_spend_ceiling_currency_invalid"],
+    /*
+      A well-formed ISO code the PROVIDER does not publish an offset for. The
+      stored ceiling is compared unscaled against a Meta minor-unit amount, so
+      without an offset there is no scale to compare at — and a spend ceiling
+      that cannot be interpreted is worse than none, because it reports itself
+      as configured. KWD and OMR are real currencies; it is Meta's table that
+      omits them, and Meta's table is the authority for a Meta amount.
+    */
+    ["a currency the provider publishes no offset for", { ...VALID, perActionSpendCeilingCurrency: "KWD" }, "per_action_spend_ceiling_currency_unsupported_by_provider"],
+    ["another unpublished currency", { ...VALID, perActionSpendCeilingCurrency: "OMR" }, "per_action_spend_ceiling_currency_unsupported_by_provider"],
   ])("refuses %s by name", (_label, body, rejection) => {
     const parsed = parseBudgetAutomationConfig(body);
     expect(parsed.ok).toBe(false);

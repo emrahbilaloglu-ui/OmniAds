@@ -350,14 +350,12 @@ export function buildFallbackAdRawRow(input: {
 }): RawCreativeRow {
   const { factRow, projectionJson } = input;
   const preview = buildUnavailablePreview(false);
-  // `?? factRow.clicks` substitutes ALL clicks for LINK clicks. It is a
-  // presentation fallback that predates the sidecar and it is deliberately left
-  // in place: the numeric fields on this row keep their existing values so
-  // nothing downstream changes shape. What stops it being read as a
-  // measurement is `readWarehouseFactMetricPresence` below, which reports
-  // `link_clicks: false` for exactly this case — so the substituted number, and
-  // every ratio derived from it, is withheld at the cell rather than printed.
-  const linkClicks = factRow.linkClicks ?? factRow.clicks;
+  // The legacy wire still requires a number, but ALL clicks are not LINK
+  // clicks. Keep a neutral numeric placeholder when the ad-day did not measure
+  // link clicks and let `metric_presence.link_clicks = false` carry the missing
+  // fact. The hydrator repeats this rule so a future direct caller of this
+  // fallback cannot revive the old all-click -> link-click substitution.
+  const linkClicks = factRow.linkClicks ?? 0;
   const purchaseValue = factRow.revenue;
   const spend = factRow.spend;
   const impressions = factRow.impressions;
@@ -699,25 +697,16 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
   row: T;
   factRow: MetaAdDailyRow | MetaCreativeDailyRow;
 }) {
-  // THE PRE-COALESCE, and why the absence still survives it.
-  //
-  // `??` (not `||`) is load-bearing on the left: a MEASURED zero is a value and
-  // must win, and `0 ?? x` is 0. Only a genuine null falls through to the
-  // projection's number.
-  //
-  // When it does fall through, the absence is NOT lost — it is carried by the
-  // presence sidecar below rather than by this number, because
-  // `RawCreativeRow.link_clicks` is typed `number` and dozens of consumers do
-  // arithmetic on it. That is the additive contract this whole sidecar exists
-  // to honour: the numbers are left exactly as they were, and availability
-  // travels beside them. The presence entry for `link_clicks` is
-  // `factRow.linkClicks != null || isCreativeMetricDeclaredAvailable(...)`, so
-  // the substituted projection number is published as available ONLY when the
-  // projection positively declared it. A projection that merely stayed silent
-  // cannot vouch for it, and the cell renders an em dash instead of the
-  // fabricated zero sitting in this variable.
-  const resolvedLinkClicks = input.factRow.linkClicks ?? input.row.link_clicks;
-  const resolvedAddToCart = input.factRow.addToCart ?? input.row.add_to_cart;
+  // Keep the legacy numeric shape, with absence carried in metric_presence.
+  // An ad-day owns its funnel measurements. Neither a creative-day nor a
+  // latest dimension projection can establish a missing ad-day counter.
+  // Creative-grain reads retain their existing explicitly-declared fallback.
+  // In both cases a measured zero wins through ??, never truthiness.
+  const isAdFact = "adId" in input.factRow && !("creativeId" in input.factRow);
+  const resolvedLinkClicks = input.factRow.linkClicks ?? (isAdFact ? 0 : input.row.link_clicks);
+  const resolvedAddToCart = input.factRow.addToCart ?? (isAdFact ? 0 : input.row.add_to_cart);
+  const projectionDeclares = (key: CreativeMetricPresenceKey) =>
+    !isAdFact && isCreativeMetricDeclaredAvailable(input.row.metric_presence, key);
 
   return {
     ...input.row,
@@ -757,10 +746,10 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
     destination_url_confidence:
       input.factRow.destinationUrlConfidence ?? input.row.destination_url_confidence ?? null,
     cta_type: input.factRow.ctaType ?? input.row.cta_type ?? null,
-    outbound_clicks: input.factRow.outboundClicks ?? input.row.outbound_clicks,
-    landing_page_views: input.factRow.landingPageViews ?? input.row.landing_page_views,
+    outbound_clicks: input.factRow.outboundClicks ?? (isAdFact ? 0 : input.row.outbound_clicks),
+    landing_page_views: input.factRow.landingPageViews ?? (isAdFact ? 0 : input.row.landing_page_views),
     add_to_cart: resolvedAddToCart,
-    initiate_checkout: input.factRow.initiateCheckout ?? input.row.initiate_checkout,
+    initiate_checkout: input.factRow.initiateCheckout ?? (isAdFact ? 0 : input.row.initiate_checkout),
     click_to_atc:
       resolvedLinkClicks > 0
         ? round2((resolvedAddToCart / resolvedLinkClicks) * 100)
@@ -777,8 +766,8 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
     // per entity, keyed `(business_id, provider_account_id, creative_id)` with
     // `projection_json = EXCLUDED.projection_json`, so the projection is
     // whichever single day synced last. A field is available on this row only
-    // if the day's fact row supplied it, or the projection explicitly DECLARED
-    // it. A projection's silence is not a second opinion.
+    // if the day's fact row supplied it. At creative grain only, a projection
+    // may explicitly DECLARE it. A projection's silence is not evidence.
     //
     // Two failures this closes, both on `groupBy: "creative"` — the grain the
     // Assets table reads:
@@ -814,16 +803,16 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
         clicks: true,
         link_clicks:
           input.factRow.linkClicks != null ||
-          isCreativeMetricDeclaredAvailable(input.row.metric_presence, "link_clicks"),
+          projectionDeclares("link_clicks"),
         landing_page_views:
           input.factRow.landingPageViews != null ||
-          isCreativeMetricDeclaredAvailable(input.row.metric_presence, "landing_page_views"),
+          projectionDeclares("landing_page_views"),
         add_to_cart:
           input.factRow.addToCart != null ||
-          isCreativeMetricDeclaredAvailable(input.row.metric_presence, "add_to_cart"),
+          projectionDeclares("add_to_cart"),
         initiate_checkout:
           input.factRow.initiateCheckout != null ||
-          isCreativeMetricDeclaredAvailable(input.row.metric_presence, "initiate_checkout"),
+          projectionDeclares("initiate_checkout"),
         frequency:
           input.factRow.frequency != null ||
           (input.row.frequency != null &&
@@ -843,97 +832,12 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
   } satisfies RawCreativeRow;
 }
 
-function adFactKey(row: Pick<MetaAdDailyRow, "providerAccountId" | "date" | "adId">) {
-  return `${row.providerAccountId}|${row.date}|${row.adId}`;
-}
-
-function creativeFactKey(row: Pick<MetaCreativeDailyRow, "providerAccountId" | "date" | "creativeId">) {
-  return `${row.providerAccountId}|${row.date}|${row.creativeId}`;
-}
-
 function resolveAdCreativeId(row: MetaAdDailyRow, dimension: MetaAdDimensionRecord | undefined) {
   return (
     dimension?.creativeId ??
     coerceRawCreativeRow(dimension?.projectionJson)?.creative_id ??
     null
   );
-}
-
-function overlayAdFunnelFallback(
-  row: MetaAdDailyRow,
-  fallback: MetaCreativeDailyRow | undefined,
-): MetaAdDailyRow {
-  if (!fallback) return row;
-  const linkClicks =
-    (row.linkClicks ?? 0) > 0 ? row.linkClicks : fallback.linkClicks;
-  return {
-    ...row,
-    linkClicks,
-    outboundClicks:
-      (row.outboundClicks ?? 0) > 0 ? row.outboundClicks : fallback.outboundClicks,
-    landingPageViews:
-      (row.landingPageViews ?? 0) > 0 ? row.landingPageViews : fallback.landingPageViews,
-    addToCart:
-      (row.addToCart ?? 0) > 0 ? row.addToCart : fallback.addToCart,
-    initiateCheckout:
-      (row.initiateCheckout ?? 0) > 0 ? row.initiateCheckout : fallback.initiateCheckout,
-    ctr:
-      (row.ctr ?? 0) > 0 || !linkClicks || row.impressions <= 0
-        ? row.ctr
-        : (linkClicks / row.impressions) * 100,
-    cpc:
-      (row.cpc ?? 0) > 0 || !linkClicks
-        ? row.cpc
-        : row.spend / linkClicks,
-  };
-}
-
-async function readUniqueAdFunnelFallbacks(input: {
-  businessId: string;
-  start: string;
-  end: string;
-  providerAccountIds: string[];
-  adRows: MetaAdDailyRow[];
-  adDimensions: Map<string, MetaAdDimensionRecord>;
-}) {
-  const sparseRows = input.adRows.filter(
-    (row) =>
-      (row.linkClicks ?? 0) <= 0 ||
-      (row.landingPageViews ?? 0) <= 0 ||
-      (row.addToCart ?? 0) <= 0 ||
-      (row.initiateCheckout ?? 0) <= 0,
-  );
-  if (sparseRows.length === 0) return new Map<string, MetaCreativeDailyRow>();
-
-  const sparseAdKeys = new Set(sparseRows.map((row) => adFactKey(row)));
-  const creativeKeyByAdKey = new Map<string, string>();
-  const creativeKeyCounts = new Map<string, number>();
-  for (const adRow of input.adRows) {
-    const creativeId = resolveAdCreativeId(adRow, input.adDimensions.get(adRow.adId));
-    if (!creativeId) continue;
-    const creativeKey = `${adRow.providerAccountId}|${adRow.date}|${creativeId}`;
-    const adKey = adFactKey(adRow);
-    if (sparseAdKeys.has(adKey)) creativeKeyByAdKey.set(adKey, creativeKey);
-    creativeKeyCounts.set(creativeKey, (creativeKeyCounts.get(creativeKey) ?? 0) + 1);
-  }
-  if (creativeKeyByAdKey.size === 0) return new Map<string, MetaCreativeDailyRow>();
-
-  const creativeRows = await getMetaCreativeDailyRange({
-    businessId: input.businessId,
-    startDate: input.start,
-    endDate: input.end,
-    providerAccountIds: input.providerAccountIds,
-  }).catch(() => [] as MetaCreativeDailyRow[]);
-  const creativeRowsByKey = new Map(
-    creativeRows.map((row) => [creativeFactKey(row), row]),
-  );
-  const fallbackByAdKey = new Map<string, MetaCreativeDailyRow>();
-  for (const [adKey, creativeKey] of creativeKeyByAdKey.entries()) {
-    if ((creativeKeyCounts.get(creativeKey) ?? 0) !== 1) continue;
-    const fallback = creativeRowsByKey.get(creativeKey);
-    if (fallback) fallbackByAdKey.set(adKey, fallback);
-  }
-  return fallbackByAdKey;
 }
 
 function buildPreviewCoverage(rows: MetaCreativeApiRow[]) {
@@ -1474,17 +1378,6 @@ export async function getMetaCreativesWarehousePayload(input: {
     ? (sourceRows as MetaCreativeDailyRow[])
     : null;
   const adSourceRows = useCreativeWarehouse ? null : (sourceRows as MetaAdDailyRow[]);
-  const adFunnelFallbacks =
-    !useCreativeWarehouse && adSourceRows?.length
-      ? await readUniqueAdFunnelFallbacks({
-          businessId: input.businessId,
-          start: input.start,
-          end: input.end,
-          providerAccountIds: scopedAccountIds,
-          adRows: adSourceRows,
-          adDimensions: dimensionRows as Map<string, MetaAdDimensionRecord>,
-        })
-      : new Map<string, MetaCreativeDailyRow>();
   const mediaByCreativeKey = new Map<string, MetaCreativeMediaRow>();
   const mediaByAdKey = new Map<string, MetaCreativeMediaRow>();
   if (input.mediaMode === "full" && sourceRows.length) {
@@ -1516,13 +1409,7 @@ export async function getMetaCreativesWarehousePayload(input: {
     }
   }
   const rawRows: RawCreativeRow[] = sourceRows.reduce<RawCreativeRow[]>((acc, row) => {
-      const factRow =
-        !useCreativeWarehouse
-          ? overlayAdFunnelFallback(
-              row as MetaAdDailyRow,
-              adFunnelFallbacks.get(adFactKey(row as MetaAdDailyRow)),
-            )
-          : row;
+      const factRow = row;
       const dimensionRow = useCreativeWarehouse
         ? dimensionRows.get((factRow as MetaCreativeDailyRow).creativeId)
         : dimensionRows.get((factRow as MetaAdDailyRow).adId);

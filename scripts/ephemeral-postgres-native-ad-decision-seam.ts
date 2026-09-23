@@ -28,6 +28,7 @@ import {
 } from "@/lib/creative-decision-engine/evaluation-store";
 import { AD_CALIBRATION_JOB_NAME } from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
 import {
+  AD_DECISIONS_JOB_NAME,
   pruneStaleNativeAdSnapshots,
   reconcileNativeAdDecisionChangeEvents,
   runAdDecisionsJob,
@@ -36,7 +37,15 @@ import {
   type NativeDecisionChangeEventPayloadRow,
   type NativeSnapshotPayloadRow,
 } from "@/lib/creative-decision-engine/jobs/ad-decisions-job";
-import { hasReusableNativeCalibration } from "@/lib/creative-decision-engine/jobs/native-ad-scheduled";
+import { AD_OPERATOR_RESPONSE_JOB_NAME } from "@/lib/creative-decision-engine/jobs/ad-operator-response-job";
+import {
+  AD_PROPOSAL_PROJECTION_JOB_NAME,
+  hasReusableNativeCalibration,
+  readNativeAdDecisionRetryBackoffs,
+  readSuccessfulNativeJobs,
+  runNativeAdShadowChainForActiveBusinessesIfDue,
+  withNativeAdShadowBusinessChainLock,
+} from "@/lib/creative-decision-engine/jobs/native-ad-scheduled";
 import type { EngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import {
   NATIVE_AD_ENGINE_VERSION,
@@ -282,20 +291,28 @@ async function verifyCalibrationReuseAccountIdentity(
   const businessId = "00000000-0000-4000-8000-000000000980";
   const calibratedAccountRefId = "00000000-0000-4000-8000-000000000981";
   const replacementAccountRefId = "00000000-0000-4000-8000-000000000982";
+  const deselectedAccountRefId = "00000000-0000-4000-8000-000000000987";
   await client.query(`INSERT INTO businesses (id) VALUES ($1)`, [businessId]);
   await client.query(
     `INSERT INTO provider_accounts (
        id, provider, external_account_id, timezone, currency
      ) VALUES
        ($1, 'meta', 'act_calibrated', 'UTC', 'USD'),
-       ($2, 'meta', 'act_replacement', 'UTC', 'USD')`,
-    [calibratedAccountRefId, replacementAccountRefId],
+       ($2, 'meta', 'act_replacement', 'UTC', 'USD'),
+       ($3, 'meta', 'act_deselected', 'UTC', 'USD')`,
+    [calibratedAccountRefId, replacementAccountRefId, deselectedAccountRefId],
   );
   await client.query(
     `INSERT INTO business_provider_accounts (
        business_id, provider, provider_account_ref_id, provider_account_id, is_selected
      ) VALUES ($1::text, 'meta', $2, 'act_calibrated', TRUE)`,
     [businessId, calibratedAccountRefId],
+  );
+  await client.query(
+    `INSERT INTO business_provider_accounts (
+       business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+     ) VALUES ($1::text, 'meta', $2, 'act_deselected', FALSE)`,
+    [businessId, deselectedAccountRefId],
   );
   const batchId = "00000000-0000-4000-8000-000000000983";
   await client.query(
@@ -397,13 +414,57 @@ async function verifyCalibrationReuseAccountIdentity(
   };
   assert(
     await hasReusableNativeCalibration(input, db),
-    "Matching calibrated and assigned account identities were not reusable.",
+    "A deselected historical account incorrectly invalidated matching selected calibration.",
+  );
+
+  await client.query(
+    `INSERT INTO business_target_pack_history (
+       business_id, effective_at, recorded_at
+     ) VALUES (
+       $1::uuid, '2026-07-12T03:00:00.000Z', '2026-07-12T03:00:00.000Z'
+     )`,
+    [businessId],
+  );
+  assert(
+    await hasReusableNativeCalibration(input, db),
+    "Target truth committed before the calibration safety window was not reusable.",
+  );
+  await client.query(
+    `UPDATE business_target_pack_history
+     SET recorded_at = '2026-07-12T03:14:30.000Z'
+     WHERE business_id = $1::uuid`,
+    [businessId],
+  );
+  assert(
+    !(await hasReusableNativeCalibration(input, db)),
+    "A target recorded inside the calibration snapshot safety window was reused.",
+  );
+  await client.query(
+    `UPDATE business_target_pack_history
+     SET recorded_at = '2026-07-12T03:00:00.000Z',
+         effective_at = '2026-07-12T03:14:30.000Z'
+     WHERE business_id = $1::uuid`,
+    [businessId],
+  );
+  assert(
+    !(await hasReusableNativeCalibration(input, db)),
+    "A target becoming effective inside the calibration snapshot safety window was reused.",
+  );
+  await client.query(
+    `UPDATE business_target_pack_history
+     SET effective_at = '2026-07-12T03:00:00.000Z'
+     WHERE business_id = $1::uuid`,
+    [businessId],
+  );
+  assert(
+    await hasReusableNativeCalibration(input, db),
+    "Restoring target truth before the safety window did not restore reuse.",
   );
 
   await client.query(
     `UPDATE business_provider_accounts
      SET provider_account_id = 'act_corrected'
-     WHERE business_id = $1::text AND provider = 'meta'`,
+     WHERE business_id = $1::text AND provider = 'meta' AND is_selected`,
     [businessId],
   );
   assert(
@@ -414,12 +475,606 @@ async function verifyCalibrationReuseAccountIdentity(
   await client.query(
     `UPDATE business_provider_accounts
      SET provider_account_ref_id = $2, provider_account_id = 'act_replacement'
-     WHERE business_id = $1::text AND provider = 'meta'`,
+     WHERE business_id = $1::text AND provider = 'meta' AND is_selected`,
     [businessId, replacementAccountRefId],
   );
   assert(
     !(await hasReusableNativeCalibration(input, db)),
     "Same-count account replacement incorrectly reused the previous account calibration.",
+  );
+}
+
+async function verifyDecisionRetrySemanticEvidence(
+  client: Client,
+  db: DbClient,
+) {
+  const businessId = "00000000-0000-4000-8000-000000000950";
+  const providerAccountRefId = "00000000-0000-4000-8000-000000000951";
+  const providerAccountId = "act_retry_semantic";
+  const manifestHash = "a".repeat(64);
+  const missingReceipt = {
+    contract_version: AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
+    provider_account_ref_id: providerAccountRefId,
+    provider_account_id: providerAccountId,
+    decision_cutoff: `${AS_OF}T03:10:00.000Z`,
+    source_run_id: null,
+    source_run_hash: null,
+    source_expected_row_count: null,
+    source_persisted_row_count: null,
+    expected_ad_count: 0,
+    expected_manifest_hash: manifestHash,
+    hydrated_ad_count: 0,
+    hydrated_manifest_hash: manifestHash,
+    source_complete: false,
+    hydration_complete: false,
+    authoritative_for_prune: false,
+    reason: "complete_source_run_missing",
+  };
+
+  await client.query(`INSERT INTO businesses (id) VALUES ($1)`, [businessId]);
+  await client.query(
+    `INSERT INTO provider_accounts (
+       id, provider, external_account_id, timezone, currency
+     ) VALUES ($1, 'meta', $2, 'UTC', 'USD')`,
+    [providerAccountRefId, providerAccountId],
+  );
+  await client.query(
+    `INSERT INTO business_provider_accounts (
+       business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+     ) VALUES ($1::text, 'meta', $2, $3, TRUE)`,
+    [businessId, providerAccountRefId, providerAccountId],
+  );
+
+  const insertDecisionAttempt = async (
+    id: string,
+    startedAt: string,
+    finishedAt: string,
+    receipt: Record<string, unknown> = missingReceipt,
+  ) => {
+    await client.query(
+      `INSERT INTO engine_v3_job_runs (
+         id, job_name, business_ref_id, business_id, as_of_date,
+         engine_version, status, started_at, finished_at, row_count, error_json
+       ) VALUES (
+         $1::uuid, $2, $3::uuid, $3::text, $4::date, $5, 'success',
+         $6::timestamptz, $7::timestamptz, 0, $8::jsonb
+       )`,
+      [
+        id,
+        AD_DECISIONS_JOB_NAME,
+        businessId,
+        AS_OF,
+        NATIVE_AD_ENGINE_VERSION,
+        startedAt,
+        finishedAt,
+        JSON.stringify({ metadata: { hydration_receipts: [receipt] } }),
+      ],
+    );
+  };
+  const insertObservation = async (input: {
+    id: string;
+    completeness: "partial" | "failed";
+    at: string;
+    semanticHash: string;
+  }) => {
+    await client.query(
+      `INSERT INTO meta_entity_observation_runs (
+         id, business_ref_id, business_id, provider_account_ref_id,
+         provider_account_id, entity_type, endpoint, observed_at, captured_at,
+         completeness, page_count, row_count, run_hash, semantic_hash,
+         error_json, created_at, last_seen_at, last_captured_at
+       ) VALUES (
+         $1::uuid, $2::uuid, $2::text, $3::uuid, $4, 'ad', '/ads',
+         $5::timestamptz, $5::timestamptz, $6, 1, 0, $7, $8,
+         CASE WHEN $6 = 'failed' THEN '{"kind":"provider_failed"}'::jsonb END,
+         $5::timestamptz, $5::timestamptz, $5::timestamptz
+       )`,
+      [
+        input.id,
+        businessId,
+        providerAccountRefId,
+        providerAccountId,
+        input.at,
+        input.completeness,
+        input.id.replaceAll("-", "").padEnd(64, "0").slice(0, 64),
+        input.semanticHash,
+      ],
+    );
+  };
+  const readBackoff = (cutoff: string) =>
+    readNativeAdDecisionRetryBackoffs(
+      {
+        businessIds: [businessId],
+        asOf: AS_OF,
+        decisionCutoff: cutoff,
+        since: `${AS_OF}T03:00:00.000Z`,
+      },
+      db,
+    );
+
+  await insertDecisionAttempt(
+    "00000000-0000-4000-8000-000000000952",
+    `${AS_OF}T03:10:00.000Z`,
+    `${AS_OF}T03:11:00.000Z`,
+  );
+  assert(
+    (await readBackoff(`${AS_OF}T04:00:00.000Z`)).has(businessId),
+    "An unchanged non-authoritative receipt did not back off for its slot.",
+  );
+
+  await insertObservation({
+    id: "00000000-0000-4000-8000-000000000953",
+    completeness: "partial",
+    at: `${AS_OF}T04:10:00.000Z`,
+    semanticHash: "b".repeat(64),
+  });
+  assert(
+    !(await readBackoff(`${AS_OF}T04:15:00.000Z`)).has(businessId),
+    "New partial semantic truth did not bypass the stale decision backoff.",
+  );
+
+  await insertDecisionAttempt(
+    "00000000-0000-4000-8000-000000000954",
+    `${AS_OF}T04:20:00.000Z`,
+    `${AS_OF}T04:21:00.000Z`,
+  );
+  assert(
+    (await readBackoff(`${AS_OF}T05:20:00.000Z`)).has(businessId),
+    "A fresh unchanged decision attempt was not backed off.",
+  );
+
+  await insertObservation({
+    id: "00000000-0000-4000-8000-000000000955",
+    completeness: "partial",
+    at: `${AS_OF}T05:30:00.000Z`,
+    semanticHash: "b".repeat(64),
+  });
+  await insertObservation({
+    id: "00000000-0000-4000-8000-000000000956",
+    completeness: "failed",
+    at: `${AS_OF}T05:31:00.000Z`,
+    semanticHash: "c".repeat(64),
+  });
+  assert(
+    (await readBackoff(`${AS_OF}T05:31:30.000Z`)).has(businessId),
+    "An identical partial checkpoint or failed run bypassed the backoff.",
+  );
+
+  await insertObservation({
+    id: "00000000-0000-4000-8000-000000000957",
+    completeness: "partial",
+    at: `${AS_OF}T05:32:00.000Z`,
+    semanticHash: "d".repeat(64),
+  });
+  assert(
+    !(await readBackoff(`${AS_OF}T05:40:00.000Z`)).has(businessId),
+    "A changed partial semantic hash was hidden by the slot backoff.",
+  );
+
+  await insertDecisionAttempt(
+    "00000000-0000-4000-8000-000000000964",
+    `${AS_OF}T06:00:00.000Z`,
+    `${AS_OF}T06:02:00.000Z`,
+  );
+  await insertObservation({
+    id: "00000000-0000-4000-8000-000000000965",
+    completeness: "partial",
+    at: `${AS_OF}T05:00:00.000Z`,
+    semanticHash: "e".repeat(64),
+  });
+  await insertObservation({
+    id: "00000000-0000-4000-8000-000000000966",
+    completeness: "partial",
+    at: `${AS_OF}T06:01:00.000Z`,
+    semanticHash: "f".repeat(64),
+  });
+  assert(
+    !(await readBackoff(`${AS_OF}T06:03:00.000Z`)).has(businessId),
+    "Evidence committed between decision start and finish did not bypass backoff.",
+  );
+
+  await insertDecisionAttempt(
+    "00000000-0000-4000-8000-000000000967",
+    `${AS_OF}T07:00:00.000Z`,
+    `${AS_OF}T07:01:00.000Z`,
+  );
+  await insertObservation({
+    id: "00000000-0000-4000-8000-000000000968",
+    completeness: "partial",
+    at: `${AS_OF}T06:59:30.000Z`,
+    semanticHash: "1".repeat(64),
+  });
+  assert(
+    !(await readBackoff(`${AS_OF}T07:02:00.000Z`)).has(businessId),
+    "Evidence inside the one-minute commit safety window did not bypass backoff.",
+  );
+
+  await insertDecisionAttempt(
+    "00000000-0000-4000-8000-000000000969",
+    `${AS_OF}T08:00:00.000Z`,
+    `${AS_OF}T08:01:00.000Z`,
+  );
+  await insertObservation({
+    id: "00000000-0000-4000-8000-000000000978",
+    completeness: "partial",
+    at: `${AS_OF}T07:58:00.000Z`,
+    semanticHash: "2".repeat(64),
+  });
+  assert(
+    (await readBackoff(`${AS_OF}T08:02:00.000Z`)).has(businessId),
+    "Evidence older than the commit safety window caused a redundant retry.",
+  );
+}
+
+async function verifyDecisionRetryIgnoresCompleteHeartbeat(
+  client: Client,
+  db: DbClient,
+) {
+  const businessId = "00000000-0000-4000-8000-000000000960";
+  const providerAccountRefId = "00000000-0000-4000-8000-000000000961";
+  const providerAccountId = "act_retry_heartbeat";
+  const sourceRunId = "00000000-0000-4000-8000-000000000962";
+  const sourceRunHash = "e".repeat(64);
+  await client.query(`INSERT INTO businesses (id) VALUES ($1)`, [businessId]);
+  await client.query(
+    `INSERT INTO provider_accounts (
+       id, provider, external_account_id, timezone, currency
+     ) VALUES ($1, 'meta', $2, 'UTC', 'USD')`,
+    [providerAccountRefId, providerAccountId],
+  );
+  await client.query(
+    `INSERT INTO business_provider_accounts (
+       business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+     ) VALUES ($1::text, 'meta', $2, $3, TRUE)`,
+    [businessId, providerAccountRefId, providerAccountId],
+  );
+  await client.query(
+    `INSERT INTO meta_entity_observation_runs (
+       id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, entity_type, endpoint, observed_at, captured_at,
+       completeness, page_count, row_count, run_hash, semantic_hash,
+       created_at, last_seen_at, last_captured_at, manifest_kind
+     ) VALUES (
+       $1::uuid, $2::uuid, $2::text, $3::uuid, $4, 'ad', '/ads',
+       $5::timestamptz, $5::timestamptz, 'complete', 1, 1, $6, $7,
+       $5::timestamptz, $5::timestamptz, $5::timestamptz, 'full'
+     )`,
+    [
+      sourceRunId,
+      businessId,
+      providerAccountRefId,
+      providerAccountId,
+      `${AS_OF}T03:00:00.000Z`,
+      sourceRunHash,
+      "f".repeat(64),
+    ],
+  );
+  await client.query(
+    `INSERT INTO meta_entity_state_history (
+       run_id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, entity_type, entity_id, observed_at, captured_at,
+       created_at, run_completeness, presence
+     ) VALUES (
+       $1::uuid, $2::uuid, $2::text, $3::uuid, $4, 'ad', 'ad-heartbeat',
+       $5::timestamptz, $5::timestamptz, $5::timestamptz, 'complete', 'present'
+     )`,
+    [
+      sourceRunId,
+      businessId,
+      providerAccountRefId,
+      providerAccountId,
+      `${AS_OF}T03:00:00.000Z`,
+    ],
+  );
+  const receipt = {
+    contract_version: AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
+    provider_account_ref_id: providerAccountRefId,
+    provider_account_id: providerAccountId,
+    decision_cutoff: `${AS_OF}T04:00:00.000Z`,
+    source_run_id: sourceRunId,
+    source_run_hash: sourceRunHash,
+    source_expected_row_count: 1,
+    source_persisted_row_count: 1,
+    expected_ad_count: 1,
+    expected_manifest_hash: "1".repeat(64),
+    hydrated_ad_count: 0,
+    hydrated_manifest_hash: "2".repeat(64),
+    source_complete: true,
+    hydration_complete: false,
+    authoritative_for_prune: false,
+    reason: "hydrated_manifest_mismatch",
+  };
+  await client.query(
+    `INSERT INTO engine_v3_job_runs (
+       id, job_name, business_ref_id, business_id, as_of_date,
+       engine_version, status, started_at, finished_at, row_count, error_json
+     ) VALUES (
+       '00000000-0000-4000-8000-000000000963', $1, $2::uuid, $2::text,
+       $3::date, $4, 'success', $5::timestamptz, $6::timestamptz, 0, $7::jsonb
+     )`,
+    [
+      AD_DECISIONS_JOB_NAME,
+      businessId,
+      AS_OF,
+      NATIVE_AD_ENGINE_VERSION,
+      `${AS_OF}T04:00:00.000Z`,
+      `${AS_OF}T04:01:00.000Z`,
+      JSON.stringify({ metadata: { hydration_receipts: [receipt] } }),
+    ],
+  );
+  await client.query(
+    `UPDATE meta_entity_observation_runs
+     SET last_seen_at = $2::timestamptz,
+         last_captured_at = $2::timestamptz
+     WHERE id = $1::uuid`,
+    [sourceRunId, `${AS_OF}T05:00:00.000Z`],
+  );
+
+  const backoffs = await readNativeAdDecisionRetryBackoffs(
+    {
+      businessIds: [businessId],
+      asOf: AS_OF,
+      decisionCutoff: `${AS_OF}T06:00:00.000Z`,
+      since: `${AS_OF}T03:00:00.000Z`,
+    },
+    db,
+  );
+  assert(
+    backoffs.has(businessId),
+    "An identical complete heartbeat was mistaken for new decision evidence.",
+  );
+}
+
+async function verifyBusinessChainSessionLock() {
+  let markEntered: () => void = () => undefined;
+  let releaseFirst: () => void = () => undefined;
+  const entered = new Promise<void>((resolve) => {
+    markEntered = resolve;
+  });
+  const release = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  const key = { businessId: BUSINESS_ID, asOf: AS_OF };
+  const first = withNativeAdShadowBusinessChainLock(key, async () => {
+    markEntered();
+    await release;
+    return "first";
+  });
+  await entered;
+
+  const overlap = await withNativeAdShadowBusinessChainLock(
+    key,
+    async () => "overlap",
+  );
+  assert(
+    !overlap.acquired && overlap.value === null,
+    "An overlapping scheduler acquired the same business/day session lock.",
+  );
+  const otherDay = await withNativeAdShadowBusinessChainLock(
+    { businessId: BUSINESS_ID, asOf: "2026-07-13" },
+    async () => "other-day",
+  );
+  assert(
+    otherDay.acquired && otherDay.value === "other-day",
+    "The business/day lock incorrectly serialized a different day.",
+  );
+
+  releaseFirst();
+  const firstResult = await first;
+  assert(
+    firstResult.acquired && firstResult.value === "first",
+    "The original business/day lock did not complete.",
+  );
+  let threw = false;
+  try {
+    await withNativeAdShadowBusinessChainLock(key, async () => {
+      throw new Error("forced chain failure");
+    });
+  } catch (error) {
+    threw = error instanceof Error && error.message === "forced chain failure";
+  }
+  assert(threw, "The session-lock helper swallowed the chain failure.");
+  const afterFailure = await withNativeAdShadowBusinessChainLock(
+    key,
+    async () => "after-failure",
+  );
+  assert(
+    afterFailure.acquired && afterFailure.value === "after-failure",
+    "The business/day session lock leaked after a throwing chain.",
+  );
+}
+
+async function verifyPostLockFreshCutoff(client: Client, db: DbClient) {
+  const businessId = "00000000-0000-4000-8000-000000001001";
+  const providerAccountRefId = "00000000-0000-4000-8000-000000001002";
+  const providerAccountId = "act_post_lock_cutoff";
+  const batchId = "00000000-0000-4000-8000-000000001003";
+  const calibrationRunId = "00000000-0000-4000-8000-000000001004";
+  const decisionsRunId = "00000000-0000-4000-8000-000000001005";
+  const manifestHash = "3".repeat(64);
+  await client.query(`INSERT INTO businesses (id) VALUES ($1)`, [businessId]);
+  await client.query(
+    `INSERT INTO provider_accounts (
+       id, provider, external_account_id, timezone, currency
+     ) VALUES ($1, 'meta', $2, 'UTC', 'USD')`,
+    [providerAccountRefId, providerAccountId],
+  );
+  await client.query(
+    `INSERT INTO business_provider_accounts (
+       business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+     ) VALUES ($1::text, 'meta', $2::uuid, $3, TRUE)`,
+    [businessId, providerAccountRefId, providerAccountId],
+  );
+  await client.query(
+    `INSERT INTO engine_v3_ad_account_calibration_batches (
+       id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, as_of_date, as_of_cutoff, engine_version,
+       completeness_status
+     ) VALUES (
+       $1::uuid, $2::uuid, $2::text, $3::uuid, $4, $5::date,
+       $6::timestamptz, $7, 'complete'
+     )`,
+    [
+      batchId,
+      businessId,
+      providerAccountRefId,
+      providerAccountId,
+      AS_OF,
+      `${AS_OF}T15:11:00.000Z`,
+      NATIVE_AD_ENGINE_VERSION,
+    ],
+  );
+  await client.query(
+    `INSERT INTO engine_v3_job_runs (
+       id, job_name, business_ref_id, business_id, as_of_date,
+       engine_version, status, started_at, finished_at, row_count, error_json
+     ) VALUES (
+       $1::uuid, $2, $3::uuid, $3::text, $4::date, $5, 'success',
+       $6::timestamptz, $7::timestamptz, 1, $8::jsonb
+     )`,
+    [
+      calibrationRunId,
+      AD_CALIBRATION_JOB_NAME,
+      businessId,
+      AS_OF,
+      NATIVE_AD_ENGINE_VERSION,
+      `${AS_OF}T15:11:00.000Z`,
+      `${AS_OF}T15:11:10.000Z`,
+      JSON.stringify({
+        metadata: {
+          batches: [
+            {
+              batch_id: batchId,
+              provider_account_ref_id: providerAccountRefId,
+              provider_account_id: providerAccountId,
+            },
+          ],
+        },
+      }),
+    ],
+  );
+  await client.query(
+    `INSERT INTO engine_v3_job_runs (
+       id, job_name, business_ref_id, business_id, as_of_date,
+       engine_version, status, dependency_run_id, started_at, finished_at,
+       row_count, error_json
+     ) VALUES (
+       $1::uuid, $2, $3::uuid, $3::text, $4::date, $5, 'success', $6::uuid,
+       $7::timestamptz, $8::timestamptz, 1, $9::jsonb
+     )`,
+    [
+      decisionsRunId,
+      AD_DECISIONS_JOB_NAME,
+      businessId,
+      AS_OF,
+      NATIVE_AD_ENGINE_VERSION,
+      calibrationRunId,
+      `${AS_OF}T15:11:20.000Z`,
+      `${AS_OF}T15:11:40.000Z`,
+      JSON.stringify({
+        metadata: {
+          hydration_receipts: [
+            {
+              contract_version:
+                AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
+              provider_account_ref_id: providerAccountRefId,
+              provider_account_id: providerAccountId,
+              expected_ad_count: 1,
+              hydrated_ad_count: 1,
+              expected_manifest_hash: manifestHash,
+              hydrated_manifest_hash: manifestHash,
+              source_complete: true,
+              hydration_complete: true,
+              authoritative_for_prune: true,
+              reason: null,
+            },
+          ],
+        },
+      }),
+    ],
+  );
+  for (const [id, jobName] of [
+    ["00000000-0000-4000-8000-000000001006", AD_OPERATOR_RESPONSE_JOB_NAME],
+    ["00000000-0000-4000-8000-000000001007", AD_PROPOSAL_PROJECTION_JOB_NAME],
+  ] as const) {
+    await client.query(
+      `INSERT INTO engine_v3_job_runs (
+         id, job_name, business_ref_id, business_id, as_of_date,
+         engine_version, status, dependency_run_id, started_at, finished_at,
+         row_count
+       ) VALUES (
+         $1::uuid, $2, $3::uuid, $3::text, $4::date, $5, 'success', $6::uuid,
+         $7::timestamptz, $8::timestamptz, 1
+       )`,
+      [
+        id,
+        jobName,
+        businessId,
+        AS_OF,
+        NATIVE_AD_ENGINE_VERSION,
+        decisionsRunId,
+        `${AS_OF}T15:11:50.000Z`,
+        `${AS_OF}T15:12:00.000Z`,
+      ],
+    );
+  }
+
+  const runnerCalls: string[] = [];
+  const retryCutoffs: string[] = [];
+  const shouldNotRun = (name: string) => async () => {
+    runnerCalls.push(name);
+    throw new Error(`${name} unexpectedly ran`);
+  };
+  const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
+    new Date(`${AS_OF}T15:10:00.000Z`),
+    [{ id: businessId, name: "Post-lock cutoff seam" }],
+    {
+      clock: () => new Date(`${AS_OF}T15:13:00.000Z`),
+      jobsDisabled: () => false,
+      inspectSchema: async () => ({
+        ready: true,
+        issues: [],
+        components: {
+          calibration: { ready: true, issues: [] },
+          decisions: { ready: true, issues: [] },
+          operatorResponse: { ready: true, issues: [] },
+        },
+      }),
+      listEnabledIds: async () => [businessId],
+      listMetaEligibleIds: async () => [businessId],
+      readSuccessfulJobs: (input) => readSuccessfulNativeJobs(input, db),
+      readDecisionRetryBackoffs: async (input) => {
+        retryCutoffs.push(input.decisionCutoff);
+        return new Set();
+      },
+      readOperatorResponseRetryBackoffs: async (input) => {
+        retryCutoffs.push(input.decisionCutoff);
+        return new Set();
+      },
+      runCalibration: shouldNotRun("calibration"),
+      runDecisions: shouldNotRun("decisions"),
+      runOperatorResponse: shouldNotRun("operator_response"),
+      projectProposals: shouldNotRun("proposal_projection"),
+    },
+  );
+  assert(
+    runnerCalls.length === 0,
+    `Post-lock re-read repeated completed work: ${runnerCalls.join(", ")}`,
+  );
+  assert(
+    retryCutoffs.length === 2 &&
+      retryCutoffs.every(
+        (cutoff) => cutoff === `${AS_OF}T15:13:00.000Z`,
+      ),
+    `Retry readers did not receive the post-lock cutoff: ${retryCutoffs.join(", ")}`,
+  );
+  const business = result.results?.[0];
+  assert(
+    business?.calibration.status === "previous_success" &&
+      business.decisions.status === "previous_success" &&
+      business.operatorResponse.status === "previous_success" &&
+      business.proposalProjection.status === "previous_success",
+    "A fresh post-lock cutoff did not reuse the holder's completed chain.",
   );
 }
 
@@ -491,6 +1146,33 @@ async function createHydrationSourceSchema(client: Client) {
       objective TEXT, optimization_goal TEXT, custom_event_type TEXT,
       captured_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL
     );
+    -- D098 hydration reads the raw provider field-source contract even when
+    -- this seam intentionally seeds no config receipt. Empty tables still need
+    -- the production columns so the emitted SQL can fail closed at row level.
+    CREATE TABLE meta_raw_snapshots (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
+      provider_account_id TEXT NOT NULL, endpoint_name TEXT NOT NULL,
+      entity_scope TEXT NOT NULL, status TEXT NOT NULL,
+      provider_http_status INTEGER, request_context JSONB NOT NULL DEFAULT '{}'::jsonb,
+      payload_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+      fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE meta_raw_snapshot_observations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), snapshot_id UUID NOT NULL,
+      business_id TEXT NOT NULL, provider_account_id TEXT NOT NULL,
+      endpoint_name TEXT NOT NULL, entity_scope TEXT NOT NULL,
+      status TEXT NOT NULL, provider_http_status INTEGER,
+      request_context JSONB NOT NULL DEFAULT '{}'::jsonb,
+      observed_at TIMESTAMPTZ NOT NULL DEFAULT now(), run_id TEXT
+    );
+    CREATE TABLE meta_creative_daily (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
+      provider_account_id TEXT NOT NULL, campaign_id TEXT, date DATE NOT NULL,
+      account_timezone TEXT, objective TEXT, payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      spend DOUBLE PRECISION NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
     CREATE TABLE meta_entity_observation_runs (
       id UUID PRIMARY KEY, business_ref_id UUID NOT NULL,
       business_id TEXT NOT NULL, provider_account_ref_id UUID NOT NULL,
@@ -500,6 +1182,7 @@ async function createHydrationSourceSchema(client: Client) {
       page_count INTEGER NOT NULL, row_count INTEGER NOT NULL,
       source_snapshot_id TEXT, payload_hash CHAR(64), run_hash CHAR(64) NOT NULL,
       error_json JSONB, created_at TIMESTAMPTZ NOT NULL,
+      semantic_hash TEXT,
       last_seen_at TIMESTAMPTZ, last_captured_at TIMESTAMPTZ,
       manifest_kind TEXT, base_run_id UUID, delta_stats_json JSONB
     );
@@ -548,10 +1231,8 @@ async function createMetaWarehouseMutationReadinessSchema(client: Client) {
     "meta_sync_checkpoints",
     "meta_sync_phase_timings",
     "meta_sync_state",
-    "meta_raw_snapshots",
     "meta_account_daily",
     "meta_breakdown_daily",
-    "meta_creative_daily",
     "meta_creative_media",
     "meta_campaign_dimensions",
     "meta_adset_dimensions",
@@ -2048,7 +2729,7 @@ async function verifyTombstoneAndHistoricalCutoff(client: Client) {
   );
 }
 
-async function verifyCurrentIdentityAndConfigFallback(client: Client) {
+async function verifyCurrentIdentityAndConfigSource(client: Client) {
   const adId = "ad-current-context";
   const campaignId = "campaign-current-context";
   const adsetId = "adset-current-context";
@@ -2086,6 +2767,61 @@ async function verifyCurrentIdentityAndConfigFallback(client: Client) {
     [BUSINESS_ID, ACCOUNT_ID, adsetId],
   );
 
+  /*
+    The current value may come from the typed row only when a matching raw
+    provider receipt actually exists. The later, conflicting typed row cannot
+    cross the 03:15 cutoff, and the pre-receipt control below stays unknown.
+  */
+  for (const config of [
+    {
+      endpoint: "campaign_configs",
+      scope: "campaign",
+      fields: "id,objective,updated_time",
+      payload: [{
+        id: campaignId, objective: "OUTCOME_SALES",
+        updated_time: "2026-07-10T00:00:00+0000",
+      }],
+    },
+    {
+      endpoint: "adset_configs",
+      scope: "adset",
+      fields: "id,optimization_goal,promoted_object,updated_time",
+      payload: [{
+        id: adsetId, optimization_goal: "OFFSITE_CONVERSIONS",
+        promoted_object: { custom_event_type: "PURCHASE" },
+        updated_time: "2026-07-10T00:00:00+0000",
+      }],
+    },
+  ]) {
+    const requestContext = JSON.stringify({
+      fields: config.fields,
+      pagination: { complete: true, termination: "natural_end", pageCount: 1 },
+    });
+    const [snapshot] = (
+      await client.query<{ id: string }>(
+        `INSERT INTO meta_raw_snapshots (
+           business_id, provider_account_id, endpoint_name, entity_scope,
+           status, provider_http_status, request_context, payload_json,
+           fetched_at
+         ) VALUES ($1::text, $2, $3, $4, 'fetched', 200, $5::jsonb,
+           $6::jsonb, '2026-07-12T02:30:00Z') RETURNING id`,
+        [BUSINESS_ID, ACCOUNT_ID, config.endpoint, config.scope,
+          requestContext, JSON.stringify(config.payload)],
+      )
+    ).rows;
+    assert(snapshot?.id, "Current config source snapshot was not inserted.");
+    await client.query(
+      `INSERT INTO meta_raw_snapshot_observations (
+         snapshot_id, business_id, provider_account_id, endpoint_name,
+         entity_scope, status, provider_http_status, request_context,
+         observed_at
+       ) VALUES ($1::uuid, $2::text, $3, $4, $5, 'fetched', 200,
+         $6::jsonb, '2026-07-12T02:30:00Z')`,
+      [snapshot.id, BUSINESS_ID, ACCOUNT_ID, config.endpoint, config.scope,
+        requestContext],
+    );
+  }
+
   const params = [
     BUSINESS_ID,
     AS_OF,
@@ -2119,19 +2855,22 @@ async function verifyCurrentIdentityAndConfigFallback(client: Client) {
     "Current hydration did not recover cutoff-safe hierarchy config.",
   );
 
+  const beforeReceipt = [...params];
+  beforeReceipt[8] = "2026-07-12T02:15:00.000Z";
+  beforeReceipt[10] = "2026-07-12T02:15:00.000Z";
   const historical = await client.query<{
     account_timezone: string | null;
     objective: string | null;
     optimization_goal: string | null;
     context_identity_unknown: boolean;
-  }>(HYDRATE_AD_DECISION_INPUTS_QUERY, [...params, false, "[]"]);
+  }>(HYDRATE_AD_DECISION_INPUTS_QUERY, [...beforeReceipt, false, "[]"]);
   assert(historical.rows.length === 1, "Historical fallback ad disappeared.");
   assert(
     historical.rows[0]?.account_timezone === "UTC" &&
       historical.rows[0]?.objective === null &&
       historical.rows[0]?.optimization_goal === null &&
       historical.rows[0]?.context_identity_unknown === true,
-    "Historical hydration leaked present-day provider/config state.",
+    "Pre-receipt hydration leaked later provider/config state.",
   );
 }
 
@@ -2861,10 +3600,14 @@ async function runSeam(client: Client) {
     await verifyGenerationBoundLargeManifestHydration(client);
   await verifyDeltaManifestHydration(client);
   await verifyTombstoneAndHistoricalCutoff(client);
-  await verifyCurrentIdentityAndConfigFallback(client);
+  await verifyCurrentIdentityAndConfigSource(client);
   await verifyFirstWriteEvaluationLinkage(client);
   await verifyPruneRetryAndConstraints(client, db);
   await verifyCalibrationReuseAccountIdentity(client, db);
+  await verifyDecisionRetrySemanticEvidence(client, db);
+  await verifyDecisionRetryIgnoresCompleteHeartbeat(client, db);
+  await verifyBusinessChainSessionLock();
+  await verifyPostLockFreshCutoff(client, db);
   await verifyRunAdDecisionsJobSecondEventBatchRollback(
     client,
     largeManifestFixture,
@@ -2928,7 +3671,7 @@ async function main() {
       resetDbClientCache();
     }
     console.log(
-      "[native-ad-seam] PASS capture-axis and compaction-aware receipts, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, D063 held Cut authority, three-valued legacy authority upgrade, FK, soft-only, and daily-fact owner fail-closed checks",
+      "[native-ad-seam] PASS capture-axis and compaction-aware receipts, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, semantic retry backoff, post-lock fresh cutoff, business/day session lock, account-identity and target-time reuse, D063 held Cut authority, three-valued legacy authority upgrade, FK, soft-only, and daily-fact owner fail-closed checks",
     );
   } finally {
     if (started) {

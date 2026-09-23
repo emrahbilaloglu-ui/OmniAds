@@ -2385,6 +2385,16 @@ export function CreativesBriefingPage() {
         onRefreshInsights={handleRefreshInsights}
       />
 
+      {todaySummaryQuery.data?.configPartial ? (
+        <div className="banner warn" data-testid="meta-live-config-warning">
+          <div className="icon">i</div>
+          <div className="msg"><b>Meta configuration is incomplete.</b><span className="sub">
+            {todaySummaryQuery.data.configNotReadyReason ??
+              "Spend and performance metrics are available, but some campaign configuration could not be read."}
+          </span></div>
+        </div>
+      ) : null}
+
       {trackingAnomalyActive ? (
         <div className="banner danger" data-tracking-blocker>
           <div className="icon">!</div>

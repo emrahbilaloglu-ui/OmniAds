@@ -10,8 +10,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildAdDayAuthoritativeLinkClicksSql,
+  buildAdDayLinkClicksMissingSql,
+  META_AD_DAY_LINK_CLICK_CONTRACT_VERSION,
   parseMetaLinkClickValue,
   parseMetaLinkClicksFromActions,
+  resolveAdDayAuthoritativeLinkClicks,
 } from "@/lib/meta/link-click-parse";
 import { readMetaLinkClicksFromInsight } from "@/lib/api/meta";
 
@@ -58,6 +62,115 @@ describe("the strict link-click parser", () => {
   it("reports an absent entry separately from a malformed one", () => {
     expect(parseMetaLinkClicksFromActions([{ action_type: "purchase", value: "1" }]))
       .toEqual({ ok: false, refusal: "no_link_click_entry" });
+  });
+
+  it("reports an absent actions array separately from an array without an entry", () => {
+    // NEGATIVE: no array observed nothing; it must never read as Meta's
+    // measured-zero encoding.
+    expect(parseMetaLinkClicksFromActions(undefined))
+      .toEqual({ ok: false, refusal: "actions_absent" });
+    expect(parseMetaLinkClicksFromActions(null))
+      .toEqual({ ok: false, refusal: "actions_absent" });
+    // POSITIVE: an array with no entry is the measured-zero encoding.
+    expect(parseMetaLinkClicksFromActions([]))
+      .toEqual({ ok: false, refusal: "no_link_click_entry" });
+  });
+});
+
+describe("the ad-day authority rule (D095) is one rule in both languages", () => {
+  const cases: Array<{
+    name: string;
+    stored: unknown;
+    payload: unknown;
+    expected: number | null;
+  }> = [
+    { name: "positive stored value", stored: 7, payload: {}, expected: 7 },
+    {
+      name: "stored zero proven by an actions array with no entry",
+      stored: 0,
+      payload: { actions: [{ action_type: "purchase", value: "1" }] },
+      expected: 0,
+    },
+    {
+      name: "stored zero proven by one all-zero string entry",
+      stored: 0,
+      payload: { actions: [{ action_type: "link_click", value: "0" }] },
+      expected: 0,
+    },
+    { name: "stored zero with no actions array", stored: 0, payload: {}, expected: null },
+    {
+      name: "stored zero contradicted by a positive entry",
+      stored: 0,
+      payload: { actions: [{ action_type: "link_click", value: "4" }] },
+      expected: null,
+    },
+    {
+      name: "stored zero beside duplicate entries",
+      stored: 0,
+      payload: {
+        actions: [
+          { action_type: "link_click", value: "0" },
+          { action_type: "link_click", value: "0" },
+        ],
+      },
+      expected: null,
+    },
+    {
+      name: "stored zero beside a JSON-number entry",
+      stored: 0,
+      payload: { actions: [{ action_type: "link_click", value: 0 }] },
+      expected: null,
+    },
+    { name: "NULL column", stored: null, payload: { actions: [] }, expected: null },
+    { name: "negative column", stored: -1, payload: { actions: [] }, expected: null },
+    { name: "fractional positive column", stored: 1.5, payload: { actions: [] }, expected: null },
+    { name: "fractional positive string", stored: "1.5", payload: { actions: [] }, expected: null },
+    { name: "scientific positive string", stored: "1e3", payload: { actions: [] }, expected: null },
+    {
+      name: "unsafe positive integer",
+      stored: Number.MAX_SAFE_INTEGER + 1,
+      payload: { actions: [] },
+      expected: null,
+    },
+  ];
+
+  it.each(cases)("$name", ({ stored, payload, expected }) => {
+    expect(
+      resolveAdDayAuthoritativeLinkClicks({ storedLinkClicks: stored, payloadJson: payload }),
+    ).toBe(expected);
+  });
+
+  it("emits the historical unqualified SQL byte-for-byte", () => {
+    // data-source.ts still exports this text for the operational readback
+    // verifier; a qualified builder must not change what those readers run.
+    const sql = buildAdDayAuthoritativeLinkClicksSql();
+    expect(sql).toContain("WHEN link_clicks > 0 THEN link_clicks");
+    expect(sql).toContain("jsonb_typeof(payload_json->'actions') = 'array'");
+    expect(sql).not.toContain(".link_clicks");
+  });
+
+  it("qualifies every column reference when asked, so a joined query cannot bind the wrong table", () => {
+    const sql = buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d" });
+    expect(sql).toContain("WHEN d.link_clicks > 0 THEN d.link_clicks");
+    expect(sql).toContain("jsonb_typeof(d.payload_json->'actions') = 'array'");
+    expect(sql).not.toMatch(/[^.]\blink_clicks > 0/);
+    expect(sql.match(/payload_json/g)?.length).toBe(
+      sql.match(/d\.payload_json/g)?.length,
+    );
+  });
+
+  it("refuses a qualifier it did not generate", () => {
+    expect(() => buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d; DROP" })).toThrow(
+      "ad_day_link_clicks_sql_qualifier_invalid",
+    );
+  });
+
+  it("gives the window rule a never-NULL missing predicate", () => {
+    expect(buildAdDayLinkClicksMissingSql({ qualifier: "d" })).toMatch(/IS NULL\)$/);
+  });
+
+  it("names the rule so a stored figure can cite it", () => {
+    expect(META_AD_DAY_LINK_CLICK_CONTRACT_VERSION).toBe("meta-ad-day-link-click.v1");
   });
 });
 

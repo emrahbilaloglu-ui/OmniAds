@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isPurchaseCohort,
   resolveMetaFunnelCohort,
+  resolveMetaFunnelCohortFromConfigOnly,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
 
@@ -121,5 +122,39 @@ describe("resolveMetaFunnelCohort", () => {
   it("identifies only purchase as a purchase cohort", () => {
     expect(isPurchaseCohort("purchase")).toBe(true);
     expect(isPurchaseCohort("upper_funnel")).toBe(false);
+  });
+});
+
+describe("results are not an optimization intent", () => {
+  /*
+    The general resolver reads a purchase RESULT as a purchase INTENT when no
+    config field is known. That branch decides real things — the commercial gates
+    evaluate a purchase cohort — so the native path must not be able to reach it,
+    and the V1 surfaces that already depend on it must not be broken by accident.
+    Both halves are pinned here so the difference stays deliberate.
+  */
+  it("still infers purchase from a result for the V1 resolver", () => {
+    expect(
+      resolveMetaFunnelCohort({ purchases: 3, revenue: 0 }),
+    ).toBe("purchase");
+    expect(
+      resolveMetaFunnelCohort({ purchases: 0, revenue: 12.5 }),
+    ).toBe("purchase");
+  });
+
+  it("never infers a cohort from a result in the config-only resolver", () => {
+    expect(resolveMetaFunnelCohortFromConfigOnly({})).toBe("unknown");
+    expect(
+      resolveMetaFunnelCohortFromConfigOnly({ objective: null, optimizationGoal: null }),
+    ).toBe("unknown");
+  });
+
+  it("still reads a stated configuration, which is the point", () => {
+    expect(
+      resolveMetaFunnelCohortFromConfigOnly({ customEventType: "PURCHASE" }),
+    ).toBe("purchase");
+    expect(
+      resolveMetaFunnelCohortFromConfigOnly({ optimizationGoal: "OFFSITE_CONVERSIONS" }),
+    ).toBe(resolveMetaFunnelCohort({ optimizationGoal: "OFFSITE_CONVERSIONS" }));
   });
 });

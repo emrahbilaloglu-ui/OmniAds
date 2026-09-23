@@ -72,7 +72,7 @@ export interface WriteFamily {
   readonly id: WriteFamilyId;
   readonly label: string;
   /** The release gate that must be open before this family may reach Meta. */
-  readonly gate: "META_DECISION_WORKFLOW_UI" | "META_AUTOMATION_LIVE_WRITES" | "META_LAUNCHPAD_EXECUTION";
+  readonly gate: "META_AUTOMATION_LIVE_WRITES" | "META_LAUNCHPAD_EXECUTION";
   readonly steps: Readonly<Record<WriteSafetyStep, StepConformance>>;
 }
 
@@ -82,7 +82,7 @@ export const WRITE_FAMILIES: readonly WriteFamily[] = [
   {
     id: "decisions_manual_action",
     label: "Decisions — manual ad pause/resume",
-    gate: "META_DECISION_WORKFLOW_UI",
+    gate: "META_AUTOMATION_LIVE_WRITES",
     steps: {
       exact_business_access: ok("lib/meta/ads-action-routes.ts → requireBusinessAccess"),
       exact_physical_provider_account: ok(
@@ -337,7 +337,6 @@ export function openGatesWithMissingSteps(
 ): Array<{ family: WriteFamilyId; missing: WriteSafetyStep[] }> {
   const gates = readMetaReleaseGates(env);
   const open: Record<WriteFamily["gate"], boolean> = {
-    META_DECISION_WORKFLOW_UI: gates.decisionWorkflowUi,
     META_AUTOMATION_LIVE_WRITES: gates.automationLiveWrites,
     META_LAUNCHPAD_EXECUTION: gates.launchpadExecution,
   };

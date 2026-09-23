@@ -262,6 +262,8 @@ function jsonResponse(body: unknown, status = 200) {
  */
 function stubCoreSyncFetch(options?: {
   adInsightPages?: (() => Response)[];
+  /** The account-level leg's spend; defaults to the shared fixture's total. */
+  accountDaySpend?: string;
 }) {
   const pages = options?.adInsightPages ?? [
     () => jsonResponse({ data: PAGE_ONE, paging: { next: PAGE_TWO_URL } }),
@@ -272,7 +274,9 @@ function stubCoreSyncFetch(options?: {
     const url = String(input);
     if (url.includes("/insights")) {
       if (url.includes("level=account")) {
-        return jsonResponse({ data: [{ spend: ACCOUNT_DAY_SPEND }] });
+        return jsonResponse({
+          data: [{ spend: options?.accountDaySpend ?? ACCOUNT_DAY_SPEND }],
+        });
       }
       const page = pages[adInsightCalls] ?? pages[pages.length - 1]!;
       adInsightCalls += 1;
@@ -580,14 +584,156 @@ describe("syncMetaAccountCoreWarehouseDay link-click extraction", () => {
     expect(rows.get("ad-absent")?.spend).toBe(20);
   });
 
-  it("lets one measured page rescue an ad whose other page carried no actions", async () => {
+  it("does NOT let one measured page rescue an ad whose other, delivering page carried no actions", async () => {
     stubCoreSyncFetch();
 
     await runCoreSyncDay();
 
-    // Page one had no actions array for this ad, page two measured 7. The
-    // absent page contributes nothing and does not hold the ad at null.
-    expect(writtenAdRows().get("ad-late")?.linkClicks).toBe(7);
+    /*
+      FLIPPED. This used to assert 7: page one had no actions array for this
+      ad, page two measured 7, and the absent page "contributed nothing". But
+      page one DELIVERED (spend 10, 20 impressions, 1 click) — its link clicks
+      are simply unknown, so 7 is the count for part of the ad's day written as
+      if it were all of it. A partial sum is not a measurement
+      (META_METRIC_WINDOW_COMPLETENESS_RULE): the ad-day is null, and the
+      warehouse merge keeps any earlier complete measurement instead.
+    */
+    expect(writtenAdRows().get("ad-late")?.linkClicks).toBeNull();
+    // The control: the row itself was captured, with both pages' spend.
+    expect(writtenAdRows().get("ad-late")?.spend).toBe(15);
+  });
+
+  /*
+    The acceptance rules for the fold, each on ONE ad split across two pages so
+    the per-ad fold is the only thing that can decide the answer. Every row
+    delivered unless the case says otherwise.
+  */
+  function twoPageDay(
+    pageOneActions: InsightRow["actions"] | undefined,
+    pageTwoActions: InsightRow["actions"] | undefined,
+    pageTwoDelivery: { spend: string; impressions: string; clicks: string } = {
+      spend: "5.00",
+      impressions: "10",
+      clicks: "1",
+    },
+  ) {
+    stubCoreSyncFetch({
+      adInsightPages: [
+        () =>
+          jsonResponse({
+            data: [
+              insightRow({
+                adId: "ad-split",
+                spend: "10.00",
+                impressions: "100",
+                clicks: "5",
+                actions: pageOneActions,
+              }),
+            ],
+            paging: { next: PAGE_TWO_URL },
+          }),
+        () =>
+          jsonResponse({
+            data: [
+              insightRow({
+                adId: "ad-split",
+                ...pageTwoDelivery,
+                actions: pageTwoActions,
+              }),
+            ],
+          }),
+      ],
+      accountDaySpend: (10 + Number(pageTwoDelivery.spend)).toFixed(2),
+    });
+  }
+
+  it("R2: zero + zero is a measured 0", async () => {
+    twoPageDay(actionsWithoutLinkClick(), actionsWithoutLinkClick());
+
+    await runCoreSyncDay();
+
+    expect(writtenAdRows().get("ad-split")?.linkClicks).toBe(0);
+  });
+
+  it("R1: zero + a delivering row with no actions array is null, not 0", async () => {
+    twoPageDay(actionsWithoutLinkClick(), undefined);
+
+    await runCoreSyncDay();
+
+    const row = writtenAdRows().get("ad-split");
+    expect(row?.linkClicks).toBeNull();
+    // Captured, not dropped: the null is a link-click fact about a real row.
+    expect(row?.spend).toBe(15);
+  });
+
+  it("R1: a measured count + a delivering row with no actions array is null, not the partial sum", async () => {
+    twoPageDay(actionsWithLinkClick(30), undefined);
+
+    await runCoreSyncDay();
+
+    expect(writtenAdRows().get("ad-split")?.linkClicks).toBeNull();
+  });
+
+  it("R4: a malformed link_click value makes the ad-day incomplete rather than 0 or partial", async () => {
+    twoPageDay(actionsWithLinkClick(30), [
+      { value: "12.7", action_type: "link_click" },
+    ]);
+
+    await runCoreSyncDay();
+
+    expect(writtenAdRows().get("ad-split")?.linkClicks).toBeNull();
+  });
+
+  it("R3: a different action type is never folded into link clicks", async () => {
+    // outbound_click is a different event, not a spelling of link_click.
+    twoPageDay(
+      [
+        ...(actionsWithLinkClick(30) as object[]),
+        { value: "50", action_type: "outbound_click" },
+      ] as InsightRow["actions"],
+      [
+        { value: "5", action_type: "link_click" },
+        { value: "9", action_type: "outbound_click" },
+      ],
+    );
+
+    await runCoreSyncDay();
+
+    expect(writtenAdRows().get("ad-split")?.linkClicks).toBe(35);
+  });
+
+  it("R4: a duplicated link_click entry is unreadable, and so is the ad-day", async () => {
+    twoPageDay(actionsWithLinkClick(30), [
+      { value: "4", action_type: "link_click" },
+      { value: "4", action_type: "link_click" },
+    ]);
+
+    await runCoreSyncDay();
+
+    expect(writtenAdRows().get("ad-split")?.linkClicks).toBeNull();
+  });
+
+  it("a row that did nothing at all is not a gap: its missing actions cannot hide a click", async () => {
+    // The over-correction guard. A row with no spend, impressions, clicks,
+    // purchases or revenue had no link clicks to report; treating its absent
+    // actions array as a gap would null out a complete measurement.
+    twoPageDay(actionsWithLinkClick(30), undefined, {
+      spend: "0.00",
+      impressions: "0",
+      clicks: "0",
+    });
+
+    await runCoreSyncDay();
+
+    expect(writtenAdRows().get("ad-split")?.linkClicks).toBe(30);
+  });
+
+  it("an ad whose only rows carried no measurement stays null, never 0", async () => {
+    twoPageDay(undefined, undefined);
+
+    await runCoreSyncDay();
+
+    expect(writtenAdRows().get("ad-split")?.linkClicks).toBeNull();
   });
 
   it("writes no ad rows when a later insight page is a 2xx carrying a Graph error", async () => {

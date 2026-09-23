@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { resolveMetaCurrencyOffset } from "@/lib/currency/meta-currency-offsets";
 import { DEMO_BUSINESS_ID } from "@/lib/demo-business-support";
 import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import {
@@ -643,8 +644,39 @@ function normalizeGuardrails(
   const ceilingCurrency = ceilingAbsent
     ? DEFAULT_META_AUTOMATION_GUARDRAILS.perActionSpendCeilingCurrency
     : toCurrencyOrNull(record.perActionSpendCeilingCurrency);
+  /*
+    ── A CEILING IS ONLY VALID AT A SCALE BOTH AUTHORITIES AGREE ON ──────────
+
+    `perActionSpendCeilingMinor` is compared UNSCALED against the provider
+    minor-unit amount a budget write would send
+    (`budget-write-safety-projection.ts`, `budget-sizing-policy.ts`). It is
+    minted from what an operator typed, times 10**exponent — and that exponent
+    came from the ISO registry, which disagrees with Meta's published offset
+    for COP, HUF, IDR and TWD (100x) and BHD and JOD (10x).
+
+    So on a HUF business the ceiling an operator entered as 50,000 forint was
+    stored as 5,000,000 and compared against real forint amounts: a safety
+    limit a hundred times looser than the one they set. A guardrail that fails
+    OPEN is worse than none, because it reports itself as configured.
+
+    The pair is therefore valid only when Meta publishes an offset for the
+    ceiling's currency. Meta's offset alone is the authority here: both sides
+    of the comparison are in provider units, so ISO has no bearing on it, and
+    demanding ISO corroboration would refuse a ceiling for the currencies Meta
+    serves that this repository's partial ISO transcription does not hold.
+    An unscaleable ceiling is treated exactly like a corrupt half-persisted one — `snapshot.ts` passes null, and
+    `budget-sizing-policy.ts` withholds with `policy_spend_ceiling_unset`
+    rather than acting. That is fail-closed: no ceiling means no budget change,
+    not an unlimited one.
+
+    This costs USD, TRY and GBP nothing: their ISO exponent and Meta offset
+    both say two digits, so `ceilingValid` is unchanged for every live business.
+  */
+  const ceilingScaleUsable =
+    ceilingCurrency !== null &&
+    resolveMetaCurrencyOffset(ceilingCurrency).status === "resolved";
   const ceilingValid = ceilingAbsent || ceilingCleared || (
-    ceilingMinor !== null && ceilingCurrency !== null
+    ceilingMinor !== null && ceilingCurrency !== null && ceilingScaleUsable
   );
   return {
     minRoasFloor: toFiniteNumberOrNull(policy.min_roas_floor),

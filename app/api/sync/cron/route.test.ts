@@ -891,6 +891,47 @@ describe("POST /api/sync/cron", () => {
     );
   });
 
+  it("holds native proposals while another tick owns that business chain", async () => {
+    const blocked = {
+      status: "dependency_blocked" as const,
+      source: "dependency_blocked" as const,
+      result: null,
+      reason: "business_chain_in_progress",
+      errorMessage: "business_chain_in_progress",
+    };
+    vi.mocked(
+      creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue,
+    ).mockResolvedValue({
+      skipped: false,
+      asOf: "2026-04-15",
+      engineVersion: "v3-ad-test",
+      concurrentBusinessIds: ["biz_1"],
+      results: [
+        nativeBusinessResult("biz_1", {
+          calibration: { ...blocked },
+          decisions: { ...blocked },
+          operatorResponse: { ...blocked },
+          proposalProjection: { ...blocked },
+        }),
+      ],
+    } as never);
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/sync/cron", {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(
+      budgetScheduled.runMetaBudgetAutomationSweepIfDue,
+    ).toHaveBeenCalledWith(expect.any(Date), {
+      blockedNativeAdBusinessIds: ["biz_1"],
+      blockAllNativeAdProposals: false,
+    });
+  });
+
   it("keeps refreshed proposals usable when only operator response recording fails", async () => {
     const result = nativeBusinessResult("biz_1");
     result.decisions.status = "previous_success";

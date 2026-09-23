@@ -25,6 +25,9 @@ vi.mock("@/store/preferences-store", () => ({
 
 vi.mock("@/hooks/use-currency", () => ({
   useCurrencySymbol: () => "$",
+  /* The code, not just the glyph: the minor-unit divisor is Meta's own
+     per-currency offset and a symbol does not identify a currency. */
+  useCurrencyCode: () => "USD",
 }));
 
 vi.mock("@/components/meta/meta-account-recs", () => ({

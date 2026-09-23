@@ -15,8 +15,9 @@
  */
 
 import { useEffect, useState } from "react";
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import { useQuery } from "@tanstack/react-query";
-import { useCurrencySymbol } from "@/hooks/use-currency";
+import { useCurrencyCode, useCurrencySymbol } from "@/hooks/use-currency";
 import { ChevronDown, ChevronRight, Loader2, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,14 +81,44 @@ function fmt$(n: number, sym: string | null): string {
   })}`;
 }
 
+
+/**
+ * A provider minor-unit amount at the PROVIDER's own scale, or the missing mark.
+ *
+ * The divisor used to be a constant 100. That is Meta's offset for USD, TRY
+ * and GBP and wrong by 100x for every currency Meta lists at offset 1 — JPY,
+ * KRW, CLP, ISK, VND — and for HUF, IDR, TWD and COP, which the ISO registry
+ * calls two-decimal and Meta does not.
+ *
+ * The code is needed as well as the symbol because a symbol does not identify
+ * a currency: "kr" is SEK, NOK and DKK at once. An unknown code renders the
+ * same em-dash an unknown symbol already does, for the same reason — a number
+ * at a guessed scale is a wrong measurement, not a cosmetic default.
+ */
+function fmtProviderMinor(
+  minorUnits: number,
+  sym: string | null,
+  code: string | null,
+): string {
+  const major = metaMinorUnitsToMajor({ minorUnits, currency: code });
+  return major.ok ? fmt$(major.majorUnits, sym) : "—";
+}
+
 function fmtBudget(
   daily: number | null,
   lifetime: number | null,
   sym: string | null,
+  code: string | null,
 ): string {
   if (sym === null) return "—";
-  if (daily != null) return `${fmt$(daily / 100, sym)}/day`;
-  if (lifetime != null) return `${fmt$(lifetime / 100, sym)} lifetime`;
+  if (daily != null) {
+    const text = fmtProviderMinor(daily, sym, code);
+    return text === "—" ? "—" : `${text}/day`;
+  }
+  if (lifetime != null) {
+    const text = fmtProviderMinor(lifetime, sym, code);
+    return text === "—" ? "—" : `${text} lifetime`;
+  }
   return "—";
 }
 
@@ -99,11 +130,12 @@ function fmtBidValue(
   amount: number | null | undefined,
   format: "currency" | "roas" | null | undefined,
   sym: string | null,
+  code: string | null,
 ): string {
   if (typeof amount !== "number" || !Number.isFinite(amount)) return "—";
   // A ROAS multiple is currency-free, so it stays readable without a symbol.
   if (format === "roas") return `${amount.toFixed(2)}x`;
-  return fmt$(amount / 100, sym);
+  return fmtProviderMinor(amount, sym, code);
 }
 
 function renderConfigText(value: string | null | undefined, isMixed?: boolean) {
@@ -118,9 +150,10 @@ function renderBidValueText(
   format: "currency" | "roas" | null | undefined,
   isMixed: boolean | undefined,
   sym: string | null,
+  code: string | null,
 ) {
   if (isMixed) return "Mixed";
-  return fmtBidValue(value, format, sym);
+  return fmtBidValue(value, format, sym, code);
 }
 
 function formatRelativeAge(isoValue: string | null | undefined): string | null {
@@ -296,6 +329,7 @@ function AdSetSubTable({
   campaignPreviousBidValueCapturedAt: string | null | undefined;
 }) {
   const sym = useCurrencySymbol();
+  const code = useCurrencyCode();
   const language = "en" as "en" | "tr";
   if (rows.length === 0) {
     return (
@@ -387,13 +421,13 @@ function AdSetSubTable({
                   <div className="truncate">—</div>
                 ) : (
                   <>
-                    <div className="truncate" title={fmtBudget(adset.dailyBudget, adset.lifetimeBudget, sym)}>
-                      {fmtBudget(adset.dailyBudget, adset.lifetimeBudget, sym)}
+                    <div className="truncate" title={fmtBudget(adset.dailyBudget, adset.lifetimeBudget, sym, code)}>
+                      {fmtBudget(adset.dailyBudget, adset.lifetimeBudget, sym, code)}
                     </div>
                     {(typeof adset.previousDailyBudget === "number" ||
                       typeof adset.previousLifetimeBudget === "number") && (
                       <div className="truncate text-[10px] tabular-nums text-muted-foreground">
-                        {language === "tr" ? "önceki" : "prev"} {fmtBudget(adset.previousDailyBudget ?? null, adset.previousLifetimeBudget ?? null, sym)}
+                        {language === "tr" ? "önceki" : "prev"} {fmtBudget(adset.previousDailyBudget ?? null, adset.previousLifetimeBudget ?? null, sym, code)}
                         {formatRelativeAge(adset.previousBudgetCapturedAt)
                           ? ` · ${formatRelativeAge(adset.previousBudgetCapturedAt)}`
                           : ""}
@@ -412,14 +446,15 @@ function AdSetSubTable({
               </td>
               <td className="px-3 py-2 text-right text-muted-foreground">
                 <div className="tabular-nums">
-                  {renderBidValueText(effectiveBidValue, effectiveBidValueFormat, adset.isBidValueMixed, sym)}
+                  {renderBidValueText(effectiveBidValue, effectiveBidValueFormat, adset.isBidValueMixed, sym, code)}
                 </div>
                 {typeof effectivePreviousBidValue === "number" && !adset.isBidValueMixed && (
                   <div className="text-[10px] tabular-nums text-muted-foreground">
                     {language === "tr" ? "önceki" : "prev"} {fmtBidValue(
                       effectivePreviousBidValue,
                       effectivePreviousBidValueFormat ?? effectiveBidValueFormat,
-                      sym
+                      sym,
+                      code
                     )}
                     {formatRelativeAge(effectivePreviousBidValueCapturedAt)
                       ? ` · ${formatRelativeAge(effectivePreviousBidValueCapturedAt)}`
@@ -488,6 +523,7 @@ function CampaignRow({
   isCampaignPrevLoading,
 }: CampaignRowProps) {
   const sym = useCurrencySymbol();
+  const code = useCurrencyCode();
   const language = "en" as "en" | "tr";
   const colSpan = columns === "compact" ? 8 : 11;
   const showBudgetOnCampaignRow =
@@ -623,13 +659,13 @@ function CampaignRow({
         <td className="px-3 py-2.5 text-muted-foreground">
           {showBudgetOnCampaignRow ? (
             <>
-              <div className="truncate" title={fmtBudget(campaign.dailyBudget, campaign.lifetimeBudget, sym)}>
-                {fmtBudget(campaign.dailyBudget, campaign.lifetimeBudget, sym)}
+              <div className="truncate" title={fmtBudget(campaign.dailyBudget, campaign.lifetimeBudget, sym, code)}>
+                {fmtBudget(campaign.dailyBudget, campaign.lifetimeBudget, sym, code)}
               </div>
               {(typeof campaign.previousDailyBudget === "number" ||
                 typeof campaign.previousLifetimeBudget === "number") && (
                 <div className="truncate text-[10px] tabular-nums text-muted-foreground">
-                  {language === "tr" ? "önceki" : "prev"} {fmtBudget(campaign.previousDailyBudget ?? null, campaign.previousLifetimeBudget ?? null, sym)}
+                  {language === "tr" ? "önceki" : "prev"} {fmtBudget(campaign.previousDailyBudget ?? null, campaign.previousLifetimeBudget ?? null, sym, code)}
                   {formatRelativeAge(campaign.previousBudgetCapturedAt)
                     ? ` · ${formatRelativeAge(campaign.previousBudgetCapturedAt)}`
                     : ""}

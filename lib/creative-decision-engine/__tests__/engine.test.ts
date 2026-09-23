@@ -479,7 +479,10 @@ describe("creative-decision-engine v3", () => {
 
     expect(rawDecision.label).toBe("scale");
     expect(rawDecision.decisionKindSource).toBe("all_fallback");
-    expect(guarded.label).toBe("diagnose");
+    // ADR D097: the P0 guard blocks the ACTION and keeps the verdict. The hold
+    // is asserted right below; only the `diagnose` overwrite is gone.
+    expect(guarded.label).toBe("scale");
+    expect(guarded.recommendationReadiness).toBe("role_conditional");
     expect(guarded.campaignRoleStatus).toBe("unresolved");
     expect(guarded.blockedActionType).toBe("scale");
     expect(guarded.decisionKindSource).toBe("all_fallback");
@@ -612,7 +615,10 @@ describe("creative-decision-engine v3", () => {
     expect(rawDecision.label).toBe("refresh");
     expect(rawDecision.labelTransform ?? null).toBeNull();
     expect(rawDecision.decisionKindSource).toBe("all_fallback");
-    expect(guarded.label).toBe("diagnose");
+    // ADR D097: a Refresh is role-conditional — it answers "what replaces this
+    // in its rotation" — so it stays held. It is no longer erased.
+    expect(guarded.label).toBe("refresh");
+    expect(guarded.recommendationReadiness).toBe("role_conditional");
     expect(guarded.blockedActionType).toBe("refresh");
     expect(guarded.labelTransform ?? null).toBeNull();
   });

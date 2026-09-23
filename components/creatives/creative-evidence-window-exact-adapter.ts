@@ -23,6 +23,7 @@ import {
 } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
 import type {
   MetaCanonicalDecision,
+  MetaDecisionConfigEvidenceRef,
   MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
 import type {
@@ -1561,6 +1562,27 @@ function humanizeCode(value: string | null | undefined): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/** One config receipt, as a single read-only diagnostics line. */
+function configReceiptLine(ref: MetaDecisionConfigEvidenceRef): string {
+  const parts = [
+    `${ref.field}: ${ref.tier}`,
+    ref.readiness,
+    `${ref.refContractVersion} / ${ref.sourceContractVersion}`,
+    `normalization ${ref.normalizationVersion ?? EM_DASH}`,
+    ref.pitClass ? `${ref.sourceClass} · ${ref.pitClass}` : ref.sourceClass,
+    `snapshot ${ref.sourceSnapshotId ?? EM_DASH}`,
+    `receipt ${ref.observationId ?? "none (snapshot-only)"}`,
+    `observed ${ref.observedAt ?? EM_DASH}`,
+    `scope ${ref.fieldScopeHash ?? EM_DASH}`,
+  ];
+  if (ref.corroboratingObservedAt) {
+    parts.push(
+      `closed by snapshot ${ref.corroboratingSnapshotId ?? EM_DASH} / ${ref.corroboratingObservationId ?? "snapshot-only receipt"} at ${ref.corroboratingObservedAt}`,
+    );
+  }
+  return parts.join(" · ");
+}
+
 function diagnosticRows(input: {
   canonical: MetaCanonicalDecision | null;
   decision: MetaOsAdDecision | null;
@@ -1721,6 +1743,71 @@ function diagnosticRows(input: {
       canonical?.sourceDecision?.authorityBlocker ??
         input.decision?.authorityProvenance?.firstBlocker?.code ??
         null,
+    ],
+    /*
+     * WHICH RECEIPTS the native decision's configuration rests on (ADR D098 and
+     * receipt lineage), printed read-only as the engine recorded them. The
+     * served verdict above is unchanged by anything here; these rows only let
+     * an operator name the provider GET a Cut, Scale or Refresh relied on.
+     */
+    [
+      "config-verified",
+      "config authority (D098)",
+      canonical?.configEvidence
+        ? canonical.configEvidence.verified === true
+          ? "verified: current receipt and every economic day"
+          : canonical.configEvidence.verified === false
+            ? "not verified: a hard action is held"
+            : "not recorded"
+        : null,
+    ],
+    [
+      "config-current-day",
+      "config receipt day",
+      canonical?.configEvidence?.currentConfigDay ?? null,
+    ],
+    [
+      "config-receipts",
+      "config receipts",
+      canonical?.configEvidence
+        ? canonical.configEvidence.lineageSupplied
+          ? canonical.configEvidence.refs.length > 0
+            ? canonical.configEvidence.refs.map(configReceiptLine).join(" | ")
+            : "no coherent receipt for any field"
+          : "not recorded by this evaluation"
+        : null,
+    ],
+    [
+      "config-refused",
+      "refused config receipts",
+      canonical?.configEvidence && canonical.configEvidence.refusedFields.length > 0
+        ? canonical.configEvidence.refusedFields.join(" · ")
+        : null,
+    ],
+    [
+      "config-window-manifest",
+      "economic window receipts",
+      canonical?.configEvidence?.economicWindow
+        ? [
+            `manifest ${canonical.configEvidence.economicWindow.manifestHash}`,
+            `${canonical.configEvidence.economicWindow.manifestVersion} / ${canonical.configEvidence.economicWindow.refContractVersion}`,
+            `${canonical.configEvidence.economicWindow.economicDayCount} economic days`,
+            `${canonical.configEvidence.economicWindow.nullObservationIdCount} snapshot-only receipts`,
+            `${canonical.configEvidence.economicWindow.incoherentDayCount} incoherent days`,
+          ].join(" · ")
+        : null,
+    ],
+    [
+      "config-evaluation-contract",
+      "config evidence contract",
+      canonical?.configEvidence
+        ? [
+            nonBlank(canonical.configEvidence.evaluationContractVersion),
+            canonical.configEvidence.metricContract,
+          ]
+            .filter((part): part is string => Boolean(part))
+            .join(" · ") || null
+        : null,
     ],
     [
       "classification-provenance",

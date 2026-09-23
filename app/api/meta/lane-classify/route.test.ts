@@ -131,6 +131,7 @@ describe("GET /api/meta/lane-classify — a stale campaignKind cannot survive th
       rows: [
         {
           id: CAMPAIGN,
+          currency: "USD",
           name: "ASC Prospecting",
           status: "ACTIVE",
           spend: 800,
@@ -353,6 +354,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_1",
+          currency: "USD",
           name: "ASC Prospecting",
           status: "ACTIVE",
           spend: 800,
@@ -372,6 +374,7 @@ describe("GET /api/meta/lane-classify", () => {
         },
         {
           id: "cmp_healthy",
+          currency: "USD",
           name: "Healthy ASC",
           status: "ACTIVE",
           spend: 500,
@@ -560,6 +563,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_reactivated",
+          currency: "USD",
           name: "Reactivated after warehouse snapshot",
           status: "PAUSED",
           spend: 500,
@@ -1114,6 +1118,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_stale",
+          currency: "USD",
           name: "Stale Campaign",
           status: "ACTIVE",
           statusUpdatedAt: "2026-05-17T08:00:00.000Z",
@@ -1124,6 +1129,7 @@ describe("GET /api/meta/lane-classify", () => {
         },
         {
           id: "cmp_recent",
+          currency: "USD",
           name: "Recent Campaign",
           status: "ACTIVE",
           statusUpdatedAt: "2026-05-17T08:52:14.234Z",
@@ -1179,6 +1185,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_upper",
+          currency: "USD",
           name: "Video Views",
           status: "ACTIVE",
           spend: 500,
@@ -1251,6 +1258,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_purchase",
+          currency: "USD",
           name: "Purchase Campaign",
           status: "ACTIVE",
           spend: 500,
@@ -1261,6 +1269,7 @@ describe("GET /api/meta/lane-classify", () => {
         },
         {
           id: "cmp_null",
+          currency: "USD",
           name: "Null Cohort Campaign",
           status: "ACTIVE",
           spend: 200,
@@ -1271,6 +1280,7 @@ describe("GET /api/meta/lane-classify", () => {
         },
         {
           id: "cmp_unknown",
+          currency: "USD",
           name: "Unknown Cohort Campaign",
           status: "ACTIVE",
           spend: 450,
@@ -1316,6 +1326,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_missing_goal",
+          currency: "USD",
           name: "Missing Goal Purchase Activity",
           status: "ACTIVE",
           spend: 600,
@@ -1360,6 +1371,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_thruplay",
+          currency: "USD",
           name: "Video Views",
           status: "ACTIVE",
           spend: 700,
@@ -1420,6 +1432,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_upper",
+          currency: "USD",
           name: "Video Views",
           status: "ACTIVE",
           spend: 700,
@@ -1498,6 +1511,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_purchase_healthy",
+          currency: "USD",
           name: "Purchase Healthy",
           status: "ACTIVE",
           spend: 700,
@@ -1544,6 +1558,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_archived_video",
+          currency: "USD",
           name: "Archived Video Views",
           status: "PAUSED",
           spend: 250,
@@ -1596,6 +1611,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_paused_upper",
+          currency: "USD",
           name: "Paused Video Views",
           status: "PAUSED",
           spend: 250,
@@ -1668,6 +1684,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_1",
+          currency: "USD",
           name: "Active ASC",
           status: "ACTIVE",
           spend: 100,
@@ -1678,6 +1695,7 @@ describe("GET /api/meta/lane-classify", () => {
         },
         {
           id: "cmp_paused",
+          currency: "USD",
           name: "Paused ASC",
           status: "PAUSED",
           spend: 700,
@@ -1764,6 +1782,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_now_paused",
+          currency: "USD",
           name: "Paused after snapshot",
           status: "ACTIVE",
           spend: 500,
@@ -1828,6 +1847,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_status_unverified",
+          currency: "USD",
           name: "Status cannot be verified",
           status: "ACTIVE",
           spend: 500,
@@ -1895,6 +1915,7 @@ describe("GET /api/meta/lane-classify", () => {
       rows: [
         {
           id: "cmp_parent_paused",
+          currency: "USD",
           name: "Paused parent",
           status: "PAUSED",
           spend: 400,

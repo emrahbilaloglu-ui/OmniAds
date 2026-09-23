@@ -60,7 +60,8 @@ const CREATIVE_POSTURE_SLOTS = [
     label: "Winner concentration",
     tone: "warning",
   },
-  { id: "average-frequency", label: "Avg frequency · 28d", tone: "warning" },
+  // Decision frequency uses each ad's admitted economic window.
+  { id: "average-frequency", label: "Avg frequency", tone: "warning" },
   /*
     RENAMED to what it actually counts (Codex C22). "Refresh pipeline" implied
     every Refresh the engine reached; the number underneath counted only the
@@ -83,6 +84,16 @@ const UPPER_FUNNEL_SLOTS = [
   { id: "thruplay", label: "Thruplay" },
   { id: "cpm", label: "CPM" },
   { id: "cpm-account-p50", label: "CPM · acct p50" },
+  /*
+    KEEPS ITS WINDOW, unlike the spend and purchase labels beside it.
+    Those name a number the surface actually renders, and the admitted economic
+    window behind that number is shorter than 28 days for most ads, so the
+    caption was removed rather than guessed. This row renders no number at all —
+    see the EM_DASH below and the note beside it: reach is a de-duplicated count
+    of people and a sum over daily rows is not a 28-day reach. The label names
+    the window we would report if we could compute it, next to a dash that says
+    we cannot, and so it claims coverage for nothing.
+  */
   { id: "reach-28d", label: "Reach · 28d" },
 ] as const;
 
@@ -2117,6 +2128,14 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
   fix_landing_page: "Review landing-page performance before changing the ad.",
   resolve_campaign_role:
     "Wait for campaign context verification before acting.",
+  /*
+    ADR D097 round 4. The Cut performance verdict is complete, but a relative
+    boundary does not itself prove realised financial loss. The owner-based
+    fallback below would call this a missing-data gap even though the unresolved
+    campaign role only holds the automated form of the stop.
+  */
+  apply_cut_manually:
+    "The cut evidence is complete. Automated execution is held for campaign role - review it and pause this ad yourself if you agree.",
   confirm_commercial_target: "Confirm the commercial target before acting.",
   refresh_decision_data: "Refresh decision data before acting.",
   await_decision_confirmation:
@@ -2245,6 +2264,12 @@ export function buyerFacingCreativeReason(decision: MetaOsAdDecision): string {
 export function buyerFacingCreativeScope(
   decision: MetaOsAdDecision,
 ): string | null {
+  if (decision.action.code === "apply_cut_manually") {
+    // In the action lane, but deliberately without a Meta write: the cut
+    // evidence is complete; the automated stop is not authorized until the
+    // role resolves.
+    return "Review only. Pause this ad in Meta yourself; automated stop is held for campaign role.";
+  }
   if (decision.action.code === "cut") {
     return decision.action.intent === "execute" &&
       decision.action.providerMutation === "pause"
@@ -2721,6 +2746,7 @@ function creativeFootnote(decisions: readonly MetaOsAdDecision[]): string {
   return "Open a decision for details, or use Creative Studio to compare performance.";
 }
 
+/** The served row lacks admitted-window dates; do not label these as 28 days. */
 function metricEvidence(input: {
   spend: number | null | undefined;
   purchases: number | null | undefined;
@@ -2731,12 +2757,12 @@ function metricEvidence(input: {
   return [
     {
       id: "spend",
-      label: "Spend · 28d",
+      label: "Spend",
       value: formatMoney(input.spend, input.currency),
     },
     {
       id: "purchases",
-      label: "Purchases · 28d",
+      label: "Purchases",
       value: finite(input.purchases) ?? EM_DASH,
     },
     {

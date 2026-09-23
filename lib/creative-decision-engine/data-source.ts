@@ -1,4 +1,32 @@
 import { createHash } from "node:crypto";
+import {
+  buildMetaCompleteWindowSql,
+  buildMetaFunnelStageSql,
+} from "@/lib/meta/funnel-stage-parse";
+import { buildAdDayAuthoritativeLinkClicksSql } from "@/lib/meta/link-click-parse";
+import {
+  buildMetaCreativeDayMetricEvidenceLateralSql,
+  META_CREATIVE_DAY_METRIC_STAGES,
+  type MetaCreativeDayMetricStage,
+} from "@/lib/meta/creative-day-metric-evidence";
+import {
+  configFieldEvidenceRefCoherentSql,
+  configFieldEvidenceRefWithoutReceiptSql,
+  configReceiptManifestHashSql,
+  configReceiptManifestLineSql,
+  configReceiptNullObservationCountSql,
+  type MetaConfigEvidenceField,
+} from "@/lib/meta/config-field-evidence-ref";
+import {
+  resolveMetaFunnelCohort,
+  resolveMetaFunnelCohortFromConfigOnly,
+  type MetaFunnelCohort,
+} from "@/lib/meta/funnel-cohort";
+import { resolveHydratedConfigAuthority } from "./native-ad-hydration-authority";
+import {
+  buildMetaAdsetConfigFieldSourceSql,
+  buildMetaConfigFieldSourceSql,
+} from "@/lib/meta/config-field-source-contract";
 import { getDb } from "@/lib/db";
 import { resolveBusinessTargetPackFreshness } from "@/lib/business-commercial";
 import {
@@ -6,10 +34,6 @@ import {
   commercialTargetDatabaseCutoff,
   deterministicCommercialCutoff,
 } from "@/lib/meta/commercial-target-instant";
-import {
-  resolveMetaFunnelCohort,
-  type MetaFunnelCohort,
-} from "@/lib/meta/funnel-cohort";
 import {
   buildDataLayerHealth,
   composeDataHealth,
@@ -1292,6 +1316,25 @@ interface CalibrationReadMetadata {
  * ad-day do anything" cannot drift apart. A genuinely inert day — every one of
  * these zero or NULL — is still not a gap, which is the semantics this keeps.
  */
+/*
+  Ad-grain funnel stages come from `payload_json->'actions'` through the one
+  contract in `lib/meta/funnel-stage-parse.ts`. The previous expressions read
+  top-level `payload_json->>'landing_page_views'` keys that `meta_ad_daily` has
+  never carried — the `FILTER (WHERE payload_json ? key)` around them was
+  correct null-handling applied to a key that is never present, so every stage
+  was unconditionally null.
+
+  `outbound_clicks`, `thumbstop` and the video quartiles are NOT moved: they are
+  not `actions` entries. `outbound_click` does not appear in a single stored
+  `actions` array across 90 days of production, so that reader has nothing to
+  read — an absent provider field, not a wrong key.
+*/
+const AD_GRAIN_FUNNEL_STAGE_SQL = buildMetaFunnelStageSql({
+  payloadExpression: "payload_json",
+  lateralAlias: "funnel_actions",
+  stages: ["landing_page_view", "add_to_cart", "initiate_checkout"],
+});
+
 export const AD_DAY_DECISION_BEARING_ACTIVITY_SQL = `(
       COALESCE(impressions, 0) > 0
       OR COALESCE(spend, 0) > 0
@@ -1317,35 +1360,272 @@ export const AD_DAY_DECISION_BEARING_ACTIVITY_SQL = `(
  * Kept as one shared SQL expression because the decision hydration query and
  * the operational readback verifier must classify the same row identically.
  */
-export const AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL = `(CASE
-      WHEN link_clicks > 0 THEN link_clicks
-      WHEN link_clicks = 0
-        AND jsonb_typeof(payload_json->'actions') = 'array'
-        AND (
-          SELECT CASE
-            WHEN COUNT(*) = 0 THEN TRUE
-            WHEN COUNT(*) = 1
-              THEN COALESCE(
-                BOOL_AND(
-                  jsonb_typeof(action->'value') = 'string'
-                  AND COALESCE(action->>'value', '') ~ '^0+$'
-                ),
-                FALSE
-              )
-            ELSE FALSE
-          END
-          FROM jsonb_array_elements(
-            CASE
-              WHEN jsonb_typeof(payload_json->'actions') = 'array'
-                THEN payload_json->'actions'
-              ELSE '[]'::jsonb
-            END
-          ) AS action
-          WHERE action->>'action_type' = 'link_click'
-        )
-      THEN 0
-      ELSE NULL
+export const AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL = buildAdDayAuthoritativeLinkClicksSql();
+
+/** The same D095 value, qualified for decision_ad_days' own FROM (selected_ad_days d). */
+const AD_DAY_LINK_CLICKS_ROW_SQL = buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d" });
+
+/*
+  The 28-day rollup's windows, all under ONE rule (buildMetaCompleteWindowSql):
+  the sum is a measurement only when every decision-bearing day in the window
+  measured it. The per-day value and its never-NULL "missing" predicate come
+  from the shared contracts; the activity predicate is this grain's own.
+*/
+const CUMULATIVE_LINK_CLICKS_WINDOW = buildMetaCompleteWindowSql({
+  valueSql: "authoritative_link_clicks",
+  missingSql: "authoritative_link_clicks IS NULL",
+  activitySql: AD_DAY_DECISION_BEARING_ACTIVITY_SQL,
+});
+
+const AD_GRAIN_FUNNEL_WINDOWS = {
+  landing_page_view: buildMetaCompleteWindowSql({
+    valueSql: AD_GRAIN_FUNNEL_STAGE_SQL.valueSql("landing_page_view"),
+    missingSql: AD_GRAIN_FUNNEL_STAGE_SQL.missingSql("landing_page_view"),
+    activitySql: AD_DAY_DECISION_BEARING_ACTIVITY_SQL,
+  }),
+  add_to_cart: buildMetaCompleteWindowSql({
+    valueSql: AD_GRAIN_FUNNEL_STAGE_SQL.valueSql("add_to_cart"),
+    missingSql: AD_GRAIN_FUNNEL_STAGE_SQL.missingSql("add_to_cart"),
+    activitySql: AD_DAY_DECISION_BEARING_ACTIVITY_SQL,
+  }),
+  initiate_checkout: buildMetaCompleteWindowSql({
+    valueSql: AD_GRAIN_FUNNEL_STAGE_SQL.valueSql("initiate_checkout"),
+    missingSql: AD_GRAIN_FUNNEL_STAGE_SQL.missingSql("initiate_checkout"),
+    activitySql: AD_DAY_DECISION_BEARING_ACTIVITY_SQL,
+  }),
+} as const;
+
+/**
+ * The SAME field-level config source contract calibration reads, pointed at the
+ * decision loader's own 28-day scope.
+ *
+ * Calibration learned what a cohort's economics are from provenance-classified
+ * ad-days; the loader decided single ads from config VALUES with no provenance
+ * at all. The two therefore disagreed about what is knowable: an ad could be
+ * refused a place in a calibration sample for evidence the decision path could
+ * not even see. Reading one contract in both places is the point.
+ *
+ * SCOPE, not a rewrite. The values this query chooses are unchanged — the
+ * COALESCE chains below still prefer the historical daily column and then the
+ * as-of typed history, for the reasons documented there. What the contract adds
+ * is a per-field tier, readiness and PIT class, plus its OWN value so the
+ * provenance can be tested against the value actually chosen rather than
+ * stamped onto it.
+ */
+const HYDRATION_CAMPAIGN_CONFIG = buildMetaConfigFieldSourceSql({
+  dayExpression: "d.date",
+  timezoneExpression: "d.account_timezone",
+  businessParam: "$1::text",
+  /* The loader's window is 28 days, not calibration's 90. */
+  scopeStartParam: "($2::date - INTERVAL '27 days')",
+  scopeEndParam: "$2",
+  evaluationCutoffParam: "$11",
+  accountExpression: "d.provider_account_id",
+  campaignExpression: "NULLIF(BTRIM(d.campaign_id), '')",
+  campaignScopeSql:
+    "SELECT DISTINCT campaign_id FROM config_scope WHERE campaign_id IS NOT NULL",
+  /* The loader hydrates MANY accounts at once, so this is a set, not a param. */
+  accountScopeSql: "SELECT DISTINCT provider_account_id FROM config_scope",
+  scopeRelationSql: `SELECT provider_account_id, campaign_id, date, account_timezone
+     FROM config_scope WHERE campaign_id IS NOT NULL`,
+  aliasPrefix: "hydr_campaign_cfg",
+});
+
+const HYDRATION_ADSET_CONFIG = buildMetaAdsetConfigFieldSourceSql({
+  dayExpression: "d.date",
+  timezoneExpression: "d.account_timezone",
+  businessParam: "$1::text",
+  scopeStartParam: "($2::date - INTERVAL '27 days')",
+  scopeEndParam: "$2",
+  evaluationCutoffParam: "$11",
+  accountExpression: "d.provider_account_id",
+  adsetExpression: "NULLIF(BTRIM(d.adset_id), '')",
+  adsetScopeSql:
+    "SELECT DISTINCT adset_id FROM config_scope WHERE adset_id IS NOT NULL",
+  accountScopeSql: "SELECT DISTINCT provider_account_id FROM config_scope",
+  scopeRelationSql: `SELECT provider_account_id, adset_id, date, account_timezone
+     FROM config_scope WHERE adset_id IS NOT NULL`,
+  aliasPrefix: "hydr_adset_cfg",
+});
+
+/**
+ * The value each field is CHOSEN from, written once.
+ *
+ * Both the projected column and the agreement test read these, so the test can
+ * never drift from the value it is testing. The order is unchanged and is
+ * reasoned about at `metric_context_days` and at the as-of laterals below: the
+ * historical daily column first, then the typed history as of the metric day.
+ */
+export const CHOSEN_OBJECTIVE_SQL = `COALESCE(
+      NULLIF(BTRIM(c.objective), ''),
+      NULLIF(BTRIM(asof_campaign_config.objective), '')
+    )`;
+export const CHOSEN_OPTIMIZATION_GOAL_SQL = `COALESCE(
+      NULLIF(BTRIM(a.optimization_goal), ''),
+      NULLIF(BTRIM(c.optimization_goal), ''),
+      NULLIF(BTRIM(asof_adset_config.optimization_goal), ''),
+      NULLIF(BTRIM(asof_campaign_config.optimization_goal), '')
+    )`;
+export const CHOSEN_CUSTOM_EVENT_SQL = `COALESCE(
+      NULLIF(BTRIM(a.custom_event_type), ''),
+      NULLIF(BTRIM(c.custom_event_type), ''),
+      NULLIF(BTRIM(asof_adset_config.custom_event_type), ''),
+      NULLIF(BTRIM(asof_campaign_config.custom_event_type), '')
+    )`;
+
+/**
+ * A readiness only a COHERENT receipt reference may carry.
+ *
+ * The contract's tier and readiness say how well a value was observed; the
+ * reference says which receipt observed it. A reference that is malformed, from
+ * an unknown contract, or incoherent with the tier it claims is not evidence,
+ * so the field's readiness is forced to `none` here, before any authority rule
+ * reads it. Fail closed, and defined once in lib/meta/config-field-evidence-ref.ts.
+ */
+function receiptGatedReadinessSql(
+  refColumnSql: string,
+  field: MetaConfigEvidenceField,
+  readinessSql: string,
+): string {
+  return `(CASE
+      WHEN ${configFieldEvidenceRefCoherentSql(refColumnSql, field)} THEN ${readinessSql}
+      ELSE 'none'
     END)`;
+}
+
+/** The per-day receipt reference columns context_days carries, by field. */
+const CONFIG_EVIDENCE_REF_COLUMNS: Record<MetaConfigEvidenceField, string> = {
+  objective: "objective_evidence_ref",
+  optimization_goal: "optimization_goal_evidence_ref",
+  custom_event_type: "custom_event_type_evidence_ref",
+  custom_conversion_id: "custom_conversion_id_evidence_ref",
+};
+
+const CONFIG_RECEIPT_MANIFEST_LINE_SQL = configReceiptManifestLineSql({
+  dateSql: "date",
+  refSql: CONFIG_EVIDENCE_REF_COLUMNS,
+});
+
+const CONFIG_EVIDENCE_REFS_COHERENT_SQL = (
+  Object.entries(CONFIG_EVIDENCE_REF_COLUMNS) as Array<[MetaConfigEvidenceField, string]>
+)
+  .map(([field, column]) => configFieldEvidenceRefCoherentSql(column, field))
+  .join("\n        AND ");
+
+/*
+  The economic-day predicate resolveHydratedConfigAuthority applies to the
+  arrays config_authority_days aggregates: spend, conversions or revenue other
+  than zero. Restated for the manifest only; the mapper refuses a manifest whose
+  economic day count disagrees with the TypeScript count, so the two cannot
+  drift silently.
+*/
+const CONFIG_AUTHORITY_ECONOMIC_DAY_SQL =
+  "(COALESCE(spend, 0) <> 0 OR COALESCE(conversions, 0) <> 0 OR COALESCE(revenue, 0) <> 0)";
+
+/**
+ * Does the contract's provenance describe the value this query actually chose?
+ *
+ * THE HAZARD IT CLOSES. The loader may take an objective from
+ * `meta_campaign_daily` while the receipt says something else, or says nothing.
+ * Stamping the receipt's readiness onto a different value would manufacture an
+ * authority for a value the receipt never supported — the exact shape of error
+ * this whole contract exists to refuse.
+ *
+ * So readiness is transferable only on agreement. `IS NOT DISTINCT FROM` makes
+ * the NULL cases explicit: no receipt and no chosen value agree trivially but
+ * carry nothing, which the caller reads as `none` because the tier is `unknown`.
+ */
+function agreedReadinessSql(input: {
+  chosen: string;
+  contractValue: string;
+  readiness: string;
+}): string {
+  return `(CASE
+      WHEN ${input.chosen} IS NULL
+        OR ${metaConfigTokenAgreementSql(input.contractValue, input.chosen)}
+        THEN ${input.readiness}
+      ELSE 'none'
+    END)`;
+}
+
+/**
+ * The warehouse stores provider goals as display labels (for example,
+ * `Offsite Conversions`) while raw receipts carry Meta's enum spelling
+ * (`OFFSITE_CONVERSIONS`). Compare only casing and word separators, mirroring
+ * the calibration mapper's `normalizeGoal`. Do not alias different enum names:
+ * in particular VALUE and RETURN_ON_AD_SPEND remain distinct.
+ */
+function metaConfigTokenSql(value: string): string {
+  return `NULLIF(REGEXP_REPLACE(UPPER(BTRIM(${value})), '[[:space:]-]+', '_', 'g'), '')`;
+}
+
+export function metaConfigTokenAgreementSql(left: string, right: string): string {
+  return `${metaConfigTokenSql(left)} IS NOT DISTINCT FROM ${metaConfigTokenSql(right)}`;
+}
+
+/**
+ * THE EVALUATION DAY'S OWN CONFIG RECEIPT, resolved independently of metrics.
+ *
+ * ── THE HOLE THIS CLOSES ────────────────────────────────────────────────────
+ *
+ * The action gate read the provenance of `latest_context`, which is the most
+ * recent day present in the loader's METRIC-driven context. The argument that
+ * this is safe — a config ten days old means the ad has not delivered in ten
+ * days, and delivery staleness is policed elsewhere — is wrong in exactly the
+ * case that matters: during an ingest outage the metric rows stop arriving while
+ * the ad keeps delivering, so the newest context day goes stale for a reason
+ * that has nothing to do with the ad. A ten-day-old receipt would then have
+ * authorised a hard action taken today.
+ *
+ * The answer is not a staleness bound, which would be an invented number. It is
+ * to ask the question the gate actually means: is there a receipt, admissible at
+ * the cutoff, for the DAY WE ARE ACTING ON, naming the configuration we are
+ * about to act on? That needs no age policy at all.
+ *
+ * ── COST ────────────────────────────────────────────────────────────────────
+ *
+ * A second instantiation of the same contract, scoped to ONE day instead of
+ * twenty-eight. The receipt scan is bounded by `scopeStartParam`/`scopeEndParam`
+ * plus the contract's own slack, so it reads a two-day window: the UTC as-of and
+ * the day before it, which together cover every account's provider-local as-of
+ * day whatever its offset.
+ */
+const HYDRATION_TODAY_CAMPAIGN_CONFIG = buildMetaConfigFieldSourceSql({
+  dayExpression: "d.date",
+  timezoneExpression: "d.account_timezone",
+  businessParam: "$1::text",
+  /* One provider-local day, reached from either side of the UTC date. */
+  scopeStartParam: "($2::date - INTERVAL '1 day')",
+  scopeEndParam: "$2",
+  evaluationCutoffParam: "$11",
+  accountExpression: "d.provider_account_id",
+  campaignExpression: "d.campaign_id",
+  campaignScopeSql:
+    "SELECT DISTINCT campaign_id FROM current_config_scope WHERE campaign_id IS NOT NULL",
+  scopeRelationSql: `SELECT provider_account_id, campaign_id, date, account_timezone
+     FROM current_config_scope WHERE campaign_id IS NOT NULL`,
+  accountScopeSql:
+    "SELECT DISTINCT provider_account_id FROM current_config_scope",
+  aliasPrefix: "hydr_today_campaign_cfg",
+});
+
+const HYDRATION_TODAY_ADSET_CONFIG = buildMetaAdsetConfigFieldSourceSql({
+  dayExpression: "d.date",
+  timezoneExpression: "d.account_timezone",
+  businessParam: "$1::text",
+  scopeStartParam: "($2::date - INTERVAL '1 day')",
+  scopeEndParam: "$2",
+  evaluationCutoffParam: "$11",
+  accountExpression: "d.provider_account_id",
+  adsetExpression: "d.adset_id",
+  adsetScopeSql:
+    "SELECT DISTINCT adset_id FROM current_config_scope WHERE adset_id IS NOT NULL",
+  scopeRelationSql: `SELECT provider_account_id, adset_id, date, account_timezone
+     FROM current_config_scope WHERE adset_id IS NOT NULL`,
+  accountScopeSql:
+    "SELECT DISTINCT provider_account_id FROM current_config_scope",
+  aliasPrefix: "hydr_today_adset_cfg",
+});
 
 export const HYDRATE_AD_DECISION_INPUTS_QUERY = `
 /* ad-decision-hydration: native business/account/ad grain */
@@ -1355,6 +1635,10 @@ WITH assigned_accounts AS (
     binding.provider_account_ref_id,
     binding.provider_account_id
   FROM business_provider_accounts binding
+  JOIN provider_accounts account
+    ON account.id = binding.provider_account_ref_id
+   AND account.provider = binding.provider
+   AND account.external_account_id = binding.provider_account_id
   WHERE binding.business_id = $1::text
     AND binding.provider = 'meta'
     -- Current execution, not historical attribution. This CTE decides which
@@ -1447,30 +1731,174 @@ account_identity AS (
     AND NULLIF(BTRIM(d.account_currency), '') IS NOT NULL
   ORDER BY d.provider_account_id, d.date DESC, d.updated_at DESC, d.id DESC
 ),
+current_config_scope AS (
+  /*
+    ONE ROW PER (account, campaign, ad-set) at the account's OWN as-of day.
+
+    Derived from the decision cutoff and the account's timezone, not from the
+    scheduler's UTC date: the job runs at 03 and 15 UTC, so an account west of
+    UTC is still on the previous provider-local day at 03 UTC and one east of it
+    is already on the next. The receipt we want is the one for the day the
+    account is actually having.
+  */
+  /*
+    The timezone is the ACCOUNT's, from account_identity — the same source
+    provider_local_as_of_date uses below — never the per-row label. An account
+    whose stored timezone changed inside the window (Tiles Workshop was
+    America/Chicago until 2026-07-24 and UTC from 07-25) otherwise produced one
+    scope row per timezone, current_config fanned out to match, the final join
+    duplicated every ad of that account, and hydration threw "Duplicate ad
+    decision hydration row" for the WHOLE business. Mixed-timezone ads still fail
+    closed through ad_context_immutable_cardinality.
+  */
+  SELECT DISTINCT
+    d.provider_account_id,
+    NULLIF(BTRIM(d.campaign_id), '') AS campaign_id,
+    NULLIF(BTRIM(d.adset_id), '') AS adset_id,
+    ($11::timestamptz AT TIME ZONE COALESCE(
+      scope_account.account_timezone, 'UTC'
+    ))::date AS date,
+    COALESCE(scope_account.account_timezone, 'UTC') AS account_timezone
+  FROM selected_ad_days d
+  LEFT JOIN account_identity scope_account
+    ON scope_account.provider_account_id = d.provider_account_id
+),
+${HYDRATION_TODAY_CAMPAIGN_CONFIG.withSql},
+${HYDRATION_TODAY_ADSET_CONFIG.withSql},
+current_config AS (
+  /*
+    What a receipt for THAT day says, and how well it says it. Its VALUES are
+    carried so the gate can require them to agree with the configuration the
+    decision is about to act on — a current receipt naming something else means
+    the configuration changed, which is decision-relevant rather than reassuring.
+  */
+  SELECT
+    d.provider_account_id,
+    d.campaign_id,
+    d.adset_id,
+    d.date AS as_of_day,
+    ${HYDRATION_TODAY_CAMPAIGN_CONFIG.valueSql("objective")} AS objective,
+    ${HYDRATION_TODAY_CAMPAIGN_CONFIG.tierSql("objective")} AS objective_tier,
+    ${receiptGatedReadinessSql("today_refs.objective_ref", "objective", HYDRATION_TODAY_CAMPAIGN_CONFIG.readinessSql("objective"))} AS objective_readiness,
+    ${HYDRATION_TODAY_ADSET_CONFIG.valueSql("optimization_goal")} AS optimization_goal,
+    ${HYDRATION_TODAY_ADSET_CONFIG.tierSql("optimization_goal")} AS optimization_goal_tier,
+    ${receiptGatedReadinessSql("today_refs.optimization_goal_ref", "optimization_goal", HYDRATION_TODAY_ADSET_CONFIG.readinessSql("optimization_goal"))} AS optimization_goal_readiness,
+    ${HYDRATION_TODAY_ADSET_CONFIG.valueSql("custom_event_type")} AS custom_event_type,
+    ${HYDRATION_TODAY_ADSET_CONFIG.tierSql("custom_event_type")} AS custom_event_type_tier,
+    ${receiptGatedReadinessSql("today_refs.custom_event_type_ref", "custom_event_type", HYDRATION_TODAY_ADSET_CONFIG.readinessSql("custom_event_type"))} AS custom_event_type_readiness,
+    ${HYDRATION_TODAY_ADSET_CONFIG.valueSql("custom_conversion_id")} AS custom_conversion_id,
+    ${receiptGatedReadinessSql("today_refs.custom_conversion_id_ref", "custom_conversion_id", HYDRATION_TODAY_ADSET_CONFIG.readinessSql("custom_conversion_id"))} AS custom_conversion_id_readiness,
+    /*
+      WHICH RECEIPT the evaluation day's verdict rests on, per field
+      (ConfigFieldEvidenceRef). These travel whole into the evaluation input,
+      so the input hash moves when the receipt changes under an unchanged value
+      and tier, and a stored decision can name the receipt it relied on.
+    */
+    today_refs.objective_ref AS objective_evidence_ref,
+    today_refs.optimization_goal_ref AS optimization_goal_evidence_ref,
+    today_refs.custom_event_type_ref AS custom_event_type_evidence_ref,
+    today_refs.custom_conversion_id_ref AS custom_conversion_id_evidence_ref
+  FROM current_config_scope d
+${HYDRATION_TODAY_CAMPAIGN_CONFIG.lateralSql}${HYDRATION_TODAY_ADSET_CONFIG.lateralSql}
+  LEFT JOIN LATERAL (
+    SELECT
+      ${HYDRATION_TODAY_CAMPAIGN_CONFIG.evidenceRefSql("objective")} AS objective_ref,
+      ${HYDRATION_TODAY_ADSET_CONFIG.evidenceRefSql("optimization_goal")} AS optimization_goal_ref,
+      ${HYDRATION_TODAY_ADSET_CONFIG.evidenceRefSql("custom_event_type")} AS custom_event_type_ref,
+      ${HYDRATION_TODAY_ADSET_CONFIG.evidenceRefSql("custom_conversion_id")} AS custom_conversion_id_ref
+    /*
+      OFFSET 0 IS LOAD-BEARING: an optimization fence. Without it the planner
+      inlines each reference's scalar subquery into every place that reads the
+      column -- the coherence gate alone reads it about thirty times per field --
+      and re-evaluates the whole tier ladder each time. Measured read-only on
+      production (TheSwaf, 183 ads): 176.8 s without the fence against 6.5 s
+      with references nulled out, i.e. past the 30 s statement timeout.
+    */
+    OFFSET 0
+  ) today_refs ON TRUE
+),
+config_scope AS (
+  -- The relation the field-source contract resolves against: one row per
+  -- (account, campaign, adset, provider-local day) the loader is deciding over.
+  -- DISTINCT because meta_ad_daily is ad grain and the contract is entity grain.
+  SELECT DISTINCT
+    d.provider_account_id,
+    NULLIF(BTRIM(d.campaign_id), '') AS campaign_id,
+    NULLIF(BTRIM(d.adset_id), '') AS adset_id,
+    d.date,
+    COALESCE(NULLIF(BTRIM(d.account_timezone), ''), 'UTC') AS account_timezone
+  FROM selected_ad_days d
+),
+${HYDRATION_CAMPAIGN_CONFIG.withSql},
+${HYDRATION_ADSET_CONFIG.withSql},
 metric_context_days AS (
   SELECT
     d.provider_account_id,
     d.ad_id,
     d.date,
     d.updated_at AS source_updated_at,
+    NULLIF(BTRIM(d.account_timezone), '') AS account_timezone,
+    NULLIF(BTRIM(d.account_currency), '') AS account_currency,
     NULLIF(BTRIM(d.campaign_id), '') AS campaign_id,
     NULLIF(BTRIM(d.adset_id), '') AS adset_id,
-    COALESCE(
-      NULLIF(BTRIM(c.objective), ''),
-      NULLIF(BTRIM(current_campaign_config.objective), '')
-    ) AS objective,
-    COALESCE(
-      NULLIF(BTRIM(a.optimization_goal), ''),
-      NULLIF(BTRIM(c.optimization_goal), ''),
-      NULLIF(BTRIM(current_adset_config.optimization_goal), ''),
-      NULLIF(BTRIM(current_campaign_config.optimization_goal), '')
-    ) AS optimization_goal,
-    COALESCE(
-      NULLIF(BTRIM(a.custom_event_type), ''),
-      NULLIF(BTRIM(c.custom_event_type), ''),
-      NULLIF(BTRIM(current_adset_config.custom_event_type), ''),
-      NULLIF(BTRIM(current_campaign_config.custom_event_type), '')
-    ) AS custom_event_type
+    /* The same source-qualified values the calibration reader admits. The
+       warehouse/typed choices below remain contradiction diagnostics, never a
+       bridge across a day on which the provider context was unreadable. */
+    ${HYDRATION_CAMPAIGN_CONFIG.valueSql("objective")} AS objective,
+    ${HYDRATION_ADSET_CONFIG.valueSql("optimization_goal")} AS optimization_goal,
+    ${HYDRATION_ADSET_CONFIG.valueSql("custom_event_type")} AS custom_event_type,
+    ${CHOSEN_OBJECTIVE_SQL} AS objective_warehouse_value,
+    ${CHOSEN_OPTIMIZATION_GOAL_SQL} AS optimization_goal_warehouse_value,
+    ${CHOSEN_CUSTOM_EVENT_SQL} AS custom_event_type_warehouse_value,
+    /*
+      THE CONTRACT'S OWN ANSWER, beside the chosen one.
+
+      Carried separately rather than folded into the COALESCE above, because the
+      two are different claims: the COALESCE says what this query decided to
+      use, and these say what a provider receipt can actually support. Where they
+      agree, the receipt's readiness transfers; where they do not, it does not.
+      Emitting both makes a disagreement countable instead of silent.
+    */
+    ${HYDRATION_CAMPAIGN_CONFIG.valueSql("objective")} AS objective_receipt_value,
+    ${HYDRATION_CAMPAIGN_CONFIG.tierSql("objective")} AS objective_tier,
+    ${HYDRATION_CAMPAIGN_CONFIG.sourceClassSql("objective")} AS objective_source_class,
+    ${HYDRATION_CAMPAIGN_CONFIG.pitClassSql("objective")} AS objective_pit_class,
+    ${receiptGatedReadinessSql("config_refs.objective_ref", "objective", agreedReadinessSql({
+      chosen: CHOSEN_OBJECTIVE_SQL,
+      contractValue: HYDRATION_CAMPAIGN_CONFIG.valueSql("objective"),
+      readiness: HYDRATION_CAMPAIGN_CONFIG.readinessSql("objective"),
+    }))} AS objective_readiness,
+    ${HYDRATION_ADSET_CONFIG.valueSql("optimization_goal")} AS optimization_goal_receipt_value,
+    ${HYDRATION_ADSET_CONFIG.tierSql("optimization_goal")} AS optimization_goal_tier,
+    ${HYDRATION_ADSET_CONFIG.sourceClassSql("optimization_goal")} AS optimization_goal_source_class,
+    ${receiptGatedReadinessSql("config_refs.optimization_goal_ref", "optimization_goal", agreedReadinessSql({
+      chosen: CHOSEN_OPTIMIZATION_GOAL_SQL,
+      contractValue: HYDRATION_ADSET_CONFIG.valueSql("optimization_goal"),
+      readiness: HYDRATION_ADSET_CONFIG.readinessSql("optimization_goal"),
+    }))} AS optimization_goal_readiness,
+    ${HYDRATION_ADSET_CONFIG.valueSql("custom_event_type")} AS custom_event_type_receipt_value,
+    ${HYDRATION_ADSET_CONFIG.tierSql("custom_event_type")} AS custom_event_type_tier,
+    ${receiptGatedReadinessSql("config_refs.custom_event_type_ref", "custom_event_type", agreedReadinessSql({
+      chosen: CHOSEN_CUSTOM_EVENT_SQL,
+      contractValue: HYDRATION_ADSET_CONFIG.valueSql("custom_event_type"),
+      readiness: HYDRATION_ADSET_CONFIG.readinessSql("custom_event_type"),
+    }))} AS custom_event_type_readiness,
+    -- The other field that can name a conversion target. Read from its own
+    -- receipt, so an absent standard event is not read as "no target at all".
+    ${HYDRATION_ADSET_CONFIG.valueSql("custom_conversion_id")} AS custom_conversion_id,
+    ${receiptGatedReadinessSql("config_refs.custom_conversion_id_ref", "custom_conversion_id", HYDRATION_ADSET_CONFIG.readinessSql("custom_conversion_id"))} AS custom_conversion_id_readiness,
+    -- Carried so the day classifier can tell an economically empty day from one
+    -- that mattered. A day with no spend, no conversions and no revenue is
+    -- transparent to the verified run; see resolveVerifiedAuthoritySuffix.
+    d.spend,
+    d.conversions,
+    d.revenue,
+    -- WHICH RECEIPT each field's tier rests on (ConfigFieldEvidenceRef). The
+    -- readiness columns above are already gated on its coherence.
+    config_refs.objective_ref AS objective_evidence_ref,
+    config_refs.optimization_goal_ref AS optimization_goal_evidence_ref,
+    config_refs.custom_event_type_ref AS custom_event_type_evidence_ref,
+    config_refs.custom_conversion_id_ref AS custom_conversion_id_evidence_ref
   FROM selected_ad_days d
   LEFT JOIN meta_adset_daily a
     ON a.business_id = d.business_id
@@ -1490,28 +1918,238 @@ metric_context_days AS (
    AND c.validation_status = 'passed'
    AND c.created_at <= $11::timestamptz
    AND c.updated_at <= $11::timestamptz
+  /*
+    AS-OF THE METRIC DAY, not merely as of the evaluation cutoff.
+
+    These two laterals were bounded only by $11, the evaluation cutoff, with no
+    reference to d.date. For a metric day in July that selected the newest
+    config captured up to TODAY -- a configuration that did not exist on the day
+    whose spend it was being used to classify. The COALESCE above prefers the
+    historical daily value, so the leak only fired where that value was NULL,
+    which is exactly the population the campaign-config ingest failure left
+    empty. A later objective then filled it in and the day was attributed to a
+    cell it may never have belonged to.
+
+    The day bound does NOT withhold context from a present-day decision: for
+    today's row the day bound and the cutoff select the same newest config. It
+    only stops an older day borrowing from its future. The genuinely
+    current-config path is a different CTE (dimension_only_context), anchored
+    to $2::date by design.
+
+    THE BOUNDARY IS PROVIDER-LOCAL, not the session's.
+
+    d.date is a provider-local reporting day. A bare (d.date + 1) is a DATE,
+    and comparing it to a timestamptz casts it using the SESSION time zone,
+    which here is Etc/UTC. That is the wrong midnight in both directions:
+
+      - UTC+ (Europe/Istanbul, Asia/Istanbul -- 21,478 spending ad-days over 90
+        days) local day D ends at D 20:59:59Z, so a UTC bound of (D+1) 00:00Z
+        ADMITS three hours of the next local day.
+      - UTC- (America/Chicago, Anchorage, Los_Angeles -- 16,737 ad-days) local
+        day D ends AFTER (D+1) 00:00Z, so the same bound TRUNCATES genuine
+        same-day config.
+
+    AT TIME ZONE reads the naive midnight in the account's own zone. Every
+    spending ad-day measured carries a valid IANA zone; the COALESCE covers a
+    row that has none, and names UTC explicitly rather than inheriting whatever
+    the session happens to be set to.
+
+    Measured read-only on production over 90 days, 38,326 spending ad-days:
+
+      cutoff-only (before)          35,163 carried an objective
+      naive UTC day bound              126 genuine future leaks remained
+                                       171 ad-days LOST a real same-day config
+      provider-local day bound      35,037 carry a true as-of objective
+
+    The 171 are why the naive bound could not stand on its own: most of what it
+    removed was not a leak at all, it was UTC- accounts having their own day
+    truncated. Both errors are gone at the local boundary.
+
+    WHICH CLOCK, AND WHY NOT THE OTHER ONE.
+
+    meta_campaign_config_history carries three: effective_from (when the config
+    became true), captured_at (when we observed it) and created_at (when we
+    wrote it). Measured on production, captured_at precedes created_at on all
+    305,176 rows, by an average of ~22.7 hours and a maximum of 103 DAYS.
+
+    This lateral keys on captured_at deliberately. A decision input must answer
+    "what did we know on that day", not "what turned out to have been true",
+    and the 103-day lag is exactly how far the two can diverge. Re-keying to
+    effective_from would back-date a late observation into a day on which
+    nobody could have acted on it.
+
+    The cost is measured and small: over 90 days and 38,326 spending ad-days,
+    effective_from finds an objective on 40 rows where captured_at does not,
+    and where BOTH find one they never disagree (0 rows). Those 40 are real
+    missing evidence, not a bug to fix -- do not "repair" them by switching
+    clocks.
+
+    Note for anyone tracing a config repair: the historical repair path writes
+    meta_campaign_daily / meta_adset_daily config columns, NOT typed history.
+    A repaired day therefore arrives through the FIRST arm of the COALESCE
+    above (the daily value), not through this lateral. Newly captured typed
+    rows arrive through this lateral on their own captured_at.
+
+    That repair deliberately does NOT stamp updated_at on those rows, and the
+    predicates just above are the reason. updated_at here is the row's METRIC
+    write clock; ad-calibration-job.ts goes further and ANDs six timestamps
+    including campaign_updated_at and adset_updated_at per ad-day
+    (isRowAvailableAtCutoff), so bumping one PARENT timestamp would evict every
+    CHILD ad-day joined to it from any cutoff before the repair -- losing
+    spend and revenue the repair never touched in order to publish a config
+    value. A repaired day is therefore read as corrected source truth, not as
+    what the system knew that day; see DECISION_LOG D097 follow-up.
+  */
   LEFT JOIN LATERAL (
     SELECT config.optimization_goal, config.custom_event_type
     FROM meta_adset_config_history config
     WHERE config.business_id = d.business_id
       AND config.provider_account_id = d.provider_account_id
       AND config.adset_id = d.adset_id
+      AND config.captured_at < ((d.date + 1)::timestamp AT TIME ZONE COALESCE(NULLIF(BTRIM(d.account_timezone), ''), 'UTC'))
       AND config.captured_at <= $11::timestamptz
       AND config.created_at <= $11::timestamptz
     ORDER BY config.captured_at DESC, config.created_at DESC, config.id DESC
     LIMIT 1
-  ) current_adset_config ON $12::boolean
+  ) asof_adset_config ON $12::boolean
   LEFT JOIN LATERAL (
     SELECT config.objective, config.optimization_goal, config.custom_event_type
     FROM meta_campaign_config_history config
     WHERE config.business_id = d.business_id
       AND config.provider_account_id = d.provider_account_id
       AND config.campaign_id = d.campaign_id
+      AND config.captured_at < ((d.date + 1)::timestamp AT TIME ZONE COALESCE(NULLIF(BTRIM(d.account_timezone), ''), 'UTC'))
       AND config.captured_at <= $11::timestamptz
       AND config.created_at <= $11::timestamptz
     ORDER BY config.captured_at DESC, config.created_at DESC, config.id DESC
     LIMIT 1
-  ) current_campaign_config ON $12::boolean
+  ) asof_campaign_config ON $12::boolean
+${HYDRATION_CAMPAIGN_CONFIG.lateralSql}${HYDRATION_ADSET_CONFIG.lateralSql}
+  LEFT JOIN LATERAL (
+    SELECT
+      ${HYDRATION_CAMPAIGN_CONFIG.evidenceRefSql("objective")} AS objective_ref,
+      ${HYDRATION_ADSET_CONFIG.evidenceRefSql("optimization_goal")} AS optimization_goal_ref,
+      ${HYDRATION_ADSET_CONFIG.evidenceRefSql("custom_event_type")} AS custom_event_type_ref,
+      ${HYDRATION_ADSET_CONFIG.evidenceRefSql("custom_conversion_id")} AS custom_conversion_id_ref
+    /*
+      OFFSET 0 IS LOAD-BEARING: an optimization fence. Without it the planner
+      inlines each reference's scalar subquery into every place that reads the
+      column -- the coherence gate alone reads it about thirty times per field --
+      and re-evaluates the whole tier ladder each time. Measured read-only on
+      production (TheSwaf, 183 ads): 176.8 s without the fence against 6.5 s
+      with references nulled out, i.e. past the 30 s statement timeout.
+    */
+    OFFSET 0
+  ) config_refs ON TRUE
+),
+/*
+  Match calibration's admitted-window rule before aggregating a decision's
+  economics. An old unresolvable day cannot invalidate a newer continuous
+  context, and its spend cannot be counted under that newer context either.
+  A trailing unresolvable economic day ends the admitted run earlier; the
+  aggregate's own source clock then remains stale rather than inventing a
+  current measurement. Empty rows between admitted economic days travel with
+  the run. No window means diagnostic metrics remain visible, but no context is
+  invented for an ad that has no resolvable economic day.
+*/
+economic_context_days AS MATERIALIZED (
+  SELECT
+    d.provider_account_id,
+    d.ad_id,
+    d.date,
+    d.source_updated_at,
+    d.account_timezone,
+    d.account_currency,
+    CASE WHEN d.campaign_id IS NOT NULL
+      AND d.adset_id IS NOT NULL
+      AND d.objective IS NOT NULL
+      AND d.account_timezone IS NOT NULL
+      AND d.account_currency IS NOT NULL
+      AND (d.optimization_goal IS NOT NULL OR d.custom_event_type IS NOT NULL)
+      THEN JSONB_BUILD_ARRAY(
+        d.campaign_id,
+        d.adset_id,
+        ${metaConfigTokenSql("d.objective")},
+        ${metaConfigTokenSql("d.optimization_goal")},
+        ${metaConfigTokenSql("d.custom_event_type")},
+        NULLIF(BTRIM(d.custom_conversion_id), '')
+      )::text
+    END AS context_key
+  FROM metric_context_days d
+  WHERE COALESCE(d.spend, 0) <> 0
+     OR COALESCE(d.conversions, 0) <> 0
+     OR COALESCE(d.revenue, 0) <> 0
+),
+latest_resolved_economic_context AS (
+  SELECT DISTINCT ON (provider_account_id, ad_id)
+    provider_account_id, ad_id, date AS end_date, context_key
+  FROM economic_context_days
+  WHERE context_key IS NOT NULL
+  ORDER BY provider_account_id, ad_id, date DESC, source_updated_at DESC
+),
+latest_economic_context_break AS (
+  SELECT e.provider_account_id, e.ad_id, MAX(e.date) AS break_date
+  FROM economic_context_days e
+  INNER JOIN latest_resolved_economic_context last
+    ON last.provider_account_id = e.provider_account_id
+   AND last.ad_id = e.ad_id
+  WHERE e.date < last.end_date
+    AND e.context_key IS DISTINCT FROM last.context_key
+  GROUP BY e.provider_account_id, e.ad_id
+),
+admitted_window_bounds AS (
+  SELECT last.provider_account_id, last.ad_id,
+    MIN(e.date) AS start_date, last.end_date
+  FROM latest_resolved_economic_context last
+  LEFT JOIN latest_economic_context_break gap
+    ON gap.provider_account_id = last.provider_account_id
+   AND gap.ad_id = last.ad_id
+  INNER JOIN economic_context_days e
+    ON e.provider_account_id = last.provider_account_id
+   AND e.ad_id = last.ad_id
+   AND e.date <= last.end_date
+   AND e.date > COALESCE(gap.break_date, '-infinity'::date)
+   AND e.context_key = last.context_key
+  GROUP BY last.provider_account_id, last.ad_id, last.end_date
+),
+decision_ad_days AS (
+  /*
+    THE D095 LINK-CLICK VALUE, ONCE PER ROW.
+
+    Both the 28-day rollup and the 14/14 bands read the same ad-day, so they
+    must read the same classification of it. It used to be applied only in the
+    bands while the rollup read the raw column through COALESCE(x, 0): one
+    ad-day, two answers, inside one query. Computing it here also runs the
+    correlated actions scan once per row instead of once per reader.
+  */
+  SELECT d.*,
+    ${AD_DAY_LINK_CLICKS_ROW_SQL} AS authoritative_link_clicks
+  FROM selected_ad_days d
+  LEFT JOIN admitted_window_bounds bounds
+    ON bounds.provider_account_id = d.provider_account_id
+   AND bounds.ad_id = d.ad_id
+  WHERE bounds.ad_id IS NULL
+     OR d.date BETWEEN bounds.start_date AND bounds.end_date
+),
+admitted_metric_context_days AS (
+  SELECT d.*
+  FROM metric_context_days d
+  LEFT JOIN admitted_window_bounds bounds
+    ON bounds.provider_account_id = d.provider_account_id
+   AND bounds.ad_id = d.ad_id
+  WHERE bounds.ad_id IS NULL
+     OR d.date BETWEEN bounds.start_date AND bounds.end_date
+),
+ad_context_immutable_cardinality AS (
+  -- Account timezone/currency are immutable identity dimensions, not a
+  -- campaign context that can legitimately start a new admitted window.
+  -- Check all economic days so a pre-boundary identity conflict cannot be
+  -- laundered away when context_days is trimmed to the latest run.
+  SELECT provider_account_id, ad_id,
+    COUNT(DISTINCT (account_timezone, account_currency))
+      FILTER (WHERE context_key IS NOT NULL) AS identity_count
+  FROM economic_context_days
+  GROUP BY provider_account_id, ad_id
 ),
 dimension_only_context AS (
   SELECT
@@ -1519,6 +2157,8 @@ dimension_only_context AS (
     selected.ad_id,
     $2::date AS date,
     COALESCE(dimensions.updated_at, state.captured_at) AS source_updated_at,
+    NULL::text AS account_timezone,
+    NULL::text AS account_currency,
     COALESCE(
       NULLIF(BTRIM(state.campaign_id), ''),
       NULLIF(BTRIM(dimensions.campaign_id), '')
@@ -1535,7 +2175,48 @@ dimension_only_context AS (
     COALESCE(
       NULLIF(BTRIM(adset_config.custom_event_type), ''),
       NULLIF(BTRIM(campaign_config.custom_event_type), '')
-    ) AS custom_event_type
+    ) AS custom_event_type,
+    /*
+      NO PROVENANCE HERE, stated rather than faked.
+
+      This arm exists only for ads with NO metric day at all, and it is anchored
+      to $2::date by design — it answers "what is this ad configured as now",
+      not "what was it on the day whose spend we are judging". A day-scoped
+      receipt cannot describe a row that has no day, and inventing one would be
+      the same error as back-dating a config. An ad that reaches a decision
+      through this arm has no spend in the window to decide about; its readiness
+      is therefore unknown, which the caller reads as no authority.
+    */
+    NULL::text AS objective_warehouse_value,
+    NULL::text AS optimization_goal_warehouse_value,
+    NULL::text AS custom_event_type_warehouse_value,
+    NULL::text AS objective_receipt_value,
+    'unknown'::text AS objective_tier,
+    'none'::text AS objective_source_class,
+    'restated'::text AS objective_pit_class,
+    'none'::text AS objective_readiness,
+    NULL::text AS optimization_goal_receipt_value,
+    'unknown'::text AS optimization_goal_tier,
+    'none'::text AS optimization_goal_source_class,
+    'none'::text AS optimization_goal_readiness,
+    NULL::text AS custom_event_type_receipt_value,
+    'unknown'::text AS custom_event_type_tier,
+    'none'::text AS custom_event_type_readiness,
+    NULL::text AS custom_conversion_id,
+    'none'::text AS custom_conversion_id_readiness,
+    -- Zero, because this arm only ever fires for an ad with NO metric day. The
+    -- row is economically empty by construction and is therefore transparent to
+    -- the verified run rather than breaking it.
+    0::numeric AS spend,
+    0::numeric AS conversions,
+    0::numeric AS revenue,
+    -- No receipt, stated rather than faked: tier unknown, readiness none, every
+    -- identity field null. A value this arm took from the CURRENT config history
+    -- is labelled current_fallback so a surface can say so; it grants nothing.
+    ${configFieldEvidenceRefWithoutReceiptSql("objective", "CASE WHEN NULLIF(BTRIM(campaign_config.objective), '') IS NULL THEN 'none' ELSE 'current_fallback' END")} AS objective_evidence_ref,
+    ${configFieldEvidenceRefWithoutReceiptSql("optimization_goal", "CASE WHEN COALESCE(NULLIF(BTRIM(adset_config.optimization_goal), ''), NULLIF(BTRIM(campaign_config.optimization_goal), '')) IS NULL THEN 'none' ELSE 'current_fallback' END")} AS optimization_goal_evidence_ref,
+    ${configFieldEvidenceRefWithoutReceiptSql("custom_event_type", "CASE WHEN COALESCE(NULLIF(BTRIM(adset_config.custom_event_type), ''), NULLIF(BTRIM(campaign_config.custom_event_type), '')) IS NULL THEN 'none' ELSE 'current_fallback' END")} AS custom_event_type_evidence_ref,
+    ${configFieldEvidenceRefWithoutReceiptSql("custom_conversion_id", "'none'")} AS custom_conversion_id_evidence_ref
   FROM selected_ads selected
   LEFT JOIN meta_ad_dimensions dimensions
     ON dimensions.business_id = selected.business_id
@@ -1583,7 +2264,7 @@ dimension_only_context AS (
     )
 ),
 context_days AS (
-  SELECT * FROM metric_context_days
+  SELECT * FROM admitted_metric_context_days
   UNION ALL
   SELECT * FROM dimension_only_context
 ),
@@ -1593,16 +2274,105 @@ context_cardinality AS (
     ad_id,
     COUNT(DISTINCT campaign_id) AS campaign_count,
     COUNT(DISTINCT adset_id) AS adset_count,
-    COUNT(DISTINCT (optimization_goal, custom_event_type)) FILTER (
-      WHERE optimization_goal IS NOT NULL OR custom_event_type IS NOT NULL
-    ) AS optimization_context_count,
+    /*
+      THE SAME IDENTITY CALIBRATION USES, including the custom conversion.
+
+      This counted (goal, event) only. Two ad-set-days agreeing on both while
+      naming DIFFERENT custom conversions therefore looked like one context, the
+      cardinality guard passed, and the latest day's conversion id was carried
+      back over every earlier day as though it had always been the target. The
+      promoted object carries custom_event_type and custom_conversion_id as
+      separate fields and the conversion's own event type is not in this payload,
+      so two ids are two different targets, not one.
+
+      A NULL id is part of the tuple, not exempt from it: an ad set that gained
+      or lost a custom conversion inside the window changed its target, and that
+      is a mixed context here exactly as a changed goal would be.
+    */
+    COUNT(DISTINCT (optimization_goal, custom_event_type, custom_conversion_id))
+      FILTER (
+        WHERE optimization_goal IS NOT NULL
+           OR custom_event_type IS NOT NULL
+           OR custom_conversion_id IS NOT NULL
+      ) AS optimization_context_count,
     COUNT(DISTINCT objective) AS objective_count,
     BOOL_OR(
       campaign_id IS NULL
       OR adset_id IS NULL
       OR objective IS NULL
-      OR (optimization_goal IS NULL AND custom_event_type IS NULL)
+      OR (
+        optimization_goal IS NULL
+        AND custom_event_type IS NULL
+        AND custom_conversion_id IS NULL
+      )
     ) AS has_unknown_context
+  FROM context_days
+  GROUP BY provider_account_id, ad_id
+),
+config_authority_days AS (
+  /*
+    ONE ROW PER AD, carrying its days as parallel arrays.
+
+    Deliberately NOT a verdict computed here. Whether a day carries authority
+    depends on the cohort (a purchase cohort gates on the conversion event, a
+    traffic cohort must not), and that rule already exists once, in
+    lib/meta/config-field-readiness.ts, shared with calibration. Restating it in
+    SQL would be a second definition of "we may act on this" — the exact
+    duplication this integration exists to remove. So the raw per-field
+    provenance travels up and classifyConfigAuthorityDay decides, from the same
+    code that decided it for the calibration sample.
+  */
+  SELECT
+    provider_account_id,
+    ad_id,
+    ARRAY_AGG(date ORDER BY date) AS authority_dates,
+    ARRAY_AGG(COALESCE(spend, 0) ORDER BY date) AS authority_spend,
+    ARRAY_AGG(COALESCE(conversions, 0) ORDER BY date) AS authority_conversions,
+    ARRAY_AGG(COALESCE(revenue, 0) ORDER BY date) AS authority_revenue,
+    ARRAY_AGG(objective_tier ORDER BY date) AS authority_objective_tier,
+    ARRAY_AGG(objective_readiness ORDER BY date) AS authority_objective_readiness,
+    ARRAY_AGG(optimization_goal_tier ORDER BY date) AS authority_goal_tier,
+    ARRAY_AGG(optimization_goal_readiness ORDER BY date) AS authority_goal_readiness,
+    ARRAY_AGG(custom_event_type_tier ORDER BY date) AS authority_event_tier,
+    ARRAY_AGG(custom_event_type_readiness ORDER BY date) AS authority_event_readiness,
+    ARRAY_AGG(custom_event_type ORDER BY date) AS authority_event_value,
+    ARRAY_AGG(custom_conversion_id ORDER BY date) AS authority_custom_conversion_id,
+    ARRAY_AGG(custom_conversion_id_readiness ORDER BY date)
+      AS authority_custom_conversion_readiness,
+    COUNT(*) FILTER (
+      WHERE objective_warehouse_value IS NOT NULL
+        AND NOT (${metaConfigTokenAgreementSql("objective_receipt_value", "objective_warehouse_value")})
+    )::integer AS objective_receipt_disagreements,
+    COUNT(*) FILTER (
+      WHERE optimization_goal_warehouse_value IS NOT NULL
+        AND NOT (${metaConfigTokenAgreementSql("optimization_goal_receipt_value", "optimization_goal_warehouse_value")})
+    )::integer AS optimization_goal_receipt_disagreements,
+    /*
+      THE ECONOMIC WINDOW'S RECEIPT MANIFEST (lib/meta/config-field-evidence-ref.ts).
+
+      Not a verdict: which days carry authority is still decided once, in
+      TypeScript, from the arrays above. This names WHICH receipts the economic
+      days rested on, compactly, so the evaluation hash moves when a receipt
+      changes under an unchanged tier and a stored decision can cite them. The
+      economic predicate is the same one resolveHydratedConfigAuthority counts;
+      the mapper refuses a manifest whose day count disagrees with it.
+    */
+    ${configReceiptManifestHashSql({
+      lineSql: CONFIG_RECEIPT_MANIFEST_LINE_SQL,
+      includeSql: CONFIG_AUTHORITY_ECONOMIC_DAY_SQL,
+      orderSql: "date",
+    })} AS authority_receipt_manifest_hash,
+    COUNT(*) FILTER (WHERE ${CONFIG_AUTHORITY_ECONOMIC_DAY_SQL})::integer
+      AS authority_receipt_economic_days,
+    COALESCE(
+      SUM(${configReceiptNullObservationCountSql(CONFIG_EVIDENCE_REF_COLUMNS)})
+        FILTER (WHERE ${CONFIG_AUTHORITY_ECONOMIC_DAY_SQL}),
+      0
+    )::integer AS authority_receipt_null_observation_ids,
+    COUNT(*) FILTER (
+      WHERE ${CONFIG_AUTHORITY_ECONOMIC_DAY_SQL}
+        AND NOT (${CONFIG_EVIDENCE_REFS_COHERENT_SQL})
+    )::integer AS authority_receipt_incoherent_days
   FROM context_days
   GROUP BY provider_account_id, ad_id
 ),
@@ -1614,7 +2384,23 @@ latest_context AS (
     adset_id,
     objective,
     optimization_goal,
-    custom_event_type
+    custom_event_type,
+    -- The most recent day's own provenance, beside the value it describes.
+    objective_tier,
+    objective_readiness,
+    objective_source_class,
+    objective_pit_class,
+    optimization_goal_tier,
+    optimization_goal_readiness,
+    custom_event_type_tier,
+    custom_event_type_readiness,
+    custom_conversion_id,
+    custom_conversion_id_readiness,
+    -- WHICH DAY this provenance describes. It is the most recent day present in
+    -- context_days, which for an ad with no metric row today is YESTERDAY. It is
+    -- therefore not evidence about the current configuration, and the consumer
+    -- has to be able to tell -- so the date travels with the verdict.
+    date AS latest_context_date
   FROM context_days
   ORDER BY provider_account_id, ad_id, date DESC, source_updated_at DESC
 ),
@@ -1623,33 +2409,31 @@ metric_cumulative AS (
     provider_account_id,
     ad_id,
     COUNT(*)::integer AS metric_row_count,
+    -- Whether ANY event metric was actually measured on any day. The probes for
+    -- outbound/thumbstop/video keys are gone: those keys never exist on
+    -- meta_ad_daily (the ad-level Graph request does not ask for them), so they
+    -- could only ever claim an observation that did not happen.
     BOOL_OR(
-      payload_json ? 'outbound_clicks'
-      OR payload_json ? 'landing_page_views'
-      OR payload_json ? 'add_to_cart'
-      OR payload_json ? 'initiate_checkout'
-      OR payload_json ? 'thumbstop'
-      OR payload_json ? 'video25'
-      OR payload_json ? 'video50'
-      OR payload_json ? 'video75'
-      OR payload_json ? 'video100'
+      ${AD_GRAIN_FUNNEL_STAGE_SQL.measuredSql("landing_page_view")}
+      OR ${AD_GRAIN_FUNNEL_STAGE_SQL.measuredSql("add_to_cart")}
+      OR ${AD_GRAIN_FUNNEL_STAGE_SQL.measuredSql("initiate_checkout")}
+      OR authoritative_link_clicks IS NOT NULL
     ) AS event_metrics_observed,
     MAX(ad_name_current) FILTER (WHERE ad_name_current IS NOT NULL) AS ad_name,
     SUM(spend) AS spend,
     SUM(conversions) AS conversions,
     SUM(revenue) AS revenue,
     SUM(impressions) AS impressions,
-    -- NULL-SAFETY ONLY. NOT a decision change. meta_ad_daily.link_clicks can
-    -- now be NULL (the provider supplied nothing) instead of a fabricated 0.
-    -- PostgreSQL SUM IGNORES nulls, so a window in which every row is
-    -- unsupplied would return NULL where it returns 0 today.
+    -- THE WINDOW RULE (lib/meta/funnel-stage-parse.ts), not a coalesce.
     --
-    -- The coalesce is INSIDE the SUM on purpose. COALESCE(SUM(x), 0) would also
-    -- turn "no rows matched this window at all" from NULL into 0, which is a
-    -- different answer than today's. SUM(COALESCE(x, 0)) is NULL over zero rows
-    -- and 0 over all-unsupplied rows -- exactly what the NOT NULL column
-    -- returns today, for every window. The engine saw 0 and still sees 0.
-    SUM(COALESCE(link_clicks, 0)) AS link_clicks,
+    -- This used to be SUM(COALESCE(link_clicks, 0)) over the RAW column, kept
+    -- byte-identical to the NOT NULL era. That turned every unsupplied day into
+    -- a measured zero and every partially reported window into a complete one,
+    -- and it admitted the legacy stored zeros D095 calls unknown -- while the
+    -- bands below, in this same query, refused them. The rollup is now the D095
+    -- per-row value aggregated complete-or-null: zero + missing is NULL, zero +
+    -- zero is 0, and a day that did nothing at all is not a gap.
+    ${CUMULATIVE_LINK_CLICKS_WINDOW.sumSql} AS link_clicks,
     CASE WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend) END AS roas,
     CASE WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions) END AS cpa,
     CASE
@@ -1664,41 +2448,24 @@ metric_cumulative AS (
       WHEN SUM(impressions) > 0
       THEN SUM(spend) / NULLIF(SUM(impressions), 0) * 1000
     END AS cpm,
-    SUM((NULLIF(payload_json->>'outbound_clicks', ''))::numeric)
-      FILTER (WHERE payload_json ? 'outbound_clicks') AS outbound_clicks,
-    SUM((NULLIF(payload_json->>'landing_page_views', ''))::numeric)
-      FILTER (WHERE payload_json ? 'landing_page_views') AS landing_page_views,
-    SUM((NULLIF(payload_json->>'add_to_cart', ''))::numeric)
-      FILTER (WHERE payload_json ? 'add_to_cart') AS add_to_cart,
-    SUM((NULLIF(payload_json->>'initiate_checkout', ''))::numeric)
-      FILTER (WHERE payload_json ? 'initiate_checkout') AS initiate_checkout,
-    CASE WHEN SUM(impressions) FILTER (WHERE payload_json ? 'thumbstop') > 0 THEN
-      SUM((NULLIF(payload_json->>'thumbstop', ''))::numeric * impressions)
-        FILTER (WHERE payload_json ? 'thumbstop')
-        / NULLIF(SUM(impressions) FILTER (WHERE payload_json ? 'thumbstop'), 0)
-    END AS thumbstop,
-    CASE WHEN SUM(impressions) FILTER (WHERE payload_json ? 'video25') > 0 THEN
-      SUM((NULLIF(payload_json->>'video25', ''))::numeric * impressions)
-        FILTER (WHERE payload_json ? 'video25')
-        / NULLIF(SUM(impressions) FILTER (WHERE payload_json ? 'video25'), 0)
-    END AS video25_rate,
-    CASE WHEN SUM(impressions) FILTER (WHERE payload_json ? 'video50') > 0 THEN
-      SUM((NULLIF(payload_json->>'video50', ''))::numeric * impressions)
-        FILTER (WHERE payload_json ? 'video50')
-        / NULLIF(SUM(impressions) FILTER (WHERE payload_json ? 'video50'), 0)
-    END AS video50_rate,
-    CASE WHEN SUM(impressions) FILTER (WHERE payload_json ? 'video75') > 0 THEN
-      SUM((NULLIF(payload_json->>'video75', ''))::numeric * impressions)
-        FILTER (WHERE payload_json ? 'video75')
-        / NULLIF(SUM(impressions) FILTER (WHERE payload_json ? 'video75'), 0)
-    END AS video75_rate,
-    CASE WHEN SUM(impressions) FILTER (WHERE payload_json ? 'video100') > 0 THEN
-      SUM((NULLIF(payload_json->>'video100', ''))::numeric * impressions)
-        FILTER (WHERE payload_json ? 'video100')
-        / NULLIF(SUM(impressions) FILTER (WHERE payload_json ? 'video100'), 0)
-    END AS video100_rate,
+    -- outbound_clicks, thumbstop and the video rates are not requested at ad
+    -- grain and no verified provider numerator or denominator exists for them
+    -- here, so they are NULL by contract rather than by accident. The previous
+    -- expressions were always NULL in practice, but they cast unvalidated
+    -- payload text (a malformed value would have aborted the whole hydration)
+    -- and weighted any present value by all impressions.
+    NULL::numeric AS outbound_clicks,
+    ${AD_GRAIN_FUNNEL_WINDOWS.landing_page_view.sumSql} AS landing_page_views,
+    ${AD_GRAIN_FUNNEL_WINDOWS.add_to_cart.sumSql} AS add_to_cart,
+    ${AD_GRAIN_FUNNEL_WINDOWS.initiate_checkout.sumSql} AS initiate_checkout,
+    NULL::double precision AS thumbstop,
+    NULL::double precision AS video25_rate,
+    NULL::double precision AS video50_rate,
+    NULL::double precision AS video75_rate,
+    NULL::double precision AS video100_rate,
     MAX(updated_at) AS source_max_updated_at
-  FROM selected_ad_days
+  FROM decision_ad_days
+  ${AD_GRAIN_FUNNEL_STAGE_SQL.lateralSql}
   GROUP BY provider_account_id, ad_id
 ),
 cumulative AS (
@@ -1742,7 +2509,7 @@ recent AS (
     SUM(revenue) AS revenue,
     SUM(impressions) AS impressions,
     CASE WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend) END AS roas
-  FROM selected_ad_days
+  FROM decision_ad_days
   WHERE date BETWEEN ($2::date - INTERVAL '6 days') AND $2::date
   GROUP BY provider_account_id, ad_id
 ),
@@ -1752,7 +2519,7 @@ recent_24h AS (
     ad_id,
     SUM(spend) AS spend,
     SUM(impressions) AS impressions
-  FROM selected_ad_days
+  FROM decision_ad_days
   WHERE date = $2::date
   GROUP BY provider_account_id, ad_id
 ),
@@ -1783,8 +2550,9 @@ ad_band_days AS (
     d.revenue,
     d.impressions,
     d.clicks,
-    ${AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL} AS link_clicks
-  FROM selected_ad_days d
+    -- The D095 value computed once per row in decision_ad_days.
+    d.authoritative_link_clicks AS link_clicks
+  FROM decision_ad_days d
   CROSS JOIN LATERAL (
     VALUES
       ('recent14', d.date BETWEEN ($2::date - INTERVAL '13 days') AND $2::date),
@@ -1803,14 +2571,15 @@ ad_band_aggregates AS (
     SUM(revenue) AS revenue,
     SUM(impressions) AS impressions,
     SUM(clicks) AS clicks,
-    -- DELIBERATELY NOT COALESCED, unlike metric_cumulative above.
+    -- DELIBERATELY NOT COALESCED.
     --
     -- ad_band_days.link_clicks has already excluded every legacy stored zero
     -- that lacks matching row-local payload provenance. PostgreSQL SUM ignores
     -- those NULLs and returns NULL only when every row in the group is unknown,
-    -- so this expression preserves measured positive/zero versus unknown.
-    -- metric_cumulative intentionally keeps its compatibility coalesce; only
-    -- these new decision-authority bands apply the stronger provenance rule.
+    -- so this expression preserves measured positive/zero versus unknown; the
+    -- missing-delivered count below makes partial coverage explicit, and the
+    -- mapper nulls the band when it is not zero. metric_cumulative now applies
+    -- the same D095 row value and the same complete-or-null window rule.
     SUM(link_clicks) AS link_clicks,
     -- COMPLETENESS, because SUM alone cannot express it.
     --
@@ -1905,6 +2674,102 @@ SELECT
   CASE WHEN cardinality.objective_count = 1 THEN latest.objective END AS objective,
   CASE WHEN cardinality.optimization_context_count = 1 THEN latest.optimization_goal END AS optimization_goal,
   CASE WHEN cardinality.optimization_context_count = 1 THEN latest.custom_event_type END AS custom_event_type,
+  /*
+    THE PROVENANCE OF THOSE THREE VALUES, gated by the SAME cardinality tests.
+
+    A readiness that survived while its value was withheld for a mixed context
+    would describe a value this row does not carry — the same class of error the
+    agreement test closes one level down. So the readiness is withheld with the
+    value it belongs to.
+  */
+  CASE WHEN cardinality.objective_count = 1 THEN latest.objective_tier END AS objective_tier,
+  CASE WHEN cardinality.objective_count = 1 THEN latest.objective_readiness END AS objective_readiness,
+  CASE WHEN cardinality.objective_count = 1 THEN latest.objective_source_class END AS objective_source_class,
+  CASE WHEN cardinality.objective_count = 1 THEN latest.objective_pit_class END AS objective_pit_class,
+  CASE WHEN cardinality.optimization_context_count = 1 THEN latest.optimization_goal_tier END AS optimization_goal_tier,
+  CASE WHEN cardinality.optimization_context_count = 1 THEN latest.optimization_goal_readiness END AS optimization_goal_readiness,
+  CASE WHEN cardinality.optimization_context_count = 1 THEN latest.custom_event_type_tier END AS custom_event_type_tier,
+  CASE WHEN cardinality.optimization_context_count = 1 THEN latest.custom_event_type_readiness END AS custom_event_type_readiness,
+  CASE WHEN cardinality.optimization_context_count = 1 THEN latest.custom_conversion_id END AS custom_conversion_id,
+  CASE WHEN cardinality.optimization_context_count = 1 THEN latest.custom_conversion_id_readiness END AS custom_conversion_id_readiness,
+  latest.latest_context_date,
+  /*
+    THE EVALUATION DAY'S RECEIPT, and whether it names the SAME configuration
+    the decision is about to act on. A receipt that names something else is not
+    a weaker version of agreement — it says the configuration changed.
+  */
+  today_config.as_of_day AS current_config_day,
+  today_config.objective_tier AS current_objective_tier,
+  CASE
+    WHEN cardinality.objective_count = 1
+      AND ${metaConfigTokenAgreementSql("today_config.objective", "latest.objective")}
+      THEN today_config.objective_readiness
+    ELSE 'none'
+  END AS current_objective_readiness,
+  today_config.optimization_goal_tier AS current_optimization_goal_tier,
+  CASE
+    WHEN cardinality.optimization_context_count = 1
+      AND ${metaConfigTokenAgreementSql("today_config.optimization_goal", "latest.optimization_goal")}
+      AND NULLIF(BTRIM(today_config.custom_conversion_id), '')
+        IS NOT DISTINCT FROM NULLIF(BTRIM(latest.custom_conversion_id), '')
+      THEN today_config.optimization_goal_readiness
+    ELSE 'none'
+  END AS current_optimization_goal_readiness,
+  today_config.custom_event_type_tier AS current_custom_event_type_tier,
+  CASE
+    WHEN cardinality.optimization_context_count = 1
+      AND ${metaConfigTokenAgreementSql("today_config.custom_event_type", "latest.custom_event_type")}
+      THEN today_config.custom_event_type_readiness
+    ELSE 'none'
+  END AS current_custom_event_type_readiness,
+  today_config.custom_event_type AS current_custom_event_type,
+  today_config.custom_conversion_id AS current_custom_conversion_id,
+  CASE
+    WHEN NULLIF(BTRIM(today_config.custom_conversion_id), '')
+      IS NOT DISTINCT FROM NULLIF(BTRIM(latest.custom_conversion_id), '')
+      THEN today_config.custom_conversion_id_readiness
+    ELSE 'none'
+  END AS current_custom_conversion_id_readiness,
+  today_config.objective_evidence_ref AS current_objective_evidence_ref,
+  today_config.optimization_goal_evidence_ref AS current_optimization_goal_evidence_ref,
+  today_config.custom_event_type_evidence_ref AS current_custom_event_type_evidence_ref,
+  today_config.custom_conversion_id_evidence_ref AS current_custom_conversion_id_evidence_ref,
+  authority_days.authority_receipt_manifest_hash,
+  authority_days.authority_receipt_economic_days,
+  authority_days.authority_receipt_null_observation_ids,
+  authority_days.authority_receipt_incoherent_days,
+  /*
+    THE EVALUATION DAY IN THE ACCOUNT'S OWN CALENDAR.
+
+    The scheduler sets asOf from now().toISOString().slice(0,10) and runs at 03
+    and 15 UTC (native-ad-scheduled.ts). At 03 UTC a US account's provider-local
+    date is still the PREVIOUS day, while an Istanbul account is already on the
+    next one. context_days.date is provider-local, so comparing it to the UTC
+    asOf answers a different question for every account west or east of UTC.
+    Derived here from the decision cutoff and the account's own timezone so the
+    comparison is like for like.
+  */
+  ($11::timestamptz AT TIME ZONE COALESCE(
+    NULLIF(BTRIM(account_identity.account_timezone), ''), 'UTC'
+  ))::date AS provider_local_as_of_date,
+  -- The whole window, as parallel arrays; the day rule runs in TypeScript.
+  authority_days.authority_dates,
+  authority_days.authority_spend,
+  authority_days.authority_conversions,
+  authority_days.authority_revenue,
+  authority_days.authority_objective_tier,
+  authority_days.authority_objective_readiness,
+  authority_days.authority_goal_tier,
+  authority_days.authority_goal_readiness,
+  authority_days.authority_event_tier,
+  authority_days.authority_event_readiness,
+  authority_days.authority_event_value,
+  authority_days.authority_custom_conversion_id,
+  authority_days.authority_custom_conversion_readiness,
+  authority_days.objective_receipt_disagreements,
+  authority_days.optimization_goal_receipt_disagreements,
+  admitted_bounds.start_date AS admitted_context_start_date,
+  admitted_bounds.end_date AS admitted_context_end_date,
   COALESCE(cardinality.campaign_count, 0) AS campaign_count,
   COALESCE(cardinality.adset_count, 0) AS adset_count,
   COALESCE(cardinality.optimization_context_count, 0) AS optimization_context_count,
@@ -1915,6 +2780,7 @@ SELECT
     OR cardinality.adset_count <> 1
     OR cardinality.optimization_context_count <> 1
     OR cardinality.objective_count <> 1
+    OR COALESCE(immutable_context.identity_count, 0) > 1
   ) AS context_identity_unknown,
   COALESCE(cumulative.metric_row_count, 0) AS metric_row_count,
   cumulative.event_metrics_observed,
@@ -2015,9 +2881,22 @@ LEFT JOIN account_identity
 LEFT JOIN context_cardinality cardinality
   ON cardinality.provider_account_id = cumulative.provider_account_id
  AND cardinality.ad_id = cumulative.ad_id
+LEFT JOIN ad_context_immutable_cardinality immutable_context
+  ON immutable_context.provider_account_id = cumulative.provider_account_id
+ AND immutable_context.ad_id = cumulative.ad_id
+LEFT JOIN admitted_window_bounds admitted_bounds
+  ON admitted_bounds.provider_account_id = cumulative.provider_account_id
+ AND admitted_bounds.ad_id = cumulative.ad_id
 LEFT JOIN latest_context latest
   ON latest.provider_account_id = cumulative.provider_account_id
  AND latest.ad_id = cumulative.ad_id
+LEFT JOIN config_authority_days authority_days
+  ON authority_days.provider_account_id = cumulative.provider_account_id
+ AND authority_days.ad_id = cumulative.ad_id
+LEFT JOIN current_config today_config
+  ON today_config.provider_account_id = cumulative.provider_account_id
+ AND today_config.campaign_id IS NOT DISTINCT FROM latest.campaign_id
+ AND today_config.adset_id IS NOT DISTINCT FROM latest.adset_id
 LEFT JOIN recent
   ON recent.provider_account_id = cumulative.provider_account_id
  AND recent.ad_id = cumulative.ad_id
@@ -2263,6 +3142,10 @@ WITH assigned_accounts AS (
     binding.provider_account_ref_id,
     binding.provider_account_id
   FROM business_provider_accounts binding
+  JOIN provider_accounts account
+    ON account.id = binding.provider_account_ref_id
+   AND account.provider = binding.provider
+   AND account.external_account_id = binding.provider_account_id
   WHERE binding.business_id = $1::text
     AND binding.provider = 'meta'
     -- Must match the hydration CTE above exactly. This proves the manifest is
@@ -2509,6 +3392,46 @@ GROUP BY
 ORDER BY run.provider_account_id
 `;
 
+/*
+  THE CREATIVE GRAIN READS STAMPED EVIDENCE ONLY (2026-09-22).
+
+  meta_creative_daily's display scalars (link_clicks, landing_page_views,
+  add_to_cart, initiate_checkout, outbound_clicks, thumbstop, video*) are
+  written as finite numbers whether or not anything was measured, so no reader
+  can recover absence from them. The writer now stamps per-stage evidence
+  computed with the shared funnel contract, and these readers read that stamp
+  through the same builder the lifecycle and calibration jobs use, under the
+  same complete-or-null window rule.
+*/
+const CREATIVE_HYDRATION_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql({
+  payloadExpression: "d.payload_json",
+  rowAlias: "d",
+  lateralAlias: "creative_hydration_evidence",
+});
+
+const CREATIVE_HYDRATION_WINDOWS = Object.fromEntries(
+  META_CREATIVE_DAY_METRIC_STAGES.map((stage) => [
+    stage,
+    buildMetaCompleteWindowSql({
+      valueSql: CREATIVE_HYDRATION_EVIDENCE.valueSql(stage),
+      missingSql: CREATIVE_HYDRATION_EVIDENCE.missingSql(stage),
+      activitySql: CREATIVE_HYDRATION_EVIDENCE.activitySql,
+    }).sumSql,
+  ]),
+) as Record<MetaCreativeDayMetricStage, string>;
+
+const CREATIVE_HISTORICAL_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql({
+  payloadExpression: "d.payload_json",
+  rowAlias: "d",
+  lateralAlias: "creative_historical_evidence",
+});
+
+const CREATIVE_HISTORICAL_LINK_CLICKS_WINDOW = buildMetaCompleteWindowSql({
+  valueSql: "link_clicks",
+  missingSql: "(link_clicks IS NULL)",
+  activitySql: "decision_bearing_activity",
+}).sumSql;
+
 const HYDRATE_CREATIVE_INPUTS_QUERY = `
 WITH input_creatives AS (
   SELECT DISTINCT input.creative_id
@@ -2551,12 +3474,15 @@ cumulative AS (
     SUM(d.conversions) AS purchases,
     SUM(d.revenue) AS purchase_value,
     SUM(d.impressions) AS impressions,
-    -- NULL-SAFETY ONLY. NOT a decision change. Same law as the ad-grain
-    -- aggregate above, on meta_creative_daily -- the table the DEFAULT Assets
-    -- grain reads. Coalesce inside the SUM so an all-unsupplied window still
-    -- yields 0 and an empty window still yields NULL, exactly as today. The
-    -- engine saw 0 for these rows before and sees 0 for them now.
-    SUM(COALESCE(d.link_clicks, 0)) AS link_clicks,
+    -- THE STAMPED EVIDENCE, UNDER THE WINDOW RULE. The creative-day writer
+    -- stores every display metric as a finite number whether or not anything
+    -- was observed, so the old COALESCE(x, 0) over those scalars read a
+    -- fabricated zero as a measurement. Link clicks and the funnel stages now
+    -- come only from the per-stage evidence the writer computed out of the raw
+    -- insight (lib/meta/creative-day-metric-evidence.ts), summed only when
+    -- every decision-bearing row measured them; an unstamped legacy row is
+    -- unmeasured, never 0.
+    ${CREATIVE_HYDRATION_WINDOWS.link_click} AS link_clicks,
     CASE WHEN SUM(d.spend) > 0 THEN SUM(d.revenue) / SUM(d.spend) END AS roas,
     CASE WHEN SUM(d.conversions) > 0 THEN SUM(d.spend) / SUM(d.conversions) END AS cpa,
     CASE
@@ -2568,32 +3494,21 @@ cumulative AS (
       WHEN SUM(d.impressions) > 0
       THEN SUM(d.spend) / NULLIF(SUM(d.impressions), 0) * 1000
     END AS cpm,
-    SUM(COALESCE((NULLIF(d.payload_json->>'outbound_clicks', ''))::numeric, d.outbound_clicks::numeric, 0)) AS outbound_clicks,
-    SUM(COALESCE((NULLIF(d.payload_json->>'landing_page_views', ''))::numeric, 0)) AS landing_page_views,
-    SUM(COALESCE((NULLIF(d.payload_json->>'add_to_cart', ''))::numeric, 0)) AS add_to_cart,
-    SUM(COALESCE((NULLIF(d.payload_json->>'initiate_checkout', ''))::numeric, 0)) AS initiate_checkout,
-    CASE
-      WHEN SUM(d.impressions) > 0
-      THEN SUM(COALESCE((NULLIF(d.payload_json->>'thumbstop', ''))::numeric, 0) * d.impressions) / NULLIF(SUM(d.impressions), 0)
-    END AS thumbstop,
-    CASE
-      WHEN SUM(d.impressions) > 0
-      THEN SUM(COALESCE((NULLIF(d.payload_json->>'video25', ''))::numeric, 0) * d.impressions) / NULLIF(SUM(d.impressions), 0)
-    END AS video25_rate,
-    CASE
-      WHEN SUM(d.impressions) > 0
-      THEN SUM(COALESCE((NULLIF(d.payload_json->>'video50', ''))::numeric, 0) * d.impressions) / NULLIF(SUM(d.impressions), 0)
-    END AS video50_rate,
-    CASE
-      WHEN SUM(d.impressions) > 0
-      THEN SUM(COALESCE((NULLIF(d.payload_json->>'video75', ''))::numeric, 0) * d.impressions) / NULLIF(SUM(d.impressions), 0)
-    END AS video75_rate,
-    CASE
-      WHEN SUM(d.impressions) > 0
-      THEN SUM(COALESCE((NULLIF(d.payload_json->>'video100', ''))::numeric, 0) * d.impressions) / NULLIF(SUM(d.impressions), 0)
-    END AS video100_rate
+    ${CREATIVE_HYDRATION_WINDOWS.outbound_click} AS outbound_clicks,
+    ${CREATIVE_HYDRATION_WINDOWS.landing_page_view} AS landing_page_views,
+    ${CREATIVE_HYDRATION_WINDOWS.add_to_cart} AS add_to_cart,
+    ${CREATIVE_HYDRATION_WINDOWS.initiate_checkout} AS initiate_checkout,
+    -- No verified provider numerator or denominator exists for these: the
+    -- writer's only numerator is video STARTS over all impressions, which is
+    -- not a three-second view. NULL by contract, never a weighted zero.
+    NULL::double precision AS thumbstop,
+    NULL::double precision AS video25_rate,
+    NULL::double precision AS video50_rate,
+    NULL::double precision AS video75_rate,
+    NULL::double precision AS video100_rate
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  ${CREATIVE_HYDRATION_EVIDENCE.lateralSql}
   WHERE d.business_ref_id = $1::uuid
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
   GROUP BY d.creative_id
@@ -2794,15 +3709,16 @@ historical_source AS (
     d.clicks,
     d.conversions,
     d.revenue,
-    -- NULL-SAFETY ONLY. NOT a decision change. Coalesced here, where the raw
-    -- column leaves the table, so the click_to_purchase_rate aggregate below
-    -- stays textually and numerically identical: SUM(link_clicks) > 0 and
-    -- SUM(conversions) / NULLIF(SUM(link_clicks), 0) now see the same 0 they
-    -- see today for an unsupplied row rather than a NULL that would collapse
-    -- the whole window's SUM. The engine saw 0 and still sees 0.
-    COALESCE(d.link_clicks, 0) AS link_clicks
+    -- The stamped link-click measurement (NULL when not measured) and whether
+    -- the row had to measure it. The click_to_purchase_rate below exists only
+    -- over a window in which every decision-bearing row measured link clicks:
+    -- the old COALESCE(x, 0) divided a numerator that counted every row's
+    -- conversions by a denominator that silently skipped the unmeasured rows.
+    ${CREATIVE_HISTORICAL_EVIDENCE.valueSql("link_click")} AS link_clicks,
+    ${CREATIVE_HISTORICAL_EVIDENCE.activitySql} AS decision_bearing_activity
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  ${CREATIVE_HISTORICAL_EVIDENCE.lateralSql}
   CROSS JOIN LATERAL (
     VALUES
       ('last14', d.date BETWEEN ($2::date - INTERVAL '13 days') AND $2::date),
@@ -2827,8 +3743,8 @@ historical_aggregates AS (
     END AS ctr,
     CASE WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend) END AS roas,
     CASE
-      WHEN SUM(link_clicks) > 0
-      THEN SUM(conversions) / NULLIF(SUM(link_clicks), 0)
+      WHEN ${CREATIVE_HISTORICAL_LINK_CLICKS_WINDOW} > 0
+      THEN SUM(conversions) / NULLIF(${CREATIVE_HISTORICAL_LINK_CLICKS_WINDOW}, 0)
     END AS click_to_purchase_rate,
     SUM(conversions) AS purchases
   FROM historical_source
@@ -4422,6 +5338,29 @@ interface MappedAdDecisionInput {
   currentDimensionStatus: EffectiveStatus;
 }
 
+/**
+ * The driver returns a PostgreSQL array as a JS array, a `numeric[]` as strings,
+ * and a NULL column as null. These coerce without inventing elements: a
+ * non-array is an empty window, which the authority resolver fails closed on
+ * rather than zipping against a shorter sibling.
+ */
+function toNullableStringArray(value: unknown): (string | null)[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => toStringOrNull(item));
+}
+
+function toIsoDateArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => toIsoDateOrNull(item) ?? "").filter((d) => d !== "");
+}
+
+function toNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  // A malformed numeric is missing evidence, never a measured zero. The
+  // authority resolver sees NaN and refuses the entire array.
+  return value.map((item) => toNumberOrNull(item) ?? Number.NaN);
+}
+
 function mapAdDecisionHydrationRow(input: {
   row: AdDecisionHydrationRow;
   businessId: string;
@@ -4473,15 +5412,121 @@ function mapAdDecisionHydrationRow(input: {
     : toStringOrNull(input.row.custom_event_type);
   const conversions = toNumberOrNull(input.row.conversions) ?? 0;
   const revenue = toNumberOrNull(input.row.revenue) ?? 0;
+  /*
+    THE CONFIG'S OWN COHORT. Native decisions must never turn an observed
+    purchase or revenue result into an optimization intent when objective,
+    goal, and event are absent on the deciding day. The result-aware resolver
+    remains available to compatibility surfaces, but the native producer uses
+    the config-only contract for both its economic inputs and its authority
+    assessment so those two views cannot disagree.
+  */
   const effectiveCohort = contextIdentityUnknown
     ? "unknown"
-    : resolveMetaFunnelCohort({
+    : resolveMetaFunnelCohortFromConfigOnly({
         optimizationGoal,
         customEventType,
         objective,
-        purchases: conversions,
-        revenue,
       });
+  const configAuthority = resolveHydratedConfigAuthority({
+    cohort: effectiveCohort,
+    asOfDate: input.asOf,
+    row: {
+      objectiveTier: toStringOrNull(input.row.objective_tier),
+      objectiveReadiness: toStringOrNull(input.row.objective_readiness),
+      optimizationGoalTier: toStringOrNull(input.row.optimization_goal_tier),
+      optimizationGoalReadiness: toStringOrNull(
+        input.row.optimization_goal_readiness,
+      ),
+      customEventTypeTier: toStringOrNull(input.row.custom_event_type_tier),
+      customEventTypeReadiness: toStringOrNull(
+        input.row.custom_event_type_readiness,
+      ),
+      customEventType,
+      latestContextDate: toIsoDateOrNull(input.row.latest_context_date),
+      providerLocalAsOfDate: toIsoDateOrNull(
+        input.row.provider_local_as_of_date,
+      ),
+      customConversionId: toStringOrNull(input.row.custom_conversion_id),
+      customConversionIdReadiness: toStringOrNull(
+        input.row.custom_conversion_id_readiness,
+      ),
+      authorityDates: toIsoDateArray(input.row.authority_dates),
+      authoritySpend: toNumberArray(input.row.authority_spend),
+      authorityConversions: toNumberArray(input.row.authority_conversions),
+      authorityRevenue: toNumberArray(input.row.authority_revenue),
+      authorityObjectiveTier: toNullableStringArray(
+        input.row.authority_objective_tier,
+      ),
+      authorityObjectiveReadiness: toNullableStringArray(
+        input.row.authority_objective_readiness,
+      ),
+      authorityGoalTier: toNullableStringArray(input.row.authority_goal_tier),
+      authorityGoalReadiness: toNullableStringArray(
+        input.row.authority_goal_readiness,
+      ),
+      authorityEventTier: toNullableStringArray(input.row.authority_event_tier),
+      authorityEventReadiness: toNullableStringArray(
+        input.row.authority_event_readiness,
+      ),
+      authorityEventValue: toNullableStringArray(
+        input.row.authority_event_value,
+      ),
+      authorityCustomConversionId: toNullableStringArray(
+        input.row.authority_custom_conversion_id,
+      ),
+      authorityCustomConversionReadiness: toNullableStringArray(
+        input.row.authority_custom_conversion_readiness,
+      ),
+      currentConfigDay: toIsoDateOrNull(input.row.current_config_day),
+      currentObjectiveTier: toStringOrNull(input.row.current_objective_tier),
+      currentObjectiveReadiness: toStringOrNull(
+        input.row.current_objective_readiness,
+      ),
+      currentOptimizationGoalTier: toStringOrNull(
+        input.row.current_optimization_goal_tier,
+      ),
+      currentOptimizationGoalReadiness: toStringOrNull(
+        input.row.current_optimization_goal_readiness,
+      ),
+      currentCustomEventTypeTier: toStringOrNull(
+        input.row.current_custom_event_type_tier,
+      ),
+      currentCustomEventTypeReadiness: toStringOrNull(
+        input.row.current_custom_event_type_readiness,
+      ),
+      currentCustomEventType: toStringOrNull(
+        input.row.current_custom_event_type,
+      ),
+      currentCustomConversionId: toStringOrNull(
+        input.row.current_custom_conversion_id,
+      ),
+      currentCustomConversionIdReadiness: toStringOrNull(
+        input.row.current_custom_conversion_id_readiness,
+      ),
+      objectiveReceiptDisagreements:
+        toIntegerOrNull(input.row.objective_receipt_disagreements) ?? 0,
+      optimizationGoalReceiptDisagreements:
+        toIntegerOrNull(input.row.optimization_goal_receipt_disagreements) ?? 0,
+      /*
+        ALWAYS supplied, all four keys, so the resolver applies the fail-closed
+        reference gate: a key SQL left NULL is an absent receipt, never a
+        skipped check. Only a hand-built row that predates lineage omits these.
+      */
+      currentEvidenceRefs: {
+        objective: input.row.current_objective_evidence_ref ?? null,
+        optimization_goal: input.row.current_optimization_goal_evidence_ref ?? null,
+        custom_event_type: input.row.current_custom_event_type_evidence_ref ?? null,
+        custom_conversion_id:
+          input.row.current_custom_conversion_id_evidence_ref ?? null,
+      },
+      authorityReceiptManifest: {
+        hash: input.row.authority_receipt_manifest_hash,
+        economicDayCount: input.row.authority_receipt_economic_days,
+        nullObservationIdCount: input.row.authority_receipt_null_observation_ids,
+        incoherentDayCount: input.row.authority_receipt_incoherent_days,
+      },
+    },
+  });
   const isPurchase = effectiveCohort === "purchase";
   const recentConversions = toNumberOrNull(input.row.recent_conversions) ?? 0;
   const lifecyclePosition = allowCurrentDimensions
@@ -4562,6 +5607,8 @@ function mapAdDecisionHydrationRow(input: {
         : toStringOrNull(input.row.campaign_id),
       optimizationGoal,
       customEventType,
+      customConversionId: toStringOrNull(input.row.custom_conversion_id),
+      configAuthority,
       metricEvidence: {
         sourceRowCount: metricRowCount,
         performanceMetricsObserved: metricRowCount > 0,
@@ -4842,8 +5889,8 @@ function toHistoricalWindow(
     spend: toNumberOrNull(row[`${prefix}_spend`]) ?? 0,
     ctr: toNumberOrNull(row[`${prefix}_ctr`]) ?? 0,
     roas: toNumberOrNull(row[`${prefix}_roas`]) ?? 0,
-    clickToPurchaseRate:
-      toNumberOrNull(row[`${prefix}_click_to_purchase_rate`]) ?? 0,
+    // NULL stays NULL: an incomplete window has no rate (fatigue.ts).
+    clickToPurchaseRate: toNumberOrNull(row[`${prefix}_click_to_purchase_rate`]),
     purchases: toNumberOrNull(row[`${prefix}_purchases`]) ?? 0,
   };
 }

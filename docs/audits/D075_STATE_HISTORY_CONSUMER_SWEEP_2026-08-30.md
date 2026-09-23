@@ -36,7 +36,7 @@ behavior.
   only carry `DELETED`); non-present winner for an expected member fails
   the count guard closed. Zero-row delta checkpoints admitted as complete.
 - Proof: D14a–D14n + D15 seam legs; native-ad decision seam `D075 PASS
-  delta hydration`; `data-source.ad-grain.test`.
+delta hydration`; `data-source.ad-grain.test`.
 
 ### 2. `lib/meta/decisions-workspace-read-model.ts` — was UNSAFE → FIXED
 
@@ -60,7 +60,7 @@ behavior.
   `inactive`. Proof: seam leg D15b (absent winner projects NULL, re-entry
   restores PAUSED, on real PG); SQL pins in
   `decisions-workspace-read-model.test.ts` (`not.toContain("ELSE
-  'DELETED'")`) and the closure guard.
+'DELETED'")`) and the closure guard.
 
 ### 3. `lib/meta/history-read-model.ts` (+ `history-contract.ts`) — was UNSAFE → FIXED
 
@@ -98,7 +98,7 @@ behavior.
   status, a DELETED, or a treatment — verified).
 - **Defect (confirmed)**: the terminal-confirmation contract requires a
   row whose clocks SPAN window end (`observed_at ≤ window_end ≤
-  captured_at` — the unit fixtures encode day-long spans), but the writer
+captured_at` — the unit fixtures encode day-long spans), but the writer
   never advances a state row's `captured_at`: the same-completeness
   heartbeat bumps only the RUN's `last_captured_at`, and a delta manifest
   writes nothing for unchanged entities. An unchanged entity could
@@ -201,6 +201,14 @@ behavior.
   boundary.
 
 Neither reads state content; both are test references.
+
+### 2026-09-23 — native decision seam retry evidence reference
+
+- `scripts/ephemeral-postgres-native-ad-decision-seam.ts` moves 5 -> 6
+  references. The added reference inserts one synthetic complete-lane ad state
+  inside the ephemeral PostgreSQL harness to prove that an unchanged complete
+  heartbeat does not cause a redundant decision retry. It is fixture DML in an
+  isolated test database, not a production reader or writer.
 
 ### 2026-09-09 — same-observed coalescing-order test reference
 
@@ -331,13 +339,13 @@ The consumer-closure guard classifies every literal reference to
 `read-only-audit` and one as `comment-only`. None of them reads at runtime, none
 writes, and none is reachable from a served route:
 
-| file | references | why |
-|---|---|---|
-| `scripts/audits/d080-meta-budget-edit-evidence.ts` | 21 | D080A evidence extractor, SELECT only. Was unregistered before D083. |
-| `scripts/audits/d080b-meta-budget-policy-simulation.ts` | 6 | D080B simulation extractor, SELECT only. Was unregistered before D083. |
-| `scripts/audits/d083-meta-budget-fact-observation.ts` | 7 | D083 budget-fact extractor, SELECT only. |
-| `scripts/audits/d083-meta-budget-fact-observation.test.ts` | 2 | its fixtures. |
-| `lib/meta/budget-fact.ts` | 1 | a doc comment naming the vocabulary source; the module contains no SQL. |
+| file                                                       | references | why                                                                     |
+| ---------------------------------------------------------- | ---------- | ----------------------------------------------------------------------- |
+| `scripts/audits/d080-meta-budget-edit-evidence.ts`         | 21         | D080A evidence extractor, SELECT only. Was unregistered before D083.    |
+| `scripts/audits/d080b-meta-budget-policy-simulation.ts`    | 6          | D080B simulation extractor, SELECT only. Was unregistered before D083.  |
+| `scripts/audits/d083-meta-budget-fact-observation.ts`      | 7          | D083 budget-fact extractor, SELECT only.                                |
+| `scripts/audits/d083-meta-budget-fact-observation.test.ts` | 2          | its fixtures.                                                           |
+| `lib/meta/budget-fact.ts`                                  | 1          | a doc comment naming the vocabulary source; the module contains no SQL. |
 
 `lib/migrations.ts` moves 22 → 28 and `scripts/ephemeral-postgres-migrations-check.ts`
 11 → 17 for the six additive D083 columns and the six matching from-zero
@@ -352,7 +360,6 @@ assertion. `scripts/ephemeral-postgres-entity-state-history-seam-child.ts` moves
 `scripts/ephemeral-postgres-schema-upgrade-seam.ts` gains one reference (0 → 1)
 for the D083 pre-change rewind that makes the upgrade seam a real upgrade rather
 than a no-op. All are harness or DDL references; none reads at runtime.
-
 
 ### D083 C4 addendum (2026-09-01)
 
@@ -380,7 +387,7 @@ attestation requires, so no retained row could ever attest. The read now consume
   `provider_account_id` back out so the canonical scope validation can refuse a
   row that is not this account's, rather than trusting the WHERE clause alone.
 - **Latest per identity.** `rank()` over `(captured_at DESC, created_at DESC,
-  id DESC)` per `(grain, entity_id)`, with a grouped `distinct_truths` aggregate
+id DESC)` per `(grain, entity_id)`, with a grouped `distinct_truths` aggregate
   so an equal-clock disagreement is reported as a conflict instead of being
   silently adjudicated.
 - **No independent authority.** Every budget judgment — owner, raw amount,
@@ -466,8 +473,8 @@ concentration a budget write is checked against.
 It satisfies the D075 serving corollaries:
 
 - **latest-per-entity** — `DISTINCT ON (entity_type, entity_id) … ORDER BY
-  entity_type, entity_id, observed_at DESC, captured_at DESC, created_at DESC,
-  id DESC`, the exact deterministic winner order. A late-arriving backfill
+entity_type, entity_id, observed_at DESC, captured_at DESC, created_at DESC,
+id DESC`, the exact deterministic winner order. A late-arriving backfill
   therefore cannot replace a newer observation merely because it was captured
   later;
 - **absence-aware** — `WHERE presence = 'present'`, so an entity whose winning
@@ -525,7 +532,8 @@ state row before using it as a delta baseline. The added literal is the
 already-classified D077 planner/executor family.
 
 `lib/meta/__tests__/state-history-compaction-observation-order.test.ts` (new,
-1) — TEST
+
+1. — TEST
 
 The regression fixture pins that predecessor-presence query while proving that
 capture order cannot erase distinct transitions observed in a different order.
@@ -620,6 +628,13 @@ recovery calls (adset, campaign), both still guarded by
 `if (state.presence !== "present") continue;`. The closure guard's byte pin on
 that predicate is unchanged and still expects exactly 2.
 
+On 2026-09-21, field isolation identified the unsupported campaign
+`bid_constraints` expansion as the actual request refusal. The campaign
+request dropped that expansion and kept the schedule fallback. Replacing the
+old explanatory comment removed its one `meta_entity_state_history` literal,
+so the closure ledger is back to **3** references; neither recovery reader nor
+its presence guard changed.
+
 ### `lib/meta-graph-error-observability.test.ts` (new file, 1) — TEST
 
 The Area 2a suite. It drives the shipped `fetchMetaCampaignConfigsReceipt` and
@@ -639,8 +654,7 @@ for an unrelated permanent reason still produced
 persists that object into `meta_raw_snapshots.request_context.pagination` — an
 operator chasing such a 400 would have read the schedule fields as its cause.
 `recovered` is now true only once a narrowed request comes back non-error.
-Pinned by two cases in the suite above: an unrelated permanent 400 (Graph code
-294) must report `recovered: false`, and a narrowing that succeeded on page 0
+Pinned by two cases in the suite above: an unrelated permanent 400 (Graph code 294) must report `recovered: false`, and a narrowing that succeeded on page 0
 must keep `recovered: true` when a LATER page fails. This touches the pagination
 receipt only; no state-history reader or writer is involved.
 
@@ -661,24 +675,24 @@ are prose, and one is a test double's routing predicate.
 
 ### Existing entries whose counts grew
 
-| File | Ledger | Measured | What changed |
-|---|---|---|---|
-| `lib/meta/budget-readiness-retention.ts` | 5 | **8** | The Round 19 D086 index contract: the `idx_meta_entity_state_history_manifest_delta` CREATE plus its `buildIndexContractQuery` and `buildInvalidIndexRepairQuery` index-name arguments. DDL and catalog assertions only. |
-| `lib/meta/entity-state-history.ts` | 28 | **30** | Round 15's partial/delta manifest membership added two reads **inside the writer's own dedupe baseline** — the existing `stateSelect` winner order, used so that suppressing a duplicate write cannot change a reader's answer. Writer-internal; no reader path gained a query. |
-| `lib/migrations.ts` | 32 | **38** | The Round 15/17 delta index built with `CREATE INDEX CONCURRENTLY`: the comment recording the production size that motivated it (~6.44 GB / ~4.4M rows), the invalid-index repair query, the CREATE, the post-build contract assertion, and the relation name. |
-| `scripts/audits/d086-budget-readiness-input-pack.test.ts` | 5 | **7** | Two further D086 catalog assertions naming `idx_meta_entity_state_history_d086_latest`. Test double and expectations; the suite issues no production query. |
-| `scripts/ephemeral-postgres-d086-readiness-seam.ts` | 1 | **2** | The seam's expected-index map now names both `idx_meta_entity_state_history_d086_latest` and `idx_meta_entity_state_history_manifest_delta`. |
+| File                                                      | Ledger | Measured | What changed                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/meta/budget-readiness-retention.ts`                  | 5      | **8**    | The Round 19 D086 index contract: the `idx_meta_entity_state_history_manifest_delta` CREATE plus its `buildIndexContractQuery` and `buildInvalidIndexRepairQuery` index-name arguments. DDL and catalog assertions only.                                                        |
+| `lib/meta/entity-state-history.ts`                        | 28     | **30**   | Round 15's partial/delta manifest membership added two reads **inside the writer's own dedupe baseline** — the existing `stateSelect` winner order, used so that suppressing a duplicate write cannot change a reader's answer. Writer-internal; no reader path gained a query. |
+| `lib/migrations.ts`                                       | 32     | **38**   | The Round 15/17 delta index built with `CREATE INDEX CONCURRENTLY`: the comment recording the production size that motivated it (~6.44 GB / ~4.4M rows), the invalid-index repair query, the CREATE, the post-build contract assertion, and the relation name.                  |
+| `scripts/audits/d086-budget-readiness-input-pack.test.ts` | 5      | **7**    | Two further D086 catalog assertions naming `idx_meta_entity_state_history_d086_latest`. Test double and expectations; the suite issues no production query.                                                                                                                     |
+| `scripts/ephemeral-postgres-d086-readiness-seam.ts`       | 1      | **2**    | The seam's expected-index map now names both `idx_meta_entity_state_history_d086_latest` and `idx_meta_entity_state_history_manifest_delta`.                                                                                                                                    |
 
 ### Files newly entering the ledger
 
-| File | Count | Class | What the literals are |
-|---|---|---|---|
-| `lib/meta/__tests__/d086-index-catalog-validity.test.ts` | 2 | TEST | Two index names in the required seven-index catalog. |
-| `lib/meta/__tests__/index-concurrency-contract.test.ts` | 4 | TEST | Two prose lines naming the table's production size, the index name in the CONCURRENT-build list, and the regex pinning the emitted `CREATE INDEX CONCURRENTLY`. |
-| `lib/meta/authority-bootstrap-lifecycle.db.test.ts` | 2 | HARNESS | One fixture `INSERT INTO meta_entity_state_history`, and a comment naming the `..._entity_identity_check` constraint that INSERT has to satisfy. |
-| `lib/meta/recent-edit-authority-receipt.db.test.ts` | 1 | HARNESS | One fixture `INSERT` establishing the state row a receipt attests. |
-| `lib/meta/recent-edit-authority.test.ts` | 1 | TEST | A test double's routing predicate (`if (text.includes(...))`) selecting which stub rows to answer with. |
-| `lib/meta/entity-signals-backfill.ts` | 1 | COMMENT-ONLY | Prose naming the table alongside `meta_entity_tombstones` when describing presence semantics. No query. |
+| File                                                     | Count | Class        | What the literals are                                                                                                                                           |
+| -------------------------------------------------------- | ----- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/meta/__tests__/d086-index-catalog-validity.test.ts` | 2     | TEST         | Two index names in the required seven-index catalog.                                                                                                            |
+| `lib/meta/__tests__/index-concurrency-contract.test.ts`  | 4     | TEST         | Two prose lines naming the table's production size, the index name in the CONCURRENT-build list, and the regex pinning the emitted `CREATE INDEX CONCURRENTLY`. |
+| `lib/meta/authority-bootstrap-lifecycle.db.test.ts`      | 2     | HARNESS      | One fixture `INSERT INTO meta_entity_state_history`, and a comment naming the `..._entity_identity_check` constraint that INSERT has to satisfy.                |
+| `lib/meta/recent-edit-authority-receipt.db.test.ts`      | 1     | HARNESS      | One fixture `INSERT` establishing the state row a receipt attests.                                                                                              |
+| `lib/meta/recent-edit-authority.test.ts`                 | 1     | TEST         | A test double's routing predicate (`if (text.includes(...))`) selecting which stub rows to answer with.                                                         |
+| `lib/meta/entity-signals-backfill.ts`                    | 1     | COMMENT-ONLY | Prose naming the table alongside `meta_entity_tombstones` when describing presence semantics. No query.                                                         |
 
 ### Method and limits, stated plainly
 
@@ -695,10 +709,10 @@ The final H5 source adds two ledger entries or changes their counts. These
 counts use the closure guard's existing literal-count predicate; its scan and
 content-reader safety assertions remain unchanged.
 
-| File | Previous count | Current count | Classification and evidence |
-|---|---|---|---|
-| `lib/migrations.ts` | 38 | **50** | Existing DDL plus **size-only/catalog** reads in `assertMetaHistoryIndexBudget`. The twelve added literals identify the relation and its manifest-delta index for `pg_total_relation_size`, `pg_relation_size`, `pg_index` validity/ownership checks, the unchanged source-budget lookup, measured growth-fence admission and diagnostic fields. None selects entity rows, derives manifest membership or grants buyer action authority. |
-| `lib/meta/__tests__/migration-relation-budget.test.ts` | 0 | **3** | **TEST** references: two accesses to the fixed relation budget and one expected diagnostic naming the manifest-delta index. This suite evaluates the migration admission helper and does not query a database. |
+| File                                                   | Previous count | Current count | Classification and evidence                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------ | -------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/migrations.ts`                                    | 38             | **50**        | Existing DDL plus **size-only/catalog** reads in `assertMetaHistoryIndexBudget`. The twelve added literals identify the relation and its manifest-delta index for `pg_total_relation_size`, `pg_relation_size`, `pg_index` validity/ownership checks, the unchanged source-budget lookup, measured growth-fence admission and diagnostic fields. None selects entity rows, derives manifest membership or grants buyer action authority. |
+| `lib/meta/__tests__/migration-relation-budget.test.ts` | 0              | **3**         | **TEST** references: two accesses to the fixed relation budget and one expected diagnostic naming the manifest-delta index. This suite evaluates the migration admission helper and does not query a database.                                                                                                                                                                                                                           |
 
 The additional query runs on the migration's pinned client before and after
 index work. Its relation/index measurements are migration admission evidence,
@@ -709,11 +723,93 @@ as-of winner and manifest-kind predicates therefore require no relaxation.
 
 The H5 CI follow-up adds two **TEST** entries to the exact-count ledger:
 
-| File | Literal count | Classification and evidence |
-|---|---|---|
-| `lib/__tests__/pinned-migration-client-mock.ts` | **9** | SQL-string routing for explicit small-catalog fixtures: the relation-size/index-validity query, exact manifest-delta CREATE/DROP statements, and whitelisted capacity lookups. It returns synthetic catalog rows only inside opted-in tests and opens no database connection. |
-| `lib/migrations.test.ts` | **2** | A SQL mock predicate supplies malformed or over-budget measurements; an assertion verifies that the real migration refuses before index creation. Neither reads production entity content. |
+| File                                            | Literal count | Classification and evidence                                                                                                                                                                                                                                                   |
+| ----------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/__tests__/pinned-migration-client-mock.ts` | **9**         | SQL-string routing for explicit small-catalog fixtures: the relation-size/index-validity query, exact manifest-delta CREATE/DROP statements, and whitelisted capacity lookups. It returns synthetic catalog rows only inside opted-in tests and opens no database connection. |
+| `lib/migrations.test.ts`                        | **2**         | A SQL mock predicate supplies malformed or over-budget measurements; an assertion verifies that the real migration refuses before index creation. Neither reads production entity content.                                                                                    |
 
 The closure scan and content-reader safety predicates remain unchanged. Missing
 or malformed measurements still refuse production migration admission; the
 test fixture supplies a small catalog only when explicitly requested.
+
+## 2026-09-21 — campaign-role reader moved to ad grain (ADR D097 follow-up)
+
+| File                                                                   | Refs  | Verdict                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/creative-decision-engine/campaign-context/data.ts`                | **2** | **content-reader.** `readCampaignContextCreativeDays` joins this table to resolve the ad-to-creative map AS OF the provider-local day being classified. It reads `creative_id` only, writes nothing, and derives no presence or absence claim from the table: an ad-day with no observation on or before its own date is reported as unresolved rather than given a creative. |
+| `lib/creative-decision-engine/__tests__/campaign-context-data.test.ts` | **2** | **content-reader.** Pins the source choice and the provider-local as-of boundary against a mocked client; opens no connection.                                                                                                                                                                                                                                                |
+
+Why the reader changed source at all: `meta_creative_daily` is keyed
+`(business, account, date, creative)` with **no campaign in the key**, so one
+creative running in two campaigns on one day collapses into a single row whose
+campaign is whichever the writer observed first. Measured read-only on
+production over 90 days, 1,375 creative-days ran in more than one campaign and
+1,298 collapsed that way — while the resolver consuming those rows exists to
+classify a campaign. `meta_ad_daily` keeps the relationship.
+
+Why this table rather than `meta_ad_dimensions`: dimensions holds only the
+CURRENT state and its `creative_id` is null for 4,645 of 11,269 ads (41%).
+Every one of this table's 2,383,234 ad rows carries `creative_id` with an
+`observed_at`, so the pairing can be read as of the day in question. Measured
+over the same window, 38,326 spending ad-days:
+
+| source                      | resolved           |
+| --------------------------- | ------------------ |
+| `meta_ad_dimensions` only   | 31,396 (81.9%)     |
+| as-of state history         | **37,066 (96.7%)** |
+| recovered beyond dimensions | 6,918              |
+| **where the two disagree**  | **517**            |
+| unresolvable at any date    | 1,260 (3.3%)       |
+
+The 517 are the reason this is a correction and not just wider coverage: on
+those days the ad carried a different creative than its current state says.
+98.4% of ads only ever carry one creative, so the correction is small and real.
+
+The 1,260 unresolvable ad-days are REPORTED through
+`lastCampaignContextCreativeDayCoverage()`, not filled.
+
+Index note: the join filters `h.business_id = $1` alone. The usable index is
+`(business_id, provider_account_id, entity_type, entity_id, observed_at DESC)`;
+an `OR h.business_ref_id::text = $1` beside it made the leading column unusable
+and turned the CTE into a full scan — measured at >180 s (statement timeout)
+against ~1.0 s with the index form. The two columns hold identical values on
+production, so the OR bought nothing.
+
+### Native ad repair differential replay addendum (2026-09-22)
+
+`scripts/creative-decision-center/native-ad-repair-differential-replay.ts`
+enters the ledger at 2 references, category `read-only-audit`:
+
+| file                                                                       | references | why                                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `scripts/creative-decision-center/native-ad-repair-differential-replay.ts` | 2          | one SELECT that joins the state history to date an ad's serving window, and one comment recording why a `source_snapshot_id` correlation was unavailable. The runner refuses a connection that is not read-only, emits no DML, and is not reachable from a served route. |
+
+It reads presence the same way every other classified consumer must: an absent
+row is `absent_unconfirmed`, never a fabricated `DELETED` or `PAUSED`.
+
+### Currency-unit repair addendum (2026-09-22)
+
+`lib/currency/meta-currency-provenance.test.ts` enters the ledger at 1
+
+### Native decision retry admission addendum (2026-09-22)
+
+`lib/creative-decision-engine/jobs/native-ad-scheduled.ts` enters the ledger at
+1 as an **admission** reference. Its calibration-receipt query accepts a
+full-manifest observation run only when the run is explicitly empty or retains
+at least one physical `meta_entity_state_history` row; delta runs continue
+through their reconstruction chain. The query tests run membership/existence
+only. It does not read entity values, choose a winner, or grant config or buyer
+action authority.
+reference, category `test`:
+
+| file                                            | references | why                                                                                                                                                                                                                      |
+| ----------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `lib/currency/meta-currency-provenance.test.ts` | 1          | a docblock naming `meta_entity_state_history.budget_currency_exponent` as the column the suite's subject decides. Comment only — the suite calls `metaBudgetCurrencyProvenance` with currency codes and issues no query. |
+
+The change it pins is forward-only and restates nothing: an exponent is
+recorded only when Meta's published per-currency offset implies the same number
+of subdivision digits as the ISO exponent, and a disagreement records the same
+`null` an unresolvable currency already produced. Every reader of the column
+already fails closed on `null`. For USD, TRY, GBP, JPY and KRW — every currency
+the warehouse holds — the two authorities agree, so no stored row's value
+changes and no state hash moves.

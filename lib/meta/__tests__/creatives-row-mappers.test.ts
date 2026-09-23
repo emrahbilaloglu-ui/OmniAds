@@ -14,6 +14,11 @@ import {
   toRawRow,
 } from "@/lib/meta/creatives-row-mappers";
 import type { RawCreativeRow } from "@/lib/meta/creatives-types";
+import {
+  META_CREATIVE_DAY_METRIC_EVIDENCE_KEY,
+  readMetaCreativeDayMetricEvidence,
+  readMetaCreativeDayStageValue,
+} from "@/lib/meta/creative-day-metric-evidence";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -522,5 +527,180 @@ describe("sortRows", () => {
     const original = [...rows];
     sortRows(rows, "spend");
     expect(rows[0].id).toBe(original[0].id);
+  });
+});
+
+// ── The creative-day measurement stamp ───────────────────────────────────────
+//
+// The display numbers `toRawRow` computes are finite by construction (omni-first
+// alias fallbacks, `parseFloat(...) || 0`, `link_click || inline_link_clicks`),
+// so the creative-day writer also stamps what was actually MEASURED, per stage,
+// from the raw insight. These pin that the stamp is taken before every one of
+// those fallbacks, that the display numbers are left exactly as they were, and
+// that every fold (the ad-name rows, the creative grouping, the API row the
+// writer persists) carries the stamp strictly.
+
+function stampOf(row: unknown) {
+  return readMetaCreativeDayMetricEvidence(row);
+}
+
+describe("toRawRow creative-day measurement stamp", () => {
+  it("stamps an omni-only add_to_cart as a measured 0 while the display value is unchanged", () => {
+    const row = mapInsight({
+      actions: [
+        { action_type: "omni_add_to_cart", value: "9" },
+        { action_type: "link_click", value: "20" },
+      ],
+    });
+    expect(row?.add_to_cart).toBe(9);
+    expect(stampOf(row)?.stages.add_to_cart).toEqual({ state: "measured", value: 0 });
+    expect(stampOf(row)?.stages.link_click).toEqual({ state: "measured", value: 20 });
+  });
+
+  it("stamps '12abc' unreadable where the display parse reads 12", () => {
+    const row = mapInsight({ actions: [{ action_type: "link_click", value: "12abc" }] });
+    expect(row?.link_clicks).toBe(12);
+    expect(stampOf(row)?.stages.link_click).toEqual({ state: "unreadable", reason: "malformed_value" });
+  });
+
+  it("stamps absent actions unmeasurable where the display reads 0", () => {
+    const row = mapInsight({});
+    expect(row?.landing_page_views).toBe(0);
+    expect(row?.link_clicks).toBe(0);
+    for (const stage of ["link_click", "landing_page_view", "add_to_cart", "initiate_checkout"] as const) {
+      expect(stampOf(row)?.stages[stage]).toEqual({ state: "unmeasurable", reason: "actions_absent" });
+    }
+    expect(stampOf(row)?.stages.outbound_click).toEqual({
+      state: "unmeasurable",
+      reason: "outbound_clicks_absent",
+    });
+  });
+
+  it("never lets inline_link_clicks stand in for a link-click measurement", () => {
+    const measuredZero = mapInsight({
+      actions: [{ action_type: "landing_page_view", value: "4" }],
+      inline_link_clicks: "50",
+    });
+    expect(measuredZero?.link_clicks).toBe(50);
+    expect(stampOf(measuredZero)?.stages.link_click).toEqual({ state: "measured", value: 0 });
+
+    const unmeasured = mapInsight({ inline_link_clicks: "50" });
+    expect(unmeasured?.link_clicks).toBe(50);
+    expect(stampOf(unmeasured)?.stages.link_click).toEqual({ state: "unmeasurable", reason: "actions_absent" });
+  });
+
+  it("never stamps a thumbstop or video reading (no verified provider contract)", () => {
+    const row = mapInsight({
+      impressions: "1000",
+      video_play_actions: [{ action_type: "video_view", value: "300" }],
+      video_p25_watched_actions: [{ action_type: "video_view", value: "100" }],
+    });
+    expect(row?.thumbstop).toBe(30);
+    expect(row?.metric_presence).toEqual({
+      thumbstop: false, video25: false, video50: false, video75: false, video100: false,
+    });
+    // No new claim about whether funnel/link-click fields were measured.
+    expect(row?.metric_presence?.link_clicks).toBeUndefined();
+    expect(groupRows([row!], "creative", new Map())[0].metric_presence).toMatchObject({
+      thumbstop: false, video25: false, video50: false, video75: false, video100: false,
+    });
+    expect(Object.keys(stampOf(row)?.stages ?? {}).sort()).toEqual(
+      ["add_to_cart", "initiate_checkout", "landing_page_view", "link_click", "outbound_click"],
+    );
+  });
+});
+
+describe("groupRows creative-day measurement stamp", () => {
+  const stamped = (id: string, insight: Parameters<typeof toRawRow>[0]) => {
+    const row = mapInsight({ ad_id: id, ad_name: "Shared Creative", ...insight });
+    if (!row) throw new Error("expected a row");
+    return row;
+  };
+
+  it("keeps the stamp on ad-name rows", () => {
+    const row = stamped("ad_a", { actions: [{ action_type: "link_click", value: "5" }] });
+    const [result] = groupRows([row], "adName", new Map());
+    expect(stampOf(result)?.stages.link_click).toEqual({ state: "measured", value: 5 });
+  });
+
+  it("makes a creative whose members disagree in measurement incomplete, not a sum (R1)", () => {
+    const measuredZero = stamped("ad_a", { actions: [] });
+    const unmeasured = stamped("ad_b", {});
+    const [group] = groupRows([measuredZero, unmeasured], "creative", new Map());
+    expect(group?.link_clicks).toBe(0);
+    expect(stampOf(group)?.stages.link_click).toEqual({ state: "incomplete", reason: "merged_partial" });
+  });
+
+  it("keeps measured 0 + measured 0 a measured 0 (R2) and sums measured members", () => {
+    const zeroA = stamped("ad_a", { actions: [] });
+    const zeroB = stamped("ad_b", { actions: [] });
+    const [zeroGroup] = groupRows([zeroA, zeroB], "creative", new Map());
+    expect(stampOf(zeroGroup)?.stages.add_to_cart).toEqual({ state: "measured", value: 0 });
+
+    const three = stamped("ad_a", { actions: [{ action_type: "add_to_cart", value: "3" }] });
+    const four = stamped("ad_b", { actions: [{ action_type: "add_to_cart", value: "4" }] });
+    const [sumGroup] = groupRows([three, four], "creative", new Map());
+    expect(stampOf(sumGroup)?.stages.add_to_cart).toEqual({ state: "measured", value: 7 });
+  });
+
+  it("makes every stage incomplete when one member carries no stamp at all", () => {
+    const measured = stamped("ad_a", { actions: [{ action_type: "link_click", value: "5" }] });
+    const legacy = { ...makeRow({ id: "legacy", name: "Shared Creative", format: measured.format }) };
+    const [group] = groupRows([measured, legacy], "creative", new Map());
+    expect(stampOf(group)?.stages.link_click).toEqual({ state: "incomplete", reason: "evidence_absent" });
+  });
+
+  it("stamps nothing when no member carries a stamp", () => {
+    const [group] = groupRows([makeRow({ id: "a" }), makeRow({ id: "b" })], "creative", new Map());
+    expect(group && META_CREATIVE_DAY_METRIC_EVIDENCE_KEY in group).toBe(false);
+  });
+});
+
+describe("creative-day stamp through the writer's full hand-off", () => {
+  it("survives toRawRow -> adName rows -> API row -> coerce -> creative fold -> persisted payload", async () => {
+    const { buildMetaCreativeApiRow } = await import("@/lib/meta/creatives-service-support");
+    const { coerceRawCreativeRow } = await import("@/lib/meta/creatives-warehouse");
+    const toApi = (row: RawCreativeRow) =>
+      buildMetaCreativeApiRow({
+        row,
+        cachedThumbnailUrl: null,
+        cardFallbackThumbnailUrl: null,
+        includeDebugFields: false,
+      });
+
+    const rawRows = [
+      mapInsight({
+        ad_id: "ad_a",
+        ad_name: "Shared Creative",
+        actions: [
+          { action_type: "link_click", value: "10" },
+          { action_type: "add_to_cart", value: "2" },
+        ],
+        outbound_clicks: [{ action_type: "outbound_click", value: "6" }],
+      }),
+      mapInsight({
+        ad_id: "ad_b",
+        ad_name: "Shared Creative",
+        actions: [{ action_type: "link_click", value: "5" }],
+      }),
+    ].filter((row): row is RawCreativeRow => Boolean(row));
+
+    // buildCreativesResponse: ad-name rows, then the API row it returns.
+    const apiRows = groupRows(rawRows, "adName", new Map()).map(toApi);
+    // syncMetaCreativesAccountDay: coerce back, fold by creative, rebuild the payload.
+    const coerced = apiRows
+      .map((row) => coerceRawCreativeRow(JSON.parse(JSON.stringify(row))))
+      .filter((row): row is RawCreativeRow => Boolean(row));
+    const [creativeRow] = groupRows(coerced, "creative", new Map());
+    const payload = JSON.parse(JSON.stringify(toApi(creativeRow!)));
+
+    expect(readMetaCreativeDayStageValue(payload, "link_click")).toBe(15);
+    expect(readMetaCreativeDayStageValue(payload, "add_to_cart")).toBe(2);
+    expect(readMetaCreativeDayStageValue(payload, "landing_page_view")).toBe(0);
+    // One member had no outbound_clicks field at all: the fold is incomplete.
+    expect(readMetaCreativeDayStageValue(payload, "outbound_click")).toBeNull();
+    expect(stampOf(payload)?.stages.outbound_click).toEqual({ state: "incomplete", reason: "merged_partial" });
+    // The display numbers the Creatives surface shows are untouched.
+    expect(payload.link_clicks).toBe(15);
   });
 });

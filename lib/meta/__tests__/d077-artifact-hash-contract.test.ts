@@ -15,7 +15,7 @@
 // generator builds with) and deep-comparing it to the serialized probe
 // with exact key sets at every level; no summary field is trusted
 // independently and no assertion tests prose by substring.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -48,6 +48,14 @@ import {
 
 const ROOT = process.cwd();
 const GEN = "docs/audits/generated";
+// The D077 manifest was sealed from the working tree at 5400a3d0 with two
+// commercial-truth files still uncommitted. Those exact bytes became ef33d238b;
+// the manifest's 1,205 entries and cumulative path set match that commit.
+// Keep this historical packet immutable and test its actual sealed tree. A new
+// release must pin its own candidate, rather than making the August packet
+// claim that September code and evidence existed in August.
+const D077_SEALED_TREE_SHA =
+  "ef33d238b9b0a854f884fa85d15804b8d8bd0615";
 
 const ARTIFACTS: Array<{ file: string; hashField: string }> = [
   { file: `${GEN}/d077-production-recovery-readonly-evidence-2026-08-30.json`, hashField: "evidenceHash" },
@@ -59,6 +67,82 @@ const ARTIFACTS: Array<{ file: string; hashField: string }> = [
 
 function sha256Utf8(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+/** Read sealed Git blobs through one process, streaming large evidence files. */
+async function hashSealedGitPaths(
+  paths: string[],
+): Promise<Map<string, string | null>> {
+  const child = spawn("git", ["cat-file", "--batch"], {
+    cwd: ROOT,
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  const completed = new Promise<number>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => resolve(code ?? -1));
+  });
+  child.stdin.end(paths.map((path) => `${D077_SEALED_TREE_SHA}:${path}`).join("\n") + "\n");
+
+  const hashes = new Map<string, string | null>();
+  let pathIndex = 0;
+  let headerParts: Buffer[] = [];
+  let state: "header" | "body" | "separator" = "header";
+  let remaining = 0;
+  let digest = createHash("sha256");
+  for await (const bytes of child.stdout) {
+    const chunk = bytes as Buffer;
+    let offset = 0;
+    while (offset < chunk.length) {
+      if (state === "header") {
+        const newline = chunk.indexOf(10, offset);
+        if (newline === -1) {
+          headerParts.push(chunk.subarray(offset));
+          break;
+        }
+        const header = Buffer.concat([
+          ...headerParts,
+          chunk.subarray(offset, newline),
+        ]).toString("utf8");
+        headerParts = [];
+        offset = newline + 1;
+        if (pathIndex >= paths.length) throw new Error("extra Git batch result");
+        if (header.endsWith(" missing")) {
+          hashes.set(paths[pathIndex], null);
+          pathIndex++;
+          continue;
+        }
+        const match = /^[0-9a-f]{40,64} blob ([0-9]+)$/.exec(header);
+        if (!match) throw new Error(`invalid Git batch header: ${header}`);
+        remaining = Number(match[1]);
+        digest = createHash("sha256");
+        if (remaining === 0) {
+          hashes.set(paths[pathIndex], digest.digest("hex"));
+          state = "separator";
+        } else {
+          state = "body";
+        }
+      } else if (state === "body") {
+        const end = Math.min(chunk.length, offset + remaining);
+        digest.update(chunk.subarray(offset, end));
+        remaining -= end - offset;
+        offset = end;
+        if (remaining === 0) {
+          hashes.set(paths[pathIndex], digest.digest("hex"));
+          state = "separator";
+        }
+      } else {
+        if (chunk[offset] !== 10) throw new Error("invalid Git batch separator");
+        offset++;
+        pathIndex++;
+        state = "header";
+      }
+    }
+  }
+  const exit = await completed;
+  if (exit !== 0 || pathIndex !== paths.length || state !== "header") {
+    throw new Error(`incomplete Git batch read: exit=${exit}, paths=${pathIndex}/${paths.length}, state=${state}`);
+  }
+  return hashes;
 }
 
 /** Fail-closed load: a missing artifact throws, failing the test. */
@@ -268,65 +352,63 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     ).toHaveLength(1);
   });
 
-  it("every non-deleted manifest entry's pinned sha256 matches the CURRENT file on disk, byte-for-byte — not just internal consistency", () => {
+  it("every non-deleted manifest entry's pinned sha256 matches the sealed D077 tree byte-for-byte", async () => {
     // The prior test proves the manifest's own hash is self-consistent and
     // that its SHAPE (counts, classes) agrees with the approval packet. It
     // does not prove that any single entries[] sha256 still matches what is
-    // actually on disk right now — a manifest can be frozen-internally-
-    // consistent while every entry silently describes a tree that no longer
-    // exists. This is the gap: entries[] was never independently re-hashed
-    // against live disk content by any test until this one. Every
-    // non-deleted entry is read and re-hashed here; every deleted entry is
-    // checked for a null hash AND absence from disk.
+    // actually in its sealed Git tree — a manifest can be internally
+    // consistent while its entries describe no real tree. This archive must
+    // remain verifiable even after later releases change the live worktree.
     const manifestPath = `${GEN}/d077-release-candidate-manifest-2026-08-30.json`;
     const manifest = mustLoadJson(manifestPath) as unknown as {
       entries: Array<{ path: string; git: string; sha256: string | null }>;
     };
     expect(manifest.entries.length).toBeGreaterThan(0);
+    const sealedHashes = await hashSealedGitPaths(
+      manifest.entries.map((entry) => entry.path),
+    );
 
     const mismatches: string[] = [];
-    const missingOnDisk: string[] = [];
+    const missingInTree: string[] = [];
     const wronglyPresent: string[] = [];
     const malformedHashField: string[] = [];
 
     for (const entry of manifest.entries) {
-      const full = join(ROOT, entry.path);
-      const onDisk = existsSync(full);
+      const actual = sealedHashes.get(entry.path) ?? null;
 
       if (entry.git === "D") {
         if (entry.sha256 !== null) malformedHashField.push(entry.path);
-        if (onDisk) wronglyPresent.push(entry.path);
+        if (actual !== null) wronglyPresent.push(entry.path);
         continue;
       }
 
-      if (!onDisk) {
-        missingOnDisk.push(entry.path);
+      if (actual === null) {
+        missingInTree.push(entry.path);
         continue;
       }
       if (typeof entry.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(entry.sha256)) {
         malformedHashField.push(entry.path);
         continue;
       }
-      const actual = createHash("sha256").update(readFileSync(full)).digest("hex");
       if (actual !== entry.sha256) mismatches.push(entry.path);
     }
 
-    expect(missingOnDisk, `entries claimed present but missing from disk: ${missingOnDisk.join(", ")}`).toEqual([]);
-    expect(wronglyPresent, `entries claimed deleted but still exist on disk: ${wronglyPresent.join(", ")}`).toEqual([]);
+    expect(missingInTree, `entries claimed present but missing from sealed tree: ${missingInTree.join(", ")}`).toEqual([]);
+    expect(wronglyPresent, `entries claimed deleted but present in sealed tree: ${wronglyPresent.join(", ")}`).toEqual([]);
     expect(
       malformedHashField,
       `entries with a malformed or contradictory hash field: ${malformedHashField.join(", ")}`,
     ).toEqual([]);
-    expect(mismatches, `entries whose pinned sha256 no longer matches disk: ${mismatches.join(", ")}`).toEqual([]);
-  });
+    expect(mismatches, `entries whose pinned sha256 does not match the sealed tree: ${mismatches.join(", ")}`).toEqual([]);
+  }, 60000);
 
-  it("the manifest exactly covers the cumulative release diff plus untracked files", () => {
+  it("the manifest exactly covers the sealed D077 cumulative release diff", () => {
     // Guards the OTHER direction of staleness: not just "what's pinned still
     // matches disk" but "nothing changed or added is silently absent from
     // the pin set" — exactly the gap that let a new test file
     // (budget-preparation-form-interaction.test.tsx) go unpinned. Nothing
     // here is satisfiable by the manifest's own frozen internal agreement
-    // with itself; it is checked against `git` on the live tree.
+    // with itself; it is checked against the sealed Git tree.
     const manifestPath = `${GEN}/d077-release-candidate-manifest-2026-08-30.json`;
     const manifest = mustLoadJson(manifestPath) as unknown as {
       baseMain: string;
@@ -336,16 +418,11 @@ describe("D077 artifact hash contract (fail-closed)", () => {
     expect(manifest.baseMain).toMatch(/^[0-9a-f]{40}$/);
     const releaseDiff = execFileSync(
       "git",
-      ["diff", "--name-only", "--no-renames", "-z", manifest.baseMain, "--"],
-      { cwd: ROOT, encoding: "utf8" },
-    ).split("\0").filter(Boolean);
-    const untracked = execFileSync(
-      "git",
-      ["ls-files", "--others", "--exclude-standard", "-z"],
+      ["diff", "--name-only", "--no-renames", "-z", manifest.baseMain, D077_SEALED_TREE_SHA, "--"],
       { cwd: ROOT, encoding: "utf8" },
     ).split("\0").filter(Boolean);
     const candidate = new Set(
-      [...releaseDiff, ...untracked].filter((path) => path !== manifestPath),
+      releaseDiff.filter((path) => path !== manifestPath),
     );
 
     const missing = [...candidate].filter((path) => !pinned.has(path));

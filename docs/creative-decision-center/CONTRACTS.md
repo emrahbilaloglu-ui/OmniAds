@@ -437,11 +437,11 @@ record of a superseded release and must not be used as a current value.
 | Contract surface | Release value |
 | --- | --- |
 | Canonical engine | `v3-2026-09-07-held-verdict-authority` |
-| Native-Ad engine | `v3-ad-2026-09-07-held-verdict-authority-shadow` |
+| Native-Ad engine | `v3-ad-2026-09-22-meta-config-economics-shadow` |
 | Exact native rollback epoch | `v3-ad-2026-07-15-commercial-stop-loss-shadow` |
-| Native calibration | `engine-v3-native-ad-calibration.v5` (minted); `.v3` durably recomputable; `.v1`/`.v2` offline-only and refused as superseded. See the durable-compatibility note below. |
+| Native calibration | `engine-v3-native-ad-calibration.v6` (minted by this repair); `.v5` remains readable under its own formula, and older rows never authorize a new decision. See the durable-compatibility note below. |
 | Canonical evaluation | `engine-v3-canonical-evaluation.v9` |
-| Native-Ad evaluation | `engine-v3-canonical-ad-evaluation.v11` |
+| Native-Ad evaluation | `engine-v3-canonical-ad-evaluation.v12` |
 | Native-Ad spend-unit authority | `engine-v3-native-ad-spend-unit-authority.v4` (minted); `.v1`, `.v2` and `.v3` readable — readable means PARSED and hash-verified, never authoritative: a historical version cannot authorize a current decision |
 | Native-Ad lifecycle evidence | `native-ad-lifecycle-evidence.v3-full-receipt` |
 | D086 retention identity | `d086.budget-readiness-retention.v13`; `.v1`–`.v12` superseded (twelve entries in `D086_SUPERSEDED_RETENTION_CONTRACTS`) — a superseded stamp is readable as HISTORY only and can never retain or authorize a current verdict |

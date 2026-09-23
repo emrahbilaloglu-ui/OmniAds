@@ -691,8 +691,21 @@ export async function runCampaignContextJob(
                 agreeingFamilies: resolution.agreeingFamilies,
               },
             });
-            await db
-              .query(UPSERT_ROLE_AUTHORITY_QUERY, [
+            /*
+              "A failure here does not fail the job" needs a savepoint to be
+              true. This runs inside the job's single transaction, and a failed
+              statement puts a PostgreSQL transaction into the aborted state:
+              swallowing the error in JavaScript left every later statement —
+              the next campaign's context upsert, then the success UPDATE —
+              failing with "current transaction is aborted", and the job's own
+              catch rolled back to its savepoint, discarding every context row
+              written for the business-day. One lost authority row cost the whole
+              day's inference, which is precisely what the comment above rules
+              out. The row-level savepoint confines the failure to the row.
+            */
+            await db.query("SAVEPOINT engine_v3_role_authority_row");
+            try {
+              await db.query(UPSERT_ROLE_AUTHORITY_QUERY, [
                 CAMPAIGN_ROLE_AUTHORITY_CONTRACT,
                 input.businessId,
                 providerAccountId,
@@ -706,8 +719,13 @@ export async function runCampaignContextJob(
                 inputHash,
                 `${input.asOf}T00:00:00.000Z`,
                 kindBasis,
-              ])
-              .catch(() => null);
+              ]);
+            } catch {
+              // Restores the transaction to its state before the failed row.
+              // If THIS fails the connection is unusable and the job must fail.
+              await db.query("ROLLBACK TO SAVEPOINT engine_v3_role_authority_row");
+            }
+            await db.query("RELEASE SAVEPOINT engine_v3_role_authority_row");
             rowsWritten += 1;
           }
         }

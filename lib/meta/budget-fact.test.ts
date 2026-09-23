@@ -314,7 +314,7 @@ describe("captured currency provenance", () => {
     ["JPY", 0],
     ["USD", 2],
     ["TRY", 2],
-    ["KWD", 3],
+    ["GBP", 2],
   ])("carries the exponent captured for %s", (currency, exponent) => {
     const fact = buildCanonicalBudgetFact(
       request({
@@ -684,12 +684,43 @@ describe("C2.3 currency is validated against the versioned authority", () => {
     ["USD", 2],
     ["TRY", 2],
     ["JPY", 0],
-    ["KWD", 3],
+    ["EUR", 2],
   ])("accepts %s at its registry exponent %i", (currency, exponent) => {
     const fact = buildCanonicalBudgetFact(
       request({ entityObservations: [obs({ budgetCurrency: currency, budgetCurrencyExponent: exponent })] }),
     );
     expect(fact.intentReady).toBe(true);
+  });
+
+  it("refuses a scale the provider does not corroborate", () => {
+    /*
+      Both of these `it.each` tables used KWD as their three-decimal example
+      and expected a READY fact carrying `currencyExponent: 3`.
+
+      That fact is not usable. The amount it describes is a PROVIDER minor-unit
+      budget, and Meta's published offset table lists no offset above 100
+      anywhere — the two three-decimal currencies it does list, BHD and JOD,
+      are both mapped to 100, and KWD it does not list at all. Honouring a
+      retained fact at exponent 3 would scale a Meta budget by 1000 on the
+      authority of a registry the provider contradicts.
+
+      `metaBudgetCurrencyProvenance` already refuses to CAPTURE such an
+      exponent, so a fact written today cannot carry one. This is the read-side
+      half: a row retained before that gate existed must not be honoured now.
+      Both refusal shapes are covered — a code the provider does not publish
+      (KWD) and one both authorities name and disagree on (HUF, BHD).
+    */
+    for (const [currency, exponent] of [
+      ["KWD", 3], ["OMR", 3], ["BHD", 3], ["HUF", 2], ["TWD", 2],
+    ] as const) {
+      const fact = buildCanonicalBudgetFact(
+        request({ entityObservations: [obs({ budgetCurrency: currency, budgetCurrencyExponent: exponent })] }),
+      );
+      expect(fact.blockers, currency).toContain(
+        "currency_scale_not_provider_corroborated",
+      );
+      expect(fact.intentReady, currency).toBe(false);
+    }
   });
 
   it("refuses USD claimed at exponent 3", () => {

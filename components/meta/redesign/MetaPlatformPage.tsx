@@ -25,6 +25,7 @@ import {
   rangeValueToDateWindow,
   type DateWindowValue,
 } from "@/components/date-range/DateRangePicker";
+import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import {
@@ -994,12 +995,25 @@ export function metaBidApplyNotice(payload: unknown, currency?: string | null) {
     Number.isFinite(record.bidAmountMinor)
       ? record.bidAmountMinor
       : null;
+  /*
+    `bidAmountMinor` is what went on the wire, in provider minor units. The
+    divisor back to a readable amount is Meta's per-currency offset, not a
+    constant 100 — on a JPY or KRW account the old arithmetic reported a bid
+    cap one hundredth of the one that was actually written. When the provider
+    publishes no offset for this currency we fall back to the unnumbered
+    strings that already existed for the no-amount case, rather than printing
+    a number we cannot scale.
+  */
+  const bidAmountMajor = metaMinorUnitsToMajor({
+    minorUnits: bidAmountMinor,
+    currency,
+  });
   if (dryRun) {
     return {
       tone: "info" as const,
-      title: bidAmountMinor
+      title: bidAmountMajor.ok
         ? `Dry run: bid cap would apply at ${formatCurrency(
-            bidAmountMinor / 100,
+            bidAmountMajor.majorUnits,
             currency,
           )}.`
         : "Dry run completed.",
@@ -1008,8 +1022,8 @@ export function metaBidApplyNotice(payload: unknown, currency?: string | null) {
   }
   return {
     tone: "success" as const,
-    title: bidAmountMinor
-      ? `Bid cap applied at ${formatCurrency(bidAmountMinor / 100, currency)}.`
+    title: bidAmountMajor.ok
+      ? `Bid cap applied at ${formatCurrency(bidAmountMajor.majorUnits, currency)}.`
       : "Bid cap applied.",
     detail: "Meta verified the ad set bid.",
   };
@@ -5065,7 +5079,7 @@ export function MetaPlatformPage({
    * carry is not added on this pass: it ships absent-with-reason, or in a
    * separately approved round. So the state is shown (which the design already
    * implies) and the controls are present and refusing, behind
-   * `META_DECISION_WORKFLOW_UI`, which defaults off.
+   * the single `META_AUTOMATION_LIVE_WRITES` capability, which defaults off.
    *
    * A reviewer or a read-only viewer is refused first, because that is the more
    * specific fact and the one they can act on.
@@ -6122,8 +6136,10 @@ export function MetaPlatformPage({
           id: overlay.rec ? scopeIdForRec(overlay.rec) : "meta",
           name: overlay.rec ? scopeNameForRec(overlay.rec) : "Meta action",
           campaign: overlay.rec?.campaignName,
+          /* The overlay formats this at major-unit scale, so the currency it
+             will render with has to be the same one the divisor came from. */
           proposedBidCap: overlay.rec
-            ? (proposedBidDisplayValue(overlay.rec) ?? undefined)
+            ? (proposedBidDisplayValue(overlay.rec, moneyCurrency) ?? undefined)
             : undefined,
           currencyCode: moneyCurrency ?? undefined,
         }}

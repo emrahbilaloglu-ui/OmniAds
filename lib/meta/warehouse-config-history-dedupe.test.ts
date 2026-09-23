@@ -45,7 +45,7 @@ describe("config history has exactly one author", () => {
 });
 
 describe("the transition filter fails toward writing", () => {
-  it("keeps every row when the latest-fingerprint read gives nothing usable", () => {
+  it("keeps every row when the preceding-fingerprint read gives nothing usable", () => {
     // The two mistakes are not symmetric. A duplicate costs a row the History
     // read already treats as a non-change; assuming "unchanged" would discard a
     // real configuration change that nothing else records.
@@ -53,7 +53,8 @@ describe("the transition filter fails toward writing", () => {
       warehouse.indexOf("async function filterMetaConfigTransitions"),
       warehouse.indexOf("function buildMetaConfigHistoryFingerprint"),
     );
-    expect(filter).toContain("Array.isArray(latest) ? latest : []");
+    expect(filter).toContain("Array.isArray(preceding) ? preceding : []");
+    expect(filter).toContain("history.captured_at <= incoming.captured_at");
   });
 });
 

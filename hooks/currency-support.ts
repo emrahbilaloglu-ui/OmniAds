@@ -44,3 +44,22 @@ export function resolveCurrencySymbol(
   if (!code) return null;
   return CURRENCY_SYMBOLS[code] ?? code;
 }
+
+/**
+ * The selected workspace's configured currency CODE, or `null`.
+ *
+ * `resolveCurrencySymbol` above answers "what glyph goes in front of the
+ * number". This answers "which currency is it", which is the question a
+ * minor-unit scale needs: Meta's offset is per currency and a symbol does not
+ * identify one (kr is SEK, NOK and DKK at once).
+ *
+ * Same rule, no default: an unconfigured workspace resolves to nothing.
+ */
+export function resolveCurrencyCode(
+  businesses: Business[],
+  selectedBusinessId: string | null
+): string | null {
+  const business = businesses.find((entry) => entry.id === selectedBusinessId);
+  const code = business?.currency?.trim().toUpperCase();
+  return code ? code : null;
+}

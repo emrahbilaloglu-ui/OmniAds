@@ -44,9 +44,20 @@ async function landing(
   page: Page,
   baseUrl: string,
   path: string,
+  expectedPathname?: string,
 ): Promise<{ pathname: string; search: string }> {
   await page.goto(`${baseUrl}${path}`, { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("load");
+
+  const requestedPathname = new URL(path, baseUrl).pathname;
+  if (expectedPathname && expectedPathname !== requestedPathname) {
+    await expect(page).toHaveURL(
+      (url) => url.pathname === expectedPathname,
+      { timeout: 20_000 },
+    );
+    const url = new URL(page.url());
+    return { pathname: url.pathname, search: url.search };
+  }
 
   /*
    * Settle on the URL, not on the load event.
@@ -58,14 +69,21 @@ async function landing(
    * arrived at — which is how the first run of this file reported every
    * fallback as "stayed canonical" while the server was redirecting correctly.
    *
-   * Two identical consecutive reads is the signal, the same one `openSurface`
-   * uses for content.
+   * Redirect cases wait for their exact expected destination above. The quiet
+   * window below is only for cases expected to remain on the requested path;
+   * it proves a delayed RSC redirect did not arrive after the load event.
    */
   let previous: string | null = null;
+  let stableReads = 0;
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const current = page.url();
-    if (current === previous) break;
+    if (current === previous) stableReads += 1;
+    else stableReads = 0;
     previous = current;
+    // A Server Component redirect can start after the document's `load` event.
+    // One repeated read (the old 100 ms rule) raced that navigation. Require a
+    // quiet window long enough for the RSC instruction to arrive.
+    if (stableReads >= 7) break;
     await page.waitForTimeout(100);
   }
 
@@ -117,6 +135,7 @@ test.describe("on — the canonical owner renders", () => {
       page,
       handle.baseUrl,
       `/c/${LISTED}/meta/decisions`,
+      "/app/meta/decisions",
     );
     expect(pathname).toBe("/app/meta/decisions");
   });
@@ -129,6 +148,7 @@ test.describe("off — the preserved legacy owner, never a 404", () => {
         page,
         handle.rolledBackBaseUrl,
         surface.appPath,
+        surface.legacy,
       );
       expect(pathname).toBe(surface.legacy);
     });
@@ -139,6 +159,7 @@ test.describe("off — the preserved legacy owner, never a 404", () => {
       page,
       handle.rolledBackBaseUrl,
       `/c/${LISTED}/meta/decisions`,
+      "/platforms/meta",
     );
     expect(pathname).toBe("/platforms/meta");
   });
@@ -181,6 +202,7 @@ test.describe("off — the preserved legacy owner, never a 404", () => {
       page,
       handle.rolledBackBaseUrl,
       "/app/meta/history?kind=writes&startDate=2026-07-01",
+      "/platforms/meta/history",
     );
     expect(pathname).toBe("/platforms/meta/history");
 
@@ -211,6 +233,7 @@ test.describe("allowlist — one business in, the rest out", () => {
       page,
       handle.allowlistBaseUrl,
       `/c/${LISTED}/meta/decisions`,
+      "/app/meta/decisions",
     );
     expect(pathname).toBe("/app/meta/decisions");
   });
@@ -225,6 +248,7 @@ test.describe("allowlist — one business in, the rest out", () => {
       page,
       handle.allowlistBaseUrl,
       `/c/${UNLISTED}/meta/decisions`,
+      "/platforms/meta",
     );
     expect(pathname).toBe("/platforms/meta");
   });
@@ -232,11 +256,17 @@ test.describe("allowlist — one business in, the rest out", () => {
   test("and switching back returns to the canonical console", async ({ page }) => {
     // A decision that stuck to the session rather than to the business would
     // pass the two cases above and fail this one.
-    await landing(page, handle.allowlistBaseUrl, `/c/${UNLISTED}/meta/decisions`);
+    await landing(
+      page,
+      handle.allowlistBaseUrl,
+      `/c/${UNLISTED}/meta/decisions`,
+      "/platforms/meta",
+    );
     const { pathname } = await landing(
       page,
       handle.allowlistBaseUrl,
       `/c/${LISTED}/meta/decisions`,
+      "/app/meta/decisions",
     );
     expect(pathname).toBe("/app/meta/decisions");
   });
@@ -248,6 +278,7 @@ test.describe("allowlist — one business in, the rest out", () => {
       page,
       handle.allowlistBaseUrl,
       `/c/${UNLISTED}/creative/shares`,
+      "/app/creative/shares",
     );
     expect(pathname).toBe("/app/creative/shares");
     await expect(page.locator("[data-rolled-back-surface]")).toHaveAttribute(
@@ -274,6 +305,7 @@ test.describe("the rollback grants nothing and discloses nothing", () => {
         page,
         handle.rolledBackBaseUrl,
         `/c/${LISTED}/meta/decisions`,
+        "/login",
       );
       expect(pathname).toBe("/login");
     } finally {

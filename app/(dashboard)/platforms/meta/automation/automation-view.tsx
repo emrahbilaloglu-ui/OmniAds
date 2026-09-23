@@ -13,6 +13,7 @@ import type {
 } from "@/lib/meta/automation-control-plane";
 import {
   resolveStopCeremony,
+  STOP_PREFLIGHT_MAX_AGE_MS,
   type StopCeremonyState,
 } from "@/lib/zero-base/meta/automation-posture";
 import type {
@@ -66,9 +67,9 @@ import {
 import type { BudgetReadinessReadModel } from "@/lib/meta/budget-readiness-read-model";
 import {
   formatMinorUnitsForDisplay,
-  resolveMinorUnitExponent,
   type MinorUnitExponent,
 } from "@/lib/currency/iso-4217-minor-units";
+import { resolveMetaCurrencyOffset } from "@/lib/currency/meta-currency-offsets";
 import styles from "./automation.module.css";
 
 type AutomationPayload = MetaAutomationControlPlane;
@@ -3466,9 +3467,10 @@ export default function MetaAutomationPage({
             setSessionLedgerCompleteness(body.ledgerCompleteness);
           }
           if (!response.ok || body?.ok !== true) {
-            const serverMessage = typeof body?.error?.message === "string"
-              ? body.error.message.trim()
-              : "";
+            const serverMessage =
+              typeof body?.error?.message === "string"
+                ? body.error.message.trim()
+                : "";
             setProposalError(
               serverMessage || "This action could not be saved.",
             );
@@ -3489,11 +3491,13 @@ export default function MetaAutomationPage({
             if (body?.providerWriteVerified === true) {
               setProposalNotice("Applied on Meta.");
             } else if (dryRun === true) {
-              setProposalNotice("Saved as a preview. Nothing was sent to Meta.");
+              setProposalNotice(
+                "Saved as a preview. Nothing was sent to Meta.",
+              );
             } else if (
-              body?.proposalStatus === "failed"
-              || (body?.providerWriteVerified === false
-                && body.providerOutcomeKnown === true)
+              body?.proposalStatus === "failed" ||
+              (body?.providerWriteVerified === false &&
+                body.providerOutcomeKnown === true)
             ) {
               setProposalError(
                 "The proposal was recorded, but nothing was applied on Meta.",
@@ -3974,9 +3978,12 @@ function preparedSpendLimitText(
   ) {
     return "";
   }
-  const exponent = resolveMinorUnitExponent(currency.value);
-  return exponent.status === "resolved"
-    ? formatMinorUnitsForDisplay(amount.value, exponent.exponent)
+  /* Read back at the PROVIDER's own scale, the same one it was minted at.
+     Where Meta publishes no offset the field stays empty rather than showing
+     the stored integer at a scale nobody can name. */
+  const offset = resolveMetaCurrencyOffset(currency.value);
+  return offset.status === "resolved"
+    ? formatMinorUnitsForDisplay(amount.value, offset.subdivisionDigits)
     : "";
 }
 
@@ -4137,7 +4144,32 @@ function BudgetPreparationForm({
     const value = Number(trimmed);
     return Number.isFinite(value) ? value : null;
   };
-  const ceilingExponent = resolveMinorUnitExponent(ceilingCurrency);
+  /*
+    ── THE CEILING IS A SAFETY LIMIT, SO ITS SCALE MUST BE PROVEN ────────────
+
+    `perActionSpendCeilingMinor` is persisted to
+    `meta_automation_business_controls.guardrails_json` and then compared
+    UNSCALED against the provider minor-unit amount an automated budget write
+    would send. Minting it at the ISO exponent made the limit 100x too
+    permissive on HUF, IDR, TWD and COP and 10x too permissive on BHD and JOD —
+    a guardrail that fails open while reporting itself as configured.
+
+    The authority is Meta's published offset ALONE, not the ISO exponent and
+    not an agreement between the two. The number being compared is in provider
+    units on both sides, so ISO has no bearing on it — and requiring ISO to
+    corroborate would refuse a ceiling for BDT, KES, PKR, RUB and fifteen other
+    currencies Meta serves but this repository's partial ISO transcription does
+    not hold. Provenance claims elsewhere in the chain do need both registries;
+    this arithmetic needs only the provider.
+
+    An unresolvable offset yields a null scale here, `spendLimitMinorFromText`
+    answers `undefined`, and the config parse rejects it: the operator cannot
+    save a ceiling this product could not honour. Downstream that reads as no
+    ceiling, and no ceiling withholds the budget change entirely
+    (`budget-sizing-policy.ts` -> `policy_spend_ceiling_unset`) rather than
+    allowing an unlimited one.
+  */
+  const ceilingOffset = resolveMetaCurrencyOffset(ceilingCurrency);
   const candidate = {
     dryRunOnly: dryRunOnly === "" ? undefined : dryRunOnly === "true",
     budgetMinHoursBetweenChanges: numeric(minHours),
@@ -4147,7 +4179,9 @@ function BudgetPreparationForm({
     // A blank ceiling is a real, valid choice: it CLEARS the ceiling.
     perActionSpendCeilingMinor: spendLimitMinorFromText(
       ceilingAmount,
-      ceilingExponent.status === "resolved" ? ceilingExponent.exponent : null,
+      ceilingOffset.status === "resolved"
+        ? ceilingOffset.subdivisionDigits
+        : null,
     ),
     perActionSpendCeilingCurrency: ceilingCurrency.trim()
       ? ceilingCurrency.trim().toUpperCase()
@@ -4549,11 +4583,14 @@ function MetaStopControl({
     },
   };
   const engageLabel = stopPending ? "Stopping…" : "Stop Meta writes";
+  const preflightObservedAt =
+    payload?.sections?.businessControl?.observedAt ?? null;
+  const preflightMaxAgeMinutes = Math.floor(STOP_PREFLIGHT_MAX_AGE_MS / 60_000);
 
   return (
     <>
       <div
-        className={styles.killRow}
+        className={styles.stopPreflight}
         data-field="business-writes-control"
         data-surface={surface}
         data-stop-preflight={
@@ -4563,8 +4600,9 @@ function MetaStopControl({
           payload?.sections?.businessControl?.observedAt ?? undefined
         }
       >
-        {stopEngaged ? (
-          /*
+        <div className={styles.killRow}>
+          {stopEngaged ? (
+            /*
                One set of trigger behaviour, two tags.
 
                The tags differ by exactly one attribute — H19/H20's `data-ctl`
@@ -4575,33 +4613,40 @@ function MetaStopControl({
                `releaseTriggerProps`, written once, so the two panes cannot
                drift.
              */
-          surface === "desktop" ? (
-            <button {...releaseTriggerProps} data-ctl="gated:AUTO-02 release">
-              {releaseLabel}
+            surface === "desktop" ? (
+              <button {...releaseTriggerProps} data-ctl="gated:AUTO-02 release">
+                {releaseLabel}
+              </button>
+            ) : (
+              <button {...releaseTriggerProps}>{releaseLabel}</button>
+            )
+          ) : surface === "desktop" ? (
+            /*
+             * The manifest's own key, prefix included.
+             *
+             * `docs/zero-base-design/v3/export/interaction-manifest.json`
+             * states `k: "gated:AUTO-01A engage"`, and the key IS the
+             * `data-ctl` value — the `gated:` prefix is part of the
+             * contract, not a state this body chooses. An earlier revision
+             * invented `live:`/`disabled:AUTOMATION-STOP`, which left the
+             * anatomy gate unable to find the control it was looking for.
+             * Whether the control is currently refused is carried by
+             * `aria-disabled` and `data-stop-engage-refused`, where a state
+             * belongs.
+             */
+            <button {...engageTriggerProps} data-ctl="gated:AUTO-01A engage">
+              {engageLabel}
             </button>
           ) : (
-            <button {...releaseTriggerProps}>{releaseLabel}</button>
-          )
-        ) : surface === "desktop" ? (
-          /*
-           * The manifest's own key, prefix included.
-           *
-           * `docs/zero-base-design/v3/export/interaction-manifest.json`
-           * states `k: "gated:AUTO-01A engage"`, and the key IS the
-           * `data-ctl` value — the `gated:` prefix is part of the
-           * contract, not a state this body chooses. An earlier revision
-           * invented `live:`/`disabled:AUTOMATION-STOP`, which left the
-           * anatomy gate unable to find the control it was looking for.
-           * Whether the control is currently refused is carried by
-           * `aria-disabled` and `data-stop-engage-refused`, where a state
-           * belongs.
-           */
-          <button {...engageTriggerProps} data-ctl="gated:AUTO-01A engage">
-            {engageLabel}
-          </button>
-        ) : (
-          <button {...engageTriggerProps}>{engageLabel}</button>
-        )}
+            <button {...engageTriggerProps}>{engageLabel}</button>
+          )}
+        </div>
+        <p className={styles.killNote}>
+          {preflightObservedAt
+            ? `State read ${formatLedgerTime(preflightObservedAt)} UTC. `
+            : "State read time is unavailable. "}
+          A reading older than {preflightMaxAgeMinutes} minutes is refused.
+        </p>
       </div>
       {/*
         The typed confirmation, for BOTH directions.
@@ -4764,9 +4809,10 @@ function MetaStopControl({
       */}
       {stopOutcome?.showStatusBanner ? (
         <p className={styles.killNote} data-stop-status="" role="status">
-          {stopEngaged
-            ? "Meta automation stopped."
-            : "Meta automation resumed."}
+          {stopOutcome.statusMessage ??
+            (stopEngaged
+              ? "Meta automation stopped."
+              : "Meta automation resumed.")}
         </p>
       ) : stopOutcome?.statusMessage ? (
         <p className={styles.killNote} data-stop-unconfirmed="" role="status">

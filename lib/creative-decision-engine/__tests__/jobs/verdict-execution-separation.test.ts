@@ -1,3 +1,4 @@
+import { EMPTY_HYDRATED_CONFIG_AUTHORITY } from "@/lib/creative-decision-engine/native-ad-hydration-authority";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -107,6 +108,8 @@ function adInput(overrides: Partial<AdDecisionInput> = {}): AdDecisionInput {
     dataFreshnessHours: 4,
   });
   return {
+    /* Producer evidence; `toResolverInput` strips it before the resolver runs. */
+    configAuthority: EMPTY_HYDRATED_CONFIG_AUTHORITY,
     ...creative,
     decisionEntityType: "ad",
     decisionEntityId: "ad-scale-candidate",

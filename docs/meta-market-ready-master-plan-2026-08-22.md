@@ -881,7 +881,7 @@ Acceptance:
 
 Rollback:
 
-- META_DECISION_WORKFLOW_UI.
+- META_AUTOMATION_LIVE_WRITES.
 
 ### WP9 — Account Intelligence
 

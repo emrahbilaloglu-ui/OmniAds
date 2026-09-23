@@ -1439,6 +1439,8 @@ async function verifyHistoricalEvidenceAmplification(
   stub: ProviderStub,
 ) {
   const { syncMetaAccountCoreWarehouseDay } = await import("@/lib/api/meta");
+  const { appendMetaCurrentConfigHistory, createMetaSyncRun } =
+    await import("@/lib/meta/warehouse");
   const { getMetaAccountContext } = await import("@/lib/meta/account-context");
   const context = await getMetaAccountContext(BUSINESS_ID);
   assert(
@@ -1608,18 +1610,32 @@ async function verifyHistoricalEvidenceAmplification(
   // assertion below conditional on the sync having worked, which is exactly the
   // thing under test: a run that threw before reaching the config writer would
   // have produced the same "unchanged config legitimately coalesces" reading.
-  const runToday = (partitionId: string, leaseEpoch: number) =>
-    syncMetaAccountCoreWarehouseDay({
+  const runToday = async (partitionId: string, leaseEpoch: number) => {
+    const syncRunId = await createMetaSyncRun({
+      partitionId,
+      businessId: BUSINESS_ID,
+      providerAccountId: META_ACCOUNT_ID,
+      lane: "core",
+      scope: "account_daily",
+      partitionDate: accountToday,
+      status: "running",
+      workerId: HISTORICAL_WORKER_ID,
+      attemptCount: 1,
+    });
+    assert(syncRunId, "C3: current fixture did not create a real sync attempt.");
+    return syncMetaAccountCoreWarehouseDay({
       credentials,
       accountId: META_ACCOUNT_ID,
       day: accountToday,
       partitionId,
+      syncRunId,
       workerId: HISTORICAL_WORKER_ID,
       leaseEpoch,
       attemptCount: 1,
       leaseMinutes: 15,
       freshStart: true,
     } as never);
+  };
   await runToday(
     todayPartition.rows[0]!.id,
     Number(todayPartition.rows[0]!.lease_epoch),
@@ -1706,7 +1722,7 @@ async function verifyHistoricalEvidenceAmplification(
       `C3b: meta_${table}_config_history is EMPTY after a current provisional day; the typed config writer is unreachable.`,
     );
     assert(
-      rows.every((row) => row.source_kind === "warehouse_daily"),
+      rows.every((row) => row.source_kind === "provider_config_receipt"),
       `C3b: meta_${table}_config_history rows have unexpected provenance: ${JSON.stringify(rows.map((row) => row.source_kind))}`,
     );
     assert(
@@ -1809,8 +1825,82 @@ async function verifyHistoricalEvidenceAmplification(
     `C3b: the day-scoped consumer read returned ${readback.rows.length} rows with newest fingerprint ${readback.rows[0]?.config_fingerprint}, expected ${afterRevert.length} and ${fingerprints[fingerprints.length - 1]}.`,
   );
 
+  // A typed value cannot borrow the right raw ID while naming a different
+  // conversion target or bid regime. Exercise the real writer's source check
+  // against a persisted provider receipt; each refusal must precede any write.
+  const [adsetRawReceipt] = (
+    await client.query<{
+      snapshot_id: string;
+      partition_id: string;
+      run_id: string;
+      observed_at: string;
+      request_context: {
+        rowObservedAtByEntityId?: Record<string, string>;
+      };
+    }>(
+      `SELECT o.snapshot_id::text, o.partition_id::text, o.run_id,
+              o.observed_at::text, o.request_context
+       FROM meta_raw_snapshot_observations o
+       WHERE o.business_id = $1 AND o.provider_account_id = $2
+         AND o.endpoint_name = 'adset_configs' AND o.status = 'fetched'
+       ORDER BY o.observed_at DESC, o.id DESC LIMIT 1`,
+      [BUSINESS_ID, META_ACCOUNT_ID],
+    )
+  ).rows;
+  assert(adsetRawReceipt?.run_id, "C3c: no run-bound raw adset receipt was retained.");
+  const emptyCampaignReceipt = {
+    complete: false,
+    observedAt: adsetRawReceipt.observed_at,
+    partitionId: null,
+  };
+  const adsetReceiptForNegative = {
+    complete: true,
+    observedAt: adsetRawReceipt.observed_at,
+    observedEntityIds: ["23851000000000101"],
+    rowObservedAtByEntityId:
+      adsetRawReceipt.request_context.rowObservedAtByEntityId,
+    sourceSnapshotId: adsetRawReceipt.snapshot_id,
+    partitionId: adsetRawReceipt.partition_id,
+    runId: adsetRawReceipt.run_id,
+    fieldScope: ["optimization_goal", "promoted_object", "bid_strategy", "daily_budget"],
+  };
+  const mismatches = [
+    [{ optimizationGoal: "Lead" }, "goal_source_mismatch"],
+    [{ customEventType: "LEAD" }, "custom_event_source_mismatch"],
+    [{ promotedObjectJson: { pixel_id: "wrong" } }, "promoted_object_source_mismatch"],
+    [{ bidStrategyType: "bid_cap" }, "bid_strategy_source_mismatch"],
+    [{ dailyBudget: 999 }, "daily_budget_source_mismatch"],
+  ] as const;
+  for (const [values, expectedFailure] of mismatches) {
+    let failure = "";
+    try {
+      await appendMetaCurrentConfigHistory({
+        campaignRows: [],
+        adsetRows: [{
+          businessId: BUSINESS_ID,
+          providerAccountId: META_ACCOUNT_ID,
+          adsetId: "23851000000000101",
+          ...values,
+        } as never],
+        campaignReceipt: emptyCampaignReceipt,
+        adsetReceipt: adsetReceiptForNegative,
+      });
+    } catch (error) {
+      failure = String((error as Error)?.message ?? error);
+    }
+    assert(
+      failure.includes(expectedFailure),
+      `C3c: expected ${expectedFailure} from the raw-bound writer, got ${failure || "success"}.`,
+    );
+  }
+  const afterNegative = await readTypedConfig("adset");
+  assert(
+    afterNegative.length === adsetAfterFirst.length,
+    "C3c: a mismatched typed config value wrote history before refusing it.",
+  );
+
   console.log(
-    `${LABEL} C3 PASS current evidence preserved: the account's own today added ${afterToday.entityObservationRuns - beforeToday.entityObservationRuns} observation runs and ${afterToday.entityStateHistory - beforeToday.entityStateHistory} entity state rows, holds ${todaySnapshot.rows[0]!.count} config snapshots for today, and wrote ${campaignAfterFirst.length} campaign / ${adsetAfterFirst.length} adset TYPED config-history rows with source_kind=warehouse_daily, effective_from=${accountToday} and non-midnight captured_at; a repeat and 4 concurrent identical runs each added 0 rows; A->B->A produced ${afterRevert.length} rows with fingerprints ${JSON.stringify(fingerprints)}; the day-scoped consumer read returns all of them, newest first (sync errors are NOT swallowed anywhere in this case)`,
+    `${LABEL} C3 PASS current evidence preserved: the account's own today added ${afterToday.entityObservationRuns - beforeToday.entityObservationRuns} observation runs and ${afterToday.entityStateHistory - beforeToday.entityStateHistory} entity state rows, holds ${todaySnapshot.rows[0]!.count} config snapshots for today, and wrote ${campaignAfterFirst.length} campaign / ${adsetAfterFirst.length} adset TYPED config-history rows with source_kind=provider_config_receipt, effective_from=${accountToday} and non-midnight captured_at; a repeat and 4 concurrent identical runs each added 0 rows; A->B->A produced ${afterRevert.length} rows with fingerprints ${JSON.stringify(fingerprints)}; the day-scoped consumer read returns all of them, newest first (sync errors are NOT swallowed anywhere in this case)`,
   );
 }
 

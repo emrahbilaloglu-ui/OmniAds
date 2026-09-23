@@ -22,6 +22,7 @@ import {
   READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL,
   type NativeAdCalibrationCell,
   type NativeAdCalibrationMetricSampleCounts,
+  type NativeAdCalibrationConfigAuthorityCounts,
   type NativeAdCalibrationQualityCounts,
   type NativeAdCalibrationQualityStatus,
   type NativeAdCalibrationActionReadiness,
@@ -96,6 +97,7 @@ export const NATIVE_AD_PROFILE_REQUIRED_COLUMNS = [
   "metric_sample_counts_json",
   "action_readiness_json",
   "quality_counts_json",
+  "config_authority_counts_json",
   "quality_status",
   "target_authority_status",
   "target_authority_hash",
@@ -423,6 +425,22 @@ function mapNativeAdCalibrationCell(row: Row): NativeAdCalibrationCell {
       row.quality_counts_json,
       "quality_counts_json",
     ) as unknown as NativeAdCalibrationQualityCounts,
+    /*
+      OPTIONAL BY VERSION, not by convenience.
+
+      A `.v6` row always carries this; the 1,855 `.v5` rows on disk never can.
+      Reading a missing value as zeros would state that the cell measured its
+      sample and found nothing authoritative, which is a different — and much
+      stronger — claim than that it never measured. The column is nullable for
+      exactly that reason, and the null survives all the way to the consumer.
+    */
+    configAuthorityCounts:
+      row.config_authority_counts_json == null
+        ? null
+        : (requiredJsonObject(
+            row.config_authority_counts_json,
+            "config_authority_counts_json",
+          ) as unknown as NativeAdCalibrationConfigAuthorityCounts),
   };
 }
 

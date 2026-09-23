@@ -640,3 +640,39 @@ export async function readMetaCreativeDimensions(input: {
     ]),
   );
 }
+
+/**
+ * The account's own currency, from the assignment the business actually holds.
+ *
+ * The config-history tables carry amounts in provider minor units and no
+ * currency column at all (`lib/migrations.ts`, `meta_*_config_history`), so a
+ * reader that wants to present those amounts has to bring the currency with
+ * it. Without one there is no divisor — Meta's offset is per currency — and
+ * the honest answer is to present no amount.
+ *
+ * `null` means unknown, never a default.
+ */
+export async function readMetaAccountCurrency(input: {
+  businessId: string;
+  providerAccountId: string;
+}): Promise<string | null> {
+  if (
+    !(await schemaReady(["business_provider_accounts", "provider_accounts"]))
+  ) {
+    return null;
+  }
+  const rows = (await getDb().query(
+    `SELECT pa.currency
+       FROM business_provider_accounts bpa
+       JOIN provider_accounts pa ON pa.id = bpa.provider_account_ref_id
+      WHERE bpa.business_id = $1
+        AND bpa.provider = 'meta'
+        AND bpa.provider_account_id = $2
+      LIMIT 1`,
+    [input.businessId, input.providerAccountId],
+  )) as Array<{ currency?: string | null }>;
+  const currency = rows[0]?.currency;
+  return typeof currency === "string" && currency.trim() !== ""
+    ? currency.trim()
+    : null;
+}

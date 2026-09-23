@@ -115,6 +115,7 @@ async function readPersistedCampaignContext(input: {
   providerAccountId: string;
   campaignIds: string[];
   asOf: string;
+  visibleAtCutoff: string | null;
 }): Promise<PersistedContextRow[]> {
   if (input.campaignIds.length === 0) return [];
   const rows = await getDb().query<Row>(
@@ -138,6 +139,10 @@ async function readPersistedCampaignContext(input: {
       AND provider_account_id = $5
       AND as_of_date <= $3::date
       AND as_of_date >= ($3::date - ($4 * INTERVAL '1 day'))
+      -- Point-in-time bound for historical replay; NULL on the production
+      -- path, which reads at "now". created_at survives the ON CONFLICT
+      -- upsert, so this admits exactly the rows that existed at the cutoff.
+      AND ($6::timestamptz IS NULL OR created_at <= $6::timestamptz)
     ORDER BY campaign_id, as_of_date DESC
     `,
     [
@@ -146,6 +151,7 @@ async function readPersistedCampaignContext(input: {
       input.asOf,
       CAMPAIGN_CONTEXT_MAX_AGE_DAYS,
       input.providerAccountId,
+      input.visibleAtCutoff,
     ],
   );
   return rows
@@ -229,12 +235,31 @@ export function campaignContextProvenanceFor(input: {
  * Manual labels are intentionally absent: unknown/low-confidence inference
  * stays fail-closed instead of asking the operator to supply a role.
  */
+/**
+ * Why a persisted campaign context was withheld from a point-in-time read.
+ *
+ * `overwritten_after_cutoff`: the row that was current at the cutoff still
+ * exists, but `engine_v3_campaign_context_daily` is written with
+ * `ON CONFLICT ... DO UPDATE ... updated_at = now()`, and it was rewritten
+ * after the cutoff. The role the job saw at the cutoff is no longer stored.
+ * An older day's row is NOT substituted — that would be a role the job never
+ * read. The campaign is left unresolved, which holds hard actions.
+ */
+export type CampaignContextPitExclusion = "overwritten_after_cutoff";
+
 export async function readCampaignContextMap(input: {
   businessId: string;
   providerAccountId?: string | null;
   campaignIds: string[];
   asOf?: string;
   mode?: CampaignContextMode;
+  /**
+   * Historical replay only: admit a row only if it existed at this instant
+   * and was not rewritten afterwards. Omitted on every production path.
+   */
+  visibleAtCutoff?: string | null;
+  /** Receives every campaign withheld by `visibleAtCutoff`. */
+  pitExclusions?: Map<string, CampaignContextPitExclusion>;
 }): Promise<CampaignContextMap> {
   const requestedMode = input.mode ?? resolveCampaignContextMode();
   const mode: CampaignContextMode =
@@ -257,14 +282,24 @@ export async function readCampaignContextMap(input: {
   }
 
   // automatic: system_inferred -> unknown.
+  const visibleAtCutoff = input.visibleAtCutoff ?? null;
+  const cutoffMs = visibleAtCutoff === null ? null : Date.parse(visibleAtCutoff);
+  if (cutoffMs !== null && !Number.isFinite(cutoffMs)) {
+    throw new Error(`visibleAtCutoff is not an instant: ${visibleAtCutoff}`);
+  }
   const entries = new Map<string, CampaignContextEntryWithProvenance>();
   const persisted = await readPersistedCampaignContext({
     businessId: input.businessId,
     providerAccountId,
     campaignIds: input.campaignIds,
     asOf,
+    visibleAtCutoff,
   });
   for (const row of persisted) {
+    if (cutoffMs !== null && Date.parse(row.sourceUpdatedAt) > cutoffMs) {
+      input.pitExclusions?.set(row.campaignId, "overwritten_after_cutoff");
+      continue;
+    }
     // Byte-for-byte, against the RAW persisted value. The validator is never
     // handed a trimmed or case-folded string, and the source is never defaulted
     // or inferred from the read mode, the timestamp, or the row's existence.

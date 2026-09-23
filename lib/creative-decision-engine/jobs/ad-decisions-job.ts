@@ -18,6 +18,7 @@ import {
   readCampaignContextMap,
   resolveCampaignContextMode,
   type CampaignContextMap,
+  type CampaignContextPitExclusion,
 } from "../campaign-context/source";
 import {
   buildCanonicalEvaluationProvenance,
@@ -92,12 +93,73 @@ export interface AdDecisionsJobRuntimeOptions {
   inspectProfileSchema?: typeof inspectNativeAdProfileSchemaCapability;
 }
 
+/**
+ * Named stage timings for one native decision run.
+ *
+ * `engine_v3_job_runs.duration_ms` is whole-job only, and this job is where the
+ * native chain's cost lives: measured over seven days of production the
+ * calibration stage runs at a p50 of 2.0 s and the operator-response stage at
+ * 0.4 s, while THIS job sits at a p50 of 67.5 s, a p95 of 120.5 s and a max of
+ * 188.5 s. Twenty-three runs failed in that window at a p50 of 61.6 s with no
+ * error code recorded.
+ *
+ * One number for a two-minute job cannot say which read is expensive, so the
+ * statement-timeout question ("which query is the slow one?") has had no
+ * measurable answer. These stages are that answer. They are observability
+ * only: nothing branches on them and no threshold reads them.
+ */
+export type NativeAdDecisionStage =
+  | "hydrate_inputs"
+  | "resolve_profiles"
+  | "read_campaign_context"
+  | "read_previous_labels"
+  | "compute_decisions"
+  | "persist";
+
+export type NativeAdDecisionStageTimings = Partial<
+  Record<NativeAdDecisionStage, number>
+>;
+
+/**
+ * Accumulates per-stage elapsed milliseconds.
+ *
+ * `record` adds rather than assigns, so a stage entered once per profile group
+ * reports the TOTAL spent in it rather than the last visit — which is the
+ * figure that explains a whole-job duration.
+ */
+export function createNativeAdDecisionStageTimer(
+  now: () => number = () => Date.now(),
+) {
+  const timings: NativeAdDecisionStageTimings = {};
+  return {
+    timings,
+    async measure<T>(stage: NativeAdDecisionStage, run: () => Promise<T>) {
+      const startedAt = now();
+      try {
+        return await run();
+      } finally {
+        timings[stage] = (timings[stage] ?? 0) + (now() - startedAt);
+      }
+    },
+    measureSync<T>(stage: NativeAdDecisionStage, run: () => T) {
+      const startedAt = now();
+      try {
+        return run();
+      } finally {
+        timings[stage] = (timings[stage] ?? 0) + (now() - startedAt);
+      }
+    },
+  };
+}
+
 export interface AdDecisionsJobResult {
   jobRunId: string;
   status: JobStatus;
   snapshotsWritten: number;
   changeEventsWritten: number;
   durationMs: number;
+  /** Observability only; absent on the paths that end before any stage runs. */
+  stageTimings?: NativeAdDecisionStageTimings;
   reason?:
     | "engine_v3_disabled"
     | "business_not_found"
@@ -143,6 +205,7 @@ interface NativeAdProfileRequestContext {
   objective: string;
   optimizationGoal: string | null;
   customEventType: string | null;
+  customConversionId: string | null;
   cohort: NonNullable<AdDecisionInput["effectiveCohort"]>;
 }
 
@@ -669,39 +732,51 @@ export async function runAdDecisionsJob(
         db,
       );
       await setAdJobDependency(jobRunId, dependencyRunId, db);
+      const stageTimer = createNativeAdDecisionStageTimer();
       await db.query("SAVEPOINT engine_v3_ad_decisions_job_work");
       try {
         await assertEvaluationStoreSchemaReady(db);
         const evaluatedAt = new Date().toISOString();
         const dataSource = options.dataSource ?? new WarehouseDataSource();
-        const hydration = await dataSource.hydrateAdDecisionInputs({
-          businessId: input.businessId,
-          asOf: input.asOf,
-          decisionCutoff: evaluatedAt,
-        });
+        const hydration = await stageTimer.measure("hydrate_inputs", () =>
+          dataSource.hydrateAdDecisionInputs({
+            businessId: input.businessId,
+            asOf: input.asOf,
+            decisionCutoff: evaluatedAt,
+          }),
+        );
         assertEmptyNativeAdHydrationIsAuthoritative(hydration);
         const adInputs = hydration.inputs;
         const nativeProfileDataSource =
           options.profileDataSource ??
           new WarehouseNativeAdAccountProfileDataSource(db);
-        const profileGroups = await resolveNativeAdDecisionProfileGroups({
-          businessId: input.businessId,
-          asOf: input.asOf,
-          adInputs,
-          flags,
-          dataSource: nativeProfileDataSource,
-        });
+        const profileGroups = await stageTimer.measure("resolve_profiles", () =>
+          resolveNativeAdDecisionProfileGroups({
+            businessId: input.businessId,
+            asOf: input.asOf,
+            adInputs,
+            flags,
+            dataSource: nativeProfileDataSource,
+          }),
+        );
         const campaignContextMode = resolveCampaignContextMode();
-        const campaignContextById = await readAdCampaignContext({
-          ...input,
-          adInputs,
-          mode: campaignContextMode,
-        });
+        const campaignContextById = await stageTimer.measure(
+          "read_campaign_context",
+          () =>
+            readAdCampaignContext({
+              ...input,
+              adInputs,
+              mode: campaignContextMode,
+            }),
+        );
         const previousLabels = new Map<string, PreviousAdPublishedLabel>();
         for (const scopeGroup of groupNativeProfileInputsByScope(
           profileGroups,
         )) {
-          const groupPrevious = await readPreviousPublishedAdLabels(
+          const groupPrevious = await stageTimer.measure(
+            "read_previous_labels",
+            () =>
+              readPreviousPublishedAdLabels(
             {
               ...input,
               identities: scopeGroup.adInputs.map((ad) => ({
@@ -713,7 +788,8 @@ export async function runAdDecisionsJob(
               scopeType: scopeGroup.scope.type,
               scopeId: scopeGroup.scope.id,
             },
-            db,
+                db,
+              ),
           );
           mergeUniqueMap(previousLabels, groupPrevious, "hysteresis lineage");
         }
@@ -779,6 +855,10 @@ export async function runAdDecisionsJob(
                 decisionEntityId: computation.input.decisionEntityId,
                 adId: computation.input.adId,
                 creativeId: computation.input.creativeId,
+              },
+              adEvidence: {
+                customConversionId: computation.input.customConversionId,
+                configAuthority: computation.input.configAuthority,
               },
               base: buildCanonicalEvaluationProvenance({
                 engineVersion: NATIVE_AD_ENGINE_VERSION,
@@ -928,12 +1008,20 @@ export async function runAdDecisionsJob(
           snapshotsWritten: currentSnapshots.size,
           changeEventsWritten,
           durationMs,
+          stageTimings: { ...stageTimer.timings },
         };
       } catch (error) {
         await db
           .query("ROLLBACK TO SAVEPOINT engine_v3_ad_decisions_job_work")
           .catch(() => undefined);
         const durationMs = Date.now() - startedAt;
+        /*
+          The failing runs are the reason these exist: 23 of them in a week, at
+          a p50 of 61.6 s, with no error code recorded. Attaching the stages the
+          run DID complete says where the time went before it died, which a
+          single whole-job duration cannot.
+        */
+        const failedStageTimings = { ...stageTimer.timings };
         const message = error instanceof Error ? error.message : String(error);
         await markAdJobFailed(
           { jobRunId, durationMs, error, message },
@@ -946,6 +1034,7 @@ export async function runAdDecisionsJob(
           changeEventsWritten: 0,
           durationMs,
           errorMessage: message,
+          stageTimings: failedStageTimings,
         };
       }
     });
@@ -1047,6 +1136,7 @@ export async function resolveNativeAdDecisionProfileGroups(input: {
       objective: context.objective,
       optimizationGoal: context.optimizationGoal,
       customEventType: context.customEventType,
+      customConversionId: context.customConversionId,
       cohort: context.cohort,
       asOf: input.asOf,
       dataSource: input.dataSource,
@@ -1285,6 +1375,7 @@ function nativeAdProfileRequestContext(
   }
   const optimizationGoal = normalizeOptionalProfileToken(ad.optimizationGoal);
   const customEventType = normalizeOptionalProfileToken(ad.customEventType);
+  const customConversionId = ad.customConversionId?.trim() || null;
   if (optimizationGoal === null && customEventType === null) {
     return {
       blocker: "native_ad_profile_context_missing:optimization_context",
@@ -1299,6 +1390,7 @@ function nativeAdProfileRequestContext(
       objective: ad.objective!.trim().toUpperCase(),
       optimizationGoal,
       customEventType,
+      customConversionId,
       cohort,
     },
   };
@@ -1314,6 +1406,7 @@ function nativeAdProfileRequestKey(context: NativeAdProfileRequestContext) {
     context.cohort,
     context.optimizationGoal ?? "",
     context.customEventType ?? "",
+    context.customConversionId ?? "",
   ].join("\u0000");
 }
 
@@ -1326,7 +1419,7 @@ function normalizeOptionalProfileToken(value: string | null | undefined) {
   return normalized || null;
 }
 
-function groupNativeProfileInputsByScope(
+export function groupNativeProfileInputsByScope(
   groups: NativeAdDecisionProfileGroup[],
 ): Array<Pick<NativeAdDecisionScopeGroup, "scope" | "adInputs">> {
   const scopes = new Map<
@@ -1375,7 +1468,7 @@ function decisionScopeKey(scope: DecisionProfileScope) {
   return `${scope.type}\u0000${scope.id}`;
 }
 
-function mergeUniqueMap<T>(
+export function mergeUniqueMap<T>(
   target: Map<string, T>,
   source: Map<string, T>,
   label: string,
@@ -1395,7 +1488,7 @@ function latestText(values: Array<string | null | undefined>) {
   return present.sort().at(-1) ?? null;
 }
 
-function computeReadyNativeAdDecisions(input: {
+export function computeReadyNativeAdDecisions(input: {
   group: NativeAdDecisionProfileGroup;
   businessId: string;
   dataHealth: DataHealth;
@@ -1657,6 +1750,17 @@ function toResolverInput(
     creativeEvidence: _creativeEvidence,
     accountTimezone: _accountTimezone,
     adBandEvidence: _adBandEvidence,
+    /*
+      PRODUCER EVIDENCE, stripped like the rest of it.
+
+      `configAuthority` says how well the config fields were OBSERVED. The
+      resolver's math consumes the values, not their provenance, and letting
+      provenance into the resolver would put the "may we act" question inside
+      the "what does the evidence say" computation. It is read at the authority
+      boundary instead, where every other permission is decided.
+    */
+    configAuthority: _configAuthority,
+    customConversionId: _customConversionId,
     creativeId,
     ...rest
   } = input;
@@ -2539,10 +2643,19 @@ function toPriorHysteresisProvenance(
   };
 }
 
-async function readAdCampaignContext(
+/**
+ * The campaign-role map the native job decides with. Exported so the read-only
+ * historical simulator calls THIS function rather than a copy of it.
+ *
+ * `visibleAtCutoff` / `pitExclusions` are for historical replay only and are
+ * never passed by `runAdDecisionsJob`, whose read is at "now".
+ */
+export async function readAdCampaignContext(
   input: AdDecisionsJobInput & {
     adInputs: AdDecisionInput[];
     mode: ReturnType<typeof resolveCampaignContextMode>;
+    visibleAtCutoff?: string | null;
+    pitExclusions?: Map<string, CampaignContextPitExclusion>;
   },
 ) {
   const campaignIdsByAccount = new Map<string, Set<string>>();
@@ -2563,6 +2676,8 @@ async function readAdCampaignContext(
         campaignIds: [...campaignIds].sort(),
         asOf: input.asOf,
         mode: input.mode,
+        visibleAtCutoff: input.visibleAtCutoff ?? null,
+        pitExclusions: input.pitExclusions,
       }),
     ),
   );
@@ -2586,10 +2701,45 @@ export function toNativeSnapshotPayload(input: {
 }): NativeSnapshotPayloadRow {
   const ad = input.computation.input;
   const decision = input.computation.decision;
+  /*
+    ── THE CONFIG SOURCE GATE ──────────────────────────────────────────────
+
+    A hard provider action changes an ad whose objective and optimisation goal
+    decide what "better" even means. Before this, the loader hydrated those
+    values with no provenance, so an action could be authorised on a
+    configuration that calibration had already judged too weakly observed to
+    enter a sample. The two now answer from one rule.
+
+    WHAT IS REQUIRED. A provider receipt, admissible at the cutoff, for the
+    account's OWN as-of day, naming the same configuration this action would act
+    on, whose meaning is established. Three things that are NOT required, each
+    for a measured reason:
+
+      - a whole-day BRACKET. It needs an observation after the day ends, so the
+        freshest day can never have one; requiring it would hold every hard
+        output on every run. The bracket is what an ECONOMIC sample needs, and
+        the calibration cell enforces it there.
+      - a bound on how OLD the evidence may be. Asking about the evaluation day
+        removes the question: there is no age to bound.
+      - the last METRIC day's provenance. That was the earlier test, and it fails
+        exactly when it matters — during an ingest outage the metric days stop
+        while the ad keeps delivering.
+
+    SOFT LABELS ARE UNTOUCHED. `resolveNativeSnapshotAuthorizedAction` already
+    returns null for a non-hard raw label, so stamping a blocker on one would add
+    a reason to a decision that was never asking for authority.
+  */
+  const configSourceBlocked =
+    isHardLabel(input.computation.rawLabel) &&
+    (!ad.configAuthority.currentValueEvidence.observed ||
+      !ad.configAuthority.decisionEconomics.fullyVerified);
+  const authorityBlocker: DecisionAuthorityBlocker | null =
+    decision.authorityBlocker ??
+    (configSourceBlocked ? "config_source_authority" : null);
   const authorizedAction = resolveNativeSnapshotAuthorizedAction({
     rawLabel: input.computation.rawLabel,
     publishedLabel: decision.label,
-    authorityBlocker: decision.authorityBlocker,
+    authorityBlocker,
     confidence: decision.confidence,
     calibrationRowId: input.calibrationRowId,
     hardActionEligibility: input.hardActionEligibility,
@@ -2610,21 +2760,52 @@ export function toNativeSnapshotPayload(input: {
     label: decision.label,
     raw_label: input.computation.rawLabel,
     pre_authority_label: decision.preAuthorityLabel,
-    authority_blocker: decision.authorityBlocker,
+    authority_blocker: authorityBlocker,
     confidence: toConfidenceInteger(decision.confidence),
     truth_source: decision.truthSource,
     effective_target_roas: decision.effectiveTargetRoas,
     ratio_to_target: decision.ratioToTarget,
     badges: decision.badges,
-    reason: decision.reason,
+    /*
+      The REASON carries it too, not only the enum. A blocker code tells a
+      surface which branch to render; the operator reading the decision needs to
+      know which field was unobserved and as of when, and that is not
+      reconstructable from the code alone.
+    */
+    reason: configSourceBlocked
+      ? !ad.configAuthority.currentValueEvidence.observed
+        ? `[Config source not established for the evaluation day - ${
+            ad.configAuthority.currentValueEvidence.weakestTier ?? "no receipt"
+          } as of ${ad.configAuthority.currentConfigDay ?? "no receipt day"}] ${decision.reason}`
+        : `[Decision economics include ${
+            ad.configAuthority.decisionEconomics.unverifiedEconomicDayCount
+          } unverified economic day(s)] ${decision.reason}`
+      : decision.reason,
     spend: ad.spend,
     purchases: ad.purchases,
     roas: ad.roas,
     recent7d_roas: ad.recent7dRoas,
     label_transform: decision.labelTransform ?? null,
+    /*
+      A hard verdict held ONLY by the config-source gate keeps its held action.
+
+      Every upstream hold (role, profile, freshness, hysteresis) sets
+      `decision.blockedActionType` itself. This gate runs here, after the
+      decision, so a CONFIRMED hard label with no earlier blocker reached
+      the row with `authority_blocker = config_source_authority` and
+      `blocked_action_type = NULL` — and the served projection, which keys the
+      held state on `blocked_action_type`, then presented it as an actionable
+      Cut, Scale or Refresh. INVARIANTS.md requires a held hard verdict to
+      round-trip through this column. Keyed on the effective blocker so no
+      other blocker's row shape moves; `decision_hash` is computed from the
+      decision before this payload and is unchanged.
+    */
     blocked_action_type: isHardLabel(decision.blockedActionType)
       ? decision.blockedActionType
-      : null,
+      : authorityBlocker === "config_source_authority" &&
+          isHardLabel(decision.label)
+        ? decision.label
+        : null,
     authorized_action: authorizedAction,
     job_run_id: input.jobRunId,
     creative_evidence_lifecycle_row_id:

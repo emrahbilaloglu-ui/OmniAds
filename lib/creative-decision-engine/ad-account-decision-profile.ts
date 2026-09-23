@@ -115,6 +115,7 @@ export interface ResolveNativeAdAccountProfileInput {
   objective: string;
   optimizationGoal: string | null;
   customEventType: string | null;
+  customConversionId?: string | null;
   cohort: MetaFunnelCohort;
   asOf: string;
   dataSource: NativeAdAccountProfileDataSource;
@@ -234,6 +235,7 @@ export async function resolveNativeAdAccountDecisionProfile(
   const optimizationContext = buildNativeAdOptimizationContext(
     input.optimizationGoal,
     input.customEventType,
+    input.customConversionId,
   );
   if (optimizationContext === null) {
     throw new TypeError(

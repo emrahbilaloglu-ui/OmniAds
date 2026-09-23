@@ -2,7 +2,10 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import MetaAudiencesPage from "./legacy-page";
+import MetaAudiencesPage, {
+  audienceBreakdownSurfaceSource,
+  mayPublishAudienceBreakdownState,
+} from "./legacy-page";
 
 const state = {
   selectedBusinessId: "biz_1" as string | null,
@@ -93,7 +96,22 @@ describe("MetaAudiencesPage", () => {
     lastQueryOptions = null;
     tierZeroFreshness.mockClear();
     queryState = {
-      data: undefined,
+      data: {
+        status: "ok",
+        age: [],
+        gender: [],
+        placement: [],
+        emptyObserved: true,
+        emptyObservedAt: "2026-06-28T12:00:00.000Z",
+        freshness: {
+          dataState: "ready",
+          lastSyncedAt: "2026-06-28T12:00:00.000Z",
+          liveRefreshedAt: null,
+          isPartial: false,
+          missingWindows: [],
+          warnings: [],
+        },
+      },
       isLoading: false,
       isError: false,
       error: null,
@@ -117,6 +135,146 @@ describe("MetaAudiencesPage", () => {
     expect(html).toContain("No data for this view.");
     expect(html).not.toContain("No live audience score");
     expect(html).not.toContain("buyerAction");
+    expect(html).toContain("2026-06-01 → 2026-06-28");
+  });
+
+  it("keeps a failed or unavailable source distinct from a proven empty window", () => {
+    expect(
+      audienceBreakdownSurfaceSource({ payload: null, readFailed: true }),
+    ).toMatchObject({ outcome: "failed", failureCode: "source_read_failed" });
+    expect(
+      audienceBreakdownSurfaceSource({
+        payload: { status: "no_connection" },
+        readFailed: false,
+      }),
+    ).toMatchObject({
+      outcome: "not-ready",
+      failureCode: "source_read_failed",
+    });
+    expect(
+      audienceBreakdownSurfaceSource({
+        payload: { status: "no_access_token" },
+        readFailed: false,
+      }),
+    ).toMatchObject({
+      outcome: "not-ready",
+      failureCode: "provider_auth_expired",
+    });
+    expect(
+      audienceBreakdownSurfaceSource({
+        payload: {
+          status: "ok",
+          age: [],
+          gender: [],
+          placement: [],
+          freshness: null,
+        },
+        readFailed: false,
+      }),
+    ).toMatchObject({
+      outcome: "not-ready",
+      failureCode: "source_read_failed",
+      rowCount: 0,
+    });
+    expect(
+      audienceBreakdownSurfaceSource({
+        payload: {
+          status: "ok",
+          age: [],
+          gender: [],
+          placement: [],
+          freshness: {
+            dataState: "ready",
+            lastSyncedAt: "2026-04-04T09:15:00.000Z",
+            liveRefreshedAt: null,
+            isPartial: false,
+            missingWindows: [],
+            warnings: [],
+          },
+        },
+        readFailed: false,
+      }),
+    ).toMatchObject({
+      outcome: "not-ready",
+      failureCode: "source_read_failed",
+    });
+    expect(
+      audienceBreakdownSurfaceSource({
+        payload: {
+          status: "ok",
+          age: [],
+          gender: [],
+          placement: [],
+          emptyObserved: true,
+          emptyObservedAt: "2026-04-04T09:15:00.000Z",
+          freshness: null,
+        },
+        readFailed: false,
+      }),
+    ).toMatchObject({ outcome: "empty", rowCount: 0 });
+    expect(
+      audienceBreakdownSurfaceSource({
+        payload: {
+          status: "ok",
+          age: [],
+          gender: [],
+          placement: [],
+          emptyObserved: true,
+          emptyObservedAt: null,
+          freshness: null,
+        },
+        readFailed: false,
+      }),
+    ).toMatchObject({
+      outcome: "not-ready",
+      failureCode: "source_read_failed",
+      rowCount: 0,
+    });
+    expect(
+      audienceBreakdownSurfaceSource({
+        payload: {
+          status: "ok",
+          age: [],
+          gender: [],
+          placement: [],
+          isPartial: true,
+          freshness: null,
+        },
+        readFailed: false,
+      }),
+    ).toMatchObject({ outcome: "partial", rowCount: 0 });
+    expect(
+      audienceBreakdownSurfaceSource({
+        payload: {
+          status: "ok",
+          age: [],
+          gender: [],
+          placement: [],
+          isPartial: false,
+          notReadyReason: "Breakdown warehouse data is still being prepared.",
+          emptyObserved: true,
+          emptyObservedAt: "2026-04-04T09:15:00.000Z",
+          freshness: null,
+        },
+        readFailed: false,
+      }),
+    ).toMatchObject({ outcome: "partial", rowCount: 0 });
+  });
+
+  it("only lets the client close a provisional page envelope", () => {
+    expect(mayPublishAudienceBreakdownState(undefined)).toBe(true);
+    expect(
+      mayPublishAudienceBreakdownState({ state: "loading" } as never),
+    ).toBe(true);
+    expect(
+      mayPublishAudienceBreakdownState({
+        state: "degraded",
+        failure: { code: "provider_account_scope_unverified" },
+      } as never),
+    ).toBe(false);
+    expect(
+      mayPublishAudienceBreakdownState({ state: "refused" } as never),
+    ).toBe(false);
   });
 
   it("uses the server-authorized scope and keeps every tab in the scoped route family", () => {
@@ -350,16 +508,30 @@ describe("MetaAudiencesPage", () => {
    * account not assigned. Discarding that reason and printing one generic
    * sentence made a broken integration look like an idle account.
    */
-  it("prefers the served reason over the generic unavailable sentence", () => {
+  it("renders a provider non-read as unavailable rather than proven empty", () => {
     queryState.data = {
       status: "no_connection",
       notReadyReason: "Meta integration is not connected.",
     };
     const html = renderToStaticMarkup(<MetaAudiencesPage />);
 
-    expect(html).toContain('data-audiences-state="empty"');
-    expect(html).toContain("No data for this view.");
+    expect(html).toContain('data-audiences-state="unavailable"');
+    expect(html).toContain("Creative data is temporarily unavailable.");
     expect(html).not.toContain("Meta integration is not connected.");
+  });
+
+  it("does not call an unstamped zero-row response a proven empty window", () => {
+    queryState.data = {
+      status: "ok",
+      age: [],
+      gender: [],
+      placement: [],
+      freshness: null,
+    };
+    const html = renderToStaticMarkup(<MetaAudiencesPage />);
+
+    expect(html).toContain('data-audiences-state="unavailable"');
+    expect(html).not.toContain('data-audiences-state="empty"');
   });
 
   it("says a range is still being prepared even when rows already drew", () => {

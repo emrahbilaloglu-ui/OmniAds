@@ -294,14 +294,57 @@ describe("D081-A — currency, units and rounding", () => {
     expect(r.intent.currencyRegistry.version).toContain("iso4217");
   });
 
-  it("handles zero- and three-decimal currencies without changing the integer math", () => {
-    for (const [code, exponent] of [["JPY", 0], ["KWD", 3]] as const) {
+  it("handles a zero-decimal currency without changing the integer math", () => {
+    for (const [code, exponent] of [["JPY", 0], ["USD", 2], ["TRY", 2]] as const) {
       const r = check(campaignIntent({ accountCurrency: code }));
       expect(r.status, code).toBe("valid");
       if (r.status !== "valid") continue;
       expect(r.intent.currencyExponent).toBe(exponent);
       // Minor units are minor units whatever the exponent; only display differs.
       expect(r.intent.proposedMinorUnits).toBe(110_000);
+    }
+  });
+
+  it("refuses a scale the provider does not corroborate", () => {
+    /*
+      This case used to assert KWD as the three-decimal example and expect a
+      VALID intent carrying `currencyExponent: 3`.
+
+      There is no such thing here. The amounts are PROVIDER minor units, and
+      Meta's published offset table lists no offset above 100 anywhere — the
+      two three-decimal currencies it does list, BHD and JOD, are both mapped
+      to 100, and KWD it does not list at all. So an intent stamped
+      `currencyExponent: 3` and hashed into an idempotency key was asserting a
+      scale the provider denies.
+
+      Both refusal shapes are covered: a code the provider does not publish
+      (KWD), and one where both authorities speak and disagree (HUF, which
+      Meta puts at offset 1 and ISO at two decimals — a hundredfold gap).
+    */
+    for (const code of ["KWD", "OMR", "TND"]) {
+      expect(rejectionsOf(campaignIntent({ accountCurrency: code })), code)
+        .toContain("currency_scale_not_provider_corroborated");
+    }
+    for (const code of ["HUF", "IDR", "TWD", "COP", "BHD", "JOD"]) {
+      expect(rejectionsOf(campaignIntent({ accountCurrency: code })), code)
+        .toContain("currency_scale_not_provider_corroborated");
+    }
+  });
+
+  it("leaves the idempotency key byte-identical for every live currency", () => {
+    /*
+      The property that lets the gate land at all. `currencyExponent` is a hash
+      input to `budgetIntentKey`, so a changed value would re-key live
+      operations and orphan open proposal slots. The gate only ever filters —
+      it never substitutes a different number — so for USD, TRY and GBP the
+      key is exactly what it was.
+    */
+    for (const code of ["USD", "TRY", "GBP", "EUR"]) {
+      const r = check(campaignIntent({ accountCurrency: code }));
+      expect(r.status, code).toBe("valid");
+      if (r.status !== "valid") continue;
+      expect(r.intent.currencyExponent, code).toBe(2);
+      expect(r.intent.intentKey, code).toBe(r.intent.idempotencyKey);
     }
   });
 

@@ -346,7 +346,8 @@ describe("one failing authority degrades one row, not the page", () => {
     expect(summary.reason).not.toContain("summary source is down");
     expect(summary.failureCode).toBe("source_read_failed");
     // Still says the read failed and the gap is unknown rather than zero.
-    expect(summary.reason).toContain("incomplete");
+    expect(summary.reason).toContain("could not be read");
+    expect(summary.reason).toContain("unknown rather than zero");
   });
 
   it("classifies a missing relation as a migration, not as a mystery", async () => {

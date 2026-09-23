@@ -72,11 +72,18 @@ function guard(
 }
 
 describe("applyCreativeCampaignLabelGuard", () => {
-  it("downgrades hard decisions with no campaign attribution to diagnose", () => {
+  /*
+    ADR D097. This case used to assert `diagnose`, which overwrote a computed
+    verdict — the replacement INVARIANTS.md forbids ("`diagnose` is written only
+    where the canonical mapper has no typed verdict for the type at all — never
+    as a replacement for one it does have"). The HOLD is unchanged and asserted
+    below; only the erasure is gone.
+  */
+  it("holds a hard decision with no campaign attribution without erasing it", () => {
     for (const label of ["scale", "cut", "refresh"] as const) {
       const decision = guard(label, null);
 
-      expect(decision.label).toBe("diagnose");
+      expect(decision.label).toBe(label);
       expect(decision.confidence).toBe(CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP);
       expect(decision.campaignRoleStatus).toBe("no_campaign");
       expect(decision.campaignKind).toBeNull();
@@ -84,6 +91,9 @@ describe("applyCreativeCampaignLabelGuard", () => {
       expect(decision.blockedActionType).toBe(label);
       expect(decision.badges.map((badge) => badge.type)).toContain(
         "campaign_context_unresolved",
+      );
+      expect(decision.recommendationReadiness).toBe(
+        label === "cut" ? "economically_self_sufficient" : "role_conditional",
       );
     }
   });
@@ -119,11 +129,11 @@ describe("applyCreativeCampaignLabelGuard", () => {
     });
   });
 
-  it("downgrades unlabeled hard decisions to diagnose with a confidence cap", () => {
+  it("holds an unlabeled hard decision with a confidence cap, verdict intact", () => {
     for (const label of ["scale", "cut", "refresh"] as const) {
       const decision = guard(label, "campaign-unlabeled");
 
-      expect(decision.label).toBe("diagnose");
+      expect(decision.label).toBe(label);
       expect(decision.confidence).toBe(CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP);
       expect(decision.campaignRoleStatus).toBe("unresolved");
       expect(decision.campaignKind).toBeNull();
@@ -141,6 +151,9 @@ describe("applyCreativeCampaignLabelGuard", () => {
       }
       expect(decision.badges.map((badge) => badge.type)).toContain(
         "campaign_context_unresolved",
+      );
+      expect(decision.recommendationReadiness).toBe(
+        label === "cut" ? "economically_self_sufficient" : "role_conditional",
       );
     }
   });
@@ -230,9 +243,13 @@ describe("automatic campaign context trust classes (D033)", () => {
       input: makeInput("campaign-9"),
       campaignLabelsById: contextMap("override", "test"),
     });
-    expect(override.label).toBe("diagnose");
+    // ADR D097: failing closed means withholding the ACTION, not erasing the
+    // verdict. Status, blocker and held action are unchanged.
+    expect(override.label).toBe("scale");
     expect(override.campaignRoleStatus).toBe("unresolved");
     expect(override.blockedActionType).toBe("scale");
+    expect(override.campaignKind).toBeNull();
+    expect(override.recommendationReadiness).toBe("role_conditional");
   });
 
   it("does not trust kind semantics when an automatic context row has no inferred kind", () => {
@@ -247,10 +264,13 @@ describe("automatic campaign context trust classes (D033)", () => {
       ]),
     });
 
-    expect(guarded.label).toBe("diagnose");
+    // ADR D097: a `high` trust row with no inferred kind still resolves nothing,
+    // so the Scale stays held — with its verdict, not in place of it.
+    expect(guarded.label).toBe("scale");
     expect(guarded.campaignRoleStatus).toBe("unresolved");
     expect(guarded.campaignKind).toBeNull();
     expect(guarded.blockedActionType).toBe("scale");
+    expect(guarded.recommendationReadiness).toBe("role_conditional");
     expect(
       guarded.badges.some(
         (badge) => badge.type === "campaign_context_unresolved",

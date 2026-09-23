@@ -8845,3 +8845,788 @@ it cannot enable SOURCE or excuse a newly exceeded budget. Deploy the bounded
 writer with the fence closed, then perform measured concurrent reindex recovery
 and readback. Details and local proof limits are in
 [the rollback contract](../architecture/meta-receipt-additive-rollback.md).
+
+## D097 — Campaign-role uncertainty withholds the action, not the finding (2026-09-21)
+
+Status: implemented locally, uncommitted, automation OFF. No DB, provider,
+deploy or env mutation. `authorized_action` is unchanged in both directions.
+
+### The decision
+
+**An unresolved automatic campaign role may withhold a hard ACTION. It may not
+overwrite the verdict that produced it, and it may not treat a Cut as if it
+were a Scale.**
+
+Two separate things had been folded into one predicate in
+`applyCreativeCampaignLabelGuard` (`lib/creative-decision-engine/campaign-label-guard.ts`):
+
+```ts
+const HARD_DECISION_LABELS = new Set<DecisionLabel>(["scale", "cut", "refresh"]);
+```
+
+`isHardDecision(label)` was the ONLY question the hold path asked — at the
+no-campaign branch, the low/unknown/conflict-trust branch, and the fallthrough.
+
+### Why this is a correction rather than a relaxation
+
+INVARIANTS.md already said both halves of this, and the guard contradicted the
+first and over-applied the second.
+
+- *"Automatic-context uncertainty must use canonical baselines and PRESERVE the
+  mathematical Scale/Cut/Refresh verdict as review-only."*
+- *"A held row keeps the engine's verdict… `diagnose` is written only where the
+  canonical mapper has no typed verdict for the type at all — NEVER as a
+  replacement for one it does have."*
+
+`guardHardDecisionWithoutCampaignLabel` wrote `label: "diagnose"` over a
+computed `scale`/`cut`/`refresh`. Its sibling
+`guardHardDecisionWithContext` never did. The two branches of one guard
+disagreed about whether a verdict survives doubt.
+
+- *"every CONTEXT-DEPENDENT hard action stays review-only"* and *"kind display
+  and KIND-CONDITIONAL CTAs require resolved status"*.
+
+Those qualifiers are load-bearing and the code read past them. A Scale answers
+"where do I add budget" and a Refresh answers "what replaces this in its
+rotation"; both change with Main/Test/Mixed, so without a role they are
+undetermined. A Cut answers "should this ad keep spending", which the economics
+settle on their own — the role changes how a stop is carried out, never whether
+the loss is real.
+
+The same split is already encoded one gate earlier, for stale evidence
+(`gates/types.ts`): `hardLabelNeedsFreshEvidence = hardLabel === "scale" ||
+hardLabel === "refresh"`, with a Cut keeping its label and a "stop-loss verdict
+visible" sentence, and INVARIANTS.md states it explicitly — *"Freshness may
+block execution authority but must not erase a severe stop-loss verdict."*
+Role uncertainty is the same shape of doubt and now gets the same treatment.
+
+### What changed
+
+1. `guardHardDecisionWithoutCampaignLabel` preserves `originalLabel`. The hold
+   is untouched: `authorityBlocker: "campaign_context"`, `blockedActionType`,
+   the confidence cap and the badges are all still stamped.
+2. New additive `DecisionOutput.recommendationReadiness`:
+   `"economically_self_sufficient"` for a held Cut, `"role_conditional"` for a
+   held Scale/Refresh, absent for everything else. Read-only; it grants nothing.
+3. `isAlreadyGuarded` now detects re-entry by the STAMP rather than by
+   `label === "diagnose"`, which only worked because the verdict was being
+   overwritten. Without this the guard double-prefixed an already-held reason.
+
+### What did NOT change — the negative controls
+
+`resolveNativeSnapshotAuthorizedAction` (`jobs/ad-decisions-job.ts`) still
+returns null on its first line for ANY non-null `authorityBlocker`, and every
+held row still carries one. No row becomes executable, governance STOP, fresh
+hierarchy and preflight are untouched, and no threshold moved.
+`lib/creative-decision-engine/__tests__/role-held-verdict-preservation.test.ts`
+pins this, including the source text of that early return.
+
+### Epoch
+
+`ENGINE_VERSION` → `v3-2026-09-21-role-held-verdict-preservation`
+`NATIVE_AD_ENGINE_VERSION` → `v3-ad-2026-09-21-role-held-verdict-preservation-shadow`
+
+Both move because the producer's published label moved for these rows. Rows
+written under `…2026-09-07-held-verdict-authority` keep that key and stay
+readable under it; the prior-epoch frozen artifact is unchanged. The current
+frozen exact-replay fixture was re-stamped and **no archetype expectation
+moved** — the only diff is the epoch string, which is evidence that the change
+is confined to the role-held branch.
+
+### Golden cases
+
+GC-042 (`Diagnose` → `Scale`) and GC-047 (`Diagnose` → `Refresh`) in
+GOLDEN_CASES.md. `actionability` stays `review_only` for both, which is what
+those rows already said. GC-036 is unchanged: it reaches the guard through the
+medium-trust branch, which already preserved the label.
+
+### Open, deliberately not done here
+
+The role gate still holds a Cut's EXECUTION. Whether a held Cut should become
+executable on an unresolved role is a separate question about write authority,
+not about whether the finding is sound, and it would require widening
+`authorized_action` — explicitly out of scope for this ADR.
+
+### D097 round 2 — the same hold, told apart at the surface
+
+Round 1 stopped the producer erasing the verdict. That was necessary and NOT
+sufficient, and the acceptance objection that found it was correct: preserving a
+label the served surface never shows preserves nothing.
+
+Measured on the served projection, a role-held Cut read:
+
+    decisionState: "blocked", buyerAction: null,
+    resolution.code:  "resolve_campaign_role",
+    resolution.owner: "system",
+    resolution.label: "Automatic Classification Pending",
+    resolution.nextStep: "... No operator input is required; hard actions stay
+                          review-only until the role resolves."
+
+`decisions-os-presentation.ts` then places it in the held lane with
+`code: resolution?.code ?? "resolve_evidence_gap"`. So an established loss
+arrived at the buyer as a data gap carrying an instruction to do nothing — the
+one sentence that should never sit beside a stop-loss.
+
+**What changed.** `resolutionForAuthorityBlocker` now splits on the held action
+for `campaign_context`. A held Cut serves
+`code: "execute_stop_loss_manually"`, `owner: "operator"`, label
+"Stop-Loss Confirmed - Automated Execution Held", and a next step that says the
+loss does not depend on the role, that automated execution is held because the
+role decides HOW the stop is applied, and that the buyer can pause the ad
+themselves now. A held Scale or Refresh is unchanged: both answer "where", so
+pending classification is the truth for them.
+`BUYER_CREATIVE_RESOLUTION_COPY` gained the matching sentence, because the
+owner-based fallback would otherwise have said "Review the missing evidence
+before taking action" — the opposite of true here.
+
+**What did not change.** `decisionState: "blocked"`, `buyerAction: null`,
+`authorityBlocker`, `blockedActionType`, `authorized_action: null`,
+`intent: "review"` and `providerMutation: null`. No automation authority moved
+in either direction.
+
+### The residual, stated rather than worked around
+
+The row still lands in the HELD lane. That is not an oversight and it is not
+fixable inside this ADR:
+
+- *"Any held Scale, Cut, or Refresh signal must round-trip through nullable
+  snapshot `blocked_action_type`"* — so a held Cut must keep that field.
+- *"A non-null `blocked_action_type` must serve as `decisionState: blocked`,
+  `buyerAction: null`, a server-produced resolution, and a held-action label."*
+
+Those two together bind a held Cut to `decisionState: "blocked"`, and
+`decisions-os-presentation.ts` derives the lane from exactly that. Moving a
+role-held Cut into the action lane therefore requires AMENDING that invariant,
+which also governs Launchpad mapping and provider authority. That is a
+presentation-contract decision with its own blast radius, not a detail of this
+one, and it is left open deliberately.
+
+So the honest statement of where this lands: the buyer is no longer told a
+confirmed stop-loss needs more evidence or that nothing is required of them, and
+they are told they can act manually. The row is still filed under held actions.
+Closing that last step needs an invariant amendment nobody has approved.
+
+### D097 round 3 — the lane, and the invariant that bound it
+
+Round 2 changed the sentence a role-held Cut carries. The row still landed in
+the held lane, which the surface presents as "needs review before any action",
+so a confirmed stop-loss was still filed beside genuine evidence gaps. Round 2
+recorded that as a blocker requiring an invariant amendment. This is that
+amendment, and it is now authorised.
+
+**What the old invariant actually bound.** *"A non-null `blocked_action_type`
+must serve as `decisionState: blocked`, `buyerAction: null`, a server-produced
+resolution, and a held-action label."* Every clause is about the DECISION
+STATE. The lane is a presentation grouping in
+`decisions-os-presentation.ts`, and the invariant never mentioned it — the
+coupling was in the code, which routed on `decisionState === "blocked"` alone.
+
+**The amendment.** A held row whose verdict stands on its own economics may be
+presented in the action lane. Today that is exactly one case: a Cut held solely
+by an unresolved automatic campaign role, carrying resolution
+`execute_stop_loss_manually`. Scale and Refresh held on the same role are
+explicitly excluded — both answer "where", so without the role they have no
+answer, and the held lane is the truthful place for them.
+
+**Why this does not open execution.** Four independent facts, each asserted:
+
+1. `decisionState` stays `"blocked"` and `buyerAction` stays null.
+2. `authorized_action` stays null: `authorityBlocker` is still
+   `"campaign_context"`, and `resolveNativeSnapshotAuthorizedAction` returns
+   null on its first line for any non-null blocker.
+3. The served action keeps `intent: "review"` and `providerMutation: null`.
+   That pair is what the surface gates a Meta write on
+   (`intent === "execute" && providerMutation === "pause"`), so no mutation is
+   offered.
+4. Launchpad still refuses the row: `launchpad-handoff-contract.ts` requires
+   `actionEligible === true` AND `decisionState === "act"`.
+
+The lane drives urgency, counts and grouping. It grants nothing, and the
+amendment says so in the invariant itself so a future reader cannot mistake a
+lane for authority.
+
+**What the operator now sees.** The Cut appears in the action lane with
+"Stop-Loss Confirmed - Automated Execution Held", a next step saying the loss
+does not depend on the campaign role and they can pause the ad themselves, and
+a scope note reading "Review only. Pause this ad in Meta yourself; automated
+stop is held for campaign role."
+
+This closes the acceptance objection: a Cut held ONLY by role uncertainty is no
+longer presented as needing more review, and nothing about automation moved.
+
+### D097 follow-up — which clock a decision input reads, and the repair seam
+
+`meta_campaign_config_history` carries three clocks: `effective_from` (when the
+configuration became true), `captured_at` (when the provider response carrying
+it was observed) and `created_at` (when the row was written). Measured
+read-only on production, `captured_at` precedes `created_at` on all 305,176
+rows by an average of ~22.7 hours and a maximum of **103 days**.
+
+**The as-of config lateral in `metric_context_days` keys on `captured_at`.** A
+decision input answers "what did we know on that day", not "what turned out to
+have been true"; the 103-day lag is exactly how far those two can diverge, and
+re-keying to `effective_from` would back-date a late observation into a day on
+which nobody could have acted on it.
+
+Measured cost, 90 days and 38,326 spending ad-days: `effective_from` finds an
+objective on **40** rows where `captured_at` does not, and where both find one
+they disagree on **0**. Those 40 are real missing evidence and are recorded as
+such rather than closed by switching clocks.
+
+**The repair seam.** The historical config repair does not create typed
+history; it writes `meta_campaign_daily` / `meta_adset_daily` config columns
+plus a separate audit manifest. A repaired day therefore reaches the decision
+input through the FIRST arm of the `COALESCE` — the daily value — and never
+through the as-of lateral. Newly captured typed rows use the observation time
+of their own provider response row, so they arrive through the lateral on the
+correct day.
+
+**Two predicates the repair has to respect**, because the daily arm carries
+them and neither table has an `updated_at` trigger (measured: zero non-internal
+triggers on both):
+
+- `truth_state = 'finalized'` and `validation_status = 'passed'`. A repair that
+  parks a row in another state removes it from decision input entirely.
+- `created_at <= cutoff AND updated_at <= cutoff`. Whether the repair stamps
+  `updated_at` decides who sees it, and the two repairs in this codebase should
+  answer that question DIFFERENTLY:
+  - `link-click-repair-backfill.ts` deliberately does not stamp it, because it
+    projects a measurement out of the row's OWN stored payload — no new
+    knowledge, and stamping would push repaired rows out of the very population
+    the repair exists to complete.
+  - the config repair projects from a separate raw receipt. Stamping
+    `updated_at` confines the repaired value to evaluations whose cutoff is at
+    or after the repair, which keeps historical replays honest; not stamping
+    makes it visible to replays of days it was missing from. Both are
+    defensible; the choice needs to be explicit rather than inherited.
+
+### D097 follow-up, decided — the config repair does NOT stamp `updated_at`
+
+Recorded as a decision, with the mechanism that makes it the only safe answer.
+
+**The decision.** The historical config repair leaves
+`meta_campaign_daily.updated_at` and `meta_adset_daily.updated_at` untouched and
+preserves `truth_state = 'finalized'` / `validation_status = 'passed'`. A
+repaired day is read as CORRECTED SOURCE TRUTH, not as "what the system knew at
+the time". Old decision rows are retained; a new generation is produced today.
+Provenance lives in a separate `meta_config_repair_audits` table carrying the
+source, the manifest hash and `applied_at`.
+
+**Why stamping would be destructive, measured in the code.** That column is the
+row's METRIC write clock, not a config-only clock, and the readers bound the
+whole row on it:
+
+- `data-source.ts:1503,1512` — the ad-decision hydration admits the adset and
+  campaign day rows on `updated_at <= $11`.
+- `ad-calibration-job.ts:897,905` — the native calibration source does the same
+  on `$5`, and at `:874,879` it also SELECTS `campaign_updated_at` /
+  `adset_updated_at` as provenance.
+- `ad-calibration-job.ts:5698-5712` — `isRowAvailableAtCutoff` is an AND over
+  SIX timestamps including `campaignUpdatedAt` and `adsetUpdatedAt`, applied
+  per AD-DAY row.
+
+That last one is the sharp edge: one bumped PARENT timestamp fails the
+conjunction for every CHILD ad-day joined to it, so stamping a campaign's
+`updated_at` during a config repair would evict that campaign's whole
+spend/revenue population from calibration for any cutoff before the repair —
+losing facts the repair never touched, in order to publish a config value.
+Neither table has an `updated_at` trigger (measured: zero non-internal triggers
+on both), so this is entirely the writer's choice and it is now made.
+
+**Contrast with the link-click repair, which reaches the same answer by a
+different route.** `link-click-repair-backfill.ts` also refuses to stamp, but
+because it projects a measurement out of the row's OWN payload — no new
+knowledge. The config repair projects from a separate same-day raw receipt and
+still refuses, because the cost of stamping is borne by unrelated facts on the
+same row. Same choice, two independent reasons; the reasons are recorded so
+neither is mistaken for a blanket rule.
+
+**What is explicitly NOT claimed.** This does not give the pipeline an epistemic
+as-of replay. Reading a repaired day as corrected source truth means a
+historical replay sees a value the system did not have that day. If an epistemic
+replay is wanted later it needs its own field and gate under a separate ADR —
+the daily metric `updated_at` is not being spent on it.
+
+
+### D097 round 4 — two accuracy corrections found in independent review
+
+**1. The held-Cut copy no longer asserts a realised loss.**
+
+Round 2 and 3 served `code: "execute_stop_loss_manually"`, label "Stop-Loss
+Confirmed - Automated Execution Held" and "The loss is established on this ad's
+own economics". That overclaims. A Cut can reach that point from a RELATIVE
+boundary — `ad-calibration-job.ts` describes `calibrated_relative` as "a
+relative boundary with NO economic unit" — so "below target ROAS" is not the
+same statement as "below break-even".
+
+Measured on production 2026-09-21: of the 19 Cut decisions that day, **zero**
+cited break-even. Their reasons read "ROAS 0.48 (28d) = 22% of commercial
+target… cut underperforming creative" and "0 purchases on 19,220 spend…
+sustained zero-conversion burn". Some of those are strong loss evidence; the
+uniform claim that the loss is established was wrong on the set as a whole.
+
+Now: `code: "apply_cut_manually"`, label "Cut Evidence Complete - Automated
+Execution Held", and a next step saying the verdict rests on the ad's own
+PERFORMANCE EVIDENCE, that the role decides how the stop is applied, and that
+the operator should review the evidence and pause the ad themselves if they
+agree. The authority facts are unchanged; only the claim is.
+
+**2. The campaign-role reader now refuses a creative carried by absence
+evidence.**
+
+The as-of lateral gated on `creative_id IS NOT NULL`, which excluded nothing:
+creative_id is non-null on all 2,383,235 production ad rows. What it missed is
+that **107 ads carry `presence = 'absent_unconfirmed'` as their newest state**,
+and those rows carry a creative_id with no `creativeId` entry in
+`field_coverage_json` — the value is present, nothing observed it. **19 of those
+ads have spend in the trailing 90 days.**
+
+D075 governs: "an absent_unconfirmed winner is absence EVIDENCE, never a
+provider state." The lateral now takes the newest row UNCONDITIONALLY and nulls
+the creative unless `presence = 'present'` AND the coverage entry is `true`.
+Reaching back to the last confirmed creative was the alternative and is wrong:
+it asserts the ad was still running that creative on a day the provider
+declined to confirm the ad at all. `decisions-workspace-read-model.ts` makes
+the same choice for status.
+
+Demonstrated against real PostgreSQL (A observed present 2026-01-10, absence
+2026-03-10): `2026-02-20 -> A`, `2026-04-20 -> NULL`.
+
+Live impact: 336 spending ad-days belong to those 19 ads and **all 336 still
+resolve**, because each absence is newer than the spending days. The correction
+is latent today and pinned so it stays correct when it is not.
+
+### D097 round 5 — the objective gap is an absence, and four ways of closing it were measured
+
+Independent review by the second agent objected that the differential replay was
+reporting a *proposed* source-qualified objective gate as though it were the
+repair. The objection is correct and the labelling is fixed: the readers in this
+tree still prefer `meta_campaign_daily.objective`
+(`lib/creative-decision-engine/data-source.ts:1478`, via `LEFT JOIN
+meta_campaign_daily c`) and then fall back to a typed-history lateral with **no
+`source_kind` filter**, and calibration reads the same table
+(`lib/creative-decision-engine/jobs/ad-calibration-job.ts:852`). So the
+runner now carries `repairedSemantics: "proposed_gate_not_implemented"` on that
+one dimension, renames it `campaign_objective_provenance_proposed_gate`, and
+stamps `readerSemanticsDeployed: false` on the whole receipt. A withdrawal of
+402 / 2,470 / 1,449 rows across the three measured cohorts is a counterfactual,
+not release evidence.
+
+**What the table actually holds.** Every one of the 305,176 rows in
+`meta_campaign_config_history` carries `source_kind = 'warehouse_daily'`; no
+`provider_config_receipt` row has ever been written, although
+`lib/meta/warehouse.ts:9554` contains the writer. The rows came from a migration
+backfill selecting out of `meta_campaign_daily`
+(`lib/migrations.ts:15992`, `:16157`), which carried the daily row's
+`source_snapshot_id` across and synthesised
+`captured_at = COALESCE(finalized_at, date T00:00:00Z)`. Two consequences, both
+measured:
+
+- The cited snapshot is not the field's provenance. It is an `ad_insights_bulk`
+  snapshot, and those payloads have no `objective`: 37,969 retained snapshots for
+  one business across five months, **0** containing the key.
+- `captured_at` is not an observation clock for these rows; it is the reporting
+  date. Asking this table "what was the config as of day D" is therefore
+  circular.
+
+**Four candidate closures, measured rather than argued.** Estate-wide, 62
+campaigns had spend in 2026-08-25..2026-09-20; **20** have `objective` NULL on
+every daily row, carrying 261,644.53 of window spend.
+
+1. *Back-date today's value.* Rejected. Meta's Business SDK lists `objective`
+   among the params `Campaign.api_update` accepts, which proves the client
+   supports sending that update — not that the server accepts it for a given
+   campaign. That is enough: `objective` cannot be assumed immutable, so a value
+   fetched now is evidence about now.
+2. *Dated Insights.* Rejected as a source for this field. The retained raw
+   `ad_insights_bulk` payload carries 18 keys and none is `objective`.
+3. *Two-sided bracket* (last complete raw receipt before the interval + first
+   after, identical field scope, identical normalised values, identical provider
+   `updated_time` older than the interval). Rejected **on measured coverage, not
+   on principle**: the live campaign edge finds 20/20 of the missing campaigns,
+   but **0/20** match a complete pre-2026-08-22 receipt, and **17 of 20** were
+   first seen after the 2026-08-22 outage began, so no left-hand end can exist.
+   Of 2,093 general bracket candidates, **0** fall in the repair set.
+4. *Same-day creative witness.* Partially viable, and the only candidate that
+   reaches the population. `meta_creative_daily.objective` is written from the
+   nested live edge value `ad?.campaign?.objective`
+   (`lib/meta/creatives-row-mappers.ts:748`) with `sourceSnapshotId` NULL. The
+   upsert sets `objective = COALESCE(EXCLUDED.objective, meta_creative_daily.objective)`
+   while advancing `updated_at = now()` unconditionally, so a same-day
+   `updated_at` alone does not prove the field was written that day — but
+   requiring `created_at` **and** `updated_at` to fall inside the same
+   provider-local day does, because then every write to the row happened within
+   that day. Measured that way, over the 20 campaigns' 243 spending
+   campaign-days:
+
+   | class | campaigns | spend-days | witnessed | window spend |
+   |---|---|---|---|---|
+   | no witness at all | 5 | 33 | 0 | 7,206.85 |
+   | every day witnessed, one value | 6 | 35 | 35 | 11,821.07 |
+   | partially witnessed, consistent | 9 | 175 | 113 | 242,616.61 |
+   | witnessed but conflicting | 0 | — | — | — |
+
+**Decision.** Only the fully witnessed class is repairable without inference, and
+it carries 11,821.07 — **4.5%** of the affected spend. The 93% sits in campaigns
+where 62 of 175 spending days have no contemporaneous observation, so closing
+them needs an interpolation between agreeing same-day observations, and
+`meta_creative_daily` retains no provider `updated_time` with which to rule out a
+change-and-revert inside a gap. No interpolation is authorized here.
+
+A repaired row from this source must not be stamped `provider_config_receipt`;
+it is a derived, unauditable observation and needs its own `source_kind`. Its
+`observed_at` is the observation instant, and because the value is warehouse
+completeness rather than replay fidelity, such a row can never be classified
+`exact_pit` by the differential replay.
+
+**Forward action, not in this release.** Repairing the campaign field list
+(dropping `bid_constraints{roas_average_floor}`, which the campaign object does
+not support and which returned HTTP 400 code 100 for the whole request) restarts
+receipts. Additionally, the nested creative edge should retain a field-scoped raw
+receipt and include `campaign{updated_time}`, which would give the same-day
+witness its own clock and convert the partially-witnessed class from
+interpolation into a clock-closable interval.
+
+**Rollback.** Nothing here writes a row or changes a reader; it records why four
+closures were refused and which one is worth building.
+
+### D097 round 6 — the verified suffix is real, calendar-bound, and economically thin
+
+Two proposals were tested against production rather than argued: keep class C's
+witnessed days by way of a *verified suffix*, and add a third evidence class for
+facts that are contemporaneous but hold no raw receipt.
+
+**The witness, measured at its strictest.** `meta_creative_daily.ad_id` is not a
+provider ad id — `groupRows(creative)` replaces it with a creative hash, and the
+real identifier is `payload_json.real_ad_id`. One creative in the affected set
+maps to more than one campaign in `meta_ad_dimensions`, and the creative-day
+writer coalesces the campaign relation on merge, so a row's `campaign_id` is not
+self-evidently right. Tightening the rule to require, all at once: a non-null
+objective; `created_at` **and** `updated_at` inside the same provider-local day;
+`associated_ads_count <= 1`; and `payload_json.real_ad_id` independently
+resolving to the same campaign in `meta_ad_daily` on that date — over the 20
+campaigns' 243 spending campaign-days:
+
+| class | campaigns | spend-days | witnessed | window spend |
+|---|---|---|---|---|
+| A no witness at all | 5 | 33 | 0 | 7,206.85 |
+| B every day witnessed, one value | 6 | 35 | 35 | 11,821.07 |
+| C partially witnessed, consistent | 9 | 175 | 109 | 242,616.61 |
+| D conflicting | 0 | — | — | — |
+
+Class B is unchanged under every filter applied (ambiguous-creative exclusion
+changed nothing; the single-ad + real-ad-id anchor cost 4 days, all in class C).
+B is therefore the robust repairable set.
+
+**The suffix exists and reaches the present, but is capped by the witness's own
+birthday.** Defining the verified suffix as the contiguous run of witnessed
+positive-spend days ending at the campaign's most recent spending day: 15 of 20
+campaigns have one, and **15 of 15 reach their last spending day** with a single
+consistent objective. The 5 without a suffix all stopped spending by 2026-09-03,
+so they need no current decision.
+
+The cap is structural. Same-day witnessed creative rows begin abruptly:
+0 on every date through 2026-09-03; partial on 09-04..09-07 (246/351, 137/352,
+112/333, 62/228); **0 again on 09-08**; then 100% from **2026-09-09** onward
+(338/338, 306/306, … 578/578). Every long suffix is therefore exactly 12 calendar
+days (2026-09-09..09-20). A 20-day sample is reachable around 2026-09-28 and a
+30-day sample around 2026-10-08 — by waiting, not by repairing. The single zero
+day at 09-08 also shows the fragility: one missed same-day sync truncates every
+campaign's suffix back to that day.
+
+**The economics do not clear at ad grain.** Inside the 12-day verified span, the
+15 campaigns carry 1,994 ad-days across 450 ads and **212 conversions in total**:
+83 ads have ≥1 conversion, **4** have ≥10, **0** have ≥30, and only 15 ads have
+spend on all 12 days. (An aggregate ROAS over this set spans 7 accounts and 3
+currencies and is therefore not a figure; it is not quoted.) So even with
+objective repaired, the binding constraint on a hard economic action here is
+sample size, not objective coverage.
+
+**Decision.** Do not discard class C's witnessed days — they are evidence and they
+accrue. But they support a *recommendation*, not an execution: no interpolation
+across an unwitnessed gap is authorized, and no economic Cut or Scale is claimed
+from a 12-day span that yields zero ads at 30 conversions. Class B may be
+repaired; class C is reported with its suffix length; class A is irreducible and
+no longer needs resolving.
+
+**Why the bracket stayed dead.** Independent audit found the repository already
+implements the two-sided idea: `sourceProvesWholeProviderDay`
+(`lib/meta/repair.ts:63-87`) requires a `provider_config_receipt` whose own
+provider-local calendar date equals the day being repaired, plus a corroborating
+observation at or after that day's end, plus `updated_time` present in both the
+requested `fieldScope` and the `observedFieldScope`. The proposal was that rule
+minus its day-equality clause, and two existing mechanisms independently refuse
+that: `confirmed_until` certifies an interval only through a chain of later
+complete delta runs, and `META_OBSERVATION_CHECKPOINT_INTERVAL_MS` declares 24h
+the longest identical truth may go unwitnessed — the proposal asked for 27 days.
+
+Provider documentation does not rescue it. The Campaign reference states
+`updated_time` only by exclusion ("If you update `spend_cap` or daily budget or
+lifetime budget, this will not automatically update this field") and never states
+which writes do advance it, so an unchanged clock is a documented-incomplete
+witness. Measured behaviour was good where testable — monotone across 96,128
+consecutive pairs, and 97 of 97 observed config changes advanced it — but every
+one of those changes sat at a sampling gap of ≤3 days; across 1,270 pairs at gaps
+≥4 days there were zero changes, so detection power over a 27-day span is not
+measured. The documented ODAX posture is *no* automatic server-side migration and
+legacy enums remain valid, so the relabel scenario is undocumented rather than
+documented; but the legacy→ODAX mapping is one-to-many, and 1,069 legacy-enum
+campaigns exist across 8 other business units that the pilot never sampled.
+
+**Two corrections worth acting on later.** The outage was campaign-endpoint-only:
+`adset_configs` has 211 complete delta runs through 2026-09-22 and covers 16 of
+the 27 days, an unexploited corroboration channel. And the activity-log endpoint
+carries `update_ad_set_optimization_goal` among its ~100 event types but nothing
+for campaign objective, so it can witness the ad-set field and not this one.
+
+**Rollback.** Nothing here writes a row or changes a reader.
+
+## D098 — Native Meta ad decisions bind observed configuration to their economic window (2026-09-22)
+
+**Observed failure.** The native calibration reader admitted the latest
+continuous, resolvable ad context and computed hard-cell economics only from
+verified days. The decision loader could aggregate all 28 ad days, select an
+older typed/daily config value, and attach a provider receipt for a different
+spelling or even a different custom-conversion target. In a read-only Bilsem
+case, one ad's loader initially counted $65,263 while calibration admitted
+$7,075.44. This is an input disagreement, not a threshold choice.
+
+**Decision.** The loader's economic rows and disjoint bands use the latest
+continuous context window, with the same economic-day/empty-day distinction as
+calibration. The source contract supplies config values; a warehouse value is
+a contradiction check, not a substitute source. Provider enum and display
+spellings agree only after case and word-separator normalization; distinct
+Meta enums and distinct custom-conversion IDs never merge. The current
+provider-local day's own receipt must name the context the action would affect.
+Its value may be established before a later observation brackets the entire
+day, because a same-day bracket is impossible on a natural run.
+
+Hard-action authorization requires both that current value observation and
+that **every economically meaningful day included in the ad's own decision
+metrics** has config authority. A zero-spend, zero-conversion, zero-revenue
+day is transparent. An unverified economic day may still inform a visible
+diagnosis; it cannot authorize a Cut, Scale or Refresh computed from mixed
+evidence. Invalid numeric provenance fails closed. The existing 20/30 sample
+floors, commercial target, recovery, hysteresis, role and automation rules
+remain separate gates. This does not infer a purchase target from results.
+
+The receipt's pending-corroboration age is measured against the account's
+provider-local evaluation day in both calibration and hydration. A 03:00 UTC
+run can still be on the prior day in America/Chicago; using the scheduler's
+UTC `asOfDate` would promote a receipt one day too early or misname its hold.
+The persisted batch still records the scheduler's UTC `asOfDate` as before.
+Boundary tests cover this distinction.
+
+**Historical gap audit.** A read-only 2026-08-21 TheSwaf decision-loader
+census found 77 ads with economic days, 11 fully verified and 66 held. An
+initial apparent August 5 contract/loader conflict was an investigator's
+`pg` DATE-to-JavaScript UTC formatting error; the actual blocked day was
+August 6. Its sampled provider `updated_time` fell inside the account-local
+day, so the shared bracket correctly withheld full-day authority. Across
+103 campaign-days, 51 bracketed, 41 lacked a same-day receipt, seven had a
+within-day update clock, and four lacked timely corroboration. Thirty-four
+held ads had a verified suffix, but its median was two days and 19 had zero
+conversions; 32 had no suffix. We retain the full admitted economic window
+for a decision rather than shortening each ad opportunistically. Future
+receipt coverage must improve at capture time; historical gaps are not
+relabelled as provider observations. Any user-facing period label must read
+the persisted admitted window because this sample had no full 28-day
+admitted window.
+
+**Identity and compatibility.** The native ad input envelope now enumerates
+custom-conversion identity, current observation and verified economic-window
+facts under `engine-v3-canonical-ad-evaluation.v12`. A receipt changing action
+authority therefore changes `input_hash` and `decision_hash` even when the
+performance values stay fixed. Prior v11 evaluations and snapshots retain
+their own keys and remain readable; they are not reinterpreted or rewritten.
+The native producer epoch is
+`v3-ad-2026-09-22-meta-config-economics-shadow`; it supersedes the unshipped
+September 21 local candidate and remains separate from the deployed older
+epoch. The shared creative evaluation envelope is unchanged.
+
+**Read-only replay evidence and limit.** At the 2026-08-21T20:59:59Z cutoff,
+the Bilsem loader and pure calibration agreed exactly on the admitted spend
+for two sampled ads ($7,075.44 and $11,204.09). An exact-context cell was
+Cut-ready (21 verified mature ads against the floor of 20). A poor-performing
+ad produced a raw Cut, but its last metric day was August 4, so the existing
+freshness and two-evaluation gates correctly withheld action. This is a
+positive verdict and a valid negative execution control, not proof that all
+fresh positive cases or the full writing job have passed. A further fresh,
+historical end-to-end replay and source-to-UI readback remain release gates.
+
+**Rollback.** Revert the loader and gate together and mint another native
+producer/evaluation version. Keep the old rows intact; never relabel them as
+v12 or backfill the new authority from current provider values.
+
+## D099 — Missing is not zero, and a config verdict names its receipt (2026-09-22)
+
+**Status.** Implemented in the working tree; not committed, not deployed. Every
+version it touches is UNSHIPPED (not in `ef33d238b`, zero rows in production,
+verified read-only on 2026-09-22: all 2,075,014 ad evaluations in the last ten
+days are `.v11`; no `v3-ad-2026-09-22-meta-config-economics-shadow` snapshot, no
+`v3-2026-09-21-role-held-verdict-preservation` lifecycle row, calibration rows
+only `.v5` and `legacy_unknown`), so each is amended in place rather than
+minted: `meta-funnel-stage.v1`, `meta-config-field-source.v1`,
+`engine-v3-canonical-ad-evaluation.v12`, `engine-v3-native-ad-calibration.v6`
+and the 09-21 `ENGINE_VERSION`. New versioned contracts:
+`meta-ad-day-link-click.v1`, `meta-metric-window.complete-or-null.v1`,
+`meta-creative-day-metric-evidence.v1`, `meta-config-field-evidence-ref.v1`,
+`meta-config-receipt-window-manifest.v1`.
+
+### Part 1 — one window rule for every event-count reader
+
+**The defect.** D095 made a single ad-day's link-click reading honest, and the
+shared funnel contract made a single day's stage reading honest. The WINDOW
+readers then threw the distinction away: the native 28-day rollup summed
+`COALESCE(link_clicks, 0)` over the raw column (admitting the very legacy zeros
+the bands in the same query refused), the funnel stages summed
+`FILTER (WHERE measured)`, the legacy creative, lifecycle and calibration jobs
+coalesced every metric to 0, the adset calibration read `NULL` as 0 in
+`toNumber` and in its per-adset merge, the forward-ingest fold summed only the
+measured provider rows, and the entity-signals backfill turned an unmeasured
+LPV into a tracking anomaly. A measured zero plus an unreported day became a
+confident zero; a partial sum passed as a complete one.
+
+**The rule** (`buildMetaCompleteWindowSql` / `resolveMetaCompleteWindowSum`,
+`lib/meta/funnel-stage-parse.ts`): a window sum is a measurement only when every
+decision-bearing day in it measured the metric. zero + missing is NULL; zero +
+zero is 0; value + missing is NULL; no rows is NULL; a day that did nothing at
+all is not a gap. Applied by the native hydration rollup and funnel windows, the
+native calibration source, the adset calibration (at adset-day and 28-day
+level, with an adset-day that delivered but has no ad rows counted as missing),
+the creative hydration and historical windows, the lifecycle job (per
+creative-day, then per window), the creative calibration job, the forward-ingest
+fold and the entity-signals backfill.
+
+**Aliases and malformed values.** One canonical alias per stage, never summed
+(unchanged). The SQL ladder now refuses a non-string `value` exactly as the
+TypeScript guard already did (0 such values in production over 120 days, so a
+parity fix, not a live change). A malformed value is missing, never 0 and never
+an error that aborts a whole read: every `::numeric` cast of unvalidated payload
+text was removed from these readers.
+
+**Link clicks at ad grain** use D095's classifier everywhere, now a qualified
+builder with a TypeScript twin (`lib/meta/link-click-parse.ts`); the TS reader
+`getMetaAdDailyRange` stopped recovering a value from the payload when the
+column is NULL, so it agrees with the SQL. `actions_absent` is now its own
+refusal, distinct from Meta's measured-zero encoding.
+
+**The creative grain cannot be read honestly from its columns.** The creative-day
+writer stored every display metric as a finite number (`parseFloat(x) || 0`,
+omni-first aliases, `linkClicks || inline_link_clicks`), so no reader could tell
+a measurement from a fabricated 0. The writer now stamps per-stage evidence,
+computed from the raw insight with the shared contract, in
+`payload_json.metric_evidence`; group and warehouse merges combine it strictly;
+decision readers read only the stamp; an unstamped legacy row is unmeasured.
+Display fields are unchanged. Consequence, accepted deliberately: creative-grain
+funnel and link metrics are NULL until the days in their window are stamped:
+about 28 days for the lifecycle windows, 90 for calibration percentiles and the
+`last90` fatigue window, and NEVER for `allHistory` of a creative that delivered
+before the stamp existed (its unstamped delivering days stay in that window
+forever). A fatigue baseline that lands on such a window therefore has no
+click-to-purchase rate; that fails closed and invents no decay, but the signal
+does not come back on its own. No backfill exists: the flattened payload lost
+the raw `actions`, so recovery needs a provider re-fetch.
+
+**Video and thumbstop.** No verified provider numerator or denominator exists.
+The writer's thumbstop is video STARTS over all impressions, which is not a
+three-second view. Every decision reader emits NULL for thumbstop and the video
+quartiles; the ad grain never had them. Display is unchanged and remains an
+open item (see below).
+
+**Fatigue.** `HistoricalWindow.clickToPurchaseRate` is `number | null`. An
+incomplete window used to be coerced to 0, which against a positive prior14
+baseline read as a 100% click-to-purchase collapse.
+
+### Part 2 — `ConfigFieldEvidenceRef`: the receipt a config verdict rests on
+
+**The defect.** The raw receipt model carries snapshot id, observation id, page
+clock, field scope and normalization version; the SQL source contract resolved
+each field to value/tier/readiness and dropped all of it. Same value and tier on
+a different receipt hashed identically; no stored decision could name its
+receipt. Worse, `configEvidence` was hashed into `.v12` inputs but persisted
+nowhere: the read model's `config_authority_verified` projection read a JSON
+path no writer produced (always NULL), and the release operational verifier
+rebuilt `.v12` input hashes without it, so every real `.v12` row would have
+failed its own proof.
+
+**The contract** (`lib/meta/config-field-evidence-ref.ts`): per field, the
+selected same-day receipt (snapshot id, observation id, observedAt, field-scope
+hash, normalization version, source class, PIT class, tier, readiness, source
+contract version) and, for bracketed tiers, the corroborating receipt. Only the
+SELECTED receipt is bound (evidence that chooses nothing must not move
+identity); `RESOLUTION_TIE_BREAK_SQL` now ends on the observation id so the
+selection is deterministic. A legacy snapshot-only receipt carries an explicit
+null observation id. The coherence rule is defined once and emitted as a
+TypeScript parser and a SQL predicate (parity executed on PostgreSQL over one
+shared fixture set); an absent, malformed or incoherent reference forces that
+field's readiness to `none` before any authority rule runs, in hydration
+(current day and every window day), in native calibration, and again in
+TypeScript for the current day. Beyond shape, it refuses a tier the contract
+can only reach through a modern receipt (`day_bracketed`, `point_in_day`) under
+any other class, and a corroborating receipt on a tier that closed no bracket;
+the other tier-to-class pairings were not encoded because they were not proven
+from the ladder. A `current_fallback` reference can
+only sit on tier `unknown` with readiness `none`.
+
+**Carried and persisted.** Current-day references travel whole; the economic
+window travels as a manifest (sha256 over one identity line per economically
+meaningful day, plus day, snapshot-only and incoherent counts), cross-checked
+against the TypeScript economic-day count. Both enter the `.v12` input hash with
+`metricContract` (the three metric rule versions). The hashed evidence members
+are persisted in `engine_v3_ad_decision_input_evidence`, keyed by
+`(contract_version, input_hash)`, rather than widening the high-volume
+evaluation table. The evaluation batch inserts each mapping before its
+evaluation rows with `ON CONFLICT DO NOTHING`, then reads it back and requires
+JSONB equality. A missing mapping or an existing hash bound to different JSON
+aborts the transaction. The operational verifier, the per-ad evidence API
+(`/api/creatives/decision-engine-v3/evidence`) and the AOV authority replay
+rebuild the `.v12` hash from it; before this, all three rebuilt it without
+`configEvidence` and would have refused every real `.v12` row. All readers use
+a `LEFT JOIN` on both key members so a pre-mapping row remains visible but
+fails lineage/hash proof closed. The new table has a JSON-object CHECK and
+created/updated timestamps; there is no evaluation-table column or ALTER.
+Native calibration binds a per-row receipt digest into
+the `.v6` source signature only (`.v5` recomputes byte-identically). The read
+model reads the D098 verdict from the persisted mapping, re-validates every
+stored reference with the same parser, and serves `configEvidence` read-only;
+the evidence window prints it. Nothing here grants authority.
+
+**D098 is not relaxed.** A current fallback is never historical evidence; an
+economic day without config authority still blocks a hard action; a missing
+objective is still out of scope. This change only makes more things fail
+closed.
+
+**Rollback.** Revert the readers, writer stamp and contracts together and mint
+new versions; keep stored mappings as written. An older image ignores the
+separate table.
+
+**Measured cost (read-only, production, 2026-09-22 cutoff).** The hydration
+statement with receipt references, per business: 211 ads 5.8 s, 191 ads
+5.5 s, 183 ads 9.2 s, 53 ads 2.6 s — inside the job's 30 s statement timeout.
+The reference laterals MUST stay optimization fences (`OFFSET 0`): unfenced,
+the 183-ad statement took 176.8 s, because the planner inlined the tier ladder
+into every one of the coherence gate's reads; with references nulled out it
+took 6.5 s. Pinned in `data-source.ad-grain.test.ts`.
+
+**Observed effect.** Read-only, same cutoff: the 28-day link-click total is now
+NULL for 155 of 211, 134 of 191, 59 of 183 and 8 of 53 ads in those businesses,
+because their windows include delivering days whose link clicks were never
+stored (the early-September NULL era awaiting the link-click repair). Those
+windows used to be served as partial sums. Hard actions are unaffected: funnel
+evidence is secondary (D038), and no verdict changed in a three-day Grandmix
+replay.
+
+**Storage.** Measured read-only: `engine_v3_ad_decision_evaluations` has no
+retention (rows since 2026-07-14, ~200k/day, ~4.3 KB/row) and the database is
+136 GiB against the 160 GiB growth fence. A realistic evidence object measured
+about 1.5 KB compressed. The separate table avoids a wide ALTER on the 43 GB
+evaluation relation and stores at most one object per contract/hash identity;
+it does not prove a lower daily growth rate when every evaluation has a unique
+input hash. Evidence remains required for recomputation, so retention or
+compaction for both relations remains open.
+
+**Open.** Creative-day re-sync coverage and the `allHistory` horizon, the
+display "3-second" thumbstop label (video starts over impressions), a shared
+decision-bearing activity predicate (restated with parity pins in four
+places), and the evaluation table's retention.

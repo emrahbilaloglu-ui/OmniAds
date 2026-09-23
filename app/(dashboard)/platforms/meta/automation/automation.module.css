@@ -338,6 +338,11 @@
   justify-content: space-between;
 }
 
+.stopPreflight {
+  display: grid;
+  gap: 8px;
+}
+
 .killRow > span:first-child {
   color: #fff;
   font-size: 13.5px;

@@ -99,6 +99,43 @@ describe("meta config snapshots", () => {
     expect(queryText).toContain("provider_account_ref_id uuid");
   });
 
+  it("records a raw receipt without creating a new snapshot for every unchanged observation", async () => {
+    await configSnapshots.appendMetaConfigSnapshots([{
+      businessId: "biz-1",
+      accountId: "act_1",
+      entityLevel: "campaign",
+      entityId: "cmp-1",
+      payload: {
+        objective: "OUTCOME_SALES",
+        optimizationGoal: null,
+        bidStrategyType: null,
+        bidStrategyLabel: null,
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: 10,
+        lifetimeBudget: null,
+      },
+      providerObservation: {
+        kind: "provider_config_receipt",
+        sourceSnapshotId: "raw-1",
+        observedAt: "2026-04-03T12:00:00.000Z",
+        normalizationVersion: 2,
+        fieldScope: ["id,objective,daily_budget"],
+      },
+    }]);
+    const call = sql.mock.calls[0] ?? [];
+    const statement = String(call[0]?.join(" ") ?? "");
+    const encodedRows = call.find((part) =>
+      typeof part === "string" && part.startsWith('[{"business_id"')
+    ) as string | undefined;
+    expect(statement).toContain("latest.payload - 'providerObservation'");
+    expect(statement).toContain("latest.payload->'providerObservation'->>'kind'");
+    expect(statement).toContain("COALESCE(item.captured_at, now())");
+    expect(encodedRows).toContain('"captured_at":"2026-04-03T12:00:00.000Z"');
+    expect(encodedRows).toContain('"sourceSnapshotId":"raw-1"');
+  });
+
   it("reads latest snapshots with per-entity index lookups instead of a global window sort", async () => {
     let queryText = "";
     let queryParams: unknown[] = [];
@@ -108,24 +145,70 @@ describe("meta config snapshots", () => {
       return [
         {
           entity_id: "cmp-1",
+          id: "snapshot-1",
+          captured_at: "2026-04-03T12:00:00.000Z",
           payload: { bidStrategyType: "lowest_cost_without_cap" },
         },
       ];
     });
 
+    const onObservation = vi.fn();
     const rows = await configSnapshots.readLatestMetaConfigSnapshots({
       businessId: "biz-1",
+      providerAccountId: "act_1",
       entityLevel: "campaign",
       entityIds: ["cmp-1", "cmp-1"],
+      onObservation,
     });
 
     expect(queryText).toContain("JOIN LATERAL");
+    expect(queryText).toContain("account_id = $3");
+    expect(queryText).toContain("captured_at < $5");
     expect(queryText).toContain("LIMIT 1");
     expect(queryText).not.toContain("ROW_NUMBER()");
-    expect(queryParams).toEqual(["biz-1", "campaign", ["cmp-1"]]);
+    expect(queryParams).toEqual(["biz-1", "campaign", "act_1", ["cmp-1"], null, false]);
     expect(rows.get("cmp-1")).toMatchObject({
       bidStrategyType: "lowest_cost_without_cap",
     });
+    expect(onObservation).toHaveBeenCalledWith("cmp-1", {
+      id: "snapshot-1",
+      accountId: "act_1",
+      capturedAt: "2026-04-03T12:00:00.000Z",
+      sourceKind: "meta_config_snapshots",
+      providerObservation: null,
+    });
+  });
+
+  it("uses the provider account and local day boundary for historical configuration", async () => {
+    query.mockImplementation(async (statement: string, params?: unknown[]) =>
+      statement.includes("meta_config_snapshots")
+        ? [{ entity_id: "cmp-1", payload: { objective: "OUTCOME_SALES" } }]
+        : [{ timezone: "America/Los_Angeles" }]
+    );
+    const rows = await configSnapshots.readLatestMetaConfigSnapshots({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      entityLevel: "campaign",
+      entityIds: ["cmp-1"],
+      asOfDay: "2026-04-03",
+      requireProviderReceipt: true,
+    });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[1]).toEqual([
+      "biz-1", "campaign", "act_1", ["cmp-1"], "2026-04-04T07:00:00.000Z", true,
+    ]);
+    expect(rows.get("cmp-1")?.objective).toBe("OUTCOME_SALES");
+
+    query.mockClear();
+    query.mockResolvedValue([]);
+    expect(await configSnapshots.readLatestMetaConfigSnapshots({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      entityLevel: "campaign",
+      entityIds: ["cmp-1"],
+      asOfDay: "2026-04-03",
+    })).toEqual(new Map());
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
   it("reads previous informative snapshots with a bounded per-entity lookup", async () => {
@@ -189,6 +272,7 @@ describe("meta config snapshots", () => {
 
     const rows = await configSnapshots.readPreviousDifferentMetaConfigDiffs({
       businessId: "biz-1",
+      providerAccountId: "act_1",
       entityLevel: "campaign",
       entityIds: ["cmp-1", "cmp-1"],
     });
@@ -197,6 +281,8 @@ describe("meta config snapshots", () => {
     expect(queryText).toContain("LEFT JOIN LATERAL");
     expect(queryText).toContain("previous_bid");
     expect(queryText).toContain("previous_budget");
+    expect(queryText).toContain("provider_config_receipt");
+    expect(queryText).toContain("sourceSnapshotId");
     expect(queryText).toContain("LIMIT 1");
     expect(queryText).not.toContain("ORDER BY entity_id ASC");
     expect(rows.get("cmp-1")).toMatchObject({
@@ -241,6 +327,8 @@ describe("meta config snapshots", () => {
     // The bound is an absolute instant, never `(date + 1)` — that form is cast
     // with the DB SESSION timezone rather than the advertiser's.
     expect(queryText).toContain("::timestamptz");
+    expect(queryText).toContain("provider_config_receipt");
+    expect(queryText).toContain("sourceSnapshotId");
     expect(queryText).not.toContain("::date + 1");
 
     expect(queryText).toContain("COUNT(*)::int AS observation_count");

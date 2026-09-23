@@ -47,7 +47,12 @@ describe("GET /api/launchpad/meta/campaigns", () => {
         objective: "OUTCOME_SALES",
         status: "ACTIVE",
         effective_status: "ACTIVE",
-        daily_budget: 50,
+        /* meta_campaign_config_history.daily_budget is the PROVIDER's own
+           minor-unit integer, unscaled at capture — 5000 is a $50.00 daily
+           budget. The fixture used to read 50 and the route multiplied it by
+           100, which treated the column as major units and served every
+           budget a hundredfold. */
+        daily_budget: 5000,
         lifetime_budget: null,
         is_adset_budget_sharing_enabled: true,
         adset_count: 3,

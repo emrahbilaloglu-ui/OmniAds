@@ -5,6 +5,10 @@ import type {
   MetaLaunchCampaignInput,
 } from "@/lib/meta/launch-write";
 import {
+  metaMinorUnitsToMajor,
+  resolveMetaCurrencyOffset,
+} from "@/lib/currency/meta-currency-offsets";
+import {
   ATTRIBUTION_PRESETS,
   DEFAULT_ATTRIBUTION_PRESET_ID,
   attributionSpecHasClick,
@@ -619,14 +623,46 @@ export function toAdInput(
   };
 }
 
-export function amountToMinorUnits(value: string) {
+/**
+ * What the operator typed -> what goes on the wire, at the PROVIDER's scale.
+ *
+ * `amountMinor` travels to `daily_budget` / `bid_amount` verbatim
+ * (lib/meta/launch-write.ts), so the multiplier here has to be Meta's own
+ * per-currency offset. It was a hardcoded 100, which is right for USD, TRY and
+ * GBP and wrong by 100x for every currency Meta lists at offset 1 — a ¥5,000
+ * daily budget would have been submitted as ¥500,000.
+ *
+ * An unresolvable currency yields 0, the same sentinel a blank or non-positive
+ * amount already produces, so `validateMetaLaunchPayload` refuses the launch
+ * through the existing `budget_required` / `bid_amount_required` blockers
+ * rather than sending a number at a scale nobody could name.
+ */
+export function amountToMinorUnits(
+  value: string,
+  currency: string | null | undefined,
+) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return 0;
-  return Math.round(parsed * 100);
+  const resolved = resolveMetaCurrencyOffset(currency);
+  if (resolved.status !== "resolved") return 0;
+  return Math.round(parsed * resolved.offset);
 }
 
-export function amountFromMinorUnits(value: number) {
-  return (value / 100).toFixed(2);
+/**
+ * The inverse, for rehydrating a saved draft into the operator's input field.
+ *
+ * Returns "" when the provider has no offset for the currency: an empty field
+ * the operator must refill is recoverable, a field pre-filled at the wrong
+ * scale is not. Fraction digits follow the offset too — an offset-1 currency
+ * has no minor unit to show.
+ */
+export function amountFromMinorUnits(
+  value: number,
+  currency: string | null | undefined,
+) {
+  const major = metaMinorUnitsToMajor({ minorUnits: value, currency });
+  if (!major.ok) return "";
+  return major.majorUnits.toFixed(major.subdivisionDigits);
 }
 
 export function adsManagerUrl(accountId: string, entity: "campaign" | "adset" | "ad", id: string) {

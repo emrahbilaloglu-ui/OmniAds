@@ -369,6 +369,37 @@ describe("computeFatigue", () => {
     expect(output.ctrDecay).toBeLessThanOrEqual(0);
   });
 
+  /*
+    An unmeasured recent window has NO click-to-purchase rate. It used to be
+    coerced to 0 by the callers, and 0 against a positive prior14 rate read as
+    a 100% collapse: decay fabricated out of a window the provider never
+    reported. Nor may the 28-day cumulative stand in for the recent window.
+  */
+  it("NEGATIVE: an unmeasured recent click-to-purchase rate is not a decay", () => {
+    const windows = {
+      last14: { spend: 500, purchases: 8, roas: 3.2, ctr: 2.2, clickToPurchaseRate: null },
+      prior14: { spend: 500, purchases: 7, roas: 2.8, ctr: 1.9, clickToPurchaseRate: 0.07 },
+    };
+    const output = computeFatigue(
+      makeInput({ frequency: 3, clickToPurchaseRate: 0.001, historicalWindows: windows }),
+    );
+    expect(output.clickToPurchaseDecay).toBeNull();
+    expect(output.evidence.join(" ")).not.toContain("Click-to-purchase decay");
+  });
+
+  it("POSITIVE: a measured collapse is still a decay", () => {
+    const output = computeFatigue(
+      makeInput({
+        frequency: 3,
+        historicalWindows: {
+          last14: { spend: 500, purchases: 8, roas: 3.2, ctr: 2.2, clickToPurchaseRate: 0.01 },
+          prior14: { spend: 500, purchases: 7, roas: 2.8, ctr: 1.9, clickToPurchaseRate: 0.07 },
+        },
+      }),
+    );
+    expect(output.clickToPurchaseDecay).toBeGreaterThan(0.8);
+  });
+
   it("does not let benchmark weakening replace an actual decay signal", () => {
     const output = computeFatigue(
       makeInput({

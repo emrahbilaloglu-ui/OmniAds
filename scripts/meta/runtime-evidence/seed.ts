@@ -16,6 +16,7 @@
 import bcrypt from "bcryptjs";
 import { Client } from "pg";
 
+import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
 import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metrics";
 
 /** Stable ids so evidence can name a row and a later run can find it again. */
@@ -171,9 +172,9 @@ async function connectMeta(client: Client, businessId: string): Promise<void> {
                      token_expires_at = EXCLUDED.token_expires_at`,
     [
       connection.rows[0]!.id,
-      // Not a credential. It is never sent anywhere: the harness makes no
-      // provider call, and every Graph request in this branch is refused by the
-      // release gates before a token is read.
+      // Not a credential. Every harness server preloads a network guard that
+      // records and rejects Meta Graph access. Read attempts stay local and
+      // are reported; any provider mutation method fails the harness.
       "runtime-evidence-not-a-real-token",
     ],
   );
@@ -345,6 +346,7 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
 
     await seedHistoryJournal(client);
     await seedCreativeStudioAssets(client);
+    await seedIntelligenceCampaignRole(client);
     await assertD6Shape(client);
 
     return {
@@ -368,6 +370,144 @@ export async function seedRuntimeEvidence(databaseUrl: string): Promise<RuntimeS
   } finally {
     await client.end();
   }
+}
+
+/**
+ * One published campaign and one automatic role row for Account Intelligence.
+ *
+ * The runtime fault test renames the campaign-context table to prove that one
+ * failed source degrades exactly one section. Without a campaign in the
+ * selected window, the source correctly short-circuits on an empty id list and
+ * the rename tests nothing. This fixture makes that fault non-vacuous while
+ * preserving the production finalization gate: the warehouse row is visible
+ * through a real verified publication pointer rather than by disabling v2.
+ */
+async function seedIntelligenceCampaignRole(client: Client): Promise<void> {
+  const campaignId = "cmp_runtime_1";
+
+  await client.query(
+    `INSERT INTO meta_campaign_daily (
+       business_id, provider_account_id, date, campaign_id,
+       campaign_name_current, campaign_status, objective, buying_type,
+       optimization_goal, custom_event_type, account_timezone, account_currency,
+       spend, impressions, clicks, reach, frequency, conversions, revenue, roas,
+       metric_schema_version, truth_state, validation_status, finalized_at,
+       source_run_id, updated_at
+     ) VALUES (
+       $1, $2, current_date - 1, $3,
+       'Runtime evidence campaign', 'ACTIVE', 'OUTCOME_SALES', 'AUCTION',
+       'OFFSITE_CONVERSIONS', 'PURCHASE', 'Europe/Istanbul', 'TRY',
+       120, 12000, 360, 9000, 1.33, 4, 300, 2.5,
+       $4, 'finalized', 'passed', now(), 'runtime-evidence-campaign', now()
+     )
+     ON CONFLICT (business_id, provider_account_id, date, campaign_id)
+     DO UPDATE SET
+       campaign_name_current = EXCLUDED.campaign_name_current,
+       campaign_status = EXCLUDED.campaign_status,
+       objective = EXCLUDED.objective,
+       optimization_goal = EXCLUDED.optimization_goal,
+       custom_event_type = EXCLUDED.custom_event_type,
+       spend = EXCLUDED.spend,
+       impressions = EXCLUDED.impressions,
+       clicks = EXCLUDED.clicks,
+       reach = EXCLUDED.reach,
+       conversions = EXCLUDED.conversions,
+       revenue = EXCLUDED.revenue,
+       roas = EXCLUDED.roas,
+       metric_schema_version = EXCLUDED.metric_schema_version,
+       truth_state = 'finalized',
+       validation_status = 'passed',
+       finalized_at = now(),
+       source_run_id = EXCLUDED.source_run_id,
+       updated_at = now()`,
+    [
+      BUSINESS_ONE_ACCOUNT,
+      ACCOUNT_ONE,
+      campaignId,
+      META_CANONICAL_METRIC_SCHEMA_VERSION,
+    ],
+  );
+
+  const slice = await client.query<{ id: string }>(
+    `INSERT INTO meta_authoritative_slice_versions (
+       business_id, provider_account_id, day, surface, candidate_version,
+       state, truth_state, validation_status, status, staged_row_count,
+       aggregated_spend, validation_summary, source_run_id,
+       stage_started_at, stage_completed_at, publish_started_at,
+       published_at, updated_at
+     ) VALUES (
+       $1, $2, current_date - 1, 'campaign_daily', 1,
+       'finalized_verified', 'finalized', 'passed', 'published', 1,
+       120, '{"runtime_evidence":"verified"}'::jsonb,
+       'runtime-evidence-campaign', now(), now(), now(), now(), now()
+     )
+     ON CONFLICT (
+       business_id, provider_account_id, day, surface, candidate_version
+     ) DO UPDATE SET
+       state = 'finalized_verified',
+       truth_state = 'finalized',
+       validation_status = 'passed',
+       status = 'published',
+       staged_row_count = 1,
+       aggregated_spend = 120,
+       validation_summary = '{"runtime_evidence":"verified"}'::jsonb,
+       source_run_id = 'runtime-evidence-campaign',
+       published_at = now(),
+       updated_at = now()
+     RETURNING id::text AS id`,
+    [BUSINESS_ONE_ACCOUNT, ACCOUNT_ONE],
+  );
+  const sliceId = slice.rows[0]?.id;
+  if (!sliceId) throw new Error("runtime campaign publication slice was not returned");
+
+  await client.query(
+    `INSERT INTO meta_authoritative_publication_pointers (
+       business_id, provider_account_id, day, surface,
+       active_slice_version_id, published_by_run_id, publication_reason,
+       published_at, updated_at
+     ) VALUES (
+       $1, $2, current_date - 1, 'campaign_daily', $3::uuid,
+       'runtime-evidence-campaign', 'verified_runtime_fixture', now(), now()
+     )
+     ON CONFLICT (business_id, provider_account_id, day, surface)
+     DO UPDATE SET
+       active_slice_version_id = EXCLUDED.active_slice_version_id,
+       published_by_run_id = EXCLUDED.published_by_run_id,
+       publication_reason = EXCLUDED.publication_reason,
+       published_at = now(),
+       updated_at = now()`,
+    [BUSINESS_ONE_ACCOUNT, ACCOUNT_ONE, sliceId],
+  );
+
+  await client.query(
+    `INSERT INTO engine_v3_campaign_context_daily (
+       business_id, provider_account_id, campaign_id, campaign_name,
+       as_of_date, inferred_kind, confidence_score, confidence_class,
+       kind_source, kind_basis, resolver_version, signal_scores_json,
+       evidence_json, conflict_reasons_json, hysteresis_state_json,
+       input_freshness_json, updated_at
+     ) VALUES (
+       $1, $2, $3, 'Runtime evidence campaign', current_date - 1,
+       'main', 0.94, 'high', 'system_inferred', 'behavioral', $4,
+       '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, '{}'::jsonb, now()
+     )
+     ON CONFLICT (business_id, campaign_id, as_of_date)
+     DO UPDATE SET
+       provider_account_id = EXCLUDED.provider_account_id,
+       inferred_kind = EXCLUDED.inferred_kind,
+       confidence_score = EXCLUDED.confidence_score,
+       confidence_class = EXCLUDED.confidence_class,
+       kind_source = EXCLUDED.kind_source,
+       kind_basis = EXCLUDED.kind_basis,
+       resolver_version = EXCLUDED.resolver_version,
+       updated_at = now()`,
+    [
+      BUSINESS_ONE_ACCOUNT,
+      ACCOUNT_ONE,
+      campaignId,
+      CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+    ],
+  );
 }
 
 /**

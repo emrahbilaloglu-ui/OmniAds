@@ -96,7 +96,7 @@ describe("MetaDrillDrawer", () => {
     expect(html).toContain("Brand KPIs");
     expect(html).toContain("Cost / ThruPlay");
     expect(html).toContain("ThruPlay rate");
-    expect(html).toContain("Hook rate (3s)");
+    expect(html).toContain("Video-view rate");
     expect(html).not.toContain("WHY");
     expect(html).not.toContain("Launchpad bridge");
     expect(html).not.toContain("data-meta-drill-kpis");

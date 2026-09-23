@@ -7,11 +7,10 @@
  * environment, and every case here asks both the same question. The difference
  * between the two answers is the gate.
  *
- * Four gates are opened on the second server: the Meta Stop, the decision
- * workflow, the share mint and the account picker. Every one of them acts on
- * our own database and contacts no provider. `META_LAUNCHPAD_EXECUTION` and
- * `META_AUTOMATION_LIVE_WRITES` are opened NOWHERE in this harness: their next
- * step is a call to Meta, and no local evidence may be produced by making one.
+ * The second server opens the single Meta write capability, the share mint and
+ * the account picker. These tests use the write capability only for the local
+ * decision-workflow overlay and never invoke a provider mutation. The Meta
+ * Stop is an incident control and remains reachable on both servers.
  *
  * Three properties are under test, and the third is the one that matters most:
  *
@@ -88,6 +87,20 @@ async function readStop(businessId: string): Promise<boolean | null> {
   });
 }
 
+/** Restore the shared fixture even when an assertion interrupts a ceremony. */
+async function resetStop(businessId: string): Promise<void> {
+  await withDb(async (client) => {
+    await client.query(
+      `UPDATE meta_automation_business_controls
+          SET kill_switch_engaged = FALSE,
+              kill_switch_reason = NULL,
+              updated_at = NOW()
+        WHERE business_id = $1`,
+      [businessId],
+    );
+  });
+}
+
 /*
  * No sign-in here. The `meta-runtime-chromium` project carries one storage
  * state for the whole run, because logging in per test trips the login
@@ -99,27 +112,35 @@ async function readStop(businessId: string): Promise<boolean | null> {
 test.describe("the Meta Stop, engaged and released against the real database", () => {
   const automation = `/api/meta/automation?businessId=${handle.businesses.oneAccount}&providerAccountId=${handle.accounts.one}`;
 
-  test("is refused on the shipped server, and stores nothing", async ({ page }) => {
-    const before = await readStop(handle.businesses.oneAccount);
+  test.afterEach(async () => {
+    await resetStop(handle.businesses.oneAccount);
+  });
 
+  test("is reachable on the shipped server and restores the released state", async ({
+    page,
+  }) => {
+    const release = () =>
+      postTo(page, handle.baseUrl, automation, { action: "release_kill_switch" });
+    await release();
+    expect(await readStop(handle.businesses.oneAccount)).toBe(false);
     const result = await postTo(page, handle.baseUrl, automation, {
       action: "engage_kill_switch",
       reason: "runtime evidence probe",
     });
-
-    expect(result.status, result.body).toBe(503);
-    expect(result.body).toContain("automation_stop_disabled");
-    expect(result.body).toMatch(/not enabled yet/i);
+    expect(result.status, result.body).toBe(200);
+    expect(result.body).not.toContain("automation_stop_disabled");
     expect(result.body).not.toMatch(/META_[A-Z_]+/);
-    expect(await readStop(handle.businesses.oneAccount)).toBe(before);
+    expect(await readStop(handle.businesses.oneAccount)).toBe(true);
+    const released = await release();
+    expect(released.status, released.body).toBe(200);
+    expect(await readStop(handle.businesses.oneAccount)).toBe(false);
   });
 
   test("engages, reads back, releases, reads back, and does it again", async ({
     page,
   }) => {
     /**
-     * The reversibility proof, which is the whole reason the gate holds ENGAGE
-     * and never RELEASE. A stop that cannot be lifted is worse than no stop, so
+     * The reversibility proof. A stop that cannot be lifted is worse than no stop, so
      * "it engaged" is not the claim worth making — "it engaged, and then it let
      * go, and then it did both again" is.
      *
@@ -198,10 +219,10 @@ test.describe("the Meta Stop, engaged and released against the real database", (
 
   test("releases at the SHIPPED gate setting too", async ({ page }) => {
     /**
-     * The asymmetry, proven where it counts. Engaging is held; lifting is not,
-     * at any setting. This engages on the open server and then releases through
-     * the shipped one — the deployment an operator would actually be sitting in
-     * — so a stop can never be stranded by the rollout state that created it.
+     * Reachability across processes, proven where it counts. This engages on
+     * the second server and releases through the shipped one — the deployment
+     * an operator would actually be sitting in — so a stop cannot be stranded
+     * by a rollout difference.
      */
     await postTo(page, handle.gatesOpenBaseUrl, automation, {
       action: "engage_kill_switch",
@@ -217,24 +238,23 @@ test.describe("the Meta Stop, engaged and released against the real database", (
     expect(await readStop(handle.businesses.oneAccount)).toBe(false);
   });
 
-  test("offers the control on screen, disabled with its reason", async ({ page }) => {
+  test("offers a live control on the shipped server", async ({ page }) => {
     await openSurface(
       page,
       handle,
       `/c/${handle.businesses.oneAccount}/meta/automation`,
     );
 
-    const control = page.locator('[data-field="business-writes-control"] button');
+    const control = page.locator(
+      '[data-field="business-writes-control"][data-surface="desktop"] button',
+    );
     await expect(control).toHaveCount(1);
     // The Stop is released at this point, so the offered direction is engage.
-    await expect(control).toBeDisabled();
-    // The contract key is constant; the refusal is the `disabled` state and
-    // the reason beside it, which the next assertions read.
+    await expect(control).toBeEnabled();
     await expect(control).toHaveAttribute("data-ctl", "gated:AUTO-01A engage");
-    await expect(control).toHaveAttribute("data-stop-engage-refused", "");
+    expect(await control.getAttribute("data-stop-engage-refused")).toBeNull();
 
     const text = (await page.locator("main").first().innerText()).replace(/\s+/g, " ");
-    expect(text).toMatch(/a stop that cannot be released is worse than no stop/i);
     expect(text).not.toMatch(/META_[A-Z_]+/);
   });
 
@@ -246,7 +266,9 @@ test.describe("the Meta Stop, engaged and released against the real database", (
       handle.gatesOpenBaseUrl,
     );
 
-    const control = page.locator('[data-field="business-writes-control"] button');
+    const control = page.locator(
+      '[data-field="business-writes-control"][data-surface="desktop"] button',
+    );
     await expect(control).toHaveCount(1);
     await expect(control).toHaveAttribute("data-ctl", "gated:AUTO-01A engage");
     expect(await control.getAttribute("data-stop-engage-refused")).toBeNull();

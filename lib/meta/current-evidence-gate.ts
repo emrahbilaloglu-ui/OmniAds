@@ -16,8 +16,9 @@
  *  - entity observation runs and states (`meta_entity_state_history`)
  *
  * They now share this single function. A historical, finalized, backfill,
- * repair or replay day may still USE the fetched inventory in memory to enrich
- * its metric facts; it may not record it as evidence of anything.
+ * repair or replay day cannot use current inventory for historical config
+ * columns. Its metric facts remain available while dated config is repaired
+ * from separately proven source receipts.
  */
 
 /**

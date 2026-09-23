@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { getCurrentSchedulingAttemptId } from "@/lib/sync/scheduling-attempt";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
@@ -71,8 +72,19 @@ import {
 } from "@/lib/meta/finalization-proof";
 import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metrics";
 import {
+  readMetaFunnelStageFromPayload,
+  type MetaFunnelStageId,
+} from "@/lib/meta/funnel-stage-parse";
+import { resolveAdDayAuthoritativeLinkClicks } from "@/lib/meta/link-click-parse";
+import { mergeMetaCreativeDayPayloadMetricEvidence } from "@/lib/meta/creative-day-metric-evidence";
+import {
   deriveManualBidAmount,
   formatBidStrategyLabel,
+  normalizeBidStrategy,
+  normalizeCustomEventType,
+  normalizeOptimizationGoal,
+  metaTargetRoasFromProviderFloor,
+  roundCurrencyAmount,
   stripIncompleteConstrainedBidFields,
 } from "@/lib/meta/configuration";
 
@@ -220,6 +232,11 @@ function payloadActionMetricNumber(payload: unknown, actionTypes: string[]) {
   return matched ? total : null;
 }
 
+function payloadFunnelStageNumber(payload: unknown, stageId: MetaFunnelStageId): number | null {
+  const reading = readMetaFunnelStageFromPayload(payload, stageId);
+  return reading.state === "measured" ? reading.value : null;
+}
+
 function payloadThruplayActions(payload: unknown) {
   const explicit = payloadMetricNumber(payload, "thruplay_actions");
   if (explicit != null) return explicit;
@@ -235,28 +252,13 @@ function payloadThruplayActions(payload: unknown) {
     "onsite_conversion.video_thruplay_watched",
   ]);
   if (explicitActionThruplay != null) return explicitActionThruplay;
-  return payloadActionMetricNumber(payload, ["video_view"]);
+  return null;
 }
 
-function payloadVideoViews3s(payload: unknown, impressions: number) {
-  if (payload && typeof payload === "object") {
-    const raw = (payload as Record<string, unknown>).video_play_actions;
-    if (Array.isArray(raw)) {
-      const first = raw[0];
-      const parsed =
-        first && typeof first === "object"
-          ? toNullableNumber((first as { value?: unknown }).value)
-          : toNullableNumber(first);
-      if (parsed != null) return parsed;
-    }
-  }
-  const rawVideoPlayActions = payloadMetricNumber(payload, "video_play_actions");
-  if (rawVideoPlayActions != null) return rawVideoPlayActions;
-  const rawActionsVideoViews = payloadActionMetricNumber(payload, ["video_view"]);
-  if (rawActionsVideoViews != null) return rawActionsVideoViews;
-  const thumbstop = payloadMetricNumber(payload, "thumbstop");
-  if (thumbstop == null || impressions <= 0) return null;
-  return Math.round((thumbstop / 100) * impressions);
+function payloadVideoViews3s(payload: unknown) {
+  // Video starts are not a measured three-second view. An old thumbstop ratio
+  // is also not a raw count, so neither can fill an absent provider event.
+  return payloadActionMetricNumber(payload, ["video_view"]);
 }
 
 const META_CREATIVE_MEDIA_PAYLOAD_KEYS = new Set([
@@ -8868,6 +8870,99 @@ export interface MetaConfigReceiptEvidence {
   complete: boolean;
   /** When THIS level's response was observed. */
   observedAt: string;
+  /** Per-entity page observation times when pagination spans more than one response. */
+  rowObservedAtByEntityId?: Readonly<Record<string, string>>;
+  /** Exact entity IDs returned by this response, including metric-free entities. */
+  observedEntityIds?: readonly string[];
+  /** Raw provider response containing those IDs; never an Insights snapshot. */
+  sourceSnapshotId?: string | null;
+  /** The exact partition which retained the response observation. */
+  partitionId: string | null;
+  /** Attempt identity, when the partition belongs to a sync run. */
+  runId?: string | null;
+  /** Effective top-level provider selector after any field-specific fallback. */
+  fieldScope?: readonly string[];
+}
+
+function requestedMetaTopLevelFields(value: unknown): Set<string> | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const result = new Set<string>();
+  let depth = 0;
+  let token = "";
+  const addToken = () => {
+    const name = token.trim().split(/[({]/, 1)[0]?.trim();
+    if (name) result.add(name);
+    token = "";
+  };
+  for (const char of value) {
+    if (char === "," && depth === 0) {
+      addToken();
+    } else {
+      token += char;
+      if (char === "{" || char === "(") depth += 1;
+      if (char === "}" || char === ")") depth -= 1;
+      if (depth < 0) return null;
+    }
+  }
+  if (depth !== 0) return null;
+  addToken();
+  return result.size > 0 ? result : null;
+}
+
+export function effectiveRequestedMetaTopLevelFields(
+  fields: unknown,
+  degradation: unknown,
+): Set<string> | null {
+  const requested = requestedMetaTopLevelFields(fields);
+  if (!requested || !degradation || typeof degradation !== "object" ||
+      Array.isArray(degradation)) return requested;
+  const record = degradation as Record<string, unknown>;
+  if (record.recovered !== true && record.recovered !== "true") return requested;
+  const dropped = Array.isArray(record.droppedFields) &&
+    record.droppedFields.every((field) => typeof field === "string")
+      ? record.droppedFields as string[]
+      : typeof record.droppedFields === "string"
+        ? record.droppedFields.split(",")
+        : null;
+  // A recovered selector with no readable dropped-field list cannot license
+  // the older canonical payload's fields as if this response requested them.
+  if (!dropped) return new Set();
+  for (const field of dropped) requested.delete(field.trim());
+  return requested;
+}
+
+function rawMetaConfigNumber(value: unknown): number | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  if (String(value).trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function claimedMetaConfigFields(
+  row: MetaCampaignDailyRow | MetaAdSetDailyRow,
+  endpoint: "campaign_configs" | "adset_configs",
+): string[] {
+  const fields: string[] = [];
+  if (endpoint === "campaign_configs" &&
+      (row as MetaCampaignDailyRow).objective != null) fields.push("objective");
+  if (endpoint === "adset_configs") {
+    const adset = row as MetaAdSetDailyRow;
+    if (adset.optimizationGoal != null) fields.push("optimization_goal");
+    if (adset.promotedObjectJson != null || adset.customEventType != null ||
+        adset.pixelId != null || adset.customConversionId != null) {
+      fields.push("promoted_object");
+    }
+  }
+  if (row.bidStrategyType != null &&
+      !(row.bidStrategyType === "manual_bid" && row.bidValue != null)) {
+    fields.push("bid_strategy");
+  }
+  if (row.bidValue != null) {
+    fields.push(row.bidValueFormat === "roas" ? "bid_constraints" : "bid_amount");
+  }
+  if (row.dailyBudget != null) fields.push("daily_budget");
+  if (row.lifetimeBudget != null) fields.push("lifetime_budget");
+  return fields;
 }
 
 export async function appendMetaCurrentConfigHistory(input: {
@@ -8918,12 +9013,224 @@ export async function appendMetaCurrentConfigHistory(input: {
   // whose entities happen to be unchanged writes nothing and looks identical to
   // a complete unchanged observation. Config history therefore records only
   // complete observations, and says so when it declines.
+  const observedCampaignIds = input.campaignReceipt.observedEntityIds
+    ? new Set(input.campaignReceipt.observedEntityIds)
+    : null;
+  const observedAdsetIds = input.adsetReceipt.observedEntityIds
+    ? new Set(input.adsetReceipt.observedEntityIds)
+    : null;
   const campaignRows = input.campaignReceipt.complete
-    ? input.campaignRows.map((row) => ({ ...row, configObservedAt: campaignObservedAt }))
+    ? input.campaignRows
+        .filter((row) =>
+          (!observedCampaignIds || observedCampaignIds.has(row.campaignId)) &&
+          (!input.campaignReceipt.rowObservedAtByEntityId ||
+            Boolean(input.campaignReceipt.rowObservedAtByEntityId[row.campaignId]))
+        )
+        .map((row) => ({
+          ...row,
+          configObservedAt:
+            input.campaignReceipt.rowObservedAtByEntityId?.[row.campaignId] ??
+            campaignObservedAt,
+          // The daily row's source is an Insights receipt. It cannot stand in
+          // for the campaign-config response when that response was not saved.
+          sourceSnapshotId: input.campaignReceipt.sourceSnapshotId ?? null,
+        }))
     : [];
   const adsetRows = input.adsetReceipt.complete
-    ? input.adsetRows.map((row) => ({ ...row, configObservedAt: adsetObservedAt }))
+    ? input.adsetRows
+        .filter((row) =>
+          (!observedAdsetIds || observedAdsetIds.has(row.adsetId)) &&
+          (!input.adsetReceipt.rowObservedAtByEntityId ||
+            Boolean(input.adsetReceipt.rowObservedAtByEntityId[row.adsetId]))
+        )
+        .map((row) => ({
+          ...row,
+          configObservedAt:
+            input.adsetReceipt.rowObservedAtByEntityId?.[row.adsetId] ??
+            adsetObservedAt,
+          sourceSnapshotId: input.adsetReceipt.sourceSnapshotId ?? null,
+        }))
     : [];
+
+  if ((campaignRows.length > 0 && !input.campaignReceipt.sourceSnapshotId) ||
+      (adsetRows.length > 0 && !input.adsetReceipt.sourceSnapshotId)) {
+    throw new Error("meta_current_config_history_missing_raw_source");
+  }
+
+  // Canonical raw content can be shared by multiple observations. Its status
+  // and request_context describe the FIRST occurrence, not this run. Bind the
+  // history transition to the successful, complete observation receipt in the
+  // same partition/attempt instead of granting authority from the content FK.
+  for (const [rows, receipt, endpoint, scope] of [
+    [campaignRows, input.campaignReceipt, "campaign_configs", "campaign"],
+    [adsetRows, input.adsetReceipt, "adset_configs", "adset"],
+  ] as const) {
+    if (rows.length === 0) continue;
+    if (receipt.partitionId && !receipt.runId) {
+      throw new Error(`meta_current_config_history_missing_run_id:${endpoint}`);
+    }
+    if (receipt.partitionId && !receipt.fieldScope) {
+      throw new Error(`meta_current_config_history_missing_field_scope:${endpoint}`);
+    }
+    const [source] = await getDb().query<{
+      id: string;
+      payload_json: unknown;
+      request_context: unknown;
+    }>(
+      `SELECT observation.id::text AS id, source.payload_json,
+              observation.request_context
+       FROM meta_raw_snapshot_observations observation
+       JOIN meta_raw_snapshots source ON source.id = observation.snapshot_id
+       WHERE source.id = $1::uuid
+         AND source.business_id = $2 AND source.provider_account_id = $3
+         AND source.endpoint_name = $4 AND source.entity_scope = $5
+         AND observation.business_id = $2 AND observation.provider_account_id = $3
+         AND observation.endpoint_name = $4 AND observation.entity_scope = $5
+         AND observation.partition_id IS NOT DISTINCT FROM $6::uuid
+         AND observation.run_id IS NOT DISTINCT FROM $7::text
+         AND observation.status = 'fetched'
+         AND observation.provider_http_status = 200
+         AND observation.request_context->'pagination'->>'complete' = 'true'
+         AND observation.request_context->'pagination'->>'termination' = 'natural_end'
+         AND observation.observed_at >= $8::timestamptz
+         AND ($9::jsonb IS NULL OR
+              observation.request_context->'rowObservedAtByEntityId' = $9::jsonb)
+         AND jsonb_typeof(source.payload_json) = 'array'
+       -- Bind to the first persisted receipt after this provider response.
+       -- A later repeat in the same run can reuse the canonical snapshot ID
+       -- with a different effective selector and must not retroactively source
+       -- an earlier config-history transition.
+       ORDER BY observation.observed_at ASC, observation.id ASC LIMIT 1`,
+      [receipt.sourceSnapshotId, rows[0]!.businessId, rows[0]!.providerAccountId,
+        endpoint, scope, receipt.partitionId, receipt.runId ?? null, receipt.observedAt,
+        receipt.rowObservedAtByEntityId
+          ? JSON.stringify(receipt.rowObservedAtByEntityId)
+          : null],
+    );
+    if (!source) throw new Error(`meta_current_config_history_invalid_raw_source:${endpoint}`);
+    const rawRows = Array.isArray(source.payload_json) ? source.payload_json : [];
+    const rawById = new Map(rawRows.flatMap((raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+      const record = raw as Record<string, unknown>;
+      return typeof record.id === "string" ? [[record.id, record] as const] : [];
+    }));
+    const context = source.request_context &&
+      typeof source.request_context === "object" &&
+      !Array.isArray(source.request_context)
+        ? source.request_context as Record<string, unknown>
+        : {};
+    const pageClocks = context.rowObservedAtByEntityId &&
+      typeof context.rowObservedAtByEntityId === "object" &&
+      !Array.isArray(context.rowObservedAtByEntityId)
+        ? context.rowObservedAtByEntityId as Record<string, unknown>
+        : null;
+    const pagination = context.pagination && typeof context.pagination === "object" &&
+      !Array.isArray(context.pagination)
+        ? context.pagination as Record<string, unknown>
+        : {};
+    const degradation = pagination.fieldDegradation &&
+      typeof pagination.fieldDegradation === "object" &&
+      !Array.isArray(pagination.fieldDegradation)
+        ? pagination.fieldDegradation as Record<string, unknown>
+        : {};
+    const requestedFields = effectiveRequestedMetaTopLevelFields(
+      context.fields, degradation,
+    );
+    if (receipt.partitionId && !requestedFields) {
+      throw new Error(`meta_current_config_history_missing_request_fields:${endpoint}`);
+    }
+    const effectiveFields = receipt.fieldScope
+      ? new Set(receipt.fieldScope.map((field) => field.split(/[({]/, 1)[0]!.trim()))
+      : null;
+    for (const row of rows) {
+      const entityId = endpoint === "campaign_configs"
+        ? (row as MetaCampaignDailyRow).campaignId
+        : (row as MetaAdSetDailyRow).adsetId;
+      const raw = rawById.get(entityId);
+      if (!raw) throw new Error(`meta_current_config_history_source_entity_missing:${endpoint}`);
+      for (const field of claimedMetaConfigFields(row, endpoint)) {
+        if ((requestedFields && !requestedFields.has(field)) ||
+            (effectiveFields && !effectiveFields.has(field)) ||
+            !Object.hasOwn(raw, field)) {
+          throw new Error(`meta_current_config_history_field_not_observed:${endpoint}:${field}`);
+        }
+      }
+      if (endpoint === "campaign_configs" &&
+          (row as MetaCampaignDailyRow).objective != null &&
+          raw.objective !== (row as MetaCampaignDailyRow).objective) {
+        throw new Error("meta_current_config_history_objective_source_mismatch");
+      }
+      if (endpoint === "adset_configs" &&
+          (row as MetaAdSetDailyRow).optimizationGoal != null &&
+          raw.optimization_goal !== (row as MetaAdSetDailyRow).optimizationGoal &&
+          normalizeOptimizationGoal(
+            typeof raw.optimization_goal === "string" ? raw.optimization_goal : null,
+          ) !== (row as MetaAdSetDailyRow).optimizationGoal) {
+        throw new Error("meta_current_config_history_goal_source_mismatch");
+      }
+      if (endpoint === "adset_configs") {
+        const adset = row as MetaAdSetDailyRow;
+        const promoted = raw.promoted_object &&
+          typeof raw.promoted_object === "object" &&
+          !Array.isArray(raw.promoted_object)
+            ? raw.promoted_object as Record<string, unknown>
+            : null;
+        if (adset.promotedObjectJson != null &&
+            !isDeepStrictEqual(promoted, adset.promotedObjectJson)) {
+          throw new Error("meta_current_config_history_promoted_object_source_mismatch");
+        }
+        if (adset.customEventType != null &&
+            normalizeCustomEventType(
+              typeof promoted?.custom_event_type === "string"
+                ? promoted.custom_event_type : null,
+            ) !== adset.customEventType) {
+          throw new Error("meta_current_config_history_custom_event_source_mismatch");
+        }
+        if (adset.pixelId != null &&
+            (typeof promoted?.pixel_id === "string"
+              ? promoted.pixel_id.trim() : null) !== adset.pixelId) {
+          throw new Error("meta_current_config_history_pixel_source_mismatch");
+        }
+        if (adset.customConversionId != null &&
+            (typeof promoted?.custom_conversion_id === "string"
+              ? promoted.custom_conversion_id.trim() : null) !== adset.customConversionId) {
+          throw new Error("meta_current_config_history_custom_conversion_source_mismatch");
+        }
+      }
+      if (row.bidStrategyType != null &&
+          normalizeBidStrategy(
+            typeof raw.bid_strategy === "string" ? raw.bid_strategy : null,
+            rawMetaConfigNumber(raw.bid_amount),
+          ).type !== row.bidStrategyType) {
+        throw new Error(`meta_current_config_history_bid_strategy_source_mismatch:${endpoint}`);
+      }
+      if (row.dailyBudget != null &&
+          roundCurrencyAmount(rawMetaConfigNumber(raw.daily_budget)) !== row.dailyBudget) {
+        throw new Error(`meta_current_config_history_daily_budget_source_mismatch:${endpoint}`);
+      }
+      if (row.lifetimeBudget != null &&
+          roundCurrencyAmount(rawMetaConfigNumber(raw.lifetime_budget)) !== row.lifetimeBudget) {
+        throw new Error(`meta_current_config_history_lifetime_budget_source_mismatch:${endpoint}`);
+      }
+      if (row.bidValue != null) {
+        const expectedBid = row.bidValueFormat === "roas"
+          ? metaTargetRoasFromProviderFloor(rawMetaConfigNumber(
+              raw.bid_constraints && typeof raw.bid_constraints === "object" &&
+              !Array.isArray(raw.bid_constraints)
+                ? (raw.bid_constraints as Record<string, unknown>).roas_average_floor
+                : null,
+            ))
+          : roundCurrencyAmount(rawMetaConfigNumber(raw.bid_amount));
+        if (expectedBid !== row.bidValue) {
+          throw new Error(`meta_current_config_history_bid_value_source_mismatch:${endpoint}`);
+        }
+      }
+      if (receipt.rowObservedAtByEntityId &&
+          pageClocks?.[entityId] !== receipt.rowObservedAtByEntityId[entityId]) {
+        throw new Error(`meta_current_config_history_observation_clock_mismatch:${endpoint}`);
+      }
+    }
+  }
 
   let campaignRowsWritten = 0;
   for (const chunk of chunkRows(campaignRows, 200)) {
@@ -8990,7 +9297,7 @@ export async function appendMetaCurrentConfigHistory(input: {
 
 
 /**
- * Drop rows whose configuration is unchanged from the entity's current latest.
+ * Drop rows whose configuration matches the entity's preceding observation.
  *
  * The equivalent of the trigger this replaces, with the two things the trigger
  * lacked: it runs inside the transaction that already holds the per-entity
@@ -8999,9 +9306,10 @@ export async function appendMetaCurrentConfigHistory(input: {
  * same instant resolve deterministically instead of by whichever the planner
  * reached first.
  *
- * An out-of-order observation is still recorded: it is compared against the
- * CURRENT latest, and a genuinely different configuration is a transition
- * whenever it was observed.
+ * Compare each response with the latest observation at or before its own
+ * provider clock. Comparing an older response with today's latest would drop
+ * an A -> B -> A return that arrived out of order, or append a duplicate that
+ * was already present at the older point in the timeline.
  */
 async function filterMetaConfigTransitions<TRow>(
   rows: TRow[],
@@ -9016,31 +9324,49 @@ async function filterMetaConfigTransitions<TRow>(
   const businessId = (rows[0] as { businessId: string }).businessId;
   const providerAccountId = (rows[0] as { providerAccountId: string })
     .providerAccountId;
-  const entityIds = Array.from(new Set(rows.map(options.entityIdOf)));
+  const observedAts = rows.map((row) => {
+    const observedAt = normalizeTimestamp(
+      (row as { configObservedAt?: string | null }).configObservedAt,
+    );
+    if (!observedAt) throw new Error("meta_config_history_transition_missing_observation_clock");
+    return observedAt;
+  });
 
-  const latest = (await sql.query(
-    `SELECT DISTINCT ON (${options.entityColumn})
-            ${options.entityColumn} AS entity_id, config_fingerprint
-     FROM ${options.table}
-     WHERE business_id = $1
-       AND provider_account_id = $2
-       AND ${options.entityColumn} = ANY($3::text[])
-     ORDER BY ${options.entityColumn}, captured_at DESC, id DESC`,
-    [businessId, providerAccountId, entityIds],
-  )) as Array<{ entity_id: string; config_fingerprint: string }> | undefined;
-  // Fails toward writing. If the latest-fingerprint read gives back nothing
+  const preceding = (await sql.query(
+    `SELECT incoming.ordinality::integer AS position,
+            prior.config_fingerprint, prior.source_kind, prior.source_snapshot_id
+     FROM UNNEST($3::text[], $4::timestamptz[]) WITH ORDINALITY
+       AS incoming(entity_id, captured_at, ordinality)
+     LEFT JOIN LATERAL (
+       SELECT config_fingerprint, source_kind, source_snapshot_id
+       FROM ${options.table} history
+       WHERE history.business_id = $1
+         AND history.provider_account_id = $2
+         AND history.${options.entityColumn} = incoming.entity_id
+         AND history.captured_at <= incoming.captured_at
+       ORDER BY history.captured_at DESC, history.id DESC
+       LIMIT 1
+     ) prior ON TRUE`,
+    [businessId, providerAccountId, rows.map(options.entityIdOf), observedAts],
+  )) as Array<{
+    position: number;
+    config_fingerprint: string | null;
+    source_kind: string | null;
+    source_snapshot_id: string | null;
+  }> | undefined;
+  // Fails toward writing. If the preceding-fingerprint read gives back nothing
   // usable we cannot tell a repeat from a transition, and the two mistakes are
   // not symmetric: writing a duplicate costs a row the History read already
   // treats as a non-change, while assuming "unchanged" would silently discard a
   // real configuration change that nothing else records.
-  const latestByEntity = new Map(
-    (Array.isArray(latest) ? latest : []).map((row) => [
-      row.entity_id,
-      row.config_fingerprint,
+  const precedingByPosition = new Map(
+    (Array.isArray(preceding) ? preceding : []).map((row) => [
+      Number(row.position),
+      row,
     ]),
   );
 
-  return rows.filter((row) => {
+  return rows.filter((row, index) => {
     // Fingerprint what will actually be STORED, not the row as handed in.
     //
     // The appenders normalise a constrained bid strategy with no bid value away
@@ -9049,10 +9375,43 @@ async function filterMetaConfigTransitions<TRow>(
     // on a constrained strategy with a null bid the two could never match: the
     // filter reported a transition on every pass and suppressed nothing, which
     // is the shape of "this guard exists and does not work".
-    const fingerprint = buildMetaConfigHistoryFingerprint(
-      stripIncompleteConstrainedBidFields(row as never) as never,
-    );
-    return latestByEntity.get(options.entityIdOf(row)) !== fingerprint;
+    const storedRow = stripIncompleteConstrainedBidFields(row as never);
+    // Campaign INSERT fingerprints the campaign row, while adset INSERT
+    // fingerprints its own field subset. In particular the adset fingerprint
+    // includes promotedObjectJson as promotedObject and EXCLUDES the inherited
+    // campaign objective. Using the campaign-shaped row here made unchanged
+    // adset observations append repeatedly.
+    const fingerprint = options.table === "meta_adset_config_history"
+      ? (() => {
+          const adset = storedRow as MetaAdSetDailyRow;
+          return buildMetaConfigHistoryFingerprint({
+            optimizationGoal: adset.optimizationGoal,
+            customEventType: adset.customEventType,
+            pixelId: adset.pixelId,
+            customConversionId: adset.customConversionId,
+            promotedObject: adset.promotedObjectJson,
+            bidStrategyType: adset.bidStrategyType,
+            bidValue: adset.bidValue,
+            bidValueFormat: adset.bidValueFormat,
+            dailyBudget: adset.dailyBudget,
+            lifetimeBudget: adset.lifetimeBudget,
+            isBudgetMixed: adset.isBudgetMixed,
+            isConfigMixed: adset.isConfigMixed,
+            isOptimizationGoalMixed: adset.isOptimizationGoalMixed,
+            isBidStrategyMixed: adset.isBidStrategyMixed,
+            isBidValueMixed: adset.isBidValueMixed,
+          });
+        })()
+      : buildMetaConfigHistoryFingerprint(storedRow as MetaCampaignDailyRow);
+    const previous = precedingByPosition.get(index + 1);
+    // A legacy warehouse_daily/config_snapshot value is not a provider config
+    // observation, even when its fields happen to have the same fingerprint.
+    // Write the first raw-linked receipt so downstream readers can distinguish
+    // evidence from a derived value; subsequent unchanged receipts still
+    // coalesce as before.
+    return previous?.config_fingerprint !== fingerprint ||
+      previous.source_kind !== "provider_config_receipt" ||
+      !previous.source_snapshot_id;
   });
 }
 
@@ -9506,7 +9865,7 @@ async function appendMetaCampaignConfigHistoryRows(
           normalizeDate(row.date),
           normalizeDate(row.date),
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},'warehouse_daily',$${offset + 21},$${offset + 22}::timestamptz,$${offset + 23}::date,$${offset + 24}::date,now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},'provider_config_receipt',$${offset + 21},$${offset + 22}::timestamptz,$${offset + 23}::date,$${offset + 24}::date,now())`;
       })
       .join(", ");
 
@@ -9701,7 +10060,7 @@ async function appendMetaAdSetConfigHistoryRows(
         normalizeDate(row.date),
         normalizeDate(row.date),
       );
-      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12}::jsonb,$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},'warehouse_daily',$${offset + 23},$${offset + 24}::timestamptz,$${offset + 25}::date,$${offset + 26}::date,now())`;
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12}::jsonb,$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},'provider_config_receipt',$${offset + 23},$${offset + 24}::timestamptz,$${offset + 25}::date,$${offset + 26}::date,now())`;
     }).join(", ");
 
     if (!placeholders) continue;
@@ -10259,7 +10618,16 @@ function mergeMetaCreativeDailyRowsForUpsert(rows: MetaCreativeDailyRow[]) {
     existing.creativePrimaryType = coalesceText(existing.creativePrimaryType, row.creativePrimaryType);
     existing.creativeSecondaryType = coalesceText(existing.creativeSecondaryType, row.creativeSecondaryType);
     existing.imageHash = coalesceText(existing.imageHash, row.imageHash);
-    existing.payloadJson = existing.payloadJson ?? row.payloadJson;
+    // First payload wins for every display key, as before. The per-stage
+    // measurement stamp is the exception: keeping only the first row's stamp
+    // beside columns that SUM both rows would describe half of the creative-day
+    // as all of it. It is merged strictly — a stage stays measured only when
+    // both rows measured it (lib/meta/creative-day-metric-evidence.ts).
+    existing.payloadJson = mergeMetaCreativeDayPayloadMetricEvidence({
+      basePayload: existing.payloadJson ?? row.payloadJson,
+      left: existing.payloadJson,
+      right: row.payloadJson,
+    });
     recomputeCreativeDailyDerivedMetrics(existing);
   }
   return [...mergedRows.values()];
@@ -12255,16 +12623,25 @@ export async function getMetaAdDailyRange(input: {
     cpa: row.cpa == null ? null : Number(row.cpa),
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
-    linkClicks: row.link_clicks == null ? null : Number(row.link_clicks),
+    // D095, the same ladder `buildAdDayAuthoritativeLinkClicksSql` classifies
+    // in SQL: a positive column is the count; a zero column is a measurement
+    // only when the row's own `actions` proves it (no `link_click` entry, or
+    // one all-zero string); a NULL column stays unknown. Reading the payload
+    // when the column is NULL, or trusting a bare zero, made this reader
+    // classify one ad-day differently from every SQL reader of the same row.
+    linkClicks: resolveAdDayAuthoritativeLinkClicks({
+      storedLinkClicks: row.link_clicks,
+      payloadJson: row.payload_json,
+    }),
     outboundClicks: payloadMetricNumber(row.payload_json, "outbound_clicks"),
-    landingPageViews: payloadMetricNumber(row.payload_json, "landing_page_views"),
-    addToCart: payloadMetricNumber(row.payload_json, "add_to_cart"),
-    initiateCheckout: payloadMetricNumber(row.payload_json, "initiate_checkout"),
-    viewContent: payloadMetricNumber(row.payload_json, "view_content"),
-    leads: payloadMetricNumber(row.payload_json, "leads"),
-    postEngagement: payloadMetricNumber(row.payload_json, "post_engagement"),
+    landingPageViews: payloadFunnelStageNumber(row.payload_json, "landing_page_view"),
+    addToCart: payloadFunnelStageNumber(row.payload_json, "add_to_cart"),
+    initiateCheckout: payloadFunnelStageNumber(row.payload_json, "initiate_checkout"),
+    viewContent: payloadFunnelStageNumber(row.payload_json, "view_content"),
+    leads: payloadFunnelStageNumber(row.payload_json, "lead"),
+    postEngagement: payloadFunnelStageNumber(row.payload_json, "post_engagement"),
     thruplayActions: payloadThruplayActions(row.payload_json),
-    videoViews3s: payloadVideoViews3s(row.payload_json, Number(row.impressions ?? 0)),
+    videoViews3s: payloadVideoViews3s(row.payload_json),
     sourceSnapshotId: row.source_snapshot_id,
     truthState:
       row.truth_state == null

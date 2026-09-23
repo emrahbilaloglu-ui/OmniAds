@@ -120,6 +120,49 @@ const WITHHELD_ADS = [
   NON_ARRAY_ACTIONS_AD,
 ] as const;
 
+/*
+  THE 28-DAY ROLLUP UNDER THE SAME RULE (2026-09-22).
+
+  Three more ads exercise the funnel stages the rollup reads out of the same
+  actions arrays. Each has two decision-bearing days, so every expectation is a
+  window claim, not a single-row one.
+*/
+const FUNNEL_ALIAS_AD = "ad-FUNNEL-ALIAS";
+const FUNNEL_MALFORMED_AD = "ad-FUNNEL-MALFORMED";
+const FUNNEL_NUMERIC_AD = "ad-FUNNEL-JSON-NUMBER";
+
+function funnelDay(adId: string, date: string, actions: unknown[]): DayRow {
+  return {
+    adId,
+    date,
+    spend: 50,
+    impressions: 10_000,
+    clicks: 40,
+    conversions: 1,
+    revenue: 100,
+    linkClicks: 10,
+    reach: 2_000,
+    frequency: 5,
+    payloadJson: { actions: [{ action_type: "link_click", value: "10" }, ...actions] },
+  };
+}
+
+const FUNNEL_WINDOW_ROWS: DayRow[] = [
+  // omni_add_to_cart is a PROVEN-DIVERGENT alias: never read, never summed.
+  funnelDay(FUNNEL_ALIAS_AD, "2026-09-01", [{ action_type: "omni_add_to_cart", value: "25" }]),
+  funnelDay(FUNNEL_ALIAS_AD, "2026-09-02", [
+    { action_type: "add_to_cart", value: "3" },
+    { action_type: "omni_add_to_cart", value: "4" },
+  ]),
+  // A partial numeric string is unreadable, and an unreadable day on a
+  // delivering day makes the whole window unknown.
+  funnelDay(FUNNEL_MALFORMED_AD, "2026-09-01", [{ action_type: "landing_page_view", value: "12abc" }]),
+  funnelDay(FUNNEL_MALFORMED_AD, "2026-09-02", [{ action_type: "landing_page_view", value: "5" }]),
+  // A JSON number is unreadable in TypeScript, so it must be in SQL too.
+  funnelDay(FUNNEL_NUMERIC_AD, "2026-09-01", [{ action_type: "landing_page_view", value: 7 }]),
+  funnelDay(FUNNEL_NUMERIC_AD, "2026-09-02", [{ action_type: "landing_page_view", value: "5" }]),
+];
+
 interface DayRow {
   adId: string;
   date: string;
@@ -287,6 +330,79 @@ async function withClient<T>(
   }
 }
 
+async function seedProviderConfigReceipts(
+  client: import("pg").Client,
+  accountRefId: string,
+  dates: string[],
+) {
+  /*
+    D098 reads provider-backed context, not a warehouse objective alone. Keep
+    this link-click seam's purchase cohort valid under the real source contract
+    by re-observing one unchanged single-page campaign/adset payload on each
+    metric day. This does not grant authority by inventing a dated Insights
+    field: every observation is an explicit, complete raw config receipt.
+  */
+  const updatedTime = "2026-08-01T00:00:00+0000";
+  for (const config of [
+    {
+      endpoint: "campaign_configs",
+      scope: "campaign",
+      fields: "id,objective,updated_time",
+      payload: [{ id: CAMPAIGN_ID, objective: "OUTCOME_SALES", updated_time: updatedTime }],
+    },
+    {
+      endpoint: "adset_configs",
+      scope: "adset",
+      fields: "id,optimization_goal,promoted_object,updated_time",
+      payload: [{
+        id: ADSET_ID,
+        optimization_goal: "OFFSITE_CONVERSIONS",
+        promoted_object: { custom_event_type: "PURCHASE" },
+        updated_time: updatedTime,
+      }],
+    },
+  ]) {
+    const context = JSON.stringify({
+      source: "ad_band_completeness_seam",
+      fields: config.fields,
+      pagination: { complete: true, termination: "natural_end", pageCount: 1 },
+    });
+    const [snapshot] = (
+      await client.query<{ id: string }>(
+        `INSERT INTO meta_raw_snapshots (
+           business_id, business_ref_id, provider_account_id, provider_account_ref_id,
+           endpoint_name, entity_scope, status, provider_http_status,
+           start_date, end_date, payload_hash, request_context, payload_json,
+           fetched_at
+         ) VALUES (
+           $1::text, ($1::text)::uuid, $2, $3::uuid, $4, $5, 'fetched', 200,
+           $6::date, $6::date, $7, $8::jsonb, $9::jsonb, $10::timestamptz
+         ) RETURNING id`,
+        [
+          BUSINESS_ID, ACCOUNT_ID, accountRefId, config.endpoint, config.scope,
+          dates[0], `ad-band-${config.scope}`, context,
+          JSON.stringify(config.payload), `${dates[0]}T12:00:00.000Z`,
+        ],
+      )
+    ).rows;
+    if (!snapshot?.id) throw new Error("Could not seed config receipt snapshot.");
+    for (const date of dates) {
+      await client.query(
+        `INSERT INTO meta_raw_snapshot_observations (
+           snapshot_id, business_id, provider_account_id, endpoint_name,
+           entity_scope, status, provider_http_status, request_context,
+           observed_at
+         ) VALUES (
+           $1::uuid, $2, $3, $4, $5, 'fetched', 200, $6::jsonb,
+           $7::timestamptz
+         )`,
+        [snapshot.id, BUSINESS_ID, ACCOUNT_ID, config.endpoint, config.scope,
+          context, `${date}T12:00:00.000Z`],
+      );
+    }
+  }
+}
+
 async function seed() {
   await withClient(async (client) => {
     const userId = (
@@ -318,8 +434,12 @@ async function seed() {
       [BUSINESS_ID, ACCOUNT_ID, accountRefId],
     );
 
-    const rows = AD_CASES.flatMap(([adId, variant]) => daysFor(adId, variant));
-    const dates = Array.from(new Set(rows.map((row) => row.date)));
+    const rows = [
+      ...AD_CASES.flatMap(([adId, variant]) => daysFor(adId, variant)),
+      ...FUNNEL_WINDOW_ROWS,
+    ];
+    const dates = Array.from(new Set(rows.map((row) => row.date))).sort();
+    await seedProviderConfigReceipts(client, accountRefId, dates);
     for (const date of dates) {
       /*
         Historical campaign context makes these real purchase-cohort inputs, so
@@ -411,6 +531,14 @@ describe.runIf(SEAM)(
     afterAll(async () => {
       await withClient(async (client) => {
         await client.query(
+          `DELETE FROM meta_raw_snapshot_observations WHERE business_id = $1::text`,
+          [BUSINESS_ID],
+        );
+        await client.query(
+          `DELETE FROM meta_raw_snapshots WHERE business_id = $1::text`,
+          [BUSINESS_ID],
+        );
+        await client.query(
           `DELETE FROM meta_ad_daily WHERE business_id = $1::text`,
           [BUSINESS_ID],
         );
@@ -495,6 +623,59 @@ describe.runIf(SEAM)(
         expect(evidence?.recent14.impressions).toBe(100_000);
         expect(evidence?.recent14.linkClicks).toBeNull();
         expect(evidence?.prior14.linkClicks).toBe(1_200);
+      }
+    });
+
+    it("rolls the 28-day link clicks up under the same D095 value and window rule as the bands", async () => {
+      // POSITIVE: every day measured (a provider-proven zero included) -> the sum.
+      for (const adId of [CLEAN_AD, ...ADMITTED_ADS]) {
+        expect(adNamed(adId).linkClicks, adId).toBe(2_000);
+      }
+      /*
+        NEGATIVE: one decision-bearing day whose link clicks are unknown makes
+        the 28-day total unknown. This used to be SUM(COALESCE(raw, 0)), which
+        returned 2,000 here for the missing and legacy-zero shapes and presented
+        a partial window, or a legacy default zero, as a measurement.
+      */
+      for (const adId of WITHHELD_ADS) {
+        expect(adNamed(adId).linkClicks, adId).toBeNull();
+      }
+    });
+
+    it("keeps a funnel window a measurement only when every delivering day measured it", async () => {
+      // zero + zero -> 0: every measured day carried an actions array with no
+      // landing_page_view entry, and the wholly inert day is not a gap.
+      expect(adNamed(CLEAN_AD).landingPageViews).toBe(0);
+      expect(adNamed(MEASURED_ZERO_AD).landingPageViews).toBe(0);
+      // zero + missing -> NULL: the anomalous delivering day carried no actions
+      // array at all, so nothing about the funnel was observed on it.
+      for (const adId of [MISSING_AD, LEGACY_ZERO_AD, NON_ARRAY_ACTIONS_AD]) {
+        expect(adNamed(adId).landingPageViews, adId).toBeNull();
+      }
+      // An actions array IS an observation of the stages it omits.
+      for (const adId of [CONTRADICTED_ZERO_AD, DUPLICATE_ZERO_AD, NUMERIC_ZERO_AD, MALFORMED_ZERO_AD]) {
+        expect(adNamed(adId).landingPageViews, adId).toBe(0);
+      }
+    });
+
+    it("never sums an alias and never reads a malformed or non-string count", async () => {
+      // 3, not 3 + 25 + 4: the omni alias is a different population.
+      expect(adNamed(FUNNEL_ALIAS_AD).addToCart).toBe(3);
+      expect(adNamed(FUNNEL_ALIAS_AD).linkClicks).toBe(20);
+      // "12abc" is unreadable, never 12, and it makes the window unknown.
+      expect(adNamed(FUNNEL_MALFORMED_AD).landingPageViews).toBeNull();
+      // A JSON number is unreadable in both languages, never 7.
+      expect(adNamed(FUNNEL_NUMERIC_AD).landingPageViews).toBeNull();
+      // The same windows' other stages are unaffected by one stage's defect.
+      expect(adNamed(FUNNEL_MALFORMED_AD).addToCart).toBe(0);
+    });
+
+    it("emits no unverified video, thumbstop or outbound figure at ad grain", async () => {
+      for (const input of inputs) {
+        expect(input.thumbstop, input.adId).toBeNull();
+        expect(input.video25Rate, input.adId).toBeNull();
+        expect(input.video100Rate, input.adId).toBeNull();
+        expect(input.outboundClicks, input.adId).toBeNull();
       }
     });
 

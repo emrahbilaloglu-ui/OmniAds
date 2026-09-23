@@ -14,9 +14,10 @@ export interface RuntimeHandle {
   baseUrl: string;
   /**
    * A second server on the SAME database, differing only in release-gate
-   * environment: the Meta Stop, the decision workflow, the share mint and the
-   * account picker are open there. Nothing whose next step is a call to Meta is
-   * opened anywhere in this harness.
+   * environment: the single Meta write capability, share mint and account
+   * picker are open there. Specs use that write capability only for the local
+   * decision-workflow overlay; no provider mutation is invoked. The Meta Stop
+   * is reachable in both postures.
    *
    * A gate has two halves and one process can only show one of them. The
    * difference between what these two servers answer to the same request is

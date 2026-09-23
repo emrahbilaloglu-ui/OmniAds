@@ -14,7 +14,6 @@ import {
   type TruthSource,
 } from "@/lib/creative-decision-engine/types";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
-import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "@/lib/creative-decision-engine/jobs/job-runtime";
 import {
   evaluateDecisionOriginAdDecisionFreshness,
 } from "@/lib/creative-decision-engine/execution-safety";
@@ -28,6 +27,13 @@ import { DEFAULT_CONTEXT_CONFIG } from "@/lib/creative-decision-engine/campaign-
 import { evaluateAccountScopedRoleAuthority } from "@/lib/meta/campaign-role-authority";
 import type { MetaCreativeAssessmentPresentation } from "@/lib/meta/creative-assessment";
 import { projectCanonicalMetaDecisionPresentation } from "@/lib/meta/canonical-decision-presentation";
+import {
+  META_CONFIG_FIELD_EVIDENCE_REF_CONTRACT_VERSION,
+  META_CONFIG_EVIDENCE_FIELDS,
+  META_CONFIG_RECEIPT_MANIFEST_VERSION,
+  parseConfigFieldEvidenceRef,
+  parseConfigReceiptWindowManifest,
+} from "@/lib/meta/config-field-evidence-ref";
 import {
   META_DECISION_SOURCE_DEGRADED_REASON,
   META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
@@ -45,6 +51,8 @@ import {
   type MetaDecisionBlocker,
   type MetaDecisionBuyerAction,
   type MetaDecisionCapabilityState,
+  type MetaDecisionConfigEvidence,
+  type MetaDecisionConfigEvidenceRef,
   type MetaDecisionExposure,
   type MetaDecisionHistoryEnvelope,
   type MetaDecisionLifecycleRoleOverlay,
@@ -60,8 +68,6 @@ import {
 const META_DECISION_HISTORY_EVENT_LIMIT = 10;
 const META_DECISION_HISTORY_EVENT_READ_LIMIT = 50;
 const NATIVE_AD_DECISIONS_JOB_NAME = "engine_v3_native_ad_decisions_shadow_job";
-export const NATIVE_DECISION_RUNNING_GRACE_MS =
-  ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS * 4;
 // The verified native generation currently hydrates thousands of exact-Ad
 // rows. On the production-sized Grandmix account the read completes in about
 // seven seconds, leaving virtually no headroom under the generic 8s web query
@@ -216,6 +222,12 @@ export interface MetaDecisionSnapshotSourceRow {
    * fabricated one. @see toDecisionOutput
    */
   predicate_blockers?: unknown;
+  /**
+   * Native ad path only: whether the evaluation's own recorded config evidence
+   * (ADR D098) had the current-day value observed AND every economic day
+   * verified. NULL/absent when the envelope carries no config evidence.
+   */
+  config_authority_verified?: boolean | null;
 }
 
 export interface MetaNativeDecisionSnapshotSourceRow {
@@ -277,6 +289,14 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   fatigue_status?: string | null;
   /** @see MetaDecisionSnapshotSourceRow.predicate_blockers */
   predicate_blockers?: unknown;
+  /** @see MetaDecisionSnapshotSourceRow.config_authority_verified */
+  config_authority_verified?: boolean | null;
+  /**
+   * The receipts the engine's config verdict rests on, projected read-only
+   * from the evaluation's persisted input evidence. NULL for rows that predate
+   * receipt lineage. Re-validated by `servedConfigEvidence` before serving.
+   */
+  config_evidence_lineage?: Record<string, unknown> | null;
 }
 
 export interface MetaNativeDecisionGenerationSourceRow {
@@ -1511,6 +1531,10 @@ function buildCanonicalDecision(input: {
     // "demoting the risk-tier advisory changes no lane and no classification".
     blockerCodes: role.blockerCode ? [role.blockerCode] : [],
     reviewOnly: true,
+    configAuthorityVerified:
+      typeof input.snapshot.config_authority_verified === "boolean"
+        ? input.snapshot.config_authority_verified
+        : null,
   });
   if (presentation.kind === "omitted") {
     return {
@@ -2549,6 +2573,25 @@ function nativeResponseHistory(input: {
 function nativeSnapshotToInternalSnapshot(
   row: MetaNativeDecisionSnapshotSourceRow,
 ): MetaDecisionSnapshotSourceRow {
+  const recordedVerified =
+    typeof row.config_authority_verified === "boolean"
+      ? row.config_authority_verified
+      : null;
+  const servedEvidence = servedConfigEvidence({
+    lineage: row.config_evidence_lineage ?? null,
+    verified: recordedVerified,
+  });
+  /*
+    A stored TRUE can authorize the D098 presentation branch only when the
+    evidence it cites still passes the current receipt contract. A missing or
+    malformed lineage is an evidence failure, not a legacy TRUE.
+  */
+  const verifiedForPresentation =
+    recordedVerified === true
+      ? servedEvidence?.verified === true
+        ? true
+        : false
+      : recordedVerified;
   return {
     snapshot_id: row.snapshot_id,
     provider_account_id: row.provider_account_id,
@@ -2580,6 +2623,124 @@ function nativeSnapshotToInternalSnapshot(
     frequency_28d: row.frequency_28d,
     fatigue_status: row.fatigue_status,
     predicate_blockers: row.predicate_blockers,
+    config_authority_verified: verifiedForPresentation,
+  };
+}
+
+/**
+ * The engine's recorded config receipts, served read-only.
+ *
+ * Every reference is RE-VALIDATED with the same parser the engine used
+ * (lib/meta/config-field-evidence-ref.ts) rather than trusted because it was
+ * stored: a malformed stored reference is listed as refused, never printed as
+ * evidence. The reader computes nothing else and infers nothing for a row that
+ * predates lineage — that row serves null.
+ */
+function servedConfigEvidence(input: {
+  lineage: Record<string, unknown> | null;
+  verified: boolean | null;
+}): MetaDecisionConfigEvidence | null {
+  const lineage = input.lineage;
+  if (!lineage || typeof lineage !== "object") return null;
+  const refsRaw =
+    lineage.refs && typeof lineage.refs === "object" && !Array.isArray(lineage.refs)
+      ? (lineage.refs as Record<string, unknown>)
+      : {};
+  const refusalsRaw =
+    lineage.refRefusals &&
+    typeof lineage.refRefusals === "object" &&
+    !Array.isArray(lineage.refRefusals)
+      ? (lineage.refRefusals as Record<string, unknown>)
+      : {};
+  const refs: MetaDecisionConfigEvidenceRef[] = [];
+  const refusedFields = new Set<string>();
+  let recordedRefusalPresent = false;
+  for (const field of META_CONFIG_EVIDENCE_FIELDS) {
+    const recordedRefusal = refusalsRaw[field];
+    if (typeof recordedRefusal === "string" && recordedRefusal.trim() !== "") {
+      recordedRefusalPresent = true;
+      refusedFields.add(`${field}:${recordedRefusal}`);
+    }
+    const raw = refsRaw[field];
+    const parsed = parseConfigFieldEvidenceRef(raw, field);
+    if (!parsed.ok) {
+      refusedFields.add(`${field}:served_${parsed.refusal}`);
+      continue;
+    }
+    refs.push({
+      refContractVersion: parsed.ref.refContractVersion,
+      field,
+      sourceContractVersion: parsed.ref.sourceContractVersion,
+      normalizationVersion: parsed.ref.normalizationVersion,
+      tier: parsed.ref.tier,
+      readiness: parsed.ref.readiness,
+      sourceClass: parsed.ref.sourceClass,
+      pitClass: parsed.ref.pitClass,
+      sourceSnapshotId: parsed.ref.sourceSnapshotId,
+      observationId: parsed.ref.observationId,
+      observedAt: parsed.ref.observedAt,
+      fieldScopeHash: parsed.ref.fieldScopeHash,
+      corroboratingSnapshotId: parsed.ref.corroboratingSnapshotId,
+      corroboratingObservationId: parsed.ref.corroboratingObservationId,
+      corroboratingObservedAt: parsed.ref.corroboratingObservedAt,
+    });
+  }
+  const manifestRaw =
+    lineage.receiptManifest && typeof lineage.receiptManifest === "object"
+      ? (lineage.receiptManifest as Record<string, unknown>)
+      : null;
+  const manifest = manifestRaw
+    ? parseConfigReceiptWindowManifest({
+        manifestVersion: manifestRaw.manifestVersion,
+        refContractVersion: manifestRaw.refContractVersion,
+        hash: manifestRaw.hash,
+        economicDayCount: manifestRaw.economicDayCount,
+        nullObservationIdCount: manifestRaw.nullObservationIdCount,
+        incoherentDayCount: manifestRaw.incoherentDayCount,
+      })
+    : null;
+  const lineageSupplied = lineage.lineageSupplied === true;
+  const manifestVersionsMatch =
+    manifestRaw?.manifestVersion === META_CONFIG_RECEIPT_MANIFEST_VERSION &&
+    manifestRaw?.refContractVersion ===
+      META_CONFIG_FIELD_EVIDENCE_REF_CONTRACT_VERSION;
+  const lineageCanVerify =
+    lineageSupplied &&
+    refs.length === META_CONFIG_EVIDENCE_FIELDS.length &&
+    !recordedRefusalPresent &&
+    refusedFields.size === 0 &&
+    manifest !== null &&
+    manifestVersionsMatch &&
+    manifest.economicDayCount > 0 &&
+    manifest.incoherentDayCount === 0;
+  const servedVerified =
+    input.verified === true ? lineageCanVerify : input.verified;
+  const metricContract =
+    lineage.metricContract && typeof lineage.metricContract === "object"
+      ? Object.values(lineage.metricContract as Record<string, unknown>)
+          .filter((value): value is string => typeof value === "string")
+          .join(" · ") || null
+      : null;
+  return {
+    evaluationContractVersion:
+      typeof lineage.contractVersion === "string" ? lineage.contractVersion : "",
+    verified: servedVerified,
+    lineageSupplied,
+    currentConfigDay:
+      typeof lineage.currentConfigDay === "string" ? lineage.currentConfigDay : null,
+    refs,
+    refusedFields: [...refusedFields],
+    economicWindow: manifest
+      ? {
+          manifestVersion: manifest.manifestVersion,
+          refContractVersion: manifest.refContractVersion,
+          manifestHash: manifest.hash,
+          economicDayCount: manifest.economicDayCount,
+          nullObservationIdCount: manifest.nullObservationIdCount,
+          incoherentDayCount: manifest.incoherentDayCount,
+        }
+      : null,
+    metricContract,
   };
 }
 
@@ -2636,6 +2797,13 @@ function applyNativeCanonicalDecisionAuthority(input: {
     response.episodeKey ??
     stableId("mde", [decision.decisionId, row.label, row.episode_started_at]);
   decision.identityGrain = "ad";
+  decision.configEvidence = servedConfigEvidence({
+    lineage: row.config_evidence_lineage ?? null,
+    verified:
+      typeof row.config_authority_verified === "boolean"
+        ? row.config_authority_verified
+        : null,
+  });
   decision.parentChain.ad = { id: row.ad_id, name: row.ad_name };
   decision.parentChain.creative = row.creative_id
     ? { id: row.creative_id, name: row.creative_name }
@@ -3228,10 +3396,13 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
       SELECT
         run.*,
         CASE
-          WHEN run.status = 'running'
-            AND run.started_at < statement_timestamp()
-              - make_interval(secs => $5::double precision / 1000.0)
-          THEN 'failed'
+          /* A running attempt is not a published generation. Its wall-clock
+             age cannot turn it into a terminal failure here: healthy
+             production-sized runs have exceeded the former serving grace,
+             and job liveness belongs to scheduler/health monitoring. Keep
+             serving the last terminal generation until this attempt records
+             an actual terminal state. Per-decision freshness still removes
+             stale execution authority at request time. */
           WHEN run.status = 'running' THEN 'running'
           WHEN run.finished_at IS NULL
             OR run.finished_at > statement_timestamp()
@@ -3313,12 +3484,12 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
        letting it occupy a candidate slot is the same defect as the account
        predicate above.
 
-       AGE CEILING IN THE SAME STATEMENT, ON THE CALLER'S CLOCK. $7 is the UTC
-       serving day the TypeScript ceiling uses and $8 is
+       AGE CEILING IN THE SAME STATEMENT, ON THE CALLER'S CLOCK. $6 is the UTC
+       serving day the TypeScript ceiling uses and $7 is
        NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS, so SQL and TypeScript read
        one clock rather than two. It bounds the candidate scan to the window
        that can actually be served; the TypeScript ceiling still re-checks
-       every candidate, and is the authority when $7 is null because the
+       every candidate, and is the authority when $6 is null because the
        caller's serving instant was unreadable.
 
        LIMIT 5 bounds the payload, not the correctness: the rows are already
@@ -3333,12 +3504,12 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
       CROSS JOIN latest_effective_terminal_job latest
       WHERE latest.effective_status <> 'success'
         AND candidate.effective_status = 'success'
-        AND candidate.engine_version = $6
+        AND candidate.engine_version = $5
         AND (candidate.as_of_date, candidate.started_at, candidate.id)
             < (latest.as_of_date, latest.started_at, latest.id)
         AND (
-          $7::date IS NULL
-          OR candidate.as_of_date >= $7::date - $8::int
+          $6::date IS NULL
+          OR candidate.as_of_date >= $6::date - $7::int
         )
         AND EXISTS (
           SELECT 1
@@ -3518,7 +3689,6 @@ async function readNativeGeneration(input: {
       input.providerAccountId,
       NATIVE_AD_DECISIONS_JOB_NAME,
       input.asOfDate ?? null,
-      NATIVE_DECISION_RUNNING_GRACE_MS,
       NATIVE_AD_ENGINE_VERSION,
       servingDay,
       NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
@@ -3780,6 +3950,7 @@ async function readNativeSnapshotRows(input: {
         evaluation.provider_account_ref_id = snapshot.provider_account_ref_id AND
         evaluation.provider_account_id = snapshot.provider_account_id AND
         evaluation.ad_id = snapshot.ad_id AND
+        input_evidence.input_hash IS NOT NULL AND
         context.job_run_id = snapshot.job_run_id AND
         context.provider_account_ref_id = snapshot.provider_account_ref_id AND
         context.provider_account_id = snapshot.provider_account_id
@@ -3851,7 +4022,45 @@ async function readNativeSnapshotRows(input: {
          the blockers array into its decision_output_json. Only that one key is
          projected, so the payload stays the blockers array and never the whole
          decision document. This adds no join and no extra row. */
-      evaluation.decision_output_json -> 'blockers' AS predicate_blockers
+      evaluation.decision_output_json -> 'blockers' AS predicate_blockers,
+      /* ADR D098 config authority, as the ENGINE recorded it in the
+         evaluation's own hashed input (configEvidence), which is persisted in
+         the hash-keyed input-evidence table. NULL when the mapping is absent;
+         the lineage predicate above makes that generation unavailable rather
+         than treating an unmapped legacy row as actionable.
+         Structured, persisted input: never inferred from the reason text.
+
+         CORRECTED 2026-09-22: this used to read creative_input_json, which
+         holds only the creative input — configEvidence is its SIBLING in the
+         hashed envelope and was never written there, so the projection was
+         NULL for every row and the D098 presentation branch could not fire. */
+      CASE
+        WHEN input_evidence.input_evidence_json -> 'configEvidence' IS NULL
+          OR jsonb_typeof(input_evidence.input_evidence_json -> 'configEvidence') <> 'object'
+          THEN NULL
+        ELSE COALESCE(
+          (input_evidence.input_evidence_json #>> '{configEvidence,currentValueEvidence,observed}') = 'true'
+          AND (input_evidence.input_evidence_json #>> '{configEvidence,decisionEconomics,fullyVerified}') = 'true',
+          FALSE
+        )
+      END AS config_authority_verified,
+      /* The receipts the verdict rests on, served READ-ONLY for the inspector:
+         current-day ConfigFieldEvidenceRef per field and the economic window's
+         manifest. NULL for rows that predate receipt lineage; never computed
+         or inferred by the reader. */
+      CASE
+        WHEN jsonb_typeof(input_evidence.input_evidence_json -> 'configEvidence') = 'object'
+          THEN jsonb_build_object(
+            'contractVersion', evaluation.contract_version,
+            'refs', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,refs}',
+            'refRefusals', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,refRefusals}',
+            'lineageSupplied', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,lineageSupplied}',
+            'receiptManifest', input_evidence.input_evidence_json #> '{configEvidence,decisionEconomics,receiptManifest}',
+            'currentConfigDay', input_evidence.input_evidence_json #> '{configEvidence,currentConfigDay}',
+            'metricContract', input_evidence.input_evidence_json -> 'metricContract'
+          )
+        ELSE NULL
+      END AS config_evidence_lineage
     FROM engine_v3_ad_decision_snapshots_daily snapshot
     /* The engine already recorded which lifecycle row it decided from. Joining
        it back is a lineage read, not a second opinion: format, 28d CTR, 28d
@@ -3874,6 +4083,9 @@ async function readNativeSnapshotRows(input: {
      AND evaluation.engine_version = snapshot.engine_version
      AND evaluation.scope_type = snapshot.scope_type
      AND evaluation.scope_id = snapshot.scope_id
+    LEFT JOIN engine_v3_ad_decision_input_evidence input_evidence
+      ON input_evidence.contract_version = evaluation.contract_version
+     AND input_evidence.input_hash = evaluation.input_hash
     LEFT JOIN engine_v3_ad_decision_evaluation_contexts context
       ON context.id = evaluation.context_id
      AND context.business_ref_id = evaluation.business_ref_id
@@ -4330,7 +4542,7 @@ async function readNativeEventRows(input: {
         ) AS row_number
       FROM engine_v3_ad_decision_events event
       WHERE event.business_ref_id = $1::uuid
-        AND event.business_id = $1
+        AND event.business_id = $1::text
         AND event.provider_account_ref_id = $2::uuid
         AND event.provider_account_id = $3
         AND event.engine_version = $4
@@ -4383,7 +4595,7 @@ async function readNativeOutcomeRows(input: {
      AND publication.outcome_window_days = outcome.outcome_window_days
      AND publication.evaluation_date = outcome.evaluation_date
     WHERE outcome.business_ref_id = $1::uuid
-      AND outcome.business_id = $1
+      AND outcome.business_id = $1::text
       AND outcome.provider_account_ref_id = $2::uuid
       AND outcome.provider_account_id = $3
       AND outcome.engine_version = $4
@@ -4434,7 +4646,7 @@ async function readNativeResponseRows(input: {
       LIMIT 1
     ) response ON TRUE
     WHERE episode.business_ref_id = $1::uuid
-      AND episode.business_id = $1
+      AND episode.business_id = $1::text
       AND episode.provider_account_ref_id = $2::uuid
       AND episode.provider_account_id = $3
       AND episode.engine_version = $4

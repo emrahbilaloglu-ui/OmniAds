@@ -6,7 +6,7 @@ import {
   getProviderAccountAssignments,
 } from "@/lib/provider-account-assignments";
 import { getMetaHistoricalVerificationReason } from "@/lib/meta/historical-verification";
-import { getMetaLiveCampaignRows } from "@/lib/meta/live";
+import { getMetaLiveCampaignRowsWithReceipt } from "@/lib/meta/live";
 import {
   getMetaPartialReason,
   getMetaRangePreparationContext,
@@ -29,6 +29,9 @@ export interface MetaCampaignsSourceResult {
   rows: MetaCampaignRow[];
   isPartial?: boolean;
   notReadyReason?: string | null;
+  /** Live Insights may be complete while an independent config edge is not. */
+  configPartial?: boolean;
+  configNotReadyReason?: string | null;
   evidenceSource: MetaEvidenceSource;
 }
 
@@ -182,19 +185,21 @@ export async function getMetaCampaignsForRange(input: {
           evidenceSource: "unknown",
         };
       }
-      rows = await getMetaLiveCampaignRows({
+      const live = await getMetaLiveCampaignRowsWithReceipt({
         businessId: input.businessId,
         startDate: resolvedStart,
         endDate: resolvedEnd,
         providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
       });
-      rows = filterCampaignRows(rows);
+      rows = filterCampaignRows(live.rows);
       return {
         status: "ok",
         rows,
         isPartial: false,
         notReadyReason: null,
+        configPartial: live.configPartial,
+        configNotReadyReason: live.configNotReadyReason,
         evidenceSource: "live",
       };
     }
@@ -210,14 +215,15 @@ export async function getMetaCampaignsForRange(input: {
           evidenceSource: "unknown",
         };
       }
-      rows = await getMetaLiveCampaignRows({
+      const live = await getMetaLiveCampaignRowsWithReceipt({
         businessId: input.businessId,
         startDate: resolvedStart,
         endDate: resolvedEnd,
         providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
+        expectedCurrentDay: true,
       });
-      rows = filterCampaignRows(rows);
+      rows = filterCampaignRows(live.rows);
       return {
         status: "ok",
         rows,
@@ -232,6 +238,8 @@ export async function getMetaCampaignsForRange(input: {
                   "Current-day live Meta campaign data is still being prepared.",
               })
             : null,
+        configPartial: live.configPartial,
+        configNotReadyReason: live.configNotReadyReason,
         evidenceSource: rows.length > 0 ? "live" : "unknown",
       };
     }

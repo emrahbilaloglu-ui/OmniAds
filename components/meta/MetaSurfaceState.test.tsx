@@ -122,7 +122,23 @@ describe("the notice keeps machine-readable state without exposing diagnostics",
       expect(render(state), state).not.toContain(
         "One source could not be read",
       );
+      expect(render(state), state).toContain(
+        "Any unavailable figures are unknown rather than zero",
+      );
     }
+  });
+
+  it("gives a scope refusal its assigned-account reason", () => {
+    const envelope = envelopeFor("refused");
+    envelope.failure = {
+      code: "provider_account_not_assigned",
+      message: "untrusted provider diagnostic",
+    };
+    const html = renderToStaticMarkup(
+      <MetaSurfaceState envelope={envelope} surfaceId="meta-decisions" />,
+    );
+    expect(html).toContain("not assigned to this workspace");
+    expect(html).not.toContain("untrusted provider diagnostic");
   });
 
   it("announces politely rather than assertively, wherever it sits", () => {

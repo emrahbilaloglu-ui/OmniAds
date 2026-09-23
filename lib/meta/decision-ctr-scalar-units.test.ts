@@ -127,8 +127,9 @@ describe("the withheld 28d CTR scalar and the drawn daily trail carry the same u
       "bucket.ctrWeighted += row.ctr * row.impressions;",
     );
     expect(routeMath).toContain(
-      "ctr: bucket.ctrWeight > 0 ? bucket.ctrWeighted / bucket.ctrWeight : null,",
+      "ctr: !bucket.ctrMissing && bucket.ctrWeight > 0 ? bucket.ctrWeighted / bucket.ctrWeight : null,",
     );
+    expect(routeMath).toContain("bucket.ctrMissing = true;");
     expect(routeMath).not.toContain("bucket.ctrWeighted / bucket.ctrWeight * 100");
     expect(routeMath).not.toContain("bucket.ctrWeighted / bucket.ctrWeight / 100");
   });

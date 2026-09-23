@@ -11,6 +11,14 @@ vi.mock("@/lib/meta/config-snapshots", () => ({
   readPreviousDifferentMetaConfigDiffs: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/raw-config-receipts", () => ({
+  readDatedRawConfigReceipts: vi.fn(async () => new Map()),
+}));
+
+vi.mock("@/lib/meta/config-repair-write", () => ({
+  applyMetaConfigRepairChanges: vi.fn(async () => ({ rowsUpdated: 2 })),
+}));
+
 vi.mock("@/lib/meta/request-model-store", () => ({
   readLatestMetaCampaignConfigHistory: vi.fn(),
   readLatestMetaAdSetConfigHistory: vi.fn(),
@@ -47,6 +55,8 @@ vi.mock("@/lib/meta/warehouse", () => ({
 }));
 
 const configSnapshots = await import("@/lib/meta/config-snapshots");
+const rawConfigReceipts = await import("@/lib/meta/raw-config-receipts");
+const configRepairWrite = await import("@/lib/meta/config-repair-write");
 const requestModelStore = await import("@/lib/meta/request-model-store");
 const constraints = await import("@/lib/meta/constraints");
 const warehouse = await import("@/lib/meta/warehouse");
@@ -147,6 +157,7 @@ describe("meta historical serving", () => {
     process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "0";
     process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
     vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(new Map());
+    vi.mocked(rawConfigReceipts.readDatedRawConfigReceipts).mockResolvedValue(new Map());
     vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(new Map());
     vi.mocked(requestModelStore.readLatestMetaCampaignConfigHistory).mockResolvedValue(new Map());
     vi.mocked(requestModelStore.readLatestMetaAdSetConfigHistory).mockResolvedValue(new Map());
@@ -481,6 +492,34 @@ describe("meta historical serving", () => {
       postEngagement: 40,
       thruplayActions: 30,
       videoViews3s: 160,
+    });
+
+    vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
+      {
+        adsetId: "adset-1", spend: 60, impressions: 600, clicks: 50,
+        conversions: 1, revenue: 80, linkClicks: 40,
+        landingPageViews: 18, addToCart: 9, thruplayActions: 14,
+        videoViews3s: 90,
+      },
+      {
+        adsetId: "adset-1", spend: 40, impressions: 400, clicks: 30,
+        conversions: 1, revenue: 40, linkClicks: 0,
+        landingPageViews: null, addToCart: 0, thruplayActions: null,
+        videoViews3s: null,
+      },
+    ] as never);
+    const incomplete = await getMetaWarehouseAdSets({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      campaignId: "cmp-1",
+    });
+    expect(incomplete[0]).toMatchObject({
+      linkClicks: 40,
+      addToCart: 9,
+      landingPageViews: null,
+      thruplayActions: null,
+      videoViews3s: null,
     });
   });
 
@@ -1136,7 +1175,7 @@ describe("meta historical serving", () => {
     expect(summary.accounts).toHaveLength(0);
   });
 
-  it("filters historical breakdown rows to published verified account-days when v2 is enabled", async () => {
+  it("filters historical breakdown rows to published verified breakdown-days when v2 is enabled", async () => {
     process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
     process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
 
@@ -1270,7 +1309,7 @@ describe("meta historical serving", () => {
       totalExpectedSlices: 2,
       reasonCounts: {},
       publishedKeysBySurface: {
-        account_daily: ["act_1:2026-04-01", "act_1:2026-04-02"],
+        breakdown_daily: ["act_1:2026-04-01", "act_1:2026-04-02"],
       },
     } as never);
     vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
@@ -1292,6 +1331,62 @@ describe("meta historical serving", () => {
     expect(payload.placement).toEqual([
       expect.objectContaining({ key: "facebook|feed|mobile", spend: 12 }),
     ]);
+    // The second published day carried only age, so the three-dimension
+    // contract is incomplete even though the complete first day remains
+    // readable.
+    expect(payload.isPartial).toBe(true);
+    expect(warehouse.getMetaPublishedVerificationSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ surfaces: ["breakdown_daily"] }),
+    );
+  });
+
+  it("distinguishes a published empty breakdown slice from missing dimensions", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "finalized_verified",
+      truthReady: true,
+      totalDays: 1,
+      completedCoreDays: 1,
+      sourceFetchedAt: "2026-04-02T00:00:00Z",
+      publishedAt: "2026-04-02T00:05:00Z",
+      asOf: "2026-04-02T00:05:00Z",
+      publishedSlices: 1,
+      totalExpectedSlices: 1,
+      reasonCounts: {},
+      publishedKeysBySurface: {
+        breakdown_daily: ["act_1:2026-04-01"],
+      },
+    } as never);
+
+    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([]);
+    const empty = await getMetaWarehouseBreakdowns({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+      providerAccountIds: ["act_1"],
+    });
+    expect(empty.isPartial).toBe(false);
+    expect(empty.verification?.verificationState).toBe("finalized_verified");
+
+    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
+      metaBreakdownDailyRow({
+        breakdownType: "country",
+        breakdownKey: "US",
+      }),
+    ] as never);
+    const incomplete = await getMetaWarehouseBreakdowns({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+      providerAccountIds: ["act_1"],
+    });
+    expect(incomplete.isPartial).toBe(true);
+    expect(incomplete.age).toEqual([]);
+    expect(incomplete.location).toEqual([]);
+    expect(incomplete.placement).toEqual([]);
   });
 
   it("serves the gender dimension without requiring it for completeness", async () => {
@@ -1606,7 +1701,7 @@ describe("meta historical serving", () => {
       totalExpectedSlices: 1,
       reasonCounts: {},
       publishedKeysBySurface: {
-        account_daily: ["act_1:2026-04-01"],
+        breakdown_daily: ["act_1:2026-04-01"],
       },
     } as never);
     vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
@@ -1673,7 +1768,7 @@ describe("meta historical serving", () => {
       totalExpectedSlices: 1,
       reasonCounts: {},
       publishedKeysBySurface: {
-        account_daily: ["act_1:2026-04-01"],
+        breakdown_daily: ["act_1:2026-04-01"],
       },
     } as never);
     vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
@@ -2492,6 +2587,45 @@ describe("meta historical serving", () => {
   });
 
   it("repairs an entire warehouse date range and reports changed row counts", async () => {
+    let observedAt = "2026-04-03T12:00:00.000Z";
+    let entityUpdatedAt = "2026-04-02T12:00:00.000Z";
+    vi.mocked(rawConfigReceipts.readDatedRawConfigReceipts).mockImplementation(
+      async (input) => {
+        expect(input.providerAccountId).toBe("act_1");
+        expect(input.day).toBe("2026-04-03");
+        const source = {
+          kind: "meta_raw_snapshots", id: "raw-source-1", observedAt,
+          entityUpdatedAt,
+          corroboratingSourceSnapshotId: "raw-confirm-1",
+          corroboratingObservedAt: "2026-04-04T12:00:00.000Z",
+          accountTimezone: "UTC", normalizationVersion: 2,
+          fieldScope: ["id", "objective", "updated_time"],
+          observedFieldScope: ["id", "objective", "updated_time"],
+        } as const;
+        return (input.level === "campaign"
+          ? new Map([["cmp-1", { source, payload: {
+              objective: "OUTCOME_SALES",
+              optimizationGoal: null,
+              bidStrategyType: "bid_cap",
+              bidStrategyLabel: "Bid Cap",
+              manualBidAmount: 5,
+              bidValue: 5,
+              bidValueFormat: "currency",
+              dailyBudget: 10,
+              lifetimeBudget: null,
+            } }]])
+          : new Map([["adset-1", { source, payload: {
+              optimizationGoal: "Purchase",
+              bidStrategyType: "bid_cap",
+              bidStrategyLabel: "Bid Cap",
+              manualBidAmount: 4,
+              bidValue: 4,
+              bidValueFormat: "currency",
+              dailyBudget: 8,
+              lifetimeBudget: null,
+            } }]])) as never;
+      },
+    );
     vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
       businessId: "biz-1",
       accessToken: "token-1",
@@ -2612,19 +2746,73 @@ describe("meta historical serving", () => {
       },
     ] as never);
 
+    const preview = await repairMetaWarehouseTruthRange({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      dryRun: true,
+    });
+    expect(preview.manifest).toContainEqual(expect.objectContaining({
+      scope: "campaign_daily",
+      entityId: "cmp-1",
+      field: "objective",
+      oldValue: null,
+      newValue: "OUTCOME_SALES",
+      source: expect.objectContaining({ id: "raw-source-1", kind: "meta_raw_snapshots" }),
+    }));
+    expect(configRepairWrite.applyMetaConfigRepairChanges).not.toHaveBeenCalled();
+    await expect(repairMetaWarehouseTruthRange({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      expectedManifestHash: "0".repeat(64),
+    })).rejects.toThrow("meta_repair_manifest_changed");
+    expect(configRepairWrite.applyMetaConfigRepairChanges).not.toHaveBeenCalled();
+
     const result = await repairMetaWarehouseTruthRange({
       businessId: "biz-1",
       startDate: "2026-04-03",
       endDate: "2026-04-03",
+      expectedManifestHash: preview.manifestHash,
     });
 
     expect(result).toMatchObject({
       accountRowsScanned: 0,
       campaignRowsScanned: 1,
       adsetRowsScanned: 1,
-      accountRowsChanged: 1,
+      accountRowsChanged: 0,
       campaignRowsChanged: 1,
       adsetRowsChanged: 1,
     });
+    expect(apiMeta.fetchMetaCampaignConfigs).not.toHaveBeenCalled();
+    expect(apiMeta.fetchMetaAdSetConfigs).not.toHaveBeenCalled();
+    expect(configRepairWrite.applyMetaConfigRepairChanges).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({
+        scope: "campaign_daily", field: "objective", oldValue: null,
+        newValue: "OUTCOME_SALES",
+      })]),
+      expect.objectContaining({
+        manifestHash: result.manifestHash,
+        businessId: "biz-1",
+      }),
+    );
+
+    entityUpdatedAt = "2026-04-03T06:00:00.000Z";
+    const sameDayMutationPreview = await repairMetaWarehouseTruthRange({
+      businessId: "biz-1", startDate: "2026-04-03", endDate: "2026-04-03",
+      dryRun: true,
+    });
+    expect(sameDayMutationPreview.campaignRowsChanged).toBe(0);
+    expect(sameDayMutationPreview.adsetRowsChanged).toBe(0);
+
+    observedAt = "2026-04-02T12:00:00.000Z";
+    const staleSourcePreview = await repairMetaWarehouseTruthRange({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      dryRun: true,
+    });
+    expect(staleSourcePreview.campaignRowsChanged).toBe(0);
+    expect(staleSourcePreview.adsetRowsChanged).toBe(0);
   });
 });

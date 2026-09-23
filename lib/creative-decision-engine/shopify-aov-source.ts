@@ -143,7 +143,11 @@ export interface ObservedShopifyAovEvidence {
   zoneName: string | null;
   orderCount: number;
   currency: string | null;
-  /** The exponent `aovMinor` and `revenueMinor` were minted with. */
+  /**
+   * The exponent `aovMinor` and `revenueMinor` were minted with — and the one
+   * a reader MUST divide by. It is an internal encoding, not a claim about the
+   * provider's scale for this currency; see the note at the mint site.
+   */
   currencyExponent: number;
   revenueMinor: number | null;
   aovMinor: number | null;
@@ -888,6 +892,32 @@ export async function resolveObservedShopifyAov(
     return withheld("observed_zero_orders", { ...base, currency }, knowledgeAsOf);
   }
 
+  /*
+    ── THIS EXPONENT IS AN INTERNAL ENCODING, NOT A PROVIDER SCALE ───────────
+
+    It looks like the silent two-decimal default this codebase forbids
+    everywhere else, and it is not one. `aovMinor` is only ever read back
+    through `account-decision-profile.ts`, which divides by the SAME
+    `currencyExponent` this record carries (`observed.aovMinor / 10 **
+    observed.currencyExponent`). It is the single reader — `aovMinor` and
+    `revenueMinor` appear nowhere else outside this module — so the factor
+    cancels exactly and `observedAovMajor` is correct at any exponent,
+    including the fallback.
+
+    That is why the fallback is safe and why swapping in a provider-corroborated
+    exponent here would be a REGRESSION rather than a fix: it would start
+    withholding a usable store AOV on every currency the ISO registry does not
+    transcribe (BDT, KES, PKR, RUB and fifteen more) for a scale error that
+    cannot occur.
+
+    WHAT WOULD MAKE IT UNSAFE: a second reader that compares `aovMinor` to a
+    Meta minor-unit amount without dividing first. Meta's offset disagrees with
+    ISO for COP, HUF, IDR, TWD, BHD and JOD, so such a comparison would be
+    wrong by 10x or 100x on those accounts. Any new reader must divide by
+    `currencyExponent` exactly as the existing one does, or convert through
+    `resolveProviderCorroboratedExponent` and handle its refusal.
+    `shopify-aov-source.test.ts` pins the round trip.
+  */
   const exponent =
     Number.isSafeInteger(input.currencyExponent) && (input.currencyExponent as number) >= 0
       ? (input.currencyExponent as number)

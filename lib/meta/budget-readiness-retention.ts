@@ -21,6 +21,7 @@
  * `lib/meta/runtime-schema`, and returns a refusal rather than throwing.
  */
 import { META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL } from "@/lib/meta/observation-receipt-schema";
+import { resolveProviderCorroboratedExponent } from "@/lib/currency/provider-corroborated-minor-units";
 import {
   ISO_4217_REGISTRY_SOURCE,
   ISO_4217_REGISTRY_VERSION,
@@ -411,10 +412,30 @@ export function validateCanonicalBudgetFact(
     blockers.push("budget_fact_raw_value_not_positive");
   }
 
-  // --- the unit: resolved here, from the registry, and stamped with its version
+  /*
+    --- the unit: resolved here, from the registry, and stamped with its version
+
+    And corroborated against the PROVIDER before it may be stamped. The value
+    below travels into the retained fact as `currencyExponent` alongside a
+    `currencyRegistryVersion` that names the ISO registry — a claim about the
+    scale of a Meta amount. Meta's own offset contradicts ISO for COP, HUF, IDR
+    and TWD (100x) and for BHD and JOD (10x), and covers none of KWD, OMR, TND,
+    IQD or LYD, so stamping ISO's number for one of those retains a fact at a
+    scale the provider denies.
+
+    A gate, not a substitution: where the two agree the exponent, the registry
+    source and the version are byte-identical, so every retained row for USD,
+    TRY, GBP and EUR — every currency the warehouse has ever held — is
+    reproduced exactly. `lib/meta/budget-fact.ts` carries the matching read-side
+    refusal for rows retained before this existed.
+  */
   const exponent = resolveMinorUnitExponent(row.sourceCurrency);
   if (exponent.status !== "resolved") {
     blockers.push(`budget_fact_currency_unresolvable:${exponent.status}`);
+  } else if (
+    resolveProviderCorroboratedExponent(row.sourceCurrency).status !== "resolved"
+  ) {
+    blockers.push("budget_fact_currency_scale_not_provider_corroborated");
   }
 
   if (

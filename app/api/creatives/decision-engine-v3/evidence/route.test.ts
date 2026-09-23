@@ -386,6 +386,15 @@ describe("GET /api/creatives/decision-engine-v3/evidence", () => {
     expect(String(query.mock.calls[0]?.[0])).toContain(
       "evaluation.creative_id IS NOT DISTINCT FROM snapshot.creative_id",
     );
+    expect(String(query.mock.calls[0]?.[0])).toContain(
+      "LEFT JOIN engine_v3_ad_decision_input_evidence input_evidence",
+    );
+    expect(String(query.mock.calls[0]?.[0])).toContain(
+      "input_evidence.contract_version = evaluation.contract_version",
+    );
+    expect(String(query.mock.calls[0]?.[0])).toContain(
+      "input_evidence.input_hash = evaluation.input_hash",
+    );
   });
 
   it("fails closed on unavailable generation and never queries legacy evidence", async () => {
@@ -446,6 +455,112 @@ describe("GET /api/creatives/decision-engine-v3/evidence", () => {
     expect(invalid.status).toBe(409);
     expect(await invalid.json()).toMatchObject({
       reason: "native_persisted_evidence_lineage_invalid",
+    });
+  });
+
+  /*
+    A `.v12` input hashes configEvidence and metricContract beside the creative
+    input, persisted in the hash-keyed evidence mapping. The route rebuilt the envelope
+    without them, so every real `.v12` row failed its own proof here while this
+    file's legacy-shaped fixture passed.
+  */
+  describe("a .v12 input envelope with persisted input evidence", () => {
+    const INPUT_EVIDENCE_JSON = {
+      configEvidence: {
+        customConversionId: null,
+        currentValueEvidence: { observed: false, lineageSupplied: true },
+        decisionEconomics: { fullyVerified: false, receiptManifest: null },
+      },
+      metricContract: {
+        funnelStage: "meta-funnel-stage.v1",
+        windowRule: "meta-metric-window.complete-or-null.v1",
+        adDayLinkClick: "meta-ad-day-link-click.v1",
+      },
+    };
+    const V12_INPUT_HASH = canonicalSha256({
+      contractVersion: EVALUATION_CONTRACT_VERSION,
+      envelopeType: "input",
+      engineVersion: ENGINE_VERSION,
+      contextHash: CONTEXT_HASH,
+      creativeInput: CREATIVE_INPUT_JSON,
+      campaignContext: CAMPAIGN_CONTEXT_JSON,
+      priorHysteresis: PRIOR_HYSTERESIS_JSON,
+      configEvidence: INPUT_EVIDENCE_JSON.configEvidence,
+      metricContract: INPUT_EVIDENCE_JSON.metricContract,
+      decisionIdentity: {
+        decisionEntityType: "ad",
+        decisionEntityId: "ad-1",
+        adId: "ad-1",
+        providerAccountId: "act_1",
+        providerAccountRefId: PROVIDER_REF_ID,
+        creativeGroupingId: "creative-1",
+      },
+    });
+    const V12_DECISION_HASH = canonicalSha256({
+      contractVersion: EVALUATION_CONTRACT_VERSION,
+      envelopeType: "decision",
+      engineVersion: ENGINE_VERSION,
+      inputHash: V12_INPUT_HASH,
+      decision: DECISION_OUTPUT_JSON,
+      rawLabel: "cut",
+      publishedLabel: "keep",
+      hysteresisSuppressed: false,
+    });
+    const v12Row = (overrides: Record<string, unknown> = {}) =>
+      evidenceRow({
+        snapshot_input_hash: V12_INPUT_HASH,
+        evaluation_input_hash: V12_INPUT_HASH,
+        snapshot_decision_hash: V12_DECISION_HASH,
+        evaluation_decision_hash: V12_DECISION_HASH,
+        input_evidence_json: INPUT_EVIDENCE_JSON,
+        ...overrides,
+      });
+    const request = () =>
+      GET(
+        new NextRequest(
+          `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`,
+        ),
+      );
+
+    beforeEach(() => {
+      const decision = canonicalDecision();
+      vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+        generation([
+          {
+            ...decision,
+            sourceAuthority: {
+              ...decision.sourceAuthority!,
+              inputHash: V12_INPUT_HASH,
+              decisionHash: V12_DECISION_HASH,
+            },
+          } as MetaCanonicalDecision,
+        ]),
+      );
+    });
+
+    it("POSITIVE: verifies the persisted .v12 envelope", async () => {
+      query.mockResolvedValue([v12Row()]);
+      const response = await request();
+      expect(response.status).toBe(200);
+    });
+
+    it("NEGATIVE: refuses a .v12 row whose input evidence is missing", async () => {
+      query.mockResolvedValue([v12Row({ input_evidence_json: null })]);
+      const response = await request();
+      expect(response.status).toBe(409);
+    });
+
+    it("NEGATIVE: refuses a .v12 row whose persisted receipts differ from what was hashed", async () => {
+      query.mockResolvedValue([
+        v12Row({
+          input_evidence_json: {
+            ...INPUT_EVIDENCE_JSON,
+            configEvidence: { ...INPUT_EVIDENCE_JSON.configEvidence, customConversionId: "999" },
+          },
+        }),
+      ]);
+      const response = await request();
+      expect(response.status).toBe(409);
     });
   });
 

@@ -1,6 +1,6 @@
 {
   "contractVersion": "native-ad-frozen-exact-replay.v1",
-  "engineVersion": "v3-ad-2026-09-07-held-verdict-authority-shadow",
+  "engineVersion": "v3-ad-2026-09-22-meta-config-economics-shadow",
   "sourceMode": "anonymized_frozen_acceptance_fixture",
   "sourceProvenance": {
     "mode": "synthetic_anonymized_production_contract_fixture",
@@ -22,6 +22,15 @@
   "objective": "OUTCOME_SALES",
   "optimizationGoal": "PURCHASE",
   "customEventType": "PURCHASE",
+  "configProvenance": {
+    "_why": "The acceptance case replays a day whose config came from a provider receipt bracketing the day at both ends. It is stated rather than left absent because the cell's hard sample is now the verified suffix: a row with no provenance contributes nothing to it, and this fixture is meant to exercise a READY cell, not an unprovenanced one.",
+    "objectiveTier": "provider_receipt_legacy_bracketed",
+    "objectiveReadiness": "decision_authority",
+    "optimizationGoalTier": "provider_receipt_legacy_bracketed",
+    "optimizationGoalReadiness": "decision_authority",
+    "customEventTypeTier": "provider_receipt_legacy_bracketed",
+    "customEventTypeReadiness": "decision_authority"
+  },
   "firstAsOfDate": "2026-07-15",
   "confirmationAsOfDate": "2026-07-16",
   "sourceFactDate": "2026-07-14",

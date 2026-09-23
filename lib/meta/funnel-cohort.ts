@@ -99,6 +99,40 @@ export function resolveMetaFunnelCohort(input: {
   return "unknown";
 }
 
+/**
+ * The cohort a CONFIGURATION states, with no inference from results.
+ *
+ * `resolveMetaFunnelCohort` has one branch that reads an outcome as an intent:
+ * with no event, goal or objective, a positive purchase count or revenue makes
+ * the cohort `purchase`. That is the shape this whole repair exists to refuse —
+ * an optimization intent invented from the result it produced — and it decides
+ * real things downstream, because a purchase cohort is what the commercial gates
+ * evaluate.
+ *
+ * It is left in place for the V1 surfaces that pass results to it
+ * (`lib/meta/adset-decisions.ts`, `campaignFunnelCohort` in
+ * `lib/meta/recommendations.ts`, `lib/meta/campaign-lanes.ts`,
+ * `lib/meta/engine-v1/state-rows.ts`; audited 2026-09-23). None of them reaches
+ * a provider write: budget intents take their cohort from `lib/meta/snapshot.ts`,
+ * which calls this WITHOUT results, and bid intents accept only an ad-set
+ * recommendation that names a bid-amount operation, which no campaign-grain V1
+ * scenario is. `lib/meta/snapshot.ts` and `lib/meta/calibration.ts` also call
+ * it without results. Changing the V1 surfaces is a separate migration with its
+ * own decision to make. The native path (hydration, calibration) uses THIS
+ * function instead, so the fallback cannot reach a native decision even if a
+ * future edit starts passing results or relaxes the guard that currently keeps
+ * them out.
+ */
+export function resolveMetaFunnelCohortFromConfigOnly(
+  input: {
+    customEventType?: string | null;
+    optimizationGoal?: string | null;
+    objective?: string | null;
+  },
+): MetaFunnelCohort {
+  return resolveMetaFunnelCohort({ ...input, purchases: null, revenue: null });
+}
+
 export function isPurchaseCohort(cohort: MetaFunnelCohort): boolean {
   return cohort === "purchase";
 }

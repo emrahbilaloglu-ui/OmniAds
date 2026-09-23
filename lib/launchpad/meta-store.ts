@@ -323,7 +323,29 @@ export async function listRecentMetaLaunchTemplates(input: {
   }>;
 
   return rows.map((row) => {
-    const amount = Number(row.daily_budget ?? row.lifetime_budget);
+    /*
+      `meta_campaign_config_history.daily_budget` / `.lifetime_budget` /
+      `.bid_value` already hold the provider's own minor-unit integers — the
+      capture path parses Meta's string with a bare `parseFloat` and
+      `lib/meta/warehouse.ts` throws `..._source_mismatch` if a stored value
+      ever differs from the raw provider number. Multiplying by 100 here made
+      every auto_recent template carry a 100x budget and a 100x bid cap, which
+      `lib/launchpad/meta.ts` would hand to `daily_budget` / `bid_amount`
+      verbatim. The values pass straight through instead; no currency and no
+      offset are involved because none is applied.
+
+      The schedule now comes off the same column the amount did. The old
+      predicate read `lifetime_budget !== null` on its own, so a row carrying
+      BOTH budgets took the daily number (the `??` precedence) and labelled it
+      "lifetime".
+    */
+    const scheduled =
+      row.daily_budget != null && Number.isFinite(Number(row.daily_budget))
+        ? { schedule: "daily" as const, amount: Number(row.daily_budget) }
+        : row.lifetime_budget != null &&
+            Number.isFinite(Number(row.lifetime_budget))
+          ? { schedule: "lifetime" as const, amount: Number(row.lifetime_budget) }
+          : null;
     const payload = normalizeMetaLaunchPayload({
       campaign: {
         name: `${row.name} (template)`,
@@ -332,16 +354,32 @@ export async function listRecentMetaLaunchTemplates(input: {
       },
       budget: {
         mode: "CBO",
-        schedule: row.lifetime_budget !== null ? "lifetime" : "daily",
-        amountMinor: Math.max(0, Math.round(amount * 100)),
+        schedule: scheduled?.schedule ?? "daily",
+        /* 0 for a campaign with no captured budget: the same value a blank
+           amount produces, which `validateMetaLaunchPayload` already refuses
+           with `budget_required`. */
+        amountMinor: scheduled ? Math.max(0, Math.round(scheduled.amount)) : 0,
+        /*
+          `bid_strategy_type` is the lowercase token `normalizeBidStrategy`
+          writes (`bid_cap`, `cost_cap`, `target_roas`, `lowest_cost`,
+          `manual_bid`) — never the Meta API enum this used to compare against.
+          The comparison could not be true for any stored row, so every
+          template came out stamped LOWEST_COST_WITHOUT_CAP while still
+          carrying a bid amount: a combination `validateMetaLaunchPayload` does
+          not catch and `toCampaignInput` would send to Graph.
+        */
         bidStrategy:
-          row.bid_strategy_type === "LOWEST_COST_WITH_BID_CAP" ||
-          row.bid_strategy_type === "COST_CAP"
-            ? row.bid_strategy_type
-            : "LOWEST_COST_WITHOUT_CAP",
-        bidAmountMinor: row.bid_value != null && row.bid_value_format === "currency"
-          ? Math.round(Number(row.bid_value) * 100)
-          : null,
+          row.bid_strategy_type === "bid_cap"
+            ? "LOWEST_COST_WITH_BID_CAP"
+            : row.bid_strategy_type === "cost_cap"
+              ? "COST_CAP"
+              : "LOWEST_COST_WITHOUT_CAP",
+        /* The `currency` discriminator stays: a `roas` bid_value is a plain
+           multiplier and must never be carried as a currency bid amount. */
+        bidAmountMinor:
+          row.bid_value != null && row.bid_value_format === "currency"
+            ? Math.max(0, Math.round(Number(row.bid_value)))
+            : null,
       },
       creativeIds: [],
       creatives: [],

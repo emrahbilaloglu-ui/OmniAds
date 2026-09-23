@@ -232,6 +232,25 @@ async function runProbeAndRollback(
 
 /** Columns this change adds. */
 export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
+  // Native decision input evidence is keyed outside the high-volume evaluation
+  // table. The native schema capability gate also verifies its PK/object check;
+  // these catalog assertions keep the global migration completion proof honest.
+  { table: "engine_v3_ad_decision_input_evidence", column: "contract_version", dataType: "text", isNullable: false },
+  { table: "engine_v3_ad_decision_input_evidence", column: "input_hash", dataType: "character", isNullable: false },
+  { table: "engine_v3_ad_decision_input_evidence", column: "input_evidence_json", dataType: "jsonb", isNullable: false },
+  { table: "engine_v3_ad_decision_input_evidence", column: "created_at", dataType: "timestamp with time zone", isNullable: false, columnDefault: "now()" },
+  { table: "engine_v3_ad_decision_input_evidence", column: "updated_at", dataType: "timestamp with time zone", isNullable: false, columnDefault: "now()" },
+  // The reviewed config repair writes its complete manifest in this table in
+  // the same transaction as the guarded daily-row updates. A table name alone
+  // would not prove that the writer's required audit columns landed.
+  { table: "meta_config_repair_audits", column: "id", dataType: "uuid", isNullable: false, columnDefault: "gen_random_uuid()" },
+  { table: "meta_config_repair_audits", column: "manifest_hash", dataType: "text", isNullable: false },
+  { table: "meta_config_repair_audits", column: "business_id", dataType: "text", isNullable: false },
+  { table: "meta_config_repair_audits", column: "start_date", dataType: "date", isNullable: false },
+  { table: "meta_config_repair_audits", column: "end_date", dataType: "date", isNullable: false },
+  { table: "meta_config_repair_audits", column: "changes_json", dataType: "jsonb", isNullable: false },
+  { table: "meta_config_repair_audits", column: "rows_updated", dataType: "integer", isNullable: false },
+  { table: "meta_config_repair_audits", column: "applied_at", dataType: "timestamp with time zone", isNullable: false, columnDefault: "now()" },
   { table: "business_provider_accounts", column: "is_selected", dataType: "boolean", isNullable: false, columnDefault: "false" },
   { table: "meta_raw_snapshots", column: "content_key", dataType: "text", isNullable: true },
   { table: "meta_raw_snapshots", column: "first_observed_at", dataType: "timestamp with time zone", isNullable: true },
@@ -331,6 +350,8 @@ export const FORBIDDEN_TRIGGERS: readonly string[] = [
 
 /** Tables this change adds. */
 export const VERIFIED_TABLES: readonly string[] = [
+  "engine_v3_ad_decision_input_evidence",
+  "meta_config_repair_audits",
   "meta_raw_snapshot_observations",
   "shopify_raw_snapshot_observations",
   "business_commerce_cost_structures",
@@ -406,6 +427,22 @@ export const VERIFIED_FOREIGN_KEYS: readonly ForeignKeySpec[] = [
 
 /** Indexes this change adds, with the fragments that define them. */
 export const VERIFIED_INDEXES: readonly IndexSpec[] = [
+  {
+    name: "meta_config_repair_audits_manifest_hash_key",
+    table: "meta_config_repair_audits",
+    unique: true,
+    accessMethod: "btree",
+    keyExpressions: ["manifest_hash"],
+    predicate: null,
+  },
+  {
+    name: "idx_meta_config_repair_audits_scope",
+    table: "meta_config_repair_audits",
+    unique: false,
+    accessMethod: "btree",
+    keyExpressions: ["business_id", "start_date", "end_date", "applied_at DESC"],
+    predicate: null,
+  },
   {
     name: "meta_raw_snapshots_content_identity",
     table: "meta_raw_snapshots",

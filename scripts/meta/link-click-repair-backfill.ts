@@ -36,8 +36,14 @@
  *
  * The residual — a row whose `payload_json` has no `actions` array at all —
  * is NOT repairable from storage and is reported as such rather than filled.
- * Closing it needs a re-sync of those days through the authoritative sync path
- * (`syncMetaRepairRange`), which is a different command and a provider read.
+ * A dated provider re-read is an investigation path, not a guaranteed repair:
+ * on 2026-09-22 all 93 such TheSwaf rows in one two-band preview were returned
+ * again with matching spend/impressions and still no `actions` array. Meta
+ * separately returned `inline_link_clicks: "0"`, but that is a distinct field
+ * whose attribution scope has not been established as interchangeable with
+ * this column's `actions.link_click` source. The authoritative sync path
+ * (`syncMetaRepairRange`) requests the same `actions` field, so merely
+ * re-queuing those days has no demonstrated ability to close this residual.
  *
  * ── Why this is not a second owner of the table ──────────────────────────────
  * D066 makes `meta_ad_daily` fact storage owned by authoritative insights sync,
@@ -57,8 +63,9 @@
  * precisely because that would rewrite forty fact columns to repair one.
  *
  * ── Bounds ───────────────────────────────────────────────────────────────────
- * Dry run by default; `--execute` AND `ADSECUTE_LINK_CLICK_REPAIR_EXECUTE=1`
- * are both required before a single row is written. One business per run, an
+ * Dry run by default; `--execute`, `ADSECUTE_LINK_CLICK_REPAIR_EXECUTE=1`, and
+ * the reviewed dry-run manifest hash are all required before a single row is
+ * written. One business per run, an
  * explicit account list or every account with rows in the window, a window that
  * is always the two-band pair (so "filled only the recent band" is not a
  * reachable state), a hard row ceiling, keyset pagination with a strictly
@@ -68,10 +75,13 @@
  * Usage:
  *   node --import tsx scripts/meta/link-click-repair-backfill.ts \
  *     --business <businessId> [--account act_123 ...] [--as-of YYYY-MM-DD] \
+ *     [--admissibility-cutoff YYYY-MM-DDTHH:mm:ss.sssZ] \
  *     [--band-days 14] [--max-rows 5000] [--page-size 500] [--max-attempts 3] \
- *     [--skip-measured-zero] [--allow-partial] [--receipt-out <path>] [--execute]
+ *     [--skip-measured-zero] [--allow-partial] [--receipt-out <path>] \
+ *     [--execute --expected-manifest-hash <sha256>]
  */
 import { parseMetaLinkClickValue } from "@/lib/meta/link-click-parse";
+import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 
 import { configureOperationalScriptRuntime } from "../_operational-runtime";
@@ -108,6 +118,8 @@ export const LINK_CLICK_REPAIR_BOUNDS = {
 
 /** The environment lock that must accompany `--execute`. */
 export const LINK_CLICK_REPAIR_EXECUTE_ENV = "ADSECUTE_LINK_CLICK_REPAIR_EXECUTE";
+export const LINK_CLICK_REPAIR_MANIFEST_CONTRACT =
+  "adsecute.meta-link-click-repair-manifest.v1" as const;
 
 export interface LinkClickRepairOptions {
   businessId: string;
@@ -129,6 +141,8 @@ export interface LinkClickRepairOptions {
   pageSize: number;
   maxAttempts: number;
   execute: boolean;
+  /** Reviewed dry-run plan identity; required by the CLI in execute mode. */
+  expectedManifestHash: string | null;
   /** Refuse to write a plan that hit the row ceiling unless this is set. */
   allowPartial: boolean;
   /** Skip the "actions array present, no link_click entry" -> 0 inference. */
@@ -274,11 +288,13 @@ export function parseLinkClickRepairArgs(
   let businessId: string | null = null;
   const providerAccountIds: string[] = [];
   let asOfDate: string | null = null;
+  let admissibilityCutoff: string | null = null;
   let bandDays: number = bounds.bandDaysDefault;
   let maxRows: number = bounds.maxRowsDefault;
   let pageSize: number = bounds.pageSizeDefault;
   let maxAttempts: number = bounds.maxAttemptsDefault;
   let execute = false;
+  let expectedManifestHash: string | null = null;
   let allowPartial = false;
   let skipMeasuredZero = false;
   let receiptOutPath: string | null = null;
@@ -296,6 +312,10 @@ export function parseLinkClickRepairArgs(
         break;
       case "--as-of":
         asOfDate = takeValue(argv, index, "--as-of");
+        index += 1;
+        break;
+      case "--admissibility-cutoff":
+        admissibilityCutoff = takeValue(argv, index, "--admissibility-cutoff");
         index += 1;
         break;
       case "--band-days":
@@ -338,6 +358,10 @@ export function parseLinkClickRepairArgs(
         receiptOutPath = takeValue(argv, index, "--receipt-out");
         index += 1;
         break;
+      case "--expected-manifest-hash":
+        expectedManifestHash = takeValue(argv, index, "--expected-manifest-hash");
+        index += 1;
+        break;
       case "--execute":
         execute = true;
         break;
@@ -377,10 +401,30 @@ export function parseLinkClickRepairArgs(
   }
   // Validated here so a bad --as-of fails before anything opens a connection.
   planLinkClickRepairScope({ asOfDate: asOfDate ?? today(), bandDays });
+  if (admissibilityCutoff !== null) {
+    const parsed = Date.parse(admissibilityCutoff);
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(admissibilityCutoff)
+      || !Number.isFinite(parsed)
+      || new Date(parsed).toISOString() !== admissibilityCutoff) {
+      throw new LinkClickRepairUsageError(
+        "--admissibility-cutoff must be an exact UTC timestamp (YYYY-MM-DDTHH:mm:ss.sssZ).",
+      );
+    }
+  }
 
   if (execute && env[LINK_CLICK_REPAIR_EXECUTE_ENV] !== "1") {
     throw new LinkClickRepairUsageError(
       `--execute also requires ${LINK_CLICK_REPAIR_EXECUTE_ENV}=1. Two independent gestures are deliberate: this process resolves DATABASE_URL from .env.local, which in this repository points at PRODUCTION.`,
+    );
+  }
+  if (execute && !/^[a-f0-9]{64}$/.test(expectedManifestHash ?? "")) {
+    throw new LinkClickRepairUsageError(
+      "--execute requires --expected-manifest-hash <64-character lowercase SHA-256> from the reviewed dry run.",
+    );
+  }
+  if (!execute && expectedManifestHash !== null) {
+    throw new LinkClickRepairUsageError(
+      "--expected-manifest-hash is accepted only with --execute.",
     );
   }
 
@@ -390,16 +434,18 @@ export function parseLinkClickRepairArgs(
     asOfDate: asOfDate ?? today(),
     bandDays,
     /*
-      END OF THE AS-OF DAY, UTC. The repair reads the same population a
-      decision taken for that day reads: a row captured or last touched after
-      this instant did not exist for that decision, so repairing it would edit
-      a capture the engine never saw.
+      Report day and warehouse knowledge cutoff are separate clocks. The
+      historical default retains prior preview behavior; an explicit later
+      cutoff admits finalized rows that arrived after the report day for a
+      present-day restatement. The receipt names the exact cutoff used.
     */
-    admissibilityCutoff: `${asOfDate ?? today()}T23:59:59.999Z`,
+    admissibilityCutoff:
+      admissibilityCutoff ?? `${asOfDate ?? today()}T23:59:59.999Z`,
     maxRows,
     pageSize,
     maxAttempts,
     execute,
+    expectedManifestHash,
     allowPartial,
     skipMeasuredZero,
     receiptOutPath,
@@ -602,24 +648,36 @@ export function cursorAdvanced(
 /**
  * The only statement in this file that mutates a row.
  *
- * The pre-image guard (`link_clicks IS NOT DISTINCT FROM`) is what makes a
- * concurrent authoritative sync safe: if the owner wrote the row between this
- * command's read and its write, the predicate fails, the row is not updated,
- * and it comes back in the RETURNING gap as skipped rather than clobbered.
+ * The projection, source-snapshot and raw-actions pre-image guards make a
+ * concurrent authoritative sync safe: if the owner changed any reviewed
+ * evidence between this command's read and write, the row is not updated. The
+ * executor treats that RETURNING gap as a manifest drift and rolls the whole
+ * transaction back rather than committing a partial reviewed plan.
  */
 export const LINK_CLICK_REPAIR_UPDATE_SQL = `
     UPDATE meta_ad_daily AS d
     SET link_clicks = v.new_link_clicks
     FROM (
       SELECT *
-      FROM unnest($2::text[], $3::date[], $4::text[], $5::bigint[], $6::bigint[])
-        AS t(provider_account_id, date, ad_id, new_link_clicks, pre_image)
+      FROM unnest(
+        $2::text[], $3::date[], $4::text[], $5::bigint[], $6::bigint[],
+        $7::uuid[], $8::text[]
+      ) AS t(
+        provider_account_id, date, ad_id, new_link_clicks, pre_image,
+        source_snapshot_id, actions_pre_image
+      )
     ) AS v
     WHERE d.business_id = $1
       AND d.provider_account_id = v.provider_account_id
       AND d.date = v.date
       AND d.ad_id = v.ad_id
       AND d.link_clicks IS NOT DISTINCT FROM v.pre_image
+      AND d.source_snapshot_id IS NOT DISTINCT FROM v.source_snapshot_id
+      AND COALESCE((d.payload_json->'actions')::text, '') = v.actions_pre_image
+      AND d.truth_state = 'finalized'
+      AND d.validation_status = 'passed'
+      AND d.created_at <= $9::timestamptz
+      AND d.updated_at <= $9::timestamptz
     RETURNING d.provider_account_id, d.date::text AS date, d.ad_id
   `;
 
@@ -664,6 +722,8 @@ export const LINK_CLICK_REPAIR_PAGE_SQL = `
       d.provider_account_id,
       d.date::text AS date,
       d.ad_id,
+      d.source_snapshot_id::text AS source_snapshot_id,
+      COALESCE((d.payload_json->'actions')::text, '') AS actions_pre_image,
       d.link_clicks::text AS stored_link_clicks,
       COALESCE(jsonb_typeof(d.payload_json->'actions') = 'array', false) AS actions_present,
       CASE
@@ -708,6 +768,8 @@ interface PageRow {
   provider_account_id: string;
   date: string;
   ad_id: string;
+  source_snapshot_id?: string | null;
+  actions_pre_image: string;
   stored_link_clicks: string | null;
   actions_present: boolean;
   link_click_values: unknown[];
@@ -758,8 +820,26 @@ export interface LinkClickRepairResult {
   truncatedByMaxRows: boolean;
   accounts: LinkClickRepairAccountReport[];
   actions: Record<LinkClickRepairAction, number>;
-  /** Rows the stored payload cannot repair; these need a provider re-sync. */
+  /** Rows whose stored payload cannot repair; provider re-read may also omit actions. */
   residualNeedingProviderResync: number;
+  manifestContract: typeof LINK_CLICK_REPAIR_MANIFEST_CONTRACT;
+  manifestHash: string;
+  /** Hash supplied by the reviewed dry run, present only for an execute. */
+  reviewedManifestHash: string | null;
+  manifest: Array<{
+    providerAccountId: string;
+    date: string;
+    adId: string;
+    field: "link_clicks";
+    oldValue: number | null;
+    newValue: number;
+    source: {
+      kind: "meta_ad_daily.payload_json.actions";
+      sourceSnapshotId: string | null;
+      actionsSha256: string;
+    };
+    reason: LinkClickRepairAction;
+  }>;
 }
 
 /** Minimal shape this command needs from a database client. */
@@ -874,9 +954,8 @@ export function parseStoredLinkClicks(raw: string | null): number | null {
  * Read candidates page by page, classify each one, and (only under `--execute`)
  * write the rows the stored payload authorizes.
  *
- * The write happens per page rather than at the end so a run that is killed
- * mid-way leaves whole pages applied rather than nothing, and so the peak
- * memory is one page rather than the whole window.
+ * A complete bounded plan is validated before any write. Its field-level
+ * manifest makes the source and old/new value of every proposed edit visible.
  */
 export async function runLinkClickRepair(input: {
   db: LinkClickRepairDb;
@@ -884,6 +963,16 @@ export async function runLinkClickRepair(input: {
   sleep?: (ms: number) => Promise<void>;
 }): Promise<LinkClickRepairResult> {
   const { db, options } = input;
+  if (options.execute && !/^[a-f0-9]{64}$/.test(options.expectedManifestHash ?? "")) {
+    throw new Error(
+      "link_click_repair_manifest_hash_required: execute requires the reviewed dry-run SHA-256. Nothing was written.",
+    );
+  }
+  if (!options.execute && options.expectedManifestHash !== null) {
+    throw new Error(
+      "link_click_repair_manifest_hash_without_execute: a reviewed hash is valid only for execute mode.",
+    );
+  }
   const sleep =
     input.sleep ??
     ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -916,6 +1005,10 @@ export async function runLinkClickRepair(input: {
     value: number;
     preImage: number | null;
     band: "prior14" | "recent14";
+    sourceSnapshotId: string | null;
+    actionsPreImage: string;
+    actionsSha256: string;
+    reason: LinkClickRepairAction;
   }[] = [];
 
   const bandReportFor = (
@@ -984,6 +1077,10 @@ export async function runLinkClickRepair(input: {
       value: number;
       preImage: number | null;
       band: "prior14" | "recent14";
+      sourceSnapshotId: string | null;
+      actionsPreImage: string;
+      actionsSha256: string;
+      reason: LinkClickRepairAction;
     }[] = [];
 
     for (const row of page) {
@@ -1018,6 +1115,10 @@ export async function runLinkClickRepair(input: {
           value: classification.writeValue,
           preImage: stored,
           band: bandKey,
+          sourceSnapshotId: row.source_snapshot_id ?? null,
+          actionsPreImage: row.actions_pre_image,
+          actionsSha256: createHash("sha256").update(row.actions_pre_image).digest("hex"),
+          reason: classification.action,
         });
       }
     }
@@ -1090,6 +1191,34 @@ export async function runLinkClickRepair(input: {
     was rather than half-repaired.
   */
   const frozenPlan = Object.freeze(plannedWrites.map((write) => Object.freeze({ ...write })));
+  const manifest: LinkClickRepairResult["manifest"] = frozenPlan.map((write) => ({
+    providerAccountId: write.providerAccountId,
+    date: write.date,
+    adId: write.adId,
+    field: "link_clicks",
+    oldValue: write.preImage,
+    newValue: write.value,
+    source: {
+      kind: "meta_ad_daily.payload_json.actions",
+      sourceSnapshotId: write.sourceSnapshotId,
+      actionsSha256: write.actionsSha256,
+    },
+    reason: write.reason,
+  }));
+  /*
+    Bind the reviewed plan to its whole read scope, not only its row array. Two
+    businesses or knowledge cutoffs can legitimately produce byte-identical
+    edits; their approvals are not interchangeable.
+  */
+  const manifestHash = createHash("sha256").update(JSON.stringify({
+    contract: LINK_CLICK_REPAIR_MANIFEST_CONTRACT,
+    businessId: options.businessId,
+    scope,
+    admissibilityCutoff: options.admissibilityCutoff,
+    providerAccountIds: options.providerAccountIds,
+    skipMeasuredZero: options.skipMeasuredZero,
+    manifest,
+  })).digest("hex");
   /*
     THE REFUSAL MOVES HERE, ahead of the first mutation.
 
@@ -1101,6 +1230,23 @@ export async function runLinkClickRepair(input: {
   if (options.execute && truncatedByMaxRows && !options.allowPartial) {
     throw new Error(
       `link_click_repair_plan_truncated_by_max_rows: examined ${candidatesExamined} candidates at the --max-rows ceiling of ${options.maxRows}. Nothing was written. Raise --max-rows so the whole band pair is covered, or pass --allow-partial to accept an incomplete repair.`,
+    );
+  }
+
+  /*
+    The execute recomputes the entire plan, then proves it is byte-for-byte the
+    plan that was reviewed. A matching scope with a changed row, source, or
+    value is a different manifest and writes nothing.
+
+    The same lock applies to programmatic callers. Otherwise a second entry
+    point could bypass the reviewed dry-run requirement enforced by the CLI.
+  */
+  if (
+    options.execute &&
+    options.expectedManifestHash !== manifestHash
+  ) {
+    throw new Error(
+      `link_click_repair_manifest_hash_mismatch: expected ${options.expectedManifestHash}, recomputed ${manifestHash}. Nothing was written.`,
     );
   }
 
@@ -1145,6 +1291,10 @@ export async function runLinkClickRepair(input: {
     ),
     actions: totals,
     residualNeedingProviderResync,
+    manifestContract: LINK_CLICK_REPAIR_MANIFEST_CONTRACT,
+    manifestHash,
+    reviewedManifestHash: options.execute ? options.expectedManifestHash : null,
+    manifest,
   };
 }
 
@@ -1154,8 +1304,8 @@ export async function runLinkClickRepair(input: {
  *
  * Separate from the scan on purpose: the scan decides, this writes, and the
  * validation between them is what makes a truncated run a no-op instead of a
- * half-finished repair. The pre-image guard travels with every row, so a
- * concurrent authoritative write is skipped rather than clobbered.
+ * half-finished repair. The pre-image guard travels with every row; any
+ * concurrent drift aborts and rolls back the complete reviewed plan.
  */
 async function runLinkClickRepairPlan(input: {
   db: LinkClickRepairDb;
@@ -1167,6 +1317,8 @@ async function runLinkClickRepairPlan(input: {
     value: number;
     preImage: number | null;
     band: "prior14" | "recent14";
+    sourceSnapshotId: string | null;
+    actionsPreImage: string;
   }[];
   onWritten: (write: { providerAccountId: string; band: "prior14" | "recent14" }) => void;
   onDrifted: (write: { providerAccountId: string; band: "prior14" | "recent14" }) => void;
@@ -1201,15 +1353,24 @@ async function runLinkClickRepairPlan(input: {
         batch.map((write) => write.adId),
         batch.map((write) => write.value),
         batch.map((write) => write.preImage),
+        batch.map((write) => write.sourceSnapshotId),
+        batch.map((write) => write.actionsPreImage),
+        options.admissibilityCutoff,
       ]);
       const updatedKeys = new Set(
         updated.map((row) => [row.provider_account_id, row.date, row.ad_id].join("\u0000")),
       );
-      for (const write of batch) {
+      const drifted = batch.filter((write) => {
         const key = [write.providerAccountId, write.date, write.adId].join("\u0000");
-        if (updatedKeys.has(key)) input.onWritten(write);
-        else input.onDrifted(write);
+        return !updatedKeys.has(key);
+      });
+      if (drifted.length > 0) {
+        for (const write of drifted) input.onDrifted(write);
+        throw new Error(
+          `link_click_repair_preimage_drift: ${drifted.length} reviewed row(s) changed before apply; the complete transaction was rolled back. Re-run dry-run and review a new manifest.`,
+        );
       }
+      for (const write of batch) input.onWritten(write);
     }
   });
 }
@@ -1236,10 +1397,12 @@ export function assertPlanIsNotSilentlyPartial(
 
 export const LINK_CLICK_REPAIR_USAGE = `usage: node --import tsx scripts/meta/link-click-repair-backfill.ts \\
   --business <businessId> [--account act_123 ...] [--as-of YYYY-MM-DD]
+  [--admissibility-cutoff YYYY-MM-DDTHH:mm:ss.sssZ]
   [--band-days ${LINK_CLICK_REPAIR_BOUNDS.bandDaysDefault}] [--max-rows ${LINK_CLICK_REPAIR_BOUNDS.maxRowsDefault}] [--page-size ${LINK_CLICK_REPAIR_BOUNDS.pageSizeDefault}] [--max-attempts ${LINK_CLICK_REPAIR_BOUNDS.maxAttemptsDefault}]
-  [--skip-measured-zero] [--allow-partial] [--receipt-out <path>] [--execute]
+  [--skip-measured-zero] [--allow-partial] [--receipt-out <path>]
+  [--execute --expected-manifest-hash <sha256>]
 
-Dry run by default. --execute additionally requires ${LINK_CLICK_REPAIR_EXECUTE_ENV}=1.`;
+Dry run by default. --execute additionally requires ${LINK_CLICK_REPAIR_EXECUTE_ENV}=1 and the reviewed dry-run manifest hash.`;
 
 async function main() {
   configureOperationalScriptRuntime();
@@ -1282,7 +1445,7 @@ async function main() {
   console.log(report);
   if (!options.execute) {
     console.log(
-      `\nDRY RUN — nothing was written. ${result.rowsPlanned} row(s) would be repaired; ${result.residualNeedingProviderResync} row(s) cannot be repaired from trustworthy stored payload evidence and need a provider re-sync instead.`,
+      `\nDRY RUN — nothing was written. ${result.rowsPlanned} row(s) would be repaired; ${result.residualNeedingProviderResync} row(s) lack trustworthy stored actions evidence. A dated provider re-read may still omit actions; inspect its field scope before treating those rows as repairable.`,
     );
   }
 }

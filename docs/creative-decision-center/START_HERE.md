@@ -54,18 +54,19 @@ Current version keys (verify against the constants, never against this list):
 | Key | Value | Source of truth |
 | --- | --- | --- |
 | `ENGINE_VERSION` | `v3-2026-09-07-held-verdict-authority` | `lib/creative-decision-engine/types.ts` |
-| `NATIVE_AD_ENGINE_VERSION` | `v3-ad-2026-09-07-held-verdict-authority-shadow` | `lib/creative-decision-engine/types.ts` |
+| `NATIVE_AD_ENGINE_VERSION` | `v3-ad-2026-09-22-meta-config-economics-shadow` | `lib/creative-decision-engine/types.ts` |
 | `CANONICAL_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-evaluation.v9` | `lib/creative-decision-engine/canonical-evaluation.ts` |
-| `AD_DECISION_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-ad-evaluation.v11` | `lib/creative-decision-engine/evaluation-store.ts` |
-| `NATIVE_AD_CALIBRATION_CONTRACT_VERSION` | `engine-v3-native-ad-calibration.v5` minted; `.v1`–`.v3` readable and recomputed under their OWN formula, then refused as superseded | `lib/creative-decision-engine/jobs/ad-calibration-job.ts` |
+| `AD_DECISION_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-ad-evaluation.v12` | `lib/creative-decision-engine/evaluation-store.ts` |
+| `NATIVE_AD_CALIBRATION_CONTRACT_VERSION` | `engine-v3-native-ad-calibration.v6` minted; earlier versions remain readable under their own formulas and are refused as current authority | `lib/creative-decision-engine/jobs/ad-calibration-job.ts` |
 | `D086_RETENTION_CONTRACT` | `d086.budget-readiness-retention.v13` | `lib/meta/budget-readiness-retention.ts` |
 | Native-Ad spend-unit authority | `engine-v3-native-ad-spend-unit-authority.v4` minted; `.v1`, `.v2` and `.v3` readable but NEVER authoritative | `lib/creative-decision-engine/jobs/ad-calibration-job.ts` |
 
 > **Committed code contracts; deployment requires separate evidence.** H4
-> (`5b861ad6a567743f4d880e61302f538b398a5ee3`) already contains the versions
-> listed above, including calibration `.v5`, canonical evaluation `.v9`,
-> ad evaluation `.v11` and D086 retention `.v13`. The earlier statement that
-> these were uncommitted candidates was stale. Verify constants at the exact
+> (`5b861ad6a567743f4d880e61302f538b398a5ee3`) contains calibration `.v5`,
+> canonical evaluation `.v9`, ad evaluation `.v12` and D086 retention `.v13`.
+> This repair candidate mints calibration `.v6`; H4 did not ship that version.
+> The earlier statement that the H4 versions were uncommitted candidates was
+> stale. Verify constants at the exact
 > release SHA; establish deployed and persisted versions from runtime and
 > retained-row readbacks rather than inferring them from this table.
 
@@ -121,7 +122,7 @@ current release candidate is versioned under
 That July epoch was correct through D066 and is retained here as the epoch
 those paragraphs describe; the current producer epoch is
 `ENGINE_VERSION = v3-2026-09-07-held-verdict-authority` with
-`NATIVE_AD_ENGINE_VERSION = v3-ad-2026-09-07-held-verdict-authority-shadow`
+`NATIVE_AD_ENGINE_VERSION = v3-ad-2026-09-22-meta-config-economics-shadow`
 (see the version table at the top of this file, and D091 in `DECISION_LOG.md`
 for why both moved together). Rows written under the July epoch keep it and are
 reported as `engine_epoch_mismatch` / `engine_version_drift` — "not current",

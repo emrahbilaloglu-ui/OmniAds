@@ -8,6 +8,7 @@ import type {
   DecisionAuthorityBlocker,
   DecisionBadge,
   DecisionLabel,
+  DecisionRecommendationReadiness,
   DecisionOutput,
 } from "./types";
 import { CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP } from "./config-values";
@@ -71,6 +72,37 @@ const HARD_DECISION_LABELS = new Set<DecisionLabel>([
 
 function isHardDecision(label: DecisionLabel) {
   return HARD_DECISION_LABELS.has(label);
+}
+
+/**
+ * Which held verdicts actually DEPEND on knowing the campaign role.
+ *
+ * INVARIANTS.md reads "every CONTEXT-DEPENDENT hard action stays review-only"
+ * and "kind display and KIND-CONDITIONAL CTAs require resolved status". This
+ * guard used to ask only `isHardDecision`, which treats all three alike and so
+ * reads those qualifiers as if they were not there.
+ *
+ * A Scale asks "where do I add budget" and a Refresh asks "what replaces this
+ * in its rotation": both answers change with Main/Test/Mixed, so without a role
+ * they are undetermined. A Cut asks "should this ad keep spending", which the
+ * economics answer on their own — the role changes how the stop is carried out,
+ * never whether the loss is real.
+ *
+ * `gates/types.ts` already encodes this split for the freshness gate
+ * (`hardLabelNeedsFreshEvidence = hardLabel === "scale" || hardLabel === "refresh"`),
+ * where a Cut keeps its label and a "stop-loss verdict visible" sentence.
+ * Role uncertainty is the same shape of doubt and gets the same treatment.
+ *
+ * NOTE what this does NOT do: both branches still stamp `authorityBlocker` and
+ * `blockedActionType`, so `resolveNativeSnapshotAuthorizedAction` still returns
+ * null and no provider write is authorized by either. This only records WHY the
+ * row is held.
+ */
+function recommendationReadinessFor(
+  label: DecisionLabel,
+): DecisionRecommendationReadiness | null {
+  if (!isHardDecision(label)) return null;
+  return label === "cut" ? "economically_self_sufficient" : "role_conditional";
 }
 
 /**
@@ -220,6 +252,10 @@ function withCampaignContext(
   };
 }
 
+/** Named so the idempotency check can recognise a reason it wrote itself. */
+const STOP_LOSS_ROLE_REVIEW_GUARD_PREFIX =
+  "[Stop-loss review - automatic campaign role unresolved]";
+
 function isAlreadyGuarded(decision: DecisionOutput) {
   // Explicit stamped status only: the fail-closed missing-status default of
   // resolveCampaignRoleStatus must not make an unstamped diagnose row look
@@ -229,11 +265,22 @@ function isAlreadyGuarded(decision: DecisionOutput) {
     decision.campaignRoleStatus === "no_campaign" ||
     decision.campaignLabelStatus === "unlabeled" ||
     decision.campaignLabelStatus === "no_campaign";
+  /*
+    Re-entry is detected by the STAMP, not by the label.
+
+    This used to require `label === "diagnose"`, which worked only because the
+    no-label branch overwrote the verdict. Now that the verdict is preserved,
+    that clause made an already-guarded `cut` look unguarded and the guard
+    prefixed its reason a second time. The marks that actually prove a pass
+    already happened are the held action and the reason prefix, and both
+    survive the verdict being kept.
+  */
   return (
     stamped &&
-    decision.label === "diagnose" &&
     (decision.blockedActionType != null ||
-      decision.reason.startsWith(CREATIVE_CAMPAIGN_LABEL_GUARD_PREFIX))
+      decision.reason.startsWith(CREATIVE_CAMPAIGN_LABEL_GUARD_PREFIX) ||
+      decision.reason.startsWith(CAMPAIGN_CONTEXT_UNRESOLVED_GUARD_PREFIX) ||
+      decision.reason.startsWith(STOP_LOSS_ROLE_REVIEW_GUARD_PREFIX))
   );
 }
 
@@ -289,6 +336,7 @@ function guardHardDecisionWithContext(
       ),
       reason: `${options.prefix} ${decision.reason}`,
       badges: guardedBadges,
+      recommendationReadiness: recommendationReadinessFor(originalLabel),
     },
     {
       status: options.status,
@@ -311,19 +359,35 @@ function guardHardDecisionWithoutCampaignLabel(
     originalLabel === "cut" ? withStopLossReviewBadge(badges) : badges;
   const guardPrefix =
     originalLabel === "cut"
-      ? "[Stop-loss review - automatic campaign role unresolved]"
+      ? STOP_LOSS_ROLE_REVIEW_GUARD_PREFIX
       : CREATIVE_CAMPAIGN_LABEL_GUARD_PREFIX;
 
   return withCampaignContext(
     {
       ...decision,
-      label: "diagnose",
+      /*
+        The verdict is PRESERVED, not replaced.
+
+        INVARIANTS.md: "Automatic-context uncertainty must use canonical
+        baselines and PRESERVE the mathematical Scale/Cut/Refresh verdict as
+        review-only", and "A held row keeps the engine's verdict... `diagnose`
+        is written only where the canonical mapper has no typed verdict for the
+        type at all — NEVER as a replacement for one it does have."
+
+        This branch wrote `diagnose` over a computed `cut`/`scale`/`refresh`,
+        which is precisely the replacement those two rules forbid. The sibling
+        branch `guardHardDecisionWithContext` never did. The hold itself is
+        unchanged: `authorityBlocker` and `blockedActionType` are still stamped
+        below, so the row is still review-only and still authorizes nothing.
+      */
+      label: originalLabel,
       confidence: Math.min(
         decision.confidence,
         CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
       ),
       reason: `${guardPrefix} ${decision.reason}`,
       badges: guardedBadges,
+      recommendationReadiness: recommendationReadinessFor(originalLabel),
     },
     {
       status,

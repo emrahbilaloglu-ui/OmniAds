@@ -16,10 +16,13 @@ import {
   DECISION_AUTHORITY_BLOCKERS,
   EvaluationStoreSchemaNotReadyError,
   INSERT_AD_DECISION_EVALUATIONS_QUERY,
+  INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY,
+  READ_AD_DECISION_INPUT_EVIDENCE_QUERY,
   adDecisionEvaluationIdentityKey,
   assertAdCanonicalEvaluationProvenance,
   assertEvaluationStoreSchemaReady,
   buildAdCanonicalEvaluationProvenance,
+  NATIVE_AD_METRIC_CONTRACT,
   inspectEvaluationStoreSchemaCapability,
   normalizeAdDecisionEvaluationIdentity,
   persistAdDecisionEvaluations,
@@ -28,6 +31,7 @@ import {
 } from "../evaluation-store";
 import type { EngineV3Flags } from "../feature-flags";
 import type { DecisionOutput } from "../types";
+import { observedConfigAuthority } from "./config-authority-fixture";
 import {
   makeAccountDecisionProfile,
   makeCreativeInput,
@@ -117,6 +121,10 @@ function adEvaluation(
   providerAccountRefId = "00000000-0000-4000-8000-000000000121",
 ): AdCanonicalEvaluationProvenance {
   return buildAdCanonicalEvaluationProvenance({
+    adEvidence: {
+      customConversionId: null,
+      configAuthority: observedConfigAuthority(),
+    },
     identity: {
       decisionEntityType: "ad",
       decisionEntityId: adId,
@@ -177,7 +185,189 @@ function readyConstraints() {
   }));
 }
 
+function evidenceRows(
+  params: unknown[] | undefined,
+  evidenceMatches = true,
+): Array<Record<string, unknown>> {
+  return (
+    JSON.parse(String(params?.[0])) as Array<Record<string, unknown>>
+  ).map((row) => ({
+    contract_version: row.contract_version,
+    input_hash: row.input_hash,
+    evidence_matches: evidenceMatches,
+  }));
+}
+
 describe("ad decision evaluation identity", () => {
+  it("binds config observation and custom-conversion identity to the native input hash", () => {
+    const base = buildCanonicalEvaluationProvenance(baseEvaluation());
+    const identity = {
+      decisionEntityType: "ad" as const,
+      decisionEntityId: "ad-1",
+      adId: "ad-1",
+      providerAccountRefId: "00000000-0000-4000-8000-000000000121",
+      providerAccountId: "act-1",
+      creativeId: "creative-shared",
+    };
+    const observed = observedConfigAuthority();
+    const build = (
+      customConversionId: string | null,
+      observedToday: boolean,
+      economicsVerified = true,
+    ) =>
+      buildAdCanonicalEvaluationProvenance({
+        identity,
+        base,
+        adEvidence: {
+          customConversionId,
+          configAuthority: {
+            ...observed,
+            currentValueEvidence: {
+              ...observed.currentValueEvidence,
+              observed: observedToday,
+            },
+            decisionEconomics: {
+              ...observed.decisionEconomics,
+              fullyVerified: economicsVerified,
+              unverifiedEconomicDayCount: economicsVerified ? 0 : 1,
+            },
+          },
+        },
+      });
+    const first = build(null, true);
+    const receiptLost = build(null, false);
+    const targetChanged = build("conversion-B", true);
+    const economicDayUnverified = build(null, true, false);
+
+    expect(first.contextHash).toBe(receiptLost.contextHash);
+    expect(first.inputHash).not.toBe(receiptLost.inputHash);
+    expect(first.decisionHash).not.toBe(receiptLost.decisionHash);
+    expect(first.inputHash).not.toBe(targetChanged.inputHash);
+    expect(first.inputHash).not.toBe(economicDayUnverified.inputHash);
+    expect(first.decisionHash).not.toBe(economicDayUnverified.decisionHash);
+    expect(first.inputPayload.configEvidence).toMatchObject({
+      customConversionId: null,
+      currentValueEvidence: { observed: true },
+    });
+  });
+
+  /*
+    RECEIPT LINEAGE (2026-09-22). The same value and the same tier, resting on a
+    DIFFERENT receipt, is a different input — and so is a different
+    observation of the SAME canonical snapshot. A row that predates lineage
+    carries explicit nulls, never an inferred identity.
+  */
+  describe("binds WHICH config receipt the verdict rests on", () => {
+    const identity = {
+      decisionEntityType: "ad" as const,
+      decisionEntityId: "ad-1",
+      adId: "ad-1",
+      providerAccountRefId: "00000000-0000-4000-8000-000000000121",
+      providerAccountId: "act-1",
+      creativeId: "creative-shared",
+    };
+    const SNAPSHOT_A = "11111111-1111-4111-8111-111111111111";
+    const SNAPSHOT_B = "22222222-2222-4222-8222-222222222222";
+    const OBS_1 = "33333333-3333-4333-8333-333333333333";
+    const OBS_2 = "44444444-4444-4444-8444-444444444444";
+    const ref = (snapshot: string, observation: string) => ({
+      refContractVersion: "meta-config-field-evidence-ref.v1" as const,
+      field: "objective" as const,
+      sourceContractVersion: "meta-config-field-source.v1",
+      normalizationVersion: 1,
+      tier: "provider_receipt_point_in_day" as const,
+      readiness: "review_only" as const,
+      sourceClass: "modern" as const,
+      pitClass: "as_of_known" as const,
+      sourceSnapshotId: snapshot,
+      observationId: observation,
+      observedAt: "2026-07-12T09:00:00.000Z",
+      fieldScopeHash: "a".repeat(64),
+      corroboratingSnapshotId: null,
+      corroboratingObservationId: null,
+      corroboratingObservedAt: null,
+    });
+    const build = (objectiveRef: ReturnType<typeof ref> | null, supplied = true) => {
+      const observed = observedConfigAuthority();
+      return buildAdCanonicalEvaluationProvenance({
+        identity,
+        base: buildCanonicalEvaluationProvenance(baseEvaluation()),
+        adEvidence: {
+          customConversionId: null,
+          configAuthority: {
+            ...observed,
+            currentValueEvidence: {
+              ...observed.currentValueEvidence,
+              lineageSupplied: supplied,
+              refs: { ...observed.currentValueEvidence.refs, objective: objectiveRef },
+            },
+          },
+        },
+      });
+    };
+
+    it("moves the input hash when only the receipt changes, value and tier unchanged", () => {
+      const onA = build(ref(SNAPSHOT_A, OBS_1));
+      const onB = build(ref(SNAPSHOT_B, OBS_1));
+      expect(onA.contextHash).toBe(onB.contextHash);
+      expect(onA.inputHash).not.toBe(onB.inputHash);
+      expect(onA.decisionHash).not.toBe(onB.decisionHash);
+    });
+
+    it("tells two observations of the SAME canonical snapshot apart", () => {
+      expect(build(ref(SNAPSHOT_A, OBS_1)).inputHash).not.toBe(
+        build(ref(SNAPSHOT_A, OBS_2)).inputHash,
+      );
+    });
+
+    it("POSITIVE: the same receipt reproduces the same hash", () => {
+      expect(build(ref(SNAPSHOT_A, OBS_1)).inputHash).toBe(
+        build(ref(SNAPSHOT_A, OBS_1)).inputHash,
+      );
+    });
+
+    it("keeps a legacy, lineage-less input explicit rather than inferred", () => {
+      const legacy = build(null, false);
+      expect(legacy.inputPayload.configEvidence).toMatchObject({
+        currentValueEvidence: {
+          lineageSupplied: false,
+          refs: {
+            objective: null,
+            optimization_goal: null,
+            custom_event_type: null,
+            custom_conversion_id: null,
+          },
+        },
+      });
+    });
+
+    it("names the metric parsing rules the inputs were read under", () => {
+      expect(build(null).inputPayload.metricContract).toEqual(NATIVE_AD_METRIC_CONTRACT);
+    });
+
+    it("persists exactly what it hashed, so the input hash can be recomputed from storage", async () => {
+      const evaluation = build(ref(SNAPSHOT_A, OBS_1));
+      const { canonicalSha256 } = await import("../canonical-evaluation");
+      const payload = evaluation.inputPayload as Record<string, unknown>;
+      // The persisted columns: creative_input_json, campaign_context_json,
+      // prior_hysteresis_json, and the hash-keyed evidence mapping's two members.
+      const rebuilt = {
+        contractVersion: payload.contractVersion,
+        envelopeType: payload.envelopeType,
+        engineVersion: payload.engineVersion,
+        contextHash: payload.contextHash,
+        creativeInput: payload.creativeInput,
+        campaignContext: payload.campaignContext,
+        priorHysteresis: payload.priorHysteresis,
+        decisionIdentity: payload.decisionIdentity,
+        configEvidence: payload.configEvidence,
+        metricContract: payload.metricContract,
+      };
+      expect(Object.keys(payload).sort()).toEqual(Object.keys(rebuilt).sort());
+      expect(canonicalSha256(rebuilt as never)).toBe(evaluation.inputHash);
+    });
+  });
+
   it("binds hashes to native adId when one creative is reused by multiple ads", () => {
     const first = adEvaluation("ad-1");
     const second = adEvaluation("ad-2");
@@ -378,6 +568,10 @@ describe("evaluation store schema gate", () => {
       if (query.includes("engine_v3_ad_decision_evaluation_contexts")) {
         return [{ id: "00000000-0000-4000-8000-000000000201" }];
       }
+      if (query === INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY) return [];
+      if (query === READ_AD_DECISION_INPUT_EVIDENCE_QUERY) {
+        return evidenceRows(params);
+      }
       const payload = JSON.parse(String(params?.[0])) as Array<
         Record<string, unknown>
       >;
@@ -424,6 +618,105 @@ describe("evaluation store schema gate", () => {
     );
   });
 
+  it("verifies hash-keyed evidence before inserting narrow evaluation rows", async () => {
+    const writeOrder: string[] = [];
+    let evaluationPayload: Array<Record<string, unknown>> = [];
+    let evidencePayload: Array<Record<string, unknown>> = [];
+    const db = fakeDb(async (query, params) => {
+      if (query.includes("information_schema.columns")) return readyColumns();
+      if (query.includes("FROM pg_indexes")) return readyIndexes();
+      if (query.includes("pg_constraint")) return readyConstraints();
+      if (query.includes("engine_v3_ad_decision_evaluation_contexts")) {
+        return [{ id: "00000000-0000-4000-8000-000000000201" }];
+      }
+      if (query === INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY) {
+        writeOrder.push("evidence-insert");
+        evidencePayload = JSON.parse(String(params?.[0])) as Array<
+          Record<string, unknown>
+        >;
+        return [];
+      }
+      if (query === READ_AD_DECISION_INPUT_EVIDENCE_QUERY) {
+        writeOrder.push("evidence-verify");
+        return evidenceRows(params);
+      }
+      writeOrder.push("evaluation-insert");
+      evaluationPayload = JSON.parse(String(params?.[0])) as Array<
+        Record<string, unknown>
+      >;
+      return evaluationPayload.map((row) => ({
+        id: "00000000-0000-4000-8000-000000000301",
+        provider_account_ref_id: row.provider_account_ref_id,
+        provider_account_id: row.provider_account_id,
+        decision_entity_id: row.decision_entity_id,
+        input_hash: row.input_hash,
+        decision_hash: row.decision_hash,
+      }));
+    });
+
+    await persistAdDecisionEvaluations(
+      {
+        businessId: "biz-1",
+        asOf: "2026-07-12",
+        engineVersion: "v3-test",
+        scope: { type: "account", id: "act-1" },
+        jobRunId: "00000000-0000-4000-8000-000000000101",
+        evaluatedAt: "2026-07-12T03:00:01.000Z",
+        evaluations: [adEvaluation()],
+      },
+      db,
+    );
+
+    expect(writeOrder).toEqual([
+      "evidence-insert",
+      "evidence-verify",
+      "evaluation-insert",
+    ]);
+    expect(evidencePayload[0]).toMatchObject({
+      contract_version: AD_DECISION_EVALUATION_CONTRACT_VERSION,
+      input_hash: adEvaluation().inputHash,
+      input_evidence_json: {
+        configEvidence: expect.any(Object),
+        metricContract: NATIVE_AD_METRIC_CONTRACT,
+      },
+    });
+    expect(evaluationPayload[0]).not.toHaveProperty("input_evidence_json");
+  });
+
+  it("fails closed on an existing hash whose stored evidence differs", async () => {
+    let evaluationInsertCalled = false;
+    const db = fakeDb(async (query, params) => {
+      if (query.includes("information_schema.columns")) return readyColumns();
+      if (query.includes("FROM pg_indexes")) return readyIndexes();
+      if (query.includes("pg_constraint")) return readyConstraints();
+      if (query.includes("engine_v3_ad_decision_evaluation_contexts")) {
+        return [{ id: "00000000-0000-4000-8000-000000000201" }];
+      }
+      if (query === INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY) return [];
+      if (query === READ_AD_DECISION_INPUT_EVIDENCE_QUERY) {
+        return evidenceRows(params, false);
+      }
+      evaluationInsertCalled = true;
+      return [];
+    });
+
+    await expect(
+      persistAdDecisionEvaluations(
+        {
+          businessId: "biz-1",
+          asOf: "2026-07-12",
+          engineVersion: "v3-test",
+          scope: { type: "account", id: "act-1" },
+          jobRunId: "00000000-0000-4000-8000-000000000101",
+          evaluatedAt: "2026-07-12T03:00:01.000Z",
+          evaluations: [adEvaluation()],
+        },
+        db,
+      ),
+    ).rejects.toThrow("Ad decision input evidence missing or hash collision");
+    expect(evaluationInsertCalled).toBe(false);
+  });
+
   it("persists large native evaluation sets in bounded SQL batches", async () => {
     const evaluationBatchSizes: number[] = [];
     const db = fakeDb(async (query, params) => {
@@ -432,6 +725,10 @@ describe("evaluation store schema gate", () => {
       if (query.includes("pg_constraint")) return readyConstraints();
       if (query.includes("engine_v3_ad_decision_evaluation_contexts")) {
         return [{ id: "00000000-0000-4000-8000-000000000201" }];
+      }
+      if (query === INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY) return [];
+      if (query === READ_AD_DECISION_INPUT_EVIDENCE_QUERY) {
+        return evidenceRows(params);
       }
       const payload = JSON.parse(String(params?.[0])) as Array<
         Record<string, unknown>
@@ -476,6 +773,10 @@ describe("evaluation store schema gate", () => {
       if (query.includes("engine_v3_ad_decision_evaluation_contexts")) {
         return [{ id: "00000000-0000-4000-8000-000000000201" }];
       }
+      if (query === INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY) return [];
+      if (query === READ_AD_DECISION_INPUT_EVIDENCE_QUERY) {
+        return evidenceRows(params);
+      }
       const [first] = JSON.parse(String(params?.[0])) as Array<
         Record<string, unknown>
       >;
@@ -519,6 +820,10 @@ describe("evaluation store schema gate", () => {
       if (query.includes("pg_constraint")) return readyConstraints();
       if (query.includes("engine_v3_ad_decision_evaluation_contexts")) {
         return [{ id: "00000000-0000-4000-8000-000000000201" }];
+      }
+      if (query === INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY) return [];
+      if (query === READ_AD_DECISION_INPUT_EVIDENCE_QUERY) {
+        return evidenceRows(params);
       }
       evaluationAttempt += 1;
       if (evaluationAttempt === 1) return [];
@@ -590,6 +895,21 @@ describe("evaluation store schema gate", () => {
 });
 
 describe("evaluation store SQL contract", () => {
+  it("stores evidence by contract and input hash without widening evaluations", () => {
+    expect(INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY).toContain(
+      "ON CONFLICT (contract_version, input_hash) DO NOTHING",
+    );
+    expect(READ_AD_DECISION_INPUT_EVIDENCE_QUERY).toContain(
+      "stored.contract_version = payload.contract_version",
+    );
+    expect(READ_AD_DECISION_INPUT_EVIDENCE_QUERY).toContain(
+      "stored.input_hash = payload.input_hash",
+    );
+    expect(INSERT_AD_DECISION_EVALUATIONS_QUERY).not.toContain(
+      "input_evidence_json",
+    );
+  });
+
   it("resolves immutable rows by ad identity and hashes, never creative grouping", () => {
     const join = INSERT_AD_DECISION_EVALUATIONS_QUERY.slice(
       INSERT_AD_DECISION_EVALUATIONS_QUERY.indexOf(

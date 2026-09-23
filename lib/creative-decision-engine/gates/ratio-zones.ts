@@ -22,6 +22,7 @@ import {
   type DecisionAuthorityHold,
   type GateContext,
   type GateResult,
+  verifiedCoverageAgePhrase,
 } from "./types";
 import {
   commercialMaturitySpendThreshold,
@@ -304,15 +305,15 @@ function hasUnknownFreshness(ctx: GateContext): boolean {
 function scaleFreshnessBlockers(ctx: GateContext): string[] {
   if (hasUnknownFreshness(ctx)) {
     return [
-      "source evidence freshness is unknown; scale requires fresh recent performance proof",
+      "source coverage is incomplete or unknown; scale requires fresh recent performance proof",
     ];
   }
 
   if (hasStaleEvidence(ctx)) {
     return [
-      `source evidence is stale (${Math.round(
-        ctx.input.dataFreshnessHours ?? 0,
-      )}h); scale requires fresh recent performance proof`,
+      `source evidence is stale (${verifiedCoverageAgePhrase(
+        ctx.input.dataFreshnessHours,
+      )}); scale requires fresh recent performance proof`,
     ];
   }
 
@@ -953,9 +954,9 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
                 ? [
                     {
                       type: "stale_evidence" as const,
-                      label: `Stale evidence: last sync ${Math.round(
-                        input.dataFreshnessHours ?? 0,
-                      )}h ago - refresh before applying.`,
+                      label: `Stale evidence: ${verifiedCoverageAgePhrase(
+                        input.dataFreshnessHours,
+                      )} - refresh before applying.`,
                       severity: "warning" as const,
                     },
                   ]

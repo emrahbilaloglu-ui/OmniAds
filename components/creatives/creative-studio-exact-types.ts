@@ -188,6 +188,70 @@ export interface CreativeStudioAssetRow {
 }
 
 /**
+ * D102. The latest native decision run FAILED, so the briefing served the last
+ * successful generation of the same epoch instead, stripped of every execution
+ * authority. Both days are the server's own (`degradation.servedGeneration` and
+ * `degradation.latestTerminalRun`). A surface names them together and never
+ * presents the served day as the current decision day.
+ */
+export interface CreativeStudioRetainedDecisionGeneration {
+  /** The day the served, last successful generation was computed for. */
+  servedAsOfDate: string;
+  /** The day of the latest run, which failed and produced nothing shown. */
+  failedRunAsOfDate: string;
+}
+
+/**
+ * Reads the two days off a briefing `canonicalDecisionInventory` that is
+ * `degraded`, or returns null.
+ *
+ * Null for every other status, and for a degraded inventory whose served run
+ * does not match its own generation or whose latest run is not a failure: that
+ * read cannot say what it is showing, and a caller treats it as unavailable.
+ * Only served fields are read and nothing about any decision is derived.
+ */
+export function retainedDecisionGenerationFromInventory(
+  inventory:
+    | {
+        status?: string | null;
+        generation?: {
+          jobRunId?: string | null;
+          asOfDate?: string | null;
+        } | null;
+        degradation?: {
+          servedGeneration?: {
+            jobRunId?: string | null;
+            asOfDate?: string | null;
+          } | null;
+          latestTerminalRun?: {
+            status?: string | null;
+            asOfDate?: string | null;
+          } | null;
+        } | null;
+      }
+    | null
+    | undefined,
+): CreativeStudioRetainedDecisionGeneration | null {
+  if (inventory?.status !== "degraded") return null;
+  const served = inventory.degradation?.servedGeneration ?? null;
+  const latest = inventory.degradation?.latestTerminalRun ?? null;
+  const servedAsOfDate = served?.asOfDate?.trim() ?? "";
+  const failedRunAsOfDate = latest?.asOfDate?.trim() ?? "";
+  const servedJobRunId = served?.jobRunId?.trim() ?? "";
+  if (
+    !servedAsOfDate ||
+    !failedRunAsOfDate ||
+    !servedJobRunId ||
+    latest?.status !== "failed" ||
+    servedJobRunId !== inventory.generation?.jobRunId?.trim() ||
+    servedAsOfDate !== inventory.generation?.asOfDate?.trim()
+  ) {
+    return null;
+  }
+  return { servedAsOfDate, failedRunAsOfDate };
+}
+
+/**
  * `onOpenRow` is deliberately absent here, unlike on the Copies model — and the
  * CANONICAL REFERENCE is why, not convenience.
  *
@@ -216,9 +280,22 @@ export interface CreativeStudioAssetsModel {
   /**
    * Availability of the recommendation source for the whole Assets read.
    * When it is unavailable the surface explains that once, rather than
-   * repeating the same non-decision in every creative row.
+   * repeating the same non-decision in every creative row. `degraded` serves
+   * real recommendations from the retained generation, read-only; the surface
+   * says that once too.
    */
-  decisionReadState?: "loading" | "available" | "unavailable";
+  decisionReadState?: "loading" | "available" | "degraded" | "unavailable";
+  /**
+   * The calendar day the served decision generation was computed for. It is
+   * independent of the metric date range and may be later than its end. Null
+   * or absent means no generation day is known, and none is shown.
+   */
+  decisionAsOfDate?: string | null;
+  /**
+   * Set only with `decisionReadState: "degraded"`. A degraded read that cannot
+   * name both runs cannot say what it is showing, so it reads as unavailable.
+   */
+  decisionRetainedGeneration?: CreativeStudioRetainedDecisionGeneration | null;
   syncedCount: number | null;
   rows: CreativeStudioAssetRow[];
   persistenceKey?: string;
@@ -361,11 +438,18 @@ export interface CreativeStudioInboxCardFact {
 
 export interface CreativeStudioInboxCard {
   id: string;
-  /** The engine's served decision label, verbatim. Null when it served none. */
+  /**
+   * The served decision label. A Cut that cannot be applied now and a held
+   * action are named from their served codes mapped to fixed copy (see the
+   * Inbox page); nothing is derived from metrics. Null when none was served.
+   */
   source: string | null;
   sourceTone: CreativeStudioTone;
   name: string;
-  /** The engine's served one-line summary, verbatim. Never composed here. */
+  /**
+   * The served reason, followed by the served not-ready or hold reasons mapped
+   * to fixed copy. Composed only from served fields; never from metrics.
+   */
   note: string | null;
   facts: CreativeStudioInboxCardFact[];
 }
@@ -381,6 +465,12 @@ export interface CreativeStudioInboxModel {
   state: CreativeStudioDataState;
   message: string | null;
   columns: CreativeStudioInboxColumn[];
+  /**
+   * D102. Set only when the briefing served the retained generation after a
+   * failed latest run. The board says so once, above its columns: every card
+   * on it is from that older run and none can be applied.
+   */
+  retainedGeneration?: CreativeStudioRetainedDecisionGeneration | null;
 }
 
 export interface CreativeStudioAudienceSummary {

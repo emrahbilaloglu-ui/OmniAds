@@ -29,7 +29,10 @@ import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-valu
 import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { projectCanonicalNativeAdDecisionToBriefing } from "@/app/api/creatives/briefing/canonical-projection";
-import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
+import {
+  adAction,
+  buildMetaOsDecisionsPresentation,
+} from "@/lib/meta/decisions-os-presentation";
 import {
   buildMetaDecisionPipelineHealth,
   META_DECISION_PIPELINE_HEALTH_CONTRACT_VERSION,
@@ -349,6 +352,68 @@ function context(
   };
 }
 
+function completeConfigLineage() {
+  const receipt = (field: string) => ({
+    refContractVersion: "meta-config-field-evidence-ref.v1",
+    field,
+    sourceContractVersion: "meta-config-field-source.v1",
+    normalizationVersion: 1,
+    tier: "provider_receipt_point_in_day",
+    readiness: "review_only",
+    sourceClass: "modern",
+    pitClass: "as_of_known",
+    sourceSnapshotId: "11111111-1111-4111-8111-111111111111",
+    observationId: "33333333-3333-4333-8333-333333333333",
+    observedAt: "2026-07-12T04:00:00.000Z",
+    fieldScopeHash: "a".repeat(64),
+    corroboratingSnapshotId: null,
+    corroboratingObservationId: null,
+    corroboratingObservedAt: null,
+  });
+  const unknown = (field: string) => ({
+    refContractVersion: "meta-config-field-evidence-ref.v1",
+    field,
+    sourceContractVersion: "meta-config-field-source.v1",
+    normalizationVersion: null,
+    tier: "unknown",
+    readiness: "none",
+    sourceClass: "none",
+    pitClass: null,
+    sourceSnapshotId: null,
+    observationId: null,
+    observedAt: null,
+    fieldScopeHash: null,
+    corroboratingSnapshotId: null,
+    corroboratingObservationId: null,
+    corroboratingObservedAt: null,
+  });
+  return {
+    contractVersion: "engine-v3-canonical-ad-evaluation.v12",
+    refs: {
+      objective: receipt("objective"),
+      optimization_goal: receipt("optimization_goal"),
+      custom_event_type: receipt("custom_event_type"),
+      custom_conversion_id: unknown("custom_conversion_id"),
+    },
+    refRefusals: {},
+    lineageSupplied: true,
+    receiptManifest: {
+      manifestVersion: "meta-config-receipt-window-manifest.v1",
+      refContractVersion: "meta-config-field-evidence-ref.v1",
+      hash: "c".repeat(64),
+      economicDayCount: 3,
+      nullObservationIdCount: 0,
+      incoherentDayCount: 0,
+    },
+    currentConfigDay: "2026-07-12",
+    metricContract: {
+      funnelStage: "meta-funnel-stage.v1",
+      windowRule: "meta-metric-window.complete-or-null.v1",
+      adDayLinkClick: "meta-ad-day-link-click.v1",
+    },
+  };
+}
+
 function nativeSnapshot(
   adId: string,
   overrides: Partial<MetaNativeDecisionSnapshotSourceRow> = {},
@@ -402,6 +467,8 @@ function nativeSnapshot(
     media_available: true,
     media_source: "meta_creative_media",
     source_updated_at: "2026-07-12T04:00:00.000Z",
+    config_authority_verified: true,
+    config_evidence_lineage: completeConfigLineage(),
     ...overrides,
   };
 }
@@ -3656,10 +3723,11 @@ describe("Meta Decisions workspace canonical read model", () => {
     });
     expect(degraded.ads.items).toHaveLength(healthy.ads.items.length);
     for (const item of degraded.ads.items) {
-      // The verdict survives -- freshness may block execution but must not
-      // erase a severe stop-loss verdict …
-      expect(item.action.code).toBe("cut");
-      // … and no CTA on it can reach the provider.
+      // The economic verdict survives in the published label, while the
+      // operator action becomes an explicit retained-generation review.
+      expect(item.publishedLabel).toBe("cut");
+      expect(item.action.code).toBe("review_retained_decision");
+      // No CTA on it can reach the provider.
       expect(item.action.intent).toBe("review");
       expect(item.action.providerMutation).toBeNull();
     }
@@ -4880,67 +4948,6 @@ describe("served held-verdict resolutions carry the engine's predicate blockers"
  * what they prove.
  */
 describe("served role-held Cut resolution reads the recorded config evidence", () => {
-  const completeConfigLineage = () => {
-    const receipt = (field: string) => ({
-      refContractVersion: "meta-config-field-evidence-ref.v1",
-      field,
-      sourceContractVersion: "meta-config-field-source.v1",
-      normalizationVersion: 1,
-      tier: "provider_receipt_point_in_day",
-      readiness: "review_only",
-      sourceClass: "modern",
-      pitClass: "as_of_known",
-      sourceSnapshotId: "11111111-1111-4111-8111-111111111111",
-      observationId: "33333333-3333-4333-8333-333333333333",
-      observedAt: "2026-07-12T09:00:00.000Z",
-      fieldScopeHash: "a".repeat(64),
-      corroboratingSnapshotId: null,
-      corroboratingObservationId: null,
-      corroboratingObservedAt: null,
-    });
-    const unknown = (field: string) => ({
-      refContractVersion: "meta-config-field-evidence-ref.v1",
-      field,
-      sourceContractVersion: "meta-config-field-source.v1",
-      normalizationVersion: null,
-      tier: "unknown",
-      readiness: "none",
-      sourceClass: "none",
-      pitClass: null,
-      sourceSnapshotId: null,
-      observationId: null,
-      observedAt: null,
-      fieldScopeHash: null,
-      corroboratingSnapshotId: null,
-      corroboratingObservationId: null,
-      corroboratingObservedAt: null,
-    });
-    return {
-      contractVersion: "engine-v3-canonical-ad-evaluation.v12",
-      refs: {
-        objective: receipt("objective"),
-        optimization_goal: receipt("optimization_goal"),
-        custom_event_type: receipt("custom_event_type"),
-        custom_conversion_id: unknown("custom_conversion_id"),
-      },
-      refRefusals: {},
-      lineageSupplied: true,
-      receiptManifest: {
-        manifestVersion: "meta-config-receipt-window-manifest.v1",
-        refContractVersion: "meta-config-field-evidence-ref.v1",
-        hash: "c".repeat(64),
-        economicDayCount: 3,
-        nullObservationIdCount: 0,
-        incoherentDayCount: 0,
-      },
-      currentConfigDay: "2026-07-12",
-      metricContract: {
-        funnelStage: "meta-funnel-stage.v1",
-        windowRule: "meta-metric-window.complete-or-null.v1",
-        adDayLinkClick: "meta-ad-day-link-click.v1",
-      },
-    };
-  };
   const roleHeldCutRow = (
     adId: string,
     overrides: Partial<MetaNativeDecisionSnapshotSourceRow>,
@@ -4966,6 +4973,10 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
     );
     expect(item?.classification.decisionState).toBe("blocked");
     expect(item?.classification.buyerAction).toBeNull();
+    expect(item?.classification.blockers.map((blocker) => blocker.code)).toContain(
+      "config_source_authority",
+    );
+    expect(item?.sourceDecision.authorityBlocker).toBe("campaign_context");
   });
 
   it("POSITIVE: a verified configuration keeps the completed-evidence Cut", () => {
@@ -4993,12 +5004,142 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
     expect(item?.configEvidence).toBeNull();
   });
 
-  it("a row with no recorded config evidence is served exactly as before", () => {
+  it("NEGATIVE: an authorized hard row with a stored TRUE and missing receipts cannot retain action eligibility", () => {
     const model = nativeModel([
-      roleHeldCutRow("120000000000000923", { config_authority_verified: null }),
+      nativeSnapshot("1200000000000009222", {
+        config_authority_verified: true,
+        config_evidence_lineage: null,
+      }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+    expect(model.status).toBe("available");
+    expect(item?.configEvidence).toBeNull();
+    expect(item?.sourceAuthority?.actionEligible).toBe(false);
+    expect(item?.sourceAuthority?.authorizedAction).toBeNull();
+    expect(item?.classification).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: "cut",
+      resolution: { code: "complete_hard_action_evidence" },
+    });
+    expect(item?.sourceDecision.authorityBlocker).toBeNull();
+    expect(item?.classification.blockers.map((blocker) => blocker.code)).toContain(
+      "config_source_authority",
+    );
+    if (!item) throw new Error("Expected current native decision");
+    expect(adAction(item, { scale: true, cut: true, refresh: true })).toMatchObject({
+      lane: "blocked",
+      action: { intent: "review", providerMutation: null },
+    });
+  });
+
+  it("applies the same config safety overlay in the direct canonical inventory", () => {
+    const row = nativeSnapshot("1200000000000009227", {
+      config_authority_verified: true,
+      config_evidence_lineage: null,
+    });
+    const inventory = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration([row]),
+      snapshotRows: [row],
+      campaignContextRows: [context()],
+    });
+    expect(inventory.status).toBe("available");
+    if (inventory.status !== "available") return;
+    expect(inventory.items[0]?.classification).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: "cut",
+    });
+    expect(inventory.items[0]?.sourceAuthority?.actionEligible).toBe(false);
+    expect(inventory.items[0]?.sourceAuthority?.authorizedAction).toBeNull();
+  });
+
+  it.each([
+    [false, completeConfigLineage()],
+    [null, null],
+  ] as const)(
+    "NEGATIVE: an inconsistent current authorized Cut with config verdict %s is served as held",
+    (verified, lineage) => {
+      const model = nativeModel([
+        nativeSnapshot("1200000000000009223", {
+          config_authority_verified: verified,
+          config_evidence_lineage: lineage,
+        }),
+      ]);
+      const item = model.queue.adCandidates?.items[0];
+      expect(model.status).toBe("available");
+      expect(item?.classification).toMatchObject({
+        decisionState: "blocked",
+        buyerAction: null,
+        heldAction: "cut",
+      });
+      expect(item?.sourceAuthority?.actionEligible).toBe(false);
+      expect(item?.sourceAuthority?.authorizedAction).toBeNull();
+    },
+  );
+
+  it("keeps a current authorized Cut when its persisted config receipts verify", () => {
+    const model = nativeModel([nativeSnapshot("1200000000000009224")]);
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.configEvidence?.verified).toBe(true);
+    expect(item?.classification).toMatchObject({
+      decisionState: "act",
+      buyerAction: "cut",
+      heldAction: null,
+    });
+    expect(item?.sourceAuthority?.actionEligible).toBe(true);
+    expect(item?.sourceAuthority?.authorizedAction).toBe("cut");
+    expect(item?.classification.blockers.map((blocker) => blocker.code)).not.toContain(
+      "config_source_authority",
+    );
+  });
+
+  it("does not add a config blocker to a soft native decision", () => {
+    const model = nativeModel([
+      nativeSnapshot("1200000000000009225", {
+        label: "keep",
+        raw_label: "keep",
+        authorized_action: null,
+        blocked_action_type: null,
+        config_authority_verified: false,
+      }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.classification.blockers.map((blocker) => blocker.code)).not.toContain(
+      "config_source_authority",
+    );
+    expect(item?.sourceAuthority?.reviewOnlyReason).not.toBe(
+      "native_config_receipt_authority_unverified",
+    );
+  });
+
+  it("keeps pending hysteresis as the primary resolution while exposing the config gap", () => {
+    const model = nativeModel([
+      roleHeldCutRow("1200000000000009226", {
+        config_authority_verified: false,
+        badges: [{ type: "pending_transition" }],
+      }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.classification.resolution?.code).toBe(
+      "await_decision_confirmation",
+    );
+    expect(item?.classification.blockers.map((blocker) => blocker.code)).toContain(
+      "config_source_authority",
+    );
+  });
+
+  it("holds a current-epoch role Cut when its config verdict is absent", () => {
+    const model = nativeModel([
+      roleHeldCutRow("120000000000000923", {
+        config_authority_verified: null,
+        config_evidence_lineage: null,
+      }),
     ]);
     expect(model.queue.adCandidates?.items[0]?.classification.resolution?.code).toBe(
-      "apply_cut_manually",
+      "complete_hard_action_evidence",
     );
   });
 
@@ -5159,9 +5300,333 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
       expect(model.queue.adCandidates?.items[0]?.configEvidence?.verified).toBe(false);
     });
 
-    it("serves null, not an inferred identity, for a row that predates lineage", () => {
-      const model = nativeModel([nativeSnapshot("120000000000000933")]);
+  it("serves null, not an inferred identity, for a row that predates lineage", () => {
+      const model = nativeModel([
+        nativeSnapshot("120000000000000933", {
+          config_authority_verified: null,
+          config_evidence_lineage: null,
+        }),
+      ]);
       expect(model.queue.adCandidates?.items[0]?.configEvidence).toBeNull();
+    });
+  });
+});
+
+/*
+ * D102 — THE CANONICAL INVENTORY READER STRIPS A RETAINED GENERATION.
+ *
+ * `readMetaNativeCanonicalDecisionInventory` shares its input type with the
+ * workspace reader, flag included, but used to ignore the bundle's
+ * `sourceDegradation`: a caller that opted in received the retained
+ * generation with FULL execution authority. Creative Briefing now opts in, so
+ * the reader must strip every item exactly as the workspace envelope does.
+ *
+ * The failure lands a few hours after the success, on the same as-of day, so
+ * the retained rows are still inside the 12h decision-freshness window: the
+ * only thing that may withhold their authority here is the degradation.
+ */
+describe("D102 retained generation through the canonical inventory reader", () => {
+  const RETAINED_RUN_ID = "20000000-0000-4000-8000-000000000001";
+  const FAILED_RUN_ID = "20000000-0000-4000-8000-000000001902";
+  const SERVING_INSTANT = "2026-07-12T12:00:00.000Z";
+  const retainedRows = () => [
+    nativeSnapshot("120000000000001901"),
+    nativeSnapshot("120000000000001902"),
+  ];
+  const failedLatest = (
+    overrides: Partial<MetaNativeDecisionGenerationSourceRow> = {},
+  ): MetaNativeDecisionGenerationSourceRow => ({
+    selection: "latest",
+    job_status: "failed",
+    job_run_id: FAILED_RUN_ID,
+    as_of_date: "2026-07-12",
+    engine_version: NATIVE_AD_ENGINE_VERSION,
+    provider_account_ref_id: null,
+    provider_account_id: null,
+    expected_ad_count: null,
+    expected_manifest_hash: null,
+    hydrated_ad_count: null,
+    hydrated_manifest_hash: null,
+    authoritative_for_prune: null,
+    ...overrides,
+  });
+  const mockNativeDb = (
+    generationRows: MetaNativeDecisionGenerationSourceRow[],
+    rows: MetaNativeDecisionSnapshotSourceRow[],
+  ) => {
+    vi.mocked(db.getDb).mockReturnValue({
+      query: workspaceReadQuery({
+        generationRows,
+        nativeRows: rows,
+        // Resolved Main context, so every retained Cut is action-eligible
+        // BEFORE the degradation and the stripping below proves something.
+        campaignContextRows: [campaignContextDbRow()],
+      }),
+    } as never);
+  };
+  const readInventory = (
+    extra: {
+      allowLastSuccessfulGenerationFallback?: boolean;
+      adIds?: readonly string[];
+    } = {},
+  ) =>
+    readMetaNativeCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generatedAt: SERVING_INSTANT,
+      ...extra,
+    });
+  const readyGovernance = {
+    verified: true,
+    controlsConfigured: true,
+    writeBlocked: false,
+    blockReason: null,
+  };
+  const expectedDegradation = {
+    reason: "native_latest_job_failed_serving_last_successful_generation",
+    servedGeneration: { jobRunId: RETAINED_RUN_ID, asOfDate: "2026-07-12" },
+    latestTerminalRun: {
+      jobRunId: FAILED_RUN_ID,
+      status: "failed",
+      asOfDate: "2026-07-12",
+    },
+  };
+
+  it("CONTROL: the same rows as the latest success carry full authority and land in Action Now", async () => {
+    const rows = retainedRows();
+    mockNativeDb([nativeGenerationForRows(rows)], rows);
+
+    const inventory = await readInventory({
+      allowLastSuccessfulGenerationFallback: true,
+    });
+
+    expect(inventory.status).toBe("available");
+    if (inventory.status !== "available") return;
+    expect(inventory.sourceDegradation).toBeUndefined();
+    const governed = applyMetaExecutionGovernanceToCanonicalDecisions({
+      decisions: inventory.items,
+      governance: readyGovernance,
+      pipeline: { verified: true, executionReady: true },
+      now: new Date(SERVING_INSTANT),
+    });
+    expect(governed).toHaveLength(2);
+    for (const item of governed) {
+      expect(item.sourceAuthority).toMatchObject({
+        actionEligible: true,
+        authorizedAction: "cut",
+        reviewOnlyReason: null,
+        executionReadiness: "live_preflight_required",
+      });
+      expect(item.sourceDecision).toMatchObject({
+        confidence: 88,
+        confidenceBand: "high",
+      });
+      expect(
+        projectCanonicalNativeAdDecisionToBriefing({ decision: item })?.lane,
+      ).toBe("action");
+    }
+  });
+
+  it("strips every item and names both runs when the opted-in latest run failed", async () => {
+    const rows = retainedRows();
+    mockNativeDb(
+      [
+        failedLatest(),
+        nativeGenerationForRows(rows, { selection: "last_success" }),
+      ],
+      rows,
+    );
+
+    const inventory = await readInventory({
+      allowLastSuccessfulGenerationFallback: true,
+    });
+
+    expect(inventory.status).toBe("available");
+    if (inventory.status !== "available") return;
+    expect(inventory.generation).toMatchObject({
+      jobRunId: RETAINED_RUN_ID,
+      asOfDate: "2026-07-12",
+      expectedAdCount: 2,
+    });
+    expect(inventory.sourceDegradation).toEqual(expectedDegradation);
+    // A request-time governance pass that is told the pipeline is ready still
+    // cannot raise what the reader stripped.
+    const governed = applyMetaExecutionGovernanceToCanonicalDecisions({
+      decisions: inventory.items,
+      governance: readyGovernance,
+      pipeline: { verified: true, executionReady: true },
+      now: new Date(SERVING_INSTANT),
+    });
+    expect(governed).toHaveLength(2);
+    for (const item of governed) {
+      expect(item.sourceAuthority).toMatchObject({
+        status: "native_exact",
+        jobRunId: RETAINED_RUN_ID,
+        actionEligible: false,
+        authorizedAction: null,
+        reviewOnlyReason:
+          "native_latest_job_failed_last_successful_generation_is_not_current",
+        executionReadiness: "decision_not_authorized",
+        decisionFreshness: { status: "fresh", ageHours: 7 },
+      });
+      // The verdict stays visible; its confidence is capped.
+      expect(item.sourceDecision).toMatchObject({
+        label: "cut",
+        confidence: STALE_CONFIDENCE_CAP,
+        confidenceBand: "medium",
+      });
+      expect(
+        projectCanonicalNativeAdDecisionToBriefing({ decision: item })?.lane,
+      ).toBe("watching");
+    }
+  });
+
+  it("strips the exact-Ad subset read the same way", async () => {
+    const rows = retainedRows();
+    mockNativeDb(
+      [
+        failedLatest(),
+        nativeGenerationForRows(rows, { selection: "last_success" }),
+      ],
+      rows,
+    );
+
+    const inventory = await readInventory({
+      allowLastSuccessfulGenerationFallback: true,
+      adIds: [rows[0]!.ad_id],
+    });
+
+    expect(inventory.status).toBe("available");
+    if (inventory.status !== "available") return;
+    expect(inventory.generation.jobRunId).toBe(RETAINED_RUN_ID);
+    expect(inventory.sourceDegradation).toEqual(expectedDegradation);
+    expect(inventory.items).toHaveLength(1);
+    expect(inventory.items[0]?.sourceAuthority).toMatchObject({
+      actionEligible: false,
+      authorizedAction: null,
+      executionReadiness: "decision_not_authorized",
+    });
+    expect(inventory.items[0]?.sourceDecision.confidence).toBe(
+      STALE_CONFIDENCE_CAP,
+    );
+  });
+
+  it("serves the workspace and the inventory the same stripped authority", async () => {
+    const rows = retainedRows();
+    const generationRows = [
+      failedLatest(),
+      nativeGenerationForRows(rows, { selection: "last_success" }),
+    ];
+    mockNativeDb(generationRows, rows);
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adIds: rows.map((row) => row.ad_id),
+      generatedAt: SERVING_INSTANT,
+    });
+    mockNativeDb(generationRows, rows);
+    const inventory = await readInventory({
+      allowLastSuccessfulGenerationFallback: true,
+    });
+
+    expect(inventory.status).toBe("available");
+    if (inventory.status !== "available") return;
+    const served = (decision: (typeof inventory.items)[number]) => ({
+      adId: decision.parentChain.ad?.id,
+      confidence: decision.sourceDecision.confidence,
+      confidenceBand: decision.sourceDecision.confidenceBand,
+      actionEligible: decision.sourceAuthority?.actionEligible,
+      authorizedAction: decision.sourceAuthority?.authorizedAction,
+      reviewOnlyReason: decision.sourceAuthority?.reviewOnlyReason,
+      executionReadiness: decision.sourceAuthority?.executionReadiness,
+    });
+    const workspaceItems = [...(model.queue.adCandidates?.items ?? [])].sort(
+      (left, right) =>
+        String(left.parentChain.ad?.id).localeCompare(
+          String(right.parentChain.ad?.id),
+        ),
+    );
+    expect(workspaceItems).toHaveLength(2);
+    expect(inventory.items.map(served)).toEqual(workspaceItems.map(served));
+    expect(inventory.sourceDegradation).toEqual(model.source.degraded);
+  });
+
+  it("keeps failing closed on the authoritative fault without the opt-in", async () => {
+    const rows = retainedRows();
+    mockNativeDb(
+      [
+        failedLatest(),
+        nativeGenerationForRows(rows, { selection: "last_success" }),
+      ],
+      rows,
+    );
+
+    await expect(readInventory()).resolves.toEqual({
+      status: "unavailable",
+      generation: null,
+      items: [],
+      unavailableReason: "native_latest_job_failed",
+    });
+  });
+
+  it.each([
+    [
+      "a latest lock-skip whose holder has not finished",
+      () => failedLatest({ job_status: "skipped" }),
+      "native_latest_job_skipped",
+    ],
+    [
+      "a foreign-epoch latest success",
+      () =>
+        nativeGenerationForRows(retainedRows(), {
+          job_run_id: FAILED_RUN_ID,
+          engine_version: "v3-ad-foreign-epoch-shadow",
+        }),
+      "native_latest_job_engine_mismatch",
+    ],
+  ] as const)(
+    "never retains a generation behind %s, even when opted in",
+    async (_case, latest, unavailableReason) => {
+      const rows = retainedRows();
+      mockNativeDb(
+        [
+          latest(),
+          nativeGenerationForRows(rows, { selection: "last_success" }),
+        ],
+        rows,
+      );
+
+      await expect(
+        readInventory({ allowLastSuccessfulGenerationFallback: true }),
+      ).resolves.toMatchObject({
+        status: "unavailable",
+        generation: null,
+        unavailableReason,
+      });
+    },
+  );
+
+  it("never retains a foreign-epoch success as current, even when opted in", async () => {
+    const rows = retainedRows().map((row) => ({
+      ...row,
+      engine_version: "v3-ad-foreign-epoch-shadow",
+    }));
+    mockNativeDb(
+      [
+        failedLatest(),
+        nativeGenerationForRows(rows, {
+          selection: "last_success",
+          engine_version: "v3-ad-foreign-epoch-shadow",
+        }),
+      ],
+      rows,
+    );
+
+    await expect(
+      readInventory({ allowLastSuccessfulGenerationFallback: true }),
+    ).resolves.toMatchObject({
+      status: "unavailable",
+      unavailableReason: "native_latest_job_failed",
     });
   });
 });

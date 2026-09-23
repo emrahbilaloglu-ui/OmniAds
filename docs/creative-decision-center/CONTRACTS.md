@@ -437,17 +437,18 @@ record of a superseded release and must not be used as a current value.
 | Contract surface | Release value |
 | --- | --- |
 | Canonical engine | `v3-2026-09-07-held-verdict-authority` |
-| Native-Ad engine | `v3-ad-2026-09-22-meta-config-economics-shadow` |
+| Native-Ad engine | `v3-ad-2026-09-23-verified-coverage-freshness-shadow` |
 | Exact native rollback epoch | `v3-ad-2026-07-15-commercial-stop-loss-shadow` |
 | Native calibration | `engine-v3-native-ad-calibration.v6` (minted by this repair); `.v5` remains readable under its own formula, and older rows never authorize a new decision. See the durable-compatibility note below. |
 | Canonical evaluation | `engine-v3-canonical-evaluation.v9` |
-| Native-Ad evaluation | `engine-v3-canonical-ad-evaluation.v12` |
+| Native-Ad evaluation | `engine-v3-canonical-ad-evaluation.v13` |
+| Native-Ad source coverage freshness | `meta-ad-source-coverage-freshness.v1` |
 | Native-Ad spend-unit authority | `engine-v3-native-ad-spend-unit-authority.v4` (minted); `.v1`, `.v2` and `.v3` readable — readable means PARSED and hash-verified, never authoritative: a historical version cannot authorize a current decision |
 | Native-Ad lifecycle evidence | `native-ad-lifecycle-evidence.v3-full-receipt` |
 | D086 retention identity | `d086.budget-readiness-retention.v13`; `.v1`–`.v12` superseded (twelve entries in `D086_SUPERSEDED_RETENTION_CONTRACTS`) — a superseded stamp is readable as HISTORY only and can never retain or authorize a current verdict |
 | Native-Ad outcome | `engine-v3-ad-decision-outcome.v3` |
 | Decisions workspace read | `meta-decisions-workspace.read.v4` |
-| Classification overlay | `meta-decisions-classification-overlay.v4` |
+| Classification overlay | `meta-decisions-classification-overlay.v5` (D100 current-native config receipt safety) |
 | Decisions OS presentation | `meta-os-decisions.presentation.v5` |
 | Automation rule evaluation report | `automation-rule-evaluation-report.v2` — `anchors` are read from `business_target_pack_history` AS OF the evaluation cutoff, never from the current workspace snapshot |
 | D086 input-pack artifact | `d086.budget-readiness-input-pack.v15` (`r15`, D096 additive receipts); `r1`–`r14` frozen and byte-recomputable, verified by the generator's own `frozenRevisions` check. `r13` is pinned in `D086_REJECTED_REVISIONS` at `5432828f7213b3540f995136239a25c2acd5e0af6108262822c85aa73d009ce0`; `r12` remains additionally pinned by the D077 release-candidate manifest at `a508d90527b441b6a82cf25537e1b5b5425203f72d22d6083cceb6bad0eb4b6b` |
@@ -637,6 +638,7 @@ same buyer action and every exact-Ad lineage field validates.
 `actionEligible: false`, review-only reason
 `demo_synthetic_review_only`, and identity `adActionEligible: false`.
 `legacy_review_only` is not a canonical serving authority.
+D102: `source.canonicalDecisionInventory.status = "degraded"` serves the retained same-epoch generation after a failed latest run with `native_exact` rows that all carry `actionEligible: false` and null `authorizedAction`; only `available` is current.
 
 The demo generation contract binds one current-epoch synthetic Meta account,
 the complete input-row manifest, one item hash per exact Ad, expected count,

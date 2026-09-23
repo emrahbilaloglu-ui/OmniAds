@@ -36,7 +36,9 @@ export type CreativeDecisionReadState = "loading" | "available" | "unavailable";
  * briefing is ad-grain and keys on the provider's real creative id
  * (`1410136187640001`). Joining on `id` matches nothing; measured, it matched
  * 0 of 96. `MetaCreativeRow.creativeId` carries the provider id and is what
- * this module keys on.
+ * this module keys on. That id is ONE member's, though; a row that carries its
+ * members' Ad and creative ids is matched on all of them — see
+ * `servedClassificationForRow`.
  */
 export interface ServedCreativeClassification {
   /** The label to render, verbatim from the server's buyer-facing vocabulary. */
@@ -202,8 +204,15 @@ function servedCards(
   ];
 }
 
-interface ClassificationCandidate {
-  creativeId: string;
+export interface ClassificationCandidate {
+  creativeId: string | null;
+  /**
+   * The exact provider Ad the served decision is for. Canonical decisions are
+   * Ad-grain and always name it; legacy card fields are creative-grain
+   * compatibility answers and name none (a legacy card's `adId` is whichever
+   * row the server joined, not the decision's grain).
+   */
+  adId: string | null;
   decisionKey: string;
   value: Omit<ServedCreativeClassification, "decisionCount">;
 }
@@ -214,7 +223,11 @@ function canonicalClassificationForCard(
   const decision = card.canonicalDecision;
   if (!decision) return null;
   const creativeId = nonEmpty(decision.creativeId);
-  if (!creativeId) return null;
+  const adId =
+    nonEmpty(decision.adId) ?? nonEmpty(decision.sourceAuthority?.realAdId);
+  // Canonical decisions are Ad-grain. A malformed card without an exact Ad
+  // identity cannot be promoted into a creative-grain answer.
+  if (!adId) return null;
 
   const decisionState = nonEmpty(decision.classification.decisionState);
   const buyerLabel = nonEmpty(decision.classification.buyerLabel);
@@ -238,6 +251,7 @@ function canonicalClassificationForCard(
 
   return {
     creativeId,
+    adId,
     decisionKey: decision.decisionId,
     value: {
       label,
@@ -272,6 +286,7 @@ function legacyClassificationForCard(
   ) {
     return {
       creativeId,
+      adId: null,
       decisionKey: `${nonEmpty(card.id) ?? "legacy"}:assessment:${assessment.value ?? assessment.label}`,
       value: {
         label: assessment.label.trim(),
@@ -288,6 +303,7 @@ function legacyClassificationForCard(
   const display = DECISION_LABEL_DISPLAY[label];
   return {
     creativeId,
+    adId: null,
     decisionKey: `${nonEmpty(card.id) ?? "legacy"}:label:${label}`,
     value: {
       label: display?.label ?? "Recommendation available",
@@ -336,6 +352,25 @@ function collapseCandidates(
 }
 
 /**
+ * The served classifications keyed by creative id — exactly the map this
+ * module has always returned — plus the uncollapsed served decisions a row
+ * lookup needs: by the exact Ad each one is for, and by creative id.
+ */
+export type ServedCreativeClassificationIndex = Map<
+  string,
+  ServedCreativeClassification
+> & {
+  readonly servedDecisionsByAdId: ReadonlyMap<
+    string,
+    readonly ClassificationCandidate[]
+  >;
+  readonly servedDecisionsByCreativeId: ReadonlyMap<
+    string,
+    readonly ClassificationCandidate[]
+  >;
+};
+
+/**
  * Creative id -> every distinct exact-Ad decision the server served for it,
  * collapsed only by joining literal server states with `/`. A creative-grain
  * row can legitimately represent several Ads; dropping the disagreeing
@@ -343,10 +378,20 @@ function collapseCandidates(
  */
 export function buildServedCreativeClassifications(
   response: CreativesBriefingResponse | null | undefined,
-): Map<string, ServedCreativeClassification> {
+): ServedCreativeClassificationIndex {
   const byCreative = new Map<string, ClassificationCandidate[]>();
+  const byAdId = new Map<string, ClassificationCandidate[]>();
   const canonicalCreativeIds = new Set<string>();
   const cards = servedCards(response);
+  const append = (
+    index: Map<string, ClassificationCandidate[]>,
+    key: string,
+    candidate: ClassificationCandidate,
+  ) => {
+    const existing = index.get(key) ?? [];
+    existing.push(candidate);
+    index.set(key, existing);
+  };
 
   // Canonical exact-Ad decisions are the authority. Legacy card fields are a
   // compatibility fallback only for a creative that received no canonical
@@ -354,24 +399,115 @@ export function buildServedCreativeClassifications(
   for (const { card } of cards) {
     const candidate = canonicalClassificationForCard(card);
     if (!candidate) continue;
-    const existing = byCreative.get(candidate.creativeId) ?? [];
-    existing.push(candidate);
-    byCreative.set(candidate.creativeId, existing);
+    if (candidate.adId) append(byAdId, candidate.adId, candidate);
+    if (!candidate.creativeId) continue;
+    append(byCreative, candidate.creativeId, candidate);
     canonicalCreativeIds.add(candidate.creativeId);
   }
   for (const { card, legacySegment } of cards) {
+    if (card.canonicalDecision) continue;
     const candidate = legacyClassificationForCard(card, legacySegment);
-    if (!candidate || canonicalCreativeIds.has(candidate.creativeId)) continue;
-    const existing = byCreative.get(candidate.creativeId) ?? [];
-    existing.push(candidate);
-    byCreative.set(candidate.creativeId, existing);
+    if (
+      !candidate?.creativeId ||
+      canonicalCreativeIds.has(candidate.creativeId)
+    ) {
+      continue;
+    }
+    append(byCreative, candidate.creativeId, candidate);
   }
 
   const result = new Map<string, ServedCreativeClassification>();
   for (const [creativeId, candidates] of byCreative) {
     result.set(creativeId, collapseCandidates(candidates));
   }
+  return Object.assign(result, {
+    servedDecisionsByAdId: byAdId,
+    servedDecisionsByCreativeId: byCreative,
+  });
+}
+
+function isServedClassificationIndex(
+  index: ReadonlyMap<string, ServedCreativeClassification | null>,
+): index is ServedCreativeClassificationIndex {
+  return (
+    "servedDecisionsByAdId" in index && "servedDecisionsByCreativeId" in index
+  );
+}
+
+/** What an Assets row knows about the provider identities it stands for. */
+export interface CreativeRowDecisionIdentity {
+  creativeId: string | null | undefined;
+  sourceAdIds?: readonly string[] | null;
+  sourceAdIdsComplete?: boolean | null;
+  sourceCreativeIds?: readonly string[] | null;
+}
+
+function uniqueNonEmpty(
+  values: ReadonlyArray<string | null | undefined>,
+): string[] {
+  const result: string[] = [];
+  for (const value of values) {
+    const id = nonEmpty(value);
+    if (id && !result.includes(id)) result.push(id);
+  }
   return result;
+}
+
+/**
+ * The classification for one Assets row, from every member identity the row
+ * carries — or `null` when none of them matched a served decision.
+ *
+ * A creative-grain row names one creative id, the first its grouping met; an
+ * Ad whose creative was replaced inside the window (common for catalog ads)
+ * is served under its CURRENT creative id, so a lookup by that one id read
+ * "Not evaluated" over Ads that had a decision. Measured on Grandmix
+ * (act_805150454596350, 2026-09-23): 11 of 42 rows, $4,657 of $31,522 spend,
+ * e.g. "Cat-Sale" keyed on 1684050916162467 while its two Ads were decided
+ * under 2527054164481845 and 1617987753052572.
+ *
+ * MATCHING, strongest proof first:
+ *   1. An Ad-grain decision for an Ad the row names is the row's — exact.
+ *   2. A creative-grain (legacy) answer is the row's through any member
+ *      creative id; it names no Ad to prove anything with.
+ * An Ad-grain decision found only through a creative id may belong to ANOTHER
+ * campaign's Ad. A partial or missing member list does not make that match
+ * safe; such a row reports unverified membership when no exact Ad matched.
+ * Canonical exact-Ad decisions outrank legacy card fields for the row as they
+ * do for a creative. Every matched answer stays visible through
+ * `collapseCandidates`; none is chosen. A bare creative-id map is looked up by
+ * the row's creative id alone.
+ */
+export function servedClassificationForRow(
+  index: ReadonlyMap<string, ServedCreativeClassification | null>,
+  identity: CreativeRowDecisionIdentity,
+): ServedCreativeClassification | null {
+  if (!isServedClassificationIndex(index)) {
+    // A bare creative-id map has already collapsed away the exact Ad identity.
+    // It cannot assign an Ad-grain answer to a grouped row safely.
+    return null;
+  }
+  const adIds = uniqueNonEmpty(identity.sourceAdIds ?? []);
+  const creativeIds = uniqueNonEmpty([
+    ...(identity.sourceCreativeIds ?? []),
+    identity.creativeId,
+  ]);
+  const exact: ClassificationCandidate[] = [];
+  for (const adId of adIds) {
+    exact.push(...(index.servedDecisionsByAdId.get(adId) ?? []));
+  }
+  const creativeGrain: ClassificationCandidate[] = [];
+  for (const creativeId of creativeIds) {
+    for (const candidate of index.servedDecisionsByCreativeId.get(creativeId) ??
+      []) {
+      if (candidate.adId === null) creativeGrain.push(candidate);
+    }
+  }
+  const matched = [...exact, ...creativeGrain];
+  const canonical = matched.filter(
+    (candidate) => candidate.value.source === "canonical_decision",
+  );
+  const served = canonical.length > 0 ? canonical : matched;
+  return served.length > 0 ? collapseCandidates(served) : null;
 }
 
 /**
@@ -395,6 +531,7 @@ export function servedClassificationFor(
  */
 export function creativeDecisionStatusFallback(
   state: CreativeDecisionReadState,
+  sourceAdIdsComplete = true,
 ): CreativeDecisionStatusFallback {
   if (state === "loading") {
     return {
@@ -412,6 +549,17 @@ export function creativeDecisionStatusFallback(
       tone: "warning",
       segment: null,
       detail: "Recommendation is temporarily unavailable.",
+      decisionCount: 0,
+      source: "read_state",
+    };
+  }
+  if (!sourceAdIdsComplete) {
+    return {
+      label: "Decision membership unverified",
+      tone: "warning",
+      segment: null,
+      detail:
+        "This row's Ad membership is incomplete, so a recommendation cannot be assigned safely.",
       decisionCount: 0,
       source: "read_state",
     };

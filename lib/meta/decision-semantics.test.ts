@@ -58,6 +58,47 @@ describe("projectMetaDecisionSemantics", () => {
     });
   });
 
+  it.each([
+    { authorityBlocker: "config_source_authority", configAuthorityVerified: null },
+    { authorityBlocker: "campaign_context", configAuthorityVerified: false },
+  ] as const)(
+    "explains historical config gaps without promising that later receipts backfill them ($authorityBlocker)",
+    ({ authorityBlocker, configAuthorityVerified }) => {
+      const projection = projectMetaDecisionSemantics({
+        legacyBuyerAction: "test_more",
+        sourceLabel: "test_more",
+        lifecycleRole: "main",
+        badgeCodes: [],
+        heldAction: "cut",
+        authorityBlocker,
+        configAuthorityVerified,
+      });
+
+      expect(projection).toMatchObject({
+        decisionState: "blocked",
+        buyerAction: null,
+        resolution: {
+          code: "complete_hard_action_evidence",
+          category: "system",
+          owner: "system",
+          label: "Complete Hard-Action Evidence",
+        },
+      });
+      expect(projection.resolution?.nextStep).toContain(
+        "date-authoritative evidence verifies the missing days",
+      );
+      expect(projection.resolution?.nextStep).toContain(
+        "a new decision window accrues with configuration verified on every economic day",
+      );
+      expect(projection.resolution?.nextStep).toContain(
+        "A later current-value fetch cannot be assigned to a past day",
+      );
+      expect(projection.resolution?.nextStep).not.toContain(
+        "fresh configuration receipts cover the decision window",
+      );
+    },
+  );
+
   it("uses structured commercial-truth evidence within a profile authority hold", () => {
     expect(
       projectMetaDecisionSemantics({

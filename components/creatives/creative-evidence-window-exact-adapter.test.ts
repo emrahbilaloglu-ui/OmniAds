@@ -6,7 +6,11 @@ import {
   buildMetaAdsManagerHref,
   type CreativeEvidenceWindowExactAdRow,
 } from "./creative-evidence-window-exact-adapter";
-import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import {
+  META_DECISION_SOURCE_DEGRADED_REASON,
+  type MetaCanonicalDecision,
+  type MetaDecisionsWorkspaceReadModel,
+} from "@/lib/meta/decisions-workspace-contract";
 import type { MetaOsAdDecision } from "@/lib/meta/decisions-os-contract";
 
 function decisionFixture(
@@ -921,6 +925,53 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     // pixel — the same rule the served resolution follows on this surface.
     const held = decisionFixture().heldResolution?.code ?? null;
     if (held) expect(reason).not.toContain(held);
+  });
+
+  it("keeps a retained role-held Cut inspectable without stale manual-pause advice", () => {
+    const decision = decisionFixture({
+      action: {
+        code: "review_retained_decision",
+        label: "Review retained decision",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+        scopeNote: "Wait for a current decision run.",
+      },
+      lane: "blocked",
+      heldAction: "cut",
+      resolution: {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Apply Cut manually",
+        nextStep: "Pause this ad yourself if you agree.",
+      },
+      heldResolution: {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Apply Cut manually",
+        nextStep: "Pause this ad yourself if you agree.",
+      },
+    });
+    const source = {
+      degraded: { reason: META_DECISION_SOURCE_DEGRADED_REASON },
+    } as MetaDecisionsWorkspaceReadModel["source"];
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision,
+      canonical: null,
+      source,
+    });
+
+    expect(model.verdictSub).toContain("current run before acting");
+    expect(model.heldVerdictNextStep).toContain("current run before acting");
+    expect(value(model.authority, "held-reason")).toContain(
+      "current run before acting",
+    );
+    expect(value(model.authority, "served-resolution")).toContain(
+      "current run before acting",
+    );
+    expect(JSON.stringify(model)).not.toMatch(/pause this ad yourself/i);
   });
 
   /*

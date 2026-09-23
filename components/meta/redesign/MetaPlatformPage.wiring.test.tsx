@@ -923,6 +923,127 @@ describe("Decisions write honesty", () => {
 });
 
 describe("Decisions deep links", () => {
+  it("opens served blocked Ads when a creative scope link has no explicit lane", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    };
+    state.search = "providerAccountId=act_1&scope=creatives";
+
+    render();
+
+    expect(state.exactProps.scope).toBe("creatives");
+    expect(state.exactProps.lane).toBe("needsres");
+    expect(state.exactProps.viewModel.creativeGroups).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "blocked" })]),
+    );
+  });
+
+  it("shows blocked Ads after switching from a populated structure Action Now", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    };
+
+    render();
+    expect(state.exactProps.lane).toBe("action");
+    act(() => state.exactProps.onScopeChange("creatives"));
+
+    expect(state.exactProps.scope).toBe("creatives");
+    expect(state.exactProps.lane).toBe("needsres");
+  });
+
+  it("preserves a deliberately selected creative Action Now lane", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    };
+    state.search = "providerAccountId=act_1&scope=creatives&lane=action";
+
+    render();
+
+    expect(state.exactProps.scope).toBe("creatives");
+    expect(state.exactProps.lane).toBe("action");
+  });
+
+  it("keeps a mobile operator's Action choice when the creative lane is empty", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    };
+    const dom = render();
+    const mobileAction = Array.from(
+      dom.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="Decision lane"] button',
+      ),
+    ).find((button) => button.textContent?.trim().startsWith("Action"));
+    expect(mobileAction).toBeDefined();
+    act(() => mobileAction!.click());
+
+    const mobileCreatives = Array.from(
+      dom.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="Decision scope"] button',
+      ),
+    ).find((button) => button.textContent?.trim().startsWith("Creatives"));
+    expect(mobileCreatives).toBeDefined();
+    act(() => mobileCreatives!.click());
+
+    expect(state.exactProps.scope).toBe("creatives");
+    expect(state.exactProps.lane).toBe("action");
+  });
+
+  it("re-evaluates lane intent when an external link reuses the mounted page", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    };
+    state.search = "providerAccountId=act_1&scope=creatives&lane=action";
+    render();
+    expect(state.exactProps.lane).toBe("action");
+
+    state.search = "providerAccountId=act_1&scope=creatives";
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+
+    expect(state.exactProps.scope).toBe("creatives");
+    expect(state.exactProps.lane).toBe("needsres");
+  });
+
+  it("does not choose a lane from a previous account's placeholder rows", () => {
+    state.providerAccounts.push({
+      id: "act_2",
+      name: "Second Meta",
+      currency: "USD",
+      timezone: "UTC",
+    });
+    const previousAccount = workspacePayload() as Record<string, any>;
+    state.workspaceData = {
+      ...previousAccount,
+      os: osPresentation([pendingOsDecision()]),
+    };
+    state.search = "providerAccountId=act_2&scope=creatives";
+
+    render();
+    expect(state.exactProps.lane).toBe("action");
+
+    state.workspaceData = {
+      ...previousAccount,
+      decisionReadModel: {
+        ...previousAccount.decisionReadModel,
+        scope: {
+          ...previousAccount.decisionReadModel.scope,
+          providerAccountId: "act_2",
+        },
+      },
+      os: osPresentation([pendingOsDecision()]),
+    };
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(state.exactProps.lane).toBe("needsres");
+  });
+
   // Law: a link that names a creative opens that creative.
   //
   // `decisionsHrefForCreative` is a live producer of `creativeId` and

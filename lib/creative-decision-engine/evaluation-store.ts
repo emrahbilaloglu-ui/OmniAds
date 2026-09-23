@@ -17,6 +17,7 @@ import {
   type CanonicalJsonObject,
 } from "./canonical-evaluation";
 import {
+  META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
   type AdDecisionInput,
   DECISION_AUTHORITY_BLOCKERS,
   type DecisionAuthorityBlocker,
@@ -75,16 +76,20 @@ export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   readable under their own key and are never recomputed under current
   semantics.
 */
-  "engine-v3-canonical-ad-evaluation.v12" as const;
+  "engine-v3-canonical-ad-evaluation.v13" as const;
 
 /**
- * The metric parsing rules a `.v12` ad evaluation's inputs were read under.
+ * The metric parsing rules a `.v13` ad evaluation's inputs were read under.
+ * `.v13` adds cutoff-safe, physical-account daily-coverage provenance; it does
+ * not restate the observation/publication clock as the reporting-day age.
  * Enumerated and hashed (see `metricContract` in the input envelope).
  */
 export const NATIVE_AD_METRIC_CONTRACT = {
   funnelStage: META_FUNNEL_STAGE_CONTRACT_VERSION,
   windowRule: META_METRIC_WINDOW_COMPLETENESS_RULE,
   adDayLinkClick: META_AD_DAY_LINK_CLICK_CONTRACT_VERSION,
+  sourceCoverageFreshness:
+    META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
 } as const;
 
 export interface AdDecisionEvaluationIdentity {

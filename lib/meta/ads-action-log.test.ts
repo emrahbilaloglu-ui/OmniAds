@@ -8,6 +8,7 @@ import {
   buildExactMetaAdsActionReceiptHash,
 } from "@/lib/creative-decision-engine/ad-operator-response-detection";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { validNativeConfigInputEvidence } from "./native-config-action-authority.fixture";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
@@ -1349,6 +1350,7 @@ describe("resolveMetaAdActionTarget", () => {
         decision_label: "cut",
         blocked_action_type: null,
         native_authorized_action: "cut",
+        config_input_evidence: validNativeConfigInputEvidence(),
         computed_at: "2026-07-12T09:30:00.000Z",
       },
     ]);
@@ -1373,12 +1375,14 @@ describe("resolveMetaAdActionTarget", () => {
       decisionHash: DECISION_HASH,
       decisionLabel: "cut",
       explicitAuthorizedAction: "pause",
+      configAuthorityVerified: true,
     });
     const querySql = String(sql.mock.calls[0]?.[0]?.join(""));
     expect(querySql).toContain("engine_v3_ad_decision_snapshots_daily");
     expect(querySql).toContain("engine_v3_ad_decision_evaluations");
     expect(querySql).toContain("evaluation.id = snapshot.evaluation_id");
     expect(querySql).toContain("evaluation.decision_hash = snapshot.decision_hash");
+    expect(querySql).toContain("engine_v3_ad_decision_input_evidence");
     expect(querySql).toContain(
       "snapshot.authorized_action AS native_authorized_action",
     );
@@ -1391,6 +1395,39 @@ describe("resolveMetaAdActionTarget", () => {
     expect(querySql).not.toContain("authorizedAdAction");
     expect(querySql).toContain("snapshot.id =");
     expect(querySql).toContain("evaluation.id =");
+  });
+
+  it("withholds source authorization if a selected config receipt changes after evaluation", async () => {
+    const configInput = validNativeConfigInputEvidence();
+    configInput.configEvidence.currentValueEvidence.refs.objective.observationId =
+      "not-a-receipt-id";
+    const sql = vi.fn().mockResolvedValueOnce([{
+      business_id: "business_1",
+      provider_account_id: "act_123",
+      decision_entity_type: "ad",
+      decision_entity_id: "123456789012345",
+      ad_id: "123456789012345",
+      campaign_id: "campaign_1",
+      adset_id: "adset_1",
+      creative_id: "shared_creative",
+      snapshot_id: "snapshot_1",
+      evaluation_id: "evaluation_1",
+      engine_version: NATIVE_AD_ENGINE_VERSION,
+      decision_hash: DECISION_HASH,
+      decision_label: "cut",
+      blocked_action_type: null,
+      native_authorized_action: "cut",
+      config_input_evidence: configInput,
+      computed_at: "2026-07-12T09:30:00.000Z",
+    }]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const source = await readDecisionOriginSourceDecision({
+      snapshotId: "snapshot_1",
+      evaluationId: "evaluation_1",
+    });
+    expect(source.configAuthorityVerified).toBe(false);
+    expect(source.explicitAuthorizedAction).toBeNull();
   });
 
   it("maps native decision authorization to provider status actions explicitly", () => {

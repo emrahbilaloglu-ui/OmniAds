@@ -2,6 +2,9 @@
  * The canonical decision/launch child calls this inside its own transaction.
  */
 import { NATIVE_AD_PAUSE_PROJECTION_SQL } from "@/lib/meta/automation-proposals";
+import { validNativeConfigInputEvidence } from "@/lib/meta/native-config-action-authority.fixture";
+import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { AD_DECISION_EVALUATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/evaluation-store";
 
 type Query = (text: string, params?: unknown[]) => Promise<Array<Record<string, unknown>>>;
 
@@ -10,6 +13,7 @@ export async function verifyNativeProposalLifecycleFixtures(query: Query): Promi
   const otherBusiness = "c9a30000-0000-4000-8000-0000000000b2";
   const account = "act_native_1";
   const otherAccount = "act_native_2";
+  const accountRef = "c9a30000-0000-4000-8000-0000000000a1";
   const day = "2026-09-06";
   const marker = "native_ad_decision_withdrawn";
   let assertions = 0;
@@ -21,10 +25,22 @@ export async function verifyNativeProposalLifecycleFixtures(query: Query): Promi
   }
   await query(`CREATE TEMP TABLE engine_v3_ad_decision_snapshots_daily (
     id UUID DEFAULT gen_random_uuid(), evaluation_id UUID DEFAULT gen_random_uuid(),
-    business_id TEXT, provider_account_id TEXT, ad_id TEXT, creative_id TEXT,
+    business_ref_id UUID, business_id TEXT, provider_account_ref_id UUID,
+    provider_account_id TEXT, decision_entity_type TEXT, decision_entity_id TEXT,
+    ad_id TEXT, creative_id TEXT, scope_type TEXT, scope_id TEXT,
     as_of_date DATE, computed_at TIMESTAMPTZ, engine_version TEXT, label TEXT,
-    authorized_action TEXT, reason TEXT, decision_hash TEXT, roas NUMERIC,
+    authorized_action TEXT, reason TEXT, input_hash TEXT, decision_hash TEXT, roas NUMERIC,
     spend NUMERIC, effective_target_roas NUMERIC
+  ) ON COMMIT DROP`);
+  await query(`CREATE TEMP TABLE engine_v3_ad_decision_evaluations (
+    id UUID DEFAULT gen_random_uuid(), business_ref_id UUID, business_id TEXT,
+    provider_account_ref_id UUID, provider_account_id TEXT,
+    decision_entity_type TEXT, decision_entity_id TEXT, ad_id TEXT,
+    as_of_date DATE, engine_version TEXT, scope_type TEXT, scope_id TEXT,
+    contract_version TEXT, input_hash TEXT, decision_hash TEXT
+  ) ON COMMIT DROP`);
+  await query(`CREATE TEMP TABLE engine_v3_ad_decision_input_evidence (
+    contract_version TEXT, input_hash TEXT, input_evidence_json JSONB
   ) ON COMMIT DROP`);
   await query(`CREATE TEMP TABLE meta_ad_dimensions (
     business_id TEXT, provider_account_id TEXT, ad_id TEXT, ad_name_current TEXT,
@@ -50,20 +66,41 @@ export async function verifyNativeProposalLifecycleFixtures(query: Query): Promi
   let version = 0;
   async function decision(ad: string, label: string, options: {
     accountId?: string; authorized?: string | null; reason?: string;
+    engineVersion?: string;
   } = {}) {
     version += 1;
     const providerAccountId = options.accountId ?? account;
+    const engineVersion = options.engineVersion ?? NATIVE_AD_ENGINE_VERSION;
+    const inputHash = `fixture-input-${version}`;
+    const decisionHash = `hash-${version}`;
     await query(`INSERT INTO pg_temp.meta_ad_dimensions VALUES ($1,$2,$3,$3,'ACTIVE')
       ON CONFLICT DO NOTHING`, [business, providerAccountId, ad]);
+    const evaluation = await query(`INSERT INTO pg_temp.engine_v3_ad_decision_evaluations (
+      business_ref_id, business_id, provider_account_ref_id, provider_account_id,
+      decision_entity_type, decision_entity_id, ad_id, as_of_date, engine_version,
+      scope_type, scope_id, contract_version, input_hash, decision_hash
+    ) VALUES ($1::uuid,$1::text,$2::uuid,$3,'ad',$4,$4,$5::date,$6,
+      'account',$3,$7,$8,$9) RETURNING id::text AS id`,
+    [business, accountRef, providerAccountId, ad, day, engineVersion,
+      AD_DECISION_EVALUATION_CONTRACT_VERSION, inputHash, decisionHash]);
+    await query(`INSERT INTO pg_temp.engine_v3_ad_decision_input_evidence
+      (contract_version, input_hash, input_evidence_json)
+      VALUES ($1,$2,$3::jsonb)`,
+    [AD_DECISION_EVALUATION_CONTRACT_VERSION, inputHash,
+      JSON.stringify(validNativeConfigInputEvidence())]);
     const rows = await query(`INSERT INTO pg_temp.engine_v3_ad_decision_snapshots_daily (
-      business_id, provider_account_id, ad_id, creative_id, as_of_date,
-      computed_at, engine_version, label, authorized_action, reason, decision_hash,
+      evaluation_id, business_ref_id, business_id, provider_account_ref_id,
+      provider_account_id, decision_entity_type, decision_entity_id, ad_id,
+      creative_id, scope_type, scope_id, as_of_date,
+      computed_at, engine_version, label, authorized_action, reason, input_hash, decision_hash,
       roas, spend, effective_target_roas
-    ) VALUES ($1,$2,$3,$4,$5,'2026-09-06'::timestamptz + $6::int * interval '1 hour',
-      $7,$8,$9,$10,$11,0.5,100,2.2) RETURNING id::text, evaluation_id::text`,
-    [business, providerAccountId, ad, `creative-${version}`, day, version,
-      `engine-${version}`, label, options.authorized === undefined ? label : options.authorized,
-      options.reason ?? `reason-${version}`, `hash-${version}`]);
+    ) VALUES ($1::uuid,$2::uuid,$2::text,$3::uuid,$4,'ad',$5,$5,
+      $6,'account',$4,$7::date,'2026-09-06'::timestamptz + $8::int * interval '1 hour',
+      $9,$10,$11,$12,$13,$14,0.5,100,2.2) RETURNING id::text, evaluation_id::text`,
+    [evaluation[0]!.id, business, accountRef, providerAccountId, ad,
+      `creative-${version}`, day, version, engineVersion, label,
+      options.authorized === undefined ? label : options.authorized,
+      options.reason ?? `reason-${version}`, inputHash, decisionHash]);
     return { id: rows[0]!.id, evaluation_id: rows[0]!.evaluation_id, version };
   }
   const run = (providerAccountId: string | null = account) =>
@@ -82,16 +119,16 @@ export async function verifyNativeProposalLifecycleFixtures(query: Query): Promi
   await run();
   let current = await proposal("cycle");
   equal([current.id, current.rec_id, current.engine_version],
-    [originalId, refreshed.evaluation_id, `engine-${refreshed.version}`], "top-level lineage refreshed");
+    [originalId, refreshed.evaluation_id, NATIVE_AD_ENGINE_VERSION], "top-level lineage refreshed");
   equal([(current.evidence_ref as Record<string, unknown>).snapshotId,
     (current.evidence_ref as Record<string, unknown>).evaluationId,
     (current.evidence_ref as Record<string, unknown>).decisionHash,
     (current.evidence_ref as Record<string, unknown>).creativeId,
     (current.evidence_ref as Record<string, unknown>).engineVersion],
   [refreshed.id, refreshed.evaluation_id, `hash-${refreshed.version}`,
-    `creative-${refreshed.version}`, `engine-${refreshed.version}`], "evidence identity matches refreshed lineage");
+    `creative-${refreshed.version}`, NATIVE_AD_ENGINE_VERSION], "evidence identity matches refreshed lineage");
 
-  await decision("cycle", "keep");
+  await decision("cycle", "keep", { engineVersion: "fixture-older-engine" });
   equal((await run()).length, 0, "latest keep wins over an older cut from another engine version");
   current = await proposal("cycle");
   equal([current.status, current.decision_note], ["expired", marker], "old pending cut withdrawn");

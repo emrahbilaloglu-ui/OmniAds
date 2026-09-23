@@ -8411,7 +8411,8 @@ definitively off; recovery returns to latest-native atomically at the SQL.
 (b) The retained generation may be served ONLY through the Decisions workspace
     envelope, which opts in explicitly. Creative Briefing and the engine-v3
     evidence route reach the same readers without that opt-in and keep failing
-    closed on `native_latest_job_failed`.
+    closed on `native_latest_job_failed`. *Amended by D102 for Creative
+    Briefing current reads; the engine-v3 evidence route is unchanged.*
 (c) When served, the envelope reports `source.status = "unavailable"` with
     `source.authority` still `native_ad` and `source.fallbackReason =
     "native_latest_job_failed_serving_last_successful_generation"`, and every
@@ -9460,8 +9461,9 @@ v12 or backfill the new authority from current provider values.
 
 ## D099 — Missing is not zero, and a config verdict names its receipt (2026-09-22)
 
-**Status.** Implemented in the working tree; not committed, not deployed. Every
-version it touches is UNSHIPPED (not in `ef33d238b`, zero rows in production,
+**Status.** Implemented in the release candidate branch; not deployed. At the
+2026-09-22 audit, every version it touches was UNSHIPPED (not in
+`ef33d238b`, zero rows in production,
 verified read-only on 2026-09-22: all 2,075,014 ad evaluations in the last ten
 days are `.v11`; no `v3-ad-2026-09-22-meta-config-economics-shadow` snapshot, no
 `v3-2026-09-21-role-held-verdict-preservation` lifecycle row, calibration rows
@@ -9630,3 +9632,213 @@ compaction for both relations remains open.
 display "3-second" thumbstop label (video starts over impressions), a shared
 decision-bearing activity predicate (restated with parity pins in four
 places), and the evaluation table's retention.
+
+## D100 — Serve current native hard decisions only with verified config receipts (2026-09-23)
+
+**Scope.** Current-epoch native serving and server mutation guards. The read
+model and buyer copy apply the receipt check, and the action, preflight, claim
+and proposal server paths enforce the same stored receipt/manifest coherence
+before a provider mutation can proceed. Native producer rows, input/decision
+hashes, historical snapshots and commercial math do not change.
+
+**Failure.** A persisted first blocker of `campaign_context` hid a separate
+recorded configuration gap: the held Cut resolution could mention missing
+config, but the structured blocker list named only the campaign role. A more
+serious fail-open existed in the same reader. A current-epoch native row with
+`authorized_action = cut`, recorded config authority `true` and absent or
+incoherent receipt lineage could still serve `sourceAuthority.actionEligible =
+true`. The generation join checked that an input mapping existed, not that its
+selected receipts remained coherent. A focused negative test reproduced the
+fail-open before the repair.
+
+**Decision.** For the current native epoch, a hard action requires a recorded
+config verdict of `true` and a successful read-time validation of every
+selected receipt and the economic-window manifest. `false`, absent, or a
+stored `true` whose references no longer validate is served as a held,
+review-only verdict: `buyerAction = null`, no authorized action and no provider
+mutation. The persisted source fields remain visible as recorded, so this
+read-only safety overlay never claims the producer itself wrote a different
+authority blocker. A second structured `config_source_authority` blocker is
+served for current native hard/held rows with unverified config even when
+another first blocker remains. Soft rows gain no config blocker or new hold.
+`pending_transition` still owns the confirmation resolution while the separate
+config gap remains visible in the blocker list.
+
+The action, preflight, claim and proposal server paths independently re-apply
+this current-epoch stored-reference check; an eligible read model alone is not
+permission to mutate. This proves coherence among the persisted receipt IDs,
+their selected manifest and the decision input. It is not independent proof of
+provider originality if an arbitrary raw provider record or a syntactically
+valid UUID has itself been replaced with a coordinated forgery.
+
+**Versioning.** Classification overlay advances from
+`meta-decisions-classification-overlay.v4` to `.v5` because its served held
+state and blocker set can change. The workspace response shape remains
+`meta-decisions-workspace.read.v4`. No producer/evaluation epoch changes: no
+decision is reminted, and previous epochs remain under their own compatibility
+rules. The current native generation validator already refuses a foreign
+producer epoch; historical rows are not restated as current authority.
+
+**Rollback.** Revert the read-model overlay, server mutation guards, overlay
+version and buyer copy together. Keep persisted snapshots and input mappings
+unchanged.
+
+## D101 — Age Meta evidence by verified closed-day coverage (2026-09-23)
+
+**Scope.** Native Ad input freshness only. Commercial targets, config authority,
+campaign-role resolution, hard-action thresholds, stored provider facts and
+automation permissions do not change.
+
+**Failure.** The native input called `MAX(meta_ad_daily.updated_at)` a source
+freshness clock. That timestamp belongs to an admitted Ad row, so a paused Ad
+with no recent spend could look 145–194 hours stale even when the account had a
+verified daily publication through yesterday. The inverse was also possible:
+republishing an older day today could look fresh although the expected closed
+day was absent. Buyer copy then described this value as the "last sync", which
+was not what the input measured.
+
+**Decision.** Freshness is now a separate
+`meta-ad-source-coverage-freshness.v1` proof. For the exact selected physical
+account it follows the active `ad_daily` publication pointer to the same
+finalized, validated slice, source run and completed manifest, all known by the
+decision cutoff. The manifest must complete after that provider-local day
+closes and before the slice is published. `expectedThroughDay` is yesterday in
+the cutoff-safe provider account timezone. Coverage is `complete` only when the
+verified reporting day equals that expected day; an older verified day is
+`partial`, and missing
+timezone or lineage is `unavailable`. Only complete coverage receives a numeric
+age, measured from the provider-local end of the covered day. Manifest
+completion and publication clocks remain separate provenance and can never make
+an older reporting day fresh. Coverage is account/day evidence, so it remains
+visible for an Ad with measured zero or no Ad-day row; the independent metric
+observation gates still prevent missing performance from becoming a measured
+zero or an actionable verdict.
+
+The pointer and slice surfaces are `ad_daily`. Their attached run-level
+manifest can be `account_daily`; authority comes from the slice's exact
+`manifest_id` and the shared pointer/slice/manifest source-run identity, not
+from textual equality between slice and manifest surface names.
+
+The current-epoch producer re-validates this typed proof at snapshot emission.
+A hard action requires the current coverage contract, `complete` status, the
+actual previous closed day derived from `computedAt` and the physical account
+timezone, completion after that interval, ordered completion/publication/cutoff
+clocks, and a numeric age exactly derived from the same interval end. A
+hand-built input cannot pair an old or partial day with a fresh-looking number
+and recover authority. Historical epochs remain readable through their frozen
+compatibility paths; they are not passed back through this current producer.
+
+The publication-pointer relation is current-state, not immutable history. If a
+day is republished after a historical cutoff, its current pointer has a later
+clock and the older pointer state cannot be reconstructed from this schema.
+Historical replay therefore returns coverage unavailable in that case. This is
+an intentional false-negative until immutable pointer history exists; it may
+not infer the former active slice from a later pointer or from purchase facts.
+
+**Versioning and compatibility.** Native producer epoch advances to
+`v3-ad-2026-09-23-verified-coverage-freshness-shadow`; canonical Ad evaluation
+advances to `engine-v3-canonical-ad-evaluation.v13`, whose metric contract binds
+the new coverage proof. The immediately previous 2026-09-22 frozen body remains
+readable under its original epoch and is refused as current evidence. Release
+must generate and verify a complete current-epoch business snapshot before the
+current-only reader is accepted; a prior epoch may be displayed only as
+historical/review-only evidence and may never retain current hard-action
+authority. This avoids a silent queue blackout during the epoch transition.
+
+**Acceptance.** Positive proof requires an exact-account, exact-run, finalized,
+passed, published slice for the expected closed provider-local day. Negative
+controls include a missing expected day, wrong physical account, wrong surface
+or run, failed/unpublished lineage, publication after the cutoff, publication
+before local day close, source completion before local day close, and source
+completion after publication. Producer negatives additionally include
+partial/unavailable coverage paired with a numeric age, a foreign contract,
+an old complete-looking day with a fake fresh age, and post-cutoff clocks. The
+production hydration plan must remain below D099's 30-second statement limit.
+Current live Cut rows still require independent config/economic and role
+authority; removing a false freshness hold does not authorize them.
+
+**Rollback.** Restore the 2026-09-22 epoch and `.v12` evaluation together, keep
+all `.v13` snapshots under their own key, and never reinterpret their coverage
+proof as the former row-update clock.
+
+## D102 — Creative Briefing shows the retained same-epoch generation read-only after a failed latest run (2026-09-23)
+
+**Scope.** Read model, Creative Briefing response, and Decisions OS
+presentation. Amends D091(b) and, through it, D054 for the Briefing surface.
+Producer rows, engine epochs, hashes, the generation SQL, the receipt test,
+the age ceiling and every provider-write path are unchanged.
+
+**Failure.** D091(b) kept Creative Briefing failing closed on
+`native_latest_job_failed` because its response had no field that could carry
+a degraded marker. One failed native run therefore removed every exact-Ad
+verdict from the Briefing consumers (the Creatives table's served
+classifications and the Creative Inbox) until the next success, while the
+Decisions workspace for the same account kept showing the same decisions marked
+stale. A latent fail-open sat under that rule:
+`readMetaNativeCanonicalDecisionInventory` accepts the opt-in flag through its
+shared input type but ignored `sourceDegradation`, so any caller that passed it
+would have received a stale generation with FULL execution authority.
+
+**Decision.**
+
+- The inventory reader applies the workspace's per-decision stripping to every
+  item, on the full and the `creativeIds`/`adIds` subset paths, through ONE
+  helper shared with `markNativeReadModelSourceDegraded`: confidence capped at
+  `STALE_CONFIDENCE_CAP`, a `high` band becomes `medium`, `actionEligible:
+  false`, `authorizedAction: null`, `executionReadiness:
+  "decision_not_authorized"`, and the review-only reason is filled, never
+  overwritten (D091(d)). It returns the served `MetaDecisionSourceDegradation`
+  block as `sourceDegradation`. The workspace output is byte-identical.
+- Briefing opts in ONLY for a current read. An explicit `asOf` asks a
+  historical question and keeps failing closed.
+- The retained generation is exactly D091's: the newest complete success for
+  this account strictly older than a FAILED latest terminal run, in the CURRENT
+  native epoch, inside `NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS`, proven by the
+  same manifest validator.
+- It is served as `source.canonicalDecisionInventory.status = "degraded"` — a
+  third value. The Studio and Inbox shipped with this change switch on it
+  explicitly; a consumer that keys on `available` treats it as not current,
+  while an older client that keys only on `unavailable` (the pre-D102 Studio
+  and Inbox) would render the retained decisions without the degraded marker
+  until it reloads. That is a presentation gap, not an authority gap: every
+  item is already stripped server-side — with `generation` = the retained generation and its real as-of day,
+  `unavailableReason` = the latest run's fault (`native_latest_job_failed`), and
+  `degradation` = both run identities. `source.asOf` is the retained day.
+  Governance runs with `pipeline {verified: false, executionReady: false}`, and
+  the route then re-asserts that every item is non-eligible with a null
+  authorized action and that the run identities agree; otherwise the inventory
+  is refused as unavailable. No card can reach the action lane. The Decision
+  Center snapshot is built degraded, and `trackingDetail` says the latest run
+  failed and the served decisions are read-only.
+- The Decisions OS also reads the typed degraded marker. It preserves each
+  retained verdict but moves any former Act row, including a role-held Cut,
+  into Blocked with a review-only action and null provider mutation. Its
+  pre-cap lane counts move with those rows. This is a serving correction, not a
+  new engine decision or a restored execution permission. The projected action
+  code and buyer-facing resolution copy on the row, inspector, and evidence
+  drawer direct the operator to await a current successful run; the canonical
+  historical resolution remains available as audit data and cannot become a
+  stale manual-pause instruction.
+
+**Unchanged, and why.** A `running` attempt is not terminal (D054) and never
+displaced the last terminal generation. An advisory-lock skip is ignored only
+once its overlapping holder has FINISHED; until then it is the latest terminal
+run and stays `native_latest_job_skipped` — extending the fallback into that
+window would need its own proof about the holder, and is not taken here. A
+foreign-epoch latest success stays `native_latest_job_engine_mismatch`, and a
+foreign-epoch candidate is never retained, so an older epoch is never shown as
+current authority, including across the D101 epoch transition before the first
+same-epoch success exists.
+
+**Versioning.** `briefing-canonical-native-ad.v1` does not move: its status
+union gains an additive value and the response an optional `degradation`
+block. A consumer that switches on `available` fails closed until it learns
+`degraded`; one that switches only on `unavailable` shows the stripped
+decisions unmarked, which is why the server and both mounted consumers ship
+together. The OS presentation retains its v5 shape;
+the conditional lane change is derived solely from the already-typed source
+degradation marker. No producer, evaluation, workspace or overlay contract
+moves.
+
+**Rollback.** Remove the route opt-in. The reader stripping is inert without it
+and may stay. Nothing is persisted; no write path changes.

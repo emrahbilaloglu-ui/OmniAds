@@ -3592,7 +3592,14 @@ const PROBE_SURFACE: Record<string, string> = {
  * of that chain its turn.
  */
 const SCENARIOS: readonly ProbeScenario[] = [
-  { name: "full" },
+  {
+    name: "full",
+    // A current healthy source does not carry the optional retained-generation
+    // marker. Without this omission the synthetic full payload made every
+    // evidence drawer suppress historical resolution fields as if it were
+    // degraded, so the probe could no longer prove their healthy-path rendering.
+    omit: ["decisionReadModel.source.degraded"],
+  },
   {
     // Grandmix: sixty served ads, not one of which joins a decision snapshot.
     // Everything the row carries has to come off the served decision.

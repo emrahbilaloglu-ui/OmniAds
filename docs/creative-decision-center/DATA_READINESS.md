@@ -501,3 +501,55 @@ unit another would refuse to build.
 > listed once in
 > [`CONTRACTS.md` → *Current authority vs historical record — the tables*](./CONTRACTS.md#current-authority-vs-historical-record--the-tables).
 > A value from the retained list may EXPLAIN a decision and may never GRANT one.
+
+## 2026-09-23 Decisions → Creatives readback
+
+The D091 link-click table above is the 2026-09-07 baseline, not the current
+ingestion state. The forward writer and source-backed historical repair now
+preserve measured counts and measured zero separately from unavailable values.
+In the 2026-08-25..09-21 two-account repair window, 201 ColorFull and 254
+TheSwaf ad-days were filled from their own raw `actions` payloads. The
+post-repair readback has 52 and 150 remaining rows without that payload;
+re-reading 93 of the TheSwaf rows from Meta still returned no `actions`.
+`inline_link_clicks = 0` is a different field and is not proof of a measured
+`actions.link_click = 0`.
+
+The remaining rows have a narrower decision impact than their count suggests.
+For the 14/14 window ending 2026-09-22, 17 of 23 ColorFull and 4 of 18
+TheSwaf ads with both comparison periods lack a complete link-click window.
+None of those 21 ads has a raw or held Refresh candidate in its latest
+2026-09-23 native snapshot. A separate held TheSwaf Refresh is blocked by
+prior-window delivery and calibration sample readiness, not these link-click
+rows. Keep unavailable click days unavailable; a fabricated zero could create
+false creative fatigue.
+
+The latest 2026-09-23 per-business generation has 36 raw Cut candidates
+across nine campaigns, but no fully verified config economics or authorized
+native action. The ColorFull candidate ad `120245512810640340` belongs to
+campaign `120243489401800340`. Its adset has September
+`OFFSITE_CONVERSIONS` receipts, while the campaign has no complete HTTP 200
+objective receipt on 2026-09-01..22. Its last prior objective receipt is
+2026-08-22; the later current value and May `updated_time` cannot fill the
+unobserved interval under D097/D098. The same gap affects a BSK candidate.
+Moving the evaluation date back does not create a provider observation that
+was never captured.
+
+An independent adset-only alternative also fails for this ColorFull Cut.
+`optimization_goal = OFFSITE_CONVERSIONS` and
+`promoted_object.custom_event_type = PURCHASE` have complete same-day receipts
+for all 14 local days on 2026-09-09..22, but for only 18 of the 22 spending
+days on 2026-09-01..22. Even if a separate ADR allowed these fields to replace
+campaign objective for a purchase-specific verdict, four economically used
+days would remain unverified; the current Cut cannot be authorized from that
+alternative.
+The BSK candidate has the same limitation: complete same-day adset PURCHASE
+receipts on 17 of 22 spending days, with five days unavailable.
+
+The current-code, read-only ColorFull replay at the pinned 2026-09-22 and
+2026-09-23 cutoffs computed 26 and 421 Ad decisions, respectively. The later
+day has one raw Cut and 23 `test_more` verdicts, but zero fully verified
+economic inputs and zero authorized actions. This is pure engine computation
+with calibration recomputed in memory; it does not certify a persisted job,
+historical policy flags, or a release. The missing objective interval is a
+source fact, not a UI or threshold problem. D100–D102 make the held decision
+and its precise blocker visible without granting an action.

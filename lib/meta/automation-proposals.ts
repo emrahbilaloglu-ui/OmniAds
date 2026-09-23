@@ -51,6 +51,7 @@ import { getDb, runDbTransaction } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "@/lib/creative-decision-engine/jobs/job-runtime";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { nativeConfigActionAuthoritySql } from "@/lib/meta/native-config-action-authority";
 import { readMetaAutomationProposalRoasFloor } from "@/lib/meta/automation-guardrail-policy";
 import type { MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
 import {
@@ -336,6 +337,7 @@ export function currentNativeAdDecisionSourcePredicate(
        AND native_decision.engine_version = ${alias}.engine_version
        AND native_decision.label = 'cut'
        AND native_decision.authorized_action = 'cut'
+       AND ${nativeConfigActionAuthoritySql("native_decision")}
        AND NULLIF(BTRIM(native_decision.creative_id), '') IS NOT NULL
        /*
          A decision row is evidence only when it belongs to the latest
@@ -1897,6 +1899,7 @@ export const NATIVE_AD_PAUSE_PROJECTION_SQL = `
         SELECT DISTINCT ON (d.provider_account_id, d.ad_id) d.*
           FROM engine_v3_ad_decision_snapshots_daily d
          WHERE d.business_id = $1::text
+           AND d.business_ref_id = $1::uuid
            AND d.as_of_date = $2::date
            AND ($5::text IS NULL OR d.provider_account_id = $5)
          -- Choose the current verdict before asking whether it remains a cut.
@@ -1929,6 +1932,8 @@ export const NATIVE_AD_PAUSE_PROJECTION_SQL = `
            AND dim.ad_id = d.ad_id
          WHERE d.label = 'cut'
            AND d.authorized_action = 'cut'
+           AND d.engine_version = '${NATIVE_AD_ENGINE_VERSION}'
+           AND ${nativeConfigActionAuthoritySql("d")}
            -- The identity the ad write must present. Without it the dispatch
            -- builder withholds, so a row that could never execute is never
            -- offered.

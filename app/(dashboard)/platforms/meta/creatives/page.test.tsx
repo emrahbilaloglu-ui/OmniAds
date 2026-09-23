@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import type { MetaCreativeRowSourceIdentity } from "./page-support";
 import {
   getPresetDatesForReferenceDate,
   getTodayIsoForTimeZone,
@@ -119,8 +120,8 @@ function renderPage(
 }
 
 function creativeRow(
-  overrides: Partial<MetaCreativeRow> = {},
-): MetaCreativeRow {
+  overrides: Partial<MetaCreativeRow & MetaCreativeRowSourceIdentity> = {},
+): MetaCreativeRow & MetaCreativeRowSourceIdentity {
   return {
     id: "creative_1",
     creativeId: "creative_1",
@@ -169,7 +170,7 @@ function creativeRow(
     },
     format: "video",
     ...overrides,
-  } as MetaCreativeRow;
+  } as MetaCreativeRow & MetaCreativeRowSourceIdentity;
 }
 
 /**
@@ -357,6 +358,8 @@ describe("Creative Studio Assets projection", () => {
           effectiveStatus: "WITH_ISSUES",
           aiTags: { messagingAngle: [" Server angle ", "Second angle"] },
           currency: null,
+          sourceAdIds: ["ad_1"],
+          sourceAdIdsComplete: true,
         }),
       ],
       "EUR",

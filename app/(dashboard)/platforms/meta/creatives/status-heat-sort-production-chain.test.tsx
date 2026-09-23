@@ -371,7 +371,22 @@ function renderStudio(input: {
     rows: input.rows,
     warehouse_observed_at: null,
   };
-  queryState.briefing = input.briefing;
+  queryState.briefing = input.briefing
+    ? {
+        ...input.briefing,
+        source: {
+          ...input.briefing.source,
+          canonicalDecisionInventory:
+            input.briefing.source?.canonicalDecisionInventory ?? {
+              contractVersion: "briefing-canonical-native-ad.v1",
+              status: "available",
+              unavailableReason: null,
+              generation: null,
+              itemCount: 0,
+            },
+        },
+      }
+    : undefined;
   render(
     <CreativeStudioPage
       businessId="biz_1"
@@ -885,6 +900,120 @@ describe("Creative Studio Status column carries the engine's classification", ()
       document.querySelectorAll("[data-creative-classification]"),
     ).toHaveLength(0);
     expect(screen.getByText("Endpoint unavailable")).toBeTruthy();
+    expect(document.querySelector("[data-creative-decision-as-of]")).toBeNull();
+  });
+
+  /**
+   * D090 on Creative Studio. Measured 2026-09-23 on Grandmix: the page sent
+   * the window end (09-22) as `asOf`, the reader only looks at generations on
+   * or before it, 09-22 held only an older-epoch run, and the fresh 09-23
+   * generation was never read — "Recommendations are temporarily
+   * unavailable" over 42 assets. The window scopes metrics; the decision set
+   * is the current generation.
+   */
+  it("requests the briefing for the metric window without pinning decisions to its end", async () => {
+    renderStudio({ rows: [], briefing: undefined });
+    const briefingCall = vi
+      .mocked(useQuery)
+      .mock.calls.map(([options]) => options as {
+        queryKey?: readonly unknown[];
+        queryFn?: () => Promise<unknown>;
+      })
+      .find(
+        (options) => options.queryKey?.[0] === "meta-creative-studio-briefing",
+      );
+    expect(briefingCall?.queryKey).toEqual([
+      "meta-creative-studio-briefing",
+      "biz_1",
+      PROVIDER_ACCOUNT_ID,
+      "2026-07-21",
+      "2026-08-17",
+    ]);
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ actionNow: [], watching: [], healthy: [] }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await briefingCall?.queryFn?.();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://x");
+    expect(url.pathname).toBe("/api/creatives/briefing");
+    expect(url.searchParams.get("start")).toBe("2026-07-21");
+    expect(url.searchParams.get("end")).toBe("2026-08-17");
+    expect(url.searchParams.has("asOf")).toBe(false);
+  });
+
+  it("names the served generation's own day, even when it is after the metric window end", () => {
+    const rows = buildApiRows([
+      creativeDay({
+        creativeId: "cre_current",
+        adId: "ad_current",
+        name: "Current generation",
+        spend: 120,
+        revenue: 240,
+        purchases: 2,
+      }),
+    ]);
+
+    renderStudio({
+      rows,
+      briefing: {
+        actionNow: [],
+        watching: [],
+        healthy: [],
+        source: {
+          asOf: "2026-08-19",
+          metricWindow: { start: "2026-07-21", end: "2026-08-17" },
+          decisionAsOfRequested: null,
+          canonicalDecisionInventory: {
+            contractVersion: "briefing-canonical-native-ad.v1",
+            status: "available",
+            unavailableReason: null,
+            generation: {
+              jobRunId: "job_current",
+              asOfDate: "2026-08-19",
+              providerAccountRefId: "provider_ref_1",
+              manifestHash: "c".repeat(64),
+              expectedAdCount: 0,
+            },
+            itemCount: 0,
+          },
+        },
+      },
+    });
+
+    const note = document.querySelector("[data-creative-decision-as-of]");
+    expect(note?.getAttribute("data-creative-decision-as-of")).toBe(
+      "2026-08-19",
+    );
+    expect(note?.textContent).toContain("Recommendations as of 2026-08-19.");
+    expect(note?.textContent).not.toContain("2026-08-17");
+    expect(
+      document.querySelector('[data-creative-decision-availability="unavailable"]'),
+    ).toBeNull();
+  });
+
+  it("claims no decision day when the response carries no generation", () => {
+    const rows = buildApiRows([
+      creativeDay({
+        creativeId: "cre_legacy",
+        adId: "ad_legacy",
+        name: "Legacy envelope",
+        spend: 120,
+        revenue: 240,
+        purchases: 2,
+      }),
+    ]);
+
+    renderStudio({ rows, briefing: briefingFor([]) });
+
+    expect(document.querySelector("[data-creative-decision-as-of]")).toBeNull();
+    expect(screen.queryByText(/Recommendations as of/)).toBeNull();
   });
 
   /**

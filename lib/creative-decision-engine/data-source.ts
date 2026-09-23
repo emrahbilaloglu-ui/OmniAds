@@ -53,9 +53,11 @@ import {
 import { classifyMetaAovQuality } from "./spend-unit-resolver";
 import {
   ENGINE_VERSION,
+  META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
   type AccountCalibration,
   type AccountFunnelCalibration,
   type AdDecisionInput,
+  type AdDecisionSourceCoverageEvidence,
   type AdDisjointBandEvidence,
   type AdDisjointBandObservation,
   type CalibrationCampaignKind,
@@ -998,6 +1000,11 @@ type AdDecisionHydrationRow = Record<string, unknown> & {
   first_spend_at: unknown;
   last_spend_date: unknown;
   data_freshness_hours: unknown;
+  source_coverage_status: unknown;
+  source_coverage_expected_through_day: unknown;
+  source_coverage_through_day: unknown;
+  source_coverage_source_completed_at: unknown;
+  source_coverage_published_at: unknown;
   target_roas: unknown;
   break_even_roas: unknown;
   target_pack_updated_at: unknown;
@@ -1713,11 +1720,16 @@ selected_accounts AS (
   FROM selected_ads
 ),
 account_identity AS (
-  SELECT DISTINCT ON (d.provider_account_id)
+  SELECT DISTINCT ON (assignment.provider_account_ref_id, d.provider_account_id)
+    assignment.provider_account_ref_id,
     d.provider_account_id,
     NULLIF(BTRIM(d.account_timezone), '') AS account_timezone,
     NULLIF(BTRIM(d.account_currency), '') AS account_currency
   FROM meta_ad_daily d
+  INNER JOIN assigned_accounts assignment
+    ON assignment.business_id = d.business_id
+   AND assignment.provider_account_ref_id = d.provider_account_ref_id
+   AND assignment.provider_account_id = d.provider_account_id
   INNER JOIN selected_accounts selected
     ON selected.business_id = d.business_id
    AND selected.provider_account_id = d.provider_account_id
@@ -1729,7 +1741,212 @@ account_identity AS (
     AND d.updated_at <= $11::timestamptz
     AND NULLIF(BTRIM(d.account_timezone), '') IS NOT NULL
     AND NULLIF(BTRIM(d.account_currency), '') IS NOT NULL
-  ORDER BY d.provider_account_id, d.date DESC, d.updated_at DESC, d.id DESC
+  ORDER BY assignment.provider_account_ref_id, d.provider_account_id,
+           d.date DESC, d.updated_at DESC, d.id DESC
+),
+source_coverage_manifest_identity AS (
+  /*
+    A fully empty account-day has no meta_ad_daily row from which to read the
+    provider timezone. A cutoff-safe completed manifest still carries that
+    identity. It is used only as the day-boundary basis; publication authority
+    remains the stricter pointer -> slice -> same-run manifest chain below.
+  */
+  SELECT
+    selected.business_id,
+    assignment.provider_account_ref_id,
+    selected.provider_account_id,
+    manifest_identity.account_timezone
+  FROM selected_accounts selected
+  INNER JOIN assigned_accounts assignment
+    ON assignment.business_id = selected.business_id
+   AND assignment.provider_account_id = selected.provider_account_id
+  LEFT JOIN LATERAL (
+    SELECT NULLIF(BTRIM(manifest.account_timezone), '') AS account_timezone
+    FROM meta_authoritative_publication_pointers pointer
+    INNER JOIN meta_authoritative_slice_versions slice
+      ON slice.id = pointer.active_slice_version_id
+     AND slice.business_ref_id::text = selected.business_id
+     AND slice.business_id = selected.business_id
+     AND slice.provider_account_ref_id = assignment.provider_account_ref_id
+     AND slice.provider_account_id = selected.provider_account_id
+     AND slice.day = pointer.day
+     AND slice.surface = pointer.surface
+    INNER JOIN meta_authoritative_source_manifests manifest
+      ON manifest.id = slice.manifest_id
+     AND manifest.business_ref_id::text = selected.business_id
+      AND manifest.business_id = selected.business_id
+     AND manifest.provider_account_ref_id = assignment.provider_account_ref_id
+      AND manifest.provider_account_id = selected.provider_account_id
+     AND manifest.day = slice.day
+     AND manifest.run_id = slice.source_run_id
+    WHERE pointer.business_ref_id::text = selected.business_id
+      AND pointer.business_id = selected.business_id
+      AND pointer.provider_account_ref_id = assignment.provider_account_ref_id
+      AND pointer.provider_account_id = selected.provider_account_id
+      AND pointer.surface = 'ad_daily'
+      AND pointer.published_by_run_id = slice.source_run_id
+      AND manifest.fetch_status = 'completed'
+      AND manifest.completed_at IS NOT NULL
+      AND NULLIF(BTRIM(manifest.account_timezone), '') IS NOT NULL
+      AND manifest.created_at <= $11::timestamptz
+      AND manifest.updated_at <= $11::timestamptz
+      AND manifest.completed_at <= $11::timestamptz
+      AND manifest.completed_at <= pointer.published_at
+      AND manifest.completed_at <= slice.published_at
+      AND manifest.completed_at >= (
+        (pointer.day + 1)::timestamp AT TIME ZONE manifest.account_timezone
+      )
+      AND slice.state = 'finalized_verified'
+      AND slice.truth_state = 'finalized'
+      AND slice.validation_status = 'passed'
+      AND slice.status = 'published'
+      AND slice.created_at <= $11::timestamptz
+      AND slice.updated_at <= $11::timestamptz
+      AND slice.published_at IS NOT NULL
+      AND slice.published_at <= $11::timestamptz
+      AND slice.published_at <= pointer.published_at
+      AND pointer.created_at <= $11::timestamptz
+      AND pointer.updated_at <= $11::timestamptz
+      AND pointer.published_at <= $11::timestamptz
+    ORDER BY pointer.day DESC, pointer.published_at DESC,
+             slice.candidate_version DESC
+    LIMIT 1
+  ) manifest_identity ON TRUE
+),
+source_coverage_scope AS (
+  /*
+    Freshness is ACCOUNT-DAY coverage, not the newest non-zero Ad row.
+
+    The last day expected to be closed is yesterday in the provider account's
+    own timezone. The current local day is deliberately excluded even if a
+    provisional slice exists. An account whose cutoff-safe timezone is unknown
+    has no day basis and therefore no freshness authority.
+  */
+  SELECT
+    selected.business_id,
+    assignment.provider_account_ref_id,
+    selected.provider_account_id,
+    CASE
+      WHEN account_identity.account_timezone IS NOT NULL
+       AND manifest_identity.account_timezone IS NOT NULL
+       AND account_identity.account_timezone <> manifest_identity.account_timezone
+        THEN NULL
+      ELSE COALESCE(
+        account_identity.account_timezone,
+        manifest_identity.account_timezone
+      )
+    END AS account_timezone,
+    CASE
+      WHEN account_identity.account_timezone IS NOT NULL
+       AND manifest_identity.account_timezone IS NOT NULL
+       AND account_identity.account_timezone <> manifest_identity.account_timezone
+        THEN NULL
+      WHEN COALESCE(
+        account_identity.account_timezone,
+        manifest_identity.account_timezone
+      ) IS NOT NULL
+      THEN (
+        (
+          $11::timestamptz AT TIME ZONE COALESCE(
+            account_identity.account_timezone,
+            manifest_identity.account_timezone
+          )
+        )::date - 1
+      )
+    END AS expected_through_day
+  FROM selected_accounts selected
+  INNER JOIN assigned_accounts assignment
+    ON assignment.business_id = selected.business_id
+   AND assignment.provider_account_id = selected.provider_account_id
+  LEFT JOIN account_identity
+    ON account_identity.provider_account_ref_id = assignment.provider_account_ref_id
+   AND account_identity.provider_account_id = selected.provider_account_id
+  LEFT JOIN source_coverage_manifest_identity manifest_identity
+    ON manifest_identity.provider_account_ref_id = assignment.provider_account_ref_id
+   AND manifest_identity.provider_account_id = selected.provider_account_id
+),
+account_source_coverage AS (
+  SELECT
+    scope.business_id,
+    scope.provider_account_ref_id,
+    scope.provider_account_id,
+    scope.account_timezone,
+    scope.expected_through_day,
+    coverage.coverage_through_day,
+    coverage.source_completed_at,
+    coverage.published_at,
+    CASE
+      WHEN scope.expected_through_day IS NULL OR coverage.coverage_through_day IS NULL
+        THEN 'unavailable'
+      WHEN coverage.coverage_through_day = scope.expected_through_day
+        THEN 'complete'
+      ELSE 'partial'
+    END AS coverage_status
+  FROM source_coverage_scope scope
+  LEFT JOIN LATERAL (
+    SELECT
+      pointer.day AS coverage_through_day,
+      manifest.completed_at AS source_completed_at,
+      pointer.published_at
+    FROM meta_authoritative_publication_pointers pointer
+    INNER JOIN meta_authoritative_slice_versions slice
+      ON slice.id = pointer.active_slice_version_id
+     AND slice.business_ref_id::text = scope.business_id
+     AND slice.business_id = scope.business_id
+     AND slice.provider_account_ref_id = scope.provider_account_ref_id
+     AND slice.provider_account_id = scope.provider_account_id
+     AND slice.day = pointer.day
+     AND slice.surface = pointer.surface
+    INNER JOIN meta_authoritative_source_manifests manifest
+      ON manifest.id = slice.manifest_id
+     AND manifest.business_ref_id::text = scope.business_id
+     AND manifest.business_id = scope.business_id
+     AND manifest.provider_account_ref_id = scope.provider_account_ref_id
+     AND manifest.provider_account_id = scope.provider_account_id
+     AND manifest.day = slice.day
+     AND manifest.run_id = slice.source_run_id
+    WHERE pointer.business_ref_id::text = scope.business_id
+      AND pointer.business_id = scope.business_id
+      AND pointer.provider_account_ref_id = scope.provider_account_ref_id
+      AND pointer.provider_account_id = scope.provider_account_id
+      AND pointer.surface = 'ad_daily'
+      AND pointer.day <= scope.expected_through_day
+      AND pointer.published_by_run_id = slice.source_run_id
+      AND NULLIF(BTRIM(manifest.account_timezone), '') = scope.account_timezone
+      AND manifest.fetch_status = 'completed'
+      AND manifest.completed_at IS NOT NULL
+      AND manifest.created_at <= $11::timestamptz
+      AND manifest.updated_at <= $11::timestamptz
+      AND manifest.completed_at <= $11::timestamptz
+      AND manifest.completed_at <= pointer.published_at
+      AND manifest.completed_at <= slice.published_at
+      /* A completed fetch before the provider-local day closed cannot prove
+         that the finished day was fully observed, even if its pointer was
+         published later. */
+      AND manifest.completed_at >= (
+        (pointer.day + 1)::timestamp AT TIME ZONE scope.account_timezone
+      )
+      AND slice.state = 'finalized_verified'
+      AND slice.truth_state = 'finalized'
+      AND slice.validation_status = 'passed'
+      AND slice.status = 'published'
+      AND NULLIF(BTRIM(slice.source_run_id), '') IS NOT NULL
+      AND slice.created_at <= $11::timestamptz
+      AND slice.updated_at <= $11::timestamptz
+      AND slice.published_at IS NOT NULL
+      AND slice.published_at <= $11::timestamptz
+      AND slice.published_at <= pointer.published_at
+      AND pointer.created_at <= $11::timestamptz
+      AND pointer.updated_at <= $11::timestamptz
+      AND pointer.published_at <= $11::timestamptz
+      /* A daily slice published before its provider-local day closed is not
+         proof of complete coverage for that day. */
+      AND pointer.published_at >= (
+        (pointer.day + 1)::timestamp AT TIME ZONE scope.account_timezone
+      )
+    ORDER BY pointer.day DESC, pointer.published_at DESC, slice.candidate_version DESC
+    LIMIT 1
+  ) coverage ON TRUE
 ),
 current_config_scope AS (
   /*
@@ -1761,7 +1978,8 @@ current_config_scope AS (
     COALESCE(scope_account.account_timezone, 'UTC') AS account_timezone
   FROM selected_ad_days d
   LEFT JOIN account_identity scope_account
-    ON scope_account.provider_account_id = d.provider_account_id
+    ON scope_account.provider_account_ref_id = d.provider_account_ref_id
+   AND scope_account.provider_account_id = d.provider_account_id
 ),
 ${HYDRATION_TODAY_CAMPAIGN_CONFIG.withSql},
 ${HYDRATION_TODAY_ADSET_CONFIG.withSql},
@@ -2832,9 +3050,25 @@ SELECT
   dimensions.first_seen_at,
   bounds.first_spend_at,
   bounds.last_spend_date,
-  CASE WHEN cumulative.source_max_updated_at IS NOT NULL THEN GREATEST(
+  source_coverage.coverage_status AS source_coverage_status,
+  source_coverage.expected_through_day::text AS source_coverage_expected_through_day,
+  source_coverage.coverage_through_day::text AS source_coverage_through_day,
+  source_coverage.source_completed_at AS source_coverage_source_completed_at,
+  source_coverage.published_at AS source_coverage_published_at,
+  /*
+    Age the verified REPORTING INTERVAL, never its publication timestamp and
+    never the newest non-zero Ad row. An incomplete expected day is NULL so the
+    hard-action gate remains fail-closed instead of treating an old-day repair
+    published today as fresh.
+  */
+  CASE WHEN source_coverage.coverage_status = 'complete' THEN GREATEST(
     0,
-    FLOOR(EXTRACT(EPOCH FROM ($11::timestamptz - cumulative.source_max_updated_at)) / 3600)
+    FLOOR(EXTRACT(EPOCH FROM (
+      $11::timestamptz - (
+        (source_coverage.coverage_through_day + 1)::timestamp
+        AT TIME ZONE source_coverage.account_timezone
+      )
+    )) / 3600)
   ) END AS data_freshness_hours,
   $7::double precision AS target_roas,
   $8::double precision AS break_even_roas,
@@ -2877,7 +3111,11 @@ INNER JOIN provider_accounts provider_account
   ON provider_account.id = assignment.provider_account_ref_id
  AND provider_account.external_account_id = assignment.provider_account_id
 LEFT JOIN account_identity
-  ON account_identity.provider_account_id = cumulative.provider_account_id
+  ON account_identity.provider_account_ref_id = assignment.provider_account_ref_id
+ AND account_identity.provider_account_id = cumulative.provider_account_id
+LEFT JOIN account_source_coverage source_coverage
+  ON source_coverage.provider_account_ref_id = assignment.provider_account_ref_id
+ AND source_coverage.provider_account_id = cumulative.provider_account_id
 LEFT JOIN context_cardinality cardinality
   ON cardinality.provider_account_id = cumulative.provider_account_id
  AND cardinality.ad_id = cumulative.ad_id
@@ -5361,6 +5599,59 @@ function toNumberArray(value: unknown): number[] {
   return value.map((item) => toNumberOrNull(item) ?? Number.NaN);
 }
 
+function mapAdSourceCoverageEvidence(
+  row: AdDecisionHydrationRow,
+  decisionCutoff: string,
+): AdDecisionSourceCoverageEvidence {
+  const expectedThroughDay = toIsoDateOrNull(
+    row.source_coverage_expected_through_day,
+  );
+  const coverageThroughDay = toIsoDateOrNull(row.source_coverage_through_day);
+  const sourceCompletedAt = toIsoTimestampOrNull(
+    row.source_coverage_source_completed_at,
+  );
+  const publishedAt = toIsoTimestampOrNull(row.source_coverage_published_at);
+  const cutoffMs = Date.parse(decisionCutoff);
+  const sourceCompletedMs = sourceCompletedAt
+    ? Date.parse(sourceCompletedAt)
+    : Number.NaN;
+  const publishedMs = publishedAt ? Date.parse(publishedAt) : Number.NaN;
+  const clocksAreCutoffSafe =
+    Number.isFinite(cutoffMs) &&
+    Number.isFinite(sourceCompletedMs) &&
+    Number.isFinite(publishedMs) &&
+    sourceCompletedMs <= cutoffMs &&
+    publishedMs <= cutoffMs &&
+    sourceCompletedMs <= publishedMs;
+  const rawStatus = toStringOrNull(row.source_coverage_status);
+
+  const status =
+    rawStatus === "complete" &&
+    expectedThroughDay !== null &&
+    coverageThroughDay === expectedThroughDay &&
+    clocksAreCutoffSafe
+      ? "complete"
+      : rawStatus === "partial" &&
+          expectedThroughDay !== null &&
+          coverageThroughDay !== null &&
+          coverageThroughDay < expectedThroughDay &&
+          clocksAreCutoffSafe
+        ? "partial"
+        : "unavailable";
+
+  return {
+    contractVersion: META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
+    status,
+    expectedThroughDay,
+    coverageThroughDay:
+      status === "complete" || status === "partial" ? coverageThroughDay : null,
+    sourceCompletedAt:
+      status === "complete" || status === "partial" ? sourceCompletedAt : null,
+    publishedAt:
+      status === "complete" || status === "partial" ? publishedAt : null,
+  };
+}
+
 function mapAdDecisionHydrationRow(input: {
   row: AdDecisionHydrationRow;
   businessId: string;
@@ -5575,6 +5866,14 @@ function mapAdDecisionHydrationRow(input: {
     ? toIsoTimestampOrNull(input.row.first_seen_at)
     : null;
   const firstSeenDate = firstSeenAt?.slice(0, 10) ?? null;
+  const sourceCoverage = mapAdSourceCoverageEvidence(
+    input.row,
+    input.decisionCutoff,
+  );
+  const coverageFreshnessHours =
+    sourceCoverage.status === "complete"
+      ? toIntegerOrNull(input.row.data_freshness_hours)
+      : null;
 
   return {
     currentDimensionId: allowCurrentDimensions
@@ -5614,6 +5913,7 @@ function mapAdDecisionHydrationRow(input: {
         performanceMetricsObserved: metricRowCount > 0,
         eventMetricsObserved:
           metricRowCount > 0 && toBoolean(input.row.event_metrics_observed),
+        sourceCoverage,
       },
       /*
         Producer evidence for the ad-level fatigue contract, not resolver
@@ -5662,7 +5962,10 @@ function mapAdDecisionHydrationRow(input: {
       policyReason: null,
       disapprovalReason: null,
       limitedReason: null,
-      dataFreshnessHours: toIntegerOrNull(input.row.data_freshness_hours),
+      dataFreshnessHours:
+        coverageFreshnessHours === null
+          ? null
+          : Math.max(0, coverageFreshnessHours),
       fatigueStatus,
       targetRoas: toNumberOrNull(input.row.target_roas),
       breakevenRoas: toNumberOrNull(input.row.break_even_roas),

@@ -2010,6 +2010,7 @@ function CreativesScope({
   decisions,
   groups,
   lane,
+  emptyReason,
   footnote,
   notice,
   onOpenCreativeStudio,
@@ -2018,6 +2019,7 @@ function CreativesScope({
   decisions: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
   groups?: readonly MetaDecisionCenterExactCreativeGroupViewModel[];
   lane: MetaDecisionCenterExactLane;
+  emptyReason: string;
   footnote?: MetaDecisionCenterExactDisplayValue;
   /**
    * The served source-health sentence, when the server sent one.
@@ -2069,7 +2071,7 @@ function CreativesScope({
         </p>
       ) : null}
       {hasGroupedDecisions && visibleGroups.length === 0 ? (
-        <LaneEmpty lane={`creatives-${lane}`} reason={copy.laneServedNoRows} />
+        <LaneEmpty lane={`creatives-${lane}`} reason={emptyReason} />
       ) : hasGroupedDecisions ? (
         visibleGroups.map((group) => (
           <section
@@ -2097,6 +2099,8 @@ function CreativesScope({
             ))}
           </section>
         ))
+      ) : decisions.length === 0 ? (
+        <LaneEmpty lane={`creatives-${lane}`} reason={emptyReason} />
       ) : (
         decisions.map((row) => <CreativeCard key={row.id} row={row} />)
       )}
@@ -2702,6 +2706,18 @@ export function MetaDecisionCenterExact({
     activeFilters.length > 0
       ? copy.noRowMatchesFilters.replace("{filters}", activeFilters.join(" · "))
       : copy.laneServedNoRows;
+  const blockedCreativeRows =
+    viewModel.creativeGroups?.find((group) => group.id === "blocked")?.rows
+      .length ?? 0;
+  // An empty Action Now lane is not an empty account. Point to the served
+  // blocked creative decisions without moving them or changing the lane the
+  // operator deliberately selected.
+  const actionEmptyReason =
+    activeFilters.length === 0 && blockedCreativeRows > 0
+      ? language === "tr"
+        ? `Bu ${copy.laneActionNow} bölümünde uygulanabilir karar yok. ${blockedCreativeRows} kreatif kararı ${copy.creatives} → ${copy.laneNeedsResolution} bölümünde.`
+        : `No decisions are ready in this ${copy.laneActionNow} lane. ${blockedCreativeRows} creative decision${blockedCreativeRows === 1 ? " is" : "s are"} under ${copy.creatives} → ${copy.laneNeedsResolution}.`
+      : laneEmptyReason;
   const activeWindow =
     viewModel.activeWindow === undefined ? "28d" : viewModel.activeWindow;
   const counts = viewModel.counts;
@@ -3072,7 +3088,7 @@ export function MetaDecisionCenterExact({
         <div className={styles.queue}>
           {activeScope === "structure" && activeLane === "action" ? (
             <ActionLane
-              emptyReason={laneEmptyReason}
+              emptyReason={actionEmptyReason}
               onLoadMore={loadMoreFor("action")}
               rows={viewModel.actionRows ?? []}
               shown={shownFor("action")}
@@ -3108,6 +3124,11 @@ export function MetaDecisionCenterExact({
           {activeScope === "creatives" ? (
             <CreativesScope
               decisions={viewModel.creativeDecisions ?? []}
+              emptyReason={
+                activeCreativeLane === "action"
+                  ? actionEmptyReason
+                  : laneEmptyReason
+              }
               footnote={viewModel.creativeFootnote}
               groups={viewModel.creativeGroups}
               lane={activeCreativeLane}

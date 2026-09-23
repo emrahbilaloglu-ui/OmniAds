@@ -1040,6 +1040,8 @@ export interface ProbeScenario {
   readonly erase?: readonly string[];
   readonly force?: Readonly<Record<string, unknown>>;
   readonly empty?: readonly string[];
+  /** Omit an optional payload member, such as a healthy source's degraded marker. */
+  readonly omit?: readonly string[];
 }
 
 function emptyAtPath(payload: unknown, path: string): void {
@@ -1054,6 +1056,17 @@ function emptyAtPath(payload: unknown, path: string): void {
   const target = node[last];
   if (Array.isArray(target)) node[last] = [];
   else if (target && typeof target === "object") node[last] = {};
+}
+
+function omitAtPath(payload: unknown, path: string): void {
+  const segments = path.split(".");
+  const last = segments.pop()!;
+  let node: Record<string, unknown> | undefined = payload as Record<string, unknown>;
+  for (const segment of segments) {
+    if (!node || typeof node !== "object") return;
+    node = node[segment] as Record<string, unknown> | undefined;
+  }
+  if (node && typeof node === "object") delete node[last];
 }
 
 function walk(
@@ -1073,6 +1086,7 @@ function walk(
     if (path === mutate) continue;
     emptyAtPath(payload, path);
   }
+  for (const path of scenario?.omit ?? []) omitAtPath(payload, path);
   return { payload, state };
 }
 

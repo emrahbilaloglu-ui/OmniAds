@@ -3646,7 +3646,16 @@ export function MetaPlatformPage({
   );
   const [refreshingSnapshot, setRefreshingSnapshot] = useState(false);
   const [activeLane, setActiveLane] = useState<MetaLaneView>(initialLane);
-  const automaticInitialLaneResolvedRef = useRef(false);
+  // A lane named by the arrival link (or selected by the operator) is an
+  // explicit choice. Only the unselected resting view may seek a populated
+  // lane when Action Now has no rows.
+  const explicitLaneSelectionRef = useRef(
+    searchParams.get("lane") !== null ||
+      searchParams.get("area") !== null ||
+      searchParams.get("segment") !== null ||
+      searchParams.get("entity") !== null ||
+      searchParams.get("row") !== null,
+  );
   const [activeScope, setActiveScope] =
     useState<MetaDecisionCenterExactScope>(initialScope);
   const [rowSort, setRowSort] = useState<MetaRowSort>("money");
@@ -3716,7 +3725,18 @@ export function MetaPlatformPage({
   const latestSearchParamsRef = useRef(searchParams.toString());
 
   useEffect(() => {
-    latestSearchParamsRef.current = searchParams.toString();
+    const incomingQuery = searchParams.toString();
+    if (incomingQuery !== latestSearchParamsRef.current) {
+      // An external link or history navigation can reuse this page instance.
+      // Own lane changes already updated the ref in replaceMetaParams.
+      explicitLaneSelectionRef.current =
+        searchParams.get("lane") !== null ||
+        searchParams.get("area") !== null ||
+        searchParams.get("segment") !== null ||
+        searchParams.get("entity") !== null ||
+        searchParams.get("row") !== null;
+    }
+    latestSearchParamsRef.current = incomingQuery;
     setActiveLane(parseMetaWorkspaceLane(searchParams));
     setActiveScope(parseMetaScope(searchParams));
   }, [searchParams]);
@@ -4417,6 +4437,7 @@ export function MetaPlatformPage({
     setManualCeremonyRec(null);
     setActiveScope("structure");
     setActiveLane("action");
+    explicitLaneSelectionRef.current = false;
     setActiveLevels([]);
     setRowSearch("");
     replaceMetaParams(params);
@@ -4469,6 +4490,11 @@ export function MetaPlatformPage({
       else params.set("segment", "structures");
     }
     replaceMetaParams(params);
+  };
+
+  const selectOperatorLane = (next: MetaLaneView) => {
+    explicitLaneSelectionRef.current = true;
+    selectLane(next);
   };
 
   /**
@@ -5199,35 +5225,36 @@ export function MetaPlatformPage({
       };
 
   useEffect(() => {
-    if (automaticInitialLaneResolvedRef.current || !workspaceQuery.data) return;
-    automaticInitialLaneResolvedRef.current = true;
-
-    const explicitLane =
-      searchParams.get("lane") !== null ||
-      searchParams.get("area") !== null ||
-      searchParams.get("segment") !== null ||
-      searchParams.get("entity") !== null ||
-      searchParams.get("row") !== null;
+    // React Query keeps the prior account's rows while the next account loads.
+    // Those rows must not decide the next account's resting lane.
     if (
-      explicitLane ||
-      activeScope !== "structure" ||
-      activeLane !== "action"
-    ) {
-      return;
-    }
+      !workspaceQuery.data ||
+      workspaceQuery.data.businessId !== businessId ||
+      workspaceQuery.data.decisionReadModel.scope.providerAccountId !==
+        providerAccountId ||
+      explicitLaneSelectionRef.current ||
+      activeLane !== "action" ||
+      rowSearch.trim() ||
+      activeLevels.length > 0
+    ) return;
 
-    if (
-      (exactViewModel.actionRows?.length ?? 0) === 0 &&
-      (exactViewModel.needsResolutionRows?.length ?? 0) > 0
-    ) {
+    const hasBlockedDecisions =
+      activeScope === "structure"
+        ? (exactViewModel.actionRows?.length ?? 0) === 0 &&
+          (exactViewModel.needsResolutionRows?.length ?? 0) > 0
+        : workspaceQuery.data.os?.ads?.actCount === 0 &&
+          (workspaceQuery.data.os?.ads?.blockedCount ?? 0) > 0 &&
+          workspaceQuery.data.os.ads.items.some((item) => item.lane === "blocked");
+    if (hasBlockedDecisions) {
       selectLane("needsres");
     }
   }, [
     activeLane,
+    activeLevels.length,
     activeScope,
     exactViewModel.actionRows,
     exactViewModel.needsResolutionRows,
-    searchParams,
+    rowSearch,
     selectLane,
     workspaceQuery.data,
   ]);
@@ -5703,7 +5730,7 @@ export function MetaPlatformPage({
           scope={activeScope}
           lane={activeLane}
           onScopeChange={selectScope}
-          onLaneChange={selectLane}
+          onLaneChange={selectOperatorLane}
           loading={loading}
           error={error}
           anomalies={anomalies}
@@ -5925,7 +5952,9 @@ export function MetaPlatformPage({
             // selected-row + evidence-rail resting state. Closing the rail is
             // still explicit and remains closed until the operator changes lane.
             inspectorOpen={!inspectorDismissed}
-            onLaneChange={(lane) => selectLane(metaLaneForExactLane(lane))}
+            onLaneChange={(lane) => {
+              selectOperatorLane(metaLaneForExactLane(lane));
+            }}
             onRunSnapshot={
               providerAccountId && !refreshingSnapshot && !isViewerReadOnly
                 ? () => void refreshSnapshotNow()

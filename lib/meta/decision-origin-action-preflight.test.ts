@@ -115,6 +115,7 @@ describe("server decision-origin action preflight", () => {
       decisionLabel: "cut",
       blockedActionType: null,
       explicitAuthorizedAction: "pause",
+      configAuthorityVerified: true,
       computedAt: "2026-07-12T09:30:00.000Z",
     });
   });
@@ -173,6 +174,85 @@ describe("server decision-origin action preflight", () => {
       errorCode: "source_pipeline_unready",
     });
     expect(result.blockers).toContain("source_pipeline_unready");
+  });
+
+  it("rejects a cached healthy Cut tuple when the fresh read finds a failed latest native run", async () => {
+    const actualHealth = await vi.importActual<
+      typeof import("@/lib/meta/decision-pipeline-health")
+    >("@/lib/meta/decision-pipeline-health");
+    vi.mocked(pipelineHealth.buildMetaDecisionPipelineHealth).mockImplementation(
+      actualHealth.buildMetaDecisionPipelineHealth,
+    );
+    vi.mocked(
+      pipelineHealth.readMetaDecisionPipelineOperationalHealth,
+    ).mockResolvedValue({
+      overall: "healthy",
+      blockers: [],
+      evaluatedAt: NOW.toISOString(),
+    } as never);
+    const freshReadAfterFailure = {
+      status: "available",
+      unavailable: null,
+      source: {
+        status: "unavailable",
+        authority: "native_ad",
+        computedAt: "2026-07-12T09:30:00.000Z",
+        engineVersion: NATIVE_AD_ENGINE_VERSION,
+        fallbackReason:
+          "native_latest_job_failed_serving_last_successful_generation",
+        generation: {
+          jobRunId: "20000000-0000-4000-8000-000000000001",
+          manifestHash: "a".repeat(64),
+          expectedAdCount: 1,
+        },
+        degraded: {
+          reason:
+            "native_latest_job_failed_serving_last_successful_generation",
+          servedGeneration: {
+            jobRunId: "20000000-0000-4000-8000-000000000001",
+            asOfDate: "2026-07-12",
+          },
+          latestTerminalRun: {
+            jobRunId: "20000000-0000-4000-8000-000000000002",
+            status: "failed",
+            asOfDate: "2026-07-12",
+          },
+        },
+      },
+    } as never;
+    vi.mocked(
+      decisionReadModel.readMetaDecisionsWorkspaceReadModel,
+    ).mockResolvedValue(freshReadAfterFailure);
+
+    // The request and persisted source tuple still name a fresh, authorized
+    // Cut. Only the new terminal job state can stop this cached UI action.
+    const result = await runServerDecisionOriginAdActionPreflight({
+      request: request(),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+        connectionGeneration: "1:connected",
+      },
+      now: NOW,
+    });
+
+    expect(
+      decisionReadModel.readMetaDecisionsWorkspaceReadModel,
+    ).toHaveBeenCalledWith({
+      businessId: "business_1",
+      providerAccountId: "act_123",
+      adIds: ["123456789012345"],
+      generatedAt: NOW.toISOString(),
+    });
+    expect(result).toMatchObject({
+      disposition: "reject",
+      shouldMutate: false,
+      errorCode: "source_pipeline_unready",
+      decisionAgeHours: 0.5,
+    });
+    expect(result.blockers).toContain("source_pipeline_unready");
+    expect(result.blockers).not.toContain("action_not_authorized");
   });
 
   it("rejects a non-canonical native tuple key before any evidence read", async () => {

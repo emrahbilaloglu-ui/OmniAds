@@ -132,7 +132,11 @@ function scopedCard(
 }
 
 function inboxData(cards: unknown[]) {
-  return { inbox: cards, source: null };
+  return {
+    inbox: cards,
+    source: null,
+    canonicalDecisionInventory: { status: "available" },
+  };
 }
 
 /** The money string the page will actually produce in this environment. */
@@ -338,6 +342,120 @@ describe("MetaCreativeInboxPage exact integration", () => {
     expect(card).not.toContain("Refresh");
   });
 
+  it("shows the server's held Cut, reason, and readiness without a buyer action", () => {
+    queryState.inbox = inboxData([
+      scopedCard("watching", {
+        id: "held-cut",
+        creativeId: "held-cut",
+        rawLabel: "cut",
+        decisionCenterRow: null,
+        canonicalDecision: {
+          classification: {
+            decisionState: "blocked",
+            buyerAction: null,
+            buyerLabel: "Stop-Loss Confirmed - Automated Execution Held",
+            heldAction: "cut",
+          },
+          sourceDecision: {
+            label: "cut",
+            reason: "The ad crossed the measured commercial loss boundary.",
+          },
+          sourceAuthority: {
+            actionEligible: false,
+            authorizedAction: null,
+            executionReadiness: "decision_not_authorized",
+          },
+        },
+        primary: { kind: "review", label: "Cut pending — evidence review" },
+        blockers: [
+          {
+            predicate: "config_source_authority",
+            observed: null,
+            threshold: null,
+            status: "missing",
+            severity: "warning",
+            reason: "Campaign configuration evidence is unverified",
+          },
+        ],
+      }),
+    ]);
+
+    const html = renderToStaticMarkup(
+      <MetaCreativeInboxPage businessId="biz_1" providerAccountId="act_1" />,
+    );
+    const card = html.slice(
+      html.indexOf('data-inbox-card="held-cut"'),
+      html.indexOf('data-inbox-card="held-cut"') + 1100,
+    );
+
+    // The chip names the held action from its served code; the served
+    // readiness code, not the next-step button label, fills Readiness.
+    expect(card).toContain("Cut · Held");
+    expect(card).toContain("The ad crossed the measured commercial loss boundary.");
+    expect(card).toContain("Held: Campaign configuration evidence is unverified.");
+    expect(card).toContain('data-inbox-fact="Readiness"');
+    expect(card).toContain("Readiness Review only");
+    expect(card).not.toContain("Cut pending — evidence review");
+    expect(card).not.toContain("Stop-Loss Confirmed");
+    expect(card).not.toContain('data-inbox-fact="Action"');
+  });
+
+  it("puts canonical held Cuts first inside Watching without moving or reclassifying them", () => {
+    const heldCut = (id: string, rawLabel = "cut") =>
+      scopedCard("watching", {
+        id,
+        creativeId: id,
+        rawLabel,
+        decisionCenterRow: null,
+        canonicalDecision: {
+          classification: {
+            buyerAction: null,
+            buyerLabel: "Cut · Held",
+            heldAction: "cut",
+          },
+          sourceDecision: { reason: `${id} requires review.` },
+          sourceAuthority: { actionEligible: false, authorizedAction: null },
+        },
+        primary: { kind: "review", label: "Cut pending — evidence review" },
+      });
+    queryState.inbox = inboxData([
+      scopedCard("action-now", { id: "real-action", creativeId: "real-action" }),
+      heldCut("soft-held-cut", "test_more"),
+      scopedCard("watching", { id: "watch-before", creativeId: "watch-before" }),
+      heldCut("held-cut-first"),
+      scopedCard("watching", { id: "watch-middle", creativeId: "watch-middle" }),
+      heldCut("held-cut-second"),
+      scopedCard("watching", { id: "watch-after", creativeId: "watch-after" }),
+    ]);
+
+    const html = renderToStaticMarkup(
+      <MetaCreativeInboxPage businessId="biz_1" providerAccountId="act_1" />,
+    );
+    const actionSection = html.split('data-inbox-column="action-now"')[1]!.split(
+      'data-inbox-column="watching"',
+    )[0]!;
+    const watchingSection = html.split('data-inbox-column="watching"')[1]!.split(
+      'data-inbox-column="healthy"',
+    )[0]!;
+    const cardIds = (section: string) =>
+      [...section.matchAll(/data-inbox-card="([^"]+)"/g)].map((match) => match[1]);
+
+    expect(cardIds(actionSection)).toEqual(["real-action"]);
+    expect(cardIds(watchingSection)).toEqual([
+      "held-cut-first",
+      "held-cut-second",
+      "soft-held-cut",
+      "watch-before",
+      "watch-middle",
+      "watch-after",
+    ]);
+    expect(watchingSection).toContain("Cut · Held");
+    expect(watchingSection).toContain("Test more · Spend reduction signal held");
+    // No served readiness is review-only, never a ready state.
+    expect(watchingSection).toContain("Readiness Review only");
+    expect(watchingSection).not.toContain('data-inbox-fact="Action"');
+  });
+
   /** 3 · A genuine zero from the authority is a real zero. */
   it("reports a genuine zero from the briefing authority as a zero", () => {
     queryState.inbox = inboxData([]);
@@ -455,6 +573,7 @@ describe("MetaCreativeInboxPage exact integration", () => {
           }),
         ],
         source: {
+          canonicalDecisionInventory: { status: "available" },
           measurementReconciliation: {
             snapshotLatest: { observedAt: "2026-08-17T09:00:00.000Z" },
           },
@@ -484,6 +603,80 @@ describe("MetaCreativeInboxPage exact integration", () => {
       // Business identity is stamped by the caller, never trusted from the card.
       expect(result.inbox.every((card) => card.businessId === "biz_1")).toBe(
         true,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("propagates an unavailable canonical inventory from a successful HTTP read", async () => {
+    renderToStaticMarkup(
+      <MetaCreativeInboxPage businessId="biz_1" providerAccountId="act_1" />,
+    );
+    const queryFn = capturedInboxQueryFn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          actionNow: [],
+          watching: [],
+          healthy: [],
+          source: {
+            canonicalDecisionInventory: {
+              status: "unavailable",
+              unavailableReason: "native_latest_job_engine_mismatch",
+            },
+          },
+        }),
+      })),
+    );
+    try {
+      const result = (await queryFn!()) as {
+        canonicalDecisionInventory: { status: string; unavailableReason: string };
+      };
+      expect(result.canonicalDecisionInventory).toEqual({
+        status: "unavailable",
+        unavailableReason: "native_latest_job_engine_mismatch",
+      });
+
+      queryState.inbox = result;
+      const html = renderToStaticMarkup(
+        <MetaCreativeInboxPage businessId="biz_1" providerAccountId="act_1" />,
+      );
+      expect(html).toContain('data-inbox-state="error"');
+      expect(html).toContain("Creative data is temporarily unavailable.");
+      expect(html).not.toContain('data-inbox-state="empty"');
+      expect(html).not.toContain("native_latest_job_engine_mismatch");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    ["null body", null],
+    ["missing inventory", { actionNow: [], watching: [], healthy: [] }],
+    [
+      "disabled inventory",
+      {
+        status: "disabled",
+        actionNow: [],
+        watching: [],
+        healthy: [],
+      },
+    ],
+  ])("refuses a success-shaped %s instead of claiming zero decisions", async (_name, body) => {
+    renderToStaticMarkup(
+      <MetaCreativeInboxPage businessId="biz_1" providerAccountId="act_1" />,
+    );
+    const queryFn = capturedInboxQueryFn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => body })),
+    );
+    try {
+      await expect(queryFn!()).rejects.toThrow(
+        "Creative decision inventory could not be verified.",
       );
     } finally {
       vi.unstubAllGlobals();

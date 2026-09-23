@@ -20,11 +20,13 @@ import {
   buyerFacingCreativeScope,
   buyerHeldVerdictLabel,
   heldCreativeVerdict,
+  RETAINED_GENERATION_REVIEW_COPY,
 } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
-import type {
-  MetaCanonicalDecision,
-  MetaDecisionConfigEvidenceRef,
-  MetaDecisionsWorkspaceReadModel,
+import {
+  META_DECISION_SOURCE_DEGRADED_REASON,
+  type MetaCanonicalDecision,
+  type MetaDecisionConfigEvidenceRef,
+  type MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
 import type {
   MetaOsAdDecision,
@@ -32,6 +34,17 @@ import type {
 } from "@/lib/meta/decisions-os-contract";
 
 const EM_DASH = "—";
+
+/** A failed latest run makes retained verdicts review-only on every drawer line. */
+function retainedGenerationIsDegraded(
+  source: MetaDecisionsWorkspaceReadModel["source"] | null | undefined,
+  decision: MetaOsAdDecision | null,
+): boolean {
+  return (
+    source?.degraded?.reason === META_DECISION_SOURCE_DEGRADED_REASON ||
+    decision?.action.code === "review_retained_decision"
+  );
+}
 
 /**
  * A field the helper read has not answered yet, and a field the helper read
@@ -833,7 +846,9 @@ function buildKind(input: {
 function buildVerdictSub(input: {
   decision: MetaOsAdDecision | null;
   canonical: MetaCanonicalDecision | null;
+  sourceDegraded: boolean;
 }): string {
+  if (input.sourceDegraded) return RETAINED_GENERATION_REVIEW_COPY;
   const decision = input.decision;
   if (!decision) {
     return input.canonical
@@ -1139,8 +1154,12 @@ function authorityRows(input: {
     }
     push(
       "served-resolution",
-      "Served resolution",
-      decision.resolution
+      retainedGenerationIsDegraded(input.source, decision)
+        ? "Retained resolution (historical)"
+        : "Served resolution",
+      retainedGenerationIsDegraded(input.source, decision)
+        ? RETAINED_GENERATION_REVIEW_COPY
+        : decision.resolution
         ? [
             nonBlank(decision.resolution.label),
             nonBlank(decision.resolution.owner)
@@ -1329,7 +1348,14 @@ function authorityRows(input: {
       buyerHeldVerdictLabel(heldVerdict.action),
       "warning",
     );
-    push("held-reason", "What to do next", heldVerdict.nextStep, "warning");
+    push(
+      "held-reason",
+      "What to do next",
+      retainedGenerationIsDegraded(input.source, decision)
+        ? RETAINED_GENERATION_REVIEW_COPY
+        : heldVerdict.nextStep,
+      "warning",
+    );
   } else if (heldActionCode) {
     push(
       "held-action",
@@ -2120,6 +2146,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
 ): CreativeEvidenceWindowExactViewModel {
   const decision = input.decision ?? null;
   const canonical = input.canonical ?? null;
+  const sourceDegraded = retainedGenerationIsDegraded(input.source, decision);
   const currency =
     currencyCode(decision?.metrics.currency) ??
     currencyCode(canonical?.metrics.currency) ??
@@ -2213,7 +2240,11 @@ export function buildCreativeEvidenceWindowExactViewModel(
       opens from a creative row. These two fields are the buyer-safe channel.
     */
     heldVerdictLabel: heldVerdict?.label ?? null,
-    heldVerdictNextStep: heldVerdict?.nextStep ?? null,
+    heldVerdictNextStep: heldVerdict
+      ? sourceDegraded
+        ? RETAINED_GENERATION_REVIEW_COPY
+        : heldVerdict.nextStep
+      : null,
     previewUrl:
       (canonical?.media.thumbnail.state === "available"
         ? nonBlank(canonical.media.thumbnail.url)
@@ -2224,7 +2255,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
     band: bandLabel(canonical?.sourceDecision.confidenceBand),
     bandTone: bandTone(canonical?.sourceDecision.confidenceBand),
     verdict: verdictLabel ?? EM_DASH,
-    verdictSub: buildVerdictSub({ decision, canonical }),
+    verdictSub: buildVerdictSub({ decision, canonical, sourceDegraded }),
     money:
       spendDisplay === EM_DASH && roasDisplay === EM_DASH
         ? EM_DASH

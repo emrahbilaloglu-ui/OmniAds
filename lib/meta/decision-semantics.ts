@@ -113,7 +113,7 @@ function configSourceHeldResolution(held: string): MetaDecisionResolution {
     category: "system",
     owner: "system",
     label: "Complete Hard-Action Evidence",
-    nextStep: `The held ${held} verdict stands, but the campaign configuration it would act on was not confirmed by a provider receipt for the evaluation day, or some economic days it was computed from have unverified configuration. No provider action is authorized until fresh configuration receipts cover the decision window.`,
+    nextStep: `The held ${held} verdict stands, but the campaign configuration it would act on was not confirmed by a provider receipt for the evaluation day, or some economic days it was computed from have unverified configuration. No provider action is authorized until date-authoritative evidence verifies the missing days, or a new decision window accrues with configuration verified on every economic day. A later current-value fetch cannot be assigned to a past day without such proof.`,
   };
 }
 

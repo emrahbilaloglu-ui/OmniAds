@@ -72,6 +72,63 @@ const PROVIDER_ACCOUNT_REF_ID = "30000000-0000-4000-8000-000000000001";
 const AS_OF_DATE = "2026-07-12";
 const DECISION_HASH = "b".repeat(64);
 
+function verifiedConfigLineage() {
+  const receipt = (field: string) => ({
+    refContractVersion: "meta-config-field-evidence-ref.v1",
+    field,
+    sourceContractVersion: "meta-config-field-source.v1",
+    normalizationVersion: 1,
+    tier: "provider_receipt_point_in_day",
+    readiness: "review_only",
+    sourceClass: "modern",
+    pitClass: "as_of_known",
+    sourceSnapshotId: "11111111-1111-4111-8111-111111111111",
+    observationId: "33333333-3333-4333-8333-333333333333",
+    observedAt: "2026-07-12T04:00:00.000Z",
+    fieldScopeHash: "a".repeat(64),
+    corroboratingSnapshotId: null,
+    corroboratingObservationId: null,
+    corroboratingObservedAt: null,
+  });
+  const unknown = (field: string) => ({
+    refContractVersion: "meta-config-field-evidence-ref.v1",
+    field,
+    sourceContractVersion: "meta-config-field-source.v1",
+    normalizationVersion: null,
+    tier: "unknown",
+    readiness: "none",
+    sourceClass: "none",
+    pitClass: null,
+    sourceSnapshotId: null,
+    observationId: null,
+    observedAt: null,
+    fieldScopeHash: null,
+    corroboratingSnapshotId: null,
+    corroboratingObservationId: null,
+    corroboratingObservedAt: null,
+  });
+  return {
+    contractVersion: "engine-v3-canonical-ad-evaluation.v12",
+    refs: {
+      objective: receipt("objective"),
+      optimization_goal: receipt("optimization_goal"),
+      custom_event_type: receipt("custom_event_type"),
+      custom_conversion_id: unknown("custom_conversion_id"),
+    },
+    refRefusals: {},
+    lineageSupplied: true,
+    receiptManifest: {
+      manifestVersion: "meta-config-receipt-window-manifest.v1",
+      refContractVersion: "meta-config-field-evidence-ref.v1",
+      hash: "c".repeat(64),
+      economicDayCount: 3,
+      nullObservationIdCount: 0,
+      incoherentDayCount: 0,
+    },
+    currentConfigDay: AS_OF_DATE,
+  };
+}
+
 function snapshotRow(): MetaNativeDecisionSnapshotSourceRow {
   return {
     snapshot_id: SNAPSHOT_ID,
@@ -122,6 +179,8 @@ function snapshotRow(): MetaNativeDecisionSnapshotSourceRow {
     media_available: true,
     media_source: "meta_creative_media",
     source_updated_at: "2026-07-12T04:00:00.000Z",
+    config_authority_verified: true,
+    config_evidence_lineage: verifiedConfigLineage(),
   };
 }
 
@@ -243,6 +302,7 @@ describe("the fixtures this file authorizes from", () => {
     // The state the old fixture asserted by writing it down. It is now a
     // measurement of what `buildNativeMetaCanonicalDecisionInventory` and
     // `buildMetaOsDecisionsPresentation` emit for an authorized native Cut.
+    expect(canonical.configEvidence?.verified).toBe(true);
     expect(canonical.classification.blockers).toEqual([]);
     expect(decision.blockers).toEqual([]);
     expect(canonical.sourceAuthority).toMatchObject({

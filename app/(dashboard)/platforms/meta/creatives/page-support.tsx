@@ -28,6 +28,7 @@ import {
 import { getLegacyCreativeTypeLabel } from "@/lib/meta/creative-taxonomy";
 import {
   isCreativeMetricAvailable,
+  readCreativeSourceIdentity,
   type CreativeMetricPresenceKey,
 } from "@/lib/meta/creatives-types";
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
@@ -996,7 +997,23 @@ function safePreview(value: unknown, isCatalog: boolean): MetaCreativeRow["previ
   };
 }
 
-export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
+/**
+ * The provider identities a grouped row stands for, carried from the API row
+ * (`source_ad_ids` / `source_ad_ids_complete` / `source_creative_ids`) so a
+ * served decision can be matched to the row by its exact Ad rather than by the
+ * one creative id the grouping happened to sample. Additive and optional:
+ * old single-Ad snapshots can recover their exact numeric `real_ad_id`, and
+ * no export, share or CSV field reads these identities.
+ */
+export interface MetaCreativeRowSourceIdentity {
+  sourceAdIds?: string[];
+  sourceAdIdsComplete?: boolean;
+  sourceCreativeIds?: string[];
+}
+
+export function mapApiRowToUiRow(
+  row: MetaCreativeApiRow,
+): MetaCreativeRow & MetaCreativeRowSourceIdentity {
   const taxonomySource = row.taxonomy_source ?? "legacy_fallback";
   const legacyCreativeType = row.creative_type ?? "feed";
   const legacyCreativeTypeLabel =
@@ -1114,7 +1131,40 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     previewStatus: row.preview_status ?? (row.preview_url || row.thumbnail_url || row.image_url ? "ready" : "missing"),
     previewOrigin: row.preview_origin ?? null,
   };
-  return withCreativeTeamScores(uiRow, row as MetaCreativeApiRow & Record<string, unknown>);
+  const scoredRow = withCreativeTeamScores(uiRow, row as MetaCreativeApiRow & Record<string, unknown>);
+  const sourceIdentity = readCreativeSourceIdentity(row);
+  if (!sourceIdentity) {
+    // Older cached creative snapshots did not carry member lists. A row that
+    // explicitly counted one Ad can still name that exact member through its
+    // provider real_ad_id. Require a numeric Meta id and *absent* source fields:
+    // a partial/malformed membership claim must not be silently upgraded.
+    const hasSourceClaim = [
+      "source_ad_ids",
+      "source_ad_ids_complete",
+      "source_creative_ids",
+    ].some((field) => Object.prototype.hasOwnProperty.call(row, field));
+    const exactLegacyAdId = nullableString(row.real_ad_id);
+    if (
+      !hasSourceClaim &&
+      row.associated_ads_count === 1 &&
+      exactLegacyAdId &&
+      /^[1-9]\d+$/.test(exactLegacyAdId)
+    ) {
+      return {
+        ...scoredRow,
+        sourceAdIds: [exactLegacyAdId],
+        sourceAdIdsComplete: true,
+        sourceCreativeIds: [creativeId],
+      };
+    }
+    return scoredRow;
+  }
+  return {
+    ...scoredRow,
+    sourceAdIds: sourceIdentity.source_ad_ids,
+    sourceAdIdsComplete: sourceIdentity.source_ad_ids_complete,
+    sourceCreativeIds: sourceIdentity.source_creative_ids,
+  };
 }
 
 export function CreativesTableShell() {

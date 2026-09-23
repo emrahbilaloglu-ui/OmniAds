@@ -45,6 +45,7 @@ import {
 } from "../../jobs/ad-calibration-job";
 import type { EngineV3Flags } from "../../feature-flags";
 import {
+  META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
   NATIVE_AD_ENGINE_VERSION,
   type AdDecisionInput,
   type DecisionOutput,
@@ -358,6 +359,15 @@ function adInput(input: {
       sourceRowCount: input.metricsObserved === false ? 0 : 28,
       performanceMetricsObserved: input.metricsObserved !== false,
       eventMetricsObserved: input.metricsObserved !== false,
+      sourceCoverage: {
+        contractVersion:
+          META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
+        status: "complete",
+        expectedThroughDay: "2026-07-11",
+        coverageThroughDay: "2026-07-11",
+        sourceCompletedAt: "2026-07-11T21:05:00.000Z",
+        publishedAt: "2026-07-12T02:00:00.000Z",
+      },
     },
     statusEvidence: {
       source: "entity_state_history",
@@ -2051,6 +2061,16 @@ describe("native ad producer persistence contract", () => {
     expect(native).not.toContain("dataSource.getDataHealth");
   });
 
+  it("uses one evaluatedAt instant for hydration cutoff and snapshot emission", () => {
+    const native = readFileSync(
+      "lib/creative-decision-engine/jobs/ad-decisions-job.ts",
+      "utf8",
+    );
+    expect(native).toContain("const evaluatedAt = new Date().toISOString()");
+    expect(native).toContain("decisionCutoff: evaluatedAt");
+    expect(native).toContain("computedAt: evaluatedAt");
+  });
+
   it("persists the attempt before native preflight and rolls work failures to the savepoint", () => {
     const native = readFileSync(
       "lib/creative-decision-engine/jobs/ad-decisions-job.ts",
@@ -2091,7 +2111,7 @@ describe("native ad producer persistence contract", () => {
   });
 });
 
-describe("the config source gate at the emission boundary", () => {
+describe("hard-authority source gates at the emission boundary", () => {
   /*
     A hard provider action changes an ad whose objective and optimisation goal
     decide what "better" means. Calibration already refuses a weakly observed
@@ -2130,7 +2150,10 @@ describe("the config source gate at the emission boundary", () => {
     },
   });
 
-  function cutPayload(configAuthority: AdDecisionInput["configAuthority"]) {
+  function cutPayload(
+    configAuthority: AdDecisionInput["configAuthority"],
+    mutateInput: (input: AdDecisionInput) => AdDecisionInput = (value) => value,
+  ) {
     const adId = "ad-config-gate";
     const profile = makeAccountDecisionProfile({
       asOfDate: AS_OF,
@@ -2147,7 +2170,9 @@ describe("the config source gate at the emission boundary", () => {
       profile,
       dataHealth: makeDataHealth(),
       adInputs: [
-        adInput({ adId, campaignId: "campaign-a", configAuthority }),
+        mutateInput(
+          adInput({ adId, campaignId: "campaign-a", configAuthority }),
+        ),
       ],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
@@ -2197,6 +2222,74 @@ describe("the config source gate at the emission boundary", () => {
       computedAt: `${AS_OF}T03:10:00.000Z`,
     });
   }
+
+  it.each([
+    {
+      name: "a complete-looking old day paired with a fake one-hour age",
+      mutate: (value: AdDecisionInput): AdDecisionInput => ({
+        ...value,
+        dataFreshnessHours: 1,
+        metricEvidence: {
+          ...value.metricEvidence,
+          sourceCoverage: {
+            ...value.metricEvidence.sourceCoverage!,
+            status: "complete",
+            expectedThroughDay: "2026-07-10",
+            coverageThroughDay: "2026-07-10",
+            sourceCompletedAt: "2026-07-11T01:00:00.000Z",
+          },
+        },
+      }),
+    },
+    {
+      name: "a source completion before the provider-local day closed",
+      mutate: (value: AdDecisionInput): AdDecisionInput => ({
+        ...value,
+        metricEvidence: {
+          ...value.metricEvidence,
+          sourceCoverage: {
+            ...value.metricEvidence.sourceCoverage!,
+            sourceCompletedAt: "2026-07-11T20:59:59.000Z",
+          },
+        },
+      }),
+    },
+    {
+      name: "a publication clock after the decision cutoff",
+      mutate: (value: AdDecisionInput): AdDecisionInput => ({
+        ...value,
+        metricEvidence: {
+          ...value.metricEvidence,
+          sourceCoverage: {
+            ...value.metricEvidence.sourceCoverage!,
+            publishedAt: "2026-07-12T03:10:00.001Z",
+          },
+        },
+      }),
+    },
+    {
+      name: "a foreign coverage contract version",
+      mutate: (value: AdDecisionInput): AdDecisionInput => ({
+        ...value,
+        metricEvidence: {
+          ...value.metricEvidence,
+          sourceCoverage: {
+            ...value.metricEvidence.sourceCoverage!,
+            contractVersion: "meta-ad-source-coverage-freshness.v0",
+          } as unknown as AdDecisionInput["metricEvidence"]["sourceCoverage"],
+        },
+      }),
+    },
+  ])("NEGATIVE: refuses $name", ({ mutate }) => {
+    const payload = cutPayload(observedConfigAuthority(), mutate);
+    expect(payload.raw_label).toBe("cut");
+    expect(payload.authority_blocker).toBe("source_freshness");
+    expect(payload.blocked_action_type).toBe("cut");
+    expect(payload.authorized_action).toBeNull();
+    expect(payload.reason).toContain(
+      "Verified daily source coverage does not authorize a hard action",
+    );
+  });
 
   it("NEGATIVE: refuses to authorize a Cut on a configuration no receipt named", () => {
     const payload = cutPayload(unobservedConfig());

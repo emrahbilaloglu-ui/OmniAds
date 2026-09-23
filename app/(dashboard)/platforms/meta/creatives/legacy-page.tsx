@@ -11,11 +11,12 @@ import { CreativeStudioExact } from "@/components/creatives/CreativeStudioExact"
 import { creativeShareFailureMessage } from "@/components/creatives/creative-error-copy";
 import { buildCreativeStudioTabCounts } from "@/components/creatives/creative-studio-tab-counts";
 import { buildCreativeStudioTabHrefs } from "@/lib/meta/creative-studio-tab-hrefs";
-import type {
-  CreativeStudioAssetRow,
-  CreativeStudioAssetsModel,
-  CreativeStudioDataState,
-  CreativeStudioTone,
+import {
+  retainedDecisionGenerationFromInventory,
+  type CreativeStudioAssetRow,
+  type CreativeStudioAssetsModel,
+  type CreativeStudioDataState,
+  type CreativeStudioTone,
 } from "@/components/creatives/creative-studio-exact-types";
 import { DEFAULT_TOP_METRIC_IDS } from "@/components/creatives/CreativesTopSection";
 import { resolveCreativeDateRange } from "@/components/creatives/CreativesTopSection";
@@ -35,7 +36,7 @@ import type { CreativesBriefingResponse } from "@/components/creatives/briefing/
 import {
   buildServedCreativeClassifications,
   creativeDecisionStatusFallback,
-  servedClassificationFor,
+  servedClassificationForRow,
   type CreativeDecisionReadState,
   type ServedCreativeClassification,
 } from "@/components/creatives/creative-served-classification";
@@ -64,6 +65,7 @@ import {
   toCsv,
   toCreatorTier0SharedCreative,
   toSharedCreative,
+  type MetaCreativeRowSourceIdentity,
 } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
 import { resolveCreativeStudioSharePolicy } from "@/app/(dashboard)/platforms/meta/creatives/studio-truth";
 import {
@@ -191,10 +193,14 @@ function ratioWithDenominator(
  * where it used to sit records why.
  *
  * `classifications` is the ENGINE's own answer, indexed by provider creative id
- * from the briefing this page already fetches. This function reads it; it does
- * not compute, infer or reclassify anything. A successful read with no match
- * becomes `Not evaluated`; if multiple ads sharing the creative have distinct
- * answers, every literal server answer remains visible.
+ * and exact Ad id from the briefing this page already fetches. This function
+ * reads it; it does not compute, infer or reclassify anything. Each row is
+ * matched on every member Ad and creative it carries, not only the one
+ * creative id its grouping sampled (`servedClassificationForRow`). A successful
+ * read with no match becomes `Not evaluated` only for a complete member list;
+ * an incomplete list cannot borrow another Ad's decision through a shared
+ * creative id. If the row's known Ads have distinct answers, their literal
+ * server answers remain visible.
  *
  * `windowEndIso` is the last day the rows' numbers cover, and both trailing
  * classification map and window end are REQUIRED rather than defaulted. A
@@ -203,7 +209,7 @@ function ratioWithDenominator(
  * in hand (`servedClassifications`, `drEnd`) and passes them explicitly.
  */
 export function toCreativeStudioAssetRows(
-  rows: readonly MetaCreativeRow[],
+  rows: readonly (MetaCreativeRow & MetaCreativeRowSourceIdentity)[],
   defaultCurrency: string | null,
   classifications: ReadonlyMap<string, ServedCreativeClassification | null>,
   windowEndIso: string | null,
@@ -343,8 +349,16 @@ export function toCreativeStudioAssetRows(
         .filter(Boolean)
         .join(", ") || null;
     const classification =
-      servedClassificationFor(classifications, row.creativeId) ??
-      creativeDecisionStatusFallback(decisionReadState);
+      servedClassificationForRow(classifications, {
+        creativeId: row.creativeId,
+        sourceAdIds: row.sourceAdIds,
+        sourceAdIdsComplete: row.sourceAdIdsComplete,
+        sourceCreativeIds: row.sourceCreativeIds,
+      }) ??
+      creativeDecisionStatusFallback(
+        decisionReadState,
+        row.sourceAdIdsComplete === true,
+      );
 
     return {
       id: row.id,
@@ -378,17 +392,25 @@ export function toCreativeStudioAssetRows(
  */
 export { buildCreativeStudioTabHrefs };
 
+/**
+ * The metric window and the decision as-of are two facts (D090). `start`/`end`
+ * scope the rows the briefing joins onto; the decision set is the current
+ * generation, whatever day it was computed for. Sending the window end as
+ * `asOf` used to pin the decision read to the last metric day, so a generation
+ * computed after it was invisible and the read fell back to an older one.
+ * Creative Studio states no decision point in time, so it sends no `asOf`.
+ */
 async function fetchCreativeStudioBriefing(input: {
   businessId: string;
   providerAccountId: string;
   start: string;
-  asOf: string;
+  end: string;
 }): Promise<CreativesBriefingResponse> {
   const query = new URLSearchParams({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
     start: input.start,
-    asOf: input.asOf,
+    end: input.end,
     decisionCenter: "1",
     status_filter: "all",
   });
@@ -627,7 +649,7 @@ export default function MetaCreativeStudioPage({
         businessId,
         providerAccountId,
         start: drStart,
-        asOf: drEnd,
+        end: drEnd,
       }),
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
@@ -1158,13 +1180,36 @@ export default function MetaCreativeStudioPage({
     () => buildServedCreativeClassifications(briefingQuery.data),
     [briefingQuery.data],
   );
-  const decisionReadState: CreativeDecisionReadState = briefingQuery.isLoading
+  // D102: `degraded` is the retained same-epoch generation after a FAILED
+  // latest run. Its decisions are real and stay in the Status column, stripped
+  // of execution authority by the server, under one note that names both runs.
+  // A degraded read that cannot name them is treated as unavailable.
+  const decisionRetainedGeneration = useMemo(
+    () =>
+      retainedDecisionGenerationFromInventory(
+        briefingQuery.data?.source?.canonicalDecisionInventory,
+      ),
+    [briefingQuery.data],
+  );
+  const decisionReadState: NonNullable<
+    CreativeStudioAssetsModel["decisionReadState"]
+  > = briefingQuery.isLoading
     ? "loading"
-    : !briefingQuery.data ||
-        briefingQuery.data.source?.canonicalDecisionInventory?.status ===
-          "unavailable"
-      ? "unavailable"
-      : "available";
+    : briefingQuery.data?.source?.canonicalDecisionInventory?.status ===
+        "available"
+      ? "available"
+      : decisionRetainedGeneration
+        ? "degraded"
+        : "unavailable";
+  // The day the served decision generation was computed for — the server's
+  // own field, never the metric window end. Null whenever no CURRENT
+  // generation was served, so the surface says nothing rather than borrowing a
+  // date; a retained generation's day is named only beside the failed run's.
+  const decisionAsOfDate =
+    decisionReadState === "available"
+      ? (briefingQuery.data?.source?.canonicalDecisionInventory?.generation
+          ?.asOfDate ?? null)
+      : null;
   const assetRows = useMemo(
     // `drEnd` — the SAME window end the rows themselves were fetched for, a few
     // lines above — so the age and the metrics beside it answer as of one
@@ -1175,7 +1220,9 @@ export default function MetaCreativeStudioPage({
         accountCurrency,
         servedClassifications,
         drEnd,
-        decisionReadState,
+        // A retained generation was READ: a row it did not evaluate is `Not
+        // evaluated`, exactly as on a current read.
+        decisionReadState === "degraded" ? "available" : decisionReadState,
       ),
     [accountCurrency, allRows, decisionReadState, drEnd, servedClassifications],
   );
@@ -1184,6 +1231,8 @@ export default function MetaCreativeStudioPage({
       state: assetsState,
       message: assetsMessage,
       decisionReadState,
+      decisionAsOfDate,
+      decisionRetainedGeneration,
       syncedCount:
         assetsState === "ready" || assetsState === "empty"
           ? allRows.length
@@ -1201,7 +1250,9 @@ export default function MetaCreativeStudioPage({
       assetsState,
       allRows,
       businessId,
+      decisionAsOfDate,
       decisionReadState,
+      decisionRetainedGeneration,
       providerAccountId,
     ],
   );

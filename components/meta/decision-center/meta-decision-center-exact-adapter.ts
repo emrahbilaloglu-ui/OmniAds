@@ -34,9 +34,10 @@ import {
 } from "@/lib/meta/buyer-copy";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaAutomationReadinessBlocker } from "@/lib/meta/automation-readiness";
-import type {
-  MetaCanonicalDecision,
-  MetaDecisionsWorkspaceReadModel,
+import {
+  META_DECISION_SOURCE_DEGRADED_REASON,
+  type MetaCanonicalDecision,
+  type MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
 import type {
   MetaOsAdDecision,
@@ -2098,6 +2099,8 @@ const BUYER_CREATIVE_BLOCKER_COPY: Readonly<Record<string, string>> = {
   campaign_role_unresolved: "Campaign context is still being verified.",
   unlabeled_campaign_context: "Campaign context is still being verified.",
   campaign_context: "Campaign context is still being verified.",
+  config_source_authority:
+    "The campaign configuration behind this decision is not verified for the evaluation day or its economic window.",
   commercial_truth_stale: "The commercial target needs confirmation.",
   truth_commercial_stale: "The commercial target needs confirmation.",
   stale_evidence: "Decision evidence is out of date.",
@@ -2148,6 +2151,9 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
   resolve_evidence_gap: "Complete the missing evidence before acting.",
 };
 
+export const RETAINED_GENERATION_REVIEW_COPY =
+  "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.";
+
 const BUYER_CREATIVE_ACTION_CONTEXT_COPY: Readonly<Record<string, string>> = {
   plan_promotion: "This winning test is ready for a promotion review.",
   review_structure: "Review the campaign structure before scaling.",
@@ -2167,6 +2173,7 @@ const BUYER_CREATIVE_ACTION_CONTEXT_COPY: Readonly<Record<string, string>> = {
     "Automatic changes are paused while decision checks are updated.",
   review_execution_governance:
     "Automatic changes are paused pending a safety review.",
+  review_retained_decision: RETAINED_GENERATION_REVIEW_COPY,
 };
 
 const BUYER_CREATIVE_SCOPE_COPY: Readonly<Record<string, string>> = {
@@ -2184,6 +2191,7 @@ const BUYER_CREATIVE_SCOPE_COPY: Readonly<Record<string, string>> = {
   review_kill_switch: "No Meta change can be applied here yet.",
   review_engine_version: "No Meta change can be applied here yet.",
   review_execution_governance: "No Meta change can be applied here yet.",
+  review_retained_decision: "Review only. No Meta change can be applied here yet.",
 };
 
 const BUYER_CREATIVE_ACTION_COPY: Readonly<Record<string, string>> = {
@@ -2202,6 +2210,7 @@ const BUYER_CREATIVE_ACTION_COPY: Readonly<Record<string, string>> = {
   review_kill_switch: "Review automation status",
   review_engine_version: "Review decision",
   review_execution_governance: "Review automation safeguards",
+  review_retained_decision: "Review retained decision",
 };
 
 function knownBuyerCopy(
@@ -2423,6 +2432,12 @@ export function heldCreativeVerdict(
     BUYER_CREATIVE_RESOLUTION_COPY,
     decision.heldResolution?.code,
   );
+  // `rawLabel` is the persisted post-authority verdict before hysteresis.
+  // A held Cut whose raw label is still `test_more` is a reduction signal,
+  // not the same served verdict as a raw Cut. This changes buyer copy only;
+  // the server's blocked state, action and write authority remain untouched.
+  const cutSignalAwaitingEvidence =
+    action === "cut" && decision.rawLabel === "test_more";
   /*
     ── ROUND 9 ITEM 7: PLAIN ACTION LANGUAGE, NOT THE ENGINE'S ───────────────
 
@@ -2443,10 +2458,16 @@ export function heldCreativeVerdict(
   */
   return {
     action,
-    label: `Recommendation awaiting review: ${verdict}`,
-    nextStep: step
-      ? `${step} Then review this ${verdict} recommendation again.`
-      : `Confirm the missing information, then review this ${verdict} recommendation again.`,
+    label: cutSignalAwaitingEvidence
+      ? "Spend reduction signal awaiting verification"
+      : `Recommendation awaiting review: ${verdict}`,
+    nextStep: cutSignalAwaitingEvidence
+      ? step
+        ? `${step} Then reassess whether to reduce spend.`
+        : "Confirm the missing information, then reassess whether to reduce spend."
+      : step
+        ? `${step} Then review this ${verdict} recommendation again.`
+        : `Confirm the missing information, then review this ${verdict} recommendation again.`,
   };
 }
 
@@ -2500,6 +2521,7 @@ function heldVerdictCounts(
 function creativeRows(input: {
   decisions: readonly MetaOsAdDecision[];
   canonical: ReadonlyMap<string, MetaCanonicalDecision>;
+  sourceDegraded: boolean;
   fallbackCurrency: string | null;
   ctrSeriesByAdId: ReadonlyMap<string, readonly number[]>;
   callbacks: MetaDecisionCenterExactAdapterCallbacks;
@@ -2632,7 +2654,9 @@ function creativeRows(input: {
             heldVerdictTone: "warning" as const,
             // ROUND 9 ITEM 8: the row model carries the next step too, so the
             // mobile surface can state the same truth as the desktop one.
-            heldVerdictNextStep: held.nextStep,
+            heldVerdictNextStep: input.sourceDegraded
+              ? RETAINED_GENERATION_REVIEW_COPY
+              : held.nextStep,
           }
         : {}),
       ...(state ? { stateLabel: state.label, stateTone: state.tone } : {}),
@@ -2653,6 +2677,9 @@ function creativeRows(input: {
        * sentence — is reached exactly as before.
        */
       note:
+        // A source failure supersedes the retained verdict's old manual step.
+        // The old step remains in the evidence, but is not current advice.
+        (input.sourceDegraded ? RETAINED_GENERATION_REVIEW_COPY : null) ??
         held?.nextStep ??
         blockedNextStep ??
         buyerFacingCreativeReason(decision),
@@ -3100,6 +3127,7 @@ function structureInspector(input: {
 function creativeInspector(input: {
   decision: MetaOsAdDecision;
   canonicalDecision: MetaCanonicalDecision | null;
+  sourceDegraded: boolean;
   fallbackCurrency: string | null;
   callback?: MetaDecisionCenterExactAdapterCallbacks["onCreativeReview"];
 }): MetaDecisionCenterExactInspectorViewModel {
@@ -3152,14 +3180,17 @@ function creativeInspector(input: {
            * decision; this is the second, separate fact, and it is the one the
            * operator has no other way to learn.
            */
-          heldVerdictNextStep: held.nextStep,
+          heldVerdictNextStep: input.sourceDegraded
+            ? RETAINED_GENERATION_REVIEW_COPY
+            : held.nextStep,
         }
       : {}),
     serverVerdict: actionLabel,
-    contractDetail:
-      buyerFacingCreativeResolution(decision) ??
-      buyerFacingCreativeScope(decision) ??
-      EM_DASH,
+    contractDetail: input.sourceDegraded
+      ? RETAINED_GENERATION_REVIEW_COPY
+      : buyerFacingCreativeResolution(decision) ??
+        buyerFacingCreativeScope(decision) ??
+        EM_DASH,
     reasons: [buyerFacingCreativeReason(decision)],
     moneyValue: moneyAndRoas({
       spend: decision.metrics.spend,
@@ -3169,7 +3200,9 @@ function creativeInspector(input: {
     targetComparison:
       targetRoas === null ? EM_DASH : `vs ${targetRoas.toFixed(2)} target`,
     moneySparkPath: null,
-    moneyDetail: buyerFacingCreativeScope(decision) ?? EM_DASH,
+    moneyDetail: input.sourceDegraded
+      ? "Review only. No Meta change can be applied here yet."
+      : buyerFacingCreativeScope(decision) ?? EM_DASH,
     confidence: titleToken(decision.confidence),
     readiness: titleToken(decision.confirmationCeremony),
     blockers: blockers.length > 0 ? blockers.join(" · ") : EM_DASH,
@@ -3235,6 +3268,7 @@ function inspector(input: {
   creativeDecisions: readonly MetaOsAdDecision[];
   nodes: ReadonlyMap<string, MetaOsStructureNode>;
   canonical: ReadonlyMap<string, MetaCanonicalDecision>;
+  sourceDegraded: boolean;
   fallbackCurrency: string | null;
   provenance: { asOf: string; evidenceWindow: string };
   callbacks: MetaDecisionCenterExactAdapterCallbacks;
@@ -3314,6 +3348,7 @@ function inspector(input: {
     ...creativeInspector({
       decision,
       canonicalDecision,
+      sourceDegraded: input.sourceDegraded,
       fallbackCurrency: input.fallbackCurrency,
       callback: input.callbacks.onCreativeReview,
     }),
@@ -4860,6 +4895,9 @@ export function buildMetaDecisionCenterExactViewModel(
   const creativeDecisionRows = creativeRows({
     decisions: creativeDecisions,
     canonical,
+    sourceDegraded:
+      workspace.decisionReadModel.source?.degraded?.reason ===
+      META_DECISION_SOURCE_DEGRADED_REASON,
     fallbackCurrency,
     ctrSeriesByAdId: overrides.creativeCtrSeriesByAdId ?? new Map(),
     callbacks,
@@ -5160,6 +5198,9 @@ export function buildMetaDecisionCenterExactViewModel(
       creativeDecisions,
       nodes,
       canonical,
+      sourceDegraded:
+        workspace.decisionReadModel.source?.degraded?.reason ===
+        META_DECISION_SOURCE_DEGRADED_REASON,
       fallbackCurrency,
       callbacks,
     }),

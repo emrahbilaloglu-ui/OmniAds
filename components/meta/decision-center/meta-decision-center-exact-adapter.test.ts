@@ -10,7 +10,10 @@ import type {
   MetaStructureInventoryEntity,
   MetaWatchingSegment,
 } from "@/components/meta/redesign/types";
-import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import {
+  META_DECISION_SOURCE_DEGRADED_REASON,
+  type MetaCanonicalDecision,
+} from "@/lib/meta/decisions-workspace-contract";
 import {
   emptyAuthorityBlockerCounts,
   projectMetaCommercialAnchorPanel,
@@ -1269,6 +1272,123 @@ describe("the lineage read fills what the reference draws", () => {
 });
 
 describe("the creative queue is the served set, split by the served state", () => {
+  it("shows a retained Cut only in the review group when the native source is degraded", () => {
+    const retained = creativeFixture({
+      rawLabel: "cut",
+      publishedLabel: "cut",
+      lane: "blocked",
+      action: actionFixture({
+        code: "cut",
+        label: "Review retained Cut",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+      }),
+    });
+    const os = fullOs({ creatives: [retained] });
+    os.source.health = "degraded";
+    os.source.fallbackReason = "native_latest_job_failed";
+    os.ads.actCount = 0;
+    os.ads.blockedCount = 1;
+    os.ads.statePreCapCounts = { act: 0, blocked: 1, monitor: 0 };
+    const workspace = workspaceFixture({ os });
+    Object.assign(workspace.decisionReadModel.source, {
+      degraded: {
+        reason: META_DECISION_SOURCE_DEGRADED_REASON,
+        servedGeneration: {
+          jobRunId: "20000000-0000-4000-8000-000000000001",
+          asOfDate: "2026-08-16",
+        },
+        latestTerminalRun: {
+          jobRunId: "20000000-0000-4000-8000-000000000002",
+          status: "failed",
+          asOfDate: "2026-08-17",
+        },
+      },
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(model.creativeGroups?.map((group) => group.id)).toEqual([
+      "blocked",
+    ]);
+    expect(model.creativeGroups?.[0]).toMatchObject({
+      count: "1 decision",
+      rows: [{ stateLabel: "Blocked" }],
+    });
+    expect(model.creativeDecisions?.[0]).toMatchObject({
+      actionLabel: "Review spend reduction",
+      note: "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+    });
+  });
+
+  it("does not tell an operator to pause a retained role-held Cut manually", () => {
+    const retained = creativeFixture({
+      rawLabel: "cut",
+      publishedLabel: "test_more",
+      heldAction: "cut",
+      lane: "blocked",
+      action: actionFixture({
+        code: "review_retained_decision",
+        label: "Review retained decision",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+      }),
+      resolution: {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Apply Cut manually",
+        nextStep: "Pause this ad yourself if you agree.",
+      },
+      heldResolution: {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Apply Cut manually",
+        nextStep: "Pause this ad yourself if you agree.",
+      },
+    });
+    const os = fullOs({ creatives: [retained] });
+    os.source.health = "degraded";
+    os.source.fallbackReason = "native_latest_job_failed";
+    os.ads.actCount = 0;
+    os.ads.blockedCount = 1;
+    os.ads.statePreCapCounts = { act: 0, blocked: 1, monitor: 0 };
+    const workspace = workspaceFixture({ os });
+    Object.assign(workspace.decisionReadModel.source, {
+      degraded: {
+        reason: META_DECISION_SOURCE_DEGRADED_REASON,
+        servedGeneration: {
+          jobRunId: "20000000-0000-4000-8000-000000000001",
+          asOfDate: "2026-08-16",
+        },
+        latestTerminalRun: {
+          jobRunId: "20000000-0000-4000-8000-000000000002",
+          status: "failed",
+          asOfDate: "2026-08-17",
+        },
+      },
+    });
+
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace,
+      selection: {
+        kind: "creative",
+        decisionId: retained.decisionId,
+        sourceSnapshotId: retained.sourceSnapshotId,
+      },
+    });
+    const row = model.creativeDecisions?.[0];
+    expect(row?.moneySub).toContain("No Meta change can be applied");
+    expect(row?.heldVerdictNextStep).toContain("current run before acting");
+    expect(model.inspector?.contractDetail).toContain("current run before acting");
+    expect(model.inspector?.moneyDetail).toContain("No Meta change can be applied");
+    expect(JSON.stringify({ row, inspector: model.inspector })).not.toMatch(
+      /pause this ad (in Meta )?(yourself|if you agree)/i,
+    );
+  });
+
   /**
    * LAW: `os.ads.items` is the served creative queue. A section is a RANKING.
    *
@@ -3942,6 +4062,47 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(row?.decisionTone).toBe("warning");
   });
 
+  it("distinguishes a persisted raw Cut from a softer held Cut signal", () => {
+    const rawCut = heldRefreshFixture({
+      id: "os_raw_cut",
+      decisionId: "decision_raw_cut",
+      adId: "ad_raw_cut",
+      rawLabel: "cut",
+      publishedLabel: "test_more",
+      heldAction: "cut",
+    });
+    const pendingSignal = heldRefreshFixture({
+      id: "os_pending_cut_signal",
+      decisionId: "decision_pending_cut_signal",
+      adId: "ad_pending_cut_signal",
+      rawLabel: "test_more",
+      publishedLabel: "test_more",
+      heldAction: "cut",
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({ creatives: [rawCut, pendingSignal] }),
+    });
+    const [verdictRow, signalRow] = model.creativeGroups?.find(
+      (group) => group.id === "blocked",
+    )?.rows ?? [];
+
+    expect(verdictRow?.decisionLabel).toBe("Continue testing");
+    expect(verdictRow?.heldVerdictLabel).toBe(
+      "Recommendation awaiting review: Reduce spend",
+    );
+    expect(signalRow?.decisionLabel).toBe("Continue testing");
+    expect(signalRow?.heldVerdictLabel).toBe(
+      "Spend reduction signal awaiting verification",
+    );
+    expect(signalRow?.heldVerdictNextStep).toContain(
+      "Then reassess whether to reduce spend.",
+    );
+    expect(model.operatorSummary?.scopeCounts?.creatives?.action).toBe(0);
+    expect(model.operatorSummary?.scopeCounts?.creatives?.needsResolution).toBe(2);
+    expect(rawCut.action.intent).toBe("review");
+    expect(pendingSignal.action.providerMutation).toBeNull();
+  });
+
   it("keeps the held verdict's OWN resolution instead of the generic evidence sentence", () => {
     const model = buildMetaDecisionCenterExactViewModel({
       workspace: heldWorkspace({ creatives: [heldRefreshFixture()] }),
@@ -4066,6 +4227,23 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(inspector?.decisionLabel).toBe("Keep monitoring");
     expect(inspector?.heldVerdictLabel).toBe("Recommendation awaiting review: Refresh creative");
     expect(inspector?.heldVerdictTone).toBe("warning");
+  });
+
+  it("names a secondary config-source blocker in buyer language", () => {
+    const inspector = heldInspector(
+      heldRefreshFixture({
+        blockers: [
+          {
+            code: "config_source_authority",
+            label: "Internal config source authority",
+          },
+        ],
+      }),
+    );
+    expect(inspector?.blockers).toBe(
+      "The campaign configuration behind this decision is not verified for the evaluation day or its economic window.",
+    );
+    expect(JSON.stringify(inspector)).not.toContain("Internal config source authority");
   });
 
   it("explains the inspector's held verdict with the held resolution, not the published one", () => {

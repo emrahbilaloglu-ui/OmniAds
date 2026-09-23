@@ -37,6 +37,15 @@ export type GateResult =
   | { kind: "terminal"; output: DecisionOutput }
   | { kind: "advance"; context: GateContext };
 
+/**
+ * Source freshness is the age of the latest verified closed reporting day.
+ * It is deliberately not a sync/observation/publication clock.
+ */
+export function verifiedCoverageAgePhrase(hours: number | null): string {
+  const rounded = Math.max(0, Math.round(hours ?? 0));
+  return `latest verified daily coverage ended ${rounded}h before this decision`;
+}
+
 interface BuildDecisionOutputInput {
   label: DecisionLabel;
   reason: string;
@@ -571,14 +580,14 @@ export function finalizeDecision(
         ? {
             type: "unknown_freshness",
             label:
-              "Unknown freshness: refresh the decision data before applying.",
+              "Source coverage is incomplete or unknown: refresh the decision data before applying.",
             severity: "warning",
           }
         : {
             type: "stale_evidence",
-            label: `Stale evidence: last sync ${Math.round(
-              ctx.input.dataFreshnessHours ?? 0,
-            )}h ago - refresh before applying.`,
+            label: `Stale evidence: ${verifiedCoverageAgePhrase(
+              ctx.input.dataFreshnessHours,
+            )} - refresh before applying.`,
             severity: "warning",
           },
     );

@@ -411,7 +411,44 @@ describe("mapApiRowToUiRow", () => {
     expect(rows.every((row) => row.metricsAvailability === "available")).toBe(true);
     expect(rows.every((row) => row.associatedAdsCountAvailable === true)).toBe(true);
     expect(rows.every((row) => Boolean(row.realAdId))).toBe(true);
+    expect(rows.every((row) => row.sourceAdIdsComplete === true)).toBe(true);
+    expect(rows.every((row) => row.sourceAdIds?.[0] === row.realAdId)).toBe(true);
     expect(rows[0]).toMatchObject({ spend: 840, roas: 4, purchases: 47 });
+  });
+
+  it("recovers the exact Meta Ad from an old single-Ad snapshot without member lists", () => {
+    const row = mapApiRowToUiRow(buildApiRow({
+      real_ad_id: "120250000000000001",
+      creative_id: "1999000000000001",
+      associated_ads_count: 1,
+    }));
+
+    expect(row.sourceAdIds).toEqual(["120250000000000001"]);
+    expect(row.sourceAdIdsComplete).toBe(true);
+    expect(row.sourceCreativeIds).toEqual(["1999000000000001"]);
+  });
+
+  it("does not promote grouped, synthetic, or explicitly partial legacy identity", () => {
+    const base = {
+      real_ad_id: "120250000000000001",
+      creative_id: "1999000000000001",
+    };
+    const grouped = mapApiRowToUiRow(buildApiRow({ ...base, associated_ads_count: 2 }));
+    const synthetic = mapApiRowToUiRow(buildApiRow({ ...base, real_ad_id: "creative_123" }));
+    const invalidNumeric = mapApiRowToUiRow(buildApiRow({ ...base, real_ad_id: "000" }));
+    const partial = mapApiRowToUiRow(buildApiRow({
+      ...base,
+      source_ad_ids_complete: false,
+    }));
+    const malformed = mapApiRowToUiRow(buildApiRow({
+      ...base,
+      source_ad_ids: ["120250000000000001"],
+    }));
+
+    for (const row of [grouped, synthetic, invalidNumeric, partial, malformed]) {
+      expect(row.sourceAdIds).toBeUndefined();
+      expect(row.sourceAdIdsComplete).toBeUndefined();
+    }
   });
 
   it("keeps click truth distinct across clicks, link CTR, add-to-cart, and purchase conversion", () => {

@@ -32,6 +32,7 @@ import {
   runDbTransaction,
 } from "@/lib/db";
 import { pruneMetaCreativeMediaOutsideRetention } from "@/lib/meta/cleanup";
+import { validNativeConfigInputEvidence } from "@/lib/meta/native-config-action-authority.fixture";
 import {
   getMetaAdDailyRange,
   upsertMetaAdDailyRows,
@@ -688,6 +689,20 @@ async function createDecisionOriginFixtures(input: {
     );
     const evaluationId = evaluation.rows[0]?.id;
     assert(evaluationId, "Could not create migrated action-seam evaluation.");
+
+    // D100 hard-action claims require the exact evaluation input hash to
+    // resolve to a verified config receipt window. Keep this seam's two
+    // authorized Cut fixtures faithful to that production write contract.
+    await client.query(
+      `INSERT INTO engine_v3_ad_decision_input_evidence
+         (contract_version, input_hash, input_evidence_json)
+       VALUES ($1, $2, $3::jsonb)`,
+      [
+        AD_DECISION_EVALUATION_CONTRACT_VERSION,
+        fixture.inputHash,
+        JSON.stringify(validNativeConfigInputEvidence()),
+      ],
+    );
 
     const snapshot = await client.query<IdRow>(
       `INSERT INTO engine_v3_ad_decision_snapshots_daily (

@@ -54,9 +54,9 @@ Current version keys (verify against the constants, never against this list):
 | Key | Value | Source of truth |
 | --- | --- | --- |
 | `ENGINE_VERSION` | `v3-2026-09-07-held-verdict-authority` | `lib/creative-decision-engine/types.ts` |
-| `NATIVE_AD_ENGINE_VERSION` | `v3-ad-2026-09-22-meta-config-economics-shadow` | `lib/creative-decision-engine/types.ts` |
+| `NATIVE_AD_ENGINE_VERSION` | `v3-ad-2026-09-23-verified-coverage-freshness-shadow` | `lib/creative-decision-engine/types.ts` |
 | `CANONICAL_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-evaluation.v9` | `lib/creative-decision-engine/canonical-evaluation.ts` |
-| `AD_DECISION_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-ad-evaluation.v12` | `lib/creative-decision-engine/evaluation-store.ts` |
+| `AD_DECISION_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-ad-evaluation.v13` | `lib/creative-decision-engine/evaluation-store.ts` |
 | `NATIVE_AD_CALIBRATION_CONTRACT_VERSION` | `engine-v3-native-ad-calibration.v6` minted; earlier versions remain readable under their own formulas and are refused as current authority | `lib/creative-decision-engine/jobs/ad-calibration-job.ts` |
 | `D086_RETENTION_CONTRACT` | `d086.budget-readiness-retention.v13` | `lib/meta/budget-readiness-retention.ts` |
 | Native-Ad spend-unit authority | `engine-v3-native-ad-spend-unit-authority.v4` minted; `.v1`, `.v2` and `.v3` readable but NEVER authoritative | `lib/creative-decision-engine/jobs/ad-calibration-job.ts` |
@@ -122,7 +122,7 @@ current release candidate is versioned under
 That July epoch was correct through D066 and is retained here as the epoch
 those paragraphs describe; the current producer epoch is
 `ENGINE_VERSION = v3-2026-09-07-held-verdict-authority` with
-`NATIVE_AD_ENGINE_VERSION = v3-ad-2026-09-22-meta-config-economics-shadow`
+`NATIVE_AD_ENGINE_VERSION = v3-ad-2026-09-23-verified-coverage-freshness-shadow`
 (see the version table at the top of this file, and D091 in `DECISION_LOG.md`
 for why both moved together). Rows written under the July epoch keep it and are
 reported as `engine_epoch_mismatch` / `engine_version_drift` — "not current",

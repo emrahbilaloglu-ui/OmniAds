@@ -619,6 +619,8 @@ describe("mobile queue over a failed background refetch", () => {
     const dom = render();
     expect(mobileRowIds(dom)).toEqual(["os_pending_ad"]);
     expect(dom.querySelector("[data-mobile-decisions-refresh-error]")).toBeNull();
+    const headerBefore = dom.querySelector(".ad-mobile-status")?.textContent;
+    expect(headerBefore).toMatch(/Act now \d+/);
 
     // React Query's shape for a failed refetch of the same key: the previous
     // response stays in `data` and the failure sits beside it.
@@ -631,6 +633,8 @@ describe("mobile queue over a failed background refetch", () => {
 
     expect(mobileRowIds(dom)).toEqual(["os_pending_ad"]);
     expect(dom.querySelector('[data-mobile-read-state="error"]')).toBeNull();
+    // The header count stays on the same load as the rows and tabs.
+    expect(dom.querySelector(".ad-mobile-status")?.textContent).toBe(headerBefore);
     const notice = dom.querySelector("[data-mobile-decisions-refresh-error]");
     expect(notice?.textContent).toContain("Decisions could not be refreshed.");
     expect(notice?.textContent).toContain(
@@ -1003,5 +1007,38 @@ describe("the Show more cap belongs to one account and window", () => {
           key[5] === "2026-08-01" && key[6] === "2026-08-31" && key.at(-1) === 60,
       ),
     ).toBe(true);
+  });
+});
+
+describe("mobile creatives scope when nothing was served", () => {
+  function unavailableSource() {
+    const response: any = workspaceResponse({ ads: [] });
+    response.decisionReadModel.status = "unavailable";
+    response.decisionReadModel.source.status = "unavailable";
+    response.decisionReadModel.source.fallbackReason = "native_latest_job_failed";
+    // The server no longer counts an unreadable source as zero.
+    response.os.ads.statePreCapCounts = null;
+    response.os.ads.eligiblePreCapCount = null;
+    return response;
+  }
+
+  it("states an unavailable source once, as the empty state, with unknown counts", () => {
+    state.workspaceData = unavailableSource();
+    const dom = render();
+    const notice = dom.querySelector("[data-mobile-creatives-notice]");
+    expect(notice?.textContent).toContain("Current creative decisions could not be verified");
+    expect(dom.textContent).not.toContain("No decisions in this view");
+    const scopeTabs = Array.from(
+      dom.querySelectorAll('nav[aria-label="Decision scope"] button'),
+    ).map((button) => button.textContent?.trim());
+    expect(scopeTabs).toContain("Creatives —");
+    expect(scopeTabs).not.toContain("Creatives 0");
+  });
+
+  it("keeps the lane's own empty card for a verified-empty source", () => {
+    state.workspaceData = workspaceResponse({ ads: [] });
+    const dom = render();
+    expect(dom.querySelector("[data-mobile-creatives-notice]")).toBeNull();
+    expect(dom.textContent).toContain("No decisions in this view");
   });
 });

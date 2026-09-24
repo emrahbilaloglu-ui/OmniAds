@@ -2216,7 +2216,15 @@ function MetaMobileDecisionsScreen({
   const counts = viewModel.counts ?? {};
   const creativeLaneCounts = viewModel.operatorSummary?.scopeCounts?.creatives;
   const identity = viewModel.identity ?? {};
-  const actCount = loading || error ? "—" : mobileDisplay(counts.action);
+  // A failed refetch over loaded rows keeps the header on the same load the
+  // lane tabs and rows show; only a read with nothing to show is unknown.
+  const actCount =
+    loading || (error && !hasLoadedDecisions) ? "—" : mobileDisplay(counts.action);
+  const creativeNoticeIsTheEmptyState =
+    scope === "creatives" &&
+    (viewModel.creativeDecisions?.length ?? 0) === 0 &&
+    Boolean(viewModel.creativesNotice) &&
+    mobileDisplay(viewModel.creativesNotice) !== "—";
   const rows = mobileQueueRows(viewModel, scope, lane, manualActionFor);
   const hasRowFilters = Boolean(rowSearch.trim() || levels.length > 0);
   const bannerPresentation = compactWorkspaceBannerPresentation({
@@ -2608,7 +2616,16 @@ function MetaMobileDecisionsScreen({
             </button>
           ) : null}
 
-          {!loading && !error && rows.length === 0 ? (
+          {/*
+            With nothing served in the whole creatives scope, the notice above
+            IS the empty state (source unavailable, inventory unverified), as on
+            desktop. A generic "No decisions in this view" under it read as a
+            verified-empty queue.
+          */}
+          {!loading &&
+          !error &&
+          rows.length === 0 &&
+          !creativeNoticeIsTheEmptyState ? (
             <article className="ad-mobile-row-card">
               <h3>
                 {scope === "creatives" && canLoadMoreCreatives

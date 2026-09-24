@@ -71,6 +71,8 @@ describe("ad-day purchase evidence", () => {
     expect(receipt).toContain("manifest.fetch_status = 'completed'");
     expect(receipt).toContain("slice.id = pointer.active_slice_version_id");
     expect(receipt).toContain("manifest.id = slice.manifest_id");
+    expect(receipt).toContain("'meta-historical-source-slice-repair.v2'");
+    expect(receipt).toContain("'meta-historical-source-slice-repair.v3'");
     expect(receipt).toContain("observation.run_id = manifest.run_id");
     expect(receipt).toContain("observation.observed_at <= manifest.completed_at");
     expect(receipt).toContain("pointer.published_by_run_id = d.source_run_id");

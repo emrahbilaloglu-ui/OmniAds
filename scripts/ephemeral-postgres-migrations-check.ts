@@ -4054,6 +4054,20 @@ async function main() {
     );
 
     /*
+      Creative-day historical repair reads timestamptz through a JS Date, which
+      drops PostgreSQL microseconds. The manifest must pin the exact DB clock:
+      a real row at .124868 must write, while a concurrent .124999 revision in
+      the same millisecond and a changed JSON pre-image must both fail closed.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "meta", "creative-day-source-evidence-repair.db.test.ts"),
+      "Meta creative-day repair exact write-clock DB seam check",
+      3,
+    );
+
+    /*
       CODEX ROUND 5 ITEM 5 — a partial link-click band is UNKNOWN, including
       when the missing day spent nothing.
 

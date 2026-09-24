@@ -24,6 +24,7 @@ import {
   type MetaNativeDecisionGenerationSourceRow,
   type MetaNativeDecisionSnapshotSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
+import { currentEffectiveAdStatus } from "@/lib/meta/current-ad-delivery-status";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
 import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
@@ -806,6 +807,56 @@ describe("Meta Decisions workspace canonical read model", () => {
         provider_asset_type: "video",
       })]).queue.adCandidates?.items[0]?.sourceCreativeType,
     ).toBeNull();
+  });
+
+  it("uses positive exact-creative image media evidence for a display-only type", () => {
+    const imageSignals = {
+      asset_feed_image_count: 1,
+      asset_feed_video_count: 0,
+      child_attachment_count: 0,
+      has_top_level_video_id: false,
+      has_object_story_video_data: false,
+      has_video_object_type: false,
+      has_template_data: false,
+      has_promoted_product_set_id: false,
+      has_promoted_catalog_id: false,
+      has_asset_feed_catalog_id: false,
+      has_asset_feed_product_set_id: false,
+      is_catalog_by_object_type: false,
+      has_mixed_asset_families: false,
+    };
+    const mediaFields = {
+      creative_format: null,
+      provider_asset_type: "feed",
+      provider_media_classification_signals: imageSignals,
+      provider_media_delivery_type: "standard",
+      provider_media_visual_format: "image",
+      provider_media_preview_render_mode: "image",
+      provider_media_source_updated_at: "2026-09-24T08:00:00.000Z",
+    };
+    const image = nativeModel([nativeSnapshot("120000000000000043", mediaFields)])
+      .queue.adCandidates?.items[0];
+    expect(image?.creativeFormat).toBeNull();
+    expect(image?.sourceCreativeType).toEqual({
+      value: "image",
+      source: "meta_creative_media",
+      sourceUpdatedAt: "2026-09-24T08:00:00.000Z",
+    });
+    expect(image?.sourceDecision.label).toBe("cut");
+
+    for (const [adId, fields] of [
+      ["120000000000000044", { provider_media_classification_signals: null }],
+      ["120000000000000045", {
+        provider_media_classification_signals: {
+          ...imageSignals, has_top_level_video_id: true,
+        },
+      }],
+      ["120000000000000046", { provider_media_delivery_type: "catalog" }],
+      ["120000000000000047", { provider_media_preview_render_mode: "video" }],
+    ] as const) {
+      expect(nativeModel([nativeSnapshot(adId, { ...mediaFields, ...fields })])
+        .queue.adCandidates?.items[0]?.sourceCreativeType).toBeNull();
+    }
   });
 
   it("keeps a native Ad visible but review-only when creative identity is null", () => {
@@ -1737,6 +1788,10 @@ describe("Meta Decisions workspace canonical read model", () => {
           ad_id: "120000000000000003",
           candidate_ad_count: 1,
         }),
+        identity("creative_ended", {
+          ad_id: "120000000000000004",
+          candidate_ad_count: 1,
+        }),
       ],
       currentAds: [
         {
@@ -1763,6 +1818,20 @@ describe("Meta Decisions workspace canonical read model", () => {
           providerUpdatedAt: null,
           fetchedAt: "2026-07-13T09:00:00.000Z",
         },
+        {
+          providerAccountId: "act_1",
+          adId: "120000000000000004",
+          adName: "Provider ACTIVE but campaign ended",
+          campaignId: "cmp_ended",
+          adsetId: "adset_ended",
+          creativeId: "creative_ended",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          campaignStopTime: "2026-07-12T09:00:00.000Z",
+          adsetEndTime: "2026-07-14T09:00:00.000Z",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
       ],
       sourceComplete: true,
     });
@@ -1786,6 +1855,25 @@ describe("Meta Decisions workspace canonical read model", () => {
       adset_status: "NOT_ACTIVE",
       ad_status: "NOT_ACTIVE",
     });
+    expect(reconciled[3]).toMatchObject({
+      campaign_status: "SCHEDULE_ENDED",
+      adset_status: "ACTIVE",
+      ad_status: "ACTIVE",
+      source_updated_at: "2026-07-13T09:00:00.000Z",
+    });
+  });
+
+  it("treats a current schedule as active only before its observed end", () => {
+    const row = {
+      providerAccountId: "act_1", adId: "120000000000000004",
+      adName: null, campaignId: "cmp_1", adsetId: "adset_1", creativeId: null,
+      configuredStatus: "ACTIVE", effectiveStatus: "ACTIVE", providerUpdatedAt: null,
+      fetchedAt: "2026-07-13T09:00:00.000Z",
+      campaignStopTime: "2026-07-14T09:00:00.000Z",
+    };
+    expect(currentEffectiveAdStatus(row)).toBe("ACTIVE");
+    expect(currentEffectiveAdStatus({ ...row, adsetEndTime: row.fetchedAt })).toBe("SCHEDULE_ENDED");
+    expect(currentEffectiveAdStatus({ ...row, campaignStopTime: "invalid" })).toBeNull();
   });
 
   it("caps each section from true pre-cap rows and never aggregates exposure across currencies", () => {
@@ -4336,6 +4424,9 @@ describe("Meta Decisions workspace canonical read model", () => {
     );
     expect(String(nativeSnapshotCall?.[0])).toContain(
       "creative_dim.asset_type AS provider_asset_type",
+    );
+    expect(String(nativeSnapshotCall?.[0])).toContain(
+      "media.payload_json -> 'classification_signals' AS provider_media_classification_signals",
     );
     expect(String(nativeSnapshotCall?.[0])).toMatch(
       /FROM meta_creative_dimensions dimension\s+WHERE snapshot\.creative_id IS NOT NULL\s+AND dimension\.business_id = \$1\s+AND dimension\.provider_account_id = \$2\s+AND dimension\.creative_id = snapshot\.creative_id/,

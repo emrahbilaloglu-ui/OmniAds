@@ -2,6 +2,7 @@
 
 import { useEffect, type MouseEvent, type ReactNode } from "react";
 import { MetaDecisionCreativeThumbnail } from "@/components/meta/decision-center/MetaDecisionCreativeThumbnail";
+import { META_AD_EVENTS_NOTE, META_AD_EVENTS_TITLE } from "./meta-ad-events-copy";
 
 import styles from "./CreativeEvidenceWindowExact.module.css";
 
@@ -552,7 +553,7 @@ export function CreativeEvidenceWindowExact({
           {funnel.length > 0 ? (
             <BodyCard>
               <p className={styles.cardEyebrowSpaced}>
-                Click-to-purchase funnel ·{" "}
+                {META_AD_EVENTS_TITLE} ·{" "}
                 {viewModel.periodLabels?.funnel ?? "period unavailable"}
               </p>
               <div className={styles.funnelRows}>
@@ -578,6 +579,7 @@ export function CreativeEvidenceWindowExact({
                   </div>
                 ))}
               </div>
+              <p className={styles.seriesNote}>{META_AD_EVENTS_NOTE}</p>
             </BodyCard>
           ) : null}
 

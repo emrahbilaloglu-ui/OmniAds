@@ -24,6 +24,7 @@ import {
 import { configureOperationalScriptRuntime } from "../_operational-runtime";
 
 const CONTRACT = "meta-historical-source-slice-repair.v2";
+const CENT_PRECISION_CONTRACT = "meta-historical-source-slice-repair.v3";
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const SHA = /^[a-f0-9]{64}$/;
 const UUID = /^[a-f0-9-]{36}$/i;
@@ -98,6 +99,54 @@ function numeric(value: unknown): number | null {
   if (typeof value !== "number" && typeof value !== "string") return null;
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function cents(value: unknown): number | null {
+  if (typeof value === "string" && !/^\d+(?:\.\d{1,2})?$/.test(value)) return null;
+  const amount = numeric(value);
+  if (amount === null) return null;
+  const scaled = amount * 100;
+  const rounded = Math.round(scaled);
+  return Number.isSafeInteger(rounded) && Math.abs(scaled - rounded) < 0.000001
+    ? rounded : null;
+}
+
+type CentPrecisionSpendProof = {
+  sourceCents: number; adCents: number; absoluteDeltaCents: number;
+  rowCount: number; maxQuantizationDoubleCents: number;
+};
+
+/**
+ * A complete Ad page can differ from an account total by the combined
+ * two-decimal quantization bound. This is only a candidate: the exact
+ * manifest must also have a passing reconciliation at publication.
+ */
+function centPrecisionSpendCandidate(input: {
+  ads: RepairAd[]; rawByAd: Map<string, unknown>;
+  sourceSpend: number | null; rowsFetchedTotal: unknown;
+}): CentPrecisionSpendProof | null {
+  const { ads, rawByAd, sourceSpend } = input;
+  const sourceCents = cents(sourceSpend);
+  if (sourceCents === null || ads.length === 0 ||
+      rawByAd.size !== ads.length ||
+      Number(input.rowsFetchedTotal) !== ads.length) return null;
+  let adCents = 0;
+  for (const ad of ads) {
+    const raw = asRecord(rawByAd.get(ad.adId));
+    const rawCents = typeof raw.spend === "string" ? cents(raw.spend) : null;
+    if (rawCents === null || cents(ad.spend) !== rawCents ||
+        digest(rawByAd.get(ad.adId)) !== digest(ad.payload)) return null;
+    adCents += rawCents;
+    if (!Number.isSafeInteger(adCents)) return null;
+  }
+  const absoluteDeltaCents = Math.abs(sourceCents - adCents);
+  // Existing one-cent D113 receipts remain v2. More than one cent needs an
+  // independently passing account reconciliation and this narrower bound.
+  if (absoluteDeltaCents <= 1 ||
+      2 * absoluteDeltaCents > ads.length + 1 ||
+      absoluteDeltaCents > Math.max(1, sourceCents * 0.001)) return null;
+  return { sourceCents, adCents, absoluteDeltaCents,
+    rowCount: ads.length, maxQuantizationDoubleCents: ads.length + 1 };
 }
 
 function time(value: string | null | undefined): number {
@@ -175,7 +224,7 @@ function rebindPriorPublication(input: {
       !oldSlice || !raw) return null;
   const receipt = asRecord(pointer.activeValidationSummary);
   const oldPublishedAt = receipt.oldPublishedAt;
-  if (receipt.repairContract !== CONTRACT ||
+  if (![CONTRACT, CENT_PRECISION_CONTRACT].includes(String(receipt.repairContract)) ||
       typeof receipt.reviewedPlanHash !== "string" ||
       !SHA.test(receipt.reviewedPlanHash) ||
       !["run_observation", "legacy_run_bound_raw"].includes(String(receipt.receiptKind)) ||
@@ -361,34 +410,63 @@ export function evaluateHistoricalSourceSlice(input: {
   }
   const spend = ads.reduce((sum, ad) => sum + ad.spend, 0);
   const sourceSpend = numeric(target?.sourceSpend);
-  if (sourceSpend === null || ads.some((ad) => numeric(ad.spend) === null) ||
-      Math.abs(spend - sourceSpend) > 0.01) {
-    blockers.push("source_spend_mismatch");
-  }
+  const centPrecisionCandidate = centPrecisionSpendCandidate({
+    ads, rawByAd, sourceSpend, rowsFetchedTotal: target?.rowsFetchedTotal,
+  });
+  let reconciliationPassed = false;
   if (target) {
     const events = reconciliations.filter((event) =>
       event.manifestId === target.id && event.surface === "account_daily" &&
       Number.isFinite(time(event.createdAt)) &&
       time(event.createdAt) <= cutoff);
-    const passed = events.filter((event) =>
+    const matchesSpend = (event: RepairReconciliation) =>
+      numeric(event.sourceSpend) !== null &&
+      (centPrecisionCandidate
+        ? cents(event.sourceSpend) === centPrecisionCandidate.sourceCents
+        : Math.abs(event.sourceSpend! - (sourceSpend ?? NaN)) <= 0.01) &&
+      numeric(event.warehouseAccountSpend) !== null &&
+      (centPrecisionCandidate
+        ? cents(event.warehouseAccountSpend) === centPrecisionCandidate.adCents
+        : Math.abs(event.warehouseAccountSpend! - spend) <= 0.01);
+    const witnessedBeforePublication = events.some((event) =>
       event.eventKind === "validation_passed" && event.result === "passed" &&
       time(event.createdAt) >= time(target.completedAt) &&
       time(event.createdAt) <= time(proofPublishedAt) &&
-      numeric(event.sourceSpend) !== null &&
-      Math.abs(event.sourceSpend! - (sourceSpend ?? NaN)) <= 0.01 &&
-      numeric(event.warehouseAccountSpend) !== null &&
-      Math.abs(event.warehouseAccountSpend! - spend) <= 0.01)
-      .sort((left, right) => time(right.createdAt) - time(left.createdAt))[0];
-    if (!passed || events.some((event) =>
-      (event.result === "repair_required" || event.result === "failed") &&
-      time(event.createdAt) >= time(passed.createdAt))) {
+      matchesSpend(event));
+    // A newer validation can contradict an older matching pass without being
+    // a `failed` event. Only the latest conclusive receipt may corroborate the
+    // candidate; conflicting receipts at the same timestamp also fail closed.
+    const conclusive = events.filter((event) =>
+      time(event.createdAt) >= time(target.completedAt) &&
+      (event.eventKind === "validation_passed" ||
+        event.result === "repair_required" || event.result === "failed"));
+    const latestAt = conclusive.reduce((latest, event) =>
+      Math.max(latest, time(event.createdAt)), Number.NEGATIVE_INFINITY);
+    const latest = conclusive.filter((event) => time(event.createdAt) === latestAt);
+    reconciliationPassed = witnessedBeforePublication && latest.length > 0 &&
+      latest.every((event) => event.eventKind === "validation_passed" &&
+        event.result === "passed" && matchesSpend(event));
+    if (!reconciliationPassed) {
       blockers.push("exact_manifest_validation_receipt_missing_or_failed");
     }
+  }
+  const spendVarianceProof = reconciliationPassed ? centPrecisionCandidate : null;
+  const contract = spendVarianceProof ? CENT_PRECISION_CONTRACT : CONTRACT;
+  if (sourceSpend === null || ads.some((ad) => numeric(ad.spend) === null) ||
+      (Math.abs(spend - sourceSpend) > 0.01000001 && !spendVarianceProof)) {
+    blockers.push("source_spend_mismatch");
+  }
+  if (pointer?.publicationReason === "manifest_rebind_repair" &&
+      (asRecord(pointer.activeValidationSummary).repairContract !== contract ||
+       (contract === CENT_PRECISION_CONTRACT &&
+        digest(asRecord(pointer.activeValidationSummary).spendVarianceProof) !==
+          digest(spendVarianceProof)))) {
+    blockers.push("rebind_spend_variance_receipt_invalid");
   }
   const state = blockers.length > 0 ? "blocked" :
     pointer?.activeManifestId === target?.id ? "already_bound" : "repairable";
   return {
-    contract: CONTRACT,
+    contract,
     scope: { businessId: input.businessId, accountId: input.accountId,
       day: input.day, cutoff: input.cutoff },
     state,
@@ -405,6 +483,7 @@ export function evaluateHistoricalSourceSlice(input: {
       rawUpdatedAt: raw?.updatedAt ?? null,
       rowCount: ads.length, aggregatedSpend: spend,
       sourceSpend, receiptKind,
+      ...(spendVarianceProof ? { spendVarianceProof } : {}),
     } : null,
     evidenceHash: digest({ pointer, oldSlice, ads, manifests, raw, observations, reconciliations }),
   };
@@ -636,7 +715,7 @@ export async function runHistoricalSourceSliceRepair(options: Options) {
       throw new Error("old_publication_or_raw_clock_missing");
     }
     const validationSummary = {
-      repairContract: CONTRACT, reviewedPlanHash: planHash,
+      repairContract: current.contract, reviewedPlanHash: planHash,
       receiptKind: current.next.receiptKind,
       sourceSnapshotId: current.next.sourceSnapshotId,
       targetManifestId: current.next.manifestId,
@@ -647,6 +726,8 @@ export async function runHistoricalSourceSliceRepair(options: Options) {
       oldManifestId: current.old.manifestId,
       oldPublishedAt: current.old.publishedAt,
       oldRunId: current.old.runId,
+      ...(current.next.spendVarianceProof
+        ? { spendVarianceProof: current.next.spendVarianceProof } : {}),
     };
     const candidate = await createMetaAuthoritativeSliceVersion({
       businessId: options.businessId, providerAccountId: options.accountId,
@@ -723,7 +804,7 @@ export async function runHistoricalSourceSliceRepair(options: Options) {
       time(String(after.published_at)) < time(result.publishedAt)) {
     throw new Error("repair_post_readback_did_not_bind_exact_manifest");
   }
-  const receipt = { contract: CONTRACT, result,
+  const receipt = { contract: initial.contract, result,
     readback: { sliceId: after.slice_id, manifestId: after.manifest_id,
       publishedAt: after.published_at } };
   writeFileSync(`${options.out}.receipt.json`, `${JSON.stringify(receipt, null, 2)}\n`);

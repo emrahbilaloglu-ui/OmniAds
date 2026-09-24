@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { currentHierarchyStatuses } from "@/lib/meta/current-ad-delivery-status";
 import { CREATIVE_DECISION_CENTER_ADAPTER_VERSION } from "@/lib/creative-decision-center/adapter";
 import { CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION } from "@/lib/creative-decision-center/v3-bridge";
 import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
@@ -298,6 +299,12 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   /** Current Meta-derived warehouse taxonomy, not historical decision input. */
   provider_asset_type?: string | null;
   provider_asset_type_source_updated_at?: string | null;
+  /** Current exact-creative media metadata; used only for a display type. */
+  provider_media_classification_signals?: unknown;
+  provider_media_delivery_type?: string | null;
+  provider_media_visual_format?: string | null;
+  provider_media_preview_render_mode?: string | null;
+  provider_media_source_updated_at?: string | null;
   ctr_28d?: unknown;
   frequency_28d?: unknown;
   fatigue_status?: string | null;
@@ -424,6 +431,8 @@ export interface MetaCurrentAdStatusSourceRow {
   creativeId: string | null;
   configuredStatus: string | null;
   effectiveStatus: string | null;
+  campaignStopTime?: string | null;
+  adsetEndTime?: string | null;
   providerUpdatedAt: string | null;
   fetchedAt: string;
 }
@@ -732,15 +741,13 @@ function deliveryScopeForIdentity(
         identity.status_source === "meta_graph_ad_configs"
           ? "meta_graph_ad_configs"
           : "meta_campaign_dimensions+meta_adset_dimensions+meta_ad_dimensions",
-      field: "campaign_status,adset_status,ad_status",
+      field: campaignStatus === "SCHEDULE_ENDED" || adsetStatus === "SCHEDULE_ENDED"
+        ? "effective_status,campaign.stop_time,adset.end_time"
+        : "campaign_status,adset_status,ad_status",
       recordId: identity.ad_id ?? identity.creative_id,
       asOf: identity.source_updated_at,
     }),
   };
-}
-
-function currentEffectiveAdStatus(row: MetaCurrentAdStatusSourceRow) {
-  return normalizeDeliveryStatus(row.effectiveStatus);
 }
 
 export function reconcileMetaDecisionIdentityRowsWithCurrentAds(input: {
@@ -768,10 +775,7 @@ export function reconcileMetaDecisionIdentityRowsWithCurrentAds(input: {
     const identityMatches =
       current.providerAccountId === identity.provider_account_id &&
       (!current.creativeId || current.creativeId === identity.creative_id);
-    const effectiveStatus = identityMatches
-      ? currentEffectiveAdStatus(current)
-      : null;
-    const status = effectiveStatus ?? "UNKNOWN";
+    const statuses = identityMatches ? currentHierarchyStatuses(current) : null;
     const sameCampaign = current.campaignId === identity.campaign_id;
     const sameAdset = current.adsetId === identity.adset_id;
     return {
@@ -781,10 +785,12 @@ export function reconcileMetaDecisionIdentityRowsWithCurrentAds(input: {
       campaign_name: sameCampaign ? identity.campaign_name : null,
       adset_id: current.adsetId,
       adset_name: sameAdset ? identity.adset_name : null,
-      campaign_status: status,
-      adset_status: status,
-      ad_status: status,
-      source_updated_at: current.providerUpdatedAt ?? current.fetchedAt,
+      campaign_status: statuses?.campaign ?? "UNKNOWN",
+      adset_status: statuses?.adset ?? "UNKNOWN",
+      ad_status: statuses?.ad ?? "UNKNOWN",
+      source_updated_at: statuses?.scheduleEnded
+        ? current.fetchedAt
+        : current.providerUpdatedAt ?? current.fetchedAt,
       status_source: "meta_graph_ad_configs",
     };
   });
@@ -806,22 +812,19 @@ function reconcileNativeSnapshotRowsWithCurrentAds(input: {
       (!current.creativeId ||
         !snapshot.creative_id ||
         current.creativeId === snapshot.creative_id);
-    const status =
-      current && identityMatches
-        ? (currentEffectiveAdStatus(current) ?? "UNKNOWN")
-        : current
-          ? "UNKNOWN"
-          : "NOT_ACTIVE";
+    const statuses = current && identityMatches
+      ? currentHierarchyStatuses(current) : null;
+    const fallback = current ? "UNKNOWN" : "NOT_ACTIVE";
     return {
       ...snapshot,
       ad_name: current?.adName?.trim() || snapshot.ad_name,
       campaign_id: current?.campaignId ?? snapshot.campaign_id,
       adset_id: current?.adsetId ?? snapshot.adset_id,
-      campaign_status: status,
-      adset_status: status,
-      ad_status: status,
+      campaign_status: statuses?.campaign ?? fallback,
+      adset_status: statuses?.adset ?? fallback,
+      ad_status: statuses?.ad ?? fallback,
       source_updated_at:
-        current?.providerUpdatedAt ??
+        (statuses?.scheduleEnded ? current?.fetchedAt : current?.providerUpdatedAt) ??
         current?.fetchedAt ??
         snapshot.source_updated_at,
     };
@@ -2905,6 +2908,30 @@ function servedConfigEvidence(input: {
   };
 }
 
+function hasExplicitProviderImageMedia(
+  row: MetaNativeDecisionSnapshotSourceRow,
+): boolean {
+  const raw = row.provider_media_classification_signals;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return false;
+  const signals = raw as Record<string, unknown>;
+  // A preview image may be only a video's poster, and `feed` can be a
+  // warehouse default. Require a positive provider image asset plus explicit
+  // negative video/catalog signals from the exact creative's media record.
+  return row.provider_media_delivery_type === "standard" &&
+    row.provider_media_visual_format === "image" &&
+    row.provider_media_preview_render_mode === "image" &&
+    signals.asset_feed_image_count === 1 &&
+    signals.asset_feed_video_count === 0 &&
+    signals.child_attachment_count === 0 &&
+    [
+      "has_top_level_video_id", "has_object_story_video_data",
+      "has_video_object_type", "has_template_data",
+      "has_promoted_product_set_id", "has_promoted_catalog_id",
+      "has_asset_feed_catalog_id", "has_asset_feed_product_set_id",
+      "is_catalog_by_object_type", "has_mixed_asset_families",
+    ].every((key) => signals[key] === false);
+}
+
 function nativeSnapshotToIdentity(
   row: MetaNativeDecisionSnapshotSourceRow,
 ): MetaDecisionIdentitySourceRow {
@@ -2981,15 +3008,23 @@ function applyNativeCanonicalDecisionAuthority(input: {
     version: row.engine_version,
   });
   const sourceCreativeType = nonEmptyString(row.provider_asset_type);
+  const explicitImageMedia =
+    (!sourceCreativeType || sourceCreativeType === "feed") &&
+    hasExplicitProviderImageMedia(row);
+  const verifiedCreativeType = explicitImageMedia
+    ? "image"
+    : sourceCreativeType === "feed" ? null : sourceCreativeType;
   // `feed` is also the warehouse taxonomy's default when no positive creative
   // classification signal exists. Do not turn that fallback into a verified
   // type on a decision card.
   decision.sourceCreativeType =
-    row.creative_id && sourceCreativeType && sourceCreativeType !== "feed"
+    row.creative_id && verifiedCreativeType
       ? {
-          value: sourceCreativeType,
-          source: "meta_creative_dimensions",
-          sourceUpdatedAt: row.provider_asset_type_source_updated_at ?? null,
+          value: verifiedCreativeType,
+          source: explicitImageMedia ? "meta_creative_media" : "meta_creative_dimensions",
+          sourceUpdatedAt: explicitImageMedia
+            ? row.provider_media_source_updated_at ?? null
+            : row.provider_asset_type_source_updated_at ?? null,
         }
       : null;
   decision.configEvidence = servedConfigEvidence({
@@ -4266,6 +4301,11 @@ async function readNativeSnapshotRows(input: {
       lifecycle.creative_format AS creative_format,
       creative_dim.asset_type AS provider_asset_type,
       creative_dim.source_updated_at::text AS provider_asset_type_source_updated_at,
+      media.payload_json -> 'classification_signals' AS provider_media_classification_signals,
+      media.payload_json ->> 'creative_delivery_type' AS provider_media_delivery_type,
+      media.payload_json ->> 'creative_visual_format' AS provider_media_visual_format,
+      media.payload_json #>> '{preview,render_mode}' AS provider_media_preview_render_mode,
+      media.updated_at::text AS provider_media_source_updated_at,
       lifecycle.fatigue_status AS fatigue_status,
       /* The engine's own predicate blockers. The snapshot table has no column
          for them; the evaluation row this snapshot was published from is

@@ -247,7 +247,7 @@ describe("Meta pagination receipts", () => {
     });
     const requested = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(requested.searchParams.get("fields")).toContain(
-      "campaign{id,name}",
+      "campaign{id,name,stop_time},adset{id,end_time}",
     );
     expect(JSON.parse(requested.searchParams.get("filtering") ?? "[]")).toEqual(
       [

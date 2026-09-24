@@ -81,6 +81,7 @@ import {
   CreativeEvidenceWindowExact,
   type CreativeEvidenceWindowExactViewModel,
 } from "@/components/creatives/CreativeEvidenceWindowExact";
+import { META_AD_EVENTS_NOTE, META_AD_EVENTS_TITLE } from "@/components/creatives/meta-ad-events-copy";
 import {
   buildCreativeEvidenceWindowExactViewModel,
   buildMetaAdsManagerHref,
@@ -1775,10 +1776,11 @@ function MetaMobileCreativeEvidenceScreen({
     .filter(isMeaningful)
     .map((value) => mobileDisplay(value))
     .join(" · ");
-  const reason = [...(viewModel.reasons ?? []), viewModel.verdictSub]
-    .filter(isMeaningful)
-    .map((value) => mobileDisplay(value))
-    .join(" ");
+  const reason = Array.from(new Set(
+    [...(viewModel.reasons ?? []), viewModel.verdictSub]
+      .filter(isMeaningful)
+      .map((value) => mobileDisplay(value)),
+  )).join(" ");
   const money = [viewModel.money, viewModel.moneySub]
     .filter(isMeaningful)
     .map((value) => mobileDisplay(value))
@@ -1861,17 +1863,25 @@ function MetaMobileCreativeEvidenceScreen({
           {reason ? <p className="ad-mobile-copy">{reason}</p> : null}
           {funnel.length > 0 ? (
             <p className="ad-mobile-copy">
-              Click-to-purchase funnel ·{" "}
+              {META_AD_EVENTS_TITLE} ·{" "}
               {viewModel.periodLabels?.funnel ?? "period unavailable"}
             </p>
           ) : null}
           <MetaMobileCitationList
             items={funnel.map((step) => ({
               label: mobileDisplay(step.label),
+              // As on desktop: an empty `sub` is a stage with no rate (the top,
+              // and checkout/purchase events Meta attributes separately), not
+              // an unknown one, so it prints nothing rather than an em dash.
               value:
-                `${mobileDisplay(step.value)} ${mobileDisplay(step.sub)}`.trim(),
+                typeof step.sub === "string" && !step.sub.trim()
+                  ? mobileDisplay(step.value)
+                  : `${mobileDisplay(step.value)} ${mobileDisplay(step.sub)}`.trim(),
             }))}
           />
+          {funnel.length > 0 ? (
+            <p className="ad-mobile-copy">{META_AD_EVENTS_NOTE}</p>
+          ) : null}
           <MetaMobileCitationList
             items={facts.map((fact) => ({
               label: mobileDisplay(fact.label),
@@ -6156,12 +6166,22 @@ export function MetaPlatformPage({
         // states row-grain authority while staying silent about the authority
         // of the queue that produced the row.
         source: workspaceQuery.data?.decisionReadModel.source ?? null,
+        // The same exact Ad + provider-account-ref proof the queue card's
+        // recovery sends (#306), so a native creative without a warehouse row
+        // recovers here too. Absent either id, the URL keeps the
+        // warehouse-only membership proof.
         previewRecoveryUrl: metaCreativeThumbnailRecoveryUrl({
           businessId,
           providerAccountId: creativeDrill.decision?.providerAccountId ??
             creativeDrill.canonical?.providerAccountId,
           creativeId: creativeDrill.decision?.creativeId ??
             creativeDrill.canonical?.parentChain.creative?.id,
+          adId: creativeDrill.decision?.adId ??
+            creativeDrill.canonical?.parentChain.ad?.id,
+          providerAccountRefId:
+            workspaceQuery.data?.decisionReadModel.source?.authority === "native_ad"
+              ? workspaceQuery.data.decisionReadModel.source.generation?.providerAccountRefId ?? null
+              : null,
         }),
         launchpadRoute: creativeEvidenceLaunchpad,
         primaryActionAuthority: creativeEvidencePrimaryAuthority,

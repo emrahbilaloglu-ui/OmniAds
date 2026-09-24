@@ -194,7 +194,7 @@ export interface MetaDecisionMediaEnvelope {
 /** Current warehouse taxonomy from Meta creative fields; display only. */
 export interface MetaDecisionSourceCreativeType {
   value: string;
-  source: "meta_creative_dimensions";
+  source: "meta_creative_dimensions" | "meta_creative_media";
   sourceUpdatedAt: string | null;
 }
 

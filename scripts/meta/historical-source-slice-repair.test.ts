@@ -74,6 +74,22 @@ function plan(value: RepairEvidence) {
   });
 }
 
+function centPrecisionEvidence(): RepairEvidence {
+  const value = evidence();
+  const rows = Array.from({ length: 5 }, (_, index) => ({
+    ...row, ad_id: `ad-${index + 1}`, spend: "10.00",
+  }));
+  value.raw!.payload = rows;
+  value.ads = rows.map((payload, index) => ({
+    ...value.ads[0]!, id: `ad-row-${index + 1}`,
+    adId: payload.ad_id, payload, spend: 10,
+  }));
+  value.manifests[0]!.rowsFetchedTotal = "5";
+  value.manifests[0]!.sourceSpend = 50.02;
+  value.reconciliations[0]!.sourceSpend = 50.02;
+  return value;
+}
+
 function reboundLegacyEvidence(): RepairEvidence {
   const value = evidence();
   const original = value.pointer!;
@@ -194,6 +210,78 @@ describe("historical source slice repair proof", () => {
     expect(plan(drift).blockers).toContain("source_spend_mismatch");
   });
 
+  it("admits only a cent-bounded variance with exact raw Ad spend and a passing manifest receipt", () => {
+    const result = plan(centPrecisionEvidence());
+    expect(result).toMatchObject({
+      state: "repairable", blockers: [],
+      contract: "meta-historical-source-slice-repair.v3",
+      next: { spendVarianceProof: {
+        sourceCents: 5002, adCents: 5000, absoluteDeltaCents: 2,
+        rowCount: 5, maxQuantizationDoubleCents: 6,
+      } },
+    });
+    const oneCent = centPrecisionEvidence();
+    oneCent.manifests[0]!.sourceSpend = 50.01;
+    oneCent.reconciliations[0]!.sourceSpend = 50.01;
+    const oneCentResult = plan(oneCent);
+    expect(oneCentResult).toMatchObject({
+      state: "repairable", contract: "meta-historical-source-slice-repair.v2",
+    });
+    expect(oneCentResult.next).not.toHaveProperty("spendVarianceProof");
+  });
+
+  it("keeps failed, missing, wide and malformed cent evidence held", () => {
+    const failed = centPrecisionEvidence();
+    failed.reconciliations[0]!.eventKind = "totals_mismatch";
+    failed.reconciliations[0]!.result = "repair_required";
+    expect(plan(failed).blockers).toEqual(expect.arrayContaining([
+      "source_spend_mismatch", "exact_manifest_validation_receipt_missing_or_failed",
+    ]));
+    const laterFailure = centPrecisionEvidence();
+    laterFailure.reconciliations.push({
+      ...laterFailure.reconciliations[0]!, id: "later-failure",
+      eventKind: "totals_mismatch", result: "repair_required",
+      createdAt: "2026-09-23T06:50:32.950Z",
+    });
+    expect(plan(laterFailure).blockers).toEqual(expect.arrayContaining([
+      "source_spend_mismatch", "exact_manifest_validation_receipt_missing_or_failed",
+    ]));
+    const wide = centPrecisionEvidence();
+    wide.manifests[0]!.sourceSpend = 50.04;
+    wide.reconciliations[0]!.sourceSpend = 50.04;
+    expect(plan(wide).blockers).toContain("source_spend_mismatch");
+    const malformed = centPrecisionEvidence();
+    (malformed.raw!.payload as Array<typeof row>)[0] = {
+      ...(malformed.raw!.payload as Array<typeof row>)[0]!, spend: "10.001",
+    };
+    malformed.ads[0]!.payload = (malformed.raw!.payload as Array<typeof row>)[0]!;
+    malformed.ads[0]!.spend = 10.001;
+    expect(plan(malformed).blockers).toContain("source_spend_mismatch");
+    const storedDrift = centPrecisionEvidence();
+    storedDrift.ads[0]!.spend = 9.99;
+    expect(plan(storedDrift).blockers).toContain("source_spend_mismatch");
+    const missingAd = centPrecisionEvidence();
+    (missingAd.raw!.payload as Array<typeof row>).push({
+      ...row, ad_id: "unmatched", spend: "0.00",
+    });
+    expect(plan(missingAd).blockers).toEqual(expect.arrayContaining([
+      "ad_population_or_page_count_mismatch", "source_spend_mismatch",
+    ]));
+  });
+
+  it("refuses an older matching pass when a newer pass contradicts its Ad total", () => {
+    const value = centPrecisionEvidence();
+    value.reconciliations.push({
+      ...value.reconciliations[0]!, id: "newer-contradicting-pass",
+      warehouseAccountSpend: 50.01,
+      createdAt: "2026-09-23T06:50:32.950Z",
+    });
+    const result = plan(value);
+    expect(result.state).toBe("blocked");
+    expect(result.blockers).toContain("exact_manifest_validation_receipt_missing_or_failed");
+    expect(result.next).not.toHaveProperty("spendVarianceProof");
+  });
+
   it("rejects missing actions request and raw payload drift", () => {
     const missingField = evidence();
     missingField.raw!.requestContext = { source: "bulk_core_sync", level: "ad", fields: "spend" };
@@ -264,6 +352,31 @@ describe("historical source slice repair proof", () => {
     expect(plan(value).blockers).toContain("rebind_prior_publication_receipt_invalid");
   });
 
+  it("requires the same cent-precision proof on v3 rebind readback", () => {
+    const value = reboundLegacyEvidence();
+    const precision = centPrecisionEvidence();
+    value.ads = precision.ads;
+    value.raw!.payload = precision.raw!.payload;
+    value.manifests[0]!.rowsFetchedTotal = "5";
+    value.manifests[0]!.sourceSpend = 50.02;
+    value.reconciliations[0]!.sourceSpend = 50.02;
+    const summary = value.pointer!.activeValidationSummary as Record<string, unknown>;
+    summary.repairContract = "meta-historical-source-slice-repair.v3";
+    summary.spendVarianceProof = {
+      sourceCents: 5002, adCents: 5000, absoluteDeltaCents: 2,
+      rowCount: 5, maxQuantizationDoubleCents: 6,
+    };
+    expect(plan(value)).toMatchObject({
+      state: "already_bound", blockers: [],
+      contract: "meta-historical-source-slice-repair.v3",
+    });
+    summary.spendVarianceProof = {
+      ...summary.spendVarianceProof as Record<string, unknown>,
+      sourceCents: 5003,
+    };
+    expect(plan(value).blockers).toContain("rebind_spend_variance_receipt_invalid");
+  });
+
   it("rejects a rebinding without the exact old slice and publication clock", () => {
     const missingOldSlice = reboundLegacyEvidence();
     missingOldSlice.oldSlice = null;
@@ -276,5 +389,14 @@ describe("historical source slice repair proof", () => {
     (wrongRawClock.pointer!.activeValidationSummary as Record<string, unknown>).rawUpdatedAt =
       "2026-09-23T07:00:00.000Z";
     expect(plan(wrongRawClock).blockers).toContain("rebind_prior_publication_receipt_invalid");
+  });
+
+  it("accepts a reactivated slice only when superseded at its current publication interval", () => {
+    const value = reboundObservationEvidence();
+    // A previous supersession can predate this slice's later republication.
+    value.oldSlice!.supersededAt = "2026-09-22T12:00:00.000Z";
+    expect(plan(value).blockers).toContain("rebind_prior_publication_receipt_invalid");
+    value.oldSlice!.supersededAt = value.pointer!.publishedAt;
+    expect(plan(value)).toMatchObject({ state: "already_bound", blockers: [] });
   });
 });

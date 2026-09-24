@@ -136,7 +136,10 @@ interface CurrentMetaAdsResult {
 function inputAdScopeKey(input: CurrentMetaAdsResult) {
   if (!input.complete) return "unavailable";
   const ids = [
-    ...new Set(input.rows.map((row) => row.adId.trim()).filter(Boolean)),
+    ...new Set(input.rows.filter((row) => row.adId.trim()).map((row) => [
+      row.adId.trim(), row.effectiveStatus ?? "", row.campaignStopTime ?? "",
+      row.adsetEndTime ?? "", row.fetchedAt,
+    ].join("\t"))),
   ].sort();
   return ids.length > 0
     ? createHash("sha256").update(ids.join("\n"), "utf8").digest("hex")
@@ -191,6 +194,8 @@ async function loadCurrentMetaAds(input: {
         creativeId: row.creative?.id ?? null,
         configuredStatus: row.status ?? null,
         effectiveStatus: row.effective_status ?? null,
+        campaignStopTime: row.campaign?.stop_time ?? null,
+        adsetEndTime: row.adset?.end_time ?? null,
         providerUpdatedAt: row.updated_time ?? null,
         fetchedAt,
       })),
@@ -216,7 +221,7 @@ async function readCurrentMetaAds(input: {
   }
   return (
     await getCachedValue({
-      key: `meta-current-active-ads-v2:${input.businessId}:${input.providerAccountId ?? "none"}`,
+      key: `meta-current-active-ads-v3:${input.businessId}:${input.providerAccountId ?? "none"}`,
       ttlMs: 60_000,
       staleWhileRevalidateMs: 240_000,
       loader: () => loadCurrentMetaAds(input),
@@ -1870,7 +1875,7 @@ export async function GET(request: NextRequest) {
         ? await loadDecisionRead()
         : (
             await getCachedValue({
-              key: `meta-decisions-read-v9:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${nativeDecisionCacheIdentity}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
+              key: `meta-decisions-read-v10:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${nativeDecisionCacheIdentity}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
               ttlMs: 60_000,
               staleWhileRevalidateMs: 240_000,
               loader: loadDecisionRead,

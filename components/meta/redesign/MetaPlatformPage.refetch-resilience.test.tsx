@@ -47,6 +47,8 @@ const state = vi.hoisted(() => ({
   pathname: "/c/biz_1/meta/decisions",
   providerAccounts: [] as any[],
   workspaceData: undefined as unknown,
+  /** Supplemental Ad-day funnel rows for the open evidence drawer. */
+  evidenceAdRows: null as unknown,
   canonicalCreatives: [] as any[],
   /** The workspace read for one exact query key. */
   workspaceRead: null as null | ((key: unknown[]) => WorkspaceRead),
@@ -97,7 +99,9 @@ vi.mock("@tanstack/react-query", () => ({
           })
         : {
             data:
-              key === "meta-provider-accounts"
+              key === "meta-creative-evidence-ad-rows"
+                ? state.evidenceAdRows
+                : key === "meta-provider-accounts"
                 ? state.providerAccounts
                 : key === "meta-anomalies"
                   ? EMPTY_ANOMALIES
@@ -597,6 +601,7 @@ beforeEach(() => {
     { id: "act_1", name: "Main Meta", currency: "USD", timezone: "UTC" },
   ];
   state.canonicalCreatives = [];
+  state.evidenceAdRows = null;
   state.workspaceData = undefined;
   state.workspaceRead = null;
   state.refetched = [];
@@ -1040,5 +1045,155 @@ describe("mobile creatives scope when nothing was served", () => {
     const dom = render();
     expect(dom.querySelector("[data-mobile-creatives-notice]")).toBeNull();
     expect(dom.textContent).toContain("No decisions in this view");
+  });
+});
+
+describe("mobile evidence prints Meta-reported checkout and purchase counts", () => {
+  it("shows checkouts 0 and purchases 3 without a rate or an unknown marker", () => {
+    const served = pendingOsDecision();
+    state.workspaceData = workspaceResponse({ ads: [served] });
+    state.evidenceAdRows = [
+      {
+        id: served.adId,
+        adsetId: "adset_1",
+        adsetName: "Broad",
+        spend: 240,
+        purchaseValue: 610,
+        roas: 2.54,
+        impressions: 20_000,
+        linkClicks: 500,
+        linkClicksObserved: true,
+        landingPageViews: 400,
+        landingPageViewsObserved: true,
+        addToCart: 12,
+        addToCartObserved: true,
+        initiateCheckout: 0,
+        initiateCheckoutObserved: true,
+        purchases: 3,
+        purchasesObserved: true,
+        thumbstop: null,
+        launchDate: "2026-07-01",
+      },
+    ];
+    const dom = render();
+    openCreative(dom, served);
+    const text = dom
+      .querySelector('[data-testid="meta-mobile-creative-evidence"]')!
+      .textContent!.replace(/\s+/g, " ");
+    expect(text).toContain("Checkout initiated: 0");
+    expect(text).toContain("Purchases: 3");
+    expect(text).toContain("Add to cart: 12 ATC 3.0%");
+    expect(text).not.toContain("Checkout 0.0%");
+    expect(text).not.toContain("CVR");
+    // An empty rate slot is not an unknown value.
+    expect(text).not.toMatch(/Checkout initiated: 0 —|Purchases: 3 —|Impressions: 20,000 —/);
+    expect(text).toContain("Meta reports these events separately.");
+  });
+});
+
+describe("the evidence drawer states a held reason once and recovers its image by exact Ad", () => {
+  const REF = "2a5b71d1-d42e-4c89-a58f-d1b252c4c8b2";
+
+  function heldCut() {
+    return pendingOsDecision({
+      id: "os_held_cut",
+      decisionId: "decision_held_cut",
+      sourceSnapshotId: "snapshot_held_cut",
+      episodeId: "episode_held_cut",
+      adId: "120247018755120316",
+      adName: "Held Cut",
+      creativeId: "2533787297105379",
+      lane: "blocked",
+      heldAction: "cut",
+      heldResolution: {
+        code: "complete_hard_action_evidence",
+        category: "system",
+        owner: "system",
+        label: "Complete Hard-Action Evidence",
+        nextStep: "Internal producer copy",
+      },
+      resolution: null,
+      blockers: [],
+      action: {
+        code: "complete_hard_action_evidence",
+        label: "Complete Hard-Action Evidence",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+        scopeNote: "",
+      },
+      rawLabel: "cut",
+      publishedLabel: "keep",
+      decisionAvailability: "available",
+      adPerformanceAvailability: "observed",
+      metrics: {
+        spend: 3334.39,
+        purchases: 7,
+        roas: 0.47,
+        cpa: null,
+        ctr: null,
+        frequency: null,
+        effectiveTargetRoas: 2.2,
+        ratioToTarget: 0.21,
+        currency: "USD",
+        attribution: "meta_attributed",
+        grain: "ad",
+      },
+    } as never);
+  }
+
+  function nativeSource(response: any) {
+    response.decisionReadModel.source.authority = "native_ad";
+    response.decisionReadModel.source.generation = {
+      jobRunId: "job_1",
+      providerAccountRefId: REF,
+      manifestHash: "hash",
+      expectedAdCount: 1,
+    };
+    return response;
+  }
+
+  it("prints the held reason once on the mobile evidence screen", () => {
+    const held = heldCut();
+    state.workspaceData = nativeSource(workspaceResponse({ ads: [held] }));
+    const dom = render();
+    openCreative(dom, held);
+    const screen = dom.querySelector('[data-testid="meta-mobile-creative-evidence"]')!;
+    const heldBox = screen.querySelector("[data-mobile-evidence-held]")!;
+    expect(heldBox.textContent).toContain("Recommendation on hold: Pause ad");
+    // The reason itself is stated once, below, not inside the held box too.
+    expect(heldBox.querySelector("[data-mobile-evidence-held-next-step]")).toBeNull();
+    const sentence = "No action is needed from you; this Pause ad recommendation is re-checked on each decision run.";
+    expect(screen.textContent!.split(sentence).length - 1).toBe(1);
+  });
+
+  it("sends the exact Ad and provider account ref with the drawer's image recovery", () => {
+    const held = heldCut();
+    state.workspaceData = nativeSource(workspaceResponse({ ads: [held] }));
+    const dom = render();
+    openCreative(dom, held);
+    const url = new URL(
+      state.evidenceProps.viewModel.previewRecoveryUrl,
+      "https://example.invalid",
+    );
+    expect(url.pathname).toBe("/api/meta/creative-thumbnail");
+    expect(url.searchParams.get("creativeId")).toBe("2533787297105379");
+    expect(url.searchParams.get("adId")).toBe("120247018755120316");
+    expect(url.searchParams.get("providerAccountRefId")).toBe(REF);
+  });
+
+  it("keeps the warehouse-only recovery when the source names no native account ref", () => {
+    const held = heldCut();
+    // The legacy creative source carries no generation, so no ref is invented.
+    state.workspaceData = workspaceResponse({ ads: [held] });
+    const dom = render();
+    openCreative(dom, held);
+    const url = new URL(
+      state.evidenceProps.viewModel.previewRecoveryUrl,
+      "https://example.invalid",
+    );
+    expect(url.searchParams.get("creativeId")).toBe("2533787297105379");
+    expect(url.searchParams.has("adId")).toBe(false);
+    expect(url.searchParams.has("providerAccountRefId")).toBe(false);
   });
 });

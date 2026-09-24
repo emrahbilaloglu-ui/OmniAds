@@ -1020,6 +1020,45 @@ describe("evaluateReleaseAcceptance and the exit code", () => {
     expect(exit).toBe(0);
   });
 
+  it("makes release acceptance inconclusive when a later DB snapshot rewrote economic ad-days after the same cutoff", () => {
+    const cutoff = "2026-09-24T19:16:00.000Z";
+    const first = acceptedBusiness();
+    first.ledger = {
+      ...ledger([ledgerAccount({
+        restatedAfterCutoff: [{ asOf: ASOF, cutoff, hydrationWindow28d: {
+          restatedRows: 0, restatedEconomicRows: 0, visibleAtCutoffRows: 1343,
+        } }],
+        // Missing provider-zero proof alone does not invalidate the release gate.
+        linkClicks: { measured_positive: 80, missing_actions_absent: 8 },
+        purchasesOnSpendRows: { measured: 80, zero_without_actions_key: 6 },
+      })]),
+      snapshot: { transactionStartedAt: "2026-09-24T19:17:27.000Z", snapshotId: "first" },
+    };
+    const later = acceptedBusiness();
+    later.ledger = {
+      ...ledger([ledgerAccount({
+        restatedAfterCutoff: [{ asOf: ASOF, cutoff, hydrationWindow28d: {
+          restatedRows: 72, restatedEconomicRows: 52, visibleAtCutoffRows: 1271,
+        } }],
+        linkClicks: { measured_positive: 80, missing_actions_absent: 8 },
+        purchasesOnSpendRows: { measured: 80, zero_without_actions_key: 6 },
+      })]),
+      snapshot: { transactionStartedAt: "2026-09-24T19:23:00.000Z", snapshotId: "later" },
+    };
+    const release = (business: BusinessAcceptanceReport) => {
+      const report = { mode: "release" as const, businesses: [business] };
+      const verdict = evaluateReleaseAcceptance(report, "post_deploy");
+      return { verdict, exit: decideExitCode({ invariants: evaluateAcceptanceInvariants(report), release: verdict }) };
+    };
+    expect(release(first).exit).toBe(0);
+    const restated = release(later);
+    expect(restated.exit).toBe(3);
+    expect(restated.verdict.failures.join("\n")).toMatch(/point-in-time inconclusive.*52 economic ad-day\(s\).*rewritten after cutoff/);
+    expect(restated.verdict.failures.join("\n")).toContain(cutoff);
+    // The restatement is a stricter release-cleanliness requirement, not a general invariant violation.
+    expect(evaluateAcceptanceInvariants({ businesses: [later] }).violations).toEqual([]);
+  });
+
   it("all decision days failed => not accepted", () => {
     const failedDays = acceptedBusiness();
     failedDays.decisions = {
@@ -1228,6 +1267,25 @@ describe("negative control gate (P1-1)", () => {
       persistedHardRows: [{ as_of_date: ASOF, ad_id: "ad-9", raw_label: "cut", label: "keep", pre_authority_label: "cut", blocked_action_type: "cut", authorized_action: null }],
     });
     expect(gateWithControl(persistedOnly).exit).toBe(0);
+  });
+
+  it("applies the point-in-time restatement gate to the negative-control ledger", () => {
+    const control = controlBusiness();
+    control.ledger = ledger([ledgerAccount({
+      restatedAfterCutoff: [{ asOf: ASOF, cutoff: CUTOFF, hydrationWindow28d: {
+        restatedRows: 72, restatedEconomicRows: 52,
+      } }],
+    })]);
+    const report = {
+      mode: "release" as const,
+      args: { negativeControl: BIZ_B },
+      businesses: [preDeploySubject(), control],
+    };
+    const release = evaluateReleaseAcceptance(report, "pre_deploy");
+    expect(release.businesses[1]!.negativeControl?.met).toBe(true);
+    expect(release.negativeControl).toBe("NOT MET");
+    expect(release.failures.join("\n")).toMatch(/point-in-time inconclusive.*52 economic ad-day\(s\).*rewritten after cutoff/);
+    expect(decideExitCode({ invariants: evaluateAcceptanceInvariants(report), release })).toBe(3);
   });
 
   it("control campaign missing => NOT MET, and the observation code feeds the gate", () => {

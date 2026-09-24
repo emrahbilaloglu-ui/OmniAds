@@ -7,6 +7,7 @@ import {
   type MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
 import { readMetaPreCapAdCandidates } from "@/lib/meta/decisions-pre-cap-ad-candidates";
+import { currentEffectiveAdStatus } from "@/lib/meta/current-ad-delivery-status";
 import {
   resolveProvisionalCampaignKind,
   type MetaCurrentAdStatusSourceRow,
@@ -1794,7 +1795,7 @@ function adDecision(
 function activeInventoryAdId(row: MetaCurrentAdStatusSourceRow): string | null {
   const adId = row.adId.trim();
   if (!/^\d+$/.test(adId)) return null;
-  if (row.effectiveStatus?.trim().toUpperCase() !== "ACTIVE") return null;
+  if (currentEffectiveAdStatus(row) !== "ACTIVE") return null;
   return adId;
 }
 

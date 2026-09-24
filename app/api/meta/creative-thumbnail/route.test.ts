@@ -54,6 +54,39 @@ describe("GET /api/meta/creative-thumbnail", () => {
     expect(providerFetch).not.toHaveBeenCalled();
   });
 
+  it("recovers an exact native Ad creative when separate media rows are absent", async () => {
+    const nativeUrl = new URL(url.replace("biz-1", "11111111-1111-4111-8111-111111111111"));
+    nativeUrl.searchParams.set("adId", "123456789");
+    nativeUrl.searchParams.set("providerAccountRefId", "22222222-2222-4222-8222-222222222222");
+    query.mockResolvedValueOnce([]).mockResolvedValueOnce([{ creative_id: "987654" }]);
+    const response = await GET(new NextRequest(nativeUrl));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ thumbnailUrl: "https://meta.example/fresh.jpg" });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[0]).toContain("FROM engine_v3_ad_decision_snapshots_daily");
+    expect(query.mock.calls[1]?.[0]).toContain("provider_account_ref_id = $5::uuid");
+    expect(query.mock.calls[1]?.[0]).toContain("ad_id = $4");
+    expect(query.mock.calls[1]?.[0]).toContain("creative_id = $3");
+    expect(query.mock.calls[1]?.[1]).toEqual([
+      "11111111-1111-4111-8111-111111111111", "act_123456", "987654",
+      "123456789", "22222222-2222-4222-8222-222222222222",
+    ]);
+  });
+
+  it("keeps an unproven native Ad creative unavailable", async () => {
+    const nativeUrl = new URL(url.replace("biz-1", "11111111-1111-4111-8111-111111111111"));
+    nativeUrl.searchParams.set("adId", "123456789");
+    nativeUrl.searchParams.set("providerAccountRefId", "22222222-2222-4222-8222-222222222222");
+    query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    expect((await GET(new NextRequest(nativeUrl))).status).toBe(404);
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a partial native membership handle", async () => {
+    expect((await GET(new NextRequest(`${url}&adId=123456789`))).status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("returns a fresh provider URL only for the matching creative and account", async () => {
     const response = await GET(new NextRequest(url));
     expect(response.status).toBe(200);

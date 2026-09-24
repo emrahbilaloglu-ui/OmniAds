@@ -373,6 +373,12 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
   mathematical Scale/Cut/Refresh verdict as review-only. It must not require a
   manual label or authorize a provider write. Explicit user overrides retain
   priority; inferred kind semantics require the separate authority gate.
+- (ADR D115) An unresolved automatic campaign role alone must not turn a
+  published soft Keep (`preAuthorityLabel = keep`, no authority blocker or
+  held action) into a Diagnose or a blocked decision. Independent calibration
+  and performance badges still select their review-only mapping. A recorded
+  held hard action and a pre-authority hard verdict remain subject to the
+  existing role guard; this exception never grants provider authority.
 - A provisional automatic campaign role derived from persisted resolver scores
   is presentation-only. It must not replace a null resolver kind in evaluation
   inputs, select a kind-specific calibration cell, trigger Test semantics,

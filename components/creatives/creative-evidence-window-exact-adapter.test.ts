@@ -266,6 +266,61 @@ describe("buildCreativeEvidenceWindowExactViewModel identity and contract", () =
     expect(model.verdictSub).not.toContain("Native ad authority unavailable");
   });
 
+  it("uses the served held reason in Why when a profile and config hold coexist", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture({
+        lane: "blocked",
+        publishedLabel: "keep",
+        heldAction: "cut",
+        action: {
+          code: "resolve_contract_state",
+          label: "Internal producer label",
+          intent: "review",
+          targetLevel: "ad",
+          providerMutation: null,
+          scopeNote: "Review only",
+        },
+        authorityProvenance: {
+          availability: "available",
+          preAuthorityLabel: "cut",
+          postAuthorityRawLabel: "cut",
+          publishedLabel: "keep",
+          firstBlocker: {
+            code: "profile_hard_action_ineligible",
+            label: "Internal producer label",
+            explanation: "Internal producer detail",
+          },
+        },
+        blockers: [{ code: "config_source_authority", label: "Internal producer label" }],
+        heldResolution: {
+          code: "complete_hard_action_evidence",
+          category: "system",
+          label: "Internal producer label",
+          owner: "system",
+          nextStep: "Internal producer detail",
+        },
+      }),
+      canonical: canonicalFixture({
+        configEvidence: {
+          evaluationContractVersion: "test",
+          verified: false,
+          lineageSupplied: true,
+          currentConfigDay: "2026-09-22",
+          refs: [],
+          refusedFields: [],
+          economicWindow: null,
+          metricContract: null,
+        },
+      }),
+    });
+
+    expect(model.reasons).toHaveLength(1);
+    expect(model.reasons?.[0]).toContain("decision profile does not yet authorize");
+    expect(model.reasons?.[0]).toContain("campaign configuration for every day");
+    expect(model.reasons?.[0]).not.toContain("Internal producer");
+    expect(model.reasons?.[0]).not.toBe("More verified evidence is required for this change.");
+  });
+
   it.each([0, -2, null, Number.NaN, Number.POSITIVE_INFINITY])(
     "does not print an unavailable commercial target %s from either envelope", (value) => {
       const decision = decisionFixture();
@@ -483,8 +538,9 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(model.funnel?.[1]?.sub).toBe("CTR 1.07%");
     expect(model.funnel?.[2]?.sub).toBe("LPV 78.9%");
     expect(model.funnel?.[3]?.sub).toBe("ATC 7.8%");
-    expect(model.funnel?.[4]?.sub).toBe("Checkout 53.1%");
-    expect(model.funnel?.[5]?.sub).toBe("CVR 63.6%");
+    // Checkout and purchase are separately attributed events: counts only.
+    expect(model.funnel?.[4]?.sub).toBe("");
+    expect(model.funnel?.[5]?.sub).toBe("");
   });
 
   it("withholds incomplete funnel totals and rates without losing measured zeros", () => {
@@ -508,7 +564,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       "—", "24,000", "—", "1,000", "—",
     ]);
     expect(partial.funnel?.slice(1).map((step) => step.sub)).toEqual([
-      "—", "—", "—", "—", "—",
+      "—", "—", "—", "", "",
     ]);
     expect(partial.funnel?.slice(1).map((step) => step.share)).toEqual([
       null, expect.any(Number), null, expect.any(Number), null,
@@ -1282,7 +1338,12 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     });
 
     expect(model.verdictSub).toContain("current run before acting");
-    expect(model.heldVerdictNextStep).toContain("current run before acting");
+    expect(model.reasons).toEqual([
+      "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+    ]);
+    // Why already states it; the held row keeps its label without repeating it.
+    expect(model.heldVerdictLabel).toBeTruthy();
+    expect(model.heldVerdictNextStep).toBeNull();
     expect(value(model.authority, "held-reason")).toContain(
       "current run before acting",
     );

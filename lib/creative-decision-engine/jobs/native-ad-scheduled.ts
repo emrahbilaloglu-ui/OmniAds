@@ -319,7 +319,11 @@ SELECT CASE
     WHERE pointer.business_id = $1::text
       AND pointer.surface = 'ad_daily'
       AND pointer.day BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
-      AND pointer.updated_at > run.started_at
+      -- Provider publication can begin just before the calibration snapshot
+      -- and commit just after it. Its now()-based timestamp then predates the
+      -- run despite not being visible to that run. Match the existing one-
+      -- minute evidence-commit safety window used for decision retries.
+      AND pointer.updated_at > run.started_at - INTERVAL '1 minute'
       AND pointer.updated_at <= $3::timestamptz
       -- Re-publishing an unchanged slice advances the pointer clock during
       -- ordinary sync. A new slice, a previous slice superseded after the
@@ -327,7 +331,7 @@ SELECT CASE
       -- A later successful calibration run is enough even if its content hash
       -- reuses an older complete batch.
       AND (
-        slice.created_at > run.started_at
+        slice.created_at > run.started_at - INTERVAL '1 minute'
         OR pointer.publication_reason = 'manifest_rebind_repair'
         OR EXISTS (
           SELECT 1 FROM meta_authoritative_slice_versions previous_slice
@@ -336,7 +340,7 @@ SELECT CASE
             AND previous_slice.day = pointer.day
             AND previous_slice.surface = pointer.surface
             AND previous_slice.id <> pointer.active_slice_version_id
-            AND previous_slice.superseded_at > run.started_at
+            AND previous_slice.superseded_at > run.started_at - INTERVAL '1 minute'
             AND previous_slice.superseded_at <= $3::timestamptz
         )
       )

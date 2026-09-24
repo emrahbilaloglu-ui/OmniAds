@@ -524,6 +524,30 @@ async function verifyCalibrationReuseAccountIdentity(
   );
   await client.query(
     `UPDATE meta_authoritative_slice_versions
+     SET superseded_at = '2026-07-12T03:14:30.000Z'
+     WHERE id = $1::uuid`,
+    [oldSliceId],
+  );
+  await client.query(
+    `UPDATE meta_authoritative_publication_pointers
+     SET active_slice_version_id = $2::uuid,
+         updated_at = '2026-07-12T03:14:30.000Z'
+     WHERE id = $1::uuid`,
+    [selectedPointerId, prestagedSliceId],
+  );
+  assert(
+    !(await hasReusableNativeCalibration(input, db)),
+    "A source commit overlapping the calibration snapshot escaped the safety window.",
+  );
+  await client.query(
+    `UPDATE meta_authoritative_publication_pointers
+     SET active_slice_version_id = $2::uuid,
+         updated_at = '2026-07-12T03:17:00.000Z'
+     WHERE id = $1::uuid`,
+    [selectedPointerId, oldSliceId],
+  );
+  await client.query(
+    `UPDATE meta_authoritative_slice_versions
      SET superseded_at = '2026-07-12T03:17:00.000Z'
      WHERE id = $1::uuid`,
     [oldSliceId],

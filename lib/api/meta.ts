@@ -14,6 +14,11 @@
  */
 
 import { randomUUID } from "node:crypto";
+import {
+  buildMetaCoreCaptureFingerprint,
+  recordMetaAdPageSourceSnapshots,
+  type MetaCorePageEvidence,
+} from "@/lib/meta/core-capture-fingerprint";
 import { parseMetaLinkClicksFromActions } from "@/lib/meta/link-click-parse";
 import { parseMetaPurchaseActions } from "@/lib/meta/purchase-count-parse";
 import { sanitizeMetaGraphTraceId } from "@/lib/meta/graph-trace-id";
@@ -823,7 +828,24 @@ async function fetchMetaAccountDaySpend(input: {
   const json = (await res.json()) as MetaGraphCollectionResponse<{
     spend?: string;
   }>;
-  return r2(parseNum(json.data?.[0]?.spend));
+  if (!Array.isArray(json.data) || json.data.length > 1) {
+    throw new Error("meta_account_aggregate_invalid_response");
+  }
+  // Graph omits the daily row on a measured zero-spend day. If it returns a
+  // row, the spend itself must be measured; a missing/malformed field cannot
+  // be silently promoted to zero for the independent reconciliation gate.
+  if (json.data.length === 0) return 0;
+  const rawSpend = json.data[0]?.spend;
+  const spend = Number(rawSpend);
+  if (
+    typeof rawSpend !== "string" ||
+    !rawSpend.trim() ||
+    !Number.isFinite(spend) ||
+    spend < 0
+  ) {
+    throw new Error("meta_account_aggregate_spend_unmeasured");
+  }
+  return r2(spend);
 }
 
 function buildAccountDailyRowFromCampaignRows(input: {
@@ -4089,6 +4111,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
 
   let rowsFetchedTotal = 0;
   let latestSnapshotId: string | null = null;
+  const adSourceSnapshotIds = new Map<string, string | null>();
   await captureMetaAccountCoreSubStage({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -4116,6 +4139,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         const payload = Array.isArray(rawPage.payload_json)
           ? (rawPage.payload_json as RawAdInsight[])
           : [];
+        recordMetaAdPageSourceSnapshots(adSourceSnapshotIds, payload, rawPage.id);
         applyAdInsightRowsToAggregates(payload, aggregates);
         captureMemorySnapshot();
       }
@@ -4139,6 +4163,17 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     since: normalizedDay,
     until: normalizedDay,
   });
+  const coreRequestFields = new URL(initialPageUrl).searchParams.get("fields") ?? "";
+  const corePageEvidence: MetaCorePageEvidence[] = restoredPages.map((page) => ({
+    pageIndex: page.page_index ?? -1,
+    snapshotId: page.id,
+    rowCount: Array.isArray(page.payload_json) ? page.payload_json.length : -1,
+    hasNext: Boolean(page.provider_cursor),
+    providerHttpStatus: page.provider_http_status ?? -1,
+    status: page.status,
+    requestFields: typeof page.request_context?.fields === "string"
+      ? page.request_context.fields : "",
+  }));
   // When the resume rewound to the durable raw frontier, the checkpoint's own
   // cursor must NOT be used: it points one page past the page that never
   // landed, so following it would skip that page's rows without any error.
@@ -4343,6 +4378,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             source: "bulk_core_sync",
             fields: META_BULK_CORE_INSIGHTS_FIELDS,
             pageIndex,
+            fields: coreRequestFields,
           },
           partitionId: input.partitionId,
           checkpointId,
@@ -4353,6 +4389,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             "x-business-use-case-usage": usageSummary.raw,
           },
         });
+        corePageEvidence.push({ pageIndex, snapshotId: latestSnapshotId ?? "",
+          rowCount: rows.length, hasNext: Boolean(json.paging?.next),
+          providerHttpStatus: response.status, status: "fetched",
+          requestFields: coreRequestFields });
+        recordMetaAdPageSourceSnapshots(adSourceSnapshotIds, rows, latestSnapshotId ?? "");
         applyAdInsightRowsToAggregates(rows, aggregates);
         captureMemorySnapshot();
         rowsFetchedTotal += rows.length;
@@ -4725,6 +4766,8 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     sourceSpend: number;
     rebuiltAccountSpend: number;
     rebuiltCampaignSpend: number;
+    rebuiltAdsetSpend: number;
+    rebuiltAdSpend: number;
     toleranceApplied: number;
   } | null = null;
   let accountProof: ReturnType<
@@ -5012,7 +5055,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
            * "unavailable" for the ad-days where it genuinely does not.
            */
           linkClicks: metrics.linkClicks,
-          sourceSnapshotId,
+          sourceSnapshotId: adSourceSnapshotIds.get(adId) ?? null,
           payloadJson: value.payloadJson ?? null,
           truthState,
           truthVersion: 1,
@@ -5048,6 +5091,8 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         const rebuiltCampaignSpend = r2(
           campaignRows.reduce((sum, row) => sum + row.spend, 0),
         );
+        const rebuiltAdsetSpend = sumRowSpend(adsetRows);
+        const rebuiltAdSpend = sumRowSpend(adRows);
         if (
           !withinMetaTruthTolerance(
             finalizedSourceAccountSpend,
@@ -5056,12 +5101,19 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           !withinMetaTruthTolerance(
             finalizedSourceAccountSpend,
             rebuiltCampaignSpend,
-          )
+          ) ||
+          !withinMetaTruthTolerance(
+            finalizedSourceAccountSpend,
+            rebuiltAdsetSpend,
+          ) ||
+          !withinMetaTruthTolerance(finalizedSourceAccountSpend, rebuiltAdSpend)
         ) {
           canonicalSourceDrift = {
             sourceSpend: finalizedSourceAccountSpend,
             rebuiltAccountSpend,
             rebuiltCampaignSpend,
+            rebuiltAdsetSpend,
+            rebuiltAdSpend,
             toleranceApplied: Math.max(
               0.01,
               Math.abs(finalizedSourceAccountSpend) * 0.001,
@@ -5164,6 +5216,13 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
               workerId: input.workerId,
               restoredPageCount: restoredPages.length,
               rowsFetchedTotal,
+              coreCapture: buildMetaCoreCaptureFingerprint({
+                businessId: input.credentials.businessId,
+                providerAccountId: input.accountId, day: normalizedDay,
+                sourceRunId, requestFields: coreRequestFields,
+                pages: corePageEvidence, rowsFetchedTotal,
+                accountRows, campaignRows, adsetRows, adRows,
+              }),
             },
             startedAt: coreCheckpointStartedAt,
             completedAt: new Date().toISOString(),
@@ -5318,6 +5377,77 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       }
     },
   });
+
+  if (
+    authoritativeFinalizationV2Enabled &&
+    (!sourceManifestId ||
+      !accountSliceVersionId ||
+      !campaignSliceVersionId ||
+      !adsetSliceVersionId ||
+      !adSliceVersionId)
+  ) {
+    throw new Error("meta_authoritative_manifest_or_candidate_missing");
+  }
+
+  // build_daily_rows runs in a staged callback, so TypeScript cannot see its
+  // assignment to the outer reconciliation result.
+  const driftForReconciliation = canonicalSourceDrift as {
+    sourceSpend: number;
+    rebuiltAccountSpend: number;
+    rebuiltCampaignSpend: number;
+    rebuiltAdsetSpend: number;
+    rebuiltAdSpend: number;
+    toleranceApplied: number;
+  } | null;
+  if (authoritativeFinalizationV2Enabled && driftForReconciliation) {
+    // Reject before replacing daily rows. A mismatched generation cannot
+    // overwrite the previous published population or advance its pointer.
+    await createMetaAuthoritativeReconciliationEvent({
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      day: normalizedDay,
+      surface: "account_daily",
+      sliceVersionId: accountSliceVersionId,
+      manifestId: sourceManifestId,
+      eventKind: "totals_mismatch",
+      severity: "error",
+      sourceSpend: driftForReconciliation.sourceSpend,
+      warehouseAccountSpend: driftForReconciliation.rebuiltAccountSpend,
+      warehouseCampaignSpend: driftForReconciliation.rebuiltCampaignSpend,
+      toleranceApplied: driftForReconciliation.toleranceApplied,
+      result: "repair_required",
+      detailsJson: {
+        ...driftForReconciliation,
+        zeroSpendFinalizedDay,
+        canonicalPublished: false,
+      },
+    });
+    await Promise.all(
+      (
+        [
+          accountSliceVersionId,
+          campaignSliceVersionId,
+          adsetSliceVersionId,
+          adSliceVersionId,
+        ] as Array<string | null>
+      )
+        .filter((id): id is string => Boolean(id))
+        .map((sliceVersionId) =>
+          updateMetaAuthoritativeSliceVersion({
+            sliceVersionId,
+            state: "repair_required",
+            validationStatus: "failed",
+            status: "failed",
+            stageCompletedAt: new Date().toISOString(),
+            validationSummary: {
+              sourceDriftDetected: true,
+              sourceDrift: driftForReconciliation,
+            },
+          }),
+        ),
+    );
+    throw new Error("meta_authoritative_totals_mismatch:repair_required");
+  }
 
   await upsertOwnedMetaCheckpointOrThrow({
     partitionId: input.partitionId,
@@ -5798,61 +5928,27 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     });
     const accountSpend = accountRows[0]?.spend ?? 0;
     const campaignSpend = sumRowSpend(campaignRows);
-    const driftForEvent = canonicalSourceDrift as {
-      sourceSpend: number;
-      rebuiltAccountSpend: number;
-      rebuiltCampaignSpend: number;
-      toleranceApplied: number;
-    } | null;
-    const reconciliationEventInput =
-      driftForEvent != null
-        ? (() => {
-            const drift = driftForEvent;
-            return {
-              businessId: input.credentials.businessId,
-              providerAccountId: input.accountId,
-              day: normalizedDay,
-              surface: "account_daily" as const,
-              sliceVersionId: accountSliceVersionId,
-              manifestId: sourceManifestId,
-              eventKind: "totals_mismatch" as const,
-              severity: "error" as const,
-              sourceSpend: drift.sourceSpend,
-              warehouseAccountSpend: drift.rebuiltAccountSpend,
-              warehouseCampaignSpend: drift.rebuiltCampaignSpend,
-              toleranceApplied: drift.toleranceApplied,
-              result: "repair_required" as const,
-              detailsJson: {
-                sourceSpend: drift.sourceSpend,
-                rebuiltAccountSpend: drift.rebuiltAccountSpend,
-                rebuiltCampaignSpend: drift.rebuiltCampaignSpend,
-                toleranceApplied: drift.toleranceApplied,
-                zeroSpendFinalizedDay,
-                canonicalPublished: true,
-              },
-            };
-          })()
-        : {
-            businessId: input.credentials.businessId,
-            providerAccountId: input.accountId,
-            day: normalizedDay,
-            surface: "account_daily" as const,
-            sliceVersionId: accountSliceVersionId,
-            manifestId: sourceManifestId,
-            eventKind: "validation_passed" as const,
-            severity: "info" as const,
-            sourceSpend: sourceAccountSpend,
-            warehouseAccountSpend: accountSpend,
-            warehouseCampaignSpend: campaignSpend,
-            toleranceApplied: Math.max(
-              0.01,
-              Math.abs(Number(sourceAccountSpend ?? 0)) * 0.001,
-            ),
-            result: "passed" as const,
-            detailsJson: {
-              zeroSpendFinalizedDay,
-            },
-          };
+    // Persist the exact manifest's positive reconciliation before any slice
+    // can be marked verified or its pointer can be moved.
+    await createMetaAuthoritativeReconciliationEvent({
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      day: normalizedDay,
+      surface: "account_daily",
+      sliceVersionId: accountSliceVersionId,
+      manifestId: sourceManifestId,
+      eventKind: "validation_passed",
+      severity: "info",
+      sourceSpend: sourceAccountSpend,
+      warehouseAccountSpend: accountSpend,
+      warehouseCampaignSpend: campaignSpend,
+      toleranceApplied: Math.max(
+        0.01,
+        Math.abs(Number(sourceAccountSpend ?? 0)) * 0.001,
+      ),
+      result: "passed",
+      detailsJson: { zeroSpendFinalizedDay },
+    });
     await Promise.all([
       sourceManifestId
         ? updateMetaAuthoritativeSourceManifest({
@@ -5922,7 +6018,6 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             },
           })
         : Promise.resolve(null),
-      createMetaAuthoritativeReconciliationEvent(reconciliationEventInput),
     ]);
 
     if (accountSliceVersionId) {

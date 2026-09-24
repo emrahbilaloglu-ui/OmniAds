@@ -1855,6 +1855,7 @@ async function getExistingMetaAuthoritativeSliceVersionForRun(input: {
   day: string;
   surface: MetaWarehouseScope;
   sourceRunId?: string | null;
+  manifestId?: string | null;
 }) {
   if (!input.sourceRunId) return null;
   await assertMetaMutationTablesReady("meta_warehouse");
@@ -1867,6 +1868,8 @@ async function getExistingMetaAuthoritativeSliceVersionForRun(input: {
       AND day = ${normalizeDate(input.day)}
       AND surface = ${input.surface}
       AND source_run_id = ${input.sourceRunId}
+      AND manifest_id IS NOT DISTINCT FROM ${input.manifestId ?? null}::uuid
+      AND status <> 'superseded'
     ORDER BY candidate_version DESC, created_at DESC
     LIMIT 1
   ` as Array<{
@@ -1896,6 +1899,156 @@ async function getExistingMetaAuthoritativeSliceVersionForRun(input: {
   return rows[0] ? mapMetaAuthoritativeSliceVersionRow(rows[0]) : null;
 }
 
+/** Reuse only an active, published candidate whose complete capture is identical. */
+async function getEquivalentPublishedMetaAuthoritativeSliceVersion(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  manifestId?: string | null;
+  sourceRunId?: string | null;
+  stagedRowCount?: number | null;
+  aggregatedSpend?: number | null;
+}) {
+  if (!input.manifestId || !input.sourceRunId) return null;
+  const sql = getDb();
+  const rows = await sql`
+    SELECT candidate.*
+    FROM meta_authoritative_publication_pointers pointer
+    JOIN meta_authoritative_slice_versions candidate
+      ON candidate.id = pointer.active_slice_version_id
+    JOIN meta_authoritative_source_manifests old_manifest
+      ON old_manifest.id = candidate.manifest_id
+    JOIN meta_authoritative_source_manifests new_manifest
+      ON new_manifest.id = ${input.manifestId}::uuid
+    WHERE pointer.business_id = ${input.businessId}
+      AND pointer.provider_account_id = ${input.providerAccountId}
+      AND pointer.day = ${normalizeDate(input.day)}
+      AND pointer.surface = ${input.surface}
+      AND pointer.published_by_run_id = ${input.sourceRunId}
+      AND candidate.business_id = pointer.business_id
+      AND candidate.provider_account_id = pointer.provider_account_id
+      AND candidate.day = pointer.day AND candidate.surface = pointer.surface
+      AND candidate.source_run_id = pointer.published_by_run_id
+      AND candidate.state = 'finalized_verified'
+      AND candidate.truth_state = 'finalized'
+      AND candidate.validation_status = 'passed'
+      AND candidate.status = 'published'
+      AND candidate.staged_row_count IS NOT DISTINCT FROM ${input.stagedRowCount ?? null}
+      AND candidate.aggregated_spend IS NOT DISTINCT FROM ${input.aggregatedSpend ?? null}
+      AND old_manifest.business_id = pointer.business_id
+      AND old_manifest.provider_account_id = pointer.provider_account_id
+      AND old_manifest.day = pointer.day
+      AND old_manifest.run_id = pointer.published_by_run_id
+      AND old_manifest.fetch_status = 'completed'
+      AND new_manifest.business_id = old_manifest.business_id
+      AND new_manifest.provider_account_id = old_manifest.provider_account_id
+      AND new_manifest.day = old_manifest.day
+      AND new_manifest.run_id = old_manifest.run_id
+      AND new_manifest.surface = old_manifest.surface
+      AND new_manifest.fetch_status = 'completed'
+      AND old_manifest.validation_basis_version IS NOT DISTINCT FROM
+        new_manifest.validation_basis_version
+      AND old_manifest.account_timezone = new_manifest.account_timezone
+      AND old_manifest.source_spend IS NOT DISTINCT FROM new_manifest.source_spend
+      AND old_manifest.raw_snapshot_watermark = new_manifest.raw_snapshot_watermark
+      AND jsonb_typeof(old_manifest.meta_json->'coreCapture') = 'object'
+      AND old_manifest.meta_json->'coreCapture' = new_manifest.meta_json->'coreCapture'
+      AND old_manifest.completed_at <= candidate.published_at
+      AND candidate.published_at <= pointer.published_at
+      AND new_manifest.completed_at >= old_manifest.completed_at
+      AND new_manifest.completed_at IS NOT NULL
+      AND candidate.staged_row_count = CASE pointer.surface
+        WHEN 'account_daily' THEN (SELECT COUNT(*) FROM meta_account_daily account
+          WHERE account.business_id = pointer.business_id
+            AND account.provider_account_id = pointer.provider_account_id
+            AND account.date = pointer.day)
+        WHEN 'campaign_daily' THEN (SELECT COUNT(*) FROM meta_campaign_daily campaign
+          WHERE campaign.business_id = pointer.business_id
+            AND campaign.provider_account_id = pointer.provider_account_id
+            AND campaign.date = pointer.day)
+        WHEN 'adset_daily' THEN (SELECT COUNT(*) FROM meta_adset_daily adset
+          WHERE adset.business_id = pointer.business_id
+            AND adset.provider_account_id = pointer.provider_account_id
+            AND adset.date = pointer.day)
+        WHEN 'ad_daily' THEN (SELECT COUNT(*) FROM meta_ad_daily ad
+          WHERE ad.business_id = pointer.business_id
+            AND ad.provider_account_id = pointer.provider_account_id
+            AND ad.date = pointer.day)
+        ELSE NULL END
+      AND NOT EXISTS (
+        SELECT 1 FROM meta_account_daily account
+        WHERE pointer.surface = 'account_daily'
+          AND account.business_id = pointer.business_id
+          AND account.provider_account_id = pointer.provider_account_id
+          AND account.date = pointer.day
+          AND NOT (account.source_run_id = pointer.published_by_run_id
+            AND account.source_snapshot_id::text = old_manifest.raw_snapshot_watermark
+            AND account.truth_state = 'finalized'
+            AND account.validation_status = 'passed'
+            AND account.created_at <= pointer.published_at
+            AND account.updated_at <= pointer.published_at)
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM meta_campaign_daily campaign
+        WHERE pointer.surface = 'campaign_daily'
+          AND campaign.business_id = pointer.business_id
+          AND campaign.provider_account_id = pointer.provider_account_id
+          AND campaign.date = pointer.day
+          AND NOT (campaign.source_run_id = pointer.published_by_run_id
+            AND campaign.source_snapshot_id::text = old_manifest.raw_snapshot_watermark
+            AND campaign.truth_state = 'finalized'
+            AND campaign.validation_status = 'passed'
+            AND campaign.created_at <= pointer.published_at
+            AND campaign.updated_at <= pointer.published_at)
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM meta_adset_daily adset
+        WHERE pointer.surface = 'adset_daily'
+          AND adset.business_id = pointer.business_id
+          AND adset.provider_account_id = pointer.provider_account_id
+          AND adset.date = pointer.day
+          AND NOT (adset.source_run_id = pointer.published_by_run_id
+            AND adset.source_snapshot_id::text = old_manifest.raw_snapshot_watermark
+            AND adset.truth_state = 'finalized'
+            AND adset.validation_status = 'passed'
+            AND adset.created_at <= pointer.published_at
+            AND adset.updated_at <= pointer.published_at)
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM meta_ad_daily ad
+        WHERE pointer.surface = 'ad_daily'
+          AND ad.business_id = pointer.business_id
+          AND ad.provider_account_id = pointer.provider_account_id
+          AND ad.date = pointer.day
+          AND NOT (ad.source_run_id = pointer.published_by_run_id
+            AND EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(old_manifest.meta_json->'coreCapture'->'pages') page
+              WHERE page->>'snapshotId' = ad.source_snapshot_id::text
+            )
+            AND ad.truth_state = 'finalized' AND ad.validation_status = 'passed'
+            AND ad.finalized_at IS NOT NULL
+            AND ad.created_at <= pointer.published_at
+            AND ad.updated_at <= pointer.published_at)
+      )
+    LIMIT 1
+  ` as Array<{
+    id: string; business_id: string; provider_account_id: string; day: string;
+    surface: MetaWarehouseScope; manifest_id: string | null;
+    candidate_version: number; state: MetaAuthoritativeSliceVersionRecord["state"];
+    truth_state: MetaAuthoritativeSliceVersionRecord["truthState"];
+    validation_status: MetaAuthoritativeSliceVersionRecord["validationStatus"];
+    status: MetaAuthoritativeSliceVersionRecord["status"];
+    staged_row_count: number | null; aggregated_spend: number | null;
+    validation_summary: Record<string, unknown> | null; source_run_id: string | null;
+    stage_started_at: string | null; stage_completed_at: string | null;
+    publish_started_at: string | null; published_at: string | null;
+    superseded_at: string | null; created_at: string; updated_at: string;
+  }>;
+  return rows[0] ? mapMetaAuthoritativeSliceVersionRow(rows[0]) : null;
+}
+
 export async function createMetaAuthoritativeSliceVersion(
   input: Omit<MetaAuthoritativeSliceVersionRecord, "candidateVersion"> & {
     candidateVersion?: number;
@@ -1905,6 +2058,8 @@ export async function createMetaAuthoritativeSliceVersion(
   const sql = getDb();
   const existingForRun = await getExistingMetaAuthoritativeSliceVersionForRun(input);
   if (existingForRun) return existingForRun;
+  const equivalentPublished = await getEquivalentPublishedMetaAuthoritativeSliceVersion(input);
+  if (equivalentPublished) return equivalentPublished;
   const refs = await resolveMetaRecordReferenceContext({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -2008,6 +2163,9 @@ export async function createMetaAuthoritativeSliceVersion(
       const existingAfterConflict =
         await getExistingMetaAuthoritativeSliceVersionForRun(input);
       if (existingAfterConflict) return existingAfterConflict;
+      const equivalentAfterConflict =
+        await getEquivalentPublishedMetaAuthoritativeSliceVersion(input);
+      if (equivalentAfterConflict) return equivalentAfterConflict;
       if (input.candidateVersion != null) {
         throw error;
       }

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d4339a6251e3b2b50a24f780f41ed7d4d968e379f5b7de48511464f16f36af8b",
+  "manifestHash": "d295c1e8123cd0727e4146941628ed40649300eac2efa0c7e11e4a4f90773cff",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -224,7 +224,7 @@
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "4e7854777f3ab51181d011e8b7c322c784efdc579c19088b12ed8427bae63cec"
+      "sha256": "63d75e1012d3fca4000003f2a179c8988ace0fc13e5919315d39be57d15f614a"
     },
     {
       "path": "app/api/meta/lane-classify/route.test.ts",
@@ -344,7 +344,7 @@
     },
     {
       "path": "components/creatives/creative-evidence-window-wiring.test.ts",
-      "sha256": "d6bfe20c0d7856ba87956f5eb22156a7d6945160e65273c03a94598e18b60126"
+      "sha256": "c3d17f16ab5a6e8c88ce9e87a6f38a0f4d6718ec548b1e48d5802b9051ab460d"
     },
     {
       "path": "components/creatives/creative-served-classification.test.ts",
@@ -400,7 +400,7 @@
     },
     {
       "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
-      "sha256": "cbe648d4e8ce563e8f8959f61193136c6015c3a459f09f5a78e674bb3c59ce05"
+      "sha256": "1e3cbd5ecd5577fa85d5aeb8be24fb60298622ef2e851e94e226078d3f9fea05"
     },
     {
       "path": "components/meta/decision-center/held-resolution-owner-copy.test.ts",
@@ -408,11 +408,11 @@
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "c060ccb0fb53543edcc3a40269883e27a44d835a69932060abfd4268e0041531"
+      "sha256": "310410a6384f2d59e070c3810af49da6b64b3036e5f68a9e73a02f7271108fcf"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "7147cb2a815bfcad13ef50b39b87a0b47b28c166ed88e007facf8b0daa82bb89"
+      "sha256": "c3f38028f027ce2e90935b827d417cf4e0fdeb26d7b2f7b27d40b1eb1d9b6f4e"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -424,7 +424,7 @@
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
-      "sha256": "6be5629cfa8d2067e25537ed892b96f93ae0ab199dacf6c5158777fdacaefe1f"
+      "sha256": "91c0887511518a94811e905ec8a32d5d8dc1987de9e6f4412c14c945d10227f1"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCreativeThumbnail.test.tsx",
@@ -439,8 +439,12 @@
       "sha256": "db0cdf174e951533fbaee28023ec74fd0c16490f40e08f479c1731c965925ea0"
     },
     {
+      "path": "components/meta/decision-center/scope-counter.test.ts",
+      "sha256": "52e35129d3411e8978d462512920196328fa8b1f4061879a4bf9058ce7a810ab"
+    },
+    {
       "path": "components/meta/decision-center/served-field-probe.ts",
-      "sha256": "1c77978e85cae5d04311868d4b87ab0e8035fe0523a39f4f10629f1eeefdb37a"
+      "sha256": "e86703ed0d3f4bcd23eafcdfd6aa5889144098f22210540f4aff8ebb1103b273"
     },
     {
       "path": "components/meta/decision-center/stale-fresh-cta-boundary.test.tsx",
@@ -499,12 +503,16 @@
       "sha256": "e48c34173b86f14c0cddd9647783f34e7b0bccff8322b46acd5de0d7e5f9f645"
     },
     {
+      "path": "components/meta/redesign/MetaPlatformPage.refetch-resilience.test.tsx",
+      "sha256": "0679d72dd61a18e1fa48b1c5dc927493e8cda7222650bc2052008950702687f3"
+    },
+    {
       "path": "components/meta/redesign/MetaPlatformPage.test.tsx",
-      "sha256": "35bc2b84edb141e89bbe0e4ef2fe746041e2e8be655d01ba3d836f0f42711e85"
+      "sha256": "c326d5946054adae846774d923175fb13c05d585200d4bd171414cb908f5ec3f"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "ca1af2212f12fe0796ed24347439015cb20f6b23af5c758d986b86a70874699d"
+      "sha256": "40ed3838b8ca316feca061939d7c9a167d463b03c1d94190e424d2fb153358ea"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
@@ -1247,6 +1255,10 @@
       "sha256": "d8cce6c74d408368cf2047fd2d0d14e52f16d34ca99372f8895f619f316a2af8"
     },
     {
+      "path": "lib/meta/buyer-copy.ts",
+      "sha256": "e4493373f94cf6a0c5613632a2b037be8b8c3cc8452c781d52ce43078c92c4f9"
+    },
+    {
       "path": "lib/meta/calibration-unmeasured-funnel.test.ts",
       "sha256": "7d91352623ead6b81109c35dfe32cecbdac0b4e145a6d5c24b3e9978eb521acb"
     },
@@ -1440,23 +1452,35 @@
     },
     {
       "path": "lib/meta/decisions-canonical-ad-universe.test.ts",
-      "sha256": "b879f69e43edcd1da700b5a903997e1802cfe4c8722bf3b356cc5739fb13e48a"
+      "sha256": "a1c0d414932eecb133f319205e231f94517fd7723d84b39b7f3f190241a168a4"
     },
     {
       "path": "lib/meta/decisions-os-contract.ts",
-      "sha256": "a4a448e10b2eb335cf6c79c0eca726049ccdc997609deb1f3b5f6743da8cf4f9"
+      "sha256": "b1365b5fe925858713f4addf4297a3fbba3206fe665ad55fea6ec066a3952a36"
+    },
+    {
+      "path": "lib/meta/decisions-os-lane-counts.test.ts",
+      "sha256": "4f8c2df12f677638352654554766816c7f97e1a48d6ec8d5e9e2c047aa5983de"
     },
     {
       "path": "lib/meta/decisions-os-presentation.test.ts",
-      "sha256": "b4aa8a7aefb3d55946b137bc26bfd0a8c056d89ba1b0d808cceffdbafd2f3367"
+      "sha256": "7d8ba4df7cde15cf979c3d806a4203e07061dec0d8febe705f307aa0837fb736"
     },
     {
       "path": "lib/meta/decisions-os-presentation.ts",
-      "sha256": "f1c316f75ea8c5ba87cc97a5674cf056c8605fd6a2bbfe2211aa8f6828b604e7"
+      "sha256": "f5b2b72fb55a8500b08c5f9935c62c6f5c9a600d2327eb3ceabe437b5401031b"
+    },
+    {
+      "path": "lib/meta/decisions-pre-cap-ad-candidates.ts",
+      "sha256": "31dfea460a78e28da5809aba01bfe5ba35c8393f6547d1c9dc6a0d5a41b59be1"
     },
     {
       "path": "lib/meta/decisions-workspace-contract.ts",
       "sha256": "cc31ec10c149710a6d5bd0527c29d91d5dfea57fc1f473f9b20239e353fc9301"
+    },
+    {
+      "path": "lib/meta/decisions-workspace-pre-cap-projection.test.ts",
+      "sha256": "c1091a4dc36e6ea7aa6ea2086358807fe8450d49bdf457ef643571dd92649224"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
@@ -1464,7 +1488,7 @@
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
-      "sha256": "c9fed088ecc9765a6ca34c77eee08c59f0e850fd484e8a4d3b3a914665b29bb5"
+      "sha256": "b30923722f2f892a9ff7f8cc3a0bb0ec04cded39187e8822a8958395eab08f9b"
     },
     {
       "path": "lib/meta/entity-signals-backfill.test.ts",
@@ -1673,6 +1697,10 @@
     {
       "path": "lib/zero-base/meta/automation-posture.ts",
       "sha256": "5b9674a14e669508bf7d2643d2395ddfcba32f4f6bef719e4f36190b0aad5cc1"
+    },
+    {
+      "path": "lib/zero-base/meta/decisions-presentation.ts",
+      "sha256": "2cc4c42ff7de5ef0d902e759d56c47f1086a50acb38ff4e457d4446fb082a7cf"
     },
     {
       "path": "lib/zero-base/meta/intelligence-server.test.ts",

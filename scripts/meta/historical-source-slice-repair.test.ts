@@ -74,6 +74,37 @@ function plan(value: RepairEvidence) {
   });
 }
 
+function reboundLegacyEvidence(): RepairEvidence {
+  const value = evidence();
+  const original = value.pointer!;
+  value.observations = [];
+  value.raw!.contentKey = null;
+  value.raw!.status = "superseded";
+  value.raw!.updatedAt = "2026-09-23T08:00:00.000Z";
+  value.oldSlice = {
+    id: original.activeSliceId, businessId: BUSINESS, accountId: ACCOUNT,
+    day: DAY, surface: "ad_daily", manifestId: OLD, sourceRunId: RUN,
+    publishedAt: "2026-09-23T06:50:32.995Z",
+    supersededAt: "2026-09-24T13:00:00.000Z",
+    status: "superseded", truthState: "finalized", validationStatus: "passed",
+  };
+  original.activeSliceId = "slice-new";
+  original.activeManifestId = TARGET;
+  original.publicationReason = "manifest_rebind_repair";
+  original.publishedAt = "2026-09-24T13:00:00.000Z";
+  original.updatedAt = original.publishedAt;
+  original.activeValidationSummary = {
+    repairContract: "meta-historical-source-slice-repair.v2",
+    reviewedPlanHash: "a".repeat(64), receiptKind: "legacy_run_bound_raw",
+    sourceSnapshotId: RAW, targetManifestId: TARGET,
+    sourcePartitionId: PARTITION, rawUpdatedAt: value.raw!.updatedAt,
+    oldPointerId: original.id, oldSliceId: value.oldSlice.id,
+    oldManifestId: OLD, oldPublishedAt: "2026-09-23T06:50:33.000Z",
+    oldRunId: RUN,
+  };
+  return value;
+}
+
 describe("historical source slice repair proof", () => {
   it("selects the exact completed capture and preserves the old pointer in its plan", () => {
     const result = plan(evidence());
@@ -172,5 +203,26 @@ describe("historical source slice repair proof", () => {
     const value = evidence();
     value.pointer!.activeManifestId = TARGET;
     expect(plan(value).state).toBe("already_bound");
+  });
+
+  it("accepts a legacy page superseded after the witnessed old publication", () => {
+    const result = plan(reboundLegacyEvidence());
+    expect(result).toMatchObject({ state: "already_bound", blockers: [],
+      next: { manifestId: TARGET, receiptKind: "legacy_run_bound_raw",
+        rawUpdatedAt: "2026-09-23T08:00:00.000Z" } });
+  });
+
+  it("rejects a rebinding without the exact old slice and publication clock", () => {
+    const missingOldSlice = reboundLegacyEvidence();
+    missingOldSlice.oldSlice = null;
+    expect(plan(missingOldSlice).blockers).toContain("rebind_prior_publication_receipt_invalid");
+    const wrongClock = reboundLegacyEvidence();
+    (wrongClock.pointer!.activeValidationSummary as Record<string, unknown>).oldPublishedAt =
+      "2026-09-23T06:50:32.000Z";
+    expect(plan(wrongClock).blockers).toContain("rebind_prior_publication_receipt_invalid");
+    const wrongRawClock = reboundLegacyEvidence();
+    (wrongRawClock.pointer!.activeValidationSummary as Record<string, unknown>).rawUpdatedAt =
+      "2026-09-23T07:00:00.000Z";
+    expect(plan(wrongRawClock).blockers).toContain("rebind_prior_publication_receipt_invalid");
   });
 });

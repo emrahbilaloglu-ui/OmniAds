@@ -62,22 +62,11 @@ async function main() {
        payload_json, payload_hash, content_key, request_context,
        provider_http_status, status, fetched_at, created_at, updated_at)
     VALUES ($1::uuid, $2, $3, $4::uuid, $4, 'ad_insights_bulk', 'ad', 0,
-      $5::date, $5::date, $6::jsonb, 'raw-hash-d112', 'content-d112',
+      $5::date, $5::date, $6::jsonb, 'raw-hash-d112', NULL,
       '{"source":"bulk_core_sync","level":"ad","fields":"ad_id,spend,actions"}'::jsonb,
-      200, 'fetched', '2026-09-23T06:50:31.800Z',
-      '2026-09-23T06:50:31.800Z', '2026-09-23T06:50:31.800Z')
+      200, 'superseded', '2026-09-23T06:50:31.800Z',
+      '2026-09-23T06:50:31.800Z', '2026-09-23T08:00:00.000Z')
   `, [RAW, BUSINESS, ACCOUNT, run, DAY, JSON.stringify([PAYLOAD])]);
-  await sql.query(`
-    INSERT INTO meta_raw_snapshot_observations
-      (snapshot_id, business_id, provider_account_id, partition_id,
-       run_id, endpoint_name, entity_scope, page_index, status,
-       provider_http_status, request_context, observed_at, created_at, updated_at)
-    VALUES ($1::uuid, $2, $3, $4::uuid, $4, 'ad_insights_bulk', 'ad', 0,
-      'fetched', 200,
-      '{"source":"bulk_core_sync","level":"ad","fields":"ad_id,spend,actions"}'::jsonb,
-      '2026-09-23T06:50:31.810Z', '2026-09-23T06:50:31.810Z',
-      '2026-09-23T06:50:31.810Z')
-  `, [RAW, BUSINESS, ACCOUNT, run]);
   for (const [id, clock, watermark] of [
     [OLD_MANIFEST, "2026-09-22T08:04:59.000Z", null],
     [TARGET_MANIFEST, "2026-09-23T06:50:32.437Z", RAW],
@@ -121,7 +110,7 @@ async function main() {
     VALUES (($1::uuid)::text, $1::uuid, $2, $3::uuid, $4::date, 'ad_daily', $5::uuid,
       1, 'finalized_verified', 'finalized', 'passed', 'published',
       1, 50, $6, '2026-09-22T08:05:00.000Z',
-      '2026-09-22T08:05:00.000Z', '2026-09-23T06:50:33.000Z',
+      '2026-09-22T08:05:00.000Z', '2026-09-23T06:50:32.997Z',
       '2026-09-22T08:05:00.000Z', '2026-09-23T06:50:33.000Z')
     RETURNING id::text
   `, [BUSINESS, ACCOUNT, ACCOUNT_REF, DAY, OLD_MANIFEST, run]);

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "10be2ba1edc8a5b6a0d29509497c52470001d19855412334c29b181f38a50936",
+  "manifestHash": "c91aeabbdf3712ca2ea0f03fbfd7b91d0452550dd316d839311b2dfdd0791fc7",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -544,7 +544,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "1978368f49a1f1698d278a92d8f306f1fc431a683ae3b9285f54c2028bf0f42d"
+      "sha256": "4358733c442d0822ebffb1f9162e2ba841329d8d3c3972697517c64f58db573b"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1816,7 +1816,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-meta-historical-slice-repair-seam-child.ts",
-      "sha256": "ec530441f9095affe89c277cca01f4280a41fbafe4c70645ab68c174de13cd2f"
+      "sha256": "a75cb88732313e237374bea41293537d5082c215169115f7b184f205e243d356"
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
@@ -1872,11 +1872,11 @@
     },
     {
       "path": "scripts/meta/historical-source-slice-repair.test.ts",
-      "sha256": "b6ac427e93d34efb536dadd4fb4c5df43764682c2f527f52636275564a977c5c"
+      "sha256": "de5c14b5ad8a3773377db07d5c45679675a8ea80de6f87c50bf2ef4ad8af33b4"
     },
     {
       "path": "scripts/meta/historical-source-slice-repair.ts",
-      "sha256": "d434fe613b224343ffd61bbbc5328757e882f85fe5059b40efa3e5983c884527"
+      "sha256": "d8050b2b689327bbdae84b95684ff8355a3d36ada1d5f94cbc6faec618c66b56"
     },
     {
       "path": "scripts/meta/link-click-repair-backfill.db.test.ts",

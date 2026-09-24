@@ -70,6 +70,7 @@ import {
   type MetaDecisionCenterExactWorkflow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
 import { MetaDecisionCreativeThumbnail } from "@/components/meta/decision-center/MetaDecisionCreativeThumbnail";
+import { metaCreativeThumbnailRecoveryUrl } from "@/lib/meta/creative-thumbnail-recovery-url";
 import {
   buildMetaDecisionCenterExactViewModel,
   type MetaDecisionCenterExactArchiveItem,
@@ -5806,14 +5807,19 @@ export function MetaPlatformPage({
    * screen and the authority row that explains them cannot disagree about
    * whether a route exists.
    */
-  const creativeEvidenceLaunchpad = creativeDrill
+  const creativeEvidenceAction = creativeDrill?.decision?.action ?? null;
+  // Informational and manual-review verdicts are not failed Launchpad routes.
+  // Their buyer action remains readable in the decision, with no inert CTA.
+  const creativeEvidenceLaunchpad = creativeDrill &&
+    creativeEvidenceAction?.providerMutation === null &&
+    (creativeEvidenceAction.intent === "launchpad" ||
+      creativeEvidenceAction.intent === "brief")
     ? creativeEvidenceLaunchpadRoute({
         canonical: creativeDrill.canonical,
-        action: creativeDrill.decision?.action ?? null,
+        action: creativeEvidenceAction,
         providerAccountId,
       })
     : null;
-  const creativeEvidenceAction = creativeDrill?.decision?.action ?? null;
   const creativeEvidenceIsNativePause = Boolean(
     creativeEvidenceAction?.code === "cut" &&
     creativeEvidenceAction.intent === "execute" &&
@@ -5913,6 +5919,13 @@ export function MetaPlatformPage({
         // states row-grain authority while staying silent about the authority
         // of the queue that produced the row.
         source: workspaceQuery.data?.decisionReadModel.source ?? null,
+        previewRecoveryUrl: metaCreativeThumbnailRecoveryUrl({
+          businessId,
+          providerAccountId: creativeDrill.decision?.providerAccountId ??
+            creativeDrill.canonical?.providerAccountId,
+          creativeId: creativeDrill.decision?.creativeId ??
+            creativeDrill.canonical?.parentChain.creative?.id,
+        }),
         launchpadRoute: creativeEvidenceLaunchpad,
         primaryActionAuthority: creativeEvidencePrimaryAuthority,
         fallbackCurrency: moneyCurrency,

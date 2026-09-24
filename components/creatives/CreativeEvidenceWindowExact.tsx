@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type MouseEvent, type ReactNode } from "react";
+import { MetaDecisionCreativeThumbnail } from "@/components/meta/decision-center/MetaDecisionCreativeThumbnail";
 
 import styles from "./CreativeEvidenceWindowExact.module.css";
 
@@ -124,6 +125,8 @@ export interface CreativeEvidenceWindowExactViewModel {
   decisionLabel?: CreativeEvidenceWindowExactDisplayValue;
   decisionTone?: CreativeEvidenceWindowExactTone;
   previewUrl?: string | null;
+  /** Same account-scoped recovery read used by Decisions creative cards. */
+  previewRecoveryUrl?: string | null;
   stripeA?: string | null;
   stripeB?: string | null;
   kind?: CreativeEvidenceWindowExactDisplayValue;
@@ -328,6 +331,7 @@ export function CreativeEvidenceWindowExact({
   const stripeA = viewModel.stripeA?.trim() || "#EAF0FF";
   const stripeB = viewModel.stripeB?.trim() || "#F7F9FC";
   const previewUrl = viewModel.previewUrl?.trim() || null;
+  const previewRecoveryUrl = viewModel.previewRecoveryUrl?.trim() || null;
   const showDecisionCard =
     meaningful(viewModel.verdict) ||
     meaningful(viewModel.verdictSub) ||
@@ -416,7 +420,7 @@ export function CreativeEvidenceWindowExact({
               {viewModel.actionNotice.text}
             </p>
           ) : null}
-          {previewUrl ? (
+          {previewUrl || previewRecoveryUrl ? (
             <div className={styles.previewCard}>
               <div
                 className={styles.previewStage}
@@ -424,11 +428,11 @@ export function CreativeEvidenceWindowExact({
                   backgroundImage: `repeating-linear-gradient(135deg,${stripeA},${stripeA} 12px,${stripeB} 12px,${stripeB} 24px)`,
                 }}
               >
-                <img
-                  alt=""
+                <MetaDecisionCreativeThumbnail
                   className={styles.previewImage}
-                  data-creative-evidence-preview="served"
-                  src={previewUrl}
+                  evidencePreview
+                  thumbnailUrl={previewUrl}
+                  recoveryUrl={previewRecoveryUrl}
                 />
               </div>
               <div className={styles.previewFooter}>

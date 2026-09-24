@@ -427,6 +427,24 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(unreadable.readNotice?.tone).toBe("negative");
   });
 
+  it("serves the native Ad's admitted dates without relabeling selected helper rows", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture({
+        decisionWindow: {
+          contractVersion: "meta-decision-admitted-window.presentation.v1",
+          startDate: "2026-09-19", endDate: "2026-09-23",
+          calendarDaySpan: 5, observedDayCount: 4,
+          economicDayCount: 3, bridgedUnresolvedDayCount: 1,
+        },
+      }),
+      helperRange: { start: "2026-09-16", end: "2026-09-22" },
+      previewRecoveryUrl: "/api/meta/creative-thumbnail?creativeId=123",
+    });
+    expect(model.periodLabels?.decision).toBe("2026-09-19–2026-09-23 · 3/5 economic days");
+    expect(model.periodLabels?.series).toBe("selected 2026-09-16–2026-09-22");
+    expect(model.previewRecoveryUrl).toBe("/api/meta/creative-thumbnail?creativeId=123");
+  });
+
   it("does not invent selected dates when a helper period is invalid", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       helperRange: { start: "2026-09-31", end: "2026-09-22" },
@@ -1824,8 +1842,7 @@ describe("buildCreativeEvidenceWindowExactViewModel primary action tuple", () =>
       decision: decisionFixture(),
       canonical: canonicalFixture(),
     });
-    expect(model.primaryAction?.label).toBe("Create replacement brief");
-    expect(model.primaryAction?.onClick).toBeUndefined();
+    expect(model.primaryAction).toBeUndefined();
   });
 });
 

@@ -239,6 +239,19 @@ describe("historical source slice repair proof", () => {
     ]));
   });
 
+  it("refuses an older matching pass when a newer pass contradicts its Ad total", () => {
+    const value = centPrecisionEvidence();
+    value.reconciliations.push({
+      ...value.reconciliations[0]!, id: "newer-contradicting-pass",
+      warehouseAccountSpend: 50.01,
+      createdAt: "2026-09-23T06:50:32.950Z",
+    });
+    const result = plan(value);
+    expect(result.state).toBe("blocked");
+    expect(result.blockers).toContain("exact_manifest_validation_receipt_missing_or_failed");
+    expect(result.next).not.toHaveProperty("spendVarianceProof");
+  });
+
   it("rejects missing actions request and raw payload drift", () => {
     const missingField = evidence();
     missingField.raw!.requestContext = { source: "bulk_core_sync", level: "ad", fields: "spend" };

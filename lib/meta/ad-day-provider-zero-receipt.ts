@@ -14,12 +14,15 @@
  * account day and with a complete source/validation chain. A legacy snapshot
  * superseded after publication was still fetched at publication; a snapshot
  * superseded earlier cannot testify to that publication.
+ * A D113 v2 manifest rebind can publish a new pointer after supersession.
+ * Its transaction-proven predecessor receipt preserves the original clock;
+ * the new pointer clock alone never proves an old provider omission.
  */
 const SQL_QUALIFIER = /^[a-z_][a-z0-9_]*$/;
 const SQL_CUTOFF = /^(\$[1-9][0-9]*::timestamptz|transaction_timestamp\(\))$/;
 
 export const META_AD_DAY_PROVIDER_ZERO_RECEIPT_CONTRACT_VERSION =
-  "meta-ad-day-provider-zero-receipt.v2";
+  "meta-ad-day-provider-zero-receipt.v3";
 
 export function buildMetaAdDayProviderZeroReceiptSql(options: {
   qualifier: string;
@@ -30,6 +33,17 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
     throw new Error("meta_ad_day_provider_zero_receipt_sql_invalid");
   }
   const d = `${qualifier}.`;
+  // The old pointer is updated in place by D113. Its publication clock is
+  // retained in the transaction-proven candidate summary. Validate the text
+  // before casting so malformed history cannot abort an account read.
+  const oldPublishedAtSql = `(CASE
+    WHEN pg_input_is_valid(slice.validation_summary->>'oldPublishedAt', 'timestamptz')
+    THEN (slice.validation_summary->>'oldPublishedAt')::timestamptz
+  END)`;
+  const rawUpdatedAtSql = `(CASE
+    WHEN pg_input_is_valid(slice.validation_summary->>'rawUpdatedAt', 'timestamptz')
+    THEN (slice.validation_summary->>'rawUpdatedAt')::timestamptz
+  END)`;
   return `(CASE
     WHEN jsonb_typeof(${d}payload_json) IS DISTINCT FROM 'object'
       OR ${d}payload_json ? 'actions' THEN FALSE
@@ -159,10 +173,75 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
               AND source.partition_id IS NOT NULL
               AND source.status IN ('fetched', 'superseded')
               -- Legacy supersession mutates status and updated_at together.
-              -- Only a mutation after publication can preserve the original
-              -- fetched state at this exact published pointer.
+              -- For an ordinary publication it must follow that pointer. A
+              -- D113 rebind publishes a NEW pointer after the supersession;
+              -- only its transaction-proven predecessor receipt can retain
+              -- the original fetched-at-publication fact.
               AND (source.status = 'fetched'
-                OR source.updated_at > pointer.published_at)
+                OR source.updated_at > pointer.published_at
+                OR (
+                  source.status = 'superseded'
+                  AND source.updated_at <= pointer.published_at
+                  AND pointer.publication_reason = 'manifest_rebind_repair'
+                  AND slice.validation_summary->>'repairContract'
+                    = 'meta-historical-source-slice-repair.v2'
+                  AND slice.validation_summary->>'receiptKind'
+                    = 'legacy_run_bound_raw'
+                  AND slice.validation_summary->>'reviewedPlanHash'
+                    ~ '^[0-9a-f]{64}$'
+                  AND slice.validation_summary->>'sourceSnapshotId' = source.id::text
+                  AND slice.validation_summary->>'targetManifestId' = manifest.id::text
+                  AND slice.validation_summary->>'sourcePartitionId' = source.partition_id::text
+                  AND manifest.raw_snapshot_watermark = source.id::text
+                  AND manifest.meta_json->>'partitionId' = source.partition_id::text
+                  AND slice.validation_summary->>'oldPointerId' = pointer.id::text
+                  AND slice.validation_summary->>'oldRunId' = manifest.run_id
+                  AND ${rawUpdatedAtSql} = source.updated_at
+                  AND ${oldPublishedAtSql} IS NOT NULL
+                  AND manifest.started_at <= source.fetched_at
+                  AND source.updated_at > ${oldPublishedAtSql}
+                  AND source.fetched_at <= ${oldPublishedAtSql}
+                  AND source.created_at <= ${oldPublishedAtSql}
+                  AND ${d}created_at <= ${oldPublishedAtSql}
+                  AND ${d}updated_at <= ${oldPublishedAtSql}
+                  AND manifest.completed_at <= ${oldPublishedAtSql}
+                  AND manifest.created_at <= ${oldPublishedAtSql}
+                  AND manifest.updated_at <= ${oldPublishedAtSql}
+                  AND slice.created_at > ${oldPublishedAtSql}
+                  AND pointer.published_at > ${oldPublishedAtSql}
+                  AND EXISTS (
+                    SELECT 1
+                    FROM meta_authoritative_slice_versions old_slice
+                    WHERE old_slice.id::text = slice.validation_summary->>'oldSliceId'
+                      AND old_slice.id <> slice.id
+                      AND old_slice.business_id = slice.business_id
+                      AND old_slice.provider_account_id = slice.provider_account_id
+                      AND old_slice.day = slice.day
+                      AND old_slice.surface = 'ad_daily'
+                      AND old_slice.source_run_id = manifest.run_id
+                      AND old_slice.state = 'superseded'
+                      AND old_slice.status = 'superseded'
+                      AND old_slice.manifest_id::text = slice.validation_summary->>'oldManifestId'
+                      AND old_slice.manifest_id <> manifest.id
+                      AND old_slice.created_at <= ${oldPublishedAtSql}
+                      AND old_slice.published_at <= ${oldPublishedAtSql}
+                      AND old_slice.superseded_at > ${oldPublishedAtSql}
+                      AND old_slice.superseded_at <= pointer.published_at
+                  )
+                  AND EXISTS (
+                    SELECT 1
+                    FROM meta_authoritative_reconciliation_events old_validation
+                    WHERE old_validation.manifest_id = manifest.id
+                      AND old_validation.business_id = manifest.business_id
+                      AND old_validation.provider_account_id = manifest.provider_account_id
+                      AND old_validation.day = manifest.day
+                      AND old_validation.surface = 'account_daily'
+                      AND old_validation.event_kind = 'validation_passed'
+                      AND old_validation.result = 'passed'
+                      AND old_validation.created_at >= manifest.completed_at
+                      AND old_validation.created_at <= ${oldPublishedAtSql}
+                  )
+                ))
               AND NOT EXISTS (
                 SELECT 1 FROM meta_raw_snapshot_observations any_observation
                 WHERE any_observation.snapshot_id = source.id

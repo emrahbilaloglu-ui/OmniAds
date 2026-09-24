@@ -3968,6 +3968,185 @@ async function proveLateSourceRowIsolation(pool: Pool) {
 describe.runIf(postgresAvailable)(
   "native ad provider-zero receipt (real PostgreSQL)",
   () => {
+    it("retains only D113 v2 proved legacy zero across a later pointer rebind", async () => {
+      await withEphemeralPostgres(async (pool) => {
+        await createEphemeralSchema(pool);
+        const day = "2026-07-20";
+        const run = "run-rebound-legacy-zero";
+        const oldPublishedAt = "2026-07-21T02:00:00Z";
+        const rawUpdatedAt = "2026-07-21T02:30:00Z";
+        const raw = { ad_id: "rebound-legacy-zero-ad", spend: "4.00" };
+        const partition = await pool.query<{ id: string }>(`
+          INSERT INTO meta_sync_partitions
+            (business_id, provider_account_id, lane, scope, partition_date)
+          VALUES ($1, $2, 'core', 'account_daily', $3::date)
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
+        const partitionId = partition.rows[0]!.id;
+        const source = await pool.query<{ id: string }>(`
+          INSERT INTO meta_raw_snapshots (
+            business_id, provider_account_id, partition_id, run_id,
+            endpoint_name, entity_scope, status, provider_http_status,
+            start_date, end_date, request_context, payload_json,
+            fetched_at, created_at, updated_at
+          ) VALUES ($1, $2, $3::uuid, $4,
+            'ad_insights_bulk', 'ad', 'superseded', 200,
+            $5::date, $5::date,
+            '{"source":"bulk_core_sync","level":"ad"}'::jsonb,
+            $6::jsonb, '2026-07-21T01:00:00Z',
+            '2026-07-21T01:00:00Z', $7::timestamptz)
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID, partitionId,
+          run, day, JSON.stringify([raw]), rawUpdatedAt]);
+        const sourceId = source.rows[0]!.id;
+        await pool.query(`INSERT INTO meta_ad_daily (
+          business_ref_id, business_id, provider_account_ref_id,
+          provider_account_id, date, ad_id, account_timezone,
+          account_currency, spend, impressions, clicks, link_clicks,
+          conversions, revenue, payload_json, source_snapshot_id,
+          source_run_id, truth_state, validation_status, finalized_at,
+          created_at, updated_at
+        ) VALUES ($1::uuid, $1::text, $2::uuid, $3, $4::date,
+          'rebound-legacy-zero-ad', 'Europe/Istanbul', 'USD', 4, 100, 1,
+          NULL, 0, 0, $5::jsonb, $6::uuid, $7,
+          'finalized', 'passed', '2026-07-21T01:10:00Z',
+          '2026-07-21T01:10:00Z', '2026-07-21T01:10:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID,
+          day, JSON.stringify(raw), sourceId, run]);
+        const target = await pool.query<{ id: string }>(`
+          INSERT INTO meta_authoritative_source_manifests
+            (business_id, provider_account_id, day, surface, run_id,
+             fetch_status, fresh_start_applied, checkpoint_reset_applied,
+             raw_snapshot_watermark, meta_json, started_at,
+             completed_at, created_at, updated_at)
+          VALUES ($1, $2, $3::date, 'account_daily', $4,
+            'completed', true, true, $5, $6::jsonb,
+            '2026-07-21T00:59:00Z', '2026-07-21T01:30:00Z',
+            '2026-07-21T01:30:00.012Z', '2026-07-21T01:30:00.012Z')
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, run,
+          sourceId, JSON.stringify({ partitionId })]);
+        const targetId = target.rows[0]!.id;
+        const stale = await pool.query<{ id: string }>(`
+          INSERT INTO meta_authoritative_source_manifests
+            (business_id, provider_account_id, day, surface, run_id,
+             fetch_status, fresh_start_applied, checkpoint_reset_applied,
+             completed_at, created_at, updated_at)
+          VALUES ($1, $2, $3::date, 'account_daily', $4,
+            'completed', true, true, '2026-07-21T01:20:00Z',
+            '2026-07-21T01:20:00.012Z', '2026-07-21T01:20:00.012Z')
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, run]);
+        const staleId = stale.rows[0]!.id;
+        const oldSlice = await pool.query<{ id: string }>(`
+          INSERT INTO meta_authoritative_slice_versions
+            (business_id, provider_account_id, day, surface, manifest_id,
+             source_run_id, state, truth_state, validation_status, status,
+             published_at, superseded_at, created_at, updated_at)
+          VALUES ($1, $2, $3::date, 'ad_daily', $4::uuid,
+            $5, 'superseded', 'finalized', 'passed', 'superseded',
+            '2026-07-21T01:59:59.997Z', '2026-07-21T03:00:00Z',
+            '2026-07-21T01:59:59.997Z', '2026-07-21T03:00:00Z')
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, staleId, run]);
+        const oldSliceId = oldSlice.rows[0]!.id;
+        const summary = {
+          repairContract: "meta-historical-source-slice-repair.v2",
+          reviewedPlanHash: "a".repeat(64),
+          receiptKind: "legacy_run_bound_raw",
+          sourceSnapshotId: sourceId,
+          targetManifestId: targetId,
+          sourcePartitionId: partitionId,
+          rawUpdatedAt,
+          oldPointerId: "",
+          oldSliceId,
+          oldManifestId: staleId,
+          oldPublishedAt,
+          oldRunId: run,
+        };
+        const newSlice = await pool.query<{ id: string }>(`
+          INSERT INTO meta_authoritative_slice_versions
+            (business_id, provider_account_id, day, surface, manifest_id,
+             source_run_id, state, truth_state, validation_status, status,
+             validation_summary, published_at, created_at, updated_at)
+          VALUES ($1, $2, $3::date, 'ad_daily', $4::uuid,
+            $5, 'finalized_verified', 'finalized', 'passed', 'published',
+            '{}'::jsonb, '2026-07-21T03:00:00Z',
+            '2026-07-21T03:00:00Z', '2026-07-21T03:00:00Z')
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, targetId, run]);
+        const newSliceId = newSlice.rows[0]!.id;
+        const pointer = await pool.query<{ id: string }>(`
+          INSERT INTO meta_authoritative_publication_pointers
+            (business_id, provider_account_id, day, surface,
+             active_slice_version_id, published_by_run_id,
+             publication_reason, published_at, created_at, updated_at)
+          VALUES ($1, $2, $3::date, 'ad_daily', $4::uuid, $5,
+            'manifest_rebind_repair', '2026-07-21T03:05:00Z',
+            $6::timestamptz, '2026-07-21T03:05:00Z')
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day,
+          newSliceId, run, oldPublishedAt]);
+        summary.oldPointerId = pointer.rows[0]!.id;
+        const setSummary = async (value: Record<string, unknown>) => {
+          await pool.query(`UPDATE meta_authoritative_slice_versions
+            SET validation_summary=$2::jsonb WHERE id=$1::uuid`,
+            [newSliceId, JSON.stringify(value)]);
+        };
+        await pool.query(`INSERT INTO meta_authoritative_reconciliation_events
+          (business_id, provider_account_id, day, surface,
+           manifest_id, event_kind, result, created_at)
+          VALUES ($1, $2, $3::date, 'account_daily', $4::uuid,
+            'validation_passed', 'passed', '2026-07-21T01:55:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, targetId]);
+        const proof = buildMetaAdDayProviderZeroReceiptSql({
+          qualifier: "d", cutoffSql: "$1::timestamptz",
+        });
+        const purchase = buildAdDayAuthoritativePurchasesSql({
+          qualifier: "d", providerZeroProofSql: "receipt.verified",
+        });
+        const read = async () => (await pool.query(`
+          SELECT receipt.verified, ${purchase} AS purchases
+          FROM meta_ad_daily d
+          LEFT JOIN LATERAL (SELECT ${proof} AS verified OFFSET 0) receipt ON TRUE
+          WHERE d.ad_id='rebound-legacy-zero-ad'`,
+          ["2026-07-21T04:00:00Z"])).rows[0];
+        expect(await read()).toMatchObject({ verified: false, purchases: null });
+        await setSummary(summary);
+        expect(await read()).toMatchObject({ verified: true, purchases: 0 });
+        for (const [key, value] of [
+          ["oldPointerId", "00000000-0000-4000-8000-000000000001"],
+          ["oldSliceId", "00000000-0000-4000-8000-000000000002"],
+          ["oldManifestId", targetId],
+          ["targetManifestId", staleId],
+          ["oldRunId", "wrong-run"],
+          ["sourceSnapshotId", "00000000-0000-4000-8000-000000000004"],
+          ["sourcePartitionId", "00000000-0000-4000-8000-000000000003"],
+          ["oldPublishedAt", "2026-07-21T01:54:00Z"],
+          ["oldPublishedAt", "not-a-date"],
+          ["rawUpdatedAt", "2026-07-21T02:31:00Z"],
+          ["rawUpdatedAt", "not-a-date"],
+          ["reviewedPlanHash", "not-a-review-hash"],
+          ["repairContract", "meta-historical-source-slice-repair.v1"],
+          ["receiptKind", "run_observation"],
+        ] as const) {
+          await setSummary({ ...summary, [key]: value });
+          expect(await read(), key).toMatchObject({ verified: false, purchases: null });
+        }
+        await setSummary(summary);
+        await pool.query(`UPDATE meta_raw_snapshots SET run_id='wrong-run'
+          WHERE id=$1::uuid`, [sourceId]);
+        expect(await read()).toMatchObject({ verified: false, purchases: null });
+        await pool.query(`UPDATE meta_raw_snapshots SET run_id=$2
+          WHERE id=$1::uuid`, [sourceId, run]);
+        await pool.query(`UPDATE meta_authoritative_source_manifests
+          SET raw_snapshot_watermark='wrong-page' WHERE id=$1::uuid`, [targetId]);
+        expect(await read()).toMatchObject({ verified: false, purchases: null });
+        await pool.query(`UPDATE meta_authoritative_source_manifests
+          SET raw_snapshot_watermark=$2 WHERE id=$1::uuid`, [targetId, sourceId]);
+        await pool.query(`UPDATE meta_authoritative_slice_versions
+          SET status='published' WHERE id=$1::uuid`, [oldSliceId]);
+        expect(await read()).toMatchObject({ verified: false, purchases: null });
+        await pool.query(`UPDATE meta_authoritative_slice_versions
+          SET status='superseded', superseded_at='2026-07-21T01:59:00Z'
+          WHERE id=$1::uuid`, [oldSliceId]);
+        expect(await read()).toMatchObject({ verified: false, purchases: null });
+      });
+    }, 120_000);
+
     it("uses only an exact run-bound legacy page, including post-publication supersession", async () => {
       await withEphemeralPostgres(async (pool) => {
         await createEphemeralSchema(pool);
@@ -5000,7 +5179,8 @@ async function createEphemeralSchema(pool: Pool) {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       business_id TEXT, provider_account_id TEXT, day DATE, surface TEXT,
       run_id TEXT, fetch_status TEXT, fresh_start_applied BOOLEAN,
-      checkpoint_reset_applied BOOLEAN, completed_at TIMESTAMPTZ,
+      checkpoint_reset_applied BOOLEAN, raw_snapshot_watermark TEXT,
+      meta_json JSONB, started_at TIMESTAMPTZ, completed_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
     );
     CREATE TABLE meta_authoritative_slice_versions (
@@ -5008,11 +5188,14 @@ async function createEphemeralSchema(pool: Pool) {
       business_id TEXT, provider_account_id TEXT, day DATE, surface TEXT,
       manifest_id UUID, source_run_id TEXT, state TEXT, truth_state TEXT,
       validation_status TEXT, status TEXT, published_at TIMESTAMPTZ,
+      superseded_at TIMESTAMPTZ, validation_summary JSONB,
       created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
     );
     CREATE TABLE meta_authoritative_publication_pointers (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       business_id TEXT, provider_account_id TEXT, day DATE, surface TEXT,
       active_slice_version_id UUID, published_by_run_id TEXT,
+      publication_reason TEXT,
       published_at TIMESTAMPTZ, created_at TIMESTAMPTZ,
       updated_at TIMESTAMPTZ
     );

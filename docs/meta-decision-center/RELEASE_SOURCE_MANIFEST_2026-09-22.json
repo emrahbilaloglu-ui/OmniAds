@@ -1,5 +1,5 @@
 {
-  "manifestHash": "6254b4f0869d4cd512d8aad40303477369a29ae1b51dd7afc9712a236d3f493c",
+  "manifestHash": "e643649ca221b83e1e5bc1930e479aebb16cb50f03d9af75130aa4a136e2a968",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -756,7 +756,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-calibration-job.test.ts",
-      "sha256": "32b8bb17a8564a3d19262c1134139e198ff64e59b04a68cb596b15547bc20b2d"
+      "sha256": "4be416618f1bc5593509a44df4f89c231150d7ca0adb44bd5f438433d62687c5"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-calibration-migration-shape.test.ts",

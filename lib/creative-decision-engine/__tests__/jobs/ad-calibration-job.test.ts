@@ -4059,8 +4059,20 @@ describe.runIf(postgresAvailable)(
         expect(await read()).toMatchObject({verified: true, purchases: 0});
 
         const sourceId = snapshot.rows[0]!.id;
+        const siblingManifest = await pool.query<{ id: string }>(`
+          INSERT INTO meta_authoritative_source_manifests
+            (business_id, provider_account_id, day, surface, run_id,
+             fetch_status, fresh_start_applied, checkpoint_reset_applied,
+             completed_at, created_at, updated_at)
+          VALUES ($1, $2, $3::date, 'account_daily', 'run-legacy-zero',
+            'completed', true, true, '2026-07-12T01:35:00Z',
+            '2026-07-12T01:35:00Z', '2026-07-12T01:35:00Z')
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
+        // Same run and day are insufficient; only the active slice's exact
+        // manifest can supply its validation.
         await pool.query(`UPDATE meta_authoritative_slice_versions
-          SET manifest_id=gen_random_uuid() WHERE id=$1::uuid`, [slice.rows[0]!.id]);
+          SET manifest_id=$2::uuid WHERE id=$1::uuid`,
+          [slice.rows[0]!.id, siblingManifest.rows[0]!.id]);
         expect(await read()).toMatchObject({verified: false, purchases: null});
         await pool.query(`UPDATE meta_authoritative_slice_versions
           SET manifest_id=$2::uuid WHERE id=$1::uuid`,

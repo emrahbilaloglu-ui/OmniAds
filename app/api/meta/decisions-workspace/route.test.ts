@@ -966,7 +966,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     let asOfDate = "2026-07-10";
     let jobRunId = "00000000-0000-4000-8000-000000000001";
     const query = vi.fn(async (statement: string) => {
-      if (statement.includes("SELECT id::text AS job_run_id")) {
+      if (statement.includes("AS job_run_id")) {
         return [{
           job_run_id: jobRunId,
           as_of_date: asOfDate,
@@ -1015,6 +1015,15 @@ describe("GET /api/meta/decisions-workspace", () => {
         expect.stringContaining("FROM engine_v3_job_runs"),
         ["biz_1"],
       );
+      // A later advisory-lock skip is not the effective terminal generation
+      // when its overlapping lock holder publishes. Cache identity must use
+      // the same skip exclusion as the canonical native reader.
+      expect(query).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /run\.status = 'skipped'[\s\S]*Advisory lock not acquired%[\s\S]*holder\.status IN \('success', 'failed'\)/,
+        ),
+        ["biz_1"],
+      );
     } finally {
       delete (globalThis as Record<string, unknown>).__omniadsServerCache;
       vi.unstubAllEnvs();
@@ -1042,7 +1051,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     let asOfDate = "2026-07-10";
     Object.assign(sql, {
       query: vi.fn(async (statement: string) => {
-        if (statement.includes("SELECT id::text AS job_run_id")) {
+        if (statement.includes("AS job_run_id")) {
           throw new Error("marker read unavailable");
         }
         if (statement.includes("SELECT MAX(as_of_date)::text AS latest_as_of")) {

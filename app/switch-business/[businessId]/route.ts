@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getSessionFromCookies, setSessionActiveBusiness } from "@/lib/auth";
+import { getSessionFromCookies } from "@/lib/auth";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import {
@@ -11,12 +11,11 @@ import {
 export const dynamic = "force-dynamic";
 
 /**
- * A business switch is a navigation boundary: the next document must be read
- * under the newly selected session. The former Server Component wrote that
- * session and then streamed a redirect. A cross-business /c/Decisions arrival
- * reproduced React #310 in App Router before its workspace request. This
- * handler makes this hop an HTTP redirect after the session write, so it does
- * not stream an intermediate page under two different scopes.
+ * A business switch is a navigation boundary. A GET must not write session
+ * state (including when a link is prefetched). If the target differs, send a
+ * no-store HTTP redirect to a completion page that uses the authenticated
+ * POST switch endpoint, then makes a full document navigation. This avoids
+ * the old Server Component's write followed by a streamed redirect.
  */
 export async function GET(
   request: NextRequest,
@@ -47,10 +46,11 @@ export async function GET(
     });
   }
 
-  if (session.activeBusinessId !== businessId) {
-    await setSessionActiveBusiness(session.sessionId, businessId);
+  if (session.activeBusinessId === businessId) {
+    return switchRedirect(request, destination);
   }
-  return switchRedirect(request, destination);
+  const completion = `/switch-business/${encodeURIComponent(businessId)}/finish?next=${encodeURIComponent(destination)}`;
+  return switchRedirect(request, completion);
 }
 
 function switchRedirect(request: NextRequest, destination: string): NextResponse {

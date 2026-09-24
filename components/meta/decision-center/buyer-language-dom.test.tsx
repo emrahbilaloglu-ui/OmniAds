@@ -222,7 +222,7 @@ describe("the Creatives scope, notice and provenance panel", () => {
 
     // THE MEANING SURVIVES.
     expect(text).toContain(
-      "earlier creative-level guidance is shown for reference and cannot be applied to individual ads",
+      "current creative decisions could not be verified, so this queue is temporarily unavailable",
     );
     // AND THE VOCABULARY DOES NOT.
     expectNoInternalVocabulary(text, "the Creatives scope");
@@ -239,7 +239,7 @@ describe("the Creatives scope, notice and provenance panel", () => {
       ads are being evaluated" does not tell an operator whether five or six
       hundred of their account is affected.
     */
-    expect(text).toContain("60 active ads are still being evaluated");
+    expect(text).toContain("60 active ads have no current decision on this screen");
   });
 
   it("does not print the raw limitation codes or the fallback reason", () => {

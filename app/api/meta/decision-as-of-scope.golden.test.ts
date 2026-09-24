@@ -38,8 +38,11 @@ function declaredColumns(table: string): Set<string> {
 function resolverSql(): string {
   const start = route.indexOf("async function resolveWorkspaceEndDate");
   expect(start).toBeGreaterThan(-1);
-  const end = route.indexOf("\nasync function", start + 1);
-  return route.slice(start, end === -1 ? undefined : end);
+  const boundaries = [
+    route.indexOf("\nasync function", start + 1),
+    route.indexOf("\ntype NativeDecisionJobMarker", start + 1),
+  ].filter((position) => position !== -1);
+  return route.slice(start, boundaries.length ? Math.min(...boundaries) : undefined);
 }
 
 describe("D070 invariant: the resolver only filters on columns that exist", () => {

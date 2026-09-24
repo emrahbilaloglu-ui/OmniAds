@@ -3,7 +3,6 @@ import { NextRequest } from "next/server";
 
 vi.mock("@/lib/auth", () => ({
   getSessionFromCookies: vi.fn(),
-  setSessionActiveBusiness: vi.fn(),
 }));
 vi.mock("@/lib/access/require-business-page-context", () => ({
   requireBusinessPageContext: vi.fn(),
@@ -45,21 +44,21 @@ beforeEach(() => {
 });
 
 describe("GET /switch-business/[businessId]", () => {
-  it("changes the authorized session before a no-store HTTP redirect and keeps destination query", async () => {
+  it("redirects an authorized cross-business GET to POST completion without writing", async () => {
     const target = "/app/meta/decisions?scope=creatives&window=7d";
     const response = await get(`?next=${encodeURIComponent(target)}`);
 
     expect(access.requireBusinessPageContext).toHaveBeenCalledWith({ businessId });
-    expect(auth.setSessionActiveBusiness).toHaveBeenCalledOnce();
-    expect(auth.setSessionActiveBusiness).toHaveBeenCalledWith("session_1", businessId);
     expect(response.status).toBe(307);
-    expect(response.headers.get("Location")).toBe(`https://app.example${target}`);
+    const location = new URL(response.headers.get("Location")!);
+    expect(location.pathname).toBe(`/switch-business/${businessId}/finish`);
+    expect(location.searchParams.get("next")).toBe(target);
     expect(response.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
     expect(response.headers.get("Vary")).toBe("Cookie");
     expect(await response.text()).toBe("");
   });
 
-  it("does not write the session when the requested business is already active", async () => {
+  it("redirects directly when the requested business is already active", async () => {
     vi.mocked(auth.getSessionFromCookies).mockResolvedValue({
       ...session,
       activeBusinessId: businessId,
@@ -67,20 +66,19 @@ describe("GET /switch-business/[businessId]", () => {
     const response = await get("?next=%2Fapp%2Fhome");
     expect(response.status).toBe(307);
     expect(response.headers.get("Location")).toBe("https://app.example/app/home");
-    expect(auth.setSessionActiveBusiness).not.toHaveBeenCalled();
   });
 
   it("preserves an allowlisted Agency return and drops an invalid one", async () => {
     const valid = encodeURIComponent("/a/desk/clients?row=biz_target");
     const target = encodeURIComponent("/app/meta/decisions?scope=creatives");
     const allowed = await get(`?next=${target}&returnTo=${valid}`);
-    expect(allowed.headers.get("Location")).toBe(
-      "https://app.example/app/meta/decisions?scope=creatives&returnTo=%2Fa%2Fdesk%2Fclients%3Frow%3Dbiz_target",
+    expect(new URL(allowed.headers.get("Location")!).searchParams.get("next")).toBe(
+      "/app/meta/decisions?scope=creatives&returnTo=%2Fa%2Fdesk%2Fclients%3Frow%3Dbiz_target",
     );
 
     const refused = await get(`?next=${target}&returnTo=${encodeURIComponent("//evil.example")}`);
-    expect(refused.headers.get("Location")).toBe(
-      "https://app.example/app/meta/decisions?scope=creatives",
+    expect(new URL(refused.headers.get("Location")!).searchParams.get("next")).toBe(
+      "/app/meta/decisions?scope=creatives",
     );
   });
 
@@ -94,7 +92,6 @@ describe("GET /switch-business/[businessId]", () => {
       "/switch-business/biz_target?next=%2Fapp%2Fmeta%2Fdecisions",
     );
     expect(access.requireBusinessPageContext).not.toHaveBeenCalled();
-    expect(auth.setSessionActiveBusiness).not.toHaveBeenCalled();
 
     vi.mocked(auth.getSessionFromCookies).mockResolvedValue(session);
     vi.mocked(access.requireBusinessPageContext).mockResolvedValue({ kind: "not-found" });
@@ -102,13 +99,14 @@ describe("GET /switch-business/[businessId]", () => {
     expect(denied.status).toBe(404);
     expect(denied.headers.get("Location")).toBeNull();
     expect(denied.headers.get("Cache-Control")).toBe("private, no-store, max-age=0");
-    expect(auth.setSessionActiveBusiness).not.toHaveBeenCalled();
   });
 
   it("does not honor an external or malformed destination", async () => {
     for (const unsafe of ["//evil.example", "/\\evil.example", "https://evil.example/"]) {
       const response = await get(`?next=${encodeURIComponent(unsafe)}`);
-      expect(response.headers.get("Location")).toBe("https://app.example/overview");
+      expect(new URL(response.headers.get("Location")!).searchParams.get("next")).toBe(
+        "/overview",
+      );
     }
   });
 });

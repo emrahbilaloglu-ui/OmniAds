@@ -257,11 +257,10 @@ function BusinessControl() {
     });
     setPendingId(null);
     if (scopedDestination) {
-      // The path states B; the query keeps only what ITEM 9 permits. A scoped
-      // route used to be left with a bare path, which happened to be safe —
-      // this states the same guarantee on purpose instead of by omission, and
-      // lets the operator keep the days they were looking at.
-      router.replace(hrefWithParams(scopedDestination, nextQuery));
+      // A scoped layout must be remounted under B's session. A client router
+      // transition can reuse A's layout while rendering B's decision tree.
+      // The query keeps the view and dates, but no account/entity identifiers.
+      window.location.replace(hrefWithParams(scopedDestination, nextQuery));
       return;
     }
     // The server moved the session first. Writing the store before that answer

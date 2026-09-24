@@ -15,6 +15,7 @@ import {
   resolveMetaCredentials,
 } from "@/lib/api/meta";
 import { getDb, getDbRuntimeDiagnostics } from "@/lib/db";
+import { readLatestNativeDecisionJobMarker } from "@/lib/meta/decision-job-marker";
 import { META_ACTION_DIGEST_ROW_CAP } from "./action-digest-window";
 import {
   classifyDecisionDateFallback,
@@ -505,65 +506,6 @@ async function resolveWorkspaceEndDate(input: {
     reportDecisionDateFallback("legacy_decision_snapshot", error);
   }
   return previousUtcDate();
-}
-
-type NativeDecisionJobMarker = {
-  asOfDate: string;
-  cacheIdentity: string;
-};
-
-/**
- * A published native job changes the decision inventory even when its as-of
- * day does not change. Read its indexed, business-scoped marker before using
- * the heavier as-of and decision caches, so a warm process cannot keep serving
- * a prior engine epoch after the new generation has committed. This marker
- * chooses cache identity and an upper date bound only; the native read model
- * still verifies the account receipt and every snapshot before serving it.
- */
-async function readLatestNativeDecisionJobMarker(
-  businessId: string,
-): Promise<NativeDecisionJobMarker | "read_failed" | null> {
-  try {
-    const rows = await getDb().query<{
-      job_run_id: string;
-      as_of_date: string;
-      status: string;
-      finished_at: string | null;
-    }>(
-      `SELECT id::text AS job_run_id,
-              as_of_date::text AS as_of_date,
-              status,
-              finished_at::text AS finished_at
-         FROM engine_v3_job_runs
-        WHERE job_name = 'engine_v3_native_ad_decisions_shadow_job'
-          AND business_ref_id = $1::uuid
-          AND business_id = $1::text
-          AND status <> 'running'
-          AND as_of_date <= (statement_timestamp() AT TIME ZONE 'UTC')::date
-          AND started_at <= statement_timestamp()
-        ORDER BY engine_v3_job_runs.as_of_date DESC,
-                 engine_v3_job_runs.started_at DESC,
-                 engine_v3_job_runs.id DESC
-        LIMIT 1`,
-      [businessId],
-    );
-    const row = rows[0];
-    if (
-      !row?.job_run_id ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(row.as_of_date) ||
-      !row.status
-    ) {
-      return null;
-    }
-    return {
-      asOfDate: row.as_of_date,
-      cacheIdentity: `${row.job_run_id}:${row.status}:${row.finished_at ?? "unfinished"}`,
-    };
-  } catch {
-    // A failed marker read cannot share the "no native job" cache identity:
-    // the last healthy generation may have changed since that key was filled.
-    return "read_failed";
-  }
 }
 
 async function canonicalDecisionReadModel(input: {

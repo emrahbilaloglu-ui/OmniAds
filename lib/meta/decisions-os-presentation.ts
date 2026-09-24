@@ -1697,9 +1697,9 @@ function adDecision(
       purchases: decision.metrics.purchases,
       roas: decision.metrics.roas,
       cpa: null,
-      // 28-day figures from the lifecycle row the engine decided from. Both
-      // were pinned to null here, so the creative rows and the posture band had
-      // nothing to read even though the decision behind them carried it.
+      // Native Ad rows carry the evaluation's admitted-window metrics; legacy
+      // creative rows retain their lifecycle figures. The read model keeps the
+      // populations separate before this presentation pass-through.
       ctr: decision.metrics.ctr ?? null,
       frequency: decision.metrics.frequency ?? null,
       effectiveTargetRoas: commercialTarget(decision.metrics.effectiveTargetRoas),

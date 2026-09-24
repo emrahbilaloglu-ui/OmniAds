@@ -1928,10 +1928,10 @@ const COVERAGE: Record<string, Coverage> = {
     "A second window's return on the same card as the decision window's; the engine decides against the decision window, and two ROAS figures with no stated windows beside them read as a disagreement.",
   ),
   "MetaCanonicalDecision.metrics.ctr": N(
-    "The window draws this ad's CTR as a 28-day daily trail from the ad series read, which is the same measure at higher resolution; a scalar beside the chart would be the chart's own average restated.",
+    "The native Ad row draws this evaluation's admitted-window all-click CTR; the selected-date warehouse trail is separate and cannot substitute for the decision metric.",
   ),
   "MetaCanonicalDecision.metrics.frequency": N(
-    "The served presentation decision's frequency is the one this surface reads - it is the same 28-day lifecycle figure, and it is what the posture band and the window's frequency fact are computed from.",
+    "The native Ad metric is a reach-weighted mean of daily frequency across the admitted economic window; the presentation decision passes it to the posture band.",
   ),
   "MetaCanonicalDecision.metrics.effectiveTargetRoas": R(
     S.EVIDENCE,
@@ -2035,8 +2035,8 @@ const COVERAGE: Record<string, Coverage> = {
     "provider-account",
   ),
   "MetaOsAdDecision.adId": R(
-    S.CREATIVES,
-    "the key the row's CTR sparkline is looked up by, and the diagnostics' served ad",
+    S.EVIDENCE,
+    "the evidence window's served Ad identity and provider link; the selected-date CTR trail no longer shares the decision metric caption",
   ),
   "MetaOsAdDecision.adName": R(
     S.CREATIVES,
@@ -2859,12 +2859,12 @@ const COVERAGE: Record<string, Coverage> = {
     "the provenance-gap line, which names CPA as not served at this row's grain rather than leaving an unexplained gap",
   ),
   "MetaOsDecisionMetrics.ctr": W(
-    S.INSPECTOR,
-    "the provenance-gap line, for the same reason as CPA",
+    S.CREATIVES,
+    "the creative row's decision all-click CTR, labelled with its admitted economic dates; a missing value has no lifecycle fallback",
   ),
   "MetaOsDecisionMetrics.frequency": R(
     S.POSTURE,
-    "the spend-weighted 'Avg frequency · 28d' tile, and the evidence window's frequency fact",
+    "the spend-weighted 'Avg daily frequency' tile, and the separately labelled evidence window frequency fact",
     "average-frequency",
   ),
   "MetaOsDecisionMetrics.effectiveTargetRoas": R(

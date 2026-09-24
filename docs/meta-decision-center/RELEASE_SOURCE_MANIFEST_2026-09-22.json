@@ -1,5 +1,5 @@
 {
-  "manifestHash": "755fb69e8ec06ae196b91aff3980ae36410c8618d63717b6019717b112efe7e3",
+  "manifestHash": "95454af70463ef9cac24ffe505d0fc9ac8ff537878938d80faca7984a421101b",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1668,7 +1668,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
-      "sha256": "1d4e28afc5c2b4efd672a81d9c482ece664f42dd8aee96303704734aea5f7d51"
+      "sha256": "f4d8ef38d04f667069545be13a954b27680deef095d7fc4f120281140b2a8726"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",

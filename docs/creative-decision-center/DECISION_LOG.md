@@ -10835,3 +10835,53 @@ native/creative decisions. Historical V1/operator/V2 records stay readable.
 **Rollback.** Revert the lifecycle writer/read-model pair and mint a new
 materialization contract for any semantic replacement. Retained lifecycle
 rows and earlier decision snapshots are not rewritten or deleted.
+
+## D115 — Admit only source-validated cent-precision Ad spend variance (2026-09-24)
+
+**Decision.** D113's existing v2 receipt remains the contract for exact or
+one-cent source/Ad spend agreement. A v3 historical slice repair can bind a
+larger difference only when all D113 source, population, timeline and
+publication checks pass; every raw Ad spend is a nonnegative string with at
+most two decimal places; each stored Ad spend equals its exact raw row's
+cent value; and the account-vs-Ad gap is within both the original writer's
+`max(0.01, sourceSpend * 0.001)` acceptance tolerance and the conservative
+`(Ad row count + 1) / 2` cent quantization envelope. The exact target
+manifest must have a `validation_passed` receipt before publication whose
+source and warehouse values match those two cent totals, with no later
+failure. This envelope is a **bounded admission policy**, not a claim that
+Meta's account/Ad discrepancy was conclusively caused by rounding. A
+receipt that failed at publication, a wider discrepancy, a missing Ad/raw
+row, non-cent raw spend, or a changed payload stays held.
+
+The v3 candidate records both cent totals, absolute gap, row count and
+quantization bound alongside D113's transaction-proven old pointer and exact
+source identities. The in-transaction readback recomputes the proof and
+rejects a changed summary. D108's provider-zero receipt and D109's
+creative-day source reader recognize v2 and v3; neither infers zero from
+the spend variance itself. Existing v2 rows and historical decision
+snapshots remain unchanged. New reviewed manifests and hashes are required
+for any v3 application.
+
+**Evidence and limit.** A read-only 2026-09-24T17:41Z global D113 preview had
+794 account-days: 766 repairable and 28 held. Of the 28, 25 had numeric
+source/Ad spend gaps; 15 have exact passing reconciliation receipts and
+fall within both bounds. Five are exactly one cent and were held only by
+floating-point comparison noise under v2; ten require the v3 receipt.
+For all 15, a live PostgreSQL check found the raw
+and stored Ad population and payload identical, all spends cent-precision,
+and zero row-level spend differences. Nine other spend-gap days have failed
+or missing exact reconciliation, and one passed day exceeds the quantization
+bound; two July 1 days lack the exact raw page and one Grandmix day was
+published after the preview cutoff. All 13 remain held. A paired dated
+Meta re-read for account `act_3492832280952500` on September 20 returned
+account spend 125.33 and the same 17 Ad IDs and Ad spend 125.10 as the old
+raw page: a persistent 0.23 cross-grain gap beyond its 0.09 quantization
+envelope. It remains held and demonstrates why the writer's broad
+percentage tolerance alone is insufficient. This repair does not resolve
+Grandmix/TheSwaf's D103 creative membership/config gaps or their full
+90-day lifecycle admission.
+
+**Rollback.** Stop v3 repairs and revert the versioned reader/writer patch.
+Do not relabel or delete previous slices. Any already published v3 pointer
+needs a separate reviewed rollback to its recorded predecessor; old
+manifest hashes are never reused.

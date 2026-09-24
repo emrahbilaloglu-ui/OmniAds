@@ -1,5 +1,5 @@
 {
-  "manifestHash": "12a7532a2436a80bcad96590fd052b4d0d0ae72977d62e9e1df0b6802b9b64b9",
+  "manifestHash": "e049b018d409faf965e6383d9733f35cc16b32e88c95710203ad926271bc69f3",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -568,7 +568,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "58ea8d24666b8dfac2da883037a0d446e001904b8261ccea1e55e218754e73cd"
+      "sha256": "75c74e203f7160502c88388097b23446491c67eb538d591bf64403de30cdf1a8"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1208,7 +1208,7 @@
     },
     {
       "path": "lib/meta/ad-day-provider-zero-receipt.ts",
-      "sha256": "81c261ae034669e1974b093e19a3e66fec4116d4bb803fbeca14ade75aad8617"
+      "sha256": "c2a42f79e8bcf3cafc12b7d4ba9d34e8d395e863fdd9b09f87ab28aac4054a1f"
     },
     {
       "path": "lib/meta/ad-funnel-evidence-read.test.ts",
@@ -1656,7 +1656,7 @@
     },
     {
       "path": "lib/meta/purchase-count-parse.test.ts",
-      "sha256": "f4cfc6e8ebbbe7c0048b704158207a43e66e1e8e97536424cc7a5754af5f554c"
+      "sha256": "b8a2b04434f51fc88c95eea59aca5d6da7d0c9e246e79ea1467bbe80156acbcf"
     },
     {
       "path": "lib/meta/purchase-count-parse.ts",
@@ -1984,11 +1984,11 @@
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.test.ts",
-      "sha256": "d028b377c39464438374db12a3ad88024cf037f8f02f374d11cee6fdbe08c57f"
+      "sha256": "fdf6ba61783964add9a9e1e8c65150a741454b6caecea96b3a1c0e4db64c6c02"
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.ts",
-      "sha256": "ba410bd491542645e4fb8b24799c98cc68920a9d9b80b467155352162b5ff1d2"
+      "sha256": "b4df1b2cffbaf02967ca47369d2bd26a0e19f37d7ccfa0bc188919e6946615a2"
     },
     {
       "path": "scripts/meta/decision-release-source-manifest.ts",
@@ -2000,11 +2000,11 @@
     },
     {
       "path": "scripts/meta/historical-source-slice-repair.test.ts",
-      "sha256": "9b0f89db30ff6be82ca75b821a86635bfcebd9a06a5e2946c51d9484d72a9479"
+      "sha256": "87b78bf7105d10dbc701802a7d27b0e97df20787f5a8d3b44041b2d714ac79eb"
     },
     {
       "path": "scripts/meta/historical-source-slice-repair.ts",
-      "sha256": "2dad9a9497444e943c7f76b6aa22cdf13c74d182b105d0231afd217315fc809c"
+      "sha256": "841dc7471a4496b2f48abdf4548b711f1ccb8be8e58ecf3b1ffa8c4945f34a80"
     },
     {
       "path": "scripts/meta/link-click-repair-backfill.db.test.ts",

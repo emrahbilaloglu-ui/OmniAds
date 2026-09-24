@@ -14,7 +14,7 @@
  * account day and with a complete source/validation chain. A legacy snapshot
  * superseded after publication was still fetched at publication; a snapshot
  * superseded earlier cannot testify to that publication.
- * A D113 v2 manifest rebind can publish a new pointer after supersession.
+ * A D113 v2/v3 manifest rebind can publish a new pointer after supersession.
  * Its transaction-proven predecessor receipt preserves the original clock;
  * the new pointer clock alone never proves an old provider omission.
  */
@@ -183,8 +183,10 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
                   source.status = 'superseded'
                   AND source.updated_at <= pointer.published_at
                   AND pointer.publication_reason = 'manifest_rebind_repair'
-                  AND slice.validation_summary->>'repairContract'
-                    = 'meta-historical-source-slice-repair.v2'
+                  AND slice.validation_summary->>'repairContract' IN (
+                    'meta-historical-source-slice-repair.v2',
+                    'meta-historical-source-slice-repair.v3'
+                  )
                   AND slice.validation_summary->>'receiptKind'
                     = 'legacy_run_bound_raw'
                   AND slice.validation_summary->>'reviewedPlanHash'

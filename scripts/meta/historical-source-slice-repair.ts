@@ -260,7 +260,8 @@ export function evaluateHistoricalSourceSlice(input: {
     blockers.push("reference_identity_mismatch");
   }
   if (target && (![target.startedAt, target.completedAt, target.createdAt, target.updatedAt]
-    .every((value) => Number.isFinite(time(value)) && time(value) <= cutoff))) {
+    .every((value) => Number.isFinite(time(value)) &&
+      time(value) <= Math.min(time(proofPublishedAt), cutoff)))) {
     blockers.push("manifest_clock_invalid");
   }
   if (raw) {

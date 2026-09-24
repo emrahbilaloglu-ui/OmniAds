@@ -10603,7 +10603,8 @@ already stored Ad population. It requires the same business, account, day,
 run and partition; exact payload and Ad identities; matching source/warehouse
 spend and row count; a run observation or an original run-bound legacy page;
 and that manifest's passing account reconciliation after completion and before
-the old pointer. Any later failed reconciliation through the review cutoff,
+the old pointer. The manifest's creation and last update must also precede
+that original pointer. Any later failed reconciliation through the review cutoff,
 an intervening different completed capture, a missing page or active sync
 partition is a hold. A legacy page marked `superseded` can be used only when
 its one-time status update occurred after the old pointer publication. The

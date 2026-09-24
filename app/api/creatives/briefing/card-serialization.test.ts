@@ -650,7 +650,7 @@ describe("card serialization", () => {
       label: "Proven winner",
       tone: "pos",
       blockerCode: null,
-      vocabularyVersion: "meta-decisions-classification-overlay.v7",
+      vocabularyVersion: "meta-decisions-classification-overlay.v8",
     });
   });
 });

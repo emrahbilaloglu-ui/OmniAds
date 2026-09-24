@@ -1,5 +1,5 @@
 {
-  "manifestHash": "ee5b39d28b7bdec31f6072283645cf48e8a81db912e20905b7acd9b79266e29c",
+  "manifestHash": "91f75bd8541fce4b6471d901d8e6ac5b449ffa152c8d2ef8478b7e9e26e86373",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -128,7 +128,7 @@
     },
     {
       "path": "app/api/creatives/briefing/card-serialization.test.ts",
-      "sha256": "7b1c451c8784c4dda6cac8b5fc8a12791b245696ca0e4eca93abcc54b0ad48f2"
+      "sha256": "96b6736d3783a7ff5a650a7c58ff26c0f783963e3c1c91f307116098592c29ba"
     },
     {
       "path": "app/api/creatives/briefing/card-serialization.ts",
@@ -544,11 +544,11 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "a9b134c379e0d3751277ae237e7bc34de36ec3c08349c410bac299d87609321b"
+      "sha256": "89ea0e9aaeffce85dd4123c7a89b8d29500af2e2200feb51422f563dc2084e03"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
-      "sha256": "f2dbe14729e7eef68a37a379996efd9b73da3618bebffa8a09a3c0aa93ed448b"
+      "sha256": "5365700d912beeeb7533bfc52b73c6c798c65f1f5eca8297d3f5698fff62b327"
     },
     {
       "path": "docs/creative-decision-center/INVARIANTS.md",
@@ -1436,11 +1436,11 @@
     },
     {
       "path": "lib/meta/decision-semantics.test.ts",
-      "sha256": "572614a2650f1445a3cb23165da977b1cd1fd7e16b018c848b0447dfc02bdcad"
+      "sha256": "9a2cd1ad26bfa16035b8a8a3a87a5715bcc45f630ee99b4dab3b3a017162a2db"
     },
     {
       "path": "lib/meta/decision-semantics.ts",
-      "sha256": "a31b5ac3e98f3e409f09aff3b7064538b6c7f2024e53f7bfef914edf36102fb1"
+      "sha256": "9e5ca51d5b85f694315310d31450e84a681e604f9e55ba1ef4c9fdb020feacb7"
     },
     {
       "path": "lib/meta/decisions-canonical-ad-universe.test.ts",
@@ -1448,11 +1448,11 @@
     },
     {
       "path": "lib/meta/decisions-os-contract.ts",
-      "sha256": "92f6b0f70522d82e498a8a9b2735a4d142ac302a5c95abff037676ae59100e1e"
+      "sha256": "8992eafc174eba530df4065f20a028528cb6b6142800dc165840d176cd08b6f5"
     },
     {
       "path": "lib/meta/decisions-os-presentation.test.ts",
-      "sha256": "e276f8abb1e6c3eaefc50f8ce6974fc6cb0aa54fc3a1d2cfd55e86533e9baf22"
+      "sha256": "0c6303ec06d71b70cfa41c98191fe1953e95b818011bb99f608d1e1b8e4acf13"
     },
     {
       "path": "lib/meta/decisions-os-presentation.ts",
@@ -1460,7 +1460,7 @@
     },
     {
       "path": "lib/meta/decisions-workspace-contract.ts",
-      "sha256": "fc22ee7df1bb529e8f08f387fc38d7232a5348da8bead243417a00fdd49c70dd"
+      "sha256": "9ec003fad65f0913c2e6bd03e02d24594d639e3b6f94bfba71d0d0c6e5832522"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
@@ -1480,7 +1480,7 @@
     },
     {
       "path": "lib/meta/fixtures/demo-native-canonical-generation.v1.json",
-      "sha256": "d373d8ff705b8cbac745ac839e184649113114a828382e5a77f07440f2295d2e"
+      "sha256": "63df0855c2605d992f184c2b492b66a4b4049f919c445a831a4ec89050679489"
     },
     {
       "path": "lib/meta/fixtures/meta-funnel-stage-actions.v1.json",

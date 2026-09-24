@@ -10512,6 +10512,13 @@ hysteresis-held), but all carried six to nine unverified economic days; role
 uncertainty was not their sole action blocker. D101/D110 source repair and a
 fresh generation must be evaluated separately.
 
+The read-time typed resolution also gives `config_source_authority` priority
+over a simultaneous `pending_transition`: a second evaluation cannot supply
+historical configuration evidence. It still states that consecutive engine
+confirmation is required, while `buyerAction` and provider authority remain
+null. The classification overlay and OS presentation advance to `.v8`; `.v7`
+snapshots remain readable under their original contract.
+
 **Identity and verification.** The shared resolver epoch moves to
 `v3-2026-09-24-cut-proof-floor-story`; the native epoch moves to
 `v3-ad-2026-09-24-cut-proof-floor-story-shadow`; native Ad evaluation contract

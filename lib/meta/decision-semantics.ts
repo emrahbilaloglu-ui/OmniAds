@@ -120,13 +120,18 @@ function hasMissingScaleWinnerBenchmark(
 }
 
 /** ADR D098: the held resolution when configuration was not established. */
-function configSourceHeldResolution(held: string): MetaDecisionResolution {
+function configSourceHeldResolution(
+  held: string,
+  pendingConfirmation = false,
+): MetaDecisionResolution {
   return {
     code: "complete_hard_action_evidence",
     category: "system",
     owner: "system",
     label: "Complete Hard-Action Evidence",
-    nextStep: `The held ${held} verdict stands, but the campaign configuration it would act on was not confirmed by a provider receipt for the evaluation day, or some economic days it was computed from have unverified configuration. No provider action is authorized until date-authoritative evidence verifies the missing days, or a new decision window accrues with configuration verified on every economic day. A later current-value fetch cannot be assigned to a past day without such proof.`,
+    nextStep: `${pendingConfirmation
+      ? `The economic ${held} signal also awaits consecutive engine confirmation, and `
+      : `The held ${held} verdict stands, but `}the campaign configuration it would act on was not confirmed by a provider receipt for the evaluation day, or some economic days it was computed from have unverified configuration. No provider action is authorized until date-authoritative evidence verifies the missing days, or a new decision window accrues with configuration verified on every economic day. A later current-value fetch cannot be assigned to a past day without such proof.`,
   };
 }
 
@@ -416,17 +421,10 @@ function resolutionForAuthorityBlocker(
       evidence-completion code so every consumer already maps it; the label is
       that code's own byte-stable label.
     */
-    if (codes.has("pending_transition")) {
-      return {
-        code: "await_decision_confirmation",
-        category: "system",
-        owner: "system",
-        label: "Hard Action Pending Confirmation",
-        nextStep:
-          "Wait for the required consecutive engine confirmation. The held Scale/Cut/Refresh verdict is visible, but no provider action is authorized yet.",
-      };
-    }
-    return configSourceHeldResolution(held);
+    // A second evaluation cannot repair an unobserved configuration day.
+    // Preserve confirmation as a separate requirement in the explanation,
+    // while the typed first resolution names the source gap that blocks it.
+    return configSourceHeldResolution(held, codes.has("pending_transition"));
   }
   return {
     code: "restore_native_profile",

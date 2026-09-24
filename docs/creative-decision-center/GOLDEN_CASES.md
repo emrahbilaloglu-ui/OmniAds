@@ -835,6 +835,7 @@ the run the D107 hydration admitted in the read-only Grandmix replay
 | D111-03 | physical-account AOV missing or invalid | no floor is invented; the original soft hold remains |
 | D111-04 | role-held economic Cut with unverified D101 coverage, decision-window config or purchase observation | source/config/purchase evidence is the first typed blocker; no authorized action, role remains a separate restriction |
 | D111-05 | role-held economic Cut with complete source and config | campaign context remains the blocker; no authorized action |
+| D111-06 | held economic Cut with `config_source_authority` and `pending_transition` | typed resolution names the missing date-authoritative configuration first and also names the needed consecutive confirmation; no buyer or provider action |
 
 ## Current authority vs historical record
 

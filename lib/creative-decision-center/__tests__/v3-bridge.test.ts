@@ -79,7 +79,7 @@ function validateMappedBridge(result: V3BridgeMappedResult) {
 describe("Creative Decision Center V3 bridge", () => {
   it("exposes a stable bridge version", () => {
     expect(CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION).toBe(
-      "creative-decision-center.v3-bridge.v1",
+      "creative-decision-center.v3-bridge.v2",
     );
   });
 
@@ -206,11 +206,11 @@ describe("Creative Decision Center V3 bridge", () => {
         }),
       }),
     );
-    expect(campaignGap.engine.primaryDecision).toBe("Diagnose");
-    expect(campaignGap.engine.actionability).toBe("diagnose");
-    expect(campaignGap.engine.problemClass).toBe("campaign_context");
-    expect(campaignGap.engine.reasonTags).toContain("campaign_role_unresolved");
-    validateMappedBridge(campaignGap);
+    expect(campaignGap.engine.primaryDecision).toBe("Protect");
+    expect(campaignGap.engine.actionability).toBe("review_only");
+    expect(campaignGap.engine.problemClass).toBe("performance");
+    expect(campaignGap.engine.blockerReasons).not.toContain("campaign_role_unresolved");
+    expect(validateMappedBridge(campaignGap).buyerAction).toBe("protect");
 
     const nearScale = requireMapped(
       bridgeV3DecisionToV21({
@@ -244,6 +244,61 @@ describe("Creative Decision Center V3 bridge", () => {
       "pending_hard_action",
     );
     expect(pendingRow.buyerAction).toBe("test_more");
+  });
+
+  it("keeps a role gap advisory for soft Keep while preserving independent evidence and hard holds", () => {
+    const softCases = [
+      {
+        badges: [badge("campaign_context_unresolved")],
+        primaryDecision: "Protect",
+        problemClass: "performance",
+      },
+      {
+        badges: [badge("campaign_context_unresolved"), badge("scale_readiness_blocked"), badge("scale_calibration_thin")],
+        primaryDecision: "Test More",
+        problemClass: "insufficient_signal",
+      },
+      {
+        badges: [badge("campaign_context_unresolved"), badge("weak_performance")],
+        primaryDecision: "Test More",
+        problemClass: "insufficient_signal",
+      },
+    ] as const;
+
+    for (const testCase of softCases) {
+      const result = requireMapped(bridgeV3DecisionToV21({
+        decision: makeV3Decision({
+          label: "keep",
+          campaignRoleStatus: "unresolved",
+          campaignKind: null,
+          badges: [...testCase.badges],
+        }),
+      }));
+      expect(result.engine.primaryDecision).toBe(testCase.primaryDecision);
+      expect(result.engine.problemClass).toBe(testCase.problemClass);
+      expect(result.engine.actionability).toBe("review_only");
+      expect(result.engine.applyEligible).toBe(false);
+      expect(result.engine.blockerReasons).not.toContain("campaign_role_unresolved");
+      expect(validateMappedBridge(result).buyerAction).not.toBe("diagnose_data");
+    }
+
+    for (const held of [
+      { preAuthorityLabel: "cut" as const, authorityBlocker: "campaign_context" as const, blockedActionType: "cut" as const },
+      { preAuthorityLabel: "scale" as const, authorityBlocker: null, blockedActionType: null },
+    ]) {
+      const result = requireMapped(bridgeV3DecisionToV21({
+        decision: makeV3Decision({
+          label: "keep",
+          campaignRoleStatus: "unresolved",
+          campaignKind: null,
+          badges: [badge("campaign_context_unresolved")],
+          ...held,
+        }),
+      }));
+      expect(result.engine.primaryDecision).toBe("Diagnose");
+      expect(result.engine.blockerReasons).toContain("campaign_role_unresolved");
+      expect(validateMappedBridge(result).buyerAction).toBe("diagnose_data");
+    }
   });
 
   it("preserves labelTransform as sourceDecision instead of flattening to the final label", () => {

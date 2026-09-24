@@ -796,7 +796,8 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
   });
 
   it("R5: thumbstop and every video rate are NULL for every creative", () => {
-    expect(lifecycle.size).toBe(10);
+    // Includes the source-complete historical creative with no recent day.
+    expect(lifecycle.size).toBe(11);
     for (const row of lifecycle.values()) {
       expect([
         row.thumbstop_28d,
@@ -1006,9 +1007,10 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
         WHERE d.business_id = $1`,
       [LIFECYCLE_BUSINESS],
     );
-    // 24 stored creative-days: the fold rows are two ad-rows each, merged into
-    // one; identity/config-negative and delivery-status cases remain stored.
-    expect(rows.length).toBe(24);
+    // 25 stored creative-days: the fold rows are two ad-rows each, merged into
+    // one; the old-window, identity/config-negative and delivery-status cases
+    // remain stored.
+    expect(rows.length).toBe(25);
     for (const row of rows) {
       for (const stage of stages) {
         expect(row[`lateral_${stage}`], `${row.creative_id} ${row.date} ${stage}`).toEqual(row[`direct_${stage}`]);

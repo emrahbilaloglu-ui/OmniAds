@@ -48,6 +48,7 @@ function evidence(): RepairEvidence {
       requestContext: { source: "bulk_core_sync", level: "ad", fields: "ad_id,spend,actions" },
       payload: [row], contentKey: "content-addressed", fetchedAt: "2026-09-23T06:50:31.800Z",
       createdAt: "2026-09-23T06:50:31.800Z",
+      updatedAt: "2026-09-23T06:50:31.800Z",
     },
     observations: [{
       id: "receipt", snapshotId: RAW, partitionId: PARTITION, runId: RUN,
@@ -104,6 +105,17 @@ describe("historical source slice repair proof", () => {
     const late = evidence();
     late.observations[0]!.observedAt = "2026-09-23T06:50:32.900Z";
     expect(plan(late).blockers).toContain("observation_not_causal_or_superseded");
+  });
+
+  it("accepts only raw pages superseded after the old pointer", () => {
+    const laterReset = evidence();
+    laterReset.raw!.status = "superseded";
+    laterReset.raw!.updatedAt = "2026-09-23T08:00:00.000Z";
+    expect(plan(laterReset).state).toBe("repairable");
+    const earlierReset = evidence();
+    earlierReset.raw!.status = "superseded";
+    earlierReset.raw!.updatedAt = "2026-09-23T06:50:32.000Z";
+    expect(plan(earlierReset).blockers).toContain("raw_page_scope_or_request_invalid");
   });
 
   it("rejects rows written after the pointer and source spend disagreement", () => {

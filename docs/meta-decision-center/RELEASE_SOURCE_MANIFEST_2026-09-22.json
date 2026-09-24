@@ -1,5 +1,5 @@
 {
-  "manifestHash": "cf2ac8f99a1ec59da7acb80b32211dd652076c7d68834c15591ac9f8ab436d3d",
+  "manifestHash": "17aef9cea825d41534866444aebd1acbfa5a565a78f648a5888a246180cf88ad",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1815,8 +1815,12 @@
       "sha256": "33d76ed3ec8c94dc20eb43f8145a3e5cf19929c625495d297b90ddbaa3364377"
     },
     {
+      "path": "scripts/ephemeral-postgres-meta-historical-slice-repair-seam-child.ts",
+      "sha256": "ec530441f9095affe89c277cca01f4280a41fbafe4c70645ab68c174de13cd2f"
+    },
+    {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "d3847485ad8ee37268f280899b9dc953b2d2304d638129354b195ecd04e1c9f0"
+      "sha256": "89359677b43382dad976d9640d75dc5c34424de4066ceeecc4644b87d3e4469d"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -1861,6 +1865,18 @@
     {
       "path": "scripts/meta/decision-release-source-manifest.ts",
       "sha256": "c2773634d0555a68a542ba316a8115ce76c3973b63f368683beda0a5d2d89b4a"
+    },
+    {
+      "path": "scripts/meta/historical-source-slice-repair-batch.ts",
+      "sha256": "995765a5f184e5e82e7b814bb18758079b95651405aa4b57665f096532d40ed9"
+    },
+    {
+      "path": "scripts/meta/historical-source-slice-repair.test.ts",
+      "sha256": "b6ac427e93d34efb536dadd4fb4c5df43764682c2f527f52636275564a977c5c"
+    },
+    {
+      "path": "scripts/meta/historical-source-slice-repair.ts",
+      "sha256": "d434fe613b224343ffd61bbbc5328757e882f85fe5059b40efa3e5983c884527"
     },
     {
       "path": "scripts/meta/link-click-repair-backfill.db.test.ts",

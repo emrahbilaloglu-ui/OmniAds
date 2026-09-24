@@ -133,6 +133,7 @@ export type RepairRawPage = {
   endDate: string; pageIndex: number | null; status: string;
   httpStatus: number | null; requestContext: unknown; payload: unknown;
   contentKey: string | null; fetchedAt: string; createdAt: string;
+  updatedAt: string;
 };
 export type RepairObservation = {
   id: string; snapshotId: string; partitionId: string | null;
@@ -206,7 +207,13 @@ export function evaluateHistoricalSourceSlice(input: {
     if (raw.businessId !== input.businessId || raw.accountId !== input.accountId ||
         raw.startDate !== input.day || raw.endDate !== input.day ||
         raw.endpointName !== "ad_insights_bulk" || raw.entityScope !== "ad" ||
-        raw.status !== "fetched" || raw.httpStatus !== 200 || raw.pageIndex !== 0 ||
+        // Legacy raw pages are marked superseded once by a later fresh reset.
+        // That later status is not evidence that the page was unusable when
+        // this older pointer was published.
+        !(raw.status === "fetched" || (raw.status === "superseded" &&
+          Number.isFinite(time(raw.updatedAt)) &&
+          time(raw.updatedAt) > time(pointer?.publishedAt))) ||
+        raw.httpStatus !== 200 || raw.pageIndex !== 0 ||
         request.source !== "bulk_core_sync" || request.level !== "ad" ||
         (fields && !fields.includes("actions")) || !Array.isArray(raw.payload) ||
         !Number.isFinite(time(raw.fetchedAt)) || time(raw.fetchedAt) > cutoff ||
@@ -412,7 +419,8 @@ async function readEvidence(options: Options, lockPointer: boolean): Promise<Rep
       SELECT id, business_id, provider_account_id, partition_id::text,
         run_id, endpoint_name, entity_scope, start_date::text, end_date::text,
         page_index, status, provider_http_status, request_context,
-        payload_json, content_key, fetched_at::text, created_at::text
+        payload_json, content_key, fetched_at::text, created_at::text,
+        updated_at::text
       FROM meta_raw_snapshots WHERE id = $1::uuid
     `, [snapshotIds[0]])
     : [] as Record<string, unknown>[];
@@ -430,6 +438,7 @@ async function readEvidence(options: Options, lockPointer: boolean): Promise<Rep
     requestContext: rawRow.request_context, payload: rawRow.payload_json,
     contentKey: rawRow.content_key == null ? null : String(rawRow.content_key),
     fetchedAt: String(rawRow.fetched_at), createdAt: String(rawRow.created_at),
+    updatedAt: String(rawRow.updated_at),
   } : null;
   const observationResult = raw && pointer ? await sql.query(`
     SELECT id, snapshot_id::text, partition_id::text, run_id,
@@ -485,7 +494,7 @@ export async function runHistoricalSourceSliceRepair(options: Options) {
   if (!options.apply) {
     if (options.out) writeFileSync(options.out, `${JSON.stringify({ ...initial, planHash }, null, 2)}\n`);
     process.stdout.write(`${JSON.stringify({ ...initial, planHash })}\n`);
-    return;
+    return { ...initial, planHash };
   }
   if (process.env.ADSECUTE_META_SLICE_REPAIR_APPLY !== "1") {
     throw new Error("apply_requires_explicit_environment_opt_in");
@@ -606,6 +615,7 @@ export async function runHistoricalSourceSliceRepair(options: Options) {
       publishedAt: after.published_at } };
   writeFileSync(`${options.out}.receipt.json`, `${JSON.stringify(receipt, null, 2)}\n`);
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
+  return receipt;
 }
 
 if (process.argv[1]?.endsWith("historical-source-slice-repair.ts")) {

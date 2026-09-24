@@ -1189,11 +1189,18 @@ async function createHydrationSourceSchema(client: Client) {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
       provider_account_id TEXT NOT NULL, endpoint_name TEXT NOT NULL,
       entity_scope TEXT NOT NULL, status TEXT NOT NULL,
-      start_date DATE, end_date DATE,
+      start_date DATE, end_date DATE, content_key TEXT,
+      run_id TEXT, partition_id UUID,
       provider_http_status INTEGER, request_context JSONB NOT NULL DEFAULT '{}'::jsonb,
       payload_json JSONB NOT NULL DEFAULT '[]'::jsonb,
       fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE meta_sync_partitions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id TEXT NOT NULL, provider_account_id TEXT NOT NULL,
+      lane TEXT NOT NULL, scope TEXT NOT NULL, partition_date DATE NOT NULL
     );
     CREATE TABLE meta_raw_snapshot_observations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), snapshot_id UUID NOT NULL,

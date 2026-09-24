@@ -177,8 +177,8 @@ function addDays(date: string, days: number) {
 /** The last completed UTC day, which is the day every fixture speaks for. */
 const AS_OF = addDays(new Date().toISOString().slice(0, 10), -1);
 
-/** Enough history for the lifecycle age and active-day gates to open. */
-const HISTORY_DAYS = 30;
+/** Eight active days give age >=7 and active_days_30d >=5 without a 30-day fixture. */
+const HISTORY_DAYS = 8;
 const statusHash = (value: string) => createHash("sha256")
   .update(`profile-scope-status:${value}`)
   .digest("hex");
@@ -228,7 +228,8 @@ describe.skipIf(!RUNNABLE)(
     /** One account's retained lifecycle rows, exactly as stored. */
     const retainedLifecycle = async (businessId: string, account: string) =>
       db.getDb().query(
-        `SELECT creative_id, funnel_primary_weak_stage, funnel_confidence,
+        `SELECT creative_id, age_days, active_days_30d, lifecycle_position,
+                funnel_primary_weak_stage, funnel_confidence,
                 funnel_evidence, creative_responsibility_score,
                 site_responsibility_score, checkout_responsibility_score,
                 tracking_anomaly_score, fatigue_status, fatigue_confidence,
@@ -349,6 +350,16 @@ describe.skipIf(!RUNNABLE)(
         }
       };
 
+      const traceFixtureStage = async (label: string, stage: () => Promise<void>) => {
+        const startedAt = Date.now();
+        console.error(`[profile-scope-callers] ${label}: starting`);
+        try {
+          await stage();
+        } finally {
+          console.error(`[profile-scope-callers] ${label}: finished ${Date.now() - startedAt}ms`);
+        }
+      };
+
       const seedBusiness = async (businessId: string, name: string) => {
         await sql.query(
           `INSERT INTO businesses (id, name, owner_id, timezone, currency, is_demo_business)
@@ -460,10 +471,7 @@ describe.skipIf(!RUNNABLE)(
 
       seedCreatives = async (input) => {
         const digits = input.account.replace(/\D/g, "");
-        // One day per batch: the dimension upsert behind
-        // `upsertMetaCreativeDailyRows` refuses a batch that names the same
-        // creative twice ("ON CONFLICT DO UPDATE command cannot affect row a
-        // second time").
+        // Keep each provider day independently certified by the real writers.
         for (let day = 0; day < HISTORY_DAYS; day += 1) {
           const rows = [];
           for (let index = 0; index < input.count; index += 1) {
@@ -543,7 +551,7 @@ describe.skipIf(!RUNNABLE)(
         calibration floor is thirty, so A's own six can never clear it and A
         pooled with B always does.
       */
-      await seedCreatives({
+      await traceFixtureStage("seed decision A", () => seedCreatives({
         businessId: DECISIONS_BUSINESS,
         account: ACCOUNT_A,
         count: 6,
@@ -553,8 +561,8 @@ describe.skipIf(!RUNNABLE)(
         landingPageViews: 4,
         addToCart: 2,
         initiateCheckout: 1,
-      });
-      await seedCreatives({
+      }));
+      await traceFixtureStage("seed decision B", () => seedCreatives({
         businessId: DECISIONS_BUSINESS,
         account: ACCOUNT_B,
         count: 32,
@@ -564,7 +572,7 @@ describe.skipIf(!RUNNABLE)(
         landingPageViews: 4,
         addToCart: 2,
         initiateCheckout: 1,
-      });
+      }));
 
       // --- the lifecycle case ------------------------------------------
       await seedBusiness(LIFECYCLE_BUSINESS, "Profile scope lifecycle");
@@ -578,7 +586,7 @@ describe.skipIf(!RUNNABLE)(
         were contaminated.
       */
       for (const account of [ACCOUNT_P, ACCOUNT_Q]) {
-        await seedCreatives({
+        await traceFixtureStage(`seed lifecycle ${account}`, () => seedCreatives({
           businessId: LIFECYCLE_BUSINESS,
           account,
           count: account === ACCOUNT_P ? 6 : 32,
@@ -588,16 +596,18 @@ describe.skipIf(!RUNNABLE)(
           landingPageViews: 4,
           addToCart: 2,
           initiateCheckout: 1,
-        });
+        }));
       }
 
-      await seedDeliveryHistory(DECISIONS_BUSINESS, ACCOUNT_A, 6);
-      await seedDeliveryHistory(DECISIONS_BUSINESS, ACCOUNT_B, 32);
-      await seedDeliveryHistory(LIFECYCLE_BUSINESS, ACCOUNT_P, 6);
-      await seedDeliveryHistory(LIFECYCLE_BUSINESS, ACCOUNT_Q, 32);
+      await traceFixtureStage("seed delivery receipts", async () => {
+        await seedDeliveryHistory(DECISIONS_BUSINESS, ACCOUNT_A, 6);
+        await seedDeliveryHistory(DECISIONS_BUSINESS, ACCOUNT_B, 32);
+        await seedDeliveryHistory(LIFECYCLE_BUSINESS, ACCOUNT_P, 6);
+        await seedDeliveryHistory(LIFECYCLE_BUSINESS, ACCOUNT_Q, 32);
+      });
 
-      await runAllJobs(DECISIONS_BUSINESS);
-      await runAllJobs(LIFECYCLE_BUSINESS);
+      await traceFixtureStage("initial decision jobs", () => runAllJobs(DECISIONS_BUSINESS));
+      await traceFixtureStage("initial lifecycle jobs", () => runAllJobs(LIFECYCLE_BUSINESS));
     }, 600_000);
 
     afterAll(async () => {
@@ -641,7 +651,7 @@ describe.skipIf(!RUNNABLE)(
       }
     });
 
-    // Both replay cases rewrite 32 creatives across 30 days and rerun the real
+    // Both replay cases rewrite 32 creatives across eight days and rerun the real
     // jobs. Bound each whole replay explicitly so a loaded CI runner cannot
     // time out at the suite-wide 15s default while its DB work is still live.
     it("leaves account A's retained decisions byte-identical when only B moves", async () => {
@@ -689,9 +699,17 @@ describe.skipIf(!RUNNABLE)(
       const beforePPack = JSON.stringify(
         await funnelPack(LIFECYCLE_BUSINESS, ACCOUNT_P),
       );
-      expect(
-        (await retainedLifecycle(LIFECYCLE_BUSINESS, ACCOUNT_P)) as unknown[],
-      ).toHaveLength(6);
+      const pRows = (await retainedLifecycle(LIFECYCLE_BUSINESS, ACCOUNT_P)) as Array<{
+        age_days: number;
+        active_days_30d: number;
+        lifecycle_position: string;
+      }>;
+      expect(pRows).toHaveLength(6);
+      for (const row of pRows) {
+        expect(Number(row.age_days)).toBeGreaterThanOrEqual(7);
+        expect(Number(row.active_days_30d)).toBeGreaterThanOrEqual(5);
+        expect(row.lifecycle_position).not.toBe("insufficient_history");
+      }
 
       // ONLY Q's funnel counts move, at every stage below the link click.
       // P's warehouse rows are not touched at all.

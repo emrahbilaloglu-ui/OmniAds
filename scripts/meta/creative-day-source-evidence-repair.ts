@@ -56,18 +56,29 @@ type Snapshot = {
   id: string; business_id: string; provider_account_id: string;
   endpoint_name: string; start_date: string; end_date: string;
   entity_scope: string; status: string; provider_http_status: number | null; payload_hash: string;
-  payload_json: unknown; fetched_at: string; request_context: unknown;
+  payload_json: unknown; fetched_at: string; created_at: string;
+  request_context: unknown; partition_id: string | null; run_id: string | null;
+  content_key: string | null; page_index: number | null; provider_cursor: string | null;
 };
 type Receipt = {
   day: string; published_by_run_id: string; published_at: string | null;
   slice_source_run_id: string; slice_state: string; slice_truth_state: string;
   slice_validation_status: string; slice_status: string; staged_row_count: number | null;
   manifest_fetch_status: string; manifest_account_timezone: string;
-  manifest_completed_at: string | null;
+  manifest_completed_at: string | null; manifest_started_at: string | null;
+  manifest_raw_snapshot_watermark: string | null;
+  manifest_rows_fetched_total: number | null; manifest_partition_id: string | null;
+  manifest_fresh_start_applied: boolean; manifest_checkpoint_reset_applied: boolean;
+};
+type Observation = {
+  snapshot_id: string; run_id: string | null; partition_id: string | null;
+  endpoint_name: string; entity_scope: string; page_index: number | null;
+  status: string; provider_http_status: number | null; request_context: unknown;
+  observed_at: string; created_at: string;
 };
 type RepairInputs = Scope & {
   creativeRows: MetaCreativeDailyRow[]; adRows: MetaAdDailyRow[];
-  snapshots: Snapshot[]; receipts: Receipt[];
+  snapshots: Snapshot[]; receipts: Receipt[]; observations: Observation[];
 };
 type Scalars = {
   spend: number; impressions: number; clicks: number; reach: number;
@@ -136,7 +147,56 @@ function verifiedReceipt(receipt: Receipt | undefined, day: string,
     receipt.slice_truth_state === "finalized" && receipt.slice_validation_status === "passed" &&
     receipt.slice_status === "published" && receipt.manifest_fetch_status === "completed" &&
     receipt.manifest_account_timezone === accountTimezone &&
-    receipt.manifest_completed_at != null && receipt.published_at != null;
+    receipt.manifest_fresh_start_applied && receipt.manifest_checkpoint_reset_applied &&
+    receipt.manifest_completed_at != null && receipt.manifest_started_at != null &&
+    receipt.published_at != null;
+}
+
+function actionsRequested(context: unknown) {
+  const request = record(context);
+  return request.level === "ad" && request.source === "bulk_core_sync" &&
+    (!Object.hasOwn(request, "fields") ||
+      (typeof request.fields === "string" && request.fields.split(",")
+        .map((field) => field.trim()).includes("actions")));
+}
+
+function causalSinglePageReceipt(input: {
+  snapshot: Snapshot; receipt: Receipt; observations: Observation[];
+  dayAdCount: number; sourceRunId: string;
+}) {
+  const { snapshot, receipt, observations, dayAdCount, sourceRunId } = input;
+  const started = Date.parse(receipt.manifest_started_at ?? "");
+  const completed = Date.parse(receipt.manifest_completed_at ?? "");
+  const published = Date.parse(receipt.published_at ?? "");
+  if (!Number.isFinite(started) || !Number.isFinite(completed) ||
+      !Number.isFinite(published) || started > completed || completed > published ||
+      receipt.manifest_raw_snapshot_watermark !== snapshot.id ||
+      !receipt.manifest_partition_id ||
+      receipt.manifest_rows_fetched_total !== dayAdCount ||
+      snapshot.page_index !== 0 || snapshot.provider_cursor !== null ||
+      !Array.isArray(snapshot.payload_json) || snapshot.payload_json.length !== dayAdCount ||
+      !actionsRequested(snapshot.request_context) ||
+      !Number.isFinite(Date.parse(snapshot.fetched_at)) ||
+      !Number.isFinite(Date.parse(snapshot.created_at)) ||
+      Date.parse(snapshot.fetched_at) > completed ||
+      Date.parse(snapshot.created_at) > completed) return false;
+  const sameRun = observations.filter((observation) =>
+    observation.snapshot_id === snapshot.id && observation.run_id === sourceRunId &&
+    observation.partition_id === receipt.manifest_partition_id &&
+    observation.endpoint_name === "ad_insights_bulk" &&
+    observation.entity_scope === "ad" && observation.page_index === 0);
+  if (sameRun.length > 0) return sameRun.some((observation) =>
+    observation.status === "fetched" && observation.provider_http_status === 200 &&
+    actionsRequested(observation.request_context) &&
+    Number.isFinite(Date.parse(observation.observed_at)) &&
+    Number.isFinite(Date.parse(observation.created_at)) &&
+    Date.parse(observation.observed_at) >= started &&
+    Date.parse(observation.observed_at) <= completed &&
+    Date.parse(observation.created_at) <= completed &&
+    Date.parse(snapshot.fetched_at) <= Date.parse(observation.observed_at));
+  return snapshot.content_key === null && snapshot.run_id === sourceRunId &&
+    snapshot.partition_id === receipt.manifest_partition_id &&
+    Date.parse(snapshot.fetched_at) >= started;
 }
 
 export function buildCreativeDaySourceEvidenceRepairPlan(input: RepairInputs) {
@@ -172,11 +232,6 @@ export function buildCreativeDaySourceEvidenceRepairPlan(input: RepairInputs) {
     for (const id of ids) {
       const ad = ads.get(`${row.date}|${id}`);
       const snapshot = ad?.sourceSnapshotId ? snapshots.get(ad.sourceSnapshotId) : null;
-      const requestContext = record(snapshot?.request_context);
-      const requestedFields = requestContext.fields;
-      const actionsRequested = !Object.hasOwn(requestContext, "fields") ||
-        (typeof requestedFields === "string" &&
-          requestedFields.split(",").map((field) => field.trim()).includes("actions"));
       if (!ad || !snapshot || ad.businessId !== input.businessId ||
           ad.providerAccountId !== input.accountId || ad.truthState !== "finalized" ||
           ad.validationStatus !== "passed" || !ad.finalizedAt || !ad.sourceRunId ||
@@ -187,23 +242,26 @@ export function buildCreativeDaySourceEvidenceRepairPlan(input: RepairInputs) {
           snapshot.status !== "fetched" ||
           snapshot.provider_http_status !== 200 || !snapshot.payload_hash ||
           snapshot.start_date !== row.date || snapshot.end_date !== row.date ||
-          requestContext.level !== "ad" || requestContext.source !== "bulk_core_sync" ||
-          !actionsRequested ||
-          !Number.isFinite(Date.parse(snapshot.fetched_at)) ||
-          !Number.isFinite(Date.parse(receipt.published_at ?? "")) ||
-          Date.parse(snapshot.fetched_at) > Date.parse(receipt.published_at ?? "") ||
-          !Array.isArray(snapshot.payload_json)) {
+          !causalSinglePageReceipt({ snapshot, receipt, observations: input.observations,
+            dayAdCount: dayAdCounts.get(row.date) ?? 0, sourceRunId: ad.sourceRunId })) {
         fail(`ad_source_receipt_invalid:${id}`); break;
       }
-      const rawRows = snapshot.payload_json.filter((candidate) => {
+      const dayAds = input.adRows.filter((other) => other.date === row.date);
+      const pageRows = Array.isArray(snapshot.payload_json) ? snapshot.payload_json : [];
+      const rawByAdId = new Map(pageRows.map((item) => [record(item).ad_id, record(item)]));
+      if (rawByAdId.size !== dayAds.length || pageRows.length !== dayAds.length ||
+          dayAds.some((other) => other.sourceSnapshotId !== snapshot.id ||
+            !same(rawByAdId.get(other.adId), other.payloadJson))) {
+        fail(`ad_source_population_invalid:${id}`); break;
+      }
+      const rawRows = pageRows.filter((candidate) => {
         const raw = record(candidate);
         return raw.ad_id === id && raw.date_start === row.date;
       });
       if (rawRows.length !== 1) { fail(`raw_ad_membership_invalid:${id}`); break; }
       const raw = record(rawRows[0]);
       const adPayload = record(ad.payloadJson);
-      if (!same(raw.actions ?? null, adPayload.actions ?? null) ||
-          !same(raw.action_values ?? null, adPayload.action_values ?? null) ||
+      if (!same(raw, adPayload) ||
           finite(raw.spend) !== ad.spend || finite(raw.impressions) !== ad.impressions ||
           finite(raw.clicks) !== ad.clicks) {
         fail(`raw_ad_fact_conflict:${id}`); break;
@@ -328,7 +386,15 @@ async function loadInputs(scope: Scope): Promise<RepairInputs> {
         s.status AS slice_status, s.staged_row_count,
         m.fetch_status AS manifest_fetch_status,
         m.account_timezone AS manifest_account_timezone,
-        m.completed_at::text AS manifest_completed_at
+        m.started_at::text AS manifest_started_at,
+        m.completed_at::text AS manifest_completed_at,
+        m.raw_snapshot_watermark AS manifest_raw_snapshot_watermark,
+        CASE WHEN m.meta_json->>'rowsFetchedTotal' ~ '^[0-9]{1,9}$'
+          THEN (m.meta_json->>'rowsFetchedTotal')::int ELSE NULL END
+          AS manifest_rows_fetched_total,
+        m.meta_json->>'partitionId' AS manifest_partition_id,
+        m.fresh_start_applied AS manifest_fresh_start_applied,
+        m.checkpoint_reset_applied AS manifest_checkpoint_reset_applied
       FROM meta_authoritative_publication_pointers p
       JOIN meta_authoritative_slice_versions s ON s.id=p.active_slice_version_id
         AND s.business_id=p.business_id AND s.provider_account_id=p.provider_account_id
@@ -345,9 +411,19 @@ async function loadInputs(scope: Scope): Promise<RepairInputs> {
     `SELECT id::text AS id, business_id, provider_account_id, endpoint_name, entity_scope,
         start_date::text AS start_date, end_date::text AS end_date,
         status, provider_http_status, payload_hash, payload_json,
-        fetched_at::text AS fetched_at, request_context
+        fetched_at::text AS fetched_at, created_at::text AS created_at,
+        request_context, partition_id::text AS partition_id, run_id,
+        content_key, page_index, provider_cursor
       FROM meta_raw_snapshots WHERE id=ANY($1::uuid[])`, [ids]) : [];
-  return { ...scope, creativeRows, adRows, snapshots, receipts: receiptRows };
+  const observations = ids.length ? await getDb().query<Observation>(
+    `SELECT snapshot_id::text AS snapshot_id, run_id,
+        partition_id::text AS partition_id, endpoint_name, entity_scope,
+        page_index, status, provider_http_status, request_context,
+        observed_at::text AS observed_at, created_at::text AS created_at
+      FROM meta_raw_snapshot_observations
+      WHERE snapshot_id=ANY($1::uuid[])`, [ids]) : [];
+  return { ...scope, creativeRows, adRows, snapshots, receipts: receiptRows,
+    observations };
 }
 
 async function applyPlan(scope: Scope, expectedManifestHash: string) {
@@ -379,7 +455,13 @@ async function applyPlan(scope: Scope, expectedManifestHash: string) {
       );
       if (updated.length !== 1) throw new Error(`creative_day_evidence_repair_update_conflict:${change.creativeId}`);
     }
-    return { updated: plan.changes.length, manifestHash: plan.manifestHash };
+    const verified = buildCreativeDaySourceEvidenceRepairPlan(await loadInputs(scope));
+    if (verified.blockers.length > 0 || verified.changes.length > 0 ||
+        verified.manifest.counts.candidates !== plan.manifest.counts.candidates) {
+      throw new Error("creative_day_evidence_repair_readback_failed");
+    }
+    return { updated: plan.changes.length, verifiedRows: verified.manifest.counts.candidates,
+      manifestHash: plan.manifestHash };
   });
 }
 

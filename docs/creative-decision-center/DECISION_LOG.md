@@ -10471,3 +10471,61 @@ capable of decisions and truly unverified rows held for the named reason.
 together, then mint a new native epoch and evaluation/calibration versions.
 Leave D108 snapshots and historical v6 calibration rows readable; never
 reinterpret them under another contract.
+
+## D114 — Bind pre-two-layer Meta action omissions to their published run (2026-09-24)
+
+**Decision.** D108's provider-zero proof also accepts a pre-two-layer raw
+snapshot with no observation receipt when the snapshot itself carries the exact
+active Ad slice's completed manifest run and the matching core/account_daily
+partition for that account and date. It must still be the exact Ad-day payload
+from an HTTP 200 `ad_insights_bulk`/`bulk_core_sync` actions request, fetched
+and created before manifest completion, attached to a fact written before Ad
+publication, and backed by the same manifest's successful account-day
+reconciliation before publication. A snapshot with any observation receipt
+cannot use this legacy branch. Canonical snapshots continue to require the
+same-run observation receipt.
+
+**Later supersession.** The legacy writer changed a snapshot's `status` to
+`superseded` and `updated_at` together. A legacy snapshot superseded only
+*after* the exact Ad pointer was published was still fetched when that pointer
+was published; it remains eligible for that historical publication. If the
+supersession preceded or coincided with publication, the row remains unknown.
+Missing/late raw fetch, other run or partition, absent/mismatched payload,
+missing account validation and an explicit field list without `actions` all
+remain unknown. The existing D108 proof is otherwise unchanged.
+
+**Later pointer rebind.** D113 may safely publish a new Ad pointer to repair
+an old slice's stale manifest. That new publication follows a legacy raw
+snapshot's supersession even when the *original* publication preceded it.
+The repair candidate must carry D113's v2 transaction-proven summary: the old
+pointer/slice/manifest/run, original publication clock, exact target manifest,
+raw snapshot/partition, raw mutation clock, receipt kind and reviewed plan
+hash. The receipt checks those identities against the current and retained
+slice rows, the target manifest watermark/partition, source/Ad clocks and a
+successful exact-manifest reconciliation before the original publication.
+The retained old slice is now `superseded`; its `published_at` may precede the
+old pointer clock by milliseconds and is bounded, not compared for equality.
+A missing or malformed repair summary, wrong identity, or late validation
+cannot substitute the new pointer's later clock for the historical one.
+
+**Evidence and version.** The read-only historical audit found six GM/TS raw
+pages (TheSwaf July 13/19/20/22 and Grandmix July 2/22) with
+`content_key=NULL`, the exact manifest run and account-day partition, no
+observation receipt, and `superseded` timestamp after their old Ad publication.
+These facts support the bounded exception; they do not themselves prove all
+90-day creative windows are closed. Real PostgreSQL seams cover both legacy
+positive states, pre-publication supersession, wrong run/partition/manifest,
+late fetch, wrong payload, absent validation, unsupported fields and a late
+observation that cannot fall through to the legacy branch. The existing
+canonical observation seam remains positive.
+
+The source-manifest receipt contract advances from
+`meta-ad-day-provider-zero-receipt.v1` through the unreleased `.v2` to `.v3`.
+D108 and D114 are planned for
+one first live release with D111's newer native/shared epoch; no v1 D108 live
+generation exists. If D114 is released after a separate D108 deployment, mint
+a new native engine epoch before replay rather than reinterpret existing
+same-epoch snapshots. Historical snapshots and raw evidence remain intact.
+
+**Rollback.** Revert this legacy receipt arm and its v3 source-manifest
+contract in a new release epoch; do not rewrite raw or decision history.

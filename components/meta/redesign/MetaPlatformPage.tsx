@@ -1776,10 +1776,11 @@ function MetaMobileCreativeEvidenceScreen({
     .filter(isMeaningful)
     .map((value) => mobileDisplay(value))
     .join(" · ");
-  const reason = [...(viewModel.reasons ?? []), viewModel.verdictSub]
-    .filter(isMeaningful)
-    .map((value) => mobileDisplay(value))
-    .join(" ");
+  const reason = Array.from(new Set(
+    [...(viewModel.reasons ?? []), viewModel.verdictSub]
+      .filter(isMeaningful)
+      .map((value) => mobileDisplay(value)),
+  )).join(" ");
   const money = [viewModel.money, viewModel.moneySub]
     .filter(isMeaningful)
     .map((value) => mobileDisplay(value))

@@ -10581,12 +10581,10 @@ is required, while `buyerAction` and provider authority remain null. The
 classification overlay and OS presentation advance to `.v8`; `.v7` snapshots
 remain readable under their original contract.
 
-**Identity and verification.** The shared resolver epoch moves to
-`v3-2026-09-24-cut-proof-floor-story`; the native epoch moves to
+**Identity and verification.** The shared resolver epoch for the integrated
+D109/D111 release is `v3-2026-09-24-creative-purchase-cut-proof`; the native epoch moves to
 `v3-ad-2026-09-24-cut-proof-floor-story-shadow`; native Ad evaluation contract
-becomes `.v18`. When stacked after D109's creative purchase epoch, the shared
-epoch must be re-minted with a combined name rather than silently retaining
-either parent's old key. Earlier snapshots and evaluations remain readable.
+becomes `.v18`. Earlier snapshots and evaluations remain readable.
 Targeted tests pin below/above-floor zero-purchase examples, a genuinely
 missing-AOV negative, and role-plus-source/config versus role-only blocker
 priority. A read-only Grandmix/TheSwaf replay is a diagnostic, not a provider
@@ -10740,8 +10738,9 @@ manifest-bound slice repair must first prove and publish the exact source.
 Only then may this tool reconcile the full creative economic row and stamp
 evidence. Older flattened rows without exact lineage remain unknown.
 
-**Version, compatibility, rollback.** `ENGINE_VERSION` moves to
-`v3-2026-09-24-creative-purchase-evidence` for changed creative decisions;
+**Version, compatibility, rollback.** The integrated D109/D111 shared
+`ENGINE_VERSION` is `v3-2026-09-24-creative-purchase-cut-proof` for changed
+creative decisions;
 old snapshots retain their original epoch. The purchase sidecar is additive,
 V1 funnel stamps remain readable, and V1/operator/V2 views are unchanged.
 Native Ad parser and its engine epoch are D108's separate contract. Revert

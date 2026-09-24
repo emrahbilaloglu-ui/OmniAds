@@ -130,8 +130,8 @@ current release candidate is versioned under
 `v3-2026-07-18-decision-presentation-hardening`~~ — **SUPERSEDED BY D091.**
 That July epoch was correct through D066 and is retained here as the epoch
 those paragraphs describe; the current producer epoch is
-`ENGINE_VERSION = v3-2026-09-24-creative-purchase-evidence` with
-`NATIVE_AD_ENGINE_VERSION = v3-ad-2026-09-24-config-gap-window-shadow`
+`ENGINE_VERSION = v3-2026-09-24-creative-purchase-cut-proof` with
+`NATIVE_AD_ENGINE_VERSION = v3-ad-2026-09-24-cut-proof-floor-story-shadow`
 (see the version table at the top of this file, D103, D105, the D063 amendment
 and D107 in `DECISION_LOG.md` for the separate membership, knowledge-cutoff,
 Cut-evidence and admitted-window changes). Rows written under the July epoch keep it and are

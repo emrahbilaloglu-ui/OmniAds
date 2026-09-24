@@ -7,6 +7,10 @@ import styles from "./CreativeEvidenceWindowExact.module.css";
 
 const EM_DASH = "—";
 
+export const META_AD_EVENTS_TITLE = "Meta-reported ad events";
+export const META_AD_EVENTS_NOTE =
+  "Meta reports these events separately. Percentages compare event totals, not a verified path taken by the same people.";
+
 export type CreativeEvidenceWindowExactDisplayValue =
   string | number | null | undefined;
 
@@ -552,7 +556,7 @@ export function CreativeEvidenceWindowExact({
           {funnel.length > 0 ? (
             <BodyCard>
               <p className={styles.cardEyebrowSpaced}>
-                Click-to-purchase funnel ·{" "}
+                {META_AD_EVENTS_TITLE} ·{" "}
                 {viewModel.periodLabels?.funnel ?? "period unavailable"}
               </p>
               <div className={styles.funnelRows}>
@@ -578,6 +582,7 @@ export function CreativeEvidenceWindowExact({
                   </div>
                 ))}
               </div>
+              <p className={styles.seriesNote}>{META_AD_EVENTS_NOTE}</p>
             </BodyCard>
           ) : null}
 

@@ -79,6 +79,8 @@ import {
 } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
 import {
   CreativeEvidenceWindowExact,
+  META_AD_EVENTS_NOTE,
+  META_AD_EVENTS_TITLE,
   type CreativeEvidenceWindowExactViewModel,
 } from "@/components/creatives/CreativeEvidenceWindowExact";
 import {
@@ -1861,7 +1863,7 @@ function MetaMobileCreativeEvidenceScreen({
           {reason ? <p className="ad-mobile-copy">{reason}</p> : null}
           {funnel.length > 0 ? (
             <p className="ad-mobile-copy">
-              Click-to-purchase funnel ·{" "}
+              {META_AD_EVENTS_TITLE} ·{" "}
               {viewModel.periodLabels?.funnel ?? "period unavailable"}
             </p>
           ) : null}
@@ -1872,6 +1874,9 @@ function MetaMobileCreativeEvidenceScreen({
                 `${mobileDisplay(step.value)} ${mobileDisplay(step.sub)}`.trim(),
             }))}
           />
+          {funnel.length > 0 ? (
+            <p className="ad-mobile-copy">{META_AD_EVENTS_NOTE}</p>
+          ) : null}
           <MetaMobileCitationList
             items={facts.map((fact) => ({
               label: mobileDisplay(fact.label),

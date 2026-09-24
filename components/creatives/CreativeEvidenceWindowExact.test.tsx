@@ -182,7 +182,7 @@ describe("CreativeEvidenceWindowExact composition", () => {
     for (const eyebrow of [
       "Decision · 28d",
       "Why",
-      "Click-to-purchase funnel · selected 2026-09-16–2026-09-22",
+      "Meta-reported ad events · selected 2026-09-16–2026-09-22",
       "Where it runs",
     ]) {
       expect(screen.getByText(eyebrow)).toBeInTheDocument();
@@ -219,8 +219,9 @@ describe("CreativeEvidenceWindowExact composition", () => {
       />,
     );
     expect(
-      screen.getByText("Click-to-purchase funnel · selected 2026-09-16–2026-09-22 · this Ad"),
+      screen.getByText("Meta-reported ad events · selected 2026-09-16–2026-09-22 · this Ad"),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Percentages compare event totals/)).toBeInTheDocument();
     expect(screen.getByText("Landing page views")).toBeInTheDocument();
     expect(screen.getByText("Checkout initiated")).toBeInTheDocument();
     expect(screen.getByText("0")).toBeInTheDocument();

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "f4ac542b875acc389a3f08ded4e1d04459fe61c98d088c791831b56e26304b02",
+  "manifestHash": "c722526572785761016e29dc5dfd1bc665e31ce32313b136e4cf20525df76b20",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -372,11 +372,11 @@
     },
     {
       "path": "components/creatives/CreativeEvidenceWindowExact.test.tsx",
-      "sha256": "56d278d3cc4dd3ce84faae7b1dea61346128f0c80c253c41ddfe8d9424643605"
+      "sha256": "64dd6611b0e0ec677b414b14554929cffd1dfb5591cbe9163c297c2e53e5d10e"
     },
     {
       "path": "components/creatives/CreativeEvidenceWindowExact.tsx",
-      "sha256": "edb0856234e3e4c54a387d3a5c78829afa0fa8f4298394638aa729afedb396bc"
+      "sha256": "b63cd9320b4b5b7b1aff71e74fa0f6a260211d38f51b5f9a2d412e114793b95e"
     },
     {
       "path": "components/creatives/CreativeStudioExact.tsx",
@@ -520,7 +520,7 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "0819977be89b9a9b5a01bea36d19ea0e0a28002b35282cf931582f51a46183e0"
+      "sha256": "0bd8b6a3088d1351614ea18112b8326343c65716c6f09ef04f58f0cc0babf01d"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",

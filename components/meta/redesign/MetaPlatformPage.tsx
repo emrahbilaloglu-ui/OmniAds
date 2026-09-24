@@ -1776,11 +1776,27 @@ function MetaMobileCreativeEvidenceScreen({
     .filter(isMeaningful)
     .map((value) => mobileDisplay(value))
     .join(" · ");
-  const reason = Array.from(new Set(
-    [...(viewModel.reasons ?? []), viewModel.verdictSub]
+  // The published decision's reason is the first read. The verdict subline
+  // also carries scope and authority blockers, but concatenating the two
+  // repeats the same campaign/configuration limitation in different words.
+  // Keep the full subline available without making it the default explanation.
+  const reasons = Array.from(new Set(
+    (viewModel.reasons ?? [])
       .filter(isMeaningful)
       .map((value) => mobileDisplay(value)),
-  )).join(" ");
+  ));
+  const verificationContext = isMeaningful(viewModel.verdictSub)
+    ? mobileDisplay(viewModel.verdictSub)
+    : null;
+  const primaryReasons = reasons.length > 0
+    ? reasons
+    : verificationContext ? [verificationContext] : [];
+  const additionalVerificationContext =
+    reasons.length > 0 &&
+    verificationContext &&
+    !reasons.includes(verificationContext)
+      ? verificationContext
+      : null;
   const money = [viewModel.money, viewModel.moneySub]
     .filter(isMeaningful)
     .map((value) => mobileDisplay(value))
@@ -1799,6 +1815,13 @@ function MetaMobileCreativeEvidenceScreen({
             ← Decisions
           </button>
           <div className="ad-mobile-title">
+            <MetaDecisionCreativeThumbnail
+              className="ad-mobile-creative-thumb"
+              thumbnailUrl={viewModel.previewUrl}
+              recoveryUrl={viewModel.previewRecoveryUrl}
+              mobile
+              evidencePreview
+            />
             <h2>{mobileDisplay(viewModel.name)}</h2>
             {subtitle ? <p>{subtitle}</p> : null}
           </div>
@@ -1860,7 +1883,20 @@ function MetaMobileCreativeEvidenceScreen({
               ) : null}
             </article>
           ) : null}
-          {reason ? <p className="ad-mobile-copy">{reason}</p> : null}
+          {primaryReasons.map((reason, index) => (
+            <p className="ad-mobile-copy" data-mobile-creative-reason key={index}>
+              {reason}
+            </p>
+          ))}
+          {additionalVerificationContext ? (
+            <details
+              className="ad-mobile-copy"
+              data-mobile-creative-verification-context
+            >
+              <summary>Additional verification context</summary>
+              <p>{additionalVerificationContext}</p>
+            </details>
+          ) : null}
           {funnel.length > 0 ? (
             <p className="ad-mobile-copy">
               {META_AD_EVENTS_TITLE} ·{" "}

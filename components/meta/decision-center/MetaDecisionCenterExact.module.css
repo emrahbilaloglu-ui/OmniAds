@@ -991,6 +991,15 @@
   line-height: 1.1;
 }
 
+/* Keep the type visible without covering the asset when a preview loads. */
+img.creativeThumbImage + .creativeKind {
+  align-self: end;
+  justify-self: end;
+  margin: 0 3px 3px 0;
+  font-size: 12px;
+  line-height: 1.05;
+}
+
 .creativeIdentity {
   min-width: 0;
   flex: 1 1 60%;

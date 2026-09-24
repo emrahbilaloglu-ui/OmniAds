@@ -24,6 +24,7 @@ import {
   type MetaNativeDecisionGenerationSourceRow,
   type MetaNativeDecisionSnapshotSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
+import { currentEffectiveAdStatus } from "@/lib/meta/current-ad-delivery-status";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
 import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
@@ -1737,6 +1738,10 @@ describe("Meta Decisions workspace canonical read model", () => {
           ad_id: "120000000000000003",
           candidate_ad_count: 1,
         }),
+        identity("creative_ended", {
+          ad_id: "120000000000000004",
+          candidate_ad_count: 1,
+        }),
       ],
       currentAds: [
         {
@@ -1763,6 +1768,20 @@ describe("Meta Decisions workspace canonical read model", () => {
           providerUpdatedAt: null,
           fetchedAt: "2026-07-13T09:00:00.000Z",
         },
+        {
+          providerAccountId: "act_1",
+          adId: "120000000000000004",
+          adName: "Provider ACTIVE but campaign ended",
+          campaignId: "cmp_ended",
+          adsetId: "adset_ended",
+          creativeId: "creative_ended",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          campaignStopTime: "2026-07-12T09:00:00.000Z",
+          adsetEndTime: "2026-07-14T09:00:00.000Z",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
       ],
       sourceComplete: true,
     });
@@ -1786,6 +1805,25 @@ describe("Meta Decisions workspace canonical read model", () => {
       adset_status: "NOT_ACTIVE",
       ad_status: "NOT_ACTIVE",
     });
+    expect(reconciled[3]).toMatchObject({
+      campaign_status: "SCHEDULE_ENDED",
+      adset_status: "ACTIVE",
+      ad_status: "ACTIVE",
+      source_updated_at: "2026-07-13T09:00:00.000Z",
+    });
+  });
+
+  it("treats a current schedule as active only before its observed end", () => {
+    const row = {
+      providerAccountId: "act_1", adId: "120000000000000004",
+      adName: null, campaignId: "cmp_1", adsetId: "adset_1", creativeId: null,
+      configuredStatus: "ACTIVE", effectiveStatus: "ACTIVE", providerUpdatedAt: null,
+      fetchedAt: "2026-07-13T09:00:00.000Z",
+      campaignStopTime: "2026-07-14T09:00:00.000Z",
+    };
+    expect(currentEffectiveAdStatus(row)).toBe("ACTIVE");
+    expect(currentEffectiveAdStatus({ ...row, adsetEndTime: row.fetchedAt })).toBe("SCHEDULE_ENDED");
+    expect(currentEffectiveAdStatus({ ...row, campaignStopTime: "invalid" })).toBeNull();
   });
 
   it("caps each section from true pre-cap rows and never aggregates exposure across currencies", () => {

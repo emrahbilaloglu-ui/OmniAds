@@ -717,6 +717,18 @@ describe("GET /api/meta/decisions-workspace", () => {
           effective_status: "PAUSED",
           updated_time: "2026-07-13T08:00:00.000Z",
         },
+        {
+          id: "120000000000000003",
+          name: "Provider ACTIVE after its scheduled end",
+          campaign_id: "cmp_ended",
+          campaign: { id: "cmp_ended", stop_time: "2026-07-15T00:00:00.000Z" },
+          adset_id: "adset_ended",
+          adset: { id: "adset_ended", end_time: "2026-07-14T00:00:00.000Z" },
+          creative: { id: "creative_3" },
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+          updated_time: "2026-07-13T08:00:00.000Z",
+        },
       ],
     });
     readModelMock.readMetaDecisionCampaignContextRows.mockResolvedValue([
@@ -764,6 +776,12 @@ describe("GET /api/meta/decisions-workspace", () => {
           expect.objectContaining({
             adId: "120000000000000001",
             effectiveStatus: "ACTIVE",
+          }),
+          expect.objectContaining({
+            adId: "120000000000000003",
+            effectiveStatus: "ACTIVE",
+            campaignStopTime: "2026-07-15T00:00:00.000Z",
+            adsetEndTime: "2026-07-14T00:00:00.000Z",
           }),
         ]),
       }),
@@ -813,7 +831,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     ).toHaveBeenCalledWith({
       businessId: "biz_1",
       providerAccountId: "act_1",
-      campaignIds: ["cmp_1"],
+      campaignIds: ["cmp_1", "cmp_ended"],
       snapshotAsOf: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     });
   });

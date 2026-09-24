@@ -2151,6 +2151,22 @@ function archivedStructure(
 }
 
 describe("archive lane grain", () => {
+  it("names an ended campaign schedule without presenting its Ad as actionable", () => {
+    const workspace = workspaceFixture({
+      inactiveAssets: [inactiveAdFixture({
+        deliveryScope: {
+          state: "inactive", campaignStatus: "SCHEDULE_ENDED",
+          adsetStatus: "ACTIVE", adStatus: "ACTIVE",
+          reason: "hierarchy_not_active",
+        },
+      } as Partial<MetaCanonicalDecision>)],
+    });
+    const rows = buildMetaDecisionCenterExactViewModel({ workspace }).archiveRows ?? [];
+    expect(rows[0]?.status).toBe("Campaign · Schedule ended");
+    expect(rows[0]?.note).toContain("scheduled delivery has ended");
+    expect(rows[0]?.note).toContain("campaign SCHEDULE_ENDED");
+  });
+
   it("renders the withheld Ad decisions the lane was dropping, each grain named", () => {
     const workspace = workspaceFixture({
       currency: "USD",

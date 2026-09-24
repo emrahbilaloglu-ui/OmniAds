@@ -408,7 +408,7 @@ function observedMetaConfigFieldScope(
 }
 
 const META_ACTIVE_AD_CONFIG_FIELDS =
-  `${META_AD_CONFIG_FIELDS},campaign{id,name}`;
+  `${META_AD_CONFIG_FIELDS},campaign{id,name,stop_time},adset{id,end_time}`;
 
 interface RawAdSetInsight {
   adset_id?: string;
@@ -476,7 +476,8 @@ interface RawAd {
   status?: string;
   adset_id?: string;
   campaign_id?: string;
-  campaign?: { id?: string; name?: string } | null;
+  campaign?: { id?: string; name?: string; stop_time?: string } | null;
+  adset?: { id?: string; end_time?: string } | null;
   updated_time?: string;
   created_time?: string;
   creative?: { id?: string } | null;

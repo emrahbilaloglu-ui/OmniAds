@@ -2372,12 +2372,7 @@ describe("Decisions to Launchpad handoff", () => {
       await Promise.resolve();
     });
 
-    expect(state.evidenceProps?.viewModel?.primaryAction?.label).toBe(
-      "Review decision",
-    );
-    expect(
-      state.evidenceProps?.viewModel?.primaryAction?.onClick,
-    ).toBeUndefined();
+    expect(state.evidenceProps?.viewModel?.primaryAction).toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

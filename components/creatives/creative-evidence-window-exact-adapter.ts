@@ -218,6 +218,8 @@ export interface CreativeEvidenceWindowExactAdapterInput {
    * rather than leaving it to a banner that only appears on an empty queue.
    */
   source?: MetaDecisionsWorkspaceReadModel["source"] | null;
+  /** Account-scoped media recovery URL, constructed by the page from verified identity. */
+  previewRecoveryUrl?: string | null;
   /**
    * Whether the SERVER's own handoff law grants this decision a Launchpad
    * route, and the sentence it refuses with when it does not.
@@ -2274,20 +2276,20 @@ export function buildCreativeEvidenceWindowExactViewModel(
   const hasDecisionPurchases =
     !decisionPerformanceMissing &&
     finite(decision?.metrics.purchases ?? canonical?.metrics.purchases) !== null;
+  const decisionPeriod = decision?.decisionWindow
+    ? `${decision.decisionWindow.startDate}–${decision.decisionWindow.endDate} · ${decision.decisionWindow.economicDayCount}/${decision.decisionWindow.calendarDaySpan} economic days`
+    : "period unavailable";
   const periodLabels: CreativeEvidenceWindowExactPeriodLabels = {
-    // The native Ad snapshot currently records its as-of day but not the
-    // admitted economic start/end dates. D107 may shorten that window, so a
-    // fixed 28d would falsely describe the metric behind this verdict.
-    decision: "period unavailable",
+    decision: decisionPeriod,
     series: selectedPeriod,
     funnel: hasAdRows
       ? `${selectedPeriod} · all ads using this creative`
       : hasDecisionPurchases
-        ? "decision period unavailable · purchases only"
+        ? `decision ${decisionPeriod} · purchases only`
         : selectedPeriod,
     adSets: hasAdRows
       ? `ROAS per ad set · ${selectedPeriod} · all ads using this creative`
-      : "Ad set context · decision period unavailable metrics when available",
+      : `Ad set context · decision ${decisionPeriod} metrics when available`,
   };
   const adSets = buildAdSets({
     rows: input.adRows,
@@ -2343,6 +2345,13 @@ export function buildCreativeEvidenceWindowExactViewModel(
     primaryAuthority?.offered ?? input.launchpadRoute?.offered ?? null;
   const primaryAllowed = primaryOffered !== false;
   const onPrimary = primaryAllowed ? input.callbacks?.onPrimary : undefined;
+  const primaryHref = primaryAllowed ? (input.hrefs?.primary ?? null) : null;
+  // A served verdict is text, not a promise that this drawer offers a write
+  // control. Keep a disabled button only when a real route was evaluated and
+  // refused; informational/review-only rows have no primary button.
+  const showPrimaryControl = Boolean(
+    primaryAuthority || input.launchpadRoute || primaryHref || onPrimary,
+  );
 
   return {
     name:
@@ -2373,6 +2382,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
       (canonical?.media.thumbnail.state === "available"
         ? nonBlank(canonical.media.thumbnail.url)
         : null) ?? nonBlank(decision?.thumbnailUrl),
+    previewRecoveryUrl: input.previewRecoveryUrl ?? null,
     stripeA: null,
     stripeB: null,
     kind: buildKind({ canonical, decision, adSetCount: adSets.length }),
@@ -2440,16 +2450,16 @@ export function buildCreativeEvidenceWindowExactViewModel(
       source: input.source ?? null,
     }),
     provenance: buildProvenance({ canonical, decision }),
-    primaryAction: {
+    primaryAction: showPrimaryControl ? {
       label: actionLabel ?? EM_DASH,
-      href: primaryAllowed ? (input.hrefs?.primary ?? null) : null,
+      href: primaryHref,
       // The tuple travels by reference: no spread, no rebuilt object, no
       // normalised code. Whatever the server put on `decision.action` is what
       // the callback boundary receives.
       onClick:
         servedAction && onPrimary ? () => onPrimary(servedAction) : undefined,
       disabled: !actionLabel || !primaryAllowed,
-    },
+    } : undefined,
     compareAction: {
       label: "Compare in Studio",
       href: input.hrefs?.compareInStudio ?? null,

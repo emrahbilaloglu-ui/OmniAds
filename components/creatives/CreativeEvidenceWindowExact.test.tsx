@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +10,10 @@ import {
   type CreativeEvidenceWindowExactViewModel,
 } from "./CreativeEvidenceWindowExact";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const CSS = readFileSync(
   join(
@@ -259,6 +262,29 @@ describe("CreativeEvidenceWindowExact composition", () => {
     expect(
       container.querySelector('[data-creative-evidence-preview="served"]'),
     ).not.toBeNull();
+  });
+
+  it("recovers an expired drawer preview through the same account-scoped read as the card", async () => {
+    const recoveryUrl = "/api/meta/creative-thumbnail?creativeId=998877";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ thumbnailUrl: "https://meta.example/fresh-drawer.jpg" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          previewUrl: "https://meta.example/expired-drawer.jpg",
+          previewRecoveryUrl: recoveryUrl,
+        })}
+      />,
+    );
+    const image = container.querySelector('[data-creative-evidence-preview="served"]');
+    expect(image).not.toBeNull();
+    fireEvent.error(image!);
+    await waitFor(() => expect(image?.getAttribute("src")).toBe("https://meta.example/fresh-drawer.jpg"));
+    expect(fetchMock).toHaveBeenCalledWith(recoveryUrl, { cache: "no-store" });
   });
 
   it("closes on the backdrop, the close glyph and Escape", () => {

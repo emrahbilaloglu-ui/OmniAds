@@ -50,6 +50,7 @@ import { canCreateBrief } from "@/lib/zero-base/creative/studio-adapters";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
 import { adPerformanceAvailability } from "@/lib/meta/ad-performance-availability";
 import type { MetaAdCtrObservation } from "@/app/api/meta/ads/series/route";
+import { metaCreativeThumbnailRecoveryUrl } from "@/lib/meta/creative-thumbnail-recovery-url";
 
 const EM_DASH = "—";
 
@@ -2874,15 +2875,11 @@ function creativeRows(input: {
           ? null
           : nonBlank(decision.sourceCreativeType?.value),
       thumbnailUrl: normalizeMediaUrl(decision.thumbnailUrl),
-      thumbnailRecoveryUrl:
-        /^\d+$/.test(decision.creativeId ?? "") &&
-        /^act_\d+$/.test(decision.providerAccountId)
-          ? `/api/meta/creative-thumbnail?${new URLSearchParams({
-              businessId: input.businessId,
-              providerAccountId: decision.providerAccountId,
-              creativeId: decision.creativeId!,
-            })}`
-          : null,
+      thumbnailRecoveryUrl: metaCreativeThumbnailRecoveryUrl({
+        businessId: input.businessId,
+        providerAccountId: decision.providerAccountId,
+        creativeId: decision.creativeId,
+      }),
       // The reference's thumb is a neutral striped placeholder. Colouring it by
       // verdict would let the strip read as a second opinion beside the label
       // that already carries the tone, so it keeps the design's default pair.

@@ -52,11 +52,13 @@ export function MetaDecisionCreativeThumbnail({
   recoveryUrl,
   className,
   mobile = false,
+  evidencePreview = false,
 }: {
   thumbnailUrl?: string | null;
   recoveryUrl?: string | null;
   className: string;
   mobile?: boolean;
+  evidencePreview?: boolean;
 }) {
   const [source, setSource] = useState(thumbnailUrl ?? null);
   const attempted = useRef(false);
@@ -117,6 +119,7 @@ export function MetaDecisionCreativeThumbnail({
     <img
       alt=""
       className={className}
+      data-creative-evidence-preview={evidencePreview ? "served" : undefined}
       data-mobile-creative-thumbnail={mobile ? "" : undefined}
       loading="lazy"
       src={source}

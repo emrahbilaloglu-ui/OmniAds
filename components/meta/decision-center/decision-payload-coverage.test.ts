@@ -3978,14 +3978,17 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
   // six labelled config rows the diagnostics now print.
-  EVIDENCE: [120, 18],
+  // The Ad id now keys the evidence window rather than a selected-date CTR
+  // spark under the decision metric.
+  EVIDENCE: [120, 19],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
   // the provenance band is one band, not a table of rows.
   // 12 -> 13: it arrived here. @see decisionAvailability above.
   // D107 adds two labelled inspector rows for economic and bridged days.
-  INSPECTOR: [4, 13],
+  // Native decision CTR moved to the admitted-window creative card.
+  INSPECTOR: [4, 12],
   INVENTORY: [0, 14],
   KPI: [0, 22],
   NONSALES: [0, 1],
@@ -4035,7 +4038,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 10 -> 11: the held verdict `heldAction`, behind the Creatives scope tab
   // rather than in the resting desktop DOM.
   // D107's economic and bridged-day counts reach named inspector rows.
-  INSPECTOR: [4, 13],
+  INSPECTOR: [4, 12],
   // 100 -> 101: `ads.pendingInventoryCount`, the coverage fact that separates
   // ACTIVE inventory awaiting a decision from the decision lanes it used to be
   // counted inside. Like every PROVENANCE claim it sits behind the panel's own
@@ -4065,7 +4068,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // the behind-a-control half of the evidence window (Round 8 item 7).
   // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
   // contract-identity leaves. All sit behind the evidence-window control.
-  EVIDENCE: [0, 134],
+  EVIDENCE: [0, 135],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including

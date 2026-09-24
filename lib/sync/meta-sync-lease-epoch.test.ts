@@ -93,6 +93,8 @@ vi.mock("@/lib/meta/warehouse", async () => {
     createMetaSyncRun: vi.fn(),
     expireStaleMetaSyncJobs: vi.fn(),
     getMetaAuthoritativeDayVerification: vi.fn(),
+    getMetaCorePublishedRetryState: vi.fn(),
+    getMetaPositiveSpendAdIdsForPublishedRun: vi.fn(),
     getMetaPartitionCompletionDenialSnapshot: vi.fn(),
     getLatestMetaCheckpointForPartition: vi.fn(),
     getLatestRunningMetaSyncRunIdForPartition: vi.fn(),
@@ -201,6 +203,12 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       published: true,
       stagedRowCount: 3,
     } as never);
+    vi.mocked(warehouse.getMetaCorePublishedRetryState).mockResolvedValue({
+      complete: false,
+      active: false,
+      requiresProviderRefetch: false,
+    });
+    vi.mocked(warehouse.getMetaPositiveSpendAdIdsForPublishedRun).mockResolvedValue([]);
     vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
       completed_days: 0,
       latest_updated_at: null,

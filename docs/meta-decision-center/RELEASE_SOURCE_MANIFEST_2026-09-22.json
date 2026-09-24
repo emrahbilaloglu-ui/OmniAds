@@ -1,5 +1,5 @@
 {
-  "manifestHash": "4501cb10b72e0f4981a48ff7ba128d8b68e1d14e484170c0516b997c11af1849",
+  "manifestHash": "e6b67b95b01dc6dcacfab7db6d1c4429b4631ed1c5652450af818b05db58c683",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1597,6 +1597,10 @@
     {
       "path": "lib/server-cache.ts",
       "sha256": "4e459e663df35cf090aad70d0b0e6c96ff8b2561adbb372f1d88dff558fb1263"
+    },
+    {
+      "path": "lib/sync/meta-sync-lease-epoch.test.ts",
+      "sha256": "2f7948b6c84fa36d11d64891fc6b95504d9feb5c7907cf0062cb3a623422be58"
     },
     {
       "path": "lib/sync/meta-sync.test.ts",

@@ -848,3 +848,11 @@ There is no fallback to current detail or an inferred ACTIVE state.
 | `lib/meta/creative-member-effective-status.ts` | 1 | Content-reader. Its shared SQL resolves present Ad and parent winners with observation, capture, and creation clocks bounded by the evaluation cutoff. It writes nothing. |
 | `lib/creative-decision-engine/creative-day-metric-evidence.db.test.ts` | 2 | Harness. It inserts point-in-time state fixtures and checks a real database decision reader, including unknown status when history is missing. |
 | `lib/creative-decision-engine/profile-scope-callers-account-scope.db.test.ts` | 1 | Harness. It inserts account-scoped state fixtures for the lifecycle reader; it is not a served consumer. |
+
+### D106 operator-response cutoff test addendum (2026-09-24)
+
+`lib/creative-decision-engine/__tests__/jobs/operator-response-job.cutoff.test.ts`
+enters the closure ledger with **1** literal reference, category `test`. Its
+assertion checks that the daily-spend query uses the shared member-status
+reader instead of a cleared legacy creative-day status. It issues no direct
+state-history query and grants no status authority by itself.

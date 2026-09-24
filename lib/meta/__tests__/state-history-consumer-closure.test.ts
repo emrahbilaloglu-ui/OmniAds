@@ -403,6 +403,11 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     category: "test",
     count: 1,
   },
+  {
+    file: "lib/creative-decision-engine/__tests__/jobs/operator-response-job.cutoff.test.ts",
+    category: "test",
+    count: 1,
+  },
   { file: "lib/meta/briefing-filter.test.ts", category: "test", count: 1 },
   /*
     2026-09-22 currency-unit repair — new file, 1 reference, comment only.

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "1ba83a17b0fa39c32d86c4cda44ffc9ce2690b58326cd90560c75754d3c6e28c",
+  "manifestHash": "755fb69e8ec06ae196b91aff3980ae36410c8618d63717b6019717b112efe7e3",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -456,7 +456,7 @@
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
-      "sha256": "b4ef035e666771658e2bbc2f8ee475835440a3a40a66bcbe7ef90e45cf583730"
+      "sha256": "4d5b7e212977005e70e261027961a74923247d8c217b1ea6d2f3837998a10d83"
     },
     {
       "path": "docs/creative-decision-center/CONTRACTS.md",
@@ -1016,7 +1016,7 @@
     },
     {
       "path": "lib/meta/__tests__/state-history-consumer-closure.test.ts",
-      "sha256": "9050c7bc8501d2ef8ba432bbc5512e643482b6a159c3976ed8b2ad2581715895"
+      "sha256": "c84085efe6f7a2f82024424e4123c10c7c6ea2c0868a7849a5ff40a54f02b089"
     },
     {
       "path": "lib/meta/action-count-parse.test.ts",

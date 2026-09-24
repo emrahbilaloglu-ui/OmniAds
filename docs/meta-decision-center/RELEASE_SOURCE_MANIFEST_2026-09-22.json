@@ -1,5 +1,5 @@
 {
-  "manifestHash": "9198d9a85173d68dfd978f3c03a7f4acc15d5d7d18b842525bdc9d0915792c76",
+  "manifestHash": "7f6c58fb26786e5d01d1f31ee90e19eee27ea552e28c35fe084a7040f71737b5",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -544,7 +544,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "db64fa69821f1b1a43d73e63f5034ae3feec2182465e31d8e31cad2a06eb15c6"
+      "sha256": "af48f1431f1704dbef08e9a62772cf30d58d4ad2f62616118270dc2a09274979"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -752,7 +752,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-calibration-job.test.ts",
-      "sha256": "44a154df7faad29ae21888dfb67c06addddaa79b5ff01a9f06c07f1c5cba50ee"
+      "sha256": "ef3addd22fc940fd7ec350cbd2b9a1a2bc94de36ee020da9de444901f25e43fd"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-calibration-migration-shape.test.ts",
@@ -1160,7 +1160,7 @@
     },
     {
       "path": "lib/meta/ad-day-provider-zero-receipt.ts",
-      "sha256": "c45e4d95a98f20fbe56ea3e62f2c20d9dd5580fc8856a7a3c96a989cfc6b5671"
+      "sha256": "73168301db94a49d4c0936082b7a1244854f2aa582c8b380733fb1c8cfb721ad"
     },
     {
       "path": "lib/meta/ad-performance-availability.ts",

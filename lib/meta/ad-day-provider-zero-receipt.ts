@@ -120,6 +120,7 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
               AND validation.surface = 'account_daily'
               AND validation.event_kind = 'validation_passed'
               AND validation.result = 'passed'
+              AND validation.created_at >= manifest.completed_at
               AND validation.created_at <= pointer.published_at
               AND validation.created_at <= ${cutoffSql}
               AND NOT EXISTS (

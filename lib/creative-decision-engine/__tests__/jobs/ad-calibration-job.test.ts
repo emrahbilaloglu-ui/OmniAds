@@ -4075,6 +4075,15 @@ describe.runIf(postgresAvailable)(
         expect(await read(cutoff)).toMatchObject({
           verified: false, purchases: null, link_clicks: null, lpv: null,
         });
+        await pool.query(`INSERT INTO meta_authoritative_reconciliation_events
+          (business_id, provider_account_id, day, surface, manifest_id,
+           event_kind, result, created_at)
+          VALUES ($1,$2,$3::date,'account_daily',$4::uuid,
+            'validation_passed','passed','2026-07-12T01:25:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, manifest.rows[0]!.id]);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
         // The Ad slice can be marked passed even when the run-level account
         // totals require repair; only an exact manifest validation grants zero.
         await pool.query(`INSERT INTO meta_authoritative_reconciliation_events

@@ -10383,7 +10383,7 @@ and published `ad_daily` pointer visible at the evaluation cutoff. Its active
 Ad slice references the exact run-level `account_daily` manifest, and the
 Ad-day fact must have been written before pointer publication. That manifest
 must also have a `validation_passed` / `passed` account-day reconciliation
-event before the pointer was published, with no later failure on the same
+event after manifest completion and before the pointer was published, with no later failure on the same
 manifest before publication. A slice's own `passed` flag cannot override
 failed run-level source totals. This is the
 `provider_zero` state. An `actions` array without an event remains measured
@@ -10418,7 +10418,9 @@ that satisfied the slice and raw clocks while their exact manifest's sole
 reconciliation event was `totals_mismatch` / `repair_required` before
 publication. All three now remain unknown. Requiring the exact manifest's
 successful reconciliation does not change the 28 Grandmix / 11 TheSwaf
-positive count at the stated cutoff.
+positive count at the stated cutoff. All 56 Grandmix/TheSwaf published Ad days
+had a successful validation after their linked manifest completed; the nearest
+validation was at least 0.254 seconds later.
 An independent, fully paginated Graph `level=adset`, daily 2026-09-17..23
 read returned 49/49 Grandmix and 595/595 TheSwaf adset-days. Among the 99
 adset-days containing 114 no-actions child rows, adset purchase and link-click

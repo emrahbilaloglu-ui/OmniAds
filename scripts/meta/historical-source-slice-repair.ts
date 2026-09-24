@@ -291,15 +291,18 @@ export function evaluateHistoricalSourceSlice(input: {
     const events = reconciliations.filter((event) =>
       event.manifestId === target.id && event.surface === "account_daily" &&
       Number.isFinite(time(event.createdAt)) &&
-      time(event.createdAt) <= Math.min(time(pointer?.publishedAt), cutoff));
-    const passed = events.find((event) =>
+      time(event.createdAt) <= cutoff);
+    const passed = events.filter((event) =>
       event.eventKind === "validation_passed" && event.result === "passed" &&
+      time(event.createdAt) <= time(pointer?.publishedAt) &&
       numeric(event.sourceSpend) !== null &&
       Math.abs(event.sourceSpend! - (sourceSpend ?? NaN)) <= 0.01 &&
       numeric(event.warehouseAccountSpend) !== null &&
-      Math.abs(event.warehouseAccountSpend! - spend) <= 0.01);
+      Math.abs(event.warehouseAccountSpend! - spend) <= 0.01)
+      .sort((left, right) => time(right.createdAt) - time(left.createdAt))[0];
     if (!passed || events.some((event) =>
-      event.result === "repair_required" || event.result === "failed")) {
+      (event.result === "repair_required" || event.result === "failed") &&
+      time(event.createdAt) >= time(passed.createdAt))) {
       blockers.push("exact_manifest_validation_receipt_missing_or_failed");
     }
   }
@@ -537,9 +540,8 @@ export async function runHistoricalSourceSliceRepair(options: Options) {
         candidate.aggregatedSpend == null ||
         Math.abs(candidate.aggregatedSpend - current.next.aggregatedSpend) > 0.01 ||
         candidate.truthState !== "finalized" ||
-        candidate.status === "superseded" || candidate.status === "failed" ||
-        (candidate.status === "staging" &&
-          candidate.validationSummary?.reviewedPlanHash !== planHash)) {
+        candidate.status !== "staging" ||
+        candidate.validationSummary?.reviewedPlanHash !== planHash) {
       throw new Error("writer_did_not_create_exact_manifest_candidate");
     }
     await updateMetaAuthoritativeSliceVersion({

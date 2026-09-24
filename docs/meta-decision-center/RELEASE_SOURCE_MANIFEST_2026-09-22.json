@@ -1,5 +1,5 @@
 {
-  "manifestHash": "cf2ac8f99a1ec59da7acb80b32211dd652076c7d68834c15591ac9f8ab436d3d",
+  "manifestHash": "5171c04ecdcf05ed77fe579f0767770db13991931b94733ef0e7eaedd1d31942",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -544,7 +544,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "d18424450d0848acdb4e2a2d8c350ddd578d23fb50eb95afe12fddc1f5935f96"
+      "sha256": "884a1c8ef043fbcf2e1ef9af7fe739ceedefd139a6ef27b3a4bb6590b15a50a3"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1815,8 +1815,12 @@
       "sha256": "33d76ed3ec8c94dc20eb43f8145a3e5cf19929c625495d297b90ddbaa3364377"
     },
     {
+      "path": "scripts/ephemeral-postgres-meta-historical-slice-repair-seam-child.ts",
+      "sha256": "a75cb88732313e237374bea41293537d5082c215169115f7b184f205e243d356"
+    },
+    {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "d3847485ad8ee37268f280899b9dc953b2d2304d638129354b195ecd04e1c9f0"
+      "sha256": "89359677b43382dad976d9640d75dc5c34424de4066ceeecc4644b87d3e4469d"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -1861,6 +1865,18 @@
     {
       "path": "scripts/meta/decision-release-source-manifest.ts",
       "sha256": "c2773634d0555a68a542ba316a8115ce76c3973b63f368683beda0a5d2d89b4a"
+    },
+    {
+      "path": "scripts/meta/historical-source-slice-repair-batch.ts",
+      "sha256": "995765a5f184e5e82e7b814bb18758079b95651405aa4b57665f096532d40ed9"
+    },
+    {
+      "path": "scripts/meta/historical-source-slice-repair.test.ts",
+      "sha256": "9b0f89db30ff6be82ca75b821a86635bfcebd9a06a5e2946c51d9484d72a9479"
+    },
+    {
+      "path": "scripts/meta/historical-source-slice-repair.ts",
+      "sha256": "2dad9a9497444e943c7f76b6aa22cdf13c74d182b105d0231afd217315fc809c"
     },
     {
       "path": "scripts/meta/link-click-repair-backfill.db.test.ts",

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "eb1b29f79c184e434833d7ba5bf58002c95d0685b2fa0cfdcbb2f5824036b99f",
+  "manifestHash": "6395f35e6ceeecc237458a287ca65e6f600adebeb5f059deea229b132614f995",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -180,7 +180,7 @@
     },
     {
       "path": "app/api/meta/served-profile-account-scope.db.test.ts",
-      "sha256": "34d9d431d121d5a2a4eaadcde48306839b33c9e55245624a338599ae2a8931d9"
+      "sha256": "6efb6a4d6c6af29aa24f80841853d9624a7df6103c1221058311b1f9ca26f64a"
     },
     {
       "path": "app/api/meta/structure-configuration/route.test.ts",
@@ -209,6 +209,10 @@
     {
       "path": "app/c/[businessId]/meta/decisions/page.tsx",
       "sha256": "6407c52cbbf03b0e857a275a176e4292939a3d60b562c1457bc74399e92af27e"
+    },
+    {
+      "path": "app/globals.css",
+      "sha256": "ed03c130a6ee179441cc07328aa7f71e2ecf11dd0a6e24d08c7e2230b4da0ea8"
     },
     {
       "path": "components/creatives/briefing/AssetLibrarySection.test.tsx",
@@ -372,11 +376,11 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "98172705c02ba46d47c3cf1e3ef2f015a05b241b988b885caa29e8b901a50781"
+      "sha256": "46be877b8019967bb7dba0a48ccbaf03fe217a541a3ec08d94d5121f9d58f599"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
-      "sha256": "e0d30004f3cf1c9529f346d49f0dbdc54224ed19d2a640b2919d8dda47bc4b82"
+      "sha256": "1fdff5065c30a2d7699df6d0219ab88496c9b7005f3a6e8b469d89772cfc5b1f"
     },
     {
       "path": "components/meta/redesign/MetaUpperFunnelInformationalCard.test.tsx",

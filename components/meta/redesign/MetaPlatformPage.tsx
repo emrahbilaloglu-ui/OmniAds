@@ -1922,6 +1922,13 @@ function MetaMobileQueueRow({
   const moneyLine = [mobileDisplay(money), mobileDisplay(moneySub)]
     .filter((value) => value !== "—")
     .join(" · ");
+  // Mirror the desktop creative card's served-state and held-verdict gates.
+  // Structure rows do not carry a served action when blocked, so this cannot
+  // create a different action interpretation for that scope.
+  const isBlockedCreative =
+    mobileDisplay(stateLabel).trim().toLowerCase() === "blocked";
+  const isHeldCreative =
+    heldVerdictLabel != null && mobileDisplay(heldVerdictLabel) !== "—";
   return (
     <article className="ad-mobile-row-card" data-mobile-row-id={id}>
       <div>
@@ -1969,7 +1976,10 @@ function MetaMobileQueueRow({
         ) : null}
       </div>
       <div className="ad-mobile-row-footer">
-        {actionLabel && mobileDisplay(actionLabel) !== "—" ? (
+        {!isBlockedCreative &&
+        !isHeldCreative &&
+        actionLabel &&
+        mobileDisplay(actionLabel) !== "—" ? (
           <span className="ad-mobile-action-note">
             {mobileDisplay(actionLabel)}
           </span>
@@ -2091,8 +2101,11 @@ function MetaMobileDecisionsScreen({
   viewModel,
   scope,
   lane,
+  rowSearch,
+  levels,
   onScopeChange,
   onLaneChange,
+  onClearFilters,
   loading,
   error,
   retryPending,
@@ -2119,8 +2132,11 @@ function MetaMobileDecisionsScreen({
   viewModel: MetaDecisionCenterExactViewModel;
   scope: MetaDecisionCenterExactScope;
   lane: MetaLaneView;
+  rowSearch: string;
+  levels: readonly MetaDecisionLevel[];
   onScopeChange: (scope: MetaDecisionCenterExactScope) => void;
   onLaneChange: (lane: MetaLaneView) => void;
+  onClearFilters: () => void;
   loading: boolean;
   error: Error | null;
   retryPending: boolean;
@@ -2163,6 +2179,7 @@ function MetaMobileDecisionsScreen({
   const identity = viewModel.identity ?? {};
   const actCount = loading || error ? "—" : mobileDisplay(counts.action);
   const rows = mobileQueueRows(viewModel, scope, lane, manualActionFor);
+  const hasRowFilters = Boolean(rowSearch.trim() || levels.length > 0);
   const bannerPresentation = compactWorkspaceBannerPresentation({
     banners,
     historyHref,
@@ -2431,6 +2448,20 @@ function MetaMobileDecisionsScreen({
             </nav>
           )}
 
+          {hasRowFilters ? (
+            <article className="ad-mobile-anomaly" data-tone="info" data-mobile-active-filters>
+              <b>Filtered decisions</b>
+              <div>
+                {rowSearch.trim() ? `Search: ${rowSearch.trim()}` : null}
+                {rowSearch.trim() && levels.length > 0 ? " · " : null}
+                {levels.length > 0 ? `Levels: ${levels.join(", ")}` : null}
+              </div>
+              <button type="button" onClick={onClearFilters} data-mobile-clear-filters>
+                Clear filters
+              </button>
+            </article>
+          ) : null}
+
           {/*
             ROUND 9 ITEM 8. The mapped pending/legacy notice, which mobile did
             not render at all — so a phone showed an empty or partial creatives
@@ -2475,7 +2506,11 @@ function MetaMobileDecisionsScreen({
 
           {!loading && !error && rows.length === 0 ? (
             <article className="ad-mobile-row-card">
-              <h3>No decisions in this view</h3>
+              <h3>
+                {hasRowFilters
+                  ? "No decisions match these filters"
+                  : "No decisions in this view"}
+              </h3>
             </article>
           ) : null}
         </div>
@@ -4635,6 +4670,15 @@ export function MetaPlatformPage({
     replaceMetaParams(params);
   };
 
+  const clearRowFilters = () => {
+    setRowSearch("");
+    setActiveLevels([]);
+    const params = currentUrlParams();
+    params.delete("q");
+    params.delete("levels");
+    replaceMetaParams(params);
+  };
+
   const refreshDecisionData = async () => {
     await Promise.all([
       queryClient.invalidateQueries({
@@ -5867,8 +5911,11 @@ export function MetaPlatformPage({
           viewModel={exactViewModel}
           scope={activeScope}
           lane={activeLane}
+          rowSearch={rowSearch}
+          levels={activeLevels}
           onScopeChange={selectScope}
           onLaneChange={selectOperatorLane}
+          onClearFilters={clearRowFilters}
           loading={loading}
           error={error}
           retryPending={briefingRetryPending}

@@ -1479,6 +1479,49 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(state.adapterInput.overrides.actionNow).toEqual([]);
   });
 
+  it("shows mobile creative filters and clears both URL filters to restore the served rows", async () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    } as never;
+    state.search =
+      "providerAccountId=act_1&scope=creatives&area=monitor&segment=needs_resolution&q=Pending&levels=campaign";
+    const dom = render();
+    expect(dom.querySelector('[data-mobile-row-id="os_pending_ad"]')).toBeNull();
+    expect(dom.textContent).toContain("No decisions match these filters");
+    const filters = dom.querySelector("[data-mobile-active-filters]");
+    expect(filters?.textContent).toContain("Search: Pending");
+    expect(filters?.textContent).toContain("Levels: campaign");
+
+    await act(async () => {
+      dom.querySelector<HTMLButtonElement>("[data-mobile-clear-filters]")!.click();
+      await Promise.resolve();
+    });
+
+    expect(dom.querySelector("[data-mobile-active-filters]")).toBeNull();
+    expect(dom.querySelector('[data-mobile-row-id="os_pending_ad"]')).not.toBeNull();
+    const nextHref = state.routerReplace.mock.lastCall?.[0] as string;
+    const nextUrl = new URL(nextHref, "https://example.test");
+    expect(nextUrl.searchParams.get("q")).toBeNull();
+    expect(nextUrl.searchParams.get("levels")).toBeNull();
+    expect(nextUrl.searchParams.get("scope")).toBe("creatives");
+    expect(nextUrl.searchParams.get("segment")).toBe("needs_resolution");
+  });
+
+  it("keeps a blocked mobile creative's read control without advertising an action", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    } as never;
+    state.search =
+      "providerAccountId=act_1&scope=creatives&area=monitor&segment=needs_resolution";
+    const dom = render();
+    const row = dom.querySelector('[data-mobile-row-id="os_pending_ad"]');
+    expect(row).not.toBeNull();
+    expect(row?.querySelector(".ad-mobile-action-note")).toBeNull();
+    expect(row?.textContent).toContain("Read evidence");
+  });
+
   // `row` is half-supported: `ad:<id>` names something this queue can open,
   // anything else does not. The supported half is covered by "opens the
   // creatives scope…" above; this is the unsupported half, which must be
@@ -1566,6 +1609,7 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(card?.textContent).toContain(
       "Recommendation awaiting review: Refresh creative",
     );
+    expect(card?.closest('[data-mobile-row-id]')?.querySelector('.ad-mobile-action-note')).toBeNull();
 
     // Tap through.
     const open = Array.from(

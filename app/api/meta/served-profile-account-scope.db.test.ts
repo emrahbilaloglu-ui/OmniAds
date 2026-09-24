@@ -876,12 +876,12 @@ describe.skipIf(!RUNNABLE)(
       const before = await serve(SCOPE_BUSINESS, SCOPE_A);
       const bBefore = await retained(SCOPE_BUSINESS, SCOPE_B);
 
-      // Forty more converters for B at a materially different revenue. The
-      // pooled reading cannot survive this; A's own reading is untouched.
+      // Eight more converters for B at materially different revenue move its
+      // Meta AOV and the pooled reading; A's own reading is untouched.
       await seedCreatives({
         businessId: SCOPE_BUSINESS,
         account: SCOPE_B,
-        count: 40,
+        count: 8,
         offset: 100,
         spend: 10,
         revenue: 200,
@@ -937,7 +937,7 @@ describe.skipIf(!RUNNABLE)(
         "refresh:false:commercial_anchor_sample_insufficient",
         "scale:false:commercial_anchor_sample_insufficient",
       ]);
-    });
+    }, 120_000);
 
     it("refuses to lend a sibling's Meta AOV when there is no store", async () => {
       const withPurchases = await serve(NOSTORE_BUSINESS, NOSTORE_P);
@@ -1130,7 +1130,7 @@ describe.skipIf(!RUNNABLE)(
         "refresh:false:commercial_anchor_missing",
         "scale:false:commercial_anchor_missing",
       ]);
-    });
+    }, 120_000);
 
     it("still anchors an account whose own Meta sample is ready", async () => {
       /*

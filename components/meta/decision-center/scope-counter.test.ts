@@ -32,9 +32,15 @@ describe("the scope counters count their scope", () => {
 
   const block = ADAPTER.slice(countsStart, countsEnd);
 
-  it("counts creatives from the served population, not the act lane", () => {
-    expect(block).toContain("workspace.os?.ads?.items?.length");
+  it("counts creatives from the pre-cap decision population, not the act lane or the capped page", () => {
+    // The same three-lane total the tabs show, so the pill and the tabs add up
+    // and "Show more decisions" does not move it.
+    expect(block).toContain("creatives: creativeDecisionTotal ?? EM_DASH");
     expect(block).not.toContain("os?.ads?.actCount");
+    expect(block).not.toContain("workspace.os?.ads?.items?.length");
+    expect(ADAPTER).toContain(
+      "const creativePreCapCounts = workspace.os?.ads?.statePreCapCounts ?? null;",
+    );
   });
 
   it("counts structure from the served census, not the action lane", () => {

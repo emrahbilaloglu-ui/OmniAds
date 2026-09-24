@@ -6,6 +6,7 @@ import {
   type MetaDecisionAuthorityBlocker,
   type MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
+import { readMetaPreCapAdCandidates } from "@/lib/meta/decisions-pre-cap-ad-candidates";
 import {
   resolveProvisionalCampaignKind,
   type MetaCurrentAdStatusSourceRow,
@@ -1588,26 +1589,55 @@ function presentedCampaignRole(input: {
   };
 }
 
+/** Whether a canonical decision can be served as an exact Ad row at all. */
+function isServableAdDecision(decision: MetaCanonicalDecision): boolean {
+  const ad = decision.parentChain.ad;
+  if (!ad?.id?.trim() || !/^\d+$/.test(ad.id.trim())) return false;
+  return !(
+    decision.identityResolution &&
+    !decision.identityResolution.adActionEligible
+  );
+}
+
+// A retained generation keeps its verdict but is no longer current action
+// evidence. D097's role-held Cut may live in Act for a healthy source; the
+// same row must move to review when the latest native run failed.
+function retainedForReview(
+  lane: MetaOsDecisionLane,
+  sourceDegraded: boolean,
+): boolean {
+  return sourceDegraded && lane === "act";
+}
+
+/**
+ * The lane an exact Ad row is SERVED in, or null when it is not served.
+ *
+ * The one function both the row builder and the pre-cap lane counts use, so
+ * a tab can never count a classification the row is not drawn in. It adds no
+ * rule: it is `adAction`'s lane after the retained-generation move, exactly as
+ * `adDecision` applies them.
+ */
+export function adOsLaneForCanonicalDecision(
+  decision: MetaCanonicalDecision,
+  targetHardActionEligibility: MetaTargetHardActionEligibility,
+  sourceDegraded: boolean,
+): MetaOsDecisionLane | null {
+  if (!isServableAdDecision(decision)) return null;
+  const { lane } = adAction(decision, targetHardActionEligibility);
+  return retainedForReview(lane, sourceDegraded) ? "blocked" : lane;
+}
+
 function adDecision(
   decision: MetaCanonicalDecision,
   contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
   targetHardActionEligibility: MetaTargetHardActionEligibility,
   sourceDegraded: boolean,
 ): MetaOsAdDecision | null {
-  const ad = decision.parentChain.ad;
-  if (!ad?.id?.trim() || !/^\d+$/.test(ad.id.trim())) return null;
-  if (
-    decision.identityResolution &&
-    !decision.identityResolution.adActionEligible
-  ) {
-    return null;
-  }
+  if (!isServableAdDecision(decision)) return null;
+  const ad = decision.parentChain.ad!;
   const original = adAction(decision, targetHardActionEligibility);
-  // A retained generation keeps its verdict but is no longer current action
-  // evidence. D097's role-held Cut may live in Act for a healthy source; the
-  // same row must move to review when the latest native run failed.
-  const retainedForReview = sourceDegraded && original.lane === "act";
-  const mapped = retainedForReview
+  const retainedForReviewLane = retainedForReview(original.lane, sourceDegraded);
+  const mapped = retainedForReviewLane
     ? {
         lane: "blocked" as const,
         action: {
@@ -2003,6 +2033,12 @@ export function buildMetaOsDecisionsPresentation(input: {
   inactiveStructure?: InactiveStructureInput[];
   decisionReadModel: MetaDecisionsWorkspaceReadModel;
   currentAds?: readonly MetaCurrentAdStatusSourceRow[];
+  /**
+   * Whether `currentAds` is the COMPLETE active-Ad read. `false` means the
+   * inventory read failed or was partial, so un-decided ACTIVE inventory is
+   * unknown rather than zero. Omitted keeps the historical behaviour.
+   */
+  currentAdsComplete?: boolean;
   currentAdCampaignContexts?: readonly MetaDecisionCampaignContextSourceRow[];
   currency: string | null;
   targetHardActionEligibility?: MetaTargetHardActionEligibility;
@@ -2284,6 +2320,56 @@ export function buildMetaOsDecisionsPresentation(input: {
   const originalMonitorPreCap =
     candidateStateCounts?.monitor?.preCapCount ??
     ads.filter((item) => item.lane === "monitor").length;
+  /*
+   * PRE-CAP LANE COUNTS, FROM THE SAME LANE FUNCTION AS THE ROWS.
+   *
+   * The reader's `stateCounts` bucket by `classification.decisionState`; the
+   * rows are served in `adAction`'s lane. When the reader attached its pre-cap
+   * lane population (process-local, never on the wire), every candidate goes
+   * through `adOsLaneForCanonicalDecision` — the exact function `adDecision`
+   * uses — so the tabs, the group headers and the drawn rows agree. The old
+   * decisionState arithmetic remains only for readers that attach nothing.
+   *
+   * UNKNOWN IS NULL. An unavailable decision source has no population to
+   * count; the unavailable reader's hard-coded zeros used to reach the tabs as
+   * "0 / 0 / 0" beside a sentence saying the queue could not be verified. A
+   * retained (degraded) generation is still a counted population — its notice
+   * says whose decisions they are.
+   */
+  const decisionCountsUnknown =
+    input.decisionReadModel.status === "unavailable" ||
+    (input.decisionReadModel.source?.status === "unavailable" &&
+      !sourceDegraded);
+  const preCapCandidates = readMetaPreCapAdCandidates(input.decisionReadModel);
+  const preCapLaneCounts = preCapCandidates
+    ? preCapCandidates.reduce<Record<MetaOsDecisionLane, number>>(
+        (counts, decision) => {
+          const lane = adOsLaneForCanonicalDecision(
+            decision,
+            targetHardActionEligibility,
+            sourceDegraded,
+          );
+          if (lane) counts[lane] += 1;
+          return counts;
+        },
+        { act: 0, blocked: 0, monitor: 0 },
+      )
+    : null;
+  const statePreCapCounts: Record<MetaOsDecisionLane, number> | null =
+    decisionCountsUnknown
+      ? null
+      : (preCapLaneCounts ?? {
+          act: sourceDegraded ? 0 : originalActPreCap,
+          // Withheld VERDICTS only. Un-evaluated ACTIVE inventory is counted by
+          // `pendingInventoryCount`, never added here: adding it made "blocked"
+          // a mixture of two populations that need different operator answers.
+          blocked: sourceDegraded
+            ? originalBlockedPreCap + originalActPreCap
+            : originalBlockedPreCap,
+          monitor: originalMonitorPreCap,
+        });
+  // An incomplete active-Ad read cannot say how much inventory is un-decided.
+  const inventoryReadIncomplete = input.currentAdsComplete === false;
   const pendingInventoryPreCapCount = pendingInventoryAdIds.size;
   const pendingInventoryLimitation =
     pendingInventoryPreCapCount === 0
@@ -2368,28 +2454,24 @@ export function buildMetaOsDecisionsPresentation(input: {
        * `heldAction`, and a count the surface could not compute cheaply is a
        * count the surface did not show.
        */
+      // Blocked-lane rows only. A D097 role-held Cut carries `heldAction:
+      // "cut"` but is served in Act as a completed manual decision; counting
+      // it here described it as "needing more evidence" under Blocked.
       heldCounts: {
-        scale: ads.filter((item) => item.heldAction === "scale").length,
-        cut: ads.filter((item) => item.heldAction === "cut").length,
-        refresh: ads.filter((item) => item.heldAction === "refresh").length,
+        scale: ads.filter((item) => item.lane === "blocked" && item.heldAction === "scale").length,
+        cut: ads.filter((item) => item.lane === "blocked" && item.heldAction === "cut").length,
+        refresh: ads.filter((item) => item.lane === "blocked" && item.heldAction === "refresh").length,
       },
-      statePreCapCounts: {
-        act: sourceDegraded ? 0 : originalActPreCap,
-        // Withheld VERDICTS only. Un-evaluated ACTIVE inventory is counted by
-        // `pendingInventoryCount`, never added here: adding it made "blocked"
-        // a mixture of two populations that need different operator answers.
-        blocked: sourceDegraded
-          ? originalBlockedPreCap + originalActPreCap
-          : originalBlockedPreCap,
-        monitor: originalMonitorPreCap,
-      },
+      statePreCapCounts,
       // The pre-cap size of the population that produced `items`, which is now
       // the canonical decisions alone. The surface pairs this with the shown
       // count to decide whether more decisions can be fetched, so counting
       // un-evaluated inventory here offered a page of rows that do not exist.
-      eligiblePreCapCount:
-        input.decisionReadModel.queue?.adCandidates?.eligiblePreCapCount ??
-        canonicalAds.length,
+      // Null when the source could not be counted.
+      eligiblePreCapCount: decisionCountsUnknown
+        ? null
+        : (input.decisionReadModel.queue?.adCandidates?.eligiblePreCapCount ??
+          canonicalAds.length),
       /*
        * ACTIVE provider inventory carrying no exact Ad-grain decision.
        *
@@ -2398,7 +2480,10 @@ export function buildMetaOsDecisionsPresentation(input: {
        * the source-health fact once, beside the `active_ad_inventory_pending_native_decision`
        * limitation that carries the sentence.
        */
-      pendingInventoryCount: pendingInventoryPreCapCount,
+      // Absent, not 0, when the active-Ad read was incomplete.
+      ...(inventoryReadIncomplete
+        ? {}
+        : { pendingInventoryCount: pendingInventoryPreCapCount }),
       omittedWithoutVerifiedAdId,
       omittedAmbiguousIdentity,
       omittedNotApplicable,
@@ -2434,14 +2519,22 @@ export function buildMetaOsDecisionsPresentation(input: {
                 "Legacy rows use creative-grain metrics and are review-only even when one exact Ad identity is displayed.",
             },
           ]),
-      ...(pendingInventoryPreCapCount > 0
+      ...(inventoryReadIncomplete
         ? [
             {
-              code: "active_ad_inventory_pending_native_decision",
-              message: pendingInventoryLimitation!,
+              code: "active_ad_inventory_unverified",
+              message:
+                "The active Ad inventory read was incomplete, so how many ACTIVE Ads still lack an exact Ad-grain decision is unknown.",
             },
           ]
-        : []),
+        : pendingInventoryPreCapCount > 0
+          ? [
+              {
+                code: "active_ad_inventory_pending_native_decision",
+                message: pendingInventoryLimitation!,
+              },
+            ]
+          : []),
     ],
   };
 }

@@ -615,8 +615,15 @@ export interface MetaOsDecisionsPresentation {
      * three zeroes. The current builder always emits it.
      */
     heldCounts?: { scale: number; cut: number; refresh: number };
-    statePreCapCounts: Record<MetaOsDecisionLane, number>;
-    eligiblePreCapCount: number;
+    /**
+     * Pre-cap decisions per SERVED lane — the same lane each row is drawn in.
+     *
+     * Null when the decision source could not be counted (unavailable), which
+     * is not the same as zero decisions. A verified empty source serves zeros.
+     */
+    statePreCapCounts: Record<MetaOsDecisionLane, number> | null;
+    /** Pre-cap size of the served population; null when it is unknown. */
+    eligiblePreCapCount: number | null;
     /**
      * ACTIVE provider inventory that carries no exact Ad-grain decision.
      *

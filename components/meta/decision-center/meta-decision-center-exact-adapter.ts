@@ -3158,7 +3158,7 @@ function creativeRows(input: {
 function creativeGroups(input: {
   decisions: readonly MetaOsAdDecision[];
   rows: readonly MetaDecisionCenterExactCreativeDecisionViewModel[];
-  statePreCapCounts: Partial<Record<MetaOsDecisionLane, number>> | undefined;
+  statePreCapCounts: Partial<Record<MetaOsDecisionLane, number>> | null | undefined;
   heldNote: string | null;
 }): MetaDecisionCenterExactCreativeGroupViewModel[] {
   const rowsById = new Map(input.rows.map((row) => [row.id, row]));
@@ -3211,7 +3211,9 @@ function creativeFootnote(
 ): string {
   if (decisions.length === 0) {
     if (sourceUnavailable) {
-      return "Current ad-level decisions cannot be shown until their source is available.";
+      // The notice above already says why the queue is empty; this line only
+      // offers the one place performance can still be compared.
+      return "Use Creative Studio to compare creative performance while decisions are unavailable.";
     }
     return "No ad-level decision is available for this account.";
   }
@@ -3884,6 +3886,23 @@ function creativeDecisionSourceUnavailable(
   );
 }
 
+/**
+ * The retained-generation sentence: whose decisions these are, and which run
+ * failed. Both dates are served (`source.degraded`); nothing is inferred.
+ */
+function retainedGenerationNotice(
+  workspace: MetaDecisionsWorkspacePayload,
+): string | null {
+  const degraded = workspace.decisionReadModel?.source?.degraded;
+  if (degraded?.reason !== META_DECISION_SOURCE_DEGRADED_REASON) return null;
+  const served = nonBlank(degraded.servedGeneration?.asOfDate);
+  const failed = nonBlank(degraded.latestTerminalRun?.asOfDate);
+  if (!served) return null;
+  return `Showing decisions from the ${served} run because the latest decision run${
+    failed ? ` (${failed})` : ""
+  } did not complete. They are review-only until a current run succeeds.`;
+}
+
 function creativesNotice(
   workspace: MetaDecisionsWorkspacePayload,
 ): string | null {
@@ -3892,16 +3911,30 @@ function creativesNotice(
     (limitation) =>
       limitation.code === "active_ad_inventory_pending_native_decision",
   );
+  // An incomplete active-Ad read: how much inventory waits is unknown, and
+  // the sentence says so instead of letting the count read as zero.
+  const inventoryUnverified = limitations.find(
+    (limitation) => limitation.code === "active_ad_inventory_unverified",
+  );
   const pendingCount = finite(workspace.os?.ads?.pendingInventoryCount);
-  if (
-    creativeDecisionSourceUnavailable(workspace) &&
-    (workspace.os?.ads?.items?.length ?? 0) === 0
-  ) {
+  const inventorySentence = pendingInventory
+    ? buyerLimitationCopy(pendingInventory.code, pendingCount)
+    : inventoryUnverified
+      ? buyerLimitationCopy(inventoryUnverified.code)
+      : null;
+  const servedRowCount = workspace.os?.ads?.items?.length ?? 0;
+  if (creativeDecisionSourceUnavailable(workspace) && servedRowCount === 0) {
     const affected =
       pendingInventory && pendingCount !== null && pendingCount > 0
         ? ` ${formatNumber(pendingCount)} active ads have no current decision on this screen.`
         : "";
     return `Current creative decisions could not be verified, so this queue is temporarily unavailable.${affected}`;
+  }
+  // A failed latest run with a retained generation still serves rows. Say
+  // whose rows they are before anything else; the rows alone looked current.
+  const retained = servedRowCount > 0 ? retainedGenerationNotice(workspace) : null;
+  if (retained) {
+    return inventorySentence ? `${retained} ${inventorySentence}` : retained;
   }
   const source = workspace.os?.source;
   if (!source) return null;
@@ -3927,24 +3960,18 @@ function creativesNotice(
   if (source.adsSource === "native_ad_decision") {
     // A native-authoritative account states only the inventory gap, and only
     // when there is one.
-    return pendingInventory
-      ? buyerLimitationCopy(pendingInventory.code, pendingCount)
-      : null;
+    return inventorySentence;
   }
-  const served =
-    limitations.find(
-      (limitation) => limitation.code === "legacy_creative_review_only",
-    ) ?? pendingInventory;
-  const message = served
-    ? buyerLimitationCopy(served.code, pendingCount)
-    : "Ad-level decisions are not available for this account yet.";
+  const legacy = limitations.find(
+    (limitation) => limitation.code === "legacy_creative_review_only",
+  );
+  const message = legacy
+    ? buyerLimitationCopy(legacy.code, pendingCount)
+    : inventorySentence ??
+      "Ad-level decisions are not available for this account yet.";
   // Both sentences, when both are true: older reference-only guidance and ads
   // still being evaluated are different facts and one does not imply the other.
-  const inventory =
-    served?.code === "legacy_creative_review_only" && pendingInventory
-      ? buyerLimitationCopy(pendingInventory.code, pendingCount)
-      : null;
-  return inventory ? `${message} ${inventory}` : message;
+  return legacy && inventorySentence ? `${message} ${inventorySentence}` : message;
 }
 
 /** The eight named capability states, in the order the contract declares them. */
@@ -5344,9 +5371,26 @@ export function buildMetaDecisionCenterExactViewModel(
     servedProjection.watching.length + unseenWatchingCount;
   const structureNonSalesCount =
     servedProjection.nonSales.length + unseenNonSalesCount;
-  const creativeActionCount = finite(workspace.os?.ads?.actCount);
-  const creativeNeedsResolutionCount = finite(workspace.os?.ads?.blockedCount);
-  const creativeWatchingCount = finite(workspace.os?.ads?.monitorCount);
+  /*
+   * The creative tabs count the SERVER's pre-cap population per served lane.
+   *
+   * These read `ads.actCount/blockedCount/monitorCount`, which count only the
+   * rows inside the response cap: with 80 blocked decisions the tab said 60,
+   * and every "Show more decisions" click moved the tab. `statePreCapCounts`
+   * is counted by the presentation with the same lane function that places
+   * each row, so the tab, the group header and the drawn rows agree. A null
+   * block is an uncounted source, shown as an em dash — never as zero.
+   */
+  const creativePreCapCounts = workspace.os?.ads?.statePreCapCounts ?? null;
+  const creativeActionCount = finite(creativePreCapCounts?.act);
+  const creativeNeedsResolutionCount = finite(creativePreCapCounts?.blocked);
+  const creativeWatchingCount = finite(creativePreCapCounts?.monitor);
+  const creativeDecisionTotal =
+    creativeActionCount === null ||
+    creativeNeedsResolutionCount === null ||
+    creativeWatchingCount === null
+      ? null
+      : creativeActionCount + creativeNeedsResolutionCount + creativeWatchingCount;
   const combinedLaneCount = (
     structureCount: number,
     creativeCount: number | null,
@@ -5418,7 +5462,7 @@ export function buildMetaDecisionCenterExactViewModel(
         structureWatchingCount,
         creativeWatchingCount,
       ),
-      creatives: finite(workspace.os?.ads?.items?.length) ?? EM_DASH,
+      creatives: creativeDecisionTotal ?? EM_DASH,
       actionScope:
         structureActionCount > 0 || creativeActionCount === null
           ? "structure"
@@ -5472,11 +5516,13 @@ export function buildMetaDecisionCenterExactViewModel(
        * that counts one lane inside the scope tells the operator the scope
        * is empty when it is not.
        *
-       * It counts the served population, which is exactly what the scope
-       * renders. It is not an eligibility set: none of these rows gains an
-       * action, a lane or a classification by being counted.
+       * It counts the server's pre-cap decision population across the three
+       * served lanes — the same totals the lane tabs show — so the pill and
+       * the tabs add up, and "Show more decisions" does not change it. It is
+       * not an eligibility set: none of these rows gains an action, a lane or
+       * a classification by being counted. An uncounted source is an em dash.
        */
-      creatives: finite(workspace.os?.ads?.items?.length) ?? EM_DASH,
+      creatives: creativeDecisionTotal ?? EM_DASH,
       /*
        * The three counters the server's own lane split moves rows between.
        *

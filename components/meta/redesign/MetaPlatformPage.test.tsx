@@ -3089,9 +3089,63 @@ describe("evidence-source disclosure", () => {
     expect(html).not.toContain('data-banner-id="readiness_evidence_source"');
     expect(html).toContain('data-critical-evidence="true"');
     expect(countText(html, 'class="meta-posture-banner ')).toBe(1);
-    expect(html).toContain("Decisions are updating.");
+    // The server's failure type is the title; it is no longer flattened into
+    // a generic "updating".
+    expect(html).toContain("Decision snapshot is not fresh.");
+    expect(html).not.toContain("Decisions are updating.");
     expect(html).toContain("sample or unverified data");
     expect(html).not.toContain("These are demonstration numbers");
+  });
+
+  it("keeps each served decision-health title distinct and never prints an upstream reason", () => {
+    // The page draws one prioritized banner, so each cause renders alone.
+    state.workspaceBanners = [
+      {
+        id: "meta_decision_pipeline_health",
+        tone: "danger",
+        title: "Meta data sync is stopped — current decisions are unavailable.",
+        // A caught exception's message rides in this detail upstream.
+        detail: "Verified Meta data ends on 2026-09-20. connect ECONNREFUSED 127.0.0.1:5432",
+        blocking: true,
+      },
+    ];
+    const pipeline = renderWithEvidence("live");
+    expect(pipeline).toContain("Meta data sync is stopped — current decisions are unavailable.");
+    expect(pipeline).toContain("No change can be applied from this page until this clears.");
+    expect(pipeline).not.toContain("ECONNREFUSED");
+    expect(pipeline).not.toContain("Decisions are updating.");
+
+    state.workspaceBanners = [
+      {
+        id: "exact_ad_decision_freshness",
+        tone: "danger",
+        title: "Some ad decisions are too old to apply.",
+        detail:
+          "3 decisions that could apply a change are older than the execution window. They stay review-only until the next decision run refreshes them.",
+        blocking: true,
+      },
+    ];
+    const freshness = renderWithEvidence("live");
+    expect(freshness).toContain("Some ad decisions are too old to apply.");
+    expect(freshness).toContain(
+      "3 decisions that could apply a change are older than the execution window.",
+    );
+    expect(freshness).not.toContain("Decisions are updating.");
+  });
+
+  it("falls back to the calm title only when the server sent none", () => {
+    state.workspaceBanners = [
+      {
+        id: "snapshot_health",
+        tone: "warning",
+        title: "  ",
+        detail: "stale_reason_code",
+        blocking: false,
+      },
+    ];
+    const html = renderWithEvidence("live");
+    expect(html).toContain("Decisions are updating.");
+    expect(html).not.toContain("stale_reason_code");
   });
 
   it("sanitizes a served banner with the same evidence id", () => {

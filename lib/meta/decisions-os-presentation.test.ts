@@ -1805,7 +1805,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
      */
     expect(result.ads.items).toHaveLength(0);
     expect(result.ads.blockedCount).toBe(0);
-    expect(result.ads.statePreCapCounts.blocked).toBe(0);
+    expect(result.ads.statePreCapCounts?.blocked).toBe(0);
     expect(result.ads.eligiblePreCapCount).toBe(0);
 
     // The PAUSED ad in `currentAds` above is not inventory awaiting a decision,
@@ -2001,7 +2001,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
      * The un-evaluated Ad is counted under its own name instead.
      */
     expect(result.ads.blockedCount).toBe(60);
-    expect(result.ads.statePreCapCounts.blocked).toBe(60);
+    expect(result.ads.statePreCapCounts?.blocked).toBe(60);
     expect(result.ads.pendingInventoryCount).toBe(1);
     expect(
       result.ads.items.some(

@@ -1396,7 +1396,7 @@ const COVERAGE: Record<string, Coverage> = {
   ),
   "MetaOsDecisionsPresentation.ads.statePreCapCounts": R(
     S.CREATIVES,
-    "each group header's 'N shown · M served'",
+    "the lane tabs, the Creatives scope pill, and each group header's 'N shown · M served'",
   ),
   "MetaOsDecisionsPresentation.ads.eligiblePreCapCount": R(
     S.PROVENANCE,
@@ -4028,7 +4028,8 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // behind the scope tabs and show only what the resting scope draws.
   // The creative scope is behind a tab in the default desktop render.
   // D107's start/end and economic-day denominator reach the creative card.
-  CREATIVES: [1, 13],
+  // Pre-cap counts now also drive the lane tabs and scope pill in the resting DOM.
+  CREATIVES: [2, 12],
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
@@ -4096,8 +4097,9 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // rows.
 // 312 -> 333 with the original receipt-lineage leaves; -> 339 with the six
 // contract-identity leaves. D109 removes one cross-period purchase claim;
-// the remaining evidence claims are behind the window control.
-const DOM_PROOF_TOTALS: [number, number] = [32, 346];
+// the remaining evidence claims are behind the window control. The pre-cap
+// counts move into the resting DOM as the lane-tab and scope-pill counts.
+const DOM_PROOF_TOTALS: [number, number] = [33, 345];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget

@@ -1259,7 +1259,7 @@ function pipelineHealthBanner(
         ? "Meta data is not current — decisions are review-only."
         : "Meta data sync is stopped — current decisions are unavailable."
       : !generationHealthy && health.manifest.status !== "fresh"
-        ? "Decision generation manifest is invalid — decisions are review-only."
+        ? "The latest decision run is incomplete — decisions are review-only."
         : "Decision generation is not current — decisions are review-only.",
     detail: details.join(" "),
     blocking: true,
@@ -1371,22 +1371,14 @@ function workspaceBanners(input: {
       );
     }) ?? [];
   if (nonFreshExactDecisions.length > 0) {
-    const statuses = [
-      ...new Set(
-        nonFreshExactDecisions.map(
-          (decision) =>
-            decision.sourceAuthority?.decisionFreshness?.status ??
-            "unavailable",
-        ),
-      ),
-    ];
+    // Buyer words, not freshness codes: the page shows this banner's title and
+    // detail as served, so neither may carry `stale_decision`-style tokens.
+    const count = nonFreshExactDecisions.length;
     banners.push({
       id: "exact_ad_decision_freshness",
       tone: "danger",
-      title: "Exact-Ad decisions are outside the execution window.",
-      detail: `${nonFreshExactDecisions.length} decision-authorized row(s) are ${statuses.join(
-        ", ",
-      )}. Refresh the native decision generation before attempting a provider write.`,
+      title: "Some ad decisions are too old to apply.",
+      detail: `${count} ${count === 1 ? "decision that could apply a change is" : "decisions that could apply a change are"} older than the execution window. They stay review-only until the next decision run refreshes them.`,
       blocking: true,
     });
   }
@@ -2548,6 +2540,8 @@ export async function GET(request: NextRequest) {
         inactiveStructure: servedLanes.archive,
         decisionReadModel,
         currentAds: currentAds.complete ? currentAds.rows : [],
+        // An incomplete read makes un-decided inventory unknown, not zero.
+        currentAdsComplete: currentAds.complete,
         currentAdCampaignContexts,
         currency: pulse.currency ?? null,
         targetHardActionEligibility,

@@ -3,6 +3,7 @@
 import {
   Fragment,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -2151,6 +2152,7 @@ function MetaMobileDecisionsScreen({
   onClearFilters,
   loading,
   error,
+  hasLoadedDecisions,
   retryPending,
   onRetryRead,
   accountMetadataDegraded,
@@ -2164,6 +2166,7 @@ function MetaMobileDecisionsScreen({
   anomalyError,
   canLoadMoreCreatives,
   loadingMoreCreatives,
+  loadMoreCreativesFailed,
   nextCreativeLimit,
   onLoadMoreCreatives,
   manualActionFor,
@@ -2182,6 +2185,12 @@ function MetaMobileDecisionsScreen({
   onClearFilters: () => void;
   loading: boolean;
   error: Error | null;
+  /**
+   * Whether a workspace response for this scope is on hand. React Query keeps
+   * the last good response when a refetch of the same key fails, so `error`
+   * alone does not mean there is nothing to show.
+   */
+  hasLoadedDecisions: boolean;
   retryPending: boolean;
   onRetryRead: () => void;
   accountMetadataDegraded: boolean;
@@ -2195,6 +2204,8 @@ function MetaMobileDecisionsScreen({
   anomalyError: Error | null;
   canLoadMoreCreatives: boolean;
   loadingMoreCreatives: boolean;
+  /** The last "Show more decisions" failed and the earlier rows came back. */
+  loadMoreCreativesFailed: boolean;
   nextCreativeLimit: number;
   onLoadMoreCreatives: () => void;
   /**
@@ -2220,7 +2231,15 @@ function MetaMobileDecisionsScreen({
   const counts = viewModel.counts ?? {};
   const creativeLaneCounts = viewModel.operatorSummary?.scopeCounts?.creatives;
   const identity = viewModel.identity ?? {};
-  const actCount = loading || error ? "—" : mobileDisplay(counts.action);
+  // A failed refetch over loaded rows keeps the header on the same load the
+  // lane tabs and rows show; only a read with nothing to show is unknown.
+  const actCount =
+    loading || (error && !hasLoadedDecisions) ? "—" : mobileDisplay(counts.action);
+  const creativeNoticeIsTheEmptyState =
+    scope === "creatives" &&
+    (viewModel.creativeDecisions?.length ?? 0) === 0 &&
+    Boolean(viewModel.creativesNotice) &&
+    mobileDisplay(viewModel.creativesNotice) !== "—";
   const rows = mobileQueueRows(viewModel, scope, lane, manualActionFor);
   const hasRowFilters = Boolean(rowSearch.trim() || levels.length > 0);
   const bannerPresentation = compactWorkspaceBannerPresentation({
@@ -2277,7 +2296,18 @@ function MetaMobileDecisionsScreen({
       </section>
     );
   }
-  if (loading || error) {
+  /*
+   * The full-screen error is for a read that has NOTHING to show.
+   *
+   * A failed background refetch of the same key — reconnect revalidation, or
+   * the refresh after a write — keeps the previous response in `data` and sets
+   * `error` beside it. Treating any error as "could not load" replaced a queue
+   * the operator was reading with an error card, while the desktop kept its
+   * rows under a banner. With rows on hand they stay, and the inline notice
+   * below says they are from the last successful load.
+   */
+  const refreshFailedOverLoadedRows = Boolean(error) && hasLoadedDecisions;
+  if (loading || (error && !hasLoadedDecisions)) {
     return (
       <section
         className="meta-mobile-decision-stage"
@@ -2338,6 +2368,29 @@ function MetaMobileDecisionsScreen({
             Meta data: {mobileDisplay(identity.syncedLabel)} ·{" "}
             {mobileDisplay(identity.currency)}
           </div>
+
+          {refreshFailedOverLoadedRows ? (
+            <article
+              className="ad-mobile-anomaly"
+              data-tone="warning"
+              data-mobile-decisions-refresh-error
+              role="alert"
+            >
+              <b>Decisions could not be refreshed.</b>
+              <div>
+                The decisions below are from the last successful load.
+              </div>
+              <button
+                type="button"
+                className="btn btn--sm"
+                data-mobile-decisions-retry
+                disabled={retryPending}
+                onClick={onRetryRead}
+              >
+                {retryPending ? "Retrying..." : "Retry"}
+              </button>
+            </article>
+          ) : null}
 
           {accountMetadataDegraded ? (
             <article
@@ -2552,6 +2605,18 @@ function MetaMobileDecisionsScreen({
             </Fragment>
           ))}
 
+          {scope === "creatives" && loadMoreCreativesFailed ? (
+            <article
+              className="ad-mobile-anomaly"
+              data-tone="warning"
+              data-mobile-load-more-failed
+              role="status"
+            >
+              <b>More decisions could not be loaded.</b>
+              <div>The decisions already loaded are still shown.</div>
+            </article>
+          ) : null}
+
           {scope === "creatives" && canLoadMoreCreatives ? (
             <button
               type="button"
@@ -2566,7 +2631,16 @@ function MetaMobileDecisionsScreen({
             </button>
           ) : null}
 
-          {!loading && !error && rows.length === 0 ? (
+          {/*
+            With nothing served in the whole creatives scope, the notice above
+            IS the empty state (source unavailable, inventory unverified), as on
+            desktop. A generic "No decisions in this view" under it read as a
+            verified-empty queue.
+          */}
+          {!loading &&
+          !error &&
+          rows.length === 0 &&
+          !creativeNoticeIsTheEmptyState ? (
             <article className="ad-mobile-row-card">
               <h3>
                 {scope === "creatives" && canLoadMoreCreatives
@@ -3391,15 +3465,43 @@ function workspaceBannerDestination(
 }
 
 function workspaceBannerCopy(banner: MetaWorkspaceBanner) {
-  if (
-    banner.id === "meta_decision_pipeline_health" ||
-    banner.id === "snapshot_health" ||
-    banner.id === "exact_ad_decision_freshness"
-  ) {
+  /*
+   * THE SERVER'S FAILURE TYPE IS THE TITLE.
+   *
+   * These three used to collapse into one "Decisions are updating." That
+   * erased the one fact the operator needed: a stopped sync, an incomplete
+   * decision run, a stale decision generation and a stale snapshot have
+   * different causes and different waits, and "updating" contradicted a row
+   * note saying the latest run failed. The route writes each TITLE per cause
+   * (`pipelineHealthBanner`, `workspaceBanners`), so the title is shown as
+   * served; "Decisions are updating." is only the fallback for a banner that
+   * arrives without one.
+   *
+   * The DETAIL is not passed through for the pipeline and snapshot banners:
+   * theirs join upstream reasons verbatim, including a caught exception's
+   * message. Only the freshness banner's detail is written in buyer words by
+   * the route, so only that one is shown as served.
+   */
+  const servedTitle = banner.title?.trim() || "Decisions are updating.";
+  if (banner.id === "meta_decision_pipeline_health") {
     return {
-      title: "Decisions are updating.",
+      title: servedTitle,
+      detail: "No change can be applied from this page until this clears.",
+    };
+  }
+  if (banner.id === "snapshot_health") {
+    return {
+      title: servedTitle,
       detail:
         "Recommendations remain visible while current Meta data is prepared.",
+    };
+  }
+  if (banner.id === "exact_ad_decision_freshness") {
+    return {
+      title: servedTitle,
+      detail:
+        banner.detail?.trim() ||
+        "Some decisions are too old to apply. They stay review-only until the next decision run.",
     };
   }
   if (banner.id === "meta_execution_governance_unavailable") {
@@ -3825,9 +3927,22 @@ export function MetaPlatformPage({
   const [activeScope, setActiveScope] =
     useState<MetaDecisionCenterExactScope>(initialScope);
   const [rowSort, setRowSort] = useState<MetaRowSort>("money");
-  const [adCandidateLimit, setAdCandidateLimit] = useState(
-    META_DECISIONS_AD_CANDIDATE_LIMIT,
-  );
+  /*
+   * "Show more decisions", as a request bound to the scope it was made in.
+   *
+   * `limit` is the Ad-candidate cap the workspace read is keyed on. `pending`
+   * exists only while a raise is in flight and remembers the limit whose cached
+   * rows a failed raise returns to; `raiseFailed` keeps the notice up until
+   * the next attempt. The whole record is read through the business / account
+   * / window key below, so a different scope starts from the default cap on
+   * its very first render instead of inheriting the previous one's.
+   */
+  const [adCandidateExpansion, setAdCandidateExpansion] = useState<{
+    scopeKey: string;
+    limit: number;
+    pending: { from: number; requestedAt: number } | null;
+    raiseFailed: boolean;
+  } | null>(null);
   // `q` is restored, not dropped: the retired contract's search parameter names
   // a control this surface actually has.
   const [rowSearch, setRowSearch] = useState(() =>
@@ -3991,6 +4106,25 @@ export function MetaPlatformPage({
     creativeDrillSelection?.scopeKey === creativeDrillScopeKey
       ? creativeDrillSelection
       : null;
+  /*
+   * The expansion answers to the same business / account / window / dates key
+   * as the drill. A raised cap from one account used to follow the operator to
+   * the next account and the next date window, so every scope change re-read
+   * up to 300 Ads nobody had asked for. Read here, the default applies to the
+   * first request a new scope makes; the effect below then forgets the old
+   * record, so returning to the earlier scope starts from the default too.
+   */
+  const scopedAdCandidateExpansion =
+    adCandidateExpansion?.scopeKey === creativeDrillScopeKey
+      ? adCandidateExpansion
+      : null;
+  const adCandidateLimit =
+    scopedAdCandidateExpansion?.limit ?? META_DECISIONS_AD_CANDIDATE_LIMIT;
+  useEffect(() => {
+    if (adCandidateExpansion && !scopedAdCandidateExpansion) {
+      setAdCandidateExpansion(null);
+    }
+  }, [adCandidateExpansion, scopedAdCandidateExpansion]);
 
   const creativeEvidenceAdId =
     scopedCreativeDrill?.canonical?.parentChain.ad?.id?.trim() ||
@@ -4121,35 +4255,59 @@ export function MetaPlatformPage({
         rawWorkspaceQuery.isFetching),
   };
 
-  // A decision detail cannot outlive the workspace response that served it.
-  // During a date/account change React Query may keep the prior response as
-  // placeholder data; a new generation may also replace an Ad decision while
-  // the same page stays mounted. Both cases hide the old detail immediately.
-  const selectedLineageStillServed = scopedCreativeDrill?.decision
-    ? workspaceQuery.data?.os?.ads?.items.some(
-        (item) =>
-          item.id === scopedCreativeDrill.decision?.id &&
-          item.decisionId === scopedCreativeDrill.decision?.decisionId &&
-          item.sourceSnapshotId ===
-            scopedCreativeDrill.decision?.sourceSnapshotId,
-      ) === true
-    : scopedCreativeDrill?.canonical
-      ? true // The canonical-only deep-link is checked against the response ref.
-      : false;
-  const creativeDrill =
-    scopedCreativeDrill &&
-    scopedCreativeDrill.workspaceRef === workspaceQuery.data &&
-    workspaceQuery.data?.businessId === businessId &&
-    workspaceQuery.data.decisionReadModel.scope.providerAccountId ===
-      providerAccountId &&
-    !workspaceQuery.isPlaceholderData &&
-    !workspaceQuery.error &&
-    selectedLineageStillServed
-      ? scopedCreativeDrill
-      : null;
-  useEffect(() => {
-    if (creativeDrillSelection && !creativeDrill) setCreativeDrill(null);
-  }, [creativeDrillSelection, creativeDrill]);
+  /*
+   * A failed "Show more decisions" returns to the rows the operator had.
+   *
+   * The raise changes the query key, and React Query holds the previous rows
+   * as placeholder data only while the new key is pending. When the raised
+   * read failed, `data` became undefined and both surfaces replaced a loaded
+   * queue with "Decision workspace could not load." The previous cap's
+   * response is still cached under its own key, so a failed raise puts the cap
+   * back — those rows return from the cache — and records the failure for a
+   * non-blocking notice instead.
+   *
+   * It cannot loop. Only the operator's click sets `pending`, and the revert
+   * and the settle below both clear it, so one click settles exactly once, and
+   * nothing here ever raises the cap. `errorUpdatedAt` has to postdate the
+   * click, so an error the raised key still held from an earlier attempt is
+   * not mistaken for this one. A layout effect, so the transient failed render
+   * is replaced before it paints.
+   */
+  const pendingAdCandidateRaise = scopedAdCandidateExpansion?.pending ?? null;
+  useLayoutEffect(() => {
+    if (!pendingAdCandidateRaise || rawWorkspaceQuery.isFetching) return;
+    if (
+      rawWorkspaceQuery.status === "error" &&
+      rawWorkspaceQuery.errorUpdatedAt >= pendingAdCandidateRaise.requestedAt
+    ) {
+      setAdCandidateExpansion((current) =>
+        current?.pending
+          ? {
+              ...current,
+              limit: current.pending.from,
+              pending: null,
+              raiseFailed: true,
+            }
+          : current,
+      );
+      return;
+    }
+    if (
+      rawWorkspaceQuery.data !== undefined &&
+      !rawWorkspaceQuery.isPlaceholderData
+    ) {
+      setAdCandidateExpansion((current) =>
+        current?.pending ? { ...current, pending: null } : current,
+      );
+    }
+  }, [
+    pendingAdCandidateRaise,
+    rawWorkspaceQuery.isFetching,
+    rawWorkspaceQuery.status,
+    rawWorkspaceQuery.errorUpdatedAt,
+    rawWorkspaceQuery.data,
+    rawWorkspaceQuery.isPlaceholderData,
+  ]);
 
   /**
    * Forward the server's §9 envelope. Nothing is computed here.
@@ -4455,6 +4613,87 @@ export function MetaPlatformPage({
     }
     return envelopes;
   }, [canonicalDecisionModel]);
+  /*
+   * The open evidence drawer, bound to its decision LINEAGE rather than to the
+   * response object that first served it.
+   *
+   * It used to require that exact response object, no query error and no
+   * placeholder data. Every workspace response is a new object (the server
+   * stamps `os.generatedAt`), so a background refetch — reconnect, or
+   * `refreshDecisionData` after a write — closed the drawer when it succeeded,
+   * and closed it again when it failed, although React Query keeps the last
+   * good response on a failed refetch. The operator lost the decision they were
+   * reading to a read they never asked for.
+   *
+   * What the drawer may show is still exactly what the server served:
+   *   - the same id + decisionId + sourceSnapshotId must be in the CURRENT
+   *     response (`selectedLineageStillServed`), and each half is rebound to
+   *     its counterpart there. A successful refetch therefore shows the new
+   *     response's objects; a failed one keeps the last good objects, because
+   *     those are what React Query still holds;
+   *   - a half that was absent when the drawer opened stays absent, and a half
+   *     the new response no longer carries becomes null. Nothing is joined in
+   *     or carried over that the current response did not serve;
+   *   - the lineage leaving the response closes the drawer, and so does a
+   *     business / account / window change (the scope key above);
+   *   - placeholder data is ANOTHER key's response (a date window or a cap
+   *     change still loading), so it never shows a drill. A background refetch
+   *     of the same key is not placeholder data.
+   */
+  const creativeDrill = useMemo(() => {
+    const served = workspaceQuery.data;
+    if (
+      !scopedCreativeDrill ||
+      !served ||
+      served.businessId !== businessId ||
+      served.decisionReadModel.scope.providerAccountId !== providerAccountId ||
+      workspaceQuery.isPlaceholderData
+    ) {
+      return null;
+    }
+    // The response that served the selection: both halves came from it.
+    if (scopedCreativeDrill.workspaceRef === served) return scopedCreativeDrill;
+    const selectedDecision = scopedCreativeDrill.decision;
+    const selectedCanonical = scopedCreativeDrill.canonical;
+    const decision = selectedDecision
+      ? (served.os?.ads?.items.find(
+          (item) =>
+            item.id === selectedDecision.id &&
+            item.decisionId === selectedDecision.decisionId &&
+            item.sourceSnapshotId === selectedDecision.sourceSnapshotId,
+        ) ?? null)
+      : null;
+    // The same pool the deep-link restore joins against, read by key only.
+    const canonical = selectedCanonical
+      ? ([
+          ...canonicalDecisionEnvelopes,
+          ...(canonicalDecisionModel?.queue.inactiveAssets?.items ?? []),
+        ].find(
+          (envelope) =>
+            envelope.decisionId === selectedCanonical.decisionId &&
+            envelope.sourceSnapshotId === selectedCanonical.sourceSnapshotId,
+        ) ?? null)
+      : null;
+    // A served decision is the lineage; a canonical-only deep link has only
+    // its envelope to be served by.
+    const selectedLineageStillServed = selectedDecision
+      ? decision !== null
+      : canonical !== null;
+    return selectedLineageStillServed
+      ? { ...scopedCreativeDrill, decision, canonical, workspaceRef: served }
+      : null;
+  }, [
+    businessId,
+    canonicalDecisionEnvelopes,
+    canonicalDecisionModel,
+    providerAccountId,
+    scopedCreativeDrill,
+    workspaceQuery.data,
+    workspaceQuery.isPlaceholderData,
+  ]);
+  useEffect(() => {
+    if (creativeDrillSelection && !creativeDrill) setCreativeDrill(null);
+  }, [creativeDrillSelection, creativeDrill]);
   const visibleWatchingRecs = useMemo(
     () =>
       sortMetaRecs(
@@ -5281,8 +5520,16 @@ export function MetaPlatformPage({
     eligibleCreativeCount > servedCreativeCount;
   const loadMoreCreatives = () => {
     if (!canLoadMoreCreatives || workspaceQuery.isFetching) return;
-    setAdCandidateLimit(nextAdCandidateLimit);
+    setAdCandidateExpansion({
+      scopeKey: creativeDrillScopeKey,
+      limit: nextAdCandidateLimit,
+      pending: { from: adCandidateLimit, requestedAt: Date.now() },
+      raiseFailed: false,
+    });
   };
+  // The raise that could not load, in this scope, until the next attempt.
+  const loadMoreCreativesFailed =
+    scopedAdCandidateExpansion?.raiseFailed === true;
   /**
    * The archive lane gets BOTH grains it was already holding in memory.
    *
@@ -6046,6 +6293,7 @@ export function MetaPlatformPage({
           onClearFilters={clearRowFilters}
           loading={loading}
           error={error}
+          hasLoadedDecisions={workspaceQuery.data !== undefined}
           retryPending={briefingRetryPending}
           onRetryRead={() => void retryBriefingRead()}
           accountMetadataDegraded={providerAccountMetadataDegraded}
@@ -6058,6 +6306,7 @@ export function MetaPlatformPage({
           anomalyError={anomalyError}
           canLoadMoreCreatives={canLoadMoreCreatives}
           loadingMoreCreatives={workspaceQuery.isFetching}
+          loadMoreCreativesFailed={loadMoreCreativesFailed}
           nextCreativeLimit={nextAdCandidateLimit}
           onLoadMoreCreatives={loadMoreCreatives}
           onOpenAnomaly={(anomaly) =>
@@ -6348,6 +6597,27 @@ export function MetaPlatformPage({
           both panes are in the DOM at every width.
         */}
         {manualCeremonySheetFor("desktop")}
+
+        {/*
+          A failed "Show more decisions" is reported here, beside the control
+          that asked for it, and blocks nothing: the cap went back to the one
+          whose rows are already on screen.
+        */}
+        {activeScope === "creatives" && loadMoreCreativesFailed ? (
+          <div
+            className="banner warn"
+            data-meta-load-more-failed
+            role="status"
+          >
+            <div className="icon">i</div>
+            <div className="msg">
+              <b>More decisions could not be loaded.</b>
+              <span className="sub">
+                The decisions already loaded are still shown.
+              </span>
+            </div>
+          </div>
+        ) : null}
 
         {activeScope === "creatives" && canLoadMoreCreatives ? (
           <div data-meta-load-more-creatives>

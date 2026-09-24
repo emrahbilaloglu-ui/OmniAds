@@ -298,6 +298,12 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   /** Current Meta-derived warehouse taxonomy, not historical decision input. */
   provider_asset_type?: string | null;
   provider_asset_type_source_updated_at?: string | null;
+  /** Current exact-creative media metadata; used only for a display type. */
+  provider_media_classification_signals?: unknown;
+  provider_media_delivery_type?: string | null;
+  provider_media_visual_format?: string | null;
+  provider_media_preview_render_mode?: string | null;
+  provider_media_source_updated_at?: string | null;
   ctr_28d?: unknown;
   frequency_28d?: unknown;
   fatigue_status?: string | null;
@@ -2905,6 +2911,30 @@ function servedConfigEvidence(input: {
   };
 }
 
+function hasExplicitProviderImageMedia(
+  row: MetaNativeDecisionSnapshotSourceRow,
+): boolean {
+  const raw = row.provider_media_classification_signals;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return false;
+  const signals = raw as Record<string, unknown>;
+  // A preview image may be only a video's poster, and `feed` can be a
+  // warehouse default. Require a positive provider image asset plus explicit
+  // negative video/catalog signals from the exact creative's media record.
+  return row.provider_media_delivery_type === "standard" &&
+    row.provider_media_visual_format === "image" &&
+    row.provider_media_preview_render_mode === "image" &&
+    signals.asset_feed_image_count === 1 &&
+    signals.asset_feed_video_count === 0 &&
+    signals.child_attachment_count === 0 &&
+    [
+      "has_top_level_video_id", "has_object_story_video_data",
+      "has_video_object_type", "has_template_data",
+      "has_promoted_product_set_id", "has_promoted_catalog_id",
+      "has_asset_feed_catalog_id", "has_asset_feed_product_set_id",
+      "is_catalog_by_object_type", "has_mixed_asset_families",
+    ].every((key) => signals[key] === false);
+}
+
 function nativeSnapshotToIdentity(
   row: MetaNativeDecisionSnapshotSourceRow,
 ): MetaDecisionIdentitySourceRow {
@@ -2981,15 +3011,23 @@ function applyNativeCanonicalDecisionAuthority(input: {
     version: row.engine_version,
   });
   const sourceCreativeType = nonEmptyString(row.provider_asset_type);
+  const explicitImageMedia =
+    (!sourceCreativeType || sourceCreativeType === "feed") &&
+    hasExplicitProviderImageMedia(row);
+  const verifiedCreativeType = explicitImageMedia
+    ? "image"
+    : sourceCreativeType === "feed" ? null : sourceCreativeType;
   // `feed` is also the warehouse taxonomy's default when no positive creative
   // classification signal exists. Do not turn that fallback into a verified
   // type on a decision card.
   decision.sourceCreativeType =
-    row.creative_id && sourceCreativeType && sourceCreativeType !== "feed"
+    row.creative_id && verifiedCreativeType
       ? {
-          value: sourceCreativeType,
-          source: "meta_creative_dimensions",
-          sourceUpdatedAt: row.provider_asset_type_source_updated_at ?? null,
+          value: verifiedCreativeType,
+          source: explicitImageMedia ? "meta_creative_media" : "meta_creative_dimensions",
+          sourceUpdatedAt: explicitImageMedia
+            ? row.provider_media_source_updated_at ?? null
+            : row.provider_asset_type_source_updated_at ?? null,
         }
       : null;
   decision.configEvidence = servedConfigEvidence({
@@ -4266,6 +4304,11 @@ async function readNativeSnapshotRows(input: {
       lifecycle.creative_format AS creative_format,
       creative_dim.asset_type AS provider_asset_type,
       creative_dim.source_updated_at::text AS provider_asset_type_source_updated_at,
+      media.payload_json -> 'classification_signals' AS provider_media_classification_signals,
+      media.payload_json ->> 'creative_delivery_type' AS provider_media_delivery_type,
+      media.payload_json ->> 'creative_visual_format' AS provider_media_visual_format,
+      media.payload_json #>> '{preview,render_mode}' AS provider_media_preview_render_mode,
+      media.updated_at::text AS provider_media_source_updated_at,
       lifecycle.fatigue_status AS fatigue_status,
       /* The engine's own predicate blockers. The snapshot table has no column
          for them; the evaluation row this snapshot was published from is

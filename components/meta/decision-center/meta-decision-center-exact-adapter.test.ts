@@ -715,14 +715,23 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
   it("binds thumbnail recovery to the served business, account, and numeric creative", () => {
     const creative = creativeFixture({
       providerAccountId: "act_123456",
+      adId: "123456789",
       creativeId: "987654",
       thumbnailUrl: "https://meta.example/expired.jpg",
     });
+    const workspace = workspaceFixture({ os: fullOs({ creatives: [creative] }) });
+    workspace.decisionReadModel.source.authority = "native_ad";
+    workspace.decisionReadModel.source.generation = {
+      jobRunId: "20000000-0000-4000-8000-000000000001",
+      providerAccountRefId: "30000000-0000-4000-8000-000000000001",
+      manifestHash: "a".repeat(64),
+      expectedAdCount: 1,
+    };
     const model = buildMetaDecisionCenterExactViewModel({
-      workspace: workspaceFixture({ os: fullOs({ creatives: [creative] }) }),
+      workspace,
     });
     expect(model.creativeDecisions?.[0]?.thumbnailRecoveryUrl).toBe(
-      "/api/meta/creative-thumbnail?businessId=biz_1&providerAccountId=act_123456&creativeId=987654",
+      "/api/meta/creative-thumbnail?businessId=biz_1&providerAccountId=act_123456&creativeId=987654&adId=123456789&providerAccountRefId=30000000-0000-4000-8000-000000000001",
     );
     expect(model.creativeGroups?.flatMap((group) => group.rows)[0]?.thumbnailRecoveryUrl).toBe(
       model.creativeDecisions?.[0]?.thumbnailRecoveryUrl,
@@ -1545,6 +1554,9 @@ describe("the lineage read fills what the reference draws", () => {
       sourceUpdatedAt: null,
     });
     const creatives = [
+      creativeFixture({ id: "verified_image", creativeFormat: null, sourceCreativeType: {
+        value: "image", source: "meta_creative_media", sourceUpdatedAt: null,
+      } }),
       creativeFixture({ id: "video", creativeFormat: null, sourceCreativeType: providerType("video") }),
       creativeFixture({ id: "feed_catalog", creativeFormat: null, sourceCreativeType: providerType("feed_catalog") }),
       creativeFixture({ id: "feed", creativeFormat: null, sourceCreativeType: providerType("feed") }),
@@ -1557,6 +1569,7 @@ describe("the lineage read fills what the reference draws", () => {
       workspace: workspaceFixture({ os: { ads: { items: creatives } } }),
     }).creativeDecisions;
     expect(rows?.map((row) => [row.id, row.kindShort])).toEqual([
+      ["verified_image", "IMG"],
       ["video", "VID"],
       ["feed_catalog", "FEED CAT"],
       ["feed", "—"],

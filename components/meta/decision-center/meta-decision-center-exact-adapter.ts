@@ -2019,6 +2019,7 @@ function creativeKindShort(
   // These labels abbreviate the warehouse's Meta-derived taxonomy. In
   // particular, feed and feed_catalog never become lifecycle image/catalog.
   switch (nonBlank(sourceCreativeType)?.toLowerCase()) {
+    case "image": return "IMG";
     case "video": return "VID";
     case "feed_catalog": return "FEED CAT";
     case "flexible": return "FLEX";
@@ -2891,6 +2892,7 @@ function heldVerdictCounts(
 
 function creativeRows(input: {
   businessId: string;
+  providerAccountRefId: string | null;
   decisions: readonly MetaOsAdDecision[];
   canonical: ReadonlyMap<string, MetaCanonicalDecision>;
   sourceDegraded: boolean;
@@ -3050,6 +3052,8 @@ function creativeRows(input: {
         businessId: input.businessId,
         providerAccountId: decision.providerAccountId,
         creativeId: decision.creativeId,
+        adId: decision.adId,
+        providerAccountRefId: input.providerAccountRefId,
       }),
       // The reference's thumb is a neutral striped placeholder. Colouring it by
       // verdict would let the strip read as a second opinion beside the label
@@ -5421,6 +5425,10 @@ export function buildMetaDecisionCenterExactViewModel(
     selection?.kind === "structure" ? selection.recommendationId : null;
   const creativeDecisionRows = creativeRows({
     businessId: workspace.businessId,
+    providerAccountRefId:
+      workspace.decisionReadModel.source?.authority === "native_ad"
+        ? workspace.decisionReadModel.source.generation?.providerAccountRefId ?? null
+        : null,
     decisions: creativeDecisions,
     canonical,
     sourceDegraded:

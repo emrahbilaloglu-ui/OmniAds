@@ -996,8 +996,8 @@ img.creativeThumbImage + .creativeKind {
   align-self: end;
   justify-self: end;
   margin: 0 3px 3px 0;
-  font-size: 9px;
-  line-height: 1;
+  font-size: 12px;
+  line-height: 1.05;
 }
 
 .creativeIdentity {

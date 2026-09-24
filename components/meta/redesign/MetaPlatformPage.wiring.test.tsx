@@ -1719,12 +1719,13 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(row?.textContent).toContain("Read evidence");
   });
 
-  it("carries the served creative preview and account posture into the mobile scope", () => {
+  it("carries the served creative preview from the card into mobile evidence", () => {
+    const decision = pendingOsDecision({
+      thumbnailUrl: "https://example.com/served-preview.jpg",
+    });
     state.workspaceData = {
       ...(workspacePayload() as Record<string, unknown>),
-      os: osPresentation([
-        pendingOsDecision({ thumbnailUrl: "https://example.com/served-preview.jpg" }),
-      ]),
+      os: osPresentation([decision]),
     } as never;
     state.search = "providerAccountId=act_1&scope=creatives&area=monitor&segment=needs_resolution";
 
@@ -1739,11 +1740,64 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(dom.querySelector("[data-mobile-creative-posture]")?.textContent)
       .toContain("Refresh ready to apply");
 
+    act(() => state.adapterInput.callbacks.onCreativeReview(decision, null));
+    const evidence = dom.querySelector('[data-testid="meta-mobile-creative-evidence"]');
+    expect(evidence?.querySelector<HTMLImageElement>("[data-mobile-creative-thumbnail]")?.src)
+      .toBe("https://example.com/served-preview.jpg");
+    expect(state.evidenceProps.viewModel.previewUrl)
+      .toBe("https://example.com/served-preview.jpg");
+
     state.search = "providerAccountId=act_1&scope=structure";
     act(() => {
       root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
     });
     expect(dom.querySelector("[data-mobile-creative-posture]")).toBeNull();
+  });
+
+  it("keeps a missing mobile evidence preview as a placeholder with exact recovery identity", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: false }));
+    vi.stubGlobal("fetch", fetchMock);
+    const decision = pendingOsDecision({
+      adId: "120000000000000002",
+      creativeId: "130000000000000002",
+      thumbnailUrl: null,
+    });
+    const payload = workspacePayload();
+    state.workspaceData = {
+      ...payload,
+      decisionReadModel: {
+        ...payload.decisionReadModel,
+        source: {
+          ...payload.decisionReadModel.source,
+          authority: "native_ad",
+          generation: {
+            providerAccountRefId: "00000000-0000-4000-8000-000000000001",
+          },
+        },
+      },
+      os: osPresentation([decision]),
+    } as never;
+    state.search = "providerAccountId=act_1&scope=creatives&lane=needsres";
+    const dom = render();
+    await act(async () => {
+      state.adapterInput.callbacks.onCreativeReview(decision, null);
+      await Promise.resolve();
+    });
+
+    const evidence = dom.querySelector('[data-testid="meta-mobile-creative-evidence"]');
+    expect(evidence?.querySelector("[data-mobile-creative-thumbnail]")).toBeNull();
+    expect(evidence?.querySelector("[data-meta-thumbnail-placeholder]")).not.toBeNull();
+    expect(evidence?.querySelector("[data-mobile-evidence-held]")).toBeNull();
+    expect(evidence?.querySelector("[data-mobile-creative-reason]")?.textContent)
+      .toContain("This active ad is waiting for an ad-level decision.");
+    expect(state.evidenceProps.viewModel.previewUrl).toBeNull();
+    const recoveryUrl = state.evidenceProps.viewModel.previewRecoveryUrl as string;
+    expect(recoveryUrl).toContain("adId=120000000000000002");
+    expect(recoveryUrl).toContain(
+      "providerAccountRefId=00000000-0000-4000-8000-000000000001",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(recoveryUrl, { cache: "no-store" });
+    expect(evidence?.textContent).toContain("Ad performance observation status was not served");
   });
 
   it("shows an economic Cut with unverified config as review-only on mobile", () => {
@@ -1926,6 +1980,24 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(
       dom.querySelector("[data-mobile-evidence-held-next-step]"),
     ).not.toBeNull();
+    const reasons = evidence?.querySelectorAll("[data-mobile-creative-reason]");
+    expect(reasons?.length).toBe(1);
+    expect(reasons?.[0]?.textContent).toBe(state.evidenceProps.viewModel.reasons[0]);
+    const verification = evidence?.querySelector<HTMLDetailsElement>(
+      "[data-mobile-creative-verification-context]",
+    );
+    expect(verification, "distinct authority context remains available").not.toBeNull();
+    expect(verification?.open).toBe(false);
+    expect(verification?.querySelector("summary")?.textContent)
+      .toBe("Additional verification context");
+    expect(verification?.textContent).toContain(
+      state.evidenceProps.viewModel.verdictSub,
+    );
+    expect(reasons?.[0]?.textContent).not.toContain(
+      state.evidenceProps.viewModel.verdictSub,
+    );
+    act(() => verification?.querySelector("summary")?.click());
+    expect(verification?.open).toBe(true);
   });
 
   // entity: the restored half. `?entity=<recId>` opens that recommendation's

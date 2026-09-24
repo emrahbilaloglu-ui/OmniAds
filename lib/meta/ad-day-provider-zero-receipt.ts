@@ -44,6 +44,7 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND pointer.published_at <= ${cutoffSql}
           AND pointer.created_at <= ${cutoffSql}
           AND pointer.updated_at <= ${cutoffSql}
+          AND pointer.created_at <= pointer.published_at
         JOIN meta_authoritative_slice_versions slice
           ON slice.id = pointer.active_slice_version_id
           AND slice.business_id = pointer.business_id
@@ -58,6 +59,7 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND slice.published_at <= pointer.published_at
           AND slice.created_at <= ${cutoffSql}
           AND slice.updated_at <= ${cutoffSql}
+          AND slice.created_at <= slice.published_at
         JOIN meta_authoritative_source_manifests manifest
           ON manifest.id = slice.manifest_id
           AND manifest.business_id = slice.business_id
@@ -71,6 +73,8 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND manifest.completed_at <= slice.published_at
           AND manifest.created_at <= ${cutoffSql}
           AND manifest.updated_at <= ${cutoffSql}
+          -- The writer records completed_at from the finished fetch and then
+          -- inserts this manifest; created_at can follow completed_at.
         JOIN meta_raw_snapshot_observations observation
           ON observation.snapshot_id = source.id
           AND observation.business_id = source.business_id
@@ -82,6 +86,7 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND observation.provider_http_status = 200
           AND observation.observed_at <= manifest.completed_at
           AND observation.created_at <= ${cutoffSql}
+          AND observation.created_at <= manifest.completed_at
         WHERE source.id = ${d}source_snapshot_id
           AND source.business_id = ${d}business_id
           AND source.provider_account_id = ${d}provider_account_id
@@ -95,6 +100,7 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND source.created_at <= ${cutoffSql}
           AND source.fetched_at <= observation.observed_at
           AND source.fetched_at <= manifest.completed_at
+          AND source.created_at <= manifest.completed_at
           AND manifest.completed_at <= ${cutoffSql}
           AND source.request_context->>'source' = 'bulk_core_sync'
           AND source.request_context->>'level' = 'ad'

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "6b604c188d595f413573e9ac808016d353f9dff0f2180227f53cb33c98776daa",
+  "manifestHash": "a7f232fbe24b851c1556fdfac00bb2cbeb0249d72a7f33cb441d3029a9391ee2",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -540,19 +540,19 @@
     },
     {
       "path": "docs/creative-decision-center/DATA_READINESS.md",
-      "sha256": "668b65296090345342869f5ddde73eeac735a356691b49e95cc2e118ca0169d5"
+      "sha256": "c47da98c182db2ce2923f4d101ae10b305b40fbb3590d1ffc9eeb38fd3f69798"
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "359c14d84e00a8e74aa38b65a2baed4d76f06da5ec7b4baefc19f17c51a7bd6a"
+      "sha256": "9db08593e766ea2932d0b4cc1f40a3d04bcc2c4875a383937f885715c1d290a4"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
-      "sha256": "01f1f1ef840143b40cc39b28b15110db471c2a3c4c0ae64f0035f0c008fcee93"
+      "sha256": "dbb3101e6e248112ede1feec126c839500f4ebb170e40d1fb29a3a91912f38c6"
     },
     {
       "path": "docs/creative-decision-center/INVARIANTS.md",
-      "sha256": "d7eb718a2a41bb80f0ab382222ad3aa02f681b9e6dc7c984ce85bec758b05031"
+      "sha256": "f556f84563d6862a94e4625d1314fb91506e2bddefba64587abcc4a0600291c6"
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
@@ -752,7 +752,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-calibration-job.test.ts",
-      "sha256": "5612515cb4a7aa55fabb58542b27d6054a7f244cae3980d832e5ac75f8fbaf6b"
+      "sha256": "6dcbbcda7706aec471a905a2c0c191ade26ba97a0f3c7813317fe1494a1e4025"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-calibration-migration-shape.test.ts",
@@ -1160,7 +1160,7 @@
     },
     {
       "path": "lib/meta/ad-day-provider-zero-receipt.ts",
-      "sha256": "34da4ed0358f12d210c15e9e3b676481b5a3df5bae5826ff2a82635f7d420005"
+      "sha256": "4b3ab7527b766bdf297fa18f05923fb394fb57e4fed85a4635abf5c697c5af1d"
     },
     {
       "path": "lib/meta/ad-performance-availability.ts",
@@ -1560,7 +1560,7 @@
     },
     {
       "path": "lib/meta/purchase-count-parse.test.ts",
-      "sha256": "a180edfc6889089f757e95e1fe3db07795da88bb2e3caacf202265dd2da618cb"
+      "sha256": "f4cfc6e8ebbbe7c0048b704158207a43e66e1e8e97536424cc7a5754af5f554c"
     },
     {
       "path": "lib/meta/purchase-count-parse.ts",
@@ -1828,7 +1828,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
-      "sha256": "f4d8ef38d04f667069545be13a954b27680deef095d7fc4f120281140b2a8726"
+      "sha256": "ef5310a7ac0c610f620aecab32dc5d2005da4eea3e32be7f66a4cf814dd057c0"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",

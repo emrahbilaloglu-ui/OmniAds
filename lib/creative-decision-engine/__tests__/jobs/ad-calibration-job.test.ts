@@ -4041,7 +4041,7 @@ describe.runIf(postgresAvailable)(
            created_at, updated_at)
           VALUES ($1,$2,$3::date,'account_daily','run-provider-zero',
             'completed',true,true,'2026-07-12T01:30:00Z',
-            '2026-07-12T01:30:00Z','2026-07-12T01:30:00Z') RETURNING id`,
+            '2026-07-12T01:30:00.012Z','2026-07-12T01:30:00.012Z') RETURNING id`,
           [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
         const slice = await pool.query<{ id: string }>(`INSERT INTO meta_authoritative_slice_versions
           (business_id, provider_account_id, day, surface, manifest_id,

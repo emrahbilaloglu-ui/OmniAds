@@ -29,7 +29,7 @@ import { getMetaAdDailyRange, getMetaCreativeDailyRange } from "@/lib/meta/wareh
 import type { MetaAdDailyRow, MetaCreativeDailyRow } from "@/lib/meta/warehouse-types";
 import { configureOperationalScriptRuntime } from "../_operational-runtime";
 
-const CONTRACT = "adsecute.meta-creative-day-source-evidence-repair.v2";
+const CONTRACT = "adsecute.meta-creative-day-source-evidence-repair.v3";
 const REBIND_CONTRACT = "meta-historical-source-slice-repair.v2";
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -95,6 +95,9 @@ type RepairInputs = Scope & {
   creativeRows: MetaCreativeDailyRow[]; adRows: MetaAdDailyRow[];
   snapshots: Snapshot[]; receipts: Receipt[]; observations: Observation[];
   priorSlices: PriorSlice[]; validationEvents: ValidationEvent[];
+};
+type CreativeWriteClock = {
+  day: string; creative_id: string; updated_at_exact: string;
 };
 type Scalars = {
   spend: number; impressions: number; clicks: number; reach: number;
@@ -477,8 +480,7 @@ export function buildCreativeDaySourceEvidenceRepairPlan(input: RepairInputs) {
 
 async function loadInputs(scope: Scope): Promise<RepairInputs> {
   // Also called inside runDbTransaction: issue reads serially on its one client.
-  const creativeRows = await getMetaCreativeDailyRange({ businessId: scope.businessId,
-    providerAccountIds: [scope.accountId], startDate: scope.from, endDate: scope.to });
+  const creativeRows = await loadCreativeRowsWithExactWriteClocks(scope);
   const adRows = await getMetaAdDailyRange({ businessId: scope.businessId,
     providerAccountIds: [scope.accountId], startDate: scope.from, endDate: scope.to });
   const receiptRows = await getDb().query<Receipt>(`SELECT p.day::text AS day,
@@ -552,6 +554,67 @@ async function loadInputs(scope: Scope): Promise<RepairInputs> {
     observations, priorSlices, validationEvents };
 }
 
+/**
+ * The warehouse reader returns timestamptz as a JS Date, which drops PostgreSQL's
+ * microseconds. The repair manifest and the UPDATE pre-image must use the same
+ * exact UTC database clock; a millisecond-rounded comparison can never match a
+ * row such as 06:41:08.124868+00 and must not be loosened to a millisecond band.
+ */
+export async function loadCreativeRowsWithExactWriteClocks(scope: Scope) {
+  const rows = await getMetaCreativeDailyRange({ businessId: scope.businessId,
+    providerAccountIds: [scope.accountId], startDate: scope.from, endDate: scope.to });
+  const clocks = await getDb().query<CreativeWriteClock>(
+    `SELECT date::text AS day, creative_id,
+            to_char(updated_at AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at_exact
+       FROM meta_creative_daily
+      WHERE business_id=$1 AND provider_account_id=$2
+        AND date BETWEEN $3::date AND $4::date`,
+    [scope.businessId, scope.accountId, scope.from, scope.to],
+  );
+  const byKey = new Map<string, string>();
+  for (const clock of clocks) {
+    const key = `${clock.day}|${clock.creative_id}`;
+    if (byKey.has(key) || !clock.updated_at_exact ||
+        !Number.isFinite(Date.parse(clock.updated_at_exact))) {
+      throw new Error("creative_day_repair_write_clock_invalid");
+    }
+    byKey.set(key, clock.updated_at_exact);
+  }
+  if (byKey.size !== rows.length) {
+    throw new Error("creative_day_repair_write_clock_population_drift");
+  }
+  return rows.map((row) => {
+    const updatedAt = byKey.get(`${row.date}|${row.creativeId}`);
+    if (!updatedAt) throw new Error("creative_day_repair_write_clock_population_drift");
+    return { ...row, updatedAt };
+  });
+}
+
+/** Exact row pre-image; any concurrent source or clock change refuses the write. */
+export async function writeCreativeDayRepairChange(scope: Scope, change: Pick<PlannedChange,
+  "day" | "creativeId" | "next" | "nextPayload" | "oldUpdatedAt" | "oldPayload">) {
+  const updated = await getDb().query<{ creative_id: string }>(
+    `UPDATE meta_creative_daily SET spend=$5, impressions=$6, clicks=$7,
+      reach=$8, frequency=$9, conversions=$10, revenue=$11, roas=$12,
+      cpa=$13, ctr=$14, cpc=$15, link_clicks=$16,
+      payload_json=$17::jsonb, updated_at=now()
+     WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
+       AND creative_id=$4 AND updated_at=$18::timestamptz
+       AND payload_json=$19::jsonb RETURNING creative_id`,
+    [scope.businessId, scope.accountId, change.day, change.creativeId,
+      change.next.spend, change.next.impressions, change.next.clicks,
+      change.next.reach, change.next.frequency, change.next.conversions,
+      change.next.revenue, change.next.roas, change.next.cpa,
+      change.next.ctr, change.next.cpc, change.next.linkClicks,
+      JSON.stringify(change.nextPayload), change.oldUpdatedAt,
+      JSON.stringify(change.oldPayload)],
+  );
+  if (updated.length !== 1) {
+    throw new Error(`creative_day_evidence_repair_update_conflict:${change.creativeId}`);
+  }
+}
+
 async function applyPlan(scope: Scope, expectedManifestHash: string) {
   return runDbTransaction(async () => {
     const sql = getDb();
@@ -563,23 +626,7 @@ async function applyPlan(scope: Scope, expectedManifestHash: string) {
       throw new Error("creative_day_evidence_repair_manifest_drift_or_blocked");
     }
     for (const change of plan.changes) {
-      const updated = await sql.query<{ creative_id: string }>(
-        `UPDATE meta_creative_daily SET spend=$5, impressions=$6, clicks=$7,
-          reach=$8, frequency=$9, conversions=$10, revenue=$11, roas=$12,
-          cpa=$13, ctr=$14, cpc=$15, link_clicks=$16,
-          payload_json=$17::jsonb, updated_at=now()
-         WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
-           AND creative_id=$4 AND updated_at=$18::timestamptz
-           AND payload_json=$19::jsonb RETURNING creative_id`,
-        [scope.businessId, scope.accountId, change.day, change.creativeId,
-          change.next.spend, change.next.impressions, change.next.clicks,
-          change.next.reach, change.next.frequency, change.next.conversions,
-          change.next.revenue, change.next.roas, change.next.cpa,
-          change.next.ctr, change.next.cpc, change.next.linkClicks,
-          JSON.stringify(change.nextPayload), change.oldUpdatedAt,
-          JSON.stringify(change.oldPayload)],
-      );
-      if (updated.length !== 1) throw new Error(`creative_day_evidence_repair_update_conflict:${change.creativeId}`);
+      await writeCreativeDayRepairChange(scope, change);
     }
     const verified = buildCreativeDaySourceEvidenceRepairPlan(await loadInputs(scope));
     if (verified.blockers.length > 0 || verified.changes.length > 0 ||

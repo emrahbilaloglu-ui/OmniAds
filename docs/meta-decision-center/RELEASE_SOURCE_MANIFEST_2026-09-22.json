@@ -1,5 +1,5 @@
 {
-  "manifestHash": "12a7532a2436a80bcad96590fd052b4d0d0ae72977d62e9e1df0b6802b9b64b9",
+  "manifestHash": "d21b7ee0b8acf8df8b6ea2a6108ff19a0de58d4cd04a166dff7b56f6fbaf249d",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1940,7 +1940,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "6038ecc56145289b858e0ac89ec788a8fa1a76c2db75b1b76738ea70b5f91c4e"
+      "sha256": "949ffff9ae33a6908bb848599af5099287fb5ec4a9879900c6c3c58fcc364023"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -1983,12 +1983,16 @@
       "sha256": "080b1de4562a21b8fb09c598f46fda3ad31f733cfbe6f2285bca8e19ad2c798f"
     },
     {
+      "path": "scripts/meta/creative-day-source-evidence-repair.db.test.ts",
+      "sha256": "b051cd6d030422e71dae29e5b2053d60d9f2bf93644efab1774e68e6709a94d2"
+    },
+    {
       "path": "scripts/meta/creative-day-source-evidence-repair.test.ts",
-      "sha256": "d028b377c39464438374db12a3ad88024cf037f8f02f374d11cee6fdbe08c57f"
+      "sha256": "d2132a0e55a01a89efa9df518922db8db34c6005e918a55b6d1e09c23b71bf23"
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.ts",
-      "sha256": "ba410bd491542645e4fb8b24799c98cc68920a9d9b80b467155352162b5ff1d2"
+      "sha256": "f13829118030e34f1ab8fdc3ba30b8566e2a495c1184eef4aadfe387e69fbdb1"
     },
     {
       "path": "scripts/meta/decision-release-source-manifest.ts",

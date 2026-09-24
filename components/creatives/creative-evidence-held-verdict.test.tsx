@@ -96,11 +96,30 @@ describe("the creative evidence drawer states the held verdict", () => {
     expect(held?.textContent).not.toContain("refresh");
   });
 
-  it("renders WHY it is held, and names the held verdict in the reason", () => {
+  it("renders WHY it is held once, and names the held verdict in the reason", () => {
     const { container } = mount(heldRefreshDecision());
-    const reason = container.querySelector("[data-creative-evidence-held-reason]");
-    expect(reason?.textContent ?? "").toMatch(/\S/);
-    expect(reason?.textContent).toContain("Refresh creative");
+    // The held row carries the verdict; the reason is stated once, under Why.
+    const held = container.querySelector("[data-creative-evidence-held-verdict]");
+    expect(held?.textContent).toContain("Refresh creative");
+    expect(container.querySelector("[data-creative-evidence-held-reason]")).toBeNull();
+    const why = Array.from(container.querySelectorAll("p"))
+      .filter((node) => node.textContent === "Why")[0]?.parentElement;
+    expect(why?.textContent ?? "").toContain("Refresh creative");
+    const sentence = why!.textContent!.replace(/^Why/, "").trim();
+    expect(container.textContent!.split(sentence).length - 1).toBe(1);
+  });
+
+  it("keeps the held step on the held row when Why states something else", () => {
+    // Pending native evidence keeps Why on the row's own reason, so the held
+    // row still owns its step: only an exact repeat is dropped.
+    const { container } = mount(
+      heldRefreshDecision({ decisionAvailability: "pending_native_evidence" }),
+    );
+    const step = container.querySelector("[data-creative-evidence-held-reason]");
+    expect(step?.textContent).toContain("Refresh creative");
+    const why = Array.from(container.querySelectorAll("p"))
+      .filter((node) => node.textContent === "Why")[0]?.parentElement;
+    expect(why?.textContent ?? "").not.toContain(step!.textContent!);
   });
 
   it("keeps the published label visible beside it", () => {

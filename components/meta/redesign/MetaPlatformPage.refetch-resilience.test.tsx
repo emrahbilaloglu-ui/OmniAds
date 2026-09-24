@@ -1090,3 +1090,110 @@ describe("mobile evidence prints Meta-reported checkout and purchase counts", ()
     expect(text).toContain("Meta reports these events separately.");
   });
 });
+
+describe("the evidence drawer states a held reason once and recovers its image by exact Ad", () => {
+  const REF = "2a5b71d1-d42e-4c89-a58f-d1b252c4c8b2";
+
+  function heldCut() {
+    return pendingOsDecision({
+      id: "os_held_cut",
+      decisionId: "decision_held_cut",
+      sourceSnapshotId: "snapshot_held_cut",
+      episodeId: "episode_held_cut",
+      adId: "120247018755120316",
+      adName: "Held Cut",
+      creativeId: "2533787297105379",
+      lane: "blocked",
+      heldAction: "cut",
+      heldResolution: {
+        code: "complete_hard_action_evidence",
+        category: "system",
+        owner: "system",
+        label: "Complete Hard-Action Evidence",
+        nextStep: "Internal producer copy",
+      },
+      resolution: null,
+      blockers: [],
+      action: {
+        code: "complete_hard_action_evidence",
+        label: "Complete Hard-Action Evidence",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+        scopeNote: "",
+      },
+      rawLabel: "cut",
+      publishedLabel: "keep",
+      decisionAvailability: "available",
+      adPerformanceAvailability: "observed",
+      metrics: {
+        spend: 3334.39,
+        purchases: 7,
+        roas: 0.47,
+        cpa: null,
+        ctr: null,
+        frequency: null,
+        effectiveTargetRoas: 2.2,
+        ratioToTarget: 0.21,
+        currency: "USD",
+        attribution: "meta_attributed",
+        grain: "ad",
+      },
+    } as never);
+  }
+
+  function nativeSource(response: any) {
+    response.decisionReadModel.source.authority = "native_ad";
+    response.decisionReadModel.source.generation = {
+      jobRunId: "job_1",
+      providerAccountRefId: REF,
+      manifestHash: "hash",
+      expectedAdCount: 1,
+    };
+    return response;
+  }
+
+  it("prints the held reason once on the mobile evidence screen", () => {
+    const held = heldCut();
+    state.workspaceData = nativeSource(workspaceResponse({ ads: [held] }));
+    const dom = render();
+    openCreative(dom, held);
+    const screen = dom.querySelector('[data-testid="meta-mobile-creative-evidence"]')!;
+    const heldBox = screen.querySelector("[data-mobile-evidence-held]")!;
+    expect(heldBox.textContent).toContain("Recommendation on hold: Pause ad");
+    // The reason itself is stated once, below, not inside the held box too.
+    expect(heldBox.querySelector("[data-mobile-evidence-held-next-step]")).toBeNull();
+    const sentence = "No action is needed from you; this Pause ad recommendation is re-checked on each decision run.";
+    expect(screen.textContent!.split(sentence).length - 1).toBe(1);
+  });
+
+  it("sends the exact Ad and provider account ref with the drawer's image recovery", () => {
+    const held = heldCut();
+    state.workspaceData = nativeSource(workspaceResponse({ ads: [held] }));
+    const dom = render();
+    openCreative(dom, held);
+    const url = new URL(
+      state.evidenceProps.viewModel.previewRecoveryUrl,
+      "https://example.invalid",
+    );
+    expect(url.pathname).toBe("/api/meta/creative-thumbnail");
+    expect(url.searchParams.get("creativeId")).toBe("2533787297105379");
+    expect(url.searchParams.get("adId")).toBe("120247018755120316");
+    expect(url.searchParams.get("providerAccountRefId")).toBe(REF);
+  });
+
+  it("keeps the warehouse-only recovery when the source names no native account ref", () => {
+    const held = heldCut();
+    // The legacy creative source carries no generation, so no ref is invented.
+    state.workspaceData = workspaceResponse({ ads: [held] });
+    const dom = render();
+    openCreative(dom, held);
+    const url = new URL(
+      state.evidenceProps.viewModel.previewRecoveryUrl,
+      "https://example.invalid",
+    );
+    expect(url.searchParams.get("creativeId")).toBe("2533787297105379");
+    expect(url.searchParams.has("adId")).toBe(false);
+    expect(url.searchParams.has("providerAccountRefId")).toBe(false);
+  });
+});

@@ -1341,7 +1341,9 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     expect(model.reasons).toEqual([
       "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
     ]);
-    expect(model.heldVerdictNextStep).toContain("current run before acting");
+    // Why already states it; the held row keeps its label without repeating it.
+    expect(model.heldVerdictLabel).toBeTruthy();
+    expect(model.heldVerdictNextStep).toBeNull();
     expect(value(model.authority, "held-reason")).toContain(
       "current run before acting",
     );

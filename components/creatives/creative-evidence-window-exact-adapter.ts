@@ -2395,6 +2395,11 @@ export function buildCreativeEvidenceWindowExactViewModel(
       : canonical
         ? ["Review the available performance evidence before making a change."]
         : [];
+  const heldVerdictStep = heldVerdict
+    ? sourceDegraded
+      ? RETAINED_GENERATION_REVIEW_COPY
+      : heldVerdict.nextStep
+    : null;
   const primaryAuthority = input.primaryActionAuthority;
   const primaryOffered =
     primaryAuthority?.offered ?? input.launchpadRoute?.offered ?? null;
@@ -2428,10 +2433,11 @@ export function buildCreativeEvidenceWindowExactViewModel(
       opens from a creative row. These two fields are the buyer-safe channel.
     */
     heldVerdictLabel: heldVerdict?.label ?? null,
-    heldVerdictNextStep: heldVerdict
-      ? sourceDegraded
-        ? RETAINED_GENERATION_REVIEW_COPY
-        : heldVerdict.nextStep
+    // Why already carries this sentence for a held (or retained) row, and the
+    // drawer and mobile screen print both fields; the held row keeps its label
+    // and drops the repeat rather than showing the same reason twice.
+    heldVerdictNextStep: heldVerdictStep && !reasons.includes(heldVerdictStep)
+      ? heldVerdictStep
       : null,
     previewUrl:
       (canonical?.media.thumbnail.state === "available"

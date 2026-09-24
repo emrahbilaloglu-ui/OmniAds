@@ -1411,6 +1411,7 @@ async function createHydrationSourceSchema(client: Client) {
     CREATE TABLE engine_v3_creative_lifecycle_daily (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_ref_id UUID NOT NULL,
       creative_id TEXT NOT NULL, as_of_date DATE NOT NULL, engine_version TEXT NOT NULL,
+      job_run_id UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
       computed_at TIMESTAMPTZ NOT NULL, source_max_updated_at TIMESTAMPTZ,
       lifecycle_position TEXT, days_since_peak INTEGER, peak_roas_30d DOUBLE PRECISION,
       peak_confidence DOUBLE PRECISION, spend_trajectory_30d TEXT,

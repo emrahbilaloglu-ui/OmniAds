@@ -1985,7 +1985,7 @@ function creativePosture(
         decisions.length === 0
           ? EM_DASH
           : refreshHeldCount > 0
-            ? `of ${formatNumber(decisions.length)} served · ${formatNumber(refreshHeldCount)} held`
+            ? `of ${formatNumber(decisions.length)} served · ${formatNumber(refreshHeldCount)} Refresh recommendation${refreshHeldCount === 1 ? "" : "s"} awaiting review`
             : `of ${formatNumber(decisions.length)} served decisions`,
     },
   };

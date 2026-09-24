@@ -2319,7 +2319,7 @@ function MetaMobileDecisionsScreen({
             </span>
           </div>
           <div className="ad-mobile-freshness">
-            Updated {mobileDisplay(identity.syncedLabel)} ·{" "}
+            Meta data: {mobileDisplay(identity.syncedLabel)} ·{" "}
             {mobileDisplay(identity.currency)}
           </div>
 

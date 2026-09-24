@@ -109,7 +109,7 @@ export function scopedBusinessSwitchDestination(
  * This is therefore an ALLOWLIST, not a blocklist. A blocklist has to
  * enumerate every account-scoped parameter in the tree and stays correct only
  * until someone adds the next one; an allowlist is wrong only about parameters
- * we deliberately chose to keep. Exactly two kinds are kept:
+ * we deliberately chose to keep. Three kinds are kept:
  *
  * - The date window (`window`/`startDate`/`endDate`). It names days, not
  *   accounts, and ITEM 9 explicitly permits preserving it. The days are
@@ -120,10 +120,13 @@ export function scopedBusinessSwitchDestination(
  *   switch would reproduce the shell/body split. It is rewritten to B rather
  *   than carried, and it is never introduced onto a URL that did not have it,
  *   because on those routes the session cookie is the scope of record.
+ * - The Creatives tab on Meta Decisions (`scope=creatives`). It names a view,
+ *   not an ad account or entity; the destination resolves B's own decisions.
  */
 export function businessSwitchQuery(
   currentQuery: string,
   businessId: string,
+  pathname: string,
 ): URLSearchParams {
   const current = new URLSearchParams(currentQuery);
   const next = new URLSearchParams();
@@ -133,6 +136,14 @@ export function businessSwitchQuery(
   }
   if ((current.get("businessId") ?? "").trim()) {
     next.set("businessId", businessId);
+  }
+  if (
+    current.get("scope") === "creatives" &&
+    (pathname === "/platforms/meta" ||
+      pathname === "/app/meta/decisions" ||
+      /^\/c\/[^/]+\/meta\/decisions$/.test(pathname))
+  ) {
+    next.set("scope", "creatives");
   }
   return next;
 }
@@ -223,7 +234,11 @@ function BusinessControl() {
     // Read A's query before the round trip, so what gets stripped is what the
     // operator was actually looking at when they switched.
     const previousQuery = new URLSearchParams(currentQueryString(searchParams));
-    const nextQuery = businessSwitchQuery(previousQuery.toString(), businessId);
+    const nextQuery = businessSwitchQuery(
+      previousQuery.toString(),
+      businessId,
+      pathname,
+    );
     const response = await fetch("/api/auth/switch-business", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -242,11 +257,10 @@ function BusinessControl() {
     });
     setPendingId(null);
     if (scopedDestination) {
-      // The path states B; the query keeps only what ITEM 9 permits. A scoped
-      // route used to be left with a bare path, which happened to be safe —
-      // this states the same guarantee on purpose instead of by omission, and
-      // lets the operator keep the days they were looking at.
-      router.replace(hrefWithParams(scopedDestination, nextQuery));
+      // A scoped layout must be remounted under B's session. A client router
+      // transition can reuse A's layout while rendering B's decision tree.
+      // The query keeps the view and dates, but no account/entity identifiers.
+      window.location.replace(hrefWithParams(scopedDestination, nextQuery));
       return;
     }
     // The server moved the session first. Writing the store before that answer

@@ -15,6 +15,7 @@ import {
   resolveMetaCredentials,
 } from "@/lib/api/meta";
 import { getDb, getDbRuntimeDiagnostics } from "@/lib/db";
+import { readLatestNativeDecisionJobMarker } from "@/lib/meta/decision-job-marker";
 import { META_ACTION_DIGEST_ROW_CAP } from "./action-digest-window";
 import {
   classifyDecisionDateFallback,
@@ -1534,23 +1535,41 @@ export async function GET(request: NextRequest) {
    * Keep the metric end date as the upstream window below, and resolve the
    * decision as-of independently from persisted decision evidence (D090).
    */
+  const nativeDecisionJobMarkerRead =
+    await readLatestNativeDecisionJobMarker(businessId);
+  const nativeDecisionMarkerReadFailed =
+    nativeDecisionJobMarkerRead === "read_failed";
+  const nativeDecisionJobMarker = nativeDecisionMarkerReadFailed
+    ? null
+    : nativeDecisionJobMarkerRead;
+  const nativeDecisionCacheIdentity =
+    nativeDecisionJobMarker?.cacheIdentity ?? "none";
   const loadResolvedDecisionAsOf = () =>
     resolveWorkspaceEndDate({
       businessId,
       providerAccountId,
       explicitEndDate: null,
     });
-  const decisionAsOfDate =
-    process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+  const cachedDecisionAsOfDate =
+    process.env.VITEST === "true" ||
+    process.env.NODE_ENV === "test" ||
+    nativeDecisionMarkerReadFailed
       ? await loadResolvedDecisionAsOf()
       : (
           await getCachedValue({
-            key: `meta-decisions-as-of-v3:${businessId}:${providerAccountId ?? "none"}`,
+            key: `meta-decisions-as-of-v4:${businessId}:${providerAccountId ?? "none"}:${nativeDecisionCacheIdentity}`,
             ttlMs: 5 * 60_000,
             staleWhileRevalidateMs: 60 * 60_000,
             loader: loadResolvedDecisionAsOf,
           })
         ).value;
+  // A cached legacy date cannot hide a newly committed native job. This is
+  // only a date bound; an incomplete account manifest remains unavailable.
+  const decisionAsOfDate =
+    nativeDecisionJobMarker &&
+    nativeDecisionJobMarker.asOfDate > cachedDecisionAsOfDate
+      ? nativeDecisionJobMarker.asOfDate
+      : cachedDecisionAsOfDate;
   const endDateResolvedAt = performance.now();
   // Direct API callers without dates get the same completed-day metric window
   // as the shell. A current-day decision may still be served over it.
@@ -1853,11 +1872,13 @@ export async function GET(request: NextRequest) {
         generatedAt: requestGeneratedAt,
       });
     const decisionRead =
-      process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+      process.env.VITEST === "true" ||
+      process.env.NODE_ENV === "test" ||
+      nativeDecisionMarkerReadFailed
         ? await loadDecisionRead()
         : (
             await getCachedValue({
-              key: `meta-decisions-read-v8:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
+              key: `meta-decisions-read-v9:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${nativeDecisionCacheIdentity}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
               ttlMs: 60_000,
               staleWhileRevalidateMs: 240_000,
               loader: loadDecisionRead,

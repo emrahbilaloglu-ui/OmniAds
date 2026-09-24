@@ -2278,12 +2278,12 @@ export function buildCreativeEvidenceWindowExactViewModel(
     decision: "28d",
     series: selectedPeriod,
     funnel: hasAdRows
-      ? selectedPeriod
+      ? `${selectedPeriod} · all ads using this creative`
       : hasDecisionPurchases
         ? "decision 28d · purchases only"
         : selectedPeriod,
     adSets: hasAdRows
-      ? `ROAS per ad set · ${selectedPeriod}`
+      ? `ROAS per ad set · ${selectedPeriod} · all ads using this creative`
       : "Ad set context · decision 28d metrics when available",
   };
   const adSets = buildAdSets({
@@ -2381,7 +2381,12 @@ export function buildCreativeEvidenceWindowExactViewModel(
       spendDisplay === EM_DASH && roasDisplay === EM_DASH
         ? EM_DASH
         : `${spendDisplay} · ROAS ${roasDisplay}`,
-    moneySub: target === null ? EM_DASH : `vs ${target.toFixed(2)} target`,
+    // A target can be known while this Ad's performance is not. Without an
+    // observed value there is nothing to compare against that target.
+    moneySub:
+      target === null || decisionPerformanceMissing
+        ? EM_DASH
+        : `vs ${target.toFixed(2)} target`,
     reasons: reasons.length > 0 ? reasons : [EM_DASH],
     ctr: series.ctr,
     frequency: series.frequency,

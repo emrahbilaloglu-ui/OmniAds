@@ -749,9 +749,11 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     const metrics = measured?.querySelector(`.${styles.creativeMetrics}`);
     expect(metrics?.textContent).toContain("0.00%");
     expect(metrics?.textContent).toContain("$100 · ROAS 1.00");
-    expect(metrics?.textContent).toContain("Decision · 28d");
+    expect(metrics?.textContent).toContain("Decision");
+    expect(metrics?.textContent).not.toContain("Decision · 28d");
     expect(measured?.querySelector('[data-meta-exact-creative-ctr-value]')?.textContent).toBe("0.00%");
-    expect(measured?.textContent).toContain("CTR · 28d");
+    expect(measured?.textContent).toContain("CTR");
+    expect(measured?.textContent).not.toContain("CTR · 28d");
     const thumbnail = measured?.querySelector("img");
     expect(thumbnail?.getAttribute("src")).toBe("https://example.com/creative.jpg");
     fireEvent.error(thumbnail!);

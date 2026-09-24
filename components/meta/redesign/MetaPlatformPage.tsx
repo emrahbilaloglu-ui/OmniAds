@@ -359,15 +359,10 @@ export function metaBuyerCreativeEvidenceViewModel(
   return {
     ...model,
     verdict: model.decisionLabel,
-    readNotice: model.readNotice
-      ? {
-          tone: model.readNotice.tone,
-          text:
-            model.readNotice.tone === "info"
-              ? "Creative metrics are still loading."
-              : "Some creative metrics are unavailable. Refresh decisions and try again.",
-        }
-      : null,
+    // The adapter distinguishes loading, a failed read, and a verified empty
+    // read. Mapping both informational states to "still loading" left an
+    // empty result looking permanently in flight after it had completed.
+    readNotice: model.readNotice,
     coverage,
     authority: actionAvailability,
     /*
@@ -1742,9 +1737,13 @@ function mobileQueueRowsForLane(
 function MetaMobileCreativeEvidenceScreen({
   viewModel,
   onBack,
+  onRetryMetrics,
+  retryMetricsPending = false,
 }: {
   viewModel: CreativeEvidenceWindowExactViewModel;
   onBack: () => void;
+  onRetryMetrics?: () => void;
+  retryMetricsPending?: boolean;
 }) {
   const isMeaningful = (value: MetaDecisionCenterExactDisplayValue) => {
     const displayValue = mobileDisplay(value);
@@ -1790,9 +1789,20 @@ function MetaMobileCreativeEvidenceScreen({
             {subtitle ? <p>{subtitle}</p> : null}
           </div>
           {viewModel.readNotice ? (
-            <p className="ad-mobile-copy" data-mobile-creative-read-notice>
-              {viewModel.readNotice.text}
-            </p>
+            <div className="ad-mobile-copy" data-mobile-creative-read-notice role="status">
+              <span>{viewModel.readNotice.text}</span>
+              {viewModel.readNotice.tone === "negative" && onRetryMetrics ? (
+                <button
+                  type="button"
+                  className="ad-mobile-metrics-retry"
+                  data-mobile-creative-metrics-retry
+                  disabled={retryMetricsPending}
+                  onClick={onRetryMetrics}
+                >
+                  {retryMetricsPending ? "Retrying metrics…" : "Retry metrics"}
+                </button>
+              ) : null}
+            </div>
           ) : null}
           {viewModel.actionNotice ? (
             <p className="ad-mobile-copy" data-mobile-creative-action-notice>
@@ -2593,13 +2603,20 @@ function canonicalCreativeSearchMatch(
  * draws are ad-grain facts served by `/api/meta/creatives`, which keeps its
  * own `requireBusinessAccess` gate. Reading them here adds no new authority.
  */
-async function fetchCreativeEvidenceAdRows(input: {
+const CREATIVE_EVIDENCE_CLIENT_TIMEOUT_MS = 30_000;
+
+function creativeEvidenceRequestSignal(signal?: AbortSignal): AbortSignal {
+  const deadline = AbortSignal.timeout(CREATIVE_EVIDENCE_CLIENT_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, deadline]) : deadline;
+}
+
+export async function fetchCreativeEvidenceAdRows(input: {
   businessId: string;
   providerAccountId: string;
   creativeId: string;
   start: string;
   end: string;
-}): Promise<CreativeEvidenceWindowExactAdRow[]> {
+}, signal?: AbortSignal): Promise<CreativeEvidenceWindowExactAdRow[]> {
   const query = new URLSearchParams({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -2611,6 +2628,7 @@ async function fetchCreativeEvidenceAdRows(input: {
   });
   const response = await fetch(`/api/meta/creatives?${query.toString()}`, {
     cache: "no-store",
+    signal: creativeEvidenceRequestSignal(signal),
   });
   if (!response.ok) {
     throw new Error("Ad-grain creative evidence is unavailable.");
@@ -2708,12 +2726,12 @@ function queueCtrTrailWindow(asOf: string | null | undefined) {
   return { start: addDaysToIsoDate(asOf, -27), end: asOf };
 }
 
-async function fetchCreativeEvidenceAdSeries(input: {
+export async function fetchCreativeEvidenceAdSeries(input: {
   businessId: string;
   adIds: string[];
   start: string;
   end: string;
-}): Promise<CreativeEvidenceWindowExactSeriesPayload> {
+}, signal?: AbortSignal): Promise<CreativeEvidenceWindowExactSeriesPayload> {
   const query = new URLSearchParams({
     businessId: input.businessId,
     adIds: input.adIds.join(","),
@@ -2722,6 +2740,7 @@ async function fetchCreativeEvidenceAdSeries(input: {
   });
   const response = await fetch(`/api/meta/ads/series?${query.toString()}`, {
     cache: "no-store",
+    signal: creativeEvidenceRequestSignal(signal),
   });
   if (!response.ok) {
     throw new Error("The per-ad daily series is unavailable.");
@@ -4005,16 +4024,17 @@ export function MetaPlatformPage({
     enabled: Boolean(
       businessId && providerAccountId && creativeEvidenceCreativeId,
     ),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchCreativeEvidenceAdRows({
         businessId,
         providerAccountId: providerAccountId!,
         creativeId: creativeEvidenceCreativeId!,
         start: selectedDateRange.start,
         end: selectedDateRange.end,
-      }),
+      }, signal),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+    retry: false,
   });
 
   /**
@@ -4035,16 +4055,28 @@ export function MetaPlatformPage({
       selectedDateRange.end,
     ],
     enabled: Boolean(businessId && creativeEvidenceAdId),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       fetchCreativeEvidenceAdSeries({
         businessId,
         adIds: [creativeEvidenceAdId!],
         start: selectedDateRange.start,
         end: selectedDateRange.end,
-      }),
+      }, signal),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+    retry: false,
   });
+
+  const creativeEvidenceMetricsFailed =
+    creativeEvidenceQuery.isError || creativeEvidenceSeriesQuery.isError;
+  const creativeEvidenceMetricsPending =
+    creativeEvidenceQuery.isFetching || creativeEvidenceSeriesQuery.isFetching;
+  const retryCreativeEvidenceMetrics = () => {
+    if (creativeEvidenceMetricsPending) return;
+    if (creativeEvidenceQuery.isError) void creativeEvidenceQuery.refetch();
+    if (creativeEvidenceSeriesQuery.isError)
+      void creativeEvidenceSeriesQuery.refetch();
+  };
 
   const rawWorkspaceQuery = useQuery({
     queryKey: [
@@ -4779,6 +4811,12 @@ export function MetaPlatformPage({
       }),
       queryClient.invalidateQueries({
         queryKey: ["meta-anomalies", businessId],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["meta-creative-evidence-ad-rows", businessId],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["meta-creative-evidence-series", businessId],
       }),
     ]);
   };
@@ -5976,6 +6014,10 @@ export function MetaPlatformPage({
         <MetaMobileCreativeEvidenceScreen
           viewModel={creativeEvidenceViewModel}
           onBack={() => setCreativeDrill(null)}
+          onRetryMetrics={
+            creativeEvidenceMetricsFailed ? retryCreativeEvidenceMetrics : undefined
+          }
+          retryMetricsPending={creativeEvidenceMetricsPending}
         />
       ) : drillItem ? (
         <MetaMobileEvidenceScreen
@@ -6332,6 +6374,10 @@ export function MetaPlatformPage({
 
       {creativeDrill && creativeEvidenceSharedInput ? (
         <CreativeEvidenceWindowExact
+          onRetryMetrics={
+            creativeEvidenceMetricsFailed ? retryCreativeEvidenceMetrics : undefined
+          }
+          retryMetricsPending={creativeEvidenceMetricsPending}
           onClose={() => {
             if (nativeAdPausePending || nativeAdPauseAuthorization) return;
             setNativeAdPauseAuthorization(null);

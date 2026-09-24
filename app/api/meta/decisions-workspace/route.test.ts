@@ -945,6 +945,153 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("drops warm decision caches when a native job publishes, including a second generation on the same day", async () => {
+    vi.stubEnv("VITEST", "");
+    vi.stubEnv("NODE_ENV", "production");
+    delete (globalThis as Record<string, unknown>).__omniadsServerCache;
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    stubWorkspaceHttpUpstreams();
+    upstreamRouteMock.accountPulseGet.mockResolvedValue(jsonResponse(metaPulse()));
+    upstreamRouteMock.laneClassificationGet.mockResolvedValue(
+      jsonResponse(metaLanePayload()),
+    );
+    const sql = mockDigestSql();
+    let asOfDate = "2026-07-10";
+    let jobRunId = "00000000-0000-4000-8000-000000000001";
+    let publishedJobRunId = jobRunId;
+    const query = vi.fn(async (statement: string) => {
+      if (statement.includes("AS job_run_id")) {
+        return [{
+          job_run_id: jobRunId,
+          as_of_date: asOfDate,
+          status: "success",
+          finished_at: "2026-07-11T06:00:00Z",
+          published_job_run_id: publishedJobRunId,
+          published_status: "success",
+          published_updated_at: "2026-07-11T06:00:00Z",
+        }];
+      }
+      if (statement.includes("SELECT MAX(as_of_date)::text AS latest_as_of")) {
+        return [{ latest_as_of: asOfDate }];
+      }
+      return [];
+    });
+    Object.assign(sql, { query });
+    const url =
+      "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&window=7d&startDate=2026-07-01&endDate=2026-07-07";
+
+    try {
+      const first = await GET(new NextRequest(url));
+      expect(first.status, JSON.stringify(await first.clone().json())).toBe(200);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledTimes(1);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ asOfDate: "2026-07-10" }),
+      );
+
+      // A new persisted day must not wait for the old as-of cache's five-minute
+      // TTL, and the metric URL remains on its original completed-day range.
+      asOfDate = "2026-07-11";
+      jobRunId = "00000000-0000-4000-8000-000000000002";
+      publishedJobRunId = jobRunId;
+      const second = await GET(new NextRequest(url));
+      expect(second.status).toBe(200);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledTimes(2);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ asOfDate: "2026-07-11" }),
+      );
+
+      // An engine deployment can publish another generation for the SAME day.
+      // Date-only cache identity would keep the earlier decision envelope.
+      jobRunId = "00000000-0000-4000-8000-000000000003";
+      publishedJobRunId = jobRunId;
+      const third = await GET(new NextRequest(url));
+      expect(third.status).toBe(200);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledTimes(3);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ asOfDate: "2026-07-11" }),
+      );
+      // A later published backfill can change the retained fallback even
+      // though the maximum as-of day and its job stay unchanged.
+      publishedJobRunId = "00000000-0000-4000-8000-000000000004";
+      const fourth = await GET(new NextRequest(url));
+      expect(fourth.status).toBe(200);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledTimes(4);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ asOfDate: "2026-07-11" }),
+      );
+      expect(query).toHaveBeenCalledWith(
+        expect.stringContaining("FROM engine_v3_job_runs"),
+        ["biz_1", 7],
+      );
+      // A later advisory-lock skip is not the effective terminal generation
+      // when its overlapping lock holder publishes. Cache identity must use
+      // the same skip exclusion as the canonical native reader.
+      expect(query).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /run\.status = 'skipped'[\s\S]*Advisory lock not acquired%[\s\S]*holder\.status IN \('success', 'failed'\)/,
+        ),
+        ["biz_1", 7],
+      );
+    } finally {
+      delete (globalThis as Record<string, unknown>).__omniadsServerCache;
+      vi.unstubAllEnvs();
+    }
+  }, 30_000);
+
+  it("reads decisions afresh when the native job marker query fails", async () => {
+    vi.stubEnv("VITEST", "");
+    vi.stubEnv("NODE_ENV", "production");
+    delete (globalThis as Record<string, unknown>).__omniadsServerCache;
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    stubWorkspaceHttpUpstreams();
+    upstreamRouteMock.accountPulseGet.mockResolvedValue(jsonResponse(metaPulse()));
+    upstreamRouteMock.laneClassificationGet.mockResolvedValue(
+      jsonResponse(metaLanePayload()),
+    );
+    const sql = mockDigestSql();
+    let asOfDate = "2026-07-10";
+    Object.assign(sql, {
+      query: vi.fn(async (statement: string) => {
+        if (statement.includes("AS job_run_id")) {
+          throw new Error("marker read unavailable");
+        }
+        if (statement.includes("SELECT MAX(as_of_date)::text AS latest_as_of")) {
+          return [{ latest_as_of: asOfDate }];
+        }
+        return [];
+      }),
+    });
+    const url =
+      "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&window=7d&startDate=2026-07-01&endDate=2026-07-07";
+
+    try {
+      expect((await GET(new NextRequest(url))).status).toBe(200);
+      asOfDate = "2026-07-11";
+      expect((await GET(new NextRequest(url))).status).toBe(200);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledTimes(2);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ asOfDate: "2026-07-11" }),
+      );
+    } finally {
+      delete (globalThis as Record<string, unknown>).__omniadsServerCache;
+      vi.unstubAllEnvs();
+    }
+  }, 30_000);
+
   it("rejects provider accounts that are not assigned to the business", async () => {
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       id: "assignment_1",

@@ -873,12 +873,14 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
     for (const id of ["served_missing", "served_legacy_unknown"]) {
       expect(rows.get(id)?.money).toBe("—");
+      expect(rows.get(id)?.moneySub).not.toContain("vs 3.10 target");
       expect(rows.get(id)?.ctrValue).toBeNull();
       expect(rows.get(id)?.chips).not.toContain("ROAS 0.00");
     }
     expect(rows.get("served_missing")?.note).toContain("No finalized ad performance data");
     expect(rows.get("served_legacy_unknown")?.note).toContain("observation status was not served");
     expect(rows.get("served_observed_zero")?.money).toContain("ROAS 0.00");
+    expect(rows.get("served_observed_zero")?.moneySub).toContain("vs 3.10 target");
     expect(rows.get("served_observed_zero")?.chips).toContain("ROAS 0.00");
     const inspector = buildMetaDecisionCenterExactViewModel({
       workspace,
@@ -1710,6 +1712,37 @@ describe("the creative queue is the served set, split by the served state", () =
     expect(
       buildMetaDecisionCenterExactViewModel({ workspace }).creativeFootnote,
     ).toBe("No ad-level decision is available for this account.");
+  });
+
+  it("does not describe an old-epoch fallback as a verified empty creative queue", () => {
+    const workspace = workspaceFixture({ os: fullOs({ creatives: [] }) });
+    workspace.decisionReadModel.source.fallbackReason =
+      "native_latest_job_engine_mismatch";
+    workspace.os.limitations = [
+      {
+        code: "active_ad_inventory_pending_native_decision",
+        message: "24 ACTIVE Ads have no exact Ad-grain decision yet.",
+      },
+    ];
+    workspace.os.ads.pendingInventoryCount = 24;
+
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.creativesNotice).toContain(
+      "Current creative decisions could not be verified",
+    );
+    expect(view.creativesNotice).toContain("24 active ads have no current decision");
+    expect(view.creativeFootnote).toBe(
+      "Current ad-level decisions cannot be shown until their source is available.",
+    );
+  });
+
+  it("does not describe a failed native source as a verified empty creative queue", () => {
+    const workspace = workspaceFixture({ os: fullOs({ creatives: [] }) });
+    workspace.decisionReadModel.source.fallbackReason =
+      "native_latest_job_failed";
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.creativesNotice).toContain("temporarily unavailable");
+    expect(view.creativeFootnote).not.toContain("No ad-level decision");
   });
 
   it("never forwards unknown creative producer text into a visible row", () => {

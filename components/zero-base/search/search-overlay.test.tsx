@@ -11,7 +11,7 @@ import { ZERO_BASE_ROOT_ATTRIBUTE, ZERO_BASE_ROOT_VALUE } from "@/lib/design/led
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: React.ComponentProps<"a">) =>
-    React.createElement("a", { href, ...rest }, children),
+    React.createElement("a", { href, "data-next-link": "", ...rest }, children),
 }));
 
 afterEach(cleanup);
@@ -54,6 +54,7 @@ describe("SearchOverlay", () => {
       "/switch-business/biz_1?next=%2Fapp%2Fhome",
       "/switch-business/biz_1?next=%2Fapp%2Fmeta%2Fdecisions",
     ]);
+    expect(links.every((link) => !link.hasAttribute("data-next-link"))).toBe(true);
   });
 
   it("moves a virtual cursor with arrows while focus stays in the input", async () => {

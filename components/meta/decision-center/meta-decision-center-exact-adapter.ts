@@ -2031,8 +2031,12 @@ function creativeChips(
 function creativeMoneySub(
   decision: MetaOsAdDecision,
   canonical: MetaCanonicalDecision | null,
+  performanceMissing: boolean,
 ): string {
-  const target = printableTargetRoas(decision.metrics.effectiveTargetRoas);
+  const target =
+    performanceMissing || finite(decision.metrics.roas) === null
+      ? null
+      : printableTargetRoas(decision.metrics.effectiveTargetRoas);
   const parts = [
     target === null ? null : `vs ${target.toFixed(2)} target`,
     buyerFacingCreativeScope(decision, canonical),
@@ -2866,7 +2870,7 @@ function creativeRows(input: {
         roas: adPerformanceMissing ? null : decision.metrics.roas,
         currency: rowCurrency,
       }),
-      moneySub: creativeMoneySub(decision, canonicalDecision),
+      moneySub: creativeMoneySub(decision, canonicalDecision, adPerformanceMissing),
       actionLabel: buyerFacingCreativeActionLabel(decision),
       actionTone: actionTone(decision.action),
       ...(review ? { onPrimary: review, onOpen: review } : {}),
@@ -2945,8 +2949,14 @@ function creativeGroups(input: {
  * reason the posture band is: typing in the search box narrows the queue, it
  * does not change what the engine can say.
  */
-function creativeFootnote(decisions: readonly MetaOsAdDecision[]): string {
+function creativeFootnote(
+  decisions: readonly MetaOsAdDecision[],
+  sourceUnavailable: boolean,
+): string {
   if (decisions.length === 0) {
+    if (sourceUnavailable) {
+      return "Current ad-level decisions cannot be shown until their source is available.";
+    }
     return "No ad-level decision is available for this account.";
   }
   return "Open a decision for details, or use Creative Studio to compare performance.";
@@ -3592,16 +3602,38 @@ function inspector(input: {
  * the diagnostics panel that exists for it (`sourceProvenance`, fact
  * `fallback-reason`). It does not belong in the sentence.
  */
+function creativeDecisionSourceUnavailable(
+  workspace: MetaDecisionsWorkspacePayload,
+): boolean {
+  const model = workspace.decisionReadModel;
+  return (
+    model?.status === "unavailable" ||
+    model?.source?.status === "unavailable" ||
+    Boolean(nonBlank(model?.source?.fallbackReason))
+  );
+}
+
 function creativesNotice(
   workspace: MetaDecisionsWorkspacePayload,
 ): string | null {
-  const source = workspace.os?.source;
-  if (!source) return null;
   const limitations = workspace.os?.limitations ?? [];
   const pendingInventory = limitations.find(
     (limitation) =>
       limitation.code === "active_ad_inventory_pending_native_decision",
   );
+  const pendingCount = finite(workspace.os?.ads?.pendingInventoryCount);
+  if (
+    creativeDecisionSourceUnavailable(workspace) &&
+    (workspace.os?.ads?.items?.length ?? 0) === 0
+  ) {
+    const affected =
+      pendingInventory && pendingCount !== null && pendingCount > 0
+        ? ` ${formatNumber(pendingCount)} active ads have no current decision on this screen.`
+        : "";
+    return `Current creative decisions could not be verified, so this queue is temporarily unavailable.${affected}`;
+  }
+  const source = workspace.os?.source;
+  if (!source) return null;
   /*
     ── ROUND 8 ITEM 7: THE SERVER'S STATE, IN THE BUYER'S WORDS ──────────────
 
@@ -3621,7 +3653,6 @@ function creativesNotice(
     The pending count is threaded through because it is the one quantitative
     fact here: how much of their account is waiting.
   */
-  const pendingCount = finite(workspace.os?.ads?.pendingInventoryCount);
   if (source.adsSource === "native_ad_decision") {
     // A native-authoritative account states only the inventory gap, and only
     // when there is one.
@@ -5363,7 +5394,10 @@ export function buildMetaDecisionCenterExactViewModel(
       statePreCapCounts: workspace.os?.ads?.statePreCapCounts,
       heldNote: heldVerdictCounts(workspace.os?.ads)?.note ?? null,
     }),
-    creativeFootnote: creativeFootnote(workspace.os?.ads?.items ?? []),
+    creativeFootnote: creativeFootnote(
+      workspace.os?.ads?.items ?? [],
+      creativeDecisionSourceUnavailable(workspace),
+    ),
     inspector: inspector({
       provenance: inspectorProvenance(workspace),
       selection,

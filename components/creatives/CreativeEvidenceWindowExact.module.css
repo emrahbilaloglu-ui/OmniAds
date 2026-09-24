@@ -596,6 +596,25 @@
   line-height: 1.5;
 }
 
+.retryMetrics {
+  display: block;
+  min-height: 36px;
+  margin-top: 8px;
+  padding: 5px 10px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.retryMetrics:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 /*
  * The coverage statement. Same construction rule as the read notice: ink text
  * on a light tone ground, tone carried by the border and the words rather than

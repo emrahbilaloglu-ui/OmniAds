@@ -1,5 +1,5 @@
 {
-  "manifestHash": "0173fba4cfbb54a658f91f2b22bcedfebb7df7c3384f39c125762f86d8397a49",
+  "manifestHash": "b30bdfd8d98d4eca2680bb33a28d1244adc61a873046fd88bbd053e558417f7a",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -203,12 +203,20 @@
       "sha256": "60000865baee9a4ca8b63866ab0a19a573b6720a53443d1e18505448310a168b"
     },
     {
+      "path": "app/api/meta/decision-as-of-scope.golden.test.ts",
+      "sha256": "cd488bd0e8bba42ea8b58b4107232297900a7b77cb6b3fcf9565df97c7d02580"
+    },
+    {
       "path": "app/api/meta/decisions-workspace-sixty-ad-acceptance.db.test.ts",
-      "sha256": "cd799df7f7d419b1a6a1d4c3eed70c83f0b7aff855a568ec873806058b9f5d2b"
+      "sha256": "535f75c3ddc43a49cff197f95f006468fac3ff1aa18b55a16388bec0ccc65f0e"
+    },
+    {
+      "path": "app/api/meta/decisions-workspace/route.test.ts",
+      "sha256": "249f061971e9ec99045a389ceaf8fe63a725630c52a254f8b163f1508c374bf4"
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "b8534080af807d5cc9a34640878bf75989594210d2342218f59dcc190354ba87"
+      "sha256": "4e7854777f3ab51181d011e8b7c322c784efdc579c19088b12ed8427bae63cec"
     },
     {
       "path": "app/api/meta/lane-classify/route.test.ts",
@@ -252,7 +260,31 @@
     },
     {
       "path": "app/globals.css",
-      "sha256": "a97c9c10f7ec057a8bfdbe1b7fa01a040d1c90938dfe91d817bedbb1f4959372"
+      "sha256": "8f2914937e36b265dd80e22c2e85c46a46ecdc82626c3453f238b8ac44a69507"
+    },
+    {
+      "path": "app/switch-business/[businessId]/finish/page.tsx",
+      "sha256": "8f9eff60005a83a08da12637dc395ebdc483104fd971225ed7816079d2956ca2"
+    },
+    {
+      "path": "app/switch-business/[businessId]/finish/switch-business-completion.test.tsx",
+      "sha256": "093a915d4d076c50b3ecd7b39b07190569cefb44a0089fc548dc3b8569b5c321"
+    },
+    {
+      "path": "app/switch-business/[businessId]/finish/switch-business-completion.tsx",
+      "sha256": "7a06e1a26ba1e8deb1e5d99eacf5c365c071d40eea303f19e75799ca0eddb483"
+    },
+    {
+      "path": "app/switch-business/[businessId]/page.tsx",
+      "sha256": null
+    },
+    {
+      "path": "app/switch-business/[businessId]/route.test.ts",
+      "sha256": "09599d5bab28effa1d4dbf5807ea99462fc7da067f65350a28365fdbf74299b8"
+    },
+    {
+      "path": "app/switch-business/[businessId]/route.ts",
+      "sha256": "4e42a4da89a3ccc722def775763e4691c69ea25394c30c518407f34e03033f5e"
     },
     {
       "path": "components/common/briefing/CompareDrawer.tsx",
@@ -292,11 +324,11 @@
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.test.ts",
-      "sha256": "b665f69dd57001682aa9e4f59d5d1cd8695bfdfb5ce6047b8c963598731a86ab"
+      "sha256": "c71c9e1b2231b32deaa9fb92f04251304e7eb1b94c988f4b1febe189d433ea37"
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.ts",
-      "sha256": "1db5e051270b924d2beab6ca17a49d0b9428eab0b54643c2247eaf91120cc0ed"
+      "sha256": "2b2f6e9ca3801ea8627a3feba1114db6eda6278d7f579c7335e4dc12c63b7247"
     },
     {
       "path": "components/creatives/creative-evidence-window-wiring.test.ts",
@@ -315,12 +347,16 @@
       "sha256": "6a3c908ca2bc7cf28e915ce41f40b05f9f10557d5fc200d6b09a9d73213de2d1"
     },
     {
+      "path": "components/creatives/CreativeEvidenceWindowExact.module.css",
+      "sha256": "2f58b618bf2241884b2ad94940bd3873de5ff1d768a1d77435a49382855f3527"
+    },
+    {
       "path": "components/creatives/CreativeEvidenceWindowExact.test.tsx",
-      "sha256": "09608f649434759f6939c5f137551e7fbd3908a92a21583cbcd1c9d3df1608b8"
+      "sha256": "9bd93a53945cedb67318f907fa310eb5657246c4a1eb9cd19c5ad72c8e663ec3"
     },
     {
       "path": "components/creatives/CreativeEvidenceWindowExact.tsx",
-      "sha256": "c16caca37000dd966be0e36f5c1af2847042a18724e567404c35d1bd8ff1aee6"
+      "sha256": "daceed32745d91c7ae49297ce4f6f2b17193fedf4d869e88e4baa537161af024"
     },
     {
       "path": "components/creatives/CreativeStudioExact.tsx",
@@ -339,8 +375,16 @@
       "sha256": "937750a8f1e2b28216f40e3177c6171efa33f5bd8881d5e5eefc052744a439e6"
     },
     {
+      "path": "components/layout/v2/app-topbar.test.tsx",
+      "sha256": "65db3cbd4a84cf4f31cd749faf9f7db56e3d60434320b79f31e57dc03550943f"
+    },
+    {
+      "path": "components/layout/v2/app-topbar.tsx",
+      "sha256": "b49a6056b8c18cff5e8fd5508e27bfbd34a9da2da2446e1daf7c643316a409cd"
+    },
+    {
       "path": "components/meta/decision-center/buyer-language-dom.test.tsx",
-      "sha256": "f8c968b2f14ed47aa9190416f28e94ffbdbebba6cbcb512937e4e7620991a3fa"
+      "sha256": "bea3090c802c2312059c52ca11eb5e9976b324864c8dc4250aa995e385b6597a"
     },
     {
       "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
@@ -348,11 +392,11 @@
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "4285046b6b2c4a7a9109a4f5a013b3ede698786516dd167b505b910d9c068b5d"
+      "sha256": "7c47aa43ad379e932a39c7e1b557d225272b311608a7e775a2d47b71e7bdfee5"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "11a4b75469f167f6b6ba93457ab910c6fd20ca91cb32ee796c08d246b3c7ee45"
+      "sha256": "ef4a4c4e19623e314bd7fe257d0a87a167f99769d016f912d8538bc92fcd1251"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -360,7 +404,7 @@
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
-      "sha256": "f4e61c903ed5fada067ed451bcd58b03a6c3b321aaca68d0e90cee68aa875a48"
+      "sha256": "577b0c41f727152cbbdba046a69e2a6daa4ad721b4d88b2f1613c9f0d040f480"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
@@ -432,15 +476,15 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.test.tsx",
-      "sha256": "9cc5aafeff769cac529743ca623a535ed0e49cd9268dd87154632565e6cf88da"
+      "sha256": "fa82fc72b31e37998eaf5c98c4b4696babf36587058be87dd1a4c39f2675059b"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "7e915d96317dda6c4d6003017006452163a336d42a483665aed92f88eadc804d"
+      "sha256": "908c971fcc1fec8abe8310d59bb21811e140f2f595db6141f7c400d6e4428458"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
-      "sha256": "f646dce258ec055cc44312ac6c30962eb1deebdd22405aec3080d32ae5471d35"
+      "sha256": "c6616111c76e7f195ac75bface3e7079fe8f20957d61cdc68182cc33c0d532eb"
     },
     {
       "path": "components/meta/redesign/MetaUpperFunnelInformationalCard.test.tsx",
@@ -453,6 +497,22 @@
     {
       "path": "components/meta/redesign/mobile-card-apply-ceremony.test.tsx",
       "sha256": "4c3ddfb00ae2a283aaad8d6725adf9daebfe822d898188983d1cf4f91a948b0e"
+    },
+    {
+      "path": "components/zero-base/agency/agency.test.tsx",
+      "sha256": "d6ee5d0042dae8efecb6032d92c1b0c35a5e9c123e24c0aca8dfcb80f57b269b"
+    },
+    {
+      "path": "components/zero-base/agency/client-directory.tsx",
+      "sha256": "dbe905c95ed1d87b8dd922cdeb882a7b409a9c000951619a855092e431c9f32c"
+    },
+    {
+      "path": "components/zero-base/search/search-overlay.test.tsx",
+      "sha256": "bb64af4d307ce2ead9965ff2f453c31f0de8af5183bd52455512bc4ac958f4bf"
+    },
+    {
+      "path": "components/zero-base/search/search-overlay.tsx",
+      "sha256": "92f20d63b5c2d92472bcb54f376424c06ed8ed09fac26abbd731bb27584285fe"
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
@@ -815,8 +875,12 @@
       "sha256": "e38e41c2556404e08ac3abe41fa8323b71a0262a4db1f807cbcf603b6e7f26cb"
     },
     {
+      "path": "lib/creative-decision-engine/decision-stability.db.test.ts",
+      "sha256": "2f093b8694087673218e2730fefa0ace2e67f0ba8ea7f5ed558535821159b1aa"
+    },
+    {
       "path": "lib/creative-decision-engine/decision-stability.ts",
-      "sha256": "69080e331099717eef7135a0e242a2febf6a0e43c716ec7ebe163d67e6d49bf7"
+      "sha256": "88ba0cd351abd56f2e0aebfc3913e1a38273b3d42bf7fe182293a0a77d15f65d"
     },
     {
       "path": "lib/creative-decision-engine/evaluation-store.ts",
@@ -1287,6 +1351,10 @@
       "sha256": "3ccccc1e7b1056f6a1603145370ca38f487a305f8bd372cec267edcbac2dc8aa"
     },
     {
+      "path": "lib/meta/decision-job-marker.ts",
+      "sha256": "421d01961dc7e36b9153910e0dc84abebc3d9e3863acee8b6337681f2679925c"
+    },
+    {
       "path": "lib/meta/decision-origin-action-preflight.test.ts",
       "sha256": "753251bb5475f165562af5e7cf7d561eff909630cab7eeb2bfea4ab90eca8766"
     },
@@ -1320,7 +1388,7 @@
     },
     {
       "path": "lib/meta/decisions-workspace-contract.ts",
-      "sha256": "2aa8ad05d0f3d359fdf2064a24f12ffbbfa7b639c746e7c407d418b8468013f7"
+      "sha256": "c3a5157786c893fc83c232ca9c8f244f1300e5a61f3b6a98c81a0d26804a8e67"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
@@ -1328,7 +1396,7 @@
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
-      "sha256": "4dcff88bd11067b705616073aa6aaf1266b338119c7a5fc84fe4c437c4d8a1f0"
+      "sha256": "943d9e71a3037415873e41ccc9a0a3cb9b5fd00539078c925b74a3dda4578ad5"
     },
     {
       "path": "lib/meta/entity-signals-backfill.test.ts",
@@ -1507,6 +1575,14 @@
       "sha256": "a86a8e6c8cab7534cc9669a3b5542af9ad0bd84767efebd931151151871a835e"
     },
     {
+      "path": "lib/server-cache.test.ts",
+      "sha256": "f0cd948e5f3653ffc5467342e0f9d2101d3291bc537616da8164411259c46a42"
+    },
+    {
+      "path": "lib/server-cache.ts",
+      "sha256": "4e459e663df35cf090aad70d0b0e6c96ff8b2561adbb372f1d88dff558fb1263"
+    },
+    {
       "path": "lib/sync/meta-sync.test.ts",
       "sha256": "a25594a480229995c269c33d509edbcbf7e25fe6fecf019f47e8979a79709f25"
     },
@@ -1520,7 +1596,7 @@
     },
     {
       "path": "lib/zero-base/copy.ts",
-      "sha256": "0346905675125e318417b981310b2504a8fec01f19d329615bd0684caa6e3444"
+      "sha256": "1ece6862c27068cf7f54023b97294b9f39a2f2d735b6b8e9fdaed2c7f4ff45fd"
     },
     {
       "path": "lib/zero-base/meta/automation-posture.ts",
@@ -1664,7 +1740,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "35d0256c966d51e93d80c88283b3ef11d90de55d1b3590dbbd862e128fd1a773"
+      "sha256": "5a2e2d2ad2ee232d0b1604c59d769efeed6739a63f38867fcb80ab7dd9268291"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

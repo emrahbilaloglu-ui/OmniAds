@@ -1017,37 +1017,13 @@ describe.skipIf(!SEAM)(
  *      halves are measured here rather than assumed.
  *   2. That a request served FROM the cache still tells a capped-out decision
  *      from un-decided inventory.
- *   3. WHAT A CACHED ENVELOPE OUTLIVES — reported as a finding, not as a bug:
- *      inside the stale-while-revalidate window the route serves a decision
- *      envelope, universe included, that the database no longer supports.
+ *   3. A failed native job changes cache identity immediately; a subsequent
+ *      successful generation restores the complete capped-out universe.
  */
 describe.skipIf(!SEAM)(
   "decisions workspace cache crossing (real server cache, real route)",
   () => {
     const CACHE_STORE_KEY = "__omniadsServerCache";
-
-    /**
-     * Wait for every background revalidation to finish.
-     *
-     * `getCachedValue` fires the stale-window refresh with `void
-     * loadIntoCache(...)`, so the stale RESPONSE returns before the
-     * revalidation has decided anything. A test that asserted on the next
-     * request without waiting would be measuring a race, and would pass on a
-     * tree where eviction had been removed simply because it read the entry
-     * before the eviction ran. `store.inflight` is the cache's own record of
-     * work in progress; real timers throughout, because this waits on the
-     * database.
-     */
-    async function settleCacheRevalidations() {
-      for (let attempt = 0; attempt < 400; attempt += 1) {
-        const store = (globalThis as Record<string, unknown>)[CACHE_STORE_KEY] as
-          | { inflight: Map<string, unknown> }
-          | undefined;
-        if (!store || store.inflight.size === 0) return;
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      throw new Error("cache revalidations did not settle");
-    }
 
     async function setNativeDecisionJobStatus(status: string) {
       const { Client } = await import("pg");
@@ -1361,9 +1337,7 @@ describe.skipIf(!SEAM)(
       );
     }, 120_000);
 
-    it("serves a cached envelope, universe included, that the database no longer supports", async () => {
-      // Warm the cache with the healthy generation, and remember WHICH one it
-      // was: the whole point of the sequence below is that the identity moves.
+    it("invalidates a cached envelope when its native job fails, then serves a new generation", async () => {
       const warm = await workspaceGet();
       expect(warm.status).toBe(200);
       expect(warm.payload.decisionReadModel.source?.authority).toBe(
@@ -1372,14 +1346,9 @@ describe.skipIf(!SEAM)(
       const g1 = warm.payload.decisionReadModel.source?.generation?.jobRunId;
       expect(g1).toBeTruthy();
 
-      // Now the generation stops being servable: its job run terminates as
-      // `failed`, which `resolveNativeGenerationReceipt` refuses outright and
-      // for which there is no earlier successful generation to fall back to.
+      // The terminal marker changes as soon as the job fails. Its old cached
+      // envelope must not survive the stale-while-revalidate window.
       await setNativeDecisionJobStatus("failed");
-
-      // A read taken NOW, with no cache in front of it, can no longer produce
-      // the native envelope. This is what makes the next assertion a statement
-      // about the cache rather than about the database.
       const { readMetaDecisionsWorkspaceReadModel } = await import(
         "@/lib/meta/decisions-workspace-read-model"
       );
@@ -1390,117 +1359,105 @@ describe.skipIf(!SEAM)(
       });
       expect(uncached.source.authority).not.toBe("native_ad");
 
-      // Cross the TTL into the stale-while-revalidate window. Only `Date` is
-      // faked, so the pg driver's timers and the microtask queue are untouched.
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(new Date(Date.now() + 61_000));
-
-      const afterTtl = await workspaceGet();
-      vi.useRealTimers();
-      expect(afterTtl.status).toBe(200);
-      /*
-        THE FINDING, pinned rather than asserted away.
-
-        Inside the 240s stale-while-revalidate window the route serves the
-        CACHED decision envelope — carrying the full 80-Ad identity universe —
-        for a generation the database has already stopped serving. The
-        revalidation kicked off behind it returns `status: "unavailable"`, which
-        `shouldCache` refuses to write, and `loadIntoCache` does not evict the
-        existing entry when it declines to replace it, so the stale entry keeps
-        answering until `staleUntil` passes.
-
-        It is bounded and it is not an authority leak: the cached rows carry
-        whatever execution posture they were built with, and
-        `applyMetaExecutionGovernanceToReadModel` re-derives freshness against
-        the CURRENT clock on every request, so the age ceiling still closes over
-        a cached inventory. What it is, is a window in which the operator reads a
-        universe the database can no longer produce — and the universe is the
-        thing that decides whether a capped-out verdict is reported as a
-        verdict. Pinning it here means a future change to the TTL, to
-        `shouldCache`, or to `loadIntoCache`'s eviction behaviour has to face
-        this measurement rather than rediscover it in production.
-      */
-      expect(afterTtl.payload.decisionReadModel.source?.authority).toBe(
+      const afterFailure = await workspaceGet();
+      expect(afterFailure.status).toBe(200);
+      expect(afterFailure.payload.decisionReadModel.source?.authority).not.toBe(
         "native_ad",
       );
-      expect(afterTtl.payload.os.ads.pendingInventoryCount).toBe(0);
-      expect(afterTtl.payload.os.ads.items.length).toBe(
-        META_DECISIONS_AD_CANDIDATE_LIMIT,
-      );
+      expect(afterFailure.payload.os.ads.items).toHaveLength(0);
 
-      /*
-        ── AND THE PROOF DOES NOT STOP AT THE FIRST STALE RESPONSE ───────────
-        One stale serve is the finding; it is not the acceptance. What decides
-        whether the window is BOUNDED is what the NEXT request sees, and that
-        is the assertion a test which stopped here never made — leaving
-        `evictStaleWhen` (the eviction the route passes for exactly this case)
-        unexercised end to end, so removing it would have broken nothing.
-
-        The revalidation the stale serve kicked off has to finish first: it is
-        launched with `void loadIntoCache(...)`, so asserting without waiting
-        would measure a race and would pass on a tree with no eviction at all.
-      */
-      await settleCacheRevalidations();
-
-      const afterRevalidation = await workspaceGet();
-      expect(afterRevalidation.status).toBe(200);
-      /*
-        The stale native envelope is GONE. Either the entry was evicted — the
-        route's `evictStaleWhen` fires on a successful read whose model is no
-        longer `available` — or the revalidation's own reading replaced it.
-        Both are correct answers to "the generation the operator was reading is
-        not servable"; serving the same native envelope a second time is not.
-      */
-      expect(
-        afterRevalidation.payload.decisionReadModel.source?.authority,
-      ).not.toBe("native_ad");
-
-      /*
-        ── A NEW GENERATION UNDER THE SAME CACHE KEY IS SEEN ─────────────────
-        The mirror image, and the reason eviction matters: a cache that
-        stopped serving the dead generation but could not pick up the next one
-        would have traded a stale read for a permanently degraded one. The
-        cache key is unchanged — same business, account, as-of date, candidate
-        limit and ad scope — so this is the same entry, not a new one.
-      */
+      // A second committed generation gets another identity and is available
+      // without waiting for the failed generation's cache TTL.
       const g2 = await createSecondDecisionGeneration();
       expect(g2).not.toBe(g1);
-
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(new Date(Date.now() + 61_000));
-      // If the previous step replaced the entry, this crosses ITS ttl and
-      // starts the revalidation that picks the new generation up. If the entry
-      // was evicted, this is simply a miss that loads it directly.
-      await workspaceGet();
-      vi.useRealTimers();
-      await settleCacheRevalidations();
-
+      // A later advisory-lock skip overlaps the successful holder. It must
+      // not replace that holder as the effective cache generation marker.
+      const { Client } = await import("pg");
+      const client = new Client({ connectionString: process.env.DATABASE_URL });
+      await client.connect();
+      try {
+        await client.query(
+          `INSERT INTO engine_v3_job_runs
+             (job_name, business_ref_id, business_id, as_of_date, engine_version,
+              status, started_at, finished_at, row_count, error_message)
+           VALUES ('engine_v3_native_ad_decisions_shadow_job', $1::uuid, $1::text,
+                   $2::date, $3, 'skipped', now() - interval '4 minutes 30 seconds',
+                   now() - interval '4 minutes 20 seconds', 0,
+                   'Advisory lock not acquired: overlapping holder')`,
+          [BUSINESS_ID, asOfDate, ENGINE_VERSION],
+        );
+      } finally {
+        await client.end();
+      }
+      const { readLatestNativeDecisionJobMarker } = await import(
+        "@/lib/meta/decision-job-marker"
+      );
+      const marker = await readLatestNativeDecisionJobMarker(BUSINESS_ID);
+      expect(marker).not.toBeNull();
+      expect(marker).not.toBe("read_failed");
+      if (marker && marker !== "read_failed") {
+        expect(marker.cacheIdentity).toMatch(new RegExp(`^${g2}:success:`));
+      }
       const restored = await workspaceGet();
       expect(restored.status).toBe(200);
       expect(restored.payload.decisionReadModel.source?.authority).toBe(
         "native_ad",
       );
-      /*
-        THE GENERATION IDENTITY MOVED, under the SAME cache key. This is the
-        assertion the un-failing shortcut could never make: g1's envelope is
-        gone and what the operator now reads is the run that actually produced
-        it.
-      */
       expect(restored.payload.decisionReadModel.source?.generation?.jobRunId)
         .toBe(g2);
       expect(restored.payload.decisionReadModel.source?.generation?.jobRunId)
         .not.toBe(g1);
-      /*
-        AND THE 80-AD UNIVERSE SURVIVED THE WHOLE SEQUENCE. This is the
-        measurement the file exists for: with 80 ACTIVE Ads and a 60-row
-        response cap, a universe that had been dropped anywhere along the
-        stale/evict/reload path would report the 20 capped-out verdicts as
-        un-decided ACTIVE inventory.
-      */
+      // The 80-Ad universe still distinguishes 20 capped-out decisions from
+      // genuinely pending ACTIVE inventory under the 60-row response cap.
       expect(restored.payload.os.ads.pendingInventoryCount).toBe(0);
       expect(restored.payload.os.ads.items.length).toBe(
         META_DECISIONS_AD_CANDIDATE_LIMIT,
       );
+
+      // A newer report day can fail, then a later older-day backfill can
+      // change the canonical retained-success candidate. Its publication must
+      // invalidate the cache even though the maximum as-of bound stays put.
+      const backfillClient = new Client({ connectionString: process.env.DATABASE_URL });
+      await backfillClient.connect();
+      let olderSuccessId: string;
+      try {
+        await backfillClient.query(
+          `INSERT INTO engine_v3_job_runs
+             (job_name, business_ref_id, business_id, as_of_date, engine_version,
+              status, started_at, finished_at, updated_at, row_count)
+           VALUES ('engine_v3_native_ad_decisions_shadow_job', $1::uuid, $1::text,
+                   ($2::date + 1), $3, 'failed', now() - interval '2 minutes',
+                   clock_timestamp(), clock_timestamp(), 0)`,
+          [BUSINESS_ID, asOfDate, ENGINE_VERSION],
+        );
+        const beforeBackfill = await readLatestNativeDecisionJobMarker(BUSINESS_ID);
+        expect(beforeBackfill).not.toBeNull();
+        expect(beforeBackfill).not.toBe("read_failed");
+        const inserted = await backfillClient.query<{ id: string }>(
+          `INSERT INTO engine_v3_job_runs
+             (job_name, business_ref_id, business_id, as_of_date, engine_version,
+              status, started_at, finished_at, updated_at, row_count)
+           VALUES ('engine_v3_native_ad_decisions_shadow_job', $1::uuid, $1::text,
+                   $2::date, $3, 'success', now() - interval '30 seconds',
+                   clock_timestamp(), clock_timestamp(), 0)
+           RETURNING id`,
+          [BUSINESS_ID, asOfDate, ENGINE_VERSION],
+        );
+        olderSuccessId = inserted.rows[0]!.id;
+        const afterBackfill = await readLatestNativeDecisionJobMarker(BUSINESS_ID);
+        expect(afterBackfill).not.toBeNull();
+        expect(afterBackfill).not.toBe("read_failed");
+        if (
+          beforeBackfill && beforeBackfill !== "read_failed" &&
+          afterBackfill && afterBackfill !== "read_failed"
+        ) {
+          expect(afterBackfill.asOfDate).toBe(beforeBackfill.asOfDate);
+          expect(afterBackfill.cacheIdentity).not.toBe(beforeBackfill.cacheIdentity);
+          expect(afterBackfill.cacheIdentity).toContain(olderSuccessId);
+        }
+      } finally {
+        await backfillClient.end();
+      }
     }, 240_000);
   },
 );

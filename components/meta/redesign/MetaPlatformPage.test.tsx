@@ -12,6 +12,8 @@ import {
 import {
   MetaPlatformPage,
   creativeEvidenceStudioHref,
+  fetchCreativeEvidenceAdRows,
+  fetchCreativeEvidenceAdSeries,
   campaignKindMatchesMetaLabelFilter,
   metaActionFailureMessage,
   metaAdsetPauseNotice,
@@ -154,6 +156,71 @@ describe("creativeEvidenceStudioHref", () => {
     expect(creativeEvidenceStudioHref({ businessId: "", canonical: null, decision })).toBeNull();
     expect(creativeEvidenceStudioHref({ businessId: "biz_1", canonical: null,
       decision: { ...decision, providerAccountId: "" } })).toBeNull();
+  });
+});
+
+describe("creative evidence helper reads", () => {
+  const requests = [
+    {
+      name: "Ad rows",
+      path: "/api/meta/creatives?",
+      run: (signal: AbortSignal) =>
+        fetchCreativeEvidenceAdRows({
+          businessId: "biz_1",
+          providerAccountId: "act_1",
+          creativeId: "creative_1",
+          start: "2026-09-16",
+          end: "2026-09-22",
+        }, signal),
+    },
+    {
+      name: "Ad series",
+      path: "/api/meta/ads/series?",
+      run: (signal: AbortSignal) =>
+        fetchCreativeEvidenceAdSeries({
+          businessId: "biz_1",
+          adIds: ["ad_1"],
+          start: "2026-09-16",
+          end: "2026-09-22",
+        }, signal),
+    },
+  ];
+
+  it.each(requests)("bounds $name and honors both timeout and caller cancellation", async ({ path, run }) => {
+    const timeout = new AbortController();
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout")
+      .mockReturnValueOnce(timeout.signal)
+      .mockImplementation(() => new AbortController().signal);
+    const caller = new AbortController();
+    let seenSignal: AbortSignal | null = null;
+    const fetchMock = vi.fn((_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        seenSignal = init.signal as AbortSignal;
+        if (seenSignal.aborted) {
+          reject(seenSignal.reason);
+          return;
+        }
+        seenSignal.addEventListener("abort", () => reject(seenSignal?.reason), { once: true });
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const timedRead = run(caller.signal);
+      expect(fetchMock.mock.calls[0]?.[0]).toContain(path);
+      expect(timeoutSpy).toHaveBeenCalledWith(30_000);
+      const timedRejection = expect(timedRead).rejects.toMatchObject({ name: "TimeoutError" });
+      timeout.abort(new DOMException("Creative evidence timed out", "TimeoutError"));
+      await timedRejection;
+
+      const caller2 = new AbortController();
+      const canceledRead = run(caller2.signal);
+      const canceledRejection = expect(canceledRead).rejects.toMatchObject({ name: "AbortError" });
+      caller2.abort(new DOMException("Decision changed", "AbortError"));
+      await canceledRejection;
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 });
 

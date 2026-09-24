@@ -43,6 +43,7 @@ const state = vi.hoisted(() => ({
     { data?: unknown; error?: Error | null; isFetching?: boolean }
   >,
   refetched: [] as string[],
+  invalidated: [] as unknown[][],
   queryKeys: [] as unknown[][],
   queryOptions: {} as Record<
     string,
@@ -89,7 +90,12 @@ vi.mock("@tanstack/react-query", () => ({
    * mocks never read it; the export just has to exist for the page to mount.
    */
   keepPreviousData: Symbol.for("keepPreviousData"),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQueryClient: () => ({
+    invalidateQueries: ({ queryKey }: { queryKey: unknown[] }) => {
+      state.invalidated.push(queryKey);
+      return Promise.resolve();
+    },
+  }),
   useQuery: (input: {
     queryKey: unknown[];
     retry?: unknown;
@@ -598,6 +604,7 @@ beforeEach(() => {
   state.workspaceData = undefined;
   state.queryOverrides = {};
   state.refetched = [];
+  state.invalidated = [];
   state.queryKeys = [];
   state.queryOptions = {};
   state.adapterInput = null;
@@ -1274,6 +1281,99 @@ describe("Decisions deep links", () => {
     expect(state.exactProps.scope).toBe("creatives");
     expect(dom.querySelector("[data-stub-evidence]")).not.toBeNull();
     expect(state.evidenceProps).not.toBeNull();
+  });
+
+  it("keeps a verified empty creative read distinct from a loading read", async () => {
+    state.canonicalCreatives = [canonicalDecision()];
+    state.workspaceData = workspacePayload();
+    state.search =
+      "providerAccountId=act_1&creativeId=creative_1&row=ad:120000000000000001";
+    state.queryOverrides = {
+      "meta-creative-evidence-ad-rows": { data: [] },
+      "meta-creative-evidence-series": { data: { adCount: 0, points: [] } },
+    };
+
+    render();
+    await act(async () => { await Promise.resolve(); });
+    expect(state.evidenceProps.viewModel.readNotice?.text).toContain(
+      "No verified ad-day rows were found",
+    );
+    expect(state.evidenceProps.viewModel.readNotice?.text).not.toContain(
+      "still loading",
+    );
+  });
+
+  it("retries failed creative metrics directly on desktop and mobile without running a snapshot", async () => {
+    state.canonicalCreatives = [canonicalDecision()];
+    state.workspaceData = workspacePayload();
+    state.search =
+      "providerAccountId=act_1&creativeId=creative_1&row=ad:120000000000000001";
+    state.queryOverrides = {
+      "meta-creative-evidence-ad-rows": {
+        data: undefined,
+        error: new DOMException("Timed out", "TimeoutError"),
+      },
+      "meta-creative-evidence-series": {
+        data: undefined,
+        error: new DOMException("Timed out", "TimeoutError"),
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, status: "ran" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const dom = render();
+    await act(async () => { await Promise.resolve(); });
+    expect(state.evidenceProps.viewModel.readNotice?.text).toBe(
+      "Some creative performance data could not be loaded. Missing figures are unavailable.",
+    );
+    expect(state.queryOptions["meta-creative-evidence-ad-rows"].retry).toBe(false);
+    expect(state.queryOptions["meta-creative-evidence-series"].retry).toBe(false);
+
+    act(() => state.evidenceProps.onRetryMetrics());
+    expect(state.refetched).toEqual([
+      "meta-creative-evidence-ad-rows",
+      "meta-creative-evidence-series",
+    ]);
+
+    state.refetched = [];
+    const mobileRetry = dom.querySelector<HTMLButtonElement>(
+      "[data-mobile-creative-metrics-retry]",
+    );
+    expect(mobileRetry?.textContent).toBe("Retry metrics");
+    act(() => mobileRetry!.click());
+    expect(state.refetched).toEqual([
+      "meta-creative-evidence-ad-rows",
+      "meta-creative-evidence-series",
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(state.invalidated).toEqual([]);
+  });
+
+  it("disables the mobile metrics retry while a failed helper is already fetching", async () => {
+    state.canonicalCreatives = [canonicalDecision()];
+    state.workspaceData = workspacePayload();
+    state.search =
+      "providerAccountId=act_1&creativeId=creative_1&row=ad:120000000000000001";
+    state.queryOverrides = {
+      "meta-creative-evidence-ad-rows": {
+        error: new Error("helper read failed"),
+        isFetching: true,
+      },
+    };
+
+    const dom = render();
+    await act(async () => { await Promise.resolve(); });
+    const retry = dom.querySelector<HTMLButtonElement>(
+      "[data-mobile-creative-metrics-retry]",
+    );
+    expect(retry?.disabled).toBe(true);
+    expect(retry?.textContent).toBe("Retrying metrics…");
+    expect(state.evidenceProps.retryMetricsPending).toBe(true);
+    act(() => retry!.click());
+    expect(state.refetched).toEqual([]);
   });
 
   it("restores an OS-only pending-native Ad without inventing a canonical envelope", async () => {

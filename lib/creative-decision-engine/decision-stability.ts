@@ -167,14 +167,44 @@ export function adDecisionStabilityKey(input: {
 }
 
 export const READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY = `
-WITH identities AS (
-  SELECT *
+WITH identities AS MATERIALIZED (
+  SELECT DISTINCT *
   FROM jsonb_to_recordset($3::jsonb) AS row(
     provider_account_ref_id uuid,
     provider_account_id text,
     decision_entity_type text,
     decision_entity_id text
   )
+), eligible_snapshots AS MATERIALIZED (
+  -- Filter to the running epoch and earlier days before joining the much
+  -- larger evaluation history. Restrict the materialized set to THIS identity
+  -- batch as well: the caller sends large accounts in chunks, and scanning
+  -- the full account epoch for every chunk can reintroduce timeouts.
+  SELECT
+    snapshot.id, snapshot.business_ref_id, snapshot.business_id,
+    snapshot.provider_account_ref_id, snapshot.provider_account_id,
+    snapshot.decision_entity_type, snapshot.decision_entity_id,
+    snapshot.as_of_date, snapshot.computed_at, snapshot.engine_version,
+    snapshot.scope_type, snapshot.scope_id, snapshot.label, snapshot.raw_label,
+    snapshot.evaluation_id, snapshot.input_hash, snapshot.decision_hash,
+    snapshot.job_run_id
+  FROM identities identity
+  INNER JOIN engine_v3_ad_decision_snapshots_daily snapshot
+    ON snapshot.provider_account_ref_id = identity.provider_account_ref_id
+   AND snapshot.provider_account_id = identity.provider_account_id
+   AND snapshot.decision_entity_type = identity.decision_entity_type
+   AND snapshot.decision_entity_id = identity.decision_entity_id
+  WHERE snapshot.business_ref_id = $1::uuid
+    AND snapshot.engine_version = $2
+    AND snapshot.as_of_date < $4::date
+    AND snapshot.scope_type = $5
+    AND snapshot.scope_id = $6
+    -- Point-in-time bound for historical replay. NULL on the production path,
+    -- which reads at "now" and so can never see a row from its own future.
+    -- created_at is the insert clock and survives an upsert, so this admits
+    -- exactly the rows that existed at the cutoff; a row that existed but was
+    -- overwritten afterwards is detected by the caller from computed_at.
+    AND ($7::timestamptz IS NULL OR snapshot.created_at <= $7::timestamptz)
 )
 SELECT DISTINCT ON (
   snapshot.provider_account_ref_id,
@@ -195,12 +225,7 @@ SELECT DISTINCT ON (
   snapshot.evaluation_id::text AS source_evaluation_id,
   snapshot.input_hash::text AS source_input_hash,
   snapshot.decision_hash::text AS source_decision_hash
-FROM engine_v3_ad_decision_snapshots_daily snapshot
-INNER JOIN identities identity
-  ON identity.provider_account_ref_id = snapshot.provider_account_ref_id
- AND identity.provider_account_id = snapshot.provider_account_id
- AND identity.decision_entity_type = snapshot.decision_entity_type
- AND identity.decision_entity_id = snapshot.decision_entity_id
+FROM eligible_snapshots snapshot
 INNER JOIN engine_v3_ad_decision_evaluations evaluation
   ON evaluation.id = snapshot.evaluation_id
  AND evaluation.business_ref_id = snapshot.business_ref_id
@@ -216,17 +241,6 @@ INNER JOIN engine_v3_ad_decision_evaluations evaluation
  AND evaluation.input_hash = snapshot.input_hash
  AND evaluation.decision_hash = snapshot.decision_hash
  AND evaluation.job_run_id = snapshot.job_run_id
-WHERE snapshot.business_ref_id = $1::uuid
-  AND snapshot.engine_version = $2
-  AND snapshot.as_of_date < $4::date
-  AND snapshot.scope_type = $5
-  AND snapshot.scope_id = $6
-  -- Point-in-time bound for historical replay. NULL on the production path,
-  -- which reads at "now" and so can never see a row from its own future.
-  -- created_at is the insert clock and survives an upsert, so this admits
-  -- exactly the rows that existed at the cutoff; a row that existed but was
-  -- overwritten afterwards is detected by the caller from computed_at.
-  AND ($7::timestamptz IS NULL OR snapshot.created_at <= $7::timestamptz)
 ORDER BY
   snapshot.provider_account_ref_id,
   snapshot.provider_account_id,

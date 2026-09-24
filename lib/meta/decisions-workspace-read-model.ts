@@ -40,6 +40,7 @@ import {
   META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
   META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
   META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION,
+  NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
   META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION,
   META_DECISIONS_AD_CANDIDATE_LIMIT,
   META_DECISIONS_SECTION_SELECTION_VERSION,
@@ -110,7 +111,7 @@ export const NATIVE_DECISION_LAST_SUCCESS_REVIEW_ONLY_REASON =
  * ceiling the reader returns to the pre-existing behaviour and reports the true
  * `native_latest_job_failed`.
  */
-export const NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS = 7;
+export { NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS } from "@/lib/meta/decisions-workspace-contract";
 
 const SECTION_LABELS: Record<MetaDecisionQueueSectionKey, string> = {
   integrity_fires: "Integrity Fires",

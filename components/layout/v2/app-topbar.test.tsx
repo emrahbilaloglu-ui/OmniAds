@@ -10,6 +10,7 @@ import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context
 const state = vi.hoisted(() => ({
   pathname: "/c/business_A/meta/decisions",
   replace: vi.fn(),
+  hardReplace: vi.fn(),
   refresh: vi.fn(),
   push: vi.fn(),
   selectBusiness: vi.fn(),
@@ -216,6 +217,7 @@ describe("business-scoped Dashboard v2 topbar", () => {
     state.selectedBusinessId = "business_B";
     state.confirmedBusinessId = "business_A";
     state.replace.mockReset();
+    state.hardReplace.mockReset();
     state.refresh.mockReset();
     state.push.mockReset();
     state.selectBusiness.mockReset();
@@ -338,11 +340,15 @@ describe("business-scoped Dashboard v2 topbar", () => {
 
   it("posts first and then navigates A to the equivalent B route without optimistic store drift", async () => {
     renderTopbar();
+    vi.stubGlobal("location", {
+      search: window.location.search,
+      replace: state.hardReplace,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /Business B/ }));
 
     await waitFor(() => {
-      expect(state.replace).toHaveBeenCalledWith(
+      expect(state.hardReplace).toHaveBeenCalledWith(
         `/c/business_B/meta/decisions?${STATED_WINDOW}`,
       );
     });
@@ -352,8 +358,9 @@ describe("business-scoped Dashboard v2 topbar", () => {
       body: JSON.stringify({ businessId: "business_B" }),
     });
     expect(state.fetch.mock.invocationCallOrder[0]).toBeLessThan(
-      state.replace.mock.invocationCallOrder[0]!,
+      state.hardReplace.mock.invocationCallOrder[0]!,
     );
+    expect(state.replace).not.toHaveBeenCalled();
     expect(state.selectBusiness).not.toHaveBeenCalled();
     expect(state.refresh).not.toHaveBeenCalled();
   });
@@ -515,7 +522,7 @@ describe("business-scoped Dashboard v2 topbar", () => {
     window.history.replaceState(
       null,
       "",
-      `/platforms/meta?businessId=business_A&providerAccountId=act_9&${STATED_WINDOW}`,
+      `/platforms/meta?businessId=business_A&providerAccountId=act_9&scope=creatives&area=monitor&segment=needs_resolution&${STATED_WINDOW}`,
     );
     renderTopbar();
 
@@ -527,6 +534,9 @@ describe("business-scoped Dashboard v2 topbar", () => {
     expect(target.startsWith("/platforms/meta?")).toBe(true);
     expect(params.get("businessId")).toBe("business_B");
     expect(params.get("providerAccountId")).toBeNull();
+    expect(params.get("scope")).toBe("creatives");
+    expect(params.get("area")).toBeNull();
+    expect(params.get("segment")).toBeNull();
     expect(target).not.toContain("act_9");
     // The server moved the session before the store was told anything.
     expect(state.fetch.mock.invocationCallOrder[0]).toBeLessThan(
@@ -550,14 +560,19 @@ describe("business-scoped Dashboard v2 topbar", () => {
       "",
       "/c/business_A/meta/decisions?providerAccountId=act_9&cursor=abc" +
         "&row=ad:123&creativeId=cr_7&handoff=hx_1&lane=act" +
+        "&scope=creatives" +
         "&window=7d&startDate=2026-08-10&endDate=2026-08-16",
     );
     renderTopbar();
+    vi.stubGlobal("location", {
+      search: window.location.search,
+      replace: state.hardReplace,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /Business B/ }));
 
-    await waitFor(() => expect(state.replace).toHaveBeenCalled());
-    const target = state.replace.mock.calls.at(-1)?.[0] as string;
+    await waitFor(() => expect(state.hardReplace).toHaveBeenCalled());
+    const target = state.hardReplace.mock.calls.at(-1)?.[0] as string;
     expect(target.startsWith("/c/business_B/meta/decisions")).toBe(true);
     const params = new URLSearchParams(target.slice(target.indexOf("?") + 1));
     for (const leaked of [
@@ -576,6 +591,9 @@ describe("business-scoped Dashboard v2 topbar", () => {
     expect(params.get("window")).toBe("7d");
     expect(params.get("startDate")).toBe("2026-08-10");
     expect(params.get("endDate")).toBe("2026-08-16");
+    // The tab names a view, not A's account or ad. Keep the operator in B's
+    // Creatives queue while every A-specific identifier above is removed.
+    expect(params.get("scope")).toBe("creatives");
   });
 
   /**

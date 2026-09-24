@@ -1,5 +1,5 @@
 {
-  "manifestHash": "e0472c1683c8f8e0c6f9e7d6c332bd6f1b76cf7f501282d89844a5102b6c0b74",
+  "manifestHash": "0c78fa7e1c77a265d94bbe52921a3a64ce5dd12708357e6d3dbba0c9d0afe664",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1788,7 +1788,7 @@
     },
     {
       "path": "scripts/creative-decision-center/generalized-pit-replay.test.ts",
-      "sha256": "828b56df6c11818497357e4e3ae33fac7fa21a150a3326bb9f5aee2d80b8caff"
+      "sha256": "eb2619ecd17421bbd38ac611caebf6b371bc9048cad097f9c4ab2ec9211ff52f"
     },
     {
       "path": "scripts/creative-decision-center/generate-demo-native-canonical-fixture.ts",

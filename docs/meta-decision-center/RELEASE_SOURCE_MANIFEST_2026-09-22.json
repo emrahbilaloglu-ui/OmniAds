@@ -1,5 +1,5 @@
 {
-  "manifestHash": "ed32a140df38d3e839d27c2cfbf67c16fa1dab107f3b79c3062cf39c226b952e",
+  "manifestHash": "57e05509ef22a98149dfe35af05cd3af2ace7cdb0cc0924d0a609c1d63170a17",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -344,11 +344,11 @@
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.test.ts",
-      "sha256": "e86ebfc58906364d452de66632a9ac665146aa6c12520506e97aaaddd0f849a3"
+      "sha256": "d95d8efe0556fe0eef6cf174f9b3a568b8d44a65211899b04b0136698e5c51c7"
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.ts",
-      "sha256": "282713f751666b2b6cce5a4be529151dddf83319dc75691c1c709cc23336c3b6"
+      "sha256": "aaa7148ad0c9e1072ba72de4256ed0c59bf3aceedc89a76ceb64e28b41ab57ff"
     },
     {
       "path": "components/creatives/creative-evidence-window-wiring.test.ts",
@@ -383,6 +383,10 @@
       "sha256": "edeeae525b56eb64903f9c8ea3ef3a116cc083920933fbc17ad7add6f07bb408"
     },
     {
+      "path": "components/creatives/meta-ad-event-step-rates.test.tsx",
+      "sha256": "00c6619169b49d4a1f2a0620134f1856530de9b6abc1e34ea2dd0f18cd7342e8"
+    },
+    {
       "path": "components/creatives/meta-ad-events-copy.ts",
       "sha256": "31ab5c5b90fe063a03ee02b21f01b654405443cbb26d1e4403e1662982bca70a"
     },
@@ -411,20 +415,24 @@
       "sha256": "bea3090c802c2312059c52ca11eb5e9976b324864c8dc4250aa995e385b6597a"
     },
     {
+      "path": "components/meta/decision-center/creative-row-role-and-action-labels.test.ts",
+      "sha256": "1195307ceae6fbcde224105d295d24d876627593f9a77b92b68e3395fe6d8234"
+    },
+    {
       "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
       "sha256": "a9938f27952e298c5c38334582f6a4737369c0ec018c7c59abe4bbeaa9175902"
     },
     {
       "path": "components/meta/decision-center/held-resolution-owner-copy.test.ts",
-      "sha256": "3a7d581f84fa41db9850a3f36d7a51eeaac6403017777e891415c52145722d6c"
+      "sha256": "2d8c31b902584ba7a4f03d284acab9b04b1855a5a7f46f8756e8b1227d3935f4"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "b11fd88c8afb975a10c1424d4da6aeeeafd1934b4c65a4d151281a192779f49b"
+      "sha256": "1d9e053035b2e84757fd638fe9116ddb7f5d896d07d4feedae621d566a3c0749"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "16efc32a915b8c6478baafc82f3e3fcf775d77a9ce368b02e79628317d12ae2f"
+      "sha256": "21a78ff9a81e26483542d4ba49a5925e4b249986e985abf8d3fbd87812f1ce4e"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -460,7 +468,7 @@
     },
     {
       "path": "components/meta/decision-center/stale-fresh-cta-boundary.test.tsx",
-      "sha256": "560593a3489533094735494ad7a30df91a01cf966f2fbb0c031a22c767575dad"
+      "sha256": "de8bb2325b0940728efc023d2b927f1406382e23c5b93486f1f599c78f6b3856"
     },
     {
       "path": "components/meta/meta-campaign-detail.test.tsx",
@@ -516,7 +524,7 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.refetch-resilience.test.tsx",
-      "sha256": "0679d72dd61a18e1fa48b1c5dc927493e8cda7222650bc2052008950702687f3"
+      "sha256": "48d02231d74ec493ea714726f805a78247638fd3893ab88b80279d2f062c42d3"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.test.tsx",
@@ -524,11 +532,11 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "01ef06b677bc992201ecd1e3eec3e215a47b01a7a0d644f2980af11a6c2f3364"
+      "sha256": "bcd659a67bf1c68db0f939e0bc2a3ae6461377050df667773b5beffde942d48a"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
-      "sha256": "37a435833798fffb77b56c35fa6abf7e1ffe0482c83373ea7a4d68b0f0e19f09"
+      "sha256": "fcfb2d506157d049a25d6072931f0cd1f447de407f1c01ea1a47a8aa30b09a2c"
     },
     {
       "path": "components/meta/redesign/MetaUpperFunnelInformationalCard.test.tsx",

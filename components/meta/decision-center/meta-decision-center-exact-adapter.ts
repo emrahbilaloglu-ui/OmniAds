@@ -2037,13 +2037,35 @@ function creativeKindShort(
   }
 }
 
+/**
+ * The campaign role a creative row may print.
+ *
+ * INVARIANTS (D097, VC-009): kind display requires a resolved role. The chip
+ * printed `titleToken(lifecycleRole)` for every row, so an automatically
+ * inferred role the server had NOT trusted read as a settled "Main" or "Test"
+ * — on Grandmix and TheSwaf that was every served creative (122 of 122), some
+ * beside a note saying the role was still being verified. The server's own
+ * `campaignRoleTrustedForAction` now decides the wording; nothing here judges
+ * whether the role is good enough to act on.
+ */
+function creativeRoleLabel(decision: MetaOsAdDecision): string {
+  const role = decision.lifecycleRole;
+  if (role !== "main" && role !== "test" && role !== "mixed") {
+    return "Role unresolved";
+  }
+  const kind = titleToken(role);
+  return decision.campaignRoleTrustedForAction === true
+    ? kind
+    : `${kind} (inferred)`;
+}
+
 function creativeChips(
   decision: MetaOsAdDecision,
   performanceMissing: boolean,
 ): string[] {
   const roas = performanceMissing ? null : finite(decision.metrics.roas);
   const chips = [
-    titleToken(decision.lifecycleRole),
+    creativeRoleLabel(decision),
     roas === null ? null : `ROAS ${roas.toFixed(2)}`,
   ];
   return chips.filter((value): value is string => Boolean(value));
@@ -2244,7 +2266,8 @@ const BUYER_CREATIVE_ACTION_COPY: Readonly<Record<string, string>> = {
   plan_promotion: "Review promotion",
   review_structure: "Review campaign structure",
   keep_running: "Keep running",
-  cut: "Review spend reduction",
+  // An Ad-level Cut pauses this exact ad; it is not a budget change.
+  cut: "Review pause",
   refresh_creative: "Create replacement brief",
   continue_test: "Continue testing",
   watch: "Keep monitoring",
@@ -2297,7 +2320,7 @@ export function buyerFacingCreativeResolution(
     resolution.code === "apply_cut_manually" &&
     canonical?.configEvidence?.verified !== true
   ) {
-    return "The reduction recommendation has economic evidence, but the campaign configuration for every day behind it is not confirmed. Check the campaign's current setup in Ads Manager before deciding on a manual pause; no automated Meta action is authorized.";
+    return "The pause recommendation has economic evidence, but the campaign configuration for every day behind it is not confirmed. Check the campaign's current setup in Ads Manager before deciding on a manual pause; no automated Meta action is authorized.";
   }
   // A system-owned resolution names what it waits on and that nothing is
   // required; only an operator (or tracking) resolution is phrased as a task.
@@ -2387,7 +2410,7 @@ export function buyerFacingCreativeScope(
 ): string | null {
   if (decision.action.code === "apply_cut_manually") {
     if (canonical?.configEvidence?.verified !== true) {
-      return "Review-only reduction recommendation. Check the campaign's current setup in Ads Manager before a manual pause; automated stop is held.";
+      return "Review-only pause recommendation. Check the campaign's current setup in Ads Manager before a manual pause; automated stop is held.";
     }
     return "Review only. If you agree, pause this ad in Meta yourself; automated stop is held for campaign role.";
   }
@@ -2434,7 +2457,9 @@ export function buyerFacingCreativeActionLabel(
  */
 const BUYER_CREATIVE_DECISION_LABEL: Readonly<Record<string, string>> = {
   scale: "Scale",
-  cut: "Reduce spend",
+  // An Ad-level Cut pauses the ad (`adAction` → providerMutation "pause");
+  // "Reduce spend" read as a budget change the ad does not own.
+  cut: "Pause ad",
   refresh: "Refresh creative",
   keep: "Keep monitoring",
   test_more: "Continue testing",
@@ -2477,7 +2502,7 @@ const BUYER_HELD_VERDICT_COPY: Readonly<
   Record<"scale" | "cut" | "refresh", string>
 > = {
   scale: "Scale",
-  cut: "Reduce spend",
+  cut: "Pause ad",
   refresh: "Refresh creative",
 };
 
@@ -2802,11 +2827,11 @@ export function heldCreativeVerdict(
     return {
       action,
       label: cutSignalAwaitingEvidence
-        ? "Spend reduction signal awaiting verification"
+        ? "Pause signal awaiting verification"
         : `Recommendation on hold: ${verdict}`,
       nextStep: `${[...new Set(waits)].join(" ")} ${NO_BUYER_ACTION_NEEDED}; ${
         cutSignalAwaitingEvidence
-          ? "the spend reduction signal"
+          ? "the pause signal"
           : `this ${verdict} recommendation`
       } is re-checked on each decision run.`,
     };
@@ -2832,21 +2857,21 @@ export function heldCreativeVerdict(
   return {
     action,
     label: manualCutReady
-      ? "Reduce spend — review manual pause"
+      ? "Pause ad — review manual pause"
       : manualCutConfigGap
-        ? "Reduce spend recommendation — verify configuration"
+        ? "Pause ad recommendation — verify configuration"
       : cutSignalAwaitingEvidence
-      ? "Spend reduction signal awaiting verification"
+      ? "Pause signal awaiting verification"
       : `Recommendation awaiting review: ${verdict}`,
     nextStep: manualCutReady
       ? (knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, "apply_cut_manually") ??
         "Review this ad and pause it yourself in Meta if you agree; automated execution is held.")
       : manualCutConfigGap
-        ? "The economic reduction recommendation is visible, but the campaign configuration for every day behind it is not confirmed. Check the campaign's current setup in Ads Manager before deciding on a manual pause; automated execution remains held."
+        ? "The pause recommendation is visible, but the campaign configuration for every day behind it is not confirmed. Check the campaign's current setup in Ads Manager before deciding on a manual pause; automated execution remains held."
       : cutSignalAwaitingEvidence
       ? step
-        ? `${step} Then reassess whether to reduce spend.`
-        : "Confirm the missing information, then reassess whether to reduce spend."
+        ? `${step} Then reassess whether to pause this ad.`
+        : "Confirm the missing information, then reassess whether to pause this ad."
       : step
         ? `${step} Then review this ${verdict} recommendation again.`
         : `Confirm the missing information, then review this ${verdict} recommendation again.`,

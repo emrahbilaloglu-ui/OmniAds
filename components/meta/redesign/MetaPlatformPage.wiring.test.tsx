@@ -1802,7 +1802,7 @@ describe("Decisions deep-link compatibility matrix", () => {
     const dom = render();
     const card = dom.querySelector('[data-mobile-row-id="os_pending_ad"]');
     expect(card).not.toBeNull();
-    expect(card?.textContent).toContain("Reduce spend recommendation — verify configuration");
+    expect(card?.textContent).toContain("Pause ad recommendation — verify configuration");
     expect(card?.textContent).toContain("before deciding on a manual pause");
     expect(card?.querySelector("[data-mobile-creative-decision-window]")?.textContent)
       .toContain("Decision period · 2026-06-26–2026-07-10 · 14/15 economic days");
@@ -2296,7 +2296,7 @@ describe("Decisions to Launchpad handoff", () => {
       await Promise.resolve();
     });
     const primary = state.evidenceProps?.viewModel?.primaryAction;
-    expect(primary?.label).toBe("Review spend reduction");
+    expect(primary?.label).toBe("Review pause");
     expect(primary?.onClick).toBeTypeOf("function");
     return { dom, primary };
   }

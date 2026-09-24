@@ -227,11 +227,11 @@ describe("held and blocked creative steps follow the served resolution owner", (
     });
     const verdict = heldCreativeVerdict(held, configGap);
 
-    expect(verdict?.label).toBe("Recommendation on hold: Reduce spend");
+    expect(verdict?.label).toBe("Recommendation on hold: Pause ad");
     expect(verdict?.nextStep).toBe(
       "The evidence this change needs is still being completed. " +
         "The campaign configuration for every day behind it is not confirmed yet. " +
-        "No action is needed from you; this Reduce spend recommendation is re-checked on each decision run.",
+        "No action is needed from you; this Pause ad recommendation is re-checked on each decision run.",
     );
     for (const chore of CHORES) expect(verdict?.nextStep).not.toMatch(chore);
   });
@@ -244,10 +244,10 @@ describe("held and blocked creative steps follow the served resolution owner", (
     });
     const verdict = heldCreativeVerdict(held);
 
-    expect(verdict?.label).toBe("Spend reduction signal awaiting verification");
+    expect(verdict?.label).toBe("Pause signal awaiting verification");
     expect(verdict?.nextStep).toContain("Fresh, completed Meta source data is still arriving.");
     expect(verdict?.nextStep).toContain(
-      "No action is needed from you; the spend reduction signal is re-checked on each decision run.",
+      "No action is needed from you; the pause signal is re-checked on each decision run.",
     );
     for (const chore of CHORES) expect(verdict?.nextStep).not.toMatch(chore);
   });
@@ -327,7 +327,7 @@ describe("held and blocked creative steps follow the served resolution owner", (
 
     expect(system?.stateLabel).toBe("Blocked");
     expect(system?.decisionLabel).toBe("Continue testing");
-    expect(system?.heldVerdictLabel).toBe("Recommendation on hold: Reduce spend");
+    expect(system?.heldVerdictLabel).toBe("Recommendation on hold: Pause ad");
     // Desktop and mobile read the same sentence from the one producer.
     expect(system?.heldVerdictNextStep).toBe(system?.note);
     expect(system?.note).toContain("No action is needed from you");

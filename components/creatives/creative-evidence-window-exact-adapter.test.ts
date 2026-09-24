@@ -483,8 +483,9 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(model.funnel?.[1]?.sub).toBe("CTR 1.07%");
     expect(model.funnel?.[2]?.sub).toBe("LPV 78.9%");
     expect(model.funnel?.[3]?.sub).toBe("ATC 7.8%");
-    expect(model.funnel?.[4]?.sub).toBe("Checkout 53.1%");
-    expect(model.funnel?.[5]?.sub).toBe("CVR 63.6%");
+    // Checkout and purchase are separately attributed events: counts only.
+    expect(model.funnel?.[4]?.sub).toBe("");
+    expect(model.funnel?.[5]?.sub).toBe("");
   });
 
   it("withholds incomplete funnel totals and rates without losing measured zeros", () => {
@@ -508,7 +509,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       "—", "24,000", "—", "1,000", "—",
     ]);
     expect(partial.funnel?.slice(1).map((step) => step.sub)).toEqual([
-      "—", "—", "—", "—", "—",
+      "—", "—", "—", "", "",
     ]);
     expect(partial.funnel?.slice(1).map((step) => step.share)).toEqual([
       null, expect.any(Number), null, expect.any(Number), null,

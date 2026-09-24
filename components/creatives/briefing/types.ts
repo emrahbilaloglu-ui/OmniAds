@@ -288,7 +288,7 @@ export interface BriefingCreativeCard {
   addToCart?: number | null;
   frequency?: number | null;
   fatigue?: boolean | null;
-  sparkline?: number[] | null;
+  sparkline?: Array<number | null> | null;
   ctrFunnel?: BriefingCtrFunnel | null;
   primary?: BriefingPrimaryAction | null;
   automationReadiness?: MetaAutomationReadiness | null;

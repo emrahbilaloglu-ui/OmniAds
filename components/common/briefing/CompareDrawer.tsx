@@ -16,7 +16,7 @@ export interface CompareDrawerItem {
   cpa?: number;
   purchases?: number;
   frequency?: number;
-  sparkline?: number[];
+  sparkline?: Array<number | null>;
   mediaPreviewUrl?: string | null;
   thumbnailUrl?: string | null;
   tableThumbnailUrl?: string | null;

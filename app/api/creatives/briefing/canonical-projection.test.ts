@@ -502,6 +502,77 @@ describe("projectCanonicalNativeAdDecisionToBriefing", () => {
     );
   });
 
+  it("serves a review-only native Ad with missing measurements without inventing zeroes", () => {
+    const decision = heldCutDecision({ label: "keep", badges: ["missing_recent_data"] });
+    decision.metrics = {
+      ...decision.metrics,
+      spend: null,
+      purchases: null,
+      roas: null,
+      recent7dRoas: null,
+      effectiveTargetRoas: null,
+      ratioToTarget: null,
+    };
+    decision.classification = {
+      ...decision.classification,
+      decisionState: "monitor",
+      heldAction: null,
+      buyerAction: null,
+    };
+
+    const projection = projectCanonicalNativeAdDecisionToBriefing({ decision });
+
+    expect(projection).toMatchObject({
+      lane: "watching",
+      presentationDecision: {
+        effectiveTargetRoas: null,
+        metrics: { spend: null, purchases: null, roas: null },
+      },
+      card: {
+        targetRoas: null,
+        spend: null,
+        purchases: null,
+        roas: null,
+        sparkline: null,
+        primary: { kind: "review", label: "Await source measurement" },
+        sourceDecisionActionEligible: false,
+        sourceDecisionAuthorizedAction: null,
+      },
+    });
+    expect(isCutPrimaryAction(projection!.card)).toBe(false);
+  });
+
+  it("preserves measured zero separately from missing measurements", () => {
+    const decision = heldCutDecision({ badges: [] });
+    decision.metrics = {
+      ...decision.metrics,
+      spend: 0,
+      purchases: 0,
+      roas: 0,
+      recent7dRoas: 0,
+    };
+
+    const projection = projectCanonicalNativeAdDecisionToBriefing({ decision });
+
+    expect(projection?.card).toMatchObject({
+      spend: 0,
+      purchases: 0,
+      roas: 0,
+      sparkline: [0, 0],
+    });
+    expect(projection?.card.primary?.label).not.toBe("Await source measurement");
+  });
+
+  it.each(["effectiveTargetRoas", "spend", "purchases"] as const)(
+    "rejects action-eligible authority with missing %s",
+    (metric) => {
+      const decision = actionableCutDecision();
+      decision.metrics = { ...decision.metrics, [metric]: null };
+
+      expect(projectCanonicalNativeAdDecisionToBriefing({ decision })).toBeNull();
+    },
+  );
+
   it("fails closed when required persisted decision metrics are non-finite", () => {
     const decision = heldCutDecision();
     decision.metrics = { ...decision.metrics, spend: Number.NaN };

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "6395f35e6ceeecc237458a287ca65e6f600adebeb5f059deea229b132614f995",
+  "manifestHash": "8c7a2e76af019ae4e306f9c812cb0a5785f86b5184281440e39e29360de71c02",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -95,16 +95,28 @@
       "sha256": "a66267dd558e1bf9005b07e537773227a7bd2f37c243a8bed54eb94de3160a06"
     },
     {
+      "path": "app/api/creatives/briefing/canonical-projection.test.ts",
+      "sha256": "d85ffd1668dfb3d57dcaf7b2f994c8e57bd7cd7ab5eee23a3263140d76c0a72f"
+    },
+    {
+      "path": "app/api/creatives/briefing/canonical-projection.ts",
+      "sha256": "a07acd3ce18c621d21ea46f59ed9bc04e89ebaa8552184e85b0562da9bfff0b8"
+    },
+    {
       "path": "app/api/creatives/briefing/card-serialization.test.ts",
-      "sha256": "5a3c22d5c3748e4a49c811a43602a2a8d1b8aeaf568d4a2619e1dd0a75eee637"
+      "sha256": "eb8751562f45c1d9f3702aa77941d731e0ad2308a261f4ef68ea29fdec272125"
+    },
+    {
+      "path": "app/api/creatives/briefing/card-serialization.ts",
+      "sha256": "0bb98d86b0c8322640d6dfee36419eee30afc0052688d80c0d2542ac0f7cffd2"
     },
     {
       "path": "app/api/creatives/briefing/route.test.ts",
-      "sha256": "cf3a03617813336cc9e05a9332f632be93e521edb588bb0f6819d594537192ea"
+      "sha256": "a33e347fbb29ce47e0b0604fd65db4bee6c9fcf7f5e2d5ddd2dbe4fdd7bddf8a"
     },
     {
       "path": "app/api/creatives/briefing/route.ts",
-      "sha256": "9de70afd8a565c739251b2fe1a08ebd3d6a94b07687e6412ce632176bba6edd7"
+      "sha256": "1cd6f06b35f583a49fc7232ce503b468eda672b707e9ac01691eff683e497779"
     },
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.test.ts",
@@ -215,12 +227,24 @@
       "sha256": "ed03c130a6ee179441cc07328aa7f71e2ecf11dd0a6e24d08c7e2230b4da0ea8"
     },
     {
+      "path": "components/common/briefing/CompareDrawer.tsx",
+      "sha256": "41223e2b594b3ee4a89aba7b5d557c7711ec98cc946c9ac76d80222401aea3ae"
+    },
+    {
       "path": "components/creatives/briefing/AssetLibrarySection.test.tsx",
       "sha256": "fe1ced4dfddb01cd850b4c85e94b2928f875512305d31f4a80140b51f6a9ffd4"
     },
     {
       "path": "components/creatives/briefing/AssetLibrarySection.tsx",
       "sha256": "adfd0212bb6215ae84ef0afe0bb5c78f71ff9b2cf3ba635ae4cbd7ff387d78c3"
+    },
+    {
+      "path": "components/creatives/briefing/card-utils.test.tsx",
+      "sha256": "dab66e6fc85b5912d26ebdacf98d5bf7621a906a753c4a7d3fcf790fef8c7a6a"
+    },
+    {
+      "path": "components/creatives/briefing/card-utils.tsx",
+      "sha256": "28f923f7395e30bb6667c2144414fa0abdb5cdf30223d8883878b90cb14b0603"
     },
     {
       "path": "components/creatives/briefing/CreativesBriefingPage.test.tsx",
@@ -232,7 +256,11 @@
     },
     {
       "path": "components/creatives/briefing/types.ts",
-      "sha256": "a6635d650ae558978bc96a1f91cf81cd5705eb1904607938aff98b998b3ebc30"
+      "sha256": "3c7901b9b1313d921694137ce28d9643f2c1d54f5e10662f85bd691c6b25c37d"
+    },
+    {
+      "path": "components/creatives/briefing/WatchingCard.test.tsx",
+      "sha256": "6909aeb43f566c3aab59a15ee1af00b54b8cbd87ca1c7ebbb9f0d9b9518165ad"
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.test.ts",

@@ -930,6 +930,57 @@ describe("GET /api/creatives/briefing canonical native-ad authority", () => {
     expect(payload.decisionCenter.rowDecisions).toEqual([]);
   });
 
+  it("keeps measured Ads visible beside pending native Ads without inventing metrics or actions", async () => {
+    const pending = canonicalDecision({
+      adId: "ad_2",
+      label: "diagnose",
+      buyerAction: null,
+      authorizedAction: null,
+      actionEligible: false,
+      decisionState: "blocked",
+      executionAction: null,
+    });
+    pending.metrics = {
+      ...pending.metrics,
+      spend: null,
+      purchases: null,
+      roas: null,
+      recent7dRoas: null,
+      effectiveTargetRoas: null,
+      ratioToTarget: null,
+    };
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      generation([canonicalDecision(), pending]),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy] as BriefingCreativeCard[];
+    const pendingCard = cards.find((card) => card.id === "ad_2");
+
+    expect(response.status).toBe(200);
+    expect(cards.map((card) => card.id).sort()).toEqual(["ad_1", "ad_2"]);
+    expect(pendingCard).toMatchObject({
+      targetRoas: null,
+      spend: null,
+      purchases: null,
+      roas: null,
+      sparkline: null,
+      primary: { kind: "review", label: "Await source measurement" },
+      sourceDecisionActionEligible: false,
+      sourceDecisionAuthorizedAction: null,
+    });
+    expect(payload.watching.some((card: BriefingCreativeCard) => card.id === "ad_2")).toBe(true);
+    expect(payload.source.canonicalDecisionInventory.itemCount).toBe(2);
+    expect(payload.source.measurementReconciliation.notes).toContain(
+      "native_ad_decision_inputs_pending:1",
+    );
+  });
+
   it("fails closed to an empty unavailable surface when the native bundle is unavailable", async () => {
     vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue({
       status: "unavailable",

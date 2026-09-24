@@ -24,6 +24,14 @@ function card(overrides: Partial<BriefingCreativeCard> = {}): BriefingCreativeCa
 }
 
 describe("WatchingCard", () => {
+  it("marks an unmeasured ROAS trend unavailable on the card", () => {
+    const html = renderToStaticMarkup(
+      <WatchingCard card={card({ roas: null, sparkline: [null, null] })} />,
+    );
+    expect(html).toContain('data-briefing-sparkline-unavailable');
+    expect(html).not.toContain('data-briefing-sparkline="true"');
+  });
+
   it("renders the watching tile with name, defer button, and fresh-test primary on test_more", () => {
     const html = renderToStaticMarkup(<WatchingCard card={card()} selected />);
 

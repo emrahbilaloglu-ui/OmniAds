@@ -26,7 +26,9 @@ function ad(id: string, spend: number, campaignId = "cmp-1", adsetId = "set-1") 
   } as MetaAdDailyRow;
 }
 function insight(id: string, spend: number): MetaInsightRecord {
-  return { ad_id: id, date_start: day, spend: String(spend), impressions: "100", clicks: "5" };
+  return { ad_id: id, date_start: day, spend: String(spend), impressions: "100", clicks: "5",
+    actions: [{ action_type: "link_click", value: "4" },
+      { action_type: "landing_page_view", value: "2" }] };
 }
 function old(creativeId: string, spend: number) {
   return {

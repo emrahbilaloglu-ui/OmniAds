@@ -436,7 +436,7 @@ record of a superseded release and must not be used as a current value.
 
 | Contract surface | Release value |
 | --- | --- |
-| Canonical engine | `v3-2026-09-24-zero-conversion-cut-floor` (D107 zero-purchase Cut floor in the shared resolver, on top of D105's explicit evaluation instant and provider-local closed-day schedule); `v3-2026-09-24-creative-knowledge-bound` and the prior membership epoch remain historical |
+| Canonical engine | `v3-2026-09-24-creative-purchase-evidence` (D109 source-backed creative purchase windows, retaining D107's zero-purchase Cut floor and D105's explicit evaluation instant); earlier zero-conversion Cut, creative-knowledge-bound and membership epochs remain historical |
 | Native-Ad engine | `v3-ad-2026-09-24-config-gap-window-shadow` (D107: only an observed configuration difference ends the admitted window; bridged gap days carry no authority) |
 | Exact native rollback epoch | `v3-ad-2026-07-15-commercial-stop-loss-shadow` |
 | Native calibration | `engine-v3-native-ad-calibration.v6` (minted by this repair); `.v5` remains readable under its own formula, and older rows never authorize a new decision. See the durable-compatibility note below. |

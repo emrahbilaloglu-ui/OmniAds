@@ -53,7 +53,7 @@ Current version keys (verify against the constants, never against this list):
 
 | Key | Value | Source of truth |
 | --- | --- | --- |
-| `ENGINE_VERSION` | `v3-2026-09-24-cut-proof-floor-story` (D111; pending D109 combined epoch) | `lib/creative-decision-engine/types.ts` |
+| `ENGINE_VERSION` | `v3-2026-09-24-creative-purchase-cut-proof` (D109 + D111 combined epoch) | `lib/creative-decision-engine/types.ts` |
 | `NATIVE_AD_ENGINE_VERSION` | `v3-ad-2026-09-24-cut-proof-floor-story-shadow` (D111) | `lib/creative-decision-engine/types.ts` |
 | `CANONICAL_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-evaluation.v9` | `lib/creative-decision-engine/canonical-evaluation.ts` |
 | `AD_DECISION_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-ad-evaluation.v18` (D111) | `lib/creative-decision-engine/evaluation-store.ts` |
@@ -130,7 +130,7 @@ current release candidate is versioned under
 `v3-2026-07-18-decision-presentation-hardening`~~ — **SUPERSEDED BY D091.**
 That July epoch was correct through D066 and is retained here as the epoch
 those paragraphs describe; the current producer epoch is
-`ENGINE_VERSION = v3-2026-09-24-zero-conversion-cut-floor` with
+`ENGINE_VERSION = v3-2026-09-24-creative-purchase-evidence` with
 `NATIVE_AD_ENGINE_VERSION = v3-ad-2026-09-24-config-gap-window-shadow`
 (see the version table at the top of this file, D103, D105, the D063 amendment
 and D107 in `DECISION_LOG.md` for the separate membership, knowledge-cutoff,

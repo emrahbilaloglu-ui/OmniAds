@@ -19,6 +19,10 @@ import {
   type MetaCreativeDayMetricStage,
 } from "@/lib/meta/creative-day-metric-evidence";
 import { buildMetaCompleteWindowSql } from "@/lib/meta/funnel-stage-parse";
+import {
+  buildMetaCreativePurchaseLateralSql,
+  buildMetaCreativePurchaseWindowSql,
+} from "@/lib/meta/creative-day-purchase-evidence";
 import { creativeDayCompleteWindowSql, creativeDayConfigDecisionAdmissionSql, requireCreativeDayEvaluationCutoffAt } from "@/lib/meta/creative-day-decision-admission";
 import { hashAdvisoryLock } from "./advisory-lock";
 
@@ -209,6 +213,14 @@ const CREATIVE_DAY_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql({
   rowAlias: "d",
   lateralAlias: "creative_day_evidence",
 });
+const CREATIVE_DAY_PURCHASE = buildMetaCreativePurchaseLateralSql({
+  rowAlias: "d", lateralAlias: "creative_day_purchase",
+});
+
+const CREATIVE_PURCHASE_WINDOW = buildMetaCreativePurchaseWindowSql({
+  valueSql: CREATIVE_DAY_PURCHASE.valueSql,
+  activitySql: CREATIVE_DAY_PURCHASE.activitySql,
+});
 
 function creativeWindowStageSumSql(stage: MetaCreativeDayMetricStage) {
   return buildMetaCompleteWindowSql({
@@ -273,7 +285,7 @@ per_creative_raw AS (
       )
     ) AS raw_creative_format,
     SUM(d.spend) AS total_spend,
-    SUM(d.conversions) AS total_purchases,
+    ${CREATIVE_PURCHASE_WINDOW} AS total_purchases,
     SUM(d.revenue) AS total_revenue,
     SUM(d.impressions) AS total_impressions,
     SUM(d.clicks) AS total_clicks,
@@ -310,6 +322,7 @@ per_creative_raw AS (
     LIMIT 1
   ) campaign_context ON true
   ${CREATIVE_DAY_EVIDENCE.lateralSql}
+  ${CREATIVE_DAY_PURCHASE.lateralSql}
   WHERE d.objective = ANY($5::text[])
     AND ($6::text IS NULL OR d.campaign_id = $6::text)
     AND (
@@ -402,7 +415,7 @@ counts AS (
     (SELECT COUNT(*) FROM converter_population) AS converter_count,
     (SELECT COUNT(*) FROM winner_population) AS winner_count,
     (SELECT COUNT(*) FROM scoped_per_creative WHERE total_purchases > 0) AS account_cpa_sample_count,
-    (SELECT COUNT(*) FROM scoped_per_creative WHERE total_spend > 0 AND COALESCE(total_purchases, 0) = 0) AS zero_conversion_count,
+    (SELECT COUNT(*) FROM scoped_per_creative WHERE total_spend > 0 AND total_purchases = 0) AS zero_conversion_count,
     (SELECT COUNT(*) FROM recent_ratios WHERE recent_total_ratio IS NOT NULL) AS refresh_ratio_count,
     (SELECT COUNT(*) FROM scoped_per_creative WHERE cumulative_28d_ctr IS NOT NULL) AS ctr_count,
     (
@@ -530,6 +543,7 @@ meta_aov AS (
     COALESCE(SUM(total_purchases), 0)::integer AS purchase_count,
     COALESCE(SUM(total_revenue), 0) AS total_revenue
   FROM scoped_per_creative
+  WHERE total_purchases IS NOT NULL
 ),
 source_bounds AS (
   SELECT
@@ -664,18 +678,19 @@ WITH per_creative AS (
   SELECT
     campaign_id,
     creative_id,
-    SUM(spend) AS total_spend,
-    SUM(conversions) AS total_purchases,
-    SUM(revenue) AS total_revenue
-  FROM meta_creative_daily
-  WHERE business_ref_id = $1::uuid
-    AND ${creativeDayConfigDecisionAdmissionSql(undefined, "$2", "$5")}
-    AND ${creativeDayCompleteWindowSql(undefined, "$2", "$5", 90, undefined, "$1")}
-    AND date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
-    AND objective = ANY($4::text[])
-    AND campaign_id IS NOT NULL
-    AND campaign_id <> ''
-  GROUP BY campaign_id, creative_id
+    SUM(d.spend) AS total_spend,
+    ${CREATIVE_PURCHASE_WINDOW} AS total_purchases,
+    SUM(d.revenue) AS total_revenue
+  FROM meta_creative_daily d
+  ${CREATIVE_DAY_PURCHASE.lateralSql}
+  WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$5")}
+    AND ${creativeDayCompleteWindowSql("d", "$2", "$5", 90, undefined, "$1")}
+    AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+    AND d.objective = ANY($4::text[])
+    AND d.campaign_id IS NOT NULL
+    AND d.campaign_id <> ''
+  GROUP BY d.campaign_id, d.creative_id
 ),
 campaign_counts AS (
   SELECT

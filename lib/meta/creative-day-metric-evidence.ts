@@ -65,10 +65,12 @@ import {
 
 /**
  * Bumped when the stage list, the per-stage reading, the merge rule or the SQL
- * extraction change. Unshipped as of 2026-09-22: no stored row carries it yet,
- * so it may be amended in place until the first release that writes it.
+ * extraction change. V1 remains readable; V2 records the complete requested
+ * actions-row zero convention and is never inferred for historical V1 rows.
  */
 export const META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION =
+  "meta-creative-day-metric-evidence.v2";
+const META_CREATIVE_DAY_METRIC_EVIDENCE_LEGACY_VERSION =
   "meta-creative-day-metric-evidence.v1";
 
 /** The key inside `meta_creative_daily.payload_json` (and on a creative row in memory). */
@@ -114,7 +116,8 @@ export type MetaCreativeDayStageReading =
   | { state: "incomplete"; reason: MetaCreativeDayIncompleteReason };
 
 export interface MetaCreativeDayMetricEvidence {
-  version: typeof META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION;
+  version: typeof META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION |
+    typeof META_CREATIVE_DAY_METRIC_EVIDENCE_LEGACY_VERSION;
   /** The funnel alias/guard contract the action stages were read under. */
   funnelStageContractVersion: typeof META_FUNNEL_STAGE_CONTRACT_VERSION;
   stages: Record<MetaCreativeDayMetricStage, MetaCreativeDayStageReading>;
@@ -166,10 +169,14 @@ function readOutboundClickStage(outboundClicks: unknown): MetaCreativeDayStageRe
 export function buildMetaCreativeDayMetricEvidence(insight: {
   actions?: unknown;
   outbound_clicks?: unknown;
-}): MetaCreativeDayMetricEvidence {
+}, options: { completeActionsRequest?: boolean } = {}): MetaCreativeDayMetricEvidence {
   const stages = {} as Record<MetaCreativeDayMetricStage, MetaCreativeDayStageReading>;
   for (const stage of ACTION_STAGES) {
-    stages[stage] = readMetaFunnelStageFromActions(insight.actions, stage);
+    stages[stage] = readMetaFunnelStageFromActions(
+      insight.actions === undefined && options.completeActionsRequest === true
+        ? [] : insight.actions,
+      stage,
+    );
   }
   stages.outbound_click = readOutboundClickStage(insight.outbound_clicks);
   return {
@@ -248,7 +255,8 @@ export function parseMetaCreativeDayMetricEvidence(
   raw: unknown,
 ): MetaCreativeDayMetricEvidence | null {
   if (!isRecord(raw)) return null;
-  if (raw.version !== META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION) return null;
+  if (raw.version !== META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION &&
+      raw.version !== META_CREATIVE_DAY_METRIC_EVIDENCE_LEGACY_VERSION) return null;
   const funnelStageContractVersion = raw.funnelStageContractVersion;
   if (funnelStageContractVersion !== META_FUNNEL_STAGE_CONTRACT_VERSION) return null;
   if (!isRecord(raw.stages)) return null;
@@ -259,7 +267,7 @@ export function parseMetaCreativeDayMetricEvidence(
     stages[stage] = reading;
   }
   return {
-    version: META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION,
+    version: raw.version,
     funnelStageContractVersion,
     stages,
   };
@@ -293,7 +301,8 @@ export function readMetaCreativeDayStageValue(
   const evidence = payloadJson[META_CREATIVE_DAY_METRIC_EVIDENCE_KEY];
   if (
     !isRecord(evidence) ||
-    evidence.version !== META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION ||
+    (evidence.version !== META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION &&
+      evidence.version !== META_CREATIVE_DAY_METRIC_EVIDENCE_LEGACY_VERSION) ||
     evidence.funnelStageContractVersion !== META_FUNNEL_STAGE_CONTRACT_VERSION
   ) {
     return null;
@@ -467,7 +476,7 @@ export function buildMetaCreativeDayMetricEvidenceSql(options: {
     const reading = `${evidence}->'stages'->'${stage}'`;
     const valueText = `(${reading}->>'value')`;
     return `(CASE
-      WHEN (${evidence}->>'version') IS NOT DISTINCT FROM '${META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION}'
+      WHEN (${evidence}->>'version') IN ('${META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION}', '${META_CREATIVE_DAY_METRIC_EVIDENCE_LEGACY_VERSION}')
         AND (${evidence}->>'funnelStageContractVersion') IS NOT DISTINCT FROM '${META_FUNNEL_STAGE_CONTRACT_VERSION}'
         AND (${reading}->>'state') IS NOT DISTINCT FROM 'measured'
         AND jsonb_typeof(${reading}->'value') IS NOT DISTINCT FROM 'number'

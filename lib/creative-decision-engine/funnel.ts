@@ -59,7 +59,11 @@ function formatRateEvidence(
 export function computeFunnelRates(creative: CreativeInput): FunnelRates {
   const linkClicks = creative.linkClicks;
   const impressions = creative.impressions;
-  const purchases = creative.purchases;
+  // A zero numeric placeholder is carried for old resolver signatures. It
+  // cannot enter conversion rates unless the source proved the purchase
+  // measurement for the whole decision window.
+  const purchases = creative.purchaseEvidenceStatus === "unverified"
+    ? null : creative.purchases;
   const ctr =
     creative.ctr ??
     (positiveFinite(linkClicks) && positiveFinite(impressions)

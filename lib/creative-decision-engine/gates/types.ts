@@ -468,9 +468,12 @@ export function buildDecisionOutput(
     ...(blockers.length > 0 ? { blockers } : {}),
     metrics: {
       spend: ctx.input.spend,
-      purchases: ctx.input.purchases,
-      roas: ctx.input.roas,
-      recent7dRoas: ctx.input.recent7dRoas,
+      purchases: ctx.input.purchaseEvidenceStatus === "unverified"
+        ? null : ctx.input.purchases,
+      roas: ctx.input.purchaseEvidenceStatus === "unverified"
+        ? null : ctx.input.roas,
+      recent7dRoas: ctx.input.purchaseEvidenceStatus === "unverified"
+        ? null : ctx.input.recent7dRoas,
     },
     preAuthorityLabel: output.preAuthorityLabel ?? output.label,
     authorityBlocker: output.authorityBlocker ?? null,

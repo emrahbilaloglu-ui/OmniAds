@@ -365,7 +365,7 @@ describe("buildMetaCreativeDayMetricEvidenceSql", () => {
   it("gates on the stamp version, the measured state and the JSON number type", () => {
     const value = sql.valueSql("add_to_cart");
     expect(value).toContain(
-      `(d.payload_json->'metric_evidence'->>'version') IS NOT DISTINCT FROM '${META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION}'`,
+      `(d.payload_json->'metric_evidence'->>'version') IN ('${META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION}', 'meta-creative-day-metric-evidence.v1')`,
     );
     expect(value).toContain(
       `(d.payload_json->'metric_evidence'->>'funnelStageContractVersion') IS NOT DISTINCT FROM '${META_FUNNEL_STAGE_CONTRACT_VERSION}'`,

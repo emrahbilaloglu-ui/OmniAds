@@ -8,6 +8,7 @@ import {
 import { diagnoseGate } from "./gates/diagnose";
 import { maturityGate } from "./gates/maturity";
 import { qualityOnlyGate } from "./gates/quality-only";
+import { purchaseEvidenceGate } from "./gates/purchase-evidence";
 import { ratioZonesGate } from "./gates/ratio-zones";
 import { scopeGate } from "./gates/scope";
 import { targetResolutionGate } from "./gates/target-resolution";
@@ -83,6 +84,11 @@ export function decideCreative(
   }
 
   result = targetResolutionGate(result.context);
+  if (result.kind === "terminal") {
+    return finalizeOutput(result.output);
+  }
+
+  result = purchaseEvidenceGate(result.context);
   if (result.kind === "terminal") {
     return finalizeOutput(result.output);
   }

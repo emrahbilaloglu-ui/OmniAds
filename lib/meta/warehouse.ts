@@ -78,6 +78,7 @@ import {
 } from "@/lib/meta/funnel-stage-parse";
 import { resolveAdDayAuthoritativeLinkClicks } from "@/lib/meta/link-click-parse";
 import { mergeMetaCreativeDayPayloadMetricEvidence } from "@/lib/meta/creative-day-metric-evidence";
+import { mergeMetaCreativeDayPayloadPurchaseEvidence } from "@/lib/meta/creative-day-purchase-evidence";
 import {
   isMetaUnresolvedCreativeId,
   META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
@@ -11272,7 +11273,11 @@ function mergeMetaCreativeDailyRowsForUpsert(rows: MetaCreativeDailyRow[]) {
       right: row.payloadJson,
     });
     existing.payloadJson = mergeCreativeDaySourceIdentityPayload(
-      payloadWithMetricEvidence,
+      mergeMetaCreativeDayPayloadPurchaseEvidence({
+        basePayload: payloadWithMetricEvidence,
+        left: existing.payloadJson,
+        right: row.payloadJson,
+      }),
       existing.payloadJson,
       row.payloadJson,
       row.creativeId,

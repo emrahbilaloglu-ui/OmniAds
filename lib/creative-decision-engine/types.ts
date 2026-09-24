@@ -76,8 +76,8 @@ import type {
   window rule — an unresolved day no longer ends a run; only an observed
   difference does — and window-true period labels in the reason text.
 */
-/** A proved Cut-only floor rejects thin-cell advisory Cuts below it (D111). */
-export const ENGINE_VERSION = "v3-2026-09-24-cut-proof-floor-story";
+/** D109 creative purchase evidence and D111 proved Cut floor share this epoch. */
+export const ENGINE_VERSION = "v3-2026-09-24-creative-purchase-cut-proof";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
   "v3-ad-2026-09-24-cut-proof-floor-story-shadow";
@@ -426,6 +426,8 @@ export interface CreativeInput {
    */
   configProvenanceStatus?: "verified" | "unverified";
   sourceCoverageStatus?: "verified" | "incomplete" | "after_cutoff";
+  /** Source-backed creative-day purchase coverage for the decision window. */
+  purchaseEvidenceStatus?: "verified" | "unverified";
   /**
    * Populated by production hydration paths. Optional only for legacy unit
    * fixtures and explicit callers that predate the grain contract.
@@ -1175,7 +1177,8 @@ export interface DecisionOutput {
   blockers?: DecisionPredicateBlocker[];
   metrics: {
     spend: number;
-    purchases: number;
+    /** NULL means source evidence is incomplete; it is not measured zero. */
+    purchases: number | null;
     roas: number | null;
     recent7dRoas: number | null;
   };

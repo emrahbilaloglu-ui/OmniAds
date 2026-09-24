@@ -23,6 +23,11 @@ import {
   mergeMetaCreativeDayMetricEvidence,
   readMetaCreativeDayStageValue,
 } from "@/lib/meta/creative-day-metric-evidence";
+import {
+  buildMetaCreativeDayPurchaseEvidence,
+  META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY,
+  mergeMetaCreativeDayPurchaseEvidence,
+} from "@/lib/meta/creative-day-purchase-evidence";
 import { fetchAccountInsights, fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import {
   META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
@@ -240,6 +245,11 @@ export function buildCreativeDayRepairPlan(input: {
         warehouse: { spend: ad.spend, impressions: ad.impressions, clicks: ad.clicks },
         provider: { spend: sourceSpend, impressions: sourceImpressions, clicks: sourceClicks } });
     }
+    const purchase = buildMetaCreativeDayPurchaseEvidence(source.actions,
+      { completeActionsRequest: true });
+    if (purchase.state !== "measured" || purchase.value !== ad.conversions) {
+      blockers.push(`provider_purchase_differs_from_finalized_ad:${ad.adId}`);
+    }
   }
   if (paidAds.length === 0) blockers.push("no_decision_bearing_ad_days");
   if (ads.length > 2_000 || oldRows.length > 2_000 || provider.length > 2_000) {
@@ -286,16 +296,22 @@ export function buildCreativeDayRepairPlan(input: {
       ? sum((row) => row.linkClicks!) : null;
     const outboundClicks = members.every((row) => row.outboundClicks != null)
       ? sum((row) => row.outboundClicks!) : null;
-    const evidences = members.map((row) => buildMetaCreativeDayMetricEvidence(record(row.payloadJson)));
+    const evidences = members.map((row) => buildMetaCreativeDayMetricEvidence(
+      providerById.get(row.adId)!, { completeActionsRequest: true }));
     const metricEvidence = evidences.slice(1).reduce(
       (merged, evidence) => mergeMetaCreativeDayMetricEvidence(merged, evidence), evidences[0]!,
+    );
+    const purchaseParts = members.map((row) => buildMetaCreativeDayPurchaseEvidence(
+      providerById.get(row.adId)!.actions, { completeActionsRequest: true }));
+    const purchaseEvidence = purchaseParts.slice(1).reduce(
+      (merged, evidence) => mergeMetaCreativeDayPurchaseEvidence(merged, evidence), purchaseParts[0]!,
     );
     const stage = (key: "link_click" | "landing_page_view" | "add_to_cart" |
       "initiate_checkout" | "outbound_click") => readMetaCreativeDayStageValue(
         { [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: metricEvidence }, key,
       );
-    const purchasesObserved = members.every((row) =>
-      Array.isArray(record(row.payloadJson).actions));
+    const purchasesObserved = purchaseEvidence.state === "measured" &&
+      purchaseEvidence.value === conversions;
     const { historical_config_proof: _staleConfigProof,
       ...oldPayloadWithoutConfigProof } = record(old?.payloadJson);
     const payload: Record<string, unknown> = { ...oldPayloadWithoutConfigProof,
@@ -313,6 +329,7 @@ export function buildCreativeDayRepairPlan(input: {
       reach_aggregation: members.length === 1
         ? "single_ad_provider_reach" : "sum_of_ad_reach_not_deduplicated",
       [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: metricEvidence,
+      [META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY]: purchaseEvidence,
       spend, impressions, clicks, reach, frequency, purchases: conversions,
       purchase_value: revenue,
       roas: spend > 0 ? revenue / spend : 0,

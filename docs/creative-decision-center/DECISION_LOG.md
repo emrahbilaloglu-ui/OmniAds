@@ -10786,3 +10786,49 @@ the writer, repair and reader together, mint a new creative epoch, and keep
 old evidence rows for explanation. Validate the exact source and decision
 chain on representative Grandmix and TheSwaf historical cutoffs before
 release; production regeneration under the new epoch is separately required.
+
+## D112 — Keep empty creative lifecycle materialization honest (2026-09-24)
+
+**Decision.** A successful creative lifecycle run with zero admitted rows is an
+explicit `held_no_admissible_rows` result under
+`engine-v3-creative-lifecycle-materialization.v1`. It is not a measured
+absence of fatigue or an available Refresh pipeline. The creative lifecycle
+read model selects rows only from the latest successful same-epoch job at the
+evaluation cutoff, and only when that run carries this materialization contract
+in its job metadata. A legacy or later unversioned success cannot make retained
+rows look current. A later successful empty job therefore suppresses older
+retained rows without deleting them. Health reports `insufficient` and names
+the missing source-verified creative lifecycle population; native Ad lifecycle
+evidence remains an independently evaluated path.
+
+**Purchase and window basis.** The D103 90-day source/config/membership
+closure remains required. The lifecycle job reads D109 stamped creative-day
+purchase evidence through complete-or-NULL 7-, 28- and 90-day windows. A
+delivered unverified day cannot silently become zero, a winning historical
+purchase baseline, or purchase-derived fatigue. Measured zero stays zero.
+No delivered day in a 7- or 28-day range yields NULL, not a measured zero.
+Independent CTR and funnel stages retain their own measurement contracts.
+History older than the closed 90-day range cannot supply winner memory. No
+threshold is shortened to create output.
+
+**Evidence and release.** Grandmix and TheSwaf contain 4,041 / 3,102
+spending creative-days across 162 / 297 creatives in the 90-day source window.
+Live as-of 2026-09-24 lifecycle jobs show 161 / 297 rows under the older
+September 21 engine epoch; those rows cannot prove current D103 admission.
+At as-of 2026-09-23 and knowledge cutoff 2026-09-24T13:40Z, a read-only
+production D103 query admitted the latest day for 52 / 58 creatives but a
+complete 90-day window for zero in both businesses while
+source-published membership/config coverage and D109 purchase stamps remain
+incomplete. The separately captured 2026-09-23 campaign-role authority has
+5 / 9 rows; lifecycle absence does not mean all roles
+are unknown. Zero current creative lifecycle rows are an expected hold, not a
+positive recovery claim. Real PostgreSQL fixtures prove
+both a source-complete materialized case and a delivered unstamped purchase
+day that remains NULL/unknown. The latest-success read-model fixture proves a
+later zero-row run hides an older lifecycle overlay. Recompute only after
+source lineage repair, then compare exact-epoch materialization and served
+native/creative decisions. Historical V1/operator/V2 records stay readable.
+
+**Rollback.** Revert the lifecycle writer/read-model pair and mint a new
+materialization contract for any semantic replacement. Retained lifecycle
+rows and earlier decision snapshots are not rewritten or deleted.

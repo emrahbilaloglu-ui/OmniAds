@@ -1,5 +1,5 @@
 {
-  "manifestHash": "0c78fa7e1c77a265d94bbe52921a3a64ce5dd12708357e6d3dbba0c9d0afe664",
+  "manifestHash": "d152e4a46aeeb3ae9fd4615bab392441589bc0346ca28a11d07e59f13ab99098",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -552,7 +552,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "3f58a5b1fd499760393594a29e9786b1ee4186e59ea9fe663c3789ec7b370407"
+      "sha256": "a2f76b7c3f6f88004497a988b47276fba1cd0d5089a13fc237edb374a68cf2f8"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -692,7 +692,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/data-source.warehouse.test.ts",
-      "sha256": "671e2082b1bc67530b258906300c8aef0d26cda28adaaca147e2e68360712a44"
+      "sha256": "d3cce97630d01084b23da8b86a77dc1d2e3cf70279ed87feaec6c5c3ce99d8db"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/decision-stability.test.ts",
@@ -808,7 +808,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/lifecycle-job.failure.test.ts",
-      "sha256": "8c27ee4a2c5bf7ed7ee58c586f3da2582682785e98b3101778591a79c2ac6cef"
+      "sha256": "95dd6aa63b28ca662bf5a93597706e610eb2d2c391d60227de15da371957e1d4"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/lifecycle-job.test.ts",
@@ -916,7 +916,7 @@
     },
     {
       "path": "lib/creative-decision-engine/creative-day-metric-evidence.db.test.ts",
-      "sha256": "e31b8214b8fd2870e5ed18584859022b5f821ed1c25de644587ac0c36498553b"
+      "sha256": "cf9e593c117489c1754ab7ad89a3a0efb12192c371b2400a296509f83bd68294"
     },
     {
       "path": "lib/creative-decision-engine/data-source-config-agreement.db.test.ts",
@@ -932,7 +932,7 @@
     },
     {
       "path": "lib/creative-decision-engine/data-source.ts",
-      "sha256": "81dac39d95785f999a918465d8553f5d7288bcb6b714231417c3722c29027637"
+      "sha256": "962efcb11250e77347656519f27f264a56aa30418e6541592d9460e9a0b1d84c"
     },
     {
       "path": "lib/creative-decision-engine/decision-stability.db.test.ts",
@@ -1032,7 +1032,7 @@
     },
     {
       "path": "lib/creative-decision-engine/jobs/lifecycle-job.ts",
-      "sha256": "382a209e00d8a248d8f7d04cfb53869d35402abfcc62de7a4645f0e1e28419b2"
+      "sha256": "1460bdea946ad5fc76b28ee4ee98cd46ebc650f49bca218d2d08d7fb0c6c5c76"
     },
     {
       "path": "lib/creative-decision-engine/jobs/native-ad-scheduled.ts",
@@ -1045,6 +1045,10 @@
     {
       "path": "lib/creative-decision-engine/jobs/scheduled.ts",
       "sha256": "8c9a82525e0ceb379a6f79ea906bb5c8eab79e3d89ecdc19ea855f1a2b32d7cc"
+    },
+    {
+      "path": "lib/creative-decision-engine/lifecycle-materialization.ts",
+      "sha256": "3c2d5681b5fbba692ec1d4df6a93291819558773d463921f4b848f0fbf3fb8e0"
     },
     {
       "path": "lib/creative-decision-engine/meta-aov-calculator.db.test.ts",
@@ -1892,7 +1896,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "89359677b43382dad976d9640d75dc5c34424de4066ceeecc4644b87d3e4469d"
+      "sha256": "6038ecc56145289b858e0ac89ec788a8fa1a76c2db75b1b76738ea70b5f91c4e"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

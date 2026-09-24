@@ -38,6 +38,7 @@ import {
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
 import { resolveHydratedConfigAuthority } from "./native-ad-hydration-authority";
+import { LIFECYCLE_MATERIALIZATION_VERSION } from "./lifecycle-materialization";
 import {
   buildMetaAdsetConfigFieldSourceSql,
   buildMetaConfigFieldSourceSql,
@@ -3428,6 +3429,7 @@ LEFT JOIN LATERAL (
     AND row.as_of_date <= $2::date
     AND row.engine_version = $10
     AND row.computed_at <= $11::timestamptz
+    AND row.job_run_id = ${latestSuccessfulLifecycleRunSql("$10", "$11")}
   ORDER BY row.as_of_date DESC, row.computed_at DESC, row.id DESC
   LIMIT 1
 ) lifecycle ON COALESCE(dimensions.creative_id, state_dimension.creative_id) IS NOT NULL
@@ -4926,6 +4928,25 @@ WHERE business_ref_id = $1::uuid
 ORDER BY creative_format ASC
 `;
 
+/** The latest run supersedes older rows even when its materialization contract is unknown. */
+function latestSuccessfulLifecycleRunSql(engineVersionSql: string, cutoffSql: string): string {
+  return `(SELECT CASE
+      WHEN lifecycle_run.error_json #>> '{metadata,lifecycle_materialization,contract_version}'
+        = '${LIFECYCLE_MATERIALIZATION_VERSION}'
+      THEN lifecycle_run.id
+    END
+    FROM engine_v3_job_runs lifecycle_run
+    WHERE lifecycle_run.job_name = 'engine_v3_lifecycle_job'
+      AND lifecycle_run.business_ref_id = $1::uuid
+      AND lifecycle_run.as_of_date <= $2::date
+      AND lifecycle_run.engine_version = ${engineVersionSql}
+      AND lifecycle_run.status = 'success'
+      AND lifecycle_run.finished_at <= ${cutoffSql}::timestamptz
+    ORDER BY lifecycle_run.as_of_date DESC, lifecycle_run.finished_at DESC,
+      lifecycle_run.id DESC
+    LIMIT 1)`;
+}
+
 const READ_LIFECYCLE_CREATIVE_INPUTS_QUERY = `
 WITH lifecycle_rows AS (
   SELECT DISTINCT ON (l.creative_id) l.*
@@ -4934,6 +4955,7 @@ WITH lifecycle_rows AS (
     AND l.as_of_date <= $2::date
     AND (NOT $4::boolean OR l.creative_id = ANY($3::text[]))
     AND l.engine_version = $5
+    AND l.job_run_id = ${latestSuccessfulLifecycleRunSql("$5", "$9")}
     AND ${creativeDayCompleteWindowSql("l", "$2", "$9", 90, undefined, "$1")}
     AND l.computed_at <= $9::timestamptz
   ORDER BY l.creative_id, l.as_of_date DESC, l.computed_at DESC
@@ -5152,6 +5174,7 @@ WHERE business_ref_id = $1::uuid
   AND as_of_date <= $2::date
   AND engine_version = $3
   AND computed_at <= $4::timestamptz
+  AND job_run_id = ${latestSuccessfulLifecycleRunSql("$3", "$4")}
 `;
 
 const READ_LATEST_FUNNEL_DIAGNOSIS_QUERY = `
@@ -8440,8 +8463,11 @@ export class WarehouseDataSource
         computedAt: this.creativeDayEvaluationCutoffAt ?? new Date().toISOString(),
         sourceMaxUpdatedAt: null,
         evaluationCutoffAt: this.creativeDayEvaluationCutoffAt,
-        fallbackMode: "runtime_sql",
-        note: "no precomputed row available; runtime fallback in use",
+        // Runtime hydration uses the same D103 complete-window predicate as
+        // the persisted job. An empty current epoch cannot be promoted by
+        // calling the same denied read a fallback.
+        fallbackMode: "insufficient",
+        note: "No source-verified creative lifecycle row for this epoch and cutoff; native Ad lifecycle evidence is evaluated separately.",
         staleTierOverride: "warning",
       });
     }

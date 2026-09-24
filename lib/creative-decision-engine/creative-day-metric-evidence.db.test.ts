@@ -127,6 +127,7 @@ function creativeDay(input: {
   idle?: boolean;
   linkClicksColumn?: number | null;
   conversions?: number;
+  purchaseEvidenceMissing?: boolean;
   payloadJson: unknown;
   sourceIdentityComplete?: boolean;
   effectiveStatus?: string | null;
@@ -137,7 +138,7 @@ function creativeDay(input: {
     ? input.payloadJson as Record<string, unknown>
     : {};
   const conversions = idle ? 0 : (input.conversions ?? 1);
-  const purchaseEvidence = {
+  const purchaseEvidence = input.purchaseEvidenceMissing ? {} : {
     [META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY]:
       payload[META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY] ??
       buildMetaCreativeDayPurchaseEvidence([
@@ -169,9 +170,9 @@ function creativeDay(input: {
     reach: idle ? 0 : 800,
     frequency: idle ? null : 1.25,
     conversions,
-    revenue: idle ? 0 : 60,
-    roas: idle ? 0 : 3,
-    cpa: idle ? null : 20,
+    revenue: idle || conversions === 0 ? 0 : 60,
+    roas: idle || conversions === 0 ? 0 : 3,
+    cpa: idle || conversions === 0 ? null : 20,
     ctr: idle ? null : 3,
     cpc: idle ? null : 0.66,
     // The display column, deliberately positive: a reader that still read it
@@ -392,6 +393,10 @@ function payloadFromInsight(insight: Parameters<typeof toRawRow>[0]) {
 
 type LifecycleRow = {
   creative_id: string;
+  purchases_28d: number | null;
+  purchases_7d: number | null;
+  fatigue_status: string | null;
+  fatigue_evidence: { missingContext?: string[] } | null;
   effective_status: string | null;
   frequency_28d: number | null;
   link_clicks_28d: string | null;
@@ -439,13 +444,15 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     const sourceRows = [
       // R1: a measured-zero day and an ACTIVE day nothing was observed on.
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_missing", date: day(0), payloadJson: { ...FABRICATED_DISPLAY, ...stamp(ZERO_STAMP) } }),
-      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_missing", date: day(1), linkClicksColumn: 0, payloadJson: { ...FABRICATED_DISPLAY } }),
-      // R2: two measured-zero days.
-      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_zero", date: day(0), payloadJson: { ...FABRICATED_DISPLAY, ...stamp(ZERO_STAMP) } }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_missing", date: day(1), linkClicksColumn: 0, purchaseEvidenceMissing: true, payloadJson: { ...FABRICATED_DISPLAY } }),
+      // R2: measured zero followed by measured one; both count in the window.
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_zero", date: day(0), conversions: 0, payloadJson: { ...FABRICATED_DISPLAY, ...stamp(ZERO_STAMP) } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_zero", date: day(1), payloadJson: { ...FABRICATED_DISPLAY, ...stamp(ZERO_STAMP) } }),
       // An IDLE unstamped day did nothing, so it is not a gap in the window.
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_idle", date: day(0), payloadJson: { ...FABRICATED_DISPLAY, ...stamp(ZERO_STAMP) } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_idle", date: day(1), idle: true, payloadJson: { ...FABRICATED_DISPLAY } }),
+      // No recent delivered day is absence of measurement, not a measured 0.
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_old_window", date: day(35), payloadJson: stamp(ZERO_STAMP) }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_never_spent", date: day(0), idle: true, effectiveStatus: null, payloadJson: stamp(ZERO_STAMP) }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_never_spent_unknown", date: day(0), idle: true, effectiveStatus: null, payloadJson: stamp(ZERO_STAMP) }),
       // R3: the full writer chain from a raw insight carrying three spellings.
@@ -588,9 +595,11 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
 
     const result = await runLifecycleJob({ businessId: LIFECYCLE_BUSINESS, asOf: AS_OF, evaluationCutoffAt: EVALUATION_CUTOFF_AT });
     expect(result.status, result.errorMessage).toBe("success");
+    expect(result.materializationStatus).toBe("materialized");
 
     const rows = await db.query<LifecycleRow>(
-      `SELECT creative_id, effective_status, frequency_28d, link_clicks_28d, outbound_clicks_28d, landing_page_views_28d,
+      `SELECT creative_id, purchases_28d, purchases_7d, fatigue_status, fatigue_evidence,
+              effective_status, frequency_28d, link_clicks_28d, outbound_clicks_28d, landing_page_views_28d,
               add_to_cart_28d, initiate_checkout_28d, thumbstop_28d, video25_rate_28d,
               video50_rate_28d, video75_rate_28d, video100_rate_28d
          FROM engine_v3_creative_lifecycle_daily
@@ -645,6 +654,22 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     expect(counts("cre_zero_zero")).toEqual({ ...ZERO_STAMP });
     expect(counts("cre_zero_idle")).toEqual({ ...ZERO_STAMP });
     expect(counts("cre_two_accounts_full").link_click).toBe(12);
+  });
+
+  it("keeps a missing purchase measurement NULL, while a complete creative window keeps its count", () => {
+    expect(lifecycle.get("cre_zero_missing")?.purchases_28d).toBeNull();
+    expect(lifecycle.get("cre_zero_missing")?.fatigue_status).toBe("unknown");
+    expect(lifecycle.get("cre_zero_missing")?.fatigue_evidence?.missingContext).toContain(
+      "Purchase evidence is incomplete in a required lifecycle window",
+    );
+    expect(historical.get("cre_zero_missing")?.last90_purchases).toBeNull();
+    expect(lifecycle.get("cre_zero_zero")?.purchases_28d).toBe(1);
+    expect(lifecycle.get("cre_zero_zero")?.purchases_7d).toBe(1);
+    expect(lifecycle.get("cre_old_window")?.purchases_28d).toBeNull();
+    expect(lifecycle.get("cre_old_window")?.purchases_7d).toBeNull();
+    expect(historical.get("cre_old_window")?.last90_purchases).toBe(1);
+    expect(historical.get("cre_zero_zero")?.last90_purchases).toBe(1);
+    expect(lifecycle.get("cre_alias")?.purchases_28d).toBe(2);
   });
 
   it("R3: the canonical alias is read from raw insight to storage — never omni, never a sum, never inline_link_clicks", () => {
@@ -771,7 +796,8 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
   });
 
   it("R5: thumbstop and every video rate are NULL for every creative", () => {
-    expect(lifecycle.size).toBe(10);
+    // Includes the source-complete historical creative with no recent day.
+    expect(lifecycle.size).toBe(11);
     for (const row of lifecycle.values()) {
       expect([
         row.thumbstop_28d,
@@ -981,9 +1007,10 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
         WHERE d.business_id = $1`,
       [LIFECYCLE_BUSINESS],
     );
-    // 24 stored creative-days: the fold rows are two ad-rows each, merged into
-    // one; identity/config-negative and delivery-status cases remain stored.
-    expect(rows.length).toBe(24);
+    // 25 stored creative-days: the fold rows are two ad-rows each, merged into
+    // one; the old-window, identity/config-negative and delivery-status cases
+    // remain stored.
+    expect(rows.length).toBe(25);
     for (const row of rows) {
       for (const stage of stages) {
         expect(row[`lateral_${stage}`], `${row.creative_id} ${row.date} ${stage}`).toEqual(row[`direct_${stage}`]);

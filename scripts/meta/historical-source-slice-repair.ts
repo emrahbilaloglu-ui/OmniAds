@@ -189,7 +189,11 @@ function rebindPriorPublication(input: {
       receipt.targetManifestId !== pointer.activeManifestId ||
       receipt.targetManifestId === receipt.oldManifestId ||
       receipt.sourceSnapshotId !== raw.id ||
-      receipt.sourcePartitionId !== raw.partitionId ||
+      // A run-scoped observation binds a shared canonical raw page to the
+      // manifest's partition. The raw page's own partition can be older (or
+      // null); only a legacy raw-only receipt needs direct partition equality.
+      (receipt.receiptKind === "legacy_run_bound_raw" &&
+        receipt.sourcePartitionId !== raw.partitionId) ||
       receipt.rawUpdatedAt !== raw.updatedAt ||
       oldSlice.businessId !== input.businessId ||
       oldSlice.accountId !== input.accountId ||
@@ -244,6 +248,10 @@ export function evaluateHistoricalSourceSlice(input: {
   eligible.sort((left, right) => time(right.completedAt) - time(left.completedAt));
   const target = eligible[0] ?? null;
   if (!target) blockers.push("matching_completed_manifest_before_pointer_missing");
+  if (pointer?.publicationReason === "manifest_rebind_repair" &&
+      target && asRecord(pointer.activeValidationSummary).sourcePartitionId !== target.partitionId) {
+    blockers.push("rebind_target_partition_receipt_mismatch");
+  }
   if (target && manifests.some((manifest) =>
     manifest.runId === runId && manifest.surface === "account_daily" &&
     manifest.fetchStatus === "completed" && manifest.watermark !== target.watermark &&

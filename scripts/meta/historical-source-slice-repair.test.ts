@@ -105,6 +105,36 @@ function reboundLegacyEvidence(): RepairEvidence {
   return value;
 }
 
+function reboundObservationEvidence(): RepairEvidence {
+  const value = evidence();
+  const original = value.pointer!;
+  // A canonical payload may have been captured under another partition. The
+  // run observation, rather than that payload row, binds it to this manifest.
+  value.raw!.partitionId = null;
+  value.oldSlice = {
+    id: original.activeSliceId, businessId: BUSINESS, accountId: ACCOUNT,
+    day: DAY, surface: "ad_daily", manifestId: OLD, sourceRunId: RUN,
+    publishedAt: "2026-09-23T06:50:32.995Z",
+    supersededAt: "2026-09-24T13:00:00.000Z",
+    status: "superseded", truthState: "finalized", validationStatus: "passed",
+  };
+  original.activeSliceId = "slice-new";
+  original.activeManifestId = TARGET;
+  original.publicationReason = "manifest_rebind_repair";
+  original.publishedAt = "2026-09-24T13:00:00.000Z";
+  original.updatedAt = original.publishedAt;
+  original.activeValidationSummary = {
+    repairContract: "meta-historical-source-slice-repair.v2",
+    reviewedPlanHash: "a".repeat(64), receiptKind: "run_observation",
+    sourceSnapshotId: RAW, targetManifestId: TARGET,
+    sourcePartitionId: PARTITION, rawUpdatedAt: value.raw!.updatedAt,
+    oldPointerId: original.id, oldSliceId: value.oldSlice.id,
+    oldManifestId: OLD, oldPublishedAt: "2026-09-23T06:50:33.000Z",
+    oldRunId: RUN,
+  };
+  return value;
+}
+
 describe("historical source slice repair proof", () => {
   it("selects the exact completed capture and preserves the old pointer in its plan", () => {
     const result = plan(evidence());
@@ -216,6 +246,22 @@ describe("historical source slice repair proof", () => {
     expect(result).toMatchObject({ state: "already_bound", blockers: [],
       next: { manifestId: TARGET, receiptKind: "legacy_run_bound_raw",
         rawUpdatedAt: "2026-09-23T08:00:00.000Z" } });
+  });
+
+  it("binds a shared raw page through its run observation after publication", () => {
+    const value = reboundObservationEvidence();
+    expect(plan(value)).toMatchObject({ state: "already_bound", blockers: [],
+      next: { manifestId: TARGET, partitionId: PARTITION,
+        receiptKind: "run_observation" } });
+    (value.pointer!.activeValidationSummary as Record<string, unknown>)
+      .sourcePartitionId = "another-partition";
+    expect(plan(value).blockers).toContain("rebind_target_partition_receipt_mismatch");
+  });
+
+  it("still requires direct raw partition identity for legacy-only receipts", () => {
+    const value = reboundLegacyEvidence();
+    value.raw!.partitionId = null;
+    expect(plan(value).blockers).toContain("rebind_prior_publication_receipt_invalid");
   });
 
   it("rejects a rebinding without the exact old slice and publication clock", () => {

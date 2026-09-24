@@ -2725,12 +2725,12 @@ export const ACCEPTANCE_CLAIMS = {
     "0": "RELEASE mode: the --gate verdict (pre_deploy or post_deploy) is met for every --business AND no invariant violation",
     "1": "at least one invariant VIOLATION (fail-open or fabrication), in either mode",
     "2": "usage error or read-only / UTC guard refused to run",
-    "3": "RELEASE mode: the --gate verdict is NOT met (a failed day, including a receipt unreconstructable at its cutoff, or a failed presentation, no successful day or presentation, a failed lane, an empty presentation with no source-backed decision reaching the UI, a negative control that is NOT MET, --require-clean on dirty loaded modules, --require-hard-authority without a demonstrated source-authorized hard action, or no available persisted-served generation) or the harness crashed",
+    "3": "RELEASE mode: the --gate verdict is NOT met (a failed day, including a receipt unreconstructable at its cutoff, or a failed presentation, no successful day or presentation, a failed lane, an empty presentation with no source-backed decision reaching the UI, a negative control that is NOT MET, economic ad-days rewritten after the simulated cutoff, --require-clean on dirty loaded modules, --require-hard-authority without a demonstrated source-authorized hard action, or no available persisted-served generation) or the harness crashed",
     "4": "DIAGNOSTIC mode (--skip-decisions, --diagnostic or --knowledge-cutoffs) finished without a violation; a diagnostic run is never release success",
   },
   releaseGates: {
     pre_deploy:
-      "Every --business: no lane failed; no simulated decision day failed and at least one succeeded with at least one ad decision; no hydration claim went without an independent reading; no presentation raised, none whose receipt passed produced an invalid or refused generation, and at least one account was presented; PRESENCE (below) holds; the persisted-served lane ran, and its answer is either an available generation or native_latest_job_engine_mismatch whose latest persisted run is a complete success (receipt hydrated == expected, manifest match, authoritative). No new-epoch persisted generation is required. With --negative-control, the NEGATIVE CONTROL (below) must be MET. With --require-clean, no loaded repo module may differ from HEAD.",
+      "Every --business: no lane failed; no selected subject or negative-control account had an economic ad-day rewritten after its simulated cutoff; no simulated decision day failed and at least one succeeded with at least one ad decision; no hydration claim went without an independent reading; no presentation raised, none whose receipt passed produced an invalid or refused generation, and at least one account was presented; PRESENCE (below) holds; the persisted-served lane ran, and its answer is either an available generation or native_latest_job_engine_mismatch whose latest persisted run is a complete success (receipt hydrated == expected, manifest match, authoritative). No new-epoch persisted generation is required. With --negative-control, the NEGATIVE CONTROL (below) must be MET. With --require-clean, no loaded repo module may differ from HEAD.",
     post_deploy:
       "Everything in pre_deploy, and the persisted-served path returned an AVAILABLE, non-degraded generation in HEAD's epoch for every selected account.",
     presence:
@@ -4034,6 +4034,21 @@ export function evaluateReleaseAcceptance(
     ];
     for (const [lane, value] of lanes) {
       if (isFailure(value)) failures.push(`${lane} lane failed: ${value.error}`);
+    }
+    if (report.mode === "release" && !isFailure(business.ledger)) {
+      for (const account of business.ledger.perAccount.filter((entry) => entry.selected)) {
+        for (const row of account.restatedAfterCutoff) {
+          const hydrationWindow = row.hydrationWindow28d as Record<string, unknown> | undefined;
+          const economicRows = Number(hydrationWindow?.restatedEconomicRows ?? 0);
+          if (economicRows > 0) {
+            failures.push(
+              `point-in-time inconclusive for ${account.providerAccountId} ` +
+              `at ${String(row.cutoff ?? "unknown cutoff")} (${economicRows} economic ad-day(s) ` +
+              "rewritten after cutoff; current rows cannot reconstruct their cutoff values)",
+            );
+          }
+        }
+      }
     }
     const verdict: BusinessReleaseVerdict = {
       businessId: business.businessId,

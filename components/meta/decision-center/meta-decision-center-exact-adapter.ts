@@ -2286,9 +2286,14 @@ export function buyerFacingCreativeResolution(
     resolution.code === "apply_cut_manually" &&
     canonical?.configEvidence?.verified !== true
   ) {
-    return "The reduction recommendation has economic evidence, but campaign configuration receipts are not fully verified. Check them before deciding on a manual pause; no automated Meta action is authorized.";
+    return "The reduction recommendation has economic evidence, but the campaign configuration for every day behind it is not confirmed. Check the campaign's current setup in Ads Manager before deciding on a manual pause; no automated Meta action is authorized.";
   }
-  const mapped = knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
+  // A system-owned resolution names what it waits on and that nothing is
+  // required; only an operator (or tracking) resolution is phrased as a task.
+  // @see resolutionWaitsOnSystem
+  const mapped = resolutionWaitsOnSystem(resolution)
+    ? `${systemResolutionStatus(resolution)} ${NO_BUYER_ACTION_NEEDED}; this ad is re-checked on each decision run.`
+    : knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
   // Metric availability is supplementary evidence for an already blocked row
   // with a server-produced resolution. It never creates a blocked resolution.
   // `native_metrics_unavailable` also represents a missing account winner
@@ -2371,7 +2376,7 @@ export function buyerFacingCreativeScope(
 ): string | null {
   if (decision.action.code === "apply_cut_manually") {
     if (canonical?.configEvidence?.verified !== true) {
-      return "Review-only reduction recommendation. Verify campaign configuration before a manual pause; automated stop is held.";
+      return "Review-only reduction recommendation. Check the campaign's current setup in Ads Manager before a manual pause; automated stop is held.";
     }
     return "Review only. If you agree, pause this ad in Meta yourself; automated stop is held for campaign role.";
   }
@@ -2486,6 +2491,87 @@ export function buyerHeldVerdictLabel(
   return BUYER_HELD_VERDICT_COPY[action];
 }
 
+/* ------------------------------------------------------------------ *
+ * WHO HAS TO ACT
+ * ------------------------------------------------------------------ */
+
+/**
+ * Whether the served resolution waits on the pipeline rather than on the buyer.
+ *
+ * Read from the server's typed `owner`, never inferred from a code or a label.
+ * `lib/meta/decision-semantics.ts` stamps every resolution with the party that
+ * can clear it:
+ *
+ * - `system` holds clear on their own. The next decision run re-evaluates them
+ *   once receipts, source coverage, confirmation, the account profile or the
+ *   campaign role catch up.
+ * - An `integration` hold in the `data` category waits on the Meta sync. The
+ *   header's snapshot refresh does not re-run Ad decisions, so "Refresh decision
+ *   data" pointed the buyer at a control that cannot clear it.
+ *
+ * Neither is a task a media buyer can perform. The copy for them used to be
+ * imperative ("Verify provider campaign configuration for the evaluation day
+ * and every economic day…", "Restore fresh, completed Meta source data"), which
+ * turned the Needs Resolution lane into a list of chores nobody outside the
+ * pipeline can do.
+ *
+ * `operator` resolutions, other integration categories (tracking) and rows with
+ * no served resolution keep their imperative steps unchanged. This chooses
+ * WORDING only: the lane, the held action, the published label and every
+ * authority gate stay exactly as served.
+ */
+function resolutionWaitsOnSystem(
+  resolution: MetaOsAdDecision["resolution"] | undefined,
+): boolean {
+  if (!resolution) return false;
+  return (
+    resolution.owner === "system" ||
+    (resolution.owner === "integration" && resolution.category === "data")
+  );
+}
+
+/** What a system-owned resolution is waiting on, stated as a fact. */
+const SYSTEM_RESOLUTION_STATUS_COPY: Readonly<Record<string, string>> = {
+  complete_hard_action_evidence:
+    "The evidence this change needs is still being completed.",
+  resolve_evidence_gap: "Missing decision evidence is still being completed.",
+  restore_native_profile:
+    "The ad-level decision profile is rebuilt by the next decision run.",
+  resolve_campaign_role:
+    "The campaign role is still being verified automatically.",
+  await_decision_confirmation:
+    "The next decision run still has to confirm it.",
+  await_recent_evidence: "More recent performance data is still accruing.",
+  await_scale_calibration_sample:
+    "The account does not yet have enough mature creatives for the Scale calibration floor.",
+  await_scale_winner_benchmark:
+    "The account winner purchase benchmark is not available yet.",
+  refresh_decision_data:
+    "Decision data for this ad is waiting for the next Meta sync.",
+  // D108 (#290) serves this as integration/data: re-fetching the provider
+  // rows, not the buyer, verifies them. Named here so it states its own fact.
+  verify_purchase_observation:
+    "The original Meta purchase actions for the affected Ad days are not verified yet. Spend and traffic can remain measured while purchase totals are unverified; no Meta change is authorized from those totals.",
+  // Compatibility: the pending-inventory placeholder older payloads carry.
+  // Already a wait, so its established sentence is kept.
+  produce_native_ad_decision: "Wait for the next completed ad-level decision.",
+};
+
+const SYSTEM_RESOLUTION_STATUS_FALLBACK =
+  "The evidence this decision needs is still being completed.";
+
+/** The closing clause every system-owned wait ends with. */
+const NO_BUYER_ACTION_NEEDED = "No action is needed from you";
+
+function systemResolutionStatus(
+  resolution: NonNullable<MetaOsAdDecision["resolution"]>,
+): string {
+  return (
+    knownBuyerCopy(SYSTEM_RESOLUTION_STATUS_COPY, resolution.code) ??
+    SYSTEM_RESOLUTION_STATUS_FALLBACK
+  );
+}
+
 export interface CreativeHeldVerdict {
   action: "scale" | "cut" | "refresh";
   /** The badge, distinct from the published label sitting beside it. */
@@ -2494,16 +2580,22 @@ export interface CreativeHeldVerdict {
   nextStep: string;
 }
 
+type HeldPrimaryReason =
+  | "winner_benchmark_missing"
+  | "scale_calibration_sample"
+  | "profile_not_authorized"
+  | "campaign_role_unresolved";
+
 /**
  * A resolution code can cover several independent holds. Name the persisted
  * first blocker before appending secondary prerequisites, using only exact
  * server-owned codes. Never interpret producer prose or display labels as a
  * new decision.
  */
-function heldPrimaryStep(
+function heldPrimaryReason(
   decision: MetaOsAdDecision,
   firstBlocker: string | null,
-): string | null {
+): HeldPrimaryReason | null {
   const resolution = decision.heldResolution;
   if (!resolution) return null;
   if (
@@ -2511,7 +2603,7 @@ function heldPrimaryStep(
     resolution.code === "await_scale_winner_benchmark" &&
     decision.heldAction === "scale"
   ) {
-    return "The account winner purchase benchmark is missing. Wait for enough winning ads before scaling.";
+    return "winner_benchmark_missing";
   }
   if (
     firstBlocker === "profile_hard_action_ineligible" &&
@@ -2519,17 +2611,57 @@ function heldPrimaryStep(
       resolution.code === "await_scale_calibration_sample")
   ) {
     if (decision.heldAction === "scale" && resolution.code === "await_scale_calibration_sample") {
-      return "The account has too few mature creatives for the Scale calibration floor. Wait for more mature creatives before scaling.";
+      return "scale_calibration_sample";
     }
-    return "The decision profile does not yet authorize this change. Review its action-specific evidence and missing requirement before applying it.";
+    return "profile_not_authorized";
   }
   if (
     firstBlocker === "campaign_context" &&
     resolution.code === "complete_hard_action_evidence"
   ) {
-    return "The campaign role is still unresolved. Verify its context before deciding how to apply this change.";
+    return "campaign_role_unresolved";
   }
   return null;
+}
+
+const HELD_PRIMARY_STEP_COPY: Readonly<Record<HeldPrimaryReason, string>> = {
+  winner_benchmark_missing:
+    "The account winner purchase benchmark is missing. Wait for enough winning ads before scaling.",
+  scale_calibration_sample:
+    "The account has too few mature creatives for the Scale calibration floor. Wait for more mature creatives before scaling.",
+  profile_not_authorized:
+    "The decision profile does not yet authorize this change. Review its action-specific evidence and missing requirement before applying it.",
+  campaign_role_unresolved:
+    "The campaign role is still unresolved. Verify its context before deciding how to apply this change.",
+};
+
+/** The same primary reasons, as the status a system-owned hold is waiting on. */
+const HELD_PRIMARY_STATUS_COPY: Readonly<Record<HeldPrimaryReason, string>> = {
+  winner_benchmark_missing:
+    "The account winner purchase benchmark is missing until enough winning ads accrue.",
+  scale_calibration_sample:
+    SYSTEM_RESOLUTION_STATUS_COPY.await_scale_calibration_sample!,
+  profile_not_authorized:
+    "The account's decision profile does not yet authorize this change.",
+  campaign_role_unresolved:
+    SYSTEM_RESOLUTION_STATUS_COPY.resolve_campaign_role!,
+};
+
+/** The pipeline conditions a held verdict can additionally be waiting on. */
+const HELD_PREREQUISITE_STATUS = {
+  config:
+    "The campaign configuration for every day behind it is not confirmed yet.",
+  source: "Fresh, completed Meta source data is still arriving.",
+  confirmation: SYSTEM_RESOLUTION_STATUS_COPY.await_decision_confirmation!,
+  campaignRole: SYSTEM_RESOLUTION_STATUS_COPY.resolve_campaign_role!,
+} as const;
+
+function heldPrimaryStep(
+  decision: MetaOsAdDecision,
+  firstBlocker: string | null,
+): string | null {
+  const reason = heldPrimaryReason(decision, firstBlocker);
+  return reason ? HELD_PRIMARY_STEP_COPY[reason] : null;
 }
 
 /**
@@ -2586,18 +2718,15 @@ export function heldCreativeVerdict(
     authorityBlocker === "campaign_context" ||
     blockerCodes.has("campaign_context") ||
     blockerCodes.has("campaign_context_unresolved");
+  // Every prerequisite below is a pipeline condition — a config receipt, source
+  // coverage, a confirming run, the automatic role — so it is stated as what
+  // is outstanding, never as a buyer task, whoever owns the resolution.
   const prerequisites = [
-    needsConfig
-      ? "Verify provider campaign configuration for the evaluation day and every economic day behind this recommendation."
-      : null,
-    needsFreshSource
-      ? "Restore fresh, completed Meta source data."
-      : null,
-    needsConfirmation
-      ? "Wait for the required consecutive decision confirmation."
-      : null,
+    needsConfig ? HELD_PREREQUISITE_STATUS.config : null,
+    needsFreshSource ? HELD_PREREQUISITE_STATUS.source : null,
+    needsConfirmation ? HELD_PREREQUISITE_STATUS.confirmation : null,
     needsCampaignContext && primaryStep === null && (needsConfig || needsFreshSource || needsConfirmation)
-      ? "Campaign context must also be verified before the change can be applied."
+      ? HELD_PREREQUISITE_STATUS.campaignRole
       : null,
   ].filter((part): part is string => Boolean(part));
   const resolutionCode = decision.heldResolution?.code;
@@ -2627,9 +2756,9 @@ export function heldCreativeVerdict(
   const additionalPrerequisites = prerequisites.filter((part) =>
     !(
       (resolutionCode === "await_decision_confirmation" &&
-        part === "Wait for the required consecutive decision confirmation.") ||
+        part === HELD_PREREQUISITE_STATUS.confirmation) ||
       (resolutionCode === "resolve_campaign_role" &&
-        part === "Campaign context must also be verified before the change can be applied.")
+        part === HELD_PREREQUISITE_STATUS.campaignRole)
     ),
   );
   const step = decision.heldResolution
@@ -2641,6 +2770,36 @@ export function heldCreativeVerdict(
   // the server's blocked state, action and write authority remain untouched.
   const cutSignalAwaitingEvidence =
     !manualCutReady && action === "cut" && decision.rawLabel === "test_more";
+  /*
+    A SYSTEM-OWNED HOLD STATES WHAT IT WAITS ON, NOT A CHORE.
+
+    The typed `owner` on the held resolution says nobody but the pipeline can
+    clear it (see `resolutionWaitsOnSystem`). Same typed facts as the
+    imperative path below — primary reason, config/source/confirmation/role
+    prerequisites — rendered as the conditions being waited on, then one
+    closing clause. The D097 manual Cut is operator-owned and never enters here.
+  */
+  if (resolutionWaitsOnSystem(decision.heldResolution) && !manualCutCandidate) {
+    const primaryReason = heldPrimaryReason(decision, authorityBlocker);
+    const waits = [
+      primaryReason
+        ? HELD_PRIMARY_STATUS_COPY[primaryReason]
+        : systemResolutionStatus(decision.heldResolution!),
+      ...prerequisites,
+      needsCampaignContext ? HELD_PREREQUISITE_STATUS.campaignRole : null,
+    ].filter((part): part is string => Boolean(part));
+    return {
+      action,
+      label: cutSignalAwaitingEvidence
+        ? "Spend reduction signal awaiting verification"
+        : `Recommendation on hold: ${verdict}`,
+      nextStep: `${[...new Set(waits)].join(" ")} ${NO_BUYER_ACTION_NEEDED}; ${
+        cutSignalAwaitingEvidence
+          ? "the spend reduction signal"
+          : `this ${verdict} recommendation`
+      } is re-checked on each decision run.`,
+    };
+  }
   /*
     ── ROUND 9 ITEM 7: PLAIN ACTION LANGUAGE, NOT THE ENGINE'S ───────────────
 
@@ -2672,7 +2831,7 @@ export function heldCreativeVerdict(
       ? (knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, "apply_cut_manually") ??
         "Review this ad and pause it yourself in Meta if you agree; automated execution is held.")
       : manualCutConfigGap
-        ? "The economic reduction recommendation is visible, but campaign configuration receipts are incomplete. Verify them before deciding on a manual pause; automated execution remains held."
+        ? "The economic reduction recommendation is visible, but the campaign configuration for every day behind it is not confirmed. Check the campaign's current setup in Ads Manager before deciding on a manual pause; automated execution remains held."
       : cutSignalAwaitingEvidence
       ? step
         ? `${step} Then reassess whether to reduce spend.`

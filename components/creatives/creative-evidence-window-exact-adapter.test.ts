@@ -1238,9 +1238,9 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
       }),
     });
     const reason = String(value(model.authority, "held-reason"));
-    expect(reason).toContain("evaluation day and every economic day");
-    expect(reason).toContain("fresh, completed Meta source data");
-    expect(reason).toContain("required consecutive decision confirmation");
+    expect(reason).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(reason).toContain("Fresh, completed Meta source data is still arriving.");
+    expect(reason).toContain("The next decision run still has to confirm it.");
     expect(reason).not.toContain("Internal producer copy");
     expect(reason).not.toContain("Pause this ad");
   });

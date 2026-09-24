@@ -1,5 +1,5 @@
 {
-  "manifestHash": "c80a98b147fbec1d2c6d7651c954f4f79629703e41018ac57dd0f3fa04815d97",
+  "manifestHash": "eb1b29f79c184e434833d7ba5bf58002c95d0685b2fa0cfdcbb2f5824036b99f",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1500,7 +1500,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "631db9bacf083a2a06c347dfb980326293bb89227653cff65349f2cfa8a41b07"
+      "sha256": "331f8ff6c1542e6946e76594c513c123bb11cbdaaa600ab7bf26dd908a329c68"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

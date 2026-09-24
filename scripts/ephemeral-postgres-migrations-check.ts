@@ -1200,6 +1200,37 @@ async function runChildVitest(
   });
 
   if (exitCode !== 0) {
+    // JSON reporter suppresses Vitest's usual assertion output. Surface a
+    // bounded failure before the throwaway runner deletes its database.
+    if (fs.existsSync(reportPath)) {
+      try {
+        const failedReport = JSON.parse(fs.readFileSync(reportPath, "utf8")) as {
+          testResults?: Array<{
+            name?: string;
+            message?: string;
+            assertionResults?: Array<{
+              fullName?: string;
+              status?: string;
+              failureMessages?: string[];
+            }>;
+          }>;
+        };
+        for (const file of failedReport.testResults ?? []) {
+          for (const assertion of file.assertionResults ?? []) {
+            if (assertion.status !== "failed") continue;
+            log(
+              `${runLabel} failed: ${assertion.fullName ?? file.name ?? testPath}\n` +
+                (assertion.failureMessages ?? []).join("\n").slice(0, 12_000),
+            );
+          }
+          if (file.message) {
+            log(`${runLabel} file failure: ${file.message.slice(0, 12_000)}`);
+          }
+        }
+      } catch (error) {
+        log(`${runLabel} report parse failed: ${String(error)}`);
+      }
+    }
     throw new Error(`${runLabel} exited with code ${exitCode}.`);
   }
 

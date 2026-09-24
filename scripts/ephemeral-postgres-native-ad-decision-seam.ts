@@ -1131,6 +1131,13 @@ async function createHydrationSourceSchema(client: Client) {
       published_by_run_id TEXT, published_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
     );
+    CREATE TABLE meta_authoritative_reconciliation_events (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id TEXT NOT NULL, provider_account_id TEXT NOT NULL,
+      day DATE NOT NULL, surface TEXT NOT NULL, manifest_id UUID,
+      event_kind TEXT NOT NULL, result TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL
+    );
     CREATE TABLE meta_ad_dimensions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
       business_ref_id UUID, provider_account_id TEXT NOT NULL,

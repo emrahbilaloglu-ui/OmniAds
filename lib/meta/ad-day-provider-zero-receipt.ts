@@ -107,6 +107,34 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND source.fetched_at <= manifest.completed_at
           AND source.created_at <= manifest.completed_at
           AND manifest.completed_at <= ${cutoffSql}
+          -- A published Ad slice can retain passed even when the run-level
+          -- source totals failed reconciliation. The exact manifest must have
+          -- a successful account-day validation before this Ad publication.
+          AND EXISTS (
+            SELECT 1
+            FROM meta_authoritative_reconciliation_events validation
+            WHERE validation.manifest_id = manifest.id
+              AND validation.business_id = manifest.business_id
+              AND validation.provider_account_id = manifest.provider_account_id
+              AND validation.day = manifest.day
+              AND validation.surface = 'account_daily'
+              AND validation.event_kind = 'validation_passed'
+              AND validation.result = 'passed'
+              AND validation.created_at <= pointer.published_at
+              AND validation.created_at <= ${cutoffSql}
+              AND NOT EXISTS (
+                SELECT 1
+                FROM meta_authoritative_reconciliation_events later_failure
+                WHERE later_failure.manifest_id = manifest.id
+                  AND later_failure.business_id = manifest.business_id
+                  AND later_failure.provider_account_id = manifest.provider_account_id
+                  AND later_failure.day = manifest.day
+                  AND later_failure.surface = 'account_daily'
+                  AND later_failure.result IN ('failed', 'repair_required')
+                  AND later_failure.created_at >= validation.created_at
+                  AND later_failure.created_at <= pointer.published_at
+              )
+          )
           AND source.request_context->>'source' = 'bulk_core_sync'
           AND source.request_context->>'level' = 'ad'
           AND (NOT (source.request_context ? 'fields')

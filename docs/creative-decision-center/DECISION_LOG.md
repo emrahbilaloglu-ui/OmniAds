@@ -10381,7 +10381,11 @@ means zero action events only when that exact row is in a successful
 `actions`, and the same account-day/source run has a completed fresh manifest
 and published `ad_daily` pointer visible at the evaluation cutoff. Its active
 Ad slice references the exact run-level `account_daily` manifest, and the
-Ad-day fact must have been written before pointer publication. This is the
+Ad-day fact must have been written before pointer publication. That manifest
+must also have a `validation_passed` / `passed` account-day reconciliation
+event before the pointer was published, with no later failure on the same
+manifest before publication. A slice's own `passed` flag cannot override
+failed run-level source totals. This is the
 `provider_zero` state. An `actions` array without an event remains measured
 zero; a missing key without that source proof, an explicit null/object,
 malformed/duplicate action entry, or contradictory stored purchase count
@@ -10409,6 +10413,12 @@ completion, though before pointer publication. The final receipt joins the
 `ad_daily` pointer's active slice to its exact manifest and binds the raw observation by
 snapshot, account and run. Snapshot `run_id` was null in the older writer;
 the observation receipt, not canonical content identity, supplies run lineage.
+An independent IronCustomWood 2026-09-23 read exposed three spending Ad rows
+that satisfied the slice and raw clocks while their exact manifest's sole
+reconciliation event was `totals_mismatch` / `repair_required` before
+publication. All three now remain unknown. Requiring the exact manifest's
+successful reconciliation does not change the 28 Grandmix / 11 TheSwaf
+positive count at the stated cutoff.
 An independent, fully paginated Graph `level=adset`, daily 2026-09-17..23
 read returned 49/49 Grandmix and 595/595 TheSwaf adset-days. Among the 99
 adset-days containing 114 no-actions child rows, adset purchase and link-click
@@ -10449,7 +10459,9 @@ explicit null, malformed/duplicate/contradictory counts, alias equality and
 hard-action gating. The corrected read-only production query verified provider
 zero for 28/93 Grandmix and 11/142 TheSwaf sample rows. The real-PostgreSQL
 seam proves a reused run cannot borrow a later manifest when its active slice
-points to an earlier one, or attach an Ad-day fact updated after publication.
+points to an earlier one, attach an Ad-day fact updated after publication, or
+borrow another manifest's validation. A repair-required or post-publication
+validation remains unknown.
 Replay and served readback must show positive controls still
 capable of decisions and truly unverified rows held for the named reason.
 

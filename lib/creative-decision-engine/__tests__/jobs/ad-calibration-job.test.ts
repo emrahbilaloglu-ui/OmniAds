@@ -4064,8 +4064,55 @@ describe.runIf(postgresAvailable)(
           verified: false, purchases: null, link_clicks: null, lpv: null,
         });
         expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        await pool.query(`INSERT INTO meta_authoritative_reconciliation_events
+          (business_id, provider_account_id, day, surface, manifest_id,
+           event_kind, result, created_at)
+          VALUES ($1,$2,$3::date,'account_daily',gen_random_uuid(),
+            'validation_passed','passed','2026-07-12T01:50:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        // The Ad slice can be marked passed even when the run-level account
+        // totals require repair; only an exact manifest validation grants zero.
+        await pool.query(`INSERT INTO meta_authoritative_reconciliation_events
+          (business_id, provider_account_id, day, surface, manifest_id,
+           event_kind, result, created_at)
+          VALUES ($1,$2,$3::date,'account_daily',$4::uuid,
+            'totals_mismatch','repair_required','2026-07-12T01:50:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, manifest.rows[0]!.id]);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        const validation = await pool.query<{ id: string }>(`INSERT INTO meta_authoritative_reconciliation_events
+          (business_id, provider_account_id, day, surface, manifest_id,
+           event_kind, result, created_at)
+          VALUES ($1,$2,$3::date,'account_daily',$4::uuid,
+            'validation_passed','passed','2026-07-12T02:01:00Z') RETURNING id`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, manifest.rows[0]!.id]);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        await pool.query(`UPDATE meta_authoritative_reconciliation_events
+          SET created_at='2026-07-12T01:55:00Z' WHERE id=$1::uuid`,
+          [validation.rows[0]!.id]);
+        expect(await read(cutoff)).toMatchObject({
           verified: true, purchases: 0, link_clicks: 0, lpv: 0,
         });
+        // A later failure on the same manifest cannot borrow the earlier pass.
+        const laterFailure = await pool.query<{ id: string }>(`INSERT INTO meta_authoritative_reconciliation_events
+          (business_id, provider_account_id, day, surface, manifest_id,
+           event_kind, result, created_at)
+          VALUES ($1,$2,$3::date,'account_daily',$4::uuid,
+            'totals_mismatch','repair_required','2026-07-12T01:56:00Z') RETURNING id`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, manifest.rows[0]!.id]);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        await pool.query(`DELETE FROM meta_authoritative_reconciliation_events WHERE id=$1::uuid`,
+          [laterFailure.rows[0]!.id]);
         // The Ad-day fact must have been materialized before this Ad slice
         // was published, not attached to an earlier pointer on a later retry.
         await pool.query(`UPDATE meta_ad_daily
@@ -4777,6 +4824,11 @@ async function createEphemeralSchema(pool: Pool) {
       active_slice_version_id UUID, published_by_run_id TEXT,
       published_at TIMESTAMPTZ, created_at TIMESTAMPTZ,
       updated_at TIMESTAMPTZ
+    );
+    CREATE TABLE meta_authoritative_reconciliation_events (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id TEXT, provider_account_id TEXT, day DATE, surface TEXT,
+      manifest_id UUID, event_kind TEXT, result TEXT, created_at TIMESTAMPTZ
     );
     INSERT INTO businesses (id, name) VALUES ('${BUSINESS_ID}', 'Test');
     INSERT INTO provider_accounts (

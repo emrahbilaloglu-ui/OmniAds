@@ -3950,6 +3950,20 @@ async function main() {
       14,
     );
 
+    // The prior-label query must keep epoch, evaluation-lineage, and replay
+    // cutoff semantics while selecting current-epoch snapshots first.
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "lib",
+        "creative-decision-engine",
+        "decision-stability.db.test.ts",
+      ),
+      "Native ad prior-label query DB seam check",
+      1,
+    );
+
     /*
       The REPAIR half, and its readback verifier.
 

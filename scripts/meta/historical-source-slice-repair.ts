@@ -419,10 +419,7 @@ export function evaluateHistoricalSourceSlice(input: {
       event.manifestId === target.id && event.surface === "account_daily" &&
       Number.isFinite(time(event.createdAt)) &&
       time(event.createdAt) <= cutoff);
-    const passed = events.filter((event) =>
-      event.eventKind === "validation_passed" && event.result === "passed" &&
-      time(event.createdAt) >= time(target.completedAt) &&
-      time(event.createdAt) <= time(proofPublishedAt) &&
+    const matchesSpend = (event: RepairReconciliation) =>
       numeric(event.sourceSpend) !== null &&
       (centPrecisionCandidate
         ? cents(event.sourceSpend) === centPrecisionCandidate.sourceCents
@@ -430,12 +427,25 @@ export function evaluateHistoricalSourceSlice(input: {
       numeric(event.warehouseAccountSpend) !== null &&
       (centPrecisionCandidate
         ? cents(event.warehouseAccountSpend) === centPrecisionCandidate.adCents
-        : Math.abs(event.warehouseAccountSpend! - spend) <= 0.01))
-      .sort((left, right) => time(right.createdAt) - time(left.createdAt))[0];
-    const laterFailure = passed && events.some((event) =>
-      (event.result === "repair_required" || event.result === "failed") &&
-      time(event.createdAt) >= time(passed.createdAt));
-    reconciliationPassed = Boolean(passed) && !laterFailure;
+        : Math.abs(event.warehouseAccountSpend! - spend) <= 0.01);
+    const witnessedBeforePublication = events.some((event) =>
+      event.eventKind === "validation_passed" && event.result === "passed" &&
+      time(event.createdAt) >= time(target.completedAt) &&
+      time(event.createdAt) <= time(proofPublishedAt) &&
+      matchesSpend(event));
+    // A newer validation can contradict an older matching pass without being
+    // a `failed` event. Only the latest conclusive receipt may corroborate the
+    // candidate; conflicting receipts at the same timestamp also fail closed.
+    const conclusive = events.filter((event) =>
+      time(event.createdAt) >= time(target.completedAt) &&
+      (event.eventKind === "validation_passed" ||
+        event.result === "repair_required" || event.result === "failed"));
+    const latestAt = conclusive.reduce((latest, event) =>
+      Math.max(latest, time(event.createdAt)), Number.NEGATIVE_INFINITY);
+    const latest = conclusive.filter((event) => time(event.createdAt) === latestAt);
+    reconciliationPassed = witnessedBeforePublication && latest.length > 0 &&
+      latest.every((event) => event.eventKind === "validation_passed" &&
+        event.result === "passed" && matchesSpend(event));
     if (!reconciliationPassed) {
       blockers.push("exact_manifest_validation_receipt_missing_or_failed");
     }

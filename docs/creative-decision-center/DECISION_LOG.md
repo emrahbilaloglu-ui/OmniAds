@@ -10888,10 +10888,11 @@ cent value; and the account-vs-Ad gap is within both the original writer's
 `max(0.01, sourceSpend * 0.001)` acceptance tolerance and the conservative
 `(Ad row count + 1) / 2` cent quantization envelope. The exact target
 manifest must have a `validation_passed` receipt before publication whose
-source and warehouse values match those two cent totals, with no later
-failure. This envelope is a **bounded admission policy**, not a claim that
-Meta's account/Ad discrepancy was conclusively caused by rounding. A
-receipt that failed at publication, a wider discrepancy, a missing Ad/raw
+source and warehouse values match those two cent totals. The latest conclusive
+receipt through evaluation must also match; a later failed or contradicting
+validation holds the day. This envelope is a **bounded admission policy**,
+not a claim that Meta's account/Ad discrepancy was conclusively caused by
+rounding. A receipt that failed at publication, a wider discrepancy, a missing Ad/raw
 row, non-cent raw spend, or a changed payload stays held.
 
 The v3 candidate records both cent totals, absolute gap, row count and

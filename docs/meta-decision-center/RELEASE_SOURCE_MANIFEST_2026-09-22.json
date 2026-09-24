@@ -1,5 +1,5 @@
 {
-  "manifestHash": "57e05509ef22a98149dfe35af05cd3af2ace7cdb0cc0924d0a609c1d63170a17",
+  "manifestHash": "70abc85ad01b6d94171a9bbfea823fd5b4a15314d16c5167d4f450e0c59a964f",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -580,7 +580,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "9e4a691cfa7c98028f45b4eacdcaec4cbafce0c850792e80d4e82011ef0eec37"
+      "sha256": "efddd4540a4b9c5a52a3d9c3f0ba14f5423e3e144fbf33da383c2913847e0113"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -2036,11 +2036,11 @@
     },
     {
       "path": "scripts/meta/historical-source-slice-repair.test.ts",
-      "sha256": "33ffaa5aa8661e432e76ba7fa49151846a002138dbf5f0115bb1c08e2e590fa2"
+      "sha256": "2e2c0514fa84d3fa9a5fe84546ab0400773e0bee15c816286ebd31fa655f008a"
     },
     {
       "path": "scripts/meta/historical-source-slice-repair.ts",
-      "sha256": "08125af65638945f1b30b8ece3ad0ae06620e40119cf5ea6da0d403beff36510"
+      "sha256": "78cc85b74ff4d090ea6a0315c56d605555c7228cfed46a44b422055a1b27737f"
     },
     {
       "path": "scripts/meta/link-click-repair-backfill.db.test.ts",

@@ -4376,7 +4376,6 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           requestContext: {
             level: "ad",
             source: "bulk_core_sync",
-            fields: META_BULK_CORE_INSIGHTS_FIELDS,
             pageIndex,
             fields: coreRequestFields,
           },

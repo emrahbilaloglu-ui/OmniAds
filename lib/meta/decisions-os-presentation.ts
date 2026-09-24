@@ -1630,6 +1630,7 @@ function adDecision(
     id: `ad:${ad.id}`,
     decisionId: decision.decisionId,
     sourceSnapshotId: decision.sourceSnapshotId,
+    decisionWindow: decision.decisionWindow ?? null,
     episodeId: decision.episodeId,
     providerAccountId: decision.providerAccountId,
     adId: ad.id,

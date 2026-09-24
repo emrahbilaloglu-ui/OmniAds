@@ -365,6 +365,8 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   } | null;
   observedSparkPath?: string | null;
   money?: MetaDecisionCenterExactDisplayValue;
+  /** Server-served admitted Ad economic dates, not the page's filter window. */
+  moneyWindowLabel?: MetaDecisionCenterExactDisplayValue;
   moneySub?: MetaDecisionCenterExactDisplayValue;
   actionLabel?: MetaDecisionCenterExactDisplayValue;
   actionTone?: MetaDecisionCenterExactTone;
@@ -2031,7 +2033,11 @@ function CreativeCard({
           </div>
         ) : null}
         <div className={styles.creativeMoneyBlock}>
-          <p className={styles.creativeSparkLabel}>{copy.decisionWindowed}</p>
+          <p className={styles.creativeSparkLabel}>
+            {meaningfulDisplay(row.moneyWindowLabel)
+              ? display(row.moneyWindowLabel)
+              : copy.decisionWindowed}
+          </p>
           <p className={styles.moneyValue}>{display(row.money)}</p>
           <p className={styles.moneySub}>{display(row.moneySub)}</p>
         </div>

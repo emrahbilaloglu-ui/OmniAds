@@ -5237,8 +5237,8 @@ describe("the refresh posture tile separates authorized from held", () => {
 
 describe("the native economics caption claims no window it cannot substantiate", () => {
   /*
-    D098 metrics can cover fewer than 28 days, and the served row carries no
-    admitted-window dates. The captions must not claim a fixed period.
+    D107 metrics can cover fewer than 28 days. If an older served row carries
+    no admitted-window dates, the captions must not claim a fixed period.
   */
   const inspectorFor = (metrics: Partial<MetaCanonicalDecision["metrics"]>) => {
     const creative = creativeFixture({ blockers: [] });
@@ -5277,6 +5277,46 @@ describe("the native economics caption claims no window it cannot substantiate",
       expect(row.label, row.id).not.toMatch(/\b\d+\s*d(ays)?\b/i);
       expect(row.label, row.id).not.toContain("28");
     }
+  });
+
+  it("shows the admitted Ad period instead of the page's reporting filter", () => {
+    const creative = creativeFixture({
+      decisionWindow: {
+        contractVersion: "meta-decision-admitted-window.presentation.v1",
+        startDate: "2026-08-10",
+        endDate: "2026-08-16",
+        calendarDaySpan: 7,
+        observedDayCount: 5,
+        economicDayCount: 4,
+        bridgedUnresolvedDayCount: 1,
+      },
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ os: fullOs({ creatives: [creative] }) }),
+      selection: {
+        kind: "creative",
+        decisionId: creative.decisionId,
+        sourceSnapshotId: creative.sourceSnapshotId,
+      },
+    });
+    expect(model.creativeDecisions?.[0]?.moneyWindowLabel).toBe(
+      "Decision · 2026-08-10–2026-08-16 · 4/7 economic days",
+    );
+    expect(model.inspector?.evidenceWindow).toBe("2026-08-10 to 2026-08-16");
+    expect(model.inspector?.asOf).toBe(creative.snapshotAsOf);
+    expect(model.inspector?.evidence?.find((row) => row.id === "economic-days")?.value).toBe(4);
+    expect(model.inspector?.evidence?.find((row) => row.id === "bridged-context-days")?.value).toBe(1);
+
+    const legacy = creativeFixture({ decisionWindow: null });
+    const legacyModel = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ os: fullOs({ creatives: [legacy] }) }),
+      selection: {
+        kind: "creative",
+        decisionId: legacy.decisionId,
+        sourceSnapshotId: legacy.sourceSnapshotId,
+      },
+    });
+    expect(legacyModel.inspector?.evidenceWindow).toBe("—");
   });
 
 });

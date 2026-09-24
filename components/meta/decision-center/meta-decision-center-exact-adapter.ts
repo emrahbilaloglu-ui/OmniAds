@@ -2951,6 +2951,9 @@ function creativeRows(input: {
         roas: adPerformanceMissing ? null : decision.metrics.roas,
         currency: rowCurrency,
       }),
+      moneyWindowLabel: decision.decisionWindow
+        ? `Decision · ${decision.decisionWindow.startDate}–${decision.decisionWindow.endDate} · ${decision.decisionWindow.economicDayCount}/${decision.decisionWindow.calendarDaySpan} economic days`
+        : null,
       moneySub: creativeMoneySub(decision, canonicalDecision, adPerformanceMissing),
       actionLabel: buyerFacingCreativeActionLabel(decision),
       actionTone: actionTone(decision.action),
@@ -3043,13 +3046,14 @@ function creativeFootnote(
   return "Open a decision for details, or use Creative Studio to compare performance.";
 }
 
-/** The served row lacks admitted-window dates; do not label these as 28 days. */
+/** Spend and purchases share the admitted Ad period only when it was recorded. */
 function metricEvidence(input: {
   spend: number | null | undefined;
   purchases: number | null | undefined;
   snapshot: string | null | undefined;
   lifecycle: string | null | undefined;
   currency: string | null;
+  decisionWindow?: MetaOsAdDecision["decisionWindow"];
 }): NonNullable<MetaDecisionCenterExactInspectorViewModel["evidence"]> {
   return [
     {
@@ -3062,6 +3066,15 @@ function metricEvidence(input: {
       label: "Purchases",
       value: finite(input.purchases) ?? EM_DASH,
     },
+    ...(input.decisionWindow ? [{
+      id: "economic-days",
+      label: "Decision economic days",
+      value: input.decisionWindow.economicDayCount,
+    }, {
+      id: "bridged-context-days",
+      label: "Context-bridged days",
+      value: input.decisionWindow.bridgedUnresolvedDayCount,
+    }] : []),
     {
       id: "snapshot",
       label: "Snapshot",
@@ -3251,13 +3264,11 @@ function servedEvidenceRows(
 }
 
 /**
- * The provenance every inspector states: when, and over what.
+ * Workspace provenance for structure inspectors: when, and over what.
  *
- * Read off the payload rather than composed: `snapshotCreatedAt` is the
- * engine's write time and `startDate`/`endDate` are the window the figures
- * cover. They are separate fields because they are separate facts — a snapshot
- * written this morning can describe a window that ended three days ago, and a
- * panel that printed one as the other would make a stale read look current.
+ * Native Ad inspectors override this with their exact decision snapshot day
+ * and admitted economic period. The workspace reporting dates do not describe
+ * a native Ad's decision sums after D107 shortens its admitted run.
  */
 function inspectorProvenance(workspace: MetaDecisionsWorkspacePayload): {
   asOf: string;
@@ -3486,6 +3497,7 @@ function creativeInspector(input: {
       snapshot: decision.snapshotAsOf,
       lifecycle: decision.lifecycleRole,
       currency: rowCurrency,
+      decisionWindow: decision.decisionWindow,
     }),
     actionLabel,
     actionTone: actionTone(decision.action),
@@ -3624,7 +3636,13 @@ function inspector(input: {
       fallbackCurrency: input.fallbackCurrency,
       callback: input.callbacks.onCreativeReview,
     }),
-    ...input.provenance,
+    // Structure recommendations use the workspace reporting range. A native
+    // Ad's spend/purchases/ROAS use its own D107 admitted economic run, which
+    // may be shorter. Never present the page filter as that decision window.
+    asOf: nonBlank(decision.snapshotAsOf) ?? EM_DASH,
+    evidenceWindow: decision.decisionWindow
+      ? `${decision.decisionWindow.startDate} to ${decision.decisionWindow.endDate}`
+      : EM_DASH,
     provenanceGaps: provenanceGaps(decision.metrics),
     brief: !input.callbacks.briefHref
       ? null

@@ -48,6 +48,8 @@ import {
   META_DECISIONS_WORKSPACE_SECTION_LIMIT,
   META_DECISION_QUEUE_SECTION_KEYS,
   type MetaCanonicalDecision,
+  type MetaDecisionAdmittedWindow,
+  META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION,
   type MetaDecisionAdvisory,
   type MetaDecisionAssessmentOverlay,
   type MetaDecisionBlocker,
@@ -304,6 +306,46 @@ export interface MetaNativeDecisionSnapshotSourceRow {
    * receipt lineage. Re-validated by `servedConfigEvidence` before serving.
    */
   config_evidence_lineage?: Record<string, unknown> | null;
+  /** Native evaluation's hashed creativeInput.decisionWindow; display only. */
+  decision_window?: unknown;
+}
+
+function parseNativeDecisionWindow(
+  raw: unknown,
+  asOfDate: string,
+): MetaDecisionAdmittedWindow | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const value = raw as Record<string, unknown>;
+  const validDay = (day: unknown): day is string => {
+    if (typeof day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+    const parsed = new Date(`${day}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) &&
+      parsed.toISOString().slice(0, 10) === day;
+  };
+  if (!validDay(value.startDate) || !validDay(value.endDate) ||
+      value.startDate > value.endDate || value.endDate > asOfDate ||
+      !Number.isSafeInteger(value.calendarDaySpan) ||
+      !Number.isSafeInteger(value.observedDayCount) ||
+      !Number.isSafeInteger(value.economicDayCount) ||
+      !Number.isSafeInteger(value.bridgedUnresolvedDayCount)) return null;
+  const span = (Date.parse(`${value.endDate}T00:00:00.000Z`) -
+    Date.parse(`${value.startDate}T00:00:00.000Z`)) / 86_400_000 + 1;
+  if (span !== value.calendarDaySpan || span < 1 || span > 28 ||
+      (value.observedDayCount as number) < 0 ||
+      (value.observedDayCount as number) > span ||
+      (value.economicDayCount as number) < 0 ||
+      (value.economicDayCount as number) > (value.observedDayCount as number) ||
+      (value.bridgedUnresolvedDayCount as number) < 0 ||
+      (value.bridgedUnresolvedDayCount as number) > (value.economicDayCount as number)) return null;
+  return {
+    contractVersion: META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION,
+    startDate: value.startDate,
+    endDate: value.endDate,
+    calendarDaySpan: span,
+    observedDayCount: value.observedDayCount as number,
+    economicDayCount: value.economicDayCount as number,
+    bridgedUnresolvedDayCount: value.bridgedUnresolvedDayCount as number,
+  };
 }
 
 export interface MetaNativeDecisionGenerationSourceRow {
@@ -2903,6 +2945,10 @@ function applyNativeCanonicalDecisionAuthority(input: {
     response.episodeKey ??
     stableId("mde", [decision.decisionId, row.label, row.episode_started_at]);
   decision.identityGrain = "ad";
+  decision.decisionWindow = parseNativeDecisionWindow(
+    row.decision_window,
+    row.as_of_date,
+  );
   const sourceCreativeType = nonEmptyString(row.provider_asset_type);
   // `feed` is also the warehouse taxonomy's default when no positive creative
   // classification signal exists. Do not turn that fallback into a verified
@@ -4184,6 +4230,9 @@ async function readNativeSnapshotRows(input: {
          projected, so the payload stays the blockers array and never the whole
          decision document. This adds no join and no extra row. */
       evaluation.decision_output_json -> 'blockers' AS predicate_blockers,
+      /* D107's actual admitted economic period is already hash-bound in this
+         evaluation. Serve it for display; never infer it from the UI filter. */
+      evaluation.creative_input_json -> 'decisionWindow' AS decision_window,
       /* ADR D098 config authority, as the ENGINE recorded it in the
          evaluation's own hashed input (configEvidence), which is persisted in
          the hash-keyed input-evidence table. NULL when the mapping is absent;

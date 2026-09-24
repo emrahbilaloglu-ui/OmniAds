@@ -3897,6 +3897,8 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   attemptCount: number;
   leaseMinutes?: number;
   freshStart?: boolean;
+  /** Repairing already published core must mint a new source generation. */
+  forceNewSourceRunOnFreshStart?: boolean;
   truthState?: MetaWarehouseTruthState;
   lane?: MetaSyncLane;
   sourceRunId?: string | null;
@@ -3920,10 +3922,13 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
    * fallback for callers that have no binding at all.
    */
   providerLocalToday?: string | null;
+  /** Trusted provider-account DB timezone for every daily row and manifest. */
+  boundAccountTimezone?: string | null;
   source?: string | null;
 }): Promise<MetaBulkCoreSyncResult> {
   const normalizedDay = normalizeMetaApiDate(input.day);
   const profile = input.credentials.accountProfiles[input.accountId];
+  const accountTimezone = input.boundAccountTimezone ?? profile?.timezone ?? "UTC";
   const accountCurrency = requireMetaCurrencyForWarehouseWrite(
     input.credentials,
     input.accountId,
@@ -3935,7 +3940,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   */
   const accountToday =
     input.providerLocalToday ??
-    getTodayIsoForTimeZone(profile?.timezone ?? "UTC");
+    getTodayIsoForTimeZone(accountTimezone);
   const truthState =
     input.truthState ??
     (normalizedDay === accountToday ? "provisional" : "finalized");
@@ -3982,6 +3987,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     (input.source === "today" || input.source === "today_observe");
   const captureScopedCheckpoint = refreshCurrentDay || delayedTodayFinalization;
   const captureTruthStateKey = "__adsecute_capture_truth_state";
+  if (input.forceNewSourceRunOnFreshStart && !input.freshStart) {
+    throw new Error("meta_core_new_source_run_requires_fresh_start");
+  }
+  if (input.forceNewSourceRunOnFreshStart && !captureScopedCheckpoint) {
+    sourceRunId = randomUUID();
+  }
   let checkpoint = input.freshStart
     ? null
     : await getMetaSyncCheckpoint({
@@ -4014,6 +4025,9 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   const checkpointHeaders = {
     ...checkpoint?.lastResponseHeaders,
     ...(captureScopedCheckpoint ? { [captureTruthStateKey]: truthState } : {}),
+    ...(input.forceNewSourceRunOnFreshStart
+      ? { __adsecute_repair_source_run: "true" }
+      : {}),
   };
   let restoredPages: Awaited<ReturnType<typeof listMetaRawSnapshotsForRun>> =
     [];
@@ -4807,7 +4821,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             isOptimizationGoalMixed: false,
             isBidStrategyMixed: false,
             isBidValueMixed: false,
-            accountTimezone: profile?.timezone ?? "UTC",
+            accountTimezone,
             accountCurrency,
             spend: value.spend,
             impressions: value.impressions,
@@ -4890,7 +4904,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
               isOptimizationGoalMixed: false,
               isBidStrategyMixed: false,
               isBidValueMixed: false,
-              accountTimezone: profile?.timezone ?? "UTC",
+              accountTimezone,
               accountCurrency,
               spend: value.spend,
               impressions: value.impressions,
@@ -4929,7 +4943,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           adNameCurrent: value.name ?? null,
           adNameHistorical: value.name ?? null,
           adStatus: null,
-          accountTimezone: profile?.timezone ?? "UTC",
+          accountTimezone,
           accountCurrency,
           spend: value.spend,
           impressions: value.impressions,
@@ -5005,7 +5019,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           providerAccountId: input.accountId,
           date: normalizedDay,
           accountName: profile?.name ?? null,
-          accountTimezone: profile?.timezone ?? "UTC",
+          accountTimezone,
           accountCurrency,
           sourceSnapshotId,
           truthState,
@@ -5122,7 +5136,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             providerAccountId: input.accountId,
             day: normalizedDay,
             surface: "account_daily",
-            accountTimezone: profile?.timezone ?? "UTC",
+            accountTimezone,
             sourceKind:
               input.source ?? (input.freshStart ? "finalize_day" : "recent"),
             sourceWindowKind: resolveMetaAuthoritativeSourceWindowKind({
@@ -6414,7 +6428,28 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     endpointName: input.endpointName,
     runId: sourceRunId,
   });
-  const restoredPages = selectLatestMetaRawSnapshotGeneration(observedPages);
+  // An older error handler replaced a durable breakdown checkpoint with a
+  // synthetic failure row lacking run_id. Its raw pages remain attributed to
+  // this exact partition/run, so resuming them without a checkpoint would
+  // claim an unproved generation. Retire only this endpoint's active receipts
+  // and fetch it anew; the old receipt timeline remains available for audit.
+  const orphanedRawGeneration = !checkpoint && observedPages.length > 0;
+  if (orphanedRawGeneration) {
+    await heartbeatOwnedMetaPartitionLeaseOrThrow({
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
+      leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
+    });
+    await supersedeMetaRawSnapshotsForPartition({
+      partitionId: input.partitionId,
+      runId: sourceRunId,
+      endpointName: input.endpointName,
+    });
+  }
+  const restoredPages = selectLatestMetaRawSnapshotGeneration(
+    orphanedRawGeneration ? [] : observedPages,
+  );
   const restoreState = resolveMetaRawSnapshotResumeState({
     pages: restoredPages,
     checkpoint,

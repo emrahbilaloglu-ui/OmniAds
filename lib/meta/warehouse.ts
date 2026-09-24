@@ -2400,6 +2400,185 @@ export async function getMetaActivePublishedSliceVersion(input: {
   };
 }
 
+/**
+ * A partition can publish all four core slices and then fail in a later
+ * breakdown/creative stage. Retrying that same unfinished attempt must not
+ * rewrite the already published Ad day or its D101 knowledge clock. A fresh
+ * request after a successful partition is different work and may refetch.
+ */
+export async function getMetaCorePublishedRetryState(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  partitionId: string;
+  /** Delayed today finalization uses its durable capture UUID, not the partition ID. */
+  sourceRunId?: string;
+  /** Exact provider-account DB binding; a credential fallback cannot prove D101 close. */
+  accountTimezone: string | null;
+  /** A prior forced repair may have crashed before publishing its new slice. */
+  repairCaptureInProgress?: boolean;
+}) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    WITH last_success AS (
+      SELECT MAX(finished_at) AS finished_at
+      FROM meta_sync_runs
+      WHERE partition_id = ${input.partitionId}::uuid
+        AND status = 'succeeded'
+    ), latest_slice AS (
+      SELECT DISTINCT ON (slice.surface) slice.*
+      FROM meta_authoritative_slice_versions slice
+      CROSS JOIN last_success
+      WHERE slice.business_id = ${input.businessId}
+        AND slice.provider_account_id = ${input.providerAccountId}
+        AND slice.day = ${normalizeDate(input.day)}
+        AND slice.source_run_id = ${input.sourceRunId ?? input.partitionId}
+        AND slice.surface IN ('account_daily', 'campaign_daily', 'adset_daily', 'ad_daily')
+        AND (
+          slice.created_at > COALESCE(last_success.finished_at, '-infinity'::timestamptz)
+          OR slice.published_at > COALESCE(last_success.finished_at, '-infinity'::timestamptz)
+        )
+      ORDER BY slice.surface, slice.candidate_version DESC, slice.created_at DESC, slice.id DESC
+    )
+    SELECT
+      (SELECT finished_at IS NOT NULL FROM last_success) AS had_prior_success,
+      (SELECT COUNT(DISTINCT previous.surface)::int
+       FROM meta_authoritative_slice_versions previous
+       CROSS JOIN last_success
+       WHERE previous.business_id = ${input.businessId}
+         AND previous.provider_account_id = ${input.providerAccountId}
+         AND previous.day = ${normalizeDate(input.day)}
+         AND previous.source_run_id = ${input.sourceRunId ?? input.partitionId}
+         AND previous.surface IN ('account_daily', 'campaign_daily', 'adset_daily', 'ad_daily')
+         AND previous.published_at IS NOT NULL
+         AND previous.published_at > COALESCE(last_success.finished_at, '-infinity'::timestamptz)
+      ) AS any_published_surfaces,
+      COUNT(DISTINCT slice.surface) FILTER (
+        WHERE slice.truth_state = 'finalized'
+          AND slice.validation_status = 'passed'
+          AND slice.state = 'finalized_verified'
+          AND slice.status = 'published'
+          AND slice.published_at IS NOT NULL
+      )::int AS published_surfaces,
+      COUNT(DISTINCT slice.surface) FILTER (
+        WHERE pointer.active_slice_version_id = slice.id
+          AND pointer.published_by_run_id = slice.source_run_id
+          AND pointer.business_ref_id = slice.business_ref_id
+          AND pointer.provider_account_ref_id = slice.provider_account_ref_id
+          AND pointer.published_at >= slice.published_at
+      )::int AS active_surfaces,
+      COUNT(DISTINCT slice.surface) FILTER (
+        WHERE pointer.active_slice_version_id <> slice.id
+          AND pointer.published_by_run_id IS DISTINCT FROM slice.source_run_id
+          AND pointer.published_at > COALESCE(slice.published_at, slice.created_at)
+      )::int AS superseded_surfaces,
+      COUNT(DISTINCT slice.surface) FILTER (
+        WHERE slice.surface = 'ad_daily'
+          AND ${input.accountTimezone}::text IS NOT NULL
+          AND pointer.active_slice_version_id = slice.id
+          AND pointer.published_by_run_id = slice.source_run_id
+          AND slice.published_at <= pointer.published_at
+          AND slice.business_ref_id::text = slice.business_id
+          AND slice.provider_account_ref_id IS NOT NULL
+          AND pointer.business_ref_id = slice.business_ref_id
+          AND pointer.provider_account_ref_id = slice.provider_account_ref_id
+          AND pointer.published_at >= (
+            (slice.day + 1)::timestamp AT TIME ZONE ${input.accountTimezone}
+          )
+          AND slice.state = 'finalized_verified'
+          AND slice.status = 'published'
+          AND slice.manifest_id = manifest.id
+          AND slice.published_at >= manifest.completed_at
+          AND manifest.business_id = slice.business_id
+          AND manifest.provider_account_id = slice.provider_account_id
+          AND manifest.business_ref_id = slice.business_ref_id
+          AND manifest.provider_account_ref_id = slice.provider_account_ref_id
+          AND manifest.day = slice.day
+          AND manifest.run_id = slice.source_run_id
+          AND NULLIF(BTRIM(manifest.account_timezone), '') = ${input.accountTimezone}
+          AND manifest.fetch_status = 'completed'
+          AND manifest.completed_at IS NOT NULL
+          AND manifest.completed_at >= (
+            (slice.day + 1)::timestamp AT TIME ZONE ${input.accountTimezone}
+          )
+          AND manifest.completed_at <= pointer.published_at
+          AND NOT EXISTS (
+            SELECT 1 FROM meta_ad_daily ad
+            WHERE ad.business_id = slice.business_id
+              AND ad.provider_account_id = slice.provider_account_id
+              AND ad.date = slice.day
+              AND ad.source_run_id = slice.source_run_id
+              AND (
+                NULLIF(BTRIM(ad.account_timezone), '') IS DISTINCT FROM ${input.accountTimezone}
+                OR ad.business_ref_id IS DISTINCT FROM slice.business_ref_id
+                OR ad.provider_account_ref_id IS DISTINCT FROM slice.provider_account_ref_id
+                OR ad.truth_state IS DISTINCT FROM 'finalized'
+                OR ad.validation_status IS DISTINCT FROM 'passed'
+              )
+          )
+      )::int AS authorized_ad_surfaces
+    FROM latest_slice slice
+    LEFT JOIN meta_authoritative_publication_pointers pointer
+      ON pointer.business_id = slice.business_id
+      AND pointer.provider_account_id = slice.provider_account_id
+      AND pointer.day = slice.day
+      AND pointer.surface = slice.surface
+    LEFT JOIN meta_authoritative_source_manifests manifest
+      ON manifest.id = slice.manifest_id
+  ` as Array<{
+    had_prior_success: boolean;
+    any_published_surfaces: number;
+    published_surfaces: number;
+    active_surfaces: number;
+    superseded_surfaces: number;
+    authorized_ad_surfaces: number;
+  }>;
+  const publishedSurfaces = toNumber(rows[0]?.published_surfaces);
+  const anyPublishedSurfaces = toNumber(rows[0]?.any_published_surfaces);
+  const activeSurfaces = toNumber(rows[0]?.active_surfaces);
+  const supersededSurfaces = toNumber(rows[0]?.superseded_surfaces);
+  const authorizedAdSurfaces = toNumber(rows[0]?.authorized_ad_surfaces);
+  const hasD101AdProof = authorizedAdSurfaces === 1;
+  // A newer pointer owns this day; an older failed attempt must not overwrite it.
+  // Without a trusted timezone there is no useful D101 repair to make yet.
+  const skipCoreRefresh = supersededSurfaces > 0 || (
+    publishedSurfaces === 4 && activeSurfaces === 4 &&
+    (!input.accountTimezone || hasD101AdProof)
+  );
+  return {
+    complete: skipCoreRefresh,
+    active: skipCoreRefresh && activeSurfaces === 4 && hasD101AdProof,
+    // Once a finalized day was published, rebuilding it from an earlier raw
+    // capture would relabel that old evidence with a new manifest clock.
+    requiresProviderRefetch: !skipCoreRefresh && (
+      anyPublishedSurfaces > 0 || rows[0]?.had_prior_success === true ||
+      input.repairCaptureInProgress === true
+    ),
+  };
+}
+
+export async function getMetaPositiveSpendAdIdsForPublishedRun(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  sourceRunId: string;
+}) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    SELECT ad_id
+    FROM meta_ad_daily
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND date = ${normalizeDate(input.day)}
+      AND source_run_id = ${input.sourceRunId}
+      AND spend > 0
+    ORDER BY ad_id
+  ` as Array<{ ad_id: string }>;
+  return rows.map((row) => row.ad_id);
+}
+
 export async function createMetaAuthoritativeReconciliationEvent(
   input: MetaAuthoritativeReconciliationEventRecord,
 ) {
@@ -6066,40 +6245,43 @@ export async function listMetaRawSnapshotsForRun(input: {
  */
 export async function supersedeMetaRawSnapshotsForPartition(input: {
   partitionId: string;
+  /** Narrow recovery can retire only one broken fetch generation. */
+  runId?: string;
+  endpointName?: string;
 }) {
   await assertMetaMutationTablesReady("meta_warehouse");
   return runDbTransaction(async () => {
     const sql = getDb();
     const receiptRows = await sql`
+      WITH latest_receipt AS (
+        SELECT DISTINCT ON (
+          source.snapshot_id, source.partition_id, source.run_id,
+          source.checkpoint_id, source.page_index, source.provider_cursor
+        ) source.*
+        FROM meta_raw_snapshot_observations source
+        WHERE source.partition_id = ${input.partitionId}::uuid
+          AND (${input.runId ?? null}::text IS NULL OR source.run_id = ${input.runId ?? null})
+          AND (${input.endpointName ?? null}::text IS NULL OR source.endpoint_name = ${input.endpointName ?? null})
+        ORDER BY
+          source.snapshot_id, source.partition_id, source.run_id,
+          source.checkpoint_id, source.page_index, source.provider_cursor,
+          source.observed_at DESC, source.id DESC
+      )
       INSERT INTO meta_raw_snapshot_observations (
         snapshot_id, business_id, provider_account_id, partition_id, run_id,
         checkpoint_id, endpoint_name, entity_scope, page_index, provider_cursor,
         status, provider_http_status, request_context, response_headers,
         observed_at, first_observed_at, last_observed_at
       )
-      -- DISTINCT ON: two receipts for the same page that differ only in status
-      -- both collapse to one 'superseded' identity, and ON CONFLICT cannot
-      -- arbitrate rows produced within a single statement.
-      SELECT DISTINCT ON (
-        source.snapshot_id, source.partition_id, source.run_id,
-        source.checkpoint_id, source.page_index, source.provider_cursor
-      )
+      SELECT
         source.snapshot_id, source.business_id, source.provider_account_id,
         source.partition_id, source.run_id, source.checkpoint_id,
         source.endpoint_name, source.entity_scope, source.page_index,
         source.provider_cursor, 'superseded', source.provider_http_status,
         source.request_context, source.response_headers,
         now(), now(), now()
-      FROM meta_raw_snapshot_observations source
-      WHERE source.partition_id = ${input.partitionId}::uuid
-        AND source.status <> 'superseded'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM meta_raw_snapshot_observations already
-          WHERE already.snapshot_id = source.snapshot_id
-            AND already.partition_id = source.partition_id
-            AND already.status = 'superseded'
-        )
+      FROM latest_receipt source
+      WHERE source.status <> 'superseded'
       ON CONFLICT DO NOTHING
       RETURNING id
     ` as Array<{ id: string }>;
@@ -6111,6 +6293,8 @@ export async function supersedeMetaRawSnapshotsForPartition(input: {
       SET status = 'superseded', updated_at = now()
       WHERE partition_id = ${input.partitionId}::uuid
         AND content_key IS NULL
+        AND (${input.runId ?? null}::text IS NULL OR run_id = ${input.runId ?? null})
+        AND (${input.endpointName ?? null}::text IS NULL OR endpoint_name = ${input.endpointName ?? null})
         AND status <> 'superseded'
       RETURNING id
     ` as Array<{ id: string }>;

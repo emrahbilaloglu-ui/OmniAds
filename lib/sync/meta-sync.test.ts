@@ -18,6 +18,7 @@ import {
   metaCreativeRecentRepairNeeded,
   normalizeMetaPartitionDate,
   resolveMetaBackgroundLoopDelayMs,
+  resolveMetaCoreRetrySourceRunId,
   resolveMetaTruthState,
   resolveMetaCreativePartitionAction,
   resolveMetaHistoricalReplaySource,
@@ -38,6 +39,37 @@ const warehouse = await import("@/lib/meta/warehouse");
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("resolveMetaCoreRetrySourceRunId", () => {
+  it("uses the durable finalized capture identity for a delayed today retry", () => {
+    expect(resolveMetaCoreRetrySourceRunId({
+      delayedTodayFinalization: true,
+      partitionId: "partition-1",
+      checkpoint: {
+        runId: "capture-uuid-1",
+        lastResponseHeaders: { __adsecute_capture_truth_state: "finalized" },
+      },
+    })).toBe("capture-uuid-1");
+    expect(resolveMetaCoreRetrySourceRunId({
+      delayedTodayFinalization: true,
+      partitionId: "partition-1",
+      checkpoint: {
+        runId: "provisional-capture",
+        lastResponseHeaders: { __adsecute_capture_truth_state: "provisional" },
+      },
+    })).toBeNull();
+    expect(resolveMetaCoreRetrySourceRunId({
+      delayedTodayFinalization: false,
+      partitionId: "partition-1",
+      checkpoint: null,
+    })).toBe("partition-1");
+    expect(resolveMetaCoreRetrySourceRunId({
+      delayedTodayFinalization: false,
+      partitionId: "partition-1",
+      checkpoint: { runId: "repaired-source-run" },
+    })).toBe("repaired-source-run");
+  });
 });
 
 describe("hasMetaInProcessBackgroundWorkerIdentity", () => {

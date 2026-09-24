@@ -1240,3 +1240,29 @@ Readers use a two-key LEFT JOIN so unmapped historical rows stay observable but
 cannot pass lineage or hash proof. An absent, malformed or incoherent reference
 is not evidence: its field's readiness is `none`. A reference explains a
 decision and never grants one.
+
+## An admitted window ends only at an observed difference (D107)
+
+A native Ad decision window is bounded by an OBSERVED difference: a resolved
+day with a different context, or an unresolved economic day that still
+observed a contradicting value (campaign, ad set, objective, goal, event,
+custom conversion, account timezone or currency). An unresolved economic day
+with the latest context observed on both sides of it is admitted as a bridged
+day; one at the older edge is dropped and one after the newest resolved day
+ends the run. Hydration and native calibration apply the same rule. A bridged
+day's readiness is `none` in both, so it can inform a diagnosis and can never
+make the window fully verified or authorize a Cut, Scale or Refresh; the
+window stays unauthorizable until that day leaves the lookback. Unresolved
+days inside a run (bridged, or empty) are transparent to the ad's context
+identity; a resolved day never is. Account timezone and currency are checked
+over the observed (non-blank) values of every economic day before any window
+is chosen: two observed values fail the ad closed, and a blank value stays
+bridgeable. Within the threshold family being applied,
+a zero-purchase row reaches no Cut — including a fatigued Refresh that a Test
+campaign would turn into a Cut — below `max(zeroConvBurnerSpend, loss-budget
+maturity)`. Reason text names the period the figures summed; "28d" / "7d" only
+where they span the full lookback / recent band, and a badge claims zero
+recent spend only when the run covers the whole recent band or the ad's last
+spend day, read over every finalized row, precedes that band. No day-count threshold
+exists, and a short window after an observed change is a valid decision
+window.

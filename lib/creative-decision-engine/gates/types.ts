@@ -12,6 +12,7 @@ import {
   type TruthSource,
 } from "../types";
 import { computeFunnelDiagnosis } from "../funnel";
+import { recentPeriodLabel } from "./reason-format";
 import { applyTestCohortRefreshOverride } from "../test-cohort-semantic";
 import {
   HARD_ACTION_HOLD_CONFIDENCE_CAP,
@@ -286,7 +287,7 @@ export function applyPostProcess(
   ) {
     badges.push({
       type: "missing_recent_data",
-      label: "Recent 7d data missing",
+      label: `Recent ${recentPeriodLabel(ctx.input)} data missing`,
       severity: "warning",
     });
     confidenceDeltas.push(-10);

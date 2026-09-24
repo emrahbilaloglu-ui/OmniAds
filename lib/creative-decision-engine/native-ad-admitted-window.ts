@@ -20,15 +20,34 @@
  *
  * ── THE RULE ────────────────────────────────────────────────────────────────
  *
- * Admit the LATEST maximal contiguous run of economically meaningful days that
- * share one resolvable context. Everything outside it is dropped and counted.
+ * Admit the LATEST run of economically meaningful days that carries one
+ * resolvable context and is not interrupted by an OBSERVED different one.
+ * Everything outside it is dropped and counted.
  *
- * Three properties earn their place:
+ * Four properties earn their place:
  *
- *   AN UNRESOLVED DAY IS NOT A BRIDGE. Days on the far side of a day that HAS a
- *   row and fails to resolve a context are not merged back in, even when their
- *   context matches. Merging would assume the configuration held across a day we
- *   looked at and could not read.
+ *   ONLY AN OBSERVED DIFFERENCE BOUNDS THE RUN (ADR D107). A day whose context
+ *   resolves to a different key ends the run, and so does a day that does not
+ *   resolve but still carries at least one configuration value that
+ *   contradicts the run's context (its `contextParts`). A day that merely fails
+ *   to resolve — the configuration was not observed, not observed to differ —
+ *   is a gap in our knowledge, not a boundary. When the SAME context is
+ *   observed on both sides of such a gap, the gap days are admitted INTO the
+ *   run as unresolved days and counted (`bridgedUnresolvedDayCount`).
+ *
+ *   This replaced "an unresolved day is not a bridge" (D098). That rule let a
+ *   single unreadable day — Grandmix 2026-09-21, whose objective a later sync
+ *   rewrote to NULL — collapse a 28-day run to the day after it, so an ad with
+ *   weeks of strong delivery was judged on one day and $26 of spend. Dropping
+ *   the older evidence was the assumption: it claimed the configuration
+ *   changed on a day nobody could read. Bridging makes no claim about the gap
+ *   day's configuration at all. It keeps the observed run whole, and the
+ *   caller keeps every bridged day OUT of authority — calibration classifies it
+ *   as `none` and hydration forces its readiness to `none` — so a bridged day
+ *   can inform a visible diagnosis and can never authorize an action (D098).
+ *   A gap at either END has an observation on one side only and is NOT
+ *   bridged: leading unresolved days are dropped (`truncatedByGap`), trailing
+ *   ones end the run earlier (below).
  *
  *   A MISSING CALENDAR DAY IS NOT THE SAME THING, and the run does span one. The
  *   warehouse holds a row only for a day the ad delivered, so an ad that paused
@@ -85,6 +104,19 @@ export interface AdmittedContextWindowDay {
    * a context is made of; the caller decides what counts as "the same".
    */
   contextKey: string | null;
+  /**
+   * The day's individually OBSERVED configuration values, positionally aligned
+   * across every day the caller passes (for example campaign, ad set,
+   * objective, goal, event, custom conversion, and the account's timezone and
+   * currency), each normalized exactly as the caller normalizes it into
+   * `contextKey`; null where the value was not observed.
+   *
+   * Read only for a day whose `contextKey` is null: a non-null part that differs
+   * from the run's context at the same position is an OBSERVED change and ends
+   * the run. Required, so a caller cannot bridge a contradicting day by
+   * forgetting to say what it observed.
+   */
+  contextParts: readonly (string | null)[];
 }
 
 export type AdmittedContextWindowReason =
@@ -105,10 +137,23 @@ export interface AdmittedContextWindow<T> {
   droppedOlderDays: number;
   /** Economically meaningful days after the run: it does not reach the window end. */
   droppedNewerDays: number;
-  /** The run ended where a resolvable context CHANGED, not where evidence stopped. */
+  /**
+   * The run ended where a context was OBSERVED to differ: a resolved day with a
+   * different key, or an unresolved day with a contradicting value.
+   */
   truncatedByChange: boolean;
-  /** The run ended at a day whose context did not resolve at all. */
+  /**
+   * Unresolved days at the OLDER edge of the run were dropped: nothing older
+   * that shares the run's context was found beyond them, so they have an
+   * observation on one side only and are not bridged.
+   */
   truncatedByGap: boolean;
+  /**
+   * Economically meaningful days INSIDE the run whose context did not resolve,
+   * admitted because the same context was observed on both sides of them. They
+   * carry no configuration authority; see ADR D107.
+   */
+  bridgedUnresolvedDayCount: number;
   /** Days with a row inside the run — what the context claim actually covers. */
   observedDayCount: number;
   /** Calendar days from `startDate` to `endDate` inclusive. */
@@ -123,6 +168,19 @@ function calendarSpan(from: string, to: string): number {
   const end = Date.parse(`${to}T00:00:00Z`);
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
   return Math.round((end - start) / 86_400_000) + 1;
+}
+
+/**
+ * Whether an unresolved day OBSERVED a value that the run's context does not
+ * have. Only an observed value can contradict; a missing one never does.
+ */
+function contradictsContext(
+  parts: readonly (string | null)[],
+  contextParts: readonly (string | null)[],
+): boolean {
+  return parts.some(
+    (part, index) => part !== null && part !== (contextParts[index] ?? null),
+  );
 }
 
 function isEconomicallyEmpty(day: AdmittedContextWindowDay): boolean {
@@ -150,6 +208,7 @@ export function resolveAdmittedContextWindow<T>(
     droppedNewerDays: 0,
     truncatedByChange: false,
     truncatedByGap: false,
+    bridgedUnresolvedDayCount: 0,
     observedDayCount: 0,
     calendarDaySpan: 0,
     missingCalendarDays: 0,
@@ -179,21 +238,42 @@ export function resolveAdmittedContextWindow<T>(
     };
   }
 
-  const contextKey = read(ordered[economic[last]!]!).contextKey!;
+  const newest = read(ordered[economic[last]!]!);
+  const contextKey = newest.contextKey!;
+  const contextParts = newest.contextParts;
+  /*
+    Walk back from the newest resolved day. `first` only ever moves onto a day
+    that RESOLVES to the run's own context, so unresolved days are admitted
+    solely when a same-context day is found beyond them (interior), and a run of
+    unresolved days at the older edge is left outside it.
+  */
   let first = last;
+  let cursor = last - 1;
   let truncatedByChange = false;
-  let truncatedByGap = false;
-  while (first - 1 >= 0) {
-    const candidate = read(ordered[economic[first - 1]!]!);
+  while (cursor >= 0) {
+    const candidate = read(ordered[economic[cursor]!]!);
     if (candidate.contextKey === null) {
-      truncatedByGap = true;
-      break;
+      if (contradictsContext(candidate.contextParts, contextParts)) {
+        truncatedByChange = true;
+        break;
+      }
+      cursor -= 1;
+      continue;
     }
     if (candidate.contextKey !== contextKey) {
       truncatedByChange = true;
       break;
     }
-    first -= 1;
+    first = cursor;
+    cursor -= 1;
+  }
+  /* Unresolved days skipped past `first` were never bracketed: dropped. */
+  const truncatedByGap = first - 1 > cursor;
+  let bridgedUnresolvedDayCount = 0;
+  for (let i = first + 1; i < last; i += 1) {
+    if (read(ordered[economic[i]!]!).contextKey === null) {
+      bridgedUnresolvedDayCount += 1;
+    }
   }
 
   /*
@@ -219,6 +299,7 @@ export function resolveAdmittedContextWindow<T>(
     droppedNewerDays: economic.length - 1 - last,
     truncatedByChange,
     truncatedByGap,
+    bridgedUnresolvedDayCount,
     observedDayCount,
     calendarDaySpan,
     missingCalendarDays: Math.max(0, calendarDaySpan - observedDayCount),

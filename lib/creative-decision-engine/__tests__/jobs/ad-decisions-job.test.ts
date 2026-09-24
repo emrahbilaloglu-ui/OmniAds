@@ -2437,6 +2437,65 @@ describe("hard-authority source gates at the emission boundary", () => {
     }
   });
 
+  /*
+    ADR D107. A run that keeps its older evidence across an unreadable day is
+    DIAGNOSABLE, not actionable: the bridged day is an unverified economic day,
+    so D098 withholds the Cut exactly as for any other unverified day. The
+    resolver still receives the run, so its reason can name the period.
+  */
+  it("NEGATIVE (D107): a Cut on a run with a bridged unreadable day is held, not executed", () => {
+    const bridgedRun = {
+      startDate: "2026-06-15",
+      endDate: "2026-07-11",
+      calendarDaySpan: 27,
+      observedDayCount: 27,
+      economicDayCount: 27,
+      bridgedUnresolvedDayCount: 1,
+      lookbackStartDate: "2026-06-15",
+      lookbackEndDate: "2026-07-12",
+      recentStartDate: "2026-07-06",
+      recentEndDate: "2026-07-11",
+    };
+    let resolverWindow: unknown = "not-called";
+    const payload = cutPayload(
+      {
+        ...observedConfigAuthority(AS_OF),
+        decisionEconomics: {
+          fullyVerified: false,
+          economicDayCount: 27,
+          unverifiedEconomicDayCount: 1,
+          receiptManifest: null,
+        },
+      },
+      (input) => ({ ...input, decisionWindow: bridgedRun }),
+    );
+    expect(payload.raw_label).toBe("cut");
+    expect(payload.authority_blocker).toBe("config_source_authority");
+    expect(payload.blocked_action_type).toBe("cut");
+    expect(payload.authorized_action).toBeNull();
+    expect(payload.reason).toContain("1 unverified economic day");
+
+    computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile: makeAccountDecisionProfile({ asOfDate: AS_OF }),
+      dataHealth: makeDataHealth(),
+      adInputs: [
+        {
+          ...adInput({ adId: "ad-window-pass-through", campaignId: "campaign-a" }),
+          decisionWindow: bridgedRun,
+        },
+      ],
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      previousLabels: new Map(),
+      resolveDecision: (resolverInput) => {
+        resolverWindow = resolverInput.decisionWindow;
+        return hardCutDecision({ creativeId: resolverInput.creativeId });
+      },
+    });
+    expect(resolverWindow).toEqual(bridgedRun);
+  });
+
   it("POSITIVE: the same confirmed Cut with a named configuration carries no held action", () => {
     const payload = cutPayload(observedConfigAuthority(AS_OF));
     expect(payload.authority_blocker).toBeNull();

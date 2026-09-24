@@ -69,6 +69,7 @@ import {
   type AdDecisionInput,
   type AdDecisionSourceCoverageEvidence,
   type AdDisjointBandEvidence,
+  type DecisionEvidenceWindow,
   type AdDisjointBandObservation,
   type CalibrationCampaignKind,
   type CampaignObjective,
@@ -993,6 +994,14 @@ type AdDecisionHydrationRow = Record<string, unknown> & {
   objective_count: unknown;
   context_identity_unknown: unknown;
   metric_row_count: unknown;
+  admitted_context_start_date: unknown;
+  admitted_context_end_date: unknown;
+  admitted_calendar_day_span: unknown;
+  admitted_recent_start_date: unknown;
+  admitted_recent_end_date: unknown;
+  admitted_economic_day_count: unknown;
+  admitted_bridged_unresolved_day_count: unknown;
+  admitted_observed_day_count: unknown;
   event_metrics_observed: unknown;
   spend: unknown;
   conversions: unknown;
@@ -1565,6 +1574,36 @@ const CONFIG_EVIDENCE_REFS_COHERENT_SQL = (
 */
 const CONFIG_AUTHORITY_ECONOMIC_DAY_SQL =
   "(COALESCE(spend, 0) <> 0 OR COALESCE(conversions, 0) <> 0 OR COALESCE(revenue, 0) <> 0)";
+
+/**
+ * Whether one ad-day's own context RESOLVES: the condition under which
+ * `economic_context_days` builds a `context_key`, stated once so the window
+ * walk and the per-day transparency flag (ADR D107) cannot drift apart.
+ * Mirrors `normalizedExactContext` in jobs/ad-calibration-job.ts.
+ */
+function nativeAdDayContextResolvesSql(alias: string): string {
+  return `(${alias}.campaign_id IS NOT NULL
+      AND ${alias}.adset_id IS NOT NULL
+      AND ${alias}.objective IS NOT NULL
+      AND ${alias}.account_timezone IS NOT NULL
+      AND ${alias}.account_currency IS NOT NULL
+      AND (${alias}.optimization_goal IS NOT NULL OR ${alias}.custom_event_type IS NOT NULL))`;
+}
+
+/**
+ * A BRIDGED day's readiness is `none`, whatever its fields say (ADR D107).
+ *
+ * Applied in `config_authority_days` to an economically meaningful day that is
+ * inside a run only because the same context was observed on both sides of it.
+ * Its own per-field readiness can still read `decision_authority` (a receipt
+ * for the goal on a day whose currency is missing, say), and letting that
+ * through would count an unread day as verified. Mirrors the `bridged`
+ * override in `aggregateObservation` (jobs/ad-calibration-job.ts).
+ */
+function bridgedDayReadinessSql(readinessColumn: string): string {
+  return `CASE WHEN window_context_transparent AND ${CONFIG_AUTHORITY_ECONOMIC_DAY_SQL}
+      THEN 'none' ELSE ${readinessColumn} END`;
+}
 
 /**
  * Does the contract's provenance describe the value this query actually chose?
@@ -2298,14 +2337,17 @@ ${HYDRATION_CAMPAIGN_CONFIG.lateralSql}${HYDRATION_ADSET_CONFIG.lateralSql}
   ) config_refs ON TRUE
 ),
 /*
-  Match calibration's admitted-window rule before aggregating a decision's
-  economics. An old unresolvable day cannot invalidate a newer continuous
-  context, and its spend cannot be counted under that newer context either.
-  A trailing unresolvable economic day ends the admitted run earlier; the
-  aggregate's own source clock then remains stale rather than inventing a
-  current measurement. Empty rows between admitted economic days travel with
-  the run. No window means diagnostic metrics remain visible, but no context is
-  invented for an ad that has no resolvable economic day.
+  Match calibration's admitted-window rule (native-ad-admitted-window.ts)
+  before aggregating a decision's economics. An old unresolvable day at the
+  older edge cannot invalidate a newer continuous context, and its spend cannot
+  be counted under that newer context either. A trailing unresolvable economic
+  day ends the admitted run earlier; the aggregate's own source clock then
+  remains stale rather than inventing a current measurement. Empty rows between
+  admitted economic days travel with the run. An unresolvable economic day with
+  the latest context observed on BOTH sides of it travels with the run too, as a
+  bridged day that carries no authority (ADR D107): only an observed difference
+  ends a run. No window means diagnostic metrics remain visible, but no context
+  is invented for an ad that has no resolvable economic day.
 */
 economic_context_days AS MATERIALIZED (
   SELECT
@@ -2315,12 +2357,7 @@ economic_context_days AS MATERIALIZED (
     d.source_updated_at,
     d.account_timezone,
     d.account_currency,
-    CASE WHEN d.campaign_id IS NOT NULL
-      AND d.adset_id IS NOT NULL
-      AND d.objective IS NOT NULL
-      AND d.account_timezone IS NOT NULL
-      AND d.account_currency IS NOT NULL
-      AND (d.optimization_goal IS NOT NULL OR d.custom_event_type IS NOT NULL)
+    CASE WHEN ${nativeAdDayContextResolvesSql("d")}
       THEN JSONB_BUILD_ARRAY(
         d.campaign_id,
         d.adset_id,
@@ -2329,7 +2366,26 @@ economic_context_days AS MATERIALIZED (
         ${metaConfigTokenSql("d.custom_event_type")},
         NULLIF(BTRIM(d.custom_conversion_id), '')
       )::text
-    END AS context_key
+    END AS context_key,
+    /*
+      The key's six values one by one, each exactly as the key spells it, plus
+      the account's timezone and currency (ADR
+      D107). A day whose key is NULL can still have OBSERVED some of them; one
+      that contradicts the latest context is an observed change and ends the
+      run, while a value it did not observe contradicts nothing. Mirrors
+      exactContextObservedParts in jobs/ad-calibration-job.ts.
+    */
+    d.campaign_id AS campaign_part,
+    d.adset_id AS adset_part,
+    ${metaConfigTokenSql("d.objective")} AS objective_part,
+    ${metaConfigTokenSql("d.optimization_goal")} AS goal_part,
+    ${metaConfigTokenSql("d.custom_event_type")} AS event_part,
+    NULLIF(BTRIM(d.custom_conversion_id), '') AS custom_conversion_part,
+    -- The immutable dimensions too: a bridged day may never bring a second
+    -- timezone or currency into a run (ad_context_immutable_cardinality only
+    -- sees resolved days).
+    d.account_timezone AS timezone_part,
+    d.account_currency AS currency_part
   FROM metric_context_days d
   WHERE COALESCE(d.spend, 0) <> 0
      OR COALESCE(d.conversions, 0) <> 0
@@ -2337,11 +2393,27 @@ economic_context_days AS MATERIALIZED (
 ),
 latest_resolved_economic_context AS (
   SELECT DISTINCT ON (provider_account_id, ad_id)
-    provider_account_id, ad_id, date AS end_date, context_key
+    provider_account_id, ad_id, date AS end_date, context_key,
+    campaign_part, adset_part, objective_part, goal_part, event_part,
+    custom_conversion_part, timezone_part, currency_part
   FROM economic_context_days
   WHERE context_key IS NOT NULL
   ORDER BY provider_account_id, ad_id, date DESC, source_updated_at DESC
 ),
+/*
+  ONLY AN OBSERVED DIFFERENCE IS A BREAK (ADR D107).
+
+  This was "context_key IS DISTINCT FROM", under which a day whose key did not
+  resolve counted as a different context. Grandmix 2026-09-21 — objective
+  rewritten to NULL after the fact — therefore ended every one of its ads' runs,
+  and ads with weeks of strong delivery were judged on 2026-09-22 alone. An
+  unreadable day is not evidence that anything changed. A break is now a
+  resolved day with a different key, or an unresolved day that did observe a
+  value contradicting the latest context. Unresolved days that contradict
+  nothing and lie between two days of the latest context are admitted as
+  bridged days; those at the older edge stay out, because admitted_window_bounds
+  still starts the run at the earliest RESOLVED day of the latest context.
+*/
 latest_economic_context_break AS (
   SELECT e.provider_account_id, e.ad_id, MAX(e.date) AS break_date
   FROM economic_context_days e
@@ -2349,7 +2421,30 @@ latest_economic_context_break AS (
     ON last.provider_account_id = e.provider_account_id
    AND last.ad_id = e.ad_id
   WHERE e.date < last.end_date
-    AND e.context_key IS DISTINCT FROM last.context_key
+    AND (
+      (e.context_key IS NOT NULL AND e.context_key <> last.context_key)
+      OR (
+        e.context_key IS NULL
+        AND (
+          (e.campaign_part IS NOT NULL
+            AND e.campaign_part IS DISTINCT FROM last.campaign_part)
+          OR (e.adset_part IS NOT NULL
+            AND e.adset_part IS DISTINCT FROM last.adset_part)
+          OR (e.objective_part IS NOT NULL
+            AND e.objective_part IS DISTINCT FROM last.objective_part)
+          OR (e.goal_part IS NOT NULL
+            AND e.goal_part IS DISTINCT FROM last.goal_part)
+          OR (e.event_part IS NOT NULL
+            AND e.event_part IS DISTINCT FROM last.event_part)
+          OR (e.custom_conversion_part IS NOT NULL
+            AND e.custom_conversion_part IS DISTINCT FROM last.custom_conversion_part)
+          OR (e.timezone_part IS NOT NULL
+            AND e.timezone_part IS DISTINCT FROM last.timezone_part)
+          OR (e.currency_part IS NOT NULL
+            AND e.currency_part IS DISTINCT FROM last.currency_part)
+        )
+      )
+    )
   GROUP BY e.provider_account_id, e.ad_id
 ),
 admitted_window_bounds AS (
@@ -2387,7 +2482,23 @@ decision_ad_days AS (
      OR d.date BETWEEN bounds.start_date AND bounds.end_date
 ),
 admitted_metric_context_days AS (
-  SELECT d.*
+  SELECT d.*,
+    /*
+      TRANSPARENT TO THE AD'S IDENTITY (ADR D107): a day INSIDE an admitted run
+      whose own context does not resolve. A bridged ECONOMIC day observed
+      nothing that contradicts the run (one that did would have ended it). An
+      EMPTY day never enters the walk at all; it is transparent whatever it
+      observed, because it adds nothing to any sum — the same treatment
+      calibration's contextCardinality gives every unresolved row. Neither may
+      make the ad's context "unknown" in context_cardinality — that turned a
+      strong ad into an unknown-cohort, zero-purchase one — and a bridged day
+      may not carry authority: config_authority_days forces its readiness to
+      'none'. A RESOLVED day inside the run is never transparent, so a resolved
+      empty day with a different key still fails the ad closed. Outside any run
+      (no resolvable economic day at all) nothing is transparent.
+    */
+    (bounds.ad_id IS NOT NULL AND NOT ${nativeAdDayContextResolvesSql("d")})
+      AS window_context_transparent
   FROM metric_context_days d
   LEFT JOIN admitted_window_bounds bounds
     ON bounds.provider_account_id = d.provider_account_id
@@ -2395,14 +2506,36 @@ admitted_metric_context_days AS (
   WHERE bounds.ad_id IS NULL
      OR d.date BETWEEN bounds.start_date AND bounds.end_date
 ),
+admitted_window_stats AS (
+  -- What the run actually covers, for the decision's own period label (D098)
+  -- and its hashed input: economic days in it, and how many were bridged.
+  SELECT bounds.provider_account_id, bounds.ad_id,
+    COUNT(*)::integer AS economic_day_count,
+    COUNT(*) FILTER (WHERE e.context_key IS NULL)::integer
+      AS bridged_unresolved_day_count
+  FROM admitted_window_bounds bounds
+  INNER JOIN economic_context_days e
+    ON e.provider_account_id = bounds.provider_account_id
+   AND e.ad_id = bounds.ad_id
+   AND e.date BETWEEN bounds.start_date AND bounds.end_date
+  GROUP BY bounds.provider_account_id, bounds.ad_id
+),
 ad_context_immutable_cardinality AS (
   -- Account timezone/currency are immutable identity dimensions, not a
   -- campaign context that can legitimately start a new admitted window.
   -- Check all economic days so a pre-boundary identity conflict cannot be
   -- laundered away when context_days is trimmed to the latest run.
+  --
+  -- EVERY economic day's OBSERVED value counts, whether or not its context
+  -- resolves (ADR D107). Counting resolved days only let a day that lacked an
+  -- objective but did carry another currency end the run, and the shorter run
+  -- then passed this check with the anomaly left outside it. A blank value is
+  -- NULL here (NULLIF/BTRIM upstream) and COUNT(DISTINCT) ignores it, so a day
+  -- that merely lost the field stays bridgeable. Mirrored by the observed
+  -- timezone/currency check in jobs/ad-calibration-job.ts buildObservations.
   SELECT provider_account_id, ad_id,
-    COUNT(DISTINCT (account_timezone, account_currency))
-      FILTER (WHERE context_key IS NOT NULL) AS identity_count
+    COUNT(DISTINCT account_timezone) AS timezone_count,
+    COUNT(DISTINCT account_currency) AS currency_count
   FROM economic_context_days
   GROUP BY provider_account_id, ad_id
 ),
@@ -2471,7 +2604,10 @@ dimension_only_context AS (
     ${configFieldEvidenceRefWithoutReceiptSql("objective", "CASE WHEN NULLIF(BTRIM(campaign_config.objective), '') IS NULL THEN 'none' ELSE 'current_fallback' END")} AS objective_evidence_ref,
     ${configFieldEvidenceRefWithoutReceiptSql("optimization_goal", "CASE WHEN COALESCE(NULLIF(BTRIM(adset_config.optimization_goal), ''), NULLIF(BTRIM(campaign_config.optimization_goal), '')) IS NULL THEN 'none' ELSE 'current_fallback' END")} AS optimization_goal_evidence_ref,
     ${configFieldEvidenceRefWithoutReceiptSql("custom_event_type", "CASE WHEN COALESCE(NULLIF(BTRIM(adset_config.custom_event_type), ''), NULLIF(BTRIM(campaign_config.custom_event_type), '')) IS NULL THEN 'none' ELSE 'current_fallback' END")} AS custom_event_type_evidence_ref,
-    ${configFieldEvidenceRefWithoutReceiptSql("custom_conversion_id", "'none'")} AS custom_conversion_id_evidence_ref
+    ${configFieldEvidenceRefWithoutReceiptSql("custom_conversion_id", "'none'")} AS custom_conversion_id_evidence_ref,
+    -- Positional twin of admitted_metric_context_days.window_context_transparent
+    -- for the UNION ALL in context_days. This arm is never inside a run.
+    FALSE AS window_context_transparent
   FROM selected_ads selected
   LEFT JOIN meta_ad_dimensions dimensions
     ON dimensions.business_id = selected.business_id
@@ -2562,6 +2698,10 @@ context_cardinality AS (
       )
     ) AS has_unknown_context
   FROM context_days
+  -- A day inside a run whose own context did not resolve (a bridged economic
+  -- day, or an empty day) is not evidence of a second or an unknown identity
+  -- (ADR D107). Outside a run the flag is FALSE and every day counts.
+  WHERE NOT window_context_transparent
   GROUP BY provider_account_id, ad_id
 ),
 config_authority_days AS (
@@ -2585,14 +2725,14 @@ config_authority_days AS (
     ARRAY_AGG(COALESCE(conversions, 0) ORDER BY date) AS authority_conversions,
     ARRAY_AGG(COALESCE(revenue, 0) ORDER BY date) AS authority_revenue,
     ARRAY_AGG(objective_tier ORDER BY date) AS authority_objective_tier,
-    ARRAY_AGG(objective_readiness ORDER BY date) AS authority_objective_readiness,
+    ARRAY_AGG(${bridgedDayReadinessSql("objective_readiness")} ORDER BY date) AS authority_objective_readiness,
     ARRAY_AGG(optimization_goal_tier ORDER BY date) AS authority_goal_tier,
-    ARRAY_AGG(optimization_goal_readiness ORDER BY date) AS authority_goal_readiness,
+    ARRAY_AGG(${bridgedDayReadinessSql("optimization_goal_readiness")} ORDER BY date) AS authority_goal_readiness,
     ARRAY_AGG(custom_event_type_tier ORDER BY date) AS authority_event_tier,
-    ARRAY_AGG(custom_event_type_readiness ORDER BY date) AS authority_event_readiness,
+    ARRAY_AGG(${bridgedDayReadinessSql("custom_event_type_readiness")} ORDER BY date) AS authority_event_readiness,
     ARRAY_AGG(custom_event_type ORDER BY date) AS authority_event_value,
     ARRAY_AGG(custom_conversion_id ORDER BY date) AS authority_custom_conversion_id,
-    ARRAY_AGG(custom_conversion_id_readiness ORDER BY date)
+    ARRAY_AGG(${bridgedDayReadinessSql("custom_conversion_id_readiness")} ORDER BY date)
       AS authority_custom_conversion_readiness,
     COUNT(*) FILTER (
       WHERE objective_warehouse_value IS NOT NULL
@@ -2664,6 +2804,9 @@ metric_cumulative AS (
     provider_account_id,
     ad_id,
     COUNT(*)::integer AS metric_row_count,
+    -- Distinct provider-local dates summed below: the days the decision's
+    -- cumulative figures actually cover (ADR D107 period label).
+    COUNT(DISTINCT date)::integer AS metric_day_count,
     -- Whether ANY event metric was actually measured on any day. The probes for
     -- outbound/thumbstop/video keys are gone: those keys never exist on
     -- meta_ad_daily (the ad-level Graph request does not ask for them), so they
@@ -2728,6 +2871,7 @@ cumulative AS (
     selected.provider_account_id,
     selected.ad_id,
     metrics.metric_row_count,
+    metrics.metric_day_count,
     COALESCE(metrics.event_metrics_observed, FALSE) AS event_metrics_observed,
     metrics.ad_name,
     metrics.spend,
@@ -3023,8 +3167,32 @@ SELECT
   authority_days.authority_custom_conversion_readiness,
   authority_days.objective_receipt_disagreements,
   authority_days.optimization_goal_receipt_disagreements,
-  admitted_bounds.start_date AS admitted_context_start_date,
-  admitted_bounds.end_date AS admitted_context_end_date,
+  /*
+    THE ADMITTED WINDOW, as text so no DATE-to-JavaScript conversion can shift
+    it (D098: a user-facing period label reads the persisted admitted window;
+    ADR D107 carries it into the evaluation input). NULL when the ad has no
+    resolvable economic day, in which case the sums above cover the whole
+    28-day lookback.
+  */
+  admitted_bounds.start_date::text AS admitted_context_start_date,
+  admitted_bounds.end_date::text AS admitted_context_end_date,
+  (admitted_bounds.end_date - admitted_bounds.start_date + 1)
+    AS admitted_calendar_day_span,
+  -- The recent band as the recent CTE actually summed it: the last seven
+  -- lookback days clipped to the admitted run, NULL when they do not overlap.
+  CASE
+    WHEN GREATEST(admitted_bounds.start_date, $2::date - 6)
+      <= LEAST(admitted_bounds.end_date, $2::date)
+    THEN GREATEST(admitted_bounds.start_date, $2::date - 6)::text
+  END AS admitted_recent_start_date,
+  CASE
+    WHEN GREATEST(admitted_bounds.start_date, $2::date - 6)
+      <= LEAST(admitted_bounds.end_date, $2::date)
+    THEN LEAST(admitted_bounds.end_date, $2::date)::text
+  END AS admitted_recent_end_date,
+  admitted_stats.economic_day_count AS admitted_economic_day_count,
+  admitted_stats.bridged_unresolved_day_count AS admitted_bridged_unresolved_day_count,
+  COALESCE(cumulative.metric_day_count, 0) AS admitted_observed_day_count,
   COALESCE(cardinality.campaign_count, 0) AS campaign_count,
   COALESCE(cardinality.adset_count, 0) AS adset_count,
   COALESCE(cardinality.optimization_context_count, 0) AS optimization_context_count,
@@ -3035,7 +3203,8 @@ SELECT
     OR cardinality.adset_count <> 1
     OR cardinality.optimization_context_count <> 1
     OR cardinality.objective_count <> 1
-    OR COALESCE(immutable_context.identity_count, 0) > 1
+    OR COALESCE(immutable_context.timezone_count, 0) > 1
+    OR COALESCE(immutable_context.currency_count, 0) > 1
   ) AS context_identity_unknown,
   COALESCE(cumulative.metric_row_count, 0) AS metric_row_count,
   cumulative.event_metrics_observed,
@@ -3162,6 +3331,9 @@ LEFT JOIN ad_context_immutable_cardinality immutable_context
 LEFT JOIN admitted_window_bounds admitted_bounds
   ON admitted_bounds.provider_account_id = cumulative.provider_account_id
  AND admitted_bounds.ad_id = cumulative.ad_id
+LEFT JOIN admitted_window_stats admitted_stats
+  ON admitted_stats.provider_account_id = cumulative.provider_account_id
+ AND admitted_stats.ad_id = cumulative.ad_id
 LEFT JOIN latest_context latest
   ON latest.provider_account_id = cumulative.provider_account_id
  AND latest.ad_id = cumulative.ad_id
@@ -5701,6 +5873,58 @@ function toAdDisjointBandObservation(input: {
 }
 
 /**
+ * The admitted run the cumulative and recent sums covered (ADR D107), read
+ * from the columns the hydration SQL emitted beside those sums — never
+ * re-derived here, so a label can only describe the rows that were summed.
+ * Null when the ad has no admitted run: its sums then cover the full 28-day
+ * lookback and the conventional labels are accurate.
+ */
+function toDecisionEvidenceWindow(
+  row: AdDecisionHydrationRow,
+): DecisionEvidenceWindow | null {
+  const startDate = toIsoDateOrNull(row.admitted_context_start_date);
+  const endDate = toIsoDateOrNull(row.admitted_context_end_date);
+  if (startDate === null && endDate === null) return null;
+  const lookbackStartDate = toIsoDateOrNull(row.prior14_start_date);
+  const lookbackEndDate = toIsoDateOrNull(row.band_cutoff_date);
+  const calendarDaySpan = toIntegerOrNull(row.admitted_calendar_day_span);
+  if (
+    startDate === null ||
+    endDate === null ||
+    lookbackStartDate === null ||
+    lookbackEndDate === null ||
+    calendarDaySpan === null ||
+    calendarDaySpan < 1 ||
+    startDate > endDate
+  ) {
+    throw new Error(
+      "Ad decision hydration returned an incoherent admitted window.",
+    );
+  }
+  return {
+    startDate,
+    endDate,
+    calendarDaySpan,
+    observedDayCount: Math.max(
+      0,
+      toIntegerOrNull(row.admitted_observed_day_count) ?? 0,
+    ),
+    economicDayCount: Math.max(
+      0,
+      toIntegerOrNull(row.admitted_economic_day_count) ?? 0,
+    ),
+    bridgedUnresolvedDayCount: Math.max(
+      0,
+      toIntegerOrNull(row.admitted_bridged_unresolved_day_count) ?? 0,
+    ),
+    lookbackStartDate,
+    lookbackEndDate,
+    recentStartDate: toIsoDateOrNull(row.admitted_recent_start_date),
+    recentEndDate: toIsoDateOrNull(row.admitted_recent_end_date),
+  };
+}
+
+/**
  * The equal, disjoint, directly adjacent 14/14 pair for one ad.
  *
  * Returns null only when the query produced no band window at all — an ad with
@@ -6121,6 +6345,7 @@ function mapAdDecisionHydrationRow(input: {
       */
       adBandEvidence:
         metricRowCount > 0 ? toAdBandEvidence(input.row) : null,
+      decisionWindow: toDecisionEvidenceWindow(input.row),
       objective,
       contextGrain: {
         providerAccountCount: 1,

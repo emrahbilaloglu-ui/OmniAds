@@ -5607,12 +5607,15 @@ function buildObservations(input: {
       the window, a full quarter after the source is repaired, while fresh
       corroborated receipts arrive daily and change nothing.
 
-      `resolveAdmittedContextWindow` takes the LATEST contiguous run of
-      economically meaningful days sharing one context. An old gap falls outside
-      it instead of killing the ad; a genuine configuration change ENDS the run
-      instead of discarding the ad; and no run is bridged across a day nobody
-      observed, so an unobserved day is never counted as evidence that the
-      configuration held.
+      `resolveAdmittedContextWindow` takes the LATEST run of economically
+      meaningful days carrying one context. An old gap falls outside it instead
+      of killing the ad, and a genuine, OBSERVED configuration change ENDS the
+      run instead of discarding the ad. An unresolved day with the same context
+      observed on both sides of it is admitted into the run (ADR D107): it is a
+      gap in what we could read, not evidence that the configuration changed.
+      It is never counted as evidence that the configuration held, either —
+      `aggregateObservation` classifies it as `none`, so it can never join the
+      verified suffix that the hard cells are built from.
     */
     const contextByRow = new Map<string, ExactContext | null>();
     const contextOf = (row: NormalizedSourceRow): ExactContext | null => {
@@ -5629,21 +5632,30 @@ function buildObservations(input: {
       latest segment would admit a one-day observation built on the anomaly. This
       runs over every day that could carry economic weight, before the window
       walk, so the walk never has to decide what to do with one.
+
+      EVERY such day's OBSERVED value counts, whether or not its context
+      resolves (ADR D107). Checking resolved days only let a day that lacked an
+      objective but did carry another currency end the run, and the shorter run
+      then passed this check with the anomaly left outside it. A blank value is
+      not an observation: such a day stays bridgeable and contradicts nothing.
+      Mirrored by ad_context_immutable_cardinality in the hydration SQL.
     */
-    const immutableKeys = new Set(
-      deduplicated
-        .filter(
-          (row) => row.spend > 0 || row.conversions > 0 || row.revenue > 0,
-        )
-        .map((row) => exactContextImmutableKey(contextOf(row)))
-        .filter((key): key is string => key !== null),
+    const economicRows = deduplicated.filter(
+      (row) => row.spend > 0 || row.conversions > 0 || row.revenue > 0,
     );
-    if (immutableKeys.size > 1) {
-      const resolved = deduplicated
-        .map(contextOf)
-        .filter((context): context is ExactContext => context !== null);
+    const observedTimezones = distinctCount(
+      economicRows
+        .map((row) => normalizeText(row.accountTimezone))
+        .filter((value): value is string => value !== null),
+    );
+    const observedCurrencies = distinctCount(
+      economicRows
+        .map((row) => normalizeText(row.accountCurrency))
+        .filter((value): value is string => value !== null),
+    );
+    if (observedTimezones > 1 || observedCurrencies > 1) {
       qualityCounts.mixedContextAdExclusionCount += 1;
-      if (distinctCount(resolved.map((row) => row.accountCurrency)) > 1) {
+      if (observedCurrencies > 1) {
         qualityCounts.mixedCurrencyAdExclusionCount += 1;
       }
       continue;
@@ -5655,6 +5667,7 @@ function buildObservations(input: {
       conversions: row.conversions,
       revenue: row.revenue,
       contextKey: exactContextIdentityKey(contextOf(row)),
+      contextParts: exactContextObservedParts(row),
     }));
     if (admitted.reason !== "admitted") {
       /*
@@ -6200,7 +6213,21 @@ function aggregateObservation(input: {
       dayClass: MetaConfigDayAuthorityClass;
     }> = [];
     for (const row of input.rows) {
-      const dayClass = classifyConfigAuthorityDay({
+      /*
+        A BRIDGED day carries no authority, whatever its fields say (ADR D107).
+        An economically meaningful day whose own context does not resolve is in
+        the run only because the same context was observed on both sides of it.
+        Its per-field readiness can still read `decision_authority` — for
+        instance a receipt-backed goal on a day whose account currency is
+        missing — and letting that through would make the unread day part of
+        the verified suffix the hard cells are built from.
+      */
+      const bridged =
+        sourceRowIsEconomicallyMeaningful(row) &&
+        normalizedExactContext(row) === null;
+      const dayClass: MetaConfigDayAuthorityClass = bridged
+        ? "none"
+        : classifyConfigAuthorityDay({
         cohort: input.context.cohort,
         objectiveReadiness: row.objectiveReadiness,
         objectiveTier: row.objectiveTier,
@@ -6506,13 +6533,41 @@ export function exactContextIdentityKey(
   ]);
 }
 
-/** The dimensions a single ad may never disagree about; see above. */
-export function exactContextImmutableKey(
-  context: ExactContext | null,
-): string | null {
-  if (!context) return null;
-  return JSON.stringify([context.accountTimezone, context.accountCurrency]);
+/**
+ * The day's individually OBSERVED configuration values, for the admitted-window
+ * walk (ADR D107). Positionally aligned with `exactContextIdentityKey`'s
+ * fields and normalized the same way — campaign, ad set, objective, then the
+ * three components `optimizationContext` folds — followed by the account's
+ * timezone and currency, the immutable dimensions that are also checked over
+ * every economic day before the walk. For a resolved day "same key" and "same
+ * parts" therefore agree. Read by the walk only for a day that does NOT
+ * resolve: a value it did observe that the run's context lacks is an observed
+ * change (a bridged day can never carry a second currency into the run),
+ * while a value it did not observe contradicts nothing. Mirrored by the
+ * `*_part` columns of the hydration SQL's `economic_context_days`.
+ */
+export function exactContextObservedParts(row: {
+  campaignId: string | null;
+  adsetId: string | null;
+  objective: string | null;
+  optimizationGoal: string | null;
+  customEventType: string | null;
+  customConversionId?: string | null;
+  accountTimezone: string | null;
+  accountCurrency: string | null;
+}): (string | null)[] {
+  return [
+    row.campaignId || null,
+    row.adsetId || null,
+    row.objective || null,
+    normalizeGoal(row.optimizationGoal) ?? null,
+    normalizeGoal(row.customEventType) ?? null,
+    normalizeText(row.customConversionId) ?? null,
+    row.accountTimezone || null,
+    row.accountCurrency || null,
+  ];
 }
+
 
 function contextCardinality(contexts: ExactContext[]) {
   const cardinality = {
@@ -7297,6 +7352,15 @@ function sum<T>(rows: T[], value: (row: T) => number) {
  * impressions, spend, clicks, conversions or revenue. Only such a day has to
  * have measured an event count for a window over it to be complete.
  */
+/** The admitted-window walk's own notion of a day that is not empty. */
+function sourceRowIsEconomicallyMeaningful(row: NormalizedSourceRow): boolean {
+  return (
+    (row.spend || 0) !== 0 ||
+    (row.conversions || 0) !== 0 ||
+    (row.revenue || 0) !== 0
+  );
+}
+
 function sourceRowIsDecisionBearing(row: NormalizedSourceRow): boolean {
   return (
     row.impressions > 0 ||

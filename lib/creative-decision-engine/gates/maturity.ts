@@ -1,6 +1,10 @@
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 import { LAUNCH_MONITOR_WINDOW_DAYS } from "../config-values";
-import { comparisonLabel, formatReasonNumber } from "./reason-format";
+import {
+  comparisonLabel,
+  cumulativePeriodLabel,
+  formatReasonNumber,
+} from "./reason-format";
 import {
   effectiveCommercialStopLossThresholds,
   hasExplicitBreakEven,
@@ -91,7 +95,7 @@ export function maturityGate(ctx: GateContext): GateResult {
               ratio * 100
             ).toFixed(0)}% of ${comparison} on ${formatReasonNumber(
               ctx.input.spend,
-            )} spend (28d) — spend exceeded hard-cut threshold ${formatReasonNumber(
+            )} spend (${cumulativePeriodLabel(ctx.input)}) — spend exceeded hard-cut threshold ${formatReasonNumber(
               severeCut.hardCutSpend,
             )} and ratio is below severe-loser zone (${(
               severeCut.severeLoserRatio * 100
@@ -123,7 +127,7 @@ export function maturityGate(ctx: GateContext): GateResult {
           badges: [...ctx.badges, ...launchBadges],
         },
         "test_more",
-        `Below commercial maturity (28d spend ${formatReasonNumber(
+        `Below commercial maturity (${cumulativePeriodLabel(ctx.input)} spend ${formatReasonNumber(
           ctx.input.spend,
         )} < ${formatReasonNumber(
           spendThreshold,

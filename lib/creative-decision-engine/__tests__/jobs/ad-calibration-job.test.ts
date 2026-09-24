@@ -4933,6 +4933,101 @@ describe("an old provenance gap must not kill an ad with a verified recent run",
     expect(observation.sourceDayCount).toBe(15);
   });
 
+  /*
+    ADR D107. An unreadable day is a gap in what we could read, not evidence
+    that the configuration changed. With the same context observed on both
+    sides of it, the run stays whole — but the bridged day stays OUT of the
+    verified run the hard cells are built from.
+  */
+  it("bridges an unreadable interior day but keeps it out of the verified run (D107)", () => {
+    const rows = [
+      ...dates("2026-06-13", 20).map((d) => day("bridged", d, VERIFIED)),
+      day("bridged", "2026-07-03", UNPROVENANCED, { objective: "" }),
+      ...dates("2026-07-04", 5).map((d) => day("bridged", d, VERIFIED)),
+    ];
+    const batch = compute(rows);
+
+    expect(batch.qualityCounts.contextWindowTruncatedAdCount).toBe(0);
+    expect(batch.qualityCounts.contextGapTruncatedAdCount).toBe(0);
+    expect(batch.qualityCounts.contextChangeTruncatedAdCount).toBe(0);
+    expect(batch.observations).toHaveLength(1);
+    const observation = batch.observations[0]!;
+    /* The whole observed run, not the five days after the gap. */
+    expect(observation.sourceMinDate).toBe("2026-06-13");
+    expect(observation.sourceDayCount).toBe(26);
+    expect(observation.configAuthorityCounts).toMatchObject({
+      decisionAuthorityDays: 25,
+      noneDays: 1,
+    });
+    /* The verified run stops at the bridged day: exactly what it was before. */
+    expect(observation.configAuthoritySuffix).toMatchObject({
+      startDate: "2026-07-04",
+      dayCount: 5,
+      reason: "verified",
+    });
+    expect(observation.verifiedSample?.sourceDayCount).toBe(5);
+  });
+
+  it("never lets a bridged day join the verified run, whatever its fields read (D107)", () => {
+    const rows = [
+      ...dates("2026-06-13", 20).map((d) => day("null-currency", d, VERIFIED)),
+      /* Receipt-backed config, but the account currency is missing, so the
+         day's own context does not resolve. Its fields still READ as
+         decision_authority; it must be classified `none` all the same. */
+      day("null-currency", "2026-07-03", VERIFIED, {
+        accountCurrency: null,
+        sourceAccountCurrency: null,
+      }),
+      ...dates("2026-07-04", 5).map((d) => day("null-currency", d, VERIFIED)),
+    ];
+    const observation = compute(rows).observations[0]!;
+    expect(observation.sourceDayCount).toBe(26);
+    expect(observation.configAuthorityCounts).toMatchObject({
+      decisionAuthorityDays: 25,
+      noneDays: 1,
+    });
+    expect(observation.configAuthoritySuffix).toMatchObject({
+      startDate: "2026-07-04",
+      dayCount: 5,
+    });
+  });
+
+  it("excludes an ad whose unreadable day observed another currency (D107)", () => {
+    // The day lacks an objective, so its context does not resolve — but it
+    // DID observe TRY between USD days. Checking resolved days only would let
+    // the walk end the run there and admit the USD tail with the anomaly left
+    // outside it.
+    const rows = [
+      ...dates("2026-06-13", 20).map((d) => day("currency-anomaly", d, VERIFIED)),
+      day("currency-anomaly", "2026-07-03", UNPROVENANCED, {
+        objective: "",
+        accountCurrency: "TRY",
+        sourceAccountCurrency: "TRY",
+      }),
+      ...dates("2026-07-04", 5).map((d) => day("currency-anomaly", d, VERIFIED)),
+    ];
+    const batch = compute(rows);
+    expect(batch.observations).toHaveLength(0);
+    expect(batch.qualityCounts.mixedContextAdExclusionCount).toBe(1);
+    expect(batch.qualityCounts.mixedCurrencyAdExclusionCount).toBe(1);
+  });
+
+  it("ends the run at an unreadable day that observed a contradicting goal (D107)", () => {
+    const rows = [
+      ...dates("2026-06-13", 20).map((d) => day("contradicted", d, VERIFIED)),
+      day("contradicted", "2026-07-03", UNPROVENANCED, {
+        objective: "",
+        optimizationGoal: "VALUE",
+      }),
+      ...dates("2026-07-04", 5).map((d) => day("contradicted", d, VERIFIED)),
+    ];
+    const batch = compute(rows);
+    expect(batch.qualityCounts.contextChangeTruncatedAdCount).toBe(1);
+    const observation = batch.observations[0]!;
+    expect(observation.sourceMinDate).toBe("2026-07-04");
+    expect(observation.sourceDayCount).toBe(5);
+  });
+
   it("still refuses an ad whose every day is unprovenanced of any context", () => {
     const rows = dates("2026-06-13", 20).map((d) =>
       day("no-context", d, UNPROVENANCED, { objective: "" }),

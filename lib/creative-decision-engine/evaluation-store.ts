@@ -52,6 +52,13 @@ export type { DecisionAuthorityBlocker };
  */
 export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   /*
+  `.v16` — ADR D107. The hashed ad input now carries `decisionWindow`, the
+  admitted run the cumulative and recent sums covered, because the reason text
+  names that period; and the run itself changed meaning (an unresolved day no
+  longer ends it, only an observed difference does), so the same source rows
+  can produce different economics, verdicts and reasons. `.v15` rows keep their
+  original key and are never recomputed under this rule.
+
   `.v15` — the authenticated Cut-only account AOV overlay can supply the
   recent-spend sufficiency floor when the exact cell's floor is unavailable.
   Economic verdicts can change, so the `.v14` contract key is not reused for
@@ -92,7 +99,7 @@ export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   readable under their own key and are never recomputed under current
   semantics.
 */
-  "engine-v3-canonical-ad-evaluation.v15" as const;
+  "engine-v3-canonical-ad-evaluation.v16" as const;
 
 /**
  * The source interpretation rules a `.v14` ad evaluation's inputs use.

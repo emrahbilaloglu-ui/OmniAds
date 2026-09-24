@@ -865,6 +865,13 @@ function normalizeCreativeInput(
     metricEvidence: adInput?.metricEvidence ?? null,
     statusEvidence: adInput?.statusEvidence ?? null,
     creativeEvidence: adInput?.creativeEvidence ?? null,
+    /*
+      THE ADMITTED WINDOW the figures above were summed over (ADR D107). It
+      changes the reason text, so it is hashed input. Ad inputs only, and
+      spread rather than defaulted to null so a legacy creative input's
+      envelope — and its canonical hash — is byte-identical to before.
+    */
+    ...(adInput ? { decisionWindow: adInput.decisionWindow ?? null } : {}),
   });
 }
 

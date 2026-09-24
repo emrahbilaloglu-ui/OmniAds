@@ -10180,3 +10180,195 @@ their stored status semantics and are not rewritten. Rollback restores the
 previous reader and producer together; no observation history or source metric
 is changed by this read-path amendment. If released after D105 independently,
 the engine epoch must advance before minting decisions under these semantics.
+
+## D107 — Only an observed configuration difference ends a native Ad decision window (2026-09-24)
+
+**Scope.** Native Meta Ad decisions: which days form the admitted economic
+window (hydration SQL and native calibration, together), what that window may
+contribute to identity and authority, the zero-purchase Cut floor in the shared
+resolver, and the period the reason text claims. It does not change the 20/30
+calibration sample floors, the commercial target or break-even rules, D098
+config authority, D100 serving, D101 coverage, hysteresis, the campaign-role
+gate, D061/D063 overlay authority, or any provider write. The D101 producer and
+its dead-letter republishing are a separate lane and are untouched.
+
+**Observed failure.** On 2026-09-24 a sync rewrite set Grandmix's
+provider-local 2026-09-21 creative-day objective to NULL (52 of 52 rows,
+06:41:08Z, after the 06:29Z deploy of `9fed569f5`). D098's window rule counted
+an unresolved day as a DIFFERENT context (`context_key IS DISTINCT FROM`), so
+every Grandmix run collapsed to 2026-09-22. The 06:44Z production run judged
+all Grandmix ads on one day: $856.48 of spend against $10,896.62 three hours
+earlier. Ads with 28-day ROAS 5.82 and 2.66 were served as
+`test_more` + pre-authority Cut + `cut_candidate` with the reason "0 purchases
+on 26 spend (28d cumulative, age 131d) — sustained zero-conversion burn past
+CPA-anchored maturity threshold 25". The reason claimed 28 days; it summed one.
+Separately, the shared ratio-zone Cut branch fired on a zero-purchase row at
+loss-budget maturity (2 spend units on the balanced preset) while the dedicated
+zero-conversion rule required its own higher floor (3 units): the same evidence
+was a Cut or not depending on which gate read it first.
+
+**Decision.**
+
+1. *Only an observed difference ends a run.* A run is bounded by the newest
+   earlier economic day whose context resolves to a different key, or whose
+   context does not resolve but which still observed a configuration value
+   (campaign, ad set, objective, optimization goal, event, custom conversion)
+   or an account timezone or currency that contradicts the run's context — a
+   bridged day can therefore never bring a second currency into a run. The
+   timezone and currency are also IMMUTABLE identity: before any window is
+   chosen, the observed values of EVERY economic day, resolved or not, are
+   compared, and a second observed timezone or currency fails the ad closed
+   (context identity unknown in hydration, `mixedContext` exclusion in
+   calibration), so a contradiction on an unreadable day cannot be laundered
+   by the shorter run it leaves behind. A blank value is not an observation
+   and stays bridgeable. A day that merely fails to resolve —
+   the configuration was not observed, not observed to differ — is a gap in
+   our knowledge, not a boundary. When the latest context is observed on both
+   sides of such a day, it is admitted into the run as a **bridged** day.
+   Unresolved days at the older edge (an observation on one side only) are
+   still dropped, and trailing unresolved days still end the run earlier, so
+   the latest value is never carried past its last observation. A provider-
+   observed change still starts a short window, which remains a valid
+   decision window. No day-count threshold is introduced.
+2. *A bridged day carries no authority.* Hydration forces its readiness to
+   `none` and calibration classifies it `none`, whatever its per-field
+   readiness reads (a receipt-backed goal on a day whose currency is missing
+   would otherwise count as verified). It is therefore an unverified economic
+   day under D098: it informs the visible diagnosis and can never authorize a
+   Cut, Scale or Refresh. This amends D098's "latest continuous, resolvable
+   context" to "latest context not interrupted by an observed difference", and
+   it is consistent with D097 round 6: no configuration VALUE is inferred for
+   the gap day, and no interpolation authorizes anything.
+3. *An unresolved day inside a run is transparent to the ad's identity.* It is
+   excluded from `context_cardinality`, so it can no longer turn the ad's
+   context `unknown` (NULL objective, `unknown` cohort, 0 purchases). This
+   also covers an unreadable EMPTY day inside a run, which D098 already called
+   transparent; an empty day never enters the walk, so it is transparent
+   whatever it observed, exactly as calibration's `contextCardinality` treats
+   every unresolved row. A RESOLVED day is never transparent, so a resolved
+   empty day with a different key still fails the ad closed. Outside any run
+   nothing is transparent.
+4. *Zero-purchase Cuts wait for the zero-conversion floor on every path.* With
+   no purchase, every Cut predicate — zero-conversion, ratio-zone
+   hard/sustained/loss-budget, severe-maturity — requires spend of at least
+   `max(zeroConvBurnerSpend, loss-budget maturity)` of the threshold family
+   being applied, and the cut-zone fatigued Refresh (which a Test campaign
+   turns into a Cut) is withheld below it too. A missing purchase count is
+   read as zero here, which can only hold more. D061's repair activation calls
+   the same predicates, so a repaired Cut waits for the trusted account-AOV
+   zero-conversion floor; below it the canonical profile applies, as D061
+   already requires, and its soft-only verdict authorizes nothing.
+5. *The reason names the period it summed.* The hydration SQL emits the
+   admitted window (start, end, calendar span, observed days, economic days,
+   bridged days, and the recent band clipped to the run); native inputs carry
+   it as `decisionWindow`. "28d" / "7d" remain only where the figures really
+   span the full lookback / recent band — which is also what every input
+   without a window sums, so legacy creative text is byte-identical. Otherwise
+   the reason reads, for example, "ROAS 2.02 (15d 2026-09-09..2026-09-23)".
+   The missing-recent-data badge names the same period. The low-delivery
+   badge claims "0 spend in the last 7d" only when the zero is known: the run
+   covers the WHOLE recent band, or the ad's last spend day, read over every
+   finalized row known at the cutoff, is itself before the band. The recent
+   sum covers only band days inside the run, so a run that ends before the
+   band, or touches it only through a $0 late-attribution day, proves nothing
+   about the unadmitted days after it. In the TheSwaf
+   replay this removed the false claim from two ads that spent on 2026-09-22
+   outside their run and kept it for ads that really stopped. The UI computes
+   nothing from it.
+
+**Consequences made explicit.** These follow from the rule and from D098 as
+it stands, and are recorded so they are decided rather than discovered.
+
+- *A bridged day holds authority until it leaves the lookback.* D098
+  authorizes only when every economic day of the decision's own window has
+  config authority, and a bridged day has none. A run with verified days on
+  both sides of one unreadable day is therefore not authorizable until that
+  day is older than the 28-day lookback: for Grandmix's 2026-09-21 gap, until
+  as-of 2026-10-19. In the replay, 51 of Grandmix's 53 spending ads moved from
+  `fullyVerified` true to false (none the other way). Before D107 the same ads
+  were "fully verified" on the one or two days after the gap — authority over
+  a window that was short only because a day could not be read. The loser
+  keeps its Cut verdict, held; it is not rewritten as a diagnosis. Letting the
+  verified suffix alone authorize (the projection calibration already uses
+  for hard cells) would be a new authority rule and is left to a separate ADR.
+- *The zero-purchase floor is not monotone in purchases.* A zero-purchase
+  row waits for the zero-conversion floor (3 spend units on the balanced
+  preset), while a row with one purchase and ROAS below break-even can still
+  be Cut at loss-budget maturity (2 units). In the TheSwaf replay the one-purchase
+  test ad 120252282325900042 ($172.39, ROAS 1.31) stays a (held) raw Cut while
+  its zero-purchase sibling 120252282352180042 ($176.35) falls to the
+  canonical soft-only candidate. One purchase
+  is a measured ROAS; zero purchases below the floor is the evidence gap the
+  zero-conversion rule exists for. This is the existing threshold geometry,
+  applied consistently; changing it is a commercial-policy decision.
+- *Observed absence is not a contradiction.* The config contract returns NULL
+  both when no receipt spoke and when a receipt spoke without a value; the
+  walk compares values only, so an observed removal of an event or custom
+  conversion on an otherwise unresolved day is bridged, not a boundary. The
+  day still carries no authority.
+
+**Identity and compatibility.** `NATIVE_AD_ENGINE_VERSION` moves to
+`v3-ad-2026-09-24-config-gap-window-shadow`; the native calibration policy
+version follows it, as it did for D098's window rule. `ENGINE_VERSION` moves to
+`v3-2026-09-24-zero-conversion-cut-floor` because the zero-purchase floor lives
+in the shared resolver and can change legacy creative verdicts for identical
+inputs. `AD_DECISION_EVALUATION_CONTRACT_VERSION` moves to `.v16`: the hashed
+ad input gains `decisionWindow` (ad inputs only — a creative input's envelope
+and canonical hash are unchanged), and the same source rows can now produce
+different economics and reasons. `NATIVE_AD_CALIBRATION_CONTRACT_VERSION`
+stays `.v6`: no hashed field or encoding changed; window membership is keyed by
+the policy version, as with D098. Calibration's `contextGapTruncated*`
+counters now count only older-edge gaps; bridged days are visible as `none`
+days in `configAuthorityCounts`. `CANONICAL_EVALUATION_CONTRACT_VERSION` stays
+`.v9`. Earlier rows keep their keys and are never recomputed under this rule.
+One version bump resets hysteresis once; no other change in this release moves
+the epoch.
+
+**Read-only replay evidence and limit.** Production functions, recomputed
+calibration, one pinned REPEATABLE READ READ ONLY snapshot per run; current
+`origin/main` `db7b69053` and this change at the same cutoff, as-of 2026-09-24.
+
+- Grandmix (cutoff 2026-09-24T11:25:00Z, 53 ads with spend): decision spend
+  basis $1,650.25 → $13,276.79, purchases 10 → 120; 53 runs bridge the
+  2026-09-21 gap; ads with spend and an unknown context 1 → 0. Soft-Cut
+  candidates on strong ads are gone: 120249371625010316 (was "0 purchases on
+  168 spend (28d cumulative…)") is `keep` at ROAS 2.02 over 15 days;
+  120249371633480316 and 120249371642360316 likewise (ROAS 2.22 and 5.35).
+  Five soft-only `cut_candidate` rows now rest on the fuller run's weak
+  evidence (ROAS 0.95–1.52 on $75–$219, or 0 purchases on $100–$111). The real
+  loser 120247018755120316 keeps its Cut — ROAS 0.47 on $3,332.52 over 15 days
+  instead of "0 purchases on 569 spend" — and is held: 13 unverified economic
+  days, campaign role, pending confirmation. Grandmix runs start at 2026-09-09
+  because no earlier day has a readable objective under the source contract;
+  that older edge is not bridged.
+- TheSwaf (cutoff 2026-09-24T11:27:00Z, 179 ads with spend): 17 runs bridge a
+  gap; spend basis $22,990.59 → $25,061.00. Raw Cuts 31 → 16. Thirteen
+  zero-purchase test ads at $147.17–$176.35 no longer reach an overlay-backed
+  raw Cut below the trusted zero-conversion floor (197.17); they fall back, as
+  D061 requires, to the canonical profile's soft-only candidate, which
+  authorizes nothing (first blocker `campaign_context` →
+  `profile_hard_action_ineligible`). 120251964895120042 moves from raw Cut
+  (ROAS 0.75 over the post-gap days) to `keep` (ROAS 1.74 over its fuller run,
+  above break-even 1.71). Authorized actions are 0 in both businesses before
+  and after. TheSwaf's totals move between cutoffs minutes apart (an 11:09Z
+  run gave 20 → 12 raw Cuts) because the D101 loop keeps rewriting recent
+  rows past any cutoff; the direction of every difference is the same.
+- No objective, goal or event change exists in either account's receipts over
+  the window, so the valid-short-window-after-a-change case is proven by the
+  real-PostgreSQL seam (`native-ad-admitted-window.db.test.ts`: bridge,
+  change, contradicting partial day, older edge, trailing edge, empty gap,
+  a receipted gap with a blank currency, a row that observed another
+  currency and must fail closed), the calibration walk and exclusion tests
+  and the D107 golden cases — not by live data. The SQL safety lines
+  (bridged readiness `none`, currency contradiction, observed immutable
+  identity over every economic day) and the calibration twin of the identity
+  check were mutation-checked: reverting any of them fails its test.
+- At both cutoffs the 2026-09-22 rows were excluded: the D101 dead-letter
+  loop keeps rewriting them after any cutoff. That is the producer lane's
+  defect and is neither masked nor repaired here.
+
+**Rollback.** Revert the window rule in `data-source.ts` and
+`native-ad-admitted-window.ts`, the calibration override, the zero-purchase
+floor, the badge guards and the period labels together, and mint another
+producer/evaluation version. Keep D107 rows intact; never relabel them under
+an earlier key.

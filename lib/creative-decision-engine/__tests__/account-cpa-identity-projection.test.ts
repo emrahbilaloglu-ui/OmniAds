@@ -161,7 +161,7 @@ describe("the canonical evaluation identity", () => {
       "engine-v3-canonical-evaluation.v9",
     );
     expect(AD_DECISION_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-ad-evaluation.v15",
+      "engine-v3-canonical-ad-evaluation.v16",
     );
   });
 

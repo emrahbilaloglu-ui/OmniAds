@@ -2799,9 +2799,9 @@ export function toNativeSnapshotPayload(input: {
   const sourceCoverageBlocked = sourceCoverageFailure !== null;
   const purchaseEvidenceBlocked = isHardLabel(input.computation.rawLabel) &&
     unverifiedAdPurchaseDays(ad) > 0;
-  // The first authority blocker remains stable, but a later D101 failure must
-  // survive as typed evidence. Otherwise a role-held Cut can be presented as
-  // manually ready even though its source coverage is incomplete.
+  // Source/config evidence is the first blocker on a role-held hard verdict.
+  // The economic finding survives, but unresolved campaign role must not
+  // present a Cut as manually ready while its own reporting window is unproved.
   const badges =
     sourceCoverageBlocked &&
     !decision.badges.some((badge) => badge.type === "source_coverage_unverified")
@@ -2815,7 +2815,13 @@ export function toNativeSnapshotPayload(input: {
         ]
       : decision.badges;
   const authorityBlocker: DecisionAuthorityBlocker | null =
-    decision.authorityBlocker ??
+    decision.authorityBlocker === "campaign_context" && sourceCoverageBlocked
+      ? "source_freshness"
+      : decision.authorityBlocker === "campaign_context" && configSourceBlocked
+        ? "config_source_authority"
+        : decision.authorityBlocker === "campaign_context" && purchaseEvidenceBlocked
+          ? "native_metrics_unavailable"
+          : decision.authorityBlocker ??
     (sourceCoverageBlocked
       ? "source_freshness"
       : configSourceBlocked

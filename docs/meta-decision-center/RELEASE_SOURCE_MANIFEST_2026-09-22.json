@@ -1,5 +1,5 @@
 {
-  "manifestHash": "793840418494b5ae0b5a595f04194542325bd925ded57e96b94d7441270bb4cb",
+  "manifestHash": "b583fb62a689594775ee13918b8bf423112a951b6a98adf26e6ccaed07daaf01",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -540,23 +540,23 @@
     },
     {
       "path": "docs/creative-decision-center/DATA_READINESS.md",
-      "sha256": "1f09ed5671750003e35e5503a7f5e1974927fad69f0f8814a7c63ff6129f4755"
+      "sha256": "84a36caf3fa4bf6901d79076c9d2fe2352f6bc63b8054a4bc439817d966af8bd"
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "af48f1431f1704dbef08e9a62772cf30d58d4ad2f62616118270dc2a09274979"
+      "sha256": "a9b134c379e0d3751277ae237e7bc34de36ec3c08349c410bac299d87609321b"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
-      "sha256": "79c365725bbe75637132ae47cdb65e6a39521a30a1d3cc88fdf7fe89b6348b40"
+      "sha256": "f2dbe14729e7eef68a37a379996efd9b73da3618bebffa8a09a3c0aa93ed448b"
     },
     {
       "path": "docs/creative-decision-center/INVARIANTS.md",
-      "sha256": "f556f84563d6862a94e4625d1314fb91506e2bddefba64587abcc4a0600291c6"
+      "sha256": "2ced19c5fe90c60c74494eb611e2408711b14d7cd89ea4fa939b3a822bc61469"
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "a6f8bddc7010e64ee7cf60f48ee591b87f0255d23a84443baa4cf9442349fdf8"
+      "sha256": "2c1758f2de7cd08149dd0e71c55fce8f2cc102f3cb4d62583b78c0d513bcaf57"
     },
     {
       "path": "docs/meta-decision-center/CALIBRATION_SOURCE_QUERY_PERF_2026-09-22.md",
@@ -616,7 +616,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-cpa-identity-projection.test.ts",
-      "sha256": "987906e43eefb0f5863c34e0b5231b6bc1dc01f84d9dd45252a1fffcec172be7"
+      "sha256": "8cf8efe5fe2101ee0e596911562f6d45c2b619e9af79c0e136119c2bf9229b20"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-decision-profile.test.ts",
@@ -660,7 +660,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/commercial-stop-loss-cut-isolation.test.ts",
-      "sha256": "f92af3d469e90e20c4b67a444a0a8dacbbc86b99fcb2895b085af5878ae8fc61"
+      "sha256": "6fb8683c87520daa561d720fd8acdb750bfab4c58a4d937183f14423f1830711"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/config-authority-fixture.ts",
@@ -732,7 +732,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/fixtures/native-ad-frozen-exact-replay.v1.json",
-      "sha256": "8c829bce926146fa717f899c4cb9b6f9703b7293141e4928292f1a1ef6c6e1c5"
+      "sha256": "2bf39a4255d44db1939bcfce6ca7b8ab7e41649fbbe23c3ef5539932fde45dfd"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/gates/diagnose.test.ts",
@@ -768,11 +768,11 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-decisions-job.test.ts",
-      "sha256": "7b895a5b9f206be8112da0596611b61390adc17cdee529c4459a3d8d0df855dc"
+      "sha256": "f74c473833fe393c780efc23fdf6282162215cb4ae5aedd39d04d460df20480c"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-operator-response-job.test.ts",
-      "sha256": "41c09b2ebbecadc69222135d11ec809e1dbd6d23e35dc33efd9626e7da061e95"
+      "sha256": "e33248427e8cce8c5250fabf0aa1c5a0952abbe5f0c91e03f163d1e0309edeff"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/calibration-job.failure.test.ts",
@@ -860,7 +860,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/role-held-verdict-preservation.test.ts",
-      "sha256": "4f7b3e936305a61554e545aa4148e8fc09656ddb106bcc166d436ee06b6e66b6"
+      "sha256": "ce2dcf5c772e2221c24997e76c15198447e3d4e6e4ad690c6062edd33da70f67"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/shopify-hash-identity-boundary.test.ts",
@@ -932,7 +932,7 @@
     },
     {
       "path": "lib/creative-decision-engine/evaluation-store.ts",
-      "sha256": "28391e61c437d203931b33acacbf15078e8a99b4e83b8d0f710d1fb595a41ede"
+      "sha256": "b6a9ab292ac015a1f2f20a71e5dc6d2bc46ab19b80060190c07610d14e1c3a2f"
     },
     {
       "path": "lib/creative-decision-engine/execution-safety.ts",
@@ -944,7 +944,7 @@
     },
     {
       "path": "lib/creative-decision-engine/gates/cut-policy.ts",
-      "sha256": "7b67e04a322f6185c6e2f29d0c45f6375d513792f80270a7fbe25d977786cbfd"
+      "sha256": "237e6130975668eeae25b15e6a6a478d962c7c113f1b45cdd35ccfe26cf5839c"
     },
     {
       "path": "lib/creative-decision-engine/gates/diagnose.ts",
@@ -968,7 +968,7 @@
     },
     {
       "path": "lib/creative-decision-engine/gates/types.ts",
-      "sha256": "d98c57cfaf5158e39d81f1150327b14e126668a439b522daf71eeac761d0c098"
+      "sha256": "7aaa1a60a9a5068385455d61e10ec571cdb1b8b4b27ac98d453aea8013c93a97"
     },
     {
       "path": "lib/creative-decision-engine/gates/zero-conv-burner.ts",
@@ -984,7 +984,7 @@
     },
     {
       "path": "lib/creative-decision-engine/jobs/ad-decisions-job.ts",
-      "sha256": "5ba10dcca16ba206c9cadd716caa1a31997b34026dd83a16c84d9278ed29fc2c"
+      "sha256": "63ece1a870c640c9bfcd67077fdaf465365fc879f1e781ebc197f35779a36db6"
     },
     {
       "path": "lib/creative-decision-engine/jobs/advisory-lock.ts",
@@ -1068,7 +1068,7 @@
     },
     {
       "path": "lib/creative-decision-engine/types.ts",
-      "sha256": "a0157f56a2291e946f2a623b2d9bbce90e545b4862965d09e93ed3bac8b30bbf"
+      "sha256": "c8bb3a4d3b8d65455f3a06fd6d71b9b4b017f6164b7a365e2d57671e215d7cea"
     },
     {
       "path": "lib/currency/meta-currency-offsets.test.ts",

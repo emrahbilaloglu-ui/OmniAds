@@ -173,6 +173,9 @@ that floor is met inside the expanded economic strip, missing/thin recent
 evidence must preserve the repaired pre-authority Cut and hold it with
 `recent_recovery_unverifiable`; only confirmed recent recovery may restore the
 canonical non-Cut profile.
+- Below that trusted floor, a lower thin-cell Cut signal is diagnostic Test More,
+  not a pending Cut. Its reason names the trusted spend floor; the row carries
+  no `cut_candidate` or `blocked_action_type: cut`. This changes no hard floor.
 - A physical-account AOV proof must bind one business/account/currency and its
   target-authority hash. Malformed canonical metrics, fractional conversions,
   purchase/revenue contradictions, currency mismatch, conflicting duplicate

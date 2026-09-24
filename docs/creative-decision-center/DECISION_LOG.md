@@ -10386,7 +10386,8 @@ malformed/duplicate action entry, or contradictory stored purchase count
 remains unknown. Aliases for one purchase event must agree; they are not added.
 The source row must equal the stored payload, not merely contain its fields.
 New bulk snapshots record their requested field list; if present it must include
-`actions`. Older snapshots rely on the fixed bulk request shape tested in code.
+`actions`. The snapshot fetch, complete manifest and publication must occur in
+that order. Older snapshots rely on the fixed bulk request shape tested in code.
 The same verified omission supplies zero to purchase, link-click and the
 action-derived funnel stages. Clicks alone supply none of those events.
 

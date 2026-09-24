@@ -31,7 +31,27 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
       OR NULLIF(BTRIM(${d}source_run_id), '') IS NULL THEN FALSE
     ELSE
       EXISTS (
-        SELECT 1 FROM meta_raw_snapshots source
+        SELECT 1
+        FROM meta_raw_snapshots source
+        JOIN meta_authoritative_source_manifests manifest
+          ON manifest.business_id = ${d}business_id
+          AND manifest.provider_account_id = ${d}provider_account_id
+          AND manifest.day = ${d}date
+          AND manifest.surface = 'account_daily'
+          AND manifest.run_id = ${d}source_run_id
+          AND manifest.fetch_status = 'completed'
+          AND manifest.fresh_start_applied
+          AND manifest.checkpoint_reset_applied
+          AND manifest.completed_at <= ${cutoffSql}
+          AND source.fetched_at <= manifest.completed_at
+        JOIN meta_authoritative_publication_pointers pointer
+          ON pointer.business_id = ${d}business_id
+          AND pointer.provider_account_id = ${d}provider_account_id
+          AND pointer.day = ${d}date
+          AND pointer.surface = 'account_daily'
+          AND pointer.published_by_run_id = ${d}source_run_id
+          AND pointer.published_at <= ${cutoffSql}
+          AND manifest.completed_at <= pointer.published_at
         WHERE source.id = ${d}source_snapshot_id
           AND source.business_id = ${d}business_id
           AND source.provider_account_id = ${d}provider_account_id
@@ -55,27 +75,6 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
             ) AS source_row(payload)
             WHERE source_row.payload = ${d}payload_json
           )
-      )
-      AND EXISTS (
-        SELECT 1 FROM meta_authoritative_source_manifests manifest
-        WHERE manifest.business_id = ${d}business_id
-          AND manifest.provider_account_id = ${d}provider_account_id
-          AND manifest.day = ${d}date
-          AND manifest.surface = 'account_daily'
-          AND manifest.run_id = ${d}source_run_id
-          AND manifest.fetch_status = 'completed'
-          AND manifest.fresh_start_applied
-          AND manifest.checkpoint_reset_applied
-          AND manifest.completed_at <= ${cutoffSql}
-      )
-      AND EXISTS (
-        SELECT 1 FROM meta_authoritative_publication_pointers pointer
-        WHERE pointer.business_id = ${d}business_id
-          AND pointer.provider_account_id = ${d}provider_account_id
-          AND pointer.day = ${d}date
-          AND pointer.surface = 'account_daily'
-          AND pointer.published_by_run_id = ${d}source_run_id
-          AND pointer.published_at <= ${cutoffSql}
       )
   END)`;
 }

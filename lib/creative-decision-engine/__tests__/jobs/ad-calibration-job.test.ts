@@ -4045,6 +4045,15 @@ describe.runIf(postgresAvailable)(
           verified: true, purchases: 0, link_clicks: 0, lpv: 0,
         });
         await pool.query(`UPDATE meta_raw_snapshots
+          SET fetched_at='2026-07-12T02:30:00Z' WHERE id=$1::uuid`,
+          [snapshot.rows[0]!.id]);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        await pool.query(`UPDATE meta_raw_snapshots
+          SET fetched_at='2026-07-12T01:00:00Z' WHERE id=$1::uuid`,
+          [snapshot.rows[0]!.id]);
+        await pool.query(`UPDATE meta_raw_snapshots
           SET request_context='{"source":"bulk_core_sync","level":"ad","fields":"spend,clicks"}'::jsonb
           WHERE id=$1::uuid`, [snapshot.rows[0]!.id]);
         expect(await read(cutoff)).toMatchObject({

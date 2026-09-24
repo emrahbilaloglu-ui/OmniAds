@@ -8,6 +8,7 @@ import {
   buildAdDayAuthoritativeLinkClicksSql,
   buildAdDayLinkClicksMissingSql,
 } from "@/lib/meta/link-click-parse";
+import { buildMetaAdDayProviderZeroReceiptSql } from "@/lib/meta/ad-day-provider-zero-receipt";
 import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
@@ -757,6 +758,7 @@ const ADSET_CALIBRATION_AD_DAY = "ad_day";
 export const ADSET_FUNNEL_STAGE_SQL = buildMetaFunnelStageSql({
   payloadExpression: `${ADSET_CALIBRATION_AD_DAY}.payload_json`,
   lateralAlias: "funnel_actions",
+  providerZeroProofSql: "source_receipt.provider_zero_receipt_verified",
   stages: [
     "landing_page_view",
     "add_to_cart",
@@ -808,8 +810,14 @@ const ADSET_AD_DERIVED_MEASUREMENTS: ReadonlyArray<{
 }> = [
   {
     column: "link_clicks",
-    valueSql: buildAdDayAuthoritativeLinkClicksSql({ qualifier: ADSET_CALIBRATION_AD_DAY }),
-    missingSql: buildAdDayLinkClicksMissingSql({ qualifier: ADSET_CALIBRATION_AD_DAY }),
+    valueSql: buildAdDayAuthoritativeLinkClicksSql({
+      qualifier: ADSET_CALIBRATION_AD_DAY,
+      providerZeroProofSql: "source_receipt.provider_zero_receipt_verified",
+    }),
+    missingSql: buildAdDayLinkClicksMissingSql({
+      qualifier: ADSET_CALIBRATION_AD_DAY,
+      providerZeroProofSql: "source_receipt.provider_zero_receipt_verified",
+    }),
   },
   stageMeasurement("add_to_cart", "add_to_cart"),
   stageMeasurement("initiate_checkout", "initiate_checkout"),
@@ -869,6 +877,13 @@ export async function readAggregatedAdsetMetricRows(
         ${ADSET_CALIBRATION_AD_DAY_ACTIVITY_SQL} AS decision_bearing,
 ${AD_DAY_READING_COLUMNS_SQL}
       FROM meta_ad_daily ad_day
+      LEFT JOIN LATERAL (
+        SELECT ${buildMetaAdDayProviderZeroReceiptSql({
+          qualifier: ADSET_CALIBRATION_AD_DAY,
+          cutoffSql: "transaction_timestamp()",
+        })} AS provider_zero_receipt_verified
+        OFFSET 0
+      ) source_receipt ON TRUE
       ${ADSET_FUNNEL_STAGE_SQL.lateralSql}
       WHERE ad_day.business_id = $1
         AND ad_day.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date

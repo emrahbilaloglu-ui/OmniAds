@@ -48,6 +48,8 @@ import {
   META_DECISIONS_WORKSPACE_SECTION_LIMIT,
   META_DECISION_QUEUE_SECTION_KEYS,
   type MetaCanonicalDecision,
+  type MetaDecisionAdmittedWindow,
+  META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION,
   type MetaDecisionAdvisory,
   type MetaDecisionAssessmentOverlay,
   type MetaDecisionBlocker,
@@ -66,6 +68,11 @@ import {
   type MetaDecisionsReadModelUnavailableCode,
   type MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
+import {
+  attachPreCapAdCandidates,
+  preCapLaneProjection,
+  readMetaPreCapAdCandidates,
+} from "@/lib/meta/decisions-pre-cap-ad-candidates";
 
 const META_DECISION_HISTORY_EVENT_LIMIT = 10;
 const META_DECISION_HISTORY_EVENT_READ_LIMIT = 50;
@@ -304,6 +311,49 @@ export interface MetaNativeDecisionSnapshotSourceRow {
    * receipt lineage. Re-validated by `servedConfigEvidence` before serving.
    */
   config_evidence_lineage?: Record<string, unknown> | null;
+  /** Native evaluation's hashed creativeInput.decisionWindow; display only. */
+  decision_window?: unknown;
+  /** Native evaluation's hashed, admitted Ad-window metrics; never lifecycle fallbacks. */
+  decision_ctr?: unknown;
+  decision_frequency?: unknown;
+}
+
+function parseNativeDecisionWindow(
+  raw: unknown,
+  asOfDate: string,
+): MetaDecisionAdmittedWindow | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const value = raw as Record<string, unknown>;
+  const validDay = (day: unknown): day is string => {
+    if (typeof day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+    const parsed = new Date(`${day}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) &&
+      parsed.toISOString().slice(0, 10) === day;
+  };
+  if (!validDay(value.startDate) || !validDay(value.endDate) ||
+      value.startDate > value.endDate || value.endDate > asOfDate ||
+      !Number.isSafeInteger(value.calendarDaySpan) ||
+      !Number.isSafeInteger(value.observedDayCount) ||
+      !Number.isSafeInteger(value.economicDayCount) ||
+      !Number.isSafeInteger(value.bridgedUnresolvedDayCount)) return null;
+  const span = (Date.parse(`${value.endDate}T00:00:00.000Z`) -
+    Date.parse(`${value.startDate}T00:00:00.000Z`)) / 86_400_000 + 1;
+  if (span !== value.calendarDaySpan || span < 1 || span > 28 ||
+      (value.observedDayCount as number) < 0 ||
+      (value.observedDayCount as number) > span ||
+      (value.economicDayCount as number) < 0 ||
+      (value.economicDayCount as number) > (value.observedDayCount as number) ||
+      (value.bridgedUnresolvedDayCount as number) < 0 ||
+      (value.bridgedUnresolvedDayCount as number) > (value.economicDayCount as number)) return null;
+  return {
+    contractVersion: META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION,
+    startDate: value.startDate,
+    endDate: value.endDate,
+    calendarDaySpan: span,
+    observedDayCount: value.observedDayCount as number,
+    economicDayCount: value.economicDayCount as number,
+    bridgedUnresolvedDayCount: value.bridgedUnresolvedDayCount as number,
+  };
 }
 
 export interface MetaNativeDecisionGenerationSourceRow {
@@ -2357,6 +2407,11 @@ export function buildMetaDecisionsWorkspaceReadModel(
         .filter(Boolean),
     ),
   );
+  // The same population `stateCounts` counts, before the response cap.
+  attachPreCapAdCandidates(
+    readModel,
+    exactAdCandidates.map(preCapLaneProjection),
+  );
   return readModel;
 }
 
@@ -2903,6 +2958,28 @@ function applyNativeCanonicalDecisionAuthority(input: {
     response.episodeKey ??
     stableId("mde", [decision.decisionId, row.label, row.episode_started_at]);
   decision.identityGrain = "ad";
+  decision.decisionWindow = parseNativeDecisionWindow(
+    row.decision_window,
+    row.as_of_date,
+  );
+  // The lifecycle join is creative-grain and usually covers a different 28-day
+  // population. A native Ad card may show only the metrics recorded by its own
+  // evaluation, with a valid admitted window to identify that population.
+  const admittedMetric = (raw: unknown): number | null =>
+    typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : null;
+  decision.metrics.ctr = decision.decisionWindow
+    ? admittedMetric(row.decision_ctr)
+    : null;
+  decision.metrics.frequency = decision.decisionWindow
+    ? admittedMetric(row.decision_frequency)
+    : null;
+  decision.metrics.provenance = provenance({
+    source: "engine_v3_ad_decision_snapshots_daily+engine_v3_decision_evaluations",
+    field: "spend,purchases,roas,recent7d_roas,effective_target_roas,ratio_to_target,creative_input_json.ctr,creative_input_json.frequency,creative_input_json.decisionWindow",
+    recordId: row.snapshot_id,
+    asOf: row.as_of_date,
+    version: row.engine_version,
+  });
   const sourceCreativeType = nonEmptyString(row.provider_asset_type);
   // `feed` is also the warehouse taxonomy's default when no positive creative
   // classification signal exists. Do not turn that fallback into a verified
@@ -3549,6 +3626,22 @@ export function applyMetaExecutionGovernanceToReadModel(input: {
       now,
     });
   }
+  // The pre-cap lane population needs the SAME request-time execution posture
+  // as the served rows, or a stale or kill-switched native Cut would be
+  // counted in Act while its served row sits in Blocked.
+  const preCap = readMetaPreCapAdCandidates(input.model);
+  if (preCap) {
+    const hydrated = structuredClone([...preCap]);
+    for (const decision of hydrated) {
+      hydrateMetaCanonicalDecisionExecutionGovernance({
+        decision,
+        governance: input.governance,
+        pipeline: input.pipeline,
+        now,
+      });
+    }
+    attachPreCapAdCandidates(model, hydrated);
+  }
   return model;
 }
 
@@ -4173,8 +4266,6 @@ async function readNativeSnapshotRows(input: {
       lifecycle.creative_format AS creative_format,
       creative_dim.asset_type AS provider_asset_type,
       creative_dim.source_updated_at::text AS provider_asset_type_source_updated_at,
-      lifecycle.ctr_28d AS ctr_28d,
-      lifecycle.frequency_28d AS frequency_28d,
       lifecycle.fatigue_status AS fatigue_status,
       /* The engine's own predicate blockers. The snapshot table has no column
          for them; the evaluation row this snapshot was published from is
@@ -4184,6 +4275,11 @@ async function readNativeSnapshotRows(input: {
          projected, so the payload stays the blockers array and never the whole
          decision document. This adds no join and no extra row. */
       evaluation.decision_output_json -> 'blockers' AS predicate_blockers,
+      /* D107's actual admitted economic period is already hash-bound in this
+         evaluation. Serve it for display; never infer it from the UI filter. */
+      evaluation.creative_input_json -> 'decisionWindow' AS decision_window,
+      evaluation.creative_input_json -> 'ctr' AS decision_ctr,
+      evaluation.creative_input_json -> 'frequency' AS decision_frequency,
       /* ADR D098 config authority, as the ENGINE recorded it in the
          evaluation's own hashed input (configEvidence), which is persisted in
          the hash-keyed input-evidence table. NULL when the mapping is absent;
@@ -4223,10 +4319,11 @@ async function readNativeSnapshotRows(input: {
         ELSE NULL
       END AS config_evidence_lineage
     FROM engine_v3_ad_decision_snapshots_daily snapshot
-    /* The engine already recorded which lifecycle row it decided from. Joining
-       it back is a lineage read, not a second opinion: format, 28d CTR, 28d
-       frequency and fatigue status come from the exact row behind the verdict,
-       never from a re-aggregation that could disagree with it. */
+    /* The engine already recorded which lifecycle row it decided from. Its
+       format and fatigue are lineage reads, never a later re-aggregation.
+       Native Ad CTR/frequency instead come from the hash-bound evaluation's
+       admitted Ad window above; the creative-grain 28d columns cannot stand
+       in for those metrics. */
     LEFT JOIN engine_v3_creative_lifecycle_daily lifecycle
       ON lifecycle.id = snapshot.creative_evidence_lifecycle_row_id
      AND lifecycle.business_ref_id = snapshot.business_ref_id

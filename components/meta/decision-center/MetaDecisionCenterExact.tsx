@@ -365,6 +365,13 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   } | null;
   observedSparkPath?: string | null;
   money?: MetaDecisionCenterExactDisplayValue;
+  /** Server-served admitted Ad economic dates, formatted in the viewer's language. */
+  moneyWindow?: {
+    startDate: string;
+    endDate: string;
+    calendarDaySpan: number;
+    economicDayCount: number;
+  } | null;
   moneySub?: MetaDecisionCenterExactDisplayValue;
   actionLabel?: MetaDecisionCenterExactDisplayValue;
   actionTone?: MetaDecisionCenterExactTone;
@@ -1430,11 +1437,21 @@ function LevelFilter({
 }
 
 /** A lane that served no rows, said rather than drawn as blankness. */
-function LaneEmpty({ reason, lane }: { reason: string; lane: string }) {
+function LaneEmpty({
+  reason,
+  lane,
+  isNotice = false,
+}: {
+  reason: string;
+  lane: string;
+  /** The reason IS the served creatives notice, drawn once, here. */
+  isNotice?: boolean;
+}) {
   return (
     <p
       className={styles.laneEmpty}
       data-meta-exact-lane-empty={lane}
+      data-meta-exact-creatives-notice={isNotice ? "" : undefined}
       role="status"
     >
       {reason}
@@ -1984,7 +2001,13 @@ function CreativeCard({
         {row.sparkPath || nonBlankDisplay(row.ctrValue) ? (
           <div className={styles.creativeSparkBlock}>
             <p className={styles.creativeSparkLabel}>
-              {language === "tr" ? `Karar ${copy.ctrWindowed}` : `Decision ${copy.ctrWindowed}`}
+              {language === "tr"
+                ? row.moneyWindow
+                  ? `Karar tüm tıklama CTR · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate}`
+                  : `Karar ${copy.ctrWindowed}`
+                : row.moneyWindow
+                  ? `Decision all-click CTR · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate}`
+                  : `Decision ${copy.ctrWindowed}`}
             </p>
             {nonBlankDisplay(row.ctrValue) ? (
               <p className={styles.creativeSparkValue} data-meta-exact-creative-ctr-value>
@@ -2031,7 +2054,13 @@ function CreativeCard({
           </div>
         ) : null}
         <div className={styles.creativeMoneyBlock}>
-          <p className={styles.creativeSparkLabel}>{copy.decisionWindowed}</p>
+          <p className={styles.creativeSparkLabel}>
+            {row.moneyWindow
+              ? language === "tr"
+                ? `Karar · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate} · ${row.moneyWindow.economicDayCount}/${row.moneyWindow.calendarDaySpan} ekonomik gün`
+                : `Decision · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate} · ${row.moneyWindow.economicDayCount}/${row.moneyWindow.calendarDaySpan} economic days`
+              : copy.decisionWindowed}
+          </p>
           <p className={styles.moneyValue}>{display(row.money)}</p>
           <p className={styles.moneySub}>{display(row.moneySub)}</p>
         </div>
@@ -2119,6 +2148,22 @@ function CreativesScope({
     ? servedGroups.filter((group) => group.id === selectedGroupId)
     : servedGroups;
   const hasGroupedDecisions = groups !== undefined;
+  /*
+   * NO ROWS AT ALL: THE SERVED REASON IS THE EMPTY STATE.
+   *
+   * With nothing served and a notice (source unavailable, or inventory still
+   * being evaluated), the scope stacked three lines — the notice, a generic
+   * "no decisions here" lane message and a footnote — that read as three
+   * different facts. The notice becomes the lane's empty reason, exactly as
+   * the Needs Resolution lane already does, and is not repeated above it. A
+   * verified-empty source (no notice) keeps the lane's own empty sentence.
+   */
+  const servedNothing =
+    decisions.length === 0 && servedGroups.length === 0;
+  const noticeIsTheEmptyState = servedNothing && meaningfulDisplay(notice);
+  const scopeEmptyReason = noticeIsTheEmptyState
+    ? display(notice)
+    : emptyReason;
   return (
     <>
       {visiblePosture.length > 0 ? (
@@ -2139,13 +2184,17 @@ function CreativesScope({
           ))}
         </div>
       ) : null}
-      {meaningfulDisplay(notice) ? (
+      {meaningfulDisplay(notice) && !noticeIsTheEmptyState ? (
         <p className={styles.creativeFootnote} data-meta-exact-creatives-notice>
           {display(notice)}
         </p>
       ) : null}
       {hasGroupedDecisions && visibleGroups.length === 0 ? (
-        <LaneEmpty lane={`creatives-${lane}`} reason={emptyReason} />
+        <LaneEmpty
+          isNotice={noticeIsTheEmptyState}
+          lane={`creatives-${lane}`}
+          reason={scopeEmptyReason}
+        />
       ) : hasGroupedDecisions ? (
         visibleGroups.map((group) => (
           <section
@@ -2174,7 +2223,11 @@ function CreativesScope({
           </section>
         ))
       ) : decisions.length === 0 ? (
-        <LaneEmpty lane={`creatives-${lane}`} reason={emptyReason} />
+        <LaneEmpty
+          isNotice={noticeIsTheEmptyState}
+          lane={`creatives-${lane}`}
+          reason={scopeEmptyReason}
+        />
       ) : (
         decisions.map((row) => <CreativeCard key={row.id} row={row} />)
       )}

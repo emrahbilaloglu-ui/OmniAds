@@ -331,6 +331,8 @@ function makeCalibrationSourceRow(input: {
     clicks: 300,
     linkClicks: 250,
     conversions: 1,
+    // Synthetic complete source evidence; this fixture is the positive control.
+    authoritativePurchases: 1,
     revenue,
     landingPageViews: 220,
     addToCart: 50,
@@ -479,6 +481,7 @@ function makeNativeInput(
       sourceRowCount: 28,
       performanceMetricsObserved: true,
       eventMetricsObserved: true,
+      purchaseUnverifiedEconomicDays: 0,
       sourceCoverage: {
         contractVersion: META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
         status: "complete",

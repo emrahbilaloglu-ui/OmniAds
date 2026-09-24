@@ -281,6 +281,37 @@ describe("creative-decision-engine v3", () => {
     expect(out.confidence).toBeLessThanOrEqual(95);
   });
 
+  it("does not turn an unverified creative purchase zero into a purchase decision", () => {
+    const profile = makeAccountDecisionProfile();
+    const base = makeCreativeInput({
+      spend: 500,
+      purchases: 0,
+      purchaseValue: 0,
+      roas: 0,
+      ctr: 1.25,
+      cpm: 18.5,
+      effectiveCohort: "purchase",
+    });
+
+    const unverified = decideCreative(
+      { ...base, purchaseEvidenceStatus: "unverified" },
+      profile,
+    );
+    expect(unverified.label).toBe("diagnose");
+    expect(unverified.reason).toContain("purchase_evidence_unverified");
+    expect(unverified.reason).toContain("CTR 1.25%");
+    expect(unverified.reason).toContain("CPM 18.50");
+    expect(unverified.metrics.purchases).toBeNull();
+    expect(unverified.blockers?.[0]?.predicate).toBe("purchase_evidence_unverified");
+
+    const verified = decideCreative(
+      { ...base, purchaseEvidenceStatus: "verified" },
+      profile,
+    );
+    expect(verified.metrics.purchases).toBe(0);
+    expect(verified.reason).not.toContain("purchase_evidence_unverified");
+  });
+
   it("resolves truth source via fallback chain", async () => {
     const input = await getMockCreativeInput("c-1");
     const profile = await getMockProfile();
@@ -330,6 +361,32 @@ describe("creative-decision-engine v3", () => {
     expect(out.badges.map((badge) => badge.type)).toContain(
       "quality_only_assessment",
     );
+  });
+
+  it("keeps an independent quality-only assessment when purchases are unverified", async () => {
+    const input = await getMockCreativeInput("c-1");
+    const calibration = await mock.getAccountCalibration({
+      businessId: "biz-1",
+      asOf: "2026-05-04",
+    });
+    const profile = makeAccountDecisionProfile({
+      accountBaselines: {
+        ...calibration,
+        matureCreativeCount: 0,
+        roasP75: null,
+        roasP60: null,
+      },
+    });
+
+    const out = decideCreative({ ...input, targetRoas: null,
+      purchaseEvidenceStatus: "unverified" }, profile);
+    expect(out.label).toBe("keep");
+    expect(out.reason).toContain("[quality-only");
+    expect(out.reason).toContain("purchase_evidence_unverified");
+    expect(out.reason).not.toContain("checkout breakdown");
+    expect(out.metrics.purchases).toBeNull();
+    expect(out.blockers?.some((blocker) =>
+      blocker.predicate === "purchase_evidence_unverified")).toBe(true);
   });
 
   it("returns keep for mock creative in scale zone without scale purchase depth", async () => {

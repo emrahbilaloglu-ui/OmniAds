@@ -553,8 +553,31 @@ export function retainCommercialStopLossRepairOnlyForFinalCut(
   if (canonical == null || shouldActivateCommercialStopLossCutRepair(ctx)) {
     return ctx;
   }
+  /*
+   * A thin exact cell can still produce an advisory Cut at its fallback floor
+   * after the trusted account-AOV repair is declined. That is a useful economic
+   * warning, but it is not a held Cut when the physical-account spend floor
+   * has not been met. Carry the exact floor to the terminal gate so only that
+   * spurious Cut is restated as a truthful Test More; other labels remain byte
+   * identical, and a genuinely missing AOV proof keeps its existing hold.
+   */
+  const overlay = ctx.profile.commercialStopLossThresholds;
+  const trustedFloor =
+    hasCommercialStopLossCutRepair(ctx.profile) &&
+    overlay != null &&
+    resolveCutBoundary(ctx).accountP25 === null &&
+    resolveCanonicalCutZone(ctx) !== null
+      ? ctx.input.purchases === null || ctx.input.purchases === 0
+        ? zeroConversionSpendFloor(ctx, overlay)
+        : maturitySpendThresholdFor(ctx, overlay)
+      : null;
   return {
     ...ctx,
+    ...(trustedFloor !== null &&
+    positiveFinite(trustedFloor) &&
+    ctx.input.spend < trustedFloor
+      ? { cutOnlyAccountAovFloorNotMet: trustedFloor }
+      : {}),
     profile: {
       ...ctx.profile,
       hardActionEligibility: canonical,

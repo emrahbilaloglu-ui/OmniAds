@@ -764,7 +764,7 @@ contract. At AD grain:
 | `high` trust beside a non-`high` inference class | same contradiction, same withholding |
 | medium / low / unknown / conflict | held; verdict visible, `buyerAction` null, `authorizedAction` null |
 | missing map, or no campaign id | held; no generic `diagnose` substituted for a typed verdict |
-| role-held Cut plus failed D101 closed-day coverage | first `campaign_context` blocker preserved, `source_coverage_unverified` badge persisted, no manual-pause invitation, blocked lane, no authorized action |
+| role-held Cut plus failed D101 closed-day coverage | `source_freshness` takes first-blocker priority; role remains in the finding, no manual-pause invitation, blocked lane, no authorized action (D111) |
 
 ### The canonical commercial rule (D092)
 
@@ -808,9 +808,34 @@ the run the D107 hydration admitted in the read-only Grandmix replay
 | D107-01 | Grandmix 120247883891620316, admitted run $381.42, 7 purchases, ROAS 6.75 (was judged on one day: $35, 0 purchases) | no Cut, no pre-authority Cut, no `cut_candidate`; reason "ROAS 6.75 (15d 2026-09-09..2026-09-23)" |
 | D107-02 | Grandmix 120247018755120316, admitted run $3,332.16, 7 purchases, ROAS 0.47, last 6 days $1,555.06 at 0 | Cut verdict kept; the native authority boundary withholds it while the bridged day is inside the run |
 | D107-03 | short run after a provider-observed configuration change: 0 purchases on $520 over 5 days, zero-conversion floor 300 | Cut on the short window, reason "(5d 2026-09-19..2026-09-23 cumulative, …)"; the same shape at $250 is Test More |
-| D107-04 | zero purchases at $163.73–$176.35 against the TRUSTED floors (maturity 147.88, zero-conversion 197.17) | no Cut and no pre-authority Cut from that threshold family. In production the D061 overlay does not activate below 197.17 and the canonical soft-only profile may still show a pre-authority Cut + `cut_candidate` on its own floor — never executable |
+| D107-04 | zero purchases at $163.73–$176.35 against the TRUSTED floors (maturity 147.88, zero-conversion 197.17) | no Cut and no pre-authority Cut from that threshold family. The historical D107 producer could still show a canonical soft-only `cut_candidate` at its lower floor; D111 supersedes that served interpretation below. |
 | D107-05 | a row with a 2-day admitted window | reason "(2d 2026-09-22..2026-09-23)", not "(28d)"; without a window it keeps "(28d)" |
 | DB-D107 | hydration SQL over real receipts: bridge, observed change, contradicting partial day, older edge, trailing edge, empty gap, receipted gap with a blank currency, a row that observed a different currency | 1 bridged day and not fully verified / starts at the change / ends at the contradicting day / starts after the unreadable edge / ends at the newest resolved day / identity stays known / bridged day is `none` despite complete receipts and identity stays known / never bridged, and the ad fails closed (identity unknown) instead of keeping the shorter run |
+
+## D108 provider-zero receipt (golden cases)
+
+| case | source and payload | expected |
+|---|---|---|
+| D108-01 | exact ad row, `actions` key absent, same-run raw observation before the active published slice's complete manifest, request asked for it, stored purchase/link zero | measured provider zero in purchase, link-click and action-derived funnel; no evidence-only hold |
+| D108-02 | identical stored zero, but no published source receipt by cutoff | purchase/link/funnel unknown; a decision-bearing economic day holds hard Cut, Scale and purchase-based Refresh, with soft diagnosis retained |
+| D108-03 | `actions: []` on a valid row | measured zero without a provider-zero inference |
+| D108-04 | `actions: null`, duplicate purchase alias or stored zero with raw positive purchase | unknown/contradictory; no hard purchase-dependent action |
+| D108-05 | one Ad has an unverified day and a sibling Ad has complete measured days | hold only the affected Ad; sibling's valid verdict remains available |
+| D108-06 | v6 calibration history and a v7 source row differing only in purchase authority | v6 hash unchanged; v7 source hash changes and produces a new native generation |
+| D108-07 | canonical raw content fetched early but same-run observation after the active Ad slice's manifest; a later manifest reuses the run ID | unknown; the active published slice cannot borrow the later manifest's completion |
+| D108-08 | source and observation precede the Ad manifest, but the stored Ad-day fact was updated after its `ad_daily` pointer publication | unknown; a later row cannot borrow an earlier publication |
+| D108-09 | spend and traffic measured, one economic Ad day lacks purchase observation | purchase/ROAS nullable; held hard verdict stays review-only with typed `verify_purchase_observation` resolution and no Meta mutation |
+
+## D111 trusted Cut floor and first blocker (golden cases)
+
+| case | input | expected |
+|---|---|---|
+| D111-01 | thin exact-cell AOV, verified physical-account AOV, 0 purchases on USD 145; trusted zero-purchase Cut floor USD 193.32 | Test More with the trusted floor in the reason, no pre-authority Cut, `cut_candidate`, blocker or pending Cut |
+| D111-02 | same verified proof and 0 purchases on USD 200 | economic Cut remains reachable; downstream role, config and source gates still apply |
+| D111-03 | physical-account AOV missing or invalid | no floor is invented; the original soft hold remains |
+| D111-04 | role-held economic Cut with unverified D101 coverage, decision-window config or purchase observation | source/config/purchase evidence is the first typed blocker; no authorized action, role remains a separate restriction |
+| D111-05 | role-held economic Cut with complete source and config | campaign context remains the blocker; no authorized action |
+| D111-06 | held economic Cut with `config_source_authority` and `pending_transition` | typed resolution names the missing date-authoritative configuration first and also names the needed consecutive confirmation; no buyer or provider action |
 
 ## Current authority vs historical record
 

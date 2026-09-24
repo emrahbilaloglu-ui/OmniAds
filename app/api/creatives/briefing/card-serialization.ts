@@ -589,8 +589,13 @@ export function cardForDecision(input: {
     creativeInput?.creativeName ||
     decision.creativeId;
   const spend = safeNumber(row?.spend ?? decision.metrics.spend);
-  const purchases = safeNumber(row?.purchases ?? decision.metrics.purchases);
-  const roas = finiteMetric(row?.roas) ?? finiteMetric(decision.metrics.roas);
+  // A flattened presentation row cannot fill an explicitly unverified
+  // purchase window in the server decision with a fabricated numeric zero.
+  const purchaseEvidenceMissing = decision.metrics.purchases === null;
+  const purchases = purchaseEvidenceMissing
+    ? null : safeNumber(row?.purchases ?? decision.metrics.purchases);
+  const roas = purchaseEvidenceMissing
+    ? null : finiteMetric(row?.roas) ?? finiteMetric(decision.metrics.roas);
   const ctr = row?.ctr_all ?? creativeInput?.ctr ?? null;
   const recentRoas = finiteMetric(decision.metrics.recent7dRoas);
   const explainability = buildBriefingDecisionExplainability({
@@ -653,7 +658,7 @@ export function cardForDecision(input: {
     spend,
     roas,
     ctr,
-    cpa: row?.cpa ?? creativeInput?.cpa ?? null,
+    cpa: purchaseEvidenceMissing ? null : row?.cpa ?? creativeInput?.cpa ?? null,
     purchases,
     impressions: safeNumber(row?.impressions ?? creativeInput?.impressions),
     linkClicks: safeNumber(row?.link_clicks ?? creativeInput?.linkClicks),

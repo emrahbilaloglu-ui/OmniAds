@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { getDb, resetDbClientCache } from "@/lib/db";
 import { ENGINE_VERSION, WarehouseDataSource, type CreativeInput } from "..";
+import { LIFECYCLE_MATERIALIZATION_VERSION } from "../lifecycle-materialization";
 
 const AS_OF = "2026-05-04";
 const THESWAF_BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
@@ -43,6 +44,11 @@ async function cleanupPrecomputedTestRows() {
     DELETE FROM engine_v3_account_calibration_daily
     WHERE business_ref_id = $1::uuid
     `,
+    [PRECOMPUTED_TEST_BUSINESS_ID],
+  );
+  await getDb().query(
+    `DELETE FROM engine_v3_job_runs
+      WHERE business_ref_id = $1::uuid AND job_name = 'engine_v3_lifecycle_job'`,
     [PRECOMPUTED_TEST_BUSINESS_ID],
   );
 }
@@ -192,11 +198,35 @@ async function insertPrecomputedLifecycle(input?: {
   asOf?: string;
   spend28d?: number;
   cleanup?: boolean;
+  materializationVersion?: string | null;
 }) {
   if (input?.cleanup !== false) {
     await cleanupPrecomputedTestRows();
   }
   const asOf = input?.asOf ?? AS_OF;
+  const engineVersion = input?.engineVersion ?? ENGINE_VERSION;
+  const [jobRun] = await getDb().query<{ id: string }>(
+    `INSERT INTO engine_v3_job_runs (
+      job_name, business_ref_id, business_id, as_of_date, engine_version,
+      status, row_count, finished_at, error_json
+    ) VALUES ('engine_v3_lifecycle_job', $1::uuid, $1, $2::date, $3,
+      'success', 1, now(), $4::jsonb) RETURNING id`,
+    [
+      PRECOMPUTED_TEST_BUSINESS_ID,
+      asOf,
+      engineVersion,
+      input?.materializationVersion === null
+        ? null
+        : JSON.stringify({
+            metadata: {
+              lifecycle_materialization: {
+                contract_version: input?.materializationVersion ?? LIFECYCLE_MATERIALIZATION_VERSION,
+              },
+            },
+          }),
+    ],
+  );
+  if (!jobRun) throw new Error("lifecycle fixture job run was not inserted");
   await getDb().query(
     `
     INSERT INTO engine_v3_creative_lifecycle_daily (
@@ -221,7 +251,7 @@ async function insertPrecomputedLifecycle(input?: {
       creative_responsibility_score, site_responsibility_score,
       checkout_responsibility_score, tracking_anomaly_score,
       effective_status, source_max_date, source_max_updated_at,
-      eligible_for_lifecycle, computed_at
+      eligible_for_lifecycle, computed_at, job_run_id
     )
     VALUES (
       $1::uuid, $1, $2, $3::date, $4,
@@ -244,16 +274,17 @@ async function insertPrecomputedLifecycle(input?: {
       'none', 1, '["funnel healthy"]'::jsonb,
       0, 0, 0, 0,
       'ACTIVE', $3::date, $5::timestamptz,
-      true, now()
+      true, now(), $7::uuid
     )
     `,
     [
       PRECOMPUTED_TEST_BUSINESS_ID,
       input?.creativeId ?? PRECOMPUTED_LIFECYCLE_CREATIVE_ID,
       asOf,
-      input?.engineVersion ?? ENGINE_VERSION,
+      engineVersion,
       input?.sourceMaxUpdatedAt ?? new Date().toISOString(),
       input?.spend28d ?? 321.5,
+      jobRun.id,
     ],
   );
 }
@@ -625,6 +656,74 @@ describe.skipIf(!process.env.DATABASE_URL)(
       expect(health.lifecycle.staleTier).toBe("none");
     });
 
+    it("holds retained lifecycle rows after a later successful empty run", async () => {
+      await insertPrecomputedLifecycle();
+      await getDb().query(
+        `INSERT INTO engine_v3_job_runs (
+          job_name, business_ref_id, business_id, as_of_date, engine_version,
+          status, row_count, finished_at, error_json
+        ) VALUES ('engine_v3_lifecycle_job', $1::uuid, $1, $2::date, $3,
+          'success', 0, now(), $4::jsonb)`,
+        [PRECOMPUTED_TEST_BUSINESS_ID, AS_OF, ENGINE_VERSION,
+          JSON.stringify({metadata: {lifecycle_materialization: {
+            contract_version: LIFECYCLE_MATERIALIZATION_VERSION,
+            status: "held_no_admissible_rows",
+          }}})],
+      );
+      const warehouse = new WarehouseDataSource();
+      const health = await warehouse.getDataHealth({
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+      const input = await warehouse.getCreativeInput({
+        creativeId: PRECOMPUTED_LIFECYCLE_CREATIVE_ID,
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+
+      expect(health.lifecycle.fallbackMode).toBe("insufficient");
+      expect(input).toBeNull();
+    });
+
+    it("does not relabel an unversioned same-epoch lifecycle run as current", async () => {
+      await insertPrecomputedLifecycle({materializationVersion: null});
+      const warehouse = new WarehouseDataSource();
+
+      const health = await warehouse.getDataHealth({
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+      const input = await warehouse.getCreativeInput({
+        creativeId: PRECOMPUTED_LIFECYCLE_CREATIVE_ID,
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+
+      expect(health.lifecycle.fallbackMode).toBe("insufficient");
+      expect(input).toBeNull();
+    });
+
+    it("a later unversioned success also suppresses an older versioned row", async () => {
+      await insertPrecomputedLifecycle();
+      await getDb().query(
+        `INSERT INTO engine_v3_job_runs (
+          job_name, business_ref_id, business_id, as_of_date, engine_version,
+          status, row_count, finished_at
+        ) VALUES ('engine_v3_lifecycle_job', $1::uuid, $1, $2::date, $3,
+          'success', 0, now())`,
+        [PRECOMPUTED_TEST_BUSINESS_ID, AS_OF, ENGINE_VERSION],
+      );
+      const warehouse = new WarehouseDataSource();
+
+      const input = await warehouse.getCreativeInput({
+        creativeId: PRECOMPUTED_LIFECYCLE_CREATIVE_ID,
+        businessId: PRECOMPUTED_TEST_BUSINESS_ID,
+        asOf: AS_OF,
+      });
+
+      expect(input).toBeNull();
+    });
+
     it("reads lifecycle rows from the latest available as-of date", async () => {
       await insertPrecomputedLifecycle({
         asOf: "2026-05-03",
@@ -710,10 +809,10 @@ describe.skipIf(!process.env.DATABASE_URL)(
         asOf: AS_OF,
       });
 
-      expect(health.lifecycle.fallbackMode).toBe("runtime_sql");
+      expect(health.lifecycle.fallbackMode).toBe("insufficient");
       expect(health.lifecycle.staleTier).toBe("warning");
       expect(health.lifecycle.note).toBe(
-        "no precomputed row available; runtime fallback in use",
+        "No source-verified creative lifecycle row for this epoch and cutoff; native Ad lifecycle evidence is evaluated separately.",
       );
     });
 
@@ -729,7 +828,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
       expect(["precomputed", "runtime_sql", "insufficient"]).toContain(
         health.calibration.fallbackMode,
       );
-      expect(["precomputed", "runtime_sql"]).toContain(
+      expect(["precomputed", "insufficient"]).toContain(
         health.lifecycle.fallbackMode,
       );
       expect(health.decisions.note).toContain("Decision snapshots");

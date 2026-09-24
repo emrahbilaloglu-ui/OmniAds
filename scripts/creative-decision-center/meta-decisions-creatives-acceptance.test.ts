@@ -200,6 +200,7 @@ describe("classifiers keep missing apart from measured zero", () => {
   it("link clicks", () => {
     expect(classifyLinkClickRow({ authoritativeSign: "positive", actionsIsArray: true })).toBe("measured_positive");
     expect(classifyLinkClickRow({ authoritativeSign: "zero", actionsIsArray: true })).toBe("measured_zero_with_provenance");
+    expect(classifyLinkClickRow({ authoritativeSign: "zero", actionsIsArray: false, providerZeroVerified: true })).toBe("measured_zero_provider_receipt");
     expect(classifyLinkClickRow({ authoritativeSign: "null", actionsIsArray: false })).toBe("missing_actions_absent");
     expect(classifyLinkClickRow({ authoritativeSign: "null", actionsIsArray: true })).toBe("missing_other");
     // A zero with no actions array is exactly the fabrication the contract refuses.
@@ -210,6 +211,7 @@ describe("classifiers keep missing apart from measured zero", () => {
 
   it("funnel stages", () => {
     expect(classifyFunnelStageRow({ state: "measured", valueSign: "zero", actionsIsArray: true })).toBe("measured_zero");
+    expect(classifyFunnelStageRow({ state: "measured", valueSign: "zero", actionsIsArray: false, providerZeroVerified: true })).toBe("measured_zero_provider_receipt");
     expect(classifyFunnelStageRow({ state: "unmeasurable", valueSign: "null", actionsIsArray: false })).toBe(
       "missing_actions_absent",
     );
@@ -223,6 +225,7 @@ describe("classifiers keep missing apart from measured zero", () => {
 
   it("purchases: a zero with no actions key is its own bucket", () => {
     expect(classifyPurchaseRow({ conversionsSign: "zero", actionsIsArray: false })).toBe("zero_without_actions_key");
+    expect(classifyPurchaseRow({ conversionsSign: "zero", actionsIsArray: false, providerZeroVerified: true })).toBe("provider_zero_verified");
     expect(classifyPurchaseRow({ conversionsSign: "zero", actionsIsArray: true })).toBe("measured");
     expect(classifyPurchaseRow({ conversionsSign: "positive", actionsIsArray: true })).toBe("measured");
   });

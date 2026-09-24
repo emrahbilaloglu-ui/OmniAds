@@ -2,10 +2,12 @@ export const META_DECISIONS_WORKSPACE_CONTRACT_VERSION =
   "meta-decisions-workspace.read.v4" as const;
 
 export const META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION =
-  "meta-decisions-classification-overlay.v6" as const;
+  "meta-decisions-classification-overlay.v8" as const;
 
 export type MetaDecisionsClassificationOverlayVersion =
   | typeof META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION
+  | "meta-decisions-classification-overlay.v7"
+  | "meta-decisions-classification-overlay.v6"
   | "meta-decisions-classification-overlay.v5";
 
 export const META_DECISIONS_SECTION_SELECTION_VERSION =
@@ -398,6 +400,9 @@ export interface MetaCanonicalDecision {
   sourceAuthority?: MetaDecisionSourceAuthority;
   /** @see MetaDecisionConfigEvidence. Native ad rows only; absent elsewhere. */
   configEvidence?: MetaDecisionConfigEvidence | null;
+  /** The admitted native Ad economic period, read from its hashed evaluation.
+   * Older creative and Ad snapshots omit it; absence is never a full 28 days. */
+  decisionWindow?: MetaDecisionAdmittedWindow | null;
   sourceDecision: {
     label: string;
     /** Persisted mathematical/semantic verdict before the first authority gate.
@@ -498,6 +503,20 @@ export interface MetaCanonicalDecision {
   exposureUnavailableReason:
     "spend_unavailable" | "currency_unavailable" | null;
   history: MetaDecisionHistoryEnvelope;
+}
+
+/** Display-only projection of the period actually summed for a native Ad. */
+export const META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION =
+  "meta-decision-admitted-window.presentation.v1" as const;
+
+export interface MetaDecisionAdmittedWindow {
+  contractVersion: typeof META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION;
+  startDate: string;
+  endDate: string;
+  calendarDaySpan: number;
+  observedDayCount: number;
+  economicDayCount: number;
+  bridgedUnresolvedDayCount: number;
 }
 
 export interface MetaDecisionSuppressionReason {

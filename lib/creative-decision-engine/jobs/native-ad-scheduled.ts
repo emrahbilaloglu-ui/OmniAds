@@ -305,6 +305,46 @@ SELECT CASE
   WHEN calibration_receipt.batch_count <> calibration_batches.batch_count THEN FALSE
   WHEN calibration_batches.account_identities IS DISTINCT FROM assigned_accounts.account_identities THEN FALSE
   WHEN calibration_batches.earliest_batch_cutoff IS NULL THEN FALSE
+  WHEN EXISTS (
+    SELECT 1
+    FROM meta_authoritative_publication_pointers pointer
+    JOIN meta_authoritative_slice_versions slice
+      ON slice.id = pointer.active_slice_version_id
+    CROSS JOIN latest_successful_calibration run
+    JOIN business_provider_accounts binding
+      ON binding.business_id = pointer.business_id
+     AND binding.provider = 'meta'
+     AND binding.is_selected
+     AND binding.provider_account_id = pointer.provider_account_id
+    WHERE pointer.business_id = $1::text
+      AND pointer.surface = 'ad_daily'
+      AND pointer.day BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+      -- Provider publication can begin just before the calibration snapshot
+      -- and commit just after it. Its now()-based timestamp then predates the
+      -- run despite not being visible to that run. Match the existing one-
+      -- minute evidence-commit safety window used for decision retries.
+      AND pointer.updated_at > run.started_at - INTERVAL '1 minute'
+      AND pointer.updated_at <= $3::timestamptz
+      -- Re-publishing an unchanged slice advances the pointer clock during
+      -- ordinary sync. A new slice, a previous slice superseded after the
+      -- run began, or an explicit historical rebind changes source truth.
+      -- A later successful calibration run is enough even if its content hash
+      -- reuses an older complete batch.
+      AND (
+        slice.created_at > run.started_at - INTERVAL '1 minute'
+        OR pointer.publication_reason = 'manifest_rebind_repair'
+        OR EXISTS (
+          SELECT 1 FROM meta_authoritative_slice_versions previous_slice
+          WHERE previous_slice.business_id = pointer.business_id
+            AND previous_slice.provider_account_id = pointer.provider_account_id
+            AND previous_slice.day = pointer.day
+            AND previous_slice.surface = pointer.surface
+            AND previous_slice.id <> pointer.active_slice_version_id
+            AND previous_slice.superseded_at > run.started_at - INTERVAL '1 minute'
+            AND previous_slice.superseded_at <= $3::timestamptz
+        )
+      )
+  ) THEN FALSE
   WHEN NOT EXISTS (SELECT 1 FROM latest_target_history) THEN TRUE
   ELSE (
     SELECT GREATEST(target.recorded_at, target.effective_at)

@@ -1254,6 +1254,97 @@ describe("Meta Decisions workspace canonical read model", () => {
     });
   });
 
+  it("carries only a valid, hash-bound native economic window into presentation", () => {
+    const window = {
+      startDate: "2026-07-05",
+      endDate: "2026-07-12",
+      calendarDaySpan: 8,
+      observedDayCount: 4,
+      economicDayCount: 3,
+      bridgedUnresolvedDayCount: 1,
+    };
+    const rows = [
+      nativeSnapshot("120000000000000072", {
+        decision_window: window,
+        decision_ctr: 1.37,
+        decision_frequency: 2.41,
+        ctr_28d: 9.9,
+        frequency_28d: 8.8,
+      }),
+    ];
+    const inventory = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(rows),
+      snapshotRows: rows,
+      campaignContextRows: [context()],
+    });
+    expect(inventory.status).toBe("available");
+    if (inventory.status === "available") {
+      expect(inventory.items[0]?.decisionWindow).toEqual({
+        contractVersion: "meta-decision-admitted-window.presentation.v1",
+        ...window,
+      });
+      expect(inventory.items[0]?.metrics).toMatchObject({
+        ctr: 1.37,
+        frequency: 2.41,
+      });
+    }
+
+    const badRows = [nativeSnapshot("120000000000000073", {
+      decision_window: { ...window, endDate: "2026-07-32" },
+    })];
+    const bad = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(badRows),
+      snapshotRows: badRows,
+      campaignContextRows: [context()],
+    });
+    expect(bad.status).toBe("available");
+    if (bad.status === "available") {
+      expect(bad.items[0]?.decisionWindow).toBeNull();
+      expect(bad.items[0]?.metrics.ctr).toBeNull();
+      expect(bad.items[0]?.metrics.frequency).toBeNull();
+    }
+
+    const missing = [nativeSnapshot("120000000000000074", {
+      decision_window: window,
+      ctr_28d: 9.9,
+      frequency_28d: 8.8,
+    })];
+    const missingInventory = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(missing),
+      snapshotRows: missing,
+      campaignContextRows: [context()],
+    });
+    expect(missingInventory.status).toBe("available");
+    if (missingInventory.status === "available") {
+      expect(missingInventory.items[0]?.metrics.ctr).toBeNull();
+      expect(missingInventory.items[0]?.metrics.frequency).toBeNull();
+    }
+
+    const zero = [nativeSnapshot("120000000000000075", {
+      decision_window: window,
+      decision_ctr: 0,
+      decision_frequency: 0,
+    })];
+    const zeroInventory = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(zero),
+      snapshotRows: zero,
+      campaignContextRows: [context()],
+    });
+    expect(zeroInventory.status).toBe("available");
+    if (zeroInventory.status === "available") {
+      expect(zeroInventory.items[0]?.metrics.ctr).toBe(0);
+      expect(zeroInventory.items[0]?.metrics.frequency).toBe(0);
+    }
+  });
+
   it("serves an authoritative native zero-Ad account as available, not missing", () => {
     const model = nativeModel([]);
     expect(model).toMatchObject({
@@ -4848,6 +4939,45 @@ describe("served held-verdict resolutions carry the engine's predicate blockers"
       ...overrides,
     });
 
+  it("serves the purchase-observation repair from persisted native predicate evidence", () => {
+    const model = nativeModel([
+      nativeSnapshot("120000000000000910", {
+        label: "keep",
+        raw_label: "keep",
+        pre_authority_label: "cut",
+        authority_blocker: "native_metrics_unavailable",
+        blocked_action_type: "cut",
+        authorized_action: null,
+        purchases: null,
+        roas: null,
+        badges: [{
+          type: "purchase_evidence_unverified",
+          label: "Purchase observation incomplete",
+          severity: "warning",
+        }],
+        predicate_blockers: [{
+          predicate: "ad_purchase_observation",
+          observed: 1,
+          threshold: 0,
+          status: "missing",
+          severity: "warning",
+          reason: "A decision-bearing Ad day lacks corroborated raw purchase actions.",
+        }],
+      }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.metrics).toMatchObject({ spend: 120, purchases: null, roas: null });
+    expect(item?.classification).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: "cut",
+      resolution: {
+        code: "verify_purchase_observation",
+        owner: "integration",
+      },
+    });
+  });
+
   it("names the thin calibration sample instead of the generic hard-action evidence copy", () => {
     /*
       GC-051 shape from `scaleBenchmarkBlockers` in
@@ -5274,7 +5404,7 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
     );
   });
 
-  it("keeps pending hysteresis as the primary resolution while exposing the config gap", () => {
+  it("names a real config gap before pending hysteresis on a legacy role-first row", () => {
     const model = nativeModel([
       roleHeldCutRow("1200000000000009226", {
         config_authority_verified: false,
@@ -5283,8 +5413,13 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
     ]);
     const item = model.queue.adCandidates?.items[0];
     expect(item?.classification.resolution?.code).toBe(
-      "await_decision_confirmation",
+      "complete_hard_action_evidence",
     );
+    expect(item?.classification.resolution?.nextStep).toContain(
+      "consecutive engine confirmation",
+    );
+    expect(item?.classification.decisionState).toBe("blocked");
+    expect(item?.classification.buyerAction).toBeNull();
     expect(item?.classification.blockers.map((blocker) => blocker.code)).toContain(
       "config_source_authority",
     );
@@ -5347,6 +5482,9 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
     expect(nativeSql).toContain("input_evidence.input_hash IS NOT NULL");
     expect(nativeSql).not.toContain("creative_input_json -> 'configEvidence'");
     expect(nativeSql).toContain("AS config_evidence_lineage");
+    expect(nativeSql).toContain("evaluation.creative_input_json -> 'decisionWindow' AS decision_window");
+    expect(nativeSql).toContain("evaluation.creative_input_json -> 'ctr' AS decision_ctr");
+    expect(nativeSql).toContain("evaluation.creative_input_json -> 'frequency' AS decision_frequency");
   });
 
   describe("serves the recorded receipts read-only, re-validated", () => {

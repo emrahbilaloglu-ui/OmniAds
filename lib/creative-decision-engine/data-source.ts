@@ -4,6 +4,8 @@ import {
   buildMetaFunnelStageSql,
 } from "@/lib/meta/funnel-stage-parse";
 import { buildAdDayAuthoritativeLinkClicksSql } from "@/lib/meta/link-click-parse";
+import { buildAdDayAuthoritativePurchasesSql } from "@/lib/meta/purchase-count-parse";
+import { buildMetaAdDayProviderZeroReceiptSql } from "@/lib/meta/ad-day-provider-zero-receipt";
 import {
   creativeDayConfigDecisionAdmissionSql,
   creativeDayCompleteWindowSql,
@@ -19,6 +21,10 @@ import {
   type MetaCreativeDayMetricStage,
 } from "@/lib/meta/creative-day-metric-evidence";
 import {
+  buildMetaCreativePurchaseLateralSql,
+  buildMetaCreativePurchaseWindowSql,
+} from "@/lib/meta/creative-day-purchase-evidence";
+import {
   configFieldEvidenceRefCoherentSql,
   configFieldEvidenceRefWithoutReceiptSql,
   configReceiptManifestHashSql,
@@ -32,6 +38,7 @@ import {
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
 import { resolveHydratedConfigAuthority } from "./native-ad-hydration-authority";
+import { LIFECYCLE_MATERIALIZATION_VERSION } from "./lifecycle-materialization";
 import {
   buildMetaAdsetConfigFieldSourceSql,
   buildMetaConfigFieldSourceSql,
@@ -1386,6 +1393,7 @@ const AD_GRAIN_FUNNEL_STAGE_SQL = buildMetaFunnelStageSql({
   payloadExpression: "payload_json",
   lateralAlias: "funnel_actions",
   stages: ["landing_page_view", "add_to_cart", "initiate_checkout"],
+  providerZeroProofSql: "provider_zero_receipt_verified",
 });
 
 export const AD_DAY_DECISION_BEARING_ACTIVITY_SQL = `(
@@ -1416,7 +1424,12 @@ export const AD_DAY_DECISION_BEARING_ACTIVITY_SQL = `(
 export const AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL = buildAdDayAuthoritativeLinkClicksSql();
 
 /** The same D095 value, qualified for decision_ad_days' own FROM (selected_ad_days d). */
-const AD_DAY_LINK_CLICKS_ROW_SQL = buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d" });
+const AD_DAY_LINK_CLICKS_ROW_SQL = buildAdDayAuthoritativeLinkClicksSql({
+  qualifier: "d", providerZeroProofSql: "d.provider_zero_receipt_verified",
+});
+const AD_DAY_PURCHASES_ROW_SQL = buildAdDayAuthoritativePurchasesSql({
+  qualifier: "d", providerZeroProofSql: "d.provider_zero_receipt_verified",
+});
 
 /*
   The 28-day rollup's windows, all under ONE rule (buildMetaCompleteWindowSql):
@@ -1733,7 +1746,10 @@ WITH assigned_accounts AS (
     AND (NOT $4::boolean OR binding.provider_account_id = ANY($3::text[]))
 ),
 selected_ad_days AS (
-  SELECT d.*
+  SELECT d.*,
+    ${buildMetaAdDayProviderZeroReceiptSql({
+      qualifier: "d", cutoffSql: "$11::timestamptz",
+    })} AS provider_zero_receipt_verified
   FROM meta_ad_daily d
   INNER JOIN assigned_accounts assignment
     ON assignment.business_id = d.business_id
@@ -2473,7 +2489,8 @@ decision_ad_days AS (
     correlated actions scan once per row instead of once per reader.
   */
   SELECT d.*,
-    ${AD_DAY_LINK_CLICKS_ROW_SQL} AS authoritative_link_clicks
+    ${AD_DAY_LINK_CLICKS_ROW_SQL} AS authoritative_link_clicks,
+    ${AD_DAY_PURCHASES_ROW_SQL} AS authoritative_purchases
   FROM selected_ad_days d
   LEFT JOIN admitted_window_bounds bounds
     ON bounds.provider_account_id = d.provider_account_id
@@ -2821,6 +2838,10 @@ metric_cumulative AS (
     SUM(spend) AS spend,
     SUM(conversions) AS conversions,
     SUM(revenue) AS revenue,
+    COUNT(*) FILTER (
+      WHERE authoritative_purchases IS NULL
+        AND ${AD_DAY_DECISION_BEARING_ACTIVITY_SQL}
+    )::integer AS purchase_unverified_economic_days,
     SUM(impressions) AS impressions,
     -- THE WINDOW RULE (lib/meta/funnel-stage-parse.ts), not a coalesce.
     --
@@ -2877,6 +2898,7 @@ cumulative AS (
     metrics.spend,
     metrics.conversions,
     metrics.revenue,
+    metrics.purchase_unverified_economic_days,
     metrics.impressions,
     metrics.link_clicks,
     metrics.roas,
@@ -3211,6 +3233,7 @@ SELECT
   cumulative.spend,
   cumulative.conversions,
   cumulative.revenue,
+  cumulative.purchase_unverified_economic_days,
   cumulative.impressions,
   cumulative.link_clicks,
   cumulative.roas,
@@ -3406,6 +3429,7 @@ LEFT JOIN LATERAL (
     AND row.as_of_date <= $2::date
     AND row.engine_version = $10
     AND row.computed_at <= $11::timestamptz
+    AND row.job_run_id = ${latestSuccessfulLifecycleRunSql("$10", "$11")}
   ORDER BY row.as_of_date DESC, row.computed_at DESC, row.id DESC
   LIMIT 1
 ) lifecycle ON COALESCE(dimensions.creative_id, state_dimension.creative_id) IS NOT NULL
@@ -3855,6 +3879,13 @@ const CREATIVE_HYDRATION_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql
   rowAlias: "d",
   lateralAlias: "creative_hydration_evidence",
 });
+const CREATIVE_HYDRATION_PURCHASE = buildMetaCreativePurchaseLateralSql({
+  rowAlias: "d", lateralAlias: "creative_hydration_purchase",
+});
+const CREATIVE_HYDRATION_PURCHASE_WINDOW = buildMetaCreativePurchaseWindowSql({
+  valueSql: CREATIVE_HYDRATION_PURCHASE.valueSql,
+  activitySql: CREATIVE_HYDRATION_PURCHASE.activitySql,
+});
 
 const CREATIVE_HYDRATION_WINDOWS = Object.fromEntries(
   META_CREATIVE_DAY_METRIC_STAGES.map((stage) => [
@@ -3872,12 +3903,26 @@ const CREATIVE_HISTORICAL_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSq
   rowAlias: "d",
   lateralAlias: "creative_historical_evidence",
 });
+const CREATIVE_HISTORICAL_PURCHASE = buildMetaCreativePurchaseLateralSql({
+  rowAlias: "d", lateralAlias: "creative_historical_purchase",
+});
 
 const CREATIVE_HISTORICAL_LINK_CLICKS_WINDOW = buildMetaCompleteWindowSql({
   valueSql: "link_clicks",
   missingSql: "(link_clicks IS NULL)",
   activitySql: "decision_bearing_activity",
 }).sumSql;
+const CREATIVE_HISTORICAL_PURCHASE_WINDOW = buildMetaCreativePurchaseWindowSql({
+  valueSql: "purchases",
+  activitySql: "decision_bearing_activity",
+});
+const CREATIVE_RUNTIME_PURCHASE = buildMetaCreativePurchaseLateralSql({
+  rowAlias: "d", lateralAlias: "creative_runtime_purchase",
+});
+const CREATIVE_RUNTIME_PURCHASE_WINDOW = buildMetaCreativePurchaseWindowSql({
+  valueSql: "evidence_purchases",
+  activitySql: "purchase_decision_bearing_activity",
+});
 
 const HYDRATE_CREATIVE_INPUTS_QUERY = `
 WITH input_creatives AS (
@@ -4006,7 +4051,7 @@ cumulative AS (
   SELECT
     d.creative_id,
     SUM(d.spend) AS spend,
-    SUM(d.conversions) AS purchases,
+    ${CREATIVE_HYDRATION_PURCHASE_WINDOW} AS purchases,
     SUM(d.revenue) AS purchase_value,
     SUM(d.impressions) AS impressions,
     -- THE STAMPED EVIDENCE, UNDER THE WINDOW RULE. The creative-day writer
@@ -4019,7 +4064,8 @@ cumulative AS (
     -- unmeasured, never 0.
     ${CREATIVE_HYDRATION_WINDOWS.link_click} AS link_clicks,
     CASE WHEN SUM(d.spend) > 0 THEN SUM(d.revenue) / SUM(d.spend) END AS roas,
-    CASE WHEN SUM(d.conversions) > 0 THEN SUM(d.spend) / SUM(d.conversions) END AS cpa,
+    CASE WHEN ${CREATIVE_HYDRATION_PURCHASE_WINDOW} > 0
+      THEN SUM(d.spend) / ${CREATIVE_HYDRATION_PURCHASE_WINDOW} END AS cpa,
     CASE
       WHEN SUM(d.impressions) > 0
       THEN SUM(d.clicks)::numeric / NULLIF(SUM(d.impressions), 0) * 100
@@ -4046,6 +4092,7 @@ cumulative AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   ${CREATIVE_HYDRATION_EVIDENCE.lateralSql}
+  ${CREATIVE_HYDRATION_PURCHASE.lateralSql}
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
@@ -4148,11 +4195,12 @@ recent AS (
   SELECT
     d.creative_id,
     SUM(d.spend) AS spend,
-    SUM(d.conversions) AS purchases,
+    ${CREATIVE_HYDRATION_PURCHASE_WINDOW} AS purchases,
     SUM(d.impressions) AS impressions,
     CASE WHEN SUM(d.spend) > 0 THEN SUM(d.revenue) / SUM(d.spend) END AS roas
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  ${CREATIVE_HYDRATION_PURCHASE.lateralSql}
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '6 days') AND $2::date
@@ -4264,7 +4312,7 @@ historical_source AS (
     d.spend,
     d.impressions,
     d.clicks,
-    d.conversions,
+    ${CREATIVE_HISTORICAL_PURCHASE.valueSql} AS purchases,
     d.revenue,
     -- The stamped link-click measurement (NULL when not measured) and whether
     -- the row had to measure it. The click_to_purchase_rate below exists only
@@ -4276,6 +4324,7 @@ historical_source AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   ${CREATIVE_HISTORICAL_EVIDENCE.lateralSql}
+  ${CREATIVE_HISTORICAL_PURCHASE.lateralSql}
   CROSS JOIN LATERAL (
     VALUES
       ('last14', d.date BETWEEN ($2::date - INTERVAL '13 days') AND $2::date),
@@ -4303,9 +4352,10 @@ historical_aggregates AS (
     CASE WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend) END AS roas,
     CASE
       WHEN ${CREATIVE_HISTORICAL_LINK_CLICKS_WINDOW} > 0
-      THEN SUM(conversions) / NULLIF(${CREATIVE_HISTORICAL_LINK_CLICKS_WINDOW}, 0)
+      THEN ${CREATIVE_HISTORICAL_PURCHASE_WINDOW} /
+        NULLIF(${CREATIVE_HISTORICAL_LINK_CLICKS_WINDOW}, 0)
     END AS click_to_purchase_rate,
-    SUM(conversions) AS purchases
+    ${CREATIVE_HISTORICAL_PURCHASE_WINDOW} AS purchases
   FROM historical_source
   GROUP BY creative_id, window_key
 ),
@@ -4475,15 +4525,17 @@ config_verified_creative_days AS MATERIALIZED (
     AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
 ),
 admitted_creative_days AS MATERIALIZED (
-  SELECT d.*
+  SELECT d.*, ${CREATIVE_RUNTIME_PURCHASE.valueSql} AS evidence_purchases,
+    ${CREATIVE_RUNTIME_PURCHASE.activitySql} AS purchase_decision_bearing_activity
   FROM config_verified_creative_days d
+  ${CREATIVE_RUNTIME_PURCHASE.lateralSql}
   WHERE ${creativeDayCompleteWindowSql("d", "$1", "$5", 90, "$4", "$2")}
 ),
 per_creative_raw AS (
   SELECT
     creative_id,
     SUM(spend) AS total_spend,
-    SUM(conversions) AS total_purchases,
+    ${CREATIVE_RUNTIME_PURCHASE_WINDOW} AS total_purchases,
     SUM(revenue) AS total_revenue,
     SUM(spend) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_spend,
     SUM(revenue) FILTER (WHERE date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_revenue,
@@ -4544,7 +4596,7 @@ counts AS (
     (SELECT COUNT(*) FROM converter_population) AS converter_count,
     (SELECT COUNT(*) FROM winner_population) AS winner_count,
     (SELECT COUNT(*) FROM per_creative WHERE total_purchases > 0) AS account_cpa_sample_count,
-    (SELECT COUNT(*) FROM per_creative WHERE total_spend > 0 AND COALESCE(total_purchases, 0) = 0) AS zero_conversion_count,
+    (SELECT COUNT(*) FROM per_creative WHERE total_spend > 0 AND total_purchases = 0) AS zero_conversion_count,
     (SELECT COUNT(*) FROM recent_ratios WHERE recent_total_ratio IS NOT NULL) AS refresh_ratio_count,
     (SELECT COUNT(*) FROM per_creative WHERE cumulative_28d_ctr IS NOT NULL) AS ctr_count
 ),
@@ -4579,9 +4631,11 @@ winner_percentiles AS (
 ),
 meta_aov AS (
   SELECT
-    CASE WHEN SUM(conversions) > 0 THEN SUM(revenue) / SUM(conversions) END AS aov_mean,
-    COALESCE(SUM(conversions), 0)::integer AS purchase_count,
-    COALESCE(SUM(revenue), 0) AS total_revenue
+    CASE WHEN ${CREATIVE_RUNTIME_PURCHASE_WINDOW} > 0
+      THEN SUM(revenue) / ${CREATIVE_RUNTIME_PURCHASE_WINDOW} END AS aov_mean,
+    (${CREATIVE_RUNTIME_PURCHASE_WINDOW})::integer AS purchase_count,
+    CASE WHEN ${CREATIVE_RUNTIME_PURCHASE_WINDOW} IS NOT NULL
+      THEN COALESCE(SUM(revenue), 0) END AS total_revenue
   FROM admitted_creative_days
   WHERE objective = 'OUTCOME_SALES'
 ),
@@ -4799,18 +4853,22 @@ SELECT
 const READ_CAMPAIGN_MATURE_CREATIVE_COUNT_QUERY = `
 WITH per_creative AS (
   SELECT
-    creative_id,
-    SUM(spend) AS total_spend,
-    SUM(conversions) AS total_purchases,
-    SUM(revenue) AS total_revenue
-  FROM meta_creative_daily
-  WHERE business_ref_id = $1::uuid
-    AND ${creativeDayConfigDecisionAdmissionSql(undefined, "$2", "$4")}
-    AND ${creativeDayCompleteWindowSql(undefined, "$2", "$4", 90, undefined, "$1")}
-    AND campaign_id = $3::text
-    AND date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
-    AND objective = 'OUTCOME_SALES'
-  GROUP BY creative_id
+    d.creative_id,
+    SUM(d.spend) AS total_spend,
+    ${buildMetaCreativePurchaseWindowSql({
+      valueSql: CREATIVE_RUNTIME_PURCHASE.valueSql,
+      activitySql: CREATIVE_RUNTIME_PURCHASE.activitySql,
+    })} AS total_purchases,
+    SUM(d.revenue) AS total_revenue
+  FROM meta_creative_daily d
+  ${CREATIVE_RUNTIME_PURCHASE.lateralSql}
+  WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$4")}
+    AND ${creativeDayCompleteWindowSql("d", "$2", "$4", 90, undefined, "$1")}
+    AND d.campaign_id = $3::text
+    AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+    AND d.objective = 'OUTCOME_SALES'
+  GROUP BY d.creative_id
 )
 SELECT COUNT(*) AS mature_creative_count
 FROM per_creative
@@ -4870,6 +4928,25 @@ WHERE business_ref_id = $1::uuid
 ORDER BY creative_format ASC
 `;
 
+/** The latest run supersedes older rows even when its materialization contract is unknown. */
+function latestSuccessfulLifecycleRunSql(engineVersionSql: string, cutoffSql: string): string {
+  return `(SELECT CASE
+      WHEN lifecycle_run.error_json #>> '{metadata,lifecycle_materialization,contract_version}'
+        = '${LIFECYCLE_MATERIALIZATION_VERSION}'
+      THEN lifecycle_run.id
+    END
+    FROM engine_v3_job_runs lifecycle_run
+    WHERE lifecycle_run.job_name = 'engine_v3_lifecycle_job'
+      AND lifecycle_run.business_ref_id = $1::uuid
+      AND lifecycle_run.as_of_date <= $2::date
+      AND lifecycle_run.engine_version = ${engineVersionSql}
+      AND lifecycle_run.status = 'success'
+      AND lifecycle_run.finished_at <= ${cutoffSql}::timestamptz
+    ORDER BY lifecycle_run.as_of_date DESC, lifecycle_run.finished_at DESC,
+      lifecycle_run.id DESC
+    LIMIT 1)`;
+}
+
 const READ_LIFECYCLE_CREATIVE_INPUTS_QUERY = `
 WITH lifecycle_rows AS (
   SELECT DISTINCT ON (l.creative_id) l.*
@@ -4878,6 +4955,7 @@ WITH lifecycle_rows AS (
     AND l.as_of_date <= $2::date
     AND (NOT $4::boolean OR l.creative_id = ANY($3::text[]))
     AND l.engine_version = $5
+    AND l.job_run_id = ${latestSuccessfulLifecycleRunSql("$5", "$9")}
     AND ${creativeDayCompleteWindowSql("l", "$2", "$9", 90, undefined, "$1")}
     AND l.computed_at <= $9::timestamptz
   ORDER BY l.creative_id, l.as_of_date DESC, l.computed_at DESC
@@ -5096,6 +5174,7 @@ WHERE business_ref_id = $1::uuid
   AND as_of_date <= $2::date
   AND engine_version = $3
   AND computed_at <= $4::timestamptz
+  AND job_run_id = ${latestSuccessfulLifecycleRunSql("$3", "$4")}
 `;
 
 const READ_LATEST_FUNNEL_DIAGNOSIS_QUERY = `
@@ -6330,6 +6409,10 @@ function mapAdDecisionHydrationRow(input: {
         performanceMetricsObserved: metricRowCount > 0,
         eventMetricsObserved:
           metricRowCount > 0 && toBoolean(input.row.event_metrics_observed),
+        purchaseUnverifiedEconomicDays: Math.max(
+          0,
+          toIntegerOrNull(input.row.purchase_unverified_economic_days) ?? metricRowCount,
+        ),
         sourceCoverage,
       },
       /*
@@ -6606,21 +6689,24 @@ function toHistoricalWindow(
   const rowCount = toNumberOrNull(row[`${prefix}_row_count`]) ?? 0;
   if (rowCount <= 0) return null;
 
+  const purchases = toNumberOrNull(row[`${prefix}_purchases`]);
+  if (purchases === null) return null;
+
   return {
     spend: toNumberOrNull(row[`${prefix}_spend`]) ?? 0,
     ctr: toNumberOrNull(row[`${prefix}_ctr`]) ?? 0,
     roas: toNumberOrNull(row[`${prefix}_roas`]) ?? 0,
     // NULL stays NULL: an incomplete window has no rate (fatigue.ts).
     clickToPurchaseRate: toNumberOrNull(row[`${prefix}_click_to_purchase_rate`]),
-    purchases: toNumberOrNull(row[`${prefix}_purchases`]) ?? 0,
+    purchases,
   };
 }
 
 function calculateClickToPurchaseRate(input: {
-  purchases: number;
+  purchases: number | null;
   linkClicks: number | null;
 }) {
-  if (input.linkClicks === null || input.linkClicks <= 0) return null;
+  if (input.purchases === null || input.linkClicks === null || input.linkClicks <= 0) return null;
   return input.purchases / input.linkClicks;
 }
 
@@ -6633,10 +6719,12 @@ function mapCreativeHydrationRow(input: {
   if (creativeId === null) return null;
 
   const spend = toNumberOrNull(input.row.spend) ?? 0;
-  const purchases = toNumberOrNull(input.row.purchases) ?? 0;
+  const evidencedPurchases = toNumberOrNull(input.row.purchases);
+  const purchases = evidencedPurchases ?? 0;
   const linkClicks = toNumberOrNull(input.row.link_clicks);
   const ctr = toNumberOrNull(input.row.ctr);
-  const roas = toNumberOrNull(input.row.roas);
+  const roas = evidencedPurchases === null
+    ? null : toNumberOrNull(input.row.roas);
   const frequency = toNumberOrNull(input.row.frequency);
   const targetRoas = toNumberOrNull(input.row.target_roas);
   const breakevenRoas = toNumberOrNull(input.row.break_even_roas);
@@ -6644,7 +6732,7 @@ function mapCreativeHydrationRow(input: {
     ctr,
     roas,
     clickToPurchaseRate: calculateClickToPurchaseRate({
-      purchases,
+      purchases: evidencedPurchases,
       linkClicks,
     }),
     effectiveTargetRoas: targetRoas,
@@ -6677,13 +6765,16 @@ function mapCreativeHydrationRow(input: {
       input.row.source_coverage_verified === true ? "verified"
         : input.row.source_coverage_after_cutoff === true ? "after_cutoff"
           : "incomplete",
+    purchaseEvidenceStatus:
+      evidencedPurchases === null ? "unverified" : "verified",
     contextGrain: toCreativeDecisionContextGrain(input.row),
     effectiveCohort: toEffectiveCreativeCohort(
       input.row.effective_cohort_inputs,
     ),
     spend,
     purchases,
-    purchaseValue: toNumberOrNull(input.row.purchase_value),
+    purchaseValue: evidencedPurchases === null
+      ? null : toNumberOrNull(input.row.purchase_value),
     impressions: toNumberOrNull(input.row.impressions),
     linkClicks,
     roas,
@@ -6692,7 +6783,8 @@ function mapCreativeHydrationRow(input: {
     frequency,
     recent7dSpend: toNumberOrNull(input.row.recent_spend),
     recent7dPurchases: toNumberOrNull(input.row.recent_purchases),
-    recent7dRoas: toNumberOrNull(input.row.recent_roas),
+    recent7dRoas: toNumberOrNull(input.row.recent_purchases) === null
+      ? null : toNumberOrNull(input.row.recent_roas),
     recent7dImpressions: toNumberOrNull(input.row.recent_impressions),
     effectiveStatus: toEffectiveStatus(input.row.effective_status),
     ageDays: toIntegerOrNull(input.row.age_days),
@@ -6767,22 +6859,27 @@ function mapLifecycleHydrationRow(input: {
     objective: toCampaignObjective(input.row.objective),
     configProvenanceStatus: "verified",
     sourceCoverageStatus: "verified",
+    purchaseEvidenceStatus:
+      toNumberOrNull(input.row.purchases) === null ? "unverified" : "verified",
     contextGrain: toCreativeDecisionContextGrain(input.row),
     effectiveCohort: toEffectiveCreativeCohort(
       input.row.effective_cohort_inputs,
     ),
     spend: toNumberOrNull(input.row.spend) ?? 0,
     purchases: toNumberOrNull(input.row.purchases) ?? 0,
-    purchaseValue: toNumberOrNull(input.row.purchase_value),
+    purchaseValue: toNumberOrNull(input.row.purchases) === null
+      ? null : toNumberOrNull(input.row.purchase_value),
     impressions: toNumberOrNull(input.row.impressions),
     linkClicks: toNumberOrNull(input.row.link_clicks),
-    roas: toNumberOrNull(input.row.roas),
+    roas: toNumberOrNull(input.row.purchases) === null
+      ? null : toNumberOrNull(input.row.roas),
     cpa: toNumberOrNull(input.row.cpa),
     ctr: toNumberOrNull(input.row.ctr),
     frequency: toNumberOrNull(input.row.frequency),
     recent7dSpend: toNumberOrNull(input.row.recent_spend),
     recent7dPurchases: toNumberOrNull(input.row.recent_purchases),
-    recent7dRoas: toNumberOrNull(input.row.recent_roas),
+    recent7dRoas: toNumberOrNull(input.row.recent_purchases) === null
+      ? null : toNumberOrNull(input.row.recent_roas),
     recent7dImpressions: toNumberOrNull(input.row.recent_impressions),
     effectiveStatus: toEffectiveStatus(input.row.effective_status),
     ageDays: toIntegerOrNull(input.row.age_days),
@@ -8366,8 +8463,11 @@ export class WarehouseDataSource
         computedAt: this.creativeDayEvaluationCutoffAt ?? new Date().toISOString(),
         sourceMaxUpdatedAt: null,
         evaluationCutoffAt: this.creativeDayEvaluationCutoffAt,
-        fallbackMode: "runtime_sql",
-        note: "no precomputed row available; runtime fallback in use",
+        // Runtime hydration uses the same D103 complete-window predicate as
+        // the persisted job. An empty current epoch cannot be promoted by
+        // calling the same denied read a fallback.
+        fallbackMode: "insufficient",
+        note: "No source-verified creative lifecycle row for this epoch and cutoff; native Ad lifecycle evidence is evaluated separately.",
         staleTierOverride: "warning",
       });
     }

@@ -3,13 +3,16 @@ import type {
   MetaDecisionConfirmationCeremony,
   MetaDecisionRiskTier,
   MetaDecisionSourceCreativeType,
+  MetaDecisionAdmittedWindow,
 } from "@/lib/meta/decisions-workspace-contract";
 
 export const META_OS_DECISIONS_PRESENTATION_VERSION =
-  "meta-os-decisions.presentation.v6" as const;
+  "meta-os-decisions.presentation.v8" as const;
 
 export type MetaOsDecisionsPresentationVersion =
   | typeof META_OS_DECISIONS_PRESENTATION_VERSION
+  | "meta-os-decisions.presentation.v7"
+  | "meta-os-decisions.presentation.v6"
   | "meta-os-decisions.presentation.v5";
 
 export type MetaOsWorkspaceBannerScope =
@@ -437,6 +440,8 @@ export interface MetaOsAdDecision {
   id: string;
   decisionId: string;
   sourceSnapshotId: string;
+  /** Exact native economic window. Absent on older snapshots. Display only. */
+  decisionWindow?: MetaDecisionAdmittedWindow | null;
   episodeId: string;
   providerAccountId: string;
   adId: string;
@@ -610,8 +615,15 @@ export interface MetaOsDecisionsPresentation {
      * three zeroes. The current builder always emits it.
      */
     heldCounts?: { scale: number; cut: number; refresh: number };
-    statePreCapCounts: Record<MetaOsDecisionLane, number>;
-    eligiblePreCapCount: number;
+    /**
+     * Pre-cap decisions per SERVED lane — the same lane each row is drawn in.
+     *
+     * Null when the decision source could not be counted (unavailable), which
+     * is not the same as zero decisions. A verified empty source serves zeros.
+     */
+    statePreCapCounts: Record<MetaOsDecisionLane, number> | null;
+    /** Pre-cap size of the served population; null when it is unknown. */
+    eligiblePreCapCount: number | null;
     /**
      * ACTIVE provider inventory that carries no exact Ad-grain decision.
      *

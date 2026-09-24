@@ -45,6 +45,8 @@ import {
   buildMetaDecisionCenterExactViewModel,
   buildMetaStructureInventoryViewModel,
   buyerFacingCreativeDecisionLabel,
+  buyerFacingCreativeActionLabel,
+  buyerFacingCreativeReason,
   buyerFacingCreativeResolution,
   buyerFacingCreativeScope,
   heldCreativeVerdict,
@@ -844,7 +846,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     });
     const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
     expect(rows.get("no_metrics")?.note).toBe(
-      "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance. Wait for campaign context verification before acting.",
+      "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance. The campaign role is still being verified automatically. No action is needed from you; this ad is re-checked on each decision run.",
     );
     expect(rows.get("no_metrics")?.money).toBe("—");
     expect(rows.get("no_metrics")?.ctrValue).toBeNull();
@@ -869,7 +871,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
 
     // A numeric zero alone says nothing about delivery or read completeness.
     expect(buyerFacingCreativeResolution(noMetrics)).toBe(
-      "Wait for campaign context verification before acting.",
+      "The campaign role is still being verified automatically. No action is needed from you; this ad is re-checked on each decision run.",
     );
     // This broad blocker also covers an observed ad whose account winner
     // benchmark is missing; it must not claim the ad has no performance day.
@@ -885,7 +887,9 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
           nextStep: "Wait for account winner purchase evidence.",
         },
       }),
-    ).toBe("Complete the missing evidence before applying this change.");
+    ).toBe(
+      "The evidence this change needs is still being completed. No action is needed from you; this ad is re-checked on each decision run.",
+    );
     expect(
       buyerFacingCreativeResolution({
         ...noMetrics,
@@ -1414,7 +1418,7 @@ describe("the bands the reference draws are backed, or honestly blank", () => {
 
     // (4 × 900 + 1 × 100) / 1000 = 3.7 — spend-weighted, not the flat mean 2.5.
     expect(byId.get("average-frequency")?.value).toBe("3.7");
-    expect(byId.get("average-frequency")?.detail).toBe("2 of 3 creatives");
+    expect(byId.get("average-frequency")?.detail).toBe("spend-weighted · 2 of 3 ads");
     expect(byId.get("refresh-pipeline")?.value).toBe("2");
     expect(byId.get("refresh-pipeline")?.detail).toBe("of 3 served decisions");
     // No served fatigue status and no served notion of a winner: the adapter
@@ -1460,7 +1464,7 @@ describe("the bands the reference draws are backed, or honestly blank", () => {
 });
 
 describe("the lineage read fills what the reference draws", () => {
-  it("binds media kind, fatigue share, row sparkline and the entity's own ROAS trail", () => {
+  it("binds media kind and fatigue share without presenting a selected-date trail as decision evidence", () => {
     const fatigued = creativeFixture({
       id: "os_ad_fatigued",
       adId: "ad_fatigued",
@@ -1516,7 +1520,7 @@ describe("the lineage read fills what the reference draws", () => {
     expect(rows.get("os_ad_healthy")?.kindShort).toBe("CAT");
     // No served format is unknown, not a kind invented from something else.
     expect(rows.get("os_ad_unknown")?.kindShort).toBe("—");
-    expect(rows.get("os_ad_fatigued")?.sparkPath).toContain("M0.0");
+    expect(rows.get("os_ad_fatigued")?.sparkPath).toBeNull();
     // An ad the caller had no series for keeps the empty path rather than
     // borrowing the shape of the row above it.
     expect(rows.get("os_ad_healthy")?.sparkPath).toBeNull();
@@ -1773,7 +1777,7 @@ describe("the creative queue is the served set, split by the served state", () =
     expect(rows.get("os_ad_pending")).toMatchObject({
       stateLabel: "Blocked",
       stateTone: "warning",
-      note: "Wait for the next completed ad-level decision.",
+      note: "Wait for the next completed ad-level decision. No action is needed from you; this ad is re-checked on each decision run.",
     });
     expect(rows.get("os_ad_pending")?.chips).not.toContain("Decision pending");
     expect(rows.get("os_ad_pending")?.blockedNote).toBeUndefined();
@@ -1853,8 +1857,10 @@ describe("the creative queue is the served set, split by the served state", () =
       "Current creative decisions could not be verified",
     );
     expect(view.creativesNotice).toContain("24 active ads have no current decision");
+    // The notice already says the source is unavailable; the footnote points
+    // at what the buyer can still use instead of saying it a second time.
     expect(view.creativeFootnote).toBe(
-      "Current ad-level decisions cannot be shown until their source is available.",
+      "Use Creative Studio to compare creative performance while decisions are unavailable.",
     );
   });
 
@@ -1898,7 +1904,7 @@ describe("the creative queue is the served set, split by the served state", () =
       .creativeDecisions?.[0];
 
     expect(row).toMatchObject({
-      note: "Wait for the missing decision evidence, then review again.",
+      note: "The evidence this decision needs is still being completed. No action is needed from you; this ad is re-checked on each decision run.",
     });
     expect(row?.blockedNote).toBeUndefined();
     const serialized = JSON.stringify(row);
@@ -4349,6 +4355,44 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     };
   }
 
+  it("shows the typed purchase-observation repair instead of a generic metrics outage", () => {
+    const resolution = {
+      code: "verify_purchase_observation",
+      category: "data" as const,
+      owner: "integration" as const,
+      label: "Cut Held — Purchase Observation Incomplete",
+      nextStep: "Verify the original Meta purchase actions.",
+    };
+    const held = heldRefreshFixture({
+      heldAction: "cut",
+      resolution,
+      heldResolution: resolution,
+      action: actionFixture({
+        code: "verify_purchase_observation",
+        label: resolution.label,
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+      }),
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "cut",
+        publishedLabel: "keep",
+        firstBlocker: {
+          code: "native_metrics_unavailable",
+          label: "Purchase observation is incomplete",
+          explanation: "Spend and traffic are measured; purchase evidence is not.",
+        },
+      },
+    });
+    expect(buyerFacingCreativeActionLabel(held)).toBe("Verify purchase data");
+    expect(buyerFacingCreativeReason(held)).toContain("purchase observation is incomplete");
+    expect(buyerFacingCreativeResolution(held)).toContain("Spend and traffic can remain measured");
+    expect(heldCreativeVerdict(held)?.nextStep).toContain("original Meta purchase actions");
+    expect(held.action.providerMutation).toBeNull();
+  });
+
   function heldWorkspace(input: {
     /*
       `MetaOsAdDecision`, not `HeldAd`: held-ness is a property of a ROW, not of
@@ -4503,13 +4547,15 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     });
     const gap = heldCreativeVerdict(cut, unverified);
     expect(gap?.label).toBe("Reduce spend recommendation — verify configuration");
-    expect(gap?.nextStep).toContain("campaign configuration receipts are incomplete");
+    expect(gap?.nextStep).toContain("campaign configuration for every day behind it is not confirmed");
+    expect(gap?.nextStep).toContain("Check the campaign's current setup in Ads Manager");
+    expect(gap?.nextStep).not.toMatch(/\bVerify\b/);
     expect(gap?.nextStep).not.toContain("The cut evidence is complete");
     expect(buyerFacingCreativeScope(cut, unverified)).toContain(
-      "Verify campaign configuration before a manual pause",
+      "Check the campaign's current setup in Ads Manager before a manual pause",
     );
     expect(buyerFacingCreativeResolution({ ...cut, resolution: cut.heldResolution ?? null }, unverified))
-      .toContain("campaign configuration receipts are not fully verified");
+      .toContain("campaign configuration for every day behind it is not confirmed");
 
     const retained = heldCreativeVerdict({ ...cut, lane: "blocked", action: actionFixture({
       code: "review_retained_decision",
@@ -4532,8 +4578,9 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
 
     expect(verdict?.nextStep).toContain("Confirm the commercial target before acting.");
     expect(verdict?.nextStep).toContain(
-      "Verify provider campaign configuration for the evaluation day and every economic day",
+      "The campaign configuration for every day behind it is not confirmed yet.",
     );
+    expect(verdict?.nextStep).toContain("Then review this Refresh creative recommendation again.");
   });
 
   it("leads with the source-backed profile hold and keeps a config gap secondary on the card", () => {
@@ -4567,8 +4614,10 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       workspace: heldWorkspace({ creatives: [held], canonical: [canonical] }),
     });
     const row = model.creativeDecisions?.[0];
-    expect(row?.note).toMatch(/^The account has too few mature creatives for the Scale calibration floor\./);
-    expect(row?.note).toContain("Verify provider campaign configuration for the evaluation day and every economic day");
+    expect(row?.note).toMatch(/^The account does not yet have enough mature creatives for the Scale calibration floor\./);
+    expect(row?.note).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(row?.note).toContain("No action is needed from you");
+    expect(row?.note).not.toMatch(/\b(Verify|Restore|Wait for)\b/);
     expect(row?.heldVerdictNextStep).toBe(row?.note);
     expect(JSON.stringify(row)).not.toContain("Internal producer");
   });
@@ -4597,12 +4646,13 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       },
     });
     expect(heldCreativeVerdict(firstBlocker("profile_hard_action_ineligible"), canonical)?.nextStep).toMatch(
-      /^The decision profile does not yet authorize this change\./,
+      /^The account's decision profile does not yet authorize this change\./,
     );
     const roleStep = heldCreativeVerdict(firstBlocker("campaign_context"), canonical)?.nextStep;
-    expect(roleStep).toMatch(/^The campaign role is still unresolved\./);
-    expect(roleStep).toContain("Verify provider campaign configuration");
-    expect(roleStep).not.toContain("Campaign context must also be verified");
+    expect(roleStep).toMatch(/^The campaign role is still being verified automatically\./);
+    expect(roleStep).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    // Stated once, not once as the primary reason and again as a prerequisite.
+    expect(roleStep?.split("The campaign role is still being verified automatically.").length).toBe(2);
   });
 
   it("names a missing winner benchmark only for the producer's native-metrics hold", () => {
@@ -4627,7 +4677,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
         nextStep: "Internal producer copy",
       },
     });
-    expect(heldCreativeVerdict(held)?.nextStep).toMatch(/^The account winner purchase benchmark is missing\./);
+    expect(heldCreativeVerdict(held)?.nextStep).toMatch(/^The account winner purchase benchmark is missing until enough winning ads accrue\./);
   });
 
   it("does not infer a specific held reason from a legacy display label", () => {
@@ -4653,7 +4703,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       },
     });
     const step = heldCreativeVerdict(held)?.nextStep;
-    expect(step).toContain("Complete the missing evidence before applying this change.");
+    expect(step).toContain("The evidence this change needs is still being completed.");
     expect(step).not.toContain("winner purchase benchmark");
   });
 
@@ -4693,9 +4743,11 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       }),
     });
     const row = model.creativeDecisions?.[0];
-    expect(row?.note).toContain("evaluation day and every economic day");
-    expect(row?.note).toContain("fresh, completed Meta source data");
-    expect(row?.note).toContain("required consecutive decision confirmation");
+    expect(row?.note).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(row?.note).toContain("Fresh, completed Meta source data is still arriving.");
+    expect(row?.note).toContain("The next decision run still has to confirm it.");
+    expect(row?.note).toContain("No action is needed from you");
+    expect(row?.note).not.toMatch(/\b(Verify|Restore)\b/);
     expect(row?.note).not.toContain("Pause this ad");
     expect(row?.note).not.toContain("Internal producer copy");
     expect(row?.actionLabel).not.toBe("Reduce spend");
@@ -4719,7 +4771,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
         },
         canonical,
       )?.nextStep,
-    ).toContain("Campaign context must also be verified");
+    ).toContain("The campaign role is still being verified automatically.");
   });
 
   it("keeps a role-first Cut with a later D101 gap in evidence-repair copy", () => {
@@ -4749,8 +4801,10 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       },
     });
     const verdict = heldCreativeVerdict(held);
-    expect(verdict?.nextStep).toContain("Restore fresh, completed Meta source data");
-    expect(verdict?.nextStep).toContain("Campaign context must also be verified");
+    expect(verdict?.nextStep).toContain("Decision data for this ad is waiting for the next Meta sync.");
+    expect(verdict?.nextStep).toContain("Fresh, completed Meta source data is still arriving.");
+    expect(verdict?.nextStep).toContain("The campaign role is still being verified automatically.");
+    expect(verdict?.nextStep).not.toContain("Refresh decision data");
     expect(verdict?.nextStep).not.toContain("Pause this ad");
   });
 
@@ -4773,9 +4827,10 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     });
     const row = model.creativeDecisions?.[0];
 
-    expect(row?.heldVerdictLabel).toBe("Recommendation awaiting review: Reduce spend");
+    expect(row?.heldVerdictLabel).toBe("Recommendation on hold: Reduce spend");
+    // A system-owned code with no sentence still states a wait, never a chore.
     expect(row?.note).toBe(
-      "Confirm the missing information, then review this Reduce spend recommendation again.",
+      "The evidence this decision needs is still being completed. No action is needed from you; this Reduce spend recommendation is re-checked on each decision run.",
     );
     expect(JSON.stringify(row)).not.toContain(
       "a_code_this_surface_has_no_sentence_for",
@@ -4946,9 +5001,9 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       }),
     );
 
-    expect(inspector?.heldVerdictLabel).toBe("Recommendation awaiting review: Reduce spend");
+    expect(inspector?.heldVerdictLabel).toBe("Recommendation on hold: Reduce spend");
     expect(inspector?.heldVerdictNextStep).toBe(
-      "Confirm the missing information, then review this Reduce spend recommendation again.",
+      "The evidence this decision needs is still being completed. No action is needed from you; this Reduce spend recommendation is re-checked on each decision run.",
     );
     expect(JSON.stringify(inspector)).not.toContain(
       "a_code_this_surface_has_no_sentence_for",
@@ -5237,8 +5292,8 @@ describe("the refresh posture tile separates authorized from held", () => {
 
 describe("the native economics caption claims no window it cannot substantiate", () => {
   /*
-    D098 metrics can cover fewer than 28 days, and the served row carries no
-    admitted-window dates. The captions must not claim a fixed period.
+    D107 metrics can cover fewer than 28 days. If an older served row carries
+    no admitted-window dates, the captions must not claim a fixed period.
   */
   const inspectorFor = (metrics: Partial<MetaCanonicalDecision["metrics"]>) => {
     const creative = creativeFixture({ blockers: [] });
@@ -5279,4 +5334,145 @@ describe("the native economics caption claims no window it cannot substantiate",
     }
   });
 
+  it("shows the admitted Ad period instead of the page's reporting filter", () => {
+    const creative = creativeFixture({
+      decisionWindow: {
+        contractVersion: "meta-decision-admitted-window.presentation.v1",
+        startDate: "2026-08-10",
+        endDate: "2026-08-16",
+        calendarDaySpan: 7,
+        observedDayCount: 5,
+        economicDayCount: 4,
+        bridgedUnresolvedDayCount: 1,
+      },
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ os: fullOs({ creatives: [creative] }) }),
+      selection: {
+        kind: "creative",
+        decisionId: creative.decisionId,
+        sourceSnapshotId: creative.sourceSnapshotId,
+      },
+    });
+    // The card consumes only these four fields. Keep the raw observation count
+    // and protocol version out of its view model and visible surface.
+    expect(model.creativeDecisions?.[0]?.moneyWindow).toEqual({
+      startDate: "2026-08-10",
+      endDate: "2026-08-16",
+      economicDayCount: 4,
+      calendarDaySpan: 7,
+    });
+    expect(model.inspector?.evidenceWindow).toBe("2026-08-10 to 2026-08-16");
+    expect(model.inspector?.asOf).toBe(creative.snapshotAsOf);
+    expect(model.inspector?.evidence?.find((row) => row.id === "economic-days")?.value).toBe(4);
+    expect(model.inspector?.evidence?.find((row) => row.id === "bridged-context-days")?.value).toBe(1);
+
+    const legacy = creativeFixture({ decisionWindow: null });
+    const legacyModel = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ os: fullOs({ creatives: [legacy] }) }),
+      selection: {
+        kind: "creative",
+        decisionId: legacy.decisionId,
+        sourceSnapshotId: legacy.sourceSnapshotId,
+      },
+    });
+    expect(legacyModel.inspector?.evidenceWindow).toBe("—");
+  });
+
+});
+
+/**
+ * The creative lane tabs and the Creatives pill read the server's PRE-CAP lane
+ * totals, counted by the same lane function that places each row. A capped
+ * page (60 of 80) must not shrink the tabs, and an uncounted source is an em
+ * dash, never a zero.
+ */
+describe("creative lane counts come from the pre-cap lane population", () => {
+  function servedTwoOf(total: { act: number; blocked: number; monitor: number }) {
+    const workspace = workspaceFixture({
+      os: fullOs({
+        creatives: [
+          creativeFixture({ id: "os_ad_a", decisionId: "d_a", lane: "blocked" }),
+          creativeFixture({ id: "os_ad_b", decisionId: "d_b", lane: "blocked" }),
+        ],
+      }),
+    });
+    workspace.os.ads.actCount = 0;
+    workspace.os.ads.blockedCount = 2;
+    workspace.os.ads.monitorCount = 0;
+    workspace.os.ads.statePreCapCounts = total;
+    workspace.os.ads.eligiblePreCapCount = total.act + total.blocked + total.monitor;
+    return workspace;
+  }
+
+  it("counts every pre-cap decision in the tabs and the pill, not only the served page", () => {
+    const view = buildMetaDecisionCenterExactViewModel({
+      workspace: servedTwoOf({ act: 1, blocked: 80, monitor: 12 }),
+    });
+    expect(view.operatorSummary?.scopeCounts?.creatives).toEqual({
+      action: 1,
+      needsResolution: 80,
+      watching: 12,
+    });
+    expect(view.counts?.creatives).toBe(93);
+    expect(view.operatorSummary?.creatives).toBe(93);
+    // The served-page counts (0 · 2 · 0) are not what the tabs say.
+    expect(view.operatorSummary?.scopeCounts?.creatives?.needsResolution).not.toBe(2);
+  });
+
+  it("shows an uncounted source as an em dash in every creative count, never zero", () => {
+    const workspace = servedTwoOf({ act: 0, blocked: 0, monitor: 0 });
+    workspace.os.ads.statePreCapCounts = null;
+    workspace.os.ads.eligiblePreCapCount = null;
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.operatorSummary?.scopeCounts?.creatives).toEqual({
+      action: "—",
+      needsResolution: "—",
+      watching: "—",
+    });
+    expect(view.counts?.creatives).toBe("—");
+    expect(view.operatorSummary?.creatives).toBe("—");
+  });
+
+  it("keeps a verified-empty source at real zeros with no notice", () => {
+    const workspace = workspaceFixture({ os: fullOs({ creatives: [] }) });
+    workspace.os.ads.statePreCapCounts = { act: 0, blocked: 0, monitor: 0 };
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.operatorSummary?.scopeCounts?.creatives).toEqual({
+      action: 0,
+      needsResolution: 0,
+      watching: 0,
+    });
+    expect(view.counts?.creatives).toBe(0);
+    expect(view.creativesNotice).toBeNull();
+  });
+
+  it("names the retained run and the failed run when a degraded source still serves rows", () => {
+    const workspace = servedTwoOf({ act: 0, blocked: 2, monitor: 0 });
+    (workspace.decisionReadModel.source as Record<string, unknown>).degraded = {
+      reason: META_DECISION_SOURCE_DEGRADED_REASON,
+      servedGeneration: { jobRunId: "run_old", asOfDate: "2026-09-21" },
+      latestTerminalRun: { jobRunId: "run_new", status: "failed", asOfDate: "2026-09-23" },
+    };
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.creativesNotice).toBe(
+      "Showing decisions from the 2026-09-21 run because the latest decision run (2026-09-23) did not complete. They are review-only until a current run succeeds.",
+    );
+  });
+
+  it("says the active-ad list is unverified instead of printing a pending count", () => {
+    const workspace = servedTwoOf({ act: 0, blocked: 2, monitor: 0 });
+    workspace.os.limitations = [
+      {
+        code: "active_ad_inventory_unverified",
+        message: "The active ad list could not be fully read.",
+      },
+    ];
+    delete (workspace.os.ads as { pendingInventoryCount?: number }).pendingInventoryCount;
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.creativesNotice).toBe(
+      "The active ad list could not be fully read, so ads still waiting for a decision may not be listed here.",
+    );
+    expect(view.creativesNotice).not.toMatch(/\b0 active ads\b/);
+  });
 });

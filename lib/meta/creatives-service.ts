@@ -666,6 +666,7 @@ export async function buildCreativesResponse(
           videoSourceMap,
           {
             enabled: debugPreview || debugThumbnail,
+            completeActionsRequest: strictSourceCompleteness,
             fetchSource: "insights+adMap+enrichment",
             hasRawAd: Boolean(rawAd),
             rawAdId: rawAd?.id ?? null,

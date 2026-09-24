@@ -173,6 +173,9 @@ that floor is met inside the expanded economic strip, missing/thin recent
 evidence must preserve the repaired pre-authority Cut and hold it with
 `recent_recovery_unverifiable`; only confirmed recent recovery may restore the
 canonical non-Cut profile.
+- Below that trusted floor, a lower thin-cell Cut signal is diagnostic Test More,
+  not a pending Cut. Its reason names the trusted spend floor; the row carries
+  no `cut_candidate` or `blocked_action_type: cut`. This changes no hard floor.
 - A physical-account AOV proof must bind one business/account/currency and its
   target-authority hash. Malformed canonical metrics, fractional conversions,
   purchase/revenue contradictions, currency mismatch, conflicting duplicate
@@ -1228,6 +1231,13 @@ payload text. Creative-grain decision readers read only the stamped
 `metric_evidence`. Thumbstop and video rates are NULL until a verified provider
 contract exists.
 
+For creative purchase counts (D109), a complete requested Graph actions row
+may encode a measured zero by omitting `actions`; this needs a completed source
+receipt and a scalar match with the finalized Ad day. A partial, malformed or
+unproven row is unknown. Purchase windows use the same complete-or-NULL rule;
+unstamped historical creative zeroes cannot enter calibration or authorize a
+purchase action, and their decision output purchase metric is NULL.
+
 ## A config verdict names its receipt (D099)
 
 A native ad decision's config authority binds the SELECTED receipt per field
@@ -1266,3 +1276,16 @@ recent spend only when the run covers the whole recent band or the ad's last
 spend day, read over every finalized row, precedes that band. No day-count threshold
 exists, and a short window after an observed change is a valid decision
 window.
+
+## Provider-zero and unknown action evidence (D108)
+
+An omitted `actions` key is measured zero only when the exact ad-day payload
+belongs to a successful bulk Graph request that asked for actions, its
+same-run raw observation precedes the exact published slice's manifest
+completion, and that source chain published by the evaluation cutoff.
+An explicit malformed key, detached payload or incomplete source remains
+unknown. Purchase aliases are never summed. Every decision-bearing unknown
+purchase day blocks a hard purchase-dependent Ad action and leaves only a
+clearly labelled diagnostic; it does not make unrelated Ads or the whole
+account unknown. The complete source receipt can also supply zero link-click
+and funnel stages without inventing clicks from the delivery `clicks` scalar.

@@ -32,7 +32,7 @@ function evaluationFixture() {
     providerAccountRefId: "r", providerAccountId: "act",
     accountTimezone: "UTC", accountCurrency: "USD", adsetId: "adset-1",
     optimizationGoal: "OFFSITE_CONVERSIONS", customEventType: "PURCHASE",
-    metricEvidence: { sourceRowCount: 28, performanceMetricsObserved: true, eventMetricsObserved: false },
+    metricEvidence: { sourceRowCount: 28, performanceMetricsObserved: true, eventMetricsObserved: false, purchaseUnverifiedEconomicDays: 0 },
     configAuthority: EMPTY_HYDRATED_CONFIG_AUTHORITY,
     statusEvidence: { source: "missing", sourceRecordId: null, observedAt: null, capturedAt: null },
     creativeEvidence: {

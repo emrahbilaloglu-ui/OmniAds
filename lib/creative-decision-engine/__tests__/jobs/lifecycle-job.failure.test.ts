@@ -9,7 +9,10 @@ vi.mock("@/lib/db", () => ({
   runDbTransaction: vi.fn((callback: () => Promise<unknown>) => callback()),
 }));
 
-import { runLifecycleJob } from "../../jobs/lifecycle-job";
+import {
+  LIFECYCLE_MATERIALIZATION_VERSION,
+  runLifecycleJob,
+} from "../../jobs/lifecycle-job";
 
 describe("lifecycle job failure handling", () => {
   beforeEach(() => {
@@ -115,5 +118,43 @@ describe("lifecycle job failure handling", () => {
     const lock = statements.findIndex((text) => text.includes("pg_try_advisory_xact_lock"));
     expect(jitOff).toBeGreaterThanOrEqual(0);
     expect(jitOff).toBeLessThan(lock);
+  });
+
+  it("records an empty admitted population as held without aborting native decisions", async () => {
+    const jobRunId = "22222222-2222-4222-8222-222222222223";
+    dbMocks.query.mockImplementation(async (queryText: string) => {
+      if (queryText.includes("FROM businesses")) return [{ exists: true }];
+      if (queryText.includes("business_engine_v3_flags")) return [];
+      if (queryText.includes("pg_try_advisory_xact_lock")) return [{ acquired: true }];
+      if (queryText.includes("INSERT INTO engine_v3_job_runs")) return [{ id: jobRunId }];
+      return [];
+    });
+
+    const result = await runLifecycleJob({
+      businessId: "00000000-0000-4000-8000-000000000499",
+      asOf: "2026-05-04",
+      evaluationCutoffAt: new Date().toISOString(),
+    });
+
+    expect(result).toMatchObject({
+      jobRunId,
+      status: "success",
+      rowsWritten: 0,
+      materializationStatus: "held_no_admissible_rows",
+      reason: "no_admissible_creative_lifecycle_rows",
+    });
+    const successUpdate = dbMocks.query.mock.calls.find(
+      ([queryText]) => typeof queryText === "string" &&
+        queryText.includes("UPDATE engine_v3_job_runs") &&
+        queryText.includes("status = 'success'"),
+    );
+    expect(successUpdate).toBeTruthy();
+    const metadata = JSON.parse(String(successUpdate?.[1]?.[5]));
+    expect(metadata.metadata.lifecycle_materialization).toEqual({
+      contract_version: LIFECYCLE_MATERIALIZATION_VERSION,
+      status: "held_no_admissible_rows",
+      lookback_days: 90,
+      rows_written: 0,
+    });
   });
 });

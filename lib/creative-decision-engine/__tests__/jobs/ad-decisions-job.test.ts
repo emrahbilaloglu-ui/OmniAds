@@ -360,6 +360,7 @@ function adInput(input: {
       sourceRowCount: input.metricsObserved === false ? 0 : 28,
       performanceMetricsObserved: input.metricsObserved !== false,
       eventMetricsObserved: input.metricsObserved !== false,
+      purchaseUnverifiedEconomicDays: 0,
       sourceCoverage: {
         contractVersion:
           META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
@@ -2320,7 +2321,7 @@ describe("hard-authority source gates at the emission boundary", () => {
     );
   });
 
-  it("retains the first role blocker and exposes a later D101 failure on a held Cut", () => {
+  it("reports source coverage first when a role-held Cut has a D101 failure", () => {
     const payload = cutPayload(
       observedConfigAuthority(),
       (input) => ({
@@ -2343,7 +2344,7 @@ describe("hard-authority source gates at the emission boundary", () => {
         },
       }),
     );
-    expect(payload.authority_blocker).toBe("campaign_context");
+    expect(payload.authority_blocker).toBe("source_freshness");
     expect(payload.blocked_action_type).toBe("cut");
     expect(payload.authorized_action).toBeNull();
     expect(payload.badges).toEqual(
@@ -2352,6 +2353,81 @@ describe("hard-authority source gates at the emission boundary", () => {
       ]),
     );
     expect(payload.reason).toContain("Verified daily source coverage");
+  });
+
+  it("reports unverified economic days before campaign-role uncertainty", () => {
+    const observed = observedConfigAuthority(AS_OF);
+    const payload = cutPayload(
+      {
+        ...observed,
+        decisionEconomics: {
+          fullyVerified: false,
+          economicDayCount: 7,
+          unverifiedEconomicDayCount: 6,
+          receiptManifest: null,
+        },
+      },
+      (input) => input,
+      (computation) => ({
+        ...computation,
+        decision: {
+          ...computation.decision,
+          label: "cut",
+          authorityBlocker: "campaign_context",
+          blockedActionType: "cut",
+        },
+      }),
+    );
+    expect(payload.authority_blocker).toBe("config_source_authority");
+    expect(payload.blocked_action_type).toBe("cut");
+    expect(payload.authorized_action).toBeNull();
+    expect(payload.reason).toContain("6 unverified economic day(s)");
+  });
+
+  it("keeps campaign context as the blocker when source and config are proven", () => {
+    const payload = cutPayload(
+      observedConfigAuthority(),
+      (input) => input,
+      (computation) => ({
+        ...computation,
+        decision: {
+          ...computation.decision,
+          label: "cut",
+          authorityBlocker: "campaign_context",
+          blockedActionType: "cut",
+        },
+      }),
+    );
+    expect(payload.authority_blocker).toBe("campaign_context");
+    expect(payload.blocked_action_type).toBe("cut");
+    expect(payload.authorized_action).toBeNull();
+  });
+
+  it("reports missing purchase observation before campaign-role uncertainty", () => {
+    const payload = cutPayload(
+      observedConfigAuthority(),
+      (input) => ({
+        ...input,
+        metricEvidence: {
+          ...input.metricEvidence,
+          purchaseUnverifiedEconomicDays: 1,
+        },
+      }),
+      (computation) => ({
+        ...computation,
+        decision: {
+          ...computation.decision,
+          label: "cut",
+          authorityBlocker: "campaign_context",
+          blockedActionType: "cut",
+        },
+      }),
+    );
+    expect(payload.authority_blocker).toBe("native_metrics_unavailable");
+    expect(payload.blocked_action_type).toBe("cut");
+    expect(payload.authorized_action).toBeNull();
+    expect(payload.purchases).toBeNull();
+    expect(payload.roas).toBeNull();
   });
 
   it("NEGATIVE: refuses to authorize a Cut on a configuration no receipt named", () => {
@@ -2407,6 +2483,26 @@ describe("hard-authority source gates at the emission boundary", () => {
     expect(blocked.label).toBe(payload.label);
     expect(blocked.confidence).toBe(payload.confidence);
     expect(blocked.authority_blocker).toBe("config_source_authority");
+  });
+
+  it("holds only the Ad whose economic window has unreadable purchase evidence", () => {
+    const complete = cutPayload(observedConfigAuthority(AS_OF));
+    const unreadable = cutPayload(observedConfigAuthority(AS_OF), (value) => ({
+      ...value,
+      metricEvidence: {
+        ...value.metricEvidence,
+        purchaseUnverifiedEconomicDays: 1,
+      },
+    }));
+    expect(complete.raw_label).toBe("cut");
+    expect(complete.authority_blocker).toBeNull();
+    expect(unreadable.raw_label).toBe("cut");
+    expect(unreadable.authorized_action).toBeNull();
+    expect(unreadable.authority_blocker).toBe("native_metrics_unavailable");
+    expect(unreadable.blocked_action_type).toBe("cut");
+    expect(unreadable.purchases).toBeNull();
+    expect(unreadable.roas).toBeNull();
+    expect(unreadable.reason).toContain("Stored-value model signal (unverified)");
   });
 
   /*

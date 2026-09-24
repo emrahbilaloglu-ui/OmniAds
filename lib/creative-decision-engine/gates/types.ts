@@ -12,7 +12,7 @@ import {
   type TruthSource,
 } from "../types";
 import { computeFunnelDiagnosis } from "../funnel";
-import { recentPeriodLabel } from "./reason-format";
+import { cumulativePeriodLabel, recentPeriodLabel } from "./reason-format";
 import { applyTestCohortRefreshOverride } from "../test-cohort-semantic";
 import {
   HARD_ACTION_HOLD_CONFIDENCE_CAP,
@@ -32,6 +32,8 @@ export interface GateContext {
   confidenceDeltas: number[];
   blockers: DecisionPredicateBlocker[];
   generatedAt: string;
+  /** A trusted Cut-only AOV floor rejected the thin-cell's lower advisory floor. */
+  cutOnlyAccountAovFloorNotMet?: number;
 }
 
 export type GateResult =
@@ -466,9 +468,12 @@ export function buildDecisionOutput(
     ...(blockers.length > 0 ? { blockers } : {}),
     metrics: {
       spend: ctx.input.spend,
-      purchases: ctx.input.purchases,
-      roas: ctx.input.roas,
-      recent7dRoas: ctx.input.recent7dRoas,
+      purchases: ctx.input.purchaseEvidenceStatus === "unverified"
+        ? null : ctx.input.purchases,
+      roas: ctx.input.purchaseEvidenceStatus === "unverified"
+        ? null : ctx.input.roas,
+      recent7dRoas: ctx.input.purchaseEvidenceStatus === "unverified"
+        ? null : ctx.input.recent7dRoas,
     },
     preAuthorityLabel: output.preAuthorityLabel ?? output.label,
     authorityBlocker: output.authorityBlocker ?? null,
@@ -490,6 +495,19 @@ export function finalizeDecision(
     label,
     reason,
   });
+  if (
+    transformed.label === "cut" &&
+    ctx.cutOnlyAccountAovFloorNotMet !== undefined
+  ) {
+    const currency = ctx.input.accountCurrency?.trim().toUpperCase();
+    const amount = (value: number) =>
+      `${currency && /^[A-Z]{3}$/.test(currency) ? currency : "account-currency"} ${value.toFixed(2)}`;
+    return finalizeDecision(
+      { ...ctx, cutOnlyAccountAovFloorNotMet: undefined },
+      "test_more",
+      `[Cut threshold not met] ${amount(ctx.input.spend)} spent (${cumulativePeriodLabel(ctx.input)}) is below the verified ${amount(ctx.cutOnlyAccountAovFloorNotMet)} Cut spend floor; continue testing. ROAS ${ctx.input.roas?.toFixed(2) ?? "unavailable"} is diagnostic at this depth.`,
+    );
+  }
   const softOnly = applySoftOnlyLabel({
     label: transformed.label,
     reason: transformed.reason,

@@ -125,7 +125,7 @@ function pendingToken(
 
 /**
  * Ad-grain evidence the decisions workspace contract does not carry. The
- * caller reads it from `/api/meta/creatives` (which keeps its own business
+ * caller reads it from `/api/meta/ads/funnel` (which keeps its own business
  * authorization) and narrows it to this shape so the adapter stays pure.
  */
 export interface CreativeEvidenceWindowExactAdRow {
@@ -139,9 +139,13 @@ export interface CreativeEvidenceWindowExactAdRow {
   linkClicks: number | null;
   /** True only when every contributing ad day supplied link clicks. */
   linkClicksObserved?: boolean;
+  landingPageViews?: number | null;
+  landingPageViewsObserved?: boolean;
   addToCart: number | null;
   /** True only when every contributing ad day supplied add-to-cart actions. */
   addToCartObserved?: boolean;
+  initiateCheckout?: number | null;
+  initiateCheckoutObserved?: boolean;
   purchases: number | null;
   /** True only when every contributing ad day supplied purchases. */
   purchasesObserved?: boolean;
@@ -183,7 +187,7 @@ export interface CreativeEvidenceWindowExactAdapterInput {
   decision?: MetaOsAdDecision | null;
   /** Canonical decision — carries media, confidence band, provenance, blockers. */
   canonical?: MetaCanonicalDecision | null;
-  /** Ad-grain rows for this creative. Undefined means the read has not resolved. */
+  /** Selected-period rows for this exact Ad. Undefined means the read has not resolved. */
   adRows?: readonly CreativeEvidenceWindowExactAdRow[];
   /** Daily CTR / frequency trail. Undefined means the read has not resolved. */
   adSeries?: CreativeEvidenceWindowExactSeriesPayload | null;
@@ -218,6 +222,8 @@ export interface CreativeEvidenceWindowExactAdapterInput {
    * rather than leaving it to a banner that only appears on an empty queue.
    */
   source?: MetaDecisionsWorkspaceReadModel["source"] | null;
+  /** Account-scoped media recovery URL, constructed by the page from verified identity. */
+  previewRecoveryUrl?: string | null;
   /**
    * Whether the SERVER's own handoff law grants this decision a Launchpad
    * route, and the sentence it refuses with when it does not.
@@ -275,7 +281,9 @@ const FUNNEL_SLOTS = [
   // "Link clicks" is the exact name of the served metric; the design's
   // shorter "Clicks" would overstate what Meta reports here.
   { id: "link-clicks", label: "Link clicks" },
+  { id: "landing-page-views", label: "Landing page views" },
   { id: "add-to-cart", label: "Add to cart" },
+  { id: "initiate-checkout", label: "Checkout initiated" },
   { id: "purchases", label: "Purchases" },
 ] as const;
 
@@ -649,8 +657,13 @@ function buildAdSets(input: {
   >();
   for (const row of input.rows ?? []) {
     const key = nonBlank(row.adsetId) ?? nonBlank(row.adsetName) ?? row.id;
+    const servedName = row.adsetId && row.adsetId === input.decision?.adsetId
+      ? nonBlank(input.decision.adsetName)
+      : row.adsetId && row.adsetId === input.canonical?.parentChain.adset?.id
+        ? nonBlank(input.canonical.parentChain.adset.name)
+        : null;
     const current = grouped.get(key) ?? {
-      label: nonBlank(row.adsetName),
+      label: nonBlank(row.adsetName) ?? servedName,
       spend: null,
       revenue: null,
     };
@@ -661,7 +674,7 @@ function buildAdSets(input: {
         ? spend * (finite(row.roas) as number)
         : null);
     grouped.set(key, {
-      label: current.label ?? nonBlank(row.adsetName),
+      label: current.label ?? nonBlank(row.adsetName) ?? servedName,
       spend: spend === null ? current.spend : (current.spend ?? 0) + spend,
       revenue:
         revenue === null ? current.revenue : (current.revenue ?? 0) + revenue,
@@ -717,7 +730,7 @@ function buildAdSets(input: {
           : null;
       return {
         id,
-        label: value.label ?? EM_DASH,
+        label: value.label ?? (id ? `Ad set ${id}` : EM_DASH),
         spend: formatEvidenceMoney(value.spend, input.currency),
         roas: formatRoas(roas),
         roasTone: roasTone(roas, input.target),
@@ -730,43 +743,53 @@ function buildAdSets(input: {
 
 function buildFunnel(input: {
   rows: readonly CreativeEvidenceWindowExactAdRow[] | undefined;
-  decision: MetaOsAdDecision | null;
-  canonical: MetaCanonicalDecision | null;
-  decisionPerformanceMissing: boolean;
   unresolved: string | null;
 }): CreativeEvidenceWindowExactFunnelStep[] {
   const rows = input.rows ?? [];
-  const impressions = sumRows(rows, (row) => row.impressions);
+  const impressions = sumObservedRows(
+    rows,
+    (row) => row.impressions,
+    (row) => row.impressions !== null,
+  );
   const linkClicks = sumObservedRows(
     rows,
     (row) => row.linkClicks,
     (row) => row.linkClicksObserved,
+  );
+  const landingPageViews = sumObservedRows(
+    rows,
+    (row) => row.landingPageViews ?? null,
+    (row) => row.landingPageViewsObserved,
   );
   const addToCart = sumObservedRows(
     rows,
     (row) => row.addToCart,
     (row) => row.addToCartObserved,
   );
-  const purchases =
-    rows.length > 0
-      ? sumObservedRows(
-          rows,
-          (row) => row.purchases,
-          (row) => row.purchasesObserved,
-        )
-      : input.decisionPerformanceMissing
-        ? null
-        : finite(
-            input.decision?.metrics.purchases ?? input.canonical?.metrics.purchases,
-          );
-  const values = [impressions, linkClicks, addToCart, purchases];
+  const initiateCheckout = sumObservedRows(
+    rows,
+    (row) => row.initiateCheckout ?? null,
+    (row) => row.initiateCheckoutObserved,
+  );
+  // Never borrow purchases from the decision's separate admitted window.
+  const purchases = sumObservedRows(
+    rows,
+    (row) => row.purchases,
+    (row) => row.purchasesObserved,
+  );
+  const values = [
+    impressions, linkClicks, landingPageViews, addToCart, initiateCheckout,
+    purchases,
+  ];
   const subs = [
     "",
     formatPercent(ratioPercent(linkClicks, impressions), 2),
-    formatPercent(ratioPercent(addToCart, linkClicks), 1),
-    formatPercent(ratioPercent(purchases, linkClicks), 1),
+    formatPercent(ratioPercent(landingPageViews, linkClicks), 1),
+    formatPercent(ratioPercent(addToCart, landingPageViews), 1),
+    formatPercent(ratioPercent(initiateCheckout, addToCart), 1),
+    formatPercent(ratioPercent(purchases, initiateCheckout), 1),
   ];
-  const prefixes = ["", "CTR ", "ATC ", "CVR "];
+  const prefixes = ["", "CTR ", "LPV ", "ATC ", "Checkout ", "CVR "];
   // A count the helper read has not delivered prints the read state, not the
   // same em-dash a genuinely unserved count prints.
   const unread = (rendered: string) =>
@@ -2104,6 +2127,12 @@ function readNotice(input: {
   adRowsErrorMessage: string | null | undefined;
   adSeriesErrorMessage: string | null | undefined;
 }): CreativeEvidenceWindowExactReadNotice | null {
+  if (input.adRowsErrorMessage === "incomplete_ad_day_coverage") {
+    return {
+      tone: "warning",
+      text: "The selected dates do not have complete Ad-day coverage. Funnel totals are withheld until that source window is complete.",
+    };
+  }
   if (input.adRowsState === "error" || input.adSeriesState === "error") {
     return {
       tone: "negative",
@@ -2125,7 +2154,17 @@ function readNotice(input: {
   if (input.adRowsState === "loaded" && input.adRows?.length === 0) {
     return {
       tone: "info",
-      text: "No verified ad-day rows were found for this creative in the selected dates. Any purchase count shown below comes from the separate 28-day decision.",
+      text: "No stored Ad-day rows were found for this Ad in the selected dates. The decision's own performance period is separate.",
+    };
+  }
+  if (input.adRowsState === "loaded" && input.adRows?.some((row) =>
+    row.linkClicksObserved !== true || row.landingPageViewsObserved !== true ||
+    row.addToCartObserved !== true || row.initiateCheckoutObserved !== true ||
+    row.purchasesObserved !== true
+  )) {
+    return {
+      tone: "warning",
+      text: "Some selected-period funnel events lack a verified source count. Dashes mark unknown values, not measured zeroes.",
     };
   }
   return null;
@@ -2271,23 +2310,18 @@ export function buildCreativeEvidenceWindowExactViewModel(
   const series = buildSeriesPair(input.adSeries, seriesUnresolved);
   const selectedPeriod = selectedPeriodLabel(input.helperRange);
   const hasAdRows = (input.adRows?.length ?? 0) > 0;
-  const hasDecisionPurchases =
-    !decisionPerformanceMissing &&
-    finite(decision?.metrics.purchases ?? canonical?.metrics.purchases) !== null;
+  const decisionPeriod = decision?.decisionWindow
+    ? `${decision.decisionWindow.startDate}–${decision.decisionWindow.endDate} · ${decision.decisionWindow.economicDayCount}/${decision.decisionWindow.calendarDaySpan} economic days`
+    : "period unavailable";
   const periodLabels: CreativeEvidenceWindowExactPeriodLabels = {
-    // The native Ad snapshot currently records its as-of day but not the
-    // admitted economic start/end dates. D107 may shorten that window, so a
-    // fixed 28d would falsely describe the metric behind this verdict.
-    decision: "period unavailable",
+    decision: decisionPeriod,
     series: selectedPeriod,
     funnel: hasAdRows
-      ? `${selectedPeriod} · all ads using this creative`
-      : hasDecisionPurchases
-        ? "decision period unavailable · purchases only"
-        : selectedPeriod,
+      ? `${selectedPeriod} · this Ad`
+      : selectedPeriod,
     adSets: hasAdRows
-      ? `ROAS per ad set · ${selectedPeriod} · all ads using this creative`
-      : "Ad set context · decision period unavailable metrics when available",
+      ? `ROAS per ad set · ${selectedPeriod} · this Ad`
+      : `Ad set context · decision ${decisionPeriod} metrics when available`,
   };
   const adSets = buildAdSets({
     rows: input.adRows,
@@ -2343,6 +2377,13 @@ export function buildCreativeEvidenceWindowExactViewModel(
     primaryAuthority?.offered ?? input.launchpadRoute?.offered ?? null;
   const primaryAllowed = primaryOffered !== false;
   const onPrimary = primaryAllowed ? input.callbacks?.onPrimary : undefined;
+  const primaryHref = primaryAllowed ? (input.hrefs?.primary ?? null) : null;
+  // A served verdict is text, not a promise that this drawer offers a write
+  // control. Keep a disabled button only when a real route was evaluated and
+  // refused; informational/review-only rows have no primary button.
+  const showPrimaryControl = Boolean(
+    primaryAuthority || input.launchpadRoute || primaryHref || onPrimary,
+  );
 
   return {
     name:
@@ -2373,6 +2414,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
       (canonical?.media.thumbnail.state === "available"
         ? nonBlank(canonical.media.thumbnail.url)
         : null) ?? nonBlank(decision?.thumbnailUrl),
+    previewRecoveryUrl: input.previewRecoveryUrl ?? null,
     stripeA: null,
     stripeB: null,
     kind: buildKind({ canonical, decision, adSetCount: adSets.length }),
@@ -2395,9 +2437,6 @@ export function buildCreativeEvidenceWindowExactViewModel(
     frequency: series.frequency,
     funnel: buildFunnel({
       rows: input.adRows,
-      decision,
-      canonical,
-      decisionPerformanceMissing,
       unresolved: rowsUnresolved,
     }),
     placements: buildPlacements(),
@@ -2440,16 +2479,16 @@ export function buildCreativeEvidenceWindowExactViewModel(
       source: input.source ?? null,
     }),
     provenance: buildProvenance({ canonical, decision }),
-    primaryAction: {
+    primaryAction: showPrimaryControl ? {
       label: actionLabel ?? EM_DASH,
-      href: primaryAllowed ? (input.hrefs?.primary ?? null) : null,
+      href: primaryHref,
       // The tuple travels by reference: no spread, no rebuilt object, no
       // normalised code. Whatever the server put on `decision.action` is what
       // the callback boundary receives.
       onClick:
         servedAction && onPrimary ? () => onPrimary(servedAction) : undefined,
       disabled: !actionLabel || !primaryAllowed,
-    },
+    } : undefined,
     compareAction: {
       label: "Compare in Studio",
       href: input.hrefs?.compareInStudio ?? null,

@@ -1805,7 +1805,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
      */
     expect(result.ads.items).toHaveLength(0);
     expect(result.ads.blockedCount).toBe(0);
-    expect(result.ads.statePreCapCounts.blocked).toBe(0);
+    expect(result.ads.statePreCapCounts?.blocked).toBe(0);
     expect(result.ads.eligiblePreCapCount).toBe(0);
 
     // The PAUSED ad in `currentAds` above is not inventory awaiting a decision,
@@ -2001,7 +2001,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
      * The un-evaluated Ad is counted under its own name instead.
      */
     expect(result.ads.blockedCount).toBe(60);
-    expect(result.ads.statePreCapCounts.blocked).toBe(60);
+    expect(result.ads.statePreCapCounts?.blocked).toBe(60);
     expect(result.ads.pendingInventoryCount).toBe(1);
     expect(
       result.ads.items.some(
@@ -2167,7 +2167,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
-    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v6");
+    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v8");
     /*
       RE-PINNED. This asserted `code: "keep_running", intent: "none"` — the
       published `keep` label's own affirmative soft action, served for a row
@@ -2313,6 +2313,8 @@ function heldCanonicalDecision(input: {
   publishedLabel: string;
   authorityBlocker: MetaDecisionAuthorityBlocker;
   legacyBuyerAction: MetaDecisionBuyerAction;
+  badgeCodes?: readonly string[];
+  configAuthorityVerified?: boolean | null;
   predicateBlockers?: ReadonlyArray<{
     predicate: string;
     observed: string | number | null;
@@ -2328,10 +2330,11 @@ function heldCanonicalDecision(input: {
     legacyBuyerAction: input.legacyBuyerAction,
     sourceLabel: input.publishedLabel,
     lifecycleRole: "main",
-    badgeCodes: [],
+    badgeCodes: input.badgeCodes ?? [],
     blockerCodes: [],
     heldAction: input.heldAction,
     authorityBlocker: input.authorityBlocker,
+    configAuthorityVerified: input.configAuthorityVerified ?? null,
     predicateBlockers: input.predicateBlockers ?? [],
   });
   decision.identityGrain = "ad";
@@ -2339,6 +2342,7 @@ function heldCanonicalDecision(input: {
   decision.sourceDecision.rawLabel = input.publishedLabel;
   decision.sourceDecision.preAuthorityLabel = input.heldAction;
   decision.sourceDecision.authorityBlocker = input.authorityBlocker;
+  decision.sourceDecision.badges = [...(input.badgeCodes ?? [])];
   decision.classification.decisionState = semantics.decisionState;
   decision.classification.heldAction = semantics.heldAction;
   decision.classification.legacyBuyerAction = semantics.legacyBuyerAction;
@@ -2376,6 +2380,74 @@ function nativeReadModel(
 }
 
 describe("held verdicts on the served Ad decision", () => {
+  it("serves the missing historical config before a pending Cut confirmation", () => {
+    const decision = heldCanonicalDecision({
+      id: "config-gap-pending-cut",
+      adId: "120000000000000593",
+      heldAction: "cut",
+      publishedLabel: "keep",
+      authorityBlocker: "config_source_authority",
+      legacyBuyerAction: "protect",
+      badgeCodes: ["pending_transition"],
+      configAuthorityVerified: false,
+    });
+    decision.sourceAuthority!.authorizedAction = null;
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [], watching: [], nonSales: [],
+      decisionReadModel: nativeReadModel([decision]), currency: "EUR",
+    });
+    const item = result.ads.items[0]!;
+    expect(item).toMatchObject({
+      lane: "blocked",
+      heldAction: "cut",
+      action: {
+        code: "complete_hard_action_evidence",
+        intent: "review",
+        providerMutation: null,
+      },
+      heldResolution: { code: "complete_hard_action_evidence" },
+    });
+    expect(item.action.scopeNote).toContain("date-authoritative evidence verifies the missing days");
+    expect(item.action.scopeNote).toContain("consecutive engine confirmation");
+  });
+
+  it("keeps measured spend while naming the typed missing-purchase receipt", () => {
+    const decision = heldCanonicalDecision({
+      id: "purchase-gap-ad",
+      adId: "120000000000000590",
+      heldAction: "cut",
+      publishedLabel: "keep",
+      authorityBlocker: "native_metrics_unavailable",
+      legacyBuyerAction: "test_more",
+      predicateBlockers: [{
+        predicate: "ad_purchase_observation", observed: 1, threshold: 0,
+      }],
+    });
+    decision.sourceDecision.badges = ["purchase_evidence_unverified"];
+    decision.metrics.spend = 250;
+    decision.metrics.purchases = null;
+    decision.metrics.roas = null;
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [], watching: [], nonSales: [],
+      decisionReadModel: nativeReadModel([decision]), currency: "EUR",
+    });
+    const item = result.ads.items[0]!;
+    expect(item).toMatchObject({
+      lane: "blocked",
+      action: { code: "verify_purchase_observation", intent: "review", providerMutation: null },
+      metrics: { spend: 250, purchases: null, roas: null },
+      authorityProvenance: {
+        firstBlocker: {
+          code: "native_metrics_unavailable",
+          label: "Purchase observation is incomplete",
+        },
+      },
+    });
+    expect(item.authorityProvenance?.firstBlocker?.explanation).toContain(
+      "Spend and traffic may be measured",
+    );
+  });
+
   it("serves Ad performance observation state independently of the canonical envelope", () => {
     const unavailable = heldCanonicalDecision({
       id: "unobserved-ad",
@@ -2710,7 +2782,7 @@ describe("held verdicts on the served Ad decision", () => {
     // reads as "not measured", which a reader must not confuse with three
     // measured zeroes or with a measured "no verdict was held".
     expect(serializedBeforeTheseFields.contractVersion).toBe(
-      "meta-os-decisions.presentation.v6",
+      "meta-os-decisions.presentation.v8",
     );
     expect(serializedBeforeTheseFields.ads.heldCounts).toBeUndefined();
     expect(serializedBeforeTheseFields.ads.items[0]!.heldAction).toBeUndefined();

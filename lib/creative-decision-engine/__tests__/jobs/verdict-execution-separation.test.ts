@@ -126,6 +126,7 @@ function adInput(overrides: Partial<AdDecisionInput> = {}): AdDecisionInput {
       sourceRowCount: 28,
       performanceMetricsObserved: true,
       eventMetricsObserved: true,
+      purchaseUnverifiedEconomicDays: 0,
     },
     statusEvidence: {
       source: "entity_state_history",

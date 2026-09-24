@@ -577,6 +577,7 @@ export function numericSign(value: unknown): NumericSign {
 export type LinkClickRowState =
   | "measured_positive"
   | "measured_zero_with_provenance"
+  | "measured_zero_provider_receipt"
   | "missing_actions_absent"
   | "missing_other"
   | "contradiction_zero_without_provenance"
@@ -585,6 +586,7 @@ export type LinkClickRowState =
 export function classifyLinkClickRow(input: {
   authoritativeSign: NumericSign;
   actionsIsArray: boolean;
+  providerZeroVerified?: boolean;
 }): LinkClickRowState {
   switch (input.authoritativeSign) {
     case "positive":
@@ -592,6 +594,8 @@ export function classifyLinkClickRow(input: {
     case "zero":
       return input.actionsIsArray
         ? "measured_zero_with_provenance"
+        : input.providerZeroVerified
+          ? "measured_zero_provider_receipt"
         : "contradiction_zero_without_provenance";
     case "negative":
       return "contradiction_negative";
@@ -607,6 +611,7 @@ export function classifyLinkClickRow(input: {
 export type FunnelStageRowState =
   | "measured_positive"
   | "measured_zero"
+  | "measured_zero_provider_receipt"
   | "missing_actions_absent"
   | "missing_unreadable"
   | "missing_other"
@@ -616,9 +621,12 @@ export function classifyFunnelStageRow(input: {
   state: string | null;
   valueSign: NumericSign;
   actionsIsArray: boolean;
+  providerZeroVerified?: boolean;
 }): FunnelStageRowState {
   if (input.state === "measured") {
-    if (!input.actionsIsArray) return "contradiction_measured_without_actions";
+    if (!input.actionsIsArray) return input.providerZeroVerified && input.valueSign === "zero"
+      ? "measured_zero_provider_receipt"
+      : "contradiction_measured_without_actions";
     if (input.valueSign === "positive") return "measured_positive";
     if (input.valueSign === "zero") return "measured_zero";
     return "missing_other";
@@ -636,16 +644,21 @@ export function classifyFunnelStageRow(input: {
  */
 export type PurchaseRowState =
   | "measured"
+  | "provider_zero_verified"
   | "zero_without_actions_key"
   | "contradiction_positive_without_actions_key";
 
 export function classifyPurchaseRow(input: {
   conversionsSign: NumericSign;
   actionsIsArray: boolean;
+  providerZeroVerified?: boolean;
 }): PurchaseRowState {
   if (input.actionsIsArray) return "measured";
   if (input.conversionsSign === "positive") {
     return "contradiction_positive_without_actions_key";
+  }
+  if (input.providerZeroVerified && input.conversionsSign === "zero") {
+    return "provider_zero_verified";
   }
   return "zero_without_actions_key";
 }
@@ -2861,7 +2874,15 @@ export function evaluateAcceptanceInvariants(report: {
             businessId,
             providerAccountId,
             count: lcAbsent,
-            detail: "finalized ad-days whose payload has no actions key (missing, not zero)",
+            detail: "finalized ad-days whose actions key is absent without a complete published Graph receipt",
+          });
+        }
+        const lcProviderZero = account.linkClicks.measured_zero_provider_receipt ?? 0;
+        if (lcProviderZero > 0) {
+          observations.push({
+            code: "link_clicks_provider_zero_verified", businessId,
+            providerAccountId, count: lcProviderZero,
+            detail: "zero link clicks supported by the complete published Graph ad Insights receipt",
           });
         }
         for (const [stage, states] of Object.entries(account.funnel)) {
@@ -2894,9 +2915,15 @@ export function evaluateAcceptanceInvariants(report: {
             businessId,
             providerAccountId,
             count: zeroWithoutKey,
-            detail: "spend > 0 ad-days whose zero purchases carry no actions key; the decision readers treat them as measured",
+            detail: "spend > 0 ad-days whose zero purchases carry no actions key and no verified complete provider receipt; purchase evidence remains unknown",
           });
         }
+        const providerZero = account.purchasesOnSpendRows.provider_zero_verified ?? 0;
+        if (providerZero > 0) observations.push({
+          code: "purchases_provider_zero_verified", businessId,
+          providerAccountId, count: providerZero,
+          detail: "spend > 0 ad-days with an omitted actions key and a complete published Graph receipt; measured zero",
+        });
         for (const [field, summary] of [
           ["objective", account.objective],
           ["adset_goal", account.adsetGoal],

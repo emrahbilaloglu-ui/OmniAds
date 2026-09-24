@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +10,10 @@ import {
   type CreativeEvidenceWindowExactViewModel,
 } from "./CreativeEvidenceWindowExact";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const CSS = readFileSync(
   join(
@@ -60,11 +63,25 @@ function viewModel(
         share: 0.6,
       },
       {
+        id: "landing-page-views",
+        label: "Landing page views",
+        value: "80",
+        sub: "LPV 80.0%",
+        share: 0.5,
+      },
+      {
         id: "add-to-cart",
         label: "Add to cart",
         value: "10",
         sub: "ATC 10.0%",
         share: 0.3,
+      },
+      {
+        id: "initiate-checkout",
+        label: "Checkout initiated",
+        value: "6",
+        sub: "Checkout 60.0%",
+        share: 0.25,
       },
       {
         id: "purchases",
@@ -179,23 +196,34 @@ describe("CreativeEvidenceWindowExact composition", () => {
     expect(container.querySelectorAll("svg")).toHaveLength(0);
   });
 
-  it("distinguishes a decision-window purchase fallback from selected-period helper metrics", () => {
+  it("keeps unavailable selected-period stages visible beside a measured zero", () => {
     render(
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
         viewModel={viewModel({
+          funnel: [
+            { id: "impressions", label: "Impressions", value: "1,000", share: 1 },
+            { id: "link-clicks", label: "Link clicks", value: "20", share: 0.5 },
+            { id: "landing-page-views", label: "Landing page views", value: "—", share: null },
+            { id: "add-to-cart", label: "Add to cart", value: "—", share: null },
+            { id: "initiate-checkout", label: "Checkout initiated", value: "—", share: null },
+            { id: "purchases", label: "Purchases", value: "0", share: 0 },
+          ],
           periodLabels: {
             decision: "28d",
             series: "selected 2026-09-16–2026-09-22",
-            funnel: "decision 28d · purchases only",
+            funnel: "selected 2026-09-16–2026-09-22 · this Ad",
             adSets: "Ad set context · decision 28d metrics when available",
           },
         })}
       />,
     );
     expect(
-      screen.getByText("Click-to-purchase funnel · decision 28d · purchases only"),
+      screen.getByText("Click-to-purchase funnel · selected 2026-09-16–2026-09-22 · this Ad"),
     ).toBeInTheDocument();
+    expect(screen.getByText("Landing page views")).toBeInTheDocument();
+    expect(screen.getByText("Checkout initiated")).toBeInTheDocument();
+    expect(screen.getByText("0")).toBeInTheDocument();
     expect(
       screen.getByText("Ad set context · decision 28d metrics when available"),
     ).toBeInTheDocument();
@@ -259,6 +287,29 @@ describe("CreativeEvidenceWindowExact composition", () => {
     expect(
       container.querySelector('[data-creative-evidence-preview="served"]'),
     ).not.toBeNull();
+  });
+
+  it("recovers an expired drawer preview through the same account-scoped read as the card", async () => {
+    const recoveryUrl = "/api/meta/creative-thumbnail?creativeId=998877";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ thumbnailUrl: "https://meta.example/fresh-drawer.jpg" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        viewModel={viewModel({
+          previewUrl: "https://meta.example/expired-drawer.jpg",
+          previewRecoveryUrl: recoveryUrl,
+        })}
+      />,
+    );
+    const image = container.querySelector('[data-creative-evidence-preview="served"]');
+    expect(image).not.toBeNull();
+    fireEvent.error(image!);
+    await waitFor(() => expect(image?.getAttribute("src")).toBe("https://meta.example/fresh-drawer.jpg"));
+    expect(fetchMock).toHaveBeenCalledWith(recoveryUrl, { cache: "no-store" });
   });
 
   it("closes on the backdrop, the close glyph and Escape", () => {

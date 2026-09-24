@@ -613,8 +613,12 @@ describe("adset calibration reader wiring", () => {
   it("classifies each ad-day's link clicks with the D095 authority rule, not the raw column", async () => {
     const { text, params } = await readerSql();
     expect(params).toEqual(["biz_1", "2026-05-06"]);
-    expect(text).toContain(buildAdDayAuthoritativeLinkClicksSql({ qualifier: "ad_day" }));
-    expect(text).toContain(buildAdDayLinkClicksMissingSql({ qualifier: "ad_day" }));
+    expect(text).toContain(buildAdDayAuthoritativeLinkClicksSql({
+      qualifier: "ad_day", providerZeroProofSql: "source_receipt.provider_zero_receipt_verified",
+    }));
+    expect(text).toContain(buildAdDayLinkClicksMissingSql({
+      qualifier: "ad_day", providerZeroProofSql: "source_receipt.provider_zero_receipt_verified",
+    }));
     expect(text).not.toMatch(/SUM\((ad_day\.)?link_clicks\)/);
     expect(text).toContain("FROM meta_ad_daily ad_day");
   });

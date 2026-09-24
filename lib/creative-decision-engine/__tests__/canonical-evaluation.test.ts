@@ -351,6 +351,7 @@ describe("buildCanonicalEvaluationProvenance", () => {
         sourceRowCount: 0,
         performanceMetricsObserved: false,
         eventMetricsObserved: false,
+        purchaseUnverifiedEconomicDays: 0,
       },
       statusEvidence: {
         source: "entity_state_history",

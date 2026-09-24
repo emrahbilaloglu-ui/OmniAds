@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type MouseEvent, type ReactNode } from "react";
+import { MetaDecisionCreativeThumbnail } from "@/components/meta/decision-center/MetaDecisionCreativeThumbnail";
 
 import styles from "./CreativeEvidenceWindowExact.module.css";
 
@@ -124,6 +125,8 @@ export interface CreativeEvidenceWindowExactViewModel {
   decisionLabel?: CreativeEvidenceWindowExactDisplayValue;
   decisionTone?: CreativeEvidenceWindowExactTone;
   previewUrl?: string | null;
+  /** Same account-scoped recovery read used by Decisions creative cards. */
+  previewRecoveryUrl?: string | null;
   stripeA?: string | null;
   stripeB?: string | null;
   kind?: CreativeEvidenceWindowExactDisplayValue;
@@ -185,10 +188,12 @@ const TONE_CLASS: Record<CreativeEvidenceWindowExactTone, string> = {
   neutral: styles.toneNeutral,
 };
 
-/** The design's funnel bars step through four blues into the purchase green. */
+/** Six measured-or-unavailable steps from impression to purchase. */
 const FUNNEL_STEP_CLASS = [
   styles.funnelFillA,
   styles.funnelFillB,
+  styles.funnelFillB,
+  styles.funnelFillC,
   styles.funnelFillC,
   styles.funnelFillD,
 ];
@@ -282,12 +287,9 @@ export function CreativeEvidenceWindowExact({
   }, [onClose]);
 
   const reasons = (viewModel.reasons ?? []).filter(meaningful);
-  const funnel = (viewModel.funnel ?? []).filter(
-    (step) =>
-      meaningful(step.label) &&
-      (meaningful(step.value) ||
-        (typeof step.share === "number" && Number.isFinite(step.share))),
-  );
+  // Preserve unavailable stages so a measured purchase zero cannot visually
+  // erase the missing LPV/checkout evidence above it.
+  const funnel = (viewModel.funnel ?? []).filter((step) => meaningful(step.label));
   const placements = (viewModel.placements ?? []).filter(
     (placement) =>
       meaningful(placement.label) &&
@@ -328,6 +330,7 @@ export function CreativeEvidenceWindowExact({
   const stripeA = viewModel.stripeA?.trim() || "#EAF0FF";
   const stripeB = viewModel.stripeB?.trim() || "#F7F9FC";
   const previewUrl = viewModel.previewUrl?.trim() || null;
+  const previewRecoveryUrl = viewModel.previewRecoveryUrl?.trim() || null;
   const showDecisionCard =
     meaningful(viewModel.verdict) ||
     meaningful(viewModel.verdictSub) ||
@@ -416,7 +419,7 @@ export function CreativeEvidenceWindowExact({
               {viewModel.actionNotice.text}
             </p>
           ) : null}
-          {previewUrl ? (
+          {previewUrl || previewRecoveryUrl ? (
             <div className={styles.previewCard}>
               <div
                 className={styles.previewStage}
@@ -424,11 +427,11 @@ export function CreativeEvidenceWindowExact({
                   backgroundImage: `repeating-linear-gradient(135deg,${stripeA},${stripeA} 12px,${stripeB} 12px,${stripeB} 24px)`,
                 }}
               >
-                <img
-                  alt=""
+                <MetaDecisionCreativeThumbnail
                   className={styles.previewImage}
-                  data-creative-evidence-preview="served"
-                  src={previewUrl}
+                  evidencePreview
+                  thumbnailUrl={previewUrl}
+                  recoveryUrl={previewRecoveryUrl}
                 />
               </div>
               <div className={styles.previewFooter}>

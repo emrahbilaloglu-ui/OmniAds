@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION, type RawCreativeRow } from "@/lib/meta/creatives-types";
+import { buildMetaCreativeDayPurchaseEvidence } from "@/lib/meta/creative-day-purchase-evidence";
 
 vi.mock("@/lib/meta/creatives-fetchers", () => ({
   fetchAssignedAccountIds: vi.fn(),
@@ -54,6 +55,7 @@ const warehouse = await import("@/lib/meta/warehouse");
 const {
   getMetaCreativesWarehousePayload,
   hydrateWarehouseCreativeMetrics,
+  buildCanonicalCreativeDayMetrics,
   assessCreativeDayWriterIdentityProof,
   findCreativeDayMembershipGapDays,
   readAdCreativeIdsForDays,
@@ -245,6 +247,26 @@ describe("meta creatives warehouse", () => {
       verified: 0, unverified: 0,
     });
     vi.mocked(cleanup.pruneMetaCreativeMediaOutsideRetention).mockResolvedValue(undefined as never);
+  });
+
+  it("refuses a clean creative purchase stamp when finalized Ad raw actions conflict", () => {
+    const row = buildProjectionRow({
+      id: "member-ad-1", real_ad_id: "member-ad-1",
+      ...verifiedCreativeDayPayload(),
+      purchase_evidence: buildMetaCreativeDayPurchaseEvidence(undefined,
+        { completeActionsRequest: true }),
+    }) as RawCreativeRow;
+    const fact = buildAdFactRow({
+      adId: "member-ad-1", conversions: 0, revenue: 0,
+      payloadJson: { actions: [{ action_type: "purchase", value: "1" }] },
+    });
+
+    const result = buildCanonicalCreativeDayMetrics(row,
+      new Map([["member-ad-1", fact as never]]));
+    expect(result.purchaseEvidence).toMatchObject({
+      state: "incomplete", reason: "source_scalar_conflict",
+    });
+    expect(result.metricPresence.purchases).toBe(false);
   });
 
   it("auto-resolves only a single assigned account", () => {

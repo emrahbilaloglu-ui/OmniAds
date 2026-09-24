@@ -34,6 +34,10 @@ import {
   readMetaCreativeDayMetricEvidence,
   withMetaCreativeDayMetricEvidence,
 } from "@/lib/meta/creative-day-metric-evidence";
+import {
+  readMetaCreativeDayPurchaseEvidence,
+  withMetaCreativeDayPurchaseEvidence,
+} from "@/lib/meta/creative-day-purchase-evidence";
 
 type PerfSummary = {
   total_ms: number;
@@ -645,9 +649,12 @@ export function buildMetaCreativeApiRow(params: {
     be back to guessing whether a stored 0 was measured. A row that carries no
     valid stamp gets none (and reads as unmeasured), never an invented one.
   */
-  const stampedRow = withMetaCreativeDayMetricEvidence(
-    baseRow,
-    readMetaCreativeDayMetricEvidence(row),
+  const stampedRow = withMetaCreativeDayPurchaseEvidence(
+    withMetaCreativeDayMetricEvidence(
+      baseRow,
+      readMetaCreativeDayMetricEvidence(row),
+    ),
+    readMetaCreativeDayPurchaseEvidence(row),
   );
 
   if (!includeDebugFields) {
@@ -817,12 +824,17 @@ export function buildMetaCreativeApiRowLightweight(params: {
     preview_origin: previewOrigin,
   };
 
+  const stampedRow = withMetaCreativeDayPurchaseEvidence(
+    withMetaCreativeDayMetricEvidence(baseRow, readMetaCreativeDayMetricEvidence(row)),
+    readMetaCreativeDayPurchaseEvidence(row),
+  );
+
   if (!includeDebugFields) {
-    return baseRow;
+    return stampedRow;
   }
 
   return {
-    ...baseRow,
+    ...stampedRow,
     debug: row.debug ?? {},
   };
 }

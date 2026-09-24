@@ -42,6 +42,11 @@ import {
   mergeCarriedMetaCreativeDayMetricEvidence,
   withMetaCreativeDayMetricEvidence,
 } from "@/lib/meta/creative-day-metric-evidence";
+import {
+  buildMetaCreativeDayPurchaseEvidence,
+  mergeCarriedMetaCreativeDayPurchaseEvidence,
+  withMetaCreativeDayPurchaseEvidence,
+} from "@/lib/meta/creative-day-purchase-evidence";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 export function r2(n: number) {
@@ -433,6 +438,7 @@ export function toRawRow(
   videoSourceLookup: Map<string, { source: string | null; picture: string | null }>,
   debugContext?: {
     enabled?: boolean;
+    completeActionsRequest?: boolean;
     fetchSource?: string | null;
     hasRawAd?: boolean;
     rawAdId?: string | null;
@@ -459,7 +465,12 @@ export function toRawRow(
     THIS stamp instead, which keeps measured, unmeasurable and unreadable apart
     per stage under the shared alias table and strict value guard.
   */
-  const metricEvidence = buildMetaCreativeDayMetricEvidence(insight);
+  const metricEvidence = buildMetaCreativeDayMetricEvidence(insight, {
+    completeActionsRequest: debugContext?.completeActionsRequest,
+  });
+  const purchaseEvidence = buildMetaCreativeDayPurchaseEvidence(insight.actions, {
+    completeActionsRequest: debugContext?.completeActionsRequest,
+  });
 
   const spend = parseFloat(insight.spend ?? "0") || 0;
   const purchases = Math.round(parsePurchaseCount(insight.actions));
@@ -833,7 +844,9 @@ export function toRawRow(
     video100: video100Rate,
     debug,
   };
-  return withMetaCreativeDayMetricEvidence(rawRow, metricEvidence);
+  return withMetaCreativeDayPurchaseEvidence(
+    withMetaCreativeDayMetricEvidence(rawRow, metricEvidence), purchaseEvidence,
+  );
 }
 
 /**
@@ -1110,6 +1123,7 @@ export function groupRows(
       writer persists and what the decision readers read.
     */
     const groupedMetricEvidence = mergeCarriedMetaCreativeDayMetricEvidence(list);
+    const groupedPurchaseEvidence = mergeCarriedMetaCreativeDayPurchaseEvidence(list);
     const groupedRow: RawCreativeRow = {
       id: stableId,
       creative_id:
@@ -1256,7 +1270,10 @@ export function groupRows(
       frequency: frequencyMeasured,
       },
     };
-    grouped.push(withMetaCreativeDayMetricEvidence(groupedRow, groupedMetricEvidence));
+    grouped.push(withMetaCreativeDayPurchaseEvidence(
+      withMetaCreativeDayMetricEvidence(groupedRow, groupedMetricEvidence),
+      groupedPurchaseEvidence,
+    ));
   }
 
   return grouped;

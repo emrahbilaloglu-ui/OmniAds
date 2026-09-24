@@ -1026,11 +1026,29 @@ describe("native ad operator-response detection", () => {
       actionLogId: "log-legacy-null-lineage",
       idempotencyKey: "idem-legacy-null-lineage",
       verificationLineage: null,
+      sourceEngineVersion: "v3-ad-2026-09-24-provider-zero-receipt-shadow",
     });
 
     // The digest includes sourceEngineVersion. Each producer epoch gets its
     // own digest; prior receipts still hash under their recorded version.
     expect(legacy.receiptHash).toBe(
+      "8a1cc234196b68a6073ee444ae94ff21ea75acecfc895e27f312f8d4f284dc46",
+    );
+    const current = action(target, {
+      receiptId: "receipt-legacy-null-lineage",
+      actionLogId: "log-legacy-null-lineage",
+      idempotencyKey: "idem-legacy-null-lineage",
+      verificationLineage: null,
+    });
+    expect(current.receiptHash).not.toBe(legacy.receiptHash);
+    const configGapEpoch = action(target, {
+      receiptId: "receipt-legacy-null-lineage",
+      actionLogId: "log-legacy-null-lineage",
+      idempotencyKey: "idem-legacy-null-lineage",
+      verificationLineage: null,
+      sourceEngineVersion: "v3-ad-2026-09-24-config-gap-window-shadow",
+    });
+    expect(configGapEpoch.receiptHash).toBe(
       "06d99cd64f0566c300cfe0a924d77a30a623debc310fe3b817cf749856542514",
     );
     const cutRecentOverlayEpoch = action(target, {
@@ -1067,7 +1085,7 @@ describe("native ad operator-response detection", () => {
     const result = detectAdOperatorResponse({
       episode: target,
       cutoff: CUTOFF,
-      actions: [legacy],
+      actions: [current],
       states: [
         activeBaseline(),
         state({

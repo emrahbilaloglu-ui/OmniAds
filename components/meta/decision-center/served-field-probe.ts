@@ -19,6 +19,7 @@ import {
   META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION,
   META_DECISIONS_SECTION_SELECTION_VERSION,
   META_DECISIONS_WORKSPACE_CONTRACT_VERSION,
+  META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION,
   META_DECISION_QUEUE_SECTION_KEYS,
 } from "@/lib/meta/decisions-workspace-contract";
 import type { MetaDecisionsWorkspacePayload } from "@/components/meta/redesign/types";
@@ -112,6 +113,7 @@ const TYPEOF_CONSTANTS: Record<string, string> = {
   META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION,
   META_DECISIONS_SECTION_SELECTION_VERSION,
   META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION,
+  META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION,
   META_DECISION_PIPELINE_HEALTH_CONTRACT_VERSION,
   META_COMMERCIAL_ANCHOR_PANEL_CONTRACT,
   COMMERCIAL_ANCHOR_CONTRACT_VERSION,
@@ -675,6 +677,19 @@ function probeEntityConfiguration(
  * there is nothing under it for the matrix to classify separately.
  */
 function recordOfPrimitiveSpec(type: ts.TypeNode): LeafSpec | null {
+  // `Record<K, number> | null`: null is the "not counted" state; the probe
+  // serves the counted record so every key is observable.
+  if (ts.isUnionTypeNode(type)) {
+    const present = type.types.filter(
+      (member) =>
+        member.kind !== ts.SyntaxKind.NullKeyword &&
+        !(
+          ts.isLiteralTypeNode(member) &&
+          member.literal.kind === ts.SyntaxKind.NullKeyword
+        ),
+    );
+    return present.length === 1 ? recordOfPrimitiveSpec(present[0]!) : null;
+  }
   if (!ts.isTypeReferenceNode(type)) return null;
   if (type.typeName.getText() !== "Record") return null;
   const [keyType, valueType] = type.typeArguments ?? [];

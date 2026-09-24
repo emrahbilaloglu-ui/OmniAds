@@ -76,11 +76,11 @@ import type {
   window rule — an unresolved day no longer ends a run; only an observed
   difference does — and window-true period labels in the reason text.
 */
-/** Zero-purchase Cuts wait for the zero-conversion spend floor (D107). */
-export const ENGINE_VERSION = "v3-2026-09-24-zero-conversion-cut-floor";
+/** D109 creative purchase evidence and D111 proved Cut floor share this epoch. */
+export const ENGINE_VERSION = "v3-2026-09-24-creative-purchase-cut-proof";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-09-24-config-gap-window-shadow";
+  "v3-ad-2026-09-24-cut-proof-floor-story-shadow";
 
 /**
  * Whether a HELD hard verdict stands on its own economics, or whether it needs
@@ -426,6 +426,8 @@ export interface CreativeInput {
    */
   configProvenanceStatus?: "verified" | "unverified";
   sourceCoverageStatus?: "verified" | "incomplete" | "after_cutoff";
+  /** Source-backed creative-day purchase coverage for the decision window. */
+  purchaseEvidenceStatus?: "verified" | "unverified";
   /**
    * Populated by production hydration paths. Optional only for legacy unit
    * fixtures and explicit callers that predate the grain contract.
@@ -589,6 +591,13 @@ export interface AdDecisionMetricEvidence {
    * unknown, not a measured zero.
    */
   eventMetricsObserved: boolean;
+  /**
+   * Economically active Ad days in the admitted window whose stored purchase
+   * count cannot be corroborated by that day's raw actions. The native loader
+   * always supplies this; absence in a current producer is unsafe for a hard
+   * purchase decision. Zero means every such day measured its purchase count.
+   */
+  purchaseUnverifiedEconomicDays: number;
   /**
    * Exact business/account/ad_daily publication coverage. Optional only for
    * legacy fixtures and persisted inputs written before this contract.
@@ -908,6 +917,7 @@ export interface DecisionBadge {
     | "campaign_context_conflict"
     | "native_calibration_unavailable"
     | "ad_metrics_unavailable"
+    | "purchase_evidence_unverified"
     | "source_coverage_unverified"
     | "pending_transition"
     | "stale_hard_ceiling_advisory"
@@ -977,6 +987,10 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
   ad_metrics_unavailable: {
     label: "Ad performance data unavailable",
+    severity: "warning",
+  },
+  purchase_evidence_unverified: {
+    label: "Purchase observation incomplete",
     severity: "warning",
   },
   source_coverage_unverified: {
@@ -1163,7 +1177,8 @@ export interface DecisionOutput {
   blockers?: DecisionPredicateBlocker[];
   metrics: {
     spend: number;
-    purchases: number;
+    /** NULL means source evidence is incomplete; it is not measured zero. */
+    purchases: number | null;
     roas: number | null;
     recent7dRoas: number | null;
   };

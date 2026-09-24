@@ -92,6 +92,7 @@ function makeSourceRow(
     clicks: 300,
     linkClicks: 250,
     conversions: 2,
+    authoritativePurchases: 2,
     revenue: 240,
     landingPageViews: 200,
     addToCart: 50,

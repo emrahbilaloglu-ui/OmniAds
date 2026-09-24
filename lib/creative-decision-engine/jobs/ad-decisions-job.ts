@@ -1701,8 +1701,11 @@ export function computeNativeAdDecisions(input: {
         campaignLabelsById: input.campaignContextById,
       });
       const adDecision = nativeAdLifecycleEvidenceBlockers(
-        guardUnavailableAdMetrics(
-          toNativeAdDecisionOutput(guarded, withCampaign),
+        guardUnverifiedAdPurchases(
+          guardUnavailableAdMetrics(
+            toNativeAdDecisionOutput(guarded, withCampaign),
+            withCampaign,
+          ),
           withCampaign,
         ),
         adLifecycle,
@@ -2617,6 +2620,54 @@ function guardUnavailableAdMetrics(
   };
 }
 
+function unverifiedAdPurchaseDays(input: AdDecisionInput): number {
+  if (input.effectiveCohort !== "purchase") return 0;
+  const days = input.metricEvidence.purchaseUnverifiedEconomicDays;
+  return Number.isSafeInteger(days) && days >= 0 ? days : 1;
+}
+
+/** Keep a tentative economic signal visible, but never call partial purchases zero. */
+function guardUnverifiedAdPurchases(
+  decision: AdDecisionOutput,
+  input: AdDecisionInput,
+): AdDecisionOutput {
+  const missingDays = unverifiedAdPurchaseDays(input);
+  if (missingDays === 0 || !input.metricEvidence.performanceMetricsObserved) {
+    return decision;
+  }
+  const hardSignal = isHardLabel(decision.blockedActionType)
+    ? decision.blockedActionType
+    : isHardLabel(decision.label)
+      ? decision.label
+      : null;
+  return {
+    ...decision,
+    confidence: Math.min(decision.confidence, 40),
+    authorityBlocker: decision.authorityBlocker ??
+      (hardSignal === null ? null : "native_metrics_unavailable"),
+    blockedActionType: decision.blockedActionType ?? hardSignal,
+    badges: decision.badges.some((badge) => badge.type === "purchase_evidence_unverified")
+      ? decision.badges
+      : [...decision.badges, {
+          type: "purchase_evidence_unverified",
+          label: "Purchase observation incomplete in this Ad's economic window",
+          severity: "warning",
+        }],
+    blockers: [
+      ...(decision.blockers ?? []),
+      {
+        predicate: "ad_purchase_observation",
+        observed: missingDays,
+        threshold: 0,
+        status: "missing",
+        severity: "warning",
+        reason: "A decision-bearing Ad day lacks corroborated raw purchase actions.",
+      },
+    ],
+    reason: `[Purchase observation incomplete on ${missingDays} economic Ad day(s); stored purchase totals and ROAS are diagnostic only. A provider action is held until the original Meta actions are verified.] Stored-value model signal (unverified): ${decision.reason}`,
+  };
+}
+
 function toPriorHysteresisProvenance(
   businessId: string,
   ad: AdDecisionInput,
@@ -2746,9 +2797,11 @@ export function toNativeSnapshotPayload(input: {
       })
     : null;
   const sourceCoverageBlocked = sourceCoverageFailure !== null;
-  // The first authority blocker remains stable, but a later D101 failure must
-  // survive as typed evidence. Otherwise a role-held Cut can be presented as
-  // manually ready even though its source coverage is incomplete.
+  const purchaseEvidenceBlocked = isHardLabel(input.computation.rawLabel) &&
+    unverifiedAdPurchaseDays(ad) > 0;
+  // Source/config evidence is the first blocker on a role-held hard verdict.
+  // The economic finding survives, but unresolved campaign role must not
+  // present a Cut as manually ready while its own reporting window is unproved.
   const badges =
     sourceCoverageBlocked &&
     !decision.badges.some((badge) => badge.type === "source_coverage_unverified")
@@ -2762,11 +2815,19 @@ export function toNativeSnapshotPayload(input: {
         ]
       : decision.badges;
   const authorityBlocker: DecisionAuthorityBlocker | null =
-    decision.authorityBlocker ??
+    decision.authorityBlocker === "campaign_context" && sourceCoverageBlocked
+      ? "source_freshness"
+      : decision.authorityBlocker === "campaign_context" && configSourceBlocked
+        ? "config_source_authority"
+        : decision.authorityBlocker === "campaign_context" && purchaseEvidenceBlocked
+          ? "native_metrics_unavailable"
+          : decision.authorityBlocker ??
     (sourceCoverageBlocked
       ? "source_freshness"
       : configSourceBlocked
         ? "config_source_authority"
+        : purchaseEvidenceBlocked
+          ? "native_metrics_unavailable"
         : null);
   const authorizedAction = resolveNativeSnapshotAuthorizedAction({
     rawLabel: input.computation.rawLabel,
@@ -2817,6 +2878,9 @@ export function toNativeSnapshotPayload(input: {
               ad.configAuthority.decisionEconomics.unverifiedEconomicDayCount
             } unverified economic day(s)]`
         : null,
+      purchaseEvidenceBlocked
+        ? `[Purchase observation incomplete on ${unverifiedAdPurchaseDays(ad)} economic Ad day(s); hard action withheld]`
+        : null,
       decision.reason,
     ]
       .filter((part): part is string => Boolean(part))
@@ -2826,9 +2890,11 @@ export function toNativeSnapshotPayload(input: {
     // must not be persisted as one. The native snapshot/OS/UI already support
     // nullable metrics; a finalized measured zero remains 0.
     spend: ad.metricEvidence.performanceMetricsObserved ? ad.spend : null,
-    purchases: ad.metricEvidence.performanceMetricsObserved ? ad.purchases : null,
-    roas: ad.metricEvidence.performanceMetricsObserved ? ad.roas : null,
-    recent7d_roas: ad.recent7dRoas,
+    purchases: ad.metricEvidence.performanceMetricsObserved &&
+      unverifiedAdPurchaseDays(ad) === 0 ? ad.purchases : null,
+    roas: ad.metricEvidence.performanceMetricsObserved &&
+      unverifiedAdPurchaseDays(ad) === 0 ? ad.roas : null,
+    recent7d_roas: unverifiedAdPurchaseDays(ad) === 0 ? ad.recent7dRoas : null,
     label_transform: decision.labelTransform ?? null,
     /*
       A hard verdict held ONLY by an emission-boundary source gate keeps its
@@ -2849,7 +2915,8 @@ export function toNativeSnapshotPayload(input: {
     blocked_action_type: isHardLabel(decision.blockedActionType)
       ? decision.blockedActionType
       : (authorityBlocker === "config_source_authority" ||
-            authorityBlocker === "source_freshness") &&
+            authorityBlocker === "source_freshness" ||
+            purchaseEvidenceBlocked) &&
           isHardLabel(decision.label)
         ? decision.label
         : null,

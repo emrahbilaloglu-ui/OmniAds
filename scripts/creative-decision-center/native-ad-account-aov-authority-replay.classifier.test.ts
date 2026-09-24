@@ -67,6 +67,7 @@ const exactInput = {
     sourceRowCount: 28,
     performanceMetricsObserved: true,
     eventMetricsObserved: true,
+    purchaseUnverifiedEconomicDays: 0,
   },
   statusEvidence: {},
   creativeEvidence: {},

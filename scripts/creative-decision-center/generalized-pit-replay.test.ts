@@ -1818,6 +1818,10 @@ describe("generalized PIT replay — frozen package drift ledger", () => {
       an unrelated assertion failure.
     */
     "lib/creative-decision-engine/data-source.ts",
+    // D109 advances the engine epoch for source-verified creative purchase
+    // evidence. The frozen replay has no such receipt; the semantic assertion
+    // below still verifies its only re-derived difference is role analysis.
+    "lib/creative-decision-engine/engine.ts",
     // The 2026-09-21 recommendation-readiness repair separates a supported
     // economic Cut from permission to execute when campaign role is unknown.
     "lib/creative-decision-engine/campaign-label-guard.ts",

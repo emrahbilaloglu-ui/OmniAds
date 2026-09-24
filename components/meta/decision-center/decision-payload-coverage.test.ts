@@ -1396,7 +1396,7 @@ const COVERAGE: Record<string, Coverage> = {
   ),
   "MetaOsDecisionsPresentation.ads.statePreCapCounts": R(
     S.CREATIVES,
-    "each group header's 'N shown · M served'",
+    "the lane tabs, the Creatives scope pill, and each group header's 'N shown · M served'",
   ),
   "MetaOsDecisionsPresentation.ads.eligiblePreCapCount": R(
     S.PROVENANCE,
@@ -1915,10 +1915,8 @@ const COVERAGE: Record<string, Coverage> = {
     S.EVIDENCE,
     "the window's money line and its spend fact",
   ),
-  "MetaCanonicalDecision.metrics.purchases": R(
-    S.EVIDENCE,
-    "the window's funnel and purchases fact",
-    "purchases",
+  "MetaCanonicalDecision.metrics.purchases": N(
+    "The canonical decision's admitted economic dates are not carried into this drawer. Its purchase count cannot fill the separately selected exact-Ad funnel without mixing periods; the served decision remains available in the inspector.",
   ),
   "MetaCanonicalDecision.metrics.roas": R(
     S.EVIDENCE,
@@ -1928,10 +1926,10 @@ const COVERAGE: Record<string, Coverage> = {
     "A second window's return on the same card as the decision window's; the engine decides against the decision window, and two ROAS figures with no stated windows beside them read as a disagreement.",
   ),
   "MetaCanonicalDecision.metrics.ctr": N(
-    "The window draws this ad's CTR as a 28-day daily trail from the ad series read, which is the same measure at higher resolution; a scalar beside the chart would be the chart's own average restated.",
+    "The native Ad row draws this evaluation's admitted-window all-click CTR; the selected-date warehouse trail is separate and cannot substitute for the decision metric.",
   ),
   "MetaCanonicalDecision.metrics.frequency": N(
-    "The served presentation decision's frequency is the one this surface reads - it is the same 28-day lifecycle figure, and it is what the posture band and the window's frequency fact are computed from.",
+    "The native Ad metric is a reach-weighted mean of daily frequency across the admitted economic window; the presentation decision passes it to the posture band.",
   ),
   "MetaCanonicalDecision.metrics.effectiveTargetRoas": R(
     S.EVIDENCE,
@@ -1957,6 +1955,34 @@ const COVERAGE: Record<string, Coverage> = {
   ),
   "MetaCanonicalDecision.exposureUnavailableReason": N(
     "Exposure is the section queue's ranking input and is not printed on this surface; the reason it is missing explains the absence of a number nobody sees.",
+  ),
+  "MetaDecisionAdmittedWindow.contractVersion": N(
+    "The version validates the server projection; the operator sees the admitted dates and day counts, not a protocol tag.",
+  ),
+  "MetaDecisionAdmittedWindow.startDate": W(
+    S.CREATIVES,
+    "the native Ad card's admitted economic period caption",
+  ),
+  "MetaDecisionAdmittedWindow.endDate": W(
+    S.CREATIVES,
+    "the native Ad card's admitted economic period caption",
+  ),
+  "MetaDecisionAdmittedWindow.calendarDaySpan": W(
+    S.CREATIVES,
+    "the denominator of the native Ad card's economic-day count",
+  ),
+  "MetaDecisionAdmittedWindow.observedDayCount": N(
+    "The display reports economically meaningful and context-bridged days; the raw observed-day count remains audit data.",
+  ),
+  "MetaDecisionAdmittedWindow.economicDayCount": W(
+    S.INSPECTOR,
+    "the native Ad inspector's economic-days evidence row",
+    "economic-days",
+  ),
+  "MetaDecisionAdmittedWindow.bridgedUnresolvedDayCount": W(
+    S.INSPECTOR,
+    "the native Ad inspector's context-bridged evidence row",
+    "bridged-context-days",
   ),
   "MetaDecisionSuppressionReason.code": R(
     S.PROVENANCE,
@@ -2007,8 +2033,8 @@ const COVERAGE: Record<string, Coverage> = {
     "provider-account",
   ),
   "MetaOsAdDecision.adId": R(
-    S.CREATIVES,
-    "the key the row's CTR sparkline is looked up by, and the diagnostics' served ad",
+    S.EVIDENCE,
+    "the evidence window's served Ad identity and provider link; the selected-date CTR trail no longer shares the decision metric caption",
   ),
   "MetaOsAdDecision.adName": R(
     S.CREATIVES,
@@ -2831,12 +2857,12 @@ const COVERAGE: Record<string, Coverage> = {
     "the provenance-gap line, which names CPA as not served at this row's grain rather than leaving an unexplained gap",
   ),
   "MetaOsDecisionMetrics.ctr": W(
-    S.INSPECTOR,
-    "the provenance-gap line, for the same reason as CPA",
+    S.CREATIVES,
+    "the creative row's decision all-click CTR, labelled with its admitted economic dates; a missing value has no lifecycle fallback",
   ),
   "MetaOsDecisionMetrics.frequency": R(
     S.POSTURE,
-    "the spend-weighted 'Avg frequency · 28d' tile, and the evidence window's frequency fact",
+    "the spend-weighted 'Avg daily frequency' tile, and the separately labelled evidence window frequency fact",
     "average-frequency",
   ),
   "MetaOsDecisionMetrics.effectiveTargetRoas": R(
@@ -3407,12 +3433,14 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     */
     // D104 adds Ad-performance observation; the current display-only Meta
     // creative taxonomy adds value, fixed source, and source clock.
-    expect(fields.length).toBe(801);
-    expect(new Set(fields.map((field) => field.iface)).size).toBe(67);
+    // D107 adds seven display-window leaves in one new interface; its fixed
+    // contract version cannot vary, while dates and counts can.
+    expect(fields.length).toBe(808);
+    expect(new Set(fields.map((field) => field.iface)).size).toBe(68);
     // Candidate selection v3 retains v2 payload compatibility. Its version
     // leaf now has two values instead of one pinned literal.
     // The new observation leaf and three v5/v6 compatibility version leaves vary.
-    expect(fields.filter((field) => field.varies).length).toBe(751);
+    expect(fields.filter((field) => field.varies).length).toBe(757);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3941,18 +3969,23 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // the placeholder rows that carried it in the queue stopped being built.
   // Current Meta-derived creative type fills a missing lifecycle format on the
   // creative badge, with surface-level proof and no stable badge element id.
-  CREATIVES: [0, 11],
+  // D107's three admitted-window caption leaves reach this surface; the
+  // unpublished observed-day count and protocol tag stay out of its model.
+  CREATIVES: [0, 14],
   // 94 -> 93: `firstBlocker.explanation` is no longer rendered (Round 8 item 7).
   // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
-  // six labelled config rows the diagnostics now print.
-  EVIDENCE: [120, 18],
+  // six labelled config rows the diagnostics now print. The Ad id keys the
+  // exact-Ad evidence window; D109 removes a cross-period purchase claim.
+  EVIDENCE: [119, 19],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
   // the provenance band is one band, not a table of rows.
   // 12 -> 13: it arrived here. @see decisionAvailability above.
-  INSPECTOR: [2, 13],
+  // D107 adds two labelled inspector rows for economic and bridged days.
+  // Native decision CTR moved to the admitted-window creative card.
+  INSPECTOR: [4, 12],
   INVENTORY: [0, 14],
   KPI: [0, 22],
   NONSALES: [0, 1],
@@ -3994,13 +4027,16 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // selected creative do not; the Creatives queue and the source panel sit
   // behind the scope tabs and show only what the resting scope draws.
   // The creative scope is behind a tab in the default desktop render.
-  CREATIVES: [1, 10],
+  // D107's start/end and economic-day denominator reach the creative card.
+  // Pre-cap counts now also drive the lane tabs and scope pill in the resting DOM.
+  CREATIVES: [2, 12],
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
   // 10 -> 11: the held verdict `heldAction`, behind the Creatives scope tab
   // rather than in the resting desktop DOM.
-  INSPECTOR: [4, 11],
+  // D107's economic and bridged-day counts reach named inspector rows.
+  INSPECTOR: [4, 12],
   // 100 -> 101: `ads.pendingInventoryCount`, the coverage fact that separates
   // ACTIVE inventory awaiting a decision from the decision lanes it used to be
   // counted inside. Like every PROVENANCE claim it sits behind the panel's own
@@ -4029,7 +4065,8 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 107 -> 106: `firstBlocker.explanation` is no longer rendered, so it leaves
   // the behind-a-control half of the evidence window (Round 8 item 7).
   // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
-  // contract-identity leaves. All sit behind the evidence-window control.
+  // contract-identity leaves. D109 removes the cross-period purchase claim;
+  // the remaining claims sit behind the evidence-window control.
   EVIDENCE: [0, 134],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
@@ -4059,8 +4096,10 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // sentence, and `limitations[].code` / `firstBlocker.code` still prove those
 // rows.
 // 312 -> 333 with the original receipt-lineage leaves; -> 339 with the six
-// contract-identity leaves. All are behind the evidence-window control.
-const DOM_PROOF_TOTALS: [number, number] = [32, 342];
+// contract-identity leaves. D109 removes one cross-period purchase claim;
+// the remaining evidence claims are behind the window control. The pre-cap
+// counts move into the resting DOM as the lane-tab and scope-pill counts.
+const DOM_PROOF_TOTALS: [number, number] = [33, 345];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4090,7 +4129,7 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // Three newly variable legacy-compatible version tags stay hidden; the
 // workspace business id now changes the rendered scope state.
 // The display-only source clock varies but is intentionally not rendered.
-const NOWHERE_LEAVES = 377;
+const NOWHERE_LEAVES = 379;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4106,7 +4145,11 @@ const NOWHERE_LEAVES = 377;
 // The presentation and priority v5/v6 tags now vary, and both still travel
 // inside that callback tuple without becoming buyer-facing claims: 65 -> 67.
 // The source clock still travels inside the unmodified creative callback.
-const NOWHERE_BUT_AT_THE_BOUNDARY = 68;
+// D107's observed-day count stays in the served review callback but is not
+// projected into the card or inspector, moving this count from 68 to 69.
+// D109's purchase fact stays in the callback but leaves the selected exact-Ad
+// funnel, moving this count from 69 to 70.
+const NOWHERE_BUT_AT_THE_BOUNDARY = 70;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -4311,15 +4354,11 @@ function callbackChannel(payload: MetaDecisionsWorkspacePayload): string {
  * that already reach the window through the empty-read fallback. The suspicion
  * was worth measuring and the honest result is that it cost nothing.
  *
- * WHY BOTH STATES ARE OBSERVED AND NOT JUST THE POPULATED ONE. Replacing the
- * empty read instead of adding to it was measured too, and it LOSES a proof:
- * with rows carrying their own `purchases`, `buildFunnel` sums the rows and
- * `MetaCanonicalDecision.metrics.purchases` stops reaching the funnel, taking
- * the count of leaves reaching nowhere from 252 to 253 and turning a proven
- * RENDERED claim into an unprovable one. The empty read is not a degenerate
- * fixture, it is the state every account is in until the helper read lands,
- * and the fallbacks it opens are real rendering. So the window is observed in
- * both, and a field that moves in either one counts.
+ * WHY BOTH STATES ARE OBSERVED AND NOT JUST THE POPULATED ONE. The empty read
+ * is a real state, but D109 no longer borrows a purchase count from the
+ * canonical decision's separate, undated economic window. Populated helper
+ * rows carry their own exact-Ad selected-period purchases. Both states stay
+ * in the probe so a future fallback cannot silently mix periods again.
  *
  * These rows are CONSTANTS and are deliberately not derived from the probe
  * payload. A fixture that echoed a served field back into the window would let
@@ -4907,7 +4946,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // lineage leaves; -> 744 with their six contract-identity leaves; -> 745
     // when candidate-selection v2/v3 became a variable protocol tag.
     // Current creative taxonomy adds two varying display/provenance leaves.
-    expect(outcomes.size).toBe(751);
+    expect(outcomes.size).toBe(757);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -5161,9 +5200,10 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // 378/231/147 with their six contract-identity leaves; D104 adds one
     // served observation fact on the evidence surface without a stable row id.
     // The Meta-derived creative type adds one badge claim behind the scope tab.
-    expect(rendered.length).toBe(381);
-    expect(withElement.length).toBe(231);
-    expect(withoutElement.length).toBe(150);
+    // D109 removes one canonical purchase claim from a different period.
+    expect(rendered.length).toBe(385);
+    expect(withElement.length).toBe(232);
+    expect(withoutElement.length).toBe(153);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -6143,6 +6183,11 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaCampaignRoleCoverage.actionAuthoritativeCampaigns",
       "MetaCampaignRoleCoverage.unresolvedCampaigns",
       "MetaCanonicalDecision.sourceDecision.computedAt",
+      "MetaDecisionAdmittedWindow.bridgedUnresolvedDayCount",
+      "MetaDecisionAdmittedWindow.calendarDaySpan",
+      "MetaDecisionAdmittedWindow.economicDayCount",
+      "MetaDecisionAdmittedWindow.endDate",
+      "MetaDecisionAdmittedWindow.startDate",
       "MetaDecisionPipelineHealth.decisionGeneration.ageHours",
       "MetaDecisionPipelineHealth.decisionGeneration.computedAt",
       "MetaDecisionPipelineHealth.decisionGeneration.engineVersion",

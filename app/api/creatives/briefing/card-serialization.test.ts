@@ -31,6 +31,20 @@ function decision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
 }
 
 describe("card serialization", () => {
+  it("does not let a flattened creative row repaint unverified purchase evidence as zero", () => {
+    const card = cardForDecision({
+      decision: decision({ metrics: {
+        spend: 100, purchases: null, roas: null, recent7dRoas: null,
+      } }),
+      row: { id: "creative_1", name: "Creative 1", purchases: 0,
+        roas: 0, cpa: 0 } as Parameters<typeof cardForDecision>[0]["row"],
+    });
+
+    expect(card.purchases).toBeNull();
+    expect(card.roas).toBeNull();
+    expect(card.cpa).toBeNull();
+  });
+
   it.each([
     {
       name: "both ROAS windows missing",
@@ -650,7 +664,7 @@ describe("card serialization", () => {
       label: "Proven winner",
       tone: "pos",
       blockerCode: null,
-      vocabularyVersion: "meta-decisions-classification-overlay.v6",
+      vocabularyVersion: "meta-decisions-classification-overlay.v8",
     });
   });
 });

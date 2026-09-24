@@ -1,11 +1,18 @@
 /** A migrated-Postgres seam for the D101 retry and orphan-receipt repair. */
 import { getDb, resetDbClientCache } from "@/lib/db";
 import { randomUUID } from "node:crypto";
+import { buildMetaCoreCaptureFingerprint, type MetaCorePageEvidence } from
+  "@/lib/meta/core-capture-fingerprint";
 import { createMetaFinalizationCompletenessProof } from "@/lib/meta/finalization-proof";
+import type { MetaAccountDailyRow, MetaAdDailyRow } from "@/lib/meta/warehouse-types";
 import {
+  createMetaAuthoritativeSliceVersion,
+  createMetaAuthoritativeSourceManifest,
   getMetaCorePublishedRetryState,
   getMetaPositiveSpendAdIdsForPublishedRun,
   listMetaRawSnapshotsForRun,
+  persistMetaRawSnapshot,
+  publishMetaAuthoritativeSliceVersion,
   replaceMetaAdDailySlice,
   replaceMetaAdSetDailySlice,
   replaceMetaCampaignDailySlice,
@@ -572,7 +579,186 @@ async function main() {
   });
   assert(delayedAdIds.length === 1 && delayedAdIds[0] === "ad-capture",
     "breakdown Ad list must be scoped to the published capture UUID");
-  console.log("[meta-d101-retry-seam] PASS: scoped orphan retirement, retry reuse, fresh-request boundary");
+
+  // D110: a later completed capture may reuse the partition/source run ID.
+  // It must get a new candidate bound to its own manifest, while both raw
+  // content generations remain immutable and the pointer moves only on publish.
+  const receiptDay = "2026-09-20";
+  const receiptRunId = randomUUID();
+  async function rawReceipt(spend: string, options: {
+    actions?: unknown; pageIndex?: number; empty?: boolean; hasNext?: boolean;
+  } = {}) {
+    const pageIndex = options.pageIndex ?? 0;
+    return persistMetaRawSnapshot({
+      businessId: BUSINESS, providerAccountId: ACCOUNT,
+      partitionId: runId, runId: receiptRunId,
+      endpointName: "ad_insights_bulk", entityScope: "ad", pageIndex,
+      providerCursor: options.hasNext ? "next-page" : null,
+      startDate: receiptDay, endDate: receiptDay,
+      accountTimezone: "UTC", accountCurrency: "USD",
+      payloadJson: options.empty ? [] : [{ ad_id: "ad-d110",
+        date_start: receiptDay, spend, ...(options.actions ? { actions: options.actions } : {}) }],
+      payloadHash: `d110-${receiptRunId}-${spend}-${pageIndex}-${JSON.stringify(options.actions ?? [])}-${options.empty ?? false}`,
+      requestContext: { level: "ad", source: "bulk_core_sync", fields: "actions,spend" },
+      providerHttpStatus: 200, status: "fetched",
+      fetchedAt: new Date().toISOString(),
+    });
+  }
+  const page = (snapshotId: string, pageIndex: number, rowCount: number,
+    hasNext: boolean): MetaCorePageEvidence => ({ pageIndex, snapshotId,
+      rowCount, hasNext, providerHttpStatus: 200, status: "fetched",
+      requestFields: "actions,spend" });
+  function captureFor(snapshotId: string, spend: number, actions: unknown,
+    pages: MetaCorePageEvidence[] = [page(snapshotId, 0, 1, false)]) {
+    return buildMetaCoreCaptureFingerprint({ businessId: BUSINESS,
+      providerAccountId: ACCOUNT, day: receiptDay, sourceRunId: receiptRunId,
+      requestFields: "actions,spend", pages,
+      rowsFetchedTotal: pages.reduce((sum, part) => sum + part.rowCount, 0),
+      accountRows: [{ businessId: BUSINESS, providerAccountId: ACCOUNT,
+        date: receiptDay, accountName: "D110", sourceRunId: receiptRunId,
+        sourceSnapshotId: snapshotId, spend }] as MetaAccountDailyRow[],
+      campaignRows: [], adsetRows: [],
+      adRows: [{ businessId: BUSINESS, providerAccountId: ACCOUNT,
+        date: receiptDay, adId: "ad-d110", sourceRunId: receiptRunId,
+        sourceSnapshotId: snapshotId, spend,
+        payloadJson: actions ? { actions } : {} }] as MetaAdDailyRow[],
+    });
+  }
+  async function manifestFor(snapshotId: string, spend: number,
+    coreCapture: ReturnType<typeof captureFor>) {
+    return createMetaAuthoritativeSourceManifest({
+      businessId: BUSINESS, providerAccountId: ACCOUNT, day: receiptDay,
+      surface: "account_daily", accountTimezone: "UTC",
+      sourceKind: "finalize_day", sourceWindowKind: "d_minus_1",
+      runId: receiptRunId, fetchStatus: "completed",
+      rawSnapshotWatermark: snapshotId,
+      sourceSpend: spend, validationBasisVersion: "d110-seam",
+      metaJson: { coreCapture },
+      completedAt: new Date().toISOString(),
+    });
+  }
+  async function candidateFor(manifestId: string, spend: number) {
+    return createMetaAuthoritativeSliceVersion({
+      businessId: BUSINESS, providerAccountId: ACCOUNT, day: receiptDay,
+      surface: "ad_daily", manifestId, state: "finalizing",
+      truthState: "finalized", validationStatus: "pending", status: "staging",
+      stagedRowCount: 1, aggregatedSpend: spend, validationSummary: {},
+      sourceRunId: receiptRunId, stageStartedAt: new Date().toISOString(),
+    });
+  }
+  const firstRawId = await rawReceipt("10");
+  assert(firstRawId, "first raw content missing");
+  const firstManifest = await manifestFor(firstRawId, 10, captureFor(firstRawId, 10, null));
+  assert(firstManifest, "first manifest missing");
+  const firstCandidate = await candidateFor(firstManifest.id!, 10);
+  assert(firstCandidate, "first candidate missing");
+  const firstRetry = await candidateFor(firstManifest.id!, 10);
+  assert(firstRetry?.id === firstCandidate.id,
+    "a same-manifest retry must reuse its candidate");
+  await publishMetaAuthoritativeSliceVersion({ businessId: BUSINESS,
+    providerAccountId: ACCOUNT, day: receiptDay, surface: "ad_daily",
+    sliceVersionId: firstCandidate.id!, publishedByRunId: receiptRunId,
+    publicationReason: "authoritative_finalize" });
+
+  const secondRawId = await rawReceipt("11");
+  assert(secondRawId && secondRawId !== firstRawId,
+    "later provider content must remain a distinct immutable snapshot");
+  const secondCapture = captureFor(secondRawId, 11, null);
+  const secondManifest = await manifestFor(secondRawId, 11, secondCapture);
+  assert(secondManifest && secondManifest.id !== firstManifest.id,
+    "a new completed read needs a new manifest");
+  const secondCandidate = await candidateFor(secondManifest.id!, 11);
+  assert(secondCandidate && secondCandidate.id !== firstCandidate.id &&
+      secondCandidate.candidateVersion > firstCandidate.candidateVersion,
+    "a new manifest under the same source run must create a new candidate");
+  const secondRetry = await candidateFor(secondManifest.id!, 11);
+  assert(secondRetry?.id === secondCandidate.id,
+    "a repeated new-manifest attempt must reuse only its own candidate");
+  const [beforePublish] = await db.query<{ active_slice_version_id: string }>(`
+    SELECT active_slice_version_id::text FROM meta_authoritative_publication_pointers
+    WHERE business_id=$1 AND provider_account_id=$2 AND day=$3::date
+      AND surface='ad_daily'`, [BUSINESS, ACCOUNT, receiptDay]);
+  assert(beforePublish?.active_slice_version_id === firstCandidate.id,
+    "the pointer must stay on old evidence until the new candidate publishes");
+  await db.query(`
+    INSERT INTO meta_ad_daily
+      (business_id, business_ref_id, provider_account_id,
+       provider_account_ref_id, date, ad_id, account_timezone,
+       account_currency, spend, source_run_id, source_snapshot_id,
+       truth_state, validation_status, finalized_at, payload_json)
+    VALUES ($1, $2::uuid, $3, $4::uuid, $5::date, 'ad-d110', 'UTC',
+            'USD', 11, $6, $7::uuid, 'finalized', 'passed', now(), '{}'::jsonb)
+  `, [BUSINESS, BUSINESS, ACCOUNT, ACCOUNT_REF, receiptDay, receiptRunId, secondRawId]);
+  await publishMetaAuthoritativeSliceVersion({ businessId: BUSINESS,
+    providerAccountId: ACCOUNT, day: receiptDay, surface: "ad_daily",
+    sliceVersionId: secondCandidate.id!, publishedByRunId: receiptRunId,
+    publicationReason: "authoritative_finalize" });
+  const [readback] = await db.query<{
+    active_slice_version_id: string; manifest_id: string;
+    first_spend: string; second_spend: string; chronology_valid: boolean;
+  }>(`
+    SELECT p.active_slice_version_id::text, v.manifest_id::text,
+      old_raw.payload_json->0->>'spend' AS first_spend,
+      new_raw.payload_json->0->>'spend' AS second_spend,
+      m.completed_at <= p.published_at AS chronology_valid
+    FROM meta_authoritative_publication_pointers p
+    JOIN meta_authoritative_slice_versions v ON v.id=p.active_slice_version_id
+    JOIN meta_authoritative_source_manifests m ON m.id=v.manifest_id
+    JOIN meta_raw_snapshots old_raw ON old_raw.id=$4::uuid
+    JOIN meta_raw_snapshots new_raw ON new_raw.id=$5::uuid
+    WHERE p.business_id=$1 AND p.provider_account_id=$2 AND p.day=$3::date
+      AND p.surface='ad_daily'`,
+    [BUSINESS, ACCOUNT, receiptDay, firstRawId, secondRawId]);
+  assert(readback?.active_slice_version_id === secondCandidate.id &&
+      readback.manifest_id === secondManifest.id &&
+      readback.first_spend === "10" && readback.second_spend === "11" &&
+      readback.chronology_valid,
+    "published pointer must bind the new manifest without rewriting old raw content");
+
+  const sameContentManifest = await manifestFor(secondRawId, 11, secondCapture);
+  assert(sameContentManifest, "same-content manifest missing");
+  const equivalent = await candidateFor(sameContentManifest.id!, 11);
+  assert(equivalent?.id === secondCandidate.id,
+    "same raw pages and normalized Ad facts must reuse the active candidate");
+
+  const changedActions = [{ action_type: "purchase", value: "1" }];
+  const changedRawId = await rawReceipt("11", { actions: changedActions });
+  assert(changedRawId, "action-restated raw content missing");
+  const changedManifest = await manifestFor(changedRawId, 11,
+    captureFor(changedRawId, 11, changedActions));
+  assert(changedManifest, "action-restated manifest missing");
+  const changedCandidate = await candidateFor(changedManifest.id!, 11);
+  assert(changedCandidate && changedCandidate.id !== secondCandidate.id,
+    "changed actions must create a candidate even when spend and row count match");
+
+  const pageZeroId = await rawReceipt("0", { pageIndex: 0, empty: true, hasNext: true });
+  const pageOneId = await rawReceipt("11", { pageIndex: 1 });
+  assert(pageZeroId && pageOneId, "multi-page snapshots missing");
+  const orderedPages = [page(pageZeroId, 0, 0, true), page(pageOneId, 1, 1, false)];
+  const orderedCapture = captureFor(pageOneId, 11, null, orderedPages);
+  assert(orderedCapture, "complete ordered multi-page capture missing");
+  const orderedManifest = await manifestFor(pageOneId, 11, orderedCapture);
+  assert(orderedManifest, "ordered multi-page manifest missing");
+  const orderedCandidate = await candidateFor(orderedManifest.id!, 11);
+  assert(orderedCandidate && orderedCandidate.id !== secondCandidate.id,
+    "new multi-page source needs its own candidate");
+  await db.query(`UPDATE meta_ad_daily SET source_snapshot_id=$1::uuid,
+    updated_at=now() WHERE business_id=$2 AND provider_account_id=$3
+      AND date=$4::date AND ad_id='ad-d110'`,
+  [pageOneId, BUSINESS, ACCOUNT, receiptDay]);
+  await publishMetaAuthoritativeSliceVersion({ businessId: BUSINESS,
+    providerAccountId: ACCOUNT, day: receiptDay, surface: "ad_daily",
+    sliceVersionId: orderedCandidate.id!, publishedByRunId: receiptRunId,
+    publicationReason: "authoritative_finalize" });
+  const reorderedCapture = captureFor(pageZeroId, 11,
+    null, [page(pageOneId, 0, 1, true), page(pageZeroId, 1, 0, false)]);
+  assert(reorderedCapture, "reordered capture fixture missing");
+  const reorderedManifest = await manifestFor(pageZeroId, 11, reorderedCapture);
+  assert(reorderedManifest, "reordered manifest missing");
+  const reorderedCandidate = await candidateFor(reorderedManifest.id!, 11);
+  assert(reorderedCandidate && reorderedCandidate.id !== orderedCandidate.id,
+    "multi-page reordering must not reuse the previous candidate");
+  console.log("[meta-d101-retry-seam] PASS: scoped orphan retirement, retry reuse, fresh-request boundary, D110 manifest-bound republish");
   await resetDbClientCache();
 }
 

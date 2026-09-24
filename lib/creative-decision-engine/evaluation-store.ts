@@ -10,6 +10,8 @@ import {
   META_METRIC_WINDOW_COMPLETENESS_RULE,
 } from "@/lib/meta/funnel-stage-parse";
 import { META_AD_DAY_LINK_CLICK_CONTRACT_VERSION } from "@/lib/meta/link-click-parse";
+import { META_AD_DAY_PURCHASE_CONTRACT_VERSION } from "@/lib/meta/purchase-count-parse";
+import { META_AD_DAY_PROVIDER_ZERO_RECEIPT_CONTRACT_VERSION } from "@/lib/meta/ad-day-provider-zero-receipt";
 import {
   META_CREATIVE_DAY_PARENT_GRAIN_CONTRACT_VERSION,
   META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
@@ -52,6 +54,16 @@ export type { DecisionAuthorityBlocker };
  */
 export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   /*
+  `.v18` — ADR D111. A trusted physical-account Cut floor below which the
+  thin-cell fallback minted an advisory Cut now produces an explicit Test More
+  with the verified floor and no held hard action. Source/config evidence takes
+  precedence over role uncertainty on genuinely held native hard verdicts.
+  Previous evaluations remain readable under their original version.
+
+  `.v17` — ADR D108. The provider-zero receipt and purchase classifier change
+  economic completeness while retaining exact row/source provenance. The
+  envelope binds both contracts; earlier evaluations keep their own key.
+
   `.v16` — ADR D107. The hashed ad input now carries `decisionWindow`, the
   admitted run the cumulative and recent sums covered, because the reason text
   names that period; and the run itself changed meaning (an unresolved day no
@@ -99,7 +111,7 @@ export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   readable under their own key and are never recomputed under current
   semantics.
 */
-  "engine-v3-canonical-ad-evaluation.v16" as const;
+  "engine-v3-canonical-ad-evaluation.v18" as const;
 
 /**
  * The source interpretation rules a `.v14` ad evaluation's inputs use.
@@ -114,6 +126,8 @@ export const NATIVE_AD_METRIC_CONTRACT = {
   funnelStage: META_FUNNEL_STAGE_CONTRACT_VERSION,
   windowRule: META_METRIC_WINDOW_COMPLETENESS_RULE,
   adDayLinkClick: META_AD_DAY_LINK_CLICK_CONTRACT_VERSION,
+  adDayPurchase: META_AD_DAY_PURCHASE_CONTRACT_VERSION,
+  providerZeroReceipt: META_AD_DAY_PROVIDER_ZERO_RECEIPT_CONTRACT_VERSION,
   sourceCoverageFreshness:
     META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
   creativeDayMembership: META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,

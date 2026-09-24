@@ -10372,3 +10372,466 @@ calibration, one pinned REPEATABLE READ READ ONLY snapshot per run; current
 floor, the badge guards and the period labels together, and mint another
 producer/evaluation version. Keep D107 rows intact; never relabel them under
 an earlier key.
+
+## D108 — A complete Meta Insights omission is provider zero (2026-09-24)
+
+**Decision.** An absent `actions` key on a verbatim ad-day Graph Insights row
+means zero action events only when that exact row is in a successful
+`ad_insights_bulk`/`bulk_core_sync` response whose fixed field list requested
+`actions`, and the same account-day/source run has a completed fresh manifest
+and published `ad_daily` pointer visible at the evaluation cutoff. Its active
+Ad slice references the exact run-level `account_daily` manifest, and the
+Ad-day fact must have been written before pointer publication. That manifest
+must also have a `validation_passed` / `passed` account-day reconciliation
+event after manifest completion and before the pointer was published, with no later failure on the same
+manifest before publication. A slice's own `passed` flag cannot override
+failed run-level source totals. This is the
+`provider_zero` state. An `actions` array without an event remains measured
+zero; a missing key without that source proof, an explicit null/object,
+malformed/duplicate action entry, or contradictory stored purchase count
+remains unknown. Aliases for one purchase event must agree; they are not added.
+The source row must equal the stored payload, not merely contain its fields.
+New bulk snapshots record their requested field list; if present it must include
+`actions`. The snapshot fetch, complete manifest and publication must occur in
+that order. Older snapshots rely on the fixed bulk request shape tested in code.
+The same verified omission supplies zero to purchase, link-click and the
+action-derived funnel stages. Clicks alone supply none of those events.
+
+**Why D095 is amended.** D095 treated every missing `actions` array as unknown.
+That was prudent before the bulk request and complete-source receipt were
+reconciled, but it overheld real zero-action rows. A read-only 2026-08-27 to
+2026-09-23 census found 93 Grandmix and 142 TheSwaf spending ad-days with no
+`actions` key and stored zero purchases. The initial 235/235 claim was
+**withdrawn** after checking immutable content reuse: a canonical snapshot's
+first `fetched_at` could precede a manifest even when its observation in the
+Ad-day's source run occurred later. The earlier predicate admitted 91/93
+Grandmix and 137/142 TheSwaf rows; only 28 Grandmix and 11 TheSwaf rows have
+an HTTP 200 `meta_raw_snapshot_observations` receipt in that run before the
+**published slice-linked** fresh manifest completed. The other 189 previously
+admitted rows have their same-run observation after the slice's manifest
+completion, though before pointer publication. The final receipt joins the
+`ad_daily` pointer's active slice to its exact manifest and binds the raw observation by
+snapshot, account and run. Snapshot `run_id` was null in the older writer;
+the observation receipt, not canonical content identity, supplies run lineage.
+An independent IronCustomWood 2026-09-23 read exposed three spending Ad rows
+that satisfied the slice and raw clocks while their exact manifest's sole
+reconciliation event was `totals_mismatch` / `repair_required` before
+publication. All three now remain unknown. Requiring the exact manifest's
+successful reconciliation does not change the 28 Grandmix / 11 TheSwaf
+positive count at the stated cutoff. All 56 Grandmix/TheSwaf published Ad days
+had a successful validation after their linked manifest completed; the nearest
+validation was at least 0.254 seconds later.
+An independent, fully paginated Graph `level=adset`, daily 2026-09-17..23
+read returned 49/49 Grandmix and 595/595 TheSwaf adset-days. Among the 99
+adset-days containing 114 no-actions child rows, adset purchase and link-click
+counts exactly matched the sum of all child ad rows (zero mismatches). Six
+spend rows drifted slightly on later read, so parity is claimed for those two
+action counts, not as a frozen spend assertion. Meta has no cited formal
+omission-is-zero guarantee; this is a bounded inference from the fixed request
+shape, independent parent-grain read and complete publication receipts. A
+future parent-child mismatch, unrequested field or incomplete source invalidates
+the inference and keeps the row unknown.
+
+**Authority.** Native hydration and calibration use the same receipt proof.
+An ad's decision-bearing economic window with unknown purchase evidence can
+show a soft stored-value diagnosis, but it cannot authorize a hard
+purchase-dependent Cut, Scale or Refresh. The native snapshot emits nullable
+purchase/ROAS figures for that case. Verified provider zeros remain zeros for
+the 39 supported sample rows; the other 196 remain unknown pending a valid
+source receipt. The served typed resolution is
+`verify_purchase_observation`, not a generic native-metrics outage: spend and
+traffic may be measured while purchase actions remain unverified. It owns no
+provider mutation. Calibration
+excludes an ad's incomplete purchase sample from hard economic benchmark
+populations while retaining non-purchase diagnostics. No raw row is rewritten,
+and no UI or provider write authority is added. The creative-day flattened
+legacy grain cannot inherit this ad-day receipt; D109 handles it separately.
+
+**Identity and verification.** The native engine epoch is
+`v3-ad-2026-09-24-provider-zero-receipt-shadow`; the ad evaluation contract is
+`.v17`. Calibration mints `.v7` because `.v6` already has 76 live batches and
+318 cells; its source hash remains byte-compatible, while `.v7` binds purchase
+authority. A same-day new generation is required after an exact-SHA release.
+The read-time classification overlay advances to `.v7` for the new typed
+purchase resolution, and the OS presentation advances to `.v7` for its
+purchase-specific first-blocker and buyer copy. `.v5`/`.v6` payload versions
+remain readable; response shapes and execution authority are unchanged.
+Old generations retain their own keys. Unit tests cover missing-key proof,
+explicit null, malformed/duplicate/contradictory counts, alias equality and
+hard-action gating. The corrected read-only production query verified provider
+zero for 28/93 Grandmix and 11/142 TheSwaf sample rows. The real-PostgreSQL
+seam proves a reused run cannot borrow a later manifest when its active slice
+points to an earlier one, attach an Ad-day fact updated after publication, or
+borrow another manifest's validation. A repair-required or post-publication
+validation remains unknown.
+Replay and served readback must show positive controls still
+capable of decisions and truly unverified rows held for the named reason.
+
+**Rollback.** Revert receipt admission and downstream metric/authority changes
+together, then mint a new native epoch and evaluation/calibration versions.
+Leave D108 snapshots and historical v6 calibration rows readable; never
+reinterpret them under another contract.
+
+## D110 — Bind Each Authoritative Candidate To Its Own Source Manifest
+
+**Problem and evidence.** A finalized Meta day can be fetched again under the
+same partition/source run ID. The writer creates a new completed source
+manifest, but `createMetaAuthoritativeSliceVersion` formerly reused the first
+candidate found for that run, regardless of its manifest. Subsequent writes
+republished that old candidate while replacing Ad facts and raw snapshots.
+For one Grandmix 2026-09-21 Ad, the active candidate's manifest completed on
+2026-09-22 08:04:31Z, while its current raw snapshot was first fetched on
+2026-09-23 06:50:31Z and the pointer was republished two seconds later. A
+separate, completed manifest from the later fetch exists; the active candidate
+simply never bound to it. Same-run IDs alone therefore cannot prove that an
+active slice's manifest covered its current source.
+
+**Decision.** Reuse an authoritative candidate only when business, account,
+day, surface, source run ID **and manifest ID** all match. A later manifest
+under the same run gets a new candidate version unless its complete ordered
+raw-page IDs, requested fields, every normalized account/campaign/adset/Ad
+decision fact, source spend and validation basis have the same `meta-core-capture.v2`
+fingerprint as the still-active published candidate. That reuse also requires
+the old candidate's exact current warehouse population to remain unchanged
+since publication; a stale or superseded candidate cannot be resurrected.
+Write and config-observation clocks do not change the fact fingerprint; the
+actual config values and source identity do.
+The existing publication step moves the pointer only after validation. Apply
+the same identity checks after a candidate-version uniqueness race. Each Ad
+row now records the raw page where that Ad occurred, rather than stamping all
+Ads with the last page's watermark. Duplicate Ad IDs across pages have no
+single-page source and remain unverified. Old raw content, manifests,
+candidates, and historical decision rows remain intact. No legacy pointer is
+silently rebound by this code change.
+
+**Reconciliation gate.** A read-only live audit found a 2026-09-23 account day
+with Meta account spend 210.28 and rebuilt Ad spend 209.79. The old writer
+recorded `totals_mismatch/repair_required` yet still replaced daily rows,
+marked all four candidates `finalized_verified`, and moved their pointers.
+The writer now compares account, campaign, ad-set and Ad spend with the
+independent account Insights spend before replacing any daily fact. A mismatch
+records an exact-manifest `repair_required` event, marks the new candidates
+failed, and leaves the prior rows and pointers intact. Only a matching capture
+records `validation_passed` before marking candidates verified and publishing.
+Previously published bad generations need a separate reader/repair audit; this
+writer rule does not retroactively certify or rewrite them.
+
+**Verification and release boundary.** The real migrated-PostgreSQL D101 seam
+proves same-manifest retry reuse, a distinct candidate for a changed later
+manifest under the same run, same-content idempotence, changed-action detection
+at unchanged spend, multi-page order sensitivity, pointer stability before
+publish, new manifest/pointer chronology after publish, and preservation of
+both raw content generations. A pure seam proves per-Ad page attribution and
+rejects ambiguous duplicate IDs.
+Unit coverage checks the lookup and candidate-conflict path. The Meta
+ingestion seam uses the observed 210.28/209.79 disparity to verify
+that `totals_mismatch` cannot write daily facts or publish, while a matching
+rerun still publishes. Historical creative purchase backfill must
+independently prove the exact source observation and the active candidate's
+matching completed manifest after a
+bounded re-fetch or separately reviewed authority repair; a matching Ad
+scalar or run ID alone is insufficient. Rollback reverts the candidate lookup
+rule only; already published candidates and raw sources are retained.
+
+## D111 — A trusted Cut spend floor cannot leave a false pending Cut (2026-09-24)
+
+**Decision.** When an exact purchase cell is thin, a cutoff-safe physical-account
+AOV may repair Cut spend depth under D061. If that verified Cut-only floor is not
+met, a lower fallback threshold from the thin cell must not leave a pending
+Cut, `cut_candidate` badge, or `profile_hard_action_ineligible` as the first
+explanation. The output is Test More and names the trusted floor and the
+admitted reporting period. A missing or invalid account-AOV proof keeps the
+existing soft hold. The rule only restates the advisory output: it does not
+lower any threshold, authorize any provider action, change Scale/Refresh, or
+borrow a peer percentile. Confirmed Cut candidates that meet the trusted floor
+continue through recovery, hysteresis, source, config and campaign-role gates.
+
+**Why.** On TheSwaf's 2026-09-10..23 spending cohort, 73 persisted soft-only
+Cut candidates had a thin exact cell (18 attributed purchases) even though the
+same native calibration carried a valid physical-account/currency AOV proof
+(1,089 purchases; USD 193.32 AOV; Target ROAS 2.00). All 73 were below the
+verified zero-purchase Cut floor of USD 193.32; the maximum persisted decision
+spend was USD 145. A D108 two-cutoff read-only replay kept 72 as soft Cut
+candidates and changed one to Keep after the admitted window widened. The old
+reason cited a lower thin-cell threshold (as little as USD 29) and told the
+operator to review a blocked Cut, although the trusted spend floor itself was
+not met. Sixteen of 31 previously role-held Cuts also became soft candidates
+after the admitted window widened. They are early economic risk, not action
+ready Cut verdicts. D107's historical soft-only rows remain readable; this
+ADR changes their current served interpretation.
+
+**First blocker.** On a genuine economically independent Cut, D097 preserves
+the finding when campaign role is uncertain. Yet a role-held Cut with an
+unverified D101 reporting day or D098 decision-window config day is not
+manually ready either. At the native persistence boundary, source coverage,
+then config provenance, then purchase observation takes typed first-blocker
+priority over `campaign_context`; the role hold remains in the decision reason
+and no authorized action is created. With complete source/config/purchase
+evidence, campaign context remains the blocker. In the same TheSwaf replay,
+12 of the previous 31 were genuine raw economic Cuts (seven published, five
+hysteresis-held), but all carried six to nine unverified economic days; role
+uncertainty was not their sole action blocker. D101/D110 source repair and a
+fresh generation must be evaluated separately.
+
+The read-time typed resolution also gives an explicitly unverified config
+verdict priority over a simultaneous `pending_transition`, including older
+role-first snapshots: a second evaluation cannot supply historical
+configuration evidence. It still states that consecutive engine confirmation
+is required, while `buyerAction` and provider authority remain null. The
+classification overlay and OS presentation advance to `.v8`; `.v7` snapshots
+remain readable under their original contract.
+
+**Identity and verification.** The shared resolver epoch for the integrated
+D109/D111 release is `v3-2026-09-24-creative-purchase-cut-proof`; the native epoch moves to
+`v3-ad-2026-09-24-cut-proof-floor-story-shadow`; native Ad evaluation contract
+becomes `.v18`. Earlier snapshots and evaluations remain readable.
+Targeted tests pin below/above-floor zero-purchase examples, a genuinely
+missing-AOV negative, and role-plus-source/config versus role-only blocker
+priority. A read-only Grandmix/TheSwaf replay is a diagnostic, not a provider
+write or deploy. Same-day integrated regeneration and served readback are
+required after release; no 24-hour waiting period is needed for this rule.
+
+**Rollback.** Revert the floor-pending diagnostic and blocker ordering together,
+mint a new shared/native epoch and Ad evaluation contract, and leave older
+generations under their original keys.
+## D113 — Rebind historical Ad slices only to a proved capture (2026-09-24)
+
+**Decision.** D110 does not backdate or silently rewrite old `ad_daily`
+publications. A one-day operational repair may publish a new candidate against
+the completed `account_daily` manifest whose raw Ad page exactly contains the
+already stored Ad population. It requires the same business, account, day,
+run and partition; exact payload and Ad identities; matching source/warehouse
+spend and row count; a run observation or an original run-bound legacy page;
+and that manifest's passing account reconciliation after completion and before
+the old pointer. The manifest's creation and last update must also precede
+that original pointer. Any later failed reconciliation through the review cutoff,
+an intervening different completed capture, a missing page or active sync
+partition is a hold. A legacy page marked `superseded` can be used only when
+its one-time status update occurred after the old pointer publication. The
+repair never treats `superseded` as a current fetched observation.
+
+Dry-run records each old pointer, target manifest, proof, blockers and a hash.
+Apply requires the reviewed plan and an explicit opt-in, rechecks under locks,
+then publishes at the actual repair time. Raw pages, Ad facts and prior slices
+remain unchanged; earlier point-in-time evaluations keep their earlier truth.
+The `v2` candidate summary retains the reviewed hash, exact source page,
+partition, receipt kind, raw update clock, target manifest, and original
+pointer/slice/manifest/run/publication clock. A post-publish readback checks
+the preserved old slice and original clock, including when a later fresh
+reset marked the original raw page `superseded`; the new publication time
+cannot be substituted for historical source time. The old slice's own
+publication may precede the old pointer by milliseconds. The repair itself
+marks that old slice `superseded` without changing its historical publication.
+Batch repair retains each daily plan and readback receipt and fails closed per
+day. Binding a legacy page does **not** by itself classify absent actions as
+provider zero; the D108 decision reader applies its own receipt rule.
+
+**Evidence and rollback.** Grandmix and two TheSwaf accounts over the reviewed
+90-day period had 170 stale Ad bindings: 169 met this narrow source-binding
+proof; one lacked a matching source population. Of the 169, 69 use the legacy
+run-bound receipt instead of a later observation. A later `v2` read at
+2026-09-24T15:57Z found 168 repairable and two held; one additional pointer
+had changed after that cutoff and became repairable on a fresh 16:03Z read.
+These are dry-run results,
+not applied production changes or new decision labels. Unit tests cover late
+supersession, missing receipt, wrong payload and failed reconciliation; a
+migrated-PostgreSQL seam covers dry-run, apply, readback and rerun. To roll
+back, stop the batch and use the retained old-pointer ledger in a separately
+reviewed transaction; the repair never deletes a candidate or rewrites the
+past.
+## D114 — Bind pre-two-layer Meta action omissions to their published run (2026-09-24)
+
+**Decision.** D108's provider-zero proof also accepts a pre-two-layer raw
+snapshot with no observation receipt when the snapshot itself carries the exact
+active Ad slice's completed manifest run and the matching core/account_daily
+partition for that account and date. It must still be the exact Ad-day payload
+from an HTTP 200 `ad_insights_bulk`/`bulk_core_sync` actions request, fetched
+and created before manifest completion, attached to a fact written before Ad
+publication, and backed by the same manifest's successful account-day
+reconciliation before publication. A snapshot with any observation receipt
+cannot use this legacy branch. Canonical snapshots continue to require the
+same-run observation receipt.
+
+**Later supersession.** The legacy writer changed a snapshot's `status` to
+`superseded` and `updated_at` together. A legacy snapshot superseded only
+*after* the exact Ad pointer was published was still fetched when that pointer
+was published; it remains eligible for that historical publication. If the
+supersession preceded or coincided with publication, the row remains unknown.
+Missing/late raw fetch, other run or partition, absent/mismatched payload,
+missing account validation and an explicit field list without `actions` all
+remain unknown. The existing D108 proof is otherwise unchanged.
+
+**Later pointer rebind.** D113 may safely publish a new Ad pointer to repair
+an old slice's stale manifest. That new publication follows a legacy raw
+snapshot's supersession even when the *original* publication preceded it.
+The repair candidate must carry D113's v2 transaction-proven summary: the old
+pointer/slice/manifest/run, original publication clock, exact target manifest,
+raw snapshot/partition, raw mutation clock, receipt kind and reviewed plan
+hash. The receipt checks those identities against the current and retained
+slice rows, the target manifest watermark/partition, source/Ad clocks and a
+successful exact-manifest reconciliation before the original publication.
+The retained old slice is now `superseded`; its `published_at` may precede the
+old pointer clock by milliseconds and is bounded, not compared for equality.
+A missing or malformed repair summary, wrong identity, or late validation
+cannot substitute the new pointer's later clock for the historical one.
+
+**Evidence and version.** The read-only historical audit found six GM/TS raw
+pages (TheSwaf July 13/19/20/22 and Grandmix July 2/22) with
+`content_key=NULL`, the exact manifest run and account-day partition, no
+observation receipt, and `superseded` timestamp after their old Ad publication.
+These facts support the bounded exception; they do not themselves prove all
+90-day creative windows are closed. Real PostgreSQL seams cover both legacy
+positive states, pre-publication supersession, wrong run/partition/manifest,
+late fetch, wrong payload, absent validation, unsupported fields and a late
+observation that cannot fall through to the legacy branch. The existing
+canonical observation seam remains positive.
+
+The source-manifest receipt contract advances from
+`meta-ad-day-provider-zero-receipt.v1` through the unreleased `.v2` to `.v3`.
+D108 and D114 are planned for
+one first live release with D111's newer native/shared epoch; no v1 D108 live
+generation exists. If D114 is released after a separate D108 deployment, mint
+a new native engine epoch before replay rather than reinterpret existing
+same-epoch snapshots. Historical snapshots and raw evidence remain intact.
+
+**Rollback.** Revert this legacy receipt arm and its v3 source-manifest
+contract in a new release epoch; do not rewrite raw or decision history.
+
+## D109 — Creative purchase and funnel zeroes need an exact source receipt (2026-09-24)
+
+**Observed failure.** The creative-day writer flattened absent `actions` to
+`purchases=0`; creative calibration, lifecycle and runtime hydration then
+summed `conversions` as if every zero was measured. The same issue affected
+link clicks and funnel stages. Complete Graph ad, ad-set and campaign reads
+for Grandmix and TheSwaf showed that an omitted `actions` list on a completed,
+requested Ad-day means zero events: the independent 17–23 September ad-set
+read matched all 644 parent days, including 99 with no-actions children, for
+both purchases and link clicks. A missing field on an incomplete or unproven
+request remains unknown. Thus either universal `absent=unknown` or universal
+`absent=zero` would be wrong.
+
+**Decision.** A strictly completed, paginated creative Insights read that
+requested `actions` may stamp an omitted list as measured zero. Malformed,
+conflicting or unrequested actions cannot. A new additive
+`purchase_evidence.v1` sidecar carries that reading through each Ad-to-creative
+fold; the finalized Ad-day purchase scalar must agree before the stamp can
+authorize a creative day. `metric_evidence.v2` applies the same complete
+request rule to action-derived link-click, landing-page-view, add-to-cart and
+checkout stages, while V1 stamps remain readable. Outbound clicks still need
+their separate rich-field observation. Thumbstop and video rates remain NULL
+without provider-correct numerators and denominators.
+
+Creative calibration and decision hydration use complete-or-NULL purchase
+windows; the lifecycle job adopts the same helper in its separate repair.
+A delivered day with no valid stamp cannot enter a purchase
+sample as zero. If a target or benchmark exists, its purchase-dependent
+creative decision is an explicit `purchase_evidence_unverified` diagnosis.
+Without a profit comparison, the existing quality-only gate may still return
+a soft Keep/Test More from independent CTR/CPM/upstream funnel observations;
+all purchase-rate numerators are NULL when purchase evidence is unverified,
+the missing purchase receipt remains explicit and its output purchase metric
+is NULL. A fully
+verified window continues through the existing resolver, commercial targets,
+20/30 sample floors and hard-action gates. UI never computes a buyer action.
+
+The Meta Decisions→Creatives evidence drawer reads its supplemental funnel
+for the served exact Ad and the selected account-calendar period. The reader
+publishes `meta-ad-funnel-evidence.v1` on that supplemental API; it
+uses the D108 source receipt for omitted action-list zeros, strict row-local
+purchase/scalar agreement, and the shared funnel action parser. It requires
+complete account Ad-day coverage for the selected period. It displays all six
+stages (impressions, link clicks, landing-page views, add-to-cart, checkout,
+purchases), with an unavailable stage distinct from measured zero. It does
+not fill a missing selected-period purchase from the decision's separate,
+possibly shortened economic window, nor depend on current creative identity
+to retrieve historical Ad facts. This read remains explanatory only.
+
+**Historical repair.** Original raw snapshot, exact business/account/day/Ad
+membership, finalized Ad facts and a causal same-run D101 published source
+receipt are required before adding the stamp. The current repair tool admits
+only a complete single-page capture: its raw ID must equal the active
+manifest watermark, the full Ad population and payloads must match, and an
+observation must precede manifest completion (or an older run-bound raw
+receipt must be proved). Multi-page historical captures remain an explicit
+hold. A bounded, dry-run-first manifest lists old/new economics, evidence,
+source snapshot identity and reason; apply rechecks the manifest under a
+transaction and is idempotent. The initial 2026-08-27 to 2026-09-23 audit
+found 276 candidate creative days and 282 member Ads whose raw actions and
+stored Ad values agreed, including two creative zeros that conflicted with
+later finalized Ad purchases. That first audit checked same-run publication
+but **not** causal manifest chronology. The stricter readback blocked all 276
+under their then-active stale Ad manifests; it wrote nothing. A separate
+manifest-bound slice repair must first prove and publish the exact source.
+Only then may this tool reconcile the full creative economic row and stamp
+evidence. Older flattened rows without exact lineage remain unknown.
+
+The creative repair manifest advances to `.v2` for the D113 rebind boundary.
+Its canonical `fetched` source arm still needs a causal observation or original
+run-bound page. A legacy raw page later marked `superseded` is accepted only
+when the newly published Ad slice carries D113's `v2` reviewed-plan receipt:
+the old pointer, old slice and manifest, source page/partition/run, raw status
+update, and pre-rebind publication clock must all match the stored rows. The
+old slice must have been published no later than that old pointer; the raw
+page's one-time supersession must follow the old pointer. The current repair
+pointer's newer publication time cannot be used as the old clock. Both arms
+also require a successful account-day reconciliation on their exact manifest
+after completion and before publication, with no later failure before that
+publication. Missing or contradictory proof remains blocked; neither raw
+history nor unrelated creative metrics are changed.
+
+**Version, compatibility, rollback.** The integrated D109/D111 shared
+`ENGINE_VERSION` is `v3-2026-09-24-creative-purchase-cut-proof` for changed
+creative decisions;
+old snapshots retain their original epoch. The purchase sidecar is additive,
+V1 funnel stamps remain readable, and V1/operator/V2 views are unchanged.
+Native Ad parser and its engine epoch are D108's separate contract. Revert
+the writer, repair and reader together, mint a new creative epoch, and keep
+old evidence rows for explanation. Validate the exact source and decision
+chain on representative Grandmix and TheSwaf historical cutoffs before
+release; production regeneration under the new epoch is separately required.
+
+## D112 — Keep empty creative lifecycle materialization honest (2026-09-24)
+
+**Decision.** A successful creative lifecycle run with zero admitted rows is an
+explicit `held_no_admissible_rows` result under
+`engine-v3-creative-lifecycle-materialization.v1`. It is not a measured
+absence of fatigue or an available Refresh pipeline. The creative lifecycle
+read model selects rows only from the latest successful same-epoch job at the
+evaluation cutoff, and only when that run carries this materialization contract
+in its job metadata. A legacy or later unversioned success cannot make retained
+rows look current. A later successful empty job therefore suppresses older
+retained rows without deleting them. Health reports `insufficient` and names
+the missing source-verified creative lifecycle population; native Ad lifecycle
+evidence remains an independently evaluated path.
+
+**Purchase and window basis.** The D103 90-day source/config/membership
+closure remains required. The lifecycle job reads D109 stamped creative-day
+purchase evidence through complete-or-NULL 7-, 28- and 90-day windows. A
+delivered unverified day cannot silently become zero, a winning historical
+purchase baseline, or purchase-derived fatigue. Measured zero stays zero.
+No delivered day in a 7- or 28-day range yields NULL, not a measured zero.
+Independent CTR and funnel stages retain their own measurement contracts.
+History older than the closed 90-day range cannot supply winner memory. No
+threshold is shortened to create output.
+
+**Evidence and release.** Grandmix and TheSwaf contain 4,041 / 3,102
+spending creative-days across 162 / 297 creatives in the 90-day source window.
+Live as-of 2026-09-24 lifecycle jobs show 161 / 297 rows under the older
+September 21 engine epoch; those rows cannot prove current D103 admission.
+At as-of 2026-09-23 and knowledge cutoff 2026-09-24T13:40Z, a read-only
+production D103 query admitted the latest day for 52 / 58 creatives but a
+complete 90-day window for zero in both businesses while
+source-published membership/config coverage and D109 purchase stamps remain
+incomplete. The separately captured 2026-09-23 campaign-role authority has
+5 / 9 rows; lifecycle absence does not mean all roles
+are unknown. Zero current creative lifecycle rows are an expected hold, not a
+positive recovery claim. Real PostgreSQL fixtures prove
+both a source-complete materialized case and a delivered unstamped purchase
+day that remains NULL/unknown. The latest-success read-model fixture proves a
+later zero-row run hides an older lifecycle overlay. Recompute only after
+source lineage repair, then compare exact-epoch materialization and served
+native/creative decisions. Historical V1/operator/V2 records stay readable.
+
+**Rollback.** Revert the lifecycle writer/read-model pair and mint a new
+materialization contract for any semantic replacement. Retained lifecycle
+rows and earlier decision snapshots are not rewritten or deleted.

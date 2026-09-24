@@ -90,7 +90,7 @@ describe("the creative evidence drawer states the held verdict", () => {
     const { container } = mount(heldRefreshDecision());
     const held = container.querySelector("[data-creative-evidence-held-verdict]");
     expect(held).not.toBeNull();
-    expect(held?.textContent).toContain("Recommendation awaiting review: Refresh creative");
+    expect(held?.textContent).toContain("Recommendation on hold: Refresh creative");
     // The engine's own token never reaches a pixel.
     expect(container.textContent).not.toContain(HELD_RESOLUTION_CODE);
     expect(held?.textContent).not.toContain("refresh");

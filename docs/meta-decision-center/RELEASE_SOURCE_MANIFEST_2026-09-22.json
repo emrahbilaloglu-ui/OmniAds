@@ -1,5 +1,5 @@
 {
-  "manifestHash": "16f23b7434f7e0c55102bc0a55f48250f68137a78ccb3b136eb0c3e167e546d9",
+  "manifestHash": "1410250fdb4c17a8da7ce726d551989834fd1bc0f3a2650d0b441b81cf2edf39",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -172,11 +172,11 @@
     },
     {
       "path": "app/api/meta/ads/series/route.test.ts",
-      "sha256": "33cdd744d4c667a0c616f4202a22f0f3d493d7bacebbd716949353300379d212"
+      "sha256": "0ff9d63a3a17d498c0f17bade1f88616575c4f700e4c89b282bfc44f86d1175a"
     },
     {
       "path": "app/api/meta/ads/series/route.ts",
-      "sha256": "e482f34849bdf50de85d871d0ab68bc0408236bfc3c403096c77cd39fea2cb9d"
+      "sha256": "d7033f84a45dad48403e251d3c24ad61981279fee207a7ed9af10a7bb60da027"
     },
     {
       "path": "app/api/meta/anchor-scope-transition-serve.db.test.ts",
@@ -332,11 +332,11 @@
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.test.ts",
-      "sha256": "c71c9e1b2231b32deaa9fb92f04251304e7eb1b94c988f4b1febe189d433ea37"
+      "sha256": "3459bd994c1caebc5edcc66e9f86bad21d18af07c304c3a03175ea6926f93179"
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.ts",
-      "sha256": "2b2f6e9ca3801ea8627a3feba1114db6eda6278d7f579c7335e4dc12c63b7247"
+      "sha256": "6547e195a366e737e4135d39d611e0150fb04a80f297eaa6d15907e1aeedb378"
     },
     {
       "path": "components/creatives/creative-evidence-window-wiring.test.ts",
@@ -400,23 +400,23 @@
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "c9d3615b566582f004654eee34d30b21b9b4ed52efdab3265ff269797c0d0156"
+      "sha256": "b7aa1ad9b0b77a435ebb4f442b6a7e1adff7dbdb141cfd7ba19335958a69a10d"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "6dfb32239bdf7154e7dfa51081333eb5f771c096ea5044788ae98c15be21d632"
+      "sha256": "a45a63fc1127e37c64df1e602b8e596edf5b202f85ecf383a29bff9b17e8ee1c"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
-      "sha256": "fef70b354283614a6d68fae5a1d3ab4f8222cc7ef4cac5faa1cd96addc860767"
+      "sha256": "85866a41c48157234b02bacf3a30a7cfddc8c8371fddc36aa23f74aa509dfb80"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
-      "sha256": "5715fabe052a794156fd9a35a3970a7855e847456d521be5025945304ab741db"
+      "sha256": "f844bd37dd6ef54e0ba450e009ec9b3ecea59f8aa6020ea1bdc92daf17963b93"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
-      "sha256": "c619516c180a3ab81f22bcd59c9f96aec85860606176553d8c51f6e28a60942f"
+      "sha256": "6be5629cfa8d2067e25537ed892b96f93ae0ab199dacf6c5158777fdacaefe1f"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCreativeThumbnail.test.tsx",
@@ -496,11 +496,11 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "9a2ef2f60d869a4d118d03f8fc3e0afca8cee9bf523c81d8091e99c7369942b7"
+      "sha256": "ca1af2212f12fe0796ed24347439015cb20f6b23af5c758d986b86a70874699d"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
-      "sha256": "c6616111c76e7f195ac75bface3e7079fe8f20957d61cdc68182cc33c0d532eb"
+      "sha256": "a9039a83c496eab59120332dafe07c59df91b719ed58f6f9b570d2dc51431b95"
     },
     {
       "path": "components/meta/redesign/MetaUpperFunnelInformationalCard.test.tsx",
@@ -1408,7 +1408,7 @@
     },
     {
       "path": "lib/meta/decision-ctr-scalar-units.test.ts",
-      "sha256": "3ccccc1e7b1056f6a1603145370ca38f487a305f8bd372cec267edcbac2dc8aa"
+      "sha256": "946f46f500e02cf7009b01a317401fc9acb36e4104a649f74d20811e05823af0"
     },
     {
       "path": "lib/meta/decision-job-marker.ts",
@@ -1616,7 +1616,7 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "0f0c5fc1b8608e5cdaa408c26c39f5da9706c81754137ac28c01c09f710f4c77"
+      "sha256": "138980ef28570045e567df4c4ee134b19bdbb83843c6b9fd66e0732b44229c43"
     },
     {
       "path": "lib/meta/write-safety-contract.test.ts",

@@ -2275,16 +2275,19 @@ export function buildCreativeEvidenceWindowExactViewModel(
     !decisionPerformanceMissing &&
     finite(decision?.metrics.purchases ?? canonical?.metrics.purchases) !== null;
   const periodLabels: CreativeEvidenceWindowExactPeriodLabels = {
-    decision: "28d",
+    // The native Ad snapshot currently records its as-of day but not the
+    // admitted economic start/end dates. D107 may shorten that window, so a
+    // fixed 28d would falsely describe the metric behind this verdict.
+    decision: "period unavailable",
     series: selectedPeriod,
     funnel: hasAdRows
       ? `${selectedPeriod} · all ads using this creative`
       : hasDecisionPurchases
-        ? "decision 28d · purchases only"
+        ? "decision period unavailable · purchases only"
         : selectedPeriod,
     adSets: hasAdRows
       ? `ROAS per ad set · ${selectedPeriod} · all ads using this creative`
-      : "Ad set context · decision 28d metrics when available",
+      : "Ad set context · decision period unavailable metrics when available",
   };
   const adSets = buildAdSets({
     rows: input.adRows,

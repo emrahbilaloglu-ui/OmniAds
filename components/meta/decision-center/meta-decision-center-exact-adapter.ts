@@ -49,6 +49,7 @@ import type {
 import { canCreateBrief } from "@/lib/zero-base/creative/studio-adapters";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
 import { adPerformanceAvailability } from "@/lib/meta/ad-performance-availability";
+import type { MetaAdCtrObservation } from "@/app/api/meta/ads/series/route";
 
 const EM_DASH = "—";
 
@@ -143,6 +144,8 @@ export interface MetaDecisionCenterExactAdapterOverrides {
    * make. An ad with no entry keeps the honest empty path.
    */
   creativeCtrSeriesByAdId?: ReadonlyMap<string, readonly number[]>;
+  /** Finalized Ad-day facts for display only, never decision authority. */
+  creativeCtrObservationByAdId?: ReadonlyMap<string, MetaAdCtrObservation>;
 }
 
 export interface MetaDecisionCenterExactAdapterCallbacks {
@@ -2721,6 +2724,7 @@ function creativeRows(input: {
   sourceDegraded: boolean;
   fallbackCurrency: string | null;
   ctrSeriesByAdId: ReadonlyMap<string, readonly number[]>;
+  ctrObservationByAdId: ReadonlyMap<string, MetaAdCtrObservation>;
   callbacks: MetaDecisionCenterExactAdapterCallbacks;
 }): MetaDecisionCenterExactCreativeDecisionViewModel[] {
   return input.decisions.map((decision) => {
@@ -2794,6 +2798,23 @@ function creativeRows(input: {
     // canonical evidence), never the numeric sentinel, controls presence.
     const adPerformanceMissing =
       adPerformanceAvailability(decision, canonicalDecision) !== "observed";
+    const candidateCtrObservation = input.ctrObservationByAdId.get(decision.adId);
+    // Both identities and reporting dates must be exact; a later warehouse
+    // read is a supplemental observation, never a backfill into this verdict.
+    const ctrObservation = candidateCtrObservation?.adId === decision.adId &&
+      candidateCtrObservation.providerAccountId === decision.providerAccountId &&
+      candidateCtrObservation.requestedEndDate === decision.snapshotAsOf &&
+      candidateCtrObservation.requestedStartDate <= candidateCtrObservation.requestedEndDate
+        ? candidateCtrObservation
+        : null;
+    const observedCtrValid = ctrObservation?.state === "observed" &&
+      finite(ctrObservation.ctrPercent) !== null &&
+      ctrObservation.ctrPercent! >= 0;
+    const observedDailyCtr = observedCtrValid && ctrObservation.dailyCtr.every((point) =>
+      point.date >= ctrObservation.requestedStartDate &&
+      point.date <= ctrObservation.requestedEndDate &&
+      finite(point.ctrPercent) !== null && point.ctrPercent >= 0,
+    ) ? ctrObservation.dailyCtr.map((point) => point.ctrPercent) : [];
     const held = heldCreativeVerdict(decision, canonicalDecision);
     /*
      * THE PUBLISHED LABEL KEEPS ITS WORDS AND LOSES ITS APPROVAL COLOUR.
@@ -2912,6 +2933,19 @@ function creativeRows(input: {
         adPerformanceMissing || finite(decision.metrics.ctr) === null
           ? null
           : formatPercent(decision.metrics.ctr),
+      observedCtrValue: ctrObservation
+        ? observedCtrValid ? formatPercent(ctrObservation.ctrPercent) : EM_DASH
+        : null,
+      observedCtrContext: ctrObservation ? {
+        accountId: ctrObservation.providerAccountId,
+        adId: ctrObservation.adId,
+        startDate: ctrObservation.requestedStartDate,
+        endDate: ctrObservation.requestedEndDate,
+        measuredDays: ctrObservation.measuredDays,
+        state: ctrObservation.state,
+        warehouseUpdatedAt: ctrObservation.lastWarehouseUpdateAt,
+      } : null,
+      observedSparkPath: observedCtrValid ? sparkPath(observedDailyCtr) : null,
       money: moneyAndRoas({
         spend: adPerformanceMissing ? null : decision.metrics.spend,
         roas: adPerformanceMissing ? null : decision.metrics.roas,
@@ -5160,6 +5194,7 @@ export function buildMetaDecisionCenterExactViewModel(
       META_DECISION_SOURCE_DEGRADED_REASON,
     fallbackCurrency,
     ctrSeriesByAdId: overrides.creativeCtrSeriesByAdId ?? new Map(),
+    ctrObservationByAdId: overrides.creativeCtrObservationByAdId ?? new Map(),
     callbacks,
   });
 

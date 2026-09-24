@@ -1105,6 +1105,26 @@
   height: 24px;
 }
 
+.creativeObservedCtrBlock {
+  width: 180px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.creativeObservedCtrBlock svg {
+  display: block;
+  width: 100%;
+  height: 24px;
+}
+
+.creativeObservedCtrDetail {
+  margin: 3px 0 0;
+  color: #68707f;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .creativeMoneyBlock {
   min-width: 0;
   flex: 1.1;
@@ -1142,6 +1162,10 @@
   }
 
   .creativeSparkBlock {
+    width: auto;
+  }
+
+  .creativeObservedCtrBlock {
     width: auto;
   }
 

@@ -192,4 +192,68 @@ describe("GET /api/meta/ads/series", () => {
     expect(payload.series.find((item) => item.adId === "ad_1")?.points[0]?.linkClicks).toBe(10);
     expect(payload.series.find((item) => item.adId === "ad_2")?.points[0]?.linkClicks).toBeNull();
   });
+
+  it("reads a full creative queue once at exact account/date scope and separates observed, zero, missing and incomplete CTR", async () => {
+    const adIds = Array.from({ length: 60 }, (_, index) => `ad_${index + 1}`);
+    vi.mocked(warehouse.getMetaAdDailySeries).mockResolvedValue([
+      { adId: "ad_1", date: "2026-08-01", impressions: 100, clicks: 2,
+        linkClicks: 1, reach: 100, frequency: 1, ctr: 2,
+        sourceUpdatedAt: "2026-08-17T09:00:00Z" },
+      { adId: "ad_1", date: "2026-08-02", impressions: 300, clicks: 15,
+        linkClicks: 8, reach: 200, frequency: 1.5, ctr: 5,
+        sourceUpdatedAt: "2026-08-18T10:00:00Z" },
+      { adId: "ad_2", date: "2026-08-02", impressions: 1000, clicks: 0,
+        linkClicks: 0, reach: 800, frequency: 1.25, ctr: 0 },
+      { adId: "ad_3", date: "2026-08-01", impressions: 200, clicks: 2,
+        linkClicks: 2, reach: 180, frequency: 1.1, ctr: 1 },
+      { adId: "ad_3", date: "2026-08-02", impressions: 300, clicks: 0,
+        linkClicks: null, reach: 260, frequency: 1.2, ctr: null },
+    ]);
+    const response = await GET(url(
+      `businessId=biz_1&providerAccountId=act_1&adIds=${adIds.join(",")}` +
+      "&start=2026-07-20&end=2026-08-16&ctrEvidence=1",
+    ));
+    expect(response.status).toBe(200);
+    expect(warehouse.getMetaAdDailySeries).toHaveBeenCalledTimes(1);
+    expect(warehouse.getMetaAdDailySeries).toHaveBeenCalledWith({
+      businessId: "biz_1", providerAccountIds: ["act_1"], adIds,
+      startDate: "2026-07-20", endDate: "2026-08-16", finalizedOnly: true,
+    });
+    const payload = (await response.json()) as {
+      ctrEvidence: Array<{
+        adId: string; state: string; ctrPercent: number | null;
+        measuredDays: number; lastWarehouseUpdateAt: string | null;
+      }>;
+    };
+    expect(payload.ctrEvidence).toHaveLength(60);
+    expect(payload.ctrEvidence[0]).toMatchObject({
+      adId: "ad_1", state: "observed", measuredDays: 2,
+      lastWarehouseUpdateAt: "2026-08-18T10:00:00Z",
+    });
+    expect(payload.ctrEvidence[0]?.ctrPercent).toBeCloseTo(4.25);
+    expect(payload.ctrEvidence[1]).toMatchObject({
+      adId: "ad_2", state: "observed", ctrPercent: 0, measuredDays: 1,
+    });
+    expect(payload.ctrEvidence[2]).toMatchObject({
+      adId: "ad_3", state: "incomplete", ctrPercent: null, measuredDays: 2,
+    });
+    expect(payload.ctrEvidence[59]).toMatchObject({
+      adId: "ad_60", state: "missing", ctrPercent: null, measuredDays: 0,
+    });
+  });
+
+  it("refuses a CTR evidence read for an unassigned account", async () => {
+    const response = await GET(url(`${BASE}&ctrEvidence=1&providerAccountId=act_other`));
+    expect(response.status).toBe(403);
+    expect(warehouse.getMetaAdDailySeries).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid report dates before the CTR evidence warehouse read", async () => {
+    const response = await GET(url(
+      "businessId=biz_1&providerAccountId=act_1&adIds=ad_1" +
+      "&start=2026-02-30&end=2026-03-01&ctrEvidence=1",
+    ));
+    expect(response.status).toBe(400);
+    expect(warehouse.getMetaAdDailySeries).not.toHaveBeenCalled();
+  });
 });

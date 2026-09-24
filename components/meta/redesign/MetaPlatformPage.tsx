@@ -24,6 +24,7 @@ import {
 import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import { addDaysToIsoDate } from "@/lib/meta/history";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
+import type { MetaAdCtrObservation } from "@/app/api/meta/ads/series/route";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import {
   META_DECISIONS_AD_CANDIDATE_LIMIT,
@@ -2663,55 +2664,44 @@ export async function fetchCreativeEvidenceAdRows(input: {
 }
 
 /**
- * The daily CTR / frequency trail behind the two sparkline cards.
- *
- * `meta_ad_daily` has stored date + ad_id + link_clicks + frequency all along —
- * indexed on (ad_id, date DESC) — but nothing read it as a series, so both
- * cards drew an empty path. `/api/meta/ads/series` is that read path and keeps
- * its own `requireBusinessAccess` gate.
+ * One bounded, account-exact read for supplemental Ad-day observations across
+ * all served creative rows. These facts are not the native decision's admitted
+ * economic window and never feed a verdict or action.
  */
-/**
- * The same daily trail, kept per ad, for the creative queue's row sparklines.
- *
- * The reference draws a CTR spark on every creative row and the adapter had no
- * series to give it, so each row rendered an empty box. The merged series the
- * evidence window uses would draw every row the same shape, so this asks the
- * route to group by ad. Capped by the route at 25 ads.
- */
-async function fetchMetaQueueCtrSeries(input: {
+async function fetchMetaQueueCtrEvidence(input: {
   businessId: string;
+  providerAccountId: string;
   adIds: string[];
   start: string;
   end: string;
-}): Promise<Map<string, number[]>> {
+}): Promise<Map<string, MetaAdCtrObservation>> {
   if (input.adIds.length === 0) return new Map();
-  const query = new URLSearchParams({
-    businessId: input.businessId,
-    adIds: input.adIds.join(","),
-    start: input.start,
-    end: input.end,
-    groupBy: "ad",
-  });
-  const response = await fetch(`/api/meta/ads/series?${query.toString()}`, {
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error("The per-ad daily series is unavailable.");
-  const payload = (await response.json()) as {
-    series?: Array<{ adId: string; points?: Array<{ ctr?: number | null }> }>;
-  };
-  const byAdId = new Map<string, number[]>();
-  for (const entry of payload.series ?? []) {
-    // The card is captioned "CTR · 28d" and the row beside it shows the
-    // engine's `ctr_28d`, so the trail has to be the same all-clicks CTR.
-    // `linkCtr` is a different measure and is currently 0 on every stored row.
-    const values = (entry.points ?? [])
-      .map((point) => point.ctr)
-      .filter(
-        (value): value is number =>
-          typeof value === "number" && Number.isFinite(value),
-      );
-    // A single point is not a trend and the spark helper refuses it anyway.
-    if (values.length >= 2) byAdId.set(entry.adId, values);
+  const requestedIds = new Set(input.adIds);
+  const byAdId = new Map<string, MetaAdCtrObservation>();
+  // The normal 60-card queue is one SQL read. The optional 300-card view uses
+  // at most three bounded reads, never one request per card.
+  for (let offset = 0; offset < input.adIds.length; offset += 120) {
+    const query = new URLSearchParams({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      adIds: input.adIds.slice(offset, offset + 120).join(","),
+      start: input.start,
+      end: input.end,
+      ctrEvidence: "1",
+    });
+    const response = await fetch(`/api/meta/ads/series?${query.toString()}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("The finalized Ad-day CTR read is unavailable.");
+    const payload = (await response.json()) as { ctrEvidence?: MetaAdCtrObservation[] };
+    for (const entry of payload.ctrEvidence ?? []) {
+      if (requestedIds.has(entry.adId) &&
+          entry.providerAccountId === input.providerAccountId &&
+          entry.requestedStartDate === input.start &&
+          entry.requestedEndDate === input.end) {
+        byAdId.set(entry.adId, entry);
+      }
+    }
   }
   return byAdId;
 }
@@ -4210,12 +4200,11 @@ export function MetaPlatformPage({
   ]);
 
   /**
-   * The CTR trail behind every creative row's sparkline.
+   * Supplemental CTR observations behind the creative rows.
    *
-   * Keyed on the served ad ids so it refetches when the queue changes and not
-   * when the operator types in the search box. Bounded to the route's own
-   * 25-ad cap; rows beyond it keep the honest empty path rather than borrowing
-   * another row's shape.
+   * Keyed on the served account, ads and reporting dates. The route reads all
+   * 60 served ads in one bounded SQL query, and rejects an over-cap request
+   * instead of silently omitting later cards.
    */
   const queueCreativeAdIds = Array.from(
     new Set(
@@ -4223,31 +4212,33 @@ export function MetaPlatformPage({
         .map((decision) => decision.adId?.trim())
         .filter((adId): adId is string => Boolean(adId)),
     ),
-  ).slice(0, 25);
-  // The row's CTR value is the decision snapshot's 28-day metric. Fetch the
-  // trail over those same 28 report days, even when the page filter is 7d.
+  );
+  // A separately named 28-day reporting window. D107 can admit a shorter
+  // decision period, so this window is never described as decision evidence.
   const queueCtrWindow = queueCtrTrailWindow(
     workspaceQuery.data?.os?.source?.snapshotAsOf,
   );
-  const queueCtrSeriesQuery = useQuery({
+  const queueCtrEvidenceQuery = useQuery({
     queryKey: [
-      "meta-queue-ctr-series",
+      "meta-queue-ctr-evidence",
       businessId,
+      providerAccountId,
       queueCtrWindow?.start,
       queueCtrWindow?.end,
       queueCreativeAdIds.join(","),
     ],
-    enabled: Boolean(businessId) && queueCreativeAdIds.length > 0 &&
+    enabled: Boolean(businessId && providerAccountId) && queueCreativeAdIds.length > 0 &&
       queueCtrWindow !== null,
     // `enabled` gates scheduling only; a manual refetch still runs this. With
     // no served snapshot date there is no 28-day window to request, so fail
     // as a query error instead of dereferencing a null window.
     queryFn: async () => {
       if (queueCtrWindow === null) {
-        throw new Error("The CTR trail window needs the served snapshot date.");
+        throw new Error("The CTR reporting window needs the served snapshot date.");
       }
-      return fetchMetaQueueCtrSeries({
+      return fetchMetaQueueCtrEvidence({
         businessId,
+        providerAccountId: providerAccountId!,
         adIds: queueCreativeAdIds,
         start: queueCtrWindow.start,
         end: queueCtrWindow.end,
@@ -5458,7 +5449,7 @@ export function MetaPlatformPage({
           archive: exactArchiveRows,
           creatives: exactCreativeDecisions,
           canonicalDecisions: canonicalDecisionEnvelopes,
-          creativeCtrSeriesByAdId: queueCtrSeriesQuery.data,
+          creativeCtrObservationByAdId: queueCtrEvidenceQuery.data,
           deferredCount,
         },
         callbacks: {

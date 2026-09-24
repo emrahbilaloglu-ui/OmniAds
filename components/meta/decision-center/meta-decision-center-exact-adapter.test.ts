@@ -731,6 +731,61 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     expect(unresolved.creativeDecisions?.[0]?.thumbnailRecoveryUrl).toBeNull();
   });
 
+  it("shows source-backed Grandmix and TheSwaf Ad-day CTR separately from decision authority", () => {
+    const grandmix = creativeFixture({
+      id: "grandmix", adId: "ad_gm", lane: "blocked",
+      adPerformanceAvailability: "unavailable",
+      metrics: { ...creativeFixture().metrics, ctr: null },
+    });
+    const theSwaf = creativeFixture({
+      id: "theswaf", adId: "ad_ts", lane: "blocked",
+      metrics: { ...creativeFixture().metrics, ctr: null },
+    });
+    const observed = (adId: string, ctrPercent: number) => ({
+      adId, providerAccountId: "act_1",
+      requestedStartDate: "2026-07-20", requestedEndDate: "2026-08-16",
+      observedStartDate: "2026-08-01", observedEndDate: "2026-08-02",
+      measuredDays: 2, state: "observed" as const, ctrPercent,
+      dailyCtr: [
+        { date: "2026-08-01", ctrPercent },
+        { date: "2026-08-02", ctrPercent },
+      ],
+      lastWarehouseUpdateAt: "2026-08-17T10:00:00Z",
+    });
+    const workspace = workspaceFixture({
+      os: fullOs({ creatives: [grandmix, theSwaf] }),
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace,
+      overrides: { creativeCtrObservationByAdId: new Map([
+        ["ad_gm", observed("ad_gm", 4.25)],
+        ["ad_ts", observed("ad_ts", 0)],
+      ]) },
+    });
+    const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
+    expect(rows.get("grandmix")?.ctrValue).toBeNull();
+    expect(rows.get("grandmix")?.observedCtrValue).toBe("4.25%");
+    expect(rows.get("grandmix")?.observedCtrContext).toMatchObject({
+      accountId: "act_1", adId: "ad_gm", startDate: "2026-07-20",
+      endDate: "2026-08-16", measuredDays: 2,
+      warehouseUpdatedAt: "2026-08-17T10:00:00Z",
+    });
+    expect(rows.get("grandmix")?.observedSparkPath).toBeTruthy();
+    expect(rows.get("theswaf")?.observedCtrValue).toBe("0.00%");
+    expect(rows.get("theswaf")?.actionLabel).toBe(
+      buildMetaDecisionCenterExactViewModel({ workspace }).creativeDecisions?.find((row) => row.id === "theswaf")?.actionLabel,
+    );
+
+    const wrongScope = buildMetaDecisionCenterExactViewModel({
+      workspace,
+      overrides: { creativeCtrObservationByAdId: new Map([
+        ["ad_gm", { ...observed("ad_gm", 4.25), providerAccountId: "act_other" }],
+        ["ad_ts", { ...observed("ad_ts", 0), requestedEndDate: "2026-08-15" }],
+      ]) },
+    });
+    expect(wrongScope.creativeDecisions?.every((row) => row.observedCtrValue === null)).toBe(true);
+  });
+
   it("puts missing ad metrics ahead of campaign-role copy and does not invent an out-of-scope cause", () => {
     const noMetrics = creativeFixture({
       id: "no_metrics",

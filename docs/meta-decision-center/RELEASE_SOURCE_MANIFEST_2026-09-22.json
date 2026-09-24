@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d3cafb442cacf57670c3c4fba123c551e7dd5a8e31209851b5e2edb2e8f31a69",
+  "manifestHash": "cf2ac8f99a1ec59da7acb80b32211dd652076c7d68834c15591ac9f8ab436d3d",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -544,7 +544,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "506849cc74d04c2b6dbec108c74df5d1f1eaf698bfe730955b34e74908b344d0"
+      "sha256": "d18424450d0848acdb4e2a2d8c350ddd578d23fb50eb95afe12fddc1f5935f96"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -608,11 +608,11 @@
     },
     {
       "path": "lib/api/meta.test.ts",
-      "sha256": "bc07035197f919e16394446057af5c57a44af1ce40c9fc589be648731c574a79"
+      "sha256": "6eda0216359df68389a0a8146e631e9bbf4247ace6c7bf024a613f4633a3b98c"
     },
     {
       "path": "lib/api/meta.ts",
-      "sha256": "28d0efdc2665cc2608b6ab4d52d4ccd778d4fbdeee10cb34a3e8b033ec565508"
+      "sha256": "6854dcd6fd3377f860c92a0c03a82d0e60f77af2a01ddc7ba75f22a9f3da6e04"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-cpa-identity-projection.test.ts",

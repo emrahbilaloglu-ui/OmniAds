@@ -1938,13 +1938,13 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     );
   });
 
-  it("publishes canonical authoritative truth and records totals_mismatch when source spend drifts", async () => {
+  it("preserves the prior authoritative population and pointer when source spend drifts", async () => {
     process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
 
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights") && url.includes("level=account")) {
-        return new Response(JSON.stringify({ data: [{ spend: "9.00" }] }), {
+        return new Response(JSON.stringify({ data: [{ spend: "210.28" }] }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -1960,7 +1960,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
                 adset_name: "Adset 1",
                 ad_id: "ad-1",
                 ad_name: "Ad 1",
-                spend: "12.50",
+                spend: "209.79",
                 impressions: "100",
                 clicks: "4",
                 reach: "90",
@@ -2050,10 +2050,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         freshStart: true,
         source: "manual_refresh",
       }),
-    ).resolves.toMatchObject({
-      accountRowsWritten: 1,
-      campaignRowsWritten: 1,
-    });
+    ).rejects.toThrow("meta_authoritative_totals_mismatch:repair_required");
 
     expect(
       warehouse.supersedeMetaRawSnapshotsForPartition,
@@ -2066,7 +2063,20 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       partitionId: "partition-failed",
     });
     expect(warehouse.listMetaRawSnapshotsForRun).not.toHaveBeenCalled();
-    expect(warehouse.publishMetaAuthoritativeSliceVersion).toHaveBeenCalled();
+    expect(warehouse.replaceMetaAccountDailySlice).not.toHaveBeenCalled();
+    expect(warehouse.replaceMetaCampaignDailySlice).not.toHaveBeenCalled();
+    expect(warehouse.replaceMetaAdSetDailySlice).not.toHaveBeenCalled();
+    expect(warehouse.replaceMetaAdDailySlice).not.toHaveBeenCalled();
+    expect(
+      warehouse.publishMetaAuthoritativeSliceVersion,
+    ).not.toHaveBeenCalled();
+    expect(warehouse.updateMetaAuthoritativeSliceVersion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: "repair_required",
+        validationStatus: "failed",
+        status: "failed",
+      }),
+    );
     expect(
       warehouse.createMetaAuthoritativeReconciliationEvent,
     ).toHaveBeenCalledWith(
@@ -2074,10 +2084,12 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         eventKind: "totals_mismatch",
         result: "repair_required",
         detailsJson: expect.objectContaining({
-          canonicalPublished: true,
-          sourceSpend: 9,
-          rebuiltAccountSpend: 12.5,
-          rebuiltCampaignSpend: 12.5,
+          canonicalPublished: false,
+          sourceSpend: 210.28,
+          rebuiltAccountSpend: 209.79,
+          rebuiltCampaignSpend: 209.79,
+          rebuiltAdsetSpend: 209.79,
+          rebuiltAdSpend: 209.79,
         }),
       }),
     );
@@ -2215,6 +2227,19 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       }),
     );
     expect(warehouse.publishMetaAuthoritativeSliceVersion).toHaveBeenCalled();
+    const validationCall = vi
+      .mocked(warehouse.createMetaAuthoritativeReconciliationEvent)
+      .mock.calls.findIndex(
+        ([event]) => event.eventKind === "validation_passed",
+      );
+    expect(validationCall).toBeGreaterThanOrEqual(0);
+    expect(
+      vi.mocked(warehouse.createMetaAuthoritativeReconciliationEvent).mock
+        .invocationCallOrder[validationCall],
+    ).toBeLessThan(
+      vi.mocked(warehouse.publishMetaAuthoritativeSliceVersion).mock
+        .invocationCallOrder[0],
+    );
   });
 
   it("rejects positive-spend finalized days when campaign rows are empty", async () => {

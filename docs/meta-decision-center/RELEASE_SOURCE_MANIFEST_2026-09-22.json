@@ -1,5 +1,5 @@
 {
-  "manifestHash": "b583fb62a689594775ee13918b8bf423112a951b6a98adf26e6ccaed07daaf01",
+  "manifestHash": "ee5b39d28b7bdec31f6072283645cf48e8a81db912e20905b7acd9b79266e29c",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -636,7 +636,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/ad-operator-response-detection.test.ts",
-      "sha256": "35c2598ac571b94b51137955453c0a6dceed030a7be413599fa7ecae7f4e2284"
+      "sha256": "13d62ee4bc81d8683da4f98274b096c1ebb771b5bd1134ddf921d53e667ed705"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/aov-native-meta-basis-authority.test.ts",

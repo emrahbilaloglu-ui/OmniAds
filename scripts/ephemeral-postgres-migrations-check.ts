@@ -4371,6 +4371,12 @@ async function main() {
     await runChildScript(
       repoRoot,
       databaseUrl,
+      path.join("scripts", "ephemeral-postgres-meta-historical-slice-repair-seam-child.ts"),
+      "Meta historical source-slice repair dry-run/apply/readback DB seam check",
+    );
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
       path.join("scripts", "ephemeral-postgres-creative-brief-seam-child.ts"),
       "creative brief DB seam check",
     );

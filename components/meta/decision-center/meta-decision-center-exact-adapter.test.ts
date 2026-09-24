@@ -710,6 +710,27 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     expect(onCreativeReview).toHaveBeenLastCalledWith(creative, canonical);
   });
 
+  it("binds thumbnail recovery to the served business, account, and numeric creative", () => {
+    const creative = creativeFixture({
+      providerAccountId: "act_123456",
+      creativeId: "987654",
+      thumbnailUrl: "https://meta.example/expired.jpg",
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ os: fullOs({ creatives: [creative] }) }),
+    });
+    expect(model.creativeDecisions?.[0]?.thumbnailRecoveryUrl).toBe(
+      "/api/meta/creative-thumbnail?businessId=biz_1&providerAccountId=act_123456&creativeId=987654",
+    );
+    expect(model.creativeGroups?.flatMap((group) => group.rows)[0]?.thumbnailRecoveryUrl).toBe(
+      model.creativeDecisions?.[0]?.thumbnailRecoveryUrl,
+    );
+    const unresolved = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ os: fullOs({ creatives: [creativeFixture()] }) }),
+    });
+    expect(unresolved.creativeDecisions?.[0]?.thumbnailRecoveryUrl).toBeNull();
+  });
+
   it("puts missing ad metrics ahead of campaign-role copy and does not invent an out-of-scope cause", () => {
     const noMetrics = creativeFixture({
       id: "no_metrics",

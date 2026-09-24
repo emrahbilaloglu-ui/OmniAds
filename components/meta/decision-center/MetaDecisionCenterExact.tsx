@@ -8,6 +8,7 @@ import {
 } from "@/components/zero-base/i18n/copy-provider";
 
 import styles from "./MetaDecisionCenterExact.module.css";
+import { MetaDecisionCreativeThumbnail } from "./MetaDecisionCreativeThumbnail";
 import type { MetaBudgetDryRunPanel } from "@/lib/meta/budget-dry-run-panel";
 import type { MetaBudgetDecisionEvidenceByDirection } from "@/lib/meta/budget-decision-evidence-panel";
 
@@ -287,6 +288,8 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   name?: MetaDecisionCenterExactDisplayValue;
   kindShort?: MetaDecisionCenterExactDisplayValue;
   thumbnailUrl?: string | null;
+  /** Authenticated, account-scoped read path used only after a broken preview. */
+  thumbnailRecoveryUrl?: string | null;
   stripeA?: string | null;
   stripeB?: string | null;
   edgeTone?: MetaDecisionCenterExactTone;
@@ -1903,19 +1906,11 @@ function CreativeCard({
           backgroundImage: `repeating-linear-gradient(135deg,${stripeA},${stripeA} 8px,${stripeB} 8px,${stripeB} 16px)`,
         }}
       >
-        {row.thumbnailUrl ? (
-          // Meta CDN hosts vary by account; a native image keeps the existing
-          // striped fallback visible if the URL expires or fails to load.
-          <img
-            className={styles.creativeThumbImage}
-            src={row.thumbnailUrl}
-            alt=""
-            loading="lazy"
-            onError={(event) => {
-              event.currentTarget.style.display = "none";
-            }}
-          />
-        ) : null}
+        <MetaDecisionCreativeThumbnail
+          className={styles.creativeThumbImage}
+          thumbnailUrl={row.thumbnailUrl}
+          recoveryUrl={row.thumbnailRecoveryUrl}
+        />
         <span className={styles.creativeKind}>{display(row.kindShort)}</span>
       </span>
       <div className={styles.creativeIdentity}>

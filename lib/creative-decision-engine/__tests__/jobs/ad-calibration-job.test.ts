@@ -4068,7 +4068,13 @@ describe.runIf(postgresAvailable)(
         await pool.query(`UPDATE meta_raw_snapshots SET run_id='other-run' WHERE id=$1::uuid`, [sourceId]);
         expect(await read()).toMatchObject({verified: false, purchases: null});
         await pool.query(`UPDATE meta_raw_snapshots SET run_id='run-legacy-zero' WHERE id=$1::uuid`, [sourceId]);
-        await pool.query(`UPDATE meta_raw_snapshots SET partition_id=gen_random_uuid() WHERE id=$1::uuid`, [sourceId]);
+        const wrongDayPartition = await pool.query<{ id: string }>(`
+          INSERT INTO meta_sync_partitions
+            (business_id, provider_account_id, lane, scope, partition_date)
+          VALUES ($1, $2, 'core', 'account_daily', '2026-07-10'::date)
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID]);
+        await pool.query(`UPDATE meta_raw_snapshots SET partition_id=$2::uuid WHERE id=$1::uuid`,
+          [sourceId, wrongDayPartition.rows[0]!.id]);
         expect(await read()).toMatchObject({verified: false, purchases: null});
         await pool.query(`UPDATE meta_raw_snapshots SET partition_id=$2::uuid WHERE id=$1::uuid`,
           [sourceId, partition.rows[0]!.id]);

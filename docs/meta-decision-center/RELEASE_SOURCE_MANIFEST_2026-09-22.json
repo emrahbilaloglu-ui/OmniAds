@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d0a5476c32f74a0f5754b3d9e25f00c49480e4809cac8156779b1d59eb251098",
+  "manifestHash": "93099ba7ef3f1acbd6c2df5d1e778332f64e1664519630c97b304d985ece5bfd",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -396,15 +396,15 @@
     },
     {
       "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
-      "sha256": "ce48ad17930bdfc86355658197d53112db950eef2d4cf9a2a0a005cb15d0bce0"
+      "sha256": "ee532448589652b712d9c342f0759b2c31123e4e563b00e6666ba19abdc64b6c"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "b9c1d7d389f669feea53d8b9a142aa87b6b7b58c9e1fa604fd5ea545ee8a79dd"
+      "sha256": "03a9d8f83456a8834cd209e7c7fbbe5aa9a4292833fcb5e0bead8212a7ecdc82"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "2e607ed6750cf21d5f83a3353ed6d468c89dfd8c34d6781f12cc7bc3abe37386"
+      "sha256": "eca7eb7bfd82eb1755dcc7a985534deca570eb8652bdff110f42c4085acd7aa3"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",

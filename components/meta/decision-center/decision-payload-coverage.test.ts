@@ -3971,7 +3971,9 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // the placeholder rows that carried it in the queue stopped being built.
   // Current Meta-derived creative type fills a missing lifecycle format on the
   // creative badge, with surface-level proof and no stable badge element id.
-  CREATIVES: [0, 11],
+  // D107's three admitted-window caption leaves reach this surface; the
+  // unpublished observed-day count and protocol tag stay out of its model.
+  CREATIVES: [0, 14],
   // 94 -> 93: `firstBlocker.explanation` is no longer rendered (Round 8 item 7).
   // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
@@ -3982,7 +3984,8 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // Five more claims on this panel, none of them keyed to a stable row id:
   // the provenance band is one band, not a table of rows.
   // 12 -> 13: it arrived here. @see decisionAvailability above.
-  INSPECTOR: [2, 13],
+  // D107 adds two labelled inspector rows for economic and bridged days.
+  INSPECTOR: [4, 13],
   INVENTORY: [0, 14],
   KPI: [0, 22],
   NONSALES: [0, 1],
@@ -4138,7 +4141,9 @@ const NOWHERE_LEAVES = 378;
 // The presentation and priority v5/v6 tags now vary, and both still travel
 // inside that callback tuple without becoming buyer-facing claims: 65 -> 67.
 // The source clock still travels inside the unmodified creative callback.
-const NOWHERE_BUT_AT_THE_BOUNDARY = 68;
+// D107's observed-day count stays in the served review callback but is not
+// projected into the card or inspector, moving this count from 68 to 69.
+const NOWHERE_BUT_AT_THE_BOUNDARY = 69;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";

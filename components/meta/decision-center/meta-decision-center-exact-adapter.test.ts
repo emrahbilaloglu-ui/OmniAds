@@ -5299,7 +5299,9 @@ describe("the native economics caption claims no window it cannot substantiate",
         sourceSnapshotId: creative.sourceSnapshotId,
       },
     });
-    expect(model.creativeDecisions?.[0]?.moneyWindow).toMatchObject({
+    // The card consumes only these four fields. Keep the raw observation count
+    // and protocol version out of its view model and visible surface.
+    expect(model.creativeDecisions?.[0]?.moneyWindow).toEqual({
       startDate: "2026-08-10",
       endDate: "2026-08-16",
       economicDayCount: 4,

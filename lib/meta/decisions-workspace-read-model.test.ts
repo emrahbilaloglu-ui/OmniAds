@@ -5404,7 +5404,7 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
     );
   });
 
-  it("keeps pending hysteresis as the primary resolution while exposing the config gap", () => {
+  it("names a real config gap before pending hysteresis on a legacy role-first row", () => {
     const model = nativeModel([
       roleHeldCutRow("1200000000000009226", {
         config_authority_verified: false,
@@ -5413,8 +5413,13 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
     ]);
     const item = model.queue.adCandidates?.items[0];
     expect(item?.classification.resolution?.code).toBe(
-      "await_decision_confirmation",
+      "complete_hard_action_evidence",
     );
+    expect(item?.classification.resolution?.nextStep).toContain(
+      "consecutive engine confirmation",
+    );
+    expect(item?.classification.decisionState).toBe("blocked");
+    expect(item?.classification.buyerAction).toBeNull();
     expect(item?.classification.blockers.map((blocker) => blocker.code)).toContain(
       "config_source_authority",
     );

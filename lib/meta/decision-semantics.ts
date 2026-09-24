@@ -355,27 +355,6 @@ function resolutionForAuthorityBlocker(
       which is a presentation-contract decision of its own.
     */
     /*
-      A Cut still WAITING for its second evaluation is not a completed verdict.
-
-      Hysteresis publishes an unconfirmed hard label as "keep" with a
-      `pending_transition` badge and keeps the Cut only as the held action, and
-      the role guard stamps `campaign_context` on the same row. Without this
-      check the early return below served that row as "Cut Evidence Complete"
-      in the action lane and invited a manual pause — skipping the
-      two-evaluation rule the published label was still honouring. The
-      confirmation sentence is the truth for it, whatever the role.
-    */
-    if (codes.has("pending_transition")) {
-      return {
-        code: "await_decision_confirmation",
-        category: "system",
-        owner: "system",
-        label: "Hard Action Pending Confirmation",
-        nextStep:
-          "Wait for the required consecutive engine confirmation. The held Scale/Cut/Refresh verdict is visible, but no provider action is authorized yet.",
-      };
-    }
-    /*
       ADR D098 config hold, hidden under the role hold.
 
       The role guard stamps `campaign_context` inside the decision; the D098
@@ -387,10 +366,31 @@ function resolutionForAuthorityBlocker(
       economic day "cannot authorize a Cut … computed from mixed evidence".
       The engine's own recorded config evidence is consulted here instead of
       overwriting the persisted blocker. `null` (no recorded evidence) keeps the
-      previous behaviour.
+      previous behaviour. A pending transition also still needs the next
+      evaluation, but it cannot repair an unobserved configuration day.
     */
     if (heldAction === "cut" && configAuthorityVerified === false) {
-      return configSourceHeldResolution(held);
+      return configSourceHeldResolution(held, codes.has("pending_transition"));
+    }
+    /*
+      A Cut still WAITING for its second evaluation is not a completed verdict.
+
+      Hysteresis publishes an unconfirmed hard label as "keep" with a
+      `pending_transition` badge and keeps the Cut only as the held action, and
+      the role guard stamps `campaign_context` on the same row. Without this
+      check the early return below served that row as "Cut Evidence Complete"
+      in the action lane and invited a manual pause — skipping the
+      two-evaluation rule the published label was still honouring.
+    */
+    if (codes.has("pending_transition")) {
+      return {
+        code: "await_decision_confirmation",
+        category: "system",
+        owner: "system",
+        label: "Hard Action Pending Confirmation",
+        nextStep:
+          "Wait for the required consecutive engine confirmation. The held Scale/Cut/Refresh verdict is visible, but no provider action is authorized yet.",
+      };
     }
     if (heldAction === "cut") {
       return {

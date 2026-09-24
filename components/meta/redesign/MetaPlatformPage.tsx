@@ -3396,15 +3396,43 @@ function workspaceBannerDestination(
 }
 
 function workspaceBannerCopy(banner: MetaWorkspaceBanner) {
-  if (
-    banner.id === "meta_decision_pipeline_health" ||
-    banner.id === "snapshot_health" ||
-    banner.id === "exact_ad_decision_freshness"
-  ) {
+  /*
+   * THE SERVER'S FAILURE TYPE IS THE TITLE.
+   *
+   * These three used to collapse into one "Decisions are updating." That
+   * erased the one fact the operator needed: a stopped sync, an incomplete
+   * decision run, a stale decision generation and a stale snapshot have
+   * different causes and different waits, and "updating" contradicted a row
+   * note saying the latest run failed. The route writes each TITLE per cause
+   * (`pipelineHealthBanner`, `workspaceBanners`), so the title is shown as
+   * served; "Decisions are updating." is only the fallback for a banner that
+   * arrives without one.
+   *
+   * The DETAIL is not passed through for the pipeline and snapshot banners:
+   * theirs join upstream reasons verbatim, including a caught exception's
+   * message. Only the freshness banner's detail is written in buyer words by
+   * the route, so only that one is shown as served.
+   */
+  const servedTitle = banner.title?.trim() || "Decisions are updating.";
+  if (banner.id === "meta_decision_pipeline_health") {
     return {
-      title: "Decisions are updating.",
+      title: servedTitle,
+      detail: "No change can be applied from this page until this clears.",
+    };
+  }
+  if (banner.id === "snapshot_health") {
+    return {
+      title: servedTitle,
       detail:
         "Recommendations remain visible while current Meta data is prepared.",
+    };
+  }
+  if (banner.id === "exact_ad_decision_freshness") {
+    return {
+      title: servedTitle,
+      detail:
+        banner.detail?.trim() ||
+        "Some decisions are too old to apply. They stay review-only until the next decision run.",
     };
   }
   if (banner.id === "meta_execution_governance_unavailable") {

@@ -675,6 +675,19 @@ function probeEntityConfiguration(
  * there is nothing under it for the matrix to classify separately.
  */
 function recordOfPrimitiveSpec(type: ts.TypeNode): LeafSpec | null {
+  // `Record<K, number> | null`: null is the "not counted" state; the probe
+  // serves the counted record so every key is observable.
+  if (ts.isUnionTypeNode(type)) {
+    const present = type.types.filter(
+      (member) =>
+        member.kind !== ts.SyntaxKind.NullKeyword &&
+        !(
+          ts.isLiteralTypeNode(member) &&
+          member.literal.kind === ts.SyntaxKind.NullKeyword
+        ),
+    );
+    return present.length === 1 ? recordOfPrimitiveSpec(present[0]!) : null;
+  }
   if (!ts.isTypeReferenceNode(type)) return null;
   if (type.typeName.getText() !== "Record") return null;
   const [keyType, valueType] = type.typeArguments ?? [];

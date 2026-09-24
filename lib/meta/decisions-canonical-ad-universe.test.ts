@@ -467,7 +467,7 @@ describe("a held verdict survives the same route order", () => {
     expect(result.ads.monitorCount).toBe(0);
     // Post-cap, exactly like the three lane counts it sits beside: the
     // pre-cap population is served separately and is 80, not 60.
-    expect(result.ads.statePreCapCounts.blocked).toBe(80);
+    expect(result.ads.statePreCapCounts?.blocked).toBe(80);
     // Still decisions, so still not un-decided inventory.
     expect(result.ads.pendingInventoryCount).toBe(0);
 

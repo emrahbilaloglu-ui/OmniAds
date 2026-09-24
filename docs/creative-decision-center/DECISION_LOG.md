@@ -10391,10 +10391,12 @@ active slice's manifest covered its current source.
 day, surface, source run ID **and manifest ID** all match. A later manifest
 under the same run gets a new candidate version unless its complete ordered
 raw-page IDs, requested fields, every normalized account/campaign/adset/Ad
-fact, source spend and validation basis have the same `meta-core-capture.v2`
+decision fact, source spend and validation basis have the same `meta-core-capture.v2`
 fingerprint as the still-active published candidate. That reuse also requires
 the old candidate's exact current warehouse population to remain unchanged
 since publication; a stale or superseded candidate cannot be resurrected.
+Write and config-observation clocks do not change the fact fingerprint; the
+actual config values and source identity do.
 The existing publication step moves the pointer only after validation. Apply
 the same identity checks after a candidate-version uniqueness race. Each Ad
 row now records the raw page where that Ad occurred, rather than stamping all

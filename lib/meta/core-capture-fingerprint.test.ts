@@ -53,7 +53,9 @@ describe("complete Meta core capture fingerprint", () => {
   it("ignores write clocks but changes for same-spend action restatement", () => {
     const first = buildMetaCoreCaptureFingerprint(input);
     const newClock = buildMetaCoreCaptureFingerprint({ ...input,
-      adRows: [{ ...rows[0]!, finalizedAt: "2026-09-22T10:00:00Z" }] });
+      adRows: [{ ...rows[0]!, finalizedAt: "2026-09-22T10:00:00Z" }],
+      campaignRows: [{ ...campaignRows[0]!,
+        configObservedAt: "2026-09-22T10:00:00Z" }] });
     const actionChanged = buildMetaCoreCaptureFingerprint({ ...input,
       adRows: [{ ...rows[0]!, payloadJson: { actions: [
         { action_type: "purchase", value: "1" }] } }] });

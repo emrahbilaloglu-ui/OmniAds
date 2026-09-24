@@ -1,5 +1,5 @@
 {
-  "manifestHash": "9880ab99c19d3d9bfd2ff33a31d20c3f2c34002c9d854d2d775acef3af9f12d9",
+  "manifestHash": "d3cafb442cacf57670c3c4fba123c551e7dd5a8e31209851b5e2edb2e8f31a69",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -544,7 +544,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "708462817182ac86186a3a25203f666f856179ba85045e02f42aa7f92b71a4a7"
+      "sha256": "506849cc74d04c2b6dbec108c74df5d1f1eaf698bfe730955b34e74908b344d0"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1336,11 +1336,11 @@
     },
     {
       "path": "lib/meta/core-capture-fingerprint.test.ts",
-      "sha256": "9c5c6dcb194e7622505d731f669675dbeb7614583d9f48a69059e60d956bfded"
+      "sha256": "80108092b3012064e14ecaf49d308bbe70eebd5153c6ac4b82c3cf1d278cebbc"
     },
     {
       "path": "lib/meta/core-capture-fingerprint.ts",
-      "sha256": "4121c4784b55c9fdb179ce45e3733eac2ba35426963a208863768ee37ad1e1f7"
+      "sha256": "ea7aaa73f9ab870cf35082585fd00e5dbdbb78564ca18f4e3ec52b3cd4b1cc5e"
     },
     {
       "path": "lib/meta/creative-day-config-proof.test.ts",

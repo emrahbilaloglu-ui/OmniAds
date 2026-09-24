@@ -84,12 +84,13 @@ export function buildMetaCoreCaptureFingerprint(input: {
           row.sourceRunId !== input.sourceRunId || !row.sourceSnapshotId ||
           !pageSnapshotIds.has(row.sourceSnapshotId))) return null;
     const facts = rows.map((row) => {
-      // Capture clocks are not source facts. Preserve every other field,
-      // including configuration, raw payload-derived values, and source identity.
+      // Capture/observation clocks are not changed decision facts. Preserve
+      // configuration values, raw payload-derived values, and source identity.
       const fact = { ...row } as Record<string, unknown>;
       delete fact.createdAt;
       delete fact.updatedAt;
       delete fact.finalizedAt;
+      delete fact.configObservedAt;
       return fact;
     }).sort((left, right) => String(rowId(left as unknown as MetaWarehouseBaseRow))
       .localeCompare(String(rowId(right as unknown as MetaWarehouseBaseRow))));

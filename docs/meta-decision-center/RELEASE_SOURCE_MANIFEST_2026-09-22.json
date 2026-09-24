@@ -1,5 +1,5 @@
 {
-  "manifestHash": "c722526572785761016e29dc5dfd1bc665e31ce32313b136e4cf20525df76b20",
+  "manifestHash": "258e9a0e0a2ad2dc3b215617a711b05b5300d73983b78a16637dc603fe8aabff",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -376,11 +376,15 @@
     },
     {
       "path": "components/creatives/CreativeEvidenceWindowExact.tsx",
-      "sha256": "b63cd9320b4b5b7b1aff71e74fa0f6a260211d38f51b5f9a2d412e114793b95e"
+      "sha256": "29b575d0a41812d11bbb333b61172133bf531dde034beabf72254cd88f2ce3f7"
     },
     {
       "path": "components/creatives/CreativeStudioExact.tsx",
       "sha256": "edeeae525b56eb64903f9c8ea3ef3a116cc083920933fbc17ad7add6f07bb408"
+    },
+    {
+      "path": "components/creatives/meta-ad-events-copy.ts",
+      "sha256": "31ab5c5b90fe063a03ee02b21f01b654405443cbb26d1e4403e1662982bca70a"
     },
     {
       "path": "components/launchpad/LaunchpadAddToExistingTarget.tsx",
@@ -520,7 +524,7 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "0bd8b6a3088d1351614ea18112b8326343c65716c6f09ef04f58f0cc0babf01d"
+      "sha256": "01ef06b677bc992201ecd1e3eec3e215a47b01a7a0d644f2980af11a6c2f3364"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",

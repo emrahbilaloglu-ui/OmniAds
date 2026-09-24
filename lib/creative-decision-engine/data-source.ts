@@ -3688,7 +3688,8 @@ WITH input_creatives AS (
   FROM unnest($3::text[]) AS input(creative_id)
   WHERE $4::boolean
 ),
-latest_status_source AS (
+-- One source row per creative before the costly member-state lookup.
+latest_status_source AS MATERIALIZED (
   SELECT DISTINCT ON (d.creative_id)
     d.business_ref_id,
     d.business_id,
@@ -3974,8 +3975,25 @@ recent_24h AS (
     AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
   GROUP BY d.creative_id
 ),
-latest_meta AS (
+-- Keep DISTINCT ON ahead of the status lateral, including after CTE planning.
+latest_meta_source AS MATERIALIZED (
   SELECT DISTINCT ON (d.creative_id)
+    d.business_ref_id, d.business_id, d.provider_account_ref_id,
+    d.provider_account_id, d.creative_id, d.campaign_id, d.adset_id,
+    d.payload_json, d.creative_name, d.first_seen_at, d.first_spend_at,
+    d.launch_date, d.updated_at, d.quality_ranking,
+    d.engagement_rate_ranking, d.conversion_rate_ranking,
+    d.creative_visual_format, d.creative_primary_type
+  FROM meta_creative_daily d
+  INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayDecisionAdmissionSql("d")}
+    AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
+    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
+  ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
+),
+latest_meta AS (
+  SELECT
     d.creative_id,
     creative_member_status.effective_status,
     d.payload_json#>>'{historical_config_proof,objective}' AS objective,
@@ -4022,14 +4040,8 @@ latest_meta AS (
       WHEN d.updated_at IS NOT NULL
       THEN FLOOR(EXTRACT(EPOCH FROM ($8::timestamptz - d.updated_at)) / 3600)
     END AS data_freshness_hours
-  FROM meta_creative_daily d
-  INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  FROM latest_meta_source d
   ${creativeMemberEffectiveStatusLateralSql("d", "$8")}
-  WHERE d.business_ref_id = $1::uuid
-    AND ${creativeDayDecisionAdmissionSql("d")}
-    AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
-    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
-  ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 ),
 last_spend AS (
   SELECT d.creative_id, MAX(d.date) AS last_spend_date
@@ -4673,8 +4685,21 @@ WITH lifecycle_rows AS (
     AND l.computed_at <= $9::timestamptz
   ORDER BY l.creative_id, l.as_of_date DESC, l.computed_at DESC
 ),
-latest_meta AS (
+-- Resolve current-at-decision status once per retained creative, not per day.
+latest_meta_source AS MATERIALIZED (
   SELECT DISTINCT ON (d.creative_id)
+    d.business_ref_id, d.business_id, d.provider_account_ref_id,
+    d.provider_account_id, d.creative_id, d.campaign_id, d.adset_id,
+    d.payload_json, d.creative_name, d.first_seen_at, d.first_spend_at
+  FROM meta_creative_daily d
+  INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
+  WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$9")}
+    AND d.date <= $2::date
+  ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
+),
+latest_meta AS (
+  SELECT
     d.creative_id,
     d.creative_name,
     d.first_seen_at,
@@ -4700,13 +4725,8 @@ latest_meta AS (
       NULLIF(d.payload_json->>'delivery_info', ''),
       NULLIF(d.payload_json->>'delivery_status_reason', '')
     ) AS limited_reason
-  FROM meta_creative_daily d
-  INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
+  FROM latest_meta_source d
   ${creativeMemberEffectiveStatusLateralSql("d", "$9")}
-  WHERE d.business_ref_id = $1::uuid
-    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$9")}
-    AND d.date <= $2::date
-  ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 ),
 recent_24h AS (
   SELECT

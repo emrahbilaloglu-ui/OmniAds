@@ -944,7 +944,7 @@ function buildVerdictSub(input: {
         )
       : buyerFacingCreativeBlockers(decision);
   const parts = [
-    buyerFacingCreativeScope(decision),
+    buyerFacingCreativeScope(decision, input.canonical),
     ...blockers,
     buyerFacingCreativeResolution(decision, input.canonical),
   ].filter((part): part is string => Boolean(part));

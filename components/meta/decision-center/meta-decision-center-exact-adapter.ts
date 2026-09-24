@@ -2028,11 +2028,14 @@ function creativeChips(
   return chips.filter((value): value is string => Boolean(value));
 }
 
-function creativeMoneySub(decision: MetaOsAdDecision): string {
+function creativeMoneySub(
+  decision: MetaOsAdDecision,
+  canonical: MetaCanonicalDecision | null,
+): string {
   const target = printableTargetRoas(decision.metrics.effectiveTargetRoas);
   const parts = [
     target === null ? null : `vs ${target.toFixed(2)} target`,
-    buyerFacingCreativeScope(decision),
+    buyerFacingCreativeScope(decision, canonical),
   ].filter((value): value is string => Boolean(value));
   return parts.length > 0 ? parts.join(" · ") : EM_DASH;
 }
@@ -2257,6 +2260,12 @@ export function buyerFacingCreativeResolution(
 ): string | null {
   const resolution = decision.resolution;
   if (!resolution) return null;
+  if (
+    resolution.code === "apply_cut_manually" &&
+    canonical?.configEvidence?.verified !== true
+  ) {
+    return "The reduction recommendation has economic evidence, but campaign configuration receipts are not fully verified. Check them before deciding on a manual pause; no automated Meta action is authorized.";
+  }
   const mapped = knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
   // Metric availability is supplementary evidence for an already blocked row
   // with a server-produced resolution. It never creates a blocked resolution.
@@ -2309,12 +2318,13 @@ export function buyerFacingCreativeReason(decision: MetaOsAdDecision): string {
 
 export function buyerFacingCreativeScope(
   decision: MetaOsAdDecision,
+  canonical: MetaCanonicalDecision | null = null,
 ): string | null {
   if (decision.action.code === "apply_cut_manually") {
-    // In the action lane, but deliberately without a Meta write: the cut
-    // evidence is complete; the automated stop is not authorized until the
-    // role resolves.
-    return "Review only. Pause this ad in Meta yourself; automated stop is held for campaign role.";
+    if (canonical?.configEvidence?.verified !== true) {
+      return "Review-only reduction recommendation. Verify campaign configuration before a manual pause; automated stop is held.";
+    }
+    return "Review only. If you agree, pause this ad in Meta yourself; automated stop is held for campaign role.";
   }
   if (decision.action.code === "cut") {
     return decision.action.intent === "execute" &&
@@ -2511,6 +2521,8 @@ export function heldCreativeVerdict(
     knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, decision.heldResolution?.code);
   const needsConfig =
     canonical?.configEvidence?.verified === false ||
+    (decision.heldResolution?.code === "apply_cut_manually" &&
+      canonical?.configEvidence?.verified !== true) ||
     authorityBlocker === "config_source_authority" ||
     blockerCodes.has("config_source_authority");
   const needsFreshSource =
@@ -2540,6 +2552,23 @@ export function heldCreativeVerdict(
       : null,
   ].filter((part): part is string => Boolean(part));
   const resolutionCode = decision.heldResolution?.code;
+  // D097's action-lane Cut is a completed reduction finding whose campaign
+  // role only withholds automated execution. Its compatibility raw label may
+  // still be test_more, so that label cannot turn it into an unverified signal
+  // or tell the buyer to wait and review the same recommendation again.
+  const manualCutCandidate =
+    action === "cut" &&
+    decision.lane === "act" &&
+    decision.action.code === "apply_cut_manually" &&
+    resolutionCode === "apply_cut_manually";
+  const manualCutReady =
+    manualCutCandidate &&
+    canonical?.configEvidence?.verified === true &&
+    !needsConfig &&
+    !needsFreshSource &&
+    !needsConfirmation;
+  const manualCutConfigGap =
+    manualCutCandidate && needsConfig && !needsFreshSource && !needsConfirmation;
   const specificStep =
     resolutionCode === "apply_cut_manually" && prerequisites.length > 0
       ? "Review the campaign role and these checks before considering a manual pause."
@@ -2562,7 +2591,7 @@ export function heldCreativeVerdict(
   // not the same served verdict as a raw Cut. This changes buyer copy only;
   // the server's blocked state, action and write authority remain untouched.
   const cutSignalAwaitingEvidence =
-    action === "cut" && decision.rawLabel === "test_more";
+    !manualCutReady && action === "cut" && decision.rawLabel === "test_more";
   /*
     ── ROUND 9 ITEM 7: PLAIN ACTION LANGUAGE, NOT THE ENGINE'S ───────────────
 
@@ -2583,10 +2612,19 @@ export function heldCreativeVerdict(
   */
   return {
     action,
-    label: cutSignalAwaitingEvidence
+    label: manualCutReady
+      ? "Reduce spend — review manual pause"
+      : manualCutConfigGap
+        ? "Reduce spend recommendation — verify configuration"
+      : cutSignalAwaitingEvidence
       ? "Spend reduction signal awaiting verification"
       : `Recommendation awaiting review: ${verdict}`,
-    nextStep: cutSignalAwaitingEvidence
+    nextStep: manualCutReady
+      ? (knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, "apply_cut_manually") ??
+        "Review this ad and pause it yourself in Meta if you agree; automated execution is held.")
+      : manualCutConfigGap
+        ? "The economic reduction recommendation is visible, but campaign configuration receipts are incomplete. Verify them before deciding on a manual pause; automated execution remains held."
+      : cutSignalAwaitingEvidence
       ? step
         ? `${step} Then reassess whether to reduce spend.`
         : "Confirm the missing information, then reassess whether to reduce spend."
@@ -2828,7 +2866,7 @@ function creativeRows(input: {
         roas: adPerformanceMissing ? null : decision.metrics.roas,
         currency: rowCurrency,
       }),
-      moneySub: creativeMoneySub(decision),
+      moneySub: creativeMoneySub(decision, canonicalDecision),
       actionLabel: buyerFacingCreativeActionLabel(decision),
       actionTone: actionTone(decision.action),
       ...(review ? { onPrimary: review, onOpen: review } : {}),
@@ -3332,7 +3370,7 @@ function creativeInspector(input: {
     contractDetail: input.sourceDegraded
       ? RETAINED_GENERATION_REVIEW_COPY
       : buyerFacingCreativeResolution(decision, canonicalDecision) ??
-        buyerFacingCreativeScope(decision) ??
+        buyerFacingCreativeScope(decision, canonicalDecision) ??
         EM_DASH,
     reasons: [buyerFacingCreativeReason(decision)],
     moneyValue: moneyAndRoas({
@@ -3345,7 +3383,7 @@ function creativeInspector(input: {
     moneySparkPath: null,
     moneyDetail: input.sourceDegraded
       ? "Review only. No Meta change can be applied here yet."
-      : buyerFacingCreativeScope(decision) ?? EM_DASH,
+      : buyerFacingCreativeScope(decision, canonicalDecision) ?? EM_DASH,
     confidence: titleToken(decision.confidence),
     readiness: titleToken(decision.confirmationCeremony),
     blockers: blockers.length > 0 ? blockers.join(" · ") : EM_DASH,

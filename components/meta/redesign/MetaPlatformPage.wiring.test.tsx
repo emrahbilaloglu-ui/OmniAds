@@ -1553,9 +1553,90 @@ describe("Decisions deep-link compatibility matrix", () => {
       "providerAccountId=act_1&scope=creatives&area=monitor&segment=needs_resolution";
     const dom = render();
     const row = dom.querySelector('[data-mobile-row-id="os_pending_ad"]');
+    expect(state.exactProps.scope).toBe("creatives");
     expect(row).not.toBeNull();
     expect(row?.querySelector(".ad-mobile-action-note")).toBeNull();
     expect(row?.textContent).toContain("Read evidence");
+  });
+
+  it("carries the served creative preview and account posture into the mobile scope", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([
+        pendingOsDecision({ thumbnailUrl: "https://example.com/served-preview.jpg" }),
+      ]),
+    } as never;
+    state.search = "providerAccountId=act_1&scope=creatives&area=monitor&segment=needs_resolution";
+
+    const dom = render();
+    const row = dom.querySelector('[data-mobile-row-id="os_pending_ad"]');
+    expect(row).not.toBeNull();
+    expect(state.exactProps.viewModel.creativeDecisions?.[0]?.thumbnailUrl)
+      .toBe("https://example.com/served-preview.jpg");
+    expect(state.exactProps.viewModel.creativeGroups?.[0]?.rows?.[0]?.thumbnailUrl)
+      .toBe("https://example.com/served-preview.jpg");
+    expect(row?.innerHTML).toContain("served-preview.jpg");
+    expect(dom.querySelector("[data-mobile-creative-posture]")?.textContent)
+      .toContain("Refresh ready to apply");
+
+    state.search = "providerAccountId=act_1&scope=structure";
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(dom.querySelector("[data-mobile-creative-posture]")).toBeNull();
+  });
+
+  it("shows an economic Cut with unverified config as review-only on mobile", () => {
+    const cut = pendingOsDecision({
+      adId: "120247018755120316",
+      adName: "Grandmix Ad 120247018755120316",
+      decisionId: "mdd_cut",
+      sourceSnapshotId: "snapshot_cut",
+      decisionAvailability: "available",
+      lane: "act",
+      rawLabel: "cut",
+      publishedLabel: "cut",
+      heldAction: "cut",
+      action: {
+        code: "apply_cut_manually",
+        label: "Review spend reduction",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+        scopeNote: "Review only",
+      },
+      heldResolution: {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Review spend reduction",
+        nextStep: "Review the campaign role before a manual pause.",
+      },
+      metrics: {
+        ...pendingOsDecision().metrics,
+        spend: 3085,
+        purchases: 7,
+        roas: 0.5,
+      },
+    });
+    const canonical = canonicalDecision();
+    canonical.decisionId = cut.decisionId;
+    canonical.sourceSnapshotId = cut.sourceSnapshotId;
+    canonical.configEvidence = { verified: false };
+    state.canonicalCreatives = [canonical];
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([cut]),
+    } as never;
+    state.search = "providerAccountId=act_1&scope=creatives&lane=action";
+
+    const dom = render();
+    const card = dom.querySelector('[data-mobile-row-id="os_pending_ad"]');
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain("Reduce spend recommendation — verify configuration");
+    expect(card?.textContent).toContain("before deciding on a manual pause");
+    expect(card?.querySelector("[data-mobile-apply]")).toBeNull();
+    expect(card?.querySelector("button")?.textContent).toContain("Read evidence");
   });
 
   // `row` is half-supported: `ad:<id>` names something this queue can open,

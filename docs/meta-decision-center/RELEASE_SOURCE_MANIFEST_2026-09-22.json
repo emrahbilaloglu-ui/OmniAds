@@ -1,5 +1,5 @@
 {
-  "manifestHash": "7e6485178f898837db6a0b73bfa70eb0e8c26e5b61e07839e19b45783f85f797",
+  "manifestHash": "bff370140658f557357e63712cfa0f917207f372171a83f8c757ed11442bc086",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -244,7 +244,7 @@
     },
     {
       "path": "app/globals.css",
-      "sha256": "ed03c130a6ee179441cc07328aa7f71e2ecf11dd0a6e24d08c7e2230b4da0ea8"
+      "sha256": "a97c9c10f7ec057a8bfdbe1b7fa01a040d1c90938dfe91d817bedbb1f4959372"
     },
     {
       "path": "components/common/briefing/CompareDrawer.tsx",
@@ -288,7 +288,7 @@
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.ts",
-      "sha256": "5a432e68c63b5cfbc259d7fe347151531de8f24078135a4ed3d412b12bb65699"
+      "sha256": "1db5e051270b924d2beab6ca17a49d0b9428eab0b54643c2247eaf91120cc0ed"
     },
     {
       "path": "components/creatives/creative-evidence-window-wiring.test.ts",
@@ -340,11 +340,11 @@
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "3876255e191c09d7ce6a4ae19c5a89e7e996f9cc92b28d89877de789ff80c99b"
+      "sha256": "4285046b6b2c4a7a9109a4f5a013b3ede698786516dd167b505b910d9c068b5d"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "cfdb00e9d1fb11cb87a3966803eca2f73fe901adc0a827aa4e9db30fb6508b0c"
+      "sha256": "11a4b75469f167f6b6ba93457ab910c6fd20ca91cb32ee796c08d246b3c7ee45"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -352,7 +352,7 @@
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
-      "sha256": "815e2f3e173cf15c5e5a6492d7f7ed2cfdeaf811b0b78b7a06e70a547e39c9f4"
+      "sha256": "a8b66c8e4be1ddcad283a74d5ef04b6e5a26f0c743bcc768f56b8c0b1dff5b39"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
@@ -428,11 +428,11 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "b4a436a940e1c050710cb0e7b7c48f34cd011a738ab8f75c7cafac1ca2c215b4"
+      "sha256": "a45023afedc4da84d176a22d715b668e543677f38d598b8ac5948aa2bba52466"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
-      "sha256": "cbdd0d37206c0fac20ee074c81bf2fbc3a01cb4c852c0b0ef24a503bd2493421"
+      "sha256": "07a2e104e6b47ec67b7ea7a35d2c8578526e4251700704e10ae201ad7f5832e3"
     },
     {
       "path": "components/meta/redesign/MetaUpperFunnelInformationalCard.test.tsx",
@@ -460,7 +460,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "cff025674e8efe35a4626e479c02c8ef6584a234f29af84a6caf0ddb4f0c394d"
+      "sha256": "52b855175b9a55d6ec2d0c9cea046c9072ebf5627f9a088258347e346390640c"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -792,7 +792,7 @@
     },
     {
       "path": "lib/creative-decision-engine/data-source.ts",
-      "sha256": "cf9c5e09796853e29e15dc7b5b1f0d331ff766541b31d0597602da3151bd55d7"
+      "sha256": "271c842f18d159c6ce881f35422b0e01e369aba49ab4676519b8e6a2bd4ca095"
     },
     {
       "path": "lib/creative-decision-engine/decision-stability.ts",
@@ -864,7 +864,7 @@
     },
     {
       "path": "lib/creative-decision-engine/jobs/lifecycle-job.ts",
-      "sha256": "70438112f750e448287812e0ba68d07d4d2e393fdcee6981c6c2c34c34d295ac"
+      "sha256": "a53d8fd9cfc0946615d2b2f5c7d182da03e522a9fb293b15f5578888ffaa533c"
     },
     {
       "path": "lib/creative-decision-engine/jobs/native-ad-scheduled.ts",
@@ -1548,11 +1548,11 @@
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance-core.ts",
-      "sha256": "4968aba585715d973c221789f068d89d1e2f09eb45f0057ede50e7696661be6c"
+      "sha256": "e90e21c1dfd183c88a33ec7e4ed1a8bcf2ff7f12099404931445e2f47b1c9f23"
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.test.ts",
-      "sha256": "8c05a0cc39e98823b51142552147894a102f43ea034c815c73a270d3a0f41611"
+      "sha256": "c3022f27b351728558e3364dc473c2d46e5617b72b5b7ef91abf9ecbfa18984b"
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts",

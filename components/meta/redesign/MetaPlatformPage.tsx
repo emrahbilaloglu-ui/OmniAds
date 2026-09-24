@@ -1535,6 +1535,8 @@ interface MetaMobileQueueRowModel {
   id: string;
   name: MetaDecisionCenterExactDisplayValue;
   meta?: MetaDecisionCenterExactDisplayValue;
+  /** Server-provided creative preview; absent for structure rows. */
+  thumbnailUrl?: string | null;
   /**
    * The SERVED state, and the served blockers behind it.
    *
@@ -1608,6 +1610,7 @@ function mobileQueueRowsForLane(
       id: row.id,
       name: row.name,
       meta: row.kindShort,
+      thumbnailUrl: row.thumbnailUrl,
       decisionLabel: row.decisionLabel,
       decisionTone: row.decisionTone,
       stateLabel: row.stateLabel,
@@ -1880,6 +1883,7 @@ function MetaMobileQueueRow({
   id,
   name,
   meta,
+  thumbnailUrl,
   decisionLabel,
   decisionTone,
   stateLabel,
@@ -1897,6 +1901,7 @@ function MetaMobileQueueRow({
   id: string;
   name: MetaDecisionCenterExactDisplayValue;
   meta?: MetaDecisionCenterExactDisplayValue;
+  thumbnailUrl?: string | null;
   decisionLabel?: MetaDecisionCenterExactDisplayValue;
   decisionTone?: MetaDecisionCenterExactTone;
   stateLabel?: MetaDecisionCenterExactDisplayValue;
@@ -1932,6 +1937,18 @@ function MetaMobileQueueRow({
   return (
     <article className="ad-mobile-row-card" data-mobile-row-id={id}>
       <div>
+        {thumbnailUrl ? (
+          <img
+            alt=""
+            className="ad-mobile-creative-thumb"
+            data-mobile-creative-thumbnail
+            loading="lazy"
+            src={thumbnailUrl}
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+            }}
+          />
+        ) : null}
         <h3>{mobileDisplay(name)}</h3>
         {meta ? <p data-tone="caution">{mobileDisplay(meta)}</p> : null}
         {/* The served state, before the decision label. A row the engine
@@ -2475,6 +2492,25 @@ function MetaMobileDecisionsScreen({
             <p className="ad-mobile-copy" data-mobile-creatives-notice>
               {mobileDisplay(viewModel.creativesNotice)}
             </p>
+          ) : null}
+
+          {scope === "creatives" ? (
+            <div data-mobile-creative-posture>
+              {(viewModel.creativePosture ?? [])
+                .filter(
+                  (item) =>
+                    mobileDisplay(item.value) !== "—" ||
+                    mobileDisplay(item.detail) !== "—",
+                )
+                .map((item) => (
+                  <div className="ad-mobile-posture" key={item.id}>
+                    <b>{mobileDisplay(item.label)}: {mobileDisplay(item.value)}</b>
+                    {mobileDisplay(item.detail) !== "—" ? (
+                      <div>{mobileDisplay(item.detail)}</div>
+                    ) : null}
+                  </div>
+                ))}
+            </div>
           ) : null}
 
           {rows.map((row) => (

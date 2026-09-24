@@ -1411,12 +1411,14 @@ export interface DecisionEntrySource {
       dataFreshnessHours?: unknown;
       linkClicks?: unknown;
       spend?: unknown;
+      purchases?: unknown;
     };
     rawLabel: string;
     decision: {
       label: string;
       preAuthorityLabel?: string | null;
       authorityBlocker?: string | null;
+      reason?: unknown;
       confidence?: unknown;
       campaignRoleStatus?: unknown;
       blockers?: unknown;
@@ -1432,7 +1434,11 @@ export interface DecisionEntrySource {
   };
   group: {
     blocker: string | null;
-    profile: { hardActionEligibility: unknown };
+    profile: {
+      hardActionEligibility: unknown;
+      commercialStopLossCanonicalHardActionEligibility?: unknown;
+      commercialStopLossThresholds?: unknown;
+    };
   };
 }
 
@@ -1480,6 +1486,26 @@ export function toHardRowRecord(input: {
   const context = campaignId ? input.campaignContextById.get(campaignId) : undefined;
   const resolverValidated = pickPath(context, ["resolverAuthorityValidated"]);
   const blockers = Array.isArray(c.decision.blockers) ? (c.decision.blockers as unknown[]) : [];
+  const preAuthorityAction = c.decision.preAuthorityLabel ?? null;
+  const cutEvidence = preAuthorityAction === "cut"
+    ? {
+        // The group profile can permit the account-AOV Cut overlay while the
+        // per-ad resolver correctly restores its canonical, unready profile.
+        // This is the decision's actual profile-gate outcome, not a second
+        // calculation of Cut policy from the account-level boolean.
+        effectiveProfileEligible: c.decision.authorityBlocker !== "profile_hard_action_ineligible",
+        canonicalProfileEligible: pickPath(g.profile.commercialStopLossCanonicalHardActionEligibility, ["cut"]) === true
+          ? true
+          : pickPath(g.profile.commercialStopLossCanonicalHardActionEligibility, ["cut"]) === false
+            ? false
+            : null,
+        spend28d: finiteOrNull(c.input.spend),
+        purchases28d: finiteOrNull(c.input.purchases),
+        accountAovZeroConversionSpendFloor: finiteOrNull(pickPath(g.profile.commercialStopLossThresholds, ["zeroConvBurnerSpend"])),
+        accountAovCommercialMaturitySpendFloor: finiteOrNull(pickPath(g.profile.commercialStopLossThresholds, ["commercialMaturitySpend"])),
+        decisionReason: textOrNull(c.decision.reason),
+      }
+    : null;
   return {
     asOf: input.asOf,
     providerAccountId: c.input.providerAccountId,
@@ -1496,7 +1522,9 @@ export function toHardRowRecord(input: {
     authorizedAction: p.authorized_action,
     confidence: finiteOrNull(c.decision.confidence),
     profileBlocker: g.blocker,
+    // Account-level eligibility, before per-ad kind and Cut-only gates.
     hardActionEligibility: hardActionEligibilityOf(g),
+    cutEvidence,
     config: {
       observed: pickPath(authority, ["currentValueEvidence", "observed"]) === true,
       fullyVerified: pickPath(authority, ["decisionEconomics", "fullyVerified"]) === true,
@@ -2147,7 +2175,17 @@ export interface HardRowRecord {
   authorizedAction: string | null;
   confidence: number | null;
   profileBlocker: string | null;
+  /** Account-level profile; use cutEvidence for the effective per-ad Cut gate. */
   hardActionEligibility: { scale: boolean; cut: boolean; refresh: boolean };
+  cutEvidence: {
+    effectiveProfileEligible: boolean;
+    canonicalProfileEligible: boolean | null;
+    spend28d: number | null;
+    purchases28d: number | null;
+    accountAovZeroConversionSpendFloor: number | null;
+    accountAovCommercialMaturitySpendFloor: number | null;
+    decisionReason: string | null;
+  } | null;
   config: {
     observed: boolean;
     fullyVerified: boolean;
@@ -2652,6 +2690,8 @@ export const ACCEPTANCE_CLAIMS = {
     "The report records git HEAD, `git status --porcelain` and the sha256 of every loaded repo module that differs from HEAD (read-only git: rev-parse, --no-optional-locks status). A pass with any dirty loaded module, including acceptance scripts, certifies that working tree, never HEAD; --require-clean makes it NOT MET. The production-module count is diagnostic only.",
   hardAuthority:
     "PRESENCE (both gates) and HARD AUTHORITY are separate results. hardAuthorityOutcome is `demonstrated` only when a row on a successful simulated native decision day passes the full production authorization rule (published == raw == authorized hard action, not hysteresis-suppressed, eligible for that action, receipt gate passed, config observed and fully verified, coverage complete, both blockers null); otherwise `not_demonstrated` with raw / pre-authority / held counts and a blocker breakdown (objective_config, d101_coverage, role_campaign_context, hysteresis, profile_calibration_eligibility, receipt, other). In --knowledge-cutoffs replay this outcome refers ONLY to the native report-day cutoff shown in decisions.days, never to the later knowledge instant in args.chain; replay is diagnostic and cannot grant release or later-knowledge hard authority. A presence PASS never means a source-authorized Cut/Scale/Refresh. Only --require-hard-authority lets not_demonstrated change a release-mode exit code (NOT MET, exit 3).",
+  hardRowCutEvidence:
+    "hardRows[].hardActionEligibility is the account/group profile before per-ad gates. On a pre-authority Cut, cutEvidence.effectiveProfileEligible is the actual decision profile-gate result. Its candidate spend, purchases, canonical eligibility, account-AOV spend floors and decision reason explain an account-level Cut=true that still correctly ends review-only; the floors alone do not recalculate or grant authority.",
   cutoffs:
     "--cutoff-slot end-of-day (default, D T23:59:59.999Z) | natural-0305 (D T03:05Z) | natural-1505 D T15:05Z, --cutoffs <iso,...> (one per consecutive UTC day), or --knowledge-cutoffs <iso,...> (a later knowledge instant for each fixed report day). Every cutoff must be in the past. Replay is diagnostic only: the ledger/config/D101 reads use args.chain later knowledge instants, while the native calibration/decision/presentation lane uses decisions.days report-day UTC cutoffs. It cannot certify a later-knowledge native hard action or claim later evidence was known on the report day. At natural cutoffs the hydration receipt is often not reconstructable (last_seen_at is heartbeat-advanced in place); an account-day whose receipt fails the gate at its cutoff is reported as receipt_unreconstructable_at_cutoff, never repaired, and counts as a FAILED day. The ledger and the control read at the last chain cutoff.",
   crossCheck:

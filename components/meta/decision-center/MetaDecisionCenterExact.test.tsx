@@ -760,6 +760,52 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(unserved?.querySelector("svg")).toBeNull();
   });
 
+  it("renders the Grandmix economic Cut and its config gap in Action without a provider pause control", () => {
+    const row = {
+      id: "grandmix-ad-120247018755120316",
+      name: "Grandmix Ad 120247018755120316",
+      decisionLabel: "Continue testing",
+      decisionTone: "warning" as const,
+      heldVerdictLabel: "Reduce spend recommendation — verify configuration",
+      heldVerdictTone: "warning" as const,
+      heldVerdictNextStep:
+        "The economic reduction recommendation is visible, but campaign configuration receipts are incomplete. Verify them before deciding on a manual pause; automated execution remains held.",
+      note:
+        "The economic reduction recommendation is visible, but campaign configuration receipts are incomplete. Verify them before deciding on a manual pause; automated execution remains held.",
+      stateLabel: "Act",
+      stateTone: "info" as const,
+      money: "$3,085 · ROAS 0.50",
+      actionLabel: "Review spend reduction",
+      onPrimary: vi.fn(),
+    };
+    render(
+      <MetaDecisionCenterExact
+        defaultScope="creatives"
+        defaultLane="action"
+        viewModel={exactViewModel({
+          creativeDecisions: [row],
+          creativeGroups: [{
+            id: "act",
+            label: "Act",
+            tone: "info",
+            count: "1 decision",
+            rows: [row],
+          }],
+        })}
+      />,
+    );
+    const card = document.querySelector(
+      '[data-meta-exact-creative-row="grandmix-ad-120247018755120316"]',
+    );
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain("Reduce spend recommendation — verify configuration");
+    expect(card?.textContent).toContain("$3,085 · ROAS 0.50");
+    expect(card?.textContent).toContain("before deciding on a manual pause");
+    expect(card?.querySelector("[data-meta-exact-creative-served-action]")).toBeNull();
+    expect(card?.querySelectorAll("button")).toHaveLength(1);
+    expect(card?.querySelector("button")?.textContent).toContain("Review evidence");
+  });
+
   /**
    * LAW: un-decided ACTIVE inventory reaches NO lane, NO count and NO control.
    *

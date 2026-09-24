@@ -10134,6 +10134,11 @@ remain ACTIVE while every source Ad is known; incompatible mixtures remain
 unknown. This is current-at-decision delivery evidence, distinct from the
 provider-local historical reporting day's metrics and config proof.
 
+The reader first selects the latest admissible row for each creative in a
+materialized source CTE, then resolves member status once for that creative.
+This keeps the same cutoff and parent checks without repeating the state-history
+lookup for every daily metric row in a 28- or 90-day window.
+
 **Version and rollback.** D106 is part of the still-unshipped D105
 `v3-2026-09-24-creative-knowledge-bound` epoch. Earlier snapshots retain
 their stored status semantics and are not rewritten. Rollback restores the

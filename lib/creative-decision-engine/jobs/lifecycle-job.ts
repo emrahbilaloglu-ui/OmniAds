@@ -543,8 +543,24 @@ slopes AS (
   FROM daily_with_roas
   GROUP BY creative_id
 ),
-latest_meta AS (
+-- Resolve member state only for the latest admissible day of each creative.
+latest_meta_source AS MATERIALIZED (
   SELECT DISTINCT ON (d.creative_id)
+    d.business_ref_id, d.business_id, d.provider_account_ref_id,
+    d.provider_account_id, d.creative_id, d.campaign_id, d.adset_id, d.ad_id,
+    d.payload_json, d.objective, d.quality_ranking,
+    d.engagement_rate_ranking, d.conversion_rate_ranking,
+    d.creative_visual_format, d.creative_primary_type
+  FROM meta_creative_daily d
+  INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$4")}
+    AND d.date <= $2::date
+    AND d.objective = ANY($3::text[])
+  ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
+),
+latest_meta AS (
+  SELECT
     d.creative_id,
     d.business_id,
     d.provider_account_id,
@@ -566,14 +582,8 @@ latest_meta AS (
     NULLIF(d.payload_json->>'effective_object_story_id', '') AS effective_object_story_id,
     NULLIF(d.payload_json->>'post_id', '') AS post_id,
     NULLIF(d.payload_json->>'creative_identity_hash', '') AS creative_identity_hash
-  FROM meta_creative_daily d
-  INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  FROM latest_meta_source d
   ${creativeMemberEffectiveStatusLateralSql("d", "$4")}
-  WHERE d.business_ref_id = $1::uuid
-    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$4")}
-    AND d.date <= $2::date
-    AND d.objective = ANY($3::text[])
-  ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 ),
 target_pack AS (
   SELECT target_roas, break_even_roas

@@ -46,6 +46,7 @@ import {
   buildMetaStructureInventoryViewModel,
   buyerFacingCreativeDecisionLabel,
   buyerFacingCreativeResolution,
+  buyerFacingCreativeScope,
   heldCreativeVerdict,
 } from "./meta-decision-center-exact-adapter";
 
@@ -4308,6 +4309,59 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(serialized).not.toContain("confirm_commercial_target");
     expect(serialized).not.toContain("commercial_truth");
     expect(serialized).not.toContain("restoring this verdict's authority");
+  });
+
+  it("states an action-lane role-held Cut as a manual decision without a wait-again instruction", () => {
+    const cut = creativeFixture({
+      rawLabel: "test_more",
+      publishedLabel: "test_more",
+      heldAction: "cut",
+      lane: "act",
+      action: actionFixture({
+        code: "apply_cut_manually",
+        label: "Review spend reduction",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+      }),
+      heldResolution: {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Review spend reduction manually",
+        nextStep: "Pause this ad yourself if you agree.",
+      },
+    });
+    const verified = canonicalFixture({
+      configEvidence: { verified: true } as MetaCanonicalDecision["configEvidence"],
+    });
+    const ready = heldCreativeVerdict(cut, verified);
+    expect(ready?.label).toBe("Reduce spend — review manual pause");
+    expect(ready?.nextStep).toContain("pause this ad yourself if you agree");
+    expect(ready?.nextStep).not.toContain("again");
+
+    const unverified = canonicalFixture({
+      configEvidence: { verified: false } as MetaCanonicalDecision["configEvidence"],
+    });
+    const gap = heldCreativeVerdict(cut, unverified);
+    expect(gap?.label).toBe("Reduce spend recommendation — verify configuration");
+    expect(gap?.nextStep).toContain("campaign configuration receipts are incomplete");
+    expect(gap?.nextStep).not.toContain("The cut evidence is complete");
+    expect(buyerFacingCreativeScope(cut, unverified)).toContain(
+      "Verify campaign configuration before a manual pause",
+    );
+    expect(buyerFacingCreativeResolution({ ...cut, resolution: cut.heldResolution ?? null }, unverified))
+      .toContain("campaign configuration receipts are not fully verified");
+
+    const retained = heldCreativeVerdict({ ...cut, lane: "blocked", action: actionFixture({
+      code: "review_retained_decision",
+      label: "Review retained decision",
+      intent: "review",
+      targetLevel: "ad",
+      providerMutation: null,
+    }) }, verified);
+    expect(retained?.label).toBe("Spend reduction signal awaiting verification");
+    expect(retained?.nextStep).toContain("Then reassess whether to reduce spend.");
   });
 
   it("keeps the specific held resolution when provider configuration also needs verification", () => {

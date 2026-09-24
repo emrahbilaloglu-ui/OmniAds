@@ -1417,6 +1417,17 @@
       line-height: 1.35;
     }
 
+    .ad-mobile-creative-thumb {
+      display: block;
+      width: 64px;
+      height: 64px;
+      margin-bottom: 7px;
+      border: 1px solid var(--adc-b1);
+      border-radius: 8px;
+      background: var(--adc-s2);
+      object-fit: cover;
+    }
+
     .ad-mobile-row-card p {
       margin: 2px 0 0;
       font-size: 12px;

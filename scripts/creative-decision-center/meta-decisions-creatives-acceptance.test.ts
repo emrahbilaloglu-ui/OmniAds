@@ -565,6 +565,7 @@ function hardRow(overrides: Partial<HardRowRecord> = {}): HardRowRecord {
     confidence: 70,
     profileBlocker: null,
     hardActionEligibility: { scale: false, cut: true, refresh: false },
+    cutEvidence: null,
     config: { observed: false, fullyVerified: false, blockingField: "objective", weakestTier: "unknown", unverifiedEconomicDayCount: 11 },
     coverage: { status: "partial", expectedThroughDay: "2026-09-21", coverageThroughDay: "2026-09-20" },
     dataFreshnessHours: null,
@@ -1797,12 +1798,12 @@ function entrySource(overrides: {
           latestDay: { blockingField: "objective" },
         },
         metricEvidence: { sourceRowCount: 5, sourceCoverage: { status: "partial", expectedThroughDay: "2026-09-21", coverageThroughDay: "2026-09-20" } },
-        dataFreshnessHours: null, linkClicks: 10, spend: 12.5,
+        dataFreshnessHours: null, linkClicks: 10, spend: 12.5, purchases: 0,
       },
       rawLabel: overrides.rawLabel ?? "keep",
       decision: {
         label: overrides.label ?? "keep", preAuthorityLabel: overrides.preAuthorityLabel ?? "keep", authorityBlocker: "source_freshness",
-        confidence: 60, campaignRoleStatus: "resolved",
+        confidence: 60, campaignRoleStatus: "resolved", reason: "Sample decision reason",
         blockers: [{ predicate: "p1", status: "passed" }, { predicate: "p2", status: "failed" }],
       },
       hysteresisSuppressed: false,
@@ -1824,16 +1825,44 @@ describe("the decision-to-report mapping lives in core and is tested (P2)", () =
   });
 
   it("propagates the authorized action and the evidence chain into the hard row", () => {
-    const row = toHardRowRecord({ asOf: ASOF, entry: entrySource({ authorized: "cut", rawLabel: "cut", label: "cut" }), campaignContextById: new Map([["c-1", { resolverAuthorityValidated: false }]]) });
+    const row = toHardRowRecord({ asOf: ASOF, entry: entrySource({ authorized: "cut", rawLabel: "cut", preAuthorityLabel: "cut", label: "cut" }), campaignContextById: new Map([["c-1", { resolverAuthorityValidated: false }]]) });
     expect(row).toMatchObject({
       adId: "ad-1", campaignId: "c-1", adsetId: "as-1", rawLabel: "cut", publishedLabel: "cut",
       authorizedAction: "cut", blockedActionType: null, firstAuthorityBlocker: "source_freshness", effectiveAuthorityBlocker: "source_freshness",
       hardActionEligibility: { scale: false, cut: true, refresh: false },
+      cutEvidence: {
+        effectiveProfileEligible: true, canonicalProfileEligible: null,
+        spend28d: 12.5, purchases28d: 0,
+        accountAovZeroConversionSpendFloor: null,
+        accountAovCommercialMaturitySpendFloor: null,
+        decisionReason: "Sample decision reason",
+      },
       config: { observed: true, fullyVerified: false, blockingField: "objective", weakestTier: "typed_contemporaneous", unverifiedEconomicDayCount: 3 },
       coverage: { status: "partial", expectedThroughDay: "2026-09-21", coverageThroughDay: "2026-09-20" },
       role: { trust: "medium", campaignRoleStatus: "resolved", resolverArmed: false },
       priorSource: "simulated_prior_day",
       failedPredicates: ["p2:failed"],
+    });
+  });
+
+  it("does not mistake account-level Cut overlay eligibility for the ad's effective Cut authority", () => {
+    const entry = entrySource({ rawLabel: "test_more", preAuthorityLabel: "cut", label: "test_more", blocked: "cut" });
+    entry.computation.input.spend = 39;
+    entry.computation.decision.authorityBlocker = "profile_hard_action_ineligible";
+    entry.computation.decision.reason = "[soft-only - cut blocked] 0 purchases on 39 spend; Meta AOV sample low";
+    entry.group.profile.commercialStopLossCanonicalHardActionEligibility = { cut: false };
+    entry.group.profile.commercialStopLossThresholds = { zeroConvBurnerSpend: 489.78, commercialMaturitySpend: 244.89 };
+
+    const row = toHardRowRecord({ asOf: ASOF, entry, campaignContextById: new Map() });
+    expect(row.hardActionEligibility.cut).toBe(true); // Account overlay only.
+    expect(row.cutEvidence).toEqual({
+      effectiveProfileEligible: false,
+      canonicalProfileEligible: false,
+      spend28d: 39,
+      purchases28d: 0,
+      accountAovZeroConversionSpendFloor: 489.78,
+      accountAovCommercialMaturitySpendFloor: 244.89,
+      decisionReason: "[soft-only - cut blocked] 0 purchases on 39 spend; Meta AOV sample low",
     });
   });
 

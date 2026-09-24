@@ -4293,6 +4293,9 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       workspace: heldWorkspace({ creatives: [heldRefreshFixture()] }),
     });
     const row = model.creativeDecisions?.[0];
+    expect(model.creativePosture?.find((slot) => slot.id === "refresh-pipeline")?.detail).toBe(
+      "of 1 served · 1 Refresh recommendation awaiting review",
+    );
 
     // The published label is still true and still shown: it is what authority
     // allows. What was missing is the second fact beside it.
@@ -5080,7 +5083,7 @@ describe("the refresh posture tile separates authorized from held", () => {
     // The authorized count is honestly zero — nothing was authorized — but the
     // engine's two Refresh conclusions are stated rather than vanishing.
     expect(byId.get("refresh-pipeline")?.value).toBe("0");
-    expect(byId.get("refresh-pipeline")?.detail).toContain("2 held");
+    expect(byId.get("refresh-pipeline")?.detail).toContain("2 Refresh recommendations awaiting review");
   });
 
   it("never folds a held Refresh into the authorized count", () => {
@@ -5094,7 +5097,7 @@ describe("the refresh posture tile separates authorized from held", () => {
       }),
     ]);
     expect(byId.get("refresh-pipeline")?.value).toBe("1");
-    expect(byId.get("refresh-pipeline")?.detail).toContain("1 held");
+    expect(byId.get("refresh-pipeline")?.detail).toContain("1 Refresh recommendation awaiting review");
   });
 
   it("says nothing about held rows when there are none", () => {

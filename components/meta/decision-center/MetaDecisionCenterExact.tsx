@@ -1963,6 +1963,11 @@ function CreativeCard({
         {row.sparkPath || nonBlankDisplay(row.ctrValue) ? (
           <div className={styles.creativeSparkBlock}>
             <p className={styles.creativeSparkLabel}>{copy.ctrWindowed}</p>
+            {nonBlankDisplay(row.ctrValue) ? (
+              <p className={styles.creativeSparkValue} data-meta-exact-creative-ctr-value>
+                {display(row.ctrValue)}
+              </p>
+            ) : null}
             {row.sparkPath ? (
               <svg aria-hidden="true" viewBox="0 0 100 22" preserveAspectRatio="none">
                 <path
@@ -1973,11 +1978,7 @@ function CreativeCard({
                   vectorEffect="non-scaling-stroke"
                 />
               </svg>
-            ) : (
-              <p className={styles.creativeSparkValue} data-meta-exact-creative-ctr-value>
-                {display(row.ctrValue)}
-              </p>
-            )}
+            ) : null}
           </div>
         ) : null}
         <div className={styles.creativeMoneyBlock}>
@@ -2856,7 +2857,7 @@ export function MetaDecisionCenterExact({
           <h1>{copy.decisionCenter}</h1>
           {meaningfulDisplay(identity?.syncedLabel) ? (
             <p className={styles.asOfLine} data-meta-exact-source-identity>
-              {language === "tr" ? "Güncellendi" : "Updated"}:{" "}
+              {language === "tr" ? "Meta verisi" : "Meta data"}:{" "}
               {display(identity?.syncedLabel)}
             </p>
           ) : null}

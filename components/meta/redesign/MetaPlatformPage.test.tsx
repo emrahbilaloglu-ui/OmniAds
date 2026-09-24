@@ -2774,7 +2774,8 @@ describe("concise header freshness", () => {
     );
 
     expect(html).toContain('data-screen-label="Meta Decision Center"');
-    expect(html).toMatch(/Updated: synced \d+d ago/);
+    expect(html).toMatch(/Meta data: synced \d+d ago/);
+    expect(html).not.toContain("Updated: synced");
     expect(html).not.toContain("snapshot 2026-05-07");
     expect(html).not.toContain("engine v3-test");
     expect(html).not.toContain("engine v3.6.0-meta-taxonomy");
@@ -2789,7 +2790,7 @@ describe("concise header freshness", () => {
       />,
     );
 
-    expect(html).toContain(">Updated: synced —<");
+    expect(html).toContain(">Meta data: synced —<");
     expect(html).not.toContain("snapshot 2026-05-07");
     expect(html).not.toContain("engine v3-test");
     expect(html).not.toContain("sync unknown");

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "e6b67b95b01dc6dcacfab7db6d1c4429b4631ed1c5652450af818b05db58c683",
+  "manifestHash": "74abb7e98dc06b66dee6feffcb230fdac02f03615e5796c6982dcbd4e3ec4a3f",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -396,19 +396,19 @@
     },
     {
       "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
-      "sha256": "d21098c587f2b34f7d78ae46e721eab0835c9d1e761abe6b697f00cb84072a3e"
+      "sha256": "cbe648d4e8ce563e8f8959f61193136c6015c3a459f09f5a78e674bb3c59ce05"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "0278992328d22e48cd351d8990166deb0358332a49ebea7ef18bbdf613679d3c"
+      "sha256": "c9d3615b566582f004654eee34d30b21b9b4ed52efdab3265ff269797c0d0156"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "bdecbc0bbb7fd469a95efbf2bf7d1a923806b975df3616a4930a768e52ab99f6"
+      "sha256": "6dfb32239bdf7154e7dfa51081333eb5f771c096ea5044788ae98c15be21d632"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
-      "sha256": "4495f8d290c99fbda5e72dc90f2c7797756d1aed1e5e3f5747dc4ceda035243f"
+      "sha256": "fef70b354283614a6d68fae5a1d3ab4f8222cc7ef4cac5faa1cd96addc860767"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
@@ -416,7 +416,7 @@
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
-      "sha256": "131a424db2eb29a4cae82d2e7eced508e009b8115edd610353ef0854db90fe62"
+      "sha256": "c619516c180a3ab81f22bcd59c9f96aec85860606176553d8c51f6e28a60942f"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCreativeThumbnail.test.tsx",
@@ -432,7 +432,7 @@
     },
     {
       "path": "components/meta/decision-center/served-field-probe.ts",
-      "sha256": "18daa2609b361ff4574780ed89de05f407201d033947b72f2d706e53d07fd8ba"
+      "sha256": "1c77978e85cae5d04311868d4b87ab0e8035fe0523a39f4f10629f1eeefdb37a"
     },
     {
       "path": "components/meta/decision-center/stale-fresh-cta-boundary.test.tsx",
@@ -608,11 +608,11 @@
     },
     {
       "path": "lib/api/meta.test.ts",
-      "sha256": "1c685e1ede32ea5a545653daf186d6a015f3995fc970ccd5b12381b7d8f53872"
+      "sha256": "bc07035197f919e16394446057af5c57a44af1ce40c9fc589be648731c574a79"
     },
     {
       "path": "lib/api/meta.ts",
-      "sha256": "dbef8b53e68394f9d87930f0b2715fac623d08b056ee37db756bd3cc1589ff3d"
+      "sha256": "21a5339819099a9ca74845556c7c449d202c20cea5568670d28b3ac962a49687"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-cpa-identity-projection.test.ts",
@@ -1107,8 +1107,12 @@
       "sha256": "b0363aa322d76b345e42d3cbf7fd8cacefe46c50e8a91a650fd786bb6146a66d"
     },
     {
+      "path": "lib/meta/ad-daily-write-ownership.test.ts",
+      "sha256": "4fe631f9d338884ea15073815e984a473a5482fdec8f6f0d6c01de5c6691e3b1"
+    },
+    {
       "path": "lib/meta/ad-day-link-click-persistence.db.test.ts",
-      "sha256": "43e016e5746b0cabcf6bbd06d057a774ce9a2fb35235f65ee98642e7ed8d1c3d"
+      "sha256": "c0bc7c189003fc17f3b2917c569942507d4aea6877fd64c47e36511903623fe6"
     },
     {
       "path": "lib/meta/ad-performance-availability.ts",
@@ -1392,27 +1396,27 @@
     },
     {
       "path": "lib/meta/decisions-os-contract.ts",
-      "sha256": "bf67404d8550ebb032599fc728af9e17a56b48cd26d5b61c6a0e431db013351d"
+      "sha256": "a4a448e10b2eb335cf6c79c0eca726049ccdc997609deb1f3b5f6743da8cf4f9"
     },
     {
       "path": "lib/meta/decisions-os-presentation.test.ts",
-      "sha256": "b57c1fabedd2086866f0d10a4115daed0e7d238dde8f0f5cc4e93d35d4d8118b"
+      "sha256": "b4aa8a7aefb3d55946b137bc26bfd0a8c056d89ba1b0d808cceffdbafd2f3367"
     },
     {
       "path": "lib/meta/decisions-os-presentation.ts",
-      "sha256": "5934d3e231357cecdf68725fdbcc21f3e9a7bb204a27e30f8a81535581ead40c"
+      "sha256": "f1c316f75ea8c5ba87cc97a5674cf056c8605fd6a2bbfe2211aa8f6828b604e7"
     },
     {
       "path": "lib/meta/decisions-workspace-contract.ts",
-      "sha256": "c3a5157786c893fc83c232ca9c8f244f1300e5a61f3b6a98c81a0d26804a8e67"
+      "sha256": "cc31ec10c149710a6d5bd0527c29d91d5dfea57fc1f473f9b20239e353fc9301"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
-      "sha256": "bc1b6496dfde45f423302d0ee3444482327dc1cb24bde8870654416b22c71bf7"
+      "sha256": "881f1d07ab5cb4593e6be092c19794dc6110ba62f7b4559b84be76645c0f9786"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
-      "sha256": "943d9e71a3037415873e41ccc9a0a3cb9b5fd00539078c925b74a3dda4578ad5"
+      "sha256": "c9fed088ecc9765a6ca34c77eee08c59f0e850fd484e8a4d3b3a914665b29bb5"
     },
     {
       "path": "lib/meta/entity-signals-backfill.test.ts",
@@ -1572,7 +1576,7 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "74df13dfe9f459f2400d8210f2e71c4b6078e25ab82fc4e00d29dae36240ffaf"
+      "sha256": "0f0c5fc1b8608e5cdaa408c26c39f5da9706c81754137ac28c01c09f710f4c77"
     },
     {
       "path": "lib/meta/write-safety-contract.test.ts",
@@ -1760,7 +1764,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-meta-d101-retry-seam-child.ts",
-      "sha256": "16697552e7959a71e198ee9ccc5b975bb73e6d34dcecaa542a70abde54b6b138"
+      "sha256": "a649ebb471e7c66aaa31db9bb243e1eb655518005a877c91d8a6a7af00532d45"
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",

@@ -1915,8 +1915,26 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     );
     expect(warehouse.replaceMetaCampaignDailySlice).toHaveBeenCalledWith(
       expect.objectContaining({
+        slice: {
+          businessId: "biz-1",
+          providerAccountId: "act_1",
+          date: "2026-04-03",
+        },
         rows: [],
       }),
+    );
+    expect(warehouse.replaceMetaAdSetDailySlice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slice: {
+          businessId: "biz-1",
+          providerAccountId: "act_1",
+          date: "2026-04-03",
+        },
+        rows: [],
+      }),
+    );
+    expect(warehouse.replaceMetaAdDailySlice).toHaveBeenCalledWith(
+      expect.objectContaining({ rows: [] }),
     );
   });
 

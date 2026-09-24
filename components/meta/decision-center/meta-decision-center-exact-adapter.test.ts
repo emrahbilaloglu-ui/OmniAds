@@ -1478,6 +1478,38 @@ describe("the lineage read fills what the reference draws", () => {
 
     expect(viewModel.inspector?.moneySparkPath).toContain("M0.0");
   });
+
+  it("falls back to supported Meta-derived types only when snapshot format is missing", () => {
+    const providerType = (value: string) => ({
+      value,
+      source: "meta_creative_dimensions" as const,
+      sourceUpdatedAt: null,
+    });
+    const creatives = [
+      creativeFixture({ id: "video", creativeFormat: null, sourceCreativeType: providerType("video") }),
+      creativeFixture({ id: "feed_catalog", creativeFormat: null, sourceCreativeType: providerType("feed_catalog") }),
+      creativeFixture({ id: "feed", creativeFormat: null, sourceCreativeType: providerType("feed") }),
+      creativeFixture({ id: "flexible", creativeFormat: null, sourceCreativeType: providerType("flexible") }),
+      creativeFixture({ id: "snapshot", creativeFormat: "image", sourceCreativeType: providerType("feed_catalog") }),
+      creativeFixture({ id: "unknown_snapshot", creativeFormat: "carousel", sourceCreativeType: providerType("video") }),
+      creativeFixture({ id: "old", creativeFormat: "catalog" }),
+    ];
+    const rows = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ os: { ads: { items: creatives } } }),
+    }).creativeDecisions;
+    expect(rows?.map((row) => [row.id, row.kindShort])).toEqual([
+      ["video", "VID"],
+      ["feed_catalog", "FEED CAT"],
+      ["feed", "—"],
+      ["flexible", "FLEX"],
+      ["snapshot", "IMG"],
+      ["unknown_snapshot", "—"],
+      ["old", "CAT"],
+    ]);
+    expect(rows?.find((row) => row.id === "feed_catalog")?.kindTitle).toBe("feed_catalog");
+    expect(rows?.find((row) => row.id === "feed")?.kindTitle).toBeNull();
+    expect(rows?.find((row) => row.id === "snapshot")?.kindTitle).toBeNull();
+  });
 });
 
 describe("the creative queue is the served set, split by the served state", () => {
@@ -1543,6 +1575,17 @@ describe("the creative queue is the served set, split by the served state", () =
         targetLevel: "ad",
         providerMutation: null,
       }),
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "cut",
+        publishedLabel: "test_more",
+        firstBlocker: {
+          code: "campaign_context",
+          label: "Campaign context pending",
+          explanation: "Historical producer copy",
+        },
+      },
       resolution: {
         code: "apply_cut_manually",
         category: "campaign_context",
@@ -1592,6 +1635,9 @@ describe("the creative queue is the served set, split by the served state", () =
     expect(row?.moneySub).toContain("No Meta change can be applied");
     expect(row?.heldVerdictNextStep).toContain("current run before acting");
     expect(model.inspector?.contractDetail).toContain("current run before acting");
+    expect(model.inspector?.reasons).toEqual([
+      "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+    ]);
     expect(model.inspector?.moneyDetail).toContain("No Meta change can be applied");
     expect(JSON.stringify({ row, inspector: model.inspector })).not.toMatch(
       /pause this ad (in Meta )?(yourself|if you agree)/i,
@@ -4773,7 +4819,32 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(inspector?.blockers).toBe(
       "The campaign configuration behind this decision is not verified for the evaluation day or its economic window.",
     );
+    expect(inspector?.reasons?.[0]).toBe(inspector?.blockers);
     expect(JSON.stringify(inspector)).not.toContain("Internal config source authority");
+  });
+
+  it("puts the served primary blocker in the inspector's Why line", () => {
+    const inspector = heldInspector(
+      heldRefreshFixture({
+        authorityProvenance: {
+          availability: "available",
+          preAuthorityLabel: "refresh",
+          postAuthorityRawLabel: "keep",
+          publishedLabel: "keep",
+          firstBlocker: {
+            code: "config_source_authority",
+            label: "Internal config source authority",
+            explanation: "Internal producer explanation",
+          },
+        },
+        blockers: [{ code: "pending_transition", label: "Internal pending label" }],
+      }),
+    );
+
+    expect(inspector?.reasons?.[0]).toBe(
+      "The campaign configuration behind this decision is not verified for the evaluation day or its economic window.",
+    );
+    expect(JSON.stringify(inspector)).not.toContain("Internal producer explanation");
   });
 
   it("explains the inspector's held verdict with the held resolution, not the published one", () => {

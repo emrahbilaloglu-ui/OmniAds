@@ -1996,14 +1996,11 @@ function creativePosture(
   }));
 }
 
-/**
- * The three-letter media kind the reference prints inside the thumb.
- *
- * The engine records one of `image`, `video`, `catalog` on the lifecycle row it
- * decided from. Anything else stays a dash rather than being abbreviated into a
- * kind nobody defined.
- */
-function creativeKindShort(format: string | null | undefined): string {
+/** Snapshot format keeps priority; current Meta-derived type fills its gap. */
+function creativeKindShort(
+  format: string | null | undefined,
+  sourceCreativeType: string | null | undefined,
+): string {
   switch (nonBlank(format)?.toLowerCase()) {
     case "image":
       return "IMG";
@@ -2012,7 +2009,15 @@ function creativeKindShort(format: string | null | undefined): string {
     case "catalog":
       return "CAT";
     default:
-      return EM_DASH;
+      if (nonBlank(format)) return EM_DASH;
+  }
+  // These labels abbreviate the warehouse's Meta-derived taxonomy. In
+  // particular, feed and feed_catalog never become lifecycle image/catalog.
+  switch (nonBlank(sourceCreativeType)?.toLowerCase()) {
+    case "video": return "VID";
+    case "feed_catalog": return "FEED CAT";
+    case "flexible": return "FLEX";
+    default: return EM_DASH;
   }
 }
 
@@ -2307,8 +2312,32 @@ export function buyerFacingCreativeReason(decision: MetaOsAdDecision): string {
   if (decision.decisionAvailability === "pending_native_evidence") {
     return "This active ad is waiting for an ad-level decision.";
   }
+  // The retained row's authority blockers describe the earlier verdict. Its
+  // current review state is caused by the latest native run failing, so that
+  // served action must lead the Why before any historical blocker copy.
+  if (
+    decision.lane === "blocked" &&
+    decision.action.code === "review_retained_decision"
+  ) {
+    return RETAINED_GENERATION_REVIEW_COPY;
+  }
   if (decision.publishedLabel === "out_of_scope") {
     return "This ad is outside the verified purchase-ROAS decision scope. This workflow makes no scale, spend-reduction, or creative-refresh call for it.";
+  }
+  // A blocked row already carries the producer's first authority blocker.
+  // Show that served reason in the inspector instead of a generic review
+  // sentence. The code is translated through the buyer-copy catalog; provider
+  // labels and free-form producer prose never become display text.
+  if (decision.lane === "blocked") {
+    const primary = knownBuyerCopy(
+      BUYER_CREATIVE_BLOCKER_COPY,
+      decision.authorityProvenance?.firstBlocker?.code,
+    );
+    const secondary = (decision.blockers ?? [])
+      .map((blocker) => knownBuyerCopy(BUYER_CREATIVE_BLOCKER_COPY, blocker.code))
+      .find((copy) => copy !== null);
+    if (primary) return primary;
+    if (secondary) return secondary;
   }
   return (
     knownBuyerCopy(BUYER_CREATIVE_ACTION_CONTEXT_COPY, decision.action.code) ??
@@ -2814,7 +2843,15 @@ function creativeRows(input: {
     return {
       id: decision.id,
       name: nonBlank(decision.adName) ?? EM_DASH,
-      kindShort: creativeKindShort(decision.creativeFormat),
+      kindShort: creativeKindShort(
+        decision.creativeFormat,
+        decision.sourceCreativeType?.value,
+      ),
+      kindTitle:
+        nonBlank(decision.creativeFormat) ||
+        creativeKindShort(null, decision.sourceCreativeType?.value) === EM_DASH
+          ? null
+          : nonBlank(decision.sourceCreativeType?.value),
       thumbnailUrl: normalizeMediaUrl(decision.thumbnailUrl),
       thumbnailRecoveryUrl:
         /^\d+$/.test(decision.creativeId ?? "") &&

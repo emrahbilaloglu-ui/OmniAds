@@ -781,6 +781,33 @@ describe("Meta Decisions workspace canonical read model", () => {
     ).toBe(true);
   });
 
+  it("carries current Meta-derived creative type separately from decided-from format", () => {
+    const row = nativeSnapshot("120000000000000040", {
+      creative_format: null,
+      provider_asset_type: "feed_catalog",
+      provider_asset_type_source_updated_at: "2026-07-13T03:00:00.000Z",
+    });
+    const decision = nativeModel([row]).queue.adCandidates?.items[0];
+    expect(decision?.creativeFormat).toBeNull();
+    expect(decision?.sourceCreativeType).toEqual({
+      value: "feed_catalog",
+      source: "meta_creative_dimensions",
+      sourceUpdatedAt: "2026-07-13T03:00:00.000Z",
+    });
+    expect(decision?.sourceAuthority?.status).toBe("native_exact");
+    expect(
+      nativeModel([nativeSnapshot("120000000000000042", {
+        provider_asset_type: "feed",
+      })]).queue.adCandidates?.items[0]?.sourceCreativeType,
+    ).toBeNull();
+    expect(
+      nativeModel([nativeSnapshot("120000000000000041", {
+        creative_id: null,
+        provider_asset_type: "video",
+      })]).queue.adCandidates?.items[0]?.sourceCreativeType,
+    ).toBeNull();
+  });
+
   it("keeps a native Ad visible but review-only when creative identity is null", () => {
     const model = nativeModel([
       nativeSnapshot("120000000000000003", {
@@ -4215,6 +4242,12 @@ describe("Meta Decisions workspace canonical read model", () => {
     );
     expect(String(nativeSnapshotCall?.[0])).toContain(
       "snapshot.authority_blocker",
+    );
+    expect(String(nativeSnapshotCall?.[0])).toContain(
+      "creative_dim.asset_type AS provider_asset_type",
+    );
+    expect(String(nativeSnapshotCall?.[0])).toMatch(
+      /FROM meta_creative_dimensions dimension\s+WHERE snapshot\.creative_id IS NOT NULL\s+AND dimension\.business_id = \$1\s+AND dimension\.provider_account_id = \$2\s+AND dimension\.creative_id = snapshot\.creative_id/,
     );
     // D075 consumer sweep: an absent_unconfirmed winner serves NULL —
     // never a fabricated 'DELETED' provider state, never a resurrected

@@ -1,10 +1,14 @@
 /** A migrated-Postgres seam for the D101 retry and orphan-receipt repair. */
 import { getDb, resetDbClientCache } from "@/lib/db";
 import { randomUUID } from "node:crypto";
+import { createMetaFinalizationCompletenessProof } from "@/lib/meta/finalization-proof";
 import {
   getMetaCorePublishedRetryState,
   getMetaPositiveSpendAdIdsForPublishedRun,
   listMetaRawSnapshotsForRun,
+  replaceMetaAdDailySlice,
+  replaceMetaAdSetDailySlice,
+  replaceMetaCampaignDailySlice,
   supersedeMetaRawSnapshotsForPartition,
 } from "@/lib/meta/warehouse";
 
@@ -118,9 +122,10 @@ async function main() {
     const [slice] = await db.query<{ id: string }>(`
       INSERT INTO meta_authoritative_slice_versions
         (business_id, provider_account_id, day, surface, candidate_version,
-         state, truth_state, validation_status, status, source_run_id, published_at)
+         state, truth_state, validation_status, status, staged_row_count,
+         source_run_id, published_at)
       VALUES ($1, $2, $3::date, $4, 1, 'finalized_verified', 'finalized',
-              'passed', 'published', $5, now())
+              'passed', 'published', 0, $5, now())
       RETURNING id::text AS id
     `, [BUSINESS, ACCOUNT, DAY, surface, runId]);
     assert(slice, `slice ${surface} missing`);
@@ -206,12 +211,140 @@ async function main() {
   });
   assert(active.complete && active.active,
     "only same-run core with post-close Ad proof may be reused on retry");
+  // A published nonempty Ad slice whose rows disappeared before its next
+  // pointer publish is not an empty authoritative slice.
+  await db.query(`
+    UPDATE meta_authoritative_slice_versions SET staged_row_count=1
+    WHERE id=$1::uuid
+  `, [adSlice.id]);
+  const missingPublishedAdRow = await getMetaCorePublishedRetryState({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, day: DAY, partitionId: runId,
+    accountTimezone: "UTC",
+  });
+  assert(!missingPublishedAdRow.complete && !missingPublishedAdRow.active &&
+      missingPublishedAdRow.requiresProviderRefetch,
+    "a published Ad count cannot be satisfied by zero persisted rows");
+  await db.query(`
+    UPDATE meta_authoritative_slice_versions SET staged_row_count=0
+    WHERE id=$1::uuid
+  `, [adSlice.id]);
+  // A zero-row publish can leave an older generation's Ad rows behind. Such
+  // rows make the active slice inadmissible even though no row bears runId.
+  const staleAdRunId = randomUUID();
+  await db.query(`
+    INSERT INTO meta_ad_daily
+      (business_id, business_ref_id, provider_account_id,
+       provider_account_ref_id, date, ad_id, account_timezone,
+       account_currency, spend, source_run_id)
+    VALUES ($1::text, $1::uuid, $2, $3::uuid, $4::date,
+            'ad-stale-run', 'UTC', 'USD', 10, $5)
+  `, [BUSINESS, ACCOUNT, ACCOUNT_REF, DAY, staleAdRunId]);
+  const staleAdRows = await getMetaCorePublishedRetryState({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, day: DAY, partitionId: runId,
+    accountTimezone: "UTC",
+  });
+  assert(!staleAdRows.complete && !staleAdRows.active &&
+      staleAdRows.requiresProviderRefetch,
+    "Ad rows from a different source run must invalidate retry proof");
+  await replaceMetaAdDailySlice({
+    slice: { businessId: BUSINESS, providerAccountId: ACCOUNT, date: DAY },
+    rows: [],
+    proof: createMetaFinalizationCompletenessProof({
+      businessId: BUSINESS,
+      providerAccountId: ACCOUNT,
+      date: DAY,
+      scope: "ad",
+      sourceRunId: runId,
+      complete: true,
+      validationStatus: "passed",
+    }),
+  });
+  const [remainingStaleAd] = await db.query<{ count: string }>(`
+    SELECT COUNT(*)::text AS count FROM meta_ad_daily
+    WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
+  `, [BUSINESS, ACCOUNT, DAY]);
+  assert(Number(remainingStaleAd?.count) === 0,
+    "a proved zero-Ad refetch must remove older source-run rows");
+  const repairedEmptyAd = await getMetaCorePublishedRetryState({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, day: DAY, partitionId: runId,
+    accountTimezone: "UTC",
+  });
+  assert(repairedEmptyAd.complete && repairedEmptyAd.active,
+    "the empty authoritative Ad replacement must make retry proof reusable");
   const [campaignSlice] = await db.query<{ id: string }>(`
     SELECT id::text AS id FROM meta_authoritative_slice_versions
     WHERE business_id=$1 AND provider_account_id=$2 AND day=$3::date
       AND surface='campaign_daily' AND source_run_id=$4
   `, [BUSINESS, ACCOUNT, DAY, runId]);
   assert(campaignSlice, "campaign slice missing");
+  const [adsetSlice] = await db.query<{ id: string }>(`
+    SELECT id::text AS id FROM meta_authoritative_slice_versions
+    WHERE business_id=$1 AND provider_account_id=$2 AND day=$3::date
+      AND surface='adset_daily' AND source_run_id=$4
+  `, [BUSINESS, ACCOUNT, DAY, runId]);
+  assert(adsetSlice, "adset slice missing");
+  const newerSourceRunId = randomUUID();
+  await db.query(`
+    INSERT INTO meta_campaign_daily
+      (business_id, provider_account_id, date, campaign_id,
+       account_timezone, account_currency, spend, source_run_id)
+    VALUES ($1, $2, $3::date, 'campaign-newer-run', 'UTC', 'USD', 0, $4::uuid)
+  `, [BUSINESS, ACCOUNT, DAY, newerSourceRunId]);
+  await db.query(`
+    INSERT INTO meta_adset_daily
+      (business_id, provider_account_id, date, campaign_id, adset_id,
+       account_timezone, account_currency, spend, source_run_id)
+    VALUES ($1, $2, $3::date, 'campaign-newer-run', 'adset-newer-run',
+            'UTC', 'USD', 0, $4::uuid)
+  `, [BUSINESS, ACCOUNT, DAY, newerSourceRunId]);
+  await db.query(`
+    UPDATE meta_authoritative_slice_versions SET staged_row_count=1
+    WHERE id=ANY($1::uuid[])
+  `, [[campaignSlice.id, adsetSlice.id]]);
+  const mixedCoreGeneration = await getMetaCorePublishedRetryState({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, day: DAY, partitionId: runId,
+    accountTimezone: "UTC",
+  });
+  assert(!mixedCoreGeneration.complete && !mixedCoreGeneration.active &&
+      mixedCoreGeneration.requiresProviderRefetch,
+    "an old core pointer cannot reuse newer-run Campaign/Adset rows");
+  const coreSlice = { businessId: BUSINESS, providerAccountId: ACCOUNT, date: DAY };
+  for (const [scope, replace] of [
+    ["campaign", replaceMetaCampaignDailySlice],
+    ["adset", replaceMetaAdSetDailySlice],
+  ] as const) {
+    await replace({
+      slice: coreSlice,
+      rows: [],
+      proof: createMetaFinalizationCompletenessProof({
+        ...coreSlice,
+        scope,
+        sourceRunId: runId,
+        complete: true,
+        validationStatus: "passed",
+      }),
+    });
+  }
+  const [remainingCampaign] = await db.query<{ count: string }>(`
+    SELECT COUNT(*)::text AS count FROM meta_campaign_daily
+    WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
+  `, [BUSINESS, ACCOUNT, DAY]);
+  const [remainingAdset] = await db.query<{ count: string }>(`
+    SELECT COUNT(*)::text AS count FROM meta_adset_daily
+    WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
+  `, [BUSINESS, ACCOUNT, DAY]);
+  assert(Number(remainingCampaign?.count) === 0 && Number(remainingAdset?.count) === 0,
+    "proved zero-row Campaign/Adset refetches must remove older rows");
+  await db.query(`
+    UPDATE meta_authoritative_slice_versions SET staged_row_count=0
+    WHERE id=ANY($1::uuid[])
+  `, [[campaignSlice.id, adsetSlice.id]]);
+  const repairedEmptyCore = await getMetaCorePublishedRetryState({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, day: DAY, partitionId: runId,
+    accountTimezone: "UTC",
+  });
+  assert(repairedEmptyCore.complete && repairedEmptyCore.active,
+    "a completely replaced zero-row core must be reusable");
   await db.query(`
     DELETE FROM meta_authoritative_publication_pointers
     WHERE business_id=$1 AND provider_account_id=$2 AND day=$3::date
@@ -312,9 +445,9 @@ async function main() {
         (business_id, business_ref_id, provider_account_id,
          provider_account_ref_id, day, surface, manifest_id,
          candidate_version, state, truth_state, validation_status, status,
-         source_run_id, published_at)
+         staged_row_count, source_run_id, published_at)
       VALUES ($1::text, $1::uuid, $2, $3::uuid, $4::date, $5, $6::uuid, 2,
-              'finalized_verified', 'finalized', 'passed', 'published', $7, now())
+              'finalized_verified', 'finalized', 'passed', 'published', 0, $7, now())
       RETURNING id::text AS id
     `, [BUSINESS, ACCOUNT, ACCOUNT_REF, DAY, surface, freshManifest.id, freshRunId]);
     assert(freshSlice, `fresh ${surface} slice missing`);
@@ -367,9 +500,10 @@ async function main() {
     const [slice] = await db.query<{ id: string }>(`
       INSERT INTO meta_authoritative_slice_versions
         (business_id, provider_account_id, day, surface, candidate_version,
-         state, truth_state, validation_status, status, source_run_id, published_at)
+         state, truth_state, validation_status, status, staged_row_count,
+         source_run_id, published_at)
       VALUES ($1, $2, $3::date, $4, 1, 'finalized_verified', 'finalized',
-              'passed', 'published', $5, now())
+              'passed', 'published', 0, $5, now())
       RETURNING id::text AS id
     `, [BUSINESS, ACCOUNT, delayedDay, surface, captureRunId]);
     assert(slice, `delayed ${surface} slice missing`);

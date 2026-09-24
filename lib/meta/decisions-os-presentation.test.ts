@@ -1304,6 +1304,31 @@ describe("buildMetaOsDecisionsPresentation", () => {
     });
   });
 
+  it("passes current creative taxonomy as display identity without replacing snapshot format", () => {
+    const decision = canonicalDecision({
+      id: "provider-format",
+      adId: "120000000000000091",
+      buyerAction: "cut",
+    });
+    decision.creativeFormat = null;
+    decision.sourceCreativeType = {
+      value: "feed_catalog",
+      source: "meta_creative_dimensions",
+      sourceUpdatedAt: "2026-07-13T03:00:00.000Z",
+    };
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([decision]),
+      currency: "EUR",
+    });
+    expect(result.ads.items[0]?.creativeFormat).toBeNull();
+    expect(result.ads.items[0]?.sourceCreativeType).toEqual(
+      decision.sourceCreativeType,
+    );
+  });
+
   it("withholds only hard Scale/Cut actions when current target authority is unavailable", () => {
     const result = buildMetaOsDecisionsPresentation({
       actionNow: [],

@@ -287,6 +287,8 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   id: string;
   name?: MetaDecisionCenterExactDisplayValue;
   kindShort?: MetaDecisionCenterExactDisplayValue;
+  /** Full current Meta-derived type, used when snapshot format is absent. */
+  kindTitle?: string | null;
   thumbnailUrl?: string | null;
   /** Authenticated, account-scoped read path used only after a broken preview. */
   thumbnailRecoveryUrl?: string | null;
@@ -1911,7 +1913,13 @@ function CreativeCard({
           thumbnailUrl={row.thumbnailUrl}
           recoveryUrl={row.thumbnailRecoveryUrl}
         />
-        <span className={styles.creativeKind}>{display(row.kindShort)}</span>
+        <span
+          className={styles.creativeKind}
+          title={row.kindTitle ?? undefined}
+          aria-label={row.kindTitle ? `Creative type from Meta data: ${row.kindTitle}` : undefined}
+        >
+          {display(row.kindShort)}
+        </span>
       </span>
       <div className={styles.creativeIdentity}>
         <div className={styles.creativeHeading}>

@@ -189,6 +189,13 @@ export interface MetaDecisionMediaEnvelope {
   provenance: MetaDecisionProvenance;
 }
 
+/** Current warehouse taxonomy from Meta creative fields; display only. */
+export interface MetaDecisionSourceCreativeType {
+  value: string;
+  source: "meta_creative_dimensions";
+  sourceUpdatedAt: string | null;
+}
+
 export type MetaDecisionDeliveryScopeState =
   | "active"
   | "inactive"
@@ -483,6 +490,8 @@ export interface MetaCanonicalDecision {
   };
   /** `image` | `video` | `catalog` from the decided-from lifecycle row. */
   creativeFormat?: string | null;
+  /** Current, account-scoped creative type. May postdate the decision snapshot. */
+  sourceCreativeType?: MetaDecisionSourceCreativeType | null;
   /** `none` | `watch` | `fatigued` | `unknown` from the same row. */
   fatigueStatus?: string | null;
   exposure: MetaDecisionExposure | null;

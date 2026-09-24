@@ -1716,6 +1716,7 @@ function adDecision(
       ? "unavailable"
       : "observed",
     creativeFormat: decision.creativeFormat ?? null,
+    sourceCreativeType: decision.sourceCreativeType ?? null,
     fatigueStatus: decision.fatigueStatus ?? null,
     rawLabel: decision.sourceDecision.rawLabel,
     publishedLabel: decision.sourceDecision.label,

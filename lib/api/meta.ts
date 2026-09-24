@@ -5094,7 +5094,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             })
           : null;
       adsetProof =
-        truthState === "finalized" && adsetRows.length > 0
+        truthState === "finalized" && (adsetRows.length > 0 || zeroSpendFinalizedDay)
           ? createMetaFinalizationCompletenessProof({
               businessId: input.credentials.businessId,
               providerAccountId: input.accountId,
@@ -5387,6 +5387,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         if (truthState === "finalized") {
           if (campaignProof) {
             await replaceMetaCampaignDailySlice({
+              slice: {
+                businessId: input.credentials.businessId,
+                providerAccountId: input.accountId,
+                date: normalizedDay,
+              },
               rows: campaignRows,
               proof: campaignProof,
             });
@@ -5416,6 +5421,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         if (truthState === "finalized") {
           if (adsetProof) {
             await replaceMetaAdSetDailySlice({
+              slice: {
+                businessId: input.credentials.businessId,
+                providerAccountId: input.accountId,
+                date: normalizedDay,
+              },
               rows: adsetRows,
               proof: adsetProof,
             });
@@ -5444,7 +5454,15 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       run: async () => {
         if (truthState === "finalized") {
           if (adProof) {
-            await replaceMetaAdDailySlice({ rows: adRows, proof: adProof });
+            await replaceMetaAdDailySlice({
+              slice: {
+                businessId: input.credentials.businessId,
+                providerAccountId: input.accountId,
+                date: normalizedDay,
+              },
+              rows: adRows,
+              proof: adProof,
+            });
           } else if (adRows.length > 0) {
             await upsertMetaAdDailyRows(adRows, {
               writeMode: "authoritative_fact",

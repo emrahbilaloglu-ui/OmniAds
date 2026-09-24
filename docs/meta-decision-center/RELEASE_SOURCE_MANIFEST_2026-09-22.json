@@ -1,5 +1,5 @@
 {
-  "manifestHash": "1410250fdb4c17a8da7ce726d551989834fd1bc0f3a2650d0b441b81cf2edf39",
+  "manifestHash": "d4339a6251e3b2b50a24f780f41ed7d4d968e379f5b7de48511464f16f36af8b",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -331,8 +331,12 @@
       "sha256": "6909aeb43f566c3aab59a15ee1af00b54b8cbd87ca1c7ebbb9f0d9b9518165ad"
     },
     {
+      "path": "components/creatives/creative-evidence-held-verdict.test.tsx",
+      "sha256": "c2cd984037658de6cc99b1dbbc4d5ccb7517cdd677843e3115347d656f1dae18"
+    },
+    {
       "path": "components/creatives/creative-evidence-window-exact-adapter.test.ts",
-      "sha256": "3459bd994c1caebc5edcc66e9f86bad21d18af07c304c3a03175ea6926f93179"
+      "sha256": "a99ff4d8426785ea850cf49230839ddf9168b95972113b10617d417edfcbcaf8"
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.ts",
@@ -399,12 +403,16 @@
       "sha256": "cbe648d4e8ce563e8f8959f61193136c6015c3a459f09f5a78e674bb3c59ce05"
     },
     {
+      "path": "components/meta/decision-center/held-resolution-owner-copy.test.ts",
+      "sha256": "3a7d581f84fa41db9850a3f36d7a51eeaac6403017777e891415c52145722d6c"
+    },
+    {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "b7aa1ad9b0b77a435ebb4f442b6a7e1adff7dbdb141cfd7ba19335958a69a10d"
+      "sha256": "c060ccb0fb53543edcc3a40269883e27a44d835a69932060abfd4268e0041531"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "a45a63fc1127e37c64df1e602b8e596edf5b202f85ecf383a29bff9b17e8ee1c"
+      "sha256": "7147cb2a815bfcad13ef50b39b87a0b47b28c166ed88e007facf8b0daa82bb89"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",

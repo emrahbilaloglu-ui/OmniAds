@@ -54,6 +54,12 @@ export type { DecisionAuthorityBlocker };
  */
 export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   /*
+  `.v18` — ADR D111. A trusted physical-account Cut floor below which the
+  thin-cell fallback minted an advisory Cut now produces an explicit Test More
+  with the verified floor and no held hard action. Source/config evidence takes
+  precedence over role uncertainty on genuinely held native hard verdicts.
+  Previous evaluations remain readable under their original version.
+
   `.v17` — ADR D108. The provider-zero receipt and purchase classifier change
   economic completeness while retaining exact row/source provenance. The
   envelope binds both contracts; earlier evaluations keep their own key.
@@ -105,7 +111,7 @@ export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   readable under their own key and are never recomputed under current
   semantics.
 */
-  "engine-v3-canonical-ad-evaluation.v17" as const;
+  "engine-v3-canonical-ad-evaluation.v18" as const;
 
 /**
  * The source interpretation rules a `.v14` ad evaluation's inputs use.

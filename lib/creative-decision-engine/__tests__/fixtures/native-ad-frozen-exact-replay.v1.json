@@ -1,6 +1,6 @@
 {
   "contractVersion": "native-ad-frozen-exact-replay.v1",
-  "engineVersion": "v3-ad-2026-09-24-provider-zero-receipt-shadow",
+  "engineVersion": "v3-ad-2026-09-24-cut-proof-floor-story-shadow",
   "sourceMode": "anonymized_frozen_acceptance_fixture",
   "sourceProvenance": {
     "mode": "synthetic_anonymized_production_contract_fixture",

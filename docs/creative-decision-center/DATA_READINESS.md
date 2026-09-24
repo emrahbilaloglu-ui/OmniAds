@@ -53,6 +53,9 @@ Known facts to preserve unless repo evidence proves otherwise:
   zero malformed/conflicting canonical facts are proven. Campaign/ad-set
   context is not required for that scalar; it remains required for peer
   percentiles and cannot be borrowed into Scale or Refresh.
+- A thin exact cell's lower fallback spend floor cannot create a pending Cut
+  below a verified physical-account Cut floor. Such a row remains Test More
+  with the verified floor named; no blocker or pending hard action is emitted.
 - Non-null Ad `finalized_at` is required for strict physical-account AOV,
   source-currency, and source-timezone evidence. Peer calibration instead
   retains the existing exact Ad/campaign/ad-set `FINALIZED`/`PASSED` hierarchy

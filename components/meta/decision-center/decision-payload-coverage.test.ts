@@ -1396,7 +1396,7 @@ const COVERAGE: Record<string, Coverage> = {
   ),
   "MetaOsDecisionsPresentation.ads.statePreCapCounts": R(
     S.CREATIVES,
-    "each group header's 'N shown · M served'",
+    "the lane tabs, the Creatives scope pill, and each group header's 'N shown · M served'",
   ),
   "MetaOsDecisionsPresentation.ads.eligiblePreCapCount": R(
     S.PROVENANCE,
@@ -3994,7 +3994,10 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // selected creative do not; the Creatives queue and the source panel sit
   // behind the scope tabs and show only what the resting scope draws.
   // The creative scope is behind a tab in the default desktop render.
-  CREATIVES: [1, 10],
+  // 1 -> 2: `ads.statePreCapCounts` now drives the lane tabs and the
+  // Creatives scope pill, which ARE in the resting desktop DOM; before, the
+  // tabs read the post-cap served counts and only the group header read it.
+  CREATIVES: [2, 9],
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
@@ -4060,7 +4063,9 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // rows.
 // 312 -> 333 with the original receipt-lineage leaves; -> 339 with the six
 // contract-identity leaves. All are behind the evidence-window control.
-const DOM_PROOF_TOTALS: [number, number] = [32, 342];
+// 32 -> 33 (342 -> 341): `ads.statePreCapCounts` moves from behind the scope
+// tab into the resting DOM as the lane-tab and scope-pill counts.
+const DOM_PROOF_TOTALS: [number, number] = [33, 341];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget

@@ -57,6 +57,9 @@ const LIMITATION_COPY: Readonly<Record<string, string>> = Object.freeze({
     "Earlier creative-level guidance is shown for reference and cannot be applied to individual ads.",
   ad_metrics_are_creative_context:
     "Those earlier rows describe a group of ads, not one ad, so their numbers cannot size a single ad's change.",
+  // The active-Ad read was incomplete: the count is unknown, never zero.
+  active_ad_inventory_unverified:
+    "The active ad list could not be fully read, so ads still waiting for a decision may not be listed here.",
 });
 
 /** The sentence shown when a limitation code has no buyer mapping yet. */
@@ -100,6 +103,7 @@ const LIMITATION_TITLE: Readonly<Record<string, string>> = Object.freeze({
   active_ad_inventory_pending_native_decision: "Ads awaiting a decision",
   legacy_creative_review_only: "Older guidance, reference only",
   ad_metrics_are_creative_context: "Grouped numbers",
+  active_ad_inventory_unverified: "Active ads not fully read",
 });
 
 export function buyerLimitationTitle(code: string | null | undefined): string {

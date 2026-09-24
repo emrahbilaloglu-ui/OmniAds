@@ -66,6 +66,11 @@ import {
   type MetaDecisionsReadModelUnavailableCode,
   type MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
+import {
+  attachPreCapAdCandidates,
+  preCapLaneProjection,
+  readMetaPreCapAdCandidates,
+} from "@/lib/meta/decisions-pre-cap-ad-candidates";
 
 const META_DECISION_HISTORY_EVENT_LIMIT = 10;
 const META_DECISION_HISTORY_EVENT_READ_LIMIT = 50;
@@ -2357,6 +2362,11 @@ export function buildMetaDecisionsWorkspaceReadModel(
         .filter(Boolean),
     ),
   );
+  // The same population `stateCounts` counts, before the response cap.
+  attachPreCapAdCandidates(
+    readModel,
+    exactAdCandidates.map(preCapLaneProjection),
+  );
   return readModel;
 }
 
@@ -3548,6 +3558,22 @@ export function applyMetaExecutionGovernanceToReadModel(input: {
       pipeline: input.pipeline,
       now,
     });
+  }
+  // The pre-cap lane population needs the SAME request-time execution posture
+  // as the served rows, or a stale or kill-switched native Cut would be
+  // counted in Act while its served row sits in Blocked.
+  const preCap = readMetaPreCapAdCandidates(input.model);
+  if (preCap) {
+    const hydrated = structuredClone([...preCap]);
+    for (const decision of hydrated) {
+      hydrateMetaCanonicalDecisionExecutionGovernance({
+        decision,
+        governance: input.governance,
+        pipeline: input.pipeline,
+        now,
+      });
+    }
+    attachPreCapAdCandidates(model, hydrated);
   }
   return model;
 }

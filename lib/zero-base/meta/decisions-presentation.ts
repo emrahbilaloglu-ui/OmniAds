@@ -308,10 +308,17 @@ export function buildOsDecisionsViewModel(input: {
       )
     : byLevel;
   const rows = filtered.slice(0, cap);
+  // An uncounted creative source (null pre-cap counts) contributes only the
+  // rows actually served, never a pre-cap total nobody measured.
+  const creativeCounts = input.os.ads.statePreCapCounts ?? {
+    act: input.os.ads.actCount,
+    blocked: input.os.ads.blockedCount,
+    monitor: input.os.ads.monitorCount,
+  };
   const counts = {
-    act: input.os.ads.statePreCapCounts.act + input.os.structure.actCount,
-    test: input.os.ads.statePreCapCounts.blocked + input.os.structure.blockedCount,
-    watch: input.os.ads.statePreCapCounts.monitor + input.os.structure.monitorCount,
+    act: creativeCounts.act + input.os.structure.actCount,
+    test: creativeCounts.blocked + input.os.structure.blockedCount,
+    watch: creativeCounts.monitor + input.os.structure.monitorCount,
   };
   const sourceCount =
     counts[input.state.lane];

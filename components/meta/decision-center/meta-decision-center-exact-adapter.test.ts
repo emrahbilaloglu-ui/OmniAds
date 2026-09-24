@@ -1855,8 +1855,10 @@ describe("the creative queue is the served set, split by the served state", () =
       "Current creative decisions could not be verified",
     );
     expect(view.creativesNotice).toContain("24 active ads have no current decision");
+    // The notice already says the source is unavailable; the footnote points
+    // at what the buyer can still use instead of saying it a second time.
     expect(view.creativeFootnote).toBe(
-      "Current ad-level decisions cannot be shown until their source is available.",
+      "Use Creative Studio to compare creative performance while decisions are unavailable.",
     );
   });
 
@@ -5292,4 +5294,100 @@ describe("the native economics caption claims no window it cannot substantiate",
     }
   });
 
+});
+
+/**
+ * The creative lane tabs and the Creatives pill read the server's PRE-CAP lane
+ * totals, counted by the same lane function that places each row. A capped
+ * page (60 of 80) must not shrink the tabs, and an uncounted source is an em
+ * dash, never a zero.
+ */
+describe("creative lane counts come from the pre-cap lane population", () => {
+  function servedTwoOf(total: { act: number; blocked: number; monitor: number }) {
+    const workspace = workspaceFixture({
+      os: fullOs({
+        creatives: [
+          creativeFixture({ id: "os_ad_a", decisionId: "d_a", lane: "blocked" }),
+          creativeFixture({ id: "os_ad_b", decisionId: "d_b", lane: "blocked" }),
+        ],
+      }),
+    });
+    workspace.os.ads.actCount = 0;
+    workspace.os.ads.blockedCount = 2;
+    workspace.os.ads.monitorCount = 0;
+    workspace.os.ads.statePreCapCounts = total;
+    workspace.os.ads.eligiblePreCapCount = total.act + total.blocked + total.monitor;
+    return workspace;
+  }
+
+  it("counts every pre-cap decision in the tabs and the pill, not only the served page", () => {
+    const view = buildMetaDecisionCenterExactViewModel({
+      workspace: servedTwoOf({ act: 1, blocked: 80, monitor: 12 }),
+    });
+    expect(view.operatorSummary?.scopeCounts?.creatives).toEqual({
+      action: 1,
+      needsResolution: 80,
+      watching: 12,
+    });
+    expect(view.counts?.creatives).toBe(93);
+    expect(view.operatorSummary?.creatives).toBe(93);
+    // The served-page counts (0 · 2 · 0) are not what the tabs say.
+    expect(view.operatorSummary?.scopeCounts?.creatives?.needsResolution).not.toBe(2);
+  });
+
+  it("shows an uncounted source as an em dash in every creative count, never zero", () => {
+    const workspace = servedTwoOf({ act: 0, blocked: 0, monitor: 0 });
+    workspace.os.ads.statePreCapCounts = null;
+    workspace.os.ads.eligiblePreCapCount = null;
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.operatorSummary?.scopeCounts?.creatives).toEqual({
+      action: "—",
+      needsResolution: "—",
+      watching: "—",
+    });
+    expect(view.counts?.creatives).toBe("—");
+    expect(view.operatorSummary?.creatives).toBe("—");
+  });
+
+  it("keeps a verified-empty source at real zeros with no notice", () => {
+    const workspace = workspaceFixture({ os: fullOs({ creatives: [] }) });
+    workspace.os.ads.statePreCapCounts = { act: 0, blocked: 0, monitor: 0 };
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.operatorSummary?.scopeCounts?.creatives).toEqual({
+      action: 0,
+      needsResolution: 0,
+      watching: 0,
+    });
+    expect(view.counts?.creatives).toBe(0);
+    expect(view.creativesNotice).toBeNull();
+  });
+
+  it("names the retained run and the failed run when a degraded source still serves rows", () => {
+    const workspace = servedTwoOf({ act: 0, blocked: 2, monitor: 0 });
+    (workspace.decisionReadModel.source as Record<string, unknown>).degraded = {
+      reason: META_DECISION_SOURCE_DEGRADED_REASON,
+      servedGeneration: { jobRunId: "run_old", asOfDate: "2026-09-21" },
+      latestTerminalRun: { jobRunId: "run_new", status: "failed", asOfDate: "2026-09-23" },
+    };
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.creativesNotice).toBe(
+      "Showing decisions from the 2026-09-21 run because the latest decision run (2026-09-23) did not complete. They are review-only until a current run succeeds.",
+    );
+  });
+
+  it("says the active-ad list is unverified instead of printing a pending count", () => {
+    const workspace = servedTwoOf({ act: 0, blocked: 2, monitor: 0 });
+    workspace.os.limitations = [
+      {
+        code: "active_ad_inventory_unverified",
+        message: "The active ad list could not be fully read.",
+      },
+    ];
+    delete (workspace.os.ads as { pendingInventoryCount?: number }).pendingInventoryCount;
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.creativesNotice).toBe(
+      "The active ad list could not be fully read, so ads still waiting for a decision may not be listed here.",
+    );
+    expect(view.creativesNotice).not.toMatch(/\b0 active ads\b/);
+  });
 });

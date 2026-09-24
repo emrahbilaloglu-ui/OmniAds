@@ -81,18 +81,25 @@ function productionModulesMounting(component: string): string[] {
 
 describe("Creative evidence window route wiring", () => {
   function expectScopedServedCreativeOpen(source: string) {
-    // A served OS row may open without a canonical envelope, but its two
-    // envelopes must remain attached to the exact workspace response and
-    // query scope that supplied them. A future refresh or account/date switch
-    // cannot keep displaying the old decision under new helper evidence.
+    // A served OS row may open without a canonical envelope. Its two halves
+    // are bound to the decision LINEAGE (id + decisionId + sourceSnapshotId)
+    // and the query scope that supplied them: a refetch that still serves the
+    // lineage rebinds both halves to the new response's objects, so the old
+    // decision is never shown under new helper evidence; a failed refetch keeps
+    // the last good objects React Query still holds; the lineage leaving the
+    // response, another key's placeholder rows, or an account/date switch
+    // closes the drawer.
     expect(source).toMatch(
       /onCreativeReview: \(decision, canonicalDecision\) => \{[\s\S]*?if \(!workspaceQuery\.data\) return;\s*setCreativeDrill\(\{\s*decision,\s*canonical: canonicalDecision,\s*workspaceRef: workspaceQuery\.data,\s*scopeKey: creativeDrillScopeKey,\s*\}\);/,
     );
     expect(source).toContain(
-      "scopedCreativeDrill.workspaceRef === workspaceQuery.data",
+      "if (scopedCreativeDrill.workspaceRef === served) return scopedCreativeDrill;",
     );
     expect(source).toContain("selectedLineageStillServed");
-    expect(source).toContain("!workspaceQuery.error");
+    expect(source).toContain(
+      "? { ...scopedCreativeDrill, decision, canonical, workspaceRef: served }",
+    );
+    expect(source).toContain("workspaceQuery.isPlaceholderData");
   }
 
   it("mounts the exact evidence window on the design's own trigger", () => {

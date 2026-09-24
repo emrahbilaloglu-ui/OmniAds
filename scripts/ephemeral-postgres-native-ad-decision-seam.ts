@@ -1110,6 +1110,7 @@ async function createHydrationSourceSchema(client: Client) {
       provider_account_ref_id UUID, provider_account_id TEXT NOT NULL,
       day DATE NOT NULL, surface TEXT NOT NULL, account_timezone TEXT,
       run_id TEXT, fetch_status TEXT NOT NULL, completed_at TIMESTAMPTZ,
+      started_at TIMESTAMPTZ, raw_snapshot_watermark TEXT, meta_json JSONB,
       fresh_start_applied BOOLEAN NOT NULL DEFAULT FALSE,
       checkpoint_reset_applied BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
@@ -1121,6 +1122,7 @@ async function createHydrationSourceSchema(client: Client) {
       candidate_version INTEGER NOT NULL, state TEXT NOT NULL,
       truth_state TEXT NOT NULL, validation_status TEXT NOT NULL,
       status TEXT NOT NULL, source_run_id TEXT, published_at TIMESTAMPTZ,
+      validation_summary JSONB, superseded_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
     );
     CREATE TABLE meta_authoritative_publication_pointers (
@@ -1128,7 +1130,8 @@ async function createHydrationSourceSchema(client: Client) {
       provider_account_ref_id UUID, provider_account_id TEXT NOT NULL,
       day DATE NOT NULL, surface TEXT NOT NULL,
       active_slice_version_id UUID NOT NULL,
-      published_by_run_id TEXT, published_at TIMESTAMPTZ NOT NULL,
+      published_by_run_id TEXT, publication_reason TEXT,
+      published_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
     );
     CREATE TABLE meta_authoritative_reconciliation_events (

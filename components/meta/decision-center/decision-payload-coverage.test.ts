@@ -2231,7 +2231,7 @@ const COVERAGE: Record<string, Coverage> = {
     "the creative row's type badge when its decided-from lifecycle format is absent; the badge's title and accessible label retain the full Meta-derived type",
   ),
   "MetaDecisionSourceCreativeType.source": N(
-    "The only admitted source is meta_creative_dimensions; it qualifies the display type and grants no action authority.",
+    "The display type can come from current Meta creative dimensions or exact-creative media evidence. This provenance qualifies the badge but grants no decision or action authority.",
   ),
   "MetaDecisionSourceCreativeType.sourceUpdatedAt": N(
     "The current warehouse type may postdate the decision snapshot and is never presented as historical decision evidence.",
@@ -3440,7 +3440,9 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // Candidate selection v3 retains v2 payload compatibility. Its version
     // leaf now has two values instead of one pinned literal.
     // The new observation leaf and three v5/v6 compatibility version leaves vary.
-    expect(fields.filter((field) => field.varies).length).toBe(757);
+    // The media-backed creative type adds a second source literal, so that
+    // provenance leaf now varies while remaining intentionally unrendered.
+    expect(fields.filter((field) => field.varies).length).toBe(758);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -4129,7 +4131,7 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // Three newly variable legacy-compatible version tags stay hidden; the
 // workspace business id now changes the rendered scope state.
 // The display-only source clock varies but is intentionally not rendered.
-const NOWHERE_LEAVES = 379;
+const NOWHERE_LEAVES = 380;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4946,7 +4948,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // lineage leaves; -> 744 with their six contract-identity leaves; -> 745
     // when candidate-selection v2/v3 became a variable protocol tag.
     // Current creative taxonomy adds two varying display/provenance leaves.
-    expect(outcomes.size).toBe(757);
+    expect(outcomes.size).toBe(758);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {

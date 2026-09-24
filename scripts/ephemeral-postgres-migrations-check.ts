@@ -4343,6 +4343,12 @@ async function main() {
     await runChildScript(
       repoRoot,
       databaseUrl,
+      path.join("scripts", "ephemeral-postgres-meta-d101-retry-seam-child.ts"),
+      "Meta D101 retry and orphan-receipt DB seam check",
+    );
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
       path.join("scripts", "ephemeral-postgres-creative-brief-seam-child.ts"),
       "creative brief DB seam check",
     );

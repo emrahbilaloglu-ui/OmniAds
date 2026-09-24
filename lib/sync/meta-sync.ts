@@ -56,10 +56,12 @@ import {
   getMetaAuthoritativeDayVerification,
   getMetaAuthoritativeRequiredSurfacesForDayAge,
   getMetaCampaignDailyCoverage,
+  getMetaCorePublishedRetryState,
   getMetaCreativeDailyCoverage,
   getMetaDirtyRecentDates,
   getMetaIncompleteCoverageDates,
   getMetaPartitionStatesForDate,
+  getMetaPositiveSpendAdIdsForPublishedRun,
   getMetaPublishedVerificationSummary,
   getMetaRecentAuthoritativeSliceGuard,
   listMetaAuthoritativeDayStates,
@@ -2139,6 +2141,19 @@ export function shouldBypassMetaCoverageShortCircuit(input: {
   return input.authorityBootstrapForced === true;
 }
 
+export function resolveMetaCoreRetrySourceRunId(input: {
+  delayedTodayFinalization: boolean;
+  partitionId: string;
+  checkpoint: { runId?: string | null; lastResponseHeaders?: Record<string, unknown> | null } | null;
+}) {
+  if (!input.delayedTodayFinalization) {
+    return input.checkpoint?.runId ?? input.partitionId;
+  }
+  return input.checkpoint?.lastResponseHeaders?.__adsecute_capture_truth_state === "finalized"
+    ? input.checkpoint.runId ?? null
+    : null;
+}
+
 type MetaCreativeMembershipUpgradeState = {
   legacyDecisionBearingRows: number;
   unmatchedDecisionBearingAds: number;
@@ -2741,6 +2756,32 @@ async function syncMetaPartitionDay(input: {
   const productCoreEligible = input.scopes.some((scope) =>
     isMetaProductCoreCoverageScope(scope),
   );
+  const completedCoreCheckpoint =
+    productCoreEligible && input.attemptCount > 0
+      ? await getMetaSyncCheckpoint({
+          partitionId: input.partitionId,
+          checkpointScope: "core_ad_insights",
+        })
+      : null;
+  const retrySourceRunId = resolveMetaCoreRetrySourceRunId({
+    delayedTodayFinalization,
+    partitionId: input.partitionId,
+    checkpoint: completedCoreCheckpoint,
+  });
+  const coreRetryState =
+    truthState === "finalized" && productCoreEligible &&
+    input.attemptCount > 0 && retrySourceRunId
+      ? await getMetaCorePublishedRetryState({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          day: normalizedDay,
+          partitionId: input.partitionId,
+          sourceRunId: retrySourceRunId,
+          accountTimezone: partitionAuthority.timeZone,
+          repairCaptureInProgress:
+            completedCoreCheckpoint?.lastResponseHeaders?.__adsecute_repair_source_run === "true",
+        })
+      : { complete: false, active: false, requiresProviderRefetch: false };
   const coverageWouldSkip =
     productCoreEligible && coverageState.productCoreComplete;
   const authorityBootstrapForced = coverageWouldSkip
@@ -2769,7 +2810,10 @@ async function syncMetaPartitionDay(input: {
     // been captured, never that its spend and conversions are still current.
     (sourceTodayWindow || delayedTodayFinalization || forceAuthoritativeRefetch || !coverageState.productCoreComplete)
   ) {
-    const bulkResult = await captureMetaPartitionStage({
+    // A failed later stage may retry this partition hundreds of times. Its
+    // already published core is durable evidence, not a request to refresh
+    // and move the D101 publication clock on every retry.
+    const bulkResult = coreRetryState.complete ? null : await captureMetaPartitionStage({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       partitionId: input.partitionId,
@@ -2788,7 +2832,8 @@ async function syncMetaPartitionDay(input: {
           leaseEpoch: input.leaseEpoch,
           attemptCount: input.attemptCount + 1,
           leaseMinutes: META_PARTITION_LEASE_MINUTES,
-          freshStart,
+          freshStart: freshStart || coreRetryState.requiresProviderRefetch,
+          forceNewSourceRunOnFreshStart: coreRetryState.requiresProviderRefetch,
           truthState,
           lane: input.lane,
           sourceRunId: input.partitionId,
@@ -2801,10 +2846,13 @@ async function syncMetaPartitionDay(input: {
             actually resolved; otherwise the core day keeps its own fallback.
           */
           providerLocalToday: boundProviderLocalToday,
+          boundAccountTimezone: partitionAuthority.trusted
+            ? partitionAuthority.timeZone
+            : null,
           source: input.source,
         }),
     });
-    if (bulkResult.memoryInstrumentation?.oversizeWarning) {
+    if (bulkResult?.memoryInstrumentation?.oversizeWarning) {
       console.warn("[meta-sync] oversized_partition_detected", {
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
@@ -2814,7 +2862,14 @@ async function syncMetaPartitionDay(input: {
         flushThresholdRows: bulkResult.memoryInstrumentation.flushThresholdRows,
       });
     }
-    if (shouldSyncBreakdowns) {
+    if (shouldSyncBreakdowns && (!coreRetryState.complete || coreRetryState.active)) {
+      const positiveSpendAdIds = bulkResult?.positiveSpendAdIds ??
+        await getMetaPositiveSpendAdIdsForPublishedRun({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          day: normalizedDay,
+          sourceRunId: retrySourceRunId ?? input.partitionId,
+        });
       await captureMetaPartitionStage({
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
@@ -2854,7 +2909,7 @@ async function syncMetaPartitionDay(input: {
                   attemptCount: input.attemptCount + 1,
                   breakdowns: breakdownJob.breakdowns,
                   endpointName: breakdownJob.endpointName,
-                  positiveSpendAdIds: bulkResult.positiveSpendAdIds,
+                  positiveSpendAdIds,
                   source: input.source,
                   publishAuthoritativeSurface: false,
                   referenceToday,
@@ -2865,26 +2920,11 @@ async function syncMetaPartitionDay(input: {
                   error: null as Error | null,
                 };
               } catch (error) {
-                await upsertMetaCheckpointOrThrow({
-                  partitionId: input.partitionId,
-                  businessId: input.businessId,
-                  providerAccountId: input.providerAccountId,
-                  checkpointScope: `breakdown:${breakdownJob.breakdowns}`,
-                  phase: "fetch_raw",
-                  status: "failed",
-                  pageIndex: 0,
-                  nextPageUrl: null,
-                  providerCursor: null,
-                  rowsFetched: 0,
-                  rowsWritten: 0,
-                  lastSuccessfulEntityKey: null,
-                  lastResponseHeaders: {},
-                  attemptCount: input.attemptCount + 1,
-                  leaseEpoch: input.leaseEpoch,
-                  leaseOwner: input.workerId,
-                  startedAt: new Date().toISOString(),
-                  finishedAt: new Date().toISOString(),
-                }).catch(() => null);
+                // The breakdown writer owns its durable checkpoint. Replacing
+                // it here with a synthetic page-zero failure destroyed run_id
+                // and the resume frontier while raw pages remained intact.
+                // The partition/run failure below records this error without
+                // corrupting that checkpoint.
                 console.warn("[meta-sync] breakdown_sync_failed", {
                   businessId: input.businessId,
                   providerAccountId: input.providerAccountId,
@@ -3020,6 +3060,7 @@ async function syncMetaPartitionDay(input: {
           await reconcileMetaAuthoritativeDayStateFromVerification({
             verification,
             accountTimezone:
+              partitionAuthority.timeZone ??
               credentials.accountProfiles?.[input.providerAccountId]?.timezone ??
               "UTC",
             activePartitionIdBySurface: Object.fromEntries(

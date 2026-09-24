@@ -9791,6 +9791,33 @@ Historical replay therefore returns coverage unavailable in that case. This is
 an intentional false-negative until immutable pointer history exists; it may
 not infer the former active slice from a later pointer or from purchase facts.
 
+**Retry repair (2026-09-24).** A partition that published all four finalized
+core slices but failed in a later breakdown stage reuses that core on retry;
+it does not refetch and move the D101 publication clock merely because the
+same partition was retried. A previously successful partition can still be
+requeued for a new provider read. Breakdown errors leave their writer-owned
+checkpoint intact. For older runs where an error handler erased the checkpoint
+run identity while raw pages remained, only that endpoint's active raw
+observations are superseded, then the endpoint is fetched anew. The receipt
+timeline is retained. This changes neither D101's coverage proof nor native
+decision versions; it prevents a retry from rewriting the proof's knowledge
+time and from looping on orphaned pages.
+
+The retry shortcut requires the exact capture run on delayed `today` finalization
+and an active same-run Ad pointer, completed manifest, trusted bound timezone,
+and completion after that provider-local day closed. A published slice with an
+early or missing D101 source proof requires a fresh provider read, not a new
+completion stamp over old raw pages. That repair mints a new source-run identity
+so its new slices attach to its new manifest, and a newer unfinished candidate
+cannot fall back to an older published candidate. A superseded older run cannot
+overwrite a newer active pointer. Without a trusted timezone, another provider
+fetch cannot establish D101 day-close authority, so the existing published core
+is retained until account identity is repaired. A forced repair carries its
+source-run identity in the durable core checkpoint; an interruption before
+publication still requests a new provider capture. Daily fact rows and the
+manifest use the trusted provider-account DB timezone when present, so a stale
+credential timezone cannot repeat the same inadmissible proof on every retry.
+
 **Versioning and compatibility.** Native producer epoch advances to
 `v3-ad-2026-09-23-verified-coverage-freshness-shadow`; canonical Ad evaluation
 advances to `engine-v3-canonical-ad-evaluation.v13`, whose metric contract binds

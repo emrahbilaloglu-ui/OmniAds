@@ -978,6 +978,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       leaseEpoch: 11,
       attemptCount: 1,
       leaseMinutes: 15,
+      // The credential profile is UTC; the selected provider-account binding
+      // is authoritative for every fact row written by this capture.
+      boundAccountTimezone: "America/Anchorage",
     });
 
     // 2026-04-03 is a HISTORICAL day. Campaign/adset/ad config endpoints return
@@ -1003,8 +1006,23 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         expect.objectContaining({
           campaignId: "cmp-1",
           buyingType: null,
+          accountTimezone: "America/Anchorage",
         }),
       ]),
+    );
+    expect(warehouse.upsertMetaAccountDailyRows).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ accountTimezone: "America/Anchorage" }),
+      ]),
+    );
+    expect(warehouse.upsertMetaAdDailyRows).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adId: "ad-1",
+          accountTimezone: "America/Anchorage",
+        }),
+      ]),
+      expect.anything(),
     );
     // Entity observation runs carry `capturedAt: now()`, which is part of the
     // run identity, so a backfill wave produced a brand-new run and a fresh
@@ -4461,6 +4479,49 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
         pageIndex: 2,
         rowsFetched: 2,
         rowsWritten: 2,
+      }),
+    );
+  });
+
+  it("refetches an orphaned breakdown generation without borrowing its rows", async () => {
+    vi.mocked(warehouse.listMetaRawSnapshotsForRun).mockResolvedValue([
+      {
+        id: "orphan-page-one",
+        page_index: 1,
+        payload_json: [{ country: "OLD", spend: "90" }],
+        provider_cursor: null,
+        provider_http_status: 200,
+        status: "fetched",
+        fetched_at: "2026-04-03T03:00:00.000Z",
+      },
+    ] as never);
+    const fetchMock = vi.fn(async () => jsonResponseFor({
+      data: [{
+        country: "US", spend: "4.20", impressions: "120", clicks: "5",
+        reach: "95", actions: [], action_values: [], purchase_roas: [],
+      }],
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runBreakdownSyncForTest("partition-orphan-breakdown");
+
+    expect(warehouse.supersedeMetaRawSnapshotsForPartition).toHaveBeenCalledWith({
+      partitionId: "partition-orphan-breakdown",
+      runId: "partition-orphan-breakdown",
+      endpointName: "breakdown_country",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(warehouse.replaceMetaBreakdownDailySlice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rows: [expect.objectContaining({ breakdownKey: "US", spend: 4.2 })],
+      }),
+    );
+    expect(warehouse.upsertMetaSyncCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkpointScope: "breakdown:country",
+        runId: "partition-orphan-breakdown",
+        status: "succeeded",
+        pageIndex: 1,
       }),
     );
   });

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d3231bc4b11209754dd254b1b9d1435fe24baaa8106e19983f0403f42aef74b0",
+  "manifestHash": "4501cb10b72e0f4981a48ff7ba128d8b68e1d14e484170c0516b997c11af1849",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -544,7 +544,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "8f6bbe4c0c31ce9728a00042db52e54df4c31f97c9213456b03610f45d9c9fc4"
+      "sha256": "7674db6ae38f1cd3fa77565888e3d869995bfeb4dc6cb6070cc96aa41412b09e"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -608,11 +608,11 @@
     },
     {
       "path": "lib/api/meta.test.ts",
-      "sha256": "a0f08f879cde58fbb87252e213636c58abadbe60199b21bf20e780b592f393f8"
+      "sha256": "1c685e1ede32ea5a545653daf186d6a015f3995fc970ccd5b12381b7d8f53872"
     },
     {
       "path": "lib/api/meta.ts",
-      "sha256": "60840721f581415aee369a7bae58cb92fe0b7c8791d3a6e2e444a4176fe40966"
+      "sha256": "dbef8b53e68394f9d87930f0b2715fac623d08b056ee37db756bd3cc1589ff3d"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-cpa-identity-projection.test.ts",
@@ -1572,7 +1572,7 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "a9a39eabbea7f8a772b0f142babffe10bceb1f400ef6057598b4db0792ecefaa"
+      "sha256": "74df13dfe9f459f2400d8210f2e71c4b6078e25ab82fc4e00d29dae36240ffaf"
     },
     {
       "path": "lib/meta/write-safety-contract.test.ts",
@@ -1600,11 +1600,11 @@
     },
     {
       "path": "lib/sync/meta-sync.test.ts",
-      "sha256": "a25594a480229995c269c33d509edbcbf7e25fe6fecf019f47e8979a79709f25"
+      "sha256": "63de1a221356c98d7393351021f841a8bed547306cb6912d65edf0ee9cdd5e31"
     },
     {
       "path": "lib/sync/meta-sync.ts",
-      "sha256": "c504b686c06e0cb013c8294cb6bcddfa1e07877890f15f9d268419f7acccc9c0"
+      "sha256": "c3cefabff1262070a3b28b2c8075b34ff225f3e04883f69cf575b5770fa887eb"
     },
     {
       "path": "lib/sync/storage-containment.ts",
@@ -1755,8 +1755,12 @@
       "sha256": "b0a5dc19c577227dfca693dea88f24af396f6ef9e96c833e183a442e5dd75e6e"
     },
     {
+      "path": "scripts/ephemeral-postgres-meta-d101-retry-seam-child.ts",
+      "sha256": "16697552e7959a71e198ee9ccc5b975bb73e6d34dcecaa542a70abde54b6b138"
+    },
+    {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "5a2e2d2ad2ee232d0b1604c59d769efeed6739a63f38867fcb80ab7dd9268291"
+      "sha256": "6f34060a3d653feb37c1159d34e04be5eac6aead6d029f7abc563c559fc99ee0"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

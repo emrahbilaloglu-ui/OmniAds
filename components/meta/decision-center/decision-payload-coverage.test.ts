@@ -1928,10 +1928,10 @@ const COVERAGE: Record<string, Coverage> = {
     "A second window's return on the same card as the decision window's; the engine decides against the decision window, and two ROAS figures with no stated windows beside them read as a disagreement.",
   ),
   "MetaCanonicalDecision.metrics.ctr": N(
-    "The window draws this ad's CTR as a 28-day daily trail from the ad series read, which is the same measure at higher resolution; a scalar beside the chart would be the chart's own average restated.",
+    "The native Ad row draws this evaluation's admitted-window all-click CTR; the selected-date warehouse trail is separate and cannot substitute for the decision metric.",
   ),
   "MetaCanonicalDecision.metrics.frequency": N(
-    "The served presentation decision's frequency is the one this surface reads - it is the same 28-day lifecycle figure, and it is what the posture band and the window's frequency fact are computed from.",
+    "The native Ad metric is a reach-weighted mean of daily frequency across the admitted economic window; the presentation decision passes it to the posture band.",
   ),
   "MetaCanonicalDecision.metrics.effectiveTargetRoas": R(
     S.EVIDENCE,
@@ -2035,8 +2035,8 @@ const COVERAGE: Record<string, Coverage> = {
     "provider-account",
   ),
   "MetaOsAdDecision.adId": R(
-    S.CREATIVES,
-    "the key the row's CTR sparkline is looked up by, and the diagnostics' served ad",
+    S.EVIDENCE,
+    "the evidence window's served Ad identity and provider link; the selected-date CTR trail no longer shares the decision metric caption",
   ),
   "MetaOsAdDecision.adName": R(
     S.CREATIVES,
@@ -2859,12 +2859,12 @@ const COVERAGE: Record<string, Coverage> = {
     "the provenance-gap line, which names CPA as not served at this row's grain rather than leaving an unexplained gap",
   ),
   "MetaOsDecisionMetrics.ctr": W(
-    S.INSPECTOR,
-    "the provenance-gap line, for the same reason as CPA",
+    S.CREATIVES,
+    "the creative row's decision all-click CTR, labelled with its admitted economic dates; a missing value has no lifecycle fallback",
   ),
   "MetaOsDecisionMetrics.frequency": R(
     S.POSTURE,
-    "the spend-weighted 'Avg frequency · 28d' tile, and the evidence window's frequency fact",
+    "the spend-weighted 'Avg daily frequency' tile, and the separately labelled evidence window frequency fact",
     "average-frequency",
   ),
   "MetaOsDecisionMetrics.effectiveTargetRoas": R(
@@ -3978,14 +3978,17 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
   // six labelled config rows the diagnostics now print.
-  EVIDENCE: [120, 18],
+  // The Ad id now keys the evidence window rather than a selected-date CTR
+  // spark under the decision metric.
+  EVIDENCE: [120, 19],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
   // the provenance band is one band, not a table of rows.
   // 12 -> 13: it arrived here. @see decisionAvailability above.
   // D107 adds two labelled inspector rows for economic and bridged days.
-  INSPECTOR: [4, 13],
+  // Native decision CTR moved to the admitted-window creative card.
+  INSPECTOR: [4, 12],
   INVENTORY: [0, 14],
   KPI: [0, 22],
   NONSALES: [0, 1],
@@ -4035,7 +4038,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 10 -> 11: the held verdict `heldAction`, behind the Creatives scope tab
   // rather than in the resting desktop DOM.
   // D107's economic and bridged-day counts reach named inspector rows.
-  INSPECTOR: [4, 13],
+  INSPECTOR: [4, 12],
   // 100 -> 101: `ads.pendingInventoryCount`, the coverage fact that separates
   // ACTIVE inventory awaiting a decision from the decision lanes it used to be
   // counted inside. Like every PROVENANCE claim it sits behind the panel's own
@@ -4065,7 +4068,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // the behind-a-control half of the evidence window (Round 8 item 7).
   // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
   // contract-identity leaves. All sit behind the evidence-window control.
-  EVIDENCE: [0, 134],
+  EVIDENCE: [0, 135],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including

@@ -308,6 +308,9 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   config_evidence_lineage?: Record<string, unknown> | null;
   /** Native evaluation's hashed creativeInput.decisionWindow; display only. */
   decision_window?: unknown;
+  /** Native evaluation's hashed, admitted Ad-window metrics; never lifecycle fallbacks. */
+  decision_ctr?: unknown;
+  decision_frequency?: unknown;
 }
 
 function parseNativeDecisionWindow(
@@ -2949,6 +2952,24 @@ function applyNativeCanonicalDecisionAuthority(input: {
     row.decision_window,
     row.as_of_date,
   );
+  // The lifecycle join is creative-grain and usually covers a different 28-day
+  // population. A native Ad card may show only the metrics recorded by its own
+  // evaluation, with a valid admitted window to identify that population.
+  const admittedMetric = (raw: unknown): number | null =>
+    typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : null;
+  decision.metrics.ctr = decision.decisionWindow
+    ? admittedMetric(row.decision_ctr)
+    : null;
+  decision.metrics.frequency = decision.decisionWindow
+    ? admittedMetric(row.decision_frequency)
+    : null;
+  decision.metrics.provenance = provenance({
+    source: "engine_v3_ad_decision_snapshots_daily+engine_v3_decision_evaluations",
+    field: "spend,purchases,roas,recent7d_roas,effective_target_roas,ratio_to_target,creative_input_json.ctr,creative_input_json.frequency,creative_input_json.decisionWindow",
+    recordId: row.snapshot_id,
+    asOf: row.as_of_date,
+    version: row.engine_version,
+  });
   const sourceCreativeType = nonEmptyString(row.provider_asset_type);
   // `feed` is also the warehouse taxonomy's default when no positive creative
   // classification signal exists. Do not turn that fallback into a verified
@@ -4219,8 +4240,6 @@ async function readNativeSnapshotRows(input: {
       lifecycle.creative_format AS creative_format,
       creative_dim.asset_type AS provider_asset_type,
       creative_dim.source_updated_at::text AS provider_asset_type_source_updated_at,
-      lifecycle.ctr_28d AS ctr_28d,
-      lifecycle.frequency_28d AS frequency_28d,
       lifecycle.fatigue_status AS fatigue_status,
       /* The engine's own predicate blockers. The snapshot table has no column
          for them; the evaluation row this snapshot was published from is
@@ -4233,6 +4252,8 @@ async function readNativeSnapshotRows(input: {
       /* D107's actual admitted economic period is already hash-bound in this
          evaluation. Serve it for display; never infer it from the UI filter. */
       evaluation.creative_input_json -> 'decisionWindow' AS decision_window,
+      evaluation.creative_input_json -> 'ctr' AS decision_ctr,
+      evaluation.creative_input_json -> 'frequency' AS decision_frequency,
       /* ADR D098 config authority, as the ENGINE recorded it in the
          evaluation's own hashed input (configEvidence), which is persisted in
          the hash-keyed input-evidence table. NULL when the mapping is absent;
@@ -4272,10 +4293,11 @@ async function readNativeSnapshotRows(input: {
         ELSE NULL
       END AS config_evidence_lineage
     FROM engine_v3_ad_decision_snapshots_daily snapshot
-    /* The engine already recorded which lifecycle row it decided from. Joining
-       it back is a lineage read, not a second opinion: format, 28d CTR, 28d
-       frequency and fatigue status come from the exact row behind the verdict,
-       never from a re-aggregation that could disagree with it. */
+    /* The engine already recorded which lifecycle row it decided from. Its
+       format and fatigue are lineage reads, never a later re-aggregation.
+       Native Ad CTR/frequency instead come from the hash-bound evaluation's
+       admitted Ad window above; the creative-grain 28d columns cannot stand
+       in for those metrics. */
     LEFT JOIN engine_v3_creative_lifecycle_daily lifecycle
       ON lifecycle.id = snapshot.creative_evidence_lifecycle_row_id
      AND lifecycle.business_ref_id = snapshot.business_ref_id

@@ -66,7 +66,7 @@ const CREATIVE_POSTURE_SLOTS = [
     tone: "warning",
   },
   // Decision frequency uses each ad's admitted economic window.
-  { id: "average-frequency", label: "Avg frequency", tone: "warning" },
+  { id: "average-frequency", label: "Avg daily frequency", tone: "warning" },
   /*
     RENAMED to what it actually counts (Codex C22). "Refresh pipeline" implied
     every Refresh the engine reached; the number underneath counted only the
@@ -1898,9 +1898,10 @@ export function buildMetaStructureInventoryViewModel(input: {
  * account. Two of them are plain descriptions of rows the workspace already
  * serves and are computed here:
  *
- * - **Avg frequency · 28d** — the spend-weighted mean of the served
- *   `metrics.frequency`. Spend-weighted, not a flat mean, because a £4 test ad
- *   at frequency 9 should not drag the account's number around.
+ * - **Avg daily frequency** — the spend-weighted mean of served native Ad
+ *   frequencies. Each Ad's denominator is the sum of daily reach over its
+ *   admitted economic window, not deduplicated period reach. These windows
+ *   may differ across Ads.
  * - **Refresh pipeline** — how many served decisions carry the engine's
  *   `refresh` verdict. A count of a server label, not a client verdict.
  * - **Fatigued spend share** — the share of served spend sitting on creatives
@@ -1981,7 +1982,7 @@ function creativePosture(
       detail:
         averageFrequency === null
           ? EM_DASH
-          : `${frequencyRows} of ${decisions.length} creatives`,
+          : `spend-weighted · ${frequencyRows} of ${decisions.length} ads`,
     },
     "refresh-pipeline": {
       value: decisions.length === 0 ? EM_DASH : formatNumber(refreshCount),
@@ -2923,9 +2924,10 @@ function creativeRows(input: {
         held?.nextStep ??
         blockedNextStep ??
         buyerFacingCreativeReason(decision),
-      sparkPath: adPerformanceMissing
-        ? null
-        : sparkPath(input.ctrSeriesByAdId.get(decision.adId) ?? null),
+      // The supplemental warehouse trail uses the selected report dates, not
+      // this decision's admitted economic dates. It belongs only in the
+      // separately labelled Observed CTR block below.
+      sparkPath: null,
       ctrValue:
         adPerformanceMissing || finite(decision.metrics.ctr) === null
           ? null

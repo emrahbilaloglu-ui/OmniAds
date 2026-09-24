@@ -1414,7 +1414,7 @@ describe("the bands the reference draws are backed, or honestly blank", () => {
 
     // (4 × 900 + 1 × 100) / 1000 = 3.7 — spend-weighted, not the flat mean 2.5.
     expect(byId.get("average-frequency")?.value).toBe("3.7");
-    expect(byId.get("average-frequency")?.detail).toBe("2 of 3 creatives");
+    expect(byId.get("average-frequency")?.detail).toBe("spend-weighted · 2 of 3 ads");
     expect(byId.get("refresh-pipeline")?.value).toBe("2");
     expect(byId.get("refresh-pipeline")?.detail).toBe("of 3 served decisions");
     // No served fatigue status and no served notion of a winner: the adapter
@@ -1460,7 +1460,7 @@ describe("the bands the reference draws are backed, or honestly blank", () => {
 });
 
 describe("the lineage read fills what the reference draws", () => {
-  it("binds media kind, fatigue share, row sparkline and the entity's own ROAS trail", () => {
+  it("binds media kind and fatigue share without presenting a selected-date trail as decision evidence", () => {
     const fatigued = creativeFixture({
       id: "os_ad_fatigued",
       adId: "ad_fatigued",
@@ -1516,7 +1516,7 @@ describe("the lineage read fills what the reference draws", () => {
     expect(rows.get("os_ad_healthy")?.kindShort).toBe("CAT");
     // No served format is unknown, not a kind invented from something else.
     expect(rows.get("os_ad_unknown")?.kindShort).toBe("—");
-    expect(rows.get("os_ad_fatigued")?.sparkPath).toContain("M0.0");
+    expect(rows.get("os_ad_fatigued")?.sparkPath).toBeNull();
     // An ad the caller had no series for keeps the empty path rather than
     // borrowing the shape of the row above it.
     expect(rows.get("os_ad_healthy")?.sparkPath).toBeNull();

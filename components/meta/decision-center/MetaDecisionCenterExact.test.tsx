@@ -739,7 +739,14 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
   it("shows measured CTR with or without a daily trail and leaves an unserved CTR slot absent", () => {
     const viewModel = exactViewModel();
     viewModel.creativeDecisions = [
-      { id: "measured-with-trail", name: "Measured with trail", ctrValue: "1.25%", sparkPath: "M0 8 L100 12" },
+      {
+        id: "measured-with-trail", name: "Measured with trail",
+        ctrValue: "1.25%", sparkPath: "M0 8 L100 12",
+        moneyWindow: {
+          startDate: "2026-07-05", endDate: "2026-07-12",
+          calendarDaySpan: 8, economicDayCount: 3,
+        },
+      },
       { id: "measured-zero", name: "Measured zero", ctrValue: "0.00%", sparkPath: null, thumbnailUrl: "https://example.com/creative.jpg", money: "$100 · ROAS 1.00" },
       { id: "unserved", name: "Unserved", ctrValue: null, sparkPath: null },
     ];
@@ -749,6 +756,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     const measured = document.querySelector('[data-meta-exact-creative-row="measured-zero"]');
     const unserved = document.querySelector('[data-meta-exact-creative-row="unserved"]');
     expect(measuredWithTrail?.querySelector('[data-meta-exact-creative-ctr-value]')?.textContent).toBe("1.25%");
+    expect(measuredWithTrail?.textContent).toContain("Decision all-click CTR · 2026-07-05–2026-07-12");
     expect(measuredWithTrail?.querySelector("svg path")?.getAttribute("d")).toBe("M0 8 L100 12");
     const metrics = measured?.querySelector(`.${styles.creativeMetrics}`);
     expect(metrics?.textContent).toContain("0.00%");

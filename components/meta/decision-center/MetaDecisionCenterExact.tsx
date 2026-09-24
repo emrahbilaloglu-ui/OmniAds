@@ -1991,7 +1991,13 @@ function CreativeCard({
         {row.sparkPath || nonBlankDisplay(row.ctrValue) ? (
           <div className={styles.creativeSparkBlock}>
             <p className={styles.creativeSparkLabel}>
-              {language === "tr" ? `Karar ${copy.ctrWindowed}` : `Decision ${copy.ctrWindowed}`}
+              {language === "tr"
+                ? row.moneyWindow
+                  ? `Karar tüm tıklama CTR · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate}`
+                  : `Karar ${copy.ctrWindowed}`
+                : row.moneyWindow
+                  ? `Decision all-click CTR · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate}`
+                  : `Decision ${copy.ctrWindowed}`}
             </p>
             {nonBlankDisplay(row.ctrValue) ? (
               <p className={styles.creativeSparkValue} data-meta-exact-creative-ctr-value>

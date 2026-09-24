@@ -2467,6 +2467,12 @@ export async function getMetaCorePublishedRetryState(input: {
           AND pointer.business_ref_id = slice.business_ref_id
           AND pointer.provider_account_ref_id = slice.provider_account_ref_id
           AND pointer.published_at >= slice.published_at
+          -- A newer refetch can replace daily rows before its pointer is
+          -- published. The old pointer is reusable only while its own rows
+          -- still exist, in the exact count staged by that published slice.
+          AND slice.staged_row_count IS NOT NULL
+          AND slice.staged_row_count = stored.row_count
+          AND stored.has_mismatch IS FALSE
       )::int AS active_surfaces,
       COUNT(DISTINCT slice.surface) FILTER (
         WHERE pointer.active_slice_version_id <> slice.id
@@ -2526,6 +2532,43 @@ export async function getMetaCorePublishedRetryState(input: {
       AND pointer.surface = slice.surface
     LEFT JOIN meta_authoritative_source_manifests manifest
       ON manifest.id = slice.manifest_id
+    LEFT JOIN LATERAL (
+      SELECT SUM(part.row_count)::int AS row_count,
+             BOOL_OR(part.has_mismatch) AS has_mismatch
+      FROM (
+        SELECT COUNT(*)::int AS row_count,
+               COALESCE(BOOL_OR(account.source_run_id IS DISTINCT FROM slice.source_run_id), FALSE) AS has_mismatch
+        FROM meta_account_daily account
+        WHERE slice.surface = 'account_daily'
+          AND account.business_id = slice.business_id
+          AND account.provider_account_id = slice.provider_account_id
+          AND account.date = slice.day
+        UNION ALL
+        SELECT COUNT(*)::int,
+               COALESCE(BOOL_OR(campaign.source_run_id IS DISTINCT FROM slice.source_run_id), FALSE)
+        FROM meta_campaign_daily campaign
+        WHERE slice.surface = 'campaign_daily'
+          AND campaign.business_id = slice.business_id
+          AND campaign.provider_account_id = slice.provider_account_id
+          AND campaign.date = slice.day
+        UNION ALL
+        SELECT COUNT(*)::int,
+               COALESCE(BOOL_OR(adset.source_run_id IS DISTINCT FROM slice.source_run_id), FALSE)
+        FROM meta_adset_daily adset
+        WHERE slice.surface = 'adset_daily'
+          AND adset.business_id = slice.business_id
+          AND adset.provider_account_id = slice.provider_account_id
+          AND adset.date = slice.day
+        UNION ALL
+        SELECT COUNT(*)::int,
+               COALESCE(BOOL_OR(ad.source_run_id IS DISTINCT FROM slice.source_run_id), FALSE)
+        FROM meta_ad_daily ad
+        WHERE slice.surface = 'ad_daily'
+          AND ad.business_id = slice.business_id
+          AND ad.provider_account_id = slice.provider_account_id
+          AND ad.date = slice.day
+      ) part
+    ) stored ON true
   ` as Array<{
     had_prior_success: boolean;
     any_published_surfaces: number;
@@ -9648,22 +9691,32 @@ export async function replaceMetaAccountDailySlice(input: {
 }
 
 export async function replaceMetaCampaignDailySlice(input: {
+  slice: { businessId: string; providerAccountId: string; date: string };
   rows: MetaCampaignDailyRow[];
   proof: MetaFinalizationCompletenessProof;
   /** See MetaDailyWriteOptions: historical replays must not append config history. */
 }) {
-  if (input.rows.length === 0) return;
   const slice = {
-    businessId: input.rows[0]!.businessId,
-    providerAccountId: input.rows[0]!.providerAccountId,
-    date: normalizeDate(input.rows[0]!.date),
+    businessId: input.slice.businessId,
+    providerAccountId: input.slice.providerAccountId,
+    date: normalizeDate(input.slice.date),
     scope: "campaign",
   } as const;
   assertMetaFinalizationCompletenessProof(input.proof, slice);
+  for (const row of input.rows) {
+    if (
+      row.businessId !== slice.businessId ||
+      row.providerAccountId !== slice.providerAccountId ||
+      normalizeDate(row.date) !== slice.date
+    ) {
+      throw new Error("meta_campaign_slice_mismatch");
+    }
+  }
   await runInTransaction(async () => {
     const sql = getDb();
-    await upsertMetaCampaignDailyRows(input.rows, {
-    });
+    if (input.rows.length > 0) {
+      await upsertMetaCampaignDailyRows(input.rows, {});
+    }
     const campaignIds = input.rows.map((row) => row.campaignId);
     await sql`
       DELETE FROM meta_campaign_daily
@@ -9676,22 +9729,32 @@ export async function replaceMetaCampaignDailySlice(input: {
 }
 
 export async function replaceMetaAdSetDailySlice(input: {
+  slice: { businessId: string; providerAccountId: string; date: string };
   rows: MetaAdSetDailyRow[];
   proof: MetaFinalizationCompletenessProof;
   /** See MetaDailyWriteOptions: historical replays must not append config history. */
 }) {
-  if (input.rows.length === 0) return;
   const slice = {
-    businessId: input.rows[0]!.businessId,
-    providerAccountId: input.rows[0]!.providerAccountId,
-    date: normalizeDate(input.rows[0]!.date),
+    businessId: input.slice.businessId,
+    providerAccountId: input.slice.providerAccountId,
+    date: normalizeDate(input.slice.date),
     scope: "adset",
   } as const;
   assertMetaFinalizationCompletenessProof(input.proof, slice);
+  for (const row of input.rows) {
+    if (
+      row.businessId !== slice.businessId ||
+      row.providerAccountId !== slice.providerAccountId ||
+      normalizeDate(row.date) !== slice.date
+    ) {
+      throw new Error("meta_adset_slice_mismatch");
+    }
+  }
   await runInTransaction(async () => {
     const sql = getDb();
-    await upsertMetaAdSetDailyRows(input.rows, {
-    });
+    if (input.rows.length > 0) {
+      await upsertMetaAdSetDailyRows(input.rows, {});
+    }
     const adsetIds = input.rows.map((row) => row.adsetId);
     await sql`
       DELETE FROM meta_adset_daily

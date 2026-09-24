@@ -1,5 +1,5 @@
 {
-  "manifestHash": "6caddf5ec435de3fefef8240578d7aa753613a761fce22ee5fd70eeb357a7472",
+  "manifestHash": "74abb7e98dc06b66dee6feffcb230fdac02f03615e5796c6982dcbd4e3ec4a3f",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -608,11 +608,11 @@
     },
     {
       "path": "lib/api/meta.test.ts",
-      "sha256": "1c685e1ede32ea5a545653daf186d6a015f3995fc970ccd5b12381b7d8f53872"
+      "sha256": "bc07035197f919e16394446057af5c57a44af1ce40c9fc589be648731c574a79"
     },
     {
       "path": "lib/api/meta.ts",
-      "sha256": "34013f7f80d7e985fc99a92606410224f16bf337d4051684389bc668c37c268d"
+      "sha256": "21a5339819099a9ca74845556c7c449d202c20cea5568670d28b3ac962a49687"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-cpa-identity-projection.test.ts",
@@ -1107,6 +1107,10 @@
       "sha256": "b0363aa322d76b345e42d3cbf7fd8cacefe46c50e8a91a650fd786bb6146a66d"
     },
     {
+      "path": "lib/meta/ad-daily-write-ownership.test.ts",
+      "sha256": "4fe631f9d338884ea15073815e984a473a5482fdec8f6f0d6c01de5c6691e3b1"
+    },
+    {
       "path": "lib/meta/ad-day-link-click-persistence.db.test.ts",
       "sha256": "c0bc7c189003fc17f3b2917c569942507d4aea6877fd64c47e36511903623fe6"
     },
@@ -1572,7 +1576,7 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "94b0749317879f688e4acf3a40f257bf7c45d9996b78cdf153a3d7a018a1b495"
+      "sha256": "0f0c5fc1b8608e5cdaa408c26c39f5da9706c81754137ac28c01c09f710f4c77"
     },
     {
       "path": "lib/meta/write-safety-contract.test.ts",
@@ -1760,7 +1764,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-meta-d101-retry-seam-child.ts",
-      "sha256": "596be8c515b5706fa273e6780b892a14cebf4fc5626010de0011bc1c6124284a"
+      "sha256": "a649ebb471e7c66aaa31db9bb243e1eb655518005a877c91d8a6a7af00532d45"
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",

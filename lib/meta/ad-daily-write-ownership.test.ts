@@ -74,9 +74,9 @@ describe("meta_ad_daily has exactly one owner (D066)", () => {
 
 describe("the owner is authoritative insights sync, and only it", () => {
   it("declares authority at the authoritative slice replacement", () => {
-    expect(warehouse).toContain(`await upsertMetaAdDailyRows(input.rows, {
-      writeMode: "authoritative_fact",
-    });`);
+    expect(warehouse).toMatch(
+      /if \(input\.rows\.length > 0\) \{\s+await upsertMetaAdDailyRows\(input\.rows, \{\s+writeMode: "authoritative_fact",\s+\}\);/,
+    );
   });
 
   it("declares authority at the insights sync write", () => {

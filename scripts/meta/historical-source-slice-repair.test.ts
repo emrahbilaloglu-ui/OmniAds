@@ -122,6 +122,12 @@ describe("historical source slice repair proof", () => {
     expect(plan(value).blockers).toContain("matching_completed_manifest_before_pointer_missing");
   });
 
+  it("never treats a manifest updated after the old pointer as prior evidence", () => {
+    const value = evidence();
+    value.manifests[0]!.updatedAt = "2026-09-23T06:50:34.000Z";
+    expect(plan(value).blockers).toContain("manifest_clock_invalid");
+  });
+
   it("rejects an intervening different capture despite the earlier exact payload", () => {
     const value = evidence();
     value.manifests.push({ ...value.manifests[0]!, id: "newer",

@@ -756,7 +756,8 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     const measured = document.querySelector('[data-meta-exact-creative-row="measured-zero"]');
     const unserved = document.querySelector('[data-meta-exact-creative-row="unserved"]');
     expect(measuredWithTrail?.querySelector('[data-meta-exact-creative-ctr-value]')?.textContent).toBe("1.25%");
-    expect(measuredWithTrail?.textContent).toContain("Decision all-click CTR · 2026-07-05–2026-07-12");
+    expect(measuredWithTrail?.textContent).toContain("Decision all-click CTR");
+    expect(measuredWithTrail?.querySelector(`.${styles.creativeSparkBlock} .${styles.creativeMetricPeriod}`)?.textContent).toBe("2026-07-05–2026-07-12");
     expect(measuredWithTrail?.querySelector("svg path")?.getAttribute("d")).toBe("M0 8 L100 12");
     const metrics = measured?.querySelector(`.${styles.creativeMetrics}`);
     expect(metrics?.textContent).toContain("0.00%");
@@ -793,7 +794,8 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     const observation = card?.querySelector('[data-meta-exact-creative-observed-ctr]');
     expect(observation?.textContent).toContain("Recorded Ad-day CTR");
     expect(observation?.textContent).toContain("4.25%");
-    expect(observation?.textContent).toContain("Report 2026-08-26–2026-09-22");
+    expect(observation?.textContent).toContain("Report");
+    expect(observation?.querySelector(`.${styles.creativeMetricPeriod}`)?.textContent).toBe("2026-08-26–2026-09-22");
     expect(observation?.getAttribute("title")).toContain("does not change decision authority");
     expect(card?.querySelector('[data-meta-exact-creative-ctr-value]')).toBeNull();
     cleanup();
@@ -819,7 +821,9 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     }];
     render(<MetaDecisionCenterExact defaultScope="creatives" viewModel={viewModel} />);
     const card = document.querySelector('[data-meta-exact-creative-row="windowed-ad"]');
-    expect(card?.textContent).toContain("Decision · 2026-09-17–2026-09-23 · 4/7 economic days");
+    expect(card?.querySelector(`.${styles.creativeMoneyBlock} .${styles.creativeSparkLabel}`)?.textContent).toContain("Decision");
+    expect(card?.querySelector(`.${styles.creativeMoneyBlock} .${styles.creativeMetricPeriod}`)?.textContent).toBe("2026-09-17–2026-09-23");
+    expect(card?.querySelector(`.${styles.creativeMetricDays}`)?.textContent).toBe("4/7 economic days");
     cleanup();
     render(
       <ZeroBaseCopyProvider language="tr">
@@ -827,7 +831,9 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
       </ZeroBaseCopyProvider>,
     );
     const translated = document.querySelector('[data-meta-exact-creative-row="windowed-ad"]');
-    expect(translated?.textContent).toContain("Karar · 2026-09-17–2026-09-23 · 4/7 ekonomik gün");
+    expect(translated?.querySelector(`.${styles.creativeMoneyBlock} .${styles.creativeSparkLabel}`)?.textContent).toContain("Karar");
+    expect(translated?.querySelector(`.${styles.creativeMoneyBlock} .${styles.creativeMetricPeriod}`)?.textContent).toBe("2026-09-17–2026-09-23");
+    expect(translated?.querySelector(`.${styles.creativeMetricDays}`)?.textContent).toBe("4/7 ekonomik gün");
     expect(translated?.textContent).not.toContain("economic days");
   });
 

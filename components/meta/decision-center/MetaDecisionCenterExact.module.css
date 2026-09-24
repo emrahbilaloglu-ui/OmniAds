@@ -993,7 +993,7 @@
 
 .creativeIdentity {
   min-width: 0;
-  flex: 1.5;
+  flex: 1 1 60%;
 }
 
 .creativeDecisionLabel {
@@ -1079,8 +1079,7 @@
 }
 
 .creativeSparkBlock {
-  width: 104px;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .creativeSparkLabel {
@@ -1089,6 +1088,17 @@
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.creativeMetricPeriod {
+  display: block;
+  white-space: nowrap;
+  letter-spacing: normal;
+}
+
+.creativeMetricDays {
+  display: block;
+  letter-spacing: normal;
 }
 
 .creativeSparkValue {
@@ -1106,8 +1116,6 @@
 }
 
 .creativeObservedCtrBlock {
-  width: 180px;
-  flex-shrink: 0;
   min-width: 0;
 }
 
@@ -1122,17 +1130,22 @@
   color: #68707f;
   font-size: 12px;
   line-height: 1.4;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
 }
 
 .creativeMoneyBlock {
   min-width: 0;
-  flex: 1.1;
 }
 
-/* Keep the reference's desktop flex items; group them into one mobile row. */
+/* Give the identity room, then group dated metrics with the evidence action. */
 .creativeMetrics {
-  display: contents;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  align-items: start;
+  gap: 14px;
+  flex: 1 1 560px;
+  min-width: 0;
+  margin-left: 72px;
 }
 
 @media (max-width: 720px) {
@@ -1153,12 +1166,14 @@
   }
 
   .creativeMetrics {
-    display: grid;
     grid-column: 1 / -1;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr));
     align-items: start;
     gap: 12px;
     width: 100%;
+    min-width: 0;
+    margin-left: 0;
+    flex: none;
   }
 
   .creativeSparkBlock {
@@ -1171,6 +1186,11 @@
 
   .creativeMoneyBlock {
     flex: none;
+  }
+
+  .creativeMetricPeriod {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .creativeServedAction,

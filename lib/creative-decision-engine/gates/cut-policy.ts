@@ -369,6 +369,42 @@ export interface ZeroConversionCutMatch {
   spendThreshold: number;
 }
 
+/**
+ * The spend a ZERO-purchase row must reach before any Cut predicate may fire on
+ * it: the zero-conversion burner floor, never below loss-budget maturity.
+ *
+ * Shared by the zero-conversion gate and, since ADR D107, by the ratio-zone and
+ * severe-maturity Cut predicates. With no purchase ROAS is 0, the ratio is 0,
+ * so a zero-purchase row reached the ratio branch's loss-budget Cut at
+ * maturity (2 spend units on the balanced preset) while the dedicated
+ * zero-conversion rule — the one that exists to judge exactly this row —
+ * waited for its own floor (3 units). The same evidence therefore produced a
+ * Cut or not depending on which path read it first.
+ */
+export function zeroConversionSpendFloor(
+  ctx: GateContext,
+  thresholds: EngineThresholdSet,
+): number {
+  const maturitySpend = maturitySpendThresholdFor(ctx, thresholds);
+  const zeroConvSpend = thresholds.zeroConvBurnerSpend ?? maturitySpend;
+  return Math.max(zeroConvSpend, maturitySpend);
+}
+
+/**
+ * A zero-purchase row below the zero-conversion floor: no Cut predicate may
+ * fire on it. A missing purchase count is read as zero here, which can only
+ * hold MORE; it never creates a Cut.
+ */
+export function belowZeroConversionSpendFloor(
+  ctx: GateContext,
+  thresholds: EngineThresholdSet,
+): boolean {
+  return (
+    (ctx.input.purchases ?? 0) === 0 &&
+    ctx.input.spend < zeroConversionSpendFloor(ctx, thresholds)
+  );
+}
+
 /** Shared zero-conversion Cut predicate used by the gate and repair resolver. */
 export function resolveZeroConversionCutMatch(
   ctx: GateContext,
@@ -377,9 +413,7 @@ export function resolveZeroConversionCutMatch(
   if (hasExplicitBreakEven(ctx) && !isBelowExplicitBreakEven(ctx)) {
     return null;
   }
-  const maturitySpend = maturitySpendThresholdFor(ctx, thresholds);
-  const zeroConvSpend = thresholds.zeroConvBurnerSpend ?? maturitySpend;
-  const spendThreshold = Math.max(zeroConvSpend, maturitySpend);
+  const spendThreshold = zeroConversionSpendFloor(ctx, thresholds);
   return ctx.input.effectiveStatus === "ACTIVE" &&
     (ctx.input.purchases ?? 0) === 0 &&
     ctx.input.spend >= spendThreshold &&
@@ -398,6 +432,7 @@ export function resolveSevereMaturityCutMatch(
   ctx: GateContext,
   thresholds: EngineThresholdSet,
 ): SevereMaturityCutMatch | null {
+  if (belowZeroConversionSpendFloor(ctx, thresholds)) return null;
   const ratio = ctx.ratioToTarget;
   const hardCutSpend = thresholds.hardCutSpend;
   const severeLoserRatio = ctx.profile.thresholds.severeLoserRatio;
@@ -428,6 +463,7 @@ export function resolveRatioZoneCutMaturityMatch(
   ctx: GateContext,
   thresholds: EngineThresholdSet,
 ): RatioZoneCutMatch | null {
+  if (belowZeroConversionSpendFloor(ctx, thresholds)) return null;
   const hardCutSpend = thresholds.hardCutSpend;
   if (hardCutSpend !== null && ctx.input.spend >= hardCutSpend) {
     return { kind: "hard_cut", hardCutSpend };

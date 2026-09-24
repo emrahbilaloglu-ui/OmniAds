@@ -287,7 +287,7 @@ function produce(input: { objectiveReceiptPresent: boolean; coverageComplete: bo
     source_updated_at: "2026-07-12T02:00:00.000Z",
     config_authority_verified: config.currentValueEvidence.observed && config.decisionEconomics.fullyVerified,
     config_evidence_lineage: {
-      contractVersion: "engine-v3-canonical-ad-evaluation.v15",
+      contractVersion: "engine-v3-canonical-ad-evaluation.v16",
       refs: config.currentValueEvidence.refs,
       refRefusals: config.currentValueEvidence.refRefusals,
       lineageSupplied: config.currentValueEvidence.lineageSupplied,

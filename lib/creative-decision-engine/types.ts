@@ -67,11 +67,20 @@ import type {
   three payloads, so on the native Ad path it is the only key that ever labels a
   persisted row.
 */
-/** New creative-day membership semantics require fresh lifecycle rows. */
-export const ENGINE_VERSION = "v3-2026-09-24-creative-knowledge-bound";
+/*
+  ADR D107 moves both epochs. The zero-conversion spend floor now bounds every
+  Cut predicate on a zero-purchase row, including the ratio-zone and
+  severe-maturity branches of the shared resolver, so legacy creative verdicts
+  can change for identical inputs (`v3-2026-09-24-creative-knowledge-bound`
+  rows keep their key). The native epoch additionally carries D107's admitted
+  window rule — an unresolved day no longer ends a run; only an observed
+  difference does — and window-true period labels in the reason text.
+*/
+/** Zero-purchase Cuts wait for the zero-conversion spend floor (D107). */
+export const ENGINE_VERSION = "v3-2026-09-24-zero-conversion-cut-floor";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-09-24-cut-recent-overlay-proof-shadow";
+  "v3-ad-2026-09-24-config-gap-window-shadow";
 
 /**
  * Whether a HELD hard verdict stands on its own economics, or whether it needs
@@ -345,6 +354,41 @@ export interface CreativeDecisionContextGrain {
   contextIdentityUnknown: boolean;
 }
 
+/**
+ * The admitted economic window a native Ad decision's figures cover (ADR D107).
+ *
+ * Emitted by the hydration SQL from `admitted_window_bounds`, never re-derived
+ * from metrics, so a label can only describe the rows that were summed. All
+ * dates are provider-local `YYYY-MM-DD`, inclusive.
+ */
+export interface DecisionEvidenceWindow {
+  /** First day of the admitted run. */
+  startDate: string;
+  /** Last day of the admitted run: its newest resolved economic day. */
+  endDate: string;
+  /** Calendar days `startDate`..`endDate` inclusive. */
+  calendarDaySpan: number;
+  /** Distinct days inside the run that have an ad-day row. */
+  observedDayCount: number;
+  /** Economically meaningful days inside the run. */
+  economicDayCount: number;
+  /**
+   * Of those, days admitted although their own context did not resolve,
+   * because the same context was observed on both sides. They carry no
+   * configuration authority.
+   */
+  bridgedUnresolvedDayCount: number;
+  /** The loader's full cumulative lookback, `$asOf - 27d` .. `$asOf`. */
+  lookbackStartDate: string;
+  lookbackEndDate: string;
+  /**
+   * The recent band actually summed: the last seven lookback days clipped to
+   * the run. Null when the run ends before that band begins.
+   */
+  recentStartDate: string | null;
+  recentEndDate: string | null;
+}
+
 /** Per-creative metric inputs the engine needs to decide. */
 export interface CreativeInput {
   creativeId: string;
@@ -392,6 +436,17 @@ export interface CreativeInput {
    * rollup window. Mixed cohorts resolve to `unknown`; null means no spend.
    */
   effectiveCohort?: MetaFunnelCohort | null;
+
+  /**
+   * The period the cumulative and recent figures below were actually summed
+   * over (ADR D107). Native Ad hydration sets it whenever the ad has an
+   * admitted context run; reason text then names that period instead of
+   * claiming "28d" / "7d". Absent — legacy creative inputs, fixtures, an ad
+   * with no admitted run — the figures cover the conventional full lookback
+   * and the labels stay "28d" / "7d". Producer evidence for presentation only:
+   * no gate threshold reads it.
+   */
+  decisionWindow?: DecisionEvidenceWindow | null;
 
   // Cumulative metrics (28d window, conventional)
   spend: number;

@@ -3,7 +3,7 @@
   "businessId": "11111111-1111-4111-8111-111111111111",
   "computedAt": "2026-04-12T03:05:00.000Z",
   "contractVersion": "adsecute.demo-native-canonical-fixture.v1",
-  "engineVersion": "v3-ad-2026-09-24-cut-recent-overlay-proof-shadow",
+  "engineVersion": "v3-ad-2026-09-24-config-gap-window-shadow",
   "expectedAdCount": 8,
   "items": [
     {
@@ -263,7 +263,7 @@
     }
   ],
   "jobRunId": "demo-synthetic-native-ad-generation-v1",
-  "manifestHash": "d777f830fa761c6f06b6291e55ca71c51e93439bf480cc85847c0ce0f88b82d6",
+  "manifestHash": "969f6f584f8fa8ee8a6688461a9dca015531b63bfda4144b03d629fb8037e2b3",
   "providerAccountId": "act_210009998877",
   "providerAccountRefId": "demo-synthetic-provider-account-ref-urbantrail-dtc",
   "sourceInputHash": "93b17dfd7627504a34b39bf8cf701fbb981857c86489deccaa7359cfc7cb20ae"

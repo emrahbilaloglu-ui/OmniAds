@@ -65,10 +65,10 @@ describe("held-verdict authority release epoch contract", () => {
       remain readable under it.
     */
     expect(ENGINE_VERSION).toBe(
-      "v3-2026-09-24-creative-knowledge-bound",
+      "v3-2026-09-24-zero-conversion-cut-floor",
     );
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
-      "v3-ad-2026-09-24-cut-recent-overlay-proof-shadow",
+      "v3-ad-2026-09-24-config-gap-window-shadow",
     );
     /*
       ROUND 9 ITEM 10. These three had drifted a full version behind the
@@ -95,7 +95,7 @@ describe("held-verdict authority release epoch contract", () => {
       "engine-v3-canonical-evaluation.v9",
     );
     expect(AD_DECISION_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-ad-evaluation.v15",
+      "engine-v3-canonical-ad-evaluation.v16",
     );
     expect(NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION).toBe(
       "v3-ad-2026-07-15-commercial-stop-loss-shadow",

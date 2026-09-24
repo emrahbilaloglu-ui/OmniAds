@@ -429,19 +429,19 @@ threshold, recovery, Scale, Refresh, or confidence. V1/v2 receipts remain
 readable only under their original engine epochs and must not be upgraded by
 inference.
 
-### Release Version Matrix — CURRENT (D091 + D103, 2026-09-24)
+### Release Version Matrix — CURRENT (D091 + D103 + D107, 2026-09-24)
 
 This is the matrix to read. The D061-D066 matrix beneath it is retained as the
 record of a superseded release and must not be used as a current value.
 
 | Contract surface | Release value |
 | --- | --- |
-| Canonical engine | `v3-2026-09-24-creative-knowledge-bound` (D105 explicit evaluation instant and provider-local closed-day schedule); prior membership epoch remains historical |
-| Native-Ad engine | `v3-ad-2026-09-24-cut-recent-overlay-proof-shadow` |
+| Canonical engine | `v3-2026-09-24-zero-conversion-cut-floor` (D107 zero-purchase Cut floor in the shared resolver, on top of D105's explicit evaluation instant and provider-local closed-day schedule); `v3-2026-09-24-creative-knowledge-bound` and the prior membership epoch remain historical |
+| Native-Ad engine | `v3-ad-2026-09-24-config-gap-window-shadow` (D107: only an observed configuration difference ends the admitted window; bridged gap days carry no authority) |
 | Exact native rollback epoch | `v3-ad-2026-07-15-commercial-stop-loss-shadow` |
 | Native calibration | `engine-v3-native-ad-calibration.v6` (minted by this repair); `.v5` remains readable under its own formula, and older rows never authorize a new decision. See the durable-compatibility note below. |
 | Canonical evaluation | `engine-v3-canonical-evaluation.v9` |
-| Native-Ad evaluation | `engine-v3-canonical-ad-evaluation.v15` |
+| Native-Ad evaluation | `engine-v3-canonical-ad-evaluation.v16` (D107 hashes the admitted `decisionWindow`) |
 | Creative-day source membership | `meta-creative-membership.v2` (introduced in native-Ad v14 input; retained in v15) |
 | Creative-day parent grain | `meta-creative-parent-grain.v1`; membership and parent proof alone do not prove historical config |
 | Legacy creative config admission | `historical_config_provenance` must be a D098 full-day provider receipt tier for all decision-bearing config fields. Normal creative sync and metric repair mark it `unverified`; exact-Ad native decisions resolve their own receipts and remain available. |

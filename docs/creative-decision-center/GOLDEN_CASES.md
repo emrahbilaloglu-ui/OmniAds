@@ -793,6 +793,25 @@ fingerprint.
 | attribution multiplier set to 0.8 or 1.2 | no arithmetic and no hash moves | same |
 | Target ROAS itself changes | every hash moves | n/a |
 
+## D107 config-gap window (golden cases)
+
+Executable in `lib/creative-decision-engine/__tests__/d107-config-gap-window.golden.test.ts`
+(resolver), `lib/creative-decision-engine/native-ad-admitted-window.db.test.ts`
+(window rule, real PostgreSQL) and `__tests__/native-ad-admitted-window.test.ts`
+(calibration half). These are module goldens, not rows of the canonical
+11-column table above, so their IDs do not start with `GC-`. D107-01/02 use
+the run the D107 hydration admitted in the read-only Grandmix replay
+(as-of 2026-09-24): 2026-09-09..2026-09-23 with 2026-09-21 bridged.
+
+| case | input | expected |
+|---|---|---|
+| D107-01 | Grandmix 120247883891620316, admitted run $381.42, 7 purchases, ROAS 6.75 (was judged on one day: $35, 0 purchases) | no Cut, no pre-authority Cut, no `cut_candidate`; reason "ROAS 6.75 (15d 2026-09-09..2026-09-23)" |
+| D107-02 | Grandmix 120247018755120316, admitted run $3,332.16, 7 purchases, ROAS 0.47, last 6 days $1,555.06 at 0 | Cut verdict kept; the native authority boundary withholds it while the bridged day is inside the run |
+| D107-03 | short run after a provider-observed configuration change: 0 purchases on $520 over 5 days, zero-conversion floor 300 | Cut on the short window, reason "(5d 2026-09-19..2026-09-23 cumulative, …)"; the same shape at $250 is Test More |
+| D107-04 | zero purchases at $163.73–$176.35 against the TRUSTED floors (maturity 147.88, zero-conversion 197.17) | no Cut and no pre-authority Cut from that threshold family. In production the D061 overlay does not activate below 197.17 and the canonical soft-only profile may still show a pre-authority Cut + `cut_candidate` on its own floor — never executable |
+| D107-05 | a row with a 2-day admitted window | reason "(2d 2026-09-22..2026-09-23)", not "(28d)"; without a window it keeps "(28d)" |
+| DB-D107 | hydration SQL over real receipts: bridge, observed change, contradicting partial day, older edge, trailing edge, empty gap, receipted gap with a blank currency, a row that observed a different currency | 1 bridged day and not fully verified / starts at the change / ends at the contradicting day / starts after the unreadable edge / ends at the newest resolved day / identity stays known / bridged day is `none` despite complete receipts and identity stays known / never bridged, and the ad fails closed (identity unknown) instead of keeping the shorter run |
+
 ## Current authority vs historical record
 
 > **Current authority vs historical record.** Which table a decision taken today

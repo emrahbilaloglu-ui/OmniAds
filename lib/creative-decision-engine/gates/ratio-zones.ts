@@ -29,6 +29,7 @@ import {
   commercialStopLossThresholds,
 } from "./maturity";
 import {
+  belowZeroConversionSpendFloor,
   hasCanonicalRecentRecovery,
   recentSampleMinSpendFloor,
   resolveCanonicalCutZone,
@@ -41,7 +42,12 @@ import {
   isBelowExplicitBreakEven,
   type RatioZoneCutMatch,
 } from "./cut-policy";
-import { comparisonLabel, formatReasonNumber } from "./reason-format";
+import {
+  comparisonLabel,
+  cumulativePeriodLabel,
+  formatReasonNumber,
+  recentPeriodLabel,
+} from "./reason-format";
 
 export { resolveCutBoundary, type CutBoundaryResolution } from "./cut-policy";
 
@@ -137,6 +143,8 @@ function buildNearScaleReadiness(input: {
   purchases: number;
   purchasesThreshold: number;
   recent7dRoas: number | null;
+  /** The recent band's real period (ADR D107), e.g. "7d". */
+  recentPeriodLabel: string;
   targetRoas: number;
   comparisonLabel: string;
   scaleBenchmarkBlockers?: readonly ScaleBenchmarkBlocker[];
@@ -188,7 +196,7 @@ function buildNearScaleReadiness(input: {
   }
 
   if (input.recent7dRoas === null) {
-    const reason = "recent 7d ROAS missing";
+    const reason = `recent ${input.recentPeriodLabel} ROAS missing`;
     reasons.push(reason);
     blockers.push(
       blocker({
@@ -200,7 +208,7 @@ function buildNearScaleReadiness(input: {
       }),
     );
   } else if (input.recent7dRoas < input.targetRoas) {
-    const reason = `recent 7d ROAS ${formatRoas(input.recent7dRoas)} below ${input.comparisonLabel} ${formatRoas(
+    const reason = `recent ${input.recentPeriodLabel} ROAS ${formatRoas(input.recent7dRoas)} below ${input.comparisonLabel} ${formatRoas(
       input.targetRoas,
     )}`;
     reasons.push(reason);
@@ -598,9 +606,9 @@ function expandedEconomicCutReason(
   const roas = ctx.input.roas ?? 0;
   const prefix = `[economic stop-loss] ROAS ${formatRoas(
     roas,
-  )} (28d) = ${formatRatioPercent(ratio)}% of ${comparison}, below explicit break-even, after ${formatReasonNumber(
+  )} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(ratio)}% of ${comparison}, below explicit break-even, after ${formatReasonNumber(
     ctx.input.spend,
-  )} spend (28d)`;
+  )} spend (${cumulativePeriodLabel(ctx.input)})`;
 
   if (cutMatch.kind === "hard_cut") {
     return `${prefix} — clear loser at scale.`;
@@ -636,7 +644,7 @@ function authorityDeniedExpandedCutReview(
     : "expanded_economic_cut_authority";
   const authorityThreshold = profileCutDenied ? "true" : "eligible";
   const reviewReason =
-    `ROAS ${formatRoas(ctx.input.roas ?? 0)} (28d) is below explicit break-even ${formatRoas(
+    `ROAS ${formatRoas(ctx.input.roas ?? 0)} (${cumulativePeriodLabel(ctx.input)}) is below explicit break-even ${formatRoas(
       ctx.profile.spendUnitEvidence.breakEvenRoas ?? 0,
     )} (${formatRatioPercent(
       ctx.ratioToTarget ?? 0,
@@ -692,7 +700,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     return terminal(
       ctx,
       "test_more",
-      "ROAS unavailable (28d) — cannot evaluate against target.",
+      `ROAS unavailable (${cumulativePeriodLabel(ctx.input)}) — cannot evaluate against target.`,
     );
   }
 
@@ -719,11 +727,11 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       return terminal(
         ctx,
         "scale",
-        `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+        `ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
           ratio,
         )}% of ${comparison} ${formatRoas(
           ctx.effectiveTargetRoas,
-        )} with ${purchases} purchases (28d) and recent 7d holding at ${formatRoas(
+        )} with ${purchases} purchases (${cumulativePeriodLabel(ctx.input)}) and recent ${recentPeriodLabel(ctx.input)} holding at ${formatRoas(
           recent7dRoas,
         )} — scale the ad set budget.`,
         fatigueBadges,
@@ -736,6 +744,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       purchases,
       purchasesThreshold: scalePurchasesThreshold,
       recent7dRoas,
+      recentPeriodLabel: recentPeriodLabel(ctx.input),
       targetRoas: ctx.effectiveTargetRoas,
       comparisonLabel: comparison,
       scaleBenchmarkBlockers: benchmarkBlockers,
@@ -776,11 +785,11 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       return terminal(
         ctx,
         "scale",
-        `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+        `ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
           ratio,
         )}% of ${comparison} ${formatRoas(
           ctx.effectiveTargetRoas,
-        )} with ${purchases} purchases (28d) and recent 7d holding at ${formatRoas(
+        )} with ${purchases} purchases (${cumulativePeriodLabel(ctx.input)}) and recent ${recentPeriodLabel(ctx.input)} holding at ${formatRoas(
           recent7dRoas,
         )} — scale the ad set budget; execution withheld: ${benchmarkBlockers
           .map((benchmark) => benchmark.reason)
@@ -814,7 +823,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     return terminal(
       ctx,
       "keep",
-      `[near scale] ROAS ${formatRoas(roas)} (28d) above ${comparison} (${formatRatioPercent(
+      `[near scale] ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) above ${comparison} (${formatRatioPercent(
         ratio,
       )}%) — ${readiness.reasons.join("; ")}; observe.`,
       [...fatigueBadges, ...scaleReadinessBadges(benchmarkBlockers)],
@@ -835,11 +844,11 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       return terminal(
         ctx,
         "refresh",
-        `Fatigued + recent 7d ROAS ${formatRoas(
+        `Fatigued + recent ${recentPeriodLabel(ctx.input)} ROAS ${formatRoas(
           input.recent7dRoas,
         )} dropped to ${formatRatioPercent(
           recentRatio,
-        )}% of ROAS ${formatRoas(roas)} (28d) — replace creative with new iteration.`,
+        )}% of ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) — replace creative with new iteration.`,
       );
     }
 
@@ -928,13 +937,13 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         return terminal(
           ctx,
           "refresh",
-          `Recent 7d ROAS ${formatRoas(
+          `Recent ${recentPeriodLabel(ctx.input)} ROAS ${formatRoas(
             input.recent7dRoas,
           )} dropped to ${formatRatioPercent(
             recentRatio,
           )}% of ROAS ${formatRoas(
             roas,
-          )} (28d) — refresh candidate; no ad-level fatigue verdict is available to confirm creative wear.`,
+          )} (${cumulativePeriodLabel(ctx.input)}) — refresh candidate; no ad-level fatigue verdict is available to confirm creative wear.`,
           [
             {
               type: "lifecycle_unavailable",
@@ -1002,18 +1011,18 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         ratio < WEAK_TARGET_MAX_RATIO
           ? `[weak target] ROAS ${formatRoas(
               roas,
-            )} (28d) just above breakeven (${formatRatioPercent(
+            )} (${cumulativePeriodLabel(ctx.input)}) just above breakeven (${formatRatioPercent(
               ratio,
-            )}% of ${comparison}) — keep observing; consider tightening if recent 7d weakens`
+            )}% of ${comparison}) — keep observing; consider tightening if recent ${recentPeriodLabel(ctx.input)} weakens`
           : ratio < AT_TARGET_MAX_RATIO
             ? `[at target] ROAS ${formatRoas(
                 roas,
-              )} (28d) at/around ${comparison} ${formatRoas(
+              )} (${cumulativePeriodLabel(ctx.input)}) at/around ${comparison} ${formatRoas(
                 ctx.effectiveTargetRoas,
               )} (${formatRatioPercent(ratio)}%) — stable, let it run`
             : `[near scale] ROAS ${formatRoas(
                 roas,
-              )} (28d) approaching scale threshold (${formatRatioPercent(
+              )} (${cumulativePeriodLabel(ctx.input)}) approaching scale threshold (${formatRatioPercent(
                 ratio,
               )}% of ${comparison}) — performance ratio remains below the ${formatRatioPercent(
                 scaleRatioThreshold(profile),
@@ -1056,9 +1065,9 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       return terminal(
         ctx,
         "keep",
-        `[recovery hold] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+        `[recovery hold] ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
           ratio,
-        )}% of ${comparison}, but recent 7d ROAS ${formatRoas(
+        )}% of ${comparison}, but recent ${recentPeriodLabel(ctx.input)} ROAS ${formatRoas(
           input.recent7dRoas ?? 0,
         )} is above ${comparison} on ${formatReasonNumber(
           input.recent7dSpend ?? 0,
@@ -1072,11 +1081,11 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       return terminal(
         ctx,
         "cut",
-        `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+        `ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
           ratio,
         )}% of ${comparison} after ${formatReasonNumber(
           input.spend,
-        )} spend (28d) — clear loser at scale.`,
+        )} spend (${cumulativePeriodLabel(ctx.input)}) — clear loser at scale.`,
       );
     }
 
@@ -1084,9 +1093,9 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       return terminal(
         ctx,
         "cut",
-        `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+        `ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
           ratio,
-        )}% of ${comparison} after ${formatReasonNumber(input.spend)} spend (28d) — sustained loser.`,
+        )}% of ${comparison} after ${formatReasonNumber(input.spend)} spend (${cumulativePeriodLabel(ctx.input)}) — sustained loser.`,
       );
     }
 
@@ -1094,21 +1103,30 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       return terminal(
         ctx,
         "cut",
-        `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+        `ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
           ratio,
         )}% of ${comparison} after ${formatReasonNumber(
           input.spend,
-        )} spend (28d) — loss-budget maturity reached at ${formatReasonNumber(
+        )} spend (${cumulativePeriodLabel(ctx.input)}) — loss-budget maturity reached at ${formatReasonNumber(
           cutMatch.commercialMaturitySpend,
         )}; cut underperforming creative.`,
       );
     }
 
-    if (input.fatigueStatus === "fatigued") {
+    /*
+      Not for a zero-purchase row still below its zero-conversion floor (ADR
+      D107): the Cut predicates above declined it for missing evidence, and on a
+      Test campaign this Refresh becomes a Cut (applyTestCohortRefreshOverride),
+      which would reach through the floor by another door.
+    */
+    if (
+      input.fatigueStatus === "fatigued" &&
+      !belowZeroConversionSpendFloor(ctx, stopLossThresholds)
+    ) {
       return terminal(
         ctx,
         "refresh",
-        `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+        `ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
           ratio,
         )}% of ${comparison} and fatigued — replace with fresh iteration.`,
       );
@@ -1117,11 +1135,11 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     return terminal(
       ctx,
       "test_more",
-      `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+      `ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
         ratio,
       )}% of ${comparison} after ${formatReasonNumber(
         input.spend,
-      )} spend (28d) — underperforming but spend not yet mature for hard cut, observe or pause manually.`,
+      )} spend (${cumulativePeriodLabel(ctx.input)}) — underperforming but spend not yet mature for hard cut, observe or pause manually.`,
     );
   }
 
@@ -1131,9 +1149,9 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     return terminal(
       ctx,
       "refresh",
-      `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+      `ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
         ratio,
-      )}% of ${comparison} and fatigued with recent 7d ROAS ${formatRoas(
+      )}% of ${comparison} and fatigued with recent ${recentPeriodLabel(ctx.input)} ROAS ${formatRoas(
         recent7dRoas,
       )} decaying — iterate.`,
     );
@@ -1164,7 +1182,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
           "keep",
           `[economic recovery hold] ROAS ${formatRoas(
             roas,
-          )} (28d) remains below break-even, but sufficiently sampled recent 7d ROAS ${formatRoas(
+          )} (${cumulativePeriodLabel(ctx.input)}) remains below break-even, but sufficiently sampled recent ${recentPeriodLabel(ctx.input)} ROAS ${formatRoas(
             recentEvidence.recentRoas,
           )} is at or above break-even ${formatRoas(
             recentEvidence.breakEvenRoas,
@@ -1230,7 +1248,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         return terminal(
           ctx,
           "cut",
-          `${reason} Recent 7d ROAS ${formatRoas(
+          `${reason} Recent ${recentPeriodLabel(ctx.input)} ROAS ${formatRoas(
             recentEvidence.recentRoas,
           )} remains below break-even ${formatRoas(
             recentEvidence.breakEvenRoas,
@@ -1276,7 +1294,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     return terminal(
       ctx,
       "keep",
-      `[demote candidate] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+      `[demote candidate] ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
         ratio,
       )}% of ${comparison} — above ${boundaryExplanation} but below breakeven (${formatRoas(
         breakevenRoas ?? 0,
@@ -1290,7 +1308,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   return terminal(
     ctx,
     "keep",
-    `[weak zone] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
+    `[weak zone] ROAS ${formatRoas(roas)} (${cumulativePeriodLabel(ctx.input)}) = ${formatRatioPercent(
       ratio,
     )}% of ${comparison} — below the comparison benchmark but in the working zone; no aggressive action, revisit if ROAS drifts further.`,
     [WEAK_PERFORMANCE_BADGE, ...fatigueBadges],

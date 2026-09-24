@@ -4073,6 +4073,28 @@ async function main() {
     );
 
     /*
+      ADR D107 — only an observed difference ends an admitted run.
+
+      A NULL-objective day (Grandmix 2026-09-21, rewritten after the fact) used
+      to count as a different context, collapsing every ad's 28-day run to the
+      day after it. Whether an unreadable interior day is bridged, whether an
+      unresolved day that still observed a contradicting goal breaks the run,
+      and whether leading/trailing gaps stay out are all decisions the hydration
+      SQL makes; only PostgreSQL can show which days it admitted.
+    */
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "lib",
+        "creative-decision-engine",
+        "native-ad-admitted-window.db.test.ts",
+      ),
+      "Native ad admitted window (D107) DB seam check",
+      8,
+    );
+
+    /*
       CODEX ROUND 4 ITEM 7 — schedule timestamps are validated before the write.
 
       Measured on a real cluster: 'not-a-date'::timestamptz and ''::timestamptz

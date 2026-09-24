@@ -7,6 +7,11 @@ import {
 } from "./types";
 import { computeFunnelDiagnosis } from "../funnel";
 import {
+  cumulativePeriodLabel,
+  recentBandStartDate,
+  recentPeriodLabel,
+} from "./reason-format";
+import {
   STALE_SOURCE_UPDATED_AT_HOURS,
   STALE_TIER_NONE_MAX_HOURS,
   TARGET_BAND_MIN_RATIO,
@@ -320,9 +325,33 @@ export function diagnoseGate(ctx: GateContext): GateResult {
     );
   }
 
+  /*
+    ADR D107: the recent sum covers only the band days INSIDE the admitted run.
+    Days after the run — unresolved days the run could not admit — are not in
+    it, even when they spent, and a run can touch the band through a single $0
+    late-attribution day. "0 spend in the last 7d" is therefore claimed only
+    when the run covers the WHOLE recent band, or when the ad's last spend day
+    (read over every finalized row known at the cutoff, not the run) is itself
+    before the band. Otherwise no zero is known and the badge is not shown.
+  */
+  const window = ctx.input.decisionWindow;
+  const bandStart = window ? recentBandStartDate(window) : null;
+  const runCoversWholeRecentBand =
+    window !== null &&
+    window !== undefined &&
+    bandStart !== null &&
+    window.recentStartDate === bandStart &&
+    window.recentEndDate === window.lookbackEndDate;
+  const lastSpendBeforeBand =
+    bandStart !== null &&
+    typeof ctx.input.lastSpendAt === "string" &&
+    ctx.input.lastSpendAt.slice(0, 10) < bandStart;
+  const recentSpendKnownZero =
+    !window || runCoversWholeRecentBand || lastSpendBeforeBand;
   if (
     hasFreshDeliveryEvidence(ctx) &&
     ctx.input.effectiveStatus === "ACTIVE" &&
+    recentSpendKnownZero &&
     (ctx.input.recent7dSpend ?? 0) === 0 &&
     spend > 0
   ) {
@@ -334,10 +363,10 @@ export function diagnoseGate(ctx: GateContext): GateResult {
           ...ctx.badges,
           {
             type: "delivery_limited",
-            label: `Active creative has 0 spend in last 7d after ${formatAccountCurrencySpend(
+            label: `Active creative has 0 spend in last ${recentPeriodLabel(ctx.input)} after ${formatAccountCurrencySpend(
               spend,
               ctx.input.accountCurrency,
-            )} 28d spend; treat as low-delivery warning, not creative failure`,
+            )} ${cumulativePeriodLabel(ctx.input)} spend; treat as low-delivery warning, not creative failure`,
             severity: "info",
           },
         ],

@@ -1031,6 +1031,16 @@ describe("native ad operator-response detection", () => {
     // The digest includes sourceEngineVersion. Each producer epoch gets its
     // own digest; prior receipts still hash under their recorded version.
     expect(legacy.receiptHash).toBe(
+      "06d99cd64f0566c300cfe0a924d77a30a623debc310fe3b817cf749856542514",
+    );
+    const cutRecentOverlayEpoch = action(target, {
+      receiptId: "receipt-legacy-null-lineage",
+      actionLogId: "log-legacy-null-lineage",
+      idempotencyKey: "idem-legacy-null-lineage",
+      verificationLineage: null,
+      sourceEngineVersion: "v3-ad-2026-09-24-cut-recent-overlay-proof-shadow",
+    });
+    expect(cutRecentOverlayEpoch.receiptHash).toBe(
       "57ddc44cd467e7b5ed61f8796fc9571f38296eeb4f7b40c75d857661190dc4eb",
     );
     const previousEpoch = action(target, {

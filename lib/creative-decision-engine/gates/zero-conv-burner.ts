@@ -3,7 +3,7 @@ import {
   commercialStopLossThresholds,
 } from "./maturity";
 import { resolveZeroConversionCutMatch } from "./cut-policy";
-import { formatReasonNumber } from "./reason-format";
+import { cumulativePeriodLabel, formatReasonNumber } from "./reason-format";
 
 export { ZERO_CONV_MIN_AGE_DAYS } from "../config-values";
 
@@ -25,7 +25,7 @@ export function zeroConvBurnerGate(ctx: GateContext): GateResult {
         "cut",
         `0 purchases on ${formatReasonNumber(
           ctx.input.spend,
-        )} spend (28d cumulative, age ${ageDays}d) — sustained zero-conversion burn past CPA-anchored maturity threshold ${formatReasonNumber(
+        )} spend (${cumulativePeriodLabel(ctx.input)} cumulative, age ${ageDays}d) — sustained zero-conversion burn past CPA-anchored maturity threshold ${formatReasonNumber(
           match.spendThreshold,
         )}.`,
       ),

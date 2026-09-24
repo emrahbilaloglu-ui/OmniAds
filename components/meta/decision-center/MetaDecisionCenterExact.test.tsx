@@ -757,7 +757,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     const thumbnail = measured?.querySelector("img");
     expect(thumbnail?.getAttribute("src")).toBe("https://example.com/creative.jpg");
     fireEvent.error(thumbnail!);
-    expect(thumbnail?.getAttribute("style")).toContain("display: none");
+    expect(measured?.querySelector("img")).toBeNull();
     expect(unserved?.textContent).not.toContain("CTR · 28d");
     expect(unserved?.querySelector("img")).toBeNull();
     expect(unserved?.querySelector("svg")).toBeNull();

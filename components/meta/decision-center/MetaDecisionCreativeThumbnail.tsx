@@ -61,6 +61,7 @@ export function MetaDecisionCreativeThumbnail({
   const [source, setSource] = useState(thumbnailUrl ?? null);
   const attempted = useRef(false);
   const generation = useRef(0);
+  const missingSourcePlaceholder = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     generation.current += 1;
@@ -69,7 +70,49 @@ export function MetaDecisionCreativeThumbnail({
     return () => { generation.current += 1; };
   }, [thumbnailUrl, recoveryUrl]);
 
-  if (!source) return null;
+  useEffect(() => {
+    // A missing warehouse URL is not proof that Meta has no thumbnail. Only
+    // query once the placeholder is near the viewport, so a long decision
+    // queue does not turn an empty media field into a bulk provider read.
+    if (source || thumbnailUrl || !recoveryUrl || attempted.current) return;
+    const placeholder = missingSourcePlaceholder.current;
+    if (!placeholder) return;
+    let cancelled = false;
+    const recover = () => {
+      if (attempted.current) return;
+      attempted.current = true;
+      const currentGeneration = generation.current;
+      void recoverThumbnail(recoveryUrl).then((fresh) => {
+        if (!cancelled && generation.current === currentGeneration) setSource(fresh);
+      });
+    };
+    if (typeof IntersectionObserver === "undefined") {
+      recover();
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        observer.disconnect();
+        recover();
+      }
+    }, { rootMargin: "200px" });
+    observer.observe(placeholder);
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [source, thumbnailUrl, recoveryUrl]);
+
+  if (!source) {
+    return !thumbnailUrl && recoveryUrl ? (
+      <span
+        ref={missingSourcePlaceholder}
+        className={className}
+        data-meta-thumbnail-placeholder
+        aria-hidden="true"
+      />
+    ) : null;
+  }
   return (
     <img
       alt=""

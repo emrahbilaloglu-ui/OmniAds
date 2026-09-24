@@ -10,6 +10,35 @@ afterEach(() => {
 });
 
 describe("MetaDecisionCreativeThumbnail", () => {
+  it("recovers a missing warehouse URL only when its placeholder enters view", async () => {
+    const enterView: { current: (() => void) | null } = { current: null };
+    class TestIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback) {
+        enterView.current = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as never);
+      }
+      observe() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ thumbnailUrl: "https://meta.example/recovered.jpg" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(
+      <MetaDecisionCreativeThumbnail
+        className="thumb"
+        thumbnailUrl={null}
+        recoveryUrl="/api/meta/creative-thumbnail?creativeId=666666"
+      />,
+    );
+    expect(view.container.querySelector("[data-meta-thumbnail-placeholder]")).not.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    enterView.current?.();
+    await waitFor(() => expect(view.container.querySelector("img")?.getAttribute("src")).toBe("https://meta.example/recovered.jpg"));
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("reads the provider only after an image fails, then shows the fresh image on desktop and mobile", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -36,7 +65,7 @@ describe("MetaDecisionCreativeThumbnail", () => {
   it("leaves a truly absent or failed preview blank without repeated provider retries", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ thumbnailUrl: null }) });
     vi.stubGlobal("fetch", fetchMock);
-    const missing = render(<MetaDecisionCreativeThumbnail className="thumb" thumbnailUrl={null} recoveryUrl="/missing" />);
+    const missing = render(<MetaDecisionCreativeThumbnail className="thumb" thumbnailUrl={null} recoveryUrl={null} />);
     expect(missing.container.querySelector("img")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
     missing.unmount();

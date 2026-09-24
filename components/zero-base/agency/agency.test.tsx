@@ -35,7 +35,7 @@ let searchParams = new URLSearchParams();
 vi.mock("next/navigation", () => ({ useSearchParams: () => searchParams }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: React.ComponentProps<"a">) =>
-    React.createElement("a", { href, ...rest }, children),
+    React.createElement("a", { href, "data-next-link": "", ...rest }, children),
 }));
 
 afterEach(() => {
@@ -277,7 +277,11 @@ describe("safe projection survives rendering", () => {
 describe("Open Client carries an allowlisted return state", () => {
   it("parses back to the allowlist, with the row anchor", () => {
     renderDirectory(25);
-    const href = screen.getByRole("link", { name: "Open Client 000" }).getAttribute("href")!;
+    const link = screen.getByRole("link", { name: "Open Client 000" });
+    // Session-changing GET navigation must cross a document boundary; a Next
+    // Link may prefetch the switch before the operator chooses this client.
+    expect(link).not.toHaveAttribute("data-next-link");
+    const href = link.getAttribute("href")!;
     expect(href.startsWith("/switch-business/biz_000?")).toBe(true);
 
     const returnTo = new URL(href, "https://app.invalid").searchParams.get(AGENCY_RETURN_PARAM);

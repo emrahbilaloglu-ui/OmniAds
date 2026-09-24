@@ -28,7 +28,6 @@
  * row carries.
  */
 import { useMemo, useState } from "react";
-import Link from "next/link";
 
 import { Collection } from "@/components/zero-base/collections/collection";
 import { DataTable } from "@/components/zero-base/collections/data-table";
@@ -289,7 +288,7 @@ export function ClientDirectory({
               id: "open",
               header: "",
               render: (row) => (
-                <Link
+                <a
                   href={hrefFor(row.businessId)}
                   data-open-client={row.businessId}
                   data-ctl="live:AGENCY-04 open-client"
@@ -298,7 +297,7 @@ export function ClientDirectory({
                   style={{ color: "var(--ledger-accent-action)", textDecoration: "none", fontWeight: 700, whiteSpace: "nowrap" }}
                 >
                   Open →
-                </Link>
+                </a>
               ),
             },
           ]}

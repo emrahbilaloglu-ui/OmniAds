@@ -13,7 +13,6 @@
  * pattern the combobox uses.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 
 import { ZeroBaseSheet } from "@/components/zero-base/primitives/overlays";
 import {
@@ -160,7 +159,7 @@ export function SearchOverlay({
               }}
             >
               {item.href ? (
-                <Link
+                <a
                   data-ctl="live:SCOPE-12 result"
                   href={item.href}
                   onClick={() => onOpenChange(false)}
@@ -171,7 +170,7 @@ export function SearchOverlay({
                     {item.group}
                     {item.businessName ? ` · ${item.businessName}` : ""}
                   </span>
-                </Link>
+                </a>
               ) : (
                 // No canonical destination resolves this row, so it is not
                 // drawn as a link — a dead link is worse than a plain row.

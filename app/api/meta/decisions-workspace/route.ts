@@ -507,6 +507,65 @@ async function resolveWorkspaceEndDate(input: {
   return previousUtcDate();
 }
 
+type NativeDecisionJobMarker = {
+  asOfDate: string;
+  cacheIdentity: string;
+};
+
+/**
+ * A published native job changes the decision inventory even when its as-of
+ * day does not change. Read its indexed, business-scoped marker before using
+ * the heavier as-of and decision caches, so a warm process cannot keep serving
+ * a prior engine epoch after the new generation has committed. This marker
+ * chooses cache identity and an upper date bound only; the native read model
+ * still verifies the account receipt and every snapshot before serving it.
+ */
+async function readLatestNativeDecisionJobMarker(
+  businessId: string,
+): Promise<NativeDecisionJobMarker | null> {
+  try {
+    const rows = await getDb().query<{
+      job_run_id: string;
+      as_of_date: string;
+      status: string;
+      finished_at: string | null;
+    }>(
+      `SELECT id::text AS job_run_id,
+              as_of_date::text AS as_of_date,
+              status,
+              finished_at::text AS finished_at
+         FROM engine_v3_job_runs
+        WHERE job_name = 'engine_v3_native_ad_decisions_shadow_job'
+          AND business_ref_id = $1::uuid
+          AND business_id = $1::text
+          AND status <> 'running'
+          AND as_of_date <= (statement_timestamp() AT TIME ZONE 'UTC')::date
+          AND started_at <= statement_timestamp()
+        ORDER BY engine_v3_job_runs.as_of_date DESC,
+                 engine_v3_job_runs.started_at DESC,
+                 engine_v3_job_runs.id DESC
+        LIMIT 1`,
+      [businessId],
+    );
+    const row = rows[0];
+    if (
+      !row?.job_run_id ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(row.as_of_date) ||
+      !row.status
+    ) {
+      return null;
+    }
+    return {
+      asOfDate: row.as_of_date,
+      cacheIdentity: `${row.job_run_id}:${row.status}:${row.finished_at ?? "unfinished"}`,
+    };
+  } catch {
+    // The marker is a cache invalidator, never a decision source. The normal
+    // as-of and native generation readers retain their fail-closed behavior.
+    return null;
+  }
+}
+
 async function canonicalDecisionReadModel(input: {
   businessId: string;
   providerAccountId: string | null;
@@ -1534,23 +1593,34 @@ export async function GET(request: NextRequest) {
    * Keep the metric end date as the upstream window below, and resolve the
    * decision as-of independently from persisted decision evidence (D090).
    */
+  const nativeDecisionJobMarker =
+    await readLatestNativeDecisionJobMarker(businessId);
+  const nativeDecisionCacheIdentity =
+    nativeDecisionJobMarker?.cacheIdentity ?? "none";
   const loadResolvedDecisionAsOf = () =>
     resolveWorkspaceEndDate({
       businessId,
       providerAccountId,
       explicitEndDate: null,
     });
-  const decisionAsOfDate =
+  const cachedDecisionAsOfDate =
     process.env.VITEST === "true" || process.env.NODE_ENV === "test"
       ? await loadResolvedDecisionAsOf()
       : (
           await getCachedValue({
-            key: `meta-decisions-as-of-v3:${businessId}:${providerAccountId ?? "none"}`,
+            key: `meta-decisions-as-of-v4:${businessId}:${providerAccountId ?? "none"}:${nativeDecisionCacheIdentity}`,
             ttlMs: 5 * 60_000,
             staleWhileRevalidateMs: 60 * 60_000,
             loader: loadResolvedDecisionAsOf,
           })
         ).value;
+  // A cached legacy date cannot hide a newly committed native job. This is
+  // only a date bound; an incomplete account manifest remains unavailable.
+  const decisionAsOfDate =
+    nativeDecisionJobMarker &&
+    nativeDecisionJobMarker.asOfDate > cachedDecisionAsOfDate
+      ? nativeDecisionJobMarker.asOfDate
+      : cachedDecisionAsOfDate;
   const endDateResolvedAt = performance.now();
   // Direct API callers without dates get the same completed-day metric window
   // as the shell. A current-day decision may still be served over it.
@@ -1857,7 +1927,7 @@ export async function GET(request: NextRequest) {
         ? await loadDecisionRead()
         : (
             await getCachedValue({
-              key: `meta-decisions-read-v8:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
+              key: `meta-decisions-read-v9:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${nativeDecisionCacheIdentity}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
               ttlMs: 60_000,
               staleWhileRevalidateMs: 240_000,
               loader: loadDecisionRead,

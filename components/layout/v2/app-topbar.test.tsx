@@ -515,7 +515,7 @@ describe("business-scoped Dashboard v2 topbar", () => {
     window.history.replaceState(
       null,
       "",
-      `/platforms/meta?businessId=business_A&providerAccountId=act_9&${STATED_WINDOW}`,
+      `/platforms/meta?businessId=business_A&providerAccountId=act_9&scope=creatives&area=monitor&segment=needs_resolution&${STATED_WINDOW}`,
     );
     renderTopbar();
 
@@ -527,6 +527,9 @@ describe("business-scoped Dashboard v2 topbar", () => {
     expect(target.startsWith("/platforms/meta?")).toBe(true);
     expect(params.get("businessId")).toBe("business_B");
     expect(params.get("providerAccountId")).toBeNull();
+    expect(params.get("scope")).toBe("creatives");
+    expect(params.get("area")).toBeNull();
+    expect(params.get("segment")).toBeNull();
     expect(target).not.toContain("act_9");
     // The server moved the session before the store was told anything.
     expect(state.fetch.mock.invocationCallOrder[0]).toBeLessThan(
@@ -550,6 +553,7 @@ describe("business-scoped Dashboard v2 topbar", () => {
       "",
       "/c/business_A/meta/decisions?providerAccountId=act_9&cursor=abc" +
         "&row=ad:123&creativeId=cr_7&handoff=hx_1&lane=act" +
+        "&scope=creatives" +
         "&window=7d&startDate=2026-08-10&endDate=2026-08-16",
     );
     renderTopbar();
@@ -576,6 +580,9 @@ describe("business-scoped Dashboard v2 topbar", () => {
     expect(params.get("window")).toBe("7d");
     expect(params.get("startDate")).toBe("2026-08-10");
     expect(params.get("endDate")).toBe("2026-08-16");
+    // The tab names a view, not A's account or ad. Keep the operator in B's
+    // Creatives queue while every A-specific identifier above is removed.
+    expect(params.get("scope")).toBe("creatives");
   });
 
   /**

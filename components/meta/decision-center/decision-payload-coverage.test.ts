@@ -3939,7 +3939,9 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // queue emits as a row element without a stable id to key on.
   // 11 -> 10: `MetaOsAdDecision.decisionAvailability` moved to INSPECTOR when
   // the placeholder rows that carried it in the queue stopped being built.
-  CREATIVES: [0, 10],
+  // Current Meta-derived creative type fills a missing lifecycle format on the
+  // creative badge, with surface-level proof and no stable badge element id.
+  CREATIVES: [0, 11],
   // 94 -> 93: `firstBlocker.explanation` is no longer rendered (Round 8 item 7).
   // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
@@ -3991,7 +3993,8 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // Partly: the inspector's own facts render, the ones it only shows for a
   // selected creative do not; the Creatives queue and the source panel sit
   // behind the scope tabs and show only what the resting scope draws.
-  CREATIVES: [1, 9],
+  // The creative scope is behind a tab in the default desktop render.
+  CREATIVES: [1, 10],
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
@@ -4057,7 +4060,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // rows.
 // 312 -> 333 with the original receipt-lineage leaves; -> 339 with the six
 // contract-identity leaves. All are behind the evidence-window control.
-const DOM_PROOF_TOTALS: [number, number] = [32, 341];
+const DOM_PROOF_TOTALS: [number, number] = [32, 342];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4086,7 +4089,8 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // variable: 373 -> 374.
 // Three newly variable legacy-compatible version tags stay hidden; the
 // workspace business id now changes the rendered scope state.
-const NOWHERE_LEAVES = 376;
+// The display-only source clock varies but is intentionally not rendered.
+const NOWHERE_LEAVES = 377;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4101,7 +4105,8 @@ const NOWHERE_LEAVES = 376;
 // distinction this counter exists to keep visible.
 // The presentation and priority v5/v6 tags now vary, and both still travel
 // inside that callback tuple without becoming buyer-facing claims: 65 -> 67.
-const NOWHERE_BUT_AT_THE_BOUNDARY = 67;
+// The source clock still travels inside the unmodified creative callback.
+const NOWHERE_BUT_AT_THE_BOUNDARY = 68;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -5155,9 +5160,10 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // -> 372/225/147 with the original receipt-lineage leaves; ->
     // 378/231/147 with their six contract-identity leaves; D104 adds one
     // served observation fact on the evidence surface without a stable row id.
-    expect(rendered.length).toBe(380);
+    // The Meta-derived creative type adds one badge claim behind the scope tab.
+    expect(rendered.length).toBe(381);
     expect(withElement.length).toBe(231);
-    expect(withoutElement.length).toBe(149);
+    expect(withoutElement.length).toBe(150);
 
     /*
      * AND WHICH ENTRIES, not merely how many.

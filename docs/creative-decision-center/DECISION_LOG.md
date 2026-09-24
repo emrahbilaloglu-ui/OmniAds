@@ -10532,3 +10532,66 @@ matching completed manifest after a
 bounded re-fetch or separately reviewed authority repair; a matching Ad
 scalar or run ID alone is insufficient. Rollback reverts the candidate lookup
 rule only; already published candidates and raw sources are retained.
+
+## D111 — A trusted Cut spend floor cannot leave a false pending Cut (2026-09-24)
+
+**Decision.** When an exact purchase cell is thin, a cutoff-safe physical-account
+AOV may repair Cut spend depth under D061. If that verified Cut-only floor is not
+met, a lower fallback threshold from the thin cell must not leave a pending
+Cut, `cut_candidate` badge, or `profile_hard_action_ineligible` as the first
+explanation. The output is Test More and names the trusted floor and the
+admitted reporting period. A missing or invalid account-AOV proof keeps the
+existing soft hold. The rule only restates the advisory output: it does not
+lower any threshold, authorize any provider action, change Scale/Refresh, or
+borrow a peer percentile. Confirmed Cut candidates that meet the trusted floor
+continue through recovery, hysteresis, source, config and campaign-role gates.
+
+**Why.** On TheSwaf's 2026-09-10..23 spending cohort, 73 persisted soft-only
+Cut candidates had a thin exact cell (18 attributed purchases) even though the
+same native calibration carried a valid physical-account/currency AOV proof
+(1,089 purchases; USD 193.32 AOV; Target ROAS 2.00). All 73 were below the
+verified zero-purchase Cut floor of USD 193.32; the maximum persisted decision
+spend was USD 145. A D108 two-cutoff read-only replay kept 72 as soft Cut
+candidates and changed one to Keep after the admitted window widened. The old
+reason cited a lower thin-cell threshold (as little as USD 29) and told the
+operator to review a blocked Cut, although the trusted spend floor itself was
+not met. Sixteen of 31 previously role-held Cuts also became soft candidates
+after the admitted window widened. They are early economic risk, not action
+ready Cut verdicts. D107's historical soft-only rows remain readable; this
+ADR changes their current served interpretation.
+
+**First blocker.** On a genuine economically independent Cut, D097 preserves
+the finding when campaign role is uncertain. Yet a role-held Cut with an
+unverified D101 reporting day or D098 decision-window config day is not
+manually ready either. At the native persistence boundary, source coverage,
+then config provenance, then purchase observation takes typed first-blocker
+priority over `campaign_context`; the role hold remains in the decision reason
+and no authorized action is created. With complete source/config/purchase
+evidence, campaign context remains the blocker. In the same TheSwaf replay,
+12 of the previous 31 were genuine raw economic Cuts (seven published, five
+hysteresis-held), but all carried six to nine unverified economic days; role
+uncertainty was not their sole action blocker. D101/D110 source repair and a
+fresh generation must be evaluated separately.
+
+The read-time typed resolution also gives `config_source_authority` priority
+over a simultaneous `pending_transition`: a second evaluation cannot supply
+historical configuration evidence. It still states that consecutive engine
+confirmation is required, while `buyerAction` and provider authority remain
+null. The classification overlay and OS presentation advance to `.v8`; `.v7`
+snapshots remain readable under their original contract.
+
+**Identity and verification.** The shared resolver epoch moves to
+`v3-2026-09-24-cut-proof-floor-story`; the native epoch moves to
+`v3-ad-2026-09-24-cut-proof-floor-story-shadow`; native Ad evaluation contract
+becomes `.v18`. When stacked after D109's creative purchase epoch, the shared
+epoch must be re-minted with a combined name rather than silently retaining
+either parent's old key. Earlier snapshots and evaluations remain readable.
+Targeted tests pin below/above-floor zero-purchase examples, a genuinely
+missing-AOV negative, and role-plus-source/config versus role-only blocker
+priority. A read-only Grandmix/TheSwaf replay is a diagnostic, not a provider
+write or deploy. Same-day integrated regeneration and served readback are
+required after release; no 24-hour waiting period is needed for this rule.
+
+**Rollback.** Revert the floor-pending diagnostic and blocker ordering together,
+mint a new shared/native epoch and Ad evaluation contract, and leave older
+generations under their original keys.

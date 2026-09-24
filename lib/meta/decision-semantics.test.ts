@@ -131,6 +131,35 @@ describe("projectMetaDecisionSemantics", () => {
     expect(projection.resolution?.nextStep).toContain("Fresh, verified daily source coverage");
   });
 
+  it("names missing configuration before pending confirmation on a held Cut", () => {
+    const projection = projectMetaDecisionSemantics({
+      legacyBuyerAction: "protect",
+      sourceLabel: "keep",
+      lifecycleRole: "main",
+      badgeCodes: ["pending_transition"],
+      heldAction: "cut",
+      authorityBlocker: "config_source_authority",
+      configAuthorityVerified: false,
+    });
+
+    expect(projection).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: "cut",
+      resolution: {
+        code: "complete_hard_action_evidence",
+        category: "system",
+        owner: "system",
+      },
+    });
+    expect(projection.resolution?.nextStep).toContain("consecutive engine confirmation");
+    expect(projection.resolution?.nextStep).toContain(
+      "date-authoritative evidence verifies the missing days",
+    );
+    expect(projection.resolution?.nextStep).toContain("No provider action is authorized");
+    expect(projection.resolution?.nextStep).not.toContain("Review the evidence and pause");
+  });
+
   it("keeps a source-only hold assigned to data freshness", () => {
     const projection = projectMetaDecisionSemantics({
       legacyBuyerAction: "cut",

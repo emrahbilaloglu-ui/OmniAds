@@ -7,10 +7,11 @@ import type {
 } from "@/lib/meta/decisions-workspace-contract";
 
 export const META_OS_DECISIONS_PRESENTATION_VERSION =
-  "meta-os-decisions.presentation.v7" as const;
+  "meta-os-decisions.presentation.v8" as const;
 
 export type MetaOsDecisionsPresentationVersion =
   | typeof META_OS_DECISIONS_PRESENTATION_VERSION
+  | "meta-os-decisions.presentation.v7"
   | "meta-os-decisions.presentation.v6"
   | "meta-os-decisions.presentation.v5";
 

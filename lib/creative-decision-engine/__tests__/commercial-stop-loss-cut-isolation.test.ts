@@ -177,11 +177,102 @@ describe("commercial stop-loss Cut isolation", () => {
       decideCreative(creative({ ratio: 0.5, spend: 300 }), canonical).label,
     ).toBe("test_more");
     expect(
-      decideCreative(creative({ ratio: 0.5, spend: 300 }), overlaid).label,
-    ).toBe("test_more");
+      decideCreative(creative({ ratio: 0.5, spend: 300 }), overlaid),
+    ).toMatchObject({
+      label: "test_more",
+      preAuthorityLabel: "test_more",
+      authorityBlocker: null,
+      blockedActionType: null,
+      reason: expect.stringContaining("verified account-currency 500.00 Cut spend floor"),
+    });
     expect(
       decideCreative(creative({ ratio: 0.5, spend: 500 }), overlaid).label,
     ).toBe("cut");
+  });
+
+  it("reports the trusted zero-purchase floor instead of a held Cut from the thin cell", () => {
+    const canonical = canonicalProfile({
+      cut: false,
+      maturity: 43,
+      bottomQuartileRatio: null,
+    });
+    canonical.thresholds.zeroConvBurnerSpend = 43;
+    const overlaid = withAccountAovRepair(canonical, 96.66);
+    overlaid.commercialStopLossThresholds = {
+      ...overlaid.commercialStopLossThresholds!,
+      commercialMaturitySpend: 144.99,
+      zeroConvBurnerSpend: 193.32,
+    };
+    const zero = makeCreativeInput({
+      accountCurrency: "USD",
+      impressions: null,
+      linkClicks: null,
+      outboundClicks: null,
+      landingPageViews: null,
+      addToCart: null,
+      initiateCheckout: null,
+      ctr: null,
+      thumbstop: null,
+      campaignKind: "test",
+      targetRoas: 2.2,
+      breakevenRoas: 1.71,
+      commercialTargetFreshness: "fresh",
+      spend: 145,
+      purchases: 0,
+      purchaseValue: 0,
+      roas: 0,
+      cpa: null,
+      recent7dSpend: 50,
+      recent7dPurchases: 0,
+      recent7dRoas: 0,
+      ageDays: 21,
+    });
+
+    const below = decideCreative(zero, overlaid);
+    expect(below).toMatchObject({
+      label: "test_more",
+      preAuthorityLabel: "test_more",
+      authorityBlocker: null,
+      blockedActionType: null,
+      reason: expect.stringContaining("USD 193.32 Cut spend floor"),
+    });
+    expect(below.reason).not.toContain("meta AOV low_sample");
+    expect(below.badges.some((badge) => badge.type === "cut_candidate")).toBe(false);
+
+    const mature = decideCreative(
+      { ...zero, spend: 200, recent7dSpend: 75 },
+      overlaid,
+    );
+    expect(mature).toMatchObject({
+      label: "cut",
+      preAuthorityLabel: "cut",
+      authorityBlocker: null,
+      blockedActionType: null,
+    });
+  });
+
+  it("keeps a genuinely unproven account AOV in the existing soft hold", () => {
+    const canonical = canonicalProfile({
+      cut: false,
+      maturity: 43,
+      bottomQuartileRatio: null,
+    });
+    const overlaid = withAccountAovRepair(canonical, 200);
+    overlaid.commercialStopLossSpendUnit = {
+      ...overlaid.commercialStopLossSpendUnit!,
+      hardEligibleByDefault: false,
+    };
+    const decision = decideCreative(
+      creative({ ratio: 0.5, spend: 145 }),
+      overlaid,
+    );
+    expect(decision).toMatchObject({
+      label: "test_more",
+      preAuthorityLabel: "cut",
+      authorityBlocker: "profile_hard_action_ineligible",
+      blockedActionType: "cut",
+    });
+    expect(decision.reason).not.toContain("verified account-currency 200.00");
   });
 
   it("uses the lower account-AOV sample floor for Cut maturity but not recovery", () => {

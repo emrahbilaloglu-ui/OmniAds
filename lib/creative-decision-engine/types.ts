@@ -76,11 +76,11 @@ import type {
   window rule — an unresolved day no longer ends a run; only an observed
   difference does — and window-true period labels in the reason text.
 */
-/** Zero-purchase Cuts wait for the zero-conversion spend floor (D107). */
-export const ENGINE_VERSION = "v3-2026-09-24-zero-conversion-cut-floor";
+/** A proved Cut-only floor rejects thin-cell advisory Cuts below it (D111). */
+export const ENGINE_VERSION = "v3-2026-09-24-cut-proof-floor-story";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-09-24-provider-zero-receipt-shadow";
+  "v3-ad-2026-09-24-cut-proof-floor-story-shadow";
 
 /**
  * Whether a HELD hard verdict stands on its own economics, or whether it needs

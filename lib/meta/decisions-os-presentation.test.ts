@@ -2167,7 +2167,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
-    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v7");
+    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v8");
     /*
       RE-PINNED. This asserted `code: "keep_running", intent: "none"` — the
       published `keep` label's own affirmative soft action, served for a row
@@ -2313,6 +2313,8 @@ function heldCanonicalDecision(input: {
   publishedLabel: string;
   authorityBlocker: MetaDecisionAuthorityBlocker;
   legacyBuyerAction: MetaDecisionBuyerAction;
+  badgeCodes?: readonly string[];
+  configAuthorityVerified?: boolean | null;
   predicateBlockers?: ReadonlyArray<{
     predicate: string;
     observed: string | number | null;
@@ -2328,10 +2330,11 @@ function heldCanonicalDecision(input: {
     legacyBuyerAction: input.legacyBuyerAction,
     sourceLabel: input.publishedLabel,
     lifecycleRole: "main",
-    badgeCodes: [],
+    badgeCodes: input.badgeCodes ?? [],
     blockerCodes: [],
     heldAction: input.heldAction,
     authorityBlocker: input.authorityBlocker,
+    configAuthorityVerified: input.configAuthorityVerified ?? null,
     predicateBlockers: input.predicateBlockers ?? [],
   });
   decision.identityGrain = "ad";
@@ -2339,6 +2342,7 @@ function heldCanonicalDecision(input: {
   decision.sourceDecision.rawLabel = input.publishedLabel;
   decision.sourceDecision.preAuthorityLabel = input.heldAction;
   decision.sourceDecision.authorityBlocker = input.authorityBlocker;
+  decision.sourceDecision.badges = [...(input.badgeCodes ?? [])];
   decision.classification.decisionState = semantics.decisionState;
   decision.classification.heldAction = semantics.heldAction;
   decision.classification.legacyBuyerAction = semantics.legacyBuyerAction;
@@ -2376,6 +2380,37 @@ function nativeReadModel(
 }
 
 describe("held verdicts on the served Ad decision", () => {
+  it("serves the missing historical config before a pending Cut confirmation", () => {
+    const decision = heldCanonicalDecision({
+      id: "config-gap-pending-cut",
+      adId: "120000000000000593",
+      heldAction: "cut",
+      publishedLabel: "keep",
+      authorityBlocker: "config_source_authority",
+      legacyBuyerAction: "protect",
+      badgeCodes: ["pending_transition"],
+      configAuthorityVerified: false,
+    });
+    decision.sourceAuthority!.authorizedAction = null;
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [], watching: [], nonSales: [],
+      decisionReadModel: nativeReadModel([decision]), currency: "EUR",
+    });
+    const item = result.ads.items[0]!;
+    expect(item).toMatchObject({
+      lane: "blocked",
+      heldAction: "cut",
+      action: {
+        code: "complete_hard_action_evidence",
+        intent: "review",
+        providerMutation: null,
+      },
+      heldResolution: { code: "complete_hard_action_evidence" },
+    });
+    expect(item.action.scopeNote).toContain("date-authoritative evidence verifies the missing days");
+    expect(item.action.scopeNote).toContain("consecutive engine confirmation");
+  });
+
   it("keeps measured spend while naming the typed missing-purchase receipt", () => {
     const decision = heldCanonicalDecision({
       id: "purchase-gap-ad",
@@ -2747,7 +2782,7 @@ describe("held verdicts on the served Ad decision", () => {
     // reads as "not measured", which a reader must not confuse with three
     // measured zeroes or with a measured "no verdict was held".
     expect(serializedBeforeTheseFields.contractVersion).toBe(
-      "meta-os-decisions.presentation.v7",
+      "meta-os-decisions.presentation.v8",
     );
     expect(serializedBeforeTheseFields.ads.heldCounts).toBeUndefined();
     expect(serializedBeforeTheseFields.ads.items[0]!.heldAction).toBeUndefined();

@@ -781,15 +781,27 @@ function buildFunnel(input: {
     impressions, linkClicks, landingPageViews, addToCart, initiateCheckout,
     purchases,
   ];
-  const subs = [
+  /*
+   * NO STEP RATE INTO CHECKOUT OR PURCHASE.
+   *
+   * Meta attributes each pixel event to the Ad on its own, so a checkout count
+   * is not the set a purchase count was drawn from. These read "Checkout" as
+   * checkouts / add-to-carts and "CVR" as purchases / checkouts, a conditional
+   * path the source never reported: Grandmix over 90 days had 973 purchases
+   * against 692 checkouts, and 310 of its 657 purchase Ad-days carried no
+   * checkout event at all. A served Ad with 0 checkouts and 3 purchases printed
+   * "Checkout 0.0%"; one with 1 and 3 would have printed "CVR 300.0%". Both
+   * counts still print as Meta reported them; only the invented rates go.
+   */
+  const subs: Array<string | null> = [
     "",
     formatPercent(ratioPercent(linkClicks, impressions), 2),
     formatPercent(ratioPercent(landingPageViews, linkClicks), 1),
     formatPercent(ratioPercent(addToCart, landingPageViews), 1),
-    formatPercent(ratioPercent(initiateCheckout, addToCart), 1),
-    formatPercent(ratioPercent(purchases, initiateCheckout), 1),
+    null,
+    null,
   ];
-  const prefixes = ["", "CTR ", "LPV ", "ATC ", "Checkout ", "CVR "];
+  const prefixes = ["", "CTR ", "LPV ", "ATC ", "", ""];
   // A count the helper read has not delivered prints the read state, not the
   // same em-dash a genuinely unserved count prints.
   const unread = (rendered: string) =>
@@ -799,7 +811,7 @@ function buildFunnel(input: {
     label: slot.label,
     value: unread(formatCount(values[index])),
     sub:
-      index === 0
+      index === 0 || subs[index] === null
         ? ""
         : subs[index] === EM_DASH
           ? unread(EM_DASH)

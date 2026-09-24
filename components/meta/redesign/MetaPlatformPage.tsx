@@ -1869,8 +1869,13 @@ function MetaMobileCreativeEvidenceScreen({
           <MetaMobileCitationList
             items={funnel.map((step) => ({
               label: mobileDisplay(step.label),
+              // As on desktop: an empty `sub` is a stage with no rate (the top,
+              // and checkout/purchase events Meta attributes separately), not
+              // an unknown one, so it prints nothing rather than an em dash.
               value:
-                `${mobileDisplay(step.value)} ${mobileDisplay(step.sub)}`.trim(),
+                typeof step.sub === "string" && !step.sub.trim()
+                  ? mobileDisplay(step.value)
+                  : `${mobileDisplay(step.value)} ${mobileDisplay(step.sub)}`.trim(),
             }))}
           />
           {funnel.length > 0 ? (

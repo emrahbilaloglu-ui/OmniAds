@@ -1616,7 +1616,7 @@ describe("the creative queue is the served set, split by the served state", () =
       rows: [{ stateLabel: "Blocked" }],
     });
     expect(model.creativeDecisions?.[0]).toMatchObject({
-      actionLabel: "Review spend reduction",
+      actionLabel: "Review pause",
       note: "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
     });
   });
@@ -4478,14 +4478,14 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
 
     expect(verdictRow?.decisionLabel).toBe("Continue testing");
     expect(verdictRow?.heldVerdictLabel).toBe(
-      "Recommendation awaiting review: Reduce spend",
+      "Recommendation awaiting review: Pause ad",
     );
     expect(signalRow?.decisionLabel).toBe("Continue testing");
     expect(signalRow?.heldVerdictLabel).toBe(
-      "Spend reduction signal awaiting verification",
+      "Pause signal awaiting verification",
     );
     expect(signalRow?.heldVerdictNextStep).toContain(
-      "Then reassess whether to reduce spend.",
+      "Then reassess whether to pause this ad.",
     );
     expect(model.operatorSummary?.scopeCounts?.creatives?.action).toBe(0);
     expect(model.operatorSummary?.scopeCounts?.creatives?.needsResolution).toBe(2);
@@ -4538,7 +4538,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       configEvidence: { verified: true } as MetaCanonicalDecision["configEvidence"],
     });
     const ready = heldCreativeVerdict(cut, verified);
-    expect(ready?.label).toBe("Reduce spend — review manual pause");
+    expect(ready?.label).toBe("Pause ad — review manual pause");
     expect(ready?.nextStep).toContain("pause this ad yourself if you agree");
     expect(ready?.nextStep).not.toContain("again");
 
@@ -4546,7 +4546,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       configEvidence: { verified: false } as MetaCanonicalDecision["configEvidence"],
     });
     const gap = heldCreativeVerdict(cut, unverified);
-    expect(gap?.label).toBe("Reduce spend recommendation — verify configuration");
+    expect(gap?.label).toBe("Pause ad recommendation — verify configuration");
     expect(gap?.nextStep).toContain("campaign configuration for every day behind it is not confirmed");
     expect(gap?.nextStep).toContain("Check the campaign's current setup in Ads Manager");
     expect(gap?.nextStep).not.toMatch(/\bVerify\b/);
@@ -4564,8 +4564,8 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       targetLevel: "ad",
       providerMutation: null,
     }) }, verified);
-    expect(retained?.label).toBe("Spend reduction signal awaiting verification");
-    expect(retained?.nextStep).toContain("Then reassess whether to reduce spend.");
+    expect(retained?.label).toBe("Pause signal awaiting verification");
+    expect(retained?.nextStep).toContain("Then reassess whether to pause this ad.");
   });
 
   it("keeps the specific held resolution when provider configuration also needs verification", () => {
@@ -4754,7 +4754,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(
       heldCreativeVerdict({ ...heldCut, heldResolution: null }, canonical)?.nextStep,
     ).toBe(
-      "Confirm the missing information, then review this Reduce spend recommendation again.",
+      "Confirm the missing information, then review this Pause ad recommendation again.",
     );
     expect(
       heldCreativeVerdict(
@@ -4827,10 +4827,10 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     });
     const row = model.creativeDecisions?.[0];
 
-    expect(row?.heldVerdictLabel).toBe("Recommendation on hold: Reduce spend");
+    expect(row?.heldVerdictLabel).toBe("Recommendation on hold: Pause ad");
     // A system-owned code with no sentence still states a wait, never a chore.
     expect(row?.note).toBe(
-      "The evidence this decision needs is still being completed. No action is needed from you; this Reduce spend recommendation is re-checked on each decision run.",
+      "The evidence this decision needs is still being completed. No action is needed from you; this Pause ad recommendation is re-checked on each decision run.",
     );
     expect(JSON.stringify(row)).not.toContain(
       "a_code_this_surface_has_no_sentence_for",
@@ -5001,9 +5001,9 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       }),
     );
 
-    expect(inspector?.heldVerdictLabel).toBe("Recommendation on hold: Reduce spend");
+    expect(inspector?.heldVerdictLabel).toBe("Recommendation on hold: Pause ad");
     expect(inspector?.heldVerdictNextStep).toBe(
-      "The evidence this decision needs is still being completed. No action is needed from you; this Reduce spend recommendation is re-checked on each decision run.",
+      "The evidence this decision needs is still being completed. No action is needed from you; this Pause ad recommendation is re-checked on each decision run.",
     );
     expect(JSON.stringify(inspector)).not.toContain(
       "a_code_this_surface_has_no_sentence_for",
@@ -5160,7 +5160,7 @@ describe("the buyer's verdict word comes from the type, never from English", () 
 
     expect(mapped).toEqual({
       scale: "Scale",
-      cut: "Reduce spend",
+      cut: "Pause ad",
       refresh: "Refresh creative",
       keep: "Keep monitoring",
       test_more: "Continue testing",

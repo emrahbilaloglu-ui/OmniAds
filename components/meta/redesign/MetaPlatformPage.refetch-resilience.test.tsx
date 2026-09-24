@@ -47,6 +47,8 @@ const state = vi.hoisted(() => ({
   pathname: "/c/biz_1/meta/decisions",
   providerAccounts: [] as any[],
   workspaceData: undefined as unknown,
+  /** Supplemental Ad-day funnel rows for the open evidence drawer. */
+  evidenceAdRows: null as unknown,
   canonicalCreatives: [] as any[],
   /** The workspace read for one exact query key. */
   workspaceRead: null as null | ((key: unknown[]) => WorkspaceRead),
@@ -97,7 +99,9 @@ vi.mock("@tanstack/react-query", () => ({
           })
         : {
             data:
-              key === "meta-provider-accounts"
+              key === "meta-creative-evidence-ad-rows"
+                ? state.evidenceAdRows
+                : key === "meta-provider-accounts"
                 ? state.providerAccounts
                 : key === "meta-anomalies"
                   ? EMPTY_ANOMALIES
@@ -597,6 +601,7 @@ beforeEach(() => {
     { id: "act_1", name: "Main Meta", currency: "USD", timezone: "UTC" },
   ];
   state.canonicalCreatives = [];
+  state.evidenceAdRows = null;
   state.workspaceData = undefined;
   state.workspaceRead = null;
   state.refetched = [];
@@ -1040,5 +1045,48 @@ describe("mobile creatives scope when nothing was served", () => {
     const dom = render();
     expect(dom.querySelector("[data-mobile-creatives-notice]")).toBeNull();
     expect(dom.textContent).toContain("No decisions in this view");
+  });
+});
+
+describe("mobile evidence prints Meta-reported checkout and purchase counts", () => {
+  it("shows checkouts 0 and purchases 3 without a rate or an unknown marker", () => {
+    const served = pendingOsDecision();
+    state.workspaceData = workspaceResponse({ ads: [served] });
+    state.evidenceAdRows = [
+      {
+        id: served.adId,
+        adsetId: "adset_1",
+        adsetName: "Broad",
+        spend: 240,
+        purchaseValue: 610,
+        roas: 2.54,
+        impressions: 20_000,
+        linkClicks: 500,
+        linkClicksObserved: true,
+        landingPageViews: 400,
+        landingPageViewsObserved: true,
+        addToCart: 12,
+        addToCartObserved: true,
+        initiateCheckout: 0,
+        initiateCheckoutObserved: true,
+        purchases: 3,
+        purchasesObserved: true,
+        thumbstop: null,
+        launchDate: "2026-07-01",
+      },
+    ];
+    const dom = render();
+    openCreative(dom, served);
+    const text = dom
+      .querySelector('[data-testid="meta-mobile-creative-evidence"]')!
+      .textContent!.replace(/\s+/g, " ");
+    expect(text).toContain("Checkout initiated: 0");
+    expect(text).toContain("Purchases: 3");
+    expect(text).toContain("Add to cart: 12 ATC 3.0%");
+    expect(text).not.toContain("Checkout 0.0%");
+    expect(text).not.toContain("CVR");
+    // An empty rate slot is not an unknown value.
+    expect(text).not.toMatch(/Checkout initiated: 0 —|Purchases: 3 —|Impressions: 20,000 —/);
+    expect(text).toContain("Meta reports these events separately.");
   });
 });

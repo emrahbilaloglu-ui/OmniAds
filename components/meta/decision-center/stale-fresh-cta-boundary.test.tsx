@@ -406,11 +406,11 @@ describe("stale/fresh mutation-CTA boundary — static presentation→adapter→
     expect(staleCard).not.toMatch(/<button[^>]*(?<!disabled[^>]*)>\s*Cut\s*</);
 
     // The fresh row stays in Act, presents the served cut as a buyer-facing
-    // spend review, and explains its preflight. This direct adapter fixture
+    // pause review, and explains its preflight. This direct adapter fixture
     // supplies no provider callback, so it must not invent an enabled control.
     expect(actionHtml).toContain('data-meta-exact-creative-state="Act"');
     expect(actionHtml).toContain(
-      'data-meta-exact-creative-served-action="Review spend reduction"',
+      'data-meta-exact-creative-served-action="Review pause"',
     );
     expect(actionHtml).toContain(
       "Runs a fresh safety check before pausing this ad.",

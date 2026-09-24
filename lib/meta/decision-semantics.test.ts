@@ -348,6 +348,44 @@ describe("projectMetaDecisionSemantics", () => {
     );
   });
 
+  it("prioritizes absent Ad performance over role on a non-held diagnosis", () => {
+    const projection = projectMetaDecisionSemantics({
+      legacyBuyerAction: "diagnose_data",
+      sourceLabel: "diagnose",
+      lifecycleRole: "label_needed",
+      badgeCodes: ["campaign_context_unresolved", "ad_metrics_unavailable"],
+    });
+
+    expect(projection).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: null,
+      resolution: {
+        code: "refresh_decision_data",
+        category: "data",
+        owner: "integration",
+        label: "Ad Performance Data Unavailable",
+      },
+    });
+    expect(projection.resolution?.nextStep).toContain("zero spend is not measured performance");
+
+    // The same evidence must not overwrite a recorded authority hold.
+    const held = projectMetaDecisionSemantics({
+      legacyBuyerAction: "diagnose_data",
+      sourceLabel: "diagnose",
+      lifecycleRole: "label_needed",
+      badgeCodes: ["campaign_context_unresolved", "ad_metrics_unavailable"],
+      heldAction: "scale",
+      authorityBlocker: "campaign_context",
+    });
+    expect(held).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: "scale",
+      resolution: { code: "resolve_campaign_role", owner: "system" },
+    });
+  });
+
   it("keeps a stale cut verdict in provenance but blocks its buyer action", () => {
     expect(
       projectMetaDecisionSemantics({

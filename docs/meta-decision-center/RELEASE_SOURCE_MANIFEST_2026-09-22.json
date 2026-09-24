@@ -1,5 +1,5 @@
 {
-  "manifestHash": "bff370140658f557357e63712cfa0f917207f372171a83f8c757ed11442bc086",
+  "manifestHash": "88a3c9afd5d63475cff6d8087a5fb6a95895ed3c2ce5abc66b30b5a9c5f6a907",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -908,7 +908,7 @@
     },
     {
       "path": "lib/creative-decision-engine/profile-scope-callers-account-scope.db.test.ts",
-      "sha256": "0dfdf9671227a42aaa280e3c4f433fc6c930f799bb415996f90630208ada681a"
+      "sha256": "e4891124ae35a6e75ad2a36998d58a991c8b914fc37ef7b734b75ba295a76853"
     },
     {
       "path": "lib/creative-decision-engine/shopify-aov-source.test.ts",
@@ -1268,11 +1268,11 @@
     },
     {
       "path": "lib/meta/decision-semantics.test.ts",
-      "sha256": "0601673a104f6695c365d20050a2659c0a3c8459abef63b9025411d895ab2314"
+      "sha256": "c9aba128e1cbb25ac003258e7d1931d639f32ff20c93b82a2db727a0510d30f0"
     },
     {
       "path": "lib/meta/decision-semantics.ts",
-      "sha256": "b9652ea2488a732227ee68e1449ff366e174c2d242e0c758903d2a66f6585b88"
+      "sha256": "dc7bbafc45826c4ff51262b85fc919af811f5359531d392554d570148455d07a"
     },
     {
       "path": "lib/meta/decisions-canonical-ad-universe.test.ts",

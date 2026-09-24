@@ -1,10 +1,12 @@
 /** A migrated-Postgres seam for the D101 retry and orphan-receipt repair. */
 import { getDb, resetDbClientCache } from "@/lib/db";
 import { randomUUID } from "node:crypto";
+import { createMetaFinalizationCompletenessProof } from "@/lib/meta/finalization-proof";
 import {
   getMetaCorePublishedRetryState,
   getMetaPositiveSpendAdIdsForPublishedRun,
   listMetaRawSnapshotsForRun,
+  replaceMetaAdDailySlice,
   supersedeMetaRawSnapshotsForPartition,
 } from "@/lib/meta/warehouse";
 
@@ -224,11 +226,31 @@ async function main() {
   assert(!staleAdRows.complete && !staleAdRows.active &&
       staleAdRows.requiresProviderRefetch,
     "Ad rows from a different source run must invalidate retry proof");
-  await db.query(`
-    DELETE FROM meta_ad_daily
+  await replaceMetaAdDailySlice({
+    slice: { businessId: BUSINESS, providerAccountId: ACCOUNT, date: DAY },
+    rows: [],
+    proof: createMetaFinalizationCompletenessProof({
+      businessId: BUSINESS,
+      providerAccountId: ACCOUNT,
+      date: DAY,
+      scope: "ad",
+      sourceRunId: runId,
+      complete: true,
+      validationStatus: "passed",
+    }),
+  });
+  const [remainingStaleAd] = await db.query<{ count: string }>(`
+    SELECT COUNT(*)::text AS count FROM meta_ad_daily
     WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
-      AND ad_id='ad-stale-run'
   `, [BUSINESS, ACCOUNT, DAY]);
+  assert(Number(remainingStaleAd?.count) === 0,
+    "a proved zero-Ad refetch must remove older source-run rows");
+  const repairedEmptyAd = await getMetaCorePublishedRetryState({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, day: DAY, partitionId: runId,
+    accountTimezone: "UTC",
+  });
+  assert(repairedEmptyAd.complete && repairedEmptyAd.active,
+    "the empty authoritative Ad replacement must make retry proof reusable");
   const [campaignSlice] = await db.query<{ id: string }>(`
     SELECT id::text AS id FROM meta_authoritative_slice_versions
     WHERE business_id=$1 AND provider_account_id=$2 AND day=$3::date

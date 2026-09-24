@@ -9704,22 +9704,33 @@ export async function replaceMetaAdSetDailySlice(input: {
 }
 
 export async function replaceMetaAdDailySlice(input: {
+  slice: { businessId: string; providerAccountId: string; date: string };
   rows: MetaAdDailyRow[];
   proof: MetaFinalizationCompletenessProof;
 }) {
-  if (input.rows.length === 0) return;
   const slice = {
-    businessId: input.rows[0]!.businessId,
-    providerAccountId: input.rows[0]!.providerAccountId,
-    date: normalizeDate(input.rows[0]!.date),
+    businessId: input.slice.businessId,
+    providerAccountId: input.slice.providerAccountId,
+    date: normalizeDate(input.slice.date),
     scope: "ad",
   } as const;
   assertMetaFinalizationCompletenessProof(input.proof, slice);
+  for (const row of input.rows) {
+    if (
+      row.businessId !== slice.businessId ||
+      row.providerAccountId !== slice.providerAccountId ||
+      normalizeDate(row.date) !== slice.date
+    ) {
+      throw new Error("meta_ad_slice_mismatch");
+    }
+  }
   await runInTransaction(async () => {
     const sql = getDb();
-    await upsertMetaAdDailyRows(input.rows, {
-      writeMode: "authoritative_fact",
-    });
+    if (input.rows.length > 0) {
+      await upsertMetaAdDailyRows(input.rows, {
+        writeMode: "authoritative_fact",
+      });
+    }
     const adIds = input.rows.map((row) => row.adId);
     await sql`
       DELETE FROM meta_ad_daily

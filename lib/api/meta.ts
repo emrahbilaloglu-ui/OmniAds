@@ -5444,7 +5444,15 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       run: async () => {
         if (truthState === "finalized") {
           if (adProof) {
-            await replaceMetaAdDailySlice({ rows: adRows, proof: adProof });
+            await replaceMetaAdDailySlice({
+              slice: {
+                businessId: input.credentials.businessId,
+                providerAccountId: input.accountId,
+                date: normalizedDay,
+              },
+              rows: adRows,
+              proof: adProof,
+            });
           } else if (adRows.length > 0) {
             await upsertMetaAdDailyRows(adRows, {
               writeMode: "authoritative_fact",

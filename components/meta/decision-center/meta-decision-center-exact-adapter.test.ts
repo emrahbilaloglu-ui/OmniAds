@@ -1575,6 +1575,17 @@ describe("the creative queue is the served set, split by the served state", () =
         targetLevel: "ad",
         providerMutation: null,
       }),
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "cut",
+        publishedLabel: "test_more",
+        firstBlocker: {
+          code: "campaign_context",
+          label: "Campaign context pending",
+          explanation: "Historical producer copy",
+        },
+      },
       resolution: {
         code: "apply_cut_manually",
         category: "campaign_context",
@@ -1624,6 +1635,9 @@ describe("the creative queue is the served set, split by the served state", () =
     expect(row?.moneySub).toContain("No Meta change can be applied");
     expect(row?.heldVerdictNextStep).toContain("current run before acting");
     expect(model.inspector?.contractDetail).toContain("current run before acting");
+    expect(model.inspector?.reasons).toEqual([
+      "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+    ]);
     expect(model.inspector?.moneyDetail).toContain("No Meta change can be applied");
     expect(JSON.stringify({ row, inspector: model.inspector })).not.toMatch(
       /pause this ad (in Meta )?(yourself|if you agree)/i,

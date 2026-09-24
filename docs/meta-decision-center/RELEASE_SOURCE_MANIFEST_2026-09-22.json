@@ -1,5 +1,5 @@
 {
-  "manifestHash": "b46ad42dc3ef621b99c4a6a09a7fc55f4a531c947e9fa4b5ee029e9be7971110",
+  "manifestHash": "6caddf5ec435de3fefef8240578d7aa753613a761fce22ee5fd70eeb357a7472",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -400,11 +400,11 @@
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "90d498ed8fff259eadfdc45d67d55308ab6b142db28922bb35d43a50ac9d01ea"
+      "sha256": "c9d3615b566582f004654eee34d30b21b9b4ed52efdab3265ff269797c0d0156"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "86732a837aa734e2d817f7a482454659d15fa08092fc168571b1d75d946db882"
+      "sha256": "6dfb32239bdf7154e7dfa51081333eb5f771c096ea5044788ae98c15be21d632"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -612,7 +612,7 @@
     },
     {
       "path": "lib/api/meta.ts",
-      "sha256": "dbef8b53e68394f9d87930f0b2715fac623d08b056ee37db756bd3cc1589ff3d"
+      "sha256": "34013f7f80d7e985fc99a92606410224f16bf337d4051684389bc668c37c268d"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-cpa-identity-projection.test.ts",
@@ -1108,7 +1108,7 @@
     },
     {
       "path": "lib/meta/ad-day-link-click-persistence.db.test.ts",
-      "sha256": "43e016e5746b0cabcf6bbd06d057a774ce9a2fb35235f65ee98642e7ed8d1c3d"
+      "sha256": "c0bc7c189003fc17f3b2917c569942507d4aea6877fd64c47e36511903623fe6"
     },
     {
       "path": "lib/meta/ad-performance-availability.ts",
@@ -1572,7 +1572,7 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "bebee67f1f3afce8ecda169b059e97e5755aba04370f41195b053ee993191449"
+      "sha256": "94b0749317879f688e4acf3a40f257bf7c45d9996b78cdf153a3d7a018a1b495"
     },
     {
       "path": "lib/meta/write-safety-contract.test.ts",
@@ -1760,7 +1760,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-meta-d101-retry-seam-child.ts",
-      "sha256": "94e65fd94b1c771d017d0a13fef8ae39d4ebf424aaf4c20a19136bf68e610e3f"
+      "sha256": "596be8c515b5706fa273e6780b892a14cebf4fc5626010de0011bc1c6124284a"
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",

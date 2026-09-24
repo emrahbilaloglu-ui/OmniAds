@@ -262,7 +262,12 @@ function adProof(date: string) {
 
 /** MODE 1: the proof-gated slice replacement. */
 async function writeSlice(rows: MetaAdDailyRow[]) {
-  await replaceMetaAdDailySlice({ rows, proof: adProof(rows[0]!.date) });
+  const date = rows[0]!.date;
+  await replaceMetaAdDailySlice({
+    slice: { businessId, providerAccountId: ACCOUNT_ID, date },
+    rows,
+    proof: adProof(date),
+  });
 }
 
 /** MODE 2: the direct authoritative upsert. */

@@ -2312,6 +2312,15 @@ export function buyerFacingCreativeReason(decision: MetaOsAdDecision): string {
   if (decision.decisionAvailability === "pending_native_evidence") {
     return "This active ad is waiting for an ad-level decision.";
   }
+  // The retained row's authority blockers describe the earlier verdict. Its
+  // current review state is caused by the latest native run failing, so that
+  // served action must lead the Why before any historical blocker copy.
+  if (
+    decision.lane === "blocked" &&
+    decision.action.code === "review_retained_decision"
+  ) {
+    return RETAINED_GENERATION_REVIEW_COPY;
+  }
   if (decision.publishedLabel === "out_of_scope") {
     return "This ad is outside the verified purchase-ROAS decision scope. This workflow makes no scale, spend-reduction, or creative-refresh call for it.";
   }

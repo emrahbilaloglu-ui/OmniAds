@@ -1,5 +1,5 @@
 {
-  "manifestHash": "403e167eb1779d6469656e603bcbd21eac0d6c6f91a70ae980e8e8d362fdf7a3",
+  "manifestHash": "bf16ae0d8a6bb8f6ae73518326d549efc51b055b6482feff738616427ef1707b",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -340,15 +340,15 @@
     },
     {
       "path": "components/creatives/creative-evidence-held-verdict.test.tsx",
-      "sha256": "c2cd984037658de6cc99b1dbbc4d5ccb7517cdd677843e3115347d656f1dae18"
+      "sha256": "9a8f90f055f66268f8a68bf1a1805dedd10e347a82b91df7a868b0a015fe8d56"
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.test.ts",
-      "sha256": "f212e889933df600959304b600c362b8b9b3a2b90ba64651acc5ac6e9f4efc8e"
+      "sha256": "0e1fe424c0afcfca5628ee7dd56342ca9dc53be10f3d110cc148f394eaf0d8d5"
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.ts",
-      "sha256": "72b1cc900f0978a84644bb1206abfc498c006721878573bc35e69fbd9775a1d0"
+      "sha256": "da6a4d84f1e6f33d6b1989a9dea9625ea9ffe9e4ee78ec2ed8c61392f02d31bc"
     },
     {
       "path": "components/creatives/creative-evidence-window-wiring.test.ts",
@@ -524,7 +524,7 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.refetch-resilience.test.tsx",
-      "sha256": "48d02231d74ec493ea714726f805a78247638fd3893ab88b80279d2f062c42d3"
+      "sha256": "0f21aad1904756af336176d30c07525c40401238f83515387a36982f175b1a6e"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.test.tsx",
@@ -532,7 +532,7 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "bcd659a67bf1c68db0f939e0bc2a3ae6461377050df667773b5beffde942d48a"
+      "sha256": "76dae17bb88cff05eb3b489f4f2b2df60986fc5e7828d2aa05a706903a960e64"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",

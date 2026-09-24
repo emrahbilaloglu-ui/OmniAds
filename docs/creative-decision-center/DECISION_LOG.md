@@ -10613,6 +10613,14 @@ Dry-run records each old pointer, target manifest, proof, blockers and a hash.
 Apply requires the reviewed plan and an explicit opt-in, rechecks under locks,
 then publishes at the actual repair time. Raw pages, Ad facts and prior slices
 remain unchanged; earlier point-in-time evaluations keep their earlier truth.
+The `v2` candidate summary retains the reviewed hash, exact source page,
+partition, receipt kind, raw update clock, target manifest, and original
+pointer/slice/manifest/run/publication clock. A post-publish readback checks
+the preserved old slice and original clock, including when a later fresh
+reset marked the original raw page `superseded`; the new publication time
+cannot be substituted for historical source time. The old slice's own
+publication may precede the old pointer by milliseconds. The repair itself
+marks that old slice `superseded` without changing its historical publication.
 Batch repair retains each daily plan and readback receipt and fails closed per
 day. Binding a legacy page does **not** by itself classify absent actions as
 provider zero; the D108 decision reader applies its own receipt rule.

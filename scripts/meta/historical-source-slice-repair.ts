@@ -23,7 +23,7 @@ import {
 } from "@/lib/meta/warehouse";
 import { configureOperationalScriptRuntime } from "../_operational-runtime";
 
-const CONTRACT = "meta-historical-source-slice-repair.v1";
+const CONTRACT = "meta-historical-source-slice-repair.v2";
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const SHA = /^[a-f0-9]{64}$/;
 const UUID = /^[a-f0-9-]{36}$/i;
@@ -109,6 +109,14 @@ export type RepairPointer = {
   publishedByRunId: string | null; publishedAt: string;
   publicationReason: string; createdAt: string; updatedAt: string;
   businessRefId: string | null; providerAccountRefId: string | null;
+  activeValidationSummary?: unknown;
+};
+export type RepairOldSlice = {
+  id: string; businessId: string; accountId: string; day: string;
+  surface: string; manifestId: string | null; sourceRunId: string | null;
+  publishedAt: string | null; supersededAt: string | null;
+  status: string; truthState: string;
+  validationStatus: string;
 };
 export type RepairAd = {
   id: string; adId: string; sourceRunId: string | null;
@@ -148,6 +156,7 @@ export type RepairReconciliation = {
 };
 export type RepairEvidence = {
   pointer: RepairPointer | null;
+  oldSlice?: RepairOldSlice | null;
   ads: RepairAd[];
   manifests: RepairManifest[];
   raw: RepairRawPage | null;
@@ -155,13 +164,66 @@ export type RepairEvidence = {
   reconciliations: RepairReconciliation[];
 };
 
+/** The original pointer clock is a witnessed fact of this repair transaction. */
+function rebindPriorPublication(input: {
+  pointer: RepairPointer | null; oldSlice?: RepairOldSlice | null;
+  raw: RepairRawPage | null; businessId: string; accountId: string;
+  day: string; cutoff: number;
+}): string | null {
+  const { pointer, oldSlice, raw } = input;
+  if (!pointer || pointer.publicationReason !== "manifest_rebind_repair" ||
+      !oldSlice || !raw) return null;
+  const receipt = asRecord(pointer.activeValidationSummary);
+  const oldPublishedAt = receipt.oldPublishedAt;
+  if (receipt.repairContract !== CONTRACT ||
+      typeof receipt.reviewedPlanHash !== "string" ||
+      !SHA.test(receipt.reviewedPlanHash) ||
+      !["run_observation", "legacy_run_bound_raw"].includes(String(receipt.receiptKind)) ||
+      typeof oldPublishedAt !== "string" ||
+      !Number.isFinite(time(oldPublishedAt)) || time(oldPublishedAt) > input.cutoff ||
+      receipt.oldPointerId !== pointer.id ||
+      receipt.oldSliceId !== oldSlice.id ||
+      receipt.oldManifestId !== oldSlice.manifestId ||
+      receipt.oldRunId !== oldSlice.sourceRunId ||
+      receipt.oldRunId !== pointer.publishedByRunId ||
+      receipt.targetManifestId !== pointer.activeManifestId ||
+      receipt.targetManifestId === receipt.oldManifestId ||
+      receipt.sourceSnapshotId !== raw.id ||
+      receipt.sourcePartitionId !== raw.partitionId ||
+      receipt.rawUpdatedAt !== raw.updatedAt ||
+      oldSlice.businessId !== input.businessId ||
+      oldSlice.accountId !== input.accountId ||
+      oldSlice.day !== input.day || oldSlice.surface !== "ad_daily" ||
+      oldSlice.id === pointer.activeSliceId ||
+      oldSlice.status !== "superseded" ||
+      oldSlice.truthState !== "finalized" ||
+      oldSlice.validationStatus !== "passed" ||
+      !Number.isFinite(time(oldSlice.publishedAt)) ||
+      time(oldSlice.publishedAt) > time(oldPublishedAt) ||
+      !Number.isFinite(time(oldSlice.supersededAt)) ||
+      time(oldSlice.supersededAt) < time(oldPublishedAt) ||
+      time(oldSlice.supersededAt) > time(pointer.publishedAt) ||
+      time(oldPublishedAt) >= time(pointer.publishedAt) ||
+      (raw.status === "superseded" &&
+        (receipt.receiptKind !== "legacy_run_bound_raw" ||
+         time(raw.updatedAt) <= time(oldPublishedAt)))) return null;
+  return oldPublishedAt;
+}
+
 export function evaluateHistoricalSourceSlice(input: {
   businessId: string; accountId: string; day: string; cutoff: string;
   evidence: RepairEvidence;
 }) {
-  const { pointer, ads, manifests, raw, observations, reconciliations } = input.evidence;
+  const { pointer, oldSlice, ads, manifests, raw, observations, reconciliations } = input.evidence;
   const blockers: string[] = [];
   const cutoff = time(input.cutoff);
+  const priorPublication = rebindPriorPublication({
+    pointer, oldSlice, raw, businessId: input.businessId,
+    accountId: input.accountId, day: input.day, cutoff,
+  });
+  if (pointer?.publicationReason === "manifest_rebind_repair" &&
+      priorPublication === null) blockers.push("rebind_prior_publication_receipt_invalid");
+  const proofPublishedAt = priorPublication ?? pointer?.publishedAt;
   if (!pointer || !pointer.publishedByRunId) blockers.push("ad_pointer_or_run_missing");
   if (pointer && (![pointer.publishedAt, pointer.createdAt, pointer.updatedAt]
     .every((value) => Number.isFinite(time(value)) && time(value) <= cutoff) ||
@@ -178,7 +240,7 @@ export function evaluateHistoricalSourceSlice(input: {
     manifest.runId === runId && manifest.surface === "account_daily" &&
     manifest.fetchStatus === "completed" && manifest.watermark === raw?.id &&
     Number.isFinite(time(manifest.completedAt)) &&
-    time(manifest.completedAt) <= Math.min(time(pointer?.publishedAt), cutoff));
+    time(manifest.completedAt) <= Math.min(time(proofPublishedAt), cutoff));
   eligible.sort((left, right) => time(right.completedAt) - time(left.completedAt));
   const target = eligible[0] ?? null;
   if (!target) blockers.push("matching_completed_manifest_before_pointer_missing");
@@ -186,7 +248,7 @@ export function evaluateHistoricalSourceSlice(input: {
     manifest.runId === runId && manifest.surface === "account_daily" &&
     manifest.fetchStatus === "completed" && manifest.watermark !== target.watermark &&
     time(manifest.completedAt) > time(target.completedAt) &&
-    time(manifest.completedAt) <= time(pointer?.publishedAt))) {
+    time(manifest.completedAt) <= time(proofPublishedAt))) {
     blockers.push("intervening_different_capture");
   }
   if (target && (!target.freshStartApplied || !target.checkpointResetApplied)) {
@@ -212,7 +274,7 @@ export function evaluateHistoricalSourceSlice(input: {
         // this older pointer was published.
         !(raw.status === "fetched" || (raw.status === "superseded" &&
           Number.isFinite(time(raw.updatedAt)) &&
-          time(raw.updatedAt) > time(pointer?.publishedAt))) ||
+          time(raw.updatedAt) > time(proofPublishedAt))) ||
         raw.httpStatus !== 200 || raw.pageIndex !== 0 ||
         request.source !== "bulk_core_sync" || request.level !== "ad" ||
         (fields && !fields.includes("actions")) || !Array.isArray(raw.payload) ||
@@ -228,7 +290,7 @@ export function evaluateHistoricalSourceSlice(input: {
       observation.partitionId === target.partitionId &&
       observation.endpointName === "ad_insights_bulk" &&
       observation.entityScope === "ad" && observation.pageIndex === 0 &&
-      time(observation.observedAt) <= time(pointer?.publishedAt));
+      time(observation.observedAt) <= time(proofPublishedAt));
     scoped.sort((left, right) => time(right.observedAt) - time(left.observedAt));
     const latest = scoped[0] ?? null;
     if (latest) {
@@ -276,8 +338,8 @@ export function evaluateHistoricalSourceSlice(input: {
         ad.businessRefId !== pointer?.businessRefId ||
         ad.providerAccountRefId !== pointer?.providerAccountRefId ||
         !Number.isFinite(time(ad.createdAt)) || !Number.isFinite(time(ad.updatedAt)) ||
-        time(ad.createdAt) > time(pointer?.publishedAt) ||
-        time(ad.updatedAt) > time(pointer?.publishedAt)) {
+        time(ad.createdAt) > time(proofPublishedAt) ||
+        time(ad.updatedAt) > time(proofPublishedAt)) {
       blockers.push("stored_ad_lineage_invalid");
     }
     if (!rawByAd.has(ad.adId) || digest(rawByAd.get(ad.adId)) !== digest(ad.payload)) {
@@ -302,7 +364,7 @@ export function evaluateHistoricalSourceSlice(input: {
     const passed = events.filter((event) =>
       event.eventKind === "validation_passed" && event.result === "passed" &&
       time(event.createdAt) >= time(target.completedAt) &&
-      time(event.createdAt) <= time(pointer?.publishedAt) &&
+      time(event.createdAt) <= time(proofPublishedAt) &&
       numeric(event.sourceSpend) !== null &&
       Math.abs(event.sourceSpend! - (sourceSpend ?? NaN)) <= 0.01 &&
       numeric(event.warehouseAccountSpend) !== null &&
@@ -331,10 +393,11 @@ export function evaluateHistoricalSourceSlice(input: {
       manifestId: target.id, sourceSnapshotId: target.watermark,
       manifestCompletedAt: target.completedAt, sourceRunId: runId,
       partitionId: target.partitionId,
+      rawUpdatedAt: raw?.updatedAt ?? null,
       rowCount: ads.length, aggregatedSpend: spend,
       sourceSpend, receiptKind,
     } : null,
-    evidenceHash: digest({ pointer, ads, manifests, raw, observations, reconciliations }),
+    evidenceHash: digest({ pointer, oldSlice, ads, manifests, raw, observations, reconciliations }),
   };
 }
 
@@ -343,6 +406,7 @@ async function readEvidence(options: Options, lockPointer: boolean): Promise<Rep
   const pointerRows = await sql.query(`
     SELECT pointer.id, pointer.active_slice_version_id AS active_slice_id,
       slice.manifest_id AS active_manifest_id,
+      slice.validation_summary AS active_validation_summary,
       pointer.published_by_run_id, pointer.published_at::text,
       pointer.publication_reason, pointer.created_at::text, pointer.updated_at::text,
       pointer.business_ref_id::text, pointer.provider_account_ref_id::text
@@ -361,6 +425,32 @@ async function readEvidence(options: Options, lockPointer: boolean): Promise<Rep
     createdAt: String(pointerRow.created_at), updatedAt: String(pointerRow.updated_at),
     businessRefId: pointerRow.business_ref_id == null ? null : String(pointerRow.business_ref_id),
     providerAccountRefId: pointerRow.provider_account_ref_id == null ? null : String(pointerRow.provider_account_ref_id),
+    activeValidationSummary: pointerRow.active_validation_summary,
+  } : null;
+  const oldSliceId = asRecord(pointer?.activeValidationSummary).oldSliceId;
+  const oldSliceRows = pointer?.publicationReason === "manifest_rebind_repair" &&
+    typeof oldSliceId === "string" && UUID.test(oldSliceId)
+    ? await sql.query(`
+      SELECT id::text, business_id, provider_account_id, day::text,
+        surface, manifest_id::text, source_run_id,
+        published_at::text, superseded_at::text,
+        status, truth_state, validation_status
+      FROM meta_authoritative_slice_versions
+      WHERE id = $1::uuid AND business_id = $2 AND provider_account_id = $3
+        AND day = $4::date AND surface = 'ad_daily'
+      ${lockPointer ? "FOR SHARE" : ""}
+    `, [oldSliceId, options.businessId, options.accountId, options.day]) : [];
+  const oldSliceRow = oldSliceRows[0] as Record<string, unknown> | undefined;
+  const oldSlice: RepairOldSlice | null = oldSliceRow ? {
+    id: String(oldSliceRow.id), businessId: String(oldSliceRow.business_id),
+    accountId: String(oldSliceRow.provider_account_id), day: String(oldSliceRow.day),
+    surface: String(oldSliceRow.surface),
+    manifestId: oldSliceRow.manifest_id == null ? null : String(oldSliceRow.manifest_id),
+    sourceRunId: oldSliceRow.source_run_id == null ? null : String(oldSliceRow.source_run_id),
+    publishedAt: oldSliceRow.published_at == null ? null : String(oldSliceRow.published_at),
+    supersededAt: oldSliceRow.superseded_at == null ? null : String(oldSliceRow.superseded_at),
+    status: String(oldSliceRow.status), truthState: String(oldSliceRow.truth_state),
+    validationStatus: String(oldSliceRow.validation_status),
   } : null;
   const adResult = await sql.query(`
     SELECT id, ad_id, source_run_id, source_snapshot_id::text, payload_json,
@@ -482,7 +572,7 @@ async function readEvidence(options: Options, lockPointer: boolean): Promise<Rep
       ? null : Number(row.warehouse_account_spend),
     createdAt: String(row.created_at),
   }));
-  return { pointer, ads, manifests, raw, observations, reconciliations };
+  return { pointer, oldSlice, ads, manifests, raw, observations, reconciliations };
 }
 
 export async function runHistoricalSourceSliceRepair(options: Options) {
@@ -533,15 +623,29 @@ export async function runHistoricalSourceSliceRepair(options: Options) {
         !partitions.some((partition) => partition.id === current.next?.partitionId)) {
       throw new Error("source_partition_not_locked");
     }
+    if (!current.old || !current.next.rawUpdatedAt) {
+      throw new Error("old_publication_or_raw_clock_missing");
+    }
+    const validationSummary = {
+      repairContract: CONTRACT, reviewedPlanHash: planHash,
+      receiptKind: current.next.receiptKind,
+      sourceSnapshotId: current.next.sourceSnapshotId,
+      targetManifestId: current.next.manifestId,
+      sourcePartitionId: current.next.partitionId,
+      rawUpdatedAt: current.next.rawUpdatedAt,
+      oldPointerId: current.old.pointerId,
+      oldSliceId: current.old.activeSliceId,
+      oldManifestId: current.old.manifestId,
+      oldPublishedAt: current.old.publishedAt,
+      oldRunId: current.old.runId,
+    };
     const candidate = await createMetaAuthoritativeSliceVersion({
       businessId: options.businessId, providerAccountId: options.accountId,
       day: options.day, surface: "ad_daily", manifestId: current.next.manifestId,
       state: "finalizing", truthState: "finalized", validationStatus: "pending",
       status: "staging", stagedRowCount: current.next.rowCount,
       aggregatedSpend: current.next.aggregatedSpend,
-      validationSummary: { repairContract: CONTRACT, reviewedPlanHash: planHash,
-        sourceSnapshotId: current.next.sourceSnapshotId,
-        receiptKind: current.next.receiptKind },
+      validationSummary,
       sourceRunId: current.next.sourceRunId, stageStartedAt: new Date().toISOString(),
     });
     if (!candidate?.id || candidate.manifestId !== current.next.manifestId ||
@@ -559,7 +663,7 @@ export async function runHistoricalSourceSliceRepair(options: Options) {
       validationStatus: "passed", status: "staging",
       stagedRowCount: current.next.rowCount,
       aggregatedSpend: current.next.aggregatedSpend,
-      validationSummary: { repairContract: CONTRACT, reviewedPlanHash: planHash },
+      validationSummary,
       stageCompletedAt: new Date().toISOString(),
     });
     const pointer = await publishMetaAuthoritativeSliceVersion({

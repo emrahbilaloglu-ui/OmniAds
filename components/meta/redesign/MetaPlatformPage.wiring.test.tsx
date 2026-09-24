@@ -1714,6 +1714,7 @@ describe("Decisions deep-link compatibility matrix", () => {
     const row = dom.querySelector('[data-mobile-row-id="os_pending_ad"]');
     expect(state.exactProps.scope).toBe("creatives");
     expect(row).not.toBeNull();
+    expect(row?.querySelector("[data-mobile-creative-decision-window]")).toBeNull();
     expect(row?.querySelector(".ad-mobile-action-note")).toBeNull();
     expect(row?.textContent).toContain("Read evidence");
   });
@@ -1752,6 +1753,15 @@ describe("Decisions deep-link compatibility matrix", () => {
       decisionId: "mdd_cut",
       sourceSnapshotId: "snapshot_cut",
       decisionAvailability: "available",
+      decisionWindow: {
+        contractVersion: "meta-decision-admitted-window.presentation.v1",
+        startDate: "2026-06-26",
+        endDate: "2026-07-10",
+        calendarDaySpan: 15,
+        observedDayCount: 14,
+        economicDayCount: 14,
+        bridgedUnresolvedDayCount: 0,
+      },
       lane: "act",
       rawLabel: "cut",
       publishedLabel: "cut",
@@ -1787,13 +1797,17 @@ describe("Decisions deep-link compatibility matrix", () => {
       ...(workspacePayload() as Record<string, unknown>),
       os: osPresentation([cut]),
     } as never;
-    state.search = "providerAccountId=act_1&scope=creatives&lane=action";
+    state.search = "providerAccountId=act_1&scope=creatives&lane=action&window=7d&startDate=2026-07-04&endDate=2026-07-10";
 
     const dom = render();
     const card = dom.querySelector('[data-mobile-row-id="os_pending_ad"]');
     expect(card).not.toBeNull();
     expect(card?.textContent).toContain("Reduce spend recommendation — verify configuration");
     expect(card?.textContent).toContain("before deciding on a manual pause");
+    expect(card?.querySelector("[data-mobile-creative-decision-window]")?.textContent)
+      .toContain("Decision period · 2026-06-26–2026-07-10 · 14/15 economic days");
+    expect(card?.querySelector("[data-mobile-creative-decision-window]")?.textContent)
+      .not.toContain("2026-07-04");
     expect(card?.querySelector("[data-mobile-apply]")).toBeNull();
     expect(card?.querySelector("button")?.textContent).toContain("Read evidence");
   });

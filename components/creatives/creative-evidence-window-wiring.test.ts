@@ -80,6 +80,21 @@ function productionModulesMounting(component: string): string[] {
 }
 
 describe("Creative evidence window route wiring", () => {
+  function expectScopedServedCreativeOpen(source: string) {
+    // A served OS row may open without a canonical envelope, but its two
+    // envelopes must remain attached to the exact workspace response and
+    // query scope that supplied them. A future refresh or account/date switch
+    // cannot keep displaying the old decision under new helper evidence.
+    expect(source).toMatch(
+      /onCreativeReview: \(decision, canonicalDecision\) => \{[\s\S]*?if \(!workspaceQuery\.data\) return;\s*setCreativeDrill\(\{\s*decision,\s*canonical: canonicalDecision,\s*workspaceRef: workspaceQuery\.data,\s*scopeKey: creativeDrillScopeKey,\s*\}\);/,
+    );
+    expect(source).toContain(
+      "scopedCreativeDrill.workspaceRef === workspaceQuery.data",
+    );
+    expect(source).toContain("selectedLineageStillServed");
+    expect(source).toContain("!workspaceQuery.error");
+  }
+
   it("mounts the exact evidence window on the design's own trigger", () => {
     // The law is that the page imports THIS window from THIS module, not that
     // the import is written on one line: the page now also imports the window's
@@ -96,9 +111,7 @@ describe("Creative evidence window route wiring", () => {
   });
 
   it("keeps both served decision envelopes instead of discarding the presentation one", () => {
-    expect(PLATFORM_PAGE).toContain(
-      "setCreativeDrill({ decision, canonical: canonicalDecision })",
-    );
+    expectScopedServedCreativeOpen(PLATFORM_PAGE);
     expect(PLATFORM_PAGE).toContain("decision: creativeDrill.decision,");
     expect(PLATFORM_PAGE).toContain("canonical: creativeDrill.canonical,");
   });
@@ -224,9 +237,7 @@ describe("Creative evidence window route wiring", () => {
     expect(code).not.toContain("Canonical creative evidence is unavailable.");
     // The envelope travels as served — null included — and is never rebuilt.
     expect(code).toContain("canonical: MetaCanonicalDecision | null;");
-    expect(PLATFORM_PAGE).toContain(
-      "setCreativeDrill({ decision, canonical: canonicalDecision })",
-    );
+    expectScopedServedCreativeOpen(code);
     // The route verdict still comes from the server's own law, and the write
     // path additionally demands the canonical decision it mints against.
     expect(code).toMatch(

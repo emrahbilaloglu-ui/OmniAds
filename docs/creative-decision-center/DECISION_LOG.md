@@ -10395,11 +10395,18 @@ action-derived funnel stages. Clicks alone supply none of those events.
 That was prudent before the bulk request and complete-source receipt were
 reconciled, but it overheld real zero-action rows. A read-only 2026-08-27 to
 2026-09-23 census found 93 Grandmix and 142 TheSwaf spending ad-days with no
-`actions` key and stored zero purchases. All 235 tie to their exact raw
-snapshot payload, HTTP 200 fetched bulk response, complete fresh account-day
-manifest and same-run published pointer. Snapshot `run_id` was null in this
-older writer, so the proof follows `meta_ad_daily.source_run_id` through the
-manifest and pointer; it does not pretend the snapshot itself carries a run ID.
+`actions` key and stored zero purchases. The initial 235/235 claim was
+**withdrawn** after checking immutable content reuse: a canonical snapshot's
+first `fetched_at` could precede a manifest even when its observation in the
+Ad-day's source run occurred later. The earlier predicate admitted 91/93
+Grandmix and 137/142 TheSwaf rows; only 28 Grandmix and 11 TheSwaf rows have
+an HTTP 200 `meta_raw_snapshot_observations` receipt in that run before the
+**published slice-linked** fresh manifest completed. The other 189 previously
+admitted rows have their same-run observation after the slice's manifest
+completion, though before pointer publication. The final receipt joins the
+pointer's active slice to its exact manifest and binds the raw observation by
+snapshot, account and run. Snapshot `run_id` was null in the older writer;
+the observation receipt, not canonical content identity, supplies run lineage.
 An independent, fully paginated Graph `level=adset`, daily 2026-09-17..23
 read returned 49/49 Grandmix and 595/595 TheSwaf adset-days. Among the 99
 adset-days containing 114 no-actions child rows, adset purchase and link-click
@@ -10415,8 +10422,9 @@ the inference and keeps the row unknown.
 An ad's decision-bearing economic window with unknown purchase evidence can
 show a soft stored-value diagnosis, but it cannot authorize a hard
 purchase-dependent Cut, Scale or Refresh. The native snapshot emits nullable
-purchase/ROAS figures for that case. Verified provider zeros remain zeros, so
-the 235 sampled days are not held solely for an omitted key. Calibration
+purchase/ROAS figures for that case. Verified provider zeros remain zeros for
+the 39 supported sample rows; the other 196 remain unknown pending a valid
+source receipt. Calibration
 excludes an ad's incomplete purchase sample from hard economic benchmark
 populations while retaining non-purchase diagnostics. No raw row is rewritten,
 and no UI or provider write authority is added. The creative-day flattened
@@ -10429,9 +10437,10 @@ legacy grain cannot inherit this ad-day receipt; D109 handles it separately.
 authority. A same-day new generation is required after an exact-SHA release;
 old generations retain their own keys. Unit tests cover missing-key proof,
 explicit null, malformed/duplicate/contradictory counts, alias equality and
-hard-action gating. The real-PostgreSQL read-only seam verified provider zero
-for 93/93 Grandmix and 142/142 TheSwaf sample rows in purchase, link-click and
-LPV readers. Replay and served readback must show positive controls still
+hard-action gating. The corrected read-only production query verified provider
+zero for 28/93 Grandmix and 11/142 TheSwaf sample rows. The real-PostgreSQL
+seam proves a reused run cannot borrow a later manifest when its active slice
+points to an earlier one. Replay and served readback must show positive controls still
 capable of decisions and truly unverified rows held for the named reason.
 
 **Rollback.** Revert receipt admission and downstream metric/authority changes

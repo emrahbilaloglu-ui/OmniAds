@@ -816,12 +816,13 @@ the run the D107 hydration admitted in the read-only Grandmix replay
 
 | case | source and payload | expected |
 |---|---|---|
-| D108-01 | exact ad row, `actions` key absent, complete published bulk request that asked for it, stored purchase/link zero | measured provider zero in purchase, link-click and action-derived funnel; no evidence-only hold |
+| D108-01 | exact ad row, `actions` key absent, same-run raw observation before the active published slice's complete manifest, request asked for it, stored purchase/link zero | measured provider zero in purchase, link-click and action-derived funnel; no evidence-only hold |
 | D108-02 | identical stored zero, but no published source receipt by cutoff | purchase/link/funnel unknown; a decision-bearing economic day holds hard Cut, Scale and purchase-based Refresh, with soft diagnosis retained |
 | D108-03 | `actions: []` on a valid row | measured zero without a provider-zero inference |
 | D108-04 | `actions: null`, duplicate purchase alias or stored zero with raw positive purchase | unknown/contradictory; no hard purchase-dependent action |
 | D108-05 | one Ad has an unverified day and a sibling Ad has complete measured days | hold only the affected Ad; sibling's valid verdict remains available |
 | D108-06 | v6 calibration history and a v7 source row differing only in purchase authority | v6 hash unchanged; v7 source hash changes and produces a new native generation |
+| D108-07 | canonical raw content fetched early but same-run observation after the active slice's manifest; a later manifest reuses the run ID | unknown; the active published slice cannot borrow the later manifest's completion |
 
 ## Current authority vs historical record
 

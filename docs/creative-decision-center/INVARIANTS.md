@@ -1270,8 +1270,9 @@ window.
 ## Provider-zero and unknown action evidence (D108)
 
 An omitted `actions` key is measured zero only when the exact ad-day payload
-belongs to a successful bulk Graph request that asked for actions and its
-account-day/source run completed and published by the evaluation cutoff.
+belongs to a successful bulk Graph request that asked for actions, its
+same-run raw observation precedes the exact published slice's manifest
+completion, and that source chain published by the evaluation cutoff.
 An explicit malformed key, detached payload or incomplete source remains
 unknown. Purchase aliases are never summed. Every decision-bearing unknown
 purchase day blocks a hard purchase-dependent Ad action and leaves only a

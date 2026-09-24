@@ -69,9 +69,14 @@ describe("ad-day purchase evidence", () => {
     expect(receipt).toContain("source.payload_json @> jsonb_build_array(d.payload_json)");
     expect(receipt).toContain("source_row.payload = d.payload_json");
     expect(receipt).toContain("manifest.fetch_status = 'completed'");
+    expect(receipt).toContain("slice.id = pointer.active_slice_version_id");
+    expect(receipt).toContain("manifest.id = slice.manifest_id");
+    expect(receipt).toContain("observation.run_id = manifest.run_id");
+    expect(receipt).toContain("observation.observed_at <= manifest.completed_at");
     expect(receipt).toContain("pointer.published_by_run_id = d.source_run_id");
     expect(receipt).toContain("source.fetched_at <= manifest.completed_at");
-    expect(receipt).toContain("manifest.completed_at <= pointer.published_at");
+    expect(receipt).toContain("manifest.completed_at <= slice.published_at");
+    expect(receipt).toContain("slice.published_at <= pointer.published_at");
     expect(receipt).toContain("source.request_context->>'source' = 'bulk_core_sync'");
     expect(receipt).toContain("'actions' = ANY(string_to_array(source.request_context->>'fields', ','))");
     const purchases = buildAdDayAuthoritativePurchasesSql({

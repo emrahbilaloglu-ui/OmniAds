@@ -3977,13 +3977,22 @@ describe.runIf(postgresAvailable)(
           INSERT INTO meta_raw_snapshots (
             business_id, provider_account_id, endpoint_name, entity_scope,
             status, provider_http_status, start_date, end_date,
-            request_context, payload_json, fetched_at
+            request_context, payload_json, fetched_at, created_at
           ) VALUES ($1, $2, 'ad_insights_bulk', 'ad', 'fetched', 200,
             $3::date, $3::date,
             '{"source":"bulk_core_sync","level":"ad"}'::jsonb,
-            $4::jsonb, '2026-07-12T01:00:00Z') RETURNING id`,
+            $4::jsonb, '2026-07-12T01:00:00Z',
+            '2026-07-12T01:00:00Z') RETURNING id`,
           [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, JSON.stringify([raw])],
         );
+        await pool.query(`INSERT INTO meta_raw_snapshot_observations (
+          snapshot_id, business_id, provider_account_id, endpoint_name,
+          entity_scope, status, provider_http_status, run_id,
+          request_context, observed_at, created_at
+        ) VALUES ($1::uuid,$2,$3,'ad_insights_bulk','ad','fetched',200,
+          'run-provider-zero','{"source":"bulk_core_sync","level":"ad"}'::jsonb,
+          '2026-07-12T01:00:00Z','2026-07-12T01:00:00Z')`,
+        [snapshot.rows[0]!.id, BUSINESS_ID, PROVIDER_ACCOUNT_ID]);
         await pool.query(`
           INSERT INTO meta_ad_daily (
             business_ref_id, business_id, provider_account_ref_id,
@@ -4026,21 +4035,56 @@ describe.runIf(postgresAvailable)(
         expect(await read(cutoff)).toMatchObject({
           verified: false, purchases: null, link_clicks: null, lpv: null,
         });
-        await pool.query(`INSERT INTO meta_authoritative_source_manifests
+        const manifest = await pool.query<{ id: string }>(`INSERT INTO meta_authoritative_source_manifests
           (business_id, provider_account_id, day, surface, run_id, fetch_status,
-           fresh_start_applied, checkpoint_reset_applied, completed_at)
+           fresh_start_applied, checkpoint_reset_applied, completed_at,
+           created_at, updated_at)
           VALUES ($1,$2,$3::date,'account_daily','run-provider-zero',
-            'completed',true,true,'2026-07-12T01:30:00Z')`,
+            'completed',true,true,'2026-07-12T01:30:00Z',
+            '2026-07-12T01:30:00Z','2026-07-12T01:30:00Z') RETURNING id`,
           [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
+        const slice = await pool.query<{ id: string }>(`INSERT INTO meta_authoritative_slice_versions
+          (business_id, provider_account_id, day, surface, manifest_id,
+           source_run_id, state, truth_state, validation_status, status,
+           published_at, created_at, updated_at)
+          VALUES ($1,$2,$3::date,'account_daily',$4::uuid,
+            'run-provider-zero','finalized_verified','finalized','passed',
+            'published','2026-07-12T01:45:00Z',
+            '2026-07-12T01:45:00Z','2026-07-12T01:45:00Z') RETURNING id`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, manifest.rows[0]!.id]);
         await pool.query(`INSERT INTO meta_authoritative_publication_pointers
-          (business_id, provider_account_id, day, surface, published_by_run_id,
-           published_at)
-          VALUES ($1,$2,$3::date,'account_daily','run-provider-zero',
-            '2026-07-12T02:00:00Z')`,
-          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
+          (business_id, provider_account_id, day, surface,
+           active_slice_version_id, published_by_run_id, published_at,
+           created_at, updated_at)
+          VALUES ($1,$2,$3::date,'account_daily',$4::uuid,
+            'run-provider-zero','2026-07-12T02:00:00Z',
+            '2026-07-12T02:00:00Z','2026-07-12T02:00:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, slice.rows[0]!.id]);
         expect(await read("2026-07-12T01:59:59Z")).toMatchObject({
           verified: false, purchases: null, link_clicks: null, lpv: null,
         });
+        expect(await read(cutoff)).toMatchObject({
+          verified: true, purchases: 0, link_clicks: 0, lpv: 0,
+        });
+        // Canonical raw content was first fetched before completion, but its
+        // same-run observation can arrive after the published slice's manifest.
+        await pool.query(`UPDATE meta_raw_snapshot_observations
+          SET observed_at='2026-07-12T01:40:00Z'
+          WHERE snapshot_id=$1::uuid`, [snapshot.rows[0]!.id]);
+        await pool.query(`INSERT INTO meta_authoritative_source_manifests
+          (business_id, provider_account_id, day, surface, run_id, fetch_status,
+           fresh_start_applied, checkpoint_reset_applied, completed_at,
+           created_at, updated_at)
+          VALUES ($1,$2,$3::date,'account_daily','run-provider-zero',
+            'completed',true,true,'2026-07-12T01:50:00Z',
+            '2026-07-12T01:50:00Z','2026-07-12T01:50:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        await pool.query(`UPDATE meta_raw_snapshot_observations
+          SET observed_at='2026-07-12T01:00:00Z'
+          WHERE snapshot_id=$1::uuid`, [snapshot.rows[0]!.id]);
         expect(await read(cutoff)).toMatchObject({
           verified: true, purchases: 0, link_clicks: 0, lpv: 0,
         });
@@ -4062,6 +4106,15 @@ describe.runIf(postgresAvailable)(
         await pool.query(`UPDATE meta_raw_snapshots
           SET request_context='{"source":"bulk_core_sync","level":"ad","fields":"spend,actions"}'::jsonb
           WHERE id=$1::uuid`, [snapshot.rows[0]!.id]);
+        await pool.query(`UPDATE meta_raw_snapshot_observations
+          SET request_context='{"source":"bulk_core_sync","level":"ad","fields":"spend,clicks"}'::jsonb
+          WHERE snapshot_id=$1::uuid`, [snapshot.rows[0]!.id]);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        await pool.query(`UPDATE meta_raw_snapshot_observations
+          SET request_context='{"source":"bulk_core_sync","level":"ad","fields":"spend,actions"}'::jsonb
+          WHERE snapshot_id=$1::uuid`, [snapshot.rows[0]!.id]);
         // JSONB containment alone also matches a provider row with extra
         // actions. The stored row must equal one exact response element.
         await pool.query(`UPDATE meta_raw_snapshots SET payload_json=$2::jsonb
@@ -4637,7 +4690,8 @@ async function createEphemeralSchema(pool: Pool) {
       payload_hash TEXT,
       request_context JSONB,
       payload_json JSONB,
-      fetched_at TIMESTAMPTZ
+      fetched_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ
     );
     CREATE TABLE meta_raw_snapshot_observations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -4650,7 +4704,8 @@ async function createEphemeralSchema(pool: Pool) {
       provider_http_status INTEGER,
       run_id TEXT,
       request_context JSONB,
-      observed_at TIMESTAMPTZ
+      observed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ
     );
 
     CREATE TABLE meta_ad_daily (
@@ -4693,13 +4748,24 @@ async function createEphemeralSchema(pool: Pool) {
       updated_at TIMESTAMPTZ NOT NULL
     );
     CREATE TABLE meta_authoritative_source_manifests (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       business_id TEXT, provider_account_id TEXT, day DATE, surface TEXT,
       run_id TEXT, fetch_status TEXT, fresh_start_applied BOOLEAN,
-      checkpoint_reset_applied BOOLEAN, completed_at TIMESTAMPTZ
+      checkpoint_reset_applied BOOLEAN, completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
+    );
+    CREATE TABLE meta_authoritative_slice_versions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id TEXT, provider_account_id TEXT, day DATE, surface TEXT,
+      manifest_id UUID, source_run_id TEXT, state TEXT, truth_state TEXT,
+      validation_status TEXT, status TEXT, published_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
     );
     CREATE TABLE meta_authoritative_publication_pointers (
       business_id TEXT, provider_account_id TEXT, day DATE, surface TEXT,
-      published_by_run_id TEXT, published_at TIMESTAMPTZ
+      active_slice_version_id UUID, published_by_run_id TEXT,
+      published_at TIMESTAMPTZ, created_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ
     );
     INSERT INTO businesses (id, name) VALUES ('${BUSINESS_ID}', 'Test');
     INSERT INTO provider_accounts (

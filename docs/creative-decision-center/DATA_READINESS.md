@@ -458,7 +458,8 @@ one.
 **Amended by D108:** A complete, published `ad_insights_bulk` request that
 asked for `actions` also proves an omitted key is Meta's provider-zero action
 encoding only when the same-run raw observation preceded the exact published
-slice's manifest completion. Canonical raw content's first fetch time does not
+`ad_daily` slice's run-level manifest completion and the Ad-day fact preceded
+pointer publication. Canonical raw content's first fetch time does not
 prove a later run's observation. The same exact-row/source-run proof applies to purchase, link-click
 and action-derived funnel readers. A detached or failed payload remains
 unknown, and malformed/contradictory values remain unreadable.

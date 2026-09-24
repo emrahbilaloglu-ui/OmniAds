@@ -2132,6 +2132,8 @@ const BUYER_CREATIVE_BLOCKER_COPY: Readonly<Record<string, string>> = {
   source_coverage_unverified:
     "Verified daily source coverage is incomplete.",
   native_metrics_unavailable: "Action-specific evidence is incomplete.",
+  ad_purchase_observation:
+    "Meta purchase observation is incomplete for an economic Ad day.",
   pending_transition: "A recent change still needs confirmation.",
   recent_recovery_unverifiable: "Recent recovery evidence is inconclusive.",
   profile_hard_action_ineligible:
@@ -2163,6 +2165,8 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
     "The cut evidence is complete. Automated execution is held for campaign role - review it and pause this ad yourself if you agree.",
   confirm_commercial_target: "Confirm the commercial target before acting.",
   refresh_decision_data: "Refresh decision data before acting.",
+  verify_purchase_observation:
+    "Verify the original Meta purchase actions for the affected Ad days. Spend and traffic can remain measured while purchase totals are unverified; no Meta change is authorized from the stored zero.",
   await_decision_confirmation:
     "Wait for the required confirmation before acting.",
   await_recent_evidence: "Wait for more recent performance evidence.",
@@ -2194,6 +2198,8 @@ const BUYER_CREATIVE_ACTION_CONTEXT_COPY: Readonly<Record<string, string>> = {
     "This active ad is waiting for an ad-level decision.",
   resolve_contract_state: "This decision is incomplete and needs review.",
   refresh_decision_data: "Refresh the decision data before reviewing this ad.",
+  verify_purchase_observation:
+    "Verify the original Meta purchase actions before trusting this ad's economic recommendation.",
   review_kill_switch: "Automatic changes are paused for review.",
   review_engine_version:
     "Automatic changes are paused while decision checks are updated.",
@@ -2214,6 +2220,7 @@ const BUYER_CREATIVE_SCOPE_COPY: Readonly<Record<string, string>> = {
   await_ad_grain_evidence: "No Meta change can be applied here yet.",
   resolve_contract_state: "No Meta change can be applied here yet.",
   refresh_decision_data: "No Meta change can be applied here yet.",
+  verify_purchase_observation: "No Meta change can be applied here yet.",
   review_kill_switch: "No Meta change can be applied here yet.",
   review_engine_version: "No Meta change can be applied here yet.",
   review_execution_governance: "No Meta change can be applied here yet.",
@@ -2233,6 +2240,7 @@ const BUYER_CREATIVE_ACTION_COPY: Readonly<Record<string, string>> = {
   await_ad_grain_evidence: "Wait for ad-level decision",
   resolve_contract_state: "Review decision",
   refresh_decision_data: "Refresh data",
+  verify_purchase_observation: "Verify purchase data",
   review_kill_switch: "Review automation status",
   review_engine_version: "Review decision",
   review_execution_governance: "Review automation safeguards",
@@ -2332,6 +2340,9 @@ export function buyerFacingCreativeReason(decision: MetaOsAdDecision): string {
   // sentence. The code is translated through the buyer-copy catalog; provider
   // labels and free-form producer prose never become display text.
   if (decision.lane === "blocked") {
+    if (decision.resolution?.code === "verify_purchase_observation") {
+      return "Meta purchase observation is incomplete for this ad's economic window; spend and traffic may still be measured.";
+    }
     const primary = knownBuyerCopy(
       BUYER_CREATIVE_BLOCKER_COPY,
       decision.authorityProvenance?.firstBlocker?.code,

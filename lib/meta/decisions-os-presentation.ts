@@ -110,6 +110,9 @@ function authorityProvenanceForDecision(
   decision: MetaCanonicalDecision,
 ): MetaOsDecisionAuthorityProvenance {
   const blocker = decision.sourceDecision.authorityBlocker;
+  const purchaseObservationHeld =
+    decision.identityGrain === "ad" &&
+    decision.classification.resolution?.code === "verify_purchase_observation";
   return {
     availability:
       decision.sourceDecision.preAuthorityLabel === null
@@ -121,7 +124,13 @@ function authorityProvenanceForDecision(
     firstBlocker: blocker
       ? {
           code: blocker,
-          ...AUTHORITY_BLOCKER_PRESENTATION[blocker],
+          ...(blocker === "native_metrics_unavailable" && purchaseObservationHeld
+            ? {
+                label: "Purchase observation is incomplete",
+                explanation:
+                  "Spend and traffic may be measured, but one or more economic Ad days have no verified Meta purchase-action receipt. Stored purchase zeros do not authorize a provider action.",
+              }
+            : AUTHORITY_BLOCKER_PRESENTATION[blocker]),
         }
       : null,
   };

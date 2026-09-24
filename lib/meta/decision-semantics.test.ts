@@ -2,6 +2,51 @@ import { describe, expect, it } from "vitest";
 import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
 
 describe("projectMetaDecisionSemantics", () => {
+  it("routes a typed purchase-observation gap ahead of generic native-metrics copy", () => {
+    const held = projectMetaDecisionSemantics({
+      legacyBuyerAction: "test_more",
+      sourceLabel: "keep",
+      lifecycleRole: "main",
+      badgeCodes: [],
+      heldAction: "cut",
+      authorityBlocker: "native_metrics_unavailable",
+      predicateBlockers: [{
+        predicate: "ad_purchase_observation", observed: 1, threshold: 0,
+      }],
+    });
+    expect(held).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: "cut",
+      resolution: {
+        code: "verify_purchase_observation",
+        category: "data",
+        owner: "integration",
+        label: "Cut Held — Purchase Observation Incomplete",
+      },
+    });
+    expect(held.resolution?.nextStep).toContain("Spend and traffic can still be measured");
+
+    const historicalBadge = projectMetaDecisionSemantics({
+      legacyBuyerAction: "diagnose_data",
+      sourceLabel: "diagnose",
+      lifecycleRole: "main",
+      badgeCodes: ["purchase_evidence_unverified"],
+    });
+    expect(historicalBadge.resolution?.code).toBe("verify_purchase_observation");
+
+    const unrelated = projectMetaDecisionSemantics({
+      legacyBuyerAction: "test_more",
+      sourceLabel: "keep",
+      lifecycleRole: "main",
+      badgeCodes: [],
+      heldAction: "cut",
+      authorityBlocker: "native_metrics_unavailable",
+      predicateBlockers: [],
+    });
+    expect(unrelated.resolution?.code).toBe("refresh_decision_data");
+  });
+
   it.each([
     ["policy_blocked", "fix_policy", "policy", "operator"],
     ["delivery_no_spend_24h", "fix_delivery", "delivery", "operator"],

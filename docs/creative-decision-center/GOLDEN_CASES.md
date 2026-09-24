@@ -822,7 +822,9 @@ the run the D107 hydration admitted in the read-only Grandmix replay
 | D108-04 | `actions: null`, duplicate purchase alias or stored zero with raw positive purchase | unknown/contradictory; no hard purchase-dependent action |
 | D108-05 | one Ad has an unverified day and a sibling Ad has complete measured days | hold only the affected Ad; sibling's valid verdict remains available |
 | D108-06 | v6 calibration history and a v7 source row differing only in purchase authority | v6 hash unchanged; v7 source hash changes and produces a new native generation |
-| D108-07 | canonical raw content fetched early but same-run observation after the active slice's manifest; a later manifest reuses the run ID | unknown; the active published slice cannot borrow the later manifest's completion |
+| D108-07 | canonical raw content fetched early but same-run observation after the active Ad slice's manifest; a later manifest reuses the run ID | unknown; the active published slice cannot borrow the later manifest's completion |
+| D108-08 | source and observation precede the Ad manifest, but the stored Ad-day fact was updated after its `ad_daily` pointer publication | unknown; a later row cannot borrow an earlier publication |
+| D108-09 | spend and traffic measured, one economic Ad day lacks purchase observation | purchase/ROAS nullable; held hard verdict stays review-only with typed `verify_purchase_observation` resolution and no Meta mutation |
 
 ## Current authority vs historical record
 

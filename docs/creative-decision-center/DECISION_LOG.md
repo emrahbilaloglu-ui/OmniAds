@@ -10379,7 +10379,9 @@ an earlier key.
 means zero action events only when that exact row is in a successful
 `ad_insights_bulk`/`bulk_core_sync` response whose fixed field list requested
 `actions`, and the same account-day/source run has a completed fresh manifest
-and published pointer visible at the evaluation cutoff. This is the
+and published `ad_daily` pointer visible at the evaluation cutoff. Its active
+Ad slice references the exact run-level `account_daily` manifest, and the
+Ad-day fact must have been written before pointer publication. This is the
 `provider_zero` state. An `actions` array without an event remains measured
 zero; a missing key without that source proof, an explicit null/object,
 malformed/duplicate action entry, or contradictory stored purchase count
@@ -10404,7 +10406,7 @@ an HTTP 200 `meta_raw_snapshot_observations` receipt in that run before the
 **published slice-linked** fresh manifest completed. The other 189 previously
 admitted rows have their same-run observation after the slice's manifest
 completion, though before pointer publication. The final receipt joins the
-pointer's active slice to its exact manifest and binds the raw observation by
+`ad_daily` pointer's active slice to its exact manifest and binds the raw observation by
 snapshot, account and run. Snapshot `run_id` was null in the older writer;
 the observation receipt, not canonical content identity, supplies run lineage.
 An independent, fully paginated Graph `level=adset`, daily 2026-09-17..23
@@ -10424,7 +10426,10 @@ show a soft stored-value diagnosis, but it cannot authorize a hard
 purchase-dependent Cut, Scale or Refresh. The native snapshot emits nullable
 purchase/ROAS figures for that case. Verified provider zeros remain zeros for
 the 39 supported sample rows; the other 196 remain unknown pending a valid
-source receipt. Calibration
+source receipt. The served typed resolution is
+`verify_purchase_observation`, not a generic native-metrics outage: spend and
+traffic may be measured while purchase actions remain unverified. It owns no
+provider mutation. Calibration
 excludes an ad's incomplete purchase sample from hard economic benchmark
 populations while retaining non-purchase diagnostics. No raw row is rewritten,
 and no UI or provider write authority is added. The creative-day flattened
@@ -10434,13 +10439,18 @@ legacy grain cannot inherit this ad-day receipt; D109 handles it separately.
 `v3-ad-2026-09-24-provider-zero-receipt-shadow`; the ad evaluation contract is
 `.v17`. Calibration mints `.v7` because `.v6` already has 76 live batches and
 318 cells; its source hash remains byte-compatible, while `.v7` binds purchase
-authority. A same-day new generation is required after an exact-SHA release;
-old generations retain their own keys. Unit tests cover missing-key proof,
+authority. A same-day new generation is required after an exact-SHA release.
+The read-time classification overlay advances to `.v7` for the new typed
+purchase resolution, and the OS presentation advances to `.v7` for its
+purchase-specific first-blocker and buyer copy. `.v5`/`.v6` payload versions
+remain readable; response shapes and execution authority are unchanged.
+Old generations retain their own keys. Unit tests cover missing-key proof,
 explicit null, malformed/duplicate/contradictory counts, alias equality and
 hard-action gating. The corrected read-only production query verified provider
 zero for 28/93 Grandmix and 11/142 TheSwaf sample rows. The real-PostgreSQL
 seam proves a reused run cannot borrow a later manifest when its active slice
-points to an earlier one. Replay and served readback must show positive controls still
+points to an earlier one, or attach an Ad-day fact updated after publication.
+Replay and served readback must show positive controls still
 capable of decisions and truly unverified rows held for the named reason.
 
 **Rollback.** Revert receipt admission and downstream metric/authority changes

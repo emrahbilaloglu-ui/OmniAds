@@ -4848,6 +4848,45 @@ describe("served held-verdict resolutions carry the engine's predicate blockers"
       ...overrides,
     });
 
+  it("serves the purchase-observation repair from persisted native predicate evidence", () => {
+    const model = nativeModel([
+      nativeSnapshot("120000000000000910", {
+        label: "keep",
+        raw_label: "keep",
+        pre_authority_label: "cut",
+        authority_blocker: "native_metrics_unavailable",
+        blocked_action_type: "cut",
+        authorized_action: null,
+        purchases: null,
+        roas: null,
+        badges: [{
+          type: "purchase_evidence_unverified",
+          label: "Purchase observation incomplete",
+          severity: "warning",
+        }],
+        predicate_blockers: [{
+          predicate: "ad_purchase_observation",
+          observed: 1,
+          threshold: 0,
+          status: "missing",
+          severity: "warning",
+          reason: "A decision-bearing Ad day lacks corroborated raw purchase actions.",
+        }],
+      }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+    expect(item?.metrics).toMatchObject({ spend: 120, purchases: null, roas: null });
+    expect(item?.classification).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      heldAction: "cut",
+      resolution: {
+        code: "verify_purchase_observation",
+        owner: "integration",
+      },
+    });
+  });
+
   it("names the thin calibration sample instead of the generic hard-action evidence copy", () => {
     /*
       GC-051 shape from `scaleBenchmarkBlockers` in

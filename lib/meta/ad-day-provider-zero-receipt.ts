@@ -39,12 +39,14 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           ON pointer.business_id = ${d}business_id
           AND pointer.provider_account_id = ${d}provider_account_id
           AND pointer.day = ${d}date
-          AND pointer.surface = 'account_daily'
+          AND pointer.surface = 'ad_daily'
           AND pointer.published_by_run_id = ${d}source_run_id
           AND pointer.published_at <= ${cutoffSql}
           AND pointer.created_at <= ${cutoffSql}
           AND pointer.updated_at <= ${cutoffSql}
           AND pointer.created_at <= pointer.published_at
+          AND ${d}created_at <= pointer.published_at
+          AND ${d}updated_at <= pointer.published_at
         JOIN meta_authoritative_slice_versions slice
           ON slice.id = pointer.active_slice_version_id
           AND slice.business_id = pointer.business_id
@@ -60,12 +62,14 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND slice.created_at <= ${cutoffSql}
           AND slice.updated_at <= ${cutoffSql}
           AND slice.created_at <= slice.published_at
+          AND slice.updated_at <= pointer.published_at
         JOIN meta_authoritative_source_manifests manifest
           ON manifest.id = slice.manifest_id
           AND manifest.business_id = slice.business_id
           AND manifest.provider_account_id = slice.provider_account_id
           AND manifest.day = slice.day
-          AND manifest.surface = slice.surface
+          -- D101 writes one run-level account manifest for all core surfaces.
+          AND manifest.surface = 'account_daily'
           AND manifest.run_id = slice.source_run_id
           AND manifest.fetch_status = 'completed'
           AND manifest.fresh_start_applied
@@ -73,6 +77,7 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND manifest.completed_at <= slice.published_at
           AND manifest.created_at <= ${cutoffSql}
           AND manifest.updated_at <= ${cutoffSql}
+          AND manifest.updated_at <= slice.published_at
           -- The writer records completed_at from the finished fetch and then
           -- inserts this manifest; created_at can follow completed_at.
         JOIN meta_raw_snapshot_observations observation

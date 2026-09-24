@@ -4047,7 +4047,7 @@ describe.runIf(postgresAvailable)(
           (business_id, provider_account_id, day, surface, manifest_id,
            source_run_id, state, truth_state, validation_status, status,
            published_at, created_at, updated_at)
-          VALUES ($1,$2,$3::date,'account_daily',$4::uuid,
+          VALUES ($1,$2,$3::date,'ad_daily',$4::uuid,
             'run-provider-zero','finalized_verified','finalized','passed',
             'published','2026-07-12T01:45:00Z',
             '2026-07-12T01:45:00Z','2026-07-12T01:45:00Z') RETURNING id`,
@@ -4056,7 +4056,7 @@ describe.runIf(postgresAvailable)(
           (business_id, provider_account_id, day, surface,
            active_slice_version_id, published_by_run_id, published_at,
            created_at, updated_at)
-          VALUES ($1,$2,$3::date,'account_daily',$4::uuid,
+          VALUES ($1,$2,$3::date,'ad_daily',$4::uuid,
             'run-provider-zero','2026-07-12T02:00:00Z',
             '2026-07-12T02:00:00Z','2026-07-12T02:00:00Z')`,
           [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, slice.rows[0]!.id]);
@@ -4066,6 +4066,17 @@ describe.runIf(postgresAvailable)(
         expect(await read(cutoff)).toMatchObject({
           verified: true, purchases: 0, link_clicks: 0, lpv: 0,
         });
+        // The Ad-day fact must have been materialized before this Ad slice
+        // was published, not attached to an earlier pointer on a later retry.
+        await pool.query(`UPDATE meta_ad_daily
+          SET updated_at='2026-07-12T02:01:00Z'
+          WHERE ad_id='provider-zero-ad'`);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        await pool.query(`UPDATE meta_ad_daily
+          SET updated_at='2026-07-12T01:10:00Z'
+          WHERE ad_id='provider-zero-ad'`);
         // Canonical raw content was first fetched before completion, but its
         // same-run observation can arrive after the published slice's manifest.
         await pool.query(`UPDATE meta_raw_snapshot_observations

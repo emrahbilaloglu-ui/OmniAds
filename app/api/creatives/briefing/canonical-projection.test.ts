@@ -262,6 +262,23 @@ describe("projectCanonicalNativeAdDecisionToBriefing", () => {
     },
   );
 
+  it("asks for the purchase receipt on a held economic Cut", () => {
+    const projection = projectCanonicalNativeAdDecisionToBriefing({
+      decision: heldCutDecision({
+        badges: ["purchase_evidence_unverified"],
+        authorityBlocker: "native_metrics_unavailable",
+        resolutionCode: "verify_purchase_observation",
+      }),
+    });
+    expect(projection?.card).toMatchObject({
+      blockedActionType: "cut",
+      sourceDecisionActionEligible: false,
+      sourceDecisionAuthorizedAction: null,
+      primary: { kind: "review", label: "Verify purchase evidence" },
+    });
+    expect(isCutPrimaryAction(projection!.card)).toBe(false);
+  });
+
   it.each([
     ["campaign", { campaignStatus: "WITH_ISSUES" }],
     ["ad set", { adsetStatus: "WITH_ISSUES" }],

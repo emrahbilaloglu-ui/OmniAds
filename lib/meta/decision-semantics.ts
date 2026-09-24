@@ -54,6 +54,19 @@ function heldActionNoun(heldAction: "scale" | "cut" | "refresh"): string {
   return "Refresh";
 }
 
+function purchaseObservationResolution(heldAction: "scale" | "cut" | "refresh" | null): MetaDecisionResolution {
+  return {
+    code: "verify_purchase_observation",
+    category: "data",
+    owner: "integration",
+    label: heldAction
+      ? `${heldActionNoun(heldAction)} Held — Purchase Observation Incomplete`
+      : "Verify Purchase Observation",
+    nextStep:
+      "Verify or restore the original Meta purchase actions for the affected Ad days, or wait for a new complete economic window. Spend and traffic can still be measured, but a stored purchase zero without that receipt is unverified; no provider action is authorized from it.",
+  };
+}
+
 /**
  * One engine predicate blocker, narrowed to the fields this projection reads.
  *
@@ -128,15 +141,8 @@ function resolutionForAuthorityBlocker(
   // A purchase gap is independent of an earlier role/config hold. In
   // particular, it must suppress the D097 manual-Cut invitation: a stored
   // zero with no raw actions is not complete economic evidence.
-  if (codes.has("purchase_evidence_unverified")) {
-    return {
-      code: "refresh_decision_data",
-      category: "data",
-      owner: "integration",
-      label: `${held} Held — Purchase Observation Incomplete`,
-      nextStep:
-        "Verify or restore the original Meta purchase actions for the affected Ad days before applying this economic verdict. A stored zero without those actions is unmeasured; no provider action is authorized.",
-    };
+  if (codes.has("ad_purchase_observation") || codes.has("purchase_evidence_unverified")) {
+    return purchaseObservationResolution(heldAction);
   }
   if (authorityBlocker === "profile_hard_action_ineligible") {
     if (
@@ -484,6 +490,9 @@ function resolutionFor(
       nextStep: "Review landing-page continuity and conversion before judging this ad.",
     };
   }
+  if (codes.has("ad_purchase_observation") || codes.has("purchase_evidence_unverified")) {
+    return purchaseObservationResolution(null);
+  }
   // A non-held diagnosis can carry both this badge and an unresolved campaign
   // role. Without a finalized native Ad insights row there is no measured
   // performance to interpret, so the role is not the next evidence gap. Keep
@@ -633,6 +642,11 @@ export function projectMetaDecisionSemantics(input: {
     ...input.badgeCodes,
     ...(input.blockerCodes ?? []),
   ]);
+  if (input.predicateBlockers?.some(
+    (blocker) => blocker.predicate === "ad_purchase_observation",
+  )) {
+    evidenceCodes.add("ad_purchase_observation");
+  }
 
   const heldAction = input.heldAction ?? null;
 

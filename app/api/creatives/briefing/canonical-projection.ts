@@ -188,6 +188,9 @@ function canonicalPrimaryAction(
       return { kind: "review", label: "Refresh decision" };
     }
     if (decision.classification.heldAction === "cut") {
+      if (decision.classification.resolution?.code === "verify_purchase_observation") {
+        return { kind: "review", label: "Verify purchase evidence" };
+      }
       if (decision.classification.resolution?.code === "refresh_decision_data") {
         return { kind: "review", label: "Refresh recent evidence" };
       }

@@ -124,6 +124,18 @@ function legacyRebind(overrides: {
 }
 
 describe("source-backed creative day evidence repair", () => {
+  it("pins the exact sub-millisecond write clock into the reviewed manifest hash", () => {
+    const before = plan({ creative: { ...creative,
+      updatedAt: "2026-09-24T06:41:08.124868Z" } as MetaCreativeDailyRow });
+    const after = plan({ creative: { ...creative,
+      updatedAt: "2026-09-24T06:41:08.124999Z" } as MetaCreativeDailyRow });
+    expect(before.manifest.changes[0]?.oldUpdatedAt)
+      .toBe("2026-09-24T06:41:08.124868Z");
+    expect(after.manifest.changes[0]?.oldUpdatedAt)
+      .toBe("2026-09-24T06:41:08.124999Z");
+    expect(before.manifestHash).not.toBe(after.manifestHash);
+  });
+
   it("recovers omitted Graph actions as measured zero only from exact published source", () => {
     const result = plan();
     expect(result.blockers).toEqual([]);
@@ -235,7 +247,7 @@ describe("source-backed creative day evidence repair", () => {
         publishedAt: legacyProof.oldPublishedAt,
         reviewedPlanHash: legacyProof.reviewedPlanHash },
     });
-    expect(result.manifest.contract).toBe("adsecute.meta-creative-day-source-evidence-repair.v2");
+    expect(result.manifest.contract).toBe("adsecute.meta-creative-day-source-evidence-repair.v3");
   });
 
   it("rejects superseded raw without the exact old pointer, slice and clock proof", () => {

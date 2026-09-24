@@ -1021,6 +1021,53 @@ describe("GET /api/meta/decisions-workspace", () => {
     }
   }, 30_000);
 
+  it("reads decisions afresh when the native job marker query fails", async () => {
+    vi.stubEnv("VITEST", "");
+    vi.stubEnv("NODE_ENV", "production");
+    delete (globalThis as Record<string, unknown>).__omniadsServerCache;
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    stubWorkspaceHttpUpstreams();
+    upstreamRouteMock.accountPulseGet.mockResolvedValue(jsonResponse(metaPulse()));
+    upstreamRouteMock.laneClassificationGet.mockResolvedValue(
+      jsonResponse(metaLanePayload()),
+    );
+    const sql = mockDigestSql();
+    let asOfDate = "2026-07-10";
+    Object.assign(sql, {
+      query: vi.fn(async (statement: string) => {
+        if (statement.includes("SELECT id::text AS job_run_id")) {
+          throw new Error("marker read unavailable");
+        }
+        if (statement.includes("SELECT MAX(as_of_date)::text AS latest_as_of")) {
+          return [{ latest_as_of: asOfDate }];
+        }
+        return [];
+      }),
+    });
+    const url =
+      "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&window=7d&startDate=2026-07-01&endDate=2026-07-07";
+
+    try {
+      expect((await GET(new NextRequest(url))).status).toBe(200);
+      asOfDate = "2026-07-11";
+      expect((await GET(new NextRequest(url))).status).toBe(200);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledTimes(2);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ asOfDate: "2026-07-11" }),
+      );
+    } finally {
+      delete (globalThis as Record<string, unknown>).__omniadsServerCache;
+      vi.unstubAllEnvs();
+    }
+  }, 30_000);
+
   it("rejects provider accounts that are not assigned to the business", async () => {
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       id: "assignment_1",

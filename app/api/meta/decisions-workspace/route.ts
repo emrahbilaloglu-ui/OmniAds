@@ -522,7 +522,7 @@ type NativeDecisionJobMarker = {
  */
 async function readLatestNativeDecisionJobMarker(
   businessId: string,
-): Promise<NativeDecisionJobMarker | null> {
+): Promise<NativeDecisionJobMarker | "read_failed" | null> {
   try {
     const rows = await getDb().query<{
       job_run_id: string;
@@ -560,9 +560,9 @@ async function readLatestNativeDecisionJobMarker(
       cacheIdentity: `${row.job_run_id}:${row.status}:${row.finished_at ?? "unfinished"}`,
     };
   } catch {
-    // The marker is a cache invalidator, never a decision source. The normal
-    // as-of and native generation readers retain their fail-closed behavior.
-    return null;
+    // A failed marker read cannot share the "no native job" cache identity:
+    // the last healthy generation may have changed since that key was filled.
+    return "read_failed";
   }
 }
 
@@ -1593,8 +1593,13 @@ export async function GET(request: NextRequest) {
    * Keep the metric end date as the upstream window below, and resolve the
    * decision as-of independently from persisted decision evidence (D090).
    */
-  const nativeDecisionJobMarker =
+  const nativeDecisionJobMarkerRead =
     await readLatestNativeDecisionJobMarker(businessId);
+  const nativeDecisionMarkerReadFailed =
+    nativeDecisionJobMarkerRead === "read_failed";
+  const nativeDecisionJobMarker = nativeDecisionMarkerReadFailed
+    ? null
+    : nativeDecisionJobMarkerRead;
   const nativeDecisionCacheIdentity =
     nativeDecisionJobMarker?.cacheIdentity ?? "none";
   const loadResolvedDecisionAsOf = () =>
@@ -1604,7 +1609,9 @@ export async function GET(request: NextRequest) {
       explicitEndDate: null,
     });
   const cachedDecisionAsOfDate =
-    process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+    process.env.VITEST === "true" ||
+    process.env.NODE_ENV === "test" ||
+    nativeDecisionMarkerReadFailed
       ? await loadResolvedDecisionAsOf()
       : (
           await getCachedValue({
@@ -1923,7 +1930,9 @@ export async function GET(request: NextRequest) {
         generatedAt: requestGeneratedAt,
       });
     const decisionRead =
-      process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+      process.env.VITEST === "true" ||
+      process.env.NODE_ENV === "test" ||
+      nativeDecisionMarkerReadFailed
         ? await loadDecisionRead()
         : (
             await getCachedValue({

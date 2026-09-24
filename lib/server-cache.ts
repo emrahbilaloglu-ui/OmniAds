@@ -8,6 +8,7 @@ type CacheEntry<T> = {
 type SharedStore = {
   entries: Map<string, CacheEntry<unknown>>;
   inflight: Map<string, Promise<unknown>>;
+  lastExpirySweepAt: number;
 };
 
 function getStore(): SharedStore {
@@ -18,6 +19,7 @@ function getStore(): SharedStore {
     globalStore.__omniadsServerCache = {
       entries: new Map(),
       inflight: new Map(),
+      lastExpirySweepAt: 0,
     };
   }
   return globalStore.__omniadsServerCache;
@@ -40,13 +42,23 @@ function writeEntry<T>(
   staleWhileRevalidateMs = 0,
 ): CacheEntry<T> {
   const now = Date.now();
+  const store = getStore();
+  // Generation-scoped keys are deliberately never reused. Reap expired keys
+  // on writes so a long-lived process does not retain every old decision
+  // payload; once a minute bounds sweep cost for other high-volume caches.
+  if (now - (store.lastExpirySweepAt ?? 0) >= 60_000) {
+    for (const [storedKey, storedEntry] of store.entries) {
+      if (storedEntry.staleUntil <= now) store.entries.delete(storedKey);
+    }
+    store.lastExpirySweepAt = now;
+  }
   const entry: CacheEntry<T> = {
     value,
     expiresAt: now + ttlMs,
     staleUntil: now + ttlMs + staleWhileRevalidateMs,
     updatedAt: now,
   };
-  getStore().entries.set(key, entry as CacheEntry<unknown>);
+  store.entries.set(key, entry as CacheEntry<unknown>);
   return entry;
 }
 

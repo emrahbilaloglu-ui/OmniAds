@@ -2686,6 +2686,7 @@ function heldVerdictCounts(
 }
 
 function creativeRows(input: {
+  businessId: string;
   decisions: readonly MetaOsAdDecision[];
   canonical: ReadonlyMap<string, MetaCanonicalDecision>;
   sourceDegraded: boolean;
@@ -2815,6 +2816,15 @@ function creativeRows(input: {
       name: nonBlank(decision.adName) ?? EM_DASH,
       kindShort: creativeKindShort(decision.creativeFormat),
       thumbnailUrl: normalizeMediaUrl(decision.thumbnailUrl),
+      thumbnailRecoveryUrl:
+        /^\d+$/.test(decision.creativeId ?? "") &&
+        /^act_\d+$/.test(decision.providerAccountId)
+          ? `/api/meta/creative-thumbnail?${new URLSearchParams({
+              businessId: input.businessId,
+              providerAccountId: decision.providerAccountId,
+              creativeId: decision.creativeId!,
+            })}`
+          : null,
       // The reference's thumb is a neutral striped placeholder. Colouring it by
       // verdict would let the strip read as a second opinion beside the label
       // that already carries the tone, so it keeps the design's default pair.
@@ -5105,6 +5115,7 @@ export function buildMetaDecisionCenterExactViewModel(
   const selectedRecommendationId =
     selection?.kind === "structure" ? selection.recommendationId : null;
   const creativeDecisionRows = creativeRows({
+    businessId: workspace.businessId,
     decisions: creativeDecisions,
     canonical,
     sourceDegraded:

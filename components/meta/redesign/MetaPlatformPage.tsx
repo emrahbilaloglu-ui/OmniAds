@@ -68,6 +68,7 @@ import {
   type MetaDecisionCenterExactRowWorkflowChip,
   type MetaDecisionCenterExactWorkflow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
+import { MetaDecisionCreativeThumbnail } from "@/components/meta/decision-center/MetaDecisionCreativeThumbnail";
 import {
   buildMetaDecisionCenterExactViewModel,
   type MetaDecisionCenterExactArchiveItem,
@@ -1533,6 +1534,7 @@ interface MetaMobileQueueRowModel {
   meta?: MetaDecisionCenterExactDisplayValue;
   /** Server-provided creative preview; absent for structure rows. */
   thumbnailUrl?: string | null;
+  thumbnailRecoveryUrl?: string | null;
   /**
    * The SERVED state, and the served blockers behind it.
    *
@@ -1607,6 +1609,7 @@ function mobileQueueRowsForLane(
       name: row.name,
       meta: row.kindShort,
       thumbnailUrl: row.thumbnailUrl,
+      thumbnailRecoveryUrl: row.thumbnailRecoveryUrl,
       decisionLabel: row.decisionLabel,
       decisionTone: row.decisionTone,
       stateLabel: row.stateLabel,
@@ -1895,6 +1898,7 @@ function MetaMobileQueueRow({
   name,
   meta,
   thumbnailUrl,
+  thumbnailRecoveryUrl,
   decisionLabel,
   decisionTone,
   stateLabel,
@@ -1913,6 +1917,7 @@ function MetaMobileQueueRow({
   name: MetaDecisionCenterExactDisplayValue;
   meta?: MetaDecisionCenterExactDisplayValue;
   thumbnailUrl?: string | null;
+  thumbnailRecoveryUrl?: string | null;
   decisionLabel?: MetaDecisionCenterExactDisplayValue;
   decisionTone?: MetaDecisionCenterExactTone;
   stateLabel?: MetaDecisionCenterExactDisplayValue;
@@ -1948,18 +1953,12 @@ function MetaMobileQueueRow({
   return (
     <article className="ad-mobile-row-card" data-mobile-row-id={id}>
       <div>
-        {thumbnailUrl ? (
-          <img
-            alt=""
-            className="ad-mobile-creative-thumb"
-            data-mobile-creative-thumbnail
-            loading="lazy"
-            src={thumbnailUrl}
-            onError={(event) => {
-              event.currentTarget.style.display = "none";
-            }}
-          />
-        ) : null}
+        <MetaDecisionCreativeThumbnail
+          className="ad-mobile-creative-thumb"
+          thumbnailUrl={thumbnailUrl}
+          recoveryUrl={thumbnailRecoveryUrl}
+          mobile
+        />
         <h3>{mobileDisplay(name)}</h3>
         {meta ? <p data-tone="caution">{mobileDisplay(meta)}</p> : null}
         {/* The served state, before the decision label. A row the engine

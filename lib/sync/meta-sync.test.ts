@@ -569,6 +569,16 @@ describe("meta creatives sync gating", () => {
     expect(resolveMetaCreativePartitionAction({
       ...base, day: "2026-09-21",
       membershipState: membershipProvenConfigWaiting,
+    })).toBe("certify_config");
+    // Historical v2 membership can retry receipts, but old legacy membership
+    // cannot trigger an unbounded current-provider writer.
+    expect(resolveMetaCreativePartitionAction({
+      ...base, day: "2026-09-21", membershipState: mixedDay,
+    })).toBe("certify_config");
+    expect(resolveMetaCreativePartitionAction({
+      ...base, day: "2026-09-21", membershipState: {
+        ...membershipProvenConfigWaiting, configPendingRows: 0,
+      },
     })).toBe("skip");
   });
 

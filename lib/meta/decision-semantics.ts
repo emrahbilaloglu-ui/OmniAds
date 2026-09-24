@@ -152,7 +152,7 @@ function resolutionForAuthorityBlocker(
     */
     if (heldAction === "scale" && hasThinScaleSampleEvidence(predicateBlockers)) {
       return {
-        code: "complete_hard_action_evidence",
+        code: "await_scale_calibration_sample",
         category: "system",
         owner: "system",
         label: "Scale Held — Calibration Sample Thin",
@@ -202,7 +202,7 @@ function resolutionForAuthorityBlocker(
     */
     if (heldAction === "scale" && hasMissingScaleWinnerBenchmark(predicateBlockers)) {
       return {
-        code: "complete_hard_action_evidence",
+        code: "await_scale_winner_benchmark",
         category: "system",
         owner: "system",
         label: "Scale Held — Winner Benchmark Missing",

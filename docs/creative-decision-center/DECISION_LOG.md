@@ -10022,3 +10022,121 @@ provider reach can produce that frequency.
 
 **Rollback.** Restore the prior producer/evaluation versions together and keep
 both epochs' rows. Do not reinterpret old rows as source-verified.
+
+## D104 — Typed held Scale reasons and served Ad metric observation state (2026-09-24)
+
+**Problem.** GC-051 (thin account calibration sample) and GC-052 (missing
+winner purchase benchmark) both served `complete_hard_action_evidence`. The UI
+distinguished them by `resolution.label`, which is display copy, not a typed
+cause. Separately, the OS Ad decision forwarded numeric metrics but dropped
+the canonical `ad_metrics_unavailable` evidence. If the canonical envelope
+was absent on a served-only row, older fail-closed zero sentinels looked like
+measured spend, purchases and ROAS.
+
+**Decision.** The semantic projection now emits distinct resolution codes
+`await_scale_calibration_sample` and `await_scale_winner_benchmark` from the
+respective numeric predicate evidence. The UI maps only those codes, together
+with the persisted first blocker, to specific buyer steps. Historical
+`complete_hard_action_evidence` remains readable with generic copy, whatever
+its label says. The OS producer also carries `adPerformanceAvailability` from
+the canonical source badge as `observed` or `unavailable`. Row, inspector and
+evidence-window adapters use that same state. A legacy served-only payload
+without it is `unknown` and cannot present zeros as measured; an explicit
+`observed` zero remains zero. Separately loaded Ad-grain helper metrics keep
+their own provenance and are not suppressed by decision metric absence.
+
+**Versions and boundary.** Classification overlay advances to
+`meta-decisions-classification-overlay.v6` and OS presentation to
+`meta-os-decisions.presentation.v6`; `.v5` payloads remain readable, with the
+new served field optional for compatibility. The workspace envelope remains
+`.read.v4`. No engine, native evaluation, calibration, decision math, hard
+action threshold, stored native snapshot, or provider-write authority changes.
+Rollback restores both presentation/overlay versions and their readers
+together; persisted snapshots and prior payloads are not rewritten.
+
+## D105 — Separate creative report day from evidence knowledge time (2026-09-24)
+
+**Failure.** The legacy creative-day admission used the UTC midnight after a
+date-only `asOf` as its evidence cutoff. D101 simultaneously requires the Ad-day
+manifest to finish after the provider-local day closes. For Grandmix
+(`America/Anchorage`) and TheSwaf (`America/Chicago`), the local closing instant
+is later than that UTC midnight; a valid latest-day manifest can never satisfy
+both predicates. On 2026-09-22, Grandmix's manifest finished at 08:04Z after
+its 08:00Z close, and TheSwaf's finished at 05:00:38Z after its 05:00Z close;
+both were excluded by the 00:00Z legacy bound. The 03:00Z producer also chose
+the current UTC date, which is not a closed local reporting day for either
+account, then treated a successful held generation as complete for that date.
+
+**Decision.** `asOf` names the provider-local reporting day and window only.
+An explicit `evaluationCutoffAt` names the instant at which source knowledge is
+evaluated. Legacy creative membership, D098 config proof, D101 Ad facts,
+manifest, slice and pointer, and mutable row clocks all use that same bound,
+which must be a valid UTC instant no later than query time. A missing or future
+bound fails closed. The producer captures one instant at run start and passes it
+to calibration, lifecycle and decisions; their persisted `computed_at` and job
+metadata retain it. A historical invocation must supply its own explicit
+knowledge instant. An `asOf` date by itself cannot claim historical authority.
+Runtime creative rows and existing materialisations newer than the bound are
+not borrowed into a replay; later repairs remain visible as a distinct
+knowledge-after-cutoff diagnosis.
+
+The daily producer finds each selected physical account's latest published,
+finalized, passed and source-run-matched Ad-day receipt whose manifest completed
+after that account's local day closed and whose entire publication chain is
+known by the captured instant. The business report day is the earliest of
+those latest account days, so all selected accounts are closed; missing timezone
+or receipt holds that business. A delayed publication advances the chosen day
+on a later scheduler tick. For a previously generated day, a newly certified
+D098 creative proof or a revised D101 pointer triggers one new chain run after
+the prior successful decision job's persisted knowledge cutoff; a proof that
+arrives while that job is running is therefore still retried. An earlier
+calibration or lifecycle success from a different cutoff cannot satisfy a
+failed step in the retry. Unchanged proof identity and source pointers
+do not. The complete 90-day source and config checks still gate the resulting
+decisions, including measured zero days and the D103 account-wide unknown-Ad
+identity bound. A publication receipt does not itself grant a hard action.
+
+**Replay limit and versioning.** A captured instant prevents future rows from
+granting a decision, but mutable creative rows and current-only D101 pointers
+cannot reconstruct an overwritten historical state. A post-repair replay at an
+old cutoff therefore remains held where the earlier revision was not retained;
+the system must not invent it. Decision joins, profile reads, role context,
+freshness and hysteresis memory are bounded to the same knowledge instant.
+The served current commercial-anchor profile captures its request instant
+explicitly. `ENGINE_VERSION` advances to
+`v3-2026-09-24-creative-knowledge-bound` so older lifecycle, calibration and
+decision snapshots remain readable under their own epoch and never become
+current authority. Current-only `WarehouseDataSource` callers capture their
+construction time; the historical creative jobs require and pass an explicit
+cutoff, while unrelated commercial target history keeps its requested as-of
+instant. Rollback restores the prior producer and engine version
+together; no source records or older snapshots are deleted.
+
+The creative-grain serving reader prefers this epoch as soon as any scoped
+snapshot from it exists for the account. Until then, older snapshots remain
+readable for migration compatibility. Without that preference, the previous
+producer's UTC-today snapshot can have a later report date than the corrected
+provider-local closed-day snapshot and continue to occupy the UI after deploy.
+
+## D106 — Creative delivery status uses cutoff-safe entity history (2026-09-24)
+
+**Failure and decision.** A v2 creative-day metric row does not prove the
+current delivery status of every source Ad. Reading its nullable
+`effective_status` directly makes qualified creatives terminal
+`delivery_status_unknown`; copying a current detail field into a historical
+day would create hindsight. The creative input and lifecycle readers now
+resolve status from the row's verified `source_ad_ids` and the latest Ad,
+adset and campaign state or explicit tombstone known by the D105 evaluation
+instant. Ad identity and both parents must match the creative-day parent.
+`absent_unconfirmed`, a tombstone, missing hierarchy state, or an unrecognized
+status cannot imply ACTIVE. A mix of proved ACTIVE and PAUSED source Ads may
+remain ACTIVE while every source Ad is known; incompatible mixtures remain
+unknown. This is current-at-decision delivery evidence, distinct from the
+provider-local historical reporting day's metrics and config proof.
+
+**Version and rollback.** D106 is part of the still-unshipped D105
+`v3-2026-09-24-creative-knowledge-bound` epoch. Earlier snapshots retain
+their stored status semantics and are not rewritten. Rollback restores the
+previous reader and producer together; no observation history or source metric
+is changed by this read-path amendment. If released after D105 independently,
+the engine epoch must advance before minting decisions under these semantics.

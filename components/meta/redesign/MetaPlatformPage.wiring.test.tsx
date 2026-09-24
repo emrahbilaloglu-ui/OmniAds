@@ -560,6 +560,17 @@ function workspacePayload(
   };
 }
 
+function workspacePayloadForAccount(providerAccountId: string) {
+  const payload = workspacePayload();
+  return {
+    ...payload,
+    decisionReadModel: {
+      ...payload.decisionReadModel,
+      scope: { ...payload.decisionReadModel.scope, providerAccountId },
+    },
+  };
+}
+
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
@@ -644,7 +655,8 @@ describe("Decisions account scope ownership", () => {
     );
     expect(desktop).not.toBeNull();
     expect(mobile).not.toBeNull();
-    expect(state.exactProps.levels).toEqual(["campaign"]);
+    // No account is selected yet, so a cached workspace must not mount.
+    expect(state.exactProps).toBeNull();
     expect(
       mobile
         ?.closest("[data-mobile-read-state]")
@@ -672,7 +684,7 @@ describe("Decisions account scope ownership", () => {
     expect(query.has("creativeId")).toBe(false);
     expect(query.has("handoff")).toBe(false);
     expect(query.has("levels")).toBe(false);
-    expect(state.exactProps.levels).toEqual([]);
+    expect(state.exactProps).toBeNull();
     expect(
       state.queryKeys.some(
         (key) => key[0] === "meta-decisions-workspace" && key[2] === "act_2",
@@ -1201,7 +1213,8 @@ describe("Decisions deep links", () => {
     state.search = "providerAccountId=act_2&scope=creatives";
 
     render();
-    expect(state.exactProps.lane).toBe("action");
+    // The old account's placeholder response is hidden until account 2 arrives.
+    expect(state.exactProps).toBeNull();
 
     state.workspaceData = {
       ...previousAccount,
@@ -1508,6 +1521,29 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(nextUrl.searchParams.get("segment")).toBe("needs_resolution");
   });
 
+  it("does not call an empty search exhaustive while more creative decisions are eligible", () => {
+    const presentation = osPresentation([pendingOsDecision()]);
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: {
+        ...presentation,
+        ads: {
+          ...presentation.ads,
+          eligiblePreCapCount: 2,
+        },
+      },
+    } as never;
+    state.search = "providerAccountId=act_1&scope=creatives&q=not-loaded";
+    const dom = render();
+
+    expect(state.exactProps.canLoadMoreCreatives).toBe(true);
+    const mobile = dom.querySelector('[data-testid="meta-mobile-decisions"]');
+    expect(mobile?.textContent).toContain("No match among loaded creative decisions");
+    expect(mobile?.textContent).toContain("Show more decisions to check");
+    expect(mobile?.textContent).toContain("Show more decisions · up to 120");
+    expect(mobile?.textContent).not.toContain("No decisions match these filters");
+  });
+
   it("keeps a blocked mobile creative's read control without advertising an action", () => {
     state.workspaceData = {
       ...(workspacePayload() as Record<string, unknown>),
@@ -1626,14 +1662,13 @@ describe("Decisions deep-link compatibility matrix", () => {
     );
     expect(evidence, "the evidence screen must open").not.toBeNull();
     const text = evidence?.textContent ?? "";
-    // The pending recommendation, its next step, and the currently safe
-    // published outcome — all three on screen together.
+    // The pending recommendation and its next step remain visible. This
+    // served-only row has no ad-performance observation status, so the
+    // numeric fixture cannot be treated as measured decision evidence.
     expect(text).toContain("Recommendation awaiting review: Refresh creative");
     expect(text).toContain("review this Refresh creative recommendation again");
-    expect(text).toContain("Decision · 28d");
-    expect(text).toContain(
-      "Click-to-purchase funnel · decision 28d · purchases only",
-    );
+    expect(text).toContain("Ad performance observation status was not served");
+    expect(text).not.toContain("Decision · 28d");
     expect(
       dom.querySelector("[data-mobile-evidence-held-next-step]"),
     ).not.toBeNull();
@@ -1734,7 +1769,7 @@ describe("Decisions provider-account metadata degradation", () => {
 
   it("keeps a loaded workspace readable and shows only a narrow metadata warning", () => {
     state.queryOverrides = { ...accountsDown };
-    state.workspaceData = workspacePayload();
+    state.workspaceData = workspacePayloadForAccount("act_server");
 
     const dom = render({ serverProviderAccountId: "act_server" });
 
@@ -1756,7 +1791,7 @@ describe("Decisions provider-account metadata degradation", () => {
   // failing.
   it("still issues the workspace read against the server-resolved account", () => {
     state.queryOverrides = { ...accountsDown };
-    state.workspaceData = workspacePayload();
+    state.workspaceData = workspacePayloadForAccount("act_server");
 
     render({ serverProviderAccountId: "act_server" });
 
@@ -1770,7 +1805,7 @@ describe("Decisions provider-account metadata degradation", () => {
   // fall back to an invented name and the currency must not fall back to USD.
   it("leaves the account label unnamed rather than inventing one", () => {
     state.queryOverrides = { ...accountsDown };
-    state.workspaceData = workspacePayload();
+    state.workspaceData = workspacePayloadForAccount("act_server");
 
     render({ serverProviderAccountId: "act_server" });
 

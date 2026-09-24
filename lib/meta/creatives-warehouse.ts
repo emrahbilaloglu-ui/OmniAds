@@ -1668,12 +1668,15 @@ async function syncMetaCreativesAccountDay(input: {
     day: input.day,
     knowledgeCutoffAt: new Date().toISOString(),
   }).catch((error: unknown) => {
-    console.warn("[meta-creatives] creative-day config proof deferred", {
+    console.warn("[meta-creatives] creative-day config proof failed", {
       businessId: input.businessId,
       accountId: input.accountId,
       day: input.day,
       reason: error instanceof Error ? error.message : String(error),
     });
+    // A failed receipt read is not an ordinary missing receipt. Let the
+    // partition retry instead of completing with a permanently unverified day.
+    throw error;
   });
 }
 

@@ -82,9 +82,9 @@ export class AcceptanceUsageError extends Error {
 export interface AcceptanceChainDay {
   asOf: string;
   /**
-   * `asOf T23:59:59.999Z`. The receipt-reconstructable cutoff: see
-   * ACCEPTANCE_CLAIMS.decisionLane.cutoffChoice for why the production 03/15Z
-   * slots cannot be used for the hydration receipt.
+   * Independent knowledge instant. The report day stays `asOf`; a replay may
+   * evaluate that day after later source certification without backdating the
+   * certification itself.
    */
   cutoff: string;
 }
@@ -107,11 +107,11 @@ export interface AcceptanceArgs {
   outPath: string | null;
   write: boolean;
   skipDecisions: boolean;
-  /** `--diagnostic` given explicitly. */
+  /** `--diagnostic` given explicitly; replay can also force diagnostic mode. */
   diagnostic: boolean;
   /**
    * `release` is the only mode that can PASS. `--skip-decisions` or
-   * `--diagnostic` make the run a diagnostic: it reports, it can surface
+   * `--diagnostic` or `--knowledge-cutoffs` make the run a diagnostic: it reports, it can surface
    * violations, and it can never produce release success.
    */
   mode: AcceptanceMode;
@@ -149,6 +149,7 @@ const VALUE_FLAGS = new Set([
   "--negative-control-campaign",
   "--cutoff-slot",
   "--cutoffs",
+  "--knowledge-cutoffs",
   "--window",
   "--chain",
   "--ad-limits",
@@ -165,8 +166,10 @@ const BOOLEAN_FLAGS = new Set(["--skip-decisions", "--diagnostic", "--require-cl
  *               run slots. The receipt may not be reconstructable there (last_seen_at
  *               is heartbeat-advanced in place); that is reported, never repaired.
  * explicit      --cutoffs <iso,...>: one per consecutive UTC day, ending on the window end.
+ * replay        --knowledge-cutoffs <iso,...>: one per chain report day; each
+ *               knowledge instant may be later than its report day.
  */
-export type CutoffMode = "end-of-day" | "natural-0305" | "natural-1505" | "explicit";
+export type CutoffMode = "end-of-day" | "natural-0305" | "natural-1505" | "explicit" | "replay";
 export const CUTOFF_SLOTS = ["end-of-day", "natural-0305", "natural-1505"] as const;
 export type CutoffSlot = (typeof CUTOFF_SLOTS)[number];
 const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
@@ -192,7 +195,30 @@ export function deriveChain(input: {
   chainDays: number;
   slot: CutoffSlot;
   explicitCutoffs: readonly string[] | null;
+  knowledgeCutoffs?: readonly string[] | null;
 }): AcceptanceChainDay[] {
+  if (input.knowledgeCutoffs !== null && input.knowledgeCutoffs !== undefined) {
+    const first = addUtcDays(input.window.end, -(input.chainDays - 1));
+    if (first < input.window.start) {
+      throw new AcceptanceUsageError(`--chain ${input.chainDays} starts on ${first}, before the window start ${input.window.start}.`);
+    }
+    const reportDays = enumerateUtcDays(first, input.window.end);
+    if (input.knowledgeCutoffs.length !== reportDays.length) {
+      throw new AcceptanceUsageError("--knowledge-cutoffs must name one instant per chain report day.");
+    }
+    return reportDays.map((asOf, index) => {
+      const raw = input.knowledgeCutoffs![index]!;
+      if (!ISO_INSTANT_PATTERN.test(raw) || !Number.isFinite(new Date(raw).getTime())) {
+        throw new AcceptanceUsageError(`--knowledge-cutoffs entry "${raw}" is not an ISO UTC instant.`);
+      }
+      const cutoff = new Date(raw).toISOString();
+      if (cutoff < `${asOf}T00:00:00.000Z` ||
+          (index > 0 && cutoff <= new Date(input.knowledgeCutoffs![index - 1]!).toISOString())) {
+        throw new AcceptanceUsageError("--knowledge-cutoffs must be at or after their report days and strictly ascending.");
+      }
+      return { asOf, cutoff };
+    });
+  }
   if (input.explicitCutoffs === null) {
     const first = addUtcDays(input.window.end, -(input.chainDays - 1));
     if (first < input.window.start) {
@@ -220,6 +246,21 @@ export function deriveChain(input: {
     throw new AcceptanceUsageError(`--cutoffs start on ${chain[0]!.asOf}, before the window start ${input.window.start}.`);
   }
   return chain;
+}
+
+/**
+ * Native Ad calibration is keyed to the UTC date of its computation cutoff.
+ * Its source cells and decision inputs must therefore stay on the report-day
+ * boundary in a later-knowledge replay. The later instant remains available
+ * to the independent D101/config/creative source diagnostics, never to this
+ * native decision lane or its hard-authority claims.
+ */
+export function nativeAdDecisionDay(
+  day: AcceptanceChainDay,
+  mode: CutoffMode,
+): AcceptanceChainDay {
+  if (mode !== "replay" || day.cutoff.slice(0, 10) === day.asOf) return day;
+  return { asOf: day.asOf, cutoff: endOfUtcDayCutoff(day.asOf) };
 }
 const META_ENTITY_ID_PATTERN = /^\d{6,25}$/;
 
@@ -389,8 +430,9 @@ export function parseAcceptanceArgs(
 
   const slotRaw = values.get("--cutoff-slot")?.trim();
   const cutoffsRaw = values.get("--cutoffs");
-  if (slotRaw !== undefined && cutoffsRaw !== undefined) {
-    throw new AcceptanceUsageError("--cutoff-slot and --cutoffs are alternatives; give one.");
+  const knowledgeCutoffsRaw = values.get("--knowledge-cutoffs");
+  if ([slotRaw, cutoffsRaw, knowledgeCutoffsRaw].filter((value) => value !== undefined).length > 1) {
+    throw new AcceptanceUsageError("--cutoff-slot, --cutoffs, and --knowledge-cutoffs are alternatives; give one.");
   }
   if (slotRaw !== undefined && !(CUTOFF_SLOTS as readonly string[]).includes(slotRaw)) {
     throw new AcceptanceUsageError(`--cutoff-slot accepts only ${CUTOFF_SLOTS.join(", ")}.`);
@@ -402,10 +444,15 @@ export function parseAcceptanceArgs(
   if (explicitCutoffs !== null && explicitCutoffs.length === 0) {
     throw new AcceptanceUsageError("--cutoffs must name at least one cutoff.");
   }
+  const knowledgeCutoffs = knowledgeCutoffsRaw === undefined ? null
+    : knowledgeCutoffsRaw.split(",").map((value) => value.trim()).filter((value) => value !== "");
+  if (knowledgeCutoffs !== null && knowledgeCutoffs.length === 0) {
+    throw new AcceptanceUsageError("--knowledge-cutoffs must name at least one cutoff.");
+  }
   const chainRaw = values.get("--chain");
   const chainDays =
     chainRaw === undefined
-      ? explicitCutoffs?.length ?? DEFAULT_CHAIN_DAYS
+      ? explicitCutoffs?.length ?? knowledgeCutoffs?.length ?? DEFAULT_CHAIN_DAYS
       : parseStrictInteger(chainRaw, "--chain");
   if (chainDays < 1 || chainDays > MAX_CHAIN_DAYS) {
     throw new AcceptanceUsageError(`--chain must be between 1 and ${MAX_CHAIN_DAYS}.`);
@@ -416,9 +463,12 @@ export function parseAcceptanceArgs(
   if (explicitCutoffs !== null && explicitCutoffs.length !== chainDays) {
     throw new AcceptanceUsageError(`--cutoffs names ${explicitCutoffs.length} cutoffs but --chain is ${chainDays}.`);
   }
+  if (knowledgeCutoffs !== null && knowledgeCutoffs.length !== chainDays) {
+    throw new AcceptanceUsageError(`--knowledge-cutoffs names ${knowledgeCutoffs.length} cutoffs but --chain is ${chainDays}.`);
+  }
   const slot: CutoffSlot = (slotRaw as CutoffSlot | undefined) ?? "end-of-day";
-  const cutoffMode: CutoffMode = explicitCutoffs !== null ? "explicit" : slot;
-  const chain = deriveChain({ window, chainDays, slot, explicitCutoffs });
+  const cutoffMode: CutoffMode = knowledgeCutoffs !== null ? "replay" : explicitCutoffs !== null ? "explicit" : slot;
+  const chain = deriveChain({ window, chainDays, slot, explicitCutoffs, knowledgeCutoffs });
   const nowIso = now.toISOString();
   for (const day of chain) {
     if (!(day.cutoff < nowIso)) {
@@ -499,7 +549,8 @@ export function parseAcceptanceArgs(
     skipDecisions: booleans.has("--skip-decisions"),
     diagnostic: booleans.has("--diagnostic"),
     mode:
-      booleans.has("--skip-decisions") || booleans.has("--diagnostic") ? "diagnostic" : "release",
+      booleans.has("--skip-decisions") || booleans.has("--diagnostic") || cutoffMode === "replay"
+        ? "diagnostic" : "release",
   };
 }
 
@@ -2600,14 +2651,14 @@ export const ACCEPTANCE_CLAIMS = {
   provenance:
     "The report records git HEAD, `git status --porcelain` and the sha256 of every loaded repo module that differs from HEAD (read-only git: rev-parse, --no-optional-locks status). A pass with any dirty loaded module, including acceptance scripts, certifies that working tree, never HEAD; --require-clean makes it NOT MET. The production-module count is diagnostic only.",
   hardAuthority:
-    "PRESENCE (both gates) and HARD AUTHORITY are separate results. hardAuthorityOutcome is `demonstrated` only when a row on a successful simulated day passes the full production authorization rule (published == raw == authorized hard action, not hysteresis-suppressed, eligible for that action, receipt gate passed, config observed and fully verified, coverage complete, both blockers null); otherwise `not_demonstrated` with raw / pre-authority / held counts and a blocker breakdown (objective_config, d101_coverage, role_campaign_context, hysteresis, profile_calibration_eligibility, receipt, other). A presence PASS never means a source-authorized Cut/Scale/Refresh. Only --require-hard-authority lets not_demonstrated change the exit code (NOT MET, exit 3).",
+    "PRESENCE (both gates) and HARD AUTHORITY are separate results. hardAuthorityOutcome is `demonstrated` only when a row on a successful simulated native decision day passes the full production authorization rule (published == raw == authorized hard action, not hysteresis-suppressed, eligible for that action, receipt gate passed, config observed and fully verified, coverage complete, both blockers null); otherwise `not_demonstrated` with raw / pre-authority / held counts and a blocker breakdown (objective_config, d101_coverage, role_campaign_context, hysteresis, profile_calibration_eligibility, receipt, other). In --knowledge-cutoffs replay this outcome refers ONLY to the native report-day cutoff shown in decisions.days, never to the later knowledge instant in args.chain; replay is diagnostic and cannot grant release or later-knowledge hard authority. A presence PASS never means a source-authorized Cut/Scale/Refresh. Only --require-hard-authority lets not_demonstrated change a release-mode exit code (NOT MET, exit 3).",
   cutoffs:
-    "--cutoff-slot end-of-day (default, D T23:59:59.999Z) | natural-0305 (D T03:05Z) | natural-1505 (D T15:05Z), or --cutoffs <iso,...> (ascending, one per consecutive UTC day, the last on the window end). Every cutoff must be in the past. At natural cutoffs the hydration receipt is often not reconstructable (last_seen_at is heartbeat-advanced in place); an account-day whose receipt fails the gate at its cutoff is reported as receipt_unreconstructable_at_cutoff, never repaired, and counts as a FAILED day. The ledger and the control read at the last chain cutoff.",
+    "--cutoff-slot end-of-day (default, D T23:59:59.999Z) | natural-0305 (D T03:05Z) | natural-1505 D T15:05Z, --cutoffs <iso,...> (one per consecutive UTC day), or --knowledge-cutoffs <iso,...> (a later knowledge instant for each fixed report day). Every cutoff must be in the past. Replay is diagnostic only: the ledger/config/D101 reads use args.chain later knowledge instants, while the native calibration/decision/presentation lane uses decisions.days report-day UTC cutoffs. It cannot certify a later-knowledge native hard action or claim later evidence was known on the report day. At natural cutoffs the hydration receipt is often not reconstructable (last_seen_at is heartbeat-advanced in place); an account-day whose receipt fails the gate at its cutoff is reported as receipt_unreconstructable_at_cutoff, never repaired, and counts as a FAILED day. The ledger and the control read at the last chain cutoff.",
   crossCheck:
     "At every chain cutoff, inside the decision lane's own snapshot, hydration's fullyVerified and complete-coverage claims are read against the ledger's production tier SQL (objective per campaign, optimization goal per ad set, economic days) and the D101 port. A claim the independent reading contradicts is a violation; a claim with no independent reading fails the gate.",
   decisionLane: {
     cutoffChoice:
-      "Each simulated day uses cutoff asOf T23:59:59.999Z. The production 03:0x/15:0x slots are NOT reconstructable for the hydration receipt: READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY needs a complete observation run whose COALESCE(last_seen_at, observed_at) falls between the as-of day and the cutoff, and last_seen_at / last_captured_at are heartbeat-advanced IN PLACE, so a run that was complete at a production slot now carries a last_seen after that slot and the receipt reads complete_source_run_missing. End of day is after the day's final heartbeat on most days; where it is not, the receipt fails the gate and the day is reported receipt_unreconstructable.",
+      "Each simulated native day uses its report-day cutoff. In replay, args.chain records a separate later knowledge instant for independent ledger/config/D101 diagnostics, while decisions.days and presentation retain the native report-day cutoff; no later source is borrowed by native calibration. The production 03:0x/15:0x slots are often NOT reconstructable for the hydration receipt: READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY needs a complete observation run whose COALESCE(last_seen_at, observed_at) falls between the as-of day and the cutoff, and last_seen_at / last_captured_at are heartbeat-advanced IN PLACE, so a run that was complete at a production slot now carries a last_seen after that slot and the receipt reads complete_source_run_missing. A failed receipt is reported receipt_unreconstructable.",
     chainedHysteresis:
       "Days are chained: each simulated day's published labels are carried in memory as the next day's prior, exactly like native-ad-current-code-historical-simulation.",
   },
@@ -2622,7 +2673,7 @@ export const ACCEPTANCE_CLAIMS = {
     "1": "at least one invariant VIOLATION (fail-open or fabrication), in either mode",
     "2": "usage error or read-only / UTC guard refused to run",
     "3": "RELEASE mode: the --gate verdict is NOT met (a failed day, including a receipt unreconstructable at its cutoff, or a failed presentation, no successful day or presentation, a failed lane, an empty presentation with no source-backed decision reaching the UI, a negative control that is NOT MET, --require-clean on dirty loaded modules, --require-hard-authority without a demonstrated source-authorized hard action, or no available persisted-served generation) or the harness crashed",
-    "4": "DIAGNOSTIC mode (--skip-decisions or --diagnostic) finished without a violation; a diagnostic run is never release success",
+    "4": "DIAGNOSTIC mode (--skip-decisions, --diagnostic or --knowledge-cutoffs) finished without a violation; a diagnostic run is never release success",
   },
   releaseGates: {
     pre_deploy:
@@ -4084,7 +4135,7 @@ export function evaluateReleaseAcceptance(
       label: "DIAGNOSTIC (never release success)",
       negativeControl,
       certifies,
-      failures: ["diagnostic mode (--skip-decisions or --diagnostic) can never produce release success", ...failures],
+      failures: ["diagnostic mode (--skip-decisions, --diagnostic or --knowledge-cutoffs) can never produce release success", ...failures],
       businesses: verdicts,
     };
   }

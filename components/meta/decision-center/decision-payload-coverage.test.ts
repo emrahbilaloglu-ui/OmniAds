@@ -411,8 +411,9 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsWorkspacePayload.readState": N(
     "Not rendered BY THIS BODY, and deliberately so: the Decision Center forwards the §9 envelope to the surface-state region the canonical page mounts beside it (components/meta/meta-surface-state-live.tsx), which prints the state, the operator sentence and the failure code. Rendering it here as well would put two statements about the same read on one screen, and the body would then need its own opinion about which is current.",
   ),
-  "MetaDecisionsWorkspacePayload.businessId": N(
-    "The payload echoes back the business it was requested for; the shell's business switcher is what names the account, and a second copy on screen could only agree or be wrong.",
+  "MetaDecisionsWorkspacePayload.businessId": W(
+    S.BANNERS,
+    "the page's business-scope gate: a response for another business replaces the old Decision banners with a scoped loading state instead of showing that business's decisions beneath the new heading",
   ),
   "MetaDecisionsWorkspacePayload.window": R(
     S.PILLS,
@@ -2045,6 +2046,10 @@ const COVERAGE: Record<string, Coverage> = {
     S.EVIDENCE,
     "the window's preview, when the canonical envelope served no thumbnail",
   ),
+  "MetaOsAdDecision.adPerformanceAvailability": W(
+    S.EVIDENCE,
+    "the served-only coverage note and measured-versus-unavailable metric rows; a zero remains measured only when the source says the Ad row was observed",
+  ),
   "MetaOsAdDecision.lifecycleRole": R(
     S.CREATIVES,
     "the row's first chip, and the window's 'served campaign role'",
@@ -3390,11 +3395,13 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
       `MetaDecisionConfigEvidenceRef` (fifteen), all varying. The interface
       total moves 64 -> 66 with them.
     */
-    expect(fields.length).toBe(797);
+    // D104 adds the server-owned Ad-performance observation leaf.
+    expect(fields.length).toBe(798);
     expect(new Set(fields.map((field) => field.iface)).size).toBe(66);
     // Candidate selection v3 retains v2 payload compatibility. Its version
     // leaf now has two values instead of one pinned literal.
-    expect(fields.filter((field) => field.varies).length).toBe(745);
+    // The new observation leaf and three v5/v6 compatibility version leaves vary.
+    expect(fields.filter((field) => field.varies).length).toBe(749);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3915,7 +3922,7 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // `providerMutation`, and `intent` moves the 'Served action' row instead.
   ACTION: [0, 6],
   ARCHIVE: [0, 10],
-  BANNERS: [0, 8],
+  BANNERS: [0, 9],
   MOBILE: [0, 1],
   // 10 -> 11: D091 / Codex item 5 — the row's held-verdict badge, which the
   // queue emits as a row element without a stable id to key on.
@@ -3926,7 +3933,7 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
   // six labelled config rows the diagnostics now print.
-  EVIDENCE: [120, 17],
+  EVIDENCE: [120, 18],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
@@ -4003,13 +4010,13 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // banner strip and the mobile panels are already observed as HTML in their
   // own right, so a zero here says "not this component" and not "not on
   // screen".
-  BANNERS: [0, 8],
+  BANNERS: [0, 9],
   MOBILE: [0, 1],
   // 107 -> 106: `firstBlocker.explanation` is no longer rendered, so it leaves
   // the behind-a-control half of the evidence window (Round 8 item 7).
   // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
   // contract-identity leaves. All sit behind the evidence-window control.
-  EVIDENCE: [0, 133],
+  EVIDENCE: [0, 134],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including
@@ -4039,7 +4046,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // rows.
 // 312 -> 333 with the original receipt-lineage leaves; -> 339 with the six
 // contract-identity leaves. All are behind the evidence-window control.
-const DOM_PROOF_TOTALS: [number, number] = [32, 339];
+const DOM_PROOF_TOTALS: [number, number] = [32, 341];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4066,7 +4073,9 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // 371 -> 373 with ROUND 8 ITEM 7: the two superseded prose leaves above.
 // v2/v3 compatibility makes the intentionally hidden selectionVersion leaf
 // variable: 373 -> 374.
-const NOWHERE_LEAVES = 374;
+// Three newly variable legacy-compatible version tags stay hidden; the
+// workspace business id now changes the rendered scope state.
+const NOWHERE_LEAVES = 376;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4079,7 +4088,9 @@ const NOWHERE_LEAVES = 374;
 // rendered, but it is still handed to the callback boundary as part of the
 // served decision tuple. Reaching a callback is not rendering — which is the
 // distinction this counter exists to keep visible.
-const NOWHERE_BUT_AT_THE_BOUNDARY = 65;
+// The presentation and priority v5/v6 tags now vary, and both still travel
+// inside that callback tuple without becoming buyer-facing claims: 65 -> 67.
+const NOWHERE_BUT_AT_THE_BOUNDARY = 67;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -4733,10 +4744,6 @@ const PINNED_BEYOND_TEXT_PROOF: Record<string, string> = {
     "the literal is 'current', an ordinary word",
   "MetaDecisionsWorkspaceReadModel.scope.metricsRangeAffectsDecisionSnapshot":
     "the pinned value is `false`, which has no text to search for",
-  "MetaOsDecisionsPresentation.contractVersion":
-    "the same internal version string is carried by the hidden priority version",
-  "MetaOsDecisionPriority.version":
-    "the same internal version string is carried by the hidden presentation contract version",
   "MetaCanonicalDecision.riskTierProvenance.status":
     "the literal is 'proposed', shared with promotionBasis.status, which IS rendered",
   "MetaCanonicalDecision.promotionBasis.value":
@@ -4883,7 +4890,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // three `ads.heldCounts` members; -> 738 with the original receipt
     // lineage leaves; -> 744 with their six contract-identity leaves; -> 745
     // when candidate-selection v2/v3 became a variable protocol tag.
-    expect(outcomes.size).toBe(745);
+    expect(outcomes.size).toBe(749);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -5134,11 +5141,11 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // leaves each half. The rows themselves remain and are now proven by the
     // CODE leaves that feed the buyer-language mapping.
     // -> 372/225/147 with the original receipt-lineage leaves; ->
-    // 378/231/147 with their six contract-identity leaves. Every one is keyed
-    // on a labelled diagnostics row.
-    expect(rendered.length).toBe(378);
+    // 378/231/147 with their six contract-identity leaves; D104 adds one
+    // served observation fact on the evidence surface without a stable row id.
+    expect(rendered.length).toBe(380);
     expect(withElement.length).toBe(231);
-    expect(withoutElement.length).toBe(147);
+    expect(withoutElement.length).toBe(149);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -6161,6 +6168,7 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaDecisionSourceAuthority.decisionFreshness.status",
       "MetaDecisionSourceAuthority.executionReadiness",
       "MetaDecisionsDigest.actions.silentFailureCount",
+      "MetaDecisionsWorkspacePayload.businessId",
       "MetaDecisionsWorkspacePayload.endDate",
       "MetaDecisionsWorkspaceReadModel.queue.adCandidates.eligiblePreCapCount",
       "MetaDecisionsWorkspaceReadModel.status",
@@ -6168,6 +6176,7 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaLanePayload.endDate",
       "MetaLanePayload.snapshotCreatedAt",
       "MetaLanePayload.startDate",
+      "MetaOsAdDecision.adPerformanceAvailability",
       "MetaOsAdDecision.heldAction",
       "MetaOsCampaignRoleExplanation.confidenceClass",
       "MetaOsCampaignRoleExplanation.confidenceScore",

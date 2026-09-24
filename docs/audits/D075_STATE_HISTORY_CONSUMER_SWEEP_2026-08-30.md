@@ -833,3 +833,18 @@ The read-only historical acceptance runner adds two classified references:
 | --- | ---: | --- |
 | `scripts/creative-decision-center/meta-decisions-creatives-acceptance-core.ts` | 5 | Read-only audit: three point reads for campaign, ad set and ad status, plus two explanatory references. It uses the latest winner whose observation, capture and creation clocks are all at or before the simulated cutoff. Only a `presence = 'present'` winner contributes a provider status; absence remains unknown. The runner requires a read-only database session and does not serve a product route or write a decision. |
 | `scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts` | 1 | Comment only; it describes the state-history source and issues no query. |
+
+### D106 creative member delivery-status addendum (2026-09-24)
+
+The creative decision readers now derive current-at-decision delivery status
+from exact source Ad membership and the latest Ad, ad-set, and campaign state
+known by the evaluation cutoff. This status does not rewrite the historical
+report-day metrics. A missing, absent-unconfirmed, tombstoned, or mismatched
+member or parent cannot prove ACTIVE; the resulting status remains unknown.
+There is no fallback to current detail or an inferred ACTIVE state.
+
+| file | references | verdict |
+| --- | ---: | --- |
+| `lib/meta/creative-member-effective-status.ts` | 1 | Content-reader. Its shared SQL resolves present Ad and parent winners with observation, capture, and creation clocks bounded by the evaluation cutoff. It writes nothing. |
+| `lib/creative-decision-engine/creative-day-metric-evidence.db.test.ts` | 2 | Harness. It inserts point-in-time state fixtures and checks a real database decision reader, including unknown status when history is missing. |
+| `lib/creative-decision-engine/profile-scope-callers-account-scope.db.test.ts` | 1 | Harness. It inserts account-scoped state fixtures for the lifecycle reader; it is not a served consumer. |

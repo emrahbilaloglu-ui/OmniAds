@@ -92,6 +92,7 @@ describe("lifecycle job failure handling", () => {
     const result = await runLifecycleJob({
       businessId: "00000000-0000-4000-8000-000000000499",
       asOf: "2026-05-04",
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result).toMatchObject({

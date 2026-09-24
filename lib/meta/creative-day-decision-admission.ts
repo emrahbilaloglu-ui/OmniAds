@@ -1,5 +1,22 @@
 import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION } from "@/lib/meta/creatives-types";
 
+export function requireCreativeDayEvaluationCutoffAt(value: string | undefined): string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) ||
+      !Number.isFinite(Date.parse(value)) || Date.parse(value) > Date.now()) {
+    throw new Error("creative_day_evaluation_cutoff_required_or_future");
+  }
+  return value;
+}
+
+function creativeDayEvaluationCutoffSql(parameterSql: string): string {
+  if (!/^\$[1-9][0-9]*$/.test(parameterSql)) {
+    throw new Error("Creative-day admission requires an explicit evaluation cutoff parameter");
+  }
+  // PostgreSQL LEAST ignores NULL arguments; a missing caller value must
+  // instead make every timestamp predicate unknown and therefore inadmissible.
+  return `(CASE WHEN ${parameterSql}::timestamptz IS NOT NULL AND ${parameterSql}::timestamptz <= now() THEN ${parameterSql}::timestamptz END)`;
+}
+
 /**
  * New creative decision epochs may consume only rows whose provider-creative
  * membership was rebuilt from source identity and whose campaign/adset parent
@@ -38,6 +55,7 @@ export function creativeDayDecisionAdmissionSql(alias?: string): string {
 export function creativeDayConfigDecisionAdmissionSql(
   alias: string | undefined,
   evaluationDateSql: string,
+  evaluationCutoffSql: string,
 ): string {
   if (!/^\$[1-9][0-9]*$/.test(evaluationDateSql)) {
     throw new Error("Creative-day config admission requires an as-of date parameter");
@@ -45,10 +63,9 @@ export function creativeDayConfigDecisionAdmissionSql(
   const column = alias ? `${alias}.payload_json` : "payload_json";
   const field = (name: string) => `(${column}#>>'{historical_config_proof,${name}}')`;
   const stored = (name: string) => alias ? `${alias}.${name}` : name;
-  // Legacy producers expose only an as-of date. Current-day reads stop at the
-  // actual query clock; historical replay stops at that UTC day's exclusive
-  // end, so a receipt observed later cannot be borrowed from the future.
-  const cutoff = `LEAST(now(), ((${evaluationDateSql}::date + INTERVAL '1 day') AT TIME ZONE 'UTC'))`;
+  // The report date and the instant at which evidence was known are distinct.
+  // NULL, an invalid SQL placeholder, or a future instant cannot grant a row.
+  const cutoff = creativeDayEvaluationCutoffSql(evaluationCutoffSql);
   const observedBeforeCutoff = (name: string) => {
     const value = field(name);
     // pg_input_is_valid keeps malformed JSON from aborting a whole decision
@@ -68,6 +85,7 @@ export function creativeDayConfigDecisionAdmissionSql(
 export function creativeDayCompleteWindowSql(
   alias: string | undefined,
   evaluationDateSql: string,
+  evaluationCutoffSql: string,
   days: number,
   providerAccountScopeSql?: string,
   businessIdSql?: string,
@@ -86,14 +104,14 @@ export function creativeDayCompleteWindowSql(
   }
   const outer = alias ?? "meta_creative_daily";
   const candidate = "unverified_creative_day";
-  const admission = creativeDayConfigDecisionAdmissionSql(candidate, evaluationDateSql);
+  const admission = creativeDayConfigDecisionAdmissionSql(candidate, evaluationDateSql, evaluationCutoffSql);
   const accountScope = providerAccountScopeSql
     ? `AND (${providerAccountScopeSql}::text IS NULL OR ${candidate}.provider_account_id = ${outer}.provider_account_id)`
     : "";
   // The optional business binding lets D101 reconcile source account-days
   // once, then hash the small set of creative identities touching a bad day.
   const sourceCoverage = creativeDaySourceCoverageSql(
-    alias, evaluationDateSql, days, providerAccountScopeSql, businessIdSql,
+    alias, evaluationDateSql, evaluationCutoffSql, days, providerAccountScopeSql, businessIdSql,
   );
   const unverifiedDays = businessIdSql
     ? `ROW(${outer}.business_ref_id, ${outer}.creative_id) NOT IN (
@@ -132,11 +150,12 @@ export function creativeDayCompleteWindowSql(
 export function creativeDaySourceCoverageSql(
   alias: string | undefined,
   evaluationDateSql: string,
+  evaluationCutoffSql: string,
   days: number,
   providerAccountScopeSql?: string,
   businessIdSql?: string,
 ): string {
-  return buildCreativeDaySourceCoverageSql(alias, evaluationDateSql, days, providerAccountScopeSql,
+  return buildCreativeDaySourceCoverageSql(alias, evaluationDateSql, evaluationCutoffSql, days, providerAccountScopeSql,
     undefined, undefined, businessIdSql);
 }
 
@@ -144,12 +163,13 @@ export function creativeDaySourceCoverageSql(
 export function creativeDayOutcomeSourceCoverageSql(
   alias: string,
   evaluationDateSql: string,
+  evaluationCutoffSql: string,
 ): string {
   if (!/^[a-z_][a-z_0-9]*$/i.test(alias)) throw new Error("Invalid creative-day SQL alias");
-  const activeDayCoverage = buildCreativeDaySourceCoverageSql(alias, evaluationDateSql, 14, undefined,
+  const activeDayCoverage = buildCreativeDaySourceCoverageSql(alias, evaluationDateSql, evaluationCutoffSql, 14, undefined,
     `(${alias}.decision_as_of_date + INTERVAL '1 day')`,
     `(${alias}.decision_as_of_date + (${alias}.outcome_window_days * INTERVAL '1 day'))`);
-  const cutoff = `LEAST(now(), ((${evaluationDateSql}::date + INTERVAL '1 day') AT TIME ZONE 'UTC'))`;
+  const cutoff = creativeDayEvaluationCutoffSql(evaluationCutoffSql);
   const accountSource = `
     SELECT known_day.provider_account_id,
       MIN(NULLIF(BTRIM(known_day.account_timezone), '')) AS account_timezone,
@@ -236,6 +256,7 @@ export function creativeDayOutcomeSourceCoverageSql(
 function buildCreativeDaySourceCoverageSql(
   alias: string | undefined,
   evaluationDateSql: string,
+  evaluationCutoffSql: string,
   days: number,
   providerAccountScopeSql?: string,
   rangeStartSql?: string,
@@ -254,7 +275,7 @@ function buildCreativeDaySourceCoverageSql(
   const outer = alias ?? "meta_creative_daily";
   const rangeStart = rangeStartSql ?? `(${evaluationDateSql}::date - INTERVAL '${days - 1} days')`;
   const rangeEnd = rangeEndSql ?? `${evaluationDateSql}::date`;
-  const cutoff = `LEAST(now(), ((${evaluationDateSql}::date + INTERVAL '1 day') AT TIME ZONE 'UTC'))`;
+  const cutoff = creativeDayEvaluationCutoffSql(evaluationCutoffSql);
   const sourceBusiness = businessIdSql ? `${businessIdSql}::text` : `${outer}.business_ref_id::text`;
   const accountScope = providerAccountScopeSql
     ? `AND (${providerAccountScopeSql}::text IS NULL OR creative_source_account.provider_account_id = ${outer}.provider_account_id)`

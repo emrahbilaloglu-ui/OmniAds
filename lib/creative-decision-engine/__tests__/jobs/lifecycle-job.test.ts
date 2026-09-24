@@ -141,10 +141,10 @@ describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
     const positions = new Set<string>();
 
     for (const businessId of TEST_BUSINESS_IDS) {
-      const calibration = await runCalibrationJob({ businessId, asOf: AS_OF });
+      const calibration = await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
       expect(calibration.status).toBe("success");
 
-      const result = await runLifecycleJob({ businessId, asOf: AS_OF });
+      const result = await runLifecycleJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
       expect(result.status).toBe("success");
       expect(result.dependencyRunId).toBe(calibration.jobRunId);
       expect(result.rowsWritten).toBeGreaterThan(0);
@@ -183,10 +183,10 @@ describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
 
   it("is idempotent for lifecycle rows while recording each invocation", async () => {
     const businessId = TEST_BUSINESS_IDS[0]!;
-    await runCalibrationJob({ businessId, asOf: AS_OF });
+    await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
-    const first = await runLifecycleJob({ businessId, asOf: AS_OF });
-    const second = await runLifecycleJob({ businessId, asOf: AS_OF });
+    const first = await runLifecycleJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
+    const second = await runLifecycleJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(first.status).toBe("success");
     expect(second.status).toBe("success");
@@ -210,10 +210,10 @@ describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
     const businessId = MIXED_OBJECTIVE_FIXTURE.businessId;
     await setupMixedObjectiveFixture(MIXED_OBJECTIVE_FIXTURE, AS_OF);
 
-    const calibration = await runCalibrationJob({ businessId, asOf: AS_OF });
+    const calibration = await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     expect(calibration.status).toBe("success");
 
-    const result = await runLifecycleJob({ businessId, asOf: AS_OF });
+    const result = await runLifecycleJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result.status).toBe("success");
     expect(result.rowsWritten).toBe(MIXED_OBJECTIVE_SALES_CREATIVE_IDS.length);
@@ -243,9 +243,9 @@ describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
 
   it("preserves operator response columns across lifecycle reruns", async () => {
     const businessId = TEST_BUSINESS_IDS[0]!;
-    await runCalibrationJob({ businessId, asOf: AS_OF });
+    await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
-    const first = await runLifecycleJob({ businessId, asOf: AS_OF });
+    const first = await runLifecycleJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     expect(first.status).toBe("success");
 
     const [selected] = await getDb().query<OperatorResponseRow>(
@@ -278,7 +278,7 @@ describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
       [businessId, creativeId, AS_OF, ENGINE_VERSION],
     );
 
-    const second = await runLifecycleJob({ businessId, asOf: AS_OF });
+    const second = await runLifecycleJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     expect(second.status).toBe("success");
 
     const [preserved] = await getDb().query<OperatorResponseRow>(
@@ -303,7 +303,7 @@ describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
 
   it("records skipped when the advisory lock is already held", async () => {
     const businessId = TEST_BUSINESS_IDS[1]!;
-    const lockKey = lifecycleJobAdvisoryLockKey({ businessId, asOf: AS_OF });
+    const lockKey = lifecycleJobAdvisoryLockKey({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     let releaseLock: () => void = () => undefined;
     let holder: Promise<void> | null = null;
     const locked = new Promise<void>((resolve, reject) => {
@@ -321,7 +321,7 @@ describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
     await locked;
     let result: Awaited<ReturnType<typeof runLifecycleJob>> | null = null;
     try {
-      result = await runLifecycleJob({ businessId, asOf: AS_OF });
+      result = await runLifecycleJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     } finally {
       releaseLock();
       await holder;
@@ -347,6 +347,7 @@ describe.skipIf(!process.env.DATABASE_URL)("lifecycle job", () => {
     const result = await runLifecycleJob({
       businessId: UNKNOWN_BUSINESS_ID,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result).toMatchObject({

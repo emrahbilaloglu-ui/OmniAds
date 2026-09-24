@@ -11,6 +11,7 @@ import type {
   CreativeEvidenceWindowExactViewModel,
 } from "@/components/creatives/CreativeEvidenceWindowExact";
 import { buyerAuthorityBlockerCopy } from "@/lib/meta/buyer-copy";
+import { adPerformanceAvailability } from "@/lib/meta/ad-performance-availability";
 import {
   buyerFacingCreativeActionLabel,
   buyerFacingCreativeBlocker,
@@ -2163,9 +2164,9 @@ const CANONICAL_EVIDENCE_FAMILIES = [
  *
  * Written from the presence of the two envelopes and nothing else: it makes no
  * claim about the row that the row did not already make about itself. The
- * `served-only` case is the one this exists for — the row opened, the engine's
- * evidence is real and complete, and every audit answer below it is missing for
- * ONE reason, which is stated once here instead of sixteen times as a dash.
+ * `served-only` case is the one this exists for — the row opened with its
+ * served evidence, while canonical-only audit answers are missing for one
+ * named reason. Metric observation state is separately named when absent.
  */
 function buildCoverage(input: {
   decision: MetaOsAdDecision | null;
@@ -2187,6 +2188,12 @@ function buildCoverage(input: {
     };
   }
   if (decision) {
+    const metricAvailability = adPerformanceAvailability(decision, null);
+    const metricNotice = metricAvailability === "unavailable"
+      ? " No finalized Ad performance row was observed; stored zero sentinels are withheld."
+      : metricAvailability === "unknown"
+        ? " This older served payload does not establish whether Ad performance was observed; its decision metrics are withheld."
+        : "";
     return {
       state: "served-only",
       tone: "warning",
@@ -2198,7 +2205,8 @@ function buildCoverage(input: {
       unavailable: CANONICAL_EVIDENCE_FAMILIES,
       note:
         "No canonical envelope means no action authority: eligibility, lineage and provider-write authority " +
-        "have no source here and are NOT inferred from the served decision. No write control is offered on this row.",
+        "have no source here and are NOT inferred from the served decision. No write control is offered on this row." +
+        metricNotice,
     };
   }
   return {
@@ -2234,7 +2242,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
   const decision = input.decision ?? null;
   const canonical = input.canonical ?? null;
   const decisionPerformanceMissing =
-    canonical?.sourceDecision?.badges?.includes("ad_metrics_unavailable") === true;
+    adPerformanceAvailability(decision, canonical) !== "observed";
   const sourceDegraded = retainedGenerationIsDegraded(input.source, decision);
   const currency =
     currencyCode(decision?.metrics.currency) ??

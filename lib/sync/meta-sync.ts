@@ -2273,13 +2273,11 @@ export function resolveMetaCreativePartitionAction(input: {
     unmatchedDecisionBearingAds:
       input.membershipState?.unmatchedDecisionBearingAds,
   })) return "sync_writer";
-  if (input.providerLocalToday && input.membershipState?.configPendingRows &&
-    input.truthState === "finalized" &&
-    input.day < input.providerLocalToday &&
-    input.day >= addUtcDays(
-      input.providerLocalToday,
-      -META_CREATIVE_MEMBERSHIP_UPGRADE_FINALIZED_DAYS,
-    )) return "certify_config";
+  // Receipt certification is DB-only and remains retryable after an older
+  // historical partition's writer has already completed its v2 membership.
+  // The bounded D-1/D-2 rule above still governs provider re-fetches.
+  if (input.membershipState?.configPendingRows &&
+    input.truthState === "finalized") return "certify_config";
   return "skip";
 }
 
@@ -2932,15 +2930,11 @@ async function syncMetaPartitionDay(input: {
   }
 
   if (input.scopes.includes("creative_daily")) {
-    const recentFinalizedUpgradeEligible =
-      coverageState.creativesComplete && partitionAuthority.trusted &&
-      shouldBypassMetaCreativeCoverageShortCircuit({
-        truthState,
-        day: normalizedDay,
-        providerLocalToday: partitionAuthority.providerLocalToday,
-        legacyDecisionBearingRows: 1,
-      });
-    const membershipState = recentFinalizedUpgradeEligible
+    // Read the small account/day membership state on any complete finalized
+    // partition. Older days never re-enter the provider writer, but a failed
+    // receipt read must not disappear behind the coverage short circuit.
+    const membershipState = coverageState.creativesComplete &&
+      truthState === "finalized"
       ? await readMetaCreativeMembershipUpgradeState({
           businessId: input.businessId,
           providerAccountId: input.providerAccountId,

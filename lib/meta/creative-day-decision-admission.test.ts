@@ -25,20 +25,22 @@ describe("creative-day decision admission", () => {
   });
 
   it("requires separate full-day receipt authority before a creative row can feed legacy decisions", () => {
-    const sql = creativeDayConfigDecisionAdmissionSql("d", "$2");
+    const sql = creativeDayConfigDecisionAdmissionSql("d", "$2", "$9");
     expect(sql).toContain("source_identity_version");
     expect(sql).toContain("source_parent_grain_complete");
     expect(sql).toContain("historical_config_provenance' IN ('provider_receipt_day_bracketed', 'provider_receipt_legacy_bracketed')");
     expect(sql).not.toContain("'unverified'");
     expect(sql).toContain("historical_config_proof,knowledge_cutoff_at");
     expect(sql).toContain("historical_config_proof,last_receipt_observed_at");
-    expect(sql).toContain("LEAST(now(), (($2::date + INTERVAL '1 day') AT TIME ZONE 'UTC'))");
+    expect(sql).toContain("$9::timestamptz IS NOT NULL AND $9::timestamptz <= now()");
     expect(sql).toContain("IS NOT DISTINCT FROM");
     expect(sql).toContain("historical_config_proof,custom_conversion_id");
-    expect(sql).toContain("d.created_at <= LEAST(now()");
-    expect(sql).toContain("d.updated_at <= LEAST(now()");
-    expect(() => creativeDayConfigDecisionAdmissionSql("d", "now()"))
+    expect(sql).toContain("d.created_at <= (CASE WHEN $9::timestamptz");
+    expect(sql).toContain("d.updated_at <= (CASE WHEN $9::timestamptz");
+    expect(() => creativeDayConfigDecisionAdmissionSql("d", "now()", "$9"))
       .toThrow("requires an as-of date parameter");
+    expect(() => creativeDayConfigDecisionAdmissionSql("d", "$2", "now()"))
+      .toThrow("explicit evaluation cutoff parameter");
   });
 
   it("applies the admission to every lifecycle creative-day scan and hashes both contracts for native evaluation", () => {
@@ -51,21 +53,21 @@ describe("creative-day decision admission", () => {
   });
 
   it("excludes an entire creative window when any delivered day fails admission", () => {
-    const sql = creativeDayCompleteWindowSql("d", "$2", 90);
+    const sql = creativeDayCompleteWindowSql("d", "$2", "$9", 90);
     expect(sql).toContain("unverified_creative_day.creative_id = d.creative_id");
     expect(sql).toContain("unverified_creative_day.conversions <> 0");
     expect(sql).toContain("unverified_creative_day.impressions <> 0");
     expect(sql).toContain("AND NOT COALESCE(");
     expect(sql).toContain("meta_authoritative_publication_pointers");
     expect(sql).toContain("unnest(source_day.source_ad_ids)");
-    expect(() => creativeDayCompleteWindowSql("d", "$2", 0)).toThrow("Invalid creative-day decision window");
+    expect(() => creativeDayCompleteWindowSql("d", "$2", "$9", 0)).toThrow("Invalid creative-day decision window");
   });
 
   it("compares source Ad membership and account-day totals under the cutoff", () => {
-    const sql = creativeDaySourceCoverageSql("d", "$2", 90, "$8");
+    const sql = creativeDaySourceCoverageSql("d", "$2", "$9", 90, "$8");
     expect(sql).toContain("source_ad.business_id = d.business_ref_id::text");
     expect(sql).toContain("creative_source_account.provider_account_id = d.provider_account_id");
-    expect(sql).toContain("covered_creative_day.updated_at <= LEAST(now()");
+    expect(sql).toContain("covered_creative_day.updated_at <= (CASE WHEN $9::timestamptz");
     expect(sql).toContain("pointer.published_by_run_id = source_day.source_run_id");
     expect(sql).toContain("creative_totals.spend");
     expect(sql).toContain("source_day.source_ad_ids");

@@ -201,6 +201,7 @@ describe("WarehouseDataSource lifecycle hydration", () => {
       2,
       1.5,
       "2026-04-20T12:00:00.000Z",
+      expect.any(String),
     ]);
     expect(query.mock.calls[0]?.[0]).toContain(
       "effective_at <= $2::timestamptz",
@@ -334,6 +335,7 @@ describe("WarehouseDataSource lifecycle hydration", () => {
           2,
           1.5,
           "2026-04-20T12:00:00.000Z",
+          expect.any(String),
         ]);
         return [runtimeRow("creative-b", 45)];
       }

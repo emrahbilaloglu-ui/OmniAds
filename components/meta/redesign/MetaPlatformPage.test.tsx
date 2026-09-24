@@ -964,10 +964,13 @@ describe("MetaPlatformPage", () => {
 
   it("does not open an unscoped Studio when no Meta account was assigned", () => {
     state.providerAccounts = [];
-    renderToStaticMarkup(
+    const html = renderToStaticMarkup(
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
     );
-    expect(state.exactProps.onOpenCreativeStudio).toBeUndefined();
+    // Without an account, the scoped Decision Centre is not mounted at all.
+    // In particular the old cached account's Studio callback cannot survive.
+    expect(state.exactProps).toBeNull();
+    expect(html).not.toContain("Open Creative Studio");
   });
 
   // The degraded-source banner was removed from the screen on request. The
@@ -1501,6 +1504,55 @@ describe("MetaPlatformPage", () => {
     expect(newProvider).toContain("Loading decision data.");
     expect(newProvider).not.toContain('data-meta-exact-section="kpis"');
     expect(newProvider).not.toContain("$401");
+  });
+
+  it("hides the prior business during a scoped route transition and until its new payload arrives", () => {
+    state.pathname = "/c/biz_1/meta/decisions";
+    const before = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="Grandmix" />,
+    );
+    expect(before).toContain("$401");
+
+    // App Router may change the URL/topbar before replacing this page's old
+    // props. The old account's cache result must disappear on that render.
+    state.pathname = "/c/biz_2/meta/decisions";
+    const oldPageUnderNewRoute = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="Grandmix" />,
+    );
+    expect(oldPageUnderNewRoute).toContain('data-testid="meta-briefing-loading"');
+    expect(oldPageUnderNewRoute).not.toContain('data-meta-exact-section="kpis"');
+    expect(oldPageUnderNewRoute).not.toContain("$401");
+
+    // Even after B's page props arrive, a retained A response is not B data.
+    state.queryOverrides = {
+      "meta-decisions-workspace": { data: workspacePayload(), isLoading: true },
+    };
+    const oldPayloadUnderNewPage = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_2" businessName="TheSwaf" />,
+    );
+    expect(oldPayloadUnderNewPage).toContain('data-testid="meta-briefing-loading"');
+    expect(oldPayloadUnderNewPage).not.toContain('data-meta-exact-section="kpis"');
+    expect(oldPayloadUnderNewPage).not.toContain("$401");
+
+    state.queryOverrides = {};
+    state.pulsePayload = metaPulse({
+      businessId: "biz_2",
+      pacing: { ...metaPulse().pacing, spendToday: 902 },
+    });
+    state.lanePayload = metaLanePayload({ businessId: "biz_2" });
+    state.decisionReadModel = {
+      ...emptyCanonicalDecisionReadModel(),
+      scope: {
+        ...emptyCanonicalDecisionReadModel().scope,
+        businessId: "biz_2",
+      },
+    };
+    const after = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_2" businessName="TheSwaf" />,
+    );
+    expect(after).toContain('data-meta-exact-section="kpis"');
+    expect(after).toContain("$902");
+    expect(after).not.toContain("$401");
   });
 
   it("surfaces workspace query errors before rendering briefing summaries", () => {

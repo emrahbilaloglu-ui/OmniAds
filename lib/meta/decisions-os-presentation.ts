@@ -1710,6 +1710,11 @@ function adDecision(
       attribution: "meta_attributed",
       grain: decision.identityGrain === "ad" ? "ad" : "creative_context",
     },
+    adPerformanceAvailability: decision.sourceDecision.badges?.includes(
+      "ad_metrics_unavailable",
+    )
+      ? "unavailable"
+      : "observed",
     creativeFormat: decision.creativeFormat ?? null,
     fatigueStatus: decision.fatigueStatus ?? null,
     rawLabel: decision.sourceDecision.rawLabel,

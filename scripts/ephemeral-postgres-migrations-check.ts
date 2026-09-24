@@ -3515,9 +3515,9 @@ async function main() {
       Strict Meta AOV currency binding and exact timestamp cutoff.
 
       The commercial anchor must accept only Meta purchase evidence whose
-      recorded currency matches the bound Meta account. The fourth case admits
-      a fact at the exact microsecond cutoff while rejecting it one nanosecond
-      earlier. These cases need the migrated provider binding and daily-fact
+      recorded currency matches the bound Meta account. The seam also checks
+      exact microsecond cutoff and western local-day finalization after UTC
+      midnight. These cases need the migrated provider binding and daily-fact
       tables, so register the real PostgreSQL seam rather than letting its
       gated tests report as skipped.
     */
@@ -3530,7 +3530,7 @@ async function main() {
         "meta-aov-calculator.db.test.ts",
       ),
       "Strict Meta AOV currency binding and timestamp precision DB seam check",
-      4,
+      5,
     );
 
     /*
@@ -3779,7 +3779,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "creative-decision-engine", "creative-day-metric-evidence.db.test.ts"),
       "Creative-day measurement stamp DB seam check",
-      13,
+      15,
     );
 
     await runChildVitest(
@@ -3788,6 +3788,14 @@ async function main() {
       path.join("lib", "meta", "creative-day-source-coverage.db.test.ts"),
       "Creative-day D101 full source coverage DB seam check",
       15,
+    );
+
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "creative-decision-engine", "__tests__", "jobs", "decision-outcomes-job.test.ts"),
+      "Creative outcome snapshot and knowledge-cutoff DB seam check",
+      4,
     );
 
     /*

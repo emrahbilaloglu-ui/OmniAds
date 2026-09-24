@@ -330,6 +330,9 @@ export interface MetaAdDailyRow extends MetaWarehouseBaseRow {
 }
 
 export interface MetaCreativeDailyRow extends MetaWarehouseBaseRow {
+  /** Normalized identity used by D101 and the creative lifecycle reader. */
+  businessRefId?: string | null;
+  providerAccountRefId?: string | null;
   campaignId: string | null;
   adsetId: string | null;
   adId: string | null;

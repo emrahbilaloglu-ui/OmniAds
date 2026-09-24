@@ -171,9 +171,11 @@ These cases must become executable fixtures before resolver behavior changes. Do
 - GC-050 proves scale shares the same commercial spend maturity but still needs
   purchase depth before emitting a hard scale decision.
 - GC-051 proves hard scale also requires enough account-level calibration sample;
-  thin scale calibration remains a near-scale review row.
+  thin scale calibration remains a near-scale review row. Its served held
+  resolution uses `await_scale_calibration_sample`.
 - GC-052 proves a missing winner purchase benchmark blocks hard scale even when
-  the row-level scale signals look strong.
+  the row-level scale signals look strong. Its served held resolution uses
+  `await_scale_winner_benchmark`, distinct from GC-051 even when badges match.
 - GC-053 proves benchmark-ready accounts can still emit hard scale when all
   row-level scale gates pass.
 - GC-054 proves Test campaign scale is a winner verdict whose execution CTA is

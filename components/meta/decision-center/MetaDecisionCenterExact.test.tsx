@@ -990,6 +990,33 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(onSearchChange).toHaveBeenCalledWith("angel");
   });
 
+  it("limits a creative-search empty claim to loaded decisions while more are eligible", () => {
+    const viewModel = exactViewModel({ creativeGroups: [] });
+    const { rerender } = render(
+      <MetaDecisionCenterExact
+        canLoadMoreCreatives
+        defaultScope="creatives"
+        initialQuery="hidden creative"
+        viewModel={viewModel}
+      />,
+    );
+    const empty = document.querySelector('[data-meta-exact-lane-empty="creatives-action"]');
+    expect(empty?.textContent).toContain("No match among loaded creative decisions");
+    expect(empty?.textContent).toContain("Show more decisions below");
+
+    rerender(
+      <MetaDecisionCenterExact
+        canLoadMoreCreatives={false}
+        defaultScope="creatives"
+        initialQuery="hidden creative"
+        viewModel={viewModel}
+      />,
+    );
+    expect(
+      document.querySelector('[data-meta-exact-lane-empty="creatives-action"]')?.textContent,
+    ).toContain("hidden creative");
+  });
+
   /**
    * LAW: a blocked decision must never render as an ordinary recommendation.
    *

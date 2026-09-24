@@ -538,7 +538,7 @@ describe("meta creatives warehouse", () => {
 
   it("uses finalized Ad-day economics despite a later provider restatement and does not invent purchase zero", async () => {
     vi.mocked(creativesService.buildCreativesResponse).mockResolvedValue({
-      rows: [buildProjectionRow({ spend: 99, impressions: 999,
+      rows: [buildProjectionRow({ effective_status: "PAUSED", spend: 99, impressions: 999,
         clicks: 51, purchases: 0, purchase_value: 0 })],
     } as never);
     vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
@@ -552,12 +552,56 @@ describe("meta creatives warehouse", () => {
 
     const written = vi.mocked(warehouse.upsertMetaCreativeDailyRows).mock.calls[0]?.[0]?.[0];
     expect(written).toMatchObject({ spend: 12, impressions: 80, clicks: 3,
-      accountTimezone: "UTC", objective: null, optimizationGoal: null });
+      accountTimezone: "UTC", effectiveStatus: null, objective: null,
+      optimizationGoal: null });
     const payload = written?.payloadJson as Record<string, unknown>;
     expect(payload).toMatchObject({ spend: 12, impressions: 80, clicks: 3,
       source_economics_provenance: "finalized_meta_ad_daily",
       metric_presence: { purchases: false, purchase_value: false, roas: false } });
     expect(payload.historical_config_proof).toBeUndefined();
+  });
+
+  it("propagates a receipt-certification failure after writing v2 membership", async () => {
+    vi.mocked(creativesService.buildCreativesResponse).mockResolvedValue({
+      rows: [buildProjectionRow()],
+    } as never);
+    vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
+      buildCertifiedAdFactRow(),
+    ] as never);
+    dbQuery.mockResolvedValue([{ date: "2026-04-03", ad_id: "ad-1", creative_id: "crt-1" }]);
+    const failure = new Error("receipt_read_failed");
+    vi.mocked(configProof.certifyCreativeDayConfigFromReceipts).mockRejectedValue(failure);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(syncMetaCreativesWarehouseDay({ businessId: "biz-1",
+        day: "2026-04-03", accessToken: "token", assignedAccountIds: ["act_1"] }))
+        .rejects.toBe(failure);
+      expect(warehouse.upsertMetaCreativeDailyRows).toHaveBeenCalledTimes(1);
+      expect(warning).toHaveBeenCalledWith(
+        "[meta-creatives] creative-day config proof failed",
+        expect.objectContaining({ reason: "receipt_read_failed" }),
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("keeps a valid v2 day unverified when receipts are simply absent", async () => {
+    vi.mocked(creativesService.buildCreativesResponse).mockResolvedValue({
+      rows: [buildProjectionRow()],
+    } as never);
+    vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
+      buildCertifiedAdFactRow(),
+    ] as never);
+    dbQuery.mockResolvedValue([{ date: "2026-04-03", ad_id: "ad-1", creative_id: "crt-1" }]);
+    vi.mocked(configProof.certifyCreativeDayConfigFromReceipts).mockResolvedValue({
+      verified: 0, unverified: 1,
+    });
+
+    await expect(syncMetaCreativesWarehouseDay({ businessId: "biz-1",
+      day: "2026-04-03", accessToken: "token", assignedAccountIds: ["act_1"] }))
+      .resolves.toBeUndefined();
+    expect(warehouse.upsertMetaCreativeDailyRows).toHaveBeenCalledTimes(1);
   });
 
   it("persists full creative media at ad grain when a creative is reused", async () => {

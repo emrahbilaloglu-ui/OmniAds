@@ -2507,10 +2507,17 @@ function MetaMobileDecisionsScreen({
           {!loading && !error && rows.length === 0 ? (
             <article className="ad-mobile-row-card">
               <h3>
-                {hasRowFilters
+                {scope === "creatives" && canLoadMoreCreatives
+                  ? hasRowFilters
+                    ? "No match among loaded creative decisions"
+                    : "No creative decisions loaded in this lane yet"
+                  : hasRowFilters
                   ? "No decisions match these filters"
                   : "No decisions in this view"}
               </h3>
+              {scope === "creatives" && canLoadMoreCreatives ? (
+                <p>Show more decisions to check the remaining eligible rows.</p>
+              ) : null}
             </article>
           ) : null}
         </div>
@@ -3693,6 +3700,12 @@ export function MetaPlatformPage({
   const mutationUiEnabled = authorizedMutationUiEnabled === true;
   const router = useRouter();
   const pathname = usePathname();
+  // App Router can update the scoped URL/topbar before its new page payload
+  // replaces this mounted component. Hide the old business immediately.
+  const routeBusinessId = pathname?.match(/^\/c\/([^/]+)(?:\/|$)/)?.[1] ?? null;
+  const routeScopePending =
+    routeBusinessId !== null &&
+    routeBusinessId !== encodeURIComponent(businessId);
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const selectedWindow = parseMetaWindow(searchParams.get("window"));
@@ -3987,7 +4000,7 @@ export function MetaPlatformPage({
     refetchOnWindowFocus: false,
   });
 
-  const workspaceQuery = useQuery({
+  const rawWorkspaceQuery = useQuery({
     queryKey: [
       "meta-decisions-workspace",
       businessId,
@@ -4028,6 +4041,27 @@ export function MetaPlatformPage({
         ? previousData
         : undefined,
   });
+  // A query cache/transition is never allowed to put A's decisions beneath
+  // B's route heading. React Query's placeholder guard covers the normal
+  // key-change path; this read-time scope check also covers a retained result
+  // or an App Router transition that briefly reuses the old page instance.
+  const workspaceDataMatchesScope = Boolean(
+    !routeScopePending &&
+    rawWorkspaceQuery.data?.businessId === businessId &&
+    rawWorkspaceQuery.data?.decisionReadModel?.scope?.businessId === businessId &&
+    rawWorkspaceQuery.data.decisionReadModel.scope.providerAccountId ===
+      providerAccountId,
+  );
+  const workspaceQuery = {
+    ...rawWorkspaceQuery,
+    data: workspaceDataMatchesScope ? rawWorkspaceQuery.data : undefined,
+    isLoading:
+      routeScopePending ||
+      rawWorkspaceQuery.isLoading ||
+      (rawWorkspaceQuery.data !== undefined &&
+        !workspaceDataMatchesScope &&
+        rawWorkspaceQuery.isFetching),
+  };
 
   // A decision detail cannot outlive the workspace response that served it.
   // During a date/account change React Query may keep the prior response as
@@ -5907,7 +5941,7 @@ export function MetaPlatformPage({
         />
       ) : (
         <MetaMobileDecisionsScreen
-          businessName={businessName}
+          businessName={routeScopePending ? null : businessName}
           viewModel={exactViewModel}
           scope={activeScope}
           lane={activeLane}
@@ -6135,6 +6169,7 @@ export function MetaPlatformPage({
         {workspaceQuery.data ? (
           <MetaDecisionCenterExact
             viewModel={exactViewModelWithWorkflow}
+            canLoadMoreCreatives={canLoadMoreCreatives}
             lane={exactLaneForMetaLane(activeLane)}
             scope={activeScope}
             onScopeChange={selectScope}

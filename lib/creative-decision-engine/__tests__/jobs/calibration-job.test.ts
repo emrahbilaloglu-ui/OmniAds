@@ -460,7 +460,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
 
   it("inserts calibration and marks the job run success", async () => {
     const businessId = TEST_BUSINESS_IDS[0]!;
-    const result = await runCalibrationJob({ businessId, asOf: AS_OF });
+    const result = await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result.status, result.errorMessage).toBe("success");
     expect(result.jobRunId).toMatch(
@@ -512,8 +512,8 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
   it("is idempotent for calibration rows while recording each invocation", async () => {
     const businessId = TEST_BUSINESS_IDS[1]!;
 
-    await runCalibrationJob({ businessId, asOf: AS_OF });
-    await runCalibrationJob({ businessId, asOf: AS_OF });
+    await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
+    await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     const [calibrationCount] = await getDb().query<CountRow>(
       `
@@ -551,6 +551,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     const result = await runCalibrationJob({
       businessId: fixture.businessId,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result.status).toBe("success");
@@ -597,6 +598,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     const result = await runCalibrationJob({
       businessId: fixture.businessId,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result.status).toBe("success");
@@ -658,6 +660,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     const result = await runCalibrationJob({
       businessId: fixture.businessId,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result.status).toBe("success");
@@ -692,10 +695,12 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     const first = await runCalibrationJob({
       businessId: firstFixture.businessId,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
     const second = await runCalibrationJob({
       businessId: secondFixture.businessId,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(first.rowsWritten).toBe(30);
@@ -729,7 +734,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     const businessId = MIXED_OBJECTIVE_FIXTURE.businessId;
     await setupMixedObjectiveFixture(MIXED_OBJECTIVE_FIXTURE, AS_OF);
 
-    const result = await runCalibrationJob({ businessId, asOf: AS_OF });
+    const result = await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result.status).toBe("success");
     const [engagementSourceCount] = await getDb().query<CountRow>(
@@ -780,7 +785,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     await setupCampaignScopeFixture(fixture, AS_OF, { campaign_a: 30 });
     await setClickToPurchaseSampleCount(fixture, 1);
 
-    await runCalibrationJob({ businessId: fixture.businessId, asOf: AS_OF });
+    await runCalibrationJob({ businessId: fixture.businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     const overall = await readOverallFunnelCalibration(fixture);
 
     expect(toNumber(overall?.funnel_sample_count)).toBe(30);
@@ -798,7 +803,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
       FUNNEL_METRIC_SAMPLE_FLOOR,
     );
 
-    await runCalibrationJob({ businessId: fixture.businessId, asOf: AS_OF });
+    await runCalibrationJob({ businessId: fixture.businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     const overall = await readOverallFunnelCalibration(fixture);
 
     expect(overall?.click_to_purchase_p25).not.toBeNull();
@@ -810,7 +815,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     await setupCampaignScopeFixture(fixture, AS_OF, { campaign_a: 30 });
     await setClickToPurchaseSampleCount(fixture, 0);
 
-    await runCalibrationJob({ businessId: fixture.businessId, asOf: AS_OF });
+    await runCalibrationJob({ businessId: fixture.businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     const overall = await readOverallFunnelCalibration(fixture);
 
     expect(toNumber(overall?.funnel_sample_count)).toBe(30);
@@ -839,7 +844,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     await locked;
     let result: Awaited<ReturnType<typeof runCalibrationJob>> | null = null;
     try {
-      result = await runCalibrationJob({ businessId, asOf: AS_OF });
+      result = await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     } finally {
       releaseLock();
       await holder;
@@ -866,6 +871,7 @@ describe.skipIf(!process.env.DATABASE_URL)("calibration job", () => {
     const result = await runCalibrationJob({
       businessId: UNKNOWN_BUSINESS_ID,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result).toMatchObject({

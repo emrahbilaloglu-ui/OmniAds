@@ -383,6 +383,7 @@ function toPersistedDecisionLabel(value: unknown): DecisionLabel | null {
 export async function readPreviousPublishedLabels(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt?: string;
   creativeIds: string[];
   scopeType?: "account" | "campaign";
   scopeId?: string;
@@ -403,6 +404,7 @@ export async function readPreviousPublishedLabels(input: {
       AND as_of_date < $4::date
       AND scope_type = $5
       AND scope_id = $6
+      AND ($7::timestamptz IS NULL OR computed_at <= $7::timestamptz)
     ORDER BY creative_id, as_of_date DESC, computed_at DESC
     `,
     [
@@ -412,6 +414,7 @@ export async function readPreviousPublishedLabels(input: {
       input.asOf,
       scopeType,
       scopeId,
+      input.evaluationCutoffAt ?? null,
     ],
   );
   const map = new Map<string, PreviousPublishedLabel>();

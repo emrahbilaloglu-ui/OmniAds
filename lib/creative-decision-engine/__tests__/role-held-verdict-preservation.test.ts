@@ -154,7 +154,7 @@ describe("the epoch moved with the behaviour", () => {
   it("publishes under a new producer version", () => {
     // INVARIANTS.md: a change to canonical decision provenance requires a new
     // versioned producer contract; old snapshots stay readable under theirs.
-    expect(ENGINE_VERSION).toBe("v3-2026-09-24-creative-membership-integrity");
+    expect(ENGINE_VERSION).toBe("v3-2026-09-24-creative-knowledge-bound");
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
       "v3-ad-2026-09-24-cut-recent-overlay-proof-shadow",
     );

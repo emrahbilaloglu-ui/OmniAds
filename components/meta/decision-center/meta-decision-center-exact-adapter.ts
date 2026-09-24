@@ -48,6 +48,7 @@ import type {
 } from "@/lib/meta/decisions-os-contract";
 import { canCreateBrief } from "@/lib/zero-base/creative/studio-adapters";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
+import { adPerformanceAvailability } from "@/lib/meta/ad-performance-availability";
 
 const EM_DASH = "—";
 
@@ -2152,6 +2153,10 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
   await_recent_evidence: "Wait for more recent performance evidence.",
   complete_hard_action_evidence:
     "Complete the missing evidence before applying this change.",
+  await_scale_calibration_sample:
+    "Wait for enough mature creatives to complete the Scale calibration sample.",
+  await_scale_winner_benchmark:
+    "Wait for the account winner purchase benchmark before scaling.",
   restore_native_profile:
     "Restore the ad-level decision profile before acting.",
   resolve_evidence_gap: "Complete the missing evidence before acting.",
@@ -2253,21 +2258,25 @@ export function buyerFacingCreativeResolution(
   const resolution = decision.resolution;
   if (!resolution) return null;
   const mapped = knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
-  // The badge is only supplementary evidence for an already blocked row with
-  // a server-produced resolution. It never creates a blocked resolution.
+  // Metric availability is supplementary evidence for an already blocked row
+  // with a server-produced resolution. It never creates a blocked resolution.
   // `native_metrics_unavailable` also represents a missing account winner
   // benchmark or fatigue verdict on an otherwise fully measured ad. Only the
-  // producer's explicit ad-metrics badge proves that the performance day is
-  // absent; the broad blocker alone cannot support that sentence.
+  // producer's explicit Ad-performance state proves that the performance day
+  // is absent; the broad blocker alone cannot support that sentence.
+  const metricAvailability = adPerformanceAvailability(decision, canonical);
   const missingMetrics =
-    decision.lane === "blocked" &&
-    canonical?.sourceDecision?.badges?.includes("ad_metrics_unavailable") === true;
+    decision.lane === "blocked" && metricAvailability === "unavailable";
+  const unverifiedMetrics =
+    decision.lane === "blocked" && metricAvailability === "unknown";
   const noRecentDelivery = (decision.blockers ?? []).some(
     (blocker) => blocker.code === "delivery_no_spend_24h",
   );
-  if (decision.lane === "blocked" && (missingMetrics || noRecentDelivery)) {
+  if (decision.lane === "blocked" && (missingMetrics || unverifiedMetrics || noRecentDelivery)) {
     const prerequisite = missingMetrics
       ? "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance."
+      : unverifiedMetrics
+        ? "Ad performance observation status was not served for this row. Verify the source before judging performance."
       : "No spend was measured in the last 24 hours. Check delivery before judging performance.";
     return mapped ? `${prerequisite} ${mapped}` : prerequisite;
   }
@@ -2429,8 +2438,8 @@ export interface CreativeHeldVerdict {
 /**
  * A resolution code can cover several independent holds. Name the persisted
  * first blocker before appending secondary prerequisites, using only exact
- * server-owned codes and labels. Never interpret producer prose or blocker
- * labels as a new decision.
+ * server-owned codes. Never interpret producer prose or display labels as a
+ * new decision.
  */
 function heldPrimaryStep(
   decision: MetaOsAdDecision,
@@ -2440,17 +2449,17 @@ function heldPrimaryStep(
   if (!resolution) return null;
   if (
     firstBlocker === "native_metrics_unavailable" &&
-    resolution.code === "complete_hard_action_evidence" &&
-    decision.heldAction === "scale" &&
-    resolution.label === "Scale Held — Winner Benchmark Missing"
+    resolution.code === "await_scale_winner_benchmark" &&
+    decision.heldAction === "scale"
   ) {
     return "The account winner purchase benchmark is missing. Wait for enough winning ads before scaling.";
   }
   if (
     firstBlocker === "profile_hard_action_ineligible" &&
-    resolution.code === "complete_hard_action_evidence"
+    (resolution.code === "complete_hard_action_evidence" ||
+      resolution.code === "await_scale_calibration_sample")
   ) {
-    if (decision.heldAction === "scale" && resolution.label === "Scale Held — Calibration Sample Thin") {
+    if (decision.heldAction === "scale" && resolution.code === "await_scale_calibration_sample") {
       return "The account has too few mature creatives for the Scale calibration floor. Wait for more mature creatives before scaling.";
     }
     return "The decision profile does not yet authorize this change. Review its action-specific evidence and missing requirement before applying it.";
@@ -2479,8 +2488,7 @@ function heldPrimaryStep(
  * the lane here would add a second opinion about a fact already served.
  *
  * THE NEXT STEP follows the held resolution's typed code and persisted first
- * blocker. Known server resolution labels can refine the buyer copy; producer
- * prose and unknown labels never pass through. When no safe mapping exists,
+ * blocker. Producer labels and prose cannot refine the buyer copy. When no safe mapping exists,
  * the fallback still names the held verdict.
  */
 export function heldCreativeVerdict(
@@ -2710,10 +2718,10 @@ function creativeRows(input: {
       ? () => input.callbacks.onCreativeReview?.(decision, canonicalDecision)
       : null;
     // Older native snapshots stored the resolver's fail-closed zero even when
-    // the producer explicitly said no Ad performance row was observed. The
-    // source badge, not the numeric sentinel, controls display presence.
+    // no Ad performance row was observed. The served observation state (or
+    // canonical evidence), never the numeric sentinel, controls presence.
     const adPerformanceMissing =
-      canonicalDecision?.sourceDecision?.badges?.includes("ad_metrics_unavailable") === true;
+      adPerformanceAvailability(decision, canonicalDecision) !== "observed";
     const held = heldCreativeVerdict(decision, canonicalDecision);
     /*
      * THE PUBLISHED LABEL KEEPS ITS WORDS AND LOSES ITS APPROVAL COLOUR.
@@ -3288,7 +3296,7 @@ function creativeInspector(input: {
    */
   const held = heldCreativeVerdict(decision, canonicalDecision);
   const adPerformanceMissing =
-    canonicalDecision?.sourceDecision?.badges?.includes("ad_metrics_unavailable") === true;
+    adPerformanceAvailability(decision, canonicalDecision) !== "observed";
   return {
     entityName: nonBlank(decision.adName) ?? EM_DASH,
     entityMeta:

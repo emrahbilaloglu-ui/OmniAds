@@ -2,6 +2,7 @@ import { getDb, runDbTransaction } from "@/lib/db";
 import {
   creativeDayCompleteWindowSql,
   creativeDayConfigDecisionAdmissionSql,
+  requireCreativeDayEvaluationCutoffAt,
 } from "@/lib/meta/creative-day-decision-admission";
 import {
   CAMPAIGN_CONTEXT_MAX_AGE_DAYS,
@@ -40,6 +41,7 @@ type OperatorActionEventType =
 export interface OperatorResponseJobInput {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }
 
 export interface OperatorResponseJobResult {
@@ -280,7 +282,7 @@ SELECT
 FROM meta_creative_daily d
 WHERE d.business_ref_id = $1::uuid
   AND d.creative_id = $2
-  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3")}
+  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3", "$5")}
   AND d.date BETWEEN ($3::date - ($4::integer * INTERVAL '1 day')) AND $3::date
 GROUP BY d.date
 ORDER BY d.date ASC
@@ -294,7 +296,7 @@ SELECT DISTINCT ON (d.creative_id)
 FROM meta_creative_daily d
 WHERE d.business_ref_id = $1::uuid
   AND d.creative_id = $2
-  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3")}
+  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3", "$4")}
   AND d.date <= $3::date
 ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 `;
@@ -311,13 +313,13 @@ END AS recent7d_frequency
 FROM meta_creative_daily d
 WHERE d.business_ref_id = $1::uuid
   AND d.creative_id = $2
-  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3")}
+  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3", "$4")}
   AND d.date BETWEEN ($3::date - INTERVAL '27 days') AND $3::date
 `;
 
 const FIND_COMPLETE_RESPONSE_SOURCE_QUERY = `
 SELECT COALESCE((
-  SELECT ${creativeDayCompleteWindowSql("d", "$3", RESPONSE_WINDOW_DAYS + 1, undefined, "$1")}
+  SELECT ${creativeDayCompleteWindowSql("d", "$3", "$4", RESPONSE_WINDOW_DAYS + 1, undefined, "$1")}
   FROM meta_creative_daily d
   WHERE d.business_ref_id = $1::uuid AND d.creative_id = $2
     AND d.date BETWEEN ($3::date - (${RESPONSE_WINDOW_DAYS} * INTERVAL '1 day')) AND $3::date
@@ -455,6 +457,7 @@ export function operatorResponseJobAdvisoryLockKey(
 export async function runOperatorResponseJob(
   input: OperatorResponseJobInput,
 ): Promise<OperatorResponseJobResult> {
+  requireCreativeDayEvaluationCutoffAt(input.evaluationCutoffAt);
   const startedAt = Date.now();
   const flags = await resolveEngineV3Flags(input.businessId);
   if (!flags.enabled) {
@@ -520,7 +523,8 @@ export async function runOperatorResponseJob(
       let lifecyclePromotions = 0;
 
       for (const creativeId of recommendedCreatives) {
-        if (!(await hasCompleteResponseSource({ creativeId, businessId: input.businessId, asOf: input.asOf }))) {
+        if (!(await hasCompleteResponseSource({ creativeId, businessId: input.businessId, asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt }))) {
           // Missing Ad-day membership is unknown operator response, never a
           // zero-spend pause or a lifecycle promotion inferred from a partial
           // creative window. Existing snapshots remain readable.
@@ -530,6 +534,7 @@ export async function runOperatorResponseJob(
           creativeId,
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
         });
         const detection = detectOperatorResponse(gathered.detectorInput);
         if (detection.responseType === "no_recommendation") continue;
@@ -576,6 +581,7 @@ export async function runOperatorResponseJob(
           lifecycleRowsUpdated,
           JSON.stringify({
             metadata: {
+              evaluation_cutoff_at: input.evaluationCutoffAt,
               recommended_creative_count: recommendedCreatives.length,
               operator_event_count: operatorEventsWritten,
               lifecycle_promotion_count: lifecyclePromotions,
@@ -655,9 +661,10 @@ async function hasCompleteResponseSource(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }) {
   const [row] = await getDb().query<{ complete: boolean }>(FIND_COMPLETE_RESPONSE_SOURCE_QUERY,
-    [input.businessId, input.creativeId, input.asOf]);
+    [input.businessId, input.creativeId, input.asOf, input.evaluationCutoffAt]);
   return row?.complete === true;
 }
 
@@ -665,6 +672,7 @@ async function gatherSignalInputs(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }): Promise<GatheredSignalInputs> {
   const [recommendationRows, lifecycleContext, dailySpend, latestIdentifiers] =
     await Promise.all([
@@ -787,12 +795,14 @@ async function findDailySpend(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }): Promise<OperatorResponseInput["dailySpend"]> {
   const rows = await getDb().query<DailySpendRow>(FIND_DAILY_SPEND_QUERY, [
     input.businessId,
     input.creativeId,
     input.asOf,
     RESPONSE_WINDOW_DAYS,
+    input.evaluationCutoffAt,
   ]);
   return rows.flatMap((row) => {
     const date = toIsoDateOnly(row.date);
@@ -812,10 +822,11 @@ async function findLatestCreativeIdentifiers(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }) {
   const [row] = await getDb().query<LifecycleContextRow>(
     FIND_LATEST_CREATIVE_IDENTIFIERS_QUERY,
-    [input.businessId, input.creativeId, input.asOf],
+    [input.businessId, input.creativeId, input.asOf, input.evaluationCutoffAt],
   );
   return {
     adsetId: toStringOrNull(row?.adset_id),
@@ -828,10 +839,11 @@ async function findRecent7dFrequency(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }) {
   const [row] = await getDb().query<RecentFrequencyRow>(
     FIND_RECENT_7D_FREQUENCY_QUERY,
-    [input.businessId, input.creativeId, input.asOf],
+    [input.businessId, input.creativeId, input.asOf, input.evaluationCutoffAt],
   );
   return toNumberOrNull(row?.recent7d_frequency);
 }

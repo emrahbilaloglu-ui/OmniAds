@@ -233,11 +233,10 @@ export function evaluateCreativeDayConfigProof(
      already certified by a receipt, however, may never be silently replaced by
      a contradictory receipt under the same authority marker. */
   if (existingPositive && (
-      token(row.existing_objective) && token(row.existing_objective) !== token(row.objective) ||
-      token(row.existing_optimization_goal) && token(row.existing_optimization_goal) !== token(row.optimization_goal) ||
-      token(row.existing_custom_event_type) && token(row.existing_custom_event_type) !== token(row.custom_event_type) ||
-      exactId(row.existing_custom_conversion_id) &&
-        exactId(row.existing_custom_conversion_id) !== exactId(row.custom_conversion_id))) {
+      token(row.existing_objective) !== token(row.objective) ||
+      token(row.existing_optimization_goal) !== token(row.optimization_goal) ||
+      token(row.existing_custom_event_type) !== token(row.custom_event_type) ||
+      exactId(row.existing_custom_conversion_id) !== exactId(row.custom_conversion_id))) {
     return reject("warehouse_config_value_disagrees_with_receipt");
   }
   const cohort = resolveMetaFunnelCohortFromConfigOnly({

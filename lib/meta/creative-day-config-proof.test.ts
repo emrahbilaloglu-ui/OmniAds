@@ -91,6 +91,24 @@ describe("creative-day config receipt certification", () => {
     expect(verdict).toMatchObject({ status: "unverified", reason: "warehouse_config_value_disagrees_with_receipt" });
   });
 
+  it("does not turn a certified absent event or conversion ID into a valued field", () => {
+    const event = evaluateCreativeDayConfigProof({ ...source(),
+      existing_historical_config_provenance: "provider_receipt_day_bracketed",
+      existing_custom_event_type: null }, cutoff, certified);
+    expect(event).toMatchObject({ status: "unverified",
+      reason: "warehouse_config_value_disagrees_with_receipt" });
+
+    const conversion = source();
+    conversion.existing_historical_config_provenance = "provider_receipt_day_bracketed";
+    conversion.custom_conversion_id = "12345";
+    conversion.custom_conversion_id_tier = "provider_receipt_day_bracketed";
+    conversion.custom_conversion_id_readiness = "decision_authority";
+    conversion.custom_conversion_id_ref = ref("custom_conversion_id");
+    expect(evaluateCreativeDayConfigProof(conversion, cutoff, certified)).toMatchObject({
+      status: "unverified", reason: "warehouse_config_value_disagrees_with_receipt",
+    });
+  });
+
   it("does not borrow a corroboration from after the historical knowledge cutoff", () => {
     const verdict = evaluateCreativeDayConfigProof(source(), "2026-09-20T20:00:00.000Z", certified);
     expect(verdict).toMatchObject({ status: "unverified", reason: "objective_receipt_after_cutoff" });

@@ -5,6 +5,7 @@ import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-valu
 import {
   DECISION_BADGE_DISPLAY,
   DECISION_AUTHORITY_BLOCKERS,
+  ENGINE_VERSION,
   NATIVE_AD_ENGINE_VERSION,
   type DecisionAuthorityBlocker,
   type DecisionBadge,
@@ -4986,7 +4987,7 @@ async function readSnapshotRows(input: {
       WHERE business_id = $1
         AND provider_account_id = $2
     ),
-    scoped_history AS (
+    candidate_history AS (
       SELECT snapshot.*
       FROM engine_v3_decision_snapshots_daily snapshot
       INNER JOIN account_creatives account_creative
@@ -4998,6 +4999,22 @@ async function readSnapshotRows(input: {
           $3::date,
           (statement_timestamp() AT TIME ZONE 'UTC')::date
         )
+    ),
+    current_epoch_available AS (
+      /* A pre-deploy epoch can have a later as_of_date than the new producer's
+         latest closed provider day. Once this account has any current-epoch
+         creative generation, do not let those old rows win MAX(as_of_date).
+         Keep older epochs readable until the new one actually exists. */
+      SELECT EXISTS (
+        SELECT 1 FROM candidate_history
+        WHERE engine_version = $4
+      ) AS available
+    ),
+    scoped_history AS (
+      SELECT history.*
+      FROM candidate_history history
+      WHERE history.engine_version = $4
+         OR NOT (SELECT available FROM current_epoch_available)
     ),
     canonical_daily AS (
       SELECT DISTINCT ON (creative_id, as_of_date, scope_type, scope_id)
@@ -5087,7 +5104,7 @@ async function readSnapshotRows(input: {
     WHERE as_of_date = latest_as_of_date
     ORDER BY confidence DESC, spend DESC NULLS LAST, creative_id
     `,
-    [input.businessId, input.providerAccountId, input.asOfDate ?? null],
+    [input.businessId, input.providerAccountId, input.asOfDate ?? null, ENGINE_VERSION],
   );
 }
 

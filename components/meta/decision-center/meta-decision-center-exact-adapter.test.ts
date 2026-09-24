@@ -161,6 +161,7 @@ function creativeFixture(
     whyNow: "Server creative why now",
     blockers: [],
     resolution: null,
+    adPerformanceAvailability: "observed",
     metrics: {
       spend: 725,
       purchases: 18,
@@ -824,6 +825,70 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
         }),
       ),
     ).toBeNull();
+  });
+
+  it("uses served observation state when the canonical envelope is absent", () => {
+    const zeroMetrics = {
+      ...creativeFixture().metrics,
+      spend: 0,
+      purchases: 0,
+      roas: 0,
+      ctr: 0,
+    };
+    const blockedResolution = {
+      code: "resolve_evidence_gap",
+      category: "system",
+      owner: "system",
+      label: "Resolve evidence gap",
+      nextStep: "Internal producer copy",
+    } as const;
+    const unavailable = creativeFixture({
+      id: "served_missing",
+      decisionId: "served_missing_decision",
+      metrics: zeroMetrics,
+      adPerformanceAvailability: "unavailable",
+      lane: "blocked",
+      resolution: blockedResolution,
+    });
+    const observed = creativeFixture({
+      id: "served_observed_zero",
+      decisionId: "served_observed_zero_decision",
+      metrics: zeroMetrics,
+      adPerformanceAvailability: "observed",
+    });
+    const legacy = creativeFixture({
+      id: "served_legacy_unknown",
+      decisionId: "served_legacy_unknown_decision",
+      metrics: zeroMetrics,
+      adPerformanceAvailability: undefined,
+      lane: "blocked",
+      resolution: blockedResolution,
+    });
+    const workspace = workspaceFixture({
+      canonical: [],
+      os: fullOs({ creatives: [unavailable, observed, legacy] }),
+    });
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+    const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
+    for (const id of ["served_missing", "served_legacy_unknown"]) {
+      expect(rows.get(id)?.money).toBe("—");
+      expect(rows.get(id)?.ctrValue).toBeNull();
+      expect(rows.get(id)?.chips).not.toContain("ROAS 0.00");
+    }
+    expect(rows.get("served_missing")?.note).toContain("No finalized ad performance data");
+    expect(rows.get("served_legacy_unknown")?.note).toContain("observation status was not served");
+    expect(rows.get("served_observed_zero")?.money).toContain("ROAS 0.00");
+    expect(rows.get("served_observed_zero")?.chips).toContain("ROAS 0.00");
+    const inspector = buildMetaDecisionCenterExactViewModel({
+      workspace,
+      selection: {
+        kind: "creative",
+        decisionId: unavailable.decisionId,
+        sourceSnapshotId: unavailable.sourceSnapshotId,
+      },
+    }).inspector;
+    expect(inspector?.moneyValue).toBe("—");
+    expect(inspector?.evidence?.find((item) => item.id === "purchases")?.value).toBe("—");
   });
 
   it("keeps the served advisories out of the Blockers line and states them with their reason", () => {
@@ -4275,7 +4340,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
         },
       },
       heldResolution: {
-        code: "complete_hard_action_evidence",
+        code: "await_scale_calibration_sample",
         category: "system",
         owner: "system",
         label: "Scale Held — Calibration Sample Thin",
@@ -4343,7 +4408,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
         },
       },
       heldResolution: {
-        code: "complete_hard_action_evidence",
+        code: "await_scale_winner_benchmark",
         category: "system",
         owner: "system",
         label: "Scale Held — Winner Benchmark Missing",
@@ -4351,6 +4416,33 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       },
     });
     expect(heldCreativeVerdict(held)?.nextStep).toMatch(/^The account winner purchase benchmark is missing\./);
+  });
+
+  it("does not infer a specific held reason from a legacy display label", () => {
+    const held = heldRefreshFixture({
+      heldAction: "scale",
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "scale",
+        postAuthorityRawLabel: "scale",
+        publishedLabel: "keep",
+        firstBlocker: {
+          code: "native_metrics_unavailable",
+          label: "Internal",
+          explanation: "Internal",
+        },
+      },
+      heldResolution: {
+        code: "complete_hard_action_evidence",
+        category: "system",
+        owner: "system",
+        label: "Scale Held — Winner Benchmark Missing",
+        nextStep: "Untrusted legacy display copy",
+      },
+    });
+    const step = heldCreativeVerdict(held)?.nextStep;
+    expect(step).toContain("Complete the missing evidence before applying this change.");
+    expect(step).not.toContain("winner purchase benchmark");
   });
 
   it("names every typed prerequisite behind a held Cut without offering an action", () => {

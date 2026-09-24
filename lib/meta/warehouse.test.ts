@@ -1757,7 +1757,7 @@ describe("meta warehouse ownership safety", () => {
       creativeId: "provider-creative-1", accountTimezone: "UTC",
       accountCurrency: "USD", spend: 10, impressions: 100, clicks: 5,
       reach: 80, conversions: 0, revenue: 0, objective: null,
-      optimizationGoal: null,
+      optimizationGoal: null, effectiveStatus: null,
       payloadJson: {
         source_ad_ids: ["ad-1"], source_ad_ids_complete: true,
         source_creative_ids: ["provider-creative-1"], associated_ads_count: 1,
@@ -1781,6 +1781,17 @@ describe("meta warehouse ownership safety", () => {
     expect(query).toContain("THEN meta_creative_daily.objective ELSE EXCLUDED.objective");
     expect(query).toContain("THEN meta_creative_daily.optimization_goal ELSE EXCLUDED.optimization_goal");
     expect(query).toContain("'historical_config_proof',");
+    const columns = query.match(/INSERT INTO meta_creative_daily \(([\s\S]*?)\)\s*VALUES/)![1]!
+      .split(",").map((column) => column.trim());
+    expect(values[columns.indexOf("effective_status")]).toBeNull();
+    // A v2 re-sync must clear a legacy status; unversioned rows keep their
+    // compatibility fallback until their membership is repaired.
+    expect(query).toContain("effective_status = CASE");
+    expect(query).toContain("EXCLUDED.payload_json->>'source_identity_version'");
+    expect(query).toContain("THEN EXCLUDED.effective_status");
+    expect(query).toContain(
+      "ELSE COALESCE(EXCLUDED.effective_status, meta_creative_daily.effective_status)",
+    );
   });
 
   it("batches meta ad daily upserts instead of writing one row per query", async () => {
@@ -1867,6 +1878,71 @@ describe("meta warehouse ownership safety", () => {
     expect(adDailyQueries[0]).toContain(
       "ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET",
     );
+  });
+
+  it("coalesces multi-day entity dimensions without losing their temporal range or latest projection", async () => {
+    const queryMock = vi.fn(async (_query: string, _values?: unknown[]) => []);
+    const sql = vi.fn(async () => []);
+    Object.assign(sql, { query: queryMock });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    const base = {
+      businessId: "biz-1", providerAccountId: "acct-1",
+      accountTimezone: "UTC", accountCurrency: "USD",
+      spend: 10, impressions: 100, clicks: 5, reach: 80,
+      frequency: 1.25, conversions: 1, revenue: 20, roas: 2,
+      cpa: 10, ctr: 5, cpc: 2, sourceSnapshotId: "snapshot-1",
+    };
+    const older = { ...base, date: "2026-04-01", updatedAt: "2026-04-04T09:00:00.000Z" };
+    const newer = { ...base, date: "2026-04-03", updatedAt: "2026-04-03T09:00:00.000Z" };
+    const cases = [
+      {
+        table: "meta_campaign_dimensions", parameters: 12,
+        first: 9, last: 10, source: 11, projection: 5, latest: "Campaign latest",
+        write: () => upsertMetaCampaignDailyRows([
+          { ...newer, campaignId: "cmp-1", campaignNameCurrent: "Campaign latest", campaignNameHistorical: "Campaign latest", campaignStatus: "ACTIVE", objective: null, buyingType: null, optimizationGoal: null, bidStrategyType: null, bidStrategyLabel: null, manualBidAmount: null, bidValue: null, bidValueFormat: null, dailyBudget: null, lifetimeBudget: null, isBudgetMixed: false, isConfigMixed: false, isOptimizationGoalMixed: false, isBidStrategyMixed: false, isBidValueMixed: false },
+          { ...older, campaignId: "cmp-1", campaignNameCurrent: "Campaign old", campaignNameHistorical: "Campaign old", campaignStatus: "PAUSED", objective: null, buyingType: null, optimizationGoal: null, bidStrategyType: null, bidStrategyLabel: null, manualBidAmount: null, bidValue: null, bidValueFormat: null, dailyBudget: null, lifetimeBudget: null, isBudgetMixed: false, isConfigMixed: false, isOptimizationGoalMixed: false, isBidStrategyMixed: false, isBidValueMixed: false },
+        ]),
+      },
+      {
+        table: "meta_adset_dimensions", parameters: 12,
+        first: 9, last: 10, source: 11, projection: 6, latest: "Adset latest",
+        write: () => upsertMetaAdSetDailyRows([
+          { ...newer, campaignId: "cmp-1", adsetId: "set-1", adsetNameCurrent: "Adset latest", adsetNameHistorical: "Adset latest", adsetStatus: "ACTIVE", optimizationGoal: null, bidStrategyType: null, bidStrategyLabel: null, manualBidAmount: null, bidValue: null, bidValueFormat: null, dailyBudget: null, lifetimeBudget: null, isBudgetMixed: false, isConfigMixed: false, isOptimizationGoalMixed: false, isBidStrategyMixed: false, isBidValueMixed: false },
+          { ...older, campaignId: "cmp-1", adsetId: "set-1", adsetNameCurrent: "Adset old", adsetNameHistorical: "Adset old", adsetStatus: "PAUSED", optimizationGoal: null, bidStrategyType: null, bidStrategyLabel: null, manualBidAmount: null, bidValue: null, bidValueFormat: null, dailyBudget: null, lifetimeBudget: null, isBudgetMixed: false, isConfigMixed: false, isOptimizationGoalMixed: false, isBidStrategyMixed: false, isBidValueMixed: false },
+        ]),
+      },
+      {
+        table: "meta_ad_dimensions", parameters: 15,
+        first: 12, last: 13, source: 14, projection: 7, latest: "Ad latest",
+        write: () => upsertMetaAdDailyRows([
+          { ...newer, campaignId: "cmp-1", adsetId: "set-1", adId: "ad-1", adNameCurrent: "Ad latest", adNameHistorical: "Ad latest", adStatus: "ACTIVE", payloadJson: { creative_id: "creative-1" } },
+          { ...older, campaignId: "cmp-1", adsetId: "set-1", adId: "ad-1", adNameCurrent: "Ad old", adNameHistorical: "Ad old", adStatus: "PAUSED", payloadJson: { creative_id: "creative-1" } },
+        ], { writeMode: "authoritative_fact" }),
+      },
+      {
+        table: "meta_creative_dimensions", parameters: 18,
+        first: 15, last: 16, source: 17, projection: 8, latest: "Creative latest",
+        write: () => upsertMetaCreativeDailyRows([
+          { ...newer, campaignId: "cmp-1", adsetId: "set-1", adId: "ad-1", creativeId: "creative-1", creativeName: "Creative latest", headline: null, primaryText: null, destinationUrl: null, thumbnailUrl: null, assetType: "image", objective: null, optimizationGoal: null },
+          { ...older, campaignId: "cmp-1", adsetId: "set-1", adId: "ad-1", creativeId: "creative-1", creativeName: "Creative old", headline: null, primaryText: null, destinationUrl: null, thumbnailUrl: null, assetType: "image", objective: null, optimizationGoal: null },
+        ] as never),
+      },
+    ];
+
+    for (const testCase of cases) {
+      queryMock.mockClear();
+      await testCase.write();
+      const dimensions = queryMock.mock.calls.filter(([query]) =>
+        String(query).includes(`INSERT INTO ${testCase.table} (`));
+      expect(dimensions, testCase.table).toHaveLength(1);
+      const [query, values] = dimensions[0]!;
+      expect(values, testCase.table).toHaveLength(testCase.parameters);
+      expect(values?.[testCase.first]).toBe("2026-04-01T00:00:00.000Z");
+      expect(values?.[testCase.last]).toBe("2026-04-03T00:00:00.000Z");
+      expect(values?.[testCase.source]).toBe("2026-04-04T09:00:00.000Z");
+      expect(values?.[testCase.projection]).toBe(testCase.latest);
+      expect(String(query)).toContain("EXCLUDED.last_seen_at >");
+    }
   });
 
   it("extends the running lease using the requested lease minutes", async () => {

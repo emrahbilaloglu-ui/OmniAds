@@ -9,8 +9,10 @@ import {
   creativeDayCompleteWindowSql,
   creativeDayDecisionAdmissionSql,
   creativeDaySourceCoverageSql,
+  requireCreativeDayEvaluationCutoffAt,
 } from "@/lib/meta/creative-day-decision-admission";
 import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION } from "@/lib/meta/creatives-types";
+import { creativeMemberEffectiveStatusLateralSql } from "@/lib/meta/creative-member-effective-status";
 import {
   buildMetaCreativeDayMetricEvidenceLateralSql,
   META_CREATIVE_DAY_METRIC_STAGES,
@@ -3686,16 +3688,28 @@ WITH input_creatives AS (
   FROM unnest($3::text[]) AS input(creative_id)
   WHERE $4::boolean
 ),
-latest_status AS (
+latest_status_source AS (
   SELECT DISTINCT ON (d.creative_id)
+    d.business_ref_id,
+    d.business_id,
+    d.provider_account_ref_id,
+    d.provider_account_id,
     d.creative_id,
-    d.effective_status
+    d.campaign_id,
+    d.adset_id,
+    d.payload_json
   FROM meta_creative_daily d
   WHERE NOT $4::boolean
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.business_ref_id = $1::uuid
     AND d.date <= $2::date
+    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
   ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
+),
+latest_status AS (
+  SELECT d.creative_id, creative_member_status.effective_status
+  FROM latest_status_source d
+  ${creativeMemberEffectiveStatusLateralSql("d", "$8")}
 ),
 selected_creatives AS (
   SELECT creative_id
@@ -3721,7 +3735,7 @@ config_authority AS (
   SELECT
     d.creative_id,
     COALESCE(BOOL_AND(
-      ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
+      ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$8")}
     ) FILTER (WHERE d.spend <> 0 OR d.conversions <> 0 OR d.revenue <> 0 OR d.impressions <> 0 OR d.clicks <> 0), FALSE) AS config_authority_verified
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
@@ -3732,12 +3746,13 @@ config_authority AS (
 source_authority AS (
   SELECT s.creative_id,
     COALESCE((
-      SELECT ${creativeDaySourceCoverageSql("d", "$2", 90, undefined, "$1")}
+      SELECT ${creativeDaySourceCoverageSql("d", "$2", "$8", 90, undefined, "$1")}
       FROM meta_creative_daily d
       WHERE d.business_ref_id = $1::uuid AND d.creative_id = s.creative_id
         AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
       LIMIT 1
     ), FALSE) AS source_coverage_verified,
+    ($8::timestamptz IS NOT NULL AND $8::timestamptz <= now() AND (
     EXISTS (
       SELECT 1
       FROM meta_creative_daily later
@@ -3746,9 +3761,47 @@ source_authority AS (
         AND later.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
         AND (later.spend <> 0 OR later.conversions <> 0 OR later.revenue <> 0
              OR later.impressions <> 0 OR later.clicks <> 0)
-        AND (later.created_at > LEAST(now(), (($2::date + INTERVAL '1 day') AT TIME ZONE 'UTC'))
-             OR later.updated_at > LEAST(now(), (($2::date + INTERVAL '1 day') AT TIME ZONE 'UTC')))
-    ) AS source_coverage_after_cutoff
+        AND (later.created_at > $8::timestamptz OR later.updated_at > $8::timestamptz)
+    ) OR EXISTS (
+      SELECT 1 FROM meta_ad_daily later_ad
+      WHERE later_ad.business_id = $1::text
+        AND later_ad.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+        AND (later_ad.created_at > $8::timestamptz
+          OR later_ad.updated_at > $8::timestamptz
+          OR later_ad.finalized_at > $8::timestamptz)
+        AND EXISTS (
+          SELECT 1 FROM meta_creative_daily candidate_account
+          WHERE candidate_account.business_ref_id = $1::uuid
+            AND candidate_account.creative_id = s.creative_id
+            AND candidate_account.provider_account_id = later_ad.provider_account_id
+            AND candidate_account.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+        )
+    ) OR EXISTS (
+      SELECT 1 FROM meta_authoritative_publication_pointers later_pointer
+      JOIN meta_authoritative_slice_versions later_slice
+        ON later_slice.id = later_pointer.active_slice_version_id
+      JOIN meta_authoritative_source_manifests later_manifest
+        ON later_manifest.id = later_slice.manifest_id
+      WHERE later_pointer.business_id = $1::text
+        AND later_pointer.day BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+        AND later_pointer.surface = 'ad_daily'
+        AND (later_pointer.created_at > $8::timestamptz
+          OR later_pointer.updated_at > $8::timestamptz
+          OR later_pointer.published_at > $8::timestamptz
+          OR later_slice.created_at > $8::timestamptz
+          OR later_slice.updated_at > $8::timestamptz
+          OR later_slice.published_at > $8::timestamptz
+          OR later_manifest.created_at > $8::timestamptz
+          OR later_manifest.updated_at > $8::timestamptz
+          OR later_manifest.completed_at > $8::timestamptz)
+        AND EXISTS (
+          SELECT 1 FROM meta_creative_daily candidate_account
+          WHERE candidate_account.business_ref_id = $1::uuid
+            AND candidate_account.creative_id = s.creative_id
+            AND candidate_account.provider_account_id = later_pointer.provider_account_id
+            AND candidate_account.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
+        )
+    ))) AS source_coverage_after_cutoff
   FROM selected_creatives s
 ),
 cumulative AS (
@@ -3798,6 +3851,7 @@ cumulative AS (
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
+    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
   GROUP BY d.creative_id
 ),
 frequency_population AS (
@@ -3814,6 +3868,7 @@ frequency_population AS (
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
+    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
   GROUP BY d.creative_id
 ),
 frequency_benchmark AS (
@@ -3843,6 +3898,7 @@ decision_context_sources AS (
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
+    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
     AND (d.spend <> 0 OR d.conversions <> 0 OR d.revenue <> 0 OR d.impressions <> 0 OR d.clicks <> 0)
 ),
 context_grain AS (
@@ -3902,6 +3958,7 @@ recent AS (
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '6 days') AND $2::date
+    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
   GROUP BY d.creative_id
 ),
 recent_24h AS (
@@ -3914,12 +3971,13 @@ recent_24h AS (
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date = $2::date
+    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
   GROUP BY d.creative_id
 ),
 latest_meta AS (
   SELECT DISTINCT ON (d.creative_id)
     d.creative_id,
-    d.effective_status,
+    creative_member_status.effective_status,
     d.payload_json#>>'{historical_config_proof,objective}' AS objective,
     d.campaign_id,
     d.creative_name,
@@ -3962,13 +4020,15 @@ latest_meta AS (
     END AS age_days,
     CASE
       WHEN d.updated_at IS NOT NULL
-      THEN FLOOR(EXTRACT(EPOCH FROM (now() - d.updated_at)) / 3600)
+      THEN FLOOR(EXTRACT(EPOCH FROM ($8::timestamptz - d.updated_at)) / 3600)
     END AS data_freshness_hours
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  ${creativeMemberEffectiveStatusLateralSql("d", "$8")}
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
+    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
   ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 ),
 last_spend AS (
@@ -3978,6 +4038,7 @@ last_spend AS (
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date <= $2::date
+    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
     AND d.spend > 0
   GROUP BY d.creative_id
 ),
@@ -4017,6 +4078,7 @@ historical_source AS (
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayDecisionAdmissionSql("d")}
     AND d.date <= $2::date
+    AND d.created_at <= $8::timestamptz AND d.updated_at <= $8::timestamptz
     AND windows.in_window
 ),
 historical_aggregates AS (
@@ -4199,14 +4261,14 @@ config_verified_creative_days AS MATERIALIZED (
   SELECT d.*
   FROM meta_creative_daily d
   WHERE d.business_ref_id = $2::uuid
-    AND ${creativeDayConfigDecisionAdmissionSql("d", "$1")}
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$1", "$5")}
     AND ($4::text IS NULL OR d.provider_account_id = $4::text)
     AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
 ),
 admitted_creative_days AS MATERIALIZED (
   SELECT d.*
   FROM config_verified_creative_days d
-  WHERE ${creativeDayCompleteWindowSql("d", "$1", 90, "$4", "$2")}
+  WHERE ${creativeDayCompleteWindowSql("d", "$1", "$5", 90, "$4", "$2")}
 ),
 per_creative_raw AS (
   SELECT
@@ -4379,7 +4441,7 @@ const SOURCE_MAX_UPDATED_AT_QUERY = `
 SELECT MAX(updated_at) AS source_max_updated_at
 FROM meta_creative_daily
 WHERE business_ref_id = $1::uuid
-  AND ${creativeDayConfigDecisionAdmissionSql(undefined, "$2")}
+  AND ${creativeDayConfigDecisionAdmissionSql(undefined, "$2", "$3")}
   AND date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
 `;
 
@@ -4423,6 +4485,7 @@ WHERE business_ref_id = $1::uuid
   AND campaign_kind = $5::text
   AND creative_format = 'overall'
   AND as_of_date <= $2::date
+  AND computed_at <= $7::timestamptz
 ORDER BY as_of_date DESC, computed_at DESC
 LIMIT 1
 `;
@@ -4533,8 +4596,8 @@ WITH per_creative AS (
     SUM(revenue) AS total_revenue
   FROM meta_creative_daily
   WHERE business_ref_id = $1::uuid
-    AND ${creativeDayConfigDecisionAdmissionSql(undefined, "$2")}
-    AND ${creativeDayCompleteWindowSql(undefined, "$2", 90, undefined, "$1")}
+    AND ${creativeDayConfigDecisionAdmissionSql(undefined, "$2", "$4")}
+    AND ${creativeDayCompleteWindowSql(undefined, "$2", "$4", 90, undefined, "$1")}
     AND campaign_id = $3::text
     AND date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND objective = 'OUTCOME_SALES'
@@ -4562,6 +4625,7 @@ WITH latest_day AS (
     AND scope_id = $4::text
     AND campaign_kind = $3::text
     AND as_of_date <= $2::date
+    AND computed_at <= $6::timestamptz
 )
 SELECT
   campaign_kind,
@@ -4593,6 +4657,7 @@ WHERE business_ref_id = $1::uuid
   AND scope_id = $4::text
   AND campaign_kind = $3::text
   AND as_of_date = (SELECT as_of_date FROM latest_day)
+  AND computed_at <= $6::timestamptz
 ORDER BY creative_format ASC
 `;
 
@@ -4604,7 +4669,8 @@ WITH lifecycle_rows AS (
     AND l.as_of_date <= $2::date
     AND (NOT $4::boolean OR l.creative_id = ANY($3::text[]))
     AND l.engine_version = $5
-    AND ${creativeDayCompleteWindowSql("l", "$2", 90, undefined, "$1")}
+    AND ${creativeDayCompleteWindowSql("l", "$2", "$9", 90, undefined, "$1")}
+    AND l.computed_at <= $9::timestamptz
   ORDER BY l.creative_id, l.as_of_date DESC, l.computed_at DESC
 ),
 latest_meta AS (
@@ -4613,6 +4679,7 @@ latest_meta AS (
     d.creative_name,
     d.first_seen_at,
     d.first_spend_at,
+    creative_member_status.effective_status,
     COALESCE(
       NULLIF(d.payload_json->>'policy_reason', ''),
       NULLIF(d.payload_json->>'ad_review_feedback', ''),
@@ -4635,8 +4702,9 @@ latest_meta AS (
     ) AS limited_reason
   FROM meta_creative_daily d
   INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
+  ${creativeMemberEffectiveStatusLateralSql("d", "$9")}
   WHERE d.business_ref_id = $1::uuid
-    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$9")}
     AND d.date <= $2::date
   ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 ),
@@ -4648,7 +4716,7 @@ recent_24h AS (
   FROM meta_creative_daily d
   INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
-    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$9")}
     AND d.date = $2::date
   GROUP BY d.creative_id
 ),
@@ -4667,7 +4735,7 @@ decision_context_sources AS (
   FROM meta_creative_daily d
   INNER JOIN lifecycle_rows l ON l.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
-    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2")}
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$9")}
     AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
     AND (d.spend <> 0 OR d.conversions <> 0 OR d.revenue <> 0 OR d.impressions <> 0 OR d.clicks <> 0)
 ),
@@ -4749,7 +4817,7 @@ SELECT
   l.impressions_7d AS recent_impressions,
   r24.spend AS spend_24h,
   r24.impressions AS impressions_24h,
-  l.effective_status,
+  latest_meta.effective_status,
   l.age_days,
   COALESCE(latest_meta.first_seen_at::text, l.first_seen_date::text) AS first_seen_at,
   latest_meta.first_spend_at,
@@ -4761,7 +4829,7 @@ SELECT
   l.source_max_updated_at,
   CASE
     WHEN l.source_max_updated_at IS NOT NULL
-    THEN FLOOR(EXTRACT(EPOCH FROM (now() - l.source_max_updated_at)) / 3600)
+    THEN FLOOR(EXTRACT(EPOCH FROM ($9::timestamptz - l.source_max_updated_at)) / 3600)
   END AS data_freshness_hours,
   l.fatigue_status,
   l.lifecycle_position,
@@ -4810,6 +4878,7 @@ FROM engine_v3_creative_lifecycle_daily
 WHERE business_ref_id = $1::uuid
   AND as_of_date <= $2::date
   AND engine_version = $3
+  AND computed_at <= $4::timestamptz
 `;
 
 const READ_LATEST_FUNNEL_DIAGNOSIS_QUERY = `
@@ -4832,6 +4901,7 @@ WHERE business_ref_id = $1::uuid
   AND creative_id = $2
   AND as_of_date <= $3::date
   AND engine_version = $4
+  AND computed_at <= $5::timestamptz
 ORDER BY as_of_date DESC, computed_at DESC
 LIMIT 1
 `;
@@ -4844,6 +4914,7 @@ WHERE business_ref_id = $1::uuid
   AND event_type = 'operator_action'
   AND operator_evidence IS NOT NULL
   AND event_date <= $3::date
+  AND created_at <= $4::timestamptz
 ORDER BY event_date DESC, created_at DESC
 LIMIT 1
 `;
@@ -4885,6 +4956,7 @@ FROM business_decision_calibration_profiles
 WHERE business_id = $1::uuid
   AND channel = $2
   AND objective_family = $3
+  AND ($4::timestamptz IS NULL OR updated_at <= $4::timestamptz)
 ORDER BY
   CASE WHEN bid_regime = 'open' THEN 0 WHEN bid_regime = 'unknown' THEN 1 ELSE 2 END,
   CASE WHEN archetype = 'default' THEN 0 ELSE 1 END,
@@ -6401,6 +6473,7 @@ function mapLifecycleHydrationRow(input: {
   row: LifecycleTableHydrationRow;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string | null;
 }): CreativeInput | null {
   const creativeId = toStringOrNull(input.row.creative_id);
   if (creativeId === null) return null;
@@ -6410,7 +6483,8 @@ function mapLifecycleHydrationRow(input: {
   );
   if (
     sourceMaxUpdatedAt === null ||
-    isOlderThanHours(sourceMaxUpdatedAt, STALE_TIER_WARNING_MAX_HOURS)
+    isOlderThanHours(sourceMaxUpdatedAt, STALE_TIER_WARNING_MAX_HOURS,
+      input.evaluationCutoffAt)
   ) {
     return null;
   }
@@ -6607,10 +6681,11 @@ function mapFunnelCalibrationRow(
   };
 }
 
-function isOlderThanHours(timestamp: string, hours: number) {
+function isOlderThanHours(timestamp: string, hours: number, evaluationCutoffAt: string | null) {
+  if (evaluationCutoffAt === null) return true;
   const parsed = new Date(timestamp).getTime();
   if (!Number.isFinite(parsed)) return true;
-  return Date.now() - parsed > hours * 3_600_000;
+  return Date.parse(evaluationCutoffAt) - parsed > hours * 3_600_000;
 }
 
 function errorMessage(error: unknown) {
@@ -6624,8 +6699,12 @@ function buildWarehouseDataLayerHealth(input: {
   fallbackMode: FallbackMode;
   note?: string | null;
   staleTierOverride?: StaleTier;
+  evaluationCutoffAt?: string | null;
 }): DataLayerHealth {
-  const health = buildDataLayerHealth(input);
+  const health = buildDataLayerHealth({
+    ...input,
+    now: input.evaluationCutoffAt ? new Date(input.evaluationCutoffAt) : undefined,
+  });
   if (input.staleTierOverride) {
     return { ...health, staleTier: input.staleTierOverride };
   }
@@ -6968,6 +7047,16 @@ export class WarehouseDataSource
   implements CreativeDecisionDataSource, AdDecisionDataSource
 {
   private lastCalibrationMetadata: CalibrationReadMetadata | null = null;
+  private readonly creativeDayEvaluationCutoffAt: string | null;
+  private readonly hasExplicitCreativeDayEvaluationCutoff: boolean;
+
+  constructor(creativeDayEvaluationCutoffAt?: string) {
+    // Current-only readers capture one request-local instant. Historical jobs
+    // must pass their independently validated replay instant explicitly.
+    this.hasExplicitCreativeDayEvaluationCutoff = creativeDayEvaluationCutoffAt !== undefined;
+    this.creativeDayEvaluationCutoffAt =
+      requireCreativeDayEvaluationCutoffAt(creativeDayEvaluationCutoffAt ?? new Date().toISOString());
+  }
 
   private async computeCreativeInputsViaRuntimeSql(input: {
     businessId: string;
@@ -6992,6 +7081,7 @@ export class WarehouseDataSource
         targetPack?.targetRoas ?? null,
         targetPack?.breakEvenRoas ?? null,
         targetPack?.updatedAt ?? null,
+        this.creativeDayEvaluationCutoffAt,
       ],
     );
 
@@ -7031,6 +7121,7 @@ export class WarehouseDataSource
           targetPack?.targetRoas ?? null,
           targetPack?.breakEvenRoas ?? null,
           targetPack?.updatedAt ?? null,
+          this.creativeDayEvaluationCutoffAt,
         ],
       );
     } catch {
@@ -7043,6 +7134,7 @@ export class WarehouseDataSource
           row,
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: this.creativeDayEvaluationCutoffAt,
         }),
       )
       .filter((creative): creative is CreativeInput => creative !== null);
@@ -7519,6 +7611,7 @@ export class WarehouseDataSource
           input.campaignKind,
           calibrationAccountScopeId(input.providerAccountId),
           ENGINE_VERSION,
+          this.creativeDayEvaluationCutoffAt,
         ],
       );
     } catch {
@@ -7556,7 +7649,7 @@ export class WarehouseDataSource
     fallbackNote: string,
     staleTierOverride?: StaleTier,
   ): Promise<AccountCalibration> {
-    const computedAt = new Date().toISOString();
+    const computedAt = this.creativeDayEvaluationCutoffAt ?? new Date().toISOString();
     let row: CalibrationRow | undefined;
     try {
       const [source] = await getDb().query<{ has_source: boolean }>(
@@ -7590,6 +7683,7 @@ export class WarehouseDataSource
         input.businessId,
         targetPack?.targetRoas ?? null,
         normalizedProviderAccountId(input.providerAccountId),
+        this.creativeDayEvaluationCutoffAt,
       ]);
     } catch (error) {
       const sourceMaxUpdatedAt = await this.fetchSourceMaxUpdatedAt(
@@ -7694,7 +7788,8 @@ export class WarehouseDataSource
     try {
       [row] = await getDb().query<CalibrationTableRow>(
         READ_ACCOUNT_CALIBRATION_QUERY,
-        [businessId, asOf, scopeType, scopeId, campaignKind, ENGINE_VERSION],
+        [businessId, asOf, scopeType, scopeId, campaignKind, ENGINE_VERSION,
+          this.creativeDayEvaluationCutoffAt],
       );
     } catch (error) {
       return {
@@ -7737,7 +7832,8 @@ export class WarehouseDataSource
       };
     }
 
-    if (isOlderThanHours(sourceMaxUpdatedAt, STALE_TIER_WARNING_MAX_HOURS)) {
+    if (isOlderThanHours(sourceMaxUpdatedAt, STALE_TIER_WARNING_MAX_HOURS,
+      this.creativeDayEvaluationCutoffAt)) {
       return {
         calibration: null,
         metadata: null,
@@ -7807,6 +7903,7 @@ export class WarehouseDataSource
         input.businessId,
         input.asOf,
         input.campaignId,
+        this.creativeDayEvaluationCutoffAt,
       ]);
       return toIntegerOrNull(row?.mature_creative_count);
     } catch {
@@ -7876,8 +7973,10 @@ export class WarehouseDataSource
     );
     const decisions = buildDataLayerHealth({
       asOfDate: input.asOf,
-      computedAt: new Date().toISOString(),
+      computedAt: this.creativeDayEvaluationCutoffAt ?? new Date().toISOString(),
       sourceMaxUpdatedAt,
+      now: this.creativeDayEvaluationCutoffAt
+        ? new Date(this.creativeDayEvaluationCutoffAt) : undefined,
       fallbackMode: "runtime_sql",
       note: "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request",
     });
@@ -7896,7 +7995,8 @@ export class WarehouseDataSource
   }): Promise<FunnelDiagnosis | null> {
     const [row] = await getDb().query<FunnelDiagnosisTableRow>(
       READ_LATEST_FUNNEL_DIAGNOSIS_QUERY,
-      [input.businessId, input.creativeId, input.asOf, ENGINE_VERSION],
+      [input.businessId, input.creativeId, input.asOf, ENGINE_VERSION,
+        this.creativeDayEvaluationCutoffAt],
     );
     return mapFunnelDiagnosisRow(row);
   }
@@ -7908,7 +8008,8 @@ export class WarehouseDataSource
   }): Promise<OperatorResponseResult | null> {
     const [row] = await getDb().query<OperatorResponseEventRow>(
       READ_LATEST_OPERATOR_RESPONSE_QUERY,
-      [input.businessId, input.creativeId, input.asOf],
+      [input.businessId, input.creativeId, input.asOf,
+        this.creativeDayEvaluationCutoffAt],
     );
     return mapOperatorResponseRow(row);
   }
@@ -7923,6 +8024,7 @@ export class WarehouseDataSource
         asOfDate: last.asOfDate,
         computedAt: last.computedAt,
         sourceMaxUpdatedAt: last.sourceMaxUpdatedAt,
+        evaluationCutoffAt: this.creativeDayEvaluationCutoffAt,
         fallbackMode: last.fallbackMode,
         note: last.note,
         staleTierOverride: last.staleTierOverride,
@@ -7941,6 +8043,7 @@ export class WarehouseDataSource
         asOfDate: precomputed.metadata.asOfDate,
         computedAt: precomputed.metadata.computedAt,
         sourceMaxUpdatedAt: precomputed.metadata.sourceMaxUpdatedAt,
+        evaluationCutoffAt: this.creativeDayEvaluationCutoffAt,
         fallbackMode: precomputed.metadata.fallbackMode,
         note: precomputed.metadata.note,
         staleTierOverride: precomputed.metadata.staleTierOverride,
@@ -7956,8 +8059,9 @@ export class WarehouseDataSource
 
     return buildWarehouseDataLayerHealth({
       asOfDate: asOf,
-      computedAt: new Date().toISOString(),
+      computedAt: this.creativeDayEvaluationCutoffAt ?? new Date().toISOString(),
       sourceMaxUpdatedAt,
+      evaluationCutoffAt: this.creativeDayEvaluationCutoffAt,
       fallbackMode,
       note: precomputed.note,
       staleTierOverride: precomputed.staleTierOverride,
@@ -7972,13 +8076,14 @@ export class WarehouseDataSource
     try {
       [row] = await getDb().query<LifecycleHealthRow>(
         READ_LIFECYCLE_HEALTH_QUERY,
-        [businessId, asOf, ENGINE_VERSION],
+        [businessId, asOf, ENGINE_VERSION, this.creativeDayEvaluationCutoffAt],
       );
     } catch (error) {
       return buildWarehouseDataLayerHealth({
         asOfDate: asOf,
-        computedAt: new Date().toISOString(),
+        computedAt: this.creativeDayEvaluationCutoffAt ?? new Date().toISOString(),
         sourceMaxUpdatedAt: null,
+        evaluationCutoffAt: this.creativeDayEvaluationCutoffAt,
         fallbackMode: "runtime_sql",
         note: `Lifecycle unavailable; runtime SQL fallback (${errorMessage(error)})`,
       });
@@ -7988,8 +8093,9 @@ export class WarehouseDataSource
     if (rowCount === 0) {
       return buildWarehouseDataLayerHealth({
         asOfDate: asOf,
-        computedAt: new Date().toISOString(),
+        computedAt: this.creativeDayEvaluationCutoffAt ?? new Date().toISOString(),
         sourceMaxUpdatedAt: null,
+        evaluationCutoffAt: this.creativeDayEvaluationCutoffAt,
         fallbackMode: "runtime_sql",
         note: "no precomputed row available; runtime fallback in use",
         staleTierOverride: "warning",
@@ -8000,6 +8106,7 @@ export class WarehouseDataSource
       asOfDate: toIsoDateOrNull(row?.as_of_date) ?? asOf,
       computedAt: toIsoTimestampOrNull(row?.computed_at),
       sourceMaxUpdatedAt: toIsoTimestampOrNull(row?.source_max_updated_at),
+      evaluationCutoffAt: this.creativeDayEvaluationCutoffAt,
       fallbackMode: "precomputed",
       note: null,
     });
@@ -8011,7 +8118,7 @@ export class WarehouseDataSource
   ): Promise<string | null> {
     const [row] = await getDb().query<SourceMaxUpdatedAtRow>(
       SOURCE_MAX_UPDATED_AT_QUERY,
-      [businessId, asOf],
+      [businessId, asOf, this.creativeDayEvaluationCutoffAt],
     );
 
     return toIsoTimestampOrNull(row?.source_max_updated_at);
@@ -8023,11 +8130,14 @@ export class WarehouseDataSource
   }): Promise<BusinessTargetPack | null> {
     const referenceTime = resolveTargetReferenceTime(input.asOf);
     if (referenceTime === null) return null;
+    const knowledgeTime = this.hasExplicitCreativeDayEvaluationCutoff && this.creativeDayEvaluationCutoffAt &&
+      Date.parse(this.creativeDayEvaluationCutoffAt) < Date.parse(referenceTime)
+      ? this.creativeDayEvaluationCutoffAt : referenceTime;
     let row: BusinessTargetPackRow | undefined;
     try {
       [row] = await getDb().query<BusinessTargetPackRow>(
         READ_BUSINESS_TARGET_PACK_QUERY,
-        [input.businessId, commercialTargetDatabaseCutoff(referenceTime)],
+        [input.businessId, commercialTargetDatabaseCutoff(knowledgeTime)],
       );
     } catch {
       return null;
@@ -8044,7 +8154,7 @@ export class WarehouseDataSource
       updatedAt: toCommercialTargetTimestampOrNull(row.updated_at),
       freshness: resolveBusinessTargetPackFreshness(
         toCommercialTargetTimestampOrNull(row.updated_at),
-        referenceTime,
+        knowledgeTime,
       ),
     };
   }
@@ -8058,7 +8168,8 @@ export class WarehouseDataSource
     try {
       [row] = await getDb().query<DecisionCalibrationProfileRow>(
         READ_DECISION_CALIBRATION_PROFILE_QUERY,
-        [input.businessId, input.channel, input.objectiveFamily],
+        [input.businessId, input.channel, input.objectiveFamily,
+          this.creativeDayEvaluationCutoffAt],
       );
     } catch {
       return null;
@@ -8099,6 +8210,7 @@ export class WarehouseDataSource
       asOf: input.asOf,
       windowDays: input.windowDays,
       providerAccountId: normalizedProviderAccountId(input.providerAccountId),
+      evaluationCutoffAt: this.creativeDayEvaluationCutoffAt ?? undefined,
       db: getDb(),
     });
   }

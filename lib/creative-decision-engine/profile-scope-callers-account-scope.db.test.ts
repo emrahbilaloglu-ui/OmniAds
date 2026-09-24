@@ -64,6 +64,7 @@
 // vacuously.
 import { sharedEphemeralDatabaseUrl } from "@/lib/test-utils/shared-ephemeral-database";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -178,6 +179,9 @@ const AS_OF = addDays(new Date().toISOString().slice(0, 10), -1);
 
 /** Enough history for the lifecycle age and active-day gates to open. */
 const HISTORY_DAYS = 30;
+const statusHash = (value: string) => createHash("sha256")
+  .update(`profile-scope-status:${value}`)
+  .digest("hex");
 
 type SeedCreatives = (input: {
   businessId: string;
@@ -324,19 +328,20 @@ describe.skipIf(!RUNNABLE)(
         const calibration = await runCalibrationJob({
           businessId,
           asOf: AS_OF,
+          evaluationCutoffAt: new Date().toISOString(),
         });
         if (calibration.status !== "success") {
           throw new Error(
             `calibration ${calibration.status}: ${calibration.errorMessage ?? ""}`,
           );
         }
-        const lifecycle = await runLifecycleJob({ businessId, asOf: AS_OF });
+        const lifecycle = await runLifecycleJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
         if (lifecycle.status !== "success") {
           throw new Error(
             `lifecycle ${lifecycle.status}: ${lifecycle.errorMessage ?? ""}`,
           );
         }
-        const decisions = await runDecisionsJob({ businessId, asOf: AS_OF });
+        const decisions = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
         if (decisions.status !== "success") {
           throw new Error(
             `decisions ${decisions.status}: ${decisions.errorMessage ?? ""}`,
@@ -390,6 +395,67 @@ describe.skipIf(!RUNNABLE)(
            DO UPDATE SET is_selected = TRUE`,
           [businessId, rows[0]!.id, account],
         );
+      };
+
+      // D106: a creative metric row's status is not provider state proof.
+      // Keep these scoped economics fixtures ACTIVE with exact Ad and parent
+      // observations retained before the job's knowledge cutoff.
+      const seedDeliveryHistory = async (businessId: string, account: string, count: number) => {
+        const digits = account.replace(/\D/g, "");
+        const [binding] = await sql.query<{ provider_account_ref_id: string }>(
+          `SELECT provider_account_ref_id::text AS provider_account_ref_id
+           FROM business_provider_accounts
+           WHERE business_id = $1 AND provider = 'meta' AND provider_account_id = $2`,
+          [businessId, account],
+        );
+        const parent = { campaignId: `${digits}01`, adsetId: `${digits}02` };
+        const entities = [
+          { type: "campaign", ids: [parent.campaignId] },
+          { type: "adset", ids: [parent.adsetId] },
+          { type: "ad", ids: Array.from({ length: count }, (_, index) =>
+            `${digits}3${String(index).padStart(3, "0")}`) },
+        ] as const;
+        for (const entity of entities) {
+          const [run] = await sql.query<{ id: string }>(
+            `INSERT INTO meta_entity_observation_runs (
+               business_ref_id, business_id, provider_account_ref_id,
+               provider_account_id, entity_type, endpoint, observed_at,
+               captured_at, completeness, page_count, row_count, run_hash,
+               created_at
+             ) VALUES ($1::uuid, $1, $2::uuid, $3, $4, 'profile-scope-seam',
+               $5::timestamptz, $5::timestamptz, 'complete', 1, $6, $7,
+               $5::timestamptz) RETURNING id::text AS id`,
+            [businessId, binding!.provider_account_ref_id, account, entity.type,
+              `${AS_OF}T04:00:00.000Z`, entity.ids.length,
+              statusHash(`${businessId}:${account}:${entity.type}:run`)],
+          );
+          const rows = entity.ids.map((entityId, index) => ({
+            entity_id: entityId,
+            campaign_id: parent.campaignId,
+            adset_id: entity.type === "campaign" ? null : parent.adsetId,
+            ad_id: entity.type === "ad" ? entityId : null,
+            creative_id: entity.type === "ad" ? `${digits}4${String(index).padStart(3, "0")}` : null,
+            state_hash: statusHash(`${businessId}:${account}:${entity.type}:${entityId}`),
+          }));
+          await sql.query(
+            `INSERT INTO meta_entity_state_history (
+               run_id, business_ref_id, business_id, provider_account_ref_id,
+               provider_account_id, entity_type, entity_id, campaign_id,
+               adset_id, ad_id, creative_id, configured_status,
+               effective_status, presence, observed_at, captured_at,
+               run_completeness, state_hash, created_at
+             ) SELECT $1::uuid, $2::uuid, $2, $3::uuid, $4, $5,
+               source.entity_id, source.campaign_id, source.adset_id,
+               source.ad_id, source.creative_id, 'ACTIVE', 'ACTIVE',
+               'present', $6::timestamptz, $6::timestamptz,
+               'complete', source.state_hash, $6::timestamptz
+             FROM jsonb_to_recordset($7::jsonb) AS source(
+               entity_id text, campaign_id text, adset_id text, ad_id text,
+               creative_id text, state_hash text)`,
+            [run!.id, businessId, binding!.provider_account_ref_id,
+              account, entity.type, `${AS_OF}T04:00:00.000Z`, JSON.stringify(rows)],
+          );
+        }
       };
 
       seedCreatives = async (input) => {
@@ -525,6 +591,11 @@ describe.skipIf(!RUNNABLE)(
         });
       }
 
+      await seedDeliveryHistory(DECISIONS_BUSINESS, ACCOUNT_A, 6);
+      await seedDeliveryHistory(DECISIONS_BUSINESS, ACCOUNT_B, 32);
+      await seedDeliveryHistory(LIFECYCLE_BUSINESS, ACCOUNT_P, 6);
+      await seedDeliveryHistory(LIFECYCLE_BUSINESS, ACCOUNT_Q, 32);
+
       await runAllJobs(DECISIONS_BUSINESS);
       await runAllJobs(LIFECYCLE_BUSINESS);
     }, 600_000);
@@ -570,6 +641,9 @@ describe.skipIf(!RUNNABLE)(
       }
     });
 
+    // Both replay cases rewrite 32 creatives across 30 days and rerun the real
+    // jobs. Bound each whole replay explicitly so a loaded CI runner cannot
+    // time out at the suite-wide 15s default while its DB work is still live.
     it("leaves account A's retained decisions byte-identical when only B moves", async () => {
       const beforeA = JSON.stringify(
         await retainedDecisions(DECISIONS_BUSINESS, ACCOUNT_A),
@@ -603,7 +677,7 @@ describe.skipIf(!RUNNABLE)(
       // B's own rows MUST move, or the fixture proved nothing about A.
       expect(afterB).not.toBe(beforeB);
       expect(afterA).toBe(beforeA);
-    });
+    }, 120_000);
 
     it("leaves account P's retained lifecycle rows byte-identical when only Q moves", async () => {
       const beforeP = JSON.stringify(
@@ -651,7 +725,7 @@ describe.skipIf(!RUNNABLE)(
       expect(
         JSON.stringify(await retainedLifecycle(LIFECYCLE_BUSINESS, ACCOUNT_P)),
       ).toBe(beforeP);
-    });
+    }, 120_000);
 
     it("keeps an unbound creative visible without granting hard authority", async () => {
       /*
@@ -686,6 +760,7 @@ describe.skipIf(!RUNNABLE)(
       const result = await runDecisionsJob({
         businessId: DECISIONS_BUSINESS,
         asOf: AS_OF,
+        evaluationCutoffAt: new Date().toISOString(),
       });
       expect(result.status).toBe("success");
 

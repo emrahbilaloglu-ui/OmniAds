@@ -730,10 +730,10 @@ async function insertAutomaticCampaignRole(input: {
 }
 
 async function prepareUpstream(businessId: string) {
-  const calibration = await runCalibrationJob({ businessId, asOf: AS_OF });
+  const calibration = await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
   expect(calibration.status).toBe("success");
 
-  const lifecycle = await runLifecycleJob({ businessId, asOf: AS_OF });
+  const lifecycle = await runLifecycleJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
   expect(lifecycle.status).toBe("success");
   expect(lifecycle.rowsWritten).toBeGreaterThan(0);
 
@@ -1103,7 +1103,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const businessId = THESWAF_BUSINESS_ID;
     const { lifecycle } = await prepareUpstream(businessId);
 
-    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result.status).toBe("success");
     expect(result.snapshotsWritten).toBeGreaterThan(0);
@@ -1132,8 +1132,8 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const businessId = IWASTORE_BUSINESS_ID;
     await prepareUpstream(businessId);
 
-    const first = await runDecisionsJob({ businessId, asOf: AS_OF });
-    const second = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const first = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
+    const second = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(first.status).toBe("success");
     expect(second.status).toBe("success");
@@ -1149,7 +1149,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const staleCreativeId = "stale-current-day-decision-creative";
     await prepareUpstream(businessId);
 
-    const first = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const first = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     expect(first.status).toBe("success");
     expect(first.snapshotsWritten).toBeGreaterThan(0);
 
@@ -1161,7 +1161,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
       first.snapshotsWritten + 1,
     );
 
-    const second = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const second = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(second.status).toBe("success");
     expect(second.snapshotsWritten).toBe(first.snapshotsWritten);
@@ -1194,7 +1194,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     });
     mockWarehouseForNoCreatives(businessId);
 
-    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result.status).toBe("success");
     expect(result.snapshotsWritten).toBe(0);
@@ -1218,7 +1218,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const staleCreativeId = "stale-event-pruned-creative";
     await prepareUpstream(businessId);
 
-    const initial = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const initial = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     expect(initial.status).toBe("success");
     const [currentSnapshot] = await fetchDecisionSnapshots({
       businessId,
@@ -1254,7 +1254,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
       }),
     ).toBe(1);
 
-    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result.status).toBe("success");
     expect(
@@ -1284,7 +1284,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const businessId = THESWAF_BUSINESS_ID;
     await prepareUpstream(businessId);
 
-    const lockKey = decisionsJobAdvisoryLockKey({ businessId, asOf: AS_OF });
+    const lockKey = decisionsJobAdvisoryLockKey({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     let releaseLock: () => void = () => undefined;
     let holder: Promise<void> | null = null;
     const locked = new Promise<void>((resolve, reject) => {
@@ -1302,7 +1302,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     await locked;
     let result: Awaited<ReturnType<typeof runDecisionsJob>> | null = null;
     try {
-      result = await runDecisionsJob({ businessId, asOf: AS_OF });
+      result = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     } finally {
       releaseLock();
       await holder;
@@ -1341,7 +1341,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
       [businessId],
     );
 
-    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result).toMatchObject({
       status: "skipped",
@@ -1365,7 +1365,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     });
     mockWarehouseForSingleCreative(creativeInput);
 
-    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result.status).toBe("success");
     expect(result.snapshotsWritten).toBe(1);
@@ -1397,7 +1397,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     });
     mockWarehouseForSingleCreative(creativeInput);
 
-    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result.status).toBe("success");
     expect(result.snapshotsWritten).toBe(1);
@@ -1432,7 +1432,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
       campaignKind: "test",
     });
 
-    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result.status).toBe("success");
     expect(result.snapshotsWritten).toBe(1);
@@ -1457,7 +1457,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     });
     mockWarehouseForSingleCreative(creativeInput);
 
-    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(result.status).toBe("success");
     expect(result.snapshotsWritten).toBe(1);
@@ -1474,7 +1474,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
   it("writes a change event only when the prior snapshot label differs", async () => {
     const businessId = THESWAF_BUSINESS_ID;
     await prepareUpstream(businessId);
-    const initial = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const initial = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
     expect(initial.status).toBe("success");
 
     const snapshots = await fetchDecisionSnapshots({ businessId, limit: 2 });
@@ -1499,8 +1499,8 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
       label: unchangedLabel,
     });
 
-    const second = await runDecisionsJob({ businessId, asOf: AS_OF });
-    const third = await runDecisionsJob({ businessId, asOf: AS_OF });
+    const second = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
+    const third = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
 
     expect(second.status).toBe("success");
     expect(second.changeEventsWritten).toBe(1);
@@ -1540,6 +1540,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const result = await runDecisionsJob({
       businessId: FAILURE_BUSINESS_ID,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result).toMatchObject({
@@ -1559,6 +1560,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const result = await runDecisionsJob({
       businessId: UNKNOWN_BUSINESS_ID,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result).toMatchObject({

@@ -74,6 +74,26 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     count: 5,
   },
   /*
+    D106 creative delivery status. The shared reader resolves exact source Ad
+    members and their campaign/adset parents at the evaluation cutoff. An
+    absent or tombstoned latest winner cannot supply ACTIVE; byte pins below.
+  */
+  {
+    file: "lib/meta/creative-member-effective-status.ts",
+    category: "content-reader",
+    count: 1,
+  },
+  {
+    file: "lib/creative-decision-engine/creative-day-metric-evidence.db.test.ts",
+    category: "harness",
+    count: 2,
+  },
+  {
+    file: "lib/creative-decision-engine/profile-scope-callers-account-scope.db.test.ts",
+    category: "harness",
+    count: 1,
+  },
+  /*
     ADR D097 follow-up 2026-09-21 — the campaign-role reader moved to ad grain.
 
     `readCampaignContextCreativeDays` used to select from `meta_creative_daily`,
@@ -711,6 +731,27 @@ describe("D075 state-history consumer closure", () => {
         `WHEN ${grain}.presence = 'present' THEN COALESCE(`,
       );
     }
+  });
+
+  it("creative member status requires cutoff-safe present Ad and parent winners", () => {
+    const src = readFileSync(
+      join(ROOT, "lib/meta/creative-member-effective-status.ts"),
+      "utf8",
+    );
+    for (const predicate of [
+      "state.observed_at <= ${cutoffParameter}::timestamptz",
+      "state.captured_at <= ${cutoffParameter}::timestamptz",
+      "state.created_at <= ${cutoffParameter}::timestamptz",
+      "tombstone.observed_at <= ${cutoffParameter}::timestamptz",
+      "tombstone.captured_at <= ${cutoffParameter}::timestamptz",
+      "tombstone.created_at <= ${cutoffParameter}::timestamptz",
+      "(event_kind = 'tombstone') DESC",
+      "ad_state.event_kind = 'state' AND ad_state.presence = 'present'",
+      "adset_state.event_kind = 'state' AND adset_state.presence = 'present'",
+      "campaign_state.presence = 'present'",
+      "ad_state.creative_id = ${dailyAlias}.creative_id",
+      "AND COALESCE(BOOL_AND(member_status.status IS NOT NULL), FALSE)",
+    ]) expect(src).toContain(predicate);
   });
 
   it("the history feed computes status transitions over present rows only", () => {

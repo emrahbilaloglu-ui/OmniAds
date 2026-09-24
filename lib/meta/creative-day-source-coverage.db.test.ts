@@ -12,6 +12,9 @@ const BUSINESS = "c2de0000-0000-4000-8000-0000000000b1";
 const ACCOUNT = "act_creative_d101_seam";
 const SHARED_CREATIVE_ACCOUNT = "act_creative_d101_shared";
 const AS_OF = "2026-09-22";
+// A recorded knowledge instant: after the last local day publication, before
+// the late revisions deliberately tested below.
+const EVALUATION_CUTOFF_AT = "2026-09-23T00:00:00.000Z";
 const DAYS = ["2026-09-21", "2026-09-22"] as const;
 const adId = (day: string) => `ad_${day}`;
 const runId = (day: string) => `d101_${day}`;
@@ -56,23 +59,23 @@ async function insertCreative(day: string) {
 
 async function coverage() {
   const [row] = await getDb().query<{ source_ok: boolean; window_ok: boolean }>(
-    `SELECT ${creativeDaySourceCoverageSql("d", "$2", 2)} AS source_ok,
-            ${creativeDayCompleteWindowSql("d", "$2", 2)} AS window_ok
+    `SELECT ${creativeDaySourceCoverageSql("d", "$2", "$3", 2)} AS source_ok,
+            ${creativeDayCompleteWindowSql("d", "$2", "$3", 2)} AS window_ok
        FROM meta_creative_daily d
       WHERE d.business_id = $1 AND d.date = $2::date AND d.creative_id = 'cre_d101'`,
-    [BUSINESS, AS_OF],
+    [BUSINESS, AS_OF, EVALUATION_CUTOFF_AT],
   );
   return row;
 }
 
 async function setBasedCoverage(providerAccountScope: string | null = null) {
   const [row] = await getDb().query<{ source_ok: boolean; window_ok: boolean }>(
-    `SELECT ${creativeDaySourceCoverageSql("d", "$2", 2, "$3", "$1")} AS source_ok,
-            ${creativeDayCompleteWindowSql("d", "$2", 2, "$3", "$1")} AS window_ok
+    `SELECT ${creativeDaySourceCoverageSql("d", "$2", "$5", 2, "$3", "$1")} AS source_ok,
+            ${creativeDayCompleteWindowSql("d", "$2", "$5", 2, "$3", "$1")} AS window_ok
        FROM meta_creative_daily d
       WHERE d.business_id = $1 AND d.provider_account_id = $4
         AND d.date = $2::date AND d.creative_id = 'cre_d101'`,
-    [BUSINESS, AS_OF, providerAccountScope, ACCOUNT],
+    [BUSINESS, AS_OF, providerAccountScope, ACCOUNT, EVALUATION_CUTOFF_AT],
   );
   return row;
 }
@@ -160,10 +163,10 @@ describe.skipIf(!SEAM)("creative-day D101 complete source coverage (real Postgre
 
   it("does not infer account absence before its first observed economic Ad day", async () => {
     const [row] = await getDb().query<{ source_ok: boolean }>(
-      `SELECT ${creativeDaySourceCoverageSql("d", "$2", 3, undefined, "$1")} AS source_ok
+      `SELECT ${creativeDaySourceCoverageSql("d", "$2", "$3", 3, undefined, "$1")} AS source_ok
        FROM meta_creative_daily d
        WHERE d.business_id=$1 AND d.date=$2::date AND d.creative_id='cre_d101'`,
-      [BUSINESS, AS_OF],
+      [BUSINESS, AS_OF, EVALUATION_CUTOFF_AT],
     );
     expect(row?.source_ok).toBe(false);
   });
@@ -350,7 +353,7 @@ describe.skipIf(!SEAM)("creative-day D101 complete source coverage (real Postgre
   it("parses the new-epoch outcome SQL against the migrated PostgreSQL schema", async () => {
     const rows = await getDb().query(READ_OUTCOME_SOURCE_ROWS_QUERY, [
       BUSINESS, AS_OF, [7, 14], 120, 10, CREATIVE_OUTCOME_CLASSIFIER_VERSION,
-      ENGINE_VERSION,
+      ENGINE_VERSION, EVALUATION_CUTOFF_AT,
     ]);
     expect(rows).toEqual([]);
   });
@@ -358,10 +361,11 @@ describe.skipIf(!SEAM)("creative-day D101 complete source coverage (real Postgre
   it("keeps outcome source unknown when a closed day is missing an expected Ad fact", async () => {
     const outcomeComplete = async () => {
       const [row] = await getDb().query<{ complete: boolean }>(
-        `SELECT ${creativeDayOutcomeSourceCoverageSql("c", "$2")} AS complete
+        `SELECT ${creativeDayOutcomeSourceCoverageSql("c", "$2", "$3")} AS complete
            FROM (SELECT $1::uuid AS business_ref_id, 'cre_d101'::text AS creative_id,
-             '2026-09-20'::date AS decision_as_of_date, 2::integer AS outcome_window_days) c`,
-        [BUSINESS, AS_OF],
+             '2026-09-20'::date AS decision_as_of_date, 2::integer AS outcome_window_days) c
+          WHERE $2::date >= c.decision_as_of_date`,
+        [BUSINESS, AS_OF, EVALUATION_CUTOFF_AT],
       );
       return row?.complete;
     };

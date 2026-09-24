@@ -53,6 +53,7 @@ function decisionFixture(
     whyNow: "Server why now",
     blockers: [],
     resolution: null,
+    adPerformanceAvailability: "observed",
     /*
       FAITHFUL TO WHAT THE PRODUCER SERVES, which this fixture did not state.
 
@@ -342,6 +343,38 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(measuredHelper.money).toBe("—");
     expect(measuredHelper.adSets?.[0]?.spend).toBe("$100");
     expect(measuredHelper.funnel?.[3]?.value).toBe("2");
+  });
+
+  it("distinguishes missing, observed-zero, and legacy-unknown served-only metrics", () => {
+    const metrics = {
+      ...decisionFixture().metrics,
+      spend: 0,
+      purchases: 0,
+      roas: 0,
+      frequency: 0,
+    };
+    const windowFor = (availability?: "observed" | "unavailable") =>
+      buildCreativeEvidenceWindowExactViewModel({
+        decision: decisionFixture({
+          metrics,
+          adPerformanceAvailability: availability,
+        }),
+        canonical: null,
+        adRows: [],
+        adRowsState: "loaded",
+      });
+    for (const model of [windowFor("unavailable"), windowFor()]) {
+      expect(model.money).toBe("—");
+      expect(model.adSets?.[0]).toMatchObject({ spend: "—", roas: "—" });
+      expect(model.funnel?.[3]?.value).toBe("—");
+      expect(model.facts?.find((fact) => fact.id === "frequency")?.value).toBe("—");
+    }
+    expect(windowFor("unavailable").coverage?.note).toContain("No finalized Ad performance row");
+    expect(windowFor().coverage?.note).toContain("does not establish whether Ad performance was observed");
+    const observed = windowFor("observed");
+    expect(observed.money).toBe("$0 · ROAS 0.00");
+    expect(observed.funnel?.[3]?.value).toBe("0");
+    expect(observed.coverage?.note).not.toContain("decision metrics are withheld");
   });
 
   it("labels selected helper dates separately from the 28d decision and its fallback", () => {

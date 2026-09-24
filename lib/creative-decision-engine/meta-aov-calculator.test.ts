@@ -112,6 +112,37 @@ describe("computeMetaAttributedAov", () => {
     expect(query.mock.calls[0]?.[1]?.[1]).toBe(utcDay);
   });
 
+  it("keeps the western provider-local report day while admitting evidence known after UTC midnight", async () => {
+    const { db, query } = dbReturning([]);
+    await computeMetaAttributedAov({
+      businessId: "d0000000-0000-4000-8000-000000000501",
+      providerAccountId: "act_5000000000001",
+      asOf: "2026-09-22",
+      evaluationCutoffAt: "2026-09-23T08:05:00.000Z",
+      db,
+    });
+
+    expect(query.mock.calls[0]?.[1]?.[1]).toBe("2026-09-22");
+    expect(query.mock.calls[0]?.[1]?.[4]).toBe("2026-09-23T08:05:00.000Z");
+  });
+
+  it.each([
+    "2026-02-30T08:05:00.000Z",
+    "2026-09-23T08:05:00Z",
+    "2026-09-23T08:05:00.000+00:00",
+    "9999-09-23T08:05:00.000Z",
+  ])("rejects an unsafe explicit knowledge cutoff before reading facts: %s", async (evaluationCutoffAt) => {
+    const { db, query } = dbReturning([]);
+    await expect(computeMetaAttributedAov({
+      businessId: "d0000000-0000-4000-8000-000000000501",
+      providerAccountId: "act_5000000000001",
+      asOf: "2026-09-22",
+      evaluationCutoffAt,
+      db,
+    })).rejects.toThrow("evaluationCutoffAt must be a valid, nonfuture UTC instant");
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("refuses an invalid historical cutoff before reading facts", async () => {
     const { db, query } = dbReturning([]);
 

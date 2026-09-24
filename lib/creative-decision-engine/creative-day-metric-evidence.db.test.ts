@@ -31,10 +31,12 @@
  * Registered in `scripts/ephemeral-postgres-migrations-check.ts` with its exact
  * passing count, so an all-skipped run cannot read as a pass.
  */
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { getDb } from "@/lib/db";
 import { SUPPORTED_OBJECTIVES } from "@/lib/creative-decision-engine/config";
+import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
 import { runCalibrationJob } from "@/lib/creative-decision-engine/jobs/calibration-job";
 import {
   COMPUTE_LIFECYCLE_ROWS_QUERY,
@@ -67,6 +69,10 @@ const ACCOUNT_A = "act_creative_day_evidence_a";
 const ACCOUNT_B = "act_creative_day_evidence_b";
 const CALIBRATION_ACCOUNT = "act_creative_day_evidence_cal";
 const AS_OF = "2026-08-20";
+const EVALUATION_CUTOFF_AT = "2026-08-21T00:00:00.000Z";
+const statusHash = (label: string) => createHash("sha256")
+  .update(`creative-status-seam:${label}`)
+  .digest("hex");
 
 function day(offset: number) {
   const date = new Date(`${AS_OF}T00:00:00.000Z`);
@@ -119,6 +125,7 @@ function creativeDay(input: {
   conversions?: number;
   payloadJson: unknown;
   sourceIdentityComplete?: boolean;
+  effectiveStatus?: string | null;
 }): MetaCreativeDailyRow {
   const idle = input.idle === true;
   const adId = input.adId ?? `ad_${input.creativeId}`;
@@ -142,7 +149,7 @@ function creativeDay(input: {
     accountTimezone: "UTC",
     accountCurrency: "USD",
     objective: "OUTCOME_SALES",
-    effectiveStatus: "ACTIVE",
+    effectiveStatus: input.effectiveStatus === undefined ? "ACTIVE" : input.effectiveStatus,
     creativeVisualFormat: "video",
     spend: idle ? 0 : 20,
     impressions: idle ? 0 : 1_000,
@@ -332,6 +339,8 @@ async function seed() {
 async function cleanup() {
   const db = getDb();
   for (const businessId of [LIFECYCLE_BUSINESS, CALIBRATION_BUSINESS]) {
+    await db.query(`DELETE FROM meta_entity_state_history WHERE business_id = $1`, [businessId]);
+    await db.query(`DELETE FROM meta_entity_observation_runs WHERE business_id = $1`, [businessId]);
     await db.query(`DELETE FROM engine_v3_creative_lifecycle_daily WHERE business_ref_id = $1::uuid`, [businessId]);
     await db.query(`DELETE FROM engine_v3_account_calibration_daily WHERE business_ref_id = $1::uuid`, [businessId]);
     await db.query(`DELETE FROM engine_v3_job_runs WHERE business_ref_id = $1::uuid`, [businessId]);
@@ -368,6 +377,7 @@ function payloadFromInsight(insight: Parameters<typeof toRawRow>[0]) {
 
 type LifecycleRow = {
   creative_id: string;
+  effective_status: string | null;
   frequency_28d: number | null;
   link_clicks_28d: string | null;
   outbound_clicks_28d: number | null;
@@ -420,8 +430,10 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       // An IDLE unstamped day did nothing, so it is not a gap in the window.
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_idle", date: day(0), payloadJson: { ...FABRICATED_DISPLAY, ...stamp(ZERO_STAMP) } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_idle", date: day(1), idle: true, payloadJson: { ...FABRICATED_DISPLAY } }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_never_spent", date: day(0), idle: true, effectiveStatus: null, payloadJson: stamp(ZERO_STAMP) }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_never_spent_unknown", date: day(0), idle: true, effectiveStatus: null, payloadJson: stamp(ZERO_STAMP) }),
       // R3: the full writer chain from a raw insight carrying three spellings.
-      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_alias", date: day(0), conversions: 2, payloadJson: alias }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_alias", date: day(0), conversions: 2, effectiveStatus: null, payloadJson: alias }),
       // Legacy: never stamped, fabricated display numbers everywhere.
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_legacy", date: day(0), payloadJson: { ...FABRICATED_DISPLAY } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_legacy", date: day(1), payloadJson: { ...FABRICATED_DISPLAY } }),
@@ -452,6 +464,45 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     await publishSourceDays(sourceRows);
 
     const db = getDb();
+    const [boundAccount] = await db.query<{ id: string }>(
+      `SELECT id::text AS id FROM provider_accounts
+       WHERE provider = 'meta' AND external_account_id = $1`,
+      [ACCOUNT_A],
+    );
+    for (const [index, entityType, entityId] of [
+      [1, "campaign", "cmp_creative_day_evidence"],
+      [2, "adset", "adset_creative_day_evidence"],
+      [3, "ad", "ad_cre_alias"],
+      [4, "ad", "ad_cre_never_spent"],
+    ] as const) {
+      const [run] = await db.query<{ id: string }>(
+        `INSERT INTO meta_entity_observation_runs (
+           business_ref_id, business_id, provider_account_ref_id,
+           provider_account_id, entity_type, endpoint, observed_at, captured_at,
+           completeness, page_count, row_count, run_hash, created_at
+         ) VALUES ($1::uuid, $1, $2::uuid, $3, $4, 'creative-status-seam',
+           '2026-08-20T13:00:00Z', '2026-08-20T13:01:00Z',
+           'complete', 1, 1, $5, '2026-08-20T13:01:00Z') RETURNING id::text AS id`,
+        [LIFECYCLE_BUSINESS, boundAccount!.id, ACCOUNT_A, entityType, statusHash(`run:${index}`)],
+      );
+      await db.query(
+        `INSERT INTO meta_entity_state_history (
+           run_id, business_ref_id, business_id, provider_account_ref_id,
+           provider_account_id, entity_type, entity_id, campaign_id, adset_id,
+           ad_id, creative_id, configured_status, effective_status, presence,
+           observed_at, captured_at, run_completeness, state_hash, created_at
+         ) VALUES ($1::uuid, $2::uuid, $2, $3::uuid, $4, $5, $6,
+           'cmp_creative_day_evidence', $7, $8, $9, 'ACTIVE', 'ACTIVE',
+           'present', '2026-08-20T13:00:00Z', '2026-08-20T13:01:00Z',
+           'complete', $10, '2026-08-20T13:01:00Z')`,
+        [run!.id, LIFECYCLE_BUSINESS, boundAccount!.id, ACCOUNT_A,
+          entityType, entityId,
+          entityType === "campaign" ? null : "adset_creative_day_evidence",
+          entityType === "ad" ? entityId : null,
+          entityType === "ad" ? entityId.slice(3) : null,
+          statusHash(`state:${index}`)],
+      );
+    }
     // This seam tests metric and membership admission, not the D098 receipt
     // ladder. Certify only the synthetic fixture rows; the dedicated negative
     // row keeps the exact normal-writer `unverified` marker.
@@ -519,11 +570,11 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       [LIFECYCLE_BUSINESS, `${AS_OF}T13:00:00.000Z`],
     );
 
-    const result = await runLifecycleJob({ businessId: LIFECYCLE_BUSINESS, asOf: AS_OF });
+    const result = await runLifecycleJob({ businessId: LIFECYCLE_BUSINESS, asOf: AS_OF, evaluationCutoffAt: EVALUATION_CUTOFF_AT });
     expect(result.status, result.errorMessage).toBe("success");
 
     const rows = await db.query<LifecycleRow>(
-      `SELECT creative_id, frequency_28d, link_clicks_28d, outbound_clicks_28d, landing_page_views_28d,
+      `SELECT creative_id, effective_status, frequency_28d, link_clicks_28d, outbound_clicks_28d, landing_page_views_28d,
               add_to_cart_28d, initiate_checkout_28d, thumbstop_28d, video25_rate_28d,
               video50_rate_28d, video75_rate_28d, video100_rate_28d
          FROM engine_v3_creative_lifecycle_daily
@@ -536,6 +587,7 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       LIFECYCLE_BUSINESS,
       AS_OF,
       Array.from(SUPPORTED_OBJECTIVES),
+      EVALUATION_CUTOFF_AT,
     ]);
     historical = new Map(computed.map((row) => [String(row.creative_id), row]));
   }, 120_000);
@@ -591,6 +643,50 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     expect(Number(historical.get("cre_alias")?.last14_click_to_purchase_rate)).toBeCloseTo(0.2, 10);
   });
 
+  it("resolves v2-writer NULL delivery from cutoff-safe Ad and parent history, leaving missing history unknown", async () => {
+    const db = getDb();
+    const [stored] = await db.query<{ effective_status: string | null }>(
+      `SELECT effective_status FROM meta_creative_daily
+       WHERE business_id = $1 AND creative_id = 'cre_alias'`,
+      [LIFECYCLE_BUSINESS],
+    );
+    expect(stored?.effective_status).toBeNull();
+    expect(lifecycle.get("cre_alias")?.effective_status).toBe("ACTIVE");
+    expect(historical.get("cre_alias")?.effective_status).toBe("ACTIVE");
+    expect(lifecycle.get("cre_zero_zero")?.effective_status).toBeNull();
+
+    const source = new WarehouseDataSource(EVALUATION_CUTOFF_AT);
+    const known = await source.getCreativeInput({
+      businessId: LIFECYCLE_BUSINESS, creativeId: "cre_alias", asOf: AS_OF,
+    });
+    const unknown = await source.getCreativeInput({
+      businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_zero", asOf: AS_OF,
+    });
+    expect(known?.effectiveStatus).toBe("ACTIVE");
+    expect(unknown?.effectiveStatus).toBeNull();
+
+    // With no retained lifecycle row, the direct runtime reader must reach
+    // the same state rather than borrowing a mutable detail status.
+    await db.query(
+      `DELETE FROM engine_v3_creative_lifecycle_daily
+       WHERE business_ref_id = $1::uuid AND creative_id = 'cre_alias'`,
+      [LIFECYCLE_BUSINESS],
+    );
+    const runtime = await source.getCreativeInput({
+      businessId: LIFECYCLE_BUSINESS, creativeId: "cre_alias", asOf: AS_OF,
+    });
+    expect(runtime?.effectiveStatus).toBe("ACTIVE");
+  });
+
+  it("selects a known ACTIVE zero-delivery creative without selecting an unknown zero-delivery creative", async () => {
+    const source = new WarehouseDataSource(EVALUATION_CUTOFF_AT);
+    const listed = await source.listCreativeInputs({
+      businessId: LIFECYCLE_BUSINESS, asOf: AS_OF,
+    });
+    expect(listed.find((row) => row.creativeId === "cre_never_spent")?.effectiveStatus).toBe("ACTIVE");
+    expect(listed.some((row) => row.creativeId === "cre_never_spent_unknown")).toBe(false);
+  });
+
   it("R4: malformed stamps and payload shapes are missing, and the job did not abort", () => {
     // The economic row remains source-backed. Only its malformed funnel
     // measurements are missing; the entire business job still completes.
@@ -606,10 +702,11 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
   it("excludes an unverified old folded creative day while admitting source-verified days", async () => {
     const rejected = await getDb().query<{ creative_id: string; admitted: boolean }>(
       `SELECT d.creative_id,
-              COALESCE(${creativeDayConfigDecisionAdmissionSql("d", "$2")}, FALSE) AS admitted
+              COALESCE(${creativeDayConfigDecisionAdmissionSql("d", "$2", "$3")}, FALSE) AS admitted
          FROM meta_creative_daily d
-        WHERE d.business_id = $1 AND d.creative_id IN ('cre_old_folded', 'cre_mixed_parent')`,
-      [LIFECYCLE_BUSINESS, AS_OF],
+        WHERE d.business_id = $1 AND d.date <= $2::date
+          AND d.creative_id IN ('cre_old_folded', 'cre_mixed_parent')`,
+      [LIFECYCLE_BUSINESS, AS_OF, EVALUATION_CUTOFF_AT],
     );
     expect(new Map(rejected.map((row) => [row.creative_id, row.admitted]))).toEqual(new Map([
       ["cre_old_folded", false],
@@ -758,7 +855,7 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       [CALIBRATION_BUSINESS, `${AS_OF}T13:00:00.000Z`],
     );
 
-    const result = await runCalibrationJob({ businessId: CALIBRATION_BUSINESS, asOf: AS_OF });
+    const result = await runCalibrationJob({ businessId: CALIBRATION_BUSINESS, asOf: AS_OF, evaluationCutoffAt: EVALUATION_CUTOFF_AT });
     expect(result.status, result.errorMessage).toBe("success");
 
     const [overall] = await getDb().query<Record<string, unknown>>(
@@ -868,9 +965,9 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
         WHERE d.business_id = $1`,
       [LIFECYCLE_BUSINESS],
     );
-    // 22 stored creative-days: the fold rows are two ad-rows each, merged into
-    // one, while identity/config-negative cases remain stored for admission.
-    expect(rows.length).toBe(22);
+    // 24 stored creative-days: the fold rows are two ad-rows each, merged into
+    // one; identity/config-negative and delivery-status cases remain stored.
+    expect(rows.length).toBe(24);
     for (const row of rows) {
       for (const stage of stages) {
         expect(row[`lateral_${stage}`], `${row.creative_id} ${row.date} ${stage}`).toEqual(row[`direct_${stage}`]);
@@ -913,11 +1010,12 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       { label: "membership-only", payload_json: { ...payload, historical_config_provenance: "unverified" }, expected: false },
     ];
     const rows = await getDb().query<{ label: string; admitted: boolean }>(
-      `SELECT d.label, COALESCE(${creativeDayConfigDecisionAdmissionSql("d", "$2")}, FALSE) AS admitted
+      `SELECT d.label, COALESCE(${creativeDayConfigDecisionAdmissionSql("d", "$2", "$3")}, FALSE) AS admitted
          FROM jsonb_to_recordset($1::jsonb) AS d(
            label text, creative_id text, objective text, optimization_goal text,
            created_at timestamptz, updated_at timestamptz, payload_json jsonb
-         )`,
+         )
+        WHERE d.created_at < ($2::date + INTERVAL '1 day')`,
       [JSON.stringify(cases.map(({ label, payload_json, ...rest }) => ({
         label,
         creative_id: "proved",
@@ -927,7 +1025,7 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
         updated_at: "2026-08-20T13:00:00.000Z",
         ...rest,
         payload_json,
-      }))), AS_OF],
+      }))), AS_OF, EVALUATION_CUTOFF_AT],
     );
     expect(new Map(rows.map((row) => [row.label, row.admitted]))).toEqual(
       new Map(cases.map(({ label, expected }) => [label, expected])),

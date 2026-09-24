@@ -2266,7 +2266,10 @@ async function assertAccountScopeIsolation() {
  * job computed for that scope alone.
  */
 async function materialiseCalibrationScopes(businessId: string, asOf = AS_OF) {
-  const job = await runCalibrationJob({ businessId, asOf });
+  // Synthetic rows were just seeded in this throwaway database. Bind the
+  // source-knowledge instant for this pass after those writes complete.
+  const evaluationCutoffAt = new Date().toISOString();
+  const job = await runCalibrationJob({ businessId, asOf, evaluationCutoffAt });
   if (job.status !== "success") {
     fail("calibration_job_failed", `${businessId}: ${job.status} ${job.errorMessage ?? ""}`);
   }

@@ -2,7 +2,11 @@ export const META_DECISIONS_WORKSPACE_CONTRACT_VERSION =
   "meta-decisions-workspace.read.v4" as const;
 
 export const META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION =
-  "meta-decisions-classification-overlay.v5" as const;
+  "meta-decisions-classification-overlay.v6" as const;
+
+export type MetaDecisionsClassificationOverlayVersion =
+  | typeof META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION
+  | "meta-decisions-classification-overlay.v5";
 
 export const META_DECISIONS_SECTION_SELECTION_VERSION =
   "meta-decisions-section-selection.v1" as const;
@@ -420,7 +424,7 @@ export interface MetaCanonicalDecision {
    * closed, or unknown assets remain visible as advisory-only context. */
   deliveryScope?: MetaDecisionDeliveryScope;
   classification: {
-    overlayVersion: typeof META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION;
+    overlayVersion: MetaDecisionsClassificationOverlayVersion;
     queueSection: MetaDecisionQueueSectionKey;
     lifecycleRole: MetaDecisionLifecycleRoleOverlay;
     assessment: MetaDecisionAssessmentOverlay;

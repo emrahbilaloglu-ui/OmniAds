@@ -60,6 +60,7 @@ import {
   evaluateReleaseAcceptance,
   evaluateReleaseGates,
   locateHeldVerdicts,
+  nativeAdDecisionDay,
   parseAcceptanceArgs,
   persistedInputEvidence,
   projectConfigAuthorityVerified,
@@ -2187,6 +2188,41 @@ describe("cutoff modes for the --chain days", () => {
     expect(() => parseAcceptanceArgs([...window, "--cutoffs", "2026-08-18 15:05"], NOW)).toThrow(/ISO UTC instant/);
     expect(() => parseAcceptanceArgs([...window, "--cutoffs", "2026-08-18T15:05:00Z", "--chain", "2"], NOW)).toThrow(/names 1 cutoffs but --chain is 2/);
     expect(() => parseAcceptanceArgs([...window, "--cutoffs", "2026-08-18T15:05:00Z", "--cutoff-slot", "natural-1505"], NOW)).toThrow(/alternatives/);
+  });
+
+  it("replays fixed report days at later, independently recorded knowledge instants", () => {
+    const args = parseAcceptanceArgs([
+      "--business", BIZ, "--window", "2026-08-25:2026-09-22",
+      "--knowledge-cutoffs", "2026-09-23T23:59:59Z,2026-09-24T01:00:00Z",
+    ], new Date("2026-09-24T02:00:00Z"));
+    expect(args.cutoffMode).toBe("replay");
+    expect(args.mode).toBe("diagnostic");
+    expect(args.chain).toEqual([
+      { asOf: "2026-09-21", cutoff: "2026-09-23T23:59:59.000Z" },
+      { asOf: "2026-09-22", cutoff: "2026-09-24T01:00:00.000Z" },
+    ]);
+    expect(args.chain.map((day) => nativeAdDecisionDay(day, args.cutoffMode))).toEqual([
+      { asOf: "2026-09-21", cutoff: "2026-09-21T23:59:59.999Z" },
+      { asOf: "2026-09-22", cutoff: "2026-09-22T23:59:59.999Z" },
+    ]);
+    expect(nativeAdDecisionDay({ asOf: "2026-09-22", cutoff: "2026-09-22T15:05:00.000Z" }, "replay"))
+      .toEqual({ asOf: "2026-09-22", cutoff: "2026-09-22T15:05:00.000Z" });
+    const replayGate = evaluateReleaseGates({
+      mode: args.mode,
+      businesses: [preDeploySubject()],
+      args: { negativeControl: null, cutoffMode: args.cutoffMode },
+    }, "pre_deploy");
+    expect(replayGate.gates.pre_deploy.accepted).toBe(false);
+    expect(replayGate.gates.pre_deploy.failures.join("\n")).toMatch(/--knowledge-cutoffs/);
+    expect(decideExitCode({
+      invariants: { violations: [] },
+      release: replayGate.gates.pre_deploy,
+    })).toBe(4);
+    const base = ["--business", BIZ, "--window", "2026-08-25:2026-09-22"];
+    expect(() => parseAcceptanceArgs([...base, "--chain", "2", "--knowledge-cutoffs", "2026-09-24T01:00:00Z"], new Date("2026-09-24T02:00:00Z"))).toThrow(/cutoffs names/);
+    expect(() => parseAcceptanceArgs([...base, "--knowledge-cutoffs", "2026-09-24T01:00:00Z,2026-09-23T23:59:59Z"], new Date("2026-09-24T02:00:00Z"))).toThrow(/strictly ascending/);
+    expect(() => parseAcceptanceArgs([...base, "--knowledge-cutoffs", "2026-09-23T23:59:59Z,2026-09-24T03:00:00Z"], new Date("2026-09-24T02:00:00Z"))).toThrow(/not in the past/);
+    expect(() => parseAcceptanceArgs([...base, "--knowledge-cutoffs", "2026-09-23T23:59:59Z,2026-09-24T01:00:00Z", "--cutoffs", "2026-09-21T15:00:00Z,2026-09-22T15:00:00Z"], new Date("2026-09-24T02:00:00Z"))).toThrow(/alternatives/);
   });
 
   it("the chain stays inside the window", () => {

@@ -33,16 +33,16 @@ import type { MetaInsightRecord } from "@/lib/meta/creatives-types";
 import type { MetaAdDailyRow, MetaCreativeDailyRow } from "@/lib/meta/warehouse-types";
 import { configureOperationalScriptRuntime } from "../_operational-runtime";
 
-const CONTRACT = "adsecute.meta-creative-day-membership-repair.v1";
+const CONTRACT = "adsecute.meta-creative-day-membership-repair.v2";
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const CONFIG_COLUMNS = [
-  "effective_status", "objective", "attribution_setting", "quality_ranking",
+  "objective", "attribution_setting", "quality_ranking",
   "engagement_rate_ranking", "conversion_rate_ranking", "bid_strategy",
   "optimization_goal", "campaign_daily_budget", "adset_daily_budget",
   "campaign_lifetime_budget", "adset_lifetime_budget",
 ] as const;
 const CONFIG_PROPERTIES = [
-  "effectiveStatus", "objective", "attributionSetting", "qualityRanking",
+  "objective", "attributionSetting", "qualityRanking",
   "engagementRateRanking", "conversionRateRanking", "bidStrategy",
   "optimizationGoal", "campaignDailyBudget", "adsetDailyBudget",
   "campaignLifetimeBudget", "adsetLifetimeBudget",
@@ -56,6 +56,10 @@ type Options = {
   apply: boolean;
   expectedManifestHash: string | null;
   manifestOut: string | null;
+};
+type SelectedAccountRefs = {
+  businessRefId: string;
+  providerAccountRefId: string;
 };
 export type CreativeRepairSourceSnapshot = {
   id: string; businessId: string; providerAccountId: string;
@@ -153,6 +157,7 @@ type Group = {
   old: MetaCreativeDailyRow | null;
   needsWrite: boolean;
   next: {
+    businessRefId: string; providerAccountRefId: string;
     accountTimezone: string; accountCurrency: string;
     campaignId: string | null; adsetId: string | null; adId: string | null;
     spend: number; impressions: number; clicks: number; reach: number;
@@ -166,6 +171,7 @@ type Group = {
 
 export function buildCreativeDayRepairPlan(input: {
   businessId: string; accountId: string; day: string; cutoff: string;
+  selectedRefs: SelectedAccountRefs;
   adRows: MetaAdDailyRow[]; oldRows: MetaCreativeDailyRow[];
   providerRows: MetaInsightRecord[]; identityByAdDay: Map<string, string>;
   sourceLineageBySnapshot: Map<string, CreativeRepairSourceSnapshot>;
@@ -293,6 +299,10 @@ export function buildCreativeDayRepairPlan(input: {
     const { historical_config_proof: _staleConfigProof,
       ...oldPayloadWithoutConfigProof } = record(old?.payloadJson);
     const payload: Record<string, unknown> = { ...oldPayloadWithoutConfigProof,
+      // Current Ad detail is not a historical status observation. In
+      // particular, retaining a legacy ACTIVE value could authorize a
+      // repaired day after its membership becomes source-certified.
+      effective_status: null,
       source_ad_ids: members.map((row) => row.adId), source_ad_ids_complete: true,
       source_membership_scope: "decision_bearing_ad_days",
       source_creative_ids: [creativeId], associated_ads_count: members.length,
@@ -333,6 +343,8 @@ export function buildCreativeDayRepairPlan(input: {
         "campaign_lifetime_budget", "adset_lifetime_budget"]) payload[key] = null;
     }
     const next = {
+      businessRefId: input.selectedRefs.businessRefId,
+      providerAccountRefId: input.selectedRefs.providerAccountRefId,
       accountTimezone: members[0]!.accountTimezone,
       accountCurrency: members[0]!.accountCurrency,
       campaignId: parentComplete ? campaigns[0]! : null,
@@ -344,8 +356,11 @@ export function buildCreativeDayRepairPlan(input: {
       ctr: impressions > 0 ? clicks / impressions * 100 : null,
       cpc: linkClicks != null && linkClicks > 0 ? spend / linkClicks : null,
       linkClicks, outboundClicks, payloadJson: payload, parentComplete,
+      effectiveStatus: null,
     };
     const comparableOld = old && {
+      businessRefId: old.businessRefId ?? null,
+      providerAccountRefId: old.providerAccountRefId ?? null,
       accountTimezone: old.accountTimezone,
       accountCurrency: old.accountCurrency,
       campaignId: old.campaignId, adsetId: old.adsetId, adId: old.adId,
@@ -356,15 +371,17 @@ export function buildCreativeDayRepairPlan(input: {
       linkClicks: old.linkClicks ?? null, outboundClicks: old.outboundClicks ?? null,
       payloadJson: old.payloadJson,
       parentComplete: record(old.payloadJson).source_parent_grain_complete === true,
+      effectiveStatus: old.effectiveStatus,
     };
     const configNeedsClear = !parentComplete && Boolean(old) && [
-      old!.effectiveStatus, old!.objective, old!.attributionSetting,
+      old!.objective, old!.attributionSetting,
       old!.qualityRanking, old!.engagementRateRanking, old!.conversionRateRanking,
       old!.bidStrategy, old!.optimizationGoal, old!.campaignDailyBudget,
       old!.adsetDailyBudget, old!.campaignLifetimeBudget, old!.adsetLifetimeBudget,
     ].some((value) => value != null);
     return { creativeId, members, old, next,
-      needsWrite: !old || configNeedsClear || hash(comparableOld) !== hash(next) };
+      needsWrite: !old || configNeedsClear || old.effectiveStatus != null ||
+        hash(comparableOld) !== hash(next) };
   });
   const stale = oldRows.filter((row) => !groupsById.has(row.creativeId) &&
     decisionBearing(row)).sort((a, b) => a.creativeId.localeCompare(b.creativeId));
@@ -373,6 +390,7 @@ export function buildCreativeDayRepairPlan(input: {
       row.accountTimezone, row.accountCurrency, row.spend, row.impressions,
       row.clicks, row.frequency, row.conversions, row.revenue, hash(row.payloadJson)]),
     creative: oldRows.map((row) => [row.creativeId, row.updatedAt,
+      row.businessRefId ?? null, row.providerAccountRefId ?? null,
       row.accountTimezone, row.accountCurrency, row.spend,
       row.impressions, row.clicks, row.frequency, hash(row.payloadJson)]),
   };
@@ -381,6 +399,7 @@ export function buildCreativeDayRepairPlan(input: {
   const manifest = {
     contract: CONTRACT, scope: { businessId: input.businessId, accountId: input.accountId,
       day: input.day, knowledgeCutoffAt: input.cutoff },
+    selectedRefs: input.selectedRefs,
     source: "finalized_meta_ad_daily_payload_plus_complete_dated_insights_and_provable_state_history",
     economicsAuthority: "stored_finalized_ad_day_source_snapshot",
     sourceLineage,
@@ -425,7 +444,9 @@ export function assertCreativeDayRepairReadback(rows: MetaCreativeDailyRow[], pl
   for (const group of plan.groups) {
     const actual = byId.get(group.creativeId);
     const next = group.next;
-    if (!actual || actual.accountTimezone !== next.accountTimezone ||
+    if (!actual || actual.businessRefId !== next.businessRefId ||
+      actual.providerAccountRefId !== next.providerAccountRefId ||
+      actual.accountTimezone !== next.accountTimezone ||
       actual.accountCurrency !== next.accountCurrency ||
       actual.campaignId !== next.campaignId ||
       actual.adsetId !== next.adsetId || actual.adId !== next.adId ||
@@ -440,6 +461,7 @@ export function assertCreativeDayRepairReadback(rows: MetaCreativeDailyRow[], pl
       !matchesNullableNumber(actual.cpc, next.cpc) ||
       actual.linkClicks !== next.linkClicks ||
       actual.outboundClicks !== next.outboundClicks ||
+      actual.effectiveStatus != null ||
       (!next.parentComplete && CONFIG_PROPERTIES.some((property) => actual[property] != null)) ||
       hash(actual.payloadJson) !== hash(next.payloadJson)) {
       throw new Error(`creative_day_repair_readback_mismatch:${group.creativeId}`);
@@ -457,6 +479,31 @@ export function assertCreativeDayRepairReadback(rows: MetaCreativeDailyRow[], pl
       row.impressions, row.clicks, row.payloadJson])) };
 }
 
+async function readSelectedMetaAccountRefs(
+  businessId: string, accountId: string, lock: boolean,
+): Promise<SelectedAccountRefs> {
+  const rows = await getDb().query<{
+    business_ref_id: string; provider_account_ref_id: string;
+  }>(`SELECT b.id::text AS business_ref_id,
+        p.id::text AS provider_account_ref_id
+      FROM businesses b
+      JOIN provider_accounts p ON p.provider='meta'
+        AND p.external_account_id=$2
+      JOIN business_provider_accounts binding
+        ON binding.business_id=b.id::text AND binding.provider='meta'
+        AND binding.provider_account_ref_id=p.id
+        AND binding.provider_account_id=$2 AND binding.is_selected=TRUE
+      WHERE b.id=$1::uuid${lock ? " FOR SHARE OF b, p, binding" : ""}`,
+    [businessId, accountId]);
+  if (rows.length !== 1) {
+    throw new Error("creative_day_repair_normalized_reference_missing");
+  }
+  return {
+    businessRefId: rows[0]!.business_ref_id,
+    providerAccountRefId: rows[0]!.provider_account_ref_id,
+  };
+}
+
 async function applyPlan(input: {
   options: Options;
   plan: Extract<ReturnType<typeof buildCreativeDayRepairPlan>, { status: "ready" }>;
@@ -464,13 +511,16 @@ async function applyPlan(input: {
   const { options, plan } = input;
   await runDbTransaction(async () => {
     const sql = getDb();
+    // The receipt certifier takes this same account/day advisory lock before
+    // acquiring a creative-row write lock. Match its order to avoid a lock
+    // cycle if certification and a reviewed historical repair overlap.
+    await sql.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `meta_creative_daily:${options.businessId}:${options.accountId}:${options.day}`,
+    ]);
     // The normal sync writer does not take this script's advisory lock. Briefly
     // block Ad/creative inserts while checking the preimage and replacing this
     // one day, so a new positive row cannot appear behind the range readback.
     await sql.query("LOCK TABLE meta_ad_daily, meta_creative_daily IN SHARE ROW EXCLUSIVE MODE");
-    await sql.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      `meta_creative_daily:${options.businessId}:${options.accountId}:${options.day}`,
-    ]);
     await sql.query(
       `SELECT ad_id FROM meta_ad_daily WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date FOR UPDATE`,
       [options.businessId, options.accountId, options.day],
@@ -514,11 +564,20 @@ async function applyPlan(input: {
         row.spend, row.impressions, row.clicks, row.frequency,
         row.conversions, row.revenue, hash(row.payloadJson)]),
       creative: old.map((row) => [row.creativeId, row.updatedAt,
+        row.businessRefId ?? null, row.providerAccountRefId ?? null,
         row.accountTimezone, row.accountCurrency, row.spend,
         row.impressions, row.clicks, row.frequency, hash(row.payloadJson)]),
     };
     if (hash(before) !== plan.manifest.preimageHash) {
       throw new Error("creative_day_repair_preimage_drift");
+    }
+    // The normal warehouse writer binds both normalized references. A repair
+    // insert that writes only the legacy text IDs is invisible to D101 and
+    // lifecycle readers, even though a legacy range read appears correct.
+    const refs = await readSelectedMetaAccountRefs(options.businessId,
+      options.accountId, true);
+    if (hash(refs) !== hash(plan.manifest.selectedRefs)) {
+      throw new Error("creative_day_repair_selected_reference_drift");
     }
     for (const group of plan.groups.filter((group) => group.needsWrite)) {
       const next = group.next;
@@ -526,12 +585,14 @@ async function applyPlan(input: {
         const clearedConfig = !next.parentComplete
           ? `, ${CONFIG_COLUMNS.map((column) => `${column}=NULL`).join(", ")}` : "";
         const rows = await sql.query<{ creative_id: string }>(
-          `UPDATE meta_creative_daily SET campaign_id=$5, adset_id=$6, ad_id=$7,
+          `UPDATE meta_creative_daily SET business_ref_id=$24::uuid,
+             provider_account_ref_id=$25::uuid,
+             campaign_id=$5, adset_id=$6, ad_id=$7,
              spend=$8, impressions=$9, clicks=$10, reach=$11, conversions=$12,
              revenue=$13, roas=$14, cpa=$15, ctr=$16, cpc=$17,
              link_clicks=$18, outbound_clicks=$19, payload_json=$20::jsonb,
              account_timezone=$21, account_currency=$22, frequency=$23,
-             updated_at=now() ${clearedConfig}
+             effective_status=NULL, updated_at=now() ${clearedConfig}
            WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
              AND creative_id=$4 RETURNING creative_id`,
           [options.businessId, options.accountId, options.day, group.creativeId,
@@ -539,24 +600,27 @@ async function applyPlan(input: {
             next.clicks, next.reach, next.conversions, next.revenue, next.roas,
             next.cpa, next.ctr, next.cpc, next.linkClicks, next.outboundClicks,
             JSON.stringify(next.payloadJson), next.accountTimezone,
-            next.accountCurrency, next.frequency],
+            next.accountCurrency, next.frequency, refs.businessRefId,
+            refs.providerAccountRefId],
         );
         if (rows.length !== 1) throw new Error(`creative_day_repair_update_mismatch:${group.creativeId}`);
       } else {
         const rows = await sql.query<{ creative_id: string }>(
           `INSERT INTO meta_creative_daily
-           (business_id, provider_account_id, date, creative_id, account_timezone,
+           (business_id, business_ref_id, provider_account_id,
+            provider_account_ref_id, date, creative_id, account_timezone,
             account_currency, campaign_id, adset_id, ad_id, spend, impressions,
             clicks, reach, conversions, revenue, roas, cpa, ctr, cpc, link_clicks,
             outbound_clicks, payload_json, frequency)
-           VALUES ($1,$2,$3::date,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23)
+           VALUES ($1,$24::uuid,$2,$25::uuid,$3::date,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23)
            ON CONFLICT DO NOTHING RETURNING creative_id`,
           [options.businessId, options.accountId, options.day, group.creativeId,
             next.accountTimezone, next.accountCurrency,
             next.campaignId, next.adsetId, next.adId, next.spend, next.impressions,
             next.clicks, next.reach, next.conversions, next.revenue, next.roas,
             next.cpa, next.ctr, next.cpc, next.linkClicks, next.outboundClicks,
-            JSON.stringify(next.payloadJson), next.frequency],
+            JSON.stringify(next.payloadJson), next.frequency,
+            refs.businessRefId, refs.providerAccountRefId],
         );
         if (rows.length !== 1) throw new Error(`creative_day_repair_insert_conflict:${group.creativeId}`);
       }
@@ -574,6 +638,23 @@ async function applyPlan(input: {
       startDate: options.day, endDate: options.day,
     });
     assertCreativeDayRepairReadback(inTransactionRows, plan);
+    const normalized = await sql.query<{
+      creative_id: string; business_ref_id: string | null;
+      provider_account_ref_id: string | null; effective_status: string | null;
+    }>(`SELECT creative_id, business_ref_id::text AS business_ref_id,
+          provider_account_ref_id::text AS provider_account_ref_id,
+          effective_status
+        FROM meta_creative_daily
+        WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
+          AND creative_id=ANY($4::text[])`,
+      [options.businessId, options.accountId, options.day,
+        plan.groups.map((group) => group.creativeId)]);
+    if (normalized.length !== plan.groups.length || normalized.some((row) =>
+      row.business_ref_id !== refs.businessRefId ||
+      row.provider_account_ref_id !== refs.providerAccountRefId ||
+      row.effective_status != null)) {
+      throw new Error("creative_day_repair_reference_or_status_readback_mismatch");
+    }
   });
   const publishedRows = await getMetaCreativeDailyRange({
     businessId: options.businessId, providerAccountIds: [options.accountId],
@@ -591,7 +672,7 @@ async function main() {
   }
   const assigned = await fetchAssignedAccountIds(options.businessId);
   if (!assigned.includes(options.accountId)) throw new Error("account_not_assigned_to_business");
-  const [adRows, oldRows, providerRows, identityByAdDay] = await Promise.all([
+  const [adRows, oldRows, providerRows, identityByAdDay, selectedRefs] = await Promise.all([
     getMetaAdDailyRange({ businessId: options.businessId, providerAccountIds: [options.accountId],
       startDate: options.day, endDate: options.day }),
     getMetaCreativeDailyRange({ businessId: options.businessId, providerAccountIds: [options.accountId],
@@ -601,6 +682,7 @@ async function main() {
     readProvableAdCreativeIdentityForDays({ businessId: options.businessId,
       providerAccountId: options.accountId, start: options.day, end: options.day,
       knowledgeCutoffAt: options.knowledgeCutoffAt }),
+    readSelectedMetaAccountRefs(options.businessId, options.accountId, false),
   ]);
   const snapshotIds = [...new Set(adRows.map((row) => row.sourceSnapshotId).filter(
     (id): id is string => typeof id === "string" && id.length > 0))];
@@ -623,7 +705,8 @@ async function main() {
   }]));
   const plan = buildCreativeDayRepairPlan({ businessId: options.businessId,
     accountId: options.accountId, day: options.day, cutoff: options.knowledgeCutoffAt,
-    adRows, oldRows, providerRows, identityByAdDay, sourceLineageBySnapshot });
+    selectedRefs, adRows, oldRows, providerRows, identityByAdDay,
+    sourceLineageBySnapshot });
   const report = plan.status === "ready"
     ? { status: plan.status, manifestHash: plan.manifestHash, manifest: plan.manifest }
     : plan;

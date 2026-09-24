@@ -7,6 +7,8 @@ const day = "2026-09-21";
 const cutoff = "2026-09-24T00:00:00.000Z";
 const account = "act_123";
 const business = "biz-1";
+const selectedRefs = { businessRefId: "business-uuid-1",
+  providerAccountRefId: "account-uuid-1" };
 function ad(id: string, spend: number, campaignId = "cmp-1", adsetId = "set-1") {
   return {
     businessId: business, providerAccountId: account, date: day,
@@ -44,9 +46,11 @@ function old(creativeId: string, spend: number) {
 function plan(input: {
   adRows?: MetaAdDailyRow[]; oldRows?: MetaCreativeDailyRow[];
   providerRows?: MetaInsightRecord[]; identities?: [string, string][];
+  selectedRefs?: typeof selectedRefs;
 }) {
   return buildCreativeDayRepairPlan({ businessId: business, accountId: account,
-    day, cutoff, adRows: input.adRows ?? [], oldRows: input.oldRows ?? [],
+    day, cutoff, selectedRefs: input.selectedRefs ?? selectedRefs,
+    adRows: input.adRows ?? [], oldRows: input.oldRows ?? [],
     providerRows: input.providerRows ?? [],
     sourceLineageBySnapshot: new Map([["snapshot-1", {
       id: "snapshot-1", businessId: business, providerAccountId: account,
@@ -107,6 +111,61 @@ describe("creative-day historical membership repair", () => {
     expect(result.groups[0]!.next.payloadJson).toMatchObject({ objective: null,
       source_parent_grain_complete: false, source_campaign_ids: ["cmp-1", "cmp-2"] });
   });
+
+  it("clears an unverified legacy ACTIVE status even when the parent is complete", () => {
+    const legacy = { ...old("creative-1", 23.61), effectiveStatus: "ACTIVE",
+      payloadJson: { objective: "OUTCOME_SALES", effective_status: "ACTIVE" },
+    } as MetaCreativeDailyRow;
+    const sources = { adRows: [ad("ad-1", 23.61)],
+      providerRows: [insight("ad-1", 23.61)],
+      identities: [["ad-1", "creative-1"]] as [string, string][] };
+    const result = plan({ ...sources, oldRows: [legacy] });
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.groups[0]!.needsWrite).toBe(true);
+    expect(result.manifest.changes[0]).toMatchObject({ next: {
+      effectiveStatus: null, payloadJson: { effective_status: null,
+        historical_config_provenance: "unverified" },
+    } });
+    const repaired = { ...legacy, ...result.groups[0]!.next } as MetaCreativeDailyRow;
+    expect(() => assertCreativeDayRepairReadback([legacy], result))
+      .toThrow("creative_day_repair_readback_mismatch:creative-1");
+    expect(() => assertCreativeDayRepairReadback([repaired], result)).not.toThrow();
+    const rerun = plan({ ...sources, oldRows: [repaired] });
+    expect(rerun.status).toBe("ready");
+    if (rerun.status === "ready") expect(rerun.manifest.changes).toEqual([]);
+  });
+
+  it.each([
+    ["missing", null, null],
+    ["wrong", "other-business-uuid", "other-account-uuid"],
+  ])("repairs %s normalized refs even when every other v2 field is current",
+    (_label, businessRefId, providerAccountRefId) => {
+      const sources = { adRows: [ad("ad-1", 23.61)],
+        providerRows: [insight("ad-1", 23.61)],
+        identities: [["ad-1", "creative-1"]] as [string, string][] };
+      const initial = plan(sources);
+      expect(initial.status).toBe("ready");
+      if (initial.status !== "ready") return;
+      const damaged = { ...old("creative-1", 23.61),
+        ...initial.groups[0]!.next, businessRefId, providerAccountRefId,
+      } as MetaCreativeDailyRow;
+      const repair = plan({ ...sources, oldRows: [damaged] });
+      expect(repair.status).toBe("ready");
+      if (repair.status !== "ready") return;
+      expect(repair.groups[0]!.needsWrite).toBe(true);
+      expect(repair.manifest.changes).toMatchObject([{ kind: "update",
+        old: { businessRefId, providerAccountRefId },
+        next: selectedRefs,
+      }]);
+      expect(() => assertCreativeDayRepairReadback([damaged], repair))
+        .toThrow("creative_day_repair_readback_mismatch:creative-1");
+      const corrected = { ...damaged, ...repair.groups[0]!.next } as MetaCreativeDailyRow;
+      expect(() => assertCreativeDayRepairReadback([corrected], repair)).not.toThrow();
+      const rerun = plan({ ...sources, oldRows: [corrected] });
+      expect(rerun.status).toBe("ready");
+      if (rerun.status === "ready") expect(rerun.manifest.changes).toEqual([]);
+    });
 
   it("blocks a Grandmix-like switched Ad rather than borrowing current identity", () => {
     const result = plan({ adRows: [ad("ad-1", 23.61), ad("ad-2", 24.35)],

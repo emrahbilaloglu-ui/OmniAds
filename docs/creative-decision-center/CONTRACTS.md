@@ -436,7 +436,7 @@ record of a superseded release and must not be used as a current value.
 
 | Contract surface | Release value |
 | --- | --- |
-| Canonical engine | `v3-2026-09-24-creative-membership-integrity` |
+| Canonical engine | `v3-2026-09-24-creative-knowledge-bound` (D105 explicit evaluation instant and provider-local closed-day schedule); prior membership epoch remains historical |
 | Native-Ad engine | `v3-ad-2026-09-24-cut-recent-overlay-proof-shadow` |
 | Exact native rollback epoch | `v3-ad-2026-07-15-commercial-stop-loss-shadow` |
 | Native calibration | `engine-v3-native-ad-calibration.v6` (minted by this repair); `.v5` remains readable under its own formula, and older rows never authorize a new decision. See the durable-compatibility note below. |
@@ -451,8 +451,8 @@ record of a superseded release and must not be used as a current value.
 | D086 retention identity | `d086.budget-readiness-retention.v13`; `.v1`–`.v12` superseded (twelve entries in `D086_SUPERSEDED_RETENTION_CONTRACTS`) — a superseded stamp is readable as HISTORY only and can never retain or authorize a current verdict |
 | Native-Ad outcome | `engine-v3-ad-decision-outcome.v3` |
 | Decisions workspace read | `meta-decisions-workspace.read.v4` |
-| Classification overlay | `meta-decisions-classification-overlay.v5` (D100 current-native config receipt safety) |
-| Decisions OS presentation | `meta-os-decisions.presentation.v5` |
+| Classification overlay | `meta-decisions-classification-overlay.v6` (D104 typed Scale hold resolutions); `.v5` remains readable |
+| Decisions OS presentation | `meta-os-decisions.presentation.v6` (D104 served Ad metric availability); `.v5` remains readable |
 | Automation rule evaluation report | `automation-rule-evaluation-report.v2` — `anchors` are read from `business_target_pack_history` AS OF the evaluation cutoff, never from the current workspace snapshot |
 | D086 input-pack artifact | `d086.budget-readiness-input-pack.v15` (`r15`, D096 additive receipts); `r1`–`r14` frozen and byte-recomputable, verified by the generator's own `frozenRevisions` check. `r13` is pinned in `D086_REJECTED_REVISIONS` at `5432828f7213b3540f995136239a25c2acd5e0af6108262822c85aa73d009ce0`; `r12` remains additionally pinned by the D077 release-candidate manifest at `a508d90527b441b6a82cf25537e1b5b5425203f72d22d6083cceb6bad0eb4b6b` |
 | D086 pinned local-Postgres evidence | `d086-local-postgres-evidence-2026-09-02.r5.json` (`d086.capture-to-readiness-evidence.v3`), sha256 `d5b1fa580937df653390e5ef193b094a504e9f8324ddf75b480f6a8648143d2e`. It records the current EIGHT-index required catalogue with `indisvalid` / `indisready` / `indislive` on every entry; the verifier refuses a short, extra, wrong-name or unusable required catalogue. D096 retains the legacy receipt occurrence arbiter and ranked indexes for the deployed writer's rollback, alongside the v2 attempt indexes. `r1`–`r4` remain frozen; `r3` is D077-pinned and is never rewritten |

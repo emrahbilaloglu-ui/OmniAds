@@ -65,7 +65,7 @@ describe("held-verdict authority release epoch contract", () => {
       remain readable under it.
     */
     expect(ENGINE_VERSION).toBe(
-      "v3-2026-09-24-creative-membership-integrity",
+      "v3-2026-09-24-creative-knowledge-bound",
     );
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
       "v3-ad-2026-09-24-cut-recent-overlay-proof-shadow",

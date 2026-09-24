@@ -498,6 +498,7 @@ describe.skipIf(!process.env.DATABASE_URL)("operator response job", () => {
     const result = await runOperatorResponseJob({
       businessId: THESWAF_BUSINESS_ID,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result.status).toBe("success");
@@ -526,10 +527,12 @@ describe.skipIf(!process.env.DATABASE_URL)("operator response job", () => {
     const first = await runOperatorResponseJob({
       businessId: THESWAF_BUSINESS_ID,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
     const second = await runOperatorResponseJob({
       businessId: THESWAF_BUSINESS_ID,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(first.status).toBe("success");
@@ -550,6 +553,7 @@ describe.skipIf(!process.env.DATABASE_URL)("operator response job", () => {
     const result = await runOperatorResponseJob({
       businessId: THESWAF_BUSINESS_ID,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result.status).toBe("success");
@@ -564,6 +568,7 @@ describe.skipIf(!process.env.DATABASE_URL)("operator response job", () => {
     const lockKey = operatorResponseJobAdvisoryLockKey({
       businessId: THESWAF_BUSINESS_ID,
       asOf: AS_OF,
+      evaluationCutoffAt: new Date().toISOString(),
     });
     let releaseLock: () => void = () => undefined;
     let holder: Promise<void> | null = null;
@@ -585,6 +590,7 @@ describe.skipIf(!process.env.DATABASE_URL)("operator response job", () => {
       result = await runOperatorResponseJob({
         businessId: THESWAF_BUSINESS_ID,
         asOf: AS_OF,
+        evaluationCutoffAt: new Date().toISOString(),
       });
     } finally {
       releaseLock();

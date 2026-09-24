@@ -1,5 +1,5 @@
 {
-  "manifestHash": "107039a20107bc0dc4dcd1c7e055cc233a656950f88fe9785bce680ae8dc3580",
+  "manifestHash": "85e1517beb37d65a1afb2f255975ed8cbfcff66e5094b29f18922ef40d73efdd",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -120,7 +120,7 @@
     },
     {
       "path": "app/api/creatives/briefing/canonical-projection.test.ts",
-      "sha256": "55e846bbfb4cfd087d76d2768a96d922e48ed9d660df7a407ca279459a03cd64"
+      "sha256": "6aec449032f7b37840f086b7595e55222767fbfc3e41f2e3ad46d472549fbf19"
     },
     {
       "path": "app/api/creatives/briefing/canonical-projection.ts",
@@ -404,7 +404,7 @@
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "299d8c317264d1743b2ea757a0ee754a494dfcc5f1d407130bbc1b207f46047b"
+      "sha256": "0dc2b88c2624fa5f8b5b81c35427f73f9b8a718bbcc219c3f43bcb5807cf5c96"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -1452,7 +1452,7 @@
     },
     {
       "path": "lib/meta/decisions-os-presentation.ts",
-      "sha256": "e7f4334d1f98072ace01e807ade10023dbc0abf8c08562574ff5be8e33c085ea"
+      "sha256": "56d9a9f813bb9d383c2414e7c36deb5207bf4c544cbdbc0881a251711a9089ca"
     },
     {
       "path": "lib/meta/decisions-workspace-contract.ts",

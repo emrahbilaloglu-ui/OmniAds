@@ -2166,7 +2166,7 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
   confirm_commercial_target: "Confirm the commercial target before acting.",
   refresh_decision_data: "Refresh decision data before acting.",
   verify_purchase_observation:
-    "Verify the original Meta purchase actions for the affected Ad days. Spend and traffic can remain measured while purchase totals are unverified; no Meta change is authorized from the stored zero.",
+    "Verify the original Meta purchase actions for the affected Ad days. Spend and traffic can remain measured while purchase totals are unverified; no Meta change is authorized from those totals.",
   await_decision_confirmation:
     "Wait for the required confirmation before acting.",
   await_recent_evidence: "Wait for more recent performance evidence.",

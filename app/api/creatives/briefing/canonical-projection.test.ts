@@ -12,7 +12,7 @@ function heldCutDecision(input: {
   rawLabel?: string;
   inputHash?: string;
   label?: string;
-  authorityBlocker?: "campaign_context" | "recent_recovery_unverifiable";
+  authorityBlocker?: MetaCanonicalDecision["sourceDecision"]["authorityBlocker"];
   resolutionCode?: string;
 } = {}): MetaCanonicalDecision {
   return {
@@ -76,10 +76,19 @@ function heldCutDecision(input: {
       executionAction: null,
       resolution: {
         code: input.resolutionCode ?? "campaign_context",
-        category: "campaign_context",
-        nextStep: "Confirm campaign role",
+        category:
+          input.resolutionCode === "verify_purchase_observation"
+            ? "data"
+            : "campaign_context",
+        nextStep:
+          input.resolutionCode === "verify_purchase_observation"
+            ? "Verify the original Meta purchase actions"
+            : "Confirm campaign role",
       },
-      blockers: [{ code: "campaign_context", label: "Campaign role missing" }],
+      blockers:
+        input.resolutionCode === "verify_purchase_observation"
+          ? [{ code: "ad_purchase_observation", label: "Purchase observation incomplete" }]
+          : [{ code: "campaign_context", label: "Campaign role missing" }],
     },
     metrics: {
       spend: 500,

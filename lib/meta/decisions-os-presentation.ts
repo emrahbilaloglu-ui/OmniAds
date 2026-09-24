@@ -128,7 +128,7 @@ function authorityProvenanceForDecision(
             ? {
                 label: "Purchase observation is incomplete",
                 explanation:
-                  "Spend and traffic may be measured, but one or more economic Ad days have no verified Meta purchase-action receipt. Stored purchase zeros do not authorize a provider action.",
+                  "Spend and traffic may be measured, but one or more economic Ad days have no verified Meta purchase-action receipt. Stored purchase totals do not authorize a provider action.",
               }
             : AUTHORITY_BLOCKER_PRESENTATION[blocker]),
         }

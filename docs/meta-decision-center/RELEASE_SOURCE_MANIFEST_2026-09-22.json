@@ -1,5 +1,5 @@
 {
-  "manifestHash": "258e9a0e0a2ad2dc3b215617a711b05b5300d73983b78a16637dc603fe8aabff",
+  "manifestHash": "ffdc3cbd4d04009e0cfdb9efbcd750f351d2a4a5441350daf461c9a273f19a37",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -212,11 +212,11 @@
     },
     {
       "path": "app/api/meta/creative-thumbnail/route.test.ts",
-      "sha256": "1797dd55f11a5941ed6751dd48034e9774d6b46668dabfcffcffe6d4236555ab"
+      "sha256": "942b270f2b26697bd7eddfdfb1bfe5cdd637d4199899a339b03ced8f580afccc"
     },
     {
       "path": "app/api/meta/creative-thumbnail/route.ts",
-      "sha256": "0da1cd9bbe56465482f1bfc331a15a2cf7f3a025ad45c7695c14dfe10d726bd0"
+      "sha256": "994d337ed8c00c667dbb4fb49b3e81f9312a1a7c8ba8f21888736c39e629e5bb"
     },
     {
       "path": "app/api/meta/decision-as-of-scope.golden.test.ts",
@@ -228,11 +228,11 @@
     },
     {
       "path": "app/api/meta/decisions-workspace/route.test.ts",
-      "sha256": "249f061971e9ec99045a389ceaf8fe63a725630c52a254f8b163f1508c374bf4"
+      "sha256": "76d04618249628613e0b2514643b11011386c1ed343ef593e0ee79106ea2b68b"
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "63d75e1012d3fca4000003f2a179c8988ace0fc13e5919315d39be57d15f614a"
+      "sha256": "c3be1bf35f6007f68551e5341cffbe1b26cce9b8381b30ef556a3f1bf10aa129"
     },
     {
       "path": "app/api/meta/lane-classify/route.test.ts",
@@ -412,7 +412,7 @@
     },
     {
       "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
-      "sha256": "5cbfba31a98d8071dbc0ffd73486080e621ad5cf007806df6ef264f9804e22fa"
+      "sha256": "a9938f27952e298c5c38334582f6a4737369c0ec018c7c59abe4bbeaa9175902"
     },
     {
       "path": "components/meta/decision-center/held-resolution-owner-copy.test.ts",
@@ -420,11 +420,11 @@
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "bb3f1e9d5707a00b2ddc06eaeb3ee60e0ca88c58746d695559b257d79288dbbd"
+      "sha256": "b11fd88c8afb975a10c1424d4da6aeeeafd1934b4c65a4d151281a192779f49b"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "fe8ecb2826a0dfe5e162f32db843c840503b9cd552bcf53f3853916b00fbda10"
+      "sha256": "16efc32a915b8c6478baafc82f3e3fcf775d77a9ce368b02e79628317d12ae2f"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -572,7 +572,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "58ea8d24666b8dfac2da883037a0d446e001904b8261ccea1e55e218754e73cd"
+      "sha256": "9e1e452b5cc5dd62c83a88df5b5e837aa8f029e30254ed6b2c4c495a40fb7443"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -580,11 +580,15 @@
     },
     {
       "path": "docs/creative-decision-center/INVARIANTS.md",
-      "sha256": "49bfa68adda8b865a1815177e96895d73462dda2fe91c5f19ae042e80822525d"
+      "sha256": "f6b2b25bc8ac2609341fe1d8d1318a09f36f50de0ca0e56e4e4c07c92a67ff77"
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
       "sha256": "a0e76ec1ffd466004a3b11567b65684a380f5bfe2bbe1f12f4d8a23c5ec61a8c"
+    },
+    {
+      "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
+      "sha256": "2c5f859d2038fa7080aaf4f7dd7b418e51a6cfed219ed03bd7e81d1495481d80"
     },
     {
       "path": "docs/meta-decision-center/CALIBRATION_SOURCE_QUERY_PERF_2026-09-22.md",
@@ -636,11 +640,19 @@
     },
     {
       "path": "lib/api/meta.test.ts",
-      "sha256": "6eda0216359df68389a0a8146e631e9bbf4247ace6c7bf024a613f4633a3b98c"
+      "sha256": "d0a3f3cb7aa942efb3469bc2125c4a401353e1661c165bbf4caaf0e95e34c452"
     },
     {
       "path": "lib/api/meta.ts",
-      "sha256": "79cbcecda0af21be6efb3b37f9b863caea34db5e8e21f55eae34c51212c4ae3b"
+      "sha256": "10a8f0f90713e1038b9fd2d6eecf9ec78ce858aefa00a7266007cb030263239b"
+    },
+    {
+      "path": "lib/creative-decision-center/__tests__/v3-bridge.test.ts",
+      "sha256": "af6237b38b8e9aa3eb6a54fdc399a73c621ee2bd43f52951c6f983e97423200f"
+    },
+    {
+      "path": "lib/creative-decision-center/v3-bridge.ts",
+      "sha256": "930a9cd5394c8f2498f941aa5e3af801dd36734703d4c3a4fe8c98c228adb0fa"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-cpa-identity-projection.test.ts",
@@ -1335,6 +1347,10 @@
       "sha256": "b6a4dde71e8fe8002904c2874b02828f6180207fdc72e5280be4f416e22792d7"
     },
     {
+      "path": "lib/meta/canonical-decision-presentation.test.ts",
+      "sha256": "5d91350a9e7be32e3a6b33a326a66fbb0b1185b86bfc6382ed4289af7cf5d2ae"
+    },
+    {
       "path": "lib/meta/canonical-decision-presentation.ts",
       "sha256": "cc9572cd3cf69028c7ab46a84bcaabf492a100f3305fc0bdf57291b1a47d4f15"
     },
@@ -1460,7 +1476,7 @@
     },
     {
       "path": "lib/meta/creative-thumbnail-recovery-url.ts",
-      "sha256": "2577688ccb82b393f287b5aa721d310e307bf9f0ed6a6f95642d10ee890f1c61"
+      "sha256": "a029f18688768a85966d9cc833bc34fd425ea16e27f663cbbe488bac9628b0fe"
     },
     {
       "path": "lib/meta/creatives-api.test.ts",
@@ -1497,6 +1513,10 @@
     {
       "path": "lib/meta/creatives-warehouse.ts",
       "sha256": "683859070a03c0636f6b0aa5811540014a7334eb99ad340527f0dee5aabe44ef"
+    },
+    {
+      "path": "lib/meta/current-ad-delivery-status.ts",
+      "sha256": "6072b05eca43f99af02ec82a1b473395e2686a3419212453b89bb1f63c63ff5f"
     },
     {
       "path": "lib/meta/current-evidence-gate.ts",
@@ -1540,11 +1560,11 @@
     },
     {
       "path": "lib/meta/decisions-os-presentation.test.ts",
-      "sha256": "6e27cf0fc73e7b8803e1e8775367b4fb72842ee34df8bfc1c08d96c42702dcba"
+      "sha256": "8c007de88b9687146e11542205a677cd03ac4ef5980181313975131f42d20530"
     },
     {
       "path": "lib/meta/decisions-os-presentation.ts",
-      "sha256": "883edcc3f34b658539892cb7599cc4a18d536ea7e5ad39054600c1311aed3697"
+      "sha256": "09d6057d3b8bf305a7bb70a04ee66eec1a97c223cfe490c6864ca6b2eabaa4bf"
     },
     {
       "path": "lib/meta/decisions-pre-cap-ad-candidates.ts",
@@ -1552,7 +1572,7 @@
     },
     {
       "path": "lib/meta/decisions-workspace-contract.ts",
-      "sha256": "743ae12dcf585e3df74725456a1daa4db5bd77643b595047f5f46063da2f9b04"
+      "sha256": "5215598371d597d59a3bfdfdbd38e89152445ed763ee297c8da51a9a877fc656"
     },
     {
       "path": "lib/meta/decisions-workspace-pre-cap-projection.test.ts",
@@ -1560,11 +1580,11 @@
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
-      "sha256": "ece57c853612470fda38c617a38501b3f4e7915752fe794a8170462d31765085"
+      "sha256": "d4a1acbbc96fd6d988fa4deb6d200d28937a3ff57d80e0264c82f3d5fb179908"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
-      "sha256": "93de734b7aedc68fe018e6e8dc1b76b1cdb3630780224a1e868c0376d24b13b2"
+      "sha256": "7bd21af83e708b5304041383c87a0e8e98164bf440a00e26c63c9e5092203c09"
     },
     {
       "path": "lib/meta/entity-signals-backfill.test.ts",
@@ -1944,7 +1964,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "6038ecc56145289b858e0ac89ec788a8fa1a76c2db75b1b76738ea70b5f91c4e"
+      "sha256": "949ffff9ae33a6908bb848599af5099287fb5ec4a9879900c6c3c58fcc364023"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -1987,12 +2007,16 @@
       "sha256": "080b1de4562a21b8fb09c598f46fda3ad31f733cfbe6f2285bca8e19ad2c798f"
     },
     {
+      "path": "scripts/meta/creative-day-source-evidence-repair.db.test.ts",
+      "sha256": "b051cd6d030422e71dae29e5b2053d60d9f2bf93644efab1774e68e6709a94d2"
+    },
+    {
       "path": "scripts/meta/creative-day-source-evidence-repair.test.ts",
-      "sha256": "d028b377c39464438374db12a3ad88024cf037f8f02f374d11cee6fdbe08c57f"
+      "sha256": "d2132a0e55a01a89efa9df518922db8db34c6005e918a55b6d1e09c23b71bf23"
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.ts",
-      "sha256": "ba410bd491542645e4fb8b24799c98cc68920a9d9b80b467155352162b5ff1d2"
+      "sha256": "f13829118030e34f1ab8fdc3ba30b8566e2a495c1184eef4aadfe387e69fbdb1"
     },
     {
       "path": "scripts/meta/decision-release-source-manifest.ts",

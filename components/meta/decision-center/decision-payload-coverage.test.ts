@@ -4150,8 +4150,9 @@ const NOWHERE_LEAVES = 380;
 // D107's observed-day count stays in the served review callback but is not
 // projected into the card or inspector, moving this count from 68 to 69.
 // D109's purchase fact stays in the callback but leaves the selected exact-Ad
-// funnel, moving this count from 69 to 70.
-const NOWHERE_BUT_AT_THE_BOUNDARY = 70;
+// funnel, moving this count from 69 to 70. The media-backed creative type
+// provenance also travels in the review tuple without a rendered value.
+const NOWHERE_BUT_AT_THE_BOUNDARY = 71;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";

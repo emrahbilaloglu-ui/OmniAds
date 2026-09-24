@@ -13229,6 +13229,8 @@ export interface MetaAdDailySeriesPoint {
   reach: number;
   frequency: number | null;
   ctr: number | null;
+  /** Warehouse observation clock; never a decision cutoff or provider event time. */
+  sourceUpdatedAt?: string | null;
 }
 
 /**
@@ -13246,6 +13248,8 @@ export async function getMetaAdDailySeries(input: {
   startDate: string;
   endDate: string;
   providerAccountIds?: string[] | null;
+  /** Presentation-only reads may request finalized, validated facts. */
+  finalizedOnly?: boolean;
 }): Promise<MetaAdDailySeriesPoint[]> {
   const adIds = Array.from(
     new Set(input.adIds.map((value) => value.trim()).filter(Boolean)),
@@ -13254,7 +13258,8 @@ export async function getMetaAdDailySeries(input: {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
-    SELECT ad_id, date, impressions, clicks, link_clicks, reach, frequency, ctr
+    SELECT ad_id, date, impressions, clicks, link_clicks, reach, frequency, ctr,
+      updated_at::text AS source_updated_at
     FROM meta_ad_daily
     WHERE business_id = ${input.businessId}
       AND ad_id = ANY(${adIds}::text[])
@@ -13263,6 +13268,10 @@ export async function getMetaAdDailySeries(input: {
       AND (
         ${input.providerAccountIds ?? null}::text[] IS NULL
         OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
+      )
+      AND (
+        ${input.finalizedOnly ?? false}::boolean = false
+        OR (truth_state = 'finalized' AND validation_status = 'passed')
       )
     ORDER BY date ASC, ad_id ASC
   ` as Array<{
@@ -13274,6 +13283,7 @@ export async function getMetaAdDailySeries(input: {
     reach: string | number | null;
     frequency: string | number | null;
     ctr: string | number | null;
+    source_updated_at: string | null;
   }>;
 
   return rows.map((row) => ({
@@ -13285,6 +13295,7 @@ export async function getMetaAdDailySeries(input: {
     reach: Number(row.reach ?? 0),
     frequency: row.frequency == null ? null : Number(row.frequency),
     ctr: row.ctr == null ? null : Number(row.ctr),
+    sourceUpdatedAt: row.source_updated_at,
   }));
 }
 

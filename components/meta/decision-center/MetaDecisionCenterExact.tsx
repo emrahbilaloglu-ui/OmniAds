@@ -350,8 +350,20 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   /** The server's `blockers` and `resolution.nextStep`, joined, never invented. */
   blockedNote?: MetaDecisionCenterExactDisplayValue;
   sparkPath?: string | null;
-  /** Measured 28-day CTR, used when the daily trail was not served. */
+  /** CTR from the admitted decision snapshot, if observed there. */
   ctrValue?: MetaDecisionCenterExactDisplayValue;
+  /** Supplemental finalized Ad-day observation, outside decision authority. */
+  observedCtrValue?: MetaDecisionCenterExactDisplayValue;
+  observedCtrContext?: {
+    accountId: string;
+    adId: string;
+    startDate: string;
+    endDate: string;
+    measuredDays: number;
+    state: "observed" | "missing" | "incomplete";
+    warehouseUpdatedAt: string | null;
+  } | null;
+  observedSparkPath?: string | null;
   money?: MetaDecisionCenterExactDisplayValue;
   moneySub?: MetaDecisionCenterExactDisplayValue;
   actionLabel?: MetaDecisionCenterExactDisplayValue;
@@ -1871,6 +1883,7 @@ function CreativeCard({
   grouped?: boolean;
 }) {
   const copy = useCopy();
+  const language = useZeroBaseLanguage();
   const stripeA = row.stripeA?.trim() || "#F1F4F9";
   const stripeB = row.stripeB?.trim() || "#F7F9FC";
   const isBlocked =
@@ -1970,7 +1983,9 @@ function CreativeCard({
       <div className={styles.creativeMetrics}>
         {row.sparkPath || nonBlankDisplay(row.ctrValue) ? (
           <div className={styles.creativeSparkBlock}>
-            <p className={styles.creativeSparkLabel}>{copy.ctrWindowed}</p>
+            <p className={styles.creativeSparkLabel}>
+              {language === "tr" ? `Karar ${copy.ctrWindowed}` : `Decision ${copy.ctrWindowed}`}
+            </p>
             {nonBlankDisplay(row.ctrValue) ? (
               <p className={styles.creativeSparkValue} data-meta-exact-creative-ctr-value>
                 {display(row.ctrValue)}
@@ -1986,6 +2001,32 @@ function CreativeCard({
                   vectorEffect="non-scaling-stroke"
                 />
               </svg>
+            ) : null}
+          </div>
+        ) : null}
+        {nonBlankDisplay(row.observedCtrValue) ? (
+          <div className={styles.creativeObservedCtrBlock} title={row.observedCtrContext
+            ? language === "tr"
+              ? `${row.observedCtrContext.accountId}/${row.observedCtrContext.adId} için finalized/passed işaretli Meta reklam-gün depo kayıtları; depo güncellemesi ${row.observedCtrContext.warehouseUpdatedAt ?? "bilinmiyor"}. Bu ayrı okuma karar yetkisini değiştirmez.`
+              : `Meta Ad-day warehouse rows marked finalized/passed for ${row.observedCtrContext.accountId}/${row.observedCtrContext.adId}; warehouse updated ${row.observedCtrContext.warehouseUpdatedAt ?? "unknown"}. This separate read does not change decision authority.`
+            : undefined}
+            data-meta-exact-creative-observed-ctr>
+            <p className={styles.creativeSparkLabel}>
+              {language === "tr" ? "Kaydedilen reklam-gün CTR" : "Recorded Ad-day CTR"}
+            </p>
+            <p className={styles.creativeSparkValue}>{display(row.observedCtrValue)}</p>
+            {row.observedSparkPath ? (
+              <svg aria-hidden="true" viewBox="0 0 100 22" preserveAspectRatio="none">
+                <path d={row.observedSparkPath} fill="none" stroke="var(--tone-solid)"
+                  strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+              </svg>
+            ) : null}
+            {row.observedCtrContext ? (
+              <p className={styles.creativeObservedCtrDetail}>
+                {language === "tr"
+                  ? `Rapor ${row.observedCtrContext.startDate}–${row.observedCtrContext.endDate} · ${row.observedCtrContext.measuredDays} ölçülen gün · ${row.observedCtrContext.state === "incomplete" ? "kayıtlı CTR eksik" : row.observedCtrContext.state === "missing" ? "ölçülmüş gösterim yok" : "karar CTR'sinden ayrı"}`
+                  : `Report ${row.observedCtrContext.startDate}–${row.observedCtrContext.endDate} · ${row.observedCtrContext.measuredDays} measured days · ${row.observedCtrContext.state === "incomplete" ? "recorded CTR incomplete" : row.observedCtrContext.state === "missing" ? "no measured impressions" : "separate from decision CTR"}`}
+              </p>
             ) : null}
           </div>
         ) : null}

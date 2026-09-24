@@ -47,7 +47,8 @@ const state = vi.hoisted(() => ({
   queryKeys: [] as unknown[][],
   queryOptions: {} as Record<
     string,
-    { retry?: unknown; refetchOnWindowFocus?: unknown }
+    { retry?: unknown; refetchOnWindowFocus?: unknown;
+      enabled?: boolean; queryFn?: (...args: unknown[]) => unknown }
   >,
   adapterInput: null as any,
   exactProps: null as any,
@@ -100,12 +101,16 @@ vi.mock("@tanstack/react-query", () => ({
     queryKey: unknown[];
     retry?: unknown;
     refetchOnWindowFocus?: unknown;
+    enabled?: boolean;
+    queryFn?: (...args: unknown[]) => unknown;
   }) => {
     const key = String(input.queryKey[0]);
     state.queryKeys.push(input.queryKey);
     state.queryOptions[key] = {
       retry: input.retry,
       refetchOnWindowFocus: input.refetchOnWindowFocus,
+      enabled: input.enabled,
+      queryFn: input.queryFn,
     };
     const override = state.queryOverrides[key];
     const base =
@@ -621,23 +626,57 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Creative decision CTR trail", () => {
-  it("uses the decision's 28 days when the selected page range is seven days", () => {
+describe("Supplemental creative Ad-day CTR reporting", () => {
+  it("keys the independent 28-day report by exact account, dates and ads", async () => {
     state.search =
       "providerAccountId=act_1&scope=creatives&window=7d&startDate=2026-07-04&endDate=2026-07-10";
+    const observation = {
+      adId: "ad_pending", providerAccountId: "act_1",
+      requestedStartDate: "2026-06-13", requestedEndDate: "2026-07-10",
+      observedStartDate: "2026-07-09", observedEndDate: "2026-07-10",
+      measuredDays: 2, state: "observed", ctrPercent: 0,
+      dailyCtr: [{ date: "2026-07-09", ctrPercent: 0 },
+        { date: "2026-07-10", ctrPercent: 0 }],
+      lastWarehouseUpdateAt: "2026-07-11T09:00:00Z",
+    };
+    state.queryOverrides["meta-queue-ctr-evidence"] = {
+      data: new Map([["ad_pending", observation]]),
+    };
     state.workspaceData = {
       ...(workspacePayload() as Record<string, unknown>),
       os: osPresentation([pendingOsDecision()]),
     };
     render();
 
-    const trailKey = state.queryKeys.find(
-      (key) => key[0] === "meta-queue-ctr-series",
+    const evidenceKey = state.queryKeys.find(
+      (key) => key[0] === "meta-queue-ctr-evidence",
     );
-    expect(trailKey).toEqual([
-      "meta-queue-ctr-series", "biz_1", "2026-06-13", "2026-07-10",
-      "ad_pending",
+    expect(evidenceKey).toEqual([
+      "meta-queue-ctr-evidence", "biz_1", "act_1",
+      "2026-06-13", "2026-07-10", "ad_pending",
     ]);
+    expect(state.queryOptions["meta-queue-ctr-evidence"]?.enabled).toBe(true);
+    expect(state.adapterInput.overrides.creativeCtrObservationByAdId.get("ad_pending"))
+      .toEqual(observation);
+    expect(state.adapterInput.overrides.creativeCtrSeriesByAdId).toBeUndefined();
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ctrEvidence: [observation] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const fetched = await state.queryOptions["meta-queue-ctr-evidence"]?.queryFn?.();
+    expect(fetched).toBeInstanceOf(Map);
+    expect((fetched as Map<string, unknown>).get("ad_pending")).toEqual(observation);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const request = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
+    expect(request.pathname).toBe("/api/meta/ads/series");
+    expect(Object.fromEntries(request.searchParams)).toMatchObject({
+      businessId: "biz_1", providerAccountId: "act_1",
+      adIds: "ad_pending", start: "2026-06-13", end: "2026-07-10",
+      ctrEvidence: "1",
+    });
+    expect(request.searchParams.has("groupBy")).toBe(false);
   });
 });
 

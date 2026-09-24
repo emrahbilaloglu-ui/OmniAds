@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { getDb } from "@/lib/db";
+import { getMetaAdDailySeries } from "@/lib/meta/warehouse";
 
 import {
   buildMetaDecisionsWorkspaceReadModel,
@@ -14,6 +16,11 @@ vi.mock("@/lib/db", () => ({
   }),
 }));
 
+vi.mock("@/lib/db-schema-readiness", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/db-schema-readiness")>()),
+  assertDbSchemaReady: vi.fn(async () => undefined),
+}));
+
 vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
   resolveCampaignContextMode: vi.fn(() => "automatic"),
   CAMPAIGN_CONTEXT_MAX_AGE_DAYS: 2,
@@ -23,17 +30,14 @@ vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
 }));
 
 /**
- * THE UNIT UNDER THE CTR WITHHOLDING.
+ * CTR UNIT PARITY ACROSS DISTINCT OBSERVATIONS.
  *
- * The Decision page withholds the 28-day CTR SCALAR
- * (`MetaCanonicalDecision.metrics.ctr`, served on to `MetaOsDecisionMetrics.ctr`)
- * on the ground that the evidence window already draws "the same measure at
- * higher resolution" as a daily trail. That ground is an assumption about two
- * DIFFERENT columns written by two DIFFERENT producers, and nobody had checked
- * that they carry the same unit. If one stored a RATIO and the other a PERCENT
- * they differ by 100x, the stated reason would be false, and it would be
- * invisible today only because the scalar is not drawn — until the day someone
- * draws it beside the chart and the card contradicts itself.
+ * The legacy creative-grain lifecycle scalar and the Ad-day warehouse trail
+ * are both all-click CTR percentages. They are DIFFERENT observations: the
+ * creative may be used by several ads, D107 can admit a shorter economic
+ * decision window, and a later warehouse read has no decision authority.
+ * A ratio/percent mismatch would still create a 100x display error, so this
+ * test pins their units without claiming their values should match on a card.
  *
  * SETTLED FROM THE CODE, and pinned here so it cannot rot:
  *
@@ -51,21 +55,15 @@ vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
  *   returns the impression-weighted mean of those stored values and never
  *   rescales them.
  *
- * So the units agree, both are the ALL-CLICKS CTR, and the withholding's stated
- * reason survives on this axis. Two caveats a reader must keep, and the second
- * one qualifies the reason rather than supporting it:
+ * Their units agree. Two caveats remain:
  *
  *   1. The trail's per-day values are rounded to 2 dp before storage, so the
- *      weighted mean equals the 28-day ratio only up to that rounding. Pinned
- *      below as a tolerance, not waved away.
- *   2. GRAIN. The scalar is the CREATIVE's 28-day CTR (a creative-grain
- *      lifecycle row); the trail is the AD's daily CTR (meta_ad_daily, keyed by
- *      ad_id, and the queue looks it up by `decision.adId`). For an ad that is
- *      its creative's only ad they are the same population. For a creative
- *      running under several ads they are NOT, and "the same measure at higher
- *      resolution" is then loose: the scalar is not the drawn chart's own
- *      average. That does not reach an operator while the scalar is withheld,
- *      and it is exactly what must be re-argued before anyone renders it.
+ *      weighted mean equals a same-population 28-day ratio only up to that
+ *      rounding. Pinned below as a tolerance, not waved away.
+ *   2. GRAIN, WINDOW AND AUTHORITY. The lifecycle scalar is creative-grain and
+ *      legacy 28-day; the new card source read is ad-grain over explicit report
+ *      dates. It selects finalized/passed warehouse rows, not the native
+ *      decision's cutoff-admitted economic slice. The UI labels them apart.
  */
 
 /** lib/api/meta.ts:590 — the rounding every stored daily CTR carries. */
@@ -85,7 +83,7 @@ const READ_MODEL = readFileSync(
   "utf8",
 );
 
-describe("the withheld 28d CTR scalar and the drawn daily trail carry the same unit", () => {
+describe("legacy creative CTR and supplemental Ad-day CTR share units, not authority", () => {
   it("writes the scalar as a percent of all clicks, in the one job that owns the column", () => {
     // The whole CASE expression behind `AS ctr_28d`, so the ×100 cannot be
     // deleted while some other ×100 elsewhere in the file keeps a loose grep
@@ -162,9 +160,10 @@ describe("the withheld 28d CTR scalar and the drawn daily trail carry the same u
     ).toContain("ctr: decision.metrics.ctr ?? null,");
   });
 
-  it("makes the trail's own average equal the scalar, up to the stored rounding", () => {
-    // 28 days is the window both sides claim; the shape is irrelevant, the
-    // arithmetic is not.
+  it("keeps percentage units consistent for an identical synthetic one-ad population", () => {
+    // This deliberately gives both measures the SAME synthetic 28 days to
+    // isolate units and rounding. D107 need not admit those same days into a
+    // real decision, so numerical equality here is not a UI equality claim.
     const days = Array.from({ length: 28 }, (_, index) => ({
       impressions: 4_000 + index * 137,
       clicks: 61 + (index % 7) * 13,
@@ -192,23 +191,47 @@ describe("the withheld 28d CTR scalar and the drawn daily trail carry the same u
     expect(ifTheTrailHadStoredARatio).toBeLessThan(100.1);
   });
 
-  it("says out loud that the two are the same measure at DIFFERENT grains", () => {
+  it("keeps the legacy lifecycle pointer distinct from a scoped Ad-day read", async () => {
     /*
-     * The withholding says "the same measure at higher resolution". Resolution
-     * is only half of it. The scalar comes from the creative-grain lifecycle row
-     * the engine decided on; the trail comes from ad-grain warehouse rows keyed
-     * by ad id. One creative under three ads has one scalar and three trails.
-     * Whoever renders the scalar has to answer that first, and this pins both
-     * halves of the mismatch so the answer cannot be assumed.
+     * Exercise the actual warehouse reader with a tagged-SQL spy. A fixed
+     * SELECT string missed the new source clock and said nothing about whether
+     * this presentation read binds its business, account, ad and report dates
+     * or requests only finalized/passed rows. The SQL is not executed by this
+     * unit test; the exact-bound route and measured/missing behavior have their
+     * own tests in app/api/meta/ads/series/route.test.ts.
      */
     expect(READ_MODEL).toContain(
       "ON lifecycle.id = snapshot.creative_evidence_lifecycle_row_id",
     );
-    const trailRead = WAREHOUSE.replace(/\s+/g, " ");
-    expect(trailRead).toContain(
-      "SELECT ad_id, date, impressions, clicks, link_clicks, reach, frequency, ctr FROM meta_ad_daily",
-    );
-    expect(trailRead).toContain("AND ad_id = ANY(${adIds}::text[])");
+    const tag = vi.fn(async (pieces: TemplateStringsArray, ...bound: unknown[]) => {
+      const query = pieces.join(" ? ").replace(/\s+/g, " ");
+      expect(query).toMatch(/FROM meta_ad_daily WHERE business_id = \?/);
+      expect(query).toMatch(/ad_id = ANY\(\s*\?\s*::text\[\]\)/);
+      expect(query).toMatch(/date >= \? AND date <= \?/);
+      expect(query).toMatch(/provider_account_id = ANY\(\s*\?\s*::text\[\]\)/);
+      expect(query).toMatch(/\?\s*::boolean = false OR \(truth_state = 'finalized' AND validation_status = 'passed'\)/);
+      expect(bound).toEqual([
+        "biz_1", ["ad_1"], "2026-07-01", "2026-07-28",
+        ["act_1"], ["act_1"], true,
+      ]);
+      return [{
+        ad_id: "ad_1", date: "2026-07-10", impressions: 100,
+        clicks: 0, link_clicks: 0, reach: 90, frequency: 1.1,
+        ctr: 0, source_updated_at: "2026-07-29T10:00:00Z",
+      }];
+    });
+    vi.mocked(getDb).mockReturnValueOnce(tag as unknown as ReturnType<typeof getDb>);
+    const rows = await getMetaAdDailySeries({
+      businessId: "biz_1", providerAccountIds: ["act_1"],
+      adIds: ["ad_1", "ad_1"], startDate: "2026-07-01",
+      endDate: "2026-07-28", finalizedOnly: true,
+    });
+    expect(tag).toHaveBeenCalledOnce();
+    expect(rows).toEqual([{
+      adId: "ad_1", date: "2026-07-10", impressions: 100,
+      clicks: 0, linkClicks: 0, reach: 90, frequency: 1.1,
+      ctr: 0, sourceUpdatedAt: "2026-07-29T10:00:00Z",
+    }]);
   });
 });
 

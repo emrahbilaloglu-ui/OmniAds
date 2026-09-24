@@ -767,6 +767,39 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(unserved?.querySelector("svg")).toBeNull();
   });
 
+  it("renders supplemental Ad-day CTR on a blocked card without calling it decision CTR", () => {
+    const viewModel = exactViewModel();
+    viewModel.creativeDecisions = [{
+      id: "grandmix-source-observed", name: "Grandmix observed Ad",
+      stateLabel: "Needs Resolution", ctrValue: null,
+      observedCtrValue: "4.25%",
+      observedCtrContext: {
+        accountId: "act_1", adId: "ad_1", startDate: "2026-08-26",
+        endDate: "2026-09-22", measuredDays: 28, state: "observed",
+        warehouseUpdatedAt: "2026-09-24 11:45:37+00",
+      },
+      observedSparkPath: "M0 10 L100 5",
+    }];
+    render(<MetaDecisionCenterExact defaultScope="creatives" viewModel={viewModel} />);
+    const card = document.querySelector('[data-meta-exact-creative-row="grandmix-source-observed"]');
+    const observation = card?.querySelector('[data-meta-exact-creative-observed-ctr]');
+    expect(observation?.textContent).toContain("Recorded Ad-day CTR");
+    expect(observation?.textContent).toContain("4.25%");
+    expect(observation?.textContent).toContain("Report 2026-08-26–2026-09-22");
+    expect(observation?.getAttribute("title")).toContain("does not change decision authority");
+    expect(card?.querySelector('[data-meta-exact-creative-ctr-value]')).toBeNull();
+    cleanup();
+    render(
+      <ZeroBaseCopyProvider language="tr">
+        <MetaDecisionCenterExact defaultScope="creatives" viewModel={viewModel} />
+      </ZeroBaseCopyProvider>,
+    );
+    const translated = document.querySelector('[data-meta-exact-creative-observed-ctr]');
+    expect(translated?.textContent).toContain("Kaydedilen reklam-gün CTR");
+    expect(translated?.textContent).toContain("28 ölçülen gün");
+    expect(translated?.getAttribute("title")).toContain("karar yetkisini değiştirmez");
+  });
+
   it("renders the Grandmix economic Cut and its config gap in Action without a provider pause control", () => {
     const row = {
       id: "grandmix-ad-120247018755120316",

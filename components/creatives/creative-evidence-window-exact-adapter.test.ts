@@ -393,7 +393,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       },
     });
     expect(measured.periodLabels).toEqual({
-      decision: "28d",
+      decision: "period unavailable",
       series: "selected 2026-09-16–2026-09-22",
       funnel: "selected 2026-09-16–2026-09-22 · all ads using this creative",
       adSets: "ROAS per ad set · selected 2026-09-16–2026-09-22 · all ads using this creative",
@@ -409,9 +409,9 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       adRows: [],
       adRowsState: "loaded",
     });
-    expect(fallback.periodLabels?.funnel).toBe("decision 28d · purchases only");
+    expect(fallback.periodLabels?.funnel).toBe("decision period unavailable · purchases only");
     expect(fallback.periodLabels?.adSets).toBe(
-      "Ad set context · decision 28d metrics when available",
+      "Ad set context · decision period unavailable metrics when available",
     );
     expect(fallback.funnel?.[0]?.value).toBe("—");
     expect(fallback.funnel?.[3]?.value).toBe("318");
@@ -423,7 +423,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       helperRange,
       adRowsState: "error",
     });
-    expect(unreadable.periodLabels?.funnel).toBe("decision 28d · purchases only");
+    expect(unreadable.periodLabels?.funnel).toBe("decision period unavailable · purchases only");
     expect(unreadable.readNotice?.tone).toBe("negative");
   });
 

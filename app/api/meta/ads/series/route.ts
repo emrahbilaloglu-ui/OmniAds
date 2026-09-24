@@ -6,6 +6,22 @@ import { getMetaAdDailySeries } from "@/lib/meta/warehouse";
 export const dynamic = "force-dynamic";
 
 const MAX_AD_IDS = 25;
+const MAX_CTR_EVIDENCE_AD_IDS = 120;
+
+/** Supplemental warehouse observations, never the native decision's admitted CTR. */
+export interface MetaAdCtrObservation {
+  adId: string;
+  providerAccountId: string;
+  requestedStartDate: string;
+  requestedEndDate: string;
+  observedStartDate: string | null;
+  observedEndDate: string | null;
+  measuredDays: number;
+  state: "observed" | "missing" | "incomplete";
+  ctrPercent: number | null;
+  dailyCtr: Array<{ date: string; ctrPercent: number }>;
+  lastWarehouseUpdateAt: string | null;
+}
 
 export interface MetaAdSeriesPoint {
   date: string;
@@ -37,6 +53,8 @@ export interface MetaAdSeriesResponse {
    * and merging would have drawn every row the same shape.
    */
   series?: Array<{ adId: string; points: MetaAdSeriesPoint[] }>;
+  /** Present only for `ctrEvidence=1`; separate from decision authority. */
+  ctrEvidence?: MetaAdCtrObservation[];
 }
 
 interface SeriesBucket {
@@ -88,7 +106,7 @@ function pointsFromBuckets(byDate: SeriesBuckets): MetaAdSeriesPoint[] {
     }));
 }
 
-function parseAdIds(raw: string | null): string[] {
+function parseAdIds(raw: string | null, limit = MAX_AD_IDS): string[] {
   if (!raw) return [];
   return Array.from(
     new Set(
@@ -97,11 +115,68 @@ function parseAdIds(raw: string | null): string[] {
         .map((value) => value.trim())
         .filter(Boolean),
     ),
-  ).slice(0, MAX_AD_IDS);
+  ).slice(0, limit);
+}
+
+function ctrObservations(input: {
+  adIds: string[];
+  providerAccountId: string;
+  startDate: string;
+  endDate: string;
+  rows: Awaited<ReturnType<typeof getMetaAdDailySeries>>;
+}): MetaAdCtrObservation[] {
+  const byAd = new Map<string, typeof input.rows>();
+  for (const row of input.rows) {
+    const rows = byAd.get(row.adId) ?? [];
+    rows.push(row);
+    byAd.set(row.adId, rows);
+  }
+  return input.adIds.map((adId) => {
+    const rows = byAd.get(adId) ?? [];
+    const measured = rows.filter((row) =>
+      Number.isFinite(row.impressions) && row.impressions > 0,
+    );
+    const incomplete = measured.some((row) =>
+      row.ctr === null || !Number.isFinite(row.ctr) || row.ctr < 0,
+    );
+    const dailyCtr = measured
+      .filter((row) => row.ctr !== null && Number.isFinite(row.ctr) && row.ctr >= 0)
+      .map((row) => ({ date: row.date, ctrPercent: row.ctr! }));
+    const impressionTotal = measured.reduce((sum, row) => sum + row.impressions, 0);
+    const weightedCtr = measured.reduce(
+      (sum, row) => sum + (row.ctr ?? 0) * row.impressions,
+      0,
+    );
+    const updated = rows
+      .map((row) => row.sourceUpdatedAt ?? null)
+      .filter((value): value is string => typeof value === "string" && Number.isFinite(Date.parse(value)))
+      .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
+    return {
+      adId,
+      providerAccountId: input.providerAccountId,
+      requestedStartDate: input.startDate,
+      requestedEndDate: input.endDate,
+      observedStartDate: measured[0]?.date ?? null,
+      observedEndDate: measured.at(-1)?.date ?? null,
+      measuredDays: new Set(measured.map((row) => row.date)).size,
+      state: measured.length === 0 ? "missing" : incomplete ? "incomplete" : "observed",
+      ctrPercent: measured.length > 0 && !incomplete && impressionTotal > 0
+        ? weightedCtr / impressionTotal
+        : null,
+      dailyCtr,
+      lastWarehouseUpdateAt: updated,
+    };
+  });
 }
 
 function jsonError(status: number, code: string, message: string) {
   return NextResponse.json({ error: code, message }, { status });
+}
+
+function isIsoReportDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 /**
@@ -120,7 +195,11 @@ export async function GET(request: NextRequest) {
   const businessId = params.get("businessId");
   const start = params.get("start");
   const end = params.get("end");
-  const adIds = parseAdIds(params.get("adIds"));
+  const ctrEvidenceMode = params.get("ctrEvidence") === "1";
+  const adIds = parseAdIds(
+    params.get("adIds"),
+    ctrEvidenceMode ? MAX_CTR_EVIDENCE_AD_IDS + 1 : MAX_AD_IDS,
+  );
 
   if (!businessId) {
     return jsonError(400, "missing_business_id", "businessId is required.");
@@ -131,11 +210,47 @@ export async function GET(request: NextRequest) {
   if (adIds.length === 0) {
     return jsonError(400, "missing_ad_ids", "adIds is required.");
   }
+  if (ctrEvidenceMode) {
+    if (adIds.length > MAX_CTR_EVIDENCE_AD_IDS) {
+      return jsonError(400, "too_many_ad_ids", "CTR evidence supports up to 120 ads.");
+    }
+    if (!params.get("providerAccountId")) {
+      return jsonError(400, "missing_provider_account_id", "providerAccountId is required.");
+    }
+    if (!isIsoReportDate(start) || !isIsoReportDate(end) || start > end) {
+      return jsonError(400, "invalid_date_range", "A valid reporting range is required.");
+    }
+    const days = (Date.parse(`${end}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000;
+    if (!Number.isFinite(days) || days > 30) {
+      return jsonError(400, "invalid_date_range", "CTR evidence supports up to 31 report days.");
+    }
+  }
 
   const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
   if ("error" in access) return access.error;
 
   const assignedAccountIds = await fetchAssignedAccountIds(businessId);
+  if (ctrEvidenceMode) {
+    const providerAccountId = params.get("providerAccountId")!;
+    if (!assignedAccountIds.includes(providerAccountId)) {
+      return jsonError(403, "provider_account_not_assigned", "The Meta account is not assigned to this business.");
+    }
+    const rows = await getMetaAdDailySeries({
+      businessId,
+      adIds,
+      startDate: start,
+      endDate: end,
+      providerAccountIds: [providerAccountId],
+      finalizedOnly: true,
+    });
+    return NextResponse.json(
+      { adCount: rows.length ? new Set(rows.map((row) => row.adId)).size : 0,
+        points: [],
+        ctrEvidence: ctrObservations({ adIds, providerAccountId, startDate: start, endDate: end, rows }),
+      } satisfies MetaAdSeriesResponse,
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
   if (assignedAccountIds.length === 0) {
     return NextResponse.json({ adCount: 0, points: [] } satisfies MetaAdSeriesResponse, {
       headers: { "Cache-Control": "private, no-store" },

@@ -2351,11 +2351,6 @@ export function buildCreativeEvidenceWindowExactViewModel(
     : canonical
       ? "Needs review"
       : null;
-  const reasons = decision
-    ? [buyerFacingCreativeReason(decision)]
-    : canonical
-      ? ["Review the available performance evidence before making a change."]
-      : [];
   /*
    * The served action tuple, or nothing.
    *
@@ -2384,6 +2379,22 @@ export function buildCreativeEvidenceWindowExactViewModel(
   const heldVerdict = input.decision
     ? heldCreativeVerdict(input.decision, input.canonical)
     : null;
+  // The held verdict already translates the producer's typed resolution,
+  // first blocker and verified config into the specific reason shown on the
+  // queue row. Reuse that explanation in Why rather than replacing it with a
+  // broad blocker family. A failed latest run always takes precedence over an
+  // earlier held verdict.
+  const reasons = sourceDegraded
+    ? [RETAINED_GENERATION_REVIEW_COPY]
+    : decision
+      ? [decision.lane === "blocked" &&
+          decision.decisionAvailability !== "pending_native_evidence" &&
+          heldVerdict
+          ? heldVerdict.nextStep
+          : buyerFacingCreativeReason(decision)]
+      : canonical
+        ? ["Review the available performance evidence before making a change."]
+        : [];
   const primaryAuthority = input.primaryActionAuthority;
   const primaryOffered =
     primaryAuthority?.offered ?? input.launchpadRoute?.offered ?? null;

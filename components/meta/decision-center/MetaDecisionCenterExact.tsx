@@ -2003,11 +2003,19 @@ function CreativeCard({
             <p className={styles.creativeSparkLabel}>
               {language === "tr"
                 ? row.moneyWindow
-                  ? `Karar tüm tıklama CTR · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate}`
+                  ? "Karar tüm tıklama CTR"
                   : `Karar ${copy.ctrWindowed}`
                 : row.moneyWindow
-                  ? `Decision all-click CTR · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate}`
+                  ? "Decision all-click CTR"
                   : `Decision ${copy.ctrWindowed}`}
+              {row.moneyWindow ? (
+                <>
+                  {" "}
+                  <span className={styles.creativeMetricPeriod}>
+                    {row.moneyWindow.startDate}–{row.moneyWindow.endDate}
+                  </span>
+                </>
+              ) : null}
             </p>
             {nonBlankDisplay(row.ctrValue) ? (
               <p className={styles.creativeSparkValue} data-meta-exact-creative-ctr-value>
@@ -2046,9 +2054,14 @@ function CreativeCard({
             ) : null}
             {row.observedCtrContext ? (
               <p className={styles.creativeObservedCtrDetail}>
-                {language === "tr"
-                  ? `Rapor ${row.observedCtrContext.startDate}–${row.observedCtrContext.endDate} · ${row.observedCtrContext.measuredDays} ölçülen gün · ${row.observedCtrContext.state === "incomplete" ? "kayıtlı CTR eksik" : row.observedCtrContext.state === "missing" ? "ölçülmüş gösterim yok" : "karar CTR'sinden ayrı"}`
-                  : `Report ${row.observedCtrContext.startDate}–${row.observedCtrContext.endDate} · ${row.observedCtrContext.measuredDays} measured days · ${row.observedCtrContext.state === "incomplete" ? "recorded CTR incomplete" : row.observedCtrContext.state === "missing" ? "no measured impressions" : "separate from decision CTR"}`}
+                {language === "tr" ? "Rapor" : "Report"}{" "}
+                <span className={styles.creativeMetricPeriod}>
+                  {row.observedCtrContext.startDate}–{row.observedCtrContext.endDate}
+                </span>
+                {" "}
+                {row.observedCtrContext.measuredDays} {language === "tr" ? "ölçülen gün" : "measured days"} · {language === "tr"
+                  ? row.observedCtrContext.state === "incomplete" ? "kayıtlı CTR eksik" : row.observedCtrContext.state === "missing" ? "ölçülmüş gösterim yok" : "karar CTR'sinden ayrı"
+                  : row.observedCtrContext.state === "incomplete" ? "recorded CTR incomplete" : row.observedCtrContext.state === "missing" ? "no measured impressions" : "separate from decision CTR"}
               </p>
             ) : null}
           </div>
@@ -2057,9 +2070,21 @@ function CreativeCard({
           <p className={styles.creativeSparkLabel}>
             {row.moneyWindow
               ? language === "tr"
-                ? `Karar · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate} · ${row.moneyWindow.economicDayCount}/${row.moneyWindow.calendarDaySpan} ekonomik gün`
-                : `Decision · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate} · ${row.moneyWindow.economicDayCount}/${row.moneyWindow.calendarDaySpan} economic days`
+                ? "Karar"
+                : "Decision"
               : copy.decisionWindowed}
+            {row.moneyWindow ? (
+              <>
+                {" "}
+                <span className={styles.creativeMetricPeriod}>
+                  {row.moneyWindow.startDate}–{row.moneyWindow.endDate}
+                </span>
+                {" "}
+                <span className={styles.creativeMetricDays}>
+                  {row.moneyWindow.economicDayCount}/{row.moneyWindow.calendarDaySpan} {language === "tr" ? "ekonomik gün" : "economic days"}
+                </span>
+              </>
+            ) : null}
           </p>
           <p className={styles.moneyValue}>{display(row.money)}</p>
           <p className={styles.moneySub}>{display(row.moneySub)}</p>

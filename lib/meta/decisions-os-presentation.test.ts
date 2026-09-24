@@ -1775,6 +1775,19 @@ describe("buildMetaOsDecisionsPresentation", () => {
           providerUpdatedAt: null,
           fetchedAt: "2026-07-13T09:00:00.000Z",
         },
+        {
+          providerAccountId: "act_1",
+          adId: "120000000000000023",
+          adName: "Campaign schedule ended",
+          campaignId: "cmp_ended",
+          adsetId: "adset_ended",
+          creativeId: "creative_23",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          campaignStopTime: "2026-07-12T09:00:00.000Z",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
       ],
       currentAdCampaignContexts: [
         {
@@ -1808,8 +1821,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
     expect(result.ads.statePreCapCounts?.blocked).toBe(0);
     expect(result.ads.eligiblePreCapCount).toBe(0);
 
-    // The PAUSED ad in `currentAds` above is not inventory awaiting a decision,
-    // so the count is 1 and not 2.
+    // Neither the PAUSED ad nor provider-ACTIVE but expired campaign is live inventory.
     expect(result.ads.pendingInventoryCount).toBe(1);
     const limitation = result.limitations.find(
       (item) => item.code === "active_ad_inventory_pending_native_decision",

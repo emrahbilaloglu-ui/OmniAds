@@ -1582,6 +1582,12 @@ function inactiveAdName(decision: MetaCanonicalDecision): string {
  * said as unknown rather than being rounded down to "paused".
  */
 function inactiveAdStatus(decision: MetaCanonicalDecision): string {
+  if (decision.deliveryScope?.campaignStatus === "SCHEDULE_ENDED") {
+    return "Campaign · Schedule ended";
+  }
+  if (decision.deliveryScope?.adsetStatus === "SCHEDULE_ENDED") {
+    return "Ad set · Schedule ended";
+  }
   const adStatus = nonBlank(decision.deliveryScope?.adStatus);
   if (adStatus) return `Ad · ${titleToken(adStatus.toLowerCase())}`;
   const state = decision.deliveryScope?.state;
@@ -1604,21 +1610,25 @@ function inactiveAdStatus(decision: MetaCanonicalDecision): string {
  */
 function inactiveAdNote(decision: MetaCanonicalDecision): string {
   const reason = nonBlank(decision.sourceAuthority?.reviewOnlyReason);
+  const scope = decision.deliveryScope;
+  const scheduleEnded = scope?.campaignStatus === "SCHEDULE_ENDED" ||
+    scope?.adsetStatus === "SCHEDULE_ENDED";
   /*
     ── ROUND 11 ITEM 2 ───────────────────────────────────────────────────────
     "Withheld from the live queue" describes the QUEUE's behaviour toward the
     row, in the queue's own vocabulary, and it reaches both the desktop Archive
     and the mobile one. What a buyer needs is why this ad is not in Action now
     and what state it is actually in — which the status list below already
-    states in provider terms.
+    states from provider status and the observed delivery schedule.
   */
   const headline =
-    reason === "current_hierarchy_is_not_active"
+    scheduleEnded
+      ? "Not included in Action now because its scheduled delivery has ended."
+      : reason === "current_hierarchy_is_not_active"
       ? "Not included in Action now because this ad is inactive."
       : reason === "current_hierarchy_status_is_unknown"
         ? "Not included in Action now because this ad's current status could not be confirmed."
         : null;
-  const scope = decision.deliveryScope;
   const statuses = [
     nonBlank(scope?.campaignStatus)
       ? `campaign ${nonBlank(scope?.campaignStatus)}`

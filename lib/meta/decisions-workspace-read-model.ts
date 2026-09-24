@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { currentHierarchyStatuses } from "@/lib/meta/current-ad-delivery-status";
 import { CREATIVE_DECISION_CENTER_ADAPTER_VERSION } from "@/lib/creative-decision-center/adapter";
 import { CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION } from "@/lib/creative-decision-center/v3-bridge";
 import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
@@ -430,6 +431,8 @@ export interface MetaCurrentAdStatusSourceRow {
   creativeId: string | null;
   configuredStatus: string | null;
   effectiveStatus: string | null;
+  campaignStopTime?: string | null;
+  adsetEndTime?: string | null;
   providerUpdatedAt: string | null;
   fetchedAt: string;
 }
@@ -738,15 +741,13 @@ function deliveryScopeForIdentity(
         identity.status_source === "meta_graph_ad_configs"
           ? "meta_graph_ad_configs"
           : "meta_campaign_dimensions+meta_adset_dimensions+meta_ad_dimensions",
-      field: "campaign_status,adset_status,ad_status",
+      field: campaignStatus === "SCHEDULE_ENDED" || adsetStatus === "SCHEDULE_ENDED"
+        ? "effective_status,campaign.stop_time,adset.end_time"
+        : "campaign_status,adset_status,ad_status",
       recordId: identity.ad_id ?? identity.creative_id,
       asOf: identity.source_updated_at,
     }),
   };
-}
-
-function currentEffectiveAdStatus(row: MetaCurrentAdStatusSourceRow) {
-  return normalizeDeliveryStatus(row.effectiveStatus);
 }
 
 export function reconcileMetaDecisionIdentityRowsWithCurrentAds(input: {
@@ -774,10 +775,7 @@ export function reconcileMetaDecisionIdentityRowsWithCurrentAds(input: {
     const identityMatches =
       current.providerAccountId === identity.provider_account_id &&
       (!current.creativeId || current.creativeId === identity.creative_id);
-    const effectiveStatus = identityMatches
-      ? currentEffectiveAdStatus(current)
-      : null;
-    const status = effectiveStatus ?? "UNKNOWN";
+    const statuses = identityMatches ? currentHierarchyStatuses(current) : null;
     const sameCampaign = current.campaignId === identity.campaign_id;
     const sameAdset = current.adsetId === identity.adset_id;
     return {
@@ -787,10 +785,12 @@ export function reconcileMetaDecisionIdentityRowsWithCurrentAds(input: {
       campaign_name: sameCampaign ? identity.campaign_name : null,
       adset_id: current.adsetId,
       adset_name: sameAdset ? identity.adset_name : null,
-      campaign_status: status,
-      adset_status: status,
-      ad_status: status,
-      source_updated_at: current.providerUpdatedAt ?? current.fetchedAt,
+      campaign_status: statuses?.campaign ?? "UNKNOWN",
+      adset_status: statuses?.adset ?? "UNKNOWN",
+      ad_status: statuses?.ad ?? "UNKNOWN",
+      source_updated_at: statuses?.scheduleEnded
+        ? current.fetchedAt
+        : current.providerUpdatedAt ?? current.fetchedAt,
       status_source: "meta_graph_ad_configs",
     };
   });
@@ -812,22 +812,19 @@ function reconcileNativeSnapshotRowsWithCurrentAds(input: {
       (!current.creativeId ||
         !snapshot.creative_id ||
         current.creativeId === snapshot.creative_id);
-    const status =
-      current && identityMatches
-        ? (currentEffectiveAdStatus(current) ?? "UNKNOWN")
-        : current
-          ? "UNKNOWN"
-          : "NOT_ACTIVE";
+    const statuses = current && identityMatches
+      ? currentHierarchyStatuses(current) : null;
+    const fallback = current ? "UNKNOWN" : "NOT_ACTIVE";
     return {
       ...snapshot,
       ad_name: current?.adName?.trim() || snapshot.ad_name,
       campaign_id: current?.campaignId ?? snapshot.campaign_id,
       adset_id: current?.adsetId ?? snapshot.adset_id,
-      campaign_status: status,
-      adset_status: status,
-      ad_status: status,
+      campaign_status: statuses?.campaign ?? fallback,
+      adset_status: statuses?.adset ?? fallback,
+      ad_status: statuses?.ad ?? fallback,
       source_updated_at:
-        current?.providerUpdatedAt ??
+        (statuses?.scheduleEnded ? current?.fetchedAt : current?.providerUpdatedAt) ??
         current?.fetchedAt ??
         snapshot.source_updated_at,
     };

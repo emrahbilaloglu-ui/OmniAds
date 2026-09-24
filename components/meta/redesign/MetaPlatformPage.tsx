@@ -60,6 +60,7 @@ import {
   MetaDecisionCenterExact,
   metaNeedsResolutionNextStep,
   type MetaDecisionCenterExactDisplayValue,
+  type MetaDecisionCenterExactCreativeDecisionViewModel,
   type MetaDecisionCenterExactInspectorViewModel,
   type MetaDecisionCenterExactLane,
   type MetaDecisionCenterExactScope,
@@ -1551,6 +1552,8 @@ interface MetaMobileQueueRowModel {
   decisionLabel?: MetaDecisionCenterExactDisplayValue;
   decisionTone?: MetaDecisionCenterExactTone;
   money?: MetaDecisionCenterExactDisplayValue;
+  /** The server-admitted decision period, separate from the selected report range. */
+  moneyWindow?: MetaDecisionCenterExactCreativeDecisionViewModel["moneyWindow"];
   moneySub?: MetaDecisionCenterExactDisplayValue;
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
   actionLabel?: MetaDecisionCenterExactDisplayValue;
@@ -1628,6 +1631,7 @@ function mobileQueueRowsForLane(
       heldVerdictLabel: row.heldVerdictLabel ?? null,
       heldVerdictNextStep: row.heldVerdictNextStep ?? null,
       money: row.money,
+      moneyWindow: row.moneyWindow,
       moneySub: row.moneySub,
       chips: row.chips,
       actionLabel: row.actionLabel,
@@ -1909,6 +1913,7 @@ function MetaMobileQueueRow({
   heldVerdictLabel,
   heldVerdictNextStep,
   money,
+  moneyWindow,
   moneySub,
   chips,
   actionLabel,
@@ -1936,6 +1941,7 @@ function MetaMobileQueueRow({
   heldVerdictLabel?: MetaDecisionCenterExactDisplayValue | null;
   heldVerdictNextStep?: MetaDecisionCenterExactDisplayValue | null;
   money?: MetaDecisionCenterExactDisplayValue;
+  moneyWindow?: MetaDecisionCenterExactCreativeDecisionViewModel["moneyWindow"];
   moneySub?: MetaDecisionCenterExactDisplayValue;
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
   actionLabel?: MetaDecisionCenterExactDisplayValue;
@@ -1971,6 +1977,12 @@ function MetaMobileQueueRow({
             data-tone={mobileToneAttr(stateTone)}
           >
             {mobileDisplay(stateLabel)}
+          </p>
+        ) : null}
+        {moneyWindow ? (
+          <p data-mobile-creative-decision-window>
+            Decision period · {moneyWindow.startDate}–{moneyWindow.endDate} ·{" "}
+            {moneyWindow.economicDayCount}/{moneyWindow.calendarDaySpan} economic days
           </p>
         ) : null}
         <p data-tone={mobileToneAttr(decisionTone)}>

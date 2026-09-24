@@ -1,5 +1,5 @@
 {
-  "manifestHash": "f4ac542b875acc389a3f08ded4e1d04459fe61c98d088c791831b56e26304b02",
+  "manifestHash": "cda9d9e1c52c7f1112ff7bb2408249a272e60ea3afdf2be8b526fc966cd310d4",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -568,7 +568,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "58ea8d24666b8dfac2da883037a0d446e001904b8261ccea1e55e218754e73cd"
+      "sha256": "9e1e452b5cc5dd62c83a88df5b5e837aa8f029e30254ed6b2c4c495a40fb7443"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -576,11 +576,15 @@
     },
     {
       "path": "docs/creative-decision-center/INVARIANTS.md",
-      "sha256": "49bfa68adda8b865a1815177e96895d73462dda2fe91c5f19ae042e80822525d"
+      "sha256": "f6b2b25bc8ac2609341fe1d8d1318a09f36f50de0ca0e56e4e4c07c92a67ff77"
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
       "sha256": "a0e76ec1ffd466004a3b11567b65684a380f5bfe2bbe1f12f4d8a23c5ec61a8c"
+    },
+    {
+      "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
+      "sha256": "2c5f859d2038fa7080aaf4f7dd7b418e51a6cfed219ed03bd7e81d1495481d80"
     },
     {
       "path": "docs/meta-decision-center/CALIBRATION_SOURCE_QUERY_PERF_2026-09-22.md",
@@ -637,6 +641,14 @@
     {
       "path": "lib/api/meta.ts",
       "sha256": "79cbcecda0af21be6efb3b37f9b863caea34db5e8e21f55eae34c51212c4ae3b"
+    },
+    {
+      "path": "lib/creative-decision-center/__tests__/v3-bridge.test.ts",
+      "sha256": "af6237b38b8e9aa3eb6a54fdc399a73c621ee2bd43f52951c6f983e97423200f"
+    },
+    {
+      "path": "lib/creative-decision-center/v3-bridge.ts",
+      "sha256": "930a9cd5394c8f2498f941aa5e3af801dd36734703d4c3a4fe8c98c228adb0fa"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-cpa-identity-projection.test.ts",
@@ -1329,6 +1341,10 @@
     {
       "path": "lib/meta/campaigns-source.ts",
       "sha256": "b6a4dde71e8fe8002904c2874b02828f6180207fdc72e5280be4f416e22792d7"
+    },
+    {
+      "path": "lib/meta/canonical-decision-presentation.test.ts",
+      "sha256": "5d91350a9e7be32e3a6b33a326a66fbb0b1185b86bfc6382ed4289af7cf5d2ae"
     },
     {
       "path": "lib/meta/canonical-decision-presentation.ts",

@@ -125,17 +125,20 @@ This includes conditional `keep` mappings that become `Diagnose` rows.
 
 ## Conditional `keep` Mapping
 
-Plain V3 `keep` is not a V2.1 buyer-facing primary decision. The bridge only
-emits a row when the `keep` result contains an explicit reason a buyer should
-review.
+V3 `keep` is not a V2.1 buyer-facing primary decision. It maps to a
+review-only `Protect`/Keep Running row unless another Keep badge selects a
+more specific review. An unresolved campaign role alone does not turn an
+otherwise soft Keep into a diagnosis (D115). A recorded hard-action hold or a
+pre-authority hard verdict still follows the conservative role guard.
 
 | V3 evidence | V2.1 primaryDecision | problemClass | actionability | reasonTags |
 |---|---|---|---|---|
-| `unlabeled_campaign_context` badge or `campaignLabelStatus` not labeled while hard action is blocked | `Diagnose` | `campaign_context` | `diagnose` | `campaign_label_missing` |
+| unresolved role with `authorityBlocker`, `blockedActionType`, or pre-authority hard verdict | `Diagnose` | `campaign_context` | `diagnose` | `campaign_role_unresolved` |
+| unresolved role on a soft `keep` with no independent review badge | `Protect` | `performance` | `review_only` | `v3_keep`, `stable_keep_running` |
 | `scale_readiness_blocked` badge | `Test More` | `insufficient_signal` | `review_only` | `near_scale_blocked` |
 | `scale_calibration_thin` badge | `Test More` | `data_quality` | `review_only` | `scale_calibration_thin` |
 | `weak_performance`, `low_ctr`, or `below_breakeven` badge | `Test More` | `insufficient_signal` | `review_only` | matching V3 badge type |
-| no review-worthy badge | omit | none | none | `plain_keep_no_action` |
+| no review-worthy badge | `Protect` | `performance` | `review_only` | `v3_keep`, `stable_keep_running` |
 
 ## Problem Class Derivation
 
@@ -286,14 +289,14 @@ engine identifiers remain forbidden for every Creative Decision Center module.
 ## Versioning
 
 The bridge exposes `CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION =
-"creative-decision-center.v3-bridge.v1"`. The `DecisionCenterSnapshot`
+"creative-decision-center.v3-bridge.v2"`. The `DecisionCenterSnapshot`
 contract does not gain a new top-level
 `bridgeVersion` field in PR7B-beta; route wiring may compose the string into
-`adapterVersion` (for example `bridge-v1+adapter-v1`) when a non-empty bridged
+`adapterVersion` (for example `bridge-v2+adapter-v1`) when a non-empty bridged
 snapshot is emitted behind `?decisionCenter=1`.
 
-PR7C enabled-route wiring uses the exact composition
-`creative-decision-center.v3-bridge.v1+creative-decision-center.shadow-adapter.v1`
+Current enabled-route wiring composes
+`creative-decision-center.v3-bridge.v2+creative-decision-center.shadow-adapter.v1`
 whenever the flagged route attempts the bridge path, even when every V3
 decision is omitted and `rowDecisions` is empty. Disabled-engine snapshots do
 not attempt the bridge path and keep the base shadow adapter version.

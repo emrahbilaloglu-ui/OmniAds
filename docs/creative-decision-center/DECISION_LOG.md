@@ -10835,3 +10835,44 @@ native/creative decisions. Historical V1/operator/V2 records stay readable.
 **Rollback.** Revert the lifecycle writer/read-model pair and mint a new
 materialization contract for any semantic replacement. Retained lifecycle
 rows and earlier decision snapshots are not rewritten or deleted.
+
+## D115 — Unresolved campaign role does not erase a soft Keep (2026-09-24)
+
+**Decision.** The V3-to-V2.1 bridge may use an unresolved automatic campaign
+role to withhold a hard Scale/Cut/Refresh action or a recorded held hard
+verdict. It must not turn a published soft `keep` into `Diagnose` solely because
+of that role. A soft Keep means `preAuthorityLabel = keep`, no
+`authorityBlocker`, and no `blockedActionType`; a missing or contradictory
+pre-authority label fails closed under the prior role guard. Pending-transition
+and independent performance/calibration badges retain their existing mapping
+priority. The role may still be shown as context, but it is not the resolution
+required before continuing the existing ad.
+
+**Why.** D022's original conditional Keep mapping predates D097's separation
+of a verdict from role-dependent execution. On Grandmix's 2026-09-24 native Ad
+generation (`5a03c618-5927-4f6d-b53b-d625c001a814`), four Meta-verified
+active ads had published `keep`, no authority
+blocker and no held action, yet `mapKeep` returned `Diagnose` because their
+campaign role was unresolved. The served projection then made all four
+`decisionState: blocked`, `buyerAction: null` with `resolve_campaign_role`.
+Two had thin scale calibration, one weak performance and one only the role
+badge. None needed a campaign role to continue its existing soft action.
+
+**Implementation boundary.** `mapKeep` applies the role-based Diagnose branch
+only when a hard verdict/hold or other authority blocker is recorded. The
+remaining soft Keep uses its own scale/performance badge mapping; a role-only
+Keep maps to review-only `Protect`/Keep Running with `problemClass: performance`.
+The bridge contract advances to
+`creative-decision-center.v3-bridge.v2`. This is a served mapping change only:
+native snapshots, resolver output, economic gates, campaign role inference,
+provider writes and automation permissions are unchanged. A held hard verdict
+still serves blocked with null buyer action and no provider mutation. Old
+snapshot and V1/operator/V2 compatibility remains readable.
+
+**Acceptance and rollback.** Pure bridge and canonical-presentation tests cover
+the soft role-only Keep, a role gap with thin calibration or weak performance,
+and held/hard negative controls. On a complete current native generation,
+read back the affected active Ads: the soft Keep rows must be Monitor with
+Keep Running or Continue Test and no provider mutation; a genuinely held Cut,
+Scale or Refresh must remain blocked. Revert the bridge mapping/version and
+docs to restore the old projection; no persisted rows need rewriting.

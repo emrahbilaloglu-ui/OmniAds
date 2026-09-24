@@ -30,7 +30,7 @@ import {
 } from "./contracts";
 
 export const CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION =
-  "creative-decision-center.v3-bridge.v1";
+  "creative-decision-center.v3-bridge.v2";
 
 type V3BadgeType = DecisionBadge["type"];
 
@@ -270,12 +270,14 @@ function deriveMissingData(
 function deriveProblemClass(
   decision: DecisionOutput,
   label: DecisionLabel,
+  ignoreCampaignRoleGap = false,
 ): CreativeDecisionCenterProblemClass {
   if (hasBadge(decision, "policy_blocked")) return "policy";
   if (hasBadge(decision, "delivery_no_spend_24h")) return "delivery";
   if (hasBadge(decision, "launch_monitoring")) return "launch_monitoring";
   if (hasAnyBadge(decision, DATA_QUALITY_BADGES)) return "data_quality";
-  if (hasCampaignLabelGap(decision)) return "campaign_context";
+  if (!ignoreCampaignRoleGap && hasCampaignLabelGap(decision))
+    return "campaign_context";
   if (hasAnyBadge(decision, FATIGUE_BADGES)) return "fatigue";
   if (hasBadge(decision, "delivery_limited")) return "data_quality";
   if (hasAnyBadge(decision, PERFORMANCE_BADGES)) return "performance";
@@ -298,7 +300,15 @@ function mapKeep(
     };
   }
 
-  if (hasCampaignLabelGap(decision)) {
+  // A soft Keep has no role-dependent execution to withhold. Preserve a real
+  // held or pre-authority hard action; otherwise let the Keep's own evidence
+  // determine its review-only mapping (D115).
+  if (
+    hasCampaignLabelGap(decision) &&
+    (decision.authorityBlocker !== null ||
+      decision.blockedActionType !== null ||
+      decision.preAuthorityLabel !== "keep")
+  ) {
     return {
       primaryDecision: "Diagnose",
       problemClass: "campaign_context",
@@ -347,7 +357,7 @@ function mapKeep(
 
   return {
     primaryDecision: "Protect",
-    problemClass: deriveProblemClass(decision, decision.label),
+    problemClass: deriveProblemClass(decision, decision.label, true),
     actionability: "review_only",
     reasonTags: ["v3_keep", "stable_keep_running"],
   };

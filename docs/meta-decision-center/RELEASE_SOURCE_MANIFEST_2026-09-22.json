@@ -1,5 +1,5 @@
 {
-  "manifestHash": "cec3044839635e2e3e4c7d01fd761a76049d1599dbbe54378938d9a03899e0ba",
+  "manifestHash": "e0472c1683c8f8e0c6f9e7d6c332bd6f1b76cf7f501282d89844a5102b6c0b74",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -348,7 +348,7 @@
     },
     {
       "path": "components/creatives/creative-evidence-window-wiring.test.ts",
-      "sha256": "d6bfe20c0d7856ba87956f5eb22156a7d6945160e65273c03a94598e18b60126"
+      "sha256": "97dbe419b439492396a5f0f87cace48f81ea82d5dfdf42ab85c3580ad713aef4"
     },
     {
       "path": "components/creatives/creative-served-classification.test.ts",
@@ -508,7 +508,7 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
-      "sha256": "d5b72cd338ec7b2d3d57a61b660ebbfcf0b38e5e7403f7c83af85cc9fbe3f3c8"
+      "sha256": "37a435833798fffb77b56c35fa6abf7e1ffe0482c83373ea7a4d68b0f0e19f09"
     },
     {
       "path": "components/meta/redesign/MetaUpperFunnelInformationalCard.test.tsx",
@@ -552,7 +552,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "ccf5f6fca0446d06a65d07646d926c0a4ea9528e4624e11f43901538357a7b1f"
+      "sha256": "3f58a5b1fd499760393594a29e9786b1ee4186e59ea9fe663c3789ec7b370407"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -916,7 +916,7 @@
     },
     {
       "path": "lib/creative-decision-engine/creative-day-metric-evidence.db.test.ts",
-      "sha256": "0ce6723a58f15795c73035d8c920985b77e8ab7b41304b5d1c75394ba09f06dd"
+      "sha256": "e31b8214b8fd2870e5ed18584859022b5f821ed1c25de644587ac0c36498553b"
     },
     {
       "path": "lib/creative-decision-engine/data-source-config-agreement.db.test.ts",
@@ -1052,7 +1052,7 @@
     },
     {
       "path": "lib/creative-decision-engine/meta-aov-calculator.test-helpers.ts",
-      "sha256": "061c1d2b5a393425ce92b25df24d4de6e58790128dc676224e14ec9a651006ee"
+      "sha256": "751db3fa9d7f7adc40001cf7be92c47e9eee07829ba7b228de446bf3f1d31756"
     },
     {
       "path": "lib/creative-decision-engine/meta-aov-calculator.test.ts",
@@ -1936,11 +1936,11 @@
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.test.ts",
-      "sha256": "ca6ed4ec088a26681e50666eda3dfce497ca6cdfbbc7620c0ac0f9212751dfd0"
+      "sha256": "d028b377c39464438374db12a3ad88024cf037f8f02f374d11cee6fdbe08c57f"
     },
     {
       "path": "scripts/meta/creative-day-source-evidence-repair.ts",
-      "sha256": "a5c8e5f078a1dda7ce952d14a8aeba23fdc7a8da25978bc80cf6be08037bd9a7"
+      "sha256": "ba410bd491542645e4fb8b24799c98cc68920a9d9b80b467155352162b5ff1d2"
     },
     {
       "path": "scripts/meta/decision-release-source-manifest.ts",

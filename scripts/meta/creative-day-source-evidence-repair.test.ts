@@ -7,6 +7,11 @@ const businessId = "5dbc7147-f051-4681-a4d6-20617170074f";
 const accountId = "act_805150454596350";
 const adId = "ad-1";
 const creativeId = "creative-1";
+const pointerId = "11111111-1111-4111-8111-111111111111";
+const newSliceId = "22222222-2222-4222-8222-222222222222";
+const targetManifestId = "33333333-3333-4333-8333-333333333333";
+const oldSliceId = "44444444-4444-4444-8444-444444444444";
+const oldManifestId = "55555555-5555-4555-8555-555555555555";
 const raw = { ad_id: adId, date_start: day, spend: "10", impressions: "100",
   clicks: "5" } as Record<string, unknown>;
 const creative = {
@@ -33,12 +38,15 @@ const snapshot = {
   status: "fetched", provider_http_status: 200, payload_hash: "sha-1",
   payload_json: [raw], fetched_at: "2026-09-24T06:00:00.000Z",
   created_at: "2026-09-24T06:00:00.000Z", partition_id: "partition-1",
+  updated_at: "2026-09-24T06:00:00.000Z",
   run_id: "run-1", content_key: "modern-content" as string | null, page_index: 0,
   provider_cursor: null,
   request_context: { level: "ad", source: "bulk_core_sync" } as Record<string, unknown>,
 };
 const receipt = {
   day, published_by_run_id: "run-1", published_at: "2026-09-24T06:10:00.000Z",
+  pointer_id: pointerId, slice_id: newSliceId, manifest_id: targetManifestId,
+  publication_reason: "regular_sync", slice_validation_summary: {},
   slice_source_run_id: "run-1", slice_state: "finalized_verified",
   slice_truth_state: "finalized", slice_validation_status: "passed",
   slice_status: "published", staged_row_count: 1,
@@ -48,6 +56,19 @@ const receipt = {
   manifest_raw_snapshot_watermark: "snapshot-1",
   manifest_rows_fetched_total: 1, manifest_partition_id: "partition-1",
   manifest_fresh_start_applied: true, manifest_checkpoint_reset_applied: true,
+};
+const priorSlice = {
+  id: oldSliceId, business_id: businessId, provider_account_id: accountId,
+  day, surface: "ad_daily", manifest_id: oldManifestId,
+  source_run_id: "run-1", status: "superseded",
+  truth_state: "finalized", validation_status: "passed",
+  published_at: "2026-09-24T06:09:59.997Z",
+  superseded_at: "2026-09-24T09:00:00.000Z",
+};
+const validationEvent = {
+  manifest_id: targetManifestId, day, surface: "account_daily",
+  event_kind: "validation_passed", result: "passed",
+  created_at: "2026-09-24T06:06:00.000Z",
 };
 const observation = {
   snapshot_id: "snapshot-1", run_id: "run-1", partition_id: "partition-1",
@@ -62,12 +83,44 @@ function plan(overrides: {
   creative?: MetaCreativeDailyRow; ad?: MetaAdDailyRow;
   snapshot?: typeof snapshot; receipt?: typeof receipt;
   observation?: typeof observation; observations?: typeof observation[];
+  priorSlices?: typeof priorSlice[];
+  validationEvents?: typeof validationEvent[];
 } = {}) {
   return buildCreativeDaySourceEvidenceRepairPlan({ businessId, accountId,
     from: day, to: day,
     creativeRows: [overrides.creative ?? creative], adRows: [overrides.ad ?? ad],
     snapshots: [overrides.snapshot ?? snapshot], receipts: [overrides.receipt ?? receipt],
-    observations: overrides.observations ?? [overrides.observation ?? observation] });
+    observations: overrides.observations ?? [overrides.observation ?? observation],
+    priorSlices: overrides.priorSlices ?? [],
+    validationEvents: overrides.validationEvents ?? [validationEvent] });
+}
+
+const legacyRawUpdatedAt = "2026-09-24T07:00:00.000Z";
+const legacyProof = {
+  repairContract: "meta-historical-source-slice-repair.v2",
+  reviewedPlanHash: "a".repeat(64), receiptKind: "legacy_run_bound_raw",
+  sourceSnapshotId: snapshot.id, targetManifestId,
+  sourcePartitionId: snapshot.partition_id, rawUpdatedAt: legacyRawUpdatedAt,
+  oldPointerId: pointerId, oldSliceId, oldManifestId,
+  oldPublishedAt: "2026-09-24T06:10:00.000Z", oldRunId: "run-1",
+};
+function legacyRebind(overrides: {
+  proof?: Record<string, unknown>; priorSlices?: typeof priorSlice[];
+  snapshot?: typeof snapshot; receipt?: typeof receipt;
+  observations?: typeof observation[];
+  validationEvents?: typeof validationEvent[];
+} = {}) {
+  return plan({
+    snapshot: overrides.snapshot ?? { ...snapshot, status: "superseded",
+      content_key: null, updated_at: legacyRawUpdatedAt },
+    receipt: overrides.receipt ?? { ...receipt,
+      published_at: "2026-09-24T09:00:00.000Z",
+      publication_reason: "manifest_rebind_repair",
+      slice_validation_summary: overrides.proof ?? legacyProof },
+    priorSlices: overrides.priorSlices ?? [priorSlice],
+    observations: overrides.observations ?? [],
+    validationEvents: overrides.validationEvents ?? [validationEvent],
+  });
 }
 
 describe("source-backed creative day evidence repair", () => {
@@ -159,5 +212,58 @@ describe("source-backed creative day evidence repair", () => {
       .toMatchObject([{ reason: "ad_source_receipt_invalid:ad-1" }]);
     expect(plan({ snapshot: { ...snapshot, content_key: null },
       observations: [] }).blockers).toEqual([]);
+    expect(plan({ validationEvents: [] }).blockers)
+      .toMatchObject([{ reason: "ad_source_receipt_invalid:ad-1" }]);
+    expect(plan({ validationEvents: [validationEvent, {
+      ...validationEvent, event_kind: "totals_mismatch", result: "repair_required",
+      created_at: "2026-09-24T06:07:00.000Z",
+    }] }).blockers)
+      .toMatchObject([{ reason: "ad_source_receipt_invalid:ad-1" }]);
+  });
+
+  it("accepts only a D113 v2-proved legacy page superseded after its old pointer", () => {
+    const result = legacyRebind();
+    expect(result.blockers).toEqual([]);
+    expect(result.changes[0]?.nextPayload).toMatchObject({
+      purchase_evidence: { state: "measured", value: 0 },
+      metric_evidence: { stages: { landing_page_view: { state: "measured", value: 0 } } },
+    });
+    expect(result.manifest.changes[0]?.source[0]).toMatchObject({
+      snapshotStatus: "superseded", manifestId: targetManifestId,
+      rawUpdatedAt: legacyRawUpdatedAt,
+      priorPublication: { pointerId, sliceId: oldSliceId,
+        publishedAt: legacyProof.oldPublishedAt,
+        reviewedPlanHash: legacyProof.reviewedPlanHash },
+    });
+    expect(result.manifest.contract).toBe("adsecute.meta-creative-day-source-evidence-repair.v2");
+  });
+
+  it("rejects superseded raw without the exact old pointer, slice and clock proof", () => {
+    const blocked = (result: ReturnType<typeof legacyRebind>) =>
+      expect(result.blockers).toMatchObject([{
+        reason: "legacy_supersession_receipt_invalid:ad-1",
+      }]);
+    blocked(legacyRebind({ proof: {} }));
+    blocked(legacyRebind({ priorSlices: [] }));
+    blocked(legacyRebind({ proof: { ...legacyProof, oldSliceId: newSliceId } }));
+    blocked(legacyRebind({ proof: { ...legacyProof, oldManifestId: targetManifestId } }));
+    blocked(legacyRebind({ proof: { ...legacyProof, targetManifestId: oldManifestId } }));
+    blocked(legacyRebind({ proof: { ...legacyProof,
+      rawUpdatedAt: "2026-09-24T07:00:01.000Z" } }));
+    blocked(legacyRebind({ proof: { ...legacyProof,
+      oldPublishedAt: "2026-09-24T07:00:00.000Z" } }));
+    blocked(legacyRebind({ priorSlices: [{ ...priorSlice,
+      published_at: "2026-09-24T06:10:00.001Z" }] }));
+    blocked(legacyRebind({ priorSlices: [{ ...priorSlice,
+      validation_status: "pending" }] }));
+    blocked(legacyRebind({ snapshot: { ...snapshot, status: "superseded",
+      content_key: null, updated_at: "2026-09-24T06:09:00.000Z" } }));
+    blocked(legacyRebind({ observations: [observation] }));
+    expect(legacyRebind({ validationEvents: [] }).blockers).toMatchObject([{
+      reason: "ad_source_receipt_invalid:ad-1",
+    }]);
+    blocked(legacyRebind({ receipt: { ...receipt,
+      published_at: "2026-09-24T09:00:00.000Z",
+      publication_reason: "regular_sync", slice_validation_summary: legacyProof } }));
   });
 });

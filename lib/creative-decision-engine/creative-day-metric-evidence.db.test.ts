@@ -58,6 +58,10 @@ import { upsertMetaCreativeDailyRows } from "@/lib/meta/warehouse";
 import type { MetaCreativeDailyRow } from "@/lib/meta/warehouse-types";
 import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION } from "@/lib/meta/creatives-types";
 import { creativeDayConfigDecisionAdmissionSql } from "@/lib/meta/creative-day-decision-admission";
+import {
+  buildMetaCreativeDayPurchaseEvidence,
+  META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY,
+} from "@/lib/meta/creative-day-purchase-evidence";
 
 const SEAM = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
 
@@ -132,6 +136,14 @@ function creativeDay(input: {
   const payload = input.payloadJson && typeof input.payloadJson === "object" && !Array.isArray(input.payloadJson)
     ? input.payloadJson as Record<string, unknown>
     : {};
+  const conversions = idle ? 0 : (input.conversions ?? 1);
+  const purchaseEvidence = {
+    [META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY]:
+      payload[META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY] ??
+      buildMetaCreativeDayPurchaseEvidence([
+        { action_type: "purchase", value: String(conversions) },
+      ], { completeActionsRequest: true }),
+  };
   return {
     businessId: input.businessId,
     providerAccountId: input.account ?? ACCOUNT_A,
@@ -156,7 +168,7 @@ function creativeDay(input: {
     clicks: idle ? 0 : 30,
     reach: idle ? 0 : 800,
     frequency: idle ? null : 1.25,
-    conversions: idle ? 0 : (input.conversions ?? 1),
+    conversions,
     revenue: idle ? 0 : 60,
     roas: idle ? 0 : 3,
     cpa: idle ? null : 20,
@@ -167,9 +179,10 @@ function creativeDay(input: {
     linkClicks: input.linkClicksColumn === undefined ? 50 : input.linkClicksColumn,
     sourceSnapshotId: null,
     payloadJson: input.sourceIdentityComplete === false
-      ? payload
+      ? { ...payload, ...purchaseEvidence }
       : {
           ...payload,
+          ...purchaseEvidence,
           source_ad_ids: [adId],
           source_ad_ids_complete: true,
           source_creative_ids: [input.creativeId],
@@ -212,11 +225,13 @@ async function publishSourceDays(rows: MetaCreativeDailyRow[]) {
       `INSERT INTO meta_ad_daily (
          business_id, provider_account_id, date, ad_id, account_timezone,
          account_currency, campaign_id, adset_id, spend, conversions,
-         revenue, impressions, clicks, truth_state, validation_status,
+         revenue, impressions, clicks, payload_json, truth_state, validation_status,
          source_run_id, finalized_at, created_at, updated_at
        ) SELECT $1, $2, source.date::date, source.ad_id, 'UTC', 'USD',
            source.campaign_id, source.adset_id, source.spend,
            source.conversions, source.revenue, source.impressions, source.clicks,
+           jsonb_build_object('actions', jsonb_build_array(jsonb_build_object(
+             'action_type', 'purchase', 'value', source.conversions::text))),
            'finalized', 'passed',
            'creative_stamp_' || $2 || '_' || source.date,
            (source.date::date + INTERVAL '13 hours') AT TIME ZONE 'UTC',
@@ -409,6 +424,7 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
         { action_type: "omni_landing_page_view", value: "8" },
         { action_type: "initiate_checkout", value: "1" },
         { action_type: "omni_initiated_checkout", value: "6" },
+        { action_type: "purchase", value: "2" },
       ],
       outbound_clicks: [
         { action_type: "outbound_click", value: "2" },

@@ -116,11 +116,11 @@ describe("Creative evidence window route wiring", () => {
     expect(PLATFORM_PAGE).toContain("canonical: creativeDrill.canonical,");
   });
 
-  it("reads ad-grain evidence from the authorized creatives route, scoped to one creative", () => {
+  it("reads the selected-period funnel for the served exact Ad", () => {
     expect(PLATFORM_PAGE).toContain("fetchCreativeEvidenceAdRows");
-    expect(PLATFORM_PAGE).toContain('groupBy: "ad"');
-    expect(PLATFORM_PAGE).toContain("creativeId: input.creativeId");
-    expect(PLATFORM_PAGE).toContain("/api/meta/creatives?");
+    expect(PLATFORM_PAGE).toContain("adId: input.adId");
+    expect(PLATFORM_PAGE).toContain("/api/meta/ads/funnel?");
+    expect(PLATFORM_PAGE).not.toContain('groupBy: "ad"');
     expect(PLATFORM_PAGE).toContain("meta-creative-evidence-ad-rows");
   });
 

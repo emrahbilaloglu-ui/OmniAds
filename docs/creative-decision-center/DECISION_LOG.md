@@ -10738,6 +10738,20 @@ manifest-bound slice repair must first prove and publish the exact source.
 Only then may this tool reconcile the full creative economic row and stamp
 evidence. Older flattened rows without exact lineage remain unknown.
 
+The creative repair manifest advances to `.v2` for the D113 rebind boundary.
+Its canonical `fetched` source arm still needs a causal observation or original
+run-bound page. A legacy raw page later marked `superseded` is accepted only
+when the newly published Ad slice carries D113's `v2` reviewed-plan receipt:
+the old pointer, old slice and manifest, source page/partition/run, raw status
+update, and pre-rebind publication clock must all match the stored rows. The
+old slice must have been published no later than that old pointer; the raw
+page's one-time supersession must follow the old pointer. The current repair
+pointer's newer publication time cannot be used as the old clock. Both arms
+also require a successful account-day reconciliation on their exact manifest
+after completion and before publication, with no later failure before that
+publication. Missing or contradictory proof remains blocked; neither raw
+history nor unrelated creative metrics are changed.
+
 **Version, compatibility, rollback.** The integrated D109/D111 shared
 `ENGINE_VERSION` is `v3-2026-09-24-creative-purchase-cut-proof` for changed
 creative decisions;

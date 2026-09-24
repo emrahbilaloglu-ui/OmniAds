@@ -215,6 +215,34 @@ describe("a role-held Cut still awaiting confirmation", () => {
   it("POSITIVE: the CONFIRMED role-held Cut still reads as completed evidence", () => {
     expect(roleHeld("cut").resolution?.code).toBe("apply_cut_manually");
   });
+
+  it("keeps a legacy role-first Cut on an unverified config day out of the action lane", () => {
+    const held = projectMetaDecisionSemantics({
+      sourceLabel: "keep",
+      legacyBuyerAction: "keep",
+      badgeCodes: ["campaign_context_unresolved", "pending_transition"],
+      blockerCodes: ["campaign_context"],
+      heldAction: "cut",
+      authorityBlocker: "campaign_context",
+      configAuthorityVerified: false,
+      lifecycleRole: null,
+    } as never);
+    expect(held.resolution?.code).toBe("complete_hard_action_evidence");
+    expect(held.resolution?.nextStep).toContain("provider receipt");
+    expect(held.resolution?.nextStep).toContain("consecutive engine confirmation");
+    expect(held.decisionState).toBe("blocked");
+    expect(held.buyerAction).toBeNull();
+    const action = adAction(
+      {
+        classification: { ...held, lifecycleRole: { value: null } },
+        parentChain: { ad: { id: "ad-1" } },
+        sourceAuthority: null,
+      } as never,
+      { scale: false, cut: false, refresh: false } as never,
+    );
+    expect(action.lane).toBe("blocked");
+    expect(action.action.providerMutation).toBeNull();
+  });
 });
 
 /*
@@ -249,10 +277,13 @@ describe("a hard verdict held by the config-source gate", () => {
     },
   );
 
-  it("a pending config-held verdict waits for confirmation first", () => {
-    expect(configHeld("cut", ["pending_transition"]).resolution?.code).toBe(
-      "await_decision_confirmation",
-    );
+  it("a pending config-held verdict names the missing receipt before confirmation", () => {
+    const semantics = configHeld("cut", ["pending_transition"]);
+    expect(semantics.resolution?.code).toBe("complete_hard_action_evidence");
+    expect(semantics.resolution?.nextStep).toContain("provider receipt");
+    expect(semantics.resolution?.nextStep).toContain("consecutive engine confirmation");
+    expect(semantics.decisionState).toBe("blocked");
+    expect(semantics.buyerAction).toBeNull();
   });
 });
 

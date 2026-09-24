@@ -1,5 +1,5 @@
 {
-  "manifestHash": "91f75bd8541fce4b6471d901d8e6ac5b449ffa152c8d2ef8478b7e9e26e86373",
+  "manifestHash": "4dc5b322c83db44e0423d83f417414245e7a9d6b8e982db6f6068b1decce2d9d",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -544,7 +544,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "89ea0e9aaeffce85dd4123c7a89b8d29500af2e2200feb51422f563dc2084e03"
+      "sha256": "cfc26682f47697999b96d8fd02b26dd08b833de631c0b10046a3abef09f6d12f"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1140,7 +1140,7 @@
     },
     {
       "path": "lib/meta/__tests__/role-held-cut-visible-behaviour.test.ts",
-      "sha256": "2f64a2e96c3f335f53139d0af75feb40988ffbf89542d6dc3e441bfcab0cd69a"
+      "sha256": "1388b7ecf9c21fa4b3f0415dfb881e03f9ff5e9277680e30ecc332e844859603"
     },
     {
       "path": "lib/meta/__tests__/state-history-consumer-closure.test.ts",
@@ -1440,7 +1440,7 @@
     },
     {
       "path": "lib/meta/decision-semantics.ts",
-      "sha256": "9e5ca51d5b85f694315310d31450e84a681e604f9e55ba1ef4c9fdb020feacb7"
+      "sha256": "d0ab33bbc5a063622b945bd5632d9cd95feccb5d15b8ba410e283b74b260e519"
     },
     {
       "path": "lib/meta/decisions-canonical-ad-universe.test.ts",
@@ -1464,7 +1464,7 @@
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
-      "sha256": "c974ddde7b1f998c52a15075625df1857063c5cf05580c233998908ba54e3761"
+      "sha256": "10637eccdd57390d0fbc1855af0995d8021b0315e802f7ffa6e4915f18fd2f5c"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",

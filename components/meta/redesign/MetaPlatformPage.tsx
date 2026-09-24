@@ -9,11 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
-  keepPreviousData,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   TrackingConfirmModal,
   useDeferState,
@@ -26,6 +22,7 @@ import {
   type DateWindowValue,
 } from "@/components/date-range/DateRangePicker";
 import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
+import { addDaysToIsoDate } from "@/lib/meta/history";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import {
@@ -140,6 +137,8 @@ interface MetaPlatformPageProps {
   businessId: string;
   businessName?: string | null;
   currency?: string | null;
+  /** The shell's workspace clock, resolved from the same authorized business. */
+  businessTimezone?: string | null;
   /**
    * The provider account the server already resolved, assignment-verified.
    *
@@ -561,6 +560,18 @@ export function parseMetaRowSearch(params: {
   return (params.get("q") ?? "")
     .trim()
     .slice(0, META_DEEP_LINK_SEARCH_MAX_LENGTH);
+}
+
+/** Restore filters only when a new URL arrives outside this page's own edits. */
+export function metaExternalUrlFilters(
+  params: { get(name: string): string | null; toString(): string },
+  lastAuthoredQuery: string,
+): { rowSearch: string; levels: MetaDecisionLevel[] } | null {
+  if (params.toString() === lastAuthoredQuery) return null;
+  return {
+    rowSearch: parseMetaRowSearch(params),
+    levels: parseMetaDecisionLevels(params),
+  };
 }
 
 export interface MetaDeepLinkCompatibilityEntry {
@@ -1525,6 +1536,8 @@ interface MetaMobileQueueRowModel {
   id: string;
   name: MetaDecisionCenterExactDisplayValue;
   meta?: MetaDecisionCenterExactDisplayValue;
+  /** Server-provided creative preview; absent for structure rows. */
+  thumbnailUrl?: string | null;
   /**
    * The SERVED state, and the served blockers behind it.
    *
@@ -1598,6 +1611,7 @@ function mobileQueueRowsForLane(
       id: row.id,
       name: row.name,
       meta: row.kindShort,
+      thumbnailUrl: row.thumbnailUrl,
       decisionLabel: row.decisionLabel,
       decisionTone: row.decisionTone,
       stateLabel: row.stateLabel,
@@ -1870,6 +1884,7 @@ function MetaMobileQueueRow({
   id,
   name,
   meta,
+  thumbnailUrl,
   decisionLabel,
   decisionTone,
   stateLabel,
@@ -1887,6 +1902,7 @@ function MetaMobileQueueRow({
   id: string;
   name: MetaDecisionCenterExactDisplayValue;
   meta?: MetaDecisionCenterExactDisplayValue;
+  thumbnailUrl?: string | null;
   decisionLabel?: MetaDecisionCenterExactDisplayValue;
   decisionTone?: MetaDecisionCenterExactTone;
   stateLabel?: MetaDecisionCenterExactDisplayValue;
@@ -1912,9 +1928,28 @@ function MetaMobileQueueRow({
   const moneyLine = [mobileDisplay(money), mobileDisplay(moneySub)]
     .filter((value) => value !== "—")
     .join(" · ");
+  // Mirror the desktop creative card's served-state and held-verdict gates.
+  // Structure rows do not carry a served action when blocked, so this cannot
+  // create a different action interpretation for that scope.
+  const isBlockedCreative =
+    mobileDisplay(stateLabel).trim().toLowerCase() === "blocked";
+  const isHeldCreative =
+    heldVerdictLabel != null && mobileDisplay(heldVerdictLabel) !== "—";
   return (
     <article className="ad-mobile-row-card" data-mobile-row-id={id}>
       <div>
+        {thumbnailUrl ? (
+          <img
+            alt=""
+            className="ad-mobile-creative-thumb"
+            data-mobile-creative-thumbnail
+            loading="lazy"
+            src={thumbnailUrl}
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+            }}
+          />
+        ) : null}
         <h3>{mobileDisplay(name)}</h3>
         {meta ? <p data-tone="caution">{mobileDisplay(meta)}</p> : null}
         {/* The served state, before the decision label. A row the engine
@@ -1959,7 +1994,10 @@ function MetaMobileQueueRow({
         ) : null}
       </div>
       <div className="ad-mobile-row-footer">
-        {actionLabel && mobileDisplay(actionLabel) !== "—" ? (
+        {!isBlockedCreative &&
+        !isHeldCreative &&
+        actionLabel &&
+        mobileDisplay(actionLabel) !== "—" ? (
           <span className="ad-mobile-action-note">
             {mobileDisplay(actionLabel)}
           </span>
@@ -2081,10 +2119,18 @@ function MetaMobileDecisionsScreen({
   viewModel,
   scope,
   lane,
+  rowSearch,
+  levels,
   onScopeChange,
   onLaneChange,
+  onClearFilters,
   loading,
   error,
+  retryPending,
+  onRetryRead,
+  accountMetadataDegraded,
+  accountMetadataRetryPending,
+  onRetryAccountMetadata,
   anomalies,
   banners,
   historyHref,
@@ -2104,10 +2150,18 @@ function MetaMobileDecisionsScreen({
   viewModel: MetaDecisionCenterExactViewModel;
   scope: MetaDecisionCenterExactScope;
   lane: MetaLaneView;
+  rowSearch: string;
+  levels: readonly MetaDecisionLevel[];
   onScopeChange: (scope: MetaDecisionCenterExactScope) => void;
   onLaneChange: (lane: MetaLaneView) => void;
+  onClearFilters: () => void;
   loading: boolean;
   error: Error | null;
+  retryPending: boolean;
+  onRetryRead: () => void;
+  accountMetadataDegraded: boolean;
+  accountMetadataRetryPending: boolean;
+  onRetryAccountMetadata: () => void;
   anomalies: MetaAnomaly[];
   banners: MetaWorkspaceBanner[];
   historyHref: string;
@@ -2143,6 +2197,7 @@ function MetaMobileDecisionsScreen({
   const identity = viewModel.identity ?? {};
   const actCount = loading || error ? "—" : mobileDisplay(counts.action);
   const rows = mobileQueueRows(viewModel, scope, lane, manualActionFor);
+  const hasRowFilters = Boolean(rowSearch.trim() || levels.length > 0);
   const bannerPresentation = compactWorkspaceBannerPresentation({
     banners,
     historyHref,
@@ -2223,6 +2278,15 @@ function MetaMobileDecisionsScreen({
               >
                 <b>Decision workspace could not load.</b>
                 <div>We could not load Meta decisions. Please try again.</div>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  data-mobile-decisions-retry
+                  disabled={retryPending}
+                  onClick={onRetryRead}
+                >
+                  {retryPending ? "Retrying..." : "Retry"}
+                </button>
               </article>
             )}
           </div>
@@ -2249,6 +2313,30 @@ function MetaMobileDecisionsScreen({
             Updated {mobileDisplay(identity.syncedLabel)} ·{" "}
             {mobileDisplay(identity.currency)}
           </div>
+
+          {accountMetadataDegraded ? (
+            <article
+              className="ad-mobile-anomaly"
+              data-tone="warning"
+              data-mobile-account-metadata-warning
+              role="status"
+            >
+              <b>Account details are unavailable.</b>
+              <div>
+                Decisions are available, but the account name and currency could
+                not be refreshed.
+              </div>
+              <button
+                type="button"
+                className="btn btn--sm"
+                data-mobile-account-metadata-retry
+                disabled={accountMetadataRetryPending}
+                onClick={onRetryAccountMetadata}
+              >
+                {accountMetadataRetryPending ? "Retrying..." : "Retry"}
+              </button>
+            </article>
+          ) : null}
 
           {bannerPresentation ? (
             <article
@@ -2378,6 +2466,20 @@ function MetaMobileDecisionsScreen({
             </nav>
           )}
 
+          {hasRowFilters ? (
+            <article className="ad-mobile-anomaly" data-tone="info" data-mobile-active-filters>
+              <b>Filtered decisions</b>
+              <div>
+                {rowSearch.trim() ? `Search: ${rowSearch.trim()}` : null}
+                {rowSearch.trim() && levels.length > 0 ? " · " : null}
+                {levels.length > 0 ? `Levels: ${levels.join(", ")}` : null}
+              </div>
+              <button type="button" onClick={onClearFilters} data-mobile-clear-filters>
+                Clear filters
+              </button>
+            </article>
+          ) : null}
+
           {/*
             ROUND 9 ITEM 8. The mapped pending/legacy notice, which mobile did
             not render at all — so a phone showed an empty or partial creatives
@@ -2391,6 +2493,25 @@ function MetaMobileDecisionsScreen({
             <p className="ad-mobile-copy" data-mobile-creatives-notice>
               {mobileDisplay(viewModel.creativesNotice)}
             </p>
+          ) : null}
+
+          {scope === "creatives" ? (
+            <div data-mobile-creative-posture>
+              {(viewModel.creativePosture ?? [])
+                .filter(
+                  (item) =>
+                    mobileDisplay(item.value) !== "—" ||
+                    mobileDisplay(item.detail) !== "—",
+                )
+                .map((item) => (
+                  <div className="ad-mobile-posture" key={item.id}>
+                    <b>{mobileDisplay(item.label)}: {mobileDisplay(item.value)}</b>
+                    {mobileDisplay(item.detail) !== "—" ? (
+                      <div>{mobileDisplay(item.detail)}</div>
+                    ) : null}
+                  </div>
+                ))}
+            </div>
           ) : null}
 
           {rows.map((row) => (
@@ -2422,7 +2543,18 @@ function MetaMobileDecisionsScreen({
 
           {!loading && !error && rows.length === 0 ? (
             <article className="ad-mobile-row-card">
-              <h3>No decisions in this view</h3>
+              <h3>
+                {scope === "creatives" && canLoadMoreCreatives
+                  ? hasRowFilters
+                    ? "No match among loaded creative decisions"
+                    : "No creative decisions loaded in this lane yet"
+                  : hasRowFilters
+                  ? "No decisions match these filters"
+                  : "No decisions in this view"}
+              </h3>
+              {scope === "creatives" && canLoadMoreCreatives ? (
+                <p>Show more decisions to check the remaining eligible rows.</p>
+              ) : null}
             </article>
           ) : null}
         </div>
@@ -2565,6 +2697,15 @@ async function fetchMetaQueueCtrSeries(input: {
     if (values.length >= 2) byAdId.set(entry.adId, values);
   }
   return byAdId;
+}
+
+function queueCtrTrailWindow(asOf: string | null | undefined) {
+  if (!asOf || !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return null;
+  const date = new Date(asOf + "T00:00:00.000Z");
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== asOf) {
+    return null;
+  }
+  return { start: addDaysToIsoDate(asOf, -27), end: asOf };
 }
 
 async function fetchCreativeEvidenceAdSeries(input: {
@@ -2795,34 +2936,34 @@ function launchpadHandoffHref(input: {
 }
 
 /**
- * Compare in Studio, scoped by whichever envelope named the creative.
+ * Compare in Studio, scoped to the served business and provider account.
  *
  * This is navigation, not authority: both envelopes state the provider account
  * and the creative id as plain served identity, and reading the presentation
  * decision's copy when the canonical one is absent asserts nothing about
  * eligibility. Returns null when neither names an account, because a Studio
- * link with no scope is a link to the wrong account's creatives.
+ * link with no scope is a link to the wrong account's creatives. The explicit
+ * `/c/:businessId` route is required here: session-scoped `/app` and legacy
+ * routes can resolve a different active business after opening a new tab.
  */
-function creativeEvidenceStudioHref(input: {
+export function creativeEvidenceStudioHref(input: {
+  businessId: string;
   canonical: MetaCanonicalDecision | null;
   decision: MetaOsAdDecision | null;
-  pathname: string | null;
 }): string | null {
+  const businessId = input.businessId.trim();
   const providerAccountId =
     input.canonical?.providerAccountId?.trim() ||
     input.decision?.providerAccountId?.trim() ||
     null;
-  if (!providerAccountId) return null;
+  if (!businessId || !providerAccountId) return null;
   const params = new URLSearchParams({ providerAccountId });
   const creativeId =
     input.canonical?.parentChain.creative?.id?.trim() ||
     input.decision?.creativeId?.trim() ||
     null;
   if (creativeId) params.set("creativeId", creativeId);
-  return dashboardHrefForRouteFamily(
-    `/platforms/meta/creatives?${params.toString()}`,
-    input.pathname ?? "",
-  );
+  return `/c/${encodeURIComponent(businessId)}/creative/performance?${params.toString()}`;
 }
 
 /**
@@ -3590,6 +3731,7 @@ function MetaNativeAdPauseDialog({
 export function MetaPlatformPage({
   businessId,
   businessName,
+  businessTimezone = null,
   serverProviderAccountId = null,
   accountSelection = "shared",
   decisionWorkflowUiEnabled: authorizedWorkflowUiEnabled,
@@ -3604,6 +3746,12 @@ export function MetaPlatformPage({
   const mutationUiEnabled = authorizedMutationUiEnabled === true;
   const router = useRouter();
   const pathname = usePathname();
+  // App Router can update the scoped URL/topbar before its new page payload
+  // replaces this mounted component. Hide the old business immediately.
+  const routeBusinessId = pathname?.match(/^\/c\/([^/]+)(?:\/|$)/)?.[1] ?? null;
+  const routeScopePending =
+    routeBusinessId !== null &&
+    routeBusinessId !== encodeURIComponent(businessId);
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const selectedWindow = parseMetaWindow(searchParams.get("window"));
@@ -3723,9 +3871,12 @@ export function MetaPlatformPage({
    * on its own; what travels with it is the envelope's ABSENCE, as `null`, so
    * the window can state it rather than infer around it.
    */
-  const [creativeDrill, setCreativeDrill] = useState<{
+  const [creativeDrillSelection, setCreativeDrill] = useState<{
     decision: MetaOsAdDecision | null;
     canonical: MetaCanonicalDecision | null;
+    /** The exact workspace response and query scope that served this verdict. */
+    workspaceRef: MetaDecisionsWorkspacePayload;
+    scopeKey: string;
   } | null>(null);
   const [nativeAdPauseAuthorization, setNativeAdPauseAuthorization] =
     useState<AuthorizedMetaNativeAdPause | null>(null);
@@ -3741,7 +3892,11 @@ export function MetaPlatformPage({
 
   useEffect(() => {
     const incomingQuery = searchParams.toString();
-    if (incomingQuery !== latestSearchParamsRef.current) {
+    const externalFilters = metaExternalUrlFilters(
+      searchParams,
+      latestSearchParamsRef.current,
+    );
+    if (externalFilters) {
       // An external link or history navigation can reuse this page instance.
       // Own lane changes already updated the ref in replaceMetaParams.
       explicitLaneSelectionRef.current =
@@ -3750,6 +3905,11 @@ export function MetaPlatformPage({
         searchParams.get("segment") !== null ||
         searchParams.get("entity") !== null ||
         searchParams.get("row") !== null;
+      // A business switch also reuses this component. Keep its search and
+      // level controls aligned with the new URL so an old account's query
+      // cannot leave the new account looking empty after its rows load.
+      setRowSearch(externalFilters.rowSearch);
+      setActiveLevels(externalFilters.levels);
     }
     latestSearchParamsRef.current = incomingQuery;
     setActiveLane(parseMetaWorkspaceLane(searchParams));
@@ -3804,25 +3964,34 @@ export function MetaPlatformPage({
    */
   const providerAccountId =
     selectedProviderAccount?.id ?? serverProviderAccountId ?? null;
-  // KNOWN GAP, recorded rather than papered over. This clock only decides how
-  // a BARE preset expands; a URL that states startDate/endDate wins outright,
-  // and the shell states them on every navigation, so this is the first-load
-  // edge. When the account record is unreadable the page falls to UTC while
-  // the shell falls to the workspace timezone (app-topbar.tsx:259-263), so on
-  // that edge the two can name different days. Closing it means forwarding the
-  // business timezone as a server-owned prop through the shared shim; this
-  // component deliberately has no client-store access, and reaching for one
-  // here would rebuild the store-vs-server scope split just removed.
-  const selectedAccountTimeZone = selectedProviderAccount?.timezone || "UTC";
-  const selectedReferenceDate = getTodayIsoForTimeZone(selectedAccountTimeZone);
+  // The shell expands a bare preset on the workspace business clock. Use that
+  // same clock here, including when the account-metadata read fails; explicit
+  // start/end dates in the URL still win in metaDateRangeFromParams.
+  const workspaceTimeZone =
+    businessTimezone || selectedProviderAccount?.timezone || "UTC";
+  const selectedReferenceDate = getTodayIsoForTimeZone(workspaceTimeZone);
   const selectedDateRange = metaDateRangeFromParams(
     searchParams,
     selectedReferenceDate,
   );
+  const creativeDrillScopeKey = JSON.stringify([
+    businessId,
+    providerAccountId,
+    selectedWindow,
+    selectedStatusFilter,
+    selectedDateRange.start,
+    selectedDateRange.end,
+  ]);
+  // Stop the auxiliary reads as soon as the selected window/account changes.
+  // The old decision is also hidden synchronously below, before an effect runs.
+  const scopedCreativeDrill =
+    creativeDrillSelection?.scopeKey === creativeDrillScopeKey
+      ? creativeDrillSelection
+      : null;
 
   const creativeEvidenceCreativeId =
-    creativeDrill?.canonical?.parentChain.creative?.id?.trim() ||
-    creativeDrill?.decision?.creativeId?.trim() ||
+    scopedCreativeDrill?.canonical?.parentChain.creative?.id?.trim() ||
+    scopedCreativeDrill?.decision?.creativeId?.trim() ||
     null;
   const creativeEvidenceQuery = useQuery({
     queryKey: [
@@ -3854,8 +4023,8 @@ export function MetaPlatformPage({
    * cross-ad frequency would need a deduplicated reach Meta does not report.
    */
   const creativeEvidenceAdId =
-    creativeDrill?.canonical?.parentChain.ad?.id?.trim() ||
-    creativeDrill?.decision?.adId?.trim() ||
+    scopedCreativeDrill?.canonical?.parentChain.ad?.id?.trim() ||
+    scopedCreativeDrill?.decision?.adId?.trim() ||
     null;
   const creativeEvidenceSeriesQuery = useQuery({
     queryKey: [
@@ -3877,7 +4046,7 @@ export function MetaPlatformPage({
     refetchOnWindowFocus: false,
   });
 
-  const workspaceQuery = useQuery({
+  const rawWorkspaceQuery = useQuery({
     queryKey: [
       "meta-decisions-workspace",
       businessId,
@@ -3906,18 +4075,69 @@ export function MetaPlatformPage({
     retry: false,
     refetchOnWindowFocus: false,
     /**
-     * Keep the rows that are already on screen while the next window loads.
-     *
-     * §9 is explicit that a refresh is not a first load: *"Old data still on
-     * screen while new data is fetched is not a first load, and blanking it to
-     * a skeleton throws away readable evidence to show a spinner."* Changing
-     * the window changes this query's key, so without this the operator's whole
-     * queue was replaced by a skeleton every time — and the honest cost of
-     * keeping it, that the previous window's figures are briefly under the new
-     * window's label, is precisely what `refreshing-with-stale` discloses.
+     * Preserve readable rows during a same-account window refresh, but never
+     * present another business or provider account's decisions under the new
+     * account heading. A scope switch is a first load, not stale refresh data.
      */
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData) =>
+      previousData?.businessId === businessId &&
+      previousData.decisionReadModel?.scope?.businessId === businessId &&
+      previousData.decisionReadModel.scope.providerAccountId ===
+        providerAccountId
+        ? previousData
+        : undefined,
   });
+  // A query cache/transition is never allowed to put A's decisions beneath
+  // B's route heading. React Query's placeholder guard covers the normal
+  // key-change path; this read-time scope check also covers a retained result
+  // or an App Router transition that briefly reuses the old page instance.
+  const workspaceDataMatchesScope = Boolean(
+    !routeScopePending &&
+    rawWorkspaceQuery.data?.businessId === businessId &&
+    rawWorkspaceQuery.data?.decisionReadModel?.scope?.businessId === businessId &&
+    rawWorkspaceQuery.data.decisionReadModel.scope.providerAccountId ===
+      providerAccountId,
+  );
+  const workspaceQuery = {
+    ...rawWorkspaceQuery,
+    data: workspaceDataMatchesScope ? rawWorkspaceQuery.data : undefined,
+    isLoading:
+      routeScopePending ||
+      rawWorkspaceQuery.isLoading ||
+      (rawWorkspaceQuery.data !== undefined &&
+        !workspaceDataMatchesScope &&
+        rawWorkspaceQuery.isFetching),
+  };
+
+  // A decision detail cannot outlive the workspace response that served it.
+  // During a date/account change React Query may keep the prior response as
+  // placeholder data; a new generation may also replace an Ad decision while
+  // the same page stays mounted. Both cases hide the old detail immediately.
+  const selectedLineageStillServed = scopedCreativeDrill?.decision
+    ? workspaceQuery.data?.os?.ads?.items.some(
+        (item) =>
+          item.id === scopedCreativeDrill.decision?.id &&
+          item.decisionId === scopedCreativeDrill.decision?.decisionId &&
+          item.sourceSnapshotId ===
+            scopedCreativeDrill.decision?.sourceSnapshotId,
+      ) === true
+    : scopedCreativeDrill?.canonical
+      ? true // The canonical-only deep-link is checked against the response ref.
+      : false;
+  const creativeDrill =
+    scopedCreativeDrill &&
+    scopedCreativeDrill.workspaceRef === workspaceQuery.data &&
+    workspaceQuery.data?.businessId === businessId &&
+    workspaceQuery.data.decisionReadModel.scope.providerAccountId ===
+      providerAccountId &&
+    !workspaceQuery.isPlaceholderData &&
+    !workspaceQuery.error &&
+    selectedLineageStillServed
+      ? scopedCreativeDrill
+      : null;
+  useEffect(() => {
+    if (creativeDrillSelection && !creativeDrill) setCreativeDrill(null);
+  }, [creativeDrillSelection, creativeDrill]);
 
   /**
    * Forward the server's §9 envelope. Nothing is computed here.
@@ -3973,21 +4193,27 @@ export function MetaPlatformPage({
         .filter((adId): adId is string => Boolean(adId)),
     ),
   ).slice(0, 25);
+  // The row's CTR value is the decision snapshot's 28-day metric. Fetch the
+  // trail over those same 28 report days, even when the page filter is 7d.
+  const queueCtrWindow = queueCtrTrailWindow(
+    workspaceQuery.data?.os?.source?.snapshotAsOf,
+  );
   const queueCtrSeriesQuery = useQuery({
     queryKey: [
       "meta-queue-ctr-series",
       businessId,
-      selectedDateRange.start,
-      selectedDateRange.end,
+      queueCtrWindow?.start,
+      queueCtrWindow?.end,
       queueCreativeAdIds.join(","),
     ],
-    enabled: Boolean(businessId) && queueCreativeAdIds.length > 0,
+    enabled: Boolean(businessId) && queueCreativeAdIds.length > 0 &&
+      queueCtrWindow !== null,
     queryFn: () =>
       fetchMetaQueueCtrSeries({
         businessId,
         adIds: queueCreativeAdIds,
-        start: selectedDateRange.start,
-        end: selectedDateRange.end,
+        start: queueCtrWindow!.start,
+        end: queueCtrWindow!.end,
       }),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -4530,6 +4756,15 @@ export function MetaPlatformPage({
     replaceMetaParams(params);
   };
 
+  const clearRowFilters = () => {
+    setRowSearch("");
+    setActiveLevels([]);
+    const params = currentUrlParams();
+    params.delete("q");
+    params.delete("levels");
+    replaceMetaParams(params);
+  };
+
   const refreshDecisionData = async () => {
     await Promise.all([
       queryClient.invalidateQueries({
@@ -4705,9 +4940,14 @@ export function MetaPlatformPage({
 
   useEffect(() => {
     if (!creativeSelection || creativeDrill) return;
+    if (!workspaceQuery.data || workspaceQuery.isPlaceholderData || workspaceQuery.error) return;
     const pair = findSelectedCreativeDecisionPair();
     if (!pair) return;
-    setCreativeDrill(pair);
+    setCreativeDrill({
+      ...pair,
+      workspaceRef: workspaceQuery.data,
+      scopeKey: creativeDrillScopeKey,
+    });
   }, [creativeSelectionKey, workspaceQuery.data]);
 
   /**
@@ -5224,7 +5464,13 @@ export function MetaPlatformPage({
             });
             setNativeAdPauseAuthorization(null);
             setNativeAdPauseError(null);
-            setCreativeDrill({ decision, canonical: canonicalDecision });
+            if (!workspaceQuery.data) return;
+            setCreativeDrill({
+              decision,
+              canonical: canonicalDecision,
+              workspaceRef: workspaceQuery.data,
+              scopeKey: creativeDrillScopeKey,
+            });
           },
         },
       })
@@ -5747,14 +5993,22 @@ export function MetaPlatformPage({
         />
       ) : (
         <MetaMobileDecisionsScreen
-          businessName={businessName}
+          businessName={routeScopePending ? null : businessName}
           viewModel={exactViewModel}
           scope={activeScope}
           lane={activeLane}
+          rowSearch={rowSearch}
+          levels={activeLevels}
           onScopeChange={selectScope}
           onLaneChange={selectOperatorLane}
+          onClearFilters={clearRowFilters}
           loading={loading}
           error={error}
+          retryPending={briefingRetryPending}
+          onRetryRead={() => void retryBriefingRead()}
+          accountMetadataDegraded={providerAccountMetadataDegraded}
+          accountMetadataRetryPending={providerAccountsQuery.isFetching}
+          onRetryAccountMetadata={() => void providerAccountsQuery.refetch()}
           anomalies={anomalies}
           banners={workspaceBanners}
           historyHref={metaHistoryHref}
@@ -5967,6 +6221,7 @@ export function MetaPlatformPage({
         {workspaceQuery.data ? (
           <MetaDecisionCenterExact
             viewModel={exactViewModelWithWorkflow}
+            canLoadMoreCreatives={canLoadMoreCreatives}
             lane={exactLaneForMetaLane(activeLane)}
             scope={activeScope}
             onScopeChange={selectScope}
@@ -6021,17 +6276,23 @@ export function MetaPlatformPage({
             onLevelsChange={selectLevels}
             onSearchChange={setRowSearchParam}
             initialQuery={rowSearch}
-            onOpenCreativeStudio={() => {
-              const query = providerAccountId
-                ? "?providerAccountId=" + encodeURIComponent(providerAccountId)
-                : "";
-              router.push(
-                dashboardHrefForRouteFamily(
-                  "/platforms/meta/creatives" + query,
-                  pathname,
-                ),
-              );
-            }}
+            onOpenCreativeStudio={
+              providerAccountId
+                ? () => {
+                    // The Studio route reads and authorizes both identities
+                    // and the selected window. A session business can change
+                    // before an /app link opens in another tab.
+                    const params = new URLSearchParams({
+                      providerAccountId,
+                      startDate: selectedDateRange.start,
+                      endDate: selectedDateRange.end,
+                    });
+                    router.push(
+                      `/c/${encodeURIComponent(businessId)}/creative/performance?${params.toString()}`,
+                    );
+                  }
+                : undefined
+            }
           />
         ) : null}
         {/*
@@ -6136,9 +6397,9 @@ export function MetaPlatformPage({
               hrefs: {
                 primary: null,
                 compareInStudio: creativeEvidenceStudioHref({
+                  businessId,
                   canonical: creativeDrill.canonical,
                   decision: creativeDrill.decision,
-                  pathname,
                 }),
                 adsManager: buildMetaAdsManagerHref({
                   providerAccountId:

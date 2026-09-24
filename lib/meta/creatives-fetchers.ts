@@ -220,12 +220,14 @@ export async function fetchAccountInsights(
   accountId: string,
   accessToken: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  options: { strictComplete?: boolean; includeRichFields?: boolean } = {},
 ): Promise<MetaInsightRecord[]> {
   const fetchInsightsPages = async (input: {
     fields: string;
     filtering?: Array<Record<string, unknown>>;
     warnLabel: string;
+    required?: boolean;
   }) => {
     const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
     url.searchParams.set("fields", input.fields);
@@ -246,10 +248,21 @@ export async function fetchAccountInsights(
         data?: MetaInsightRecord[];
         paging?: { next?: string };
       } | null = await metaGet(pageUrl, input.warnLabel, { accountId, page: pageCount });
-      if (!payload) break;
+      if (!payload) {
+        if (options.strictComplete && input.required !== false) {
+          throw new Error(`meta_creative_insights_page_unavailable:${input.warnLabel}:${accountId}:${pageCount}`);
+        }
+        break;
+      }
+      if (options.strictComplete && input.required !== false && !Array.isArray(payload.data)) {
+        throw new Error(`meta_creative_insights_page_invalid:${input.warnLabel}:${accountId}:${pageCount}`);
+      }
       rows.push(...(payload.data ?? []));
       nextUrl = payload.paging?.next ?? null;
       pageCount += 1;
+    }
+    if (nextUrl && options.strictComplete && input.required !== false) {
+      throw new Error(`meta_creative_insights_pagination_incomplete:${input.warnLabel}:${accountId}`);
     }
     logRuntimeDebug("meta-creatives", `${input.warnLabel}_response`, {
       account_id: accountId,
@@ -278,6 +291,7 @@ export async function fetchAccountInsights(
           fields: META_CREATIVE_INSIGHTS_RICH_FIELDS,
           filtering: [{ field: "ad.id", operator: "IN", value: chunk }],
           warnLabel: "insights_rich",
+          required: false,
         })),
       );
     }
@@ -302,6 +316,27 @@ export async function fetchAccountInsights(
     });
   };
 
+  const loader = async () => {
+    logRuntimeDebug("meta-creatives", "insights_query", {
+      account_id: accountId,
+      time_range: { since: startDate, until: endDate },
+      level: "ad",
+      base_fields: META_CREATIVE_INSIGHTS_BASE_FIELDS,
+      rich_fields: META_CREATIVE_INSIGHTS_RICH_FIELDS,
+    });
+
+    const rows = await fetchInsightsPages({
+      fields: META_CREATIVE_INSIGHTS_BASE_FIELDS,
+      warnLabel: "insights_base",
+    });
+    const enrichedRows = options.includeRichFields === false ? rows : await mergeRichInsights(rows);
+    logRuntimeDebug("meta-creatives", "insights_response", {
+      account_id: accountId,
+      rows: enrichedRows.length,
+    });
+    return enrichedRows;
+  };
+  if (options.strictComplete) return loader();
   return getCachedValue({
     key: metaCacheKey([
       "meta-insights",
@@ -313,26 +348,7 @@ export async function fetchAccountInsights(
     ]),
     ttlMs: 120_000,
     staleWhileRevalidateMs: 300_000,
-    loader: async () => {
-      logRuntimeDebug("meta-creatives", "insights_query", {
-        account_id: accountId,
-        time_range: { since: startDate, until: endDate },
-        level: "ad",
-        base_fields: META_CREATIVE_INSIGHTS_BASE_FIELDS,
-        rich_fields: META_CREATIVE_INSIGHTS_RICH_FIELDS,
-      });
-
-      const rows = await fetchInsightsPages({
-        fields: META_CREATIVE_INSIGHTS_BASE_FIELDS,
-        warnLabel: "insights_base",
-      });
-      const enrichedRows = await mergeRichInsights(rows);
-      logRuntimeDebug("meta-creatives", "insights_response", {
-        account_id: accountId,
-        rows: enrichedRows.length,
-      });
-      return enrichedRows;
-    },
+    loader,
   }).then((result) => result.value);
 }
 

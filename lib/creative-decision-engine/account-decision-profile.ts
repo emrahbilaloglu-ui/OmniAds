@@ -772,28 +772,27 @@ export async function resolveAccountDecisionProfile(input: {
     businessId: input.businessId,
     asOf: input.asOf,
   });
-  const accountBaselinesByKindPromise = input.dataSource
+  // A lifecycle job resolves this profile inside a transaction pinned to one
+  // pg client. Keep optional reads in sequence so a failed read cannot leave a
+  // second query queued on that client while the transaction is rolling back.
+  const accountBaselinesByKind = input.dataSource
     .getAccountCalibrationAllKinds
-    ? input.dataSource
+    ? await input.dataSource
         .getAccountCalibrationAllKinds({
           businessId: input.businessId,
           asOf: input.asOf,
         })
         .catch(() => undefined)
-    : Promise.resolve(undefined);
-  const funnelCalibrationByKindPromise = input.dataSource
+    : undefined;
+  const funnelCalibrationByKind = input.dataSource
     .getAccountFunnelCalibrationAllKinds
-    ? input.dataSource
+    ? await input.dataSource
         .getAccountFunnelCalibrationAllKinds({
           businessId: input.businessId,
           asOf: input.asOf,
         })
         .catch(() => undefined)
-    : Promise.resolve(undefined);
-  const [accountBaselinesByKind, funnelCalibrationByKind] = await Promise.all([
-    accountBaselinesByKindPromise,
-    funnelCalibrationByKindPromise,
-  ]);
+    : undefined;
 
   /*
     A Target ROAS makes the cutoff-safe physical-account read authoritative.

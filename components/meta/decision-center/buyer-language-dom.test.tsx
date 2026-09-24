@@ -639,6 +639,9 @@ function blockedAd() {
     resolution: null,
     heldAction: "refresh",
     heldResolution: { code: "commercial_target_missing" },
+    // This fixture's numeric Ad metrics are a served observation; D104 does
+    // not infer that status from the numbers themselves.
+    adPerformanceAvailability: "observed",
     metrics: {
       spend: 725,
       purchases: 18,

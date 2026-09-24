@@ -64,6 +64,7 @@
 // vacuously.
 import { sharedEphemeralDatabaseUrl } from "@/lib/test-utils/shared-ephemeral-database";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -176,8 +177,11 @@ function addDays(date: string, days: number) {
 /** The last completed UTC day, which is the day every fixture speaks for. */
 const AS_OF = addDays(new Date().toISOString().slice(0, 10), -1);
 
-/** Enough history for the lifecycle age and active-day gates to open. */
-const HISTORY_DAYS = 30;
+/** Eight active days give age >=7 and active_days_30d >=5 without a 30-day fixture. */
+const HISTORY_DAYS = 8;
+const statusHash = (value: string) => createHash("sha256")
+  .update(`profile-scope-status:${value}`)
+  .digest("hex");
 
 type SeedCreatives = (input: {
   businessId: string;
@@ -224,7 +228,8 @@ describe.skipIf(!RUNNABLE)(
     /** One account's retained lifecycle rows, exactly as stored. */
     const retainedLifecycle = async (businessId: string, account: string) =>
       db.getDb().query(
-        `SELECT creative_id, funnel_primary_weak_stage, funnel_confidence,
+        `SELECT creative_id, age_days, active_days_30d, lifecycle_position,
+                funnel_primary_weak_stage, funnel_confidence,
                 funnel_evidence, creative_responsibility_score,
                 site_responsibility_score, checkout_responsibility_score,
                 tracking_anomaly_score, fatigue_status, fatigue_confidence,
@@ -324,23 +329,34 @@ describe.skipIf(!RUNNABLE)(
         const calibration = await runCalibrationJob({
           businessId,
           asOf: AS_OF,
+          evaluationCutoffAt: new Date().toISOString(),
         });
         if (calibration.status !== "success") {
           throw new Error(
             `calibration ${calibration.status}: ${calibration.errorMessage ?? ""}`,
           );
         }
-        const lifecycle = await runLifecycleJob({ businessId, asOf: AS_OF });
+        const lifecycle = await runLifecycleJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
         if (lifecycle.status !== "success") {
           throw new Error(
             `lifecycle ${lifecycle.status}: ${lifecycle.errorMessage ?? ""}`,
           );
         }
-        const decisions = await runDecisionsJob({ businessId, asOf: AS_OF });
+        const decisions = await runDecisionsJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
         if (decisions.status !== "success") {
           throw new Error(
             `decisions ${decisions.status}: ${decisions.errorMessage ?? ""}`,
           );
+        }
+      };
+
+      const traceFixtureStage = async (label: string, stage: () => Promise<void>) => {
+        const startedAt = Date.now();
+        console.error(`[profile-scope-callers] ${label}: starting`);
+        try {
+          await stage();
+        } finally {
+          console.error(`[profile-scope-callers] ${label}: finished ${Date.now() - startedAt}ms`);
         }
       };
 
@@ -392,12 +408,70 @@ describe.skipIf(!RUNNABLE)(
         );
       };
 
+      // D106: a creative metric row's status is not provider state proof.
+      // Keep these scoped economics fixtures ACTIVE with exact Ad and parent
+      // observations retained before the job's knowledge cutoff.
+      const seedDeliveryHistory = async (businessId: string, account: string, count: number) => {
+        const digits = account.replace(/\D/g, "");
+        const [binding] = await sql.query<{ provider_account_ref_id: string }>(
+          `SELECT provider_account_ref_id::text AS provider_account_ref_id
+           FROM business_provider_accounts
+           WHERE business_id = $1 AND provider = 'meta' AND provider_account_id = $2`,
+          [businessId, account],
+        );
+        const parent = { campaignId: `${digits}01`, adsetId: `${digits}02` };
+        const entities = [
+          { type: "campaign", ids: [parent.campaignId] },
+          { type: "adset", ids: [parent.adsetId] },
+          { type: "ad", ids: Array.from({ length: count }, (_, index) =>
+            `${digits}3${String(index).padStart(3, "0")}`) },
+        ] as const;
+        for (const entity of entities) {
+          const [run] = await sql.query<{ id: string }>(
+            `INSERT INTO meta_entity_observation_runs (
+               business_ref_id, business_id, provider_account_ref_id,
+               provider_account_id, entity_type, endpoint, observed_at,
+               captured_at, completeness, page_count, row_count, run_hash,
+               created_at
+             ) VALUES ($1::uuid, $1, $2::uuid, $3, $4, 'profile-scope-seam',
+               $5::timestamptz, $5::timestamptz, 'complete', 1, $6, $7,
+               $5::timestamptz) RETURNING id::text AS id`,
+            [businessId, binding!.provider_account_ref_id, account, entity.type,
+              `${AS_OF}T04:00:00.000Z`, entity.ids.length,
+              statusHash(`${businessId}:${account}:${entity.type}:run`)],
+          );
+          const rows = entity.ids.map((entityId, index) => ({
+            entity_id: entityId,
+            campaign_id: parent.campaignId,
+            adset_id: entity.type === "campaign" ? null : parent.adsetId,
+            ad_id: entity.type === "ad" ? entityId : null,
+            creative_id: entity.type === "ad" ? `${digits}4${String(index).padStart(3, "0")}` : null,
+            state_hash: statusHash(`${businessId}:${account}:${entity.type}:${entityId}`),
+          }));
+          await sql.query(
+            `INSERT INTO meta_entity_state_history (
+               run_id, business_ref_id, business_id, provider_account_ref_id,
+               provider_account_id, entity_type, entity_id, campaign_id,
+               adset_id, ad_id, creative_id, configured_status,
+               effective_status, presence, observed_at, captured_at,
+               run_completeness, state_hash, created_at
+             ) SELECT $1::uuid, $2::uuid, $2, $3::uuid, $4, $5,
+               source.entity_id, source.campaign_id, source.adset_id,
+               source.ad_id, source.creative_id, 'ACTIVE', 'ACTIVE',
+               'present', $6::timestamptz, $6::timestamptz,
+               'complete', source.state_hash, $6::timestamptz
+             FROM jsonb_to_recordset($7::jsonb) AS source(
+               entity_id text, campaign_id text, adset_id text, ad_id text,
+               creative_id text, state_hash text)`,
+            [run!.id, businessId, binding!.provider_account_ref_id,
+              account, entity.type, `${AS_OF}T04:00:00.000Z`, JSON.stringify(rows)],
+          );
+        }
+      };
+
       seedCreatives = async (input) => {
         const digits = input.account.replace(/\D/g, "");
-        // One day per batch: the dimension upsert behind
-        // `upsertMetaCreativeDailyRows` refuses a batch that names the same
-        // creative twice ("ON CONFLICT DO UPDATE command cannot affect row a
-        // second time").
+        // Keep each provider day independently certified by the real writers.
         for (let day = 0; day < HISTORY_DAYS; day += 1) {
           const rows = [];
           for (let index = 0; index < input.count; index += 1) {
@@ -450,11 +524,12 @@ describe.skipIf(!RUNNABLE)(
             });
           }
           await upsertMetaCreativeDailyRows(rows);
-          await seedCanonicalMetaAdDailyFacts({
-            sql,
-            rows,
-            write: upsertMetaAdDailyRows,
-          });
+        await seedCanonicalMetaAdDailyFacts({
+          sql,
+          rows,
+          write: upsertMetaAdDailyRows,
+          certifyCreativeDecisionSource: true,
+        });
         }
       };
 
@@ -476,7 +551,7 @@ describe.skipIf(!RUNNABLE)(
         calibration floor is thirty, so A's own six can never clear it and A
         pooled with B always does.
       */
-      await seedCreatives({
+      await traceFixtureStage("seed decision A", () => seedCreatives({
         businessId: DECISIONS_BUSINESS,
         account: ACCOUNT_A,
         count: 6,
@@ -486,8 +561,8 @@ describe.skipIf(!RUNNABLE)(
         landingPageViews: 4,
         addToCart: 2,
         initiateCheckout: 1,
-      });
-      await seedCreatives({
+      }));
+      await traceFixtureStage("seed decision B", () => seedCreatives({
         businessId: DECISIONS_BUSINESS,
         account: ACCOUNT_B,
         count: 32,
@@ -497,7 +572,7 @@ describe.skipIf(!RUNNABLE)(
         landingPageViews: 4,
         addToCart: 2,
         initiateCheckout: 1,
-      });
+      }));
 
       // --- the lifecycle case ------------------------------------------
       await seedBusiness(LIFECYCLE_BUSINESS, "Profile scope lifecycle");
@@ -511,7 +586,7 @@ describe.skipIf(!RUNNABLE)(
         were contaminated.
       */
       for (const account of [ACCOUNT_P, ACCOUNT_Q]) {
-        await seedCreatives({
+        await traceFixtureStage(`seed lifecycle ${account}`, () => seedCreatives({
           businessId: LIFECYCLE_BUSINESS,
           account,
           count: account === ACCOUNT_P ? 6 : 32,
@@ -521,11 +596,18 @@ describe.skipIf(!RUNNABLE)(
           landingPageViews: 4,
           addToCart: 2,
           initiateCheckout: 1,
-        });
+        }));
       }
 
-      await runAllJobs(DECISIONS_BUSINESS);
-      await runAllJobs(LIFECYCLE_BUSINESS);
+      await traceFixtureStage("seed delivery receipts", async () => {
+        await seedDeliveryHistory(DECISIONS_BUSINESS, ACCOUNT_A, 6);
+        await seedDeliveryHistory(DECISIONS_BUSINESS, ACCOUNT_B, 32);
+        await seedDeliveryHistory(LIFECYCLE_BUSINESS, ACCOUNT_P, 6);
+        await seedDeliveryHistory(LIFECYCLE_BUSINESS, ACCOUNT_Q, 32);
+      });
+
+      await traceFixtureStage("initial decision jobs", () => runAllJobs(DECISIONS_BUSINESS));
+      await traceFixtureStage("initial lifecycle jobs", () => runAllJobs(LIFECYCLE_BUSINESS));
     }, 600_000);
 
     afterAll(async () => {
@@ -569,6 +651,9 @@ describe.skipIf(!RUNNABLE)(
       }
     });
 
+    // Both replay cases rewrite 32 creatives across eight days and rerun the real
+    // jobs. Bound each whole replay explicitly so a loaded CI runner cannot
+    // time out at the suite-wide 15s default while its DB work is still live.
     it("leaves account A's retained decisions byte-identical when only B moves", async () => {
       const beforeA = JSON.stringify(
         await retainedDecisions(DECISIONS_BUSINESS, ACCOUNT_A),
@@ -602,7 +687,7 @@ describe.skipIf(!RUNNABLE)(
       // B's own rows MUST move, or the fixture proved nothing about A.
       expect(afterB).not.toBe(beforeB);
       expect(afterA).toBe(beforeA);
-    });
+    }, 120_000);
 
     it("leaves account P's retained lifecycle rows byte-identical when only Q moves", async () => {
       const beforeP = JSON.stringify(
@@ -614,9 +699,17 @@ describe.skipIf(!RUNNABLE)(
       const beforePPack = JSON.stringify(
         await funnelPack(LIFECYCLE_BUSINESS, ACCOUNT_P),
       );
-      expect(
-        (await retainedLifecycle(LIFECYCLE_BUSINESS, ACCOUNT_P)) as unknown[],
-      ).toHaveLength(6);
+      const pRows = (await retainedLifecycle(LIFECYCLE_BUSINESS, ACCOUNT_P)) as Array<{
+        age_days: number;
+        active_days_30d: number;
+        lifecycle_position: string;
+      }>;
+      expect(pRows).toHaveLength(6);
+      for (const row of pRows) {
+        expect(Number(row.age_days)).toBeGreaterThanOrEqual(7);
+        expect(Number(row.active_days_30d)).toBeGreaterThanOrEqual(5);
+        expect(row.lifecycle_position).not.toBe("insufficient_history");
+      }
 
       // ONLY Q's funnel counts move, at every stage below the link click.
       // P's warehouse rows are not touched at all.
@@ -650,15 +743,14 @@ describe.skipIf(!RUNNABLE)(
       expect(
         JSON.stringify(await retainedLifecycle(LIFECYCLE_BUSINESS, ACCOUNT_P)),
       ).toBe(beforeP);
-    });
+    }, 120_000);
 
-    it("still decides a creative whose warehouse rows name no account", async () => {
+    it("keeps an unbound creative visible without granting hard authority", async () => {
       /*
         `meta_creative_daily.provider_account_id` is NOT NULL, so a creative
-        with no account is one whose binding is blank rather than missing. Both
-        readers behind the account lookup normalise a blank to absent, and the
-        job must answer it from the business-wide profile rather than skip it:
-        a creative without a decision is invisible to the operator.
+        with no account has a blank binding. A business-wide profile cannot
+        certify its missing physical-account source lineage; the operator
+        still needs a visible diagnostic rather than a fabricated hard action.
       */
       const sql = db.getDb();
       const [orphan] = (await sql.query(
@@ -686,15 +778,17 @@ describe.skipIf(!RUNNABLE)(
       const result = await runDecisionsJob({
         businessId: DECISIONS_BUSINESS,
         asOf: AS_OF,
+        evaluationCutoffAt: new Date().toISOString(),
       });
       expect(result.status).toBe("success");
 
       const [row] = (await sql.query(
-        `SELECT label FROM engine_v3_decision_snapshots_daily
+        `SELECT label, reason FROM engine_v3_decision_snapshots_daily
           WHERE business_id = $1 AND as_of_date = $2::date AND creative_id = $3`,
         [DECISIONS_BUSINESS, AS_OF, orphan!.creative_id],
-      )) as Array<{ label: string }>;
-      expect(row?.label).toBeTruthy();
+      )) as Array<{ label: string; reason: string }>;
+      expect(row?.label).toBe("diagnose");
+      expect(row?.reason).toContain("creative_source_coverage_incomplete");
     });
   },
 );

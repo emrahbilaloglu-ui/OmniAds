@@ -44,9 +44,15 @@ const {
   runEngineV3ProducerChainForActiveBusinessesIfDue,
 } = await import("../../jobs/scheduled");
 
-function makeDbRows(rows: Array<{ business_ref_id: string }>) {
+const providerDays = ["biz_1", "biz_2"].map((business_id) => ({
+  business_id, provider_account_id: `act_${business_id}`,
+  timezone: "UTC", latest_published_day: "2026-05-07",
+}));
+
+function makeDbRows(rows: Array<{ business_ref_id: string; as_of_date: string }>) {
   return {
-    query: vi.fn().mockResolvedValue(rows),
+    query: vi.fn().mockImplementation(async (sql: string) =>
+      sql.includes("FROM business_provider_accounts bpa") ? providerDays : rows),
   };
 }
 
@@ -136,8 +142,84 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(result.skipped).toBe(false);
     expect(calibrationJob.runCalibrationJob).toHaveBeenCalledWith({
       businessId: "biz_1",
-      asOf: "2026-05-08",
+      asOf: "2026-05-07",
+      evaluationCutoffAt: "2026-05-08T03:10:00.000Z",
     });
+  });
+
+  it("selects the last closed local reporting day for Anchorage and Chicago at 03Z", async () => {
+    const query = vi.fn().mockImplementation(async (sql: string) =>
+      sql.includes("FROM business_provider_accounts bpa") ? [
+        { business_id: "biz_1", provider_account_id: "act_anchorage",
+          timezone: "America/Anchorage", latest_published_day: "2026-05-07" },
+        { business_id: "biz_2", provider_account_id: "act_chicago",
+          timezone: "America/Chicago", latest_published_day: "2026-05-07" },
+      ] : []);
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:10:00.000Z"),
+    );
+    expect(result.asOf).toBe("2026-05-06");
+    expect(result.results?.map((row) => [row.businessId, row.asOf])).toEqual([
+      ["biz_1", "2026-05-06"], ["biz_2", "2026-05-06"],
+    ]);
+    expect(query.mock.calls[0]?.[0]).toContain("manifest.completed_at >=");
+    expect(query.mock.calls[0]?.[0]).toContain("slice.staged_row_count =");
+  });
+
+  it("uses the earliest closed published day across a business's accounts", async () => {
+    const query = vi.fn().mockImplementation(async (sql: string) =>
+      sql.includes("FROM business_provider_accounts bpa") ? [
+        { business_id: "biz_1", provider_account_id: "act_anchorage",
+          timezone: "America/Anchorage", latest_published_day: "2026-05-07" },
+        { business_id: "biz_1", provider_account_id: "act_honolulu",
+          timezone: "Pacific/Honolulu", latest_published_day: "2026-05-07" },
+      ] : []);
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T09:10:00.000Z"), [{ id: "biz_1", name: null }],
+    );
+    expect(result.results?.[0]?.asOf).toBe("2026-05-06");
+  });
+
+  it("advances after a late source publication instead of completing an unpublished day", async () => {
+    let latestPublishedDay = "2026-05-05";
+    const query = vi.fn().mockImplementation(async (sql: string) =>
+      sql.includes("FROM business_provider_accounts bpa") ? [
+        { business_id: "biz_1", provider_account_id: "act_anchorage",
+          timezone: "America/Anchorage", latest_published_day: latestPublishedDay },
+      ] : []);
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const first = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:10:00.000Z"), [{ id: "biz_1", name: null }],
+    );
+    latestPublishedDay = "2026-05-06";
+    const second = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:20:00.000Z"), [{ id: "biz_1", name: null }],
+    );
+    expect(first.results?.[0]?.asOf).toBe("2026-05-05");
+    expect(second.results?.[0]?.asOf).toBe("2026-05-06");
+    expect(calibrationJob.runCalibrationJob).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips an unchanged successful day and checks both certification and demotion clocks", async () => {
+    const query = makeDbRows([{
+      business_ref_id: "biz_1", as_of_date: "2026-05-07",
+    }]).query;
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:10:00.000Z"), [{ id: "biz_1", name: null }],
+    );
+    expect(result).toMatchObject({ skipped: true, reason: "already_ran", asOf: "2026-05-07" });
+    expect(query.mock.calls[1]?.[0]).toContain("historical_config_proof,certified_at");
+    expect(query.mock.calls[1]?.[0]).toContain("> latest_decision.evaluation_cutoff_at");
+    expect(query.mock.calls[1]?.[0]).not.toContain("decisions_finished_at");
+    expect(query.mock.calls[1]?.[0]).toContain("historical_config_authority_changed_at");
+    expect(query.mock.calls[1]?.[0]).not.toContain("creative.updated_at >");
+    expect(calibrationJob.runCalibrationJob).not.toHaveBeenCalled();
   });
 
   it("supports the rollback kill switch", async () => {
@@ -156,7 +238,7 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
   });
 
   it("uses enabled engine businesses and skips businesses with completed producer chains", async () => {
-    const query = vi.fn().mockResolvedValue([{ business_ref_id: "biz_1" }]);
+    const query = makeDbRows([{ business_ref_id: "biz_1", as_of_date: "2026-05-07" }]).query;
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
 
     const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
@@ -169,13 +251,15 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(featureFlags.listEnabledBusinessIds).toHaveBeenCalled();
     expect(calibrationJob.runCalibrationJob).toHaveBeenCalledWith({
       businessId: "biz_2",
-      asOf: "2026-05-08",
+      asOf: "2026-05-07",
+      evaluationCutoffAt: "2026-05-08T05:10:00.000Z",
     });
-    expect(query.mock.calls[0]?.[0]).toContain("engine_v3_calibration_job");
-    expect(query.mock.calls[0]?.[0]).toContain("engine_v3_lifecycle_job");
-    expect(query.mock.calls[0]?.[1]).toEqual([
+    expect(query.mock.calls[1]?.[0]).toContain("engine_v3_calibration_job");
+    expect(query.mock.calls[1]?.[0]).toContain("engine_v3_lifecycle_job");
+    expect(query.mock.calls[1]?.[1]).toEqual([
       "engine_v3_decisions_job",
-      "2026-05-08",
+      ["biz_1", "biz_2"],
+      ["2026-05-07", "2026-05-07"],
       expect.any(String),
     ]);
   });
@@ -230,18 +314,21 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(lifecycleJob.runLifecycleJob).toHaveBeenCalledTimes(1);
     expect(lifecycleJob.runLifecycleJob).toHaveBeenCalledWith({
       businessId: "biz_2",
-      asOf: "2026-05-08",
+      asOf: "2026-05-07",
+      evaluationCutoffAt: "2026-05-08T03:10:00.000Z",
     });
     expect(decisionsJob.runDecisionsJob).toHaveBeenCalledTimes(1);
     expect(decisionsJob.runDecisionsJob).toHaveBeenCalledWith({
       businessId: "biz_2",
-      asOf: "2026-05-08",
+      asOf: "2026-05-07",
+      evaluationCutoffAt: "2026-05-08T03:10:00.000Z",
     });
   });
 
   it("continues downstream when calibration skips but the same-day success already exists", async () => {
     const query = vi
       .fn()
+      .mockResolvedValueOnce(providerDays)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ exists: true }]);
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
@@ -265,19 +352,47 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(result.results?.[0]?.decisions.status).toBe("success");
     expect(lifecycleJob.runLifecycleJob).toHaveBeenCalledWith({
       businessId: "biz_1",
-      asOf: "2026-05-08",
+      asOf: "2026-05-07",
+      evaluationCutoffAt: "2026-05-08T03:10:00.000Z",
     });
     expect(decisionsJob.runDecisionsJob).toHaveBeenCalledWith({
       businessId: "biz_1",
-      asOf: "2026-05-08",
+      asOf: "2026-05-07",
+      evaluationCutoffAt: "2026-05-08T03:10:00.000Z",
     });
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(query.mock.calls[1]?.[1]).toEqual([
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls[2]?.[1]).toEqual([
       "biz_1",
-      "2026-05-08",
+      "2026-05-07",
       expect.any(String),
       "engine_v3_calibration_job",
+      "2026-05-08T03:10:00.000Z",
     ]);
+    expect(query.mock.calls[2]?.[0]).toContain(
+      "error_json#>>'{metadata,evaluation_cutoff_at}' = $5::text",
+    );
+  });
+
+  it("does not borrow a prior-cutoff calibration success for a repaired source retry", async () => {
+    const query = vi.fn().mockResolvedValueOnce(providerDays)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ exists: false }]);
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    vi.mocked(calibrationJob.runCalibrationJob).mockResolvedValueOnce({
+      jobRunId: "skipped-calibration-run", status: "skipped", rowsWritten: 0,
+      durationMs: 1, calibration: null,
+      errorMessage: "Advisory lock not acquired (job may already be running)",
+    } as never);
+
+    const result = await runEngineV3ProducerChainForActiveBusinessesIfDue(
+      new Date("2026-05-08T03:10:00.000Z"), [{ id: "biz_1", name: null }],
+    );
+    expect(result.results?.[0]?.decisions.errorMessage).toBe(
+      "upstream_calibration_not_success",
+    );
+    expect(lifecycleJob.runLifecycleJob).not.toHaveBeenCalled();
+    expect(decisionsJob.runDecisionsJob).not.toHaveBeenCalled();
+    expect(query.mock.calls[2]?.[1]?.[4]).toBe("2026-05-08T03:10:00.000Z");
   });
 
   it("skips decisions for a business when lifecycle fails but continues the batch", async () => {
@@ -307,13 +422,15 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(decisionsJob.runDecisionsJob).toHaveBeenCalledTimes(1);
     expect(decisionsJob.runDecisionsJob).toHaveBeenCalledWith({
       businessId: "biz_2",
-      asOf: "2026-05-08",
+      asOf: "2026-05-07",
+      evaluationCutoffAt: "2026-05-08T03:10:00.000Z",
     });
   });
 
   it("continues decisions when lifecycle skips but the same-day success already exists", async () => {
     const query = vi
       .fn()
+      .mockResolvedValueOnce(providerDays)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ exists: true }]);
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
@@ -336,14 +453,16 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(result.results?.[0]?.decisions.status).toBe("success");
     expect(decisionsJob.runDecisionsJob).toHaveBeenCalledWith({
       businessId: "biz_1",
-      asOf: "2026-05-08",
+      asOf: "2026-05-07",
+      evaluationCutoffAt: "2026-05-08T03:10:00.000Z",
     });
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(query.mock.calls[1]?.[1]).toEqual([
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls[2]?.[1]).toEqual([
       "biz_1",
-      "2026-05-08",
+      "2026-05-07",
       expect.any(String),
       "engine_v3_lifecycle_job",
+      "2026-05-08T03:10:00.000Z",
     ]);
   });
 

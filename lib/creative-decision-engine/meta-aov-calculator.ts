@@ -160,6 +160,8 @@ function toIsoDateOrFallback(value: unknown, fallback: string): string {
 export async function computeMetaAttributedAov(input: {
   businessId: string;
   asOf: string;
+  /** Source-knowledge instant for creative point-in-time evaluations. */
+  evaluationCutoffAt?: string;
   windowDays?: number;
   providerAccountId?: string | null;
   db: DbClient;
@@ -173,6 +175,21 @@ export async function computeMetaAttributedAov(input: {
   if (asOfCutoff === null || cutoffMs === null) {
     throw new Error("asOf must be a strict YYYY-MM-DD date or RFC 3339 instant");
   }
+  // A report day is not a knowledge cutoff: a western provider-local day can
+  // close after the next UTC midnight. Creative jobs pass their captured D105
+  // instant here. Other current-time callers retain their existing asOf rule.
+  const evaluationCutoffAt = input.evaluationCutoffAt;
+  const evaluationCutoffMs = evaluationCutoffAt === undefined
+    ? null
+    : commercialTargetInstantMs(evaluationCutoffAt);
+  if (evaluationCutoffAt !== undefined && (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(evaluationCutoffAt)
+    || evaluationCutoffMs === null
+    || evaluationCutoffMs > Date.now()
+  )) {
+    throw new Error("evaluationCutoffAt must be a valid, nonfuture UTC instant");
+  }
+  const sourceKnowledgeCutoff = evaluationCutoffAt ?? asOfCutoff;
   // A Date is sufficient for the UTC calendar day, never for the SQL cutoff.
   const windowEnd = new Date(cutoffMs).toISOString().slice(0, 10);
   const windowStart = new Date(
@@ -209,7 +226,7 @@ export async function computeMetaAttributedAov(input: {
       windowEnd,
       windowDays,
       providerAccountId,
-      asOfCutoff,
+      sourceKnowledgeCutoff,
       META_CANONICAL_METRIC_SCHEMA_VERSION,
     ],
   );

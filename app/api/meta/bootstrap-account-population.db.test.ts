@@ -508,7 +508,7 @@ describe.skipIf(!RUNNABLE)(
         await import("@/lib/meta/budget-proposal-source-loader"));
 
       calibrate = async (businessId: string) => {
-        const job = await runCalibrationJob({ businessId, asOf: AS_OF });
+        const job = await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
         if (job.status !== "success") {
           throw new Error(
             `calibration job ${job.status} for ${businessId}: ${job.errorMessage ?? ""}`,
@@ -579,6 +579,7 @@ describe.skipIf(!RUNNABLE)(
           sql,
           rows,
           write: upsertMetaAdDailyRows,
+          certifyCreativeDecisionSource: true,
         });
       };
 

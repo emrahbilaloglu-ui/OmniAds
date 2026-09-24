@@ -74,6 +74,8 @@ export interface MetaCreativeDimensionRecord {
   firstSeenAt: string | null;
   lastSeenAt: string | null;
   sourceUpdatedAt: string | null;
+  /** DB observation of the mutable projection, distinct from provider update time. */
+  updatedAt?: string | null;
 }
 
 async function schemaReady(tables: string[]) {
@@ -608,6 +610,7 @@ export async function readMetaCreativeDimensions(input: {
     first_seen_at: string | null;
     last_seen_at: string | null;
     source_updated_at: string | null;
+    updated_at: string | null;
   }>({
     tableName: "meta_creative_dimensions",
     entityColumn: "creative_id",
@@ -636,6 +639,7 @@ export async function readMetaCreativeDimensions(input: {
         firstSeenAt: row.first_seen_at,
         lastSeenAt: row.last_seen_at,
         sourceUpdatedAt: row.source_updated_at,
+        updatedAt: row.updated_at == null ? null : new Date(row.updated_at).toISOString(),
       },
     ]),
   );

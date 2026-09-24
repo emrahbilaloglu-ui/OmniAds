@@ -21,7 +21,10 @@ import type {
 } from "@/lib/meta/creatives-types";
 import {
   CREATIVE_METRIC_PRESENCE_KEYS,
+  META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
+  META_UNRESOLVED_CREATIVE_ID_PREFIX,
   isCreativeMetricDeclaredAvailable,
+  isMetaUnresolvedCreativeId,
   readCreativeSourceIdentity,
 } from "@/lib/meta/creatives-types";
 import { buildMetaCreativeApiRow } from "@/lib/meta/creatives-service-support";
@@ -47,12 +50,19 @@ import {
 import {
   readMetaAdDimensions,
   readMetaCreativeDimensions,
-  type MetaAdDimensionRecord,
 } from "@/lib/meta/request-model-store";
 import type { MetaAdDailyRow, MetaCreativeDailyRow, MetaCreativeMediaRow } from "@/lib/meta/warehouse-types";
 import { getCreativeMediaRetentionStart } from "@/lib/meta/history";
 import { pruneMetaCreativeMediaOutsideRetention } from "@/lib/meta/cleanup";
 import { normalizeMetaCurrencyCode } from "@/lib/meta/account-context";
+import { META_OBSERVATION_RECEIPT_AUTHORITY_SQL } from "@/lib/meta/observation-receipt-schema";
+import { certifyCreativeDayConfigFromReceipts } from "@/lib/meta/creative-day-config-proof";
+import {
+  buildMetaCreativeDayMetricEvidence,
+  META_CREATIVE_DAY_METRIC_EVIDENCE_KEY,
+  mergeMetaCreativeDayMetricEvidence,
+  readMetaCreativeDayStageValue,
+} from "@/lib/meta/creative-day-metric-evidence";
 
 export type MetaCreativesAccountScopeResolution =
   | {
@@ -727,9 +737,14 @@ function readCreativeDaySourceIdentity(
     : legacyAdId
       ? [legacyAdId]
       : [];
-  const statedComplete = carried
-    ? carried.source_ad_ids_complete
-    : legacyAdId !== "" && payload?.associated_ads_count === 1;
+  // Earlier creative-day writers folded several Ads into one row while keeping
+  // the first member's `real_ad_id` and even `associated_ads_count: 1`. Those
+  // fields identify a possible member, not the whole group. Only the versioned
+  // writer validates the complete list against every grouped Ad before persist.
+  const versionedMembership =
+    payload?.source_identity_version === META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION;
+  const statedComplete =
+    versionedMembership && carried?.source_ad_ids_complete === true;
   const adIds = statedAdIds.filter((id) => id && id !== groupHandle);
   const creativeIds = [...(carried?.source_creative_ids ?? [])];
   const dayCreativeId = factRow.creativeId?.trim();
@@ -744,6 +759,39 @@ function readCreativeDaySourceIdentity(
   };
 }
 
+function readCreativeDayReachAggregation(
+  factRow: MetaCreativeDailyRow,
+): RawCreativeRow["reach_aggregation"] {
+  const payload =
+    factRow.payloadJson && typeof factRow.payloadJson === "object" &&
+    !Array.isArray(factRow.payloadJson)
+      ? factRow.payloadJson as Record<string, unknown>
+      : null;
+  const identity = readCreativeDaySourceIdentity(factRow);
+  if (
+    payload?.reach_aggregation === "single_ad_provider_reach" &&
+    identity.source_ad_ids_complete &&
+    identity.source_ad_ids.length === 1
+  ) return "single_ad_provider_reach";
+  if (payload?.reach_aggregation === "sum_of_ad_reach_not_deduplicated") {
+    return "sum_of_ad_reach_not_deduplicated";
+  }
+  return "unknown";
+}
+
+function hasVerifiedCreativeDayIdentity(row: MetaCreativeDailyRow) {
+  const payload = row.payloadJson;
+  if (!payload || typeof payload !== "object") return false;
+  const stored = payload as Record<string, unknown>;
+  const membership = readCreativeDaySourceIdentity(row);
+  return stored.source_identity_version ===
+      META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION &&
+    membership.source_ad_ids_complete &&
+    membership.source_creative_ids.length === 1 &&
+    membership.source_creative_ids[0] === row.creativeId &&
+    stored.associated_ads_count === membership.source_ad_ids.length;
+}
+
 export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input: {
   row: T;
   factRow: MetaAdDailyRow | MetaCreativeDailyRow;
@@ -754,6 +802,19 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
   // Creative-grain reads retain their existing explicitly-declared fallback.
   // In both cases a measured zero wins through ??, never truthiness.
   const isAdFact = "adId" in input.factRow && !("creativeId" in input.factRow);
+  const reachAggregation = isAdFact
+    ? "single_ad_provider_reach"
+    : readCreativeDayReachAggregation(input.factRow as MetaCreativeDailyRow);
+  const frequencyObserved =
+    (isAdFact || (
+      reachAggregation === "single_ad_provider_reach" &&
+      typeof input.factRow.reach === "number" &&
+      Number.isFinite(input.factRow.reach) &&
+      input.factRow.reach >= 0 &&
+      (input.factRow.impressions <= 0 || input.factRow.reach > 0)
+    )) &&
+    input.factRow.frequency != null && Number.isFinite(input.factRow.frequency) &&
+    (isAdFact || input.factRow.impressions <= 0 || input.factRow.frequency > 0);
   const resolvedLinkClicks = input.factRow.linkClicks ?? (isAdFact ? 0 : input.row.link_clicks);
   const resolvedAddToCart = input.factRow.addToCart ?? (isAdFact ? 0 : input.row.add_to_cart);
   const projectionDeclares = (key: CreativeMetricPresenceKey) =>
@@ -795,7 +856,9 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
     purchases: input.factRow.conversions,
     impressions: input.factRow.impressions,
     reach: input.factRow.reach,
-    frequency: input.factRow.frequency ?? input.row.frequency ?? null,
+    reach_observation_day: input.factRow.date,
+    reach_aggregation: reachAggregation,
+    frequency: frequencyObserved ? input.factRow.frequency : null,
     link_clicks: resolvedLinkClicks,
     destination_url: input.factRow.destinationUrl ?? input.row.destination_url ?? null,
     destination_url_raw: input.factRow.destinationUrlRaw ?? input.row.destination_url_raw ?? null,
@@ -870,10 +933,9 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
         initiate_checkout:
           input.factRow.initiateCheckout != null ||
           projectionDeclares("initiate_checkout"),
-        frequency:
-          input.factRow.frequency != null ||
-          (input.row.frequency != null &&
-            isCreativeMetricDeclaredAvailable(input.row.metric_presence, "frequency")),
+        // A current dimension's frequency cannot repair an unverified day,
+        // and a sum of Ad reach cannot establish unique creative frequency.
+        frequency: frequencyObserved,
         leads: false,
         messages: false,
         thumbstop: false,
@@ -889,12 +951,329 @@ export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input:
   } satisfies RawCreativeRow;
 }
 
-function resolveAdCreativeId(row: MetaAdDailyRow, dimension: MetaAdDimensionRecord | undefined) {
-  return (
-    dimension?.creativeId ??
-    coerceRawCreativeRow(dimension?.projectionJson)?.creative_id ??
-    null
+function adDayIdentityKey(row: {
+  providerAccountId: string;
+  date: string;
+}, adId: string) {
+  return JSON.stringify([row.providerAccountId, row.date, adId]);
+}
+
+function adDayKnownAtCutoff(row: MetaAdDailyRow, cutoffAt: string) {
+  const cutoffMs = Date.parse(cutoffAt);
+  const createdMs = Date.parse(row.createdAt ?? "");
+  const updatedMs = Date.parse(row.updatedAt ?? "");
+  return Number.isFinite(cutoffMs) && Number.isFinite(createdMs) &&
+    Number.isFinite(updatedMs) && createdMs < cutoffMs && updatedMs < cutoffMs;
+}
+
+function isCurrentProviderLocalDay(day: string, timeZone: string | null | undefined) {
+  if (!timeZone?.trim()) return false;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date());
+    const value = (type: string) => parts.find((part) => part.type === type)?.value;
+    return day === `${value("year")}-${value("month")}-${value("day")}`;
+  } catch {
+    return false;
+  }
+}
+
+function isPresentableProvisionalCreativeDay(row: MetaCreativeDailyRow) {
+  const payload = row.payloadJson;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const record = payload as Record<string, unknown>;
+  const identity = readCreativeSourceIdentity(record);
+  return isCurrentProviderLocalDay(row.date, row.accountTimezone) &&
+    record.source_economics_provenance === "provisional_meta_ad_daily" &&
+    record.source_membership_scope === "current_provider_ad_days_provisional" &&
+    record.source_scope_status !== "empty_provider_and_ad_daily" &&
+    record.source_identity_version == null &&
+    identity?.source_ad_ids_complete === false &&
+    identity.source_ad_ids.length > 0 &&
+    identity.source_creative_ids.length === 1 &&
+    identity.source_creative_ids[0] === row.creativeId;
+}
+
+/**
+ * A creative-filtered Ad read must use point-in-time provider Ad identity,
+ * never a mutable current dimension or a collapsed creative-day aggregate.
+ * A provider observation before the local reporting day, no conflicting
+ * identity observed during it, and a complete account capture soon after it
+ * bracket the Ad-day. Both provider and capture clocks obey the caller's
+ * knowledge cutoff; re-used runs enter through their immutable receipt clocks.
+ * Ad-day facts alone supply all metrics after this relation is established.
+ */
+export async function readProvableAdCreativeIdentityForDays(input: {
+  businessId: string;
+  providerAccountId: string;
+  requestedCreativeId?: string | null;
+  start: string;
+  end: string;
+  knowledgeCutoffAt: string;
+}) {
+  const recovered = new Map<string, string>();
+  const cutoffMs = Date.parse(input.knowledgeCutoffAt);
+  if (!Number.isFinite(cutoffMs)) return recovered;
+  const sql = getDb();
+  const rows = await sql.query<{ date: string; ad_id: string; creative_id: string }>(
+    `WITH ad_days AS MATERIALIZED (
+       SELECT d.date, d.ad_id, d.campaign_id, d.adset_id,
+              (d.date::timestamp AT TIME ZONE d.account_timezone) AS day_start,
+              ((d.date + 1)::timestamp AT TIME ZONE d.account_timezone) AS day_end
+         FROM meta_ad_daily d
+        WHERE d.business_id = $1 AND d.provider_account_id = $2
+          AND d.date BETWEEN $4::date AND $5::date
+          AND d.campaign_id IS NOT NULL AND d.adset_id IS NOT NULL
+          AND d.account_timezone IS NOT NULL
+          AND d.created_at < $6::timestamptz
+          AND d.updated_at < $6::timestamptz
+     ), day_brackets AS MATERIALIZED (
+       SELECT bounds.date, bounds.day_end,
+              receipt.bracket_observed_at
+         FROM (SELECT DISTINCT date, day_end FROM ad_days) bounds
+         JOIN LATERAL (
+           SELECT authoritative.observed_at AS bracket_observed_at
+             FROM (${META_OBSERVATION_RECEIPT_AUTHORITY_SQL}) authoritative
+             JOIN meta_entity_observation_runs run ON run.id = authoritative.run_id
+            WHERE authoritative.business_id = $1
+              AND authoritative.provider_account_id = $2
+              AND authoritative.entity_type = 'ad'
+              AND authoritative.endpoint = 'ad_configs'
+              AND authoritative.capture_status = 'complete'
+              AND run.completeness = 'complete'
+              AND run.delta_stats_json ->> 'manifestContract' = 'd075.complete-scope-manifest.v1'
+              AND authoritative.observed_at >= bounds.day_end
+              AND authoritative.observed_at < bounds.day_end + INTERVAL '36 hours'
+              AND authoritative.observed_at < $6::timestamptz
+              AND authoritative.captured_at < $6::timestamptz
+              AND authoritative.created_at < $6::timestamptz
+            ORDER BY authoritative.observed_at ASC,
+                     authoritative.captured_at ASC, authoritative.id ASC
+            LIMIT 1
+         ) receipt ON true
+     )
+     SELECT d.date::text AS date, d.ad_id, before_day.creative_id
+       FROM ad_days d
+       JOIN day_brackets bracket ON bracket.date = d.date AND bracket.day_end = d.day_end
+       JOIN LATERAL (
+         SELECT h.creative_id, h.campaign_id, h.adset_id,
+                h.presence, h.observed_at
+           FROM meta_entity_state_history h
+          WHERE h.business_id = $1 AND h.provider_account_id = $2
+            AND h.entity_type = 'ad' AND h.entity_id = d.ad_id
+            AND h.observed_at <= d.day_start
+            AND h.observed_at < $6::timestamptz
+            AND h.captured_at < $6::timestamptz
+            AND h.created_at < $6::timestamptz
+          ORDER BY h.observed_at DESC, h.captured_at DESC,
+                   h.created_at DESC, h.id DESC LIMIT 1
+       ) before_day ON true
+      WHERE before_day.presence = 'present'
+        AND before_day.creative_id IS NOT NULL
+        AND ($3::text IS NULL OR before_day.creative_id = $3)
+        AND before_day.campaign_id = d.campaign_id
+        AND before_day.adset_id = d.adset_id
+        AND NOT EXISTS (
+          SELECT 1 FROM meta_entity_state_history change
+           WHERE change.business_id = $1 AND change.provider_account_id = $2
+             AND change.entity_type = 'ad' AND change.entity_id = d.ad_id
+             AND change.observed_at >= before_day.observed_at
+             AND change.observed_at <= bracket.bracket_observed_at
+             AND change.observed_at < $6::timestamptz
+             AND change.captured_at < $6::timestamptz
+             AND change.created_at < $6::timestamptz
+             AND (change.creative_id IS DISTINCT FROM before_day.creative_id
+               OR change.campaign_id IS DISTINCT FROM d.campaign_id
+               OR change.adset_id IS DISTINCT FROM d.adset_id
+               OR change.presence IS DISTINCT FROM 'present')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM meta_entity_tombstones gone
+           WHERE gone.business_id = $1 AND gone.provider_account_id = $2
+             AND gone.entity_type = 'ad' AND gone.entity_id = d.ad_id
+             AND gone.observed_at >= before_day.observed_at
+             AND gone.observed_at <= bracket.bracket_observed_at
+             AND gone.observed_at < $6::timestamptz
+             AND gone.captured_at < $6::timestamptz
+             AND gone.created_at < $6::timestamptz
+        )`,
+    [input.businessId, input.providerAccountId, input.requestedCreativeId ?? null,
+      input.start, input.end, input.knowledgeCutoffAt],
   );
+  for (const row of rows) {
+    if (typeof row.date === "string" && typeof row.ad_id === "string" &&
+      typeof row.creative_id === "string" && row.creative_id.trim()) {
+      recovered.set(adDayIdentityKey({
+        providerAccountId: input.providerAccountId,
+        date: row.date,
+      }, row.ad_id), row.creative_id);
+    }
+  }
+  return recovered;
+}
+
+export async function readAdCreativeIdsForDays(input: {
+  businessId: string;
+  providerAccountId: string;
+  requestedCreativeId?: string | null;
+  start: string;
+  end: string;
+  knowledgeCutoffAt: string;
+}) {
+  return readProvableAdCreativeIdentityForDays(input);
+}
+
+/**
+ * A current Ad detail response is not evidence of the Ad's creative on an
+ * earlier reporting day. Finalized creative-day facts require every provider
+ * Ad row to agree with an Ad-day fact and strict day-bracket identity proof.
+ * The separate provisional mode permits current-day presentation only; its
+ * caller withholds the v2 admission marker and config certification.
+ */
+export function assessCreativeDayWriterIdentityProof(input: {
+  providerAccountId: string;
+  day: string;
+  rows: RawCreativeRow[];
+  adFacts: MetaAdDailyRow[];
+  provenCreativeByAdDay: Map<string, string>;
+  mode?: "finalized" | "provisional_presentation";
+}): { canWrite: true; accountTimezone: string; accountCurrency: string } |
+  { canWrite: false; reason: string; adId: string | null } {
+  const facts = new Map(input.adFacts.map((row) => [row.adId, row]));
+  const providerAdIds = new Set<string>();
+  let accountTimezone: string | null = null;
+  let accountCurrency: string | null = null;
+  for (const row of input.rows) {
+    const adId = row.real_ad_id ?? row.id;
+    if (!adId || !row.creative_id || isMetaUnresolvedCreativeId(row.creative_id)) {
+      return { canWrite: false, reason: "provider_ad_or_creative_identity_missing", adId: adId || null };
+    }
+    if (providerAdIds.has(adId)) {
+      return { canWrite: false, reason: "provider_ad_identity_duplicate", adId };
+    }
+    providerAdIds.add(adId);
+    const fact = facts.get(adId);
+    const provisional = input.mode === "provisional_presentation";
+    if (!fact || fact.providerAccountId !== input.providerAccountId ||
+        fact.date !== input.day || !fact.sourceSnapshotId || !fact.sourceRunId ||
+        (provisional
+          ? fact.truthState !== "provisional" || fact.validationStatus !== "pending"
+          : fact.truthState !== "finalized" || fact.validationStatus !== "passed" ||
+            !fact.finalizedAt)) {
+      return { canWrite: false, reason: provisional
+        ? "provisional_ad_day_fact_missing" : "finalized_ad_day_fact_missing", adId };
+    }
+    if (!fact.accountTimezone?.trim() || !fact.accountCurrency?.trim() ||
+        fact.accountCurrency !== row.currency ||
+        (accountTimezone !== null && accountTimezone !== fact.accountTimezone) ||
+        (accountCurrency !== null && accountCurrency !== fact.accountCurrency)) {
+      return { canWrite: false, reason: "account_context_missing_or_mixed", adId };
+    }
+    accountTimezone = fact.accountTimezone;
+    accountCurrency = fact.accountCurrency;
+    if (!row.campaign_id || !row.adset_id ||
+        fact.campaignId !== row.campaign_id || fact.adsetId !== row.adset_id) {
+      return { canWrite: false, reason: "ad_day_parent_identity_mismatch", adId };
+    }
+    if (!provisional) {
+      const provenCreativeId = input.provenCreativeByAdDay.get(JSON.stringify([
+        input.providerAccountId, input.day, adId,
+      ]));
+      if (!provenCreativeId) {
+        return { canWrite: false, reason: "historical_creative_identity_unprovable", adId };
+      }
+      if (provenCreativeId !== row.creative_id) {
+        return { canWrite: false, reason: "current_ad_detail_conflicts_with_historical_creative_identity", adId };
+      }
+    }
+  }
+  for (const fact of input.adFacts) {
+    if (fact.providerAccountId !== input.providerAccountId || fact.date !== input.day ||
+        ![fact.spend, fact.impressions, fact.clicks, fact.conversions, fact.revenue]
+          .some((value) => value > 0)) continue;
+    if (!providerAdIds.has(fact.adId)) {
+      return { canWrite: false, reason: "finalized_ad_day_missing_from_provider_scope",
+        adId: fact.adId };
+    }
+  }
+  if (!accountTimezone || !accountCurrency) {
+    return { canWrite: false, reason: "account_context_missing_or_mixed", adId: null };
+  }
+  return { canWrite: true, accountTimezone, accountCurrency };
+}
+
+/** The authoritative economics and funnel evidence for one proved creative-day. */
+export function buildCanonicalCreativeDayMetrics(
+  row: RawCreativeRow,
+  factsByAd: Map<string, MetaAdDailyRow>,
+) {
+  const source = readCreativeSourceIdentity(row);
+  if (!source?.source_ad_ids_complete || source.source_ad_ids.length === 0 ||
+      source.source_creative_ids.length !== 1 || source.source_creative_ids[0] !== row.creative_id) {
+    throw new Error("meta_creative_day_source_membership_incomplete");
+  }
+  const members = source.source_ad_ids.map((id) => factsByAd.get(id));
+  if (members.some((fact) => !fact)) {
+    throw new Error("meta_creative_day_source_ad_fact_missing");
+  }
+  const facts = members as MetaAdDailyRow[];
+  const sum = (get: (fact: MetaAdDailyRow) => number) =>
+    facts.reduce((total, fact) => total + get(fact), 0);
+  const spend = sum((fact) => fact.spend);
+  const impressions = sum((fact) => fact.impressions);
+  const clicks = sum((fact) => fact.clicks);
+  const reach = sum((fact) => fact.reach);
+  const conversions = sum((fact) => fact.conversions);
+  const revenue = sum((fact) => fact.revenue);
+  // A NOT NULL zero in meta_ad_daily does not establish an observed purchase
+  // event when the provider never supplied actions for that Ad-day (D099).
+  const purchasesObserved = facts.every((fact) => {
+    const payload = fact.payloadJson;
+    return payload !== null && typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      Array.isArray((payload as Record<string, unknown>).actions);
+  });
+  const linkClicks = facts.every((fact) => fact.linkClicks != null)
+    ? sum((fact) => fact.linkClicks!) : null;
+  const outboundClicks = facts.every((fact) => fact.outboundClicks != null)
+    ? sum((fact) => fact.outboundClicks!) : null;
+  const evidenceParts = facts.map((fact) => buildMetaCreativeDayMetricEvidence(
+    fact.payloadJson && typeof fact.payloadJson === "object" && !Array.isArray(fact.payloadJson)
+      ? fact.payloadJson as Record<string, unknown> : {},
+  ));
+  const evidence = evidenceParts.slice(1).reduce(
+    (merged, part) => mergeMetaCreativeDayMetricEvidence(merged, part), evidenceParts[0]!,
+  );
+  const stage = (key: "link_click" | "landing_page_view" | "add_to_cart" |
+    "initiate_checkout" | "outbound_click") =>
+    readMetaCreativeDayStageValue({ [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: evidence }, key);
+  const landingPageViews = stage("landing_page_view");
+  const addToCart = stage("add_to_cart");
+  const initiateCheckout = stage("initiate_checkout");
+  return {
+    spend, impressions, clicks, reach, conversions, revenue,
+    frequency: facts.length === 1 ? facts[0]!.frequency : null,
+    roas: spend > 0 ? revenue / spend : 0,
+    cpa: conversions > 0 ? spend / conversions : null,
+    ctr: impressions > 0 ? clicks / impressions * 100 : null,
+    cpc: linkClicks != null && linkClicks > 0 ? spend / linkClicks : null,
+    linkClicks, outboundClicks, landingPageViews, addToCart,
+    initiateCheckout, evidence,
+    sourceSnapshotIds: [...new Set(facts.map((fact) => fact.sourceSnapshotId).filter(Boolean))],
+    sourceRunIds: [...new Set(facts.map((fact) => fact.sourceRunId).filter(Boolean))],
+    metricPresence: {
+      spend: true, impressions: true, clicks: true,
+      purchases: purchasesObserved, purchase_value: purchasesObserved,
+      roas: purchasesObserved && spend > 0,
+      cpa: purchasesObserved && conversions > 0,
+      ctr_all: impressions > 0, cpc_link: linkClicks != null && linkClicks > 0,
+      link_clicks: linkClicks != null,
+      landing_page_views: landingPageViews != null,
+      add_to_cart: addToCart != null, initiate_checkout: initiateCheckout != null,
+      frequency: facts.length === 1 && facts[0]!.frequency != null,
+    },
+  };
 }
 
 function buildPreviewCoverage(rows: MetaCreativeApiRow[]) {
@@ -1067,22 +1446,121 @@ async function syncMetaCreativesAccountDay(input: {
       requestStartedAt: Date.now(),
       allowSnapshotPersistence: false,
       allowSnapshotRefreshTrigger: false,
+      strictSourceCompleteness: true,
     },
     new NextRequest(`http://localhost/api/meta/creatives?businessId=${input.businessId}`)
   );
 
   const apiRows = (response.rows ?? []) as MetaCreativeApiRow[];
+  if (apiRows.some((row) => {
+    const creativeId = typeof row.creative_id === "string"
+      ? row.creative_id.trim()
+      : "";
+    return (!creativeId || isMetaUnresolvedCreativeId(creativeId)) && [
+      row.spend,
+      row.impressions,
+      row.clicks,
+      row.link_clicks,
+      row.purchases,
+      row.purchase_value,
+      row.landing_page_views,
+      row.add_to_cart,
+      row.initiate_checkout,
+    ].some((value) => Number.isFinite(Number(value)) && Number(value) > 0);
+  })) {
+    throw new Error("meta_creative_day_provider_identity_incomplete");
+  }
   const rawRows = apiRows
     .map((row) => coerceRawCreativeRow(row))
     .filter((row): row is RawCreativeRow => Boolean(row));
-  if (rawRows.length === 0) return;
-  const accountCurrency = requireCreativeWarehouseCurrency(
+  if (rawRows.length === 0) {
+    const adFacts = await getMetaAdDailyRange({
+      businessId: input.businessId, providerAccountIds: [input.accountId],
+      startDate: input.day, endDate: input.day,
+    });
+    const positiveFacts = adFacts.filter((fact) =>
+      ((fact.truthState === "finalized" && fact.validationStatus === "passed") ||
+        (fact.truthState === "provisional" && fact.validationStatus === "pending")) &&
+      [fact.spend, fact.impressions, fact.clicks, fact.conversions, fact.revenue]
+        .some((value) => value > 0));
+    if (positiveFacts.length > 0) {
+      // A current Meta re-read can restate history. The existing finalized
+      // Ad-day version still owns economics; an empty later report does not
+      // erase that prior observation or any matching certified creative row.
+      console.warn("[meta-creatives] empty provider scope conflicts with Ad-day facts", {
+        businessId: input.businessId, accountId: input.accountId,
+        day: input.day, positiveAds: positiveFacts.length,
+      });
+      return;
+    }
+    // A complete empty provider read plus no finalized positive Ad-day facts
+    // cannot support an old positive creative-day decision. Invalidate only
+    // its authority marker; keep the row as audit history and leave media.
+    await getDb().query(
+      `UPDATE meta_creative_daily
+          SET payload_json = ((COALESCE(payload_json, '{}'::jsonb)
+            - 'source_identity_version' - 'historical_config_proof') ||
+            jsonb_build_object('source_scope_status', 'empty_provider_and_ad_daily',
+              'historical_config_provenance', 'unverified')) ||
+            CASE WHEN payload_json->>'historical_config_provenance' IN
+                ('provider_receipt_day_bracketed', 'provider_receipt_legacy_bracketed')
+              AND jsonb_typeof(payload_json->'historical_config_proof') = 'object'
+              THEN jsonb_build_object('historical_config_authority_changed_at',
+                to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+              ELSE '{}'::jsonb END,
+              updated_at = now()
+        WHERE business_id = $1 AND provider_account_id = $2 AND date = $3::date
+          AND (payload_json->>'source_identity_version' = $4
+            OR payload_json->>'source_economics_provenance' = 'provisional_meta_ad_daily')`,
+      [input.businessId, input.accountId, input.day,
+        META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION],
+    );
+    return;
+  }
+  const knowledgeCutoffAt = new Date().toISOString();
+  const adFacts = await getMetaAdDailyRange({
+    businessId: input.businessId, providerAccountIds: [input.accountId],
+    startDate: input.day, endDate: input.day,
+  });
+  const factsByAd = new Map(adFacts.map((row) => [row.adId, row]));
+  const allFactsFinalized = rawRows.every((row) => {
+    const fact = factsByAd.get(row.real_ad_id ?? row.id);
+    return fact?.truthState === "finalized" && fact.validationStatus === "passed";
+  });
+  const provisionalPresentation = !allFactsFinalized && adFacts.length > 0 &&
+    adFacts.every((fact) => fact.providerAccountId === input.accountId &&
+      fact.date === input.day && fact.truthState === "provisional" &&
+      fact.validationStatus === "pending" &&
+      isCurrentProviderLocalDay(input.day, fact.accountTimezone));
+  const provenCreativeByAdDay = allFactsFinalized
+    ? await readProvableAdCreativeIdentityForDays({ businessId: input.businessId,
+      providerAccountId: input.accountId, start: input.day, end: input.day,
+      knowledgeCutoffAt })
+    : new Map<string, string>();
+  const identityProof = assessCreativeDayWriterIdentityProof({
+    providerAccountId: input.accountId, day: input.day, rows: rawRows,
+    adFacts, provenCreativeByAdDay,
+    mode: provisionalPresentation ? "provisional_presentation" : "finalized",
+  });
+  if (!identityProof.canWrite) {
+    console.warn("[meta-creatives] creative-day fact write deferred", {
+      businessId: input.businessId,
+      accountId: input.accountId,
+      day: input.day,
+      reason: identityProof.reason,
+      adId: identityProof.adId,
+    });
+  }
+  requireCreativeWarehouseCurrency(
     rawRows,
     input.accountId
   );
+  if (!identityProof.canWrite) return;
   await hydrateCreativeLandingUrls(rawRows, input.accessToken);
   const creativeUsageMap = buildCreativeUsageMap(rawRows);
-  const creativeRows = groupRows(rawRows, "creative", creativeUsageMap);
+  const creativeRows = groupRows(rawRows, "creative", creativeUsageMap, {
+    keyByProviderCreativeId: true,
+  });
   assertMetaCanonicalClicksSource({ targetField: "clicks", sourceField: "clicks" });
 
   const creativeDailyRows: MetaCreativeDailyRow[] = creativeRows.map((row) => {
@@ -1092,6 +1570,56 @@ async function syncMetaCreativesAccountDay(input: {
       cardFallbackThumbnailUrl: null,
       includeDebugFields: false,
     });
+    const canonical = buildCanonicalCreativeDayMetrics(row, factsByAd);
+    const payloadJson = {
+      ...payloadRow,
+      spend: canonical.spend,
+      impressions: canonical.impressions,
+      clicks: canonical.clicks,
+      reach: canonical.reach,
+      purchases: canonical.conversions,
+      purchase_value: canonical.revenue,
+      roas: canonical.roas,
+      cpa: canonical.cpa,
+      ctr_all: canonical.ctr,
+      cpc_link: canonical.cpc,
+      cpm: canonical.impressions > 0
+        ? canonical.spend / canonical.impressions * 1_000 : null,
+      link_clicks: canonical.linkClicks,
+      outbound_clicks: canonical.outboundClicks,
+      landing_page_views: canonical.landingPageViews,
+      add_to_cart: canonical.addToCart,
+      initiate_checkout: canonical.initiateCheckout,
+      frequency: canonical.frequency,
+      metric_presence: { ...payloadRow.metric_presence, ...canonical.metricPresence },
+      [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: canonical.evidence,
+      source_membership_scope: provisionalPresentation
+        ? "current_provider_ad_days_provisional" : "all_provider_ad_days",
+      source_economics_provenance: provisionalPresentation
+        ? "provisional_meta_ad_daily" : "finalized_meta_ad_daily",
+      // Current Ad detail has no historical membership proof. Keep its source
+      // list for display without minting the v2 decision-admission marker.
+      ...(provisionalPresentation ? {
+        source_identity_version: undefined,
+        source_ad_ids_complete: false,
+        source_parent_grain_complete: false,
+      } : {}),
+      source_snapshot_ids: canonical.sourceSnapshotIds,
+      source_run_ids: canonical.sourceRunIds,
+      // Mutable current Ad detail is useful for media, not a historical
+      // objective/bid/budget observation on the report day.
+      effective_status: null,
+      objective: null,
+      attribution_setting: null,
+      bid_strategy: null,
+      optimization_goal: null,
+      campaign_daily_budget: null,
+      adset_daily_budget: null,
+      campaign_lifetime_budget: null,
+      adset_lifetime_budget: null,
+      custom_event_type: null,
+      custom_conversion_id: null,
+    };
     return {
       businessId: input.businessId,
       providerAccountId: input.accountId,
@@ -1115,46 +1643,46 @@ async function syncMetaCreativesAccountDay(input: {
       assetType: row.creative_type ?? row.format ?? null,
       launchDate: row.launch_date,
       firstSeenAt: row.launch_date ? `${row.launch_date}T00:00:00.000Z` : null,
-      firstSpendAt: row.spend > 0 ? `${input.day}T00:00:00.000Z` : null,
-      outboundClicks: row.outbound_clicks ?? null,
-      landingPageViews: row.landing_page_views,
-      addToCart: row.add_to_cart,
-      initiateCheckout: row.initiate_checkout,
-      effectiveStatus: row.effective_status ?? null,
-      objective: row.objective ?? null,
-      attributionSetting: row.attribution_setting ?? null,
+      firstSpendAt: canonical.spend > 0 ? `${input.day}T00:00:00.000Z` : null,
+      outboundClicks: canonical.outboundClicks,
+      landingPageViews: canonical.landingPageViews,
+      addToCart: canonical.addToCart,
+      initiateCheckout: canonical.initiateCheckout,
+      effectiveStatus: null,
+      objective: null,
+      attributionSetting: null,
       qualityRanking: row.quality_ranking ?? null,
       engagementRateRanking: row.engagement_rate_ranking ?? null,
       conversionRateRanking: row.conversion_rate_ranking ?? null,
-      bidStrategy: row.bid_strategy ?? null,
-      optimizationGoal: row.optimization_goal ?? null,
-      campaignDailyBudget: row.campaign_daily_budget ?? null,
-      adsetDailyBudget: row.adset_daily_budget ?? null,
-      campaignLifetimeBudget: row.campaign_lifetime_budget ?? null,
-      adsetLifetimeBudget: row.adset_lifetime_budget ?? null,
+      bidStrategy: null,
+      optimizationGoal: null,
+      campaignDailyBudget: null,
+      adsetDailyBudget: null,
+      campaignLifetimeBudget: null,
+      adsetLifetimeBudget: null,
       creativeDeliveryType: row.creative_delivery_type ?? null,
       creativeVisualFormat: row.creative_visual_format ?? null,
       creativePrimaryType: row.creative_primary_type ?? null,
       creativeSecondaryType: row.creative_secondary_type ?? null,
       imageHash: row.image_hash ?? row.image_hashes?.[0] ?? null,
-      accountTimezone: "UTC",
-      accountCurrency,
-      spend: row.spend,
-      impressions: row.impressions,
-      clicks: row.clicks,
-      reach: row.reach ?? row.impressions,
-      frequency: row.frequency ?? null,
-      conversions: row.purchases,
-      revenue: row.purchase_value,
-      roas: row.roas,
-      cpa: row.cpa,
-      ctr: row.ctr_all,
-      cpc: row.cpc_link,
-      linkClicks: row.link_clicks,
+      accountTimezone: identityProof.accountTimezone,
+      accountCurrency: identityProof.accountCurrency,
+      spend: canonical.spend,
+      impressions: canonical.impressions,
+      clicks: canonical.clicks,
+      reach: canonical.reach,
+      frequency: canonical.frequency,
+      conversions: canonical.conversions,
+      revenue: canonical.revenue,
+      roas: canonical.roas,
+      cpa: canonical.cpa,
+      ctr: canonical.ctr,
+      cpc: canonical.cpc,
+      linkClicks: canonical.linkClicks,
       sourceSnapshotId: null,
       sourceRunId: input.sourceRunId ?? null,
       metricSchemaVersion: META_CANONICAL_METRIC_SCHEMA_VERSION,
-      payloadJson: payloadRow,
+      payloadJson,
     };
   });
   const creativeMediaRows: MetaCreativeMediaRow[] =
@@ -1187,10 +1715,32 @@ async function syncMetaCreativesAccountDay(input: {
   // authoritative sync writes from the insights endpoint, and every field this
   // path uniquely owns is persisted by the three dedicated writers below:
   // creative daily facts, creative dimensions, and media presentation storage.
+  // Media carries the same provider creative ID under the report date. When
+  // historical identity is unproved, even a preview would assert the wrong
+  // Ad↔creative relationship for that day. Preserve previous certified rows.
   await Promise.all([
     upsertMetaCreativeDailyRows(creativeDailyRows),
     upsertMetaCreativeMediaRows(creativeMediaRows),
   ]);
+  // Membership and configuration are independent proofs. The writer above
+  // leaves config unverified; this separate D098 receipt path may certify it
+  // only after the v2 row exists and its stored fields agree with the receipt.
+  if (!provisionalPresentation) await certifyCreativeDayConfigFromReceipts({
+    businessId: input.businessId,
+    providerAccountId: input.accountId,
+    day: input.day,
+    knowledgeCutoffAt: new Date().toISOString(),
+  }).catch((error: unknown) => {
+    console.warn("[meta-creatives] creative-day config proof failed", {
+      businessId: input.businessId,
+      accountId: input.accountId,
+      day: input.day,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // A failed receipt read is not an ordinary missing receipt. Let the
+    // partition retry instead of completing with a permanently unverified day.
+    throw error;
+  });
 }
 
 export async function syncMetaCreativesWarehouseDay(input: {
@@ -1216,6 +1766,34 @@ export async function syncMetaCreativesWarehouseDay(input: {
       sourceRunId: input.sourceRunId ?? null,
     });
   }
+}
+
+export function findCreativeDayMembershipGapDays(input: {
+  adFacts: MetaAdDailyRow[];
+  creativeFacts: MetaCreativeDailyRow[];
+}): Set<string> {
+  const memberships = new Map<string, number>();
+  for (const row of input.creativeFacts) {
+    const payload = row.payloadJson;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+        (payload as Record<string, unknown>).source_identity_version !==
+          META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION) continue;
+    const identity = readCreativeSourceIdentity(payload);
+    if (!identity?.source_ad_ids_complete) continue;
+    for (const adId of identity.source_ad_ids) {
+      const key = JSON.stringify([row.providerAccountId, row.date, adId]);
+      memberships.set(key, (memberships.get(key) ?? 0) + 1);
+    }
+  }
+  const gaps = new Set<string>();
+  for (const fact of input.adFacts) {
+    if (fact.truthState !== "finalized" || fact.validationStatus !== "passed" ||
+        ![fact.spend, fact.impressions, fact.clicks, fact.conversions, fact.revenue]
+          .some((value) => value > 0)) continue;
+    const key = JSON.stringify([fact.providerAccountId, fact.date, fact.adId]);
+    if (memberships.get(key) !== 1) gaps.add(fact.date);
+  }
+  return gaps;
 }
 
 export async function ensureMetaCreativesWarehouseRangeFilled(input: {
@@ -1256,8 +1834,33 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
           86_400_000
       ) + 1
     );
+  // Legacy completed_days says only that some creative row exists. For the
+  // recent finalized window, require every spending Ad-day to be represented
+  // exactly once by a v2 creative membership before honoring that shortcut.
+  // Older history is repaired through the explicit source-backed manifest;
+  // this utility never starts an unbounded historical refetch.
+  const today = toIsoDate(new Date());
+  const recentStart = toIsoDate(addDays(new Date(`${today}T00:00:00Z`), -2));
+  const recentEnd = toIsoDate(addDays(new Date(`${today}T00:00:00Z`), -1));
+  const boundedStart = input.startDate > recentStart ? input.startDate : recentStart;
+  const boundedEnd = input.endDate < recentEnd ? input.endDate : recentEnd;
+  const recentFinalizedDays = boundedStart <= boundedEnd
+    ? enumerateDays(boundedStart, boundedEnd, true) : [];
+  let recentMembershipGapDays = new Set<string>();
+  if (recentFinalizedDays.length > 0) {
+    const [adFacts, creativeFacts] = await Promise.all([
+      getMetaAdDailyRange({ businessId: input.businessId,
+        providerAccountIds: assignedAccountIds,
+        startDate: boundedStart, endDate: boundedEnd }),
+      getMetaCreativeDailyRange({ businessId: input.businessId,
+        providerAccountIds: assignedAccountIds,
+        startDate: boundedStart, endDate: boundedEnd }),
+    ]);
+    recentMembershipGapDays = findCreativeDayMembershipGapDays({ adFacts, creativeFacts });
+  }
   if (
     (coverage?.completed_days ?? 0) >= totalDays &&
+    recentMembershipGapDays.size === 0 &&
     (input.mediaMode !== "full" ||
       previewCoverage.total_rows === 0 ||
       previewCoverage.preview_ready_rows >= previewCoverage.total_rows)
@@ -1274,7 +1877,8 @@ export async function ensureMetaCreativesWarehouseRangeFilled(input: {
       startDate: day,
       endDate: day,
     }).catch(() => null);
-    if ((dayCoverage?.completed_days ?? 0) >= 1) {
+    if ((dayCoverage?.completed_days ?? 0) >= 1 &&
+        !recentMembershipGapDays.has(day)) {
       if (input.mediaMode !== "full") continue;
       const dayPreviewCoverage = await getMetaCreativeMediaPreviewCoverage({
         businessId: input.businessId,
@@ -1363,6 +1967,8 @@ export async function getMetaCreativesWarehousePayload(input: {
   format: FormatFilter;
   sort: SortKey;
   mediaMode: "metadata" | "full";
+  /** Optional exact read cutoff for historical consumers of recovered identity. */
+  knowledgeCutoffAt?: string;
 }) {
   const assignedAccountIds = await fetchAssignedAccountIds(input.businessId);
   const accountScope = resolveMetaCreativesAccountScope({
@@ -1378,6 +1984,7 @@ export async function getMetaCreativesWarehousePayload(input: {
   }
   const scopedAccountIds = accountScope.assignedAccountIds;
   const creativeId = input.creativeId?.trim() || null;
+  const knowledgeCutoffAt = input.knowledgeCutoffAt ?? new Date().toISOString();
 
   const useCreativeWarehouse = input.groupBy === "creative" || input.groupBy === "adSet";
   const queriedSourceRows = useCreativeWarehouse
@@ -1402,12 +2009,65 @@ export async function getMetaCreativesWarehousePayload(input: {
           (row) => row.creativeId === creativeId,
         )
       : accountScopedSourceRows;
+  // Intraday Ad facts have not passed finalization or historical identity
+  // proof. Their current provider creative mapping is presentation-only and
+  // expires with the account-local day; explicit historical reads never use it.
+  const presentableProvisional = (row: MetaCreativeDailyRow) =>
+    !input.knowledgeCutoffAt && isPresentableProvisionalCreativeDay(row);
+  const provisionalCreativeDays = useCreativeWarehouse
+    ? (sourceRowsBeforeAdCreativeFilter as MetaCreativeDailyRow[]).filter(
+        presentableProvisional,
+      )
+    : [];
+  // Legacy creative-day writer rows can contain several provider creatives
+  // under the first ID. Their spend and funnel are real measurements but not
+  // proven measurements OF that ID, so they cannot be served as verified Studio
+  // metrics. The repair can restore these rows with versioned source identity.
+  const unverifiedCreativeDays = useCreativeWarehouse
+    ? (sourceRowsBeforeAdCreativeFilter as MetaCreativeDailyRow[]).filter(
+        (row) => !hasVerifiedCreativeDayIdentity(row) && !presentableProvisional(row),
+      )
+    : [];
+  const provenAdCreativeIds =
+    !useCreativeWarehouse && (creativeId ||
+      (input.groupBy === "ad" && input.mediaMode === "full"))
+      ? await readAdCreativeIdsForDays({
+          businessId: input.businessId,
+          providerAccountId: accountScope.providerAccountId,
+          start: input.start,
+          end: input.end,
+          knowledgeCutoffAt,
+        })
+      : new Map<string, string>();
+  // A filter for one creative cannot identify an unproved Ad-day by querying
+  // only that creative: a proved member of another creative and an unproved Ad
+  // would both disappear. Read all provable identities, then distinguish them.
+  const unverifiedAdDays = !useCreativeWarehouse && creativeId
+    ? (sourceRowsBeforeAdCreativeFilter as MetaAdDailyRow[]).filter((row) =>
+        adDayKnownAtCutoff(row, knowledgeCutoffAt) &&
+        [row.spend, row.impressions, row.clicks, row.conversions,
+          row.revenue, row.linkClicks ?? 0].some((value) => value > 0) &&
+        !provenAdCreativeIds.has(adDayIdentityKey(row, row.adId)),
+      )
+    : [];
+  const sourceRows =
+    !useCreativeWarehouse && creativeId
+      ? (sourceRowsBeforeAdCreativeFilter as MetaAdDailyRow[]).filter(
+          (row) =>
+            adDayKnownAtCutoff(row, knowledgeCutoffAt) &&
+            provenAdCreativeIds.get(adDayIdentityKey(row, row.adId)) === creativeId,
+        )
+      : useCreativeWarehouse
+        ? (sourceRowsBeforeAdCreativeFilter as MetaCreativeDailyRow[]).filter(
+            (row) => hasVerifiedCreativeDayIdentity(row) || presentableProvisional(row),
+          )
+        : sourceRowsBeforeAdCreativeFilter;
   const creativeSourceRowsForDimensions = useCreativeWarehouse
-    ? (sourceRowsBeforeAdCreativeFilter as MetaCreativeDailyRow[])
+    ? (sourceRows as MetaCreativeDailyRow[])
     : null;
   const adSourceRowsForDimensions = useCreativeWarehouse
     ? null
-    : (sourceRowsBeforeAdCreativeFilter as MetaAdDailyRow[]);
+    : (sourceRows as MetaAdDailyRow[]);
   const dimensionRows = useCreativeWarehouse
     ? await readMetaCreativeDimensions({
         businessId: input.businessId,
@@ -1421,22 +2081,13 @@ export async function getMetaCreativesWarehousePayload(input: {
           ?.map((row) => row.adId)
           .filter((value): value is string => Boolean(value)) ?? [],
       });
-  const sourceRows =
-    !useCreativeWarehouse && creativeId
-      ? (sourceRowsBeforeAdCreativeFilter as MetaAdDailyRow[]).filter(
-          (row) =>
-            resolveAdCreativeId(
-              row,
-              (dimensionRows as Map<string, MetaAdDimensionRecord>).get(row.adId),
-            ) === creativeId,
-        )
-      : sourceRowsBeforeAdCreativeFilter;
   const creativeSourceRows = useCreativeWarehouse
     ? (sourceRows as MetaCreativeDailyRow[])
     : null;
   const adSourceRows = useCreativeWarehouse ? null : (sourceRows as MetaAdDailyRow[]);
   const mediaByCreativeKey = new Map<string, MetaCreativeMediaRow>();
   const mediaByAdKey = new Map<string, MetaCreativeMediaRow>();
+  const mediaByAdCreativeKey = new Map<string, MetaCreativeMediaRow>();
   if (input.mediaMode === "full" && sourceRows.length) {
     const creativeIds = useCreativeWarehouse
       ? creativeSourceRows
@@ -1462,6 +2113,9 @@ export async function getMetaCreativesWarehousePayload(input: {
       if (row.adId) {
         const adKey = `${row.providerAccountId}|${row.date}|${row.adId}`;
         mediaByAdKey.set(adKey, chooseRicherMediaRow(mediaByAdKey.get(adKey), row));
+        const adCreativeKey = `${adKey}|${row.creativeId}`;
+        mediaByAdCreativeKey.set(adCreativeKey,
+          chooseRicherMediaRow(mediaByAdCreativeKey.get(adCreativeKey), row));
       }
     }
   }
@@ -1470,37 +2124,70 @@ export async function getMetaCreativesWarehousePayload(input: {
       const dimensionRow = useCreativeWarehouse
         ? dimensionRows.get((factRow as MetaCreativeDailyRow).creativeId)
         : dimensionRows.get((factRow as MetaAdDailyRow).adId);
+      const strictAdPresentationIdentity = !useCreativeWarehouse &&
+        input.groupBy === "ad" && input.mediaMode === "full";
+      const provenCreativeId = !useCreativeWarehouse
+        ? provenAdCreativeIds.get(adDayIdentityKey(
+            factRow as MetaAdDailyRow, (factRow as MetaAdDailyRow).adId,
+          )) ?? null
+        : null;
+      const dimensionProjection =
+        input.knowledgeCutoffAt && !useCreativeWarehouse
+          ? null : coerceRawCreativeRow(dimensionRow?.projectionJson);
       const projectionRow =
-        coerceRawCreativeRow(dimensionRow?.projectionJson) ??
+        (strictAdPresentationIdentity &&
+          (!provenCreativeId || dimensionProjection?.creative_id !== provenCreativeId)
+          ? null : dimensionProjection) ??
         (!useCreativeWarehouse
           ? buildFallbackAdRawRow({
               factRow: row as MetaAdDailyRow,
-              projectionJson: dimensionRow?.projectionJson,
-              creativeId: dimensionRow?.creativeId ?? null,
+              projectionJson: strictAdPresentationIdentity || input.knowledgeCutoffAt
+                ? null : dimensionRow?.projectionJson,
+              creativeId:
+                provenCreativeId ?? (strictAdPresentationIdentity
+                  ? `${META_UNRESOLVED_CREATIVE_ID_PREFIX}${(row as MetaAdDailyRow).adId}`
+                  : dimensionRow?.creativeId ?? null),
             })
           : null);
       if (!projectionRow) return acc;
+      if (!useCreativeWarehouse && creativeId) {
+        // Projection is a presentation snapshot. Its current creative_id may
+        // disagree with a report day, so the point-in-time relation always wins.
+        projectionRow.creative_id = creativeId;
+      }
       const mediaRow = useCreativeWarehouse
         ? mediaByCreativeKey.get(
             `${(row as MetaCreativeDailyRow).providerAccountId}|${(row as MetaCreativeDailyRow).date}|${(row as MetaCreativeDailyRow).creativeId}`,
           ) ?? null
-        : mediaByAdKey.get(
-            `${(row as MetaAdDailyRow).providerAccountId}|${(row as MetaAdDailyRow).date}|${(row as MetaAdDailyRow).adId}`,
-          ) ?? null;
+        : strictAdPresentationIdentity
+          ? (provenCreativeId ? mediaByAdCreativeKey.get(
+              `${(row as MetaAdDailyRow).providerAccountId}|${(row as MetaAdDailyRow).date}|${(row as MetaAdDailyRow).adId}|${provenCreativeId}`,
+            ) ?? null : null)
+          : mediaByAdKey.get(
+              `${(row as MetaAdDailyRow).providerAccountId}|${(row as MetaAdDailyRow).date}|${(row as MetaAdDailyRow).adId}`,
+            ) ?? null;
       const hydratedRow = hydrateWarehouseCreativeMetrics({
           row: overlayCreativeMedia(projectionRow, mediaRow),
           factRow,
         });
+      const presentationRow = strictAdPresentationIdentity
+        ? {
+            ...hydratedRow,
+            source_ad_ids: [(factRow as MetaAdDailyRow).adId],
+            source_ad_ids_complete: Boolean(provenCreativeId),
+            source_creative_ids: provenCreativeId ? [provenCreativeId] : [],
+          }
+        : hydratedRow;
       acc.push(
         input.groupBy === "ad" && !useCreativeWarehouse
           ? {
-              ...hydratedRow,
+              ...presentationRow,
               name:
                 (factRow as MetaAdDailyRow).adNameCurrent ??
                 (factRow as MetaAdDailyRow).adNameHistorical ??
-                hydratedRow.name,
+                presentationRow.name,
             }
-          : hydratedRow,
+          : presentationRow,
       );
       return acc;
     }, []);
@@ -1514,7 +2201,38 @@ export async function getMetaCreativesWarehousePayload(input: {
     input.groupBy === "adName"
       ? filteredRows
       : groupRows(filteredRows, input.groupBy, creativeUsageMap);
-  const sortedRows = sortRows(groupedRows, input.sort);
+  const presentationRows = input.groupBy === "ad" && input.mediaMode === "full"
+    ? groupedRows.map((row) => {
+        const creativeIds = row.source_creative_ids ?? [row.creative_id];
+        if (creativeIds.length === 1 &&
+            !isMetaUnresolvedCreativeId(creativeIds[0])) return row;
+        // Ad economics may span several verified creative identities (or an
+        // unresolved day). A single thumbnail/copy would mislabel that window.
+        return {
+          ...row,
+          creative_id: `${META_UNRESOLVED_CREATIVE_ID_PREFIX}${row.real_ad_id ?? row.id}`,
+          unresolved_reason: "mixed_or_unverified_historical_creative_identity",
+          copy_text: null,
+          copy_variants: [],
+          headline_variants: [],
+          description_variants: [],
+          object_story_id: null,
+          effective_object_story_id: null,
+          post_id: null,
+          preview_url: null,
+          preview_source: null,
+          thumbnail_url: null,
+          image_url: null,
+          table_thumbnail_url: null,
+          card_preview_url: null,
+          preview_state: "unavailable" as const,
+          preview: buildUnavailablePreview(Boolean(row.is_catalog)),
+          image_hash: null,
+          image_hashes: [],
+        };
+      })
+    : groupedRows;
+  const sortedRows = sortRows(presentationRows, input.sort);
   const useLightweightRowMap = input.mediaMode === "metadata";
   const responseRows = sortedRows.map((row) =>
     useLightweightRowMap
@@ -1536,6 +2254,15 @@ export async function getMetaCreativesWarehousePayload(input: {
   return {
     status: "ok",
     rows: responseRows,
+    isPartial: unverifiedCreativeDays.length > 0 || unverifiedAdDays.length > 0 ||
+      provisionalCreativeDays.length > 0,
+    notReadyReason: unverifiedCreativeDays.length > 0
+      ? `${unverifiedCreativeDays.length} historical creative-day rows have unverified provider membership; their metrics are withheld until source-backed repair.`
+      : unverifiedAdDays.length > 0
+        ? `${unverifiedAdDays.length} active Ad-day rows have unverified historical creative identity; their metrics cannot be attributed to the requested creative.`
+      : provisionalCreativeDays.length > 0
+        ? `${provisionalCreativeDays.length} current-day creative rows are provisional; their metrics are for presentation until the Ad day is finalized and its identity is proved.`
+      : null,
     ...buildMetaCreativesAccountScopeMetadata(accountScope),
     media_mode: input.mediaMode,
     media_hydrated: input.mediaMode === "full" && previewMissingCount === 0,

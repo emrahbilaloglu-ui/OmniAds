@@ -92,6 +92,7 @@ describe("lifecycle job failure handling", () => {
     const result = await runLifecycleJob({
       businessId: "00000000-0000-4000-8000-000000000499",
       asOf: "2026-05-04",
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result).toMatchObject({
@@ -106,5 +107,13 @@ describe("lifecycle job failure handling", () => {
         typeof queryText === "string" && queryText.includes("status = 'failed'"),
     );
     expect(failedUpdate).toBeTruthy();
+
+    // JIT is disabled for the whole job transaction, before the advisory lock
+    // and therefore before the lifecycle statement and its profile reads.
+    const statements = dbMocks.query.mock.calls.map(([queryText]) => String(queryText));
+    const jitOff = statements.indexOf("SET LOCAL jit = off");
+    const lock = statements.findIndex((text) => text.includes("pg_try_advisory_xact_lock"));
+    expect(jitOff).toBeGreaterThanOrEqual(0);
+    expect(jitOff).toBeLessThan(lock);
   });
 });

@@ -17,6 +17,65 @@ export function scopeGate(ctx: GateContext): GateResult {
     confidenceDeltas: [],
   };
 
+  if (ctx.input.sourceCoverageStatus === "incomplete" || ctx.input.sourceCoverageStatus === "after_cutoff") {
+    const afterCutoff = ctx.input.sourceCoverageStatus === "after_cutoff";
+    const predicate = afterCutoff
+      ? "creative_source_knowledge_after_cutoff"
+      : "creative_source_coverage_incomplete";
+    const reason = afterCutoff
+      ? "creative_source_knowledge_after_cutoff: at least one creative-day record was written after this historical evaluation cutoff, so it cannot authorize a past decision; other source gaps may also remain. Review the individual ads using their verified decision evidence."
+      : "creative_source_coverage_incomplete: one or more source ad days lack a complete, verified creative membership and metrics record; review the individual ads using their verified decision evidence.";
+    return {
+      kind: "terminal",
+      output: finalizeDecision(
+        {
+          ...ctxWithDefaults,
+          confidenceBase: 40,
+          blockers: [
+            ...ctx.blockers,
+            {
+              predicate,
+              observed: null,
+              threshold: afterCutoff ? "source_knowledge_before_evaluation_cutoff" : "complete_published_ad_day_coverage",
+              status: "missing",
+              severity: "warning",
+              reason,
+            },
+          ],
+        },
+        "diagnose",
+        reason,
+      ),
+    };
+  }
+
+  if (ctx.input.configProvenanceStatus === "unverified") {
+    const reason =
+      "config_provenance_unverified: campaign objective and ad set optimization settings lack verified records for these dates; review the individual ads using their verified decision evidence.";
+    return {
+      kind: "terminal",
+      output: finalizeDecision(
+        {
+          ...ctxWithDefaults,
+          confidenceBase: 40,
+          blockers: [
+            ...ctx.blockers,
+            {
+              predicate: "config_provenance_unverified",
+              observed: null,
+              threshold: "provider_receipt_day_bracketed",
+              status: "missing",
+              severity: "warning",
+              reason,
+            },
+          ],
+        },
+        "diagnose",
+        reason,
+      ),
+    };
+  }
+
   if (objective === null || !SUPPORTED_OBJECTIVES.has(objective)) {
     return {
       kind: "terminal",

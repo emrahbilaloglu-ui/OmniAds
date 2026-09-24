@@ -2142,7 +2142,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
-    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v5");
+    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v6");
     /*
       RE-PINNED. This asserted `code: "keep_running", intent: "none"` — the
       published `keep` label's own affirmative soft action, served for a row
@@ -2351,6 +2351,43 @@ function nativeReadModel(
 }
 
 describe("held verdicts on the served Ad decision", () => {
+  it("serves Ad performance observation state independently of the canonical envelope", () => {
+    const unavailable = heldCanonicalDecision({
+      id: "unobserved-ad",
+      adId: "120000000000000591",
+      heldAction: "scale",
+      publishedLabel: "keep",
+      authorityBlocker: "native_metrics_unavailable",
+      legacyBuyerAction: "test_more",
+    });
+    unavailable.sourceDecision.badges = ["ad_metrics_unavailable"];
+    unavailable.metrics.spend = 0;
+    unavailable.metrics.purchases = 0;
+    unavailable.metrics.roas = 0;
+    const observed = heldCanonicalDecision({
+      id: "observed-zero-ad",
+      adId: "120000000000000592",
+      heldAction: "scale",
+      publishedLabel: "keep",
+      authorityBlocker: "native_metrics_unavailable",
+      legacyBuyerAction: "test_more",
+    });
+    observed.metrics.spend = 0;
+    observed.metrics.purchases = 0;
+    observed.metrics.roas = 0;
+    const served = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: nativeReadModel([unavailable, observed]),
+      currency: "EUR",
+    });
+    const byId = new Map(served.ads.items.map((item) => [item.decisionId, item]));
+    expect(byId.get("unobserved-ad")?.adPerformanceAvailability).toBe("unavailable");
+    expect(byId.get("observed-zero-ad")?.adPerformanceAvailability).toBe("observed");
+    expect(byId.get("observed-zero-ad")?.metrics.spend).toBe(0);
+  });
+
   it("serves a held Refresh beside the published keep label, with its own resolution", () => {
     const decision = heldCanonicalDecision({
       id: "held-refresh",
@@ -2648,7 +2685,7 @@ describe("held verdicts on the served Ad decision", () => {
     // reads as "not measured", which a reader must not confuse with three
     // measured zeroes or with a measured "no verdict was held".
     expect(serializedBeforeTheseFields.contractVersion).toBe(
-      "meta-os-decisions.presentation.v5",
+      "meta-os-decisions.presentation.v6",
     );
     expect(serializedBeforeTheseFields.ads.heldCounts).toBeUndefined();
     expect(serializedBeforeTheseFields.ads.items[0]!.heldAction).toBeUndefined();

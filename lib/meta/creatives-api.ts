@@ -6,7 +6,7 @@ import {
   fetchCreativeThumbnailMap,
 } from "@/lib/meta/creatives-fetchers";
 import { buildCreativesResponse, type CreativesApiResponse } from "@/lib/meta/creatives-service";
-import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
+import { isMetaUnresolvedCreativeId, type MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import type { FormatFilter, GroupBy, SortKey } from "@/lib/meta/creatives-types";
 import {
   buildMetaCreativesAccountScopeMetadata,
@@ -217,7 +217,8 @@ async function hydrateWarehouseMediaWithFreshThumbnails<T extends WarehouseCreat
   }
 
   const creativeIds = Array.from(
-    new Set(payload.rows.map((row) => row.creative_id).filter(Boolean)),
+    new Set(payload.rows.map((row) => row.creative_id)
+      .filter((id) => Boolean(id) && !isMetaUnresolvedCreativeId(id))),
   );
   if (creativeIds.length === 0) return payload;
 
@@ -405,17 +406,22 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
     : "live_fallback";
   const fallbackEnd = selectedRangeNeedsCurrentDayLive ? end : effectiveEnd;
 
-  if (
+  const historicalWarehouseEligible =
     !selectedRangeNeedsCurrentDayLive &&
-    !shouldBypassCreativeWarehouse(input) &&
-    (await hasCreativeWarehouseCoverage({
+    (groupBy === "ad" || !shouldBypassCreativeWarehouse(input));
+  const warehouseCoverageComplete = historicalWarehouseEligible
+    ? await hasCreativeWarehouseCoverage({
       businessId,
       assignedAccountIds: scopedAccountIds,
       groupBy,
       start,
       end: effectiveEnd,
-    }))
-  ) {
+    }) : false;
+  // A partial historical Ad warehouse is still the only dated economic source.
+  // The live fallback joins dated Insights to mutable current creative detail,
+  // so it must not represent a historical Ad card when one day is missing.
+  if (historicalWarehouseEligible &&
+    (warehouseCoverageComplete || groupBy === "ad")) {
     const warehousePayload = await getMetaCreativesWarehousePayload({
       businessId,
       providerAccountId,
@@ -449,6 +455,14 @@ export async function getMetaCreativesApiPayload(input: MetaCreativesLivePayload
         : scopedWarehousePayload;
     return {
       ...mediaHydratedPayload,
+      ...(!warehouseCoverageComplete ? {
+        isPartial: true,
+        notReadyReason: [
+          mediaHydratedPayload.notReadyReason,
+          "Historical Ad-day warehouse coverage is incomplete; only dated stored rows are shown.",
+        ].filter(Boolean).join(" "),
+        freshness_state: "stale" as const,
+      } : {}),
       readSource: "warehouse",
       ...accountScopeMetadata,
     };

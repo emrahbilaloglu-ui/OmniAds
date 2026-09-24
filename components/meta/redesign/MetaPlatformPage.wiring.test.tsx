@@ -560,6 +560,17 @@ function workspacePayload(
   };
 }
 
+function workspacePayloadForAccount(providerAccountId: string) {
+  const payload = workspacePayload();
+  return {
+    ...payload,
+    decisionReadModel: {
+      ...payload.decisionReadModel,
+      scope: { ...payload.decisionReadModel.scope, providerAccountId },
+    },
+  };
+}
+
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
@@ -603,6 +614,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("Creative decision CTR trail", () => {
+  it("uses the decision's 28 days when the selected page range is seven days", () => {
+    state.search =
+      "providerAccountId=act_1&scope=creatives&window=7d&startDate=2026-07-04&endDate=2026-07-10";
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    };
+    render();
+
+    const trailKey = state.queryKeys.find(
+      (key) => key[0] === "meta-queue-ctr-series",
+    );
+    expect(trailKey).toEqual([
+      "meta-queue-ctr-series", "biz_1", "2026-06-13", "2026-07-10",
+      "ad_pending",
+    ]);
+  });
+});
+
 describe("Decisions account scope ownership", () => {
   it("keeps canonical account selection in the shared shell", () => {
     state.providerAccounts = [
@@ -644,7 +675,8 @@ describe("Decisions account scope ownership", () => {
     );
     expect(desktop).not.toBeNull();
     expect(mobile).not.toBeNull();
-    expect(state.exactProps.levels).toEqual(["campaign"]);
+    // No account is selected yet, so a cached workspace must not mount.
+    expect(state.exactProps).toBeNull();
     expect(
       mobile
         ?.closest("[data-mobile-read-state]")
@@ -672,7 +704,7 @@ describe("Decisions account scope ownership", () => {
     expect(query.has("creativeId")).toBe(false);
     expect(query.has("handoff")).toBe(false);
     expect(query.has("levels")).toBe(false);
-    expect(state.exactProps.levels).toEqual([]);
+    expect(state.exactProps).toBeNull();
     expect(
       state.queryKeys.some(
         (key) => key[0] === "meta-decisions-workspace" && key[2] === "act_2",
@@ -740,6 +772,51 @@ describe("Decisions error recovery", () => {
     expect(state.refetched).toEqual(["meta-decisions-workspace"]);
   });
 
+  it("offers mobile Retry for the failed read and disables it while pending", () => {
+    state.queryOverrides = {
+      "meta-decisions-workspace": {
+        data: undefined,
+        error: new Error("workspace request failed"),
+      },
+    };
+    const dom = render();
+    const retry = dom.querySelector<HTMLButtonElement>(
+      "[data-mobile-decisions-retry]",
+    );
+    expect(retry?.disabled).toBe(false);
+    act(() => retry!.click());
+    expect(state.refetched).toEqual(["meta-decisions-workspace"]);
+
+    state.queryOverrides["meta-decisions-workspace"] = {
+      data: undefined,
+      error: new Error("workspace request failed"),
+      isFetching: true,
+    };
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    const pending = dom.querySelector<HTMLButtonElement>(
+      "[data-mobile-decisions-retry]",
+    );
+    expect(pending?.disabled).toBe(true);
+    expect(pending?.textContent).toBe("Retrying...");
+  });
+
+  it("routes mobile Retry to the account metadata read when no account resolved", () => {
+    state.queryOverrides = {
+      "meta-provider-accounts": {
+        data: undefined,
+        error: new Error("meta_history_accounts_unavailable"),
+      },
+    };
+    const dom = render();
+    act(() =>
+      dom.querySelector<HTMLButtonElement>("[data-mobile-decisions-retry]")!
+        .click(),
+    );
+    expect(state.refetched).toEqual(["meta-provider-accounts"]);
+  });
+
   // Law: the server already knows the account, so a failing accounts read must
   // not empty the surface. `serverProviderAccountId` is a fallback only — the
   // server resolver refuses an unassigned id and refuses to choose for a
@@ -762,6 +839,47 @@ describe("Decisions error recovery", () => {
     );
     expect(workspaceKey).toBeDefined();
     expect(workspaceKey?.[2]).toBe("act_server");
+  });
+
+  it("keeps mobile decisions visible and retries only account details when metadata fails", () => {
+    state.queryOverrides = {
+      "meta-provider-accounts": {
+        data: undefined,
+        error: new Error("meta_history_accounts_unavailable"),
+      },
+    };
+    state.workspaceData = workspacePayload();
+    const dom = render({ serverProviderAccountId: "act_1" });
+    const warning = dom.querySelector("[data-mobile-account-metadata-warning]");
+    expect(warning?.textContent).toContain("Account details are unavailable.");
+    expect(warning?.textContent).toContain("Decisions are available");
+    expect(dom.querySelector('[data-mobile-read-state="error"]')).toBeNull();
+    expect(dom.querySelector('[data-testid="meta-mobile-decisions"]')).not.toBeNull();
+    act(() =>
+      dom.querySelector<HTMLButtonElement>("[data-mobile-account-metadata-retry]")!
+        .click(),
+    );
+    expect(state.refetched).toEqual(["meta-provider-accounts"]);
+
+    state.queryOverrides["meta-provider-accounts"] = {
+      data: undefined,
+      error: new Error("meta_history_accounts_unavailable"),
+      isFetching: true,
+    };
+    act(() => {
+      root!.render(
+        <MetaPlatformPage
+          businessId="biz_1"
+          businessName="TheSwaf"
+          serverProviderAccountId="act_1"
+        />,
+      );
+    });
+    const pending = dom.querySelector<HTMLButtonElement>(
+      "[data-mobile-account-metadata-retry]",
+    );
+    expect(pending?.disabled).toBe(true);
+    expect(pending?.textContent).toBe("Retrying...");
   });
 });
 
@@ -816,6 +934,96 @@ describe("Decision queue expansion and auxiliary failures", () => {
     expect(dom.textContent).not.toContain("Anomaly read timed out.");
     expect(dom.textContent).not.toContain("Decision queue unavailable.");
     expect(state.exactProps.viewModel.counts.creatives).toBe(1);
+  });
+});
+
+describe("Creative evidence stays bound to its served workspace", () => {
+  it("closes an open detail when dates, account, or decision lineage change", () => {
+    const first = pendingOsDecision();
+    const original = workspacePayload() as Record<string, any>;
+    state.workspaceData = {
+      ...original,
+      os: osPresentation([first]),
+    };
+    state.search = "providerAccountId=act_1&scope=creatives";
+    const dom = render();
+    const open = (decision: MetaOsAdDecision) => {
+      act(() => state.adapterInput.callbacks.onCreativeReview(decision, null));
+      expect(dom.querySelector("[data-stub-evidence]")).not.toBeNull();
+      expect(
+        dom.querySelector('[data-testid="meta-mobile-creative-evidence"]'),
+      ).not.toBeNull();
+    };
+
+    open(first);
+    state.search =
+      "providerAccountId=act_1&scope=creatives&window=custom&startDate=2026-08-01&endDate=2026-08-31";
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
+    expect(
+      dom.querySelector('[data-testid="meta-mobile-creative-evidence"]'),
+    ).toBeNull();
+
+    open(first);
+    const changed = pendingOsDecision({
+      decisionId: "new_generation:ad_pending",
+      sourceSnapshotId: "new_generation:2026-08-31",
+    });
+    state.workspaceData = {
+      ...original,
+      os: osPresentation([changed]),
+    };
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
+    expect(
+      dom.querySelector('[data-testid="meta-mobile-creative-evidence"]'),
+    ).toBeNull();
+
+    open(changed);
+    state.providerAccounts.push({
+      id: "act_2",
+      name: "Second Meta",
+      currency: "USD",
+      timezone: "UTC",
+    });
+    state.search =
+      "providerAccountId=act_2&scope=creatives&window=custom&startDate=2026-08-01&endDate=2026-08-31";
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
+    expect(
+      dom.querySelector('[data-testid="meta-mobile-creative-evidence"]'),
+    ).toBeNull();
+  });
+
+  it("hides an open detail when the workspace read fails", () => {
+    const decision = pendingOsDecision();
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([decision]),
+    };
+    state.search = "providerAccountId=act_1&scope=creatives";
+    const dom = render();
+    act(() => state.adapterInput.callbacks.onCreativeReview(decision, null));
+    expect(dom.querySelector("[data-stub-evidence]")).not.toBeNull();
+
+    state.queryOverrides["meta-decisions-workspace"] = {
+      data: undefined,
+      error: new Error("workspace request failed"),
+    };
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
+    expect(
+      dom.querySelector('[data-testid="meta-mobile-creative-evidence"]'),
+    ).toBeNull();
+    expect(dom.querySelector('[data-mobile-read-state="error"]')).not.toBeNull();
   });
 });
 
@@ -1025,7 +1233,8 @@ describe("Decisions deep links", () => {
     state.search = "providerAccountId=act_2&scope=creatives";
 
     render();
-    expect(state.exactProps.lane).toBe("action");
+    // The old account's placeholder response is hidden until account 2 arrives.
+    expect(state.exactProps).toBeNull();
 
     state.workspaceData = {
       ...previousAccount,
@@ -1303,6 +1512,153 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(state.adapterInput.overrides.actionNow).toEqual([]);
   });
 
+  it("shows mobile creative filters and clears both URL filters to restore the served rows", async () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    } as never;
+    state.search =
+      "providerAccountId=act_1&scope=creatives&area=monitor&segment=needs_resolution&q=Pending&levels=campaign";
+    const dom = render();
+    expect(dom.querySelector('[data-mobile-row-id="os_pending_ad"]')).toBeNull();
+    expect(dom.textContent).toContain("No decisions match these filters");
+    const filters = dom.querySelector("[data-mobile-active-filters]");
+    expect(filters?.textContent).toContain("Search: Pending");
+    expect(filters?.textContent).toContain("Levels: campaign");
+
+    await act(async () => {
+      dom.querySelector<HTMLButtonElement>("[data-mobile-clear-filters]")!.click();
+      await Promise.resolve();
+    });
+
+    expect(dom.querySelector("[data-mobile-active-filters]")).toBeNull();
+    expect(dom.querySelector('[data-mobile-row-id="os_pending_ad"]')).not.toBeNull();
+    const nextHref = state.routerReplace.mock.lastCall?.[0] as string;
+    const nextUrl = new URL(nextHref, "https://example.test");
+    expect(nextUrl.searchParams.get("q")).toBeNull();
+    expect(nextUrl.searchParams.get("levels")).toBeNull();
+    expect(nextUrl.searchParams.get("scope")).toBe("creatives");
+    expect(nextUrl.searchParams.get("segment")).toBe("needs_resolution");
+  });
+
+  it("does not call an empty search exhaustive while more creative decisions are eligible", () => {
+    const presentation = osPresentation([pendingOsDecision()]);
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: {
+        ...presentation,
+        ads: {
+          ...presentation.ads,
+          eligiblePreCapCount: 2,
+        },
+      },
+    } as never;
+    state.search = "providerAccountId=act_1&scope=creatives&q=not-loaded";
+    const dom = render();
+
+    expect(state.exactProps.canLoadMoreCreatives).toBe(true);
+    const mobile = dom.querySelector('[data-testid="meta-mobile-decisions"]');
+    expect(mobile?.textContent).toContain("No match among loaded creative decisions");
+    expect(mobile?.textContent).toContain("Show more decisions to check");
+    expect(mobile?.textContent).toContain("Show more decisions · up to 120");
+    expect(mobile?.textContent).not.toContain("No decisions match these filters");
+  });
+
+  it("keeps a blocked mobile creative's read control without advertising an action", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    } as never;
+    state.search =
+      "providerAccountId=act_1&scope=creatives&area=monitor&segment=needs_resolution";
+    const dom = render();
+    const row = dom.querySelector('[data-mobile-row-id="os_pending_ad"]');
+    expect(state.exactProps.scope).toBe("creatives");
+    expect(row).not.toBeNull();
+    expect(row?.querySelector(".ad-mobile-action-note")).toBeNull();
+    expect(row?.textContent).toContain("Read evidence");
+  });
+
+  it("carries the served creative preview and account posture into the mobile scope", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([
+        pendingOsDecision({ thumbnailUrl: "https://example.com/served-preview.jpg" }),
+      ]),
+    } as never;
+    state.search = "providerAccountId=act_1&scope=creatives&area=monitor&segment=needs_resolution";
+
+    const dom = render();
+    const row = dom.querySelector('[data-mobile-row-id="os_pending_ad"]');
+    expect(row).not.toBeNull();
+    expect(state.exactProps.viewModel.creativeDecisions?.[0]?.thumbnailUrl)
+      .toBe("https://example.com/served-preview.jpg");
+    expect(state.exactProps.viewModel.creativeGroups?.[0]?.rows?.[0]?.thumbnailUrl)
+      .toBe("https://example.com/served-preview.jpg");
+    expect(row?.innerHTML).toContain("served-preview.jpg");
+    expect(dom.querySelector("[data-mobile-creative-posture]")?.textContent)
+      .toContain("Refresh ready to apply");
+
+    state.search = "providerAccountId=act_1&scope=structure";
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(dom.querySelector("[data-mobile-creative-posture]")).toBeNull();
+  });
+
+  it("shows an economic Cut with unverified config as review-only on mobile", () => {
+    const cut = pendingOsDecision({
+      adId: "120247018755120316",
+      adName: "Grandmix Ad 120247018755120316",
+      decisionId: "mdd_cut",
+      sourceSnapshotId: "snapshot_cut",
+      decisionAvailability: "available",
+      lane: "act",
+      rawLabel: "cut",
+      publishedLabel: "cut",
+      heldAction: "cut",
+      action: {
+        code: "apply_cut_manually",
+        label: "Review spend reduction",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+        scopeNote: "Review only",
+      },
+      heldResolution: {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Review spend reduction",
+        nextStep: "Review the campaign role before a manual pause.",
+      },
+      metrics: {
+        ...pendingOsDecision().metrics,
+        spend: 3085,
+        purchases: 7,
+        roas: 0.5,
+      },
+    });
+    const canonical = canonicalDecision();
+    canonical.decisionId = cut.decisionId;
+    canonical.sourceSnapshotId = cut.sourceSnapshotId;
+    canonical.configEvidence = { verified: false };
+    state.canonicalCreatives = [canonical];
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([cut]),
+    } as never;
+    state.search = "providerAccountId=act_1&scope=creatives&lane=action";
+
+    const dom = render();
+    const card = dom.querySelector('[data-mobile-row-id="os_pending_ad"]');
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain("Reduce spend recommendation — verify configuration");
+    expect(card?.textContent).toContain("before deciding on a manual pause");
+    expect(card?.querySelector("[data-mobile-apply]")).toBeNull();
+    expect(card?.querySelector("button")?.textContent).toContain("Read evidence");
+  });
+
   // `row` is half-supported: `ad:<id>` names something this queue can open,
   // anything else does not. The supported half is covered by "opens the
   // creatives scope…" above; this is the unsupported half, which must be
@@ -1390,6 +1746,7 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(card?.textContent).toContain(
       "Recommendation awaiting review: Refresh creative",
     );
+    expect(card?.closest('[data-mobile-row-id]')?.querySelector('.ad-mobile-action-note')).toBeNull();
 
     // Tap through.
     const open = Array.from(
@@ -1406,14 +1763,13 @@ describe("Decisions deep-link compatibility matrix", () => {
     );
     expect(evidence, "the evidence screen must open").not.toBeNull();
     const text = evidence?.textContent ?? "";
-    // The pending recommendation, its next step, and the currently safe
-    // published outcome — all three on screen together.
+    // The pending recommendation and its next step remain visible. This
+    // served-only row has no ad-performance observation status, so the
+    // numeric fixture cannot be treated as measured decision evidence.
     expect(text).toContain("Recommendation awaiting review: Refresh creative");
     expect(text).toContain("review this Refresh creative recommendation again");
-    expect(text).toContain("Decision · 28d");
-    expect(text).toContain(
-      "Click-to-purchase funnel · decision 28d · purchases only",
-    );
+    expect(text).toContain("Ad performance observation status was not served");
+    expect(text).not.toContain("Decision · 28d");
     expect(
       dom.querySelector("[data-mobile-evidence-held-next-step]"),
     ).not.toBeNull();
@@ -1514,7 +1870,7 @@ describe("Decisions provider-account metadata degradation", () => {
 
   it("keeps a loaded workspace readable and shows only a narrow metadata warning", () => {
     state.queryOverrides = { ...accountsDown };
-    state.workspaceData = workspacePayload();
+    state.workspaceData = workspacePayloadForAccount("act_server");
 
     const dom = render({ serverProviderAccountId: "act_server" });
 
@@ -1536,7 +1892,7 @@ describe("Decisions provider-account metadata degradation", () => {
   // failing.
   it("still issues the workspace read against the server-resolved account", () => {
     state.queryOverrides = { ...accountsDown };
-    state.workspaceData = workspacePayload();
+    state.workspaceData = workspacePayloadForAccount("act_server");
 
     render({ serverProviderAccountId: "act_server" });
 
@@ -1550,7 +1906,7 @@ describe("Decisions provider-account metadata degradation", () => {
   // fall back to an invented name and the currency must not fall back to USD.
   it("leaves the account label unnamed rather than inventing one", () => {
     state.queryOverrides = { ...accountsDown };
-    state.workspaceData = workspacePayload();
+    state.workspaceData = workspacePayloadForAccount("act_server");
 
     render({ serverProviderAccountId: "act_server" });
 

@@ -31,10 +31,12 @@
  * Registered in `scripts/ephemeral-postgres-migrations-check.ts` with its exact
  * passing count, so an all-skipped run cannot read as a pass.
  */
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { getDb } from "@/lib/db";
 import { SUPPORTED_OBJECTIVES } from "@/lib/creative-decision-engine/config";
+import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
 import { runCalibrationJob } from "@/lib/creative-decision-engine/jobs/calibration-job";
 import {
   COMPUTE_LIFECYCLE_ROWS_QUERY,
@@ -54,6 +56,8 @@ import { toRawRow } from "@/lib/meta/creatives-row-mappers";
 import { buildMetaCreativeApiRow } from "@/lib/meta/creatives-service-support";
 import { upsertMetaCreativeDailyRows } from "@/lib/meta/warehouse";
 import type { MetaCreativeDailyRow } from "@/lib/meta/warehouse-types";
+import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION } from "@/lib/meta/creatives-types";
+import { creativeDayConfigDecisionAdmissionSql } from "@/lib/meta/creative-day-decision-admission";
 
 const SEAM = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
 
@@ -65,6 +69,10 @@ const ACCOUNT_A = "act_creative_day_evidence_a";
 const ACCOUNT_B = "act_creative_day_evidence_b";
 const CALIBRATION_ACCOUNT = "act_creative_day_evidence_cal";
 const AS_OF = "2026-08-20";
+const EVALUATION_CUTOFF_AT = "2026-08-21T00:00:00.000Z";
+const statusHash = (label: string) => createHash("sha256")
+  .update(`creative-status-seam:${label}`)
+  .digest("hex");
 
 function day(offset: number) {
   const date = new Date(`${AS_OF}T00:00:00.000Z`);
@@ -109,20 +117,28 @@ function creativeDay(input: {
   account?: string;
   creativeId: string;
   adId?: string;
+  campaignId?: string;
+  adsetId?: string;
   date: string;
   idle?: boolean;
   linkClicksColumn?: number | null;
   conversions?: number;
   payloadJson: unknown;
+  sourceIdentityComplete?: boolean;
+  effectiveStatus?: string | null;
 }): MetaCreativeDailyRow {
   const idle = input.idle === true;
+  const adId = input.adId ?? `ad_${input.creativeId}`;
+  const payload = input.payloadJson && typeof input.payloadJson === "object" && !Array.isArray(input.payloadJson)
+    ? input.payloadJson as Record<string, unknown>
+    : {};
   return {
     businessId: input.businessId,
     providerAccountId: input.account ?? ACCOUNT_A,
     date: input.date,
-    campaignId: "cmp_creative_day_evidence",
-    adsetId: "adset_creative_day_evidence",
-    adId: input.adId ?? `ad_${input.creativeId}`,
+    campaignId: input.campaignId ?? "cmp_creative_day_evidence",
+    adsetId: input.adsetId ?? "adset_creative_day_evidence",
+    adId,
     creativeId: input.creativeId,
     creativeName: input.creativeId,
     headline: null,
@@ -133,7 +149,7 @@ function creativeDay(input: {
     accountTimezone: "UTC",
     accountCurrency: "USD",
     objective: "OUTCOME_SALES",
-    effectiveStatus: "ACTIVE",
+    effectiveStatus: input.effectiveStatus === undefined ? "ACTIVE" : input.effectiveStatus,
     creativeVisualFormat: "video",
     spend: idle ? 0 : 20,
     impressions: idle ? 0 : 1_000,
@@ -150,7 +166,18 @@ function creativeDay(input: {
     // would turn every missing stamp below into a number.
     linkClicks: input.linkClicksColumn === undefined ? 50 : input.linkClicksColumn,
     sourceSnapshotId: null,
-    payloadJson: input.payloadJson,
+    payloadJson: input.sourceIdentityComplete === false
+      ? payload
+      : {
+          ...payload,
+          source_ad_ids: [adId],
+          source_ad_ids_complete: true,
+          source_creative_ids: [input.creativeId],
+          associated_ads_count: 1,
+          source_parent_grain_complete: true,
+          source_campaign_ids: [input.campaignId ?? "cmp_creative_day_evidence"],
+          source_adset_ids: [input.adsetId ?? "adset_creative_day_evidence"],
+        },
   } as MetaCreativeDailyRow;
 }
 
@@ -166,6 +193,100 @@ async function writeByDay(rows: MetaCreativeDailyRow[]) {
   const dates = [...new Set(rows.map((row) => row.date))].sort();
   for (const date of dates) {
     await upsertMetaCreativeDailyRows(rows.filter((row) => row.date === date));
+  }
+}
+
+/**
+ * D101 admits a creative decision only when every provider-local day in the
+ * 90-day window has a published finalized Ad slice. The metric seam must give
+ * the shipped jobs that real source proof; otherwise every row is correctly
+ * held before any funnel calculation is reached.
+ */
+async function publishSourceDays(rows: MetaCreativeDailyRow[]) {
+  const db = getDb();
+  const accounts = [...new Set(rows.map((row) => `${row.businessId}|${row.providerAccountId}`))];
+  for (const key of accounts) {
+    const [businessId, account] = key.split("|");
+    const accountRows = rows.filter((row) => row.businessId === businessId && row.providerAccountId === account);
+    await db.query(
+      `INSERT INTO meta_ad_daily (
+         business_id, provider_account_id, date, ad_id, account_timezone,
+         account_currency, campaign_id, adset_id, spend, conversions,
+         revenue, impressions, clicks, truth_state, validation_status,
+         source_run_id, finalized_at, created_at, updated_at
+       ) SELECT $1, $2, source.date::date, source.ad_id, 'UTC', 'USD',
+           source.campaign_id, source.adset_id, source.spend,
+           source.conversions, source.revenue, source.impressions, source.clicks,
+           'finalized', 'passed',
+           'creative_stamp_' || $2 || '_' || source.date,
+           (source.date::date + INTERVAL '13 hours') AT TIME ZONE 'UTC',
+           (source.date::date + INTERVAL '13 hours') AT TIME ZONE 'UTC',
+           (source.date::date + INTERVAL '13 hours') AT TIME ZONE 'UTC'
+         FROM jsonb_to_recordset($3::jsonb) AS source(
+           date text, ad_id text, campaign_id text, adset_id text,
+           spend numeric, conversions numeric, revenue numeric,
+           impressions bigint, clicks bigint
+         )`,
+      [businessId, account, JSON.stringify(accountRows.map((row) => ({
+        date: row.date,
+        ad_id: row.adId,
+        campaign_id: row.campaignId,
+        adset_id: row.adsetId,
+        spend: row.spend,
+        conversions: row.conversions,
+        revenue: row.revenue,
+        impressions: row.impressions,
+        clicks: row.clicks,
+      })))],
+    );
+    await db.query(
+      `INSERT INTO meta_authoritative_source_manifests (
+         business_id, provider_account_id, day, surface, account_timezone,
+         source_kind, source_window_kind, run_id, fetch_status,
+         started_at, completed_at, created_at, updated_at
+       ) SELECT $1, $2, calendar.day, 'account_daily', 'UTC',
+           'meta_insights', 'complete_day',
+           'creative_stamp_' || $2 || '_' || calendar.day::date::text, 'completed',
+           (calendar.day + INTERVAL '12 hours') AT TIME ZONE 'UTC',
+           (calendar.day + INTERVAL '1 day') AT TIME ZONE 'UTC',
+           (calendar.day + INTERVAL '1 day') AT TIME ZONE 'UTC',
+           (calendar.day + INTERVAL '1 day') AT TIME ZONE 'UTC'
+         FROM generate_series($3::date - INTERVAL '89 days', $3::date,
+           INTERVAL '1 day') AS calendar(day)`,
+      [businessId, account, AS_OF],
+    );
+    await db.query(
+      `INSERT INTO meta_authoritative_slice_versions (
+         business_id, provider_account_id, day, surface, manifest_id,
+         candidate_version, state, truth_state, validation_status, status,
+         source_run_id, staged_row_count, published_at, created_at, updated_at
+       ) SELECT manifest.business_id, manifest.provider_account_id, manifest.day,
+           'ad_daily', manifest.id, 1, 'finalized_verified', 'finalized',
+           'passed', 'published', manifest.run_id,
+           (SELECT COUNT(*) FROM meta_ad_daily ad
+             WHERE ad.business_id = manifest.business_id
+               AND ad.provider_account_id = manifest.provider_account_id
+               AND ad.date = manifest.day),
+           manifest.completed_at, manifest.completed_at, manifest.completed_at
+         FROM meta_authoritative_source_manifests manifest
+        WHERE manifest.business_id = $1 AND manifest.provider_account_id = $2
+          AND manifest.day BETWEEN ($3::date - INTERVAL '89 days') AND $3::date`,
+      [businessId, account, AS_OF],
+    );
+    await db.query(
+      `INSERT INTO meta_authoritative_publication_pointers (
+         business_id, provider_account_id, day, surface,
+         active_slice_version_id, published_by_run_id, publication_reason,
+         published_at, created_at, updated_at
+       ) SELECT slice.business_id, slice.provider_account_id, slice.day,
+           'ad_daily', slice.id, slice.source_run_id, 'creative_stamp_seam',
+           slice.published_at, slice.published_at, slice.published_at
+         FROM meta_authoritative_slice_versions slice
+        WHERE slice.business_id = $1 AND slice.provider_account_id = $2
+          AND slice.day BETWEEN ($3::date - INTERVAL '89 days') AND $3::date
+          AND slice.source_run_id LIKE 'creative_stamp_%'`,
+      [businessId, account, AS_OF],
+    );
   }
 }
 
@@ -218,9 +339,15 @@ async function seed() {
 async function cleanup() {
   const db = getDb();
   for (const businessId of [LIFECYCLE_BUSINESS, CALIBRATION_BUSINESS]) {
+    await db.query(`DELETE FROM meta_entity_state_history WHERE business_id = $1`, [businessId]);
+    await db.query(`DELETE FROM meta_entity_observation_runs WHERE business_id = $1`, [businessId]);
     await db.query(`DELETE FROM engine_v3_creative_lifecycle_daily WHERE business_ref_id = $1::uuid`, [businessId]);
     await db.query(`DELETE FROM engine_v3_account_calibration_daily WHERE business_ref_id = $1::uuid`, [businessId]);
     await db.query(`DELETE FROM engine_v3_job_runs WHERE business_ref_id = $1::uuid`, [businessId]);
+    await db.query(`DELETE FROM meta_authoritative_publication_pointers WHERE business_id = $1`, [businessId]);
+    await db.query(`DELETE FROM meta_authoritative_slice_versions WHERE business_id = $1`, [businessId]);
+    await db.query(`DELETE FROM meta_authoritative_source_manifests WHERE business_id = $1`, [businessId]);
+    await db.query(`DELETE FROM meta_ad_daily WHERE business_id = $1`, [businessId]);
     await db.query(`DELETE FROM meta_creative_daily WHERE business_id = $1`, [businessId]);
     await db.query(`DELETE FROM meta_creative_dimensions WHERE business_id = $1`, [businessId]);
   }
@@ -250,6 +377,8 @@ function payloadFromInsight(insight: Parameters<typeof toRawRow>[0]) {
 
 type LifecycleRow = {
   creative_id: string;
+  effective_status: string | null;
+  frequency_28d: number | null;
   link_clicks_28d: string | null;
   outbound_clicks_28d: number | null;
   landing_page_views_28d: number | null;
@@ -291,7 +420,7 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     // The display side still says what it always said; only the stamp is read.
     expect(alias.add_to_cart).toBe(5);
 
-    await writeByDay([
+    const sourceRows = [
       // R1: a measured-zero day and an ACTIVE day nothing was observed on.
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_missing", date: day(0), payloadJson: { ...FABRICATED_DISPLAY, ...stamp(ZERO_STAMP) } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_missing", date: day(1), linkClicksColumn: 0, payloadJson: { ...FABRICATED_DISPLAY } }),
@@ -301,11 +430,21 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       // An IDLE unstamped day did nothing, so it is not a gap in the window.
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_idle", date: day(0), payloadJson: { ...FABRICATED_DISPLAY, ...stamp(ZERO_STAMP) } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_idle", date: day(1), idle: true, payloadJson: { ...FABRICATED_DISPLAY } }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_never_spent", date: day(0), idle: true, effectiveStatus: null, payloadJson: stamp(ZERO_STAMP) }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_never_spent_unknown", date: day(0), idle: true, effectiveStatus: null, payloadJson: stamp(ZERO_STAMP) }),
       // R3: the full writer chain from a raw insight carrying three spellings.
-      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_alias", date: day(0), conversions: 2, payloadJson: alias }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_alias", date: day(0), conversions: 2, effectiveStatus: null, payloadJson: alias }),
       // Legacy: never stamped, fabricated display numbers everywhere.
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_legacy", date: day(0), payloadJson: { ...FABRICATED_DISPLAY } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_legacy", date: day(1), payloadJson: { ...FABRICATED_DISPLAY } }),
+      // Old name/format-folded creative days have no verified membership.
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_old_folded", date: day(0), idle: true, payloadJson: { ...FABRICATED_DISPLAY, associated_ads_count: 2 }, sourceIdentityComplete: false }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_config_unverified", date: day(0), payloadJson: stamp(ZERO_STAMP) }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_config_unverified", date: day(1), payloadJson: stamp(ZERO_STAMP) }),
+      // A verified provider creative reused under two campaign parents is
+      // still not a sound creative-grain campaign decision input.
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_mixed_parent", adId: "ad_parent_a", campaignId: "cmp_a", adsetId: "set_a", date: day(0), payloadJson: stamp(ZERO_STAMP) }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_mixed_parent", adId: "ad_parent_b", campaignId: "cmp_b", adsetId: "set_b", date: day(0), payloadJson: stamp(ZERO_STAMP) }),
       // Per-day level: the same creative-day in two accounts.
       creativeDay({ businessId: LIFECYCLE_BUSINESS, account: ACCOUNT_A, creativeId: "cre_two_accounts_partial", date: day(0), payloadJson: stamp({ ...ZERO_STAMP, link_click: 5 }) }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, account: ACCOUNT_B, creativeId: "cre_two_accounts_partial", date: day(0), payloadJson: { ...FABRICATED_DISPLAY } }),
@@ -320,9 +459,83 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_malformed", date: day(0), payloadJson: { ...FABRICATED_DISPLAY } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_malformed", date: day(1), payloadJson: { ...FABRICATED_DISPLAY } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_malformed", date: day(2), payloadJson: { ...FABRICATED_DISPLAY } }),
-    ]);
+    ];
+    await writeByDay(sourceRows);
+    await publishSourceDays(sourceRows);
 
     const db = getDb();
+    const [boundAccount] = await db.query<{ id: string }>(
+      `SELECT id::text AS id FROM provider_accounts
+       WHERE provider = 'meta' AND external_account_id = $1`,
+      [ACCOUNT_A],
+    );
+    for (const [index, entityType, entityId] of [
+      [1, "campaign", "cmp_creative_day_evidence"],
+      [2, "adset", "adset_creative_day_evidence"],
+      [3, "ad", "ad_cre_alias"],
+      [4, "ad", "ad_cre_never_spent"],
+    ] as const) {
+      const [run] = await db.query<{ id: string }>(
+        `INSERT INTO meta_entity_observation_runs (
+           business_ref_id, business_id, provider_account_ref_id,
+           provider_account_id, entity_type, endpoint, observed_at, captured_at,
+           completeness, page_count, row_count, run_hash, created_at
+         ) VALUES ($1::uuid, $1, $2::uuid, $3, $4, 'creative-status-seam',
+           '2026-08-20T13:00:00Z', '2026-08-20T13:01:00Z',
+           'complete', 1, 1, $5, '2026-08-20T13:01:00Z') RETURNING id::text AS id`,
+        [LIFECYCLE_BUSINESS, boundAccount!.id, ACCOUNT_A, entityType, statusHash(`run:${index}`)],
+      );
+      await db.query(
+        `INSERT INTO meta_entity_state_history (
+           run_id, business_ref_id, business_id, provider_account_ref_id,
+           provider_account_id, entity_type, entity_id, campaign_id, adset_id,
+           ad_id, creative_id, configured_status, effective_status, presence,
+           observed_at, captured_at, run_completeness, state_hash, created_at
+         ) VALUES ($1::uuid, $2::uuid, $2, $3::uuid, $4, $5, $6,
+           'cmp_creative_day_evidence', $7, $8, $9, 'ACTIVE', 'ACTIVE',
+           'present', '2026-08-20T13:00:00Z', '2026-08-20T13:01:00Z',
+           'complete', $10, '2026-08-20T13:01:00Z')`,
+        [run!.id, LIFECYCLE_BUSINESS, boundAccount!.id, ACCOUNT_A,
+          entityType, entityId,
+          entityType === "campaign" ? null : "adset_creative_day_evidence",
+          entityType === "ad" ? entityId : null,
+          entityType === "ad" ? entityId.slice(3) : null,
+          statusHash(`state:${index}`)],
+      );
+    }
+    // This seam tests metric and membership admission, not the D098 receipt
+    // ladder. Certify only the synthetic fixture rows; the dedicated negative
+    // row keeps the exact normal-writer `unverified` marker.
+    await db.query(
+      `UPDATE meta_creative_daily
+       SET payload_json = payload_json || jsonb_build_object(
+         'historical_config_provenance', 'provider_receipt_day_bracketed',
+         'historical_config_proof', jsonb_build_object(
+           'knowledge_cutoff_at', '2026-08-20T12:00:00.000Z',
+           'last_receipt_observed_at', '2026-08-20T11:00:00.000Z',
+           'objective', objective,
+           'optimization_goal', optimization_goal,
+           'custom_event_type', payload_json->>'custom_event_type'
+         ))
+       WHERE business_id = $1 AND creative_id <> 'cre_config_unverified'`,
+      [LIFECYCLE_BUSINESS],
+    );
+    // One good day cannot turn a two-day creative window into a complete one.
+    await db.query(
+      `UPDATE meta_creative_daily
+          SET payload_json = payload_json || jsonb_build_object(
+            'historical_config_provenance', 'provider_receipt_day_bracketed',
+            'historical_config_proof', jsonb_build_object(
+              'knowledge_cutoff_at', '2026-08-20T12:00:00.000Z',
+              'last_receipt_observed_at', '2026-08-20T11:00:00.000Z',
+              'objective', objective,
+              'optimization_goal', optimization_goal,
+              'custom_event_type', payload_json->>'custom_event_type'
+            ))
+        WHERE business_id = $1 AND creative_id = 'cre_config_unverified'
+          AND date = $2::date`,
+      [LIFECYCLE_BUSINESS, day(1)],
+    );
     const malformedEvidence = buildMeasuredMetaCreativeDayMetricEvidence(ZERO_STAMP) as unknown as {
       stages: Record<string, unknown>;
     };
@@ -332,26 +545,36 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     malformedEvidence.stages.initiate_checkout = { state: "measured", value: 1e20 };
     malformedEvidence.stages.outbound_click = { state: "measured", value: { n: 1 } };
     await db.query(
-      `UPDATE meta_creative_daily SET payload_json = $3::jsonb
+      `UPDATE meta_creative_daily
+          SET payload_json = jsonb_set(payload_json, '{metric_evidence}', $3::jsonb)
         WHERE business_id = $1 AND creative_id = 'cre_malformed' AND date = $2::date`,
-      [LIFECYCLE_BUSINESS, day(0), JSON.stringify({ [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: malformedEvidence })],
+      [LIFECYCLE_BUSINESS, day(0), JSON.stringify(malformedEvidence)],
     );
     await db.query(
-      `UPDATE meta_creative_daily SET payload_json = '"not an object"'::jsonb
+      `UPDATE meta_creative_daily
+          SET payload_json = jsonb_set(payload_json, '{metric_evidence}', '"not an object"'::jsonb)
         WHERE business_id = $1 AND creative_id = 'cre_malformed' AND date = $2::date`,
       [LIFECYCLE_BUSINESS, day(1)],
     );
     await db.query(
-      `UPDATE meta_creative_daily SET payload_json = '{"metric_evidence": [1, 2]}'::jsonb
+      `UPDATE meta_creative_daily
+          SET payload_json = jsonb_set(payload_json, '{metric_evidence}', '[1, 2]'::jsonb)
         WHERE business_id = $1 AND creative_id = 'cre_malformed' AND date = $2::date`,
       [LIFECYCLE_BUSINESS, day(2)],
     );
+    // The fixture models receipts and source rows observed on the simulated
+    // historical date. A freshly written test row is not historical PIT proof.
+    await db.query(
+      `UPDATE meta_creative_daily SET created_at = $2::timestamptz,
+         updated_at = $2::timestamptz WHERE business_id = $1`,
+      [LIFECYCLE_BUSINESS, `${AS_OF}T13:00:00.000Z`],
+    );
 
-    const result = await runLifecycleJob({ businessId: LIFECYCLE_BUSINESS, asOf: AS_OF });
+    const result = await runLifecycleJob({ businessId: LIFECYCLE_BUSINESS, asOf: AS_OF, evaluationCutoffAt: EVALUATION_CUTOFF_AT });
     expect(result.status, result.errorMessage).toBe("success");
 
     const rows = await db.query<LifecycleRow>(
-      `SELECT creative_id, link_clicks_28d, outbound_clicks_28d, landing_page_views_28d,
+      `SELECT creative_id, effective_status, frequency_28d, link_clicks_28d, outbound_clicks_28d, landing_page_views_28d,
               add_to_cart_28d, initiate_checkout_28d, thumbstop_28d, video25_rate_28d,
               video50_rate_28d, video75_rate_28d, video100_rate_28d
          FROM engine_v3_creative_lifecycle_daily
@@ -364,6 +587,7 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       LIFECYCLE_BUSINESS,
       AS_OF,
       Array.from(SUPPORTED_OBJECTIVES),
+      EVALUATION_CUTOFF_AT,
     ]);
     historical = new Map(computed.map((row) => [String(row.creative_id), row]));
   }, 120_000);
@@ -419,8 +643,55 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     expect(Number(historical.get("cre_alias")?.last14_click_to_purchase_rate)).toBeCloseTo(0.2, 10);
   });
 
+  it("resolves v2-writer NULL delivery from cutoff-safe Ad and parent history, leaving missing history unknown", async () => {
+    const db = getDb();
+    const [stored] = await db.query<{ effective_status: string | null }>(
+      `SELECT effective_status FROM meta_creative_daily
+       WHERE business_id = $1 AND creative_id = 'cre_alias'`,
+      [LIFECYCLE_BUSINESS],
+    );
+    expect(stored?.effective_status).toBeNull();
+    expect(lifecycle.get("cre_alias")?.effective_status).toBe("ACTIVE");
+    expect(historical.get("cre_alias")?.effective_status).toBe("ACTIVE");
+    expect(lifecycle.get("cre_zero_zero")?.effective_status).toBeNull();
+
+    const source = new WarehouseDataSource(EVALUATION_CUTOFF_AT);
+    const known = await source.getCreativeInput({
+      businessId: LIFECYCLE_BUSINESS, creativeId: "cre_alias", asOf: AS_OF,
+    });
+    const unknown = await source.getCreativeInput({
+      businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_zero", asOf: AS_OF,
+    });
+    expect(known?.effectiveStatus).toBe("ACTIVE");
+    expect(unknown?.effectiveStatus).toBeNull();
+
+    // With no retained lifecycle row, the direct runtime reader must reach
+    // the same state rather than borrowing a mutable detail status.
+    await db.query(
+      `DELETE FROM engine_v3_creative_lifecycle_daily
+       WHERE business_ref_id = $1::uuid AND creative_id = 'cre_alias'`,
+      [LIFECYCLE_BUSINESS],
+    );
+    const runtime = await source.getCreativeInput({
+      businessId: LIFECYCLE_BUSINESS, creativeId: "cre_alias", asOf: AS_OF,
+    });
+    expect(runtime?.effectiveStatus).toBe("ACTIVE");
+  });
+
+  it("selects a known ACTIVE zero-delivery creative without selecting an unknown zero-delivery creative", async () => {
+    const source = new WarehouseDataSource(EVALUATION_CUTOFF_AT);
+    const listed = await source.listCreativeInputs({
+      businessId: LIFECYCLE_BUSINESS, asOf: AS_OF,
+    });
+    expect(listed.find((row) => row.creativeId === "cre_never_spent")?.effectiveStatus).toBe("ACTIVE");
+    expect(listed.some((row) => row.creativeId === "cre_never_spent_unknown")).toBe(false);
+  });
+
   it("R4: malformed stamps and payload shapes are missing, and the job did not abort", () => {
+    // The economic row remains source-backed. Only its malformed funnel
+    // measurements are missing; the entire business job still completes.
     expect(counts("cre_malformed")).toEqual(ALL_NULL);
+    expect(historical.get("cre_malformed")?.last14_click_to_purchase_rate).toBeNull();
   });
 
   it("legacy: an unstamped row is unmeasured, whatever its display column and payload scalars say", () => {
@@ -428,9 +699,51 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     expect(historical.get("cre_legacy")?.last14_click_to_purchase_rate).toBeNull();
   });
 
+  it("excludes an unverified old folded creative day while admitting source-verified days", async () => {
+    const rejected = await getDb().query<{ creative_id: string; admitted: boolean }>(
+      `SELECT d.creative_id,
+              COALESCE(${creativeDayConfigDecisionAdmissionSql("d", "$2", "$3")}, FALSE) AS admitted
+         FROM meta_creative_daily d
+        WHERE d.business_id = $1 AND d.date <= $2::date
+          AND d.creative_id IN ('cre_old_folded', 'cre_mixed_parent')`,
+      [LIFECYCLE_BUSINESS, AS_OF, EVALUATION_CUTOFF_AT],
+    );
+    expect(new Map(rejected.map((row) => [row.creative_id, row.admitted]))).toEqual(new Map([
+      ["cre_old_folded", false],
+      ["cre_mixed_parent", false],
+    ]));
+    expect(lifecycle.has("cre_old_folded")).toBe(false);
+    expect(historical.has("cre_old_folded")).toBe(false);
+    expect(lifecycle.has("cre_mixed_parent")).toBe(false);
+    expect(historical.has("cre_mixed_parent")).toBe(false);
+    expect(lifecycle.has("cre_config_unverified")).toBe(false);
+    expect(historical.has("cre_config_unverified")).toBe(false);
+    expect(lifecycle.has("cre_zero_zero")).toBe(true);
+    expect(historical.has("cre_zero_zero")).toBe(true);
+  });
+
+  it("rejects the whole lifecycle window when one economic day lacks config proof", async () => {
+    const days = await getDb().query<{ date: string; provenance: string | null }>(
+      `SELECT date::text AS date,
+              payload_json->>'historical_config_provenance' AS provenance
+         FROM meta_creative_daily
+        WHERE business_id = $1 AND creative_id = 'cre_config_unverified'
+        ORDER BY date ASC`,
+      [LIFECYCLE_BUSINESS],
+    );
+    expect(days.map((row) => row.provenance)).toEqual([
+      "provider_receipt_day_bracketed",
+      "unverified",
+    ]);
+    expect(lifecycle.has("cre_config_unverified")).toBe(false);
+    expect(historical.has("cre_config_unverified")).toBe(false);
+  });
+
   it("the writer's same-creative-day fold merges the stamp strictly on real storage", async () => {
     expect(counts("cre_writer_fold_full").link_click).toBe(10);
     expect(counts("cre_writer_fold_partial").link_click).toBeNull();
+    expect(lifecycle.get("cre_writer_fold_full")?.frequency_28d).toBeNull();
+    expect(lifecycle.get("cre_zero_zero")?.frequency_28d).not.toBeNull();
     const [stored] = await getDb().query<{ payload_json: unknown; link_clicks: string | null }>(
       `SELECT payload_json, link_clicks FROM meta_creative_daily
         WHERE business_id = $1 AND creative_id = 'cre_writer_fold_partial'`,
@@ -507,9 +820,24 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       }),
     );
     await writeByDay(rows);
+    await publishSourceDays(rows);
     await getDb().query(
       `UPDATE meta_creative_daily
-          SET payload_json = jsonb_build_object('metric_evidence', jsonb_build_object(
+       SET payload_json = payload_json || jsonb_build_object(
+         'historical_config_provenance', 'provider_receipt_day_bracketed',
+         'historical_config_proof', jsonb_build_object(
+           'knowledge_cutoff_at', '2026-08-20T12:00:00.000Z',
+           'last_receipt_observed_at', '2026-08-20T11:00:00.000Z',
+           'objective', objective,
+           'optimization_goal', optimization_goal,
+           'custom_event_type', payload_json->>'custom_event_type'
+         ))
+       WHERE business_id = $1`,
+      [CALIBRATION_BUSINESS],
+    );
+    await getDb().query(
+      `UPDATE meta_creative_daily
+          SET payload_json = payload_json || jsonb_build_object('metric_evidence', jsonb_build_object(
             'version', $2::text,
             'funnelStageContractVersion', 'meta-funnel-stage.v1',
             'stages', jsonb_build_object(
@@ -521,8 +849,13 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
         WHERE business_id = $1 AND creative_id = 'cal_malformed'`,
       [CALIBRATION_BUSINESS, META_CREATIVE_DAY_METRIC_EVIDENCE_VERSION],
     );
+    await getDb().query(
+      `UPDATE meta_creative_daily SET created_at = $2::timestamptz,
+         updated_at = $2::timestamptz WHERE business_id = $1`,
+      [CALIBRATION_BUSINESS, `${AS_OF}T13:00:00.000Z`],
+    );
 
-    const result = await runCalibrationJob({ businessId: CALIBRATION_BUSINESS, asOf: AS_OF });
+    const result = await runCalibrationJob({ businessId: CALIBRATION_BUSINESS, asOf: AS_OF, evaluationCutoffAt: EVALUATION_CUTOFF_AT });
     expect(result.status, result.errorMessage).toBe("success");
 
     const [overall] = await getDb().query<Record<string, unknown>>(
@@ -632,13 +965,70 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
         WHERE d.business_id = $1`,
       [LIFECYCLE_BUSINESS],
     );
-    // 18 stored creative-days: the fold rows are two ad-rows each, merged into one.
-    expect(rows.length).toBe(18);
+    // 24 stored creative-days: the fold rows are two ad-rows each, merged into
+    // one; identity/config-negative and delivery-status cases remain stored.
+    expect(rows.length).toBe(24);
     for (const row of rows) {
       for (const stage of stages) {
         expect(row[`lateral_${stage}`], `${row.creative_id} ${row.date} ${stage}`).toEqual(row[`direct_${stage}`]);
       }
       expect(typeof row.active).toBe("boolean");
     }
+  });
+
+  it("admits only config proof known by the evaluation day and matching stored config", async () => {
+    const proof = {
+      knowledge_cutoff_at: "2026-08-20T12:00:00.000Z",
+      last_receipt_observed_at: "2026-08-20T11:00:00.000Z",
+      objective: "OUTCOME_SALES",
+      optimization_goal: "OFFSITE_CONVERSIONS",
+      custom_event_type: "PURCHASE",
+      custom_conversion_id: null,
+    };
+    const payload = {
+      source_identity_version: META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
+      source_parent_grain_complete: true,
+      source_ad_ids: ["ad_proved"],
+      source_ad_ids_complete: true,
+      source_creative_ids: ["proved"],
+      associated_ads_count: 1,
+      historical_config_provenance: "provider_receipt_day_bracketed",
+      custom_event_type: "PURCHASE",
+      custom_conversion_id: null,
+      historical_config_proof: proof,
+    };
+    const cases = [
+      { label: "proved", payload_json: payload, expected: true },
+      { label: "future source knowledge", payload_json: { ...payload, historical_config_proof: { ...proof, knowledge_cutoff_at: "2026-08-21T00:00:00.000Z" } }, expected: false },
+      { label: "future receipt", payload_json: { ...payload, historical_config_proof: { ...proof, last_receipt_observed_at: "2026-08-21T00:00:00.000Z" } }, expected: false },
+      { label: "future row revision", payload_json: payload, updated_at: "2026-08-21T00:00:01.000Z", expected: false },
+      { label: "malformed timestamp", payload_json: { ...payload, historical_config_proof: { ...proof, knowledge_cutoff_at: "2026-02-30T12:00:00.000Z" } }, expected: false },
+      { label: "config mismatch", payload_json: { ...payload, historical_config_proof: { ...proof, objective: "OUTCOME_LEADS" } }, expected: false },
+      { label: "conversion target mismatch", payload_json: { ...payload, historical_config_proof: { ...proof, custom_conversion_id: "123" } }, expected: false },
+      { label: "inconsistent member count", payload_json: { ...payload, associated_ads_count: 2 }, expected: false },
+      { label: "wrong provider creative", payload_json: { ...payload, source_creative_ids: ["other"] }, expected: false },
+      { label: "membership-only", payload_json: { ...payload, historical_config_provenance: "unverified" }, expected: false },
+    ];
+    const rows = await getDb().query<{ label: string; admitted: boolean }>(
+      `SELECT d.label, COALESCE(${creativeDayConfigDecisionAdmissionSql("d", "$2", "$3")}, FALSE) AS admitted
+         FROM jsonb_to_recordset($1::jsonb) AS d(
+           label text, creative_id text, objective text, optimization_goal text,
+           created_at timestamptz, updated_at timestamptz, payload_json jsonb
+         )
+        WHERE d.created_at < ($2::date + INTERVAL '1 day')`,
+      [JSON.stringify(cases.map(({ label, payload_json, ...rest }) => ({
+        label,
+        creative_id: "proved",
+        objective: "OUTCOME_SALES",
+        optimization_goal: "OFFSITE_CONVERSIONS",
+        created_at: "2026-08-20T13:00:00.000Z",
+        updated_at: "2026-08-20T13:00:00.000Z",
+        ...rest,
+        payload_json,
+      }))), AS_OF, EVALUATION_CUTOFF_AT],
+    );
+    expect(new Map(rows.map((row) => [row.label, row.admitted]))).toEqual(
+      new Map(cases.map(({ label, expected }) => [label, expected])),
+    );
   });
 });

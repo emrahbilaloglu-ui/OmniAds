@@ -183,6 +183,10 @@ export function safeNumber(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function finiteMetric(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function safeString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -586,9 +590,9 @@ export function cardForDecision(input: {
     decision.creativeId;
   const spend = safeNumber(row?.spend ?? decision.metrics.spend);
   const purchases = safeNumber(row?.purchases ?? decision.metrics.purchases);
-  const roas = row?.roas ?? decision.metrics.roas ?? 0;
+  const roas = finiteMetric(row?.roas) ?? finiteMetric(decision.metrics.roas);
   const ctr = row?.ctr_all ?? creativeInput?.ctr ?? null;
-  const recentRoas = decision.metrics.recent7dRoas ?? roas;
+  const recentRoas = finiteMetric(decision.metrics.recent7dRoas);
   const explainability = buildBriefingDecisionExplainability({
     decision,
     currency: input.currency,
@@ -656,7 +660,7 @@ export function cardForDecision(input: {
     addToCart: safeNumber(row?.add_to_cart ?? creativeInput?.addToCart),
     frequency: row?.frequency ?? creativeInput?.frequency ?? null,
     fatigue: decision.badges.some((badge) => badge.type === "fatigue_fatigued"),
-    sparkline: [safeNumber(recentRoas), safeNumber(roas)],
+    sparkline: [recentRoas, roas],
     ctrFunnel: {
       value: ctr,
       p50: null,

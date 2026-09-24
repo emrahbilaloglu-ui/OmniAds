@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { logStartupEvent } from "@/lib/startup-diagnostics";
+import { isDbJitDisabledInScope } from "@/lib/db-jit-scope";
 
 const DEFAULT_WEB_DB_TIMEOUT_MS = 8_000;
 const DEFAULT_WORKER_DB_TIMEOUT_MS = 30_000;
@@ -99,6 +100,14 @@ export type DbClient = (<TRow extends DbRow = DbRow>(
 };
 
 type DbQueryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
+
+/** How `runDbTransaction` tells its executor where `SET LOCAL jit` is valid. */
+type DbTransactionJitState = {
+  /** BEGIN succeeded and neither COMMIT nor ROLLBACK has been sent. */
+  open: boolean;
+  /** `SET LOCAL jit = off` ran right after BEGIN, before any savepoint. */
+  jitDisabledForWholeTransaction: boolean;
+};
 
 const dbTransactionStorage = new AsyncLocalStorage<DbClient>();
 
@@ -378,6 +387,7 @@ async function executePoolQueryWithStatementTimeout<TRow extends DbRow = DbRow>(
   params: unknown[],
   timeoutMs: number,
   deadlineAtMs?: number,
+  disableJit = false,
 ) {
   const client = deadlineAtMs != null
     ? await connectPoolByDeadline(pool, deadlineAtMs)
@@ -388,8 +398,14 @@ async function executePoolQueryWithStatementTimeout<TRow extends DbRow = DbRow>(
     const setupTimeoutMs = deadlineAtMs != null
       ? remainingDeadlineMs(deadlineAtMs, "Database query timeout setup")
       : timeoutMs;
+    // The JIT request rides in the same simple-protocol round trip as the
+    // timeout, and the cleanup below resets both before the lease returns.
     await withTimeout(
-      client.query(buildStatementTimeoutSql(setupTimeoutMs)),
+      client.query(
+        disableJit
+          ? `${buildStatementTimeoutSql(setupTimeoutMs)}; SET jit = off`
+          : buildStatementTimeoutSql(setupTimeoutMs),
+      ),
       setupTimeoutMs,
       "Database query timeout setup",
     );
@@ -413,7 +429,9 @@ async function executePoolQueryWithStatementTimeout<TRow extends DbRow = DbRow>(
     if (statementTimeoutApplied) {
       try {
         await withTimeout(
-          client.query("RESET statement_timeout"),
+          client.query(
+            disableJit ? "RESET statement_timeout; RESET jit" : "RESET statement_timeout",
+          ),
           deadlineAtMs != null ? DB_DEADLINE_CLEANUP_ALLOWANCE_MS : timeoutMs,
           "Database query session cleanup",
         );
@@ -712,6 +730,8 @@ function createWrappedDbExecutor(
     pool?: Pool;
     allowRetries?: boolean;
     deadlineAtMs?: number;
+    /** Present only for `runDbTransaction`'s pinned client. */
+    transaction?: DbTransactionJitState;
   },
 ): DbClient {
   const pool = options?.pool;
@@ -724,6 +744,14 @@ function createWrappedDbExecutor(
     metrics.queryCount += 1;
     let retried = false;
     const maxAttempts = allowRetries ? settings.retryAttempts : 0;
+    const disableJit = isDbJitDisabledInScope();
+    // A scoped statement inside a transaction that was opened without the
+    // scope re-applies SET LOCAL each time: a ROLLBACK TO SAVEPOINT would
+    // otherwise silently restore the server's JIT setting mid-transaction.
+    const transactionJitSetup =
+      disableJit &&
+      options?.transaction?.open === true &&
+      !options.transaction.jitDisabledForWholeTransaction;
 
     for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
       observePoolSnapshot(pool, metrics, settings.poolMax);
@@ -739,12 +767,18 @@ function createWrappedDbExecutor(
                 params,
                 queryTimeoutMs,
                 options?.deadlineAtMs,
+                disableJit,
               )
             : await withTimeout(
-                queryable.query<TRow>(
-                  queryText,
-                  params.map(normalizeQueryValue),
-                ),
+                (async () => {
+                  if (transactionJitSetup) {
+                    await queryable.query("SET LOCAL jit = off");
+                  }
+                  return queryable.query<TRow>(
+                    queryText,
+                    params.map(normalizeQueryValue),
+                  );
+                })(),
                 queryTimeoutMs,
                 "Database query",
               );
@@ -954,9 +988,14 @@ export async function runDbTransaction<T>(
   const queryable = options?.deadlineAtMs != null
     ? { query: deadlineBoundClientQuery(client, options.deadlineAtMs) }
     : client;
+  const transactionJit: DbTransactionJitState = {
+    open: false,
+    jitDisabledForWholeTransaction: false,
+  };
   const wrapped = createWrappedDbExecutor(queryable, settings, timeoutMs, {
     pool,
     allowRetries: false,
+    transaction: transactionJit,
   });
 
   type TransactionState =
@@ -974,13 +1013,21 @@ export async function runDbTransaction<T>(
     await wrapped.query("BEGIN");
     transactionState = "active";
     await wrapped.query(buildLocalStatementTimeoutSql(timeoutMs));
+    transactionJit.open = true;
+    if (isDbJitDisabledInScope()) {
+      // Opened inside the scope: once, before any savepoint can undo it.
+      transactionJit.jitDisabledForWholeTransaction = true;
+      await wrapped.query("SET LOCAL jit = off");
+    }
     setupComplete = true;
     const result = await dbTransactionStorage.run(wrapped, fn);
+    transactionJit.open = false;
     transactionState = "commit_pending";
     await wrapped.query("COMMIT");
     transactionState = "committed";
     return result;
   } catch (error) {
+    transactionJit.open = false;
     const primaryError =
       error instanceof Error ? error : new Error(String(error));
     const setupFailed = !setupComplete;

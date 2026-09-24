@@ -60,6 +60,7 @@ import type {
   MetaSyncRunRecord,
   MetaSyncStateRecord,
   MetaWarehouseDataState,
+  MetaWarehouseBaseRow,
   MetaWarehouseFreshness,
   MetaWarehouseIntegrityIncident,
   MetaWarehouseMetricSet,
@@ -77,6 +78,11 @@ import {
 } from "@/lib/meta/funnel-stage-parse";
 import { resolveAdDayAuthoritativeLinkClicks } from "@/lib/meta/link-click-parse";
 import { mergeMetaCreativeDayPayloadMetricEvidence } from "@/lib/meta/creative-day-metric-evidence";
+import {
+  isMetaUnresolvedCreativeId,
+  META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
+  readCreativeSourceIdentity,
+} from "@/lib/meta/creatives-types";
 import {
   deriveManualBidAmount,
   formatBidStrategyLabel,
@@ -9739,6 +9745,57 @@ function buildMetaHistoryCapturedAt(row: {
   );
 }
 
+/** One dimension row per physical entity, even when a batch spans many days. */
+function coalesceMetaDimensionRows<T extends MetaWarehouseBaseRow>(
+  rows: T[],
+  entityId: (row: T) => string,
+) {
+  const byEntity = new Map<string, {
+    row: T;
+    firstSeenAt: string;
+    lastSeenAt: string;
+    sourceUpdatedAt: string;
+    projectionSeenAt: string;
+    projectionUpdatedAt: string;
+  }>();
+  const fallbackObservedAt = new Date().toISOString();
+  for (const row of rows) {
+    const seenAt = `${normalizeDate(row.date)}T00:00:00.000Z`;
+    const updatedAt = normalizeTimestamp(row.updatedAt) ??
+      buildMetaHistoryCapturedAt(row) ?? fallbackObservedAt;
+    const key = JSON.stringify([row.businessId, row.providerAccountId, entityId(row)]);
+    const existing = byEntity.get(key);
+    if (!existing) {
+      byEntity.set(key, {
+        row,
+        firstSeenAt: seenAt,
+        lastSeenAt: seenAt,
+        sourceUpdatedAt: updatedAt,
+        projectionSeenAt: seenAt,
+        projectionUpdatedAt: updatedAt,
+      });
+      continue;
+    }
+    if (seenAt < existing.firstSeenAt) existing.firstSeenAt = seenAt;
+    if (seenAt > existing.lastSeenAt) existing.lastSeenAt = seenAt;
+    if (updatedAt > existing.sourceUpdatedAt) existing.sourceUpdatedAt = updatedAt;
+    if (seenAt > existing.projectionSeenAt ||
+        (seenAt === existing.projectionSeenAt && updatedAt >= existing.projectionUpdatedAt)) {
+      existing.row = row;
+      existing.projectionSeenAt = seenAt;
+      existing.projectionUpdatedAt = updatedAt;
+    }
+  }
+  return [...byEntity.values()];
+}
+
+/** An older report day must not replace the dimension's newer presentation. */
+function preferIncomingMetaDimensionProjection(table: string) {
+  return `(${table}.last_seen_at IS NULL OR EXCLUDED.last_seen_at > ${table}.last_seen_at OR
+    (EXCLUDED.last_seen_at = ${table}.last_seen_at AND
+     EXCLUDED.source_updated_at >= COALESCE(${table}.source_updated_at, EXCLUDED.source_updated_at)))`;
+}
+
 async function upsertMetaCampaignDimensionRows(
   rows: MetaCampaignDailyRow[],
   referenceContext: {
@@ -9748,9 +9805,12 @@ async function upsertMetaCampaignDimensionRows(
 ) {
   if (rows.length === 0) return;
   const sql = getDb();
-  for (const chunk of chunkRows(rows, 150)) {
+  const dimensionRows = coalesceMetaDimensionRows(rows, (row) => row.campaignId);
+  const preferIncoming = preferIncomingMetaDimensionProjection("meta_campaign_dimensions");
+  for (const chunk of chunkRows(dimensionRows, 150)) {
     const values: unknown[] = [];
-    const placeholders = chunk.map((row, index) => {
+    const placeholders = chunk.map((dimension, index) => {
+      const row = dimension.row;
       const offset = index * 12;
       values.push(
         row.businessId,
@@ -9762,11 +9822,9 @@ async function upsertMetaCampaignDimensionRows(
         row.campaignNameHistorical,
         row.campaignStatus,
         row.buyingType,
-        `${normalizeDate(row.date)}T00:00:00.000Z`,
-        `${normalizeDate(row.date)}T00:00:00.000Z`,
-        normalizeTimestamp(row.updatedAt) ??
-          buildMetaHistoryCapturedAt(row) ??
-          new Date().toISOString(),
+        dimension.firstSeenAt,
+        dimension.lastSeenAt,
+        dimension.sourceUpdatedAt,
       );
       return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10}::timestamptz,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,now(),now())`;
     }).join(", ");
@@ -9793,10 +9851,10 @@ async function upsertMetaCampaignDimensionRows(
         ON CONFLICT (business_id, provider_account_id, campaign_id) DO UPDATE SET
           business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_campaign_dimensions.business_ref_id),
           provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_campaign_dimensions.provider_account_ref_id),
-          campaign_name_current = EXCLUDED.campaign_name_current,
-          campaign_name_historical = EXCLUDED.campaign_name_historical,
-          campaign_status = EXCLUDED.campaign_status,
-          buying_type = EXCLUDED.buying_type,
+          campaign_name_current = CASE WHEN ${preferIncoming} THEN EXCLUDED.campaign_name_current ELSE meta_campaign_dimensions.campaign_name_current END,
+          campaign_name_historical = CASE WHEN ${preferIncoming} THEN EXCLUDED.campaign_name_historical ELSE meta_campaign_dimensions.campaign_name_historical END,
+          campaign_status = CASE WHEN ${preferIncoming} THEN EXCLUDED.campaign_status ELSE meta_campaign_dimensions.campaign_status END,
+          buying_type = CASE WHEN ${preferIncoming} THEN EXCLUDED.buying_type ELSE meta_campaign_dimensions.buying_type END,
           first_seen_at = LEAST(COALESCE(meta_campaign_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
           last_seen_at = GREATEST(COALESCE(meta_campaign_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
           source_updated_at = GREATEST(COALESCE(meta_campaign_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
@@ -9925,9 +9983,12 @@ async function upsertMetaAdSetDimensionRows(
 ) {
   if (rows.length === 0) return;
   const sql = getDb();
-  for (const chunk of chunkRows(rows, 150)) {
+  const dimensionRows = coalesceMetaDimensionRows(rows, (row) => row.adsetId);
+  const preferIncoming = preferIncomingMetaDimensionProjection("meta_adset_dimensions");
+  for (const chunk of chunkRows(dimensionRows, 150)) {
     const values: unknown[] = [];
-    const placeholders = chunk.map((row, index) => {
+    const placeholders = chunk.map((dimension, index) => {
+      const row = dimension.row;
       const offset = index * 12;
       values.push(
         row.businessId,
@@ -9939,11 +10000,9 @@ async function upsertMetaAdSetDimensionRows(
         row.adsetNameCurrent,
         row.adsetNameHistorical,
         row.adsetStatus,
-        `${normalizeDate(row.date)}T00:00:00.000Z`,
-        `${normalizeDate(row.date)}T00:00:00.000Z`,
-        normalizeTimestamp(row.updatedAt) ??
-          buildMetaHistoryCapturedAt(row) ??
-          new Date().toISOString(),
+        dimension.firstSeenAt,
+        dimension.lastSeenAt,
+        dimension.sourceUpdatedAt,
       );
       return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10}::timestamptz,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,now(),now())`;
     }).join(", ");
@@ -9970,10 +10029,10 @@ async function upsertMetaAdSetDimensionRows(
         ON CONFLICT (business_id, provider_account_id, adset_id) DO UPDATE SET
           business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_adset_dimensions.business_ref_id),
           provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_adset_dimensions.provider_account_ref_id),
-          campaign_id = EXCLUDED.campaign_id,
-          adset_name_current = EXCLUDED.adset_name_current,
-          adset_name_historical = EXCLUDED.adset_name_historical,
-          adset_status = EXCLUDED.adset_status,
+          campaign_id = CASE WHEN ${preferIncoming} THEN EXCLUDED.campaign_id ELSE meta_adset_dimensions.campaign_id END,
+          adset_name_current = CASE WHEN ${preferIncoming} THEN EXCLUDED.adset_name_current ELSE meta_adset_dimensions.adset_name_current END,
+          adset_name_historical = CASE WHEN ${preferIncoming} THEN EXCLUDED.adset_name_historical ELSE meta_adset_dimensions.adset_name_historical END,
+          adset_status = CASE WHEN ${preferIncoming} THEN EXCLUDED.adset_status ELSE meta_adset_dimensions.adset_status END,
           first_seen_at = LEAST(COALESCE(meta_adset_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
           last_seen_at = GREATEST(COALESCE(meta_adset_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
           source_updated_at = GREATEST(COALESCE(meta_adset_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
@@ -10121,10 +10180,13 @@ async function upsertMetaAdDimensionRows(
 ) {
   if (rows.length === 0) return;
   const sql = getDb();
-  for (const chunk of chunkRows(rows, 150)) {
+  const dimensionRows = coalesceMetaDimensionRows(rows, (row) => row.adId);
+  const preferIncoming = preferIncomingMetaDimensionProjection("meta_ad_dimensions");
+  for (const chunk of chunkRows(dimensionRows, 150)) {
     const values: unknown[] = [];
-    const placeholders = chunk.map((row, index) => {
-      const offset = index * 14;
+    const placeholders = chunk.map((dimension, index) => {
+      const row = dimension.row;
+      const offset = index * 15;
       const projectionJson =
         row.payloadJson && typeof row.payloadJson === "object"
           ? JSON.stringify(stripMetaCreativeMediaPayload(row.payloadJson))
@@ -10146,12 +10208,11 @@ async function upsertMetaAdDimensionRows(
         row.adStatus,
         creativeId || null,
         projectionJson,
-        `${normalizeDate(row.date)}T00:00:00.000Z`,
-        normalizeTimestamp(row.updatedAt) ??
-          buildMetaHistoryCapturedAt(row) ??
-          new Date().toISOString(),
+        dimension.firstSeenAt,
+        dimension.lastSeenAt,
+        dimension.sourceUpdatedAt,
       );
-      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12}::jsonb,$${offset + 13}::timestamptz,$${offset + 13}::timestamptz,$${offset + 14}::timestamptz,now(),now())`;
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12}::jsonb,$${offset + 13}::timestamptz,$${offset + 14}::timestamptz,$${offset + 15}::timestamptz,now(),now())`;
     }).join(", ");
 
     await sql.query(
@@ -10179,13 +10240,13 @@ async function upsertMetaAdDimensionRows(
         ON CONFLICT (business_id, provider_account_id, ad_id) DO UPDATE SET
           business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_ad_dimensions.business_ref_id),
           provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_ad_dimensions.provider_account_ref_id),
-          campaign_id = EXCLUDED.campaign_id,
-          adset_id = EXCLUDED.adset_id,
-          ad_name_current = EXCLUDED.ad_name_current,
-          ad_name_historical = EXCLUDED.ad_name_historical,
-          ad_status = EXCLUDED.ad_status,
-          creative_id = COALESCE(EXCLUDED.creative_id, meta_ad_dimensions.creative_id),
-          projection_json = EXCLUDED.projection_json,
+          campaign_id = CASE WHEN ${preferIncoming} THEN EXCLUDED.campaign_id ELSE meta_ad_dimensions.campaign_id END,
+          adset_id = CASE WHEN ${preferIncoming} THEN EXCLUDED.adset_id ELSE meta_ad_dimensions.adset_id END,
+          ad_name_current = CASE WHEN ${preferIncoming} THEN EXCLUDED.ad_name_current ELSE meta_ad_dimensions.ad_name_current END,
+          ad_name_historical = CASE WHEN ${preferIncoming} THEN EXCLUDED.ad_name_historical ELSE meta_ad_dimensions.ad_name_historical END,
+          ad_status = CASE WHEN ${preferIncoming} THEN EXCLUDED.ad_status ELSE meta_ad_dimensions.ad_status END,
+          creative_id = CASE WHEN ${preferIncoming} THEN COALESCE(EXCLUDED.creative_id, meta_ad_dimensions.creative_id) ELSE meta_ad_dimensions.creative_id END,
+          projection_json = CASE WHEN ${preferIncoming} THEN EXCLUDED.projection_json ELSE meta_ad_dimensions.projection_json END,
           first_seen_at = LEAST(COALESCE(meta_ad_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
           last_seen_at = GREATEST(COALESCE(meta_ad_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
           source_updated_at = GREATEST(COALESCE(meta_ad_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
@@ -10205,10 +10266,13 @@ async function upsertMetaCreativeDimensionRows(
 ) {
   if (rows.length === 0) return;
   const sql = getDb();
-  for (const chunk of chunkRows(rows, 150)) {
+  const dimensionRows = coalesceMetaDimensionRows(rows, (row) => row.creativeId);
+  const preferIncoming = preferIncomingMetaDimensionProjection("meta_creative_dimensions");
+  for (const chunk of chunkRows(dimensionRows, 150)) {
     const values: unknown[] = [];
-    const placeholders = chunk.map((row, index) => {
-      const offset = index * 17;
+    const placeholders = chunk.map((dimension, index) => {
+      const row = dimension.row;
+      const offset = index * 18;
       const projectionJson =
         row.payloadJson && typeof row.payloadJson === "object"
           ? JSON.stringify(stripMetaCreativeMediaPayload(row.payloadJson))
@@ -10229,12 +10293,11 @@ async function upsertMetaCreativeDimensionRows(
         row.thumbnailUrl,
         row.assetType,
         projectionJson,
-        `${normalizeDate(row.date)}T00:00:00.000Z`,
-        normalizeTimestamp(row.updatedAt) ??
-          buildMetaHistoryCapturedAt(row) ??
-          new Date().toISOString(),
+        dimension.firstSeenAt,
+        dimension.lastSeenAt,
+        dimension.sourceUpdatedAt,
       );
-      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15}::jsonb,$${offset + 16}::timestamptz,$${offset + 16}::timestamptz,$${offset + 17}::timestamptz,now(),now())`;
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15}::jsonb,$${offset + 16}::timestamptz,$${offset + 17}::timestamptz,$${offset + 18}::timestamptz,now(),now())`;
     }).join(", ");
 
     await sql.query(
@@ -10265,16 +10328,16 @@ async function upsertMetaCreativeDimensionRows(
         ON CONFLICT (business_id, provider_account_id, creative_id) DO UPDATE SET
           business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_creative_dimensions.business_ref_id),
           provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_creative_dimensions.provider_account_ref_id),
-          campaign_id = EXCLUDED.campaign_id,
-          adset_id = EXCLUDED.adset_id,
-          ad_id = EXCLUDED.ad_id,
-          creative_name = EXCLUDED.creative_name,
-          headline = EXCLUDED.headline,
-          primary_text = EXCLUDED.primary_text,
-          destination_url = EXCLUDED.destination_url,
-          thumbnail_url = EXCLUDED.thumbnail_url,
-          asset_type = EXCLUDED.asset_type,
-          projection_json = EXCLUDED.projection_json,
+          campaign_id = CASE WHEN ${preferIncoming} THEN EXCLUDED.campaign_id ELSE meta_creative_dimensions.campaign_id END,
+          adset_id = CASE WHEN ${preferIncoming} THEN EXCLUDED.adset_id ELSE meta_creative_dimensions.adset_id END,
+          ad_id = CASE WHEN ${preferIncoming} THEN EXCLUDED.ad_id ELSE meta_creative_dimensions.ad_id END,
+          creative_name = CASE WHEN ${preferIncoming} THEN EXCLUDED.creative_name ELSE meta_creative_dimensions.creative_name END,
+          headline = CASE WHEN ${preferIncoming} THEN EXCLUDED.headline ELSE meta_creative_dimensions.headline END,
+          primary_text = CASE WHEN ${preferIncoming} THEN EXCLUDED.primary_text ELSE meta_creative_dimensions.primary_text END,
+          destination_url = CASE WHEN ${preferIncoming} THEN EXCLUDED.destination_url ELSE meta_creative_dimensions.destination_url END,
+          thumbnail_url = CASE WHEN ${preferIncoming} THEN EXCLUDED.thumbnail_url ELSE meta_creative_dimensions.thumbnail_url END,
+          asset_type = CASE WHEN ${preferIncoming} THEN EXCLUDED.asset_type ELSE meta_creative_dimensions.asset_type END,
+          projection_json = CASE WHEN ${preferIncoming} THEN EXCLUDED.projection_json ELSE meta_creative_dimensions.projection_json END,
           first_seen_at = LEAST(COALESCE(meta_creative_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
           last_seen_at = GREATEST(COALESCE(meta_creative_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
           source_updated_at = GREATEST(COALESCE(meta_creative_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
@@ -10554,9 +10617,141 @@ function recomputeCreativeDailyDerivedMetrics(row: MetaCreativeDailyRow) {
   return row;
 }
 
+function creativeDaySourceIdentity(payload: unknown) {
+  const carried = readCreativeSourceIdentity(payload);
+  if (carried) return carried;
+  const record = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : null;
+  const legacyAdId = typeof record?.real_ad_id === "string"
+    ? record.real_ad_id.trim()
+    : "";
+  if (!legacyAdId) return null;
+  return {
+    source_ad_ids: [legacyAdId],
+    source_ad_ids_complete: record?.associated_ads_count === 1,
+    source_creative_ids: [] as string[],
+  };
+}
+
+function assertCreativeDaySourceIdentity(row: MetaCreativeDailyRow) {
+  const stated = creativeDaySourceIdentity(row.payloadJson);
+  if (stated?.source_creative_ids.some((id) => id !== row.creativeId)) {
+    // A display group can contain several provider creatives with one name.
+    // Its already-summed metrics cannot be assigned to the first creative ID.
+    throw new Error("meta_creative_day_mixed_provider_creative_ids");
+  }
+}
+
+function mergeCreativeDaySourceIdentityPayload(
+  basePayload: unknown,
+  leftPayload: unknown,
+  rightPayload: unknown,
+  creativeId: string,
+) {
+  const left = creativeDaySourceIdentity(leftPayload);
+  const right = creativeDaySourceIdentity(rightPayload);
+  if (!left && !right) return basePayload;
+  const sourceAdIds = Array.from(new Set([
+    ...(left?.source_ad_ids ?? []),
+    ...(right?.source_ad_ids ?? []),
+  ]));
+  const sourceCreativeIds = Array.from(new Set([
+    ...(left?.source_creative_ids ?? []),
+    ...(right?.source_creative_ids ?? []),
+    creativeId,
+  ]));
+  const complete = Boolean(
+    left?.source_ad_ids_complete &&
+    right?.source_ad_ids_complete &&
+    sourceAdIds.length > 0,
+  );
+  const payload = basePayload && typeof basePayload === "object" && !Array.isArray(basePayload)
+    ? basePayload as Record<string, unknown>
+    : {};
+  const leftRecord = leftPayload && typeof leftPayload === "object" && !Array.isArray(leftPayload)
+    ? leftPayload as Record<string, unknown>
+    : {};
+  const rightRecord = rightPayload && typeof rightPayload === "object" && !Array.isArray(rightPayload)
+    ? rightPayload as Record<string, unknown>
+    : {};
+  const parentIds = (record: Record<string, unknown>, field: "source_campaign_ids" | "source_adset_ids") =>
+    Array.isArray(record[field])
+      ? record[field].filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      : [];
+  const sourceCampaignIds = Array.from(new Set([
+    ...parentIds(leftRecord, "source_campaign_ids"),
+    ...parentIds(rightRecord, "source_campaign_ids"),
+  ]));
+  const sourceAdsetIds = Array.from(new Set([
+    ...parentIds(leftRecord, "source_adset_ids"),
+    ...parentIds(rightRecord, "source_adset_ids"),
+  ]));
+  const parentComplete = leftRecord.source_parent_grain_complete === true &&
+    rightRecord.source_parent_grain_complete === true &&
+    sourceCampaignIds.length === 1 && sourceAdsetIds.length === 1;
+  return {
+    ...payload,
+    source_ad_ids: sourceAdIds,
+    source_ad_ids_complete: complete,
+    source_creative_ids: sourceCreativeIds,
+    // An incomplete list is a known subset, not an exact Ad count.
+    associated_ads_count: complete ? sourceAdIds.length : null,
+    source_parent_grain_complete: parentComplete,
+    source_campaign_ids: sourceCampaignIds,
+    source_adset_ids: sourceAdsetIds,
+  };
+}
+
+function stampCreativeDaySourceIdentity(row: MetaCreativeDailyRow): MetaCreativeDailyRow {
+  const payload = row.payloadJson;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { ...row, payloadJson: { historical_config_provenance: "unverified" } };
+  }
+  const record = payload as Record<string, unknown>;
+  const { source_identity_version: _previousVersion,
+    reach_aggregation: _previousReachAggregation,
+    historical_config_proof: _previousConfigProof, ...rest } = record;
+  // Creative-day configuration currently comes from a mutable Ad detail read,
+  // even when the economic Insights row is for yesterday. Membership proof is
+  // not a provider observation of that configuration on the reporting day.
+  const withoutVersion = { ...rest, historical_config_provenance: "unverified" };
+  const identity = readCreativeSourceIdentity(record);
+  if (!identity) return { ...row, payloadJson: withoutVersion };
+  const complete = Boolean(
+    identity?.source_ad_ids_complete &&
+    identity.source_ad_ids.length > 0 &&
+    identity.source_creative_ids.length === 1 &&
+    identity.source_creative_ids[0] === row.creativeId &&
+    record.associated_ads_count === identity.source_ad_ids.length,
+  );
+  const parentComplete = record.source_parent_grain_complete === true &&
+    Boolean(row.campaignId?.trim() && row.adsetId?.trim()) &&
+    Array.isArray(record.source_campaign_ids) &&
+    record.source_campaign_ids.length === 1 &&
+    record.source_campaign_ids[0] === row.campaignId &&
+    Array.isArray(record.source_adset_ids) &&
+    record.source_adset_ids.length === 1 &&
+    record.source_adset_ids[0] === row.adsetId;
+  return {
+    ...row,
+    payloadJson: complete
+      ? {
+          ...withoutVersion,
+          source_identity_version: META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
+          source_parent_grain_complete: parentComplete,
+          reach_aggregation: identity.source_ad_ids.length === 1
+            ? "single_ad_provider_reach"
+            : "sum_of_ad_reach_not_deduplicated",
+        }
+      : { ...withoutVersion, source_parent_grain_complete: false },
+  };
+}
+
 function mergeMetaCreativeDailyRowsForUpsert(rows: MetaCreativeDailyRow[]) {
   const mergedRows = new Map<string, MetaCreativeDailyRow>();
   for (const row of rows) {
+    assertCreativeDaySourceIdentity(row);
     const key = [
       row.businessId,
       row.providerAccountId,
@@ -10569,8 +10764,21 @@ function mergeMetaCreativeDailyRowsForUpsert(rows: MetaCreativeDailyRow[]) {
       continue;
     }
 
-    existing.campaignId = coalesceText(existing.campaignId, row.campaignId);
-    existing.adsetId = coalesceText(existing.adsetId, row.adsetId);
+    const existingAdIds = creativeDaySourceIdentity(existing.payloadJson)?.source_ad_ids ?? [];
+    const incomingAdIds = creativeDaySourceIdentity(row.payloadJson)?.source_ad_ids ?? [];
+    if (incomingAdIds.some((id) => existingAdIds.includes(id))) {
+      // Metrics from the same Ad cannot be summed twice into one creative day.
+      throw new Error("meta_creative_day_duplicate_source_ad_id");
+    }
+
+    const sameParent = Boolean(
+      existing.campaignId?.trim() && row.campaignId?.trim() &&
+      existing.adsetId?.trim() && row.adsetId?.trim() &&
+      existing.campaignId === row.campaignId &&
+      existing.adsetId === row.adsetId,
+    );
+    existing.campaignId = sameParent ? existing.campaignId : null;
+    existing.adsetId = sameParent ? existing.adsetId : null;
     existing.adId = coalesceText(existing.adId, row.adId);
     existing.creativeName = coalesceText(existing.creativeName, row.creativeName);
     existing.headline = coalesceText(existing.headline, row.headline);
@@ -10623,26 +10831,73 @@ function mergeMetaCreativeDailyRowsForUpsert(rows: MetaCreativeDailyRow[]) {
     existing.creativePrimaryType = coalesceText(existing.creativePrimaryType, row.creativePrimaryType);
     existing.creativeSecondaryType = coalesceText(existing.creativeSecondaryType, row.creativeSecondaryType);
     existing.imageHash = coalesceText(existing.imageHash, row.imageHash);
+    if (!sameParent) {
+      existing.effectiveStatus = null;
+      existing.objective = null;
+      existing.attributionSetting = null;
+      existing.qualityRanking = null;
+      existing.engagementRateRanking = null;
+      existing.conversionRateRanking = null;
+      existing.bidStrategy = null;
+      existing.optimizationGoal = null;
+      existing.campaignDailyBudget = null;
+      existing.adsetDailyBudget = null;
+      existing.campaignLifetimeBudget = null;
+      existing.adsetLifetimeBudget = null;
+    }
     // First payload wins for every display key, as before. The per-stage
     // measurement stamp is the exception: keeping only the first row's stamp
     // beside columns that SUM both rows would describe half of the creative-day
     // as all of it. It is merged strictly — a stage stays measured only when
     // both rows measured it (lib/meta/creative-day-metric-evidence.ts).
-    existing.payloadJson = mergeMetaCreativeDayPayloadMetricEvidence({
+    const payloadWithMetricEvidence = mergeMetaCreativeDayPayloadMetricEvidence({
       basePayload: existing.payloadJson ?? row.payloadJson,
       left: existing.payloadJson,
       right: row.payloadJson,
     });
+    existing.payloadJson = mergeCreativeDaySourceIdentityPayload(
+      payloadWithMetricEvidence,
+      existing.payloadJson,
+      row.payloadJson,
+      row.creativeId,
+    );
     recomputeCreativeDailyDerivedMetrics(existing);
   }
-  return [...mergedRows.values()];
+  return [...mergedRows.values()].map(stampCreativeDaySourceIdentity);
 }
 
 export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) {
-  if (rows.length === 0) return;
+  // An absent provider creative ID has a stable display handle, but cannot
+  // create a creative fact or dimension. The authoritative Ad-day remains in
+  // its separately owned insights lane.
+  const providerRows = rows.filter((row) =>
+    typeof row.creativeId === "string" &&
+    row.creativeId.trim().length > 0 &&
+    !isMetaUnresolvedCreativeId(row.creativeId),
+  );
+  if (providerRows.length === 0) return;
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
-  const rowsForUpsert = mergeMetaCreativeDailyRowsForUpsert(rows);
+  const rowsForUpsert = mergeMetaCreativeDailyRowsForUpsert(providerRows);
+  // A current Ad-detail GET is not an observation of historical campaign
+  // configuration. A receipt-certified value survives a fresh metric sync only
+  // while its exact provider-day parent and v2 membership contract still hold.
+  // Otherwise the incoming unverified/null config replaces it, and the
+  // independent receipt certifier may prove the new parent afterward.
+  const preserveCertifiedConfig = `(
+    meta_creative_daily.payload_json->>'historical_config_provenance' IN
+      ('provider_receipt_day_bracketed', 'provider_receipt_legacy_bracketed')
+    AND jsonb_typeof(meta_creative_daily.payload_json->'historical_config_proof') = 'object'
+    AND meta_creative_daily.payload_json->>'source_identity_version' =
+      '${META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION}'
+    AND meta_creative_daily.payload_json->>'source_parent_grain_complete' = 'true'
+    AND EXCLUDED.payload_json->>'source_identity_version' =
+      '${META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION}'
+    AND EXCLUDED.payload_json->>'source_parent_grain_complete' = 'true'
+    AND EXCLUDED.campaign_id IS NOT NULL AND EXCLUDED.adset_id IS NOT NULL
+    AND meta_creative_daily.campaign_id = EXCLUDED.campaign_id
+    AND meta_creative_daily.adset_id = EXCLUDED.adset_id
+  )`;
   for (const chunk of chunkRows(rowsForUpsert, 150)) {
     const referenceContext = await resolveMetaChunkReferenceContext(
       chunk.map((row) => ({
@@ -10848,25 +11103,62 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           WHEN EXCLUDED.first_spend_at IS NULL THEN meta_creative_daily.first_spend_at
           ELSE LEAST(COALESCE(meta_creative_daily.first_spend_at, EXCLUDED.first_spend_at), EXCLUDED.first_spend_at)
         END,
-        effective_status = COALESCE(EXCLUDED.effective_status, meta_creative_daily.effective_status),
-        objective = COALESCE(EXCLUDED.objective, meta_creative_daily.objective),
-        attribution_setting = COALESCE(EXCLUDED.attribution_setting, meta_creative_daily.attribution_setting),
+        effective_status = CASE
+          WHEN EXCLUDED.payload_json->>'source_identity_version' =
+            '${META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION}'
+          THEN EXCLUDED.effective_status
+          ELSE COALESCE(EXCLUDED.effective_status, meta_creative_daily.effective_status)
+        END,
+        objective = CASE WHEN ${preserveCertifiedConfig}
+          THEN meta_creative_daily.objective ELSE EXCLUDED.objective END,
+        attribution_setting = EXCLUDED.attribution_setting,
         quality_ranking = COALESCE(EXCLUDED.quality_ranking, meta_creative_daily.quality_ranking),
         engagement_rate_ranking = COALESCE(EXCLUDED.engagement_rate_ranking, meta_creative_daily.engagement_rate_ranking),
         conversion_rate_ranking = COALESCE(EXCLUDED.conversion_rate_ranking, meta_creative_daily.conversion_rate_ranking),
-        bid_strategy = COALESCE(EXCLUDED.bid_strategy, meta_creative_daily.bid_strategy),
-        optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_creative_daily.optimization_goal),
-        campaign_daily_budget = COALESCE(EXCLUDED.campaign_daily_budget, meta_creative_daily.campaign_daily_budget),
-        adset_daily_budget = COALESCE(EXCLUDED.adset_daily_budget, meta_creative_daily.adset_daily_budget),
-        campaign_lifetime_budget = COALESCE(EXCLUDED.campaign_lifetime_budget, meta_creative_daily.campaign_lifetime_budget),
-        adset_lifetime_budget = COALESCE(EXCLUDED.adset_lifetime_budget, meta_creative_daily.adset_lifetime_budget),
+        bid_strategy = EXCLUDED.bid_strategy,
+        optimization_goal = CASE WHEN ${preserveCertifiedConfig}
+          THEN meta_creative_daily.optimization_goal ELSE EXCLUDED.optimization_goal END,
+        campaign_daily_budget = EXCLUDED.campaign_daily_budget,
+        adset_daily_budget = EXCLUDED.adset_daily_budget,
+        campaign_lifetime_budget = EXCLUDED.campaign_lifetime_budget,
+        adset_lifetime_budget = EXCLUDED.adset_lifetime_budget,
         creative_delivery_type = COALESCE(EXCLUDED.creative_delivery_type, meta_creative_daily.creative_delivery_type),
         creative_visual_format = COALESCE(EXCLUDED.creative_visual_format, meta_creative_daily.creative_visual_format),
         creative_primary_type = COALESCE(EXCLUDED.creative_primary_type, meta_creative_daily.creative_primary_type),
         creative_secondary_type = COALESCE(EXCLUDED.creative_secondary_type, meta_creative_daily.creative_secondary_type),
         image_hash = COALESCE(EXCLUDED.image_hash, meta_creative_daily.image_hash),
-        payload_json = EXCLUDED.payload_json,
+        payload_json = (CASE WHEN ${preserveCertifiedConfig}
+          THEN EXCLUDED.payload_json || jsonb_build_object(
+            'historical_config_provenance',
+              meta_creative_daily.payload_json->>'historical_config_provenance',
+            'historical_config_proof',
+              meta_creative_daily.payload_json->'historical_config_proof',
+            'objective', meta_creative_daily.objective,
+            'optimization_goal', meta_creative_daily.optimization_goal,
+            'custom_event_type', meta_creative_daily.payload_json->'custom_event_type',
+            'custom_conversion_id', meta_creative_daily.payload_json->'custom_conversion_id',
+            'customEventType', meta_creative_daily.payload_json->'customEventType',
+            'customConversionId', meta_creative_daily.payload_json->'customConversionId'
+          )
+          ELSE EXCLUDED.payload_json END) ||
+          CASE
+            WHEN meta_creative_daily.payload_json->>'historical_config_provenance' IN
+              ('provider_receipt_day_bracketed', 'provider_receipt_legacy_bracketed')
+              AND (${preserveCertifiedConfig}) IS NOT TRUE
+            THEN jsonb_build_object('historical_config_authority_changed_at',
+              to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+            WHEN meta_creative_daily.payload_json ? 'historical_config_authority_changed_at'
+            THEN jsonb_build_object('historical_config_authority_changed_at',
+              meta_creative_daily.payload_json->'historical_config_authority_changed_at')
+            ELSE '{}'::jsonb
+          END,
         updated_at = now()
+      WHERE NOT (
+        COALESCE(EXCLUDED.payload_json->>'source_economics_provenance' =
+          'provisional_meta_ad_daily', false)
+        AND COALESCE(meta_creative_daily.payload_json->>'source_identity_version' =
+          '${META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION}', false)
+      )
     `,
       values
     );
@@ -12749,7 +13041,9 @@ export async function getMetaCreativeDailyRange(input: {
   const rows = await sql`
     SELECT
       business_id,
+      business_ref_id::text AS business_ref_id,
       provider_account_id,
+      provider_account_ref_id::text AS provider_account_ref_id,
       date,
       campaign_id,
       adset_id,
@@ -12820,7 +13114,9 @@ export async function getMetaCreativeDailyRange(input: {
     ORDER BY date ASC, provider_account_id ASC, creative_id ASC
   ` as Array<{
     business_id: string;
+    business_ref_id: string | null;
     provider_account_id: string;
+    provider_account_ref_id: string | null;
     date: string;
     campaign_id: string | null;
     adset_id: string | null;
@@ -12884,7 +13180,9 @@ export async function getMetaCreativeDailyRange(input: {
 
   return rows.map((row) => ({
     businessId: row.business_id,
+    businessRefId: row.business_ref_id,
     providerAccountId: row.provider_account_id,
+    providerAccountRefId: row.provider_account_ref_id,
     date: normalizeDate(row.date),
     campaignId: row.campaign_id,
     adsetId: row.adset_id,

@@ -31,6 +31,49 @@ function decision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
 }
 
 describe("card serialization", () => {
+  it.each([
+    {
+      name: "both ROAS windows missing",
+      roas: null,
+      recent7dRoas: null,
+      expected: [null, null],
+    },
+    {
+      name: "recent ROAS missing",
+      roas: 1.25,
+      recent7dRoas: null,
+      expected: [null, 1.25],
+    },
+    {
+      name: "total ROAS missing",
+      roas: null,
+      recent7dRoas: 0,
+      expected: [0, null],
+    },
+    {
+      name: "measured zero in both windows",
+      roas: 0,
+      recent7dRoas: 0,
+      expected: [0, 0],
+    },
+    {
+      name: "non-finite ROAS values",
+      roas: Number.NaN,
+      recent7dRoas: Number.POSITIVE_INFINITY,
+      expected: [null, null],
+    },
+  ])("keeps $name distinct from measured zero", ({ roas, recent7dRoas, expected }) => {
+    const card = cardForDecision({
+      decision: decision({
+        metrics: { spend: 100, purchases: 0, roas, recent7dRoas },
+      }),
+    });
+
+    expect(card.roas).toBe(expected[1]);
+    expect(card.sparkline).toEqual(expected);
+    expect(card.primary).toEqual({ kind: "review", label: "Review" });
+  });
+
   it("serializes authority provenance and never turns a blocked hard verdict into a hard CTA", () => {
     const card = cardForDecision({
       decision: decision({
@@ -607,7 +650,7 @@ describe("card serialization", () => {
       label: "Proven winner",
       tone: "pos",
       blockerCode: null,
-      vocabularyVersion: "meta-decisions-classification-overlay.v5",
+      vocabularyVersion: "meta-decisions-classification-overlay.v6",
     });
   });
 });

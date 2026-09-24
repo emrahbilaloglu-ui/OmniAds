@@ -911,6 +911,12 @@ export async function GET(request: NextRequest) {
         statusFilter,
       );
     });
+  const pendingDecisionInputCount = scopedProjectedInventory.filter(
+    ({ projection }) =>
+      projection.card.targetRoas === null ||
+      projection.card.spend === null ||
+      projection.card.purchases === null,
+  ).length;
   for (const { projection } of scopedProjectedInventory) {
     const card = includeDecisionCenter
       ? projection.card
@@ -1008,6 +1014,9 @@ export async function GET(request: NextRequest) {
             ? [sourceDegradation.reason, RETAINED_GENERATION_LATEST_FAULT]
             : ["native_ad_generation_authority"]),
         "request_time_profile_and_data_health_not_serving_authority",
+        ...(pendingDecisionInputCount > 0
+          ? [`native_ad_decision_inputs_pending:${pendingDecisionInputCount}`]
+          : []),
       ],
     };
   let decisionCenterSnapshot: DecisionCenterSnapshot | null | undefined;

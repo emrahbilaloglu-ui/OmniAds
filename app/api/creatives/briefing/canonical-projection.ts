@@ -26,9 +26,23 @@ export type CanonicalBriefingLane = "action" | "watching" | "healthy";
 export interface CanonicalBriefingProjection {
   card: BriefingCreativeCard;
   decisionCenterRow: CreativeDecisionCenterRowDecision | null;
-  presentationDecision: DecisionOutput;
+  presentationDecision: CanonicalBriefingPresentationDecision;
   lane: CanonicalBriefingLane;
 }
+
+// A native decision can exist before its source metrics are measured. The
+// legacy DecisionOutput requires numeric values, so it cannot type this
+// read-only presentation without silently turning missing values into zero.
+type CanonicalBriefingPresentationDecision = Omit<
+  DecisionOutput,
+  "effectiveTargetRoas" | "metrics"
+> & {
+  effectiveTargetRoas: number | null;
+  metrics: Omit<DecisionOutput["metrics"], "spend" | "purchases"> & {
+    spend: number | null;
+    purchases: number | null;
+  };
+};
 
 type CreativeDecisionCenterBuyerAction =
   CreativeDecisionCenterRowDecision["buyerAction"];
@@ -63,6 +77,10 @@ function sha256(value: string | null | undefined) {
 
 function finite(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function nullableFinite(value: number | null): boolean {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
 }
 
 function sourceBadge(code: string): DecisionBadge | null {
@@ -203,6 +221,13 @@ function canonicalLane(
   deferred: boolean,
 ): CanonicalBriefingLane {
   if (deferred) return "watching";
+  if (
+    decision.metrics.effectiveTargetRoas === null ||
+    decision.metrics.spend === null ||
+    decision.metrics.purchases === null
+  ) {
+    return "watching";
+  }
   // The exact-Ad Cut route is currently the only canonical briefing action
   // with a provider-validated execution handoff. Scale/Refresh remain exact
   // persisted decisions, but presenting them as Action Now would overstate
@@ -317,18 +342,16 @@ function legacyDecisionCenterRow(
 
 function presentationDecision(
   decision: MetaCanonicalDecision,
-): DecisionOutput | null {
+): CanonicalBriefingPresentationDecision | null {
   const label = decisionLabel(decision.sourceDecision.label);
   const sourceTruth = truthSource(decision.sourceDecision.truthSource);
-  const effectiveTargetRoas = finite(decision.metrics.effectiveTargetRoas);
-  const spend = finite(decision.metrics.spend);
-  const purchases = finite(decision.metrics.purchases);
+  const { effectiveTargetRoas, spend, purchases } = decision.metrics;
   if (
     !label ||
     !sourceTruth ||
-    effectiveTargetRoas === null ||
-    spend === null ||
-    purchases === null
+    !nullableFinite(effectiveTargetRoas) ||
+    !nullableFinite(spend) ||
+    !nullableFinite(purchases)
   ) {
     return null;
   }
@@ -428,6 +451,16 @@ export function projectCanonicalNativeAdDecisionToBriefing(input: {
   ) {
     return null;
   }
+  // A persisted action claim without its decision inputs is inconsistent.
+  // Missing metrics are renderable only as the source's review-only verdict.
+  if (
+    authority.actionEligible &&
+    (decision.metrics.effectiveTargetRoas === null ||
+      decision.metrics.spend === null ||
+      decision.metrics.purchases === null)
+  ) {
+    return null;
+  }
   const present = presentationDecision(decision);
   if (!present) return null;
   const authorityStatus = nativeAuthority
@@ -488,7 +521,16 @@ export function projectCanonicalNativeAdDecisionToBriefing(input: {
     },
     sourceAuthority,
   };
-  const primary = canonicalPrimaryAction(decision);
+  const missingMeasurement =
+    present.metrics.spend === null || present.metrics.purchases === null;
+  const missingTarget = present.effectiveTargetRoas === null;
+  const primary: BriefingPrimaryAction = missingMeasurement
+    ? { kind: "review", label: "Await source measurement" }
+    : missingTarget
+      ? { kind: "review", label: "Review missing target" }
+      : canonicalPrimaryAction(decision);
+  const recent7dRoas = finite(decision.metrics.recent7dRoas);
+  const roas = finite(decision.metrics.roas);
   const card: BriefingCreativeCard = {
     id: adId,
     adId,
@@ -533,10 +575,10 @@ export function projectCanonicalNativeAdDecisionToBriefing(input: {
     ctr: finite(row?.ctr_all),
     cpa: finite(row?.cpa),
     frequency: finite(row?.frequency),
-    sparkline: [
-      finite(decision.metrics.recent7dRoas) ?? 0,
-      finite(decision.metrics.roas) ?? 0,
-    ],
+    sparkline:
+      recent7dRoas !== null && roas !== null
+        ? [recent7dRoas, roas]
+        : null,
     primary,
     ...(decisionCenterRow ? { decisionCenterRow } : {}),
     status:

@@ -134,6 +134,42 @@ describe.skipIf(!SEAM)("strict Meta AOV currency binding", () => {
     }
   });
 
+  it("admits a western local-day finalization after UTC midnight only when known", async () => {
+    const sql = getDb();
+    await sql.query(`UPDATE provider_accounts SET currency = 'USD', timezone = 'America/Anchorage' WHERE id = $1::uuid`, [providerAccountRefId]);
+    await sql.query(
+      `UPDATE meta_ad_daily
+       SET account_timezone = 'America/Anchorage',
+           created_at = '2026-09-06T08:04:00Z',
+           updated_at = '2026-09-06T08:04:00Z',
+           finalized_at = '2026-09-06T08:04:00Z'
+       WHERE business_id = $1::text AND ad_id = 'ad-aov-0'`,
+      [BUSINESS_ID],
+    );
+    try {
+      await expect(computeMetaAttributedAov({
+        businessId: BUSINESS_ID, providerAccountId: ACCOUNT_ID,
+        asOf: AS_OF, evaluationCutoffAt: "2026-09-06T08:03:59.999Z", db: sql,
+      })).resolves.toMatchObject({ purchaseCount: 19, totalRevenue: 950 });
+      await expect(computeMetaAttributedAov({
+        businessId: BUSINESS_ID, providerAccountId: ACCOUNT_ID,
+        asOf: AS_OF, evaluationCutoffAt: "2026-09-06T08:04:00.000Z", db: sql,
+      })).resolves.toMatchObject({ purchaseCount: 20, totalRevenue: 1000 });
+      await expect(read()).resolves.toMatchObject({ purchaseCount: 19, totalRevenue: 950 });
+    } finally {
+      await sql.query(
+        `UPDATE meta_ad_daily
+         SET account_timezone = 'UTC',
+             created_at = '2026-09-05T02:00:00Z',
+             updated_at = '2026-09-05T02:00:00Z',
+             finalized_at = '2026-09-05T02:00:00Z'
+         WHERE business_id = $1::text AND ad_id = 'ad-aov-0'`,
+        [BUSINESS_ID],
+      );
+      await sql.query(`UPDATE provider_accounts SET timezone = 'UTC' WHERE id = $1::uuid`, [providerAccountRefId]);
+    }
+  });
+
   it.each([
     ["missing", null],
     ["mismatch", "EUR"],

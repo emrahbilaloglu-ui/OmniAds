@@ -1679,7 +1679,7 @@ export async function GET(request: NextRequest) {
         business-wide reading it has always had, now labelled `business_pooled`
         so the reader can see that it is one.
       */
-      const warehouse = new WarehouseDataSource();
+      const warehouse = new WarehouseDataSource(requestGeneratedAt);
       if (providerAccountId) {
         // A source that does not model the precomputed calibration table
         // has no answer to give, which is what `unprobed` means and what

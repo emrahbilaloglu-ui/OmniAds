@@ -48,6 +48,7 @@ import type {
 } from "@/lib/meta/decisions-os-contract";
 import { canCreateBrief } from "@/lib/zero-base/creative/studio-adapters";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
+import { adPerformanceAvailability } from "@/lib/meta/ad-performance-availability";
 
 const EM_DASH = "—";
 
@@ -2015,8 +2016,11 @@ function creativeKindShort(format: string | null | undefined): string {
   }
 }
 
-function creativeChips(decision: MetaOsAdDecision): string[] {
-  const roas = finite(decision.metrics.roas);
+function creativeChips(
+  decision: MetaOsAdDecision,
+  performanceMissing: boolean,
+): string[] {
+  const roas = performanceMissing ? null : finite(decision.metrics.roas);
   const chips = [
     titleToken(decision.lifecycleRole),
     roas === null ? null : `ROAS ${roas.toFixed(2)}`,
@@ -2024,11 +2028,14 @@ function creativeChips(decision: MetaOsAdDecision): string[] {
   return chips.filter((value): value is string => Boolean(value));
 }
 
-function creativeMoneySub(decision: MetaOsAdDecision): string {
+function creativeMoneySub(
+  decision: MetaOsAdDecision,
+  canonical: MetaCanonicalDecision | null,
+): string {
   const target = printableTargetRoas(decision.metrics.effectiveTargetRoas);
   const parts = [
     target === null ? null : `vs ${target.toFixed(2)} target`,
-    buyerFacingCreativeScope(decision),
+    buyerFacingCreativeScope(decision, canonical),
   ].filter((value): value is string => Boolean(value));
   return parts.length > 0 ? parts.join(" · ") : EM_DASH;
 }
@@ -2149,6 +2156,10 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
   await_recent_evidence: "Wait for more recent performance evidence.",
   complete_hard_action_evidence:
     "Complete the missing evidence before applying this change.",
+  await_scale_calibration_sample:
+    "Wait for enough mature creatives to complete the Scale calibration sample.",
+  await_scale_winner_benchmark:
+    "Wait for the account winner purchase benchmark before scaling.",
   restore_native_profile:
     "Restore the ad-level decision profile before acting.",
   resolve_evidence_gap: "Complete the missing evidence before acting.",
@@ -2249,22 +2260,32 @@ export function buyerFacingCreativeResolution(
 ): string | null {
   const resolution = decision.resolution;
   if (!resolution) return null;
+  if (
+    resolution.code === "apply_cut_manually" &&
+    canonical?.configEvidence?.verified !== true
+  ) {
+    return "The reduction recommendation has economic evidence, but campaign configuration receipts are not fully verified. Check them before deciding on a manual pause; no automated Meta action is authorized.";
+  }
   const mapped = knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
-  // The badge is only supplementary evidence for an already blocked row with
-  // a server-produced resolution. It never creates a blocked resolution.
+  // Metric availability is supplementary evidence for an already blocked row
+  // with a server-produced resolution. It never creates a blocked resolution.
   // `native_metrics_unavailable` also represents a missing account winner
   // benchmark or fatigue verdict on an otherwise fully measured ad. Only the
-  // producer's explicit ad-metrics badge proves that the performance day is
-  // absent; the broad blocker alone cannot support that sentence.
+  // producer's explicit Ad-performance state proves that the performance day
+  // is absent; the broad blocker alone cannot support that sentence.
+  const metricAvailability = adPerformanceAvailability(decision, canonical);
   const missingMetrics =
-    decision.lane === "blocked" &&
-    canonical?.sourceDecision?.badges?.includes("ad_metrics_unavailable") === true;
+    decision.lane === "blocked" && metricAvailability === "unavailable";
+  const unverifiedMetrics =
+    decision.lane === "blocked" && metricAvailability === "unknown";
   const noRecentDelivery = (decision.blockers ?? []).some(
     (blocker) => blocker.code === "delivery_no_spend_24h",
   );
-  if (decision.lane === "blocked" && (missingMetrics || noRecentDelivery)) {
+  if (decision.lane === "blocked" && (missingMetrics || unverifiedMetrics || noRecentDelivery)) {
     const prerequisite = missingMetrics
       ? "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance."
+      : unverifiedMetrics
+        ? "Ad performance observation status was not served for this row. Verify the source before judging performance."
       : "No spend was measured in the last 24 hours. Check delivery before judging performance.";
     return mapped ? `${prerequisite} ${mapped}` : prerequisite;
   }
@@ -2297,12 +2318,13 @@ export function buyerFacingCreativeReason(decision: MetaOsAdDecision): string {
 
 export function buyerFacingCreativeScope(
   decision: MetaOsAdDecision,
+  canonical: MetaCanonicalDecision | null = null,
 ): string | null {
   if (decision.action.code === "apply_cut_manually") {
-    // In the action lane, but deliberately without a Meta write: the cut
-    // evidence is complete; the automated stop is not authorized until the
-    // role resolves.
-    return "Review only. Pause this ad in Meta yourself; automated stop is held for campaign role.";
+    if (canonical?.configEvidence?.verified !== true) {
+      return "Review-only reduction recommendation. Verify campaign configuration before a manual pause; automated stop is held.";
+    }
+    return "Review only. If you agree, pause this ad in Meta yourself; automated stop is held for campaign role.";
   }
   if (decision.action.code === "cut") {
     return decision.action.intent === "execute" &&
@@ -2424,6 +2446,44 @@ export interface CreativeHeldVerdict {
 }
 
 /**
+ * A resolution code can cover several independent holds. Name the persisted
+ * first blocker before appending secondary prerequisites, using only exact
+ * server-owned codes. Never interpret producer prose or display labels as a
+ * new decision.
+ */
+function heldPrimaryStep(
+  decision: MetaOsAdDecision,
+  firstBlocker: string | null,
+): string | null {
+  const resolution = decision.heldResolution;
+  if (!resolution) return null;
+  if (
+    firstBlocker === "native_metrics_unavailable" &&
+    resolution.code === "await_scale_winner_benchmark" &&
+    decision.heldAction === "scale"
+  ) {
+    return "The account winner purchase benchmark is missing. Wait for enough winning ads before scaling.";
+  }
+  if (
+    firstBlocker === "profile_hard_action_ineligible" &&
+    (resolution.code === "complete_hard_action_evidence" ||
+      resolution.code === "await_scale_calibration_sample")
+  ) {
+    if (decision.heldAction === "scale" && resolution.code === "await_scale_calibration_sample") {
+      return "The account has too few mature creatives for the Scale calibration floor. Wait for more mature creatives before scaling.";
+    }
+    return "The decision profile does not yet authorize this change. Review its action-specific evidence and missing requirement before applying it.";
+  }
+  if (
+    firstBlocker === "campaign_context" &&
+    resolution.code === "complete_hard_action_evidence"
+  ) {
+    return "The campaign role is still unresolved. Verify its context before deciding how to apply this change.";
+  }
+  return null;
+}
+
+/**
  * The held verdict this row reached, or null when none was served.
  *
  * WHY THIS EXISTS. A held Refresh publishes `keep`, so
@@ -2437,13 +2497,9 @@ export interface CreativeHeldVerdict {
  * always accompanies an unauthorized published label, so re-deriving that from
  * the lane here would add a second opinion about a fact already served.
  *
- * THE NEXT STEP IS THE HELD RESOLUTION'S, and the reason code itself is never
- * printed: `heldResolution.code` selects a sentence from this surface's own
- * buyer catalog, exactly as the served resolution's code does. When the code
- * is one this surface has no sentence for, the fallback still names the held
- * verdict rather than falling through to "Review the missing evidence before
- * taking action.", which is the generic sentence this whole reader exists to
- * replace.
+ * THE NEXT STEP follows the held resolution's typed code and persisted first
+ * blocker. Producer labels and prose cannot refine the buyer copy. When no safe mapping exists,
+ * the fallback still names the held verdict.
  */
 export function heldCreativeVerdict(
   decision: MetaOsAdDecision,
@@ -2454,17 +2510,19 @@ export function heldCreativeVerdict(
     return null;
   }
   const verdict = BUYER_HELD_VERDICT_COPY[action];
-  const genericStep = knownBuyerCopy(
-    BUYER_CREATIVE_RESOLUTION_COPY,
-    decision.heldResolution?.code,
-  );
   const blockerCodes = new Set((decision.blockers ?? []).map((blocker) => blocker.code));
   const authorityBlocker =
     decision.authorityProvenance?.firstBlocker?.code ??
     canonical?.sourceDecision?.authorityBlocker ??
     null;
+  const primaryStep = heldPrimaryStep(decision, authorityBlocker);
+  const genericStep =
+    primaryStep ??
+    knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, decision.heldResolution?.code);
   const needsConfig =
     canonical?.configEvidence?.verified === false ||
+    (decision.heldResolution?.code === "apply_cut_manually" &&
+      canonical?.configEvidence?.verified !== true) ||
     authorityBlocker === "config_source_authority" ||
     blockerCodes.has("config_source_authority");
   const needsFreshSource =
@@ -2489,11 +2547,28 @@ export function heldCreativeVerdict(
     needsConfirmation
       ? "Wait for the required consecutive decision confirmation."
       : null,
-    needsCampaignContext && (needsConfig || needsFreshSource || needsConfirmation)
+    needsCampaignContext && primaryStep === null && (needsConfig || needsFreshSource || needsConfirmation)
       ? "Campaign context must also be verified before the change can be applied."
       : null,
   ].filter((part): part is string => Boolean(part));
   const resolutionCode = decision.heldResolution?.code;
+  // D097's action-lane Cut is a completed reduction finding whose campaign
+  // role only withholds automated execution. Its compatibility raw label may
+  // still be test_more, so that label cannot turn it into an unverified signal
+  // or tell the buyer to wait and review the same recommendation again.
+  const manualCutCandidate =
+    action === "cut" &&
+    decision.lane === "act" &&
+    decision.action.code === "apply_cut_manually" &&
+    resolutionCode === "apply_cut_manually";
+  const manualCutReady =
+    manualCutCandidate &&
+    canonical?.configEvidence?.verified === true &&
+    !needsConfig &&
+    !needsFreshSource &&
+    !needsConfirmation;
+  const manualCutConfigGap =
+    manualCutCandidate && needsConfig && !needsFreshSource && !needsConfirmation;
   const specificStep =
     resolutionCode === "apply_cut_manually" && prerequisites.length > 0
       ? "Review the campaign role and these checks before considering a manual pause."
@@ -2516,7 +2591,7 @@ export function heldCreativeVerdict(
   // not the same served verdict as a raw Cut. This changes buyer copy only;
   // the server's blocked state, action and write authority remain untouched.
   const cutSignalAwaitingEvidence =
-    action === "cut" && decision.rawLabel === "test_more";
+    !manualCutReady && action === "cut" && decision.rawLabel === "test_more";
   /*
     ── ROUND 9 ITEM 7: PLAIN ACTION LANGUAGE, NOT THE ENGINE'S ───────────────
 
@@ -2537,10 +2612,19 @@ export function heldCreativeVerdict(
   */
   return {
     action,
-    label: cutSignalAwaitingEvidence
+    label: manualCutReady
+      ? "Reduce spend — review manual pause"
+      : manualCutConfigGap
+        ? "Reduce spend recommendation — verify configuration"
+      : cutSignalAwaitingEvidence
       ? "Spend reduction signal awaiting verification"
       : `Recommendation awaiting review: ${verdict}`,
-    nextStep: cutSignalAwaitingEvidence
+    nextStep: manualCutReady
+      ? (knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, "apply_cut_manually") ??
+        "Review this ad and pause it yourself in Meta if you agree; automated execution is held.")
+      : manualCutConfigGap
+        ? "The economic reduction recommendation is visible, but campaign configuration receipts are incomplete. Verify them before deciding on a manual pause; automated execution remains held."
+      : cutSignalAwaitingEvidence
       ? step
         ? `${step} Then reassess whether to reduce spend.`
         : "Confirm the missing information, then reassess whether to reduce spend."
@@ -2671,6 +2755,11 @@ function creativeRows(input: {
     const review = input.callbacks.onCreativeReview
       ? () => input.callbacks.onCreativeReview?.(decision, canonicalDecision)
       : null;
+    // Older native snapshots stored the resolver's fail-closed zero even when
+    // no Ad performance row was observed. The served observation state (or
+    // canonical evidence), never the numeric sentinel, controls presence.
+    const adPerformanceMissing =
+      adPerformanceAvailability(decision, canonicalDecision) !== "observed";
     const held = heldCreativeVerdict(decision, canonicalDecision);
     /*
      * THE PUBLISHED LABEL KEEPS ITS WORDS AND LOSES ITS APPROVAL COLOUR.
@@ -2742,7 +2831,7 @@ function creativeRows(input: {
           }
         : {}),
       ...(state ? { stateLabel: state.label, stateTone: state.tone } : {}),
-      chips: creativeChips(decision),
+      chips: creativeChips(decision, adPerformanceMissing),
       /*
        * The HELD verdict's own next step outranks the published row's.
        *
@@ -2765,17 +2854,19 @@ function creativeRows(input: {
         held?.nextStep ??
         blockedNextStep ??
         buyerFacingCreativeReason(decision),
-      sparkPath: sparkPath(input.ctrSeriesByAdId.get(decision.adId) ?? null),
+      sparkPath: adPerformanceMissing
+        ? null
+        : sparkPath(input.ctrSeriesByAdId.get(decision.adId) ?? null),
       ctrValue:
-        finite(decision.metrics.ctr) === null
+        adPerformanceMissing || finite(decision.metrics.ctr) === null
           ? null
           : formatPercent(decision.metrics.ctr),
       money: moneyAndRoas({
-        spend: decision.metrics.spend,
-        roas: decision.metrics.roas,
+        spend: adPerformanceMissing ? null : decision.metrics.spend,
+        roas: adPerformanceMissing ? null : decision.metrics.roas,
         currency: rowCurrency,
       }),
-      moneySub: creativeMoneySub(decision),
+      moneySub: creativeMoneySub(decision, canonicalDecision),
       actionLabel: buyerFacingCreativeActionLabel(decision),
       actionTone: actionTone(decision.action),
       ...(review ? { onPrimary: review, onOpen: review } : {}),
@@ -2791,10 +2882,12 @@ function creativeRows(input: {
  * moves no row between states and invents no state: a group only exists when
  * the server put rows in it.
  *
- * The header counts are two different facts kept apart. `shown` is what this
- * screen is rendering after the operator's search; `eligible pre-cap` is the
- * server's own population for that state before selection. Calling the second
- * number "served" was false: only the selected rows were actually served.
+   * The header counts are two different facts kept apart. `shown` is what this
+   * screen is rendering after the operator's search; the second count is the
+   * server's own decision population for that state before the list limit and
+   * filters. A bare "50 of 58 decisions" obscured why the scope tab showed 60
+   * served cards (50 blocked plus 10 monitoring): eight more blocked decisions
+   * existed before the response cap, not as hidden cards in this lane.
  *
  * A THIRD number rides the Blocked header and is kept apart from both: the
  * served held-verdict split. It is NOT a count of this group's rows — it is
@@ -2828,9 +2921,9 @@ function creativeGroups(input: {
         count:
           eligiblePreCap === null || eligiblePreCap === rows.length
             ? `${formatNumber(rows.length)} ${rows.length === 1 ? "decision" : "decisions"}`
-            : `${formatNumber(rows.length)} of ${formatNumber(
+            : `${formatNumber(rows.length)} shown · ${formatNumber(
                 eligiblePreCap,
-              )} decisions`,
+              )} decisions before filters and list limit`,
         note: slot.id === "blocked" ? input.heldNote : null,
         rows,
       },
@@ -3240,6 +3333,8 @@ function creativeInspector(input: {
    * is also about deleting duplicate mapping tables, not adding one.
    */
   const held = heldCreativeVerdict(decision, canonicalDecision);
+  const adPerformanceMissing =
+    adPerformanceAvailability(decision, canonicalDecision) !== "observed";
   return {
     entityName: nonBlank(decision.adName) ?? EM_DASH,
     entityMeta:
@@ -3275,12 +3370,12 @@ function creativeInspector(input: {
     contractDetail: input.sourceDegraded
       ? RETAINED_GENERATION_REVIEW_COPY
       : buyerFacingCreativeResolution(decision, canonicalDecision) ??
-        buyerFacingCreativeScope(decision) ??
+        buyerFacingCreativeScope(decision, canonicalDecision) ??
         EM_DASH,
     reasons: [buyerFacingCreativeReason(decision)],
     moneyValue: moneyAndRoas({
-      spend: decision.metrics.spend,
-      roas: decision.metrics.roas,
+      spend: adPerformanceMissing ? null : decision.metrics.spend,
+      roas: adPerformanceMissing ? null : decision.metrics.roas,
       currency: rowCurrency,
     }),
     targetComparison:
@@ -3288,15 +3383,15 @@ function creativeInspector(input: {
     moneySparkPath: null,
     moneyDetail: input.sourceDegraded
       ? "Review only. No Meta change can be applied here yet."
-      : buyerFacingCreativeScope(decision) ?? EM_DASH,
+      : buyerFacingCreativeScope(decision, canonicalDecision) ?? EM_DASH,
     confidence: titleToken(decision.confidence),
     readiness: titleToken(decision.confirmationCeremony),
     blockers: blockers.length > 0 ? blockers.join(" · ") : EM_DASH,
     blockerTone: blockers.length > 0 ? "warning" : "neutral",
     advisories: EM_DASH,
     evidence: metricEvidence({
-      spend: decision.metrics.spend,
-      purchases: decision.metrics.purchases,
+      spend: adPerformanceMissing ? null : decision.metrics.spend,
+      purchases: adPerformanceMissing ? null : decision.metrics.purchases,
       snapshot: decision.snapshotAsOf,
       lifecycle: decision.lifecycleRole,
       currency: rowCurrency,

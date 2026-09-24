@@ -344,7 +344,12 @@ vi.mock("@tanstack/react-query", () => ({
       isFetching: false,
     });
     if (key === "meta-decisions-workspace") {
-      const pulse = metaPulse();
+      // The workspace response belongs to the same business as its canonical
+      // read model and mounted route; an old cross-business fixture must not
+      // bypass the account-scope gate before these ceremony checks run.
+      const pulse = metaPulse({
+        businessId: "b0000000-0000-4000-8000-0000000009a1",
+      });
       const decision = state.decisionRec ?? bidRec();
       const lanes = metaLanePayload({
         actionNow: [decision],

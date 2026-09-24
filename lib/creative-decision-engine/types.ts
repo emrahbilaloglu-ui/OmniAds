@@ -67,10 +67,11 @@ import type {
   three payloads, so on the native Ad path it is the only key that ever labels a
   persisted row.
 */
-export const ENGINE_VERSION = "v3-2026-09-21-role-held-verdict-preservation";
+/** New creative-day membership semantics require fresh lifecycle rows. */
+export const ENGINE_VERSION = "v3-2026-09-24-creative-knowledge-bound";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-09-23-verified-coverage-freshness-shadow";
+  "v3-ad-2026-09-24-cut-recent-overlay-proof-shadow";
 
 /**
  * Whether a HELD hard verdict stands on its own economics, or whether it needs
@@ -374,6 +375,13 @@ export interface CreativeInput {
 
   // Scope
   objective: CampaignObjective | null;
+  /**
+   * Creative-day membership is distinct from day-bracketed configuration
+   * authority. Runtime diagnostic hydration sets this explicitly; a missing
+   * value is retained for older fixtures and snapshots only.
+   */
+  configProvenanceStatus?: "verified" | "unverified";
+  sourceCoverageStatus?: "verified" | "incomplete" | "after_cutoff";
   /**
    * Populated by production hydration paths. Optional only for legacy unit
    * fixtures and explicit callers that predate the grain contract.

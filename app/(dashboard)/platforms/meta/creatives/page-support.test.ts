@@ -239,6 +239,23 @@ function makeAccountProfile(): AccountDecisionProfile {
 }
 
 describe("mapApiRowToUiRow", () => {
+  it("withholds creative frequency in observed Studio metrics when provenance says it is unavailable", () => {
+    const unavailable = mapApiRowToUiRow(buildApiRow({
+      frequency: 2.4,
+      reach_aggregation: "sum_of_ad_reach_not_deduplicated",
+      metric_presence: { frequency: false },
+    }));
+    expect(unavailable.frequency).toBe(2.4); // Legacy field remains compatible.
+    expect(unavailable.observedMetrics?.frequency).toBeNull();
+
+    const observedZero = mapApiRowToUiRow(buildApiRow({
+      frequency: 0,
+      reach_aggregation: "sum_of_daily_single_ad_reach",
+      metric_presence: { frequency: true },
+    }));
+    expect(observedZero.observedMetrics?.frequency).toBe(0);
+  });
+
   it("maps new taxonomy labels to the UI row", () => {
     const row = mapApiRowToUiRow(buildApiRow());
 

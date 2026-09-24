@@ -1692,8 +1692,10 @@ async function verifyMetaAdDailyWriteOwnershipAuthority(
     adset_id: string | null;
     ad_status: string | null;
     creative_id: string | null;
+    last_seen_day: string | null;
   }>(
-    `SELECT ad_id, campaign_id, adset_id, ad_status, creative_id
+    `SELECT ad_id, campaign_id, adset_id, ad_status, creative_id,
+       last_seen_at::date::text AS last_seen_day
      FROM meta_ad_dimensions
      WHERE business_id = $1 AND provider_account_id = $2
        AND ad_id IN ($3, 'ad-authoritative-new')
@@ -1705,19 +1707,51 @@ async function verifyMetaAdDailyWriteOwnershipAuthority(
       dimensions.rows.some(
         (row) =>
           row.ad_id === adId &&
-          row.campaign_id === "campaign-authoritative" &&
-          row.adset_id === "adset-authoritative" &&
-          row.ad_status === "PAUSED" &&
-          row.creative_id === "creative-authoritative-a",
+          // The July 1 authoritative fact must not replace a dimension whose
+          // current projection was already observed on July 3.
+          row.campaign_id === "campaign-original" &&
+          row.adset_id === "adset-original" &&
+          row.ad_status === "ACTIVE" &&
+          row.creative_id === "creative-original" &&
+          row.last_seen_day === "2026-07-03",
       ) &&
       dimensions.rows.some(
         (row) =>
           row.ad_id === "ad-authoritative-new" &&
           row.campaign_id === "campaign-authoritative-new" &&
           row.ad_status === "ACTIVE" &&
-          row.creative_id === "creative-authoritative-e",
+          row.creative_id === "creative-authoritative-e" &&
+          row.last_seen_day === "2026-07-05",
       ),
-    "Default authoritative mode no longer owns Meta Ad dimensions.",
+    `Authoritative fact write regressed a newer Meta Ad dimension or failed to insert a new one: ${JSON.stringify(dimensions.rows)}`,
+  );
+
+  // Once the same Ad has a genuinely newer authoritative day, its dimension
+  // projection may advance. This guards both sides of the day-order contract.
+  await upsertMetaAdDailyRows(
+    [{ ...authoritativeA, date: "2026-07-04" }],
+    { writeMode: "authoritative_fact" },
+  );
+  const advancedDimension = await client.query<{
+    campaign_id: string | null;
+    adset_id: string | null;
+    ad_status: string | null;
+    creative_id: string | null;
+    last_seen_day: string | null;
+  }>(
+    `SELECT campaign_id, adset_id, ad_status, creative_id,
+       last_seen_at::date::text AS last_seen_day
+     FROM meta_ad_dimensions
+     WHERE business_id = $1 AND provider_account_id = $2 AND ad_id = $3`,
+    [businessId, providerAccountId, adId],
+  );
+  assert(
+    advancedDimension.rows[0]?.campaign_id === "campaign-authoritative" &&
+      advancedDimension.rows[0]?.adset_id === "adset-authoritative" &&
+      advancedDimension.rows[0]?.ad_status === "PAUSED" &&
+      advancedDimension.rows[0]?.creative_id === "creative-authoritative-a" &&
+      advancedDimension.rows[0]?.last_seen_day === "2026-07-04",
+    `Newer authoritative Ad day did not advance the Meta Ad dimension: ${JSON.stringify(advancedDimension.rows)}`,
   );
 }
 

@@ -19,6 +19,7 @@ import {
   type MetaCreativeDayMetricStage,
 } from "@/lib/meta/creative-day-metric-evidence";
 import { buildMetaCompleteWindowSql } from "@/lib/meta/funnel-stage-parse";
+import { creativeDayCompleteWindowSql, creativeDayConfigDecisionAdmissionSql, requireCreativeDayEvaluationCutoffAt } from "@/lib/meta/creative-day-decision-admission";
 import { hashAdvisoryLock } from "./advisory-lock";
 
 export { hashAdvisoryLock } from "./advisory-lock";
@@ -43,6 +44,7 @@ type CalibrationScopeType =
 export interface CalibrationJobInput {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   scopeType?: CalibrationScopeType;
   scopeId?: string;
 }
@@ -199,8 +201,8 @@ type CampaignScopeRow = Record<string, unknown> & {
   aggregates per day; the two are the same test (a window is incomplete iff one
   of its decision-bearing rows is missing).
 
-  ENGINE_VERSION keys the calibration rows and has never shipped, so it is
-  amended in place rather than bumped.
+  The creative membership repair has its own ENGINE_VERSION epoch. Unstamped
+  creative-day rows are excluded from that epoch until source-backed repair.
 */
 const CREATIVE_DAY_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql({
   payloadExpression: "d.payload_json",
@@ -240,6 +242,19 @@ WITH target_pack AS (
   ) target_history
   WHERE operation = 'upsert'
 ),
+config_verified_creative_days AS MATERIALIZED (
+  SELECT d.*
+  FROM meta_creative_daily d
+  WHERE d.business_ref_id = $2::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$1", "$9")}
+    AND ($8::text IS NULL OR d.provider_account_id = $8::text)
+    AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
+),
+admitted_creative_days AS MATERIALIZED (
+  SELECT d.*
+  FROM config_verified_creative_days d
+  WHERE ${creativeDayCompleteWindowSql("d", "$1", "$9", 90, "$8", "$2")}
+),
 per_creative_raw AS (
   SELECT
     d.creative_id,
@@ -278,7 +293,7 @@ per_creative_raw AS (
     SUM(d.clicks) FILTER (WHERE d.date >= ($1::date - INTERVAL '27 days')) AS cumulative_28d_clicks,
     SUM(d.spend) FILTER (WHERE d.date >= ($1::date - INTERVAL '6 days')) AS recent_7d_spend,
     SUM(d.revenue) FILTER (WHERE d.date >= ($1::date - INTERVAL '6 days')) AS recent_7d_revenue
-  FROM meta_creative_daily d
+  FROM admitted_creative_days d
   LEFT JOIN LATERAL (
     SELECT
       context.inferred_kind,
@@ -295,10 +310,7 @@ per_creative_raw AS (
     LIMIT 1
   ) campaign_context ON true
   ${CREATIVE_DAY_EVIDENCE.lateralSql}
-  WHERE d.business_ref_id = $2::uuid
-    AND ($8::text IS NULL OR d.provider_account_id = $8::text)
-    AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
-    AND d.objective = ANY($5::text[])
+  WHERE d.objective = ANY($5::text[])
     AND ($6::text IS NULL OR d.campaign_id = $6::text)
     AND (
       $7::text = 'all'
@@ -524,7 +536,7 @@ source_bounds AS (
     MIN(d.date) AS source_min_date,
     MAX(d.date) AS source_max_date,
     MAX(d.updated_at) AS source_max_updated_at
-  FROM meta_creative_daily d
+  FROM admitted_creative_days d
   LEFT JOIN LATERAL (
     SELECT
       context.inferred_kind,
@@ -540,10 +552,7 @@ source_bounds AS (
     ORDER BY context.as_of_date DESC, context.updated_at DESC, context.id DESC
     LIMIT 1
   ) campaign_context ON true
-  WHERE d.business_ref_id = $2::uuid
-    AND ($8::text IS NULL OR d.provider_account_id = $8::text)
-    AND d.date BETWEEN ($1::date - INTERVAL '89 days') AND $1::date
-    AND d.objective = ANY($5::text[])
+  WHERE d.objective = ANY($5::text[])
     AND ($6::text IS NULL OR d.campaign_id = $6::text)
     AND (
       $7::text = 'all'
@@ -660,6 +669,8 @@ WITH per_creative AS (
     SUM(revenue) AS total_revenue
   FROM meta_creative_daily
   WHERE business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql(undefined, "$2", "$5")}
+    AND ${creativeDayCompleteWindowSql(undefined, "$2", "$5", 90, undefined, "$1")}
     AND date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND objective = ANY($4::text[])
     AND campaign_id IS NOT NULL
@@ -789,6 +800,7 @@ DO UPDATE SET
 export async function runCalibrationJob(
   input: CalibrationJobInput,
 ): Promise<CalibrationJobResult> {
+  requireCreativeDayEvaluationCutoffAt(input.evaluationCutoffAt);
   const startedAt = Date.now();
   const businessGuardFailure = await getBusinessGuardFailure(input.businessId);
   if (businessGuardFailure?.reason === "invalid_business_id") {
@@ -858,6 +870,20 @@ export async function runCalibrationJob(
   return runDbTransaction(
     async () => {
       const db = getDb();
+      /*
+        No LLVM JIT inside this job. One run executes COMPUTE_CALIBRATION_QUERY
+        for every scope × format × kind (dozens of statements per business),
+        and each is a very large generated statement whose planner estimate
+        crosses jit_above_cost / jit_optimize_above_cost on real data while its
+        actual work is sub-second. On the Ubuntu PostgreSQL 16 build used by
+        production and CI, one execution measured 316 ms with jit=off against
+        7.3 s with jit=on (422 compiled functions, inlining + optimization) --
+        the compile time, repaid on every statement, pushed this job past its
+        transaction deadline and the DB seams past their test timeouts.
+        SET LOCAL scopes the setting to this transaction; the pooled
+        connection returns to the server default at COMMIT/ROLLBACK.
+      */
+      await db.query("SET LOCAL jit = off");
       const [lockRow] = await db.query<AdvisoryLockRow>(
         "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
         [lockKey.toString()],
@@ -896,6 +922,7 @@ export async function runCalibrationJob(
         const calibrations = await computeCalibrations({
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
           scopeType,
           scopeId,
         });
@@ -983,8 +1010,9 @@ export async function runCalibrationJob(
           source_min_date = $3::date,
           source_max_date = $4::date,
           source_max_updated_at = $5::timestamptz,
+          error_json = $6::jsonb,
           updated_at = now()
-        WHERE id = $6::uuid
+        WHERE id = $7::uuid
         `,
           [
             durationMs,
@@ -992,6 +1020,7 @@ export async function runCalibrationJob(
             overallCalibration?.sourceMinDate ?? null,
             overallCalibration?.sourceMaxDate ?? null,
             overallCalibration?.sourceMaxUpdatedAt ?? null,
+            JSON.stringify({ metadata: { evaluation_cutoff_at: input.evaluationCutoffAt } }),
             jobRunId,
           ],
         );
@@ -1113,6 +1142,7 @@ async function insertJobRun(input: {
 async function listCalibrationScopes(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }): Promise<
   Array<{
     scopeType: CalibrationScopeType;
@@ -1137,6 +1167,7 @@ async function listCalibrationScopes(input: {
       await listEligibleCampaignScopes({
         businessId: input.businessId,
         asOf: input.asOf,
+        evaluationCutoffAt: input.evaluationCutoffAt,
       })
     ).map((scope) => ({ ...scope, providerAccountId: null })),
   ];
@@ -1145,14 +1176,16 @@ async function listCalibrationScopes(input: {
 async function computeCalibrations(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   scopeType: CalibrationScopeType;
   scopeId: string;
 }): Promise<ComputedCalibration[]> {
-  const computedAt = new Date().toISOString();
+  const computedAt = input.evaluationCutoffAt;
   const calibrations: ComputedCalibration[] = [];
   const scopes = await listCalibrationScopes({
     businessId: input.businessId,
     asOf: input.asOf,
+    evaluationCutoffAt: input.evaluationCutoffAt,
   });
 
   for (const scope of scopes) {
@@ -1166,6 +1199,7 @@ async function computeCalibrations(input: {
           await computeCalibration({
             businessId: input.businessId,
             asOf: input.asOf,
+            evaluationCutoffAt: input.evaluationCutoffAt,
             scopeType: scope.scopeType,
             scopeId: scope.scopeId,
             providerAccountId: scope.providerAccountId,
@@ -1218,6 +1252,7 @@ async function listSelectedProviderAccountScopes(
 async function listEligibleCampaignScopes(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }): Promise<Array<{ scopeType: typeof CAMPAIGN_SCOPE_TYPE; scopeId: string }>> {
   const supportedObjectivesArray = Array.from(SUPPORTED_OBJECTIVES);
   const rows = await getDb().query<CampaignScopeRow>(
@@ -1227,6 +1262,7 @@ async function listEligibleCampaignScopes(input: {
       input.asOf,
       MIN_CAMPAIGN_CALIBRATION_SAMPLE,
       supportedObjectivesArray,
+      input.evaluationCutoffAt,
     ],
   );
 
@@ -1241,6 +1277,7 @@ async function listEligibleCampaignScopes(input: {
 async function computeCalibration(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   scopeType: CalibrationScopeType;
   scopeId: string;
   /** One ad account, or null for the business's whole Meta footprint. */
@@ -1261,6 +1298,7 @@ async function computeCalibration(input: {
       input.scopeType === CAMPAIGN_SCOPE_TYPE ? input.scopeId : null,
       input.campaignKind,
       input.providerAccountId,
+      input.evaluationCutoffAt,
     ],
   );
   const matureCreativeCount = toIntegerOrNull(row?.mature_creative_count) ?? 0;
@@ -1331,6 +1369,7 @@ async function computeCalibration(input: {
       matureCreativeCount,
       sampleWindowDays,
       sourceMaxUpdatedAt,
+      evaluationCutoffAt: input.evaluationCutoffAt,
     }),
     computedAt: input.computedAt,
   };
@@ -1370,9 +1409,11 @@ function determineQualityStatus(input: {
   matureCreativeCount: number;
   sampleWindowDays: number;
   sourceMaxUpdatedAt: string | null;
+  evaluationCutoffAt: string;
 }): QualityStatus {
   if (
-    isOlderThanHours(input.sourceMaxUpdatedAt, STALE_TIER_WARNING_MAX_HOURS)
+    isOlderThanHours(input.sourceMaxUpdatedAt, STALE_TIER_WARNING_MAX_HOURS,
+      input.evaluationCutoffAt)
   ) {
     return "stale";
   }
@@ -1388,11 +1429,11 @@ function sampleWindowStartForAsOf(asOf: string) {
   return parsed.toISOString().slice(0, 10);
 }
 
-function isOlderThanHours(timestamp: string | null, hours: number) {
+function isOlderThanHours(timestamp: string | null, hours: number, evaluationCutoffAt: string) {
   if (timestamp === null) return false;
   const parsed = new Date(timestamp).getTime();
   if (!Number.isFinite(parsed)) return false;
-  return Date.now() - parsed > hours * 3_600_000;
+  return Date.parse(evaluationCutoffAt) - parsed > hours * 3_600_000;
 }
 
 function errorToJson(error: unknown) {

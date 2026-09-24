@@ -40,6 +40,7 @@ const state = {
   selectedBusinessId: "biz_iwa" as string | null,
   workspaceResolved: true,
   selectBusiness: vi.fn(),
+  scopedBusinessId: null as string | null,
 };
 const navigation = {
   search: new URLSearchParams(),
@@ -60,6 +61,12 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/store/app-store", () => ({
   useAppStore: (selector: (value: typeof state) => unknown) => selector(state),
+}));
+
+vi.mock("@/components/workspace/workspace-context-provider", () => ({
+  useOptionalWorkspaceContext: () => state.scopedBusinessId
+    ? { business: { id: state.scopedBusinessId } }
+    : null,
 }));
 
 /**
@@ -99,6 +106,7 @@ describe("the legacy Meta route never renders two workspaces at once", () => {
     seen.length = 0;
     state.businesses = [grandmix, iwa];
     state.selectedBusinessId = "biz_iwa";
+    state.scopedBusinessId = null;
     state.workspaceResolved = true;
     state.selectBusiness.mockReset();
     navigation.search = new URLSearchParams();
@@ -222,6 +230,38 @@ describe("the legacy Meta route never renders two workspaces at once", () => {
     navigation.search = new URLSearchParams("businessId=biz_iwa");
     render(<MetaPage />);
     expect(seen[0]?.businessId).toBe("biz_iwa");
+  });
+
+  it("hides an old canonical business while the switcher has moved to another", () => {
+    state.selectedBusinessId = "biz_grandmix";
+    const view = render(
+      <MetaPage businessId="biz_iwa" businessName="IwaStore" currency="USD" />,
+    );
+
+    expect(screen.getByRole("status").textContent).toContain("Switching business");
+    expect(screen.queryByTestId("meta-business-scope-refusal")).toBeNull();
+    expect(seen).toEqual([]);
+
+    view.rerender(
+      <MetaPage businessId="biz_grandmix" businessName="Grandmix" currency="TRY" />,
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(seen).toEqual([
+      { businessId: "biz_grandmix", businessName: "Grandmix", currency: "TRY" },
+    ]);
+  });
+
+  it("honors a direct canonical route when its shell envelope matches the server", () => {
+    state.selectedBusinessId = "biz_iwa";
+    state.scopedBusinessId = "biz_grandmix";
+    render(
+      <MetaPage businessId="biz_grandmix" businessName="Grandmix" currency="TRY" />,
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(seen).toEqual([
+      { businessId: "biz_grandmix", businessName: "Grandmix", currency: "TRY" },
+    ]);
   });
 
   it("lets a route-scoped server answer win, and refuses a query that contradicts it", () => {

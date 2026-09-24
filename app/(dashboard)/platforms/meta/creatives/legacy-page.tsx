@@ -758,7 +758,7 @@ export default function MetaCreativeStudioPage({
     partialReason:
       [
         sourceHealth.kind === "serving" && sourceHealth.partialReason
-          ? "Some creative data is unavailable. Try again."
+          ? sourceHealth.partialReason
           : null,
         briefingQuery.error
           ? "Some creative data is unavailable. Try again."
@@ -1151,6 +1151,8 @@ export default function MetaCreativeStudioPage({
             ? "loading"
             : sourceHealth.kind === "unavailable"
               ? "unavailable"
+              : sourceHealth.partialReason && allRows.length === 0
+                ? "unavailable"
               : allRows.length === 0
                 ? "empty"
                 : "ready";
@@ -1164,7 +1166,9 @@ export default function MetaCreativeStudioPage({
         : assetsState === "error"
           ? "Creative data could not be loaded. Try again."
           : assetsState === "unavailable"
-            ? "Creative data could not be loaded. Try again."
+            ? sourceHealth.kind === "unavailable"
+              ? sourceHealth.message
+              : sourceHealth.partialReason
             : assetsState === "empty"
               ? "No creatives found for this date range."
               : null;

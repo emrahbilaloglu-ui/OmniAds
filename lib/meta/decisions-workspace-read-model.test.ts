@@ -27,7 +27,7 @@ import {
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
 import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
-import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { ENGINE_VERSION, NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { projectCanonicalNativeAdDecisionToBriefing } from "@/app/api/creatives/briefing/canonical-projection";
 import {
   adAction,
@@ -2535,7 +2535,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       String(sql).includes("FROM engine_v3_campaign_context_daily"),
     );
     expect(String(snapshotCall?.[0])).toContain("provider_account_id = $2");
-    expect(snapshotCall?.[1]).toEqual(["biz_1", "act_1", null]);
+    expect(snapshotCall?.[1]).toEqual(["biz_1", "act_1", null, ENGINE_VERSION]);
     expect(String(identityCall?.[0])).toContain("provider_account_id = $2");
     expect(identityCall?.[1]).toEqual([
       "biz_1",
@@ -4086,7 +4086,8 @@ describe("Meta Decisions workspace canonical read model", () => {
     expect(String(legacyCall?.[0])).toContain(
       "snapshot.as_of_date <= COALESCE(\n          $3::date",
     );
-    expect(legacyCall?.[1]).toEqual(["biz_1", "act_1", "2026-07-10"]);
+    expect(legacyCall?.[1]).toEqual(["biz_1", "act_1", "2026-07-10", ENGINE_VERSION]);
+    expect(String(legacyCall?.[0])).toContain("current_epoch_available");
   });
 
   it("ignores an advisory-lock skip only with the scheduler overlap proof", async () => {
@@ -4843,7 +4844,7 @@ describe("served held-verdict resolutions carry the engine's predicate blockers"
     const item = model.queue.adCandidates?.items[0];
     expect(item?.classification.heldAction).toBe("scale");
     expect(item?.classification.resolution).toMatchObject({
-      code: "complete_hard_action_evidence",
+      code: "await_scale_calibration_sample",
       owner: "system",
       label: "Scale Held — Calibration Sample Thin",
     });
@@ -4883,7 +4884,7 @@ describe("served held-verdict resolutions carry the engine's predicate blockers"
     const item = model.queue.adCandidates?.items[0];
     expect(item?.classification.heldAction).toBe("scale");
     expect(item?.classification.resolution).toMatchObject({
-      code: "complete_hard_action_evidence",
+      code: "await_scale_winner_benchmark",
       category: "system",
       owner: "system",
       label: "Scale Held — Winner Benchmark Missing",

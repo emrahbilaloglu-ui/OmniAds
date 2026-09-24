@@ -1396,12 +1396,36 @@
       font-size: 12px;
     }
 
+    .ad-mobile-anomaly [data-mobile-clear-filters] {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      margin-top: 4px;
+      border: 0;
+      background: transparent;
+      color: var(--adc-info-fg);
+      font: inherit;
+      font-weight: 600;
+      padding: 0 2px;
+    }
+
     .ad-mobile-row-card h3 {
       margin: 0;
       color: var(--adc-ink);
       font-size: 12.5px;
       font-weight: 600;
       line-height: 1.35;
+    }
+
+    .ad-mobile-creative-thumb {
+      display: block;
+      width: 64px;
+      height: 64px;
+      margin-bottom: 7px;
+      border: 1px solid var(--adc-b1);
+      border-radius: 8px;
+      background: var(--adc-s2);
+      object-fit: cover;
     }
 
     .ad-mobile-row-card p {

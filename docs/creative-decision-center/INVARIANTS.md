@@ -10,6 +10,14 @@ These rules are hard gates for V2.1.
   `buyerAction: null`, and a non-null versioned resolution.
 - UI must not derive a blocked resolution from free-form reason text, raw
   labels, badges, or metrics. It renders the server-produced resolution.
+- A specific held Scale prerequisite may be named only by its typed server
+  resolution code; a display label, broad authority-blocker family, or shared
+  readiness badge cannot distinguish a thin calibration sample from a missing
+  winner purchase benchmark. Legacy shared resolution codes stay generic.
+- Served Ad metric availability must travel with the presentation decision.
+  When a legacy served-only row lacks both that state and its canonical
+  envelope, its numeric zero may be a fail-closed sentinel and is displayed as
+  unverified, not measured. Explicitly observed zero remains zero.
 - Persisted `diagnose` remains readable for historical compatibility; a
   presentation change must not rewrite old snapshots.
 - Any held Scale, Cut, or Refresh signal must round-trip through nullable

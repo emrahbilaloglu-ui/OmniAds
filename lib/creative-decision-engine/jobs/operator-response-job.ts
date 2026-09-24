@@ -1,5 +1,11 @@
 import { getDb, runDbTransaction } from "@/lib/db";
 import {
+  creativeDayCompleteWindowSql,
+  creativeDayConfigDecisionAdmissionSql,
+  requireCreativeDayEvaluationCutoffAt,
+} from "@/lib/meta/creative-day-decision-admission";
+import { creativeMemberEffectiveStatusLateralSql } from "@/lib/meta/creative-member-effective-status";
+import {
   CAMPAIGN_CONTEXT_MAX_AGE_DAYS,
   campaignContextAuthorityResolverVersion,
 } from "../campaign-context/source";
@@ -36,6 +42,7 @@ type OperatorActionEventType =
 export interface OperatorResponseJobInput {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }
 
 export interface OperatorResponseJobResult {
@@ -134,15 +141,18 @@ WITH snapshots AS (
   SELECT *
   FROM engine_v3_decision_snapshots_daily
   WHERE business_ref_id = $1::uuid
+    AND engine_version = $5::text
     AND label IN ('scale', 'refresh')
     AND as_of_date BETWEEN ($2::date - ($3::integer * INTERVAL '1 day')) AND $2::date
+    AND created_at <= $6::timestamptz AND updated_at <= $6::timestamptz
+    AND computed_at <= $6::timestamptz
 ),
 guarded AS (
   SELECT
     snapshots.creative_id,
     CASE
-      WHEN lifecycle.campaign_id IS NOT NULL
-        AND campaign_context.trusted IS DISTINCT FROM true
+      WHEN lifecycle.campaign_id IS NULL
+        OR campaign_context.trusted IS DISTINCT FROM true
       THEN 'diagnose'
       ELSE snapshots.label
     END AS effective_label
@@ -154,6 +164,9 @@ guarded AS (
       AND lifecycle.creative_id = snapshots.creative_id
       AND lifecycle.engine_version = snapshots.engine_version
       AND lifecycle.as_of_date <= snapshots.as_of_date
+      AND lifecycle.created_at <= $6::timestamptz
+      AND lifecycle.updated_at <= $6::timestamptz
+      AND lifecycle.computed_at <= $6::timestamptz
     ORDER BY lifecycle.as_of_date DESC, lifecycle.computed_at DESC
     LIMIT 1
   ) lifecycle ON true
@@ -173,6 +186,8 @@ guarded AS (
       AND context.inferred_kind IS NOT NULL
       AND context.confidence_class = 'high'
       AND context.resolver_version = $4::text
+      AND context.created_at <= $6::timestamptz
+      AND context.updated_at <= $6::timestamptz
     ORDER BY context.as_of_date DESC, context.updated_at DESC, context.id DESC
     LIMIT 1
   ) campaign_context ON true
@@ -189,7 +204,10 @@ WITH snapshots AS (
   FROM engine_v3_decision_snapshots_daily
   WHERE business_ref_id = $1::uuid
     AND creative_id = $2
+    AND engine_version = $6::text
     AND as_of_date BETWEEN ($3::date - ($4::integer * INTERVAL '1 day')) AND $3::date
+    AND created_at <= $7::timestamptz AND updated_at <= $7::timestamptz
+    AND computed_at <= $7::timestamptz
 ),
 guarded AS (
   SELECT
@@ -197,15 +215,15 @@ guarded AS (
     snapshots.as_of_date,
     CASE
       WHEN snapshots.label IN ('scale', 'refresh', 'cut')
-        AND lifecycle.campaign_id IS NOT NULL
-        AND campaign_context.trusted IS DISTINCT FROM true
+        AND (lifecycle.campaign_id IS NULL
+          OR campaign_context.trusted IS DISTINCT FROM true)
       THEN 'diagnose'
       ELSE snapshots.label
     END AS label,
     CASE
       WHEN snapshots.label IN ('scale', 'refresh', 'cut')
-        AND lifecycle.campaign_id IS NOT NULL
-        AND campaign_context.trusted IS DISTINCT FROM true
+        AND (lifecycle.campaign_id IS NULL
+          OR campaign_context.trusted IS DISTINCT FROM true)
       THEN LEAST(snapshots.confidence, 50)
       ELSE snapshots.confidence
     END AS confidence,
@@ -218,6 +236,9 @@ guarded AS (
       AND lifecycle.creative_id = snapshots.creative_id
       AND lifecycle.engine_version = snapshots.engine_version
       AND lifecycle.as_of_date <= snapshots.as_of_date
+      AND lifecycle.created_at <= $7::timestamptz
+      AND lifecycle.updated_at <= $7::timestamptz
+      AND lifecycle.computed_at <= $7::timestamptz
     ORDER BY lifecycle.as_of_date DESC, lifecycle.computed_at DESC
     LIMIT 1
   ) lifecycle ON true
@@ -237,6 +258,8 @@ guarded AS (
       AND context.inferred_kind IS NOT NULL
       AND context.confidence_class = 'high'
       AND context.resolver_version = $5::text
+      AND context.created_at <= $7::timestamptz
+      AND context.updated_at <= $7::timestamptz
     ORDER BY context.as_of_date DESC, context.updated_at DESC, context.id DESC
     LIMIT 1
   ) campaign_context ON true
@@ -260,6 +283,8 @@ WHERE business_ref_id = $1::uuid
   AND creative_id = $2
   AND as_of_date = $3::date
   AND engine_version = $4
+  AND created_at <= $5::timestamptz AND updated_at <= $5::timestamptz
+  AND computed_at <= $5::timestamptz
 ORDER BY computed_at DESC
 LIMIT 1
 `;
@@ -269,11 +294,20 @@ SELECT
   d.date,
   SUM(d.spend)::double precision AS spend,
   SUM(d.conversions)::double precision AS purchases,
-  (ARRAY_AGG(d.effective_status ORDER BY d.updated_at DESC NULLS LAST)
-    FILTER (WHERE d.effective_status IS NOT NULL))[1] AS effective_status
+  -- D106 status is current-at-evaluation provider evidence, not a historical
+  -- metric on every report day. Surface it on the as-of day only, so an
+  -- observed pause cannot be backdated across the spend window.
+  CASE WHEN d.date = $3::date
+    AND COUNT(DISTINCT d.provider_account_id) = 1
+    AND COUNT(DISTINCT creative_member_status.effective_status) = 1
+    AND BOOL_AND(creative_member_status.effective_status IS NOT NULL)
+  THEN MIN(creative_member_status.effective_status)
+  END AS effective_status
 FROM meta_creative_daily d
+${creativeMemberEffectiveStatusLateralSql("d", "$5")}
 WHERE d.business_ref_id = $1::uuid
   AND d.creative_id = $2
+  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3", "$5")}
   AND d.date BETWEEN ($3::date - ($4::integer * INTERVAL '1 day')) AND $3::date
 GROUP BY d.date
 ORDER BY d.date ASC
@@ -287,19 +321,35 @@ SELECT DISTINCT ON (d.creative_id)
 FROM meta_creative_daily d
 WHERE d.business_ref_id = $1::uuid
   AND d.creative_id = $2
+  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3", "$4")}
   AND d.date <= $3::date
 ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
 `;
 
 const FIND_RECENT_7D_FREQUENCY_QUERY = `
-SELECT AVG(d.frequency) FILTER (
-  WHERE d.frequency > 0
-    AND d.date BETWEEN ($3::date - INTERVAL '6 days') AND $3::date
-) AS recent7d_frequency
+SELECT CASE WHEN COUNT(DISTINCT d.provider_account_id) = 1
+  AND COALESCE(BOOL_AND(
+    d.payload_json->>'reach_aggregation' = 'single_ad_provider_reach'
+    AND d.frequency IS NOT NULL AND d.frequency > 0
+  ) FILTER (WHERE d.impressions > 0 AND d.date BETWEEN ($3::date - INTERVAL '6 days') AND $3::date), FALSE)
+  THEN AVG(d.frequency) FILTER (
+    WHERE d.frequency > 0 AND d.date BETWEEN ($3::date - INTERVAL '6 days') AND $3::date)
+END AS recent7d_frequency
 FROM meta_creative_daily d
 WHERE d.business_ref_id = $1::uuid
   AND d.creative_id = $2
+  AND ${creativeDayConfigDecisionAdmissionSql("d", "$3", "$4")}
   AND d.date BETWEEN ($3::date - INTERVAL '27 days') AND $3::date
+`;
+
+const FIND_COMPLETE_RESPONSE_SOURCE_QUERY = `
+SELECT COALESCE((
+  SELECT ${creativeDayCompleteWindowSql("d", "$3", "$4", RESPONSE_WINDOW_DAYS + 1, undefined, "$1")}
+  FROM meta_creative_daily d
+  WHERE d.business_ref_id = $1::uuid AND d.creative_id = $2
+    AND d.date BETWEEN ($3::date - (${RESPONSE_WINDOW_DAYS} * INTERVAL '1 day')) AND $3::date
+  LIMIT 1
+), FALSE) AS complete
 `;
 
 const FIND_ADSET_BUDGET_HISTORY_QUERY = `
@@ -309,6 +359,7 @@ WHERE business_id = $1
   AND adset_id = $2
   AND captured_at >= ($3::date - ($4::integer * INTERVAL '1 day'))
   AND captured_at < ($3::date + INTERVAL '1 day')
+  AND captured_at <= $5::timestamptz AND created_at <= $5::timestamptz
 ORDER BY captured_at ASC
 `;
 
@@ -319,6 +370,7 @@ WHERE business_id = $1
   AND campaign_id = $2
   AND captured_at >= ($3::date - ($4::integer * INTERVAL '1 day'))
   AND captured_at < ($3::date + INTERVAL '1 day')
+  AND captured_at <= $5::timestamptz AND created_at <= $5::timestamptz
 ORDER BY captured_at ASC
 `;
 
@@ -353,6 +405,7 @@ WITH candidate AS (
   WHERE journal.business_id = $1::uuid
     AND journal.created_at >= ($6::date - ($7::integer * INTERVAL '1 day'))
     AND journal.created_at < ($6::date + INTERVAL '1 day')
+    AND journal.created_at <= $8::timestamptz
 )
 SELECT created_at, event_type, action_title, metadata_json, match_level
 FROM candidate
@@ -372,6 +425,9 @@ WHERE business_ref_id = $1::uuid
   AND creative_id = $2
   AND as_of_date = $3::date
   AND engine_version = $8
+  AND created_at <= $9::timestamptz
+  AND updated_at <= $9::timestamptz
+  AND computed_at <= $9::timestamptz
 RETURNING lifecycle_position
 `;
 
@@ -432,6 +488,7 @@ export function operatorResponseJobAdvisoryLockKey(
 export async function runOperatorResponseJob(
   input: OperatorResponseJobInput,
 ): Promise<OperatorResponseJobResult> {
+  requireCreativeDayEvaluationCutoffAt(input.evaluationCutoffAt);
   const startedAt = Date.now();
   const flags = await resolveEngineV3Flags(input.businessId);
   if (!flags.enabled) {
@@ -497,18 +554,29 @@ export async function runOperatorResponseJob(
       let lifecyclePromotions = 0;
 
       for (const creativeId of recommendedCreatives) {
+        if (!(await hasCompleteResponseSource({ creativeId, businessId: input.businessId, asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt }))) {
+          // Missing Ad-day membership is unknown operator response, never a
+          // zero-spend pause or a lifecycle promotion inferred from a partial
+          // creative window. Existing snapshots remain readable.
+          continue;
+        }
         const gathered = await gatherSignalInputs({
           creativeId,
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
         });
-        const detection = detectOperatorResponse(gathered.detectorInput);
+        const detection = dateStatusOnlyResponseAtKnowledgeCutoff(
+          detectOperatorResponse(gathered.detectorInput), input.evaluationCutoffAt,
+        );
         if (detection.responseType === "no_recommendation") continue;
 
         const updatedRows = await updateLifecycleResponse({
           businessId: input.businessId,
           creativeId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
           detection,
         });
         lifecycleRowsUpdated += updatedRows.length;
@@ -547,6 +615,7 @@ export async function runOperatorResponseJob(
           lifecycleRowsUpdated,
           JSON.stringify({
             metadata: {
+              evaluation_cutoff_at: input.evaluationCutoffAt,
               recommended_creative_count: recommendedCreatives.length,
               operator_event_count: operatorEventsWritten,
               lifecycle_promotion_count: lifecyclePromotions,
@@ -605,6 +674,29 @@ export async function runOperatorResponseJob(
   });
 }
 
+function dateStatusOnlyResponseAtKnowledgeCutoff(
+  detection: OperatorResponseResult,
+  evaluationCutoffAt: string,
+): OperatorResponseResult {
+  // The detector returns a date-only value for daily status and an ISO
+  // timestamp for a dated journal receipt. The D106 status resolver proves
+  // state at the cutoff, not the date of the provider transition.
+  const statusWithoutDatedReceipt =
+    (detection.responseType === "paused" ||
+      detection.responseType === "creative_archived") &&
+    /^\d{4}-\d{2}-\d{2}$/.test(detection.operatorResponseDetectedAt ?? "");
+  if (!statusWithoutDatedReceipt) return detection;
+  // D106 resolves the latest status known at the cutoff, not its exact
+  // transition instant. A prior report day must not become a claimed action
+  // timestamp when no dated operator receipt exists.
+  return {
+    ...detection,
+    operatorResponseDetectedAt: evaluationCutoffAt,
+    evidence: [...detection.evidence,
+      "provider status transition time unobserved; detected by evaluation cutoff"],
+  };
+}
+
 async function findRecommendedCreativeIds(input: OperatorResponseJobInput) {
   const rows = await getDb().query<CreativeIdRow>(
     FIND_RECOMMENDED_CREATIVES_QUERY,
@@ -613,6 +705,8 @@ async function findRecommendedCreativeIds(input: OperatorResponseJobInput) {
       input.asOf,
       RESPONSE_WINDOW_DAYS,
       campaignContextAuthorityResolverVersion(),
+      ENGINE_VERSION,
+      input.evaluationCutoffAt,
     ],
   );
   return rows.flatMap((row) => {
@@ -621,10 +715,22 @@ async function findRecommendedCreativeIds(input: OperatorResponseJobInput) {
   });
 }
 
+async function hasCompleteResponseSource(input: {
+  creativeId: string;
+  businessId: string;
+  asOf: string;
+  evaluationCutoffAt: string;
+}) {
+  const [row] = await getDb().query<{ complete: boolean }>(FIND_COMPLETE_RESPONSE_SOURCE_QUERY,
+    [input.businessId, input.creativeId, input.asOf, input.evaluationCutoffAt]);
+  return row?.complete === true;
+}
+
 async function gatherSignalInputs(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }): Promise<GatheredSignalInputs> {
   const [recommendationRows, lifecycleContext, dailySpend, latestIdentifiers] =
     await Promise.all([
@@ -647,6 +753,7 @@ async function gatherSignalInputs(input: {
             businessId: input.businessId,
             adsetId: identifiers.adsetId,
             asOf: input.asOf,
+            evaluationCutoffAt: input.evaluationCutoffAt,
           }),
       identifiers.campaignId === null
         ? Promise.resolve([])
@@ -654,6 +761,7 @@ async function gatherSignalInputs(input: {
             businessId: input.businessId,
             campaignId: identifiers.campaignId,
             asOf: input.asOf,
+            evaluationCutoffAt: input.evaluationCutoffAt,
           }),
       findActionJournal({
         businessId: input.businessId,
@@ -662,6 +770,7 @@ async function gatherSignalInputs(input: {
         adsetId: identifiers.adsetId,
         campaignId: identifiers.campaignId,
         asOf: input.asOf,
+        evaluationCutoffAt: input.evaluationCutoffAt,
       }),
     ]);
 
@@ -712,6 +821,7 @@ async function findRecommendations(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }) {
   return getDb().query<RecommendationRow>(FIND_RECOMMENDATIONS_QUERY, [
     input.businessId,
@@ -719,6 +829,8 @@ async function findRecommendations(input: {
     input.asOf,
     RESPONSE_WINDOW_DAYS,
     campaignContextAuthorityResolverVersion(),
+    ENGINE_VERSION,
+    input.evaluationCutoffAt,
   ]);
 }
 
@@ -726,10 +838,12 @@ async function findLifecycleContext(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }) {
   const [row] = await getDb().query<LifecycleContextRow>(
     FIND_LIFECYCLE_CONTEXT_QUERY,
-    [input.businessId, input.creativeId, input.asOf, ENGINE_VERSION],
+    [input.businessId, input.creativeId, input.asOf, ENGINE_VERSION,
+      input.evaluationCutoffAt],
   );
   return {
     adsetId: toStringOrNull(row?.adset_id),
@@ -746,12 +860,14 @@ async function findDailySpend(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }): Promise<OperatorResponseInput["dailySpend"]> {
   const rows = await getDb().query<DailySpendRow>(FIND_DAILY_SPEND_QUERY, [
     input.businessId,
     input.creativeId,
     input.asOf,
     RESPONSE_WINDOW_DAYS,
+    input.evaluationCutoffAt,
   ]);
   return rows.flatMap((row) => {
     const date = toIsoDateOnly(row.date);
@@ -771,10 +887,11 @@ async function findLatestCreativeIdentifiers(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }) {
   const [row] = await getDb().query<LifecycleContextRow>(
     FIND_LATEST_CREATIVE_IDENTIFIERS_QUERY,
-    [input.businessId, input.creativeId, input.asOf],
+    [input.businessId, input.creativeId, input.asOf, input.evaluationCutoffAt],
   );
   return {
     adsetId: toStringOrNull(row?.adset_id),
@@ -787,10 +904,11 @@ async function findRecent7dFrequency(input: {
   creativeId: string;
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }) {
   const [row] = await getDb().query<RecentFrequencyRow>(
     FIND_RECENT_7D_FREQUENCY_QUERY,
-    [input.businessId, input.creativeId, input.asOf],
+    [input.businessId, input.creativeId, input.asOf, input.evaluationCutoffAt],
   );
   return toNumberOrNull(row?.recent7d_frequency);
 }
@@ -799,10 +917,12 @@ async function findAdsetBudgetHistory(input: {
   businessId: string;
   adsetId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }): Promise<OperatorResponseInput["adsetBudgetHistory"]> {
   const rows = await getDb().query<BudgetHistoryRow>(
     FIND_ADSET_BUDGET_HISTORY_QUERY,
-    [input.businessId, input.adsetId, input.asOf, RESPONSE_WINDOW_DAYS + 1],
+    [input.businessId, input.adsetId, input.asOf, RESPONSE_WINDOW_DAYS + 1,
+      input.evaluationCutoffAt],
   );
   return rows.flatMap(toBudgetSnapshot);
 }
@@ -811,10 +931,12 @@ async function findCampaignBudgetHistory(input: {
   businessId: string;
   campaignId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }): Promise<OperatorResponseInput["campaignBudgetHistory"]> {
   const rows = await getDb().query<BudgetHistoryRow>(
     FIND_CAMPAIGN_BUDGET_HISTORY_QUERY,
-    [input.businessId, input.campaignId, input.asOf, RESPONSE_WINDOW_DAYS + 1],
+    [input.businessId, input.campaignId, input.asOf, RESPONSE_WINDOW_DAYS + 1,
+      input.evaluationCutoffAt],
   );
   return rows.flatMap(toBudgetSnapshot);
 }
@@ -826,6 +948,7 @@ async function findActionJournal(input: {
   adsetId: string | null;
   campaignId: string | null;
   asOf: string;
+  evaluationCutoffAt: string;
 }): Promise<OperatorResponseInput["actionJournal"]> {
   const rows = await getDb().query<ActionJournalRow>(FIND_ACTION_JOURNAL_QUERY, [
     input.businessId,
@@ -835,6 +958,7 @@ async function findActionJournal(input: {
     input.campaignId,
     input.asOf,
     RESPONSE_WINDOW_DAYS,
+    input.evaluationCutoffAt,
   ]);
   return rows.flatMap((row) => {
     const createdAt = toIsoTimestampOrNull(row.created_at);
@@ -864,6 +988,7 @@ async function updateLifecycleResponse(input: {
   businessId: string;
   creativeId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   detection: OperatorResponseResult;
 }) {
   const lifecycleResponseType = mapResponseToLifecycleColumn(
@@ -882,6 +1007,7 @@ async function updateLifecycleResponse(input: {
       ? input.detection.promoteLifecyclePosition ?? null
       : null,
     ENGINE_VERSION,
+    input.evaluationCutoffAt,
   ]);
 }
 
@@ -904,10 +1030,13 @@ async function findLatestSuccessfulDecisionsRun(input: OperatorResponseJobInput)
       AND as_of_date = $3::date
       AND engine_version = $4
       AND status = 'success'
+      AND started_at <= $5::timestamptz
+      AND finished_at <= $5::timestamptz
     ORDER BY finished_at DESC NULLS LAST, started_at DESC
     LIMIT 1
     `,
-    [DECISIONS_JOB_NAME, input.businessId, input.asOf, ENGINE_VERSION],
+    [DECISIONS_JOB_NAME, input.businessId, input.asOf, ENGINE_VERSION,
+      input.evaluationCutoffAt],
   );
 
   return toStringOrNull(row?.id);

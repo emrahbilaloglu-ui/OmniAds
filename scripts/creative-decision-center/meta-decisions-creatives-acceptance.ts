@@ -26,7 +26,8 @@
  *     --business <uuid[,uuid...]> \
  *     [--negative-control <uuid> --negative-control-campaign <meta campaign id>] \
  *     [--window YYYY-MM-DD:YYYY-MM-DD] [--chain 2] [--ad-limits 60,300] \
- *     [--cutoff-slot end-of-day|natural-0305|natural-1505 | --cutoffs <iso,...>] \
+ *     [--cutoff-slot end-of-day|natural-0305|natural-1505 | --cutoffs <iso,...>
+ *      | --knowledge-cutoffs <iso,...>] \
  *     [--gate pre_deploy|post_deploy] [--require-clean] [--require-hard-authority] \
  *     [--skip-decisions] [--diagnostic] [--out <file outside the repo> --write 1]
  *
@@ -50,6 +51,10 @@
  * change the exit code. The report records git HEAD, the porcelain status and
  * the hashes of dirty loaded modules; --require-clean refuses a dirty tree.
  * Source gaps are observations; they can make a gate NOT MET, never pass it.
+ * --knowledge-cutoffs is diagnostic-only: later knowledge bounds the ledger,
+ * config and D101 readings. Native Ad calibration, decisions and presentation
+ * retain the report-day UTC cutoff, because native calibration cannot be
+ * re-dated to a later knowledge day. This mode never grants release success.
  *
  * Exit codes (ACCEPTANCE_CLAIMS.exitCodes), following --gate only (default
  * pre_deploy):
@@ -192,6 +197,7 @@ import {
   hydrationClaims,
   isHardRowEntry,
   locateHeldVerdicts,
+  nativeAdDecisionDay,
   numericSign,
   parseAcceptanceArgs,
   parseGitPorcelainZ,
@@ -1636,12 +1642,16 @@ async function runDecisionLane(input: {
       status: "computed",
       reason: null,
       asOf: args.chain.at(-1)?.asOf ?? null,
-      cutoff: args.chain.at(-1)?.cutoff ?? null,
+      cutoff: args.chain.at(-1) ? nativeAdDecisionDay(args.chain.at(-1)!, args.cutoffMode).cutoff : null,
       accounts: [],
     };
     let carried = new Map<string, PreviousAdPublishedLabel>();
     let episodes = new Map<string, EpisodeMark>();
-    for (const [index, day] of args.chain.entries()) {
+    for (const [index, knowledgeDay] of args.chain.entries()) {
+      // D105's later knowledge instant is for independent source diagnostics.
+      // Native Ad calibration, hydration and presentation remain on the
+      // report-day boundary so their current-only calibration is never relabelled.
+      const day = nativeAdDecisionDay(knowledgeDay, args.cutoffMode);
       const isLastDay = index === args.chain.length - 1;
       const timings: Record<string, number> = {};
       const mark = (stage: string, since: number) => {
@@ -2202,7 +2212,8 @@ async function runNegativeControlCheck(input: {
           pitClass: text(row.pit_class),
         });
       }
-      // Each target day read at ITS OWN cutoff: what the decision on that day could have known.
+      // Each report day reads at its own knowledge cutoff. In replay mode that
+      // instant is later than the report day and is not backdated evidence.
       for (const day of args.chain) {
         const [row] = await db.query<Row>(buildObjectiveTierSql(CAMPAIGN_DAY_SCOPE_SQL), [
           businessId,

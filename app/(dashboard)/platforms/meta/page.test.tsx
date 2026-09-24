@@ -46,7 +46,7 @@ describe("MetaPage", () => {
     );
   });
 
-  it("uses the server-authorized route scope instead of a different selected-store business", () => {
+  it("hides a stale server-authorized route scope until it matches the selected business", () => {
     expect(
       renderToStaticMarkup(
         <MetaPage
@@ -56,6 +56,6 @@ describe("MetaPage", () => {
           accountSelection="shared"
         />,
       ),
-    ).toContain("meta-platform:biz_route:Route Business:TRY:shared");
+    ).toContain("Switching business");
   });
 });

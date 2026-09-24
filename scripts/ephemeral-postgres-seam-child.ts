@@ -16,7 +16,9 @@ import {
 } from "@/lib/creative-decision-engine/jobs/campaign-context-job";
 import { readPreviousPublishedLabels } from "@/lib/creative-decision-engine/decision-stability";
 import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
+import { seedCanonicalMetaAdDailyFacts } from "@/lib/creative-decision-engine/meta-aov-calculator.test-helpers";
 import { ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { getMetaCreativeDailyRange, upsertMetaAdDailyRows } from "@/lib/meta/warehouse";
 
 function snapshotRow(input: {
   businessRefId: string;
@@ -268,6 +270,44 @@ async function main() {
        '2026-06-08T00:00:00Z', '2026-06-08T00:00:00Z'
      FROM generate_series('2026-06-08'::date, '2026-07-05'::date, '1 day') day
      CROSS JOIN generate_series(1, 8) creative_no`,
+    [businessRefId],
+  );
+
+  // Runtime creative hydration now requires the dated D098 config proof and
+  // complete D101 Ad source chain. This legacy seam exercises fatigue and
+  // context, so give its synthetic days real fixture receipts instead of
+  // bypassing admission.
+  const [account] = await db.query<{ id: string }>(
+    `INSERT INTO provider_accounts (
+       provider, external_account_id, account_name, currency, timezone
+     ) VALUES ('meta', 'act_seam', 'Decision seam', 'USD', 'UTC')
+     ON CONFLICT (provider, external_account_id)
+     DO UPDATE SET currency = EXCLUDED.currency, timezone = EXCLUDED.timezone
+     RETURNING id`,
+  );
+  await db.query(
+    `INSERT INTO business_provider_accounts (
+       business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+     ) VALUES ($1, 'meta', $2::uuid, 'act_seam', TRUE)`,
+    [businessRefId, account!.id],
+  );
+  const creativeDays = await getMetaCreativeDailyRange({
+    businessId: businessRefId,
+    startDate: "2026-06-08",
+    endDate: "2026-07-05",
+    providerAccountIds: ["act_seam"],
+  });
+  await seedCanonicalMetaAdDailyFacts({
+    sql: db,
+    rows: creativeDays,
+    write: upsertMetaAdDailyRows,
+    certifyCreativeDecisionSource: true,
+  });
+  await db.query(
+    `UPDATE meta_creative_daily
+        SET payload_json = jsonb_set(payload_json,
+          '{historical_config_proof,custom_event_type}', '"PURCHASE"'::jsonb)
+      WHERE business_id = $1 AND provider_account_id = 'act_seam'`,
     [businessRefId],
   );
 

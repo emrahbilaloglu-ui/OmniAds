@@ -29,6 +29,8 @@ import {
   type MetaCreativeDayMetricStage,
 } from "@/lib/meta/creative-day-metric-evidence";
 import { buildMetaCompleteWindowSql } from "@/lib/meta/funnel-stage-parse";
+import { creativeDayCompleteWindowSql, creativeDayConfigDecisionAdmissionSql, requireCreativeDayEvaluationCutoffAt } from "@/lib/meta/creative-day-decision-admission";
+import { creativeMemberEffectiveStatusLateralSql } from "@/lib/meta/creative-member-effective-status";
 
 export const JOB_NAME = "engine_v3_lifecycle_job";
 
@@ -70,6 +72,7 @@ const CREATIVE_FORMATS = new Set<CreativeFormat>([
 export interface LifecycleJobInput {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }
 
 export interface LifecycleJobResult {
@@ -290,8 +293,8 @@ interface ComputedLifecycleBatch {
       writer has is video STARTS over all impressions, which is not a
       three-second view, and no verified provider contract exists to replace it.
 
-  ENGINE_VERSION is not bumped: the lifecycle rows it keys have never shipped,
-  so the version is amended in place.
+  The creative membership repair has its own ENGINE_VERSION epoch. Unstamped
+  creative-day rows are excluded from that epoch until source-backed repair.
 */
 const CREATIVE_DAY_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql({
   payloadExpression: "d.payload_json",
@@ -350,6 +353,8 @@ WITH selected_creatives AS (
   SELECT d.creative_id
   FROM meta_creative_daily d
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$4")}
+    AND ${creativeDayCompleteWindowSql("d", "$2", "$4", 90, undefined, "$1")}
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND d.objective = ANY($3::text[])
   GROUP BY d.creative_id
@@ -374,11 +379,18 @@ daily AS (
     ${creativeDayStageSumSql("add_to_cart")} AS add_to_cart,
     ${creativeDayStageSumSql("initiate_checkout")} AS initiate_checkout,
     BOOL_OR(${CREATIVE_DAY_EVIDENCE.activitySql}) AS decision_bearing_activity,
-    AVG(NULLIF(d.frequency, 0)) AS frequency
+    CASE WHEN COUNT(DISTINCT d.provider_account_id) = 1
+      AND COALESCE(BOOL_AND(
+        d.payload_json->>'reach_aggregation' = 'single_ad_provider_reach'
+        AND d.frequency IS NOT NULL AND d.frequency > 0
+      ) FILTER (WHERE d.impressions > 0), FALSE)
+      THEN AVG(NULLIF(d.frequency, 0))
+    END AS frequency
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   ${CREATIVE_DAY_EVIDENCE.lateralSql}
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$4")}
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND d.objective = ANY($3::text[])
   GROUP BY d.business_ref_id, d.creative_id, d.date
@@ -396,6 +408,7 @@ source_bounds AS (
     MAX(d.updated_at) AS source_max_updated_at
   FROM meta_creative_daily d
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$4")}
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
     AND d.objective = ANY($3::text[])
 ),
@@ -406,6 +419,7 @@ all_history_bounds AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$4")}
     AND d.date <= $2::date
     AND d.objective = ANY($3::text[])
   GROUP BY d.creative_id
@@ -433,7 +447,11 @@ windows AS (
       THEN SUM(clicks) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::numeric /
         NULLIF(SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0) * 100
     END AS ctr_28d,
-    AVG(frequency) FILTER (WHERE date >= ($2::date - INTERVAL '27 days') AND frequency > 0) AS frequency_28d,
+    CASE WHEN COALESCE(BOOL_AND(frequency IS NOT NULL) FILTER (
+      WHERE date >= ($2::date - INTERVAL '27 days') AND impressions > 0
+    ), FALSE) THEN AVG(frequency) FILTER (
+      WHERE date >= ($2::date - INTERVAL '27 days') AND frequency > 0
+    ) END AS frequency_28d,
     CASE
       WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
       THEN SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
@@ -525,8 +543,24 @@ slopes AS (
   FROM daily_with_roas
   GROUP BY creative_id
 ),
-latest_meta AS (
+-- Resolve member state only for the latest admissible day of each creative.
+latest_meta_source AS MATERIALIZED (
   SELECT DISTINCT ON (d.creative_id)
+    d.business_ref_id, d.business_id, d.provider_account_ref_id,
+    d.provider_account_id, d.creative_id, d.campaign_id, d.adset_id, d.ad_id,
+    d.payload_json, d.objective, d.quality_ranking,
+    d.engagement_rate_ranking, d.conversion_rate_ranking,
+    d.creative_visual_format, d.creative_primary_type
+  FROM meta_creative_daily d
+  INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
+  WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$4")}
+    AND d.date <= $2::date
+    AND d.objective = ANY($3::text[])
+  ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
+),
+latest_meta AS (
+  SELECT
     d.creative_id,
     d.business_id,
     d.provider_account_id,
@@ -534,7 +568,7 @@ latest_meta AS (
     d.campaign_id,
     d.adset_id,
     d.ad_id,
-    d.effective_status,
+    creative_member_status.effective_status,
     d.objective,
     d.quality_ranking,
     d.engagement_rate_ranking,
@@ -548,12 +582,8 @@ latest_meta AS (
     NULLIF(d.payload_json->>'effective_object_story_id', '') AS effective_object_story_id,
     NULLIF(d.payload_json->>'post_id', '') AS post_id,
     NULLIF(d.payload_json->>'creative_identity_hash', '') AS creative_identity_hash
-  FROM meta_creative_daily d
-  INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
-  WHERE d.business_ref_id = $1::uuid
-    AND d.date <= $2::date
-    AND d.objective = ANY($3::text[])
-  ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
+  FROM latest_meta_source d
+  ${creativeMemberEffectiveStatusLateralSql("d", "$4")}
 ),
 target_pack AS (
   SELECT target_roas, break_even_roas
@@ -588,6 +618,7 @@ historical_source AS (
       ('allHistory', d.date <= $2::date)
   ) AS windows(window_key, in_window)
   WHERE d.business_ref_id = $1::uuid
+    AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$4")}
     AND d.date <= $2::date
     AND d.objective = ANY($3::text[])
     AND windows.in_window
@@ -1112,6 +1143,7 @@ export function lifecycleJobAdvisoryLockKey(input: LifecycleJobInput): bigint {
 export async function runLifecycleJob(
   input: LifecycleJobInput,
 ): Promise<LifecycleJobResult> {
+  requireCreativeDayEvaluationCutoffAt(input.evaluationCutoffAt);
   const startedAt = Date.now();
   const businessGuardFailure = await getBusinessGuardFailure(input.businessId);
   if (businessGuardFailure?.reason === "invalid_business_id") {
@@ -1179,6 +1211,11 @@ export async function runLifecycleJob(
   return runDbTransaction(
     async () => {
       const db = getDb();
+      // No LLVM JIT for this job's very large lifecycle statement, the same
+      // measured reason as the calibration job (316 ms vs 7.3 s per statement
+      // on the production PostgreSQL build). SET LOCAL ends with the
+      // transaction; the data-source reads made inside it are scoped too.
+      await db.query("SET LOCAL jit = off");
       const [lockRow] = await db.query<AdvisoryLockRow>(
         "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
         [lockKey.toString()],
@@ -1220,6 +1257,7 @@ export async function runLifecycleJob(
         const batch = await computeLifecycleRows({
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
           jobRunId,
           flags,
         });
@@ -1237,8 +1275,9 @@ export async function runLifecycleJob(
           source_min_date = $3::date,
           source_max_date = $4::date,
           source_max_updated_at = $5::timestamptz,
+          error_json = $6::jsonb,
           updated_at = now()
-        WHERE id = $6::uuid
+        WHERE id = $7::uuid
         `,
           [
             durationMs,
@@ -1246,6 +1285,7 @@ export async function runLifecycleJob(
             batch.sourceMinDate,
             batch.sourceMaxDate,
             batch.sourceMaxUpdatedAt,
+            JSON.stringify({ metadata: { evaluation_cutoff_at: input.evaluationCutoffAt } }),
             jobRunId,
           ],
         );
@@ -1305,10 +1345,12 @@ async function findLatestSuccessfulCalibrationRun(input: LifecycleJobInput) {
       AND as_of_date <= $3::date
       AND engine_version = $4
       AND status = 'success'
+      AND error_json#>>'{metadata,evaluation_cutoff_at}' <= $5::text
     ORDER BY as_of_date DESC, finished_at DESC NULLS LAST, started_at DESC
     LIMIT 1
     `,
-    [CALIBRATION_JOB_NAME, input.businessId, input.asOf, ENGINE_VERSION],
+    [CALIBRATION_JOB_NAME, input.businessId, input.asOf, ENGINE_VERSION,
+      input.evaluationCutoffAt],
   );
 
   return toStringOrNull(row?.id);
@@ -1398,6 +1440,7 @@ async function insertJobRun(input: {
 async function resolveProfilesByProviderAccount(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   flags: EngineV3Flags;
   providerAccountIds: ReadonlyArray<string | null | undefined>;
 }): Promise<Map<string, AccountDecisionProfile>> {
@@ -1409,35 +1452,37 @@ async function resolveProfilesByProviderAccount(input: {
       }),
     ),
   ];
-  const resolved = await Promise.all(
-    accounts.map(
-      async (account) =>
-        [
+  // runLifecycleJob holds one transaction client while resolving these. If a
+  // profile fails, Promise.all rejects before sibling profiles finish their
+  // queued pg queries and can race the savepoint rollback on that same client.
+  const resolved: Array<readonly [string, AccountDecisionProfile]> = [];
+  for (const account of accounts) {
+    resolved.push([
+      account,
+      await resolveAccountDecisionProfile({
+        businessId: input.businessId,
+        asOf: input.asOf,
+        dataSource: new AccountScopedDataSource(
+              new WarehouseDataSource(input.evaluationCutoffAt),
           account,
-          await resolveAccountDecisionProfile({
-            businessId: input.businessId,
-            asOf: input.asOf,
-            dataSource: new AccountScopedDataSource(
-              new WarehouseDataSource(),
-              account,
-            ),
-            flags: input.flags,
-          }),
-        ] as const,
-    ),
-  );
+        ),
+        flags: input.flags,
+      }),
+    ]);
+  }
   return new Map(resolved);
 }
 
 async function computeLifecycleRows(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   jobRunId: string;
   flags: EngineV3Flags;
 }): Promise<ComputedLifecycleBatch> {
   const rows = await getDb().query<LifecycleComputationRow>(
     COMPUTE_LIFECYCLE_ROWS_QUERY,
-    [input.businessId, input.asOf, Array.from(SUPPORTED_OBJECTIVES)],
+    [input.businessId, input.asOf, Array.from(SUPPORTED_OBJECTIVES), input.evaluationCutoffAt],
   );
   /*
     The rows come first now, because which accounts to resolve is a fact about
@@ -1447,6 +1492,7 @@ async function computeLifecycleRows(input: {
   const profileByAccount = await resolveProfilesByProviderAccount({
     businessId: input.businessId,
     asOf: input.asOf,
+    evaluationCutoffAt: input.evaluationCutoffAt,
     flags: input.flags,
     providerAccountIds: rows.map((row) =>
       toStringOrNull(row.provider_account_id),
@@ -1466,7 +1512,7 @@ async function computeLifecycleRows(input: {
     ? await resolveAccountDecisionProfile({
         businessId: input.businessId,
         asOf: input.asOf,
-        dataSource: new WarehouseDataSource(),
+        dataSource: new WarehouseDataSource(input.evaluationCutoffAt),
         flags: input.flags,
       })
     : null;
@@ -1484,7 +1530,7 @@ async function computeLifecycleRows(input: {
     }
     return businessProfile;
   };
-  const computedAt = new Date().toISOString();
+  const computedAt = input.evaluationCutoffAt;
   const firstRow = rows[0];
   const sourceMinDate = toIsoDateOrNull(firstRow?.source_min_date);
   const sourceMaxDate = toIsoDateOrNull(firstRow?.source_max_date);
@@ -1501,6 +1547,7 @@ async function computeLifecycleRows(input: {
           asOf: input.asOf,
           jobRunId: input.jobRunId,
           computedAt,
+          evaluationCutoffAt: input.evaluationCutoffAt,
           profile: profileFor(row),
         }),
       )
@@ -1527,6 +1574,7 @@ function mapLifecycleComputationRow(input: {
   asOf: string;
   jobRunId: string;
   computedAt: string;
+  evaluationCutoffAt: string;
   profile: AccountDecisionProfile;
 }): LifecycleUpsertRow | null {
   const creativeId = toStringOrNull(input.row.creative_id);
@@ -1649,7 +1697,7 @@ function mapLifecycleComputationRow(input: {
     ageDays,
     lastSpendAt: toIsoDateOrNull(input.row.last_active_date),
     policyReason: null,
-    dataFreshnessHours: freshnessHours(sourceMaxUpdatedAt),
+    dataFreshnessHours: freshnessHours(sourceMaxUpdatedAt, input.evaluationCutoffAt),
     fatigueStatus: fatigue.status,
     targetRoas,
     breakevenRoas,
@@ -1800,7 +1848,7 @@ function mapLifecycleComputationRow(input: {
       funnelDiagnosis.primaryWeakStage === "checkout" ? 1 : 0,
     tracking_anomaly_score:
       funnelDiagnosis.primaryWeakStage === "tracking" ? 1 : 0,
-    data_freshness_hours: freshnessHours(sourceMaxUpdatedAt),
+    data_freshness_hours: freshnessHours(sourceMaxUpdatedAt, input.evaluationCutoffAt),
     source_max_date: toIsoDateOrNull(input.row.source_max_date),
     source_max_updated_at: sourceMaxUpdatedAt,
     eligible_for_lifecycle: eligibleForLifecycle,
@@ -1949,11 +1997,11 @@ function toCreativeFormat(value: unknown): CreativeFormat | null {
   return "other";
 }
 
-function freshnessHours(timestamp: string | null) {
+function freshnessHours(timestamp: string | null, evaluationCutoffAt: string) {
   if (timestamp === null) return null;
   const parsed = new Date(timestamp).getTime();
   if (!Number.isFinite(parsed)) return null;
-  return Math.max(0, Math.floor((Date.now() - parsed) / 3_600_000));
+  return Math.max(0, Math.floor((Date.parse(evaluationCutoffAt) - parsed) / 3_600_000));
 }
 
 function clamp01(value: number | null) {

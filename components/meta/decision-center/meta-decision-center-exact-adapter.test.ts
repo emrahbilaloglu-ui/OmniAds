@@ -46,6 +46,7 @@ import {
   buildMetaStructureInventoryViewModel,
   buyerFacingCreativeDecisionLabel,
   buyerFacingCreativeResolution,
+  buyerFacingCreativeScope,
   heldCreativeVerdict,
 } from "./meta-decision-center-exact-adapter";
 
@@ -161,6 +162,7 @@ function creativeFixture(
     whyNow: "Server creative why now",
     blockers: [],
     resolution: null,
+    adPerformanceAvailability: "observed",
     metrics: {
       spend: 725,
       purchases: 18,
@@ -715,7 +717,9 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
       adId: "missing_ad",
       thumbnailUrl: "//example.com/native-thumb.jpg",
       lane: "blocked",
-      metrics: { ...creativeFixture().metrics, spend: 0, roas: null, ctr: null },
+      // Older snapshots could carry the resolver's zero sentinels even when
+      // no finalized Ad row was observed. The badge must outrank each number.
+      metrics: { ...creativeFixture().metrics, spend: 0, purchases: 0, roas: 0, ctr: 0 },
       resolution: {
         code: "resolve_campaign_role",
         category: "campaign_context",
@@ -732,9 +736,14 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
       publishedLabel: "out_of_scope",
       resolution: null,
     });
-    const model = buildMetaDecisionCenterExactViewModel({
-      workspace: workspaceFixture({
-        os: fullOs({ creatives: [noMetrics, unknownScope] }),
+    const measuredZero = creativeFixture({
+      id: "measured_zero", decisionId: "measured_zero_decision",
+      adId: "measured_zero_ad",
+      metrics: { ...creativeFixture().metrics, spend: 0, purchases: 0,
+        roas: 0, ctr: 0 },
+    });
+    const workspace = workspaceFixture({
+        os: fullOs({ creatives: [noMetrics, unknownScope, measuredZero] }),
         canonical: [
           canonicalFixture({
             decisionId: "missing_decision",
@@ -750,12 +759,31 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
             } as unknown as MetaCanonicalDecision["sourceDecision"],
           }),
         ],
-      }),
+      });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace,
+      overrides: {
+        creativeCtrSeriesByAdId: new Map([[noMetrics.adId, [0, 0]]]),
+      },
     });
     const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
     expect(rows.get("no_metrics")?.note).toBe(
       "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance. Wait for campaign context verification before acting.",
     );
+    expect(rows.get("no_metrics")?.money).toBe("—");
+    expect(rows.get("no_metrics")?.ctrValue).toBeNull();
+    expect(rows.get("no_metrics")?.sparkPath).toBeNull();
+    expect(rows.get("no_metrics")?.chips).not.toContain("ROAS 0.00");
+    expect(rows.get("measured_zero")?.money).toContain("0 · ROAS 0.00");
+    expect(rows.get("measured_zero")?.ctrValue).toBe("0.00%");
+    expect(rows.get("measured_zero")?.chips).toContain("ROAS 0.00");
+    const inspector = buildMetaDecisionCenterExactViewModel({ workspace,
+      selection: { kind: "creative", decisionId: noMetrics.decisionId,
+        sourceSnapshotId: noMetrics.sourceSnapshotId },
+    }).inspector;
+    expect(inspector?.moneyValue).toBe("—");
+    expect(inspector?.evidence?.find((item) => item.id === "spend")?.value).toBe("—");
+    expect(inspector?.evidence?.find((item) => item.id === "purchases")?.value).toBe("—");
     expect(rows.get("no_metrics")?.thumbnailUrl).toBe("https://example.com/native-thumb.jpg");
     expect(rows.get("unknown_scope")?.note).toContain(
       "outside the verified purchase-ROAS decision scope",
@@ -798,6 +826,70 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
         }),
       ),
     ).toBeNull();
+  });
+
+  it("uses served observation state when the canonical envelope is absent", () => {
+    const zeroMetrics = {
+      ...creativeFixture().metrics,
+      spend: 0,
+      purchases: 0,
+      roas: 0,
+      ctr: 0,
+    };
+    const blockedResolution = {
+      code: "resolve_evidence_gap",
+      category: "system",
+      owner: "system",
+      label: "Resolve evidence gap",
+      nextStep: "Internal producer copy",
+    } as const;
+    const unavailable = creativeFixture({
+      id: "served_missing",
+      decisionId: "served_missing_decision",
+      metrics: zeroMetrics,
+      adPerformanceAvailability: "unavailable",
+      lane: "blocked",
+      resolution: blockedResolution,
+    });
+    const observed = creativeFixture({
+      id: "served_observed_zero",
+      decisionId: "served_observed_zero_decision",
+      metrics: zeroMetrics,
+      adPerformanceAvailability: "observed",
+    });
+    const legacy = creativeFixture({
+      id: "served_legacy_unknown",
+      decisionId: "served_legacy_unknown_decision",
+      metrics: zeroMetrics,
+      adPerformanceAvailability: undefined,
+      lane: "blocked",
+      resolution: blockedResolution,
+    });
+    const workspace = workspaceFixture({
+      canonical: [],
+      os: fullOs({ creatives: [unavailable, observed, legacy] }),
+    });
+    const model = buildMetaDecisionCenterExactViewModel({ workspace });
+    const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
+    for (const id of ["served_missing", "served_legacy_unknown"]) {
+      expect(rows.get(id)?.money).toBe("—");
+      expect(rows.get(id)?.ctrValue).toBeNull();
+      expect(rows.get(id)?.chips).not.toContain("ROAS 0.00");
+    }
+    expect(rows.get("served_missing")?.note).toContain("No finalized ad performance data");
+    expect(rows.get("served_legacy_unknown")?.note).toContain("observation status was not served");
+    expect(rows.get("served_observed_zero")?.money).toContain("ROAS 0.00");
+    expect(rows.get("served_observed_zero")?.chips).toContain("ROAS 0.00");
+    const inspector = buildMetaDecisionCenterExactViewModel({
+      workspace,
+      selection: {
+        kind: "creative",
+        decisionId: unavailable.decisionId,
+        sourceSnapshotId: unavailable.sourceSnapshotId,
+      },
+    }).inspector;
+    expect(inspector?.moneyValue).toBe("—");
+    expect(inspector?.evidence?.find((item) => item.id === "purchases")?.value).toBe("—");
   });
 
   it("keeps the served advisories out of the Blockers line and states them with their reason", () => {
@@ -1599,7 +1691,7 @@ describe("the creative queue is the served set, split by the served state", () =
     expect([...groups.keys()]).toEqual(["act", "blocked"]);
     expect(groups.get("blocked")).toMatchObject({
       label: "Blocked",
-      count: "1 of 80 decisions",
+      count: "1 shown · 80 decisions before filters and list limit",
       note: null,
     });
     // The act group is not capped, so it states one number, not two.
@@ -4219,6 +4311,59 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(serialized).not.toContain("restoring this verdict's authority");
   });
 
+  it("states an action-lane role-held Cut as a manual decision without a wait-again instruction", () => {
+    const cut = creativeFixture({
+      rawLabel: "test_more",
+      publishedLabel: "test_more",
+      heldAction: "cut",
+      lane: "act",
+      action: actionFixture({
+        code: "apply_cut_manually",
+        label: "Review spend reduction",
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+      }),
+      heldResolution: {
+        code: "apply_cut_manually",
+        category: "campaign_context",
+        owner: "operator",
+        label: "Review spend reduction manually",
+        nextStep: "Pause this ad yourself if you agree.",
+      },
+    });
+    const verified = canonicalFixture({
+      configEvidence: { verified: true } as MetaCanonicalDecision["configEvidence"],
+    });
+    const ready = heldCreativeVerdict(cut, verified);
+    expect(ready?.label).toBe("Reduce spend — review manual pause");
+    expect(ready?.nextStep).toContain("pause this ad yourself if you agree");
+    expect(ready?.nextStep).not.toContain("again");
+
+    const unverified = canonicalFixture({
+      configEvidence: { verified: false } as MetaCanonicalDecision["configEvidence"],
+    });
+    const gap = heldCreativeVerdict(cut, unverified);
+    expect(gap?.label).toBe("Reduce spend recommendation — verify configuration");
+    expect(gap?.nextStep).toContain("campaign configuration receipts are incomplete");
+    expect(gap?.nextStep).not.toContain("The cut evidence is complete");
+    expect(buyerFacingCreativeScope(cut, unverified)).toContain(
+      "Verify campaign configuration before a manual pause",
+    );
+    expect(buyerFacingCreativeResolution({ ...cut, resolution: cut.heldResolution ?? null }, unverified))
+      .toContain("campaign configuration receipts are not fully verified");
+
+    const retained = heldCreativeVerdict({ ...cut, lane: "blocked", action: actionFixture({
+      code: "review_retained_decision",
+      label: "Review retained decision",
+      intent: "review",
+      targetLevel: "ad",
+      providerMutation: null,
+    }) }, verified);
+    expect(retained?.label).toBe("Spend reduction signal awaiting verification");
+    expect(retained?.nextStep).toContain("Then reassess whether to reduce spend.");
+  });
+
   it("keeps the specific held resolution when provider configuration also needs verification", () => {
     const held = heldRefreshFixture();
     const canonical = canonicalFixture({
@@ -4231,6 +4376,127 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(verdict?.nextStep).toContain(
       "Verify provider campaign configuration for the evaluation day and every economic day",
     );
+  });
+
+  it("leads with the source-backed profile hold and keeps a config gap secondary on the card", () => {
+    const held = heldRefreshFixture({
+      heldAction: "scale",
+      rawLabel: "scale",
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "scale",
+        postAuthorityRawLabel: "scale",
+        publishedLabel: "keep",
+        firstBlocker: {
+          code: "profile_hard_action_ineligible",
+          label: "Internal producer label",
+          explanation: "Internal producer explanation",
+        },
+      },
+      heldResolution: {
+        code: "await_scale_calibration_sample",
+        category: "system",
+        owner: "system",
+        label: "Scale Held — Calibration Sample Thin",
+        nextStep: "Internal producer next step",
+      },
+    });
+    const canonical = canonicalFixture({
+      decisionId: held.decisionId,
+      configEvidence: { verified: false } as MetaCanonicalDecision["configEvidence"],
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: heldWorkspace({ creatives: [held], canonical: [canonical] }),
+    });
+    const row = model.creativeDecisions?.[0];
+    expect(row?.note).toMatch(/^The account has too few mature creatives for the Scale calibration floor\./);
+    expect(row?.note).toContain("Verify provider campaign configuration for the evaluation day and every economic day");
+    expect(row?.heldVerdictNextStep).toBe(row?.note);
+    expect(JSON.stringify(row)).not.toContain("Internal producer");
+  });
+
+  it("names the first profile or role hold before a secondary config gap without guessing its sub-cause", () => {
+    const canonical = canonicalFixture({
+      configEvidence: { verified: false } as MetaCanonicalDecision["configEvidence"],
+    });
+    const held = heldRefreshFixture({
+      heldResolution: {
+        code: "complete_hard_action_evidence",
+        category: "system",
+        owner: "system",
+        label: "Complete Hard-Action Evidence",
+        nextStep: "Internal producer next step",
+      },
+    });
+    const firstBlocker = (code: "profile_hard_action_ineligible" | "campaign_context") => ({
+      ...held,
+      authorityProvenance: {
+        availability: "available" as const,
+        preAuthorityLabel: "refresh",
+        postAuthorityRawLabel: "refresh",
+        publishedLabel: "keep",
+        firstBlocker: { code, label: "Internal", explanation: "Internal" },
+      },
+    });
+    expect(heldCreativeVerdict(firstBlocker("profile_hard_action_ineligible"), canonical)?.nextStep).toMatch(
+      /^The decision profile does not yet authorize this change\./,
+    );
+    const roleStep = heldCreativeVerdict(firstBlocker("campaign_context"), canonical)?.nextStep;
+    expect(roleStep).toMatch(/^The campaign role is still unresolved\./);
+    expect(roleStep).toContain("Verify provider campaign configuration");
+    expect(roleStep).not.toContain("Campaign context must also be verified");
+  });
+
+  it("names a missing winner benchmark only for the producer's native-metrics hold", () => {
+    const held = heldRefreshFixture({
+      heldAction: "scale",
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "scale",
+        postAuthorityRawLabel: "scale",
+        publishedLabel: "keep",
+        firstBlocker: {
+          code: "native_metrics_unavailable",
+          label: "Internal",
+          explanation: "Internal",
+        },
+      },
+      heldResolution: {
+        code: "await_scale_winner_benchmark",
+        category: "system",
+        owner: "system",
+        label: "Scale Held — Winner Benchmark Missing",
+        nextStep: "Internal producer copy",
+      },
+    });
+    expect(heldCreativeVerdict(held)?.nextStep).toMatch(/^The account winner purchase benchmark is missing\./);
+  });
+
+  it("does not infer a specific held reason from a legacy display label", () => {
+    const held = heldRefreshFixture({
+      heldAction: "scale",
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "scale",
+        postAuthorityRawLabel: "scale",
+        publishedLabel: "keep",
+        firstBlocker: {
+          code: "native_metrics_unavailable",
+          label: "Internal",
+          explanation: "Internal",
+        },
+      },
+      heldResolution: {
+        code: "complete_hard_action_evidence",
+        category: "system",
+        owner: "system",
+        label: "Scale Held — Winner Benchmark Missing",
+        nextStep: "Untrusted legacy display copy",
+      },
+    });
+    const step = heldCreativeVerdict(held)?.nextStep;
+    expect(step).toContain("Complete the missing evidence before applying this change.");
+    expect(step).not.toContain("winner purchase benchmark");
   });
 
   it("names every typed prerequisite behind a held Cut without offering an action", () => {

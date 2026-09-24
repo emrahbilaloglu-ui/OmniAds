@@ -6,8 +6,33 @@ import {
   buildEvidenceSections,
   cardCampaignRoleStatus,
   cardCurrentRowScaleAction,
+  Sparkline,
 } from "@/components/creatives/briefing/card-utils";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
+
+describe("Sparkline", () => {
+  it("shows unavailable instead of inventing a zero trend for absent or thin measurements", () => {
+    for (const values of [null, [], [null, 0], [0, null, 0]]) {
+      const html = renderToStaticMarkup(<Sparkline values={values} />);
+      expect(html).toContain('data-briefing-sparkline-unavailable');
+      expect(html).toContain('aria-label="ROAS trend unavailable"');
+      expect(html).not.toContain("<svg");
+    }
+  });
+
+  it("draws measured zeros and leaves unmeasured gaps unconnected", () => {
+    const zeros = renderToStaticMarkup(<Sparkline values={[0, 0]} />);
+    expect(zeros).toContain('data-briefing-sparkline="true"');
+    expect(zeros).toContain('d="M0.0,16.0 L60.0,16.0"');
+
+    const partial = renderToStaticMarkup(
+      <Sparkline values={[0, 1, null, 2, 3]} />,
+    );
+    expect(partial).toContain(
+      'd="M0.0,16.0 L15.0,10.7 M45.0,5.3 L60.0,0.0"',
+    );
+  });
+});
 
 describe("buildEvidenceSections", () => {
   it("renders briefing funnel counts from the card payload", () => {

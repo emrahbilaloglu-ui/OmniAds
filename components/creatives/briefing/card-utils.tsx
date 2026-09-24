@@ -24,7 +24,6 @@ import {
   formatCurrency,
   formatRoas,
   initials,
-  sparklinePath,
   tileFor,
 } from "@/lib/briefing/utils";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
@@ -423,19 +422,60 @@ export function CampaignKindChip({
 // to encode direction; that renders as a solid currentColor stroke instead.
 const SPARK_GRADIENT_ID = "adsecute-spark-gradient";
 
+function observedSparklinePath(values: readonly (number | null)[] | null | undefined) {
+  if (!values || values.length < 2) return "";
+  const observed = values.filter(hasMetricValue);
+  if (observed.length < 2) return "";
+  const min = Math.min(...observed);
+  const range = Math.max(...observed) - min || 1;
+  const step = 60 / (values.length - 1);
+  let path = "";
+  let previousPoint: string | null = null;
+  let segmentHasLine = false;
+
+  values.forEach((value, index) => {
+    if (!hasMetricValue(value)) {
+      previousPoint = null;
+      segmentHasLine = false;
+      return;
+    }
+    const point = `${(index * step).toFixed(1)},${(16 - ((value - min) / range) * 16).toFixed(1)}`;
+    if (previousPoint) {
+      if (segmentHasLine) path += ` L${point}`;
+      else {
+        path += `${path ? " " : ""}M${previousPoint} L${point}`;
+        segmentHasLine = true;
+      }
+    }
+    previousPoint = point;
+  });
+  return path;
+}
+
 export function Sparkline({
   values,
   tone = "text-neutral-400",
   width = 80,
   height = 22,
 }: {
-  values?: number[] | null;
+  values?: Array<number | null> | null;
   tone?: string;
   width?: number;
   height?: number;
 }) {
-  const normalizedValues =
-    Array.isArray(values) && values.length > 0 ? values : [0, 0];
+  const path = observedSparklinePath(values);
+  if (!path) {
+    return (
+      <span
+        aria-label="ROAS trend unavailable"
+        className="inline-flex items-center justify-center text-[10px] text-neutral-400"
+        data-briefing-sparkline-unavailable
+        style={{ width, height }}
+      >
+        —
+      </span>
+    );
+  }
   const useGradient = !tone || tone === "text-neutral-400";
 
   return (
@@ -444,6 +484,7 @@ export function Sparkline({
       width={width}
       height={height}
       className={useGradient ? undefined : tone}
+      data-briefing-sparkline
       preserveAspectRatio="none"
       aria-hidden="true"
     >
@@ -456,7 +497,7 @@ export function Sparkline({
         </defs>
       ) : null}
       <path
-        d={sparklinePath(normalizedValues)}
+        d={path}
         fill="none"
         stroke={useGradient ? `url(#${SPARK_GRADIENT_ID})` : "currentColor"}
         strokeWidth="2"

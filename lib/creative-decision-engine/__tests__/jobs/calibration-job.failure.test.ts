@@ -21,6 +21,8 @@ describe("calibration job failure handling", () => {
     dbMocks.query
       .mockResolvedValueOnce([{ exists: true }])
       .mockResolvedValueOnce([])
+      // SET LOCAL jit = off, the job transaction's first statement.
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ acquired: true }])
       .mockResolvedValueOnce([{ id: jobRunId }])
       .mockResolvedValueOnce([])
@@ -31,6 +33,7 @@ describe("calibration job failure handling", () => {
     const result = await runCalibrationJob({
       businessId: "00000000-0000-4000-8000-000000000399",
       asOf: "2026-05-04",
+      evaluationCutoffAt: new Date().toISOString(),
     });
 
     expect(result).toMatchObject({
@@ -46,5 +49,13 @@ describe("calibration job failure handling", () => {
         typeof queryText === "string" && queryText.includes("status = 'failed'"),
     );
     expect(failedUpdate).toBeTruthy();
+
+    // JIT is disabled for the whole job transaction, before any statement the
+    // job issues inside it (the advisory lock is the first of those).
+    const statements = dbMocks.query.mock.calls.map(([queryText]) => String(queryText));
+    const jitOff = statements.indexOf("SET LOCAL jit = off");
+    const lock = statements.findIndex((text) => text.includes("pg_try_advisory_xact_lock"));
+    expect(jitOff).toBeGreaterThanOrEqual(0);
+    expect(jitOff).toBeLessThan(lock);
   });
 });

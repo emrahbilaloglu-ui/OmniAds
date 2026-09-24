@@ -26,6 +26,7 @@ import type {
   MetaCreativeApiRow,
   RawCreativeRow,
 } from "@/lib/meta/creatives-types";
+import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION } from "@/lib/meta/creatives-types";
 import type {
   MetaAdDailyRow,
   MetaCreativeDailyRow,
@@ -350,8 +351,9 @@ function adDailyReadApiRows(days: readonly MetaAdDailyRow[]) {
 
 /**
  * The creative-day writer, one sync per day: the day's ad rows round-trip the
- * ad-grain API row, are grouped at creative grain, and each group is persisted
- * with `buildMetaCreativeApiRow`'s row as `payload_json`
+ * ad-grain API row, are grouped by provider creative ID (the v2 writer
+ * contract), and each group is persisted with versioned membership in
+ * `payload_json`
  * (`syncMetaCreativesWarehouseDay`).
  */
 function syncCreativeDays(days: readonly MetaAdDailyRow[]): MetaCreativeDailyRow[] {
@@ -364,7 +366,14 @@ function syncCreativeDays(days: readonly MetaAdDailyRow[]): MetaCreativeDailyRow
     const rawRows = toApiRows(adGrainRows(facts))
       .map((row) => coerceRawCreativeRow(row))
       .filter((row): row is RawCreativeRow => Boolean(row));
-    for (const row of groupRows(rawRows, "creative", buildCreativeUsageMap(rawRows))) {
+    for (const row of groupRows(rawRows, "creative", buildCreativeUsageMap(rawRows),
+      { keyByProviderCreativeId: true })) {
+      const payload = buildMetaCreativeApiRow({
+        row,
+        cachedThumbnailUrl: null,
+        cardFallbackThumbnailUrl: null,
+        includeDebugFields: false,
+      });
       persisted.push({
         businessId: BUSINESS_ID,
         providerAccountId: PROVIDER_ACCOUNT_ID,
@@ -384,7 +393,7 @@ function syncCreativeDays(days: readonly MetaAdDailyRow[]): MetaCreativeDailyRow
         spend: row.spend,
         impressions: row.impressions,
         clicks: row.clicks,
-        reach: row.reach ?? row.impressions,
+        reach: row.reach ?? 0,
         frequency: row.frequency ?? null,
         conversions: row.purchases,
         revenue: row.purchase_value,
@@ -394,12 +403,14 @@ function syncCreativeDays(days: readonly MetaAdDailyRow[]): MetaCreativeDailyRow
         cpc: row.cpc_link,
         linkClicks: row.link_clicks,
         sourceSnapshotId: null,
-        payloadJson: buildMetaCreativeApiRow({
-          row,
-          cachedThumbnailUrl: null,
-          cardFallbackThumbnailUrl: null,
-          includeDebugFields: false,
-        }),
+        payloadJson: {
+          ...payload,
+          source_identity_version: META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
+          reach_aggregation: row.source_ad_ids?.length === 1
+            ? "single_ad_provider_reach"
+            : "sum_of_ad_reach_not_deduplicated",
+          historical_config_provenance: "unverified",
+        },
       } as MetaCreativeDailyRow);
     }
   }
@@ -412,6 +423,8 @@ function withoutSourceLists(day: MetaCreativeDailyRow): MetaCreativeDailyRow {
   delete payload.source_ad_ids;
   delete payload.source_ad_ids_complete;
   delete payload.source_creative_ids;
+  delete payload.source_identity_version;
+  delete payload.reach_aggregation;
   return { ...day, payloadJson: payload };
 }
 
@@ -649,9 +662,10 @@ describe("B4 — a grouped Studio row is matched to served decisions by its memb
     const niche = rows.find(
       (row) => row.name === "Niche-CoatRack-Tree-94dcd8d6",
     )!;
-    // A one-Ad day recorded all of its Ads.
+    // The old writer did not prove completeness even when its one recorded Ad
+    // happens to be the only Ad in this fixture. The exact Ad may still match.
     expect(niche.source_ad_ids).toEqual([NICHE_AD]);
-    expect(niche.source_ad_ids_complete).toBe(true);
+    expect(niche.source_ad_ids_complete).toBe(false);
 
     renderStudio({ rows, briefing });
 

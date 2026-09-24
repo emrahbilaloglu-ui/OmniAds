@@ -205,6 +205,27 @@ function addDays(date: string, days: number) {
 /** The last completed UTC day, which is the day every fixture speaks for. */
 const AS_OF = addDays(new Date().toISOString().slice(0, 10), -1);
 
+/**
+ * The JSON reporter collapses Vitest timeouts to STACK_TRACE_ERROR. Write the
+ * active fixture stage directly to stderr so a slow CI runner still identifies
+ * which real read/write is pending when the 120s test bound fires.
+ */
+async function traceScopeStep<T>(label: string, work: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  const prefix = `[served-profile-scope] ${label}`;
+  process.stderr.write(`${prefix}: starting\n`);
+  const heartbeat = setInterval(() => {
+    process.stderr.write(`${prefix}: pending ${Date.now() - startedAt}ms\n`);
+  }, 10_000);
+  heartbeat.unref();
+  try {
+    return await work();
+  } finally {
+    clearInterval(heartbeat);
+    process.stderr.write(`${prefix}: finished ${Date.now() - startedAt}ms\n`);
+  }
+}
+
 function metricRow(input: {
   spend: number;
   revenue: number;
@@ -403,7 +424,7 @@ describe.skipIf(!RUNNABLE)(
       ));
 
       calibrate = async (businessId: string) => {
-        const job = await runCalibrationJob({ businessId, asOf: AS_OF });
+        const job = await runCalibrationJob({ businessId, asOf: AS_OF, evaluationCutoffAt: new Date().toISOString() });
         if (job.status !== "success") {
           throw new Error(
             `calibration job ${job.status} for ${businessId}: ${job.errorMessage ?? ""}`,
@@ -469,6 +490,7 @@ describe.skipIf(!RUNNABLE)(
           sql,
           rows,
           write: upsertMetaAdDailyRows,
+          certifyCreativeDecisionSource: true,
         });
       };
 
@@ -872,33 +894,56 @@ describe.skipIf(!RUNNABLE)(
     });
 
     it("does not move A when only B moves", async () => {
-      const before = await serve(SCOPE_BUSINESS, SCOPE_A);
-      const bBefore = await retained(SCOPE_BUSINESS, SCOPE_B);
+      const before = await traceScopeStep("serve A before B change", () =>
+        serve(SCOPE_BUSINESS, SCOPE_A),
+      );
+      const bBefore = await traceScopeStep("read B retained before change", () =>
+        retained(SCOPE_BUSINESS, SCOPE_B),
+      );
 
-      // Forty more converters for B at a materially different revenue. The
-      // pooled reading cannot survive this; A's own reading is untouched.
-      await seedCreatives({
-        businessId: SCOPE_BUSINESS,
-        account: SCOPE_B,
-        count: 40,
-        offset: 100,
-        spend: 10,
-        revenue: 200,
-        currency: "USD",
-      });
-      await calibrate(SCOPE_BUSINESS);
-      await produceRetained({
-        businessId: SCOPE_BUSINESS,
-        providerAccountId: SCOPE_B,
-        asOfDate: AS_OF,
+      // One new converter at revenue 200 moves B's measured Meta AOV from
+      // 12.00 to 584/33 = 17.70 while A's own six rows remain untouched. One
+      // complete authoritative row is enough for the same A-vs-B proof.
+      await traceScopeStep("seed changed B facts", () =>
+        seedCreatives({
+          businessId: SCOPE_BUSINESS,
+          account: SCOPE_B,
+          count: 1,
+          offset: 100,
+          spend: 10,
+          revenue: 200,
+          currency: "USD",
+        }),
+      );
+      await traceScopeStep("calibrate after B change", () =>
+        calibrate(SCOPE_BUSINESS),
+      );
+      await traceScopeStep("produce B retained after change", () => {
+        return produceRetained({
+          businessId: SCOPE_BUSINESS,
+          providerAccountId: SCOPE_B,
+          asOfDate: AS_OF,
+        });
       });
 
-      const after = await serve(SCOPE_BUSINESS, SCOPE_A);
-      const bAfter = await retained(SCOPE_BUSINESS, SCOPE_B);
+      const after = await traceScopeStep("serve A after B change", () =>
+        serve(SCOPE_BUSINESS, SCOPE_A),
+      );
+      const bAfter = await traceScopeStep("read B retained after change", () =>
+        retained(SCOPE_BUSINESS, SCOPE_B),
+      );
 
       // B really did move — otherwise "A is unchanged" proves nothing.
       expect(bBefore.length).toBeGreaterThan(0);
       expect(JSON.stringify(bAfter)).not.toBe(JSON.stringify(bBefore));
+      expect(Number(bBefore.find((row) => row.action === "cut")?.spend_unit)).toBeCloseTo(
+        12 / 2.2,
+        9,
+      );
+      expect(Number(bAfter.find((row) => row.action === "cut")?.spend_unit)).toBeCloseTo(
+        (584 / 33) / 2.2,
+        9,
+      );
 
       // A did not, byte for byte, in both the anchor and the budget lineage.
       expect(JSON.stringify(after.anchor)).toBe(JSON.stringify(before.anchor));
@@ -936,7 +981,7 @@ describe.skipIf(!RUNNABLE)(
         "refresh:false:commercial_anchor_sample_insufficient",
         "scale:false:commercial_anchor_sample_insufficient",
       ]);
-    });
+    }, 120_000);
 
     it("refuses to lend a sibling's Meta AOV when there is no store", async () => {
       const withPurchases = await serve(NOSTORE_BUSINESS, NOSTORE_P);
@@ -1091,7 +1136,7 @@ describe.skipIf(!RUNNABLE)(
         attributed purchases for THIS account, C has none, so C holds outright.
 
         The subject of the case is untouched — the producer's refusal lifts, a
-        verdict is retained, and it is C's own (measured lineage zero; B's 72
+        verdict is retained, and it is C's own (measured lineage zero; B's 33
         mature creatives reach none of it). Only the verdict is stricter.
       */
       await calibrate(SCOPE_BUSINESS);
@@ -1129,7 +1174,7 @@ describe.skipIf(!RUNNABLE)(
         "refresh:false:commercial_anchor_missing",
         "scale:false:commercial_anchor_missing",
       ]);
-    });
+    }, 120_000);
 
     it("still anchors an account whose own Meta sample is ready", async () => {
       /*

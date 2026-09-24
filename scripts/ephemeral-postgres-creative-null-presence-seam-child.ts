@@ -29,6 +29,7 @@
 import { getDb } from "@/lib/db";
 import { runCalibrationJob } from "@/lib/creative-decision-engine/jobs/calibration-job";
 import { runLifecycleJob } from "@/lib/creative-decision-engine/jobs/lifecycle-job";
+import { seedCanonicalMetaAdDailyFacts } from "@/lib/creative-decision-engine/meta-aov-calculator.test-helpers";
 import { groupRows } from "@/lib/meta/creatives-row-mappers";
 import {
   META_CREATIVE_DAY_METRIC_EVIDENCE_KEY,
@@ -1287,6 +1288,20 @@ async function proveCreativeGrainEngineEquivalence() {
   const CREATIVE_COUNT = 50;
 
   await db.query(`DELETE FROM meta_creative_daily WHERE business_id = $1`, [BUSINESS_ID]);
+  // The storage cases above seeded two unrelated Ad facts on this same day.
+  // This calibration fixture owns a complete synthetic D101 account-day, so
+  // retire those facts before publishing its exact 50-Ad source manifest.
+  await db.query(`DELETE FROM meta_ad_daily WHERE business_id = $1 AND date = $2::date`, [BUSINESS_ID, ASOF]);
+  await db.query(
+    `INSERT INTO business_provider_accounts (
+       business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+     ) SELECT $1, 'meta', account.id, $2, TRUE
+       FROM provider_accounts account
+      WHERE account.provider = 'meta' AND account.external_account_id = $2
+     ON CONFLICT (business_id, provider, provider_account_ref_id)
+     DO UPDATE SET is_selected = TRUE`,
+    [BUSINESS_ID, PROVIDER_ACCOUNT_ID],
+  );
   await db.query(
     `INSERT INTO business_engine_v3_flags (business_id, enabled, surface_visible, shadow_only)
      VALUES ($1, TRUE, TRUE, FALSE)
@@ -1317,11 +1332,11 @@ async function proveCreativeGrainEngineEquivalence() {
     };
   });
 
-  await upsertMetaCreativeDailyRows(
-    rows.map((row) =>
+  const creativeRows = rows.map((row) =>
       ({
         businessId: BUSINESS_ID,
         providerAccountId: PROVIDER_ACCOUNT_ID,
+        sourceSnapshotId: null,
         date: ASOF,
         campaignId: "cmp-eq-grain",
         adsetId: "adset-eq-grain",
@@ -1337,6 +1352,7 @@ async function proveCreativeGrainEngineEquivalence() {
         accountCurrency: "USD",
         metricSchemaVersion: 1,
         objective: "OUTCOME_SALES",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
         effectiveStatus: "ACTIVE",
         creativeVisualFormat: "video",
         spend: row.spend,
@@ -1371,9 +1387,15 @@ async function proveCreativeGrainEngineEquivalence() {
               }
             : {}),
         },
-      }) as never,
-    ),
-  );
+      }) as MetaCreativeDailyRow,
+    );
+  await upsertMetaCreativeDailyRows(creativeRows);
+  await seedCanonicalMetaAdDailyFacts({
+    sql: db,
+    rows: creativeRows,
+    write: upsertMetaAdDailyRows,
+    certifyCreativeDecisionSource: true,
+  });
 
   // ── World ZERO ─────────────────────────────────────────────────────────────
   // Every link_clicks becomes a stored 0, which is exactly what production has
@@ -1389,7 +1411,10 @@ async function proveCreativeGrainEngineEquivalence() {
     unmeasuredIds.length,
     "the unmeasured half of the pool is stored with link_clicks = 0",
   );
-  const zeroWorld = await runCalibrationJob({ businessId: BUSINESS_ID, asOf: ASOF });
+  // This isolated seam seeds rows now; each job evaluates exactly the rows
+  // already written at its captured instant, including the later NULL flip.
+  const zeroWorld = await runCalibrationJob({ businessId: BUSINESS_ID, asOf: ASOF,
+    evaluationCutoffAt: new Date().toISOString() });
   if (zeroWorld.status !== "success") {
     fail("zero-world calibration", `status=${zeroWorld.status} ${zeroWorld.errorMessage ?? ""}`);
   }
@@ -1442,7 +1467,8 @@ async function proveCreativeGrainEngineEquivalence() {
     "the measured half is untouched, so any moved percentile is attributable to the flipped half",
   );
 
-  const nullWorld = await runCalibrationJob({ businessId: BUSINESS_ID, asOf: ASOF });
+  const nullWorld = await runCalibrationJob({ businessId: BUSINESS_ID, asOf: ASOF,
+    evaluationCutoffAt: new Date().toISOString() });
   if (nullWorld.status !== "success") {
     fail("null-world calibration", `status=${nullWorld.status} ${nullWorld.errorMessage ?? ""}`);
   }
@@ -1534,7 +1560,8 @@ async function proveCreativeGrainEngineEquivalence() {
   // reported". The creative carries no measurement stamp, so it has NOT been
   // measured, and the persisted artifact now says so: NULL. It becomes a number
   // when the creative-day is re-synced by the stamping writer, and not before.
-  const lifecycle = await runLifecycleJob({ businessId: BUSINESS_ID, asOf: ASOF });
+  const lifecycle = await runLifecycleJob({ businessId: BUSINESS_ID, asOf: ASOF,
+    evaluationCutoffAt: new Date().toISOString() });
   if (lifecycle.status !== "success") {
     fail("lifecycle job", `status=${lifecycle.status} ${lifecycle.errorMessage ?? ""}`);
   }

@@ -117,6 +117,8 @@ export interface CreativesQueryParams {
   requestStartedAt: number;
   allowSnapshotPersistence?: boolean;
   allowSnapshotRefreshTrigger?: boolean;
+  /** Repair/warehouse reads must refuse partial Meta pagination and account errors. */
+  strictSourceCompleteness?: boolean;
 }
 
 export type CreativesApiResponse = {
@@ -195,6 +197,7 @@ export async function buildCreativesResponse(
     requestStartedAt,
     allowSnapshotPersistence = true,
     allowSnapshotRefreshTrigger = true,
+    strictSourceCompleteness = false,
   } = query;
   const debugLoggingEnabled = isRuntimeLogLevelEnabled("debug");
   const shouldEnableCreativeBasicsFallback =
@@ -326,7 +329,9 @@ export async function buildCreativesResponse(
       const [insights, accountMeta] = await Promise.all([
         (async () => {
           const t = Date.now();
-          const result = await fetchAccountInsights(accountId, accessToken, start, end);
+          const result = await fetchAccountInsights(accountId, accessToken, start, end, {
+            strictComplete: strictSourceCompleteness,
+          });
           accountPerf.insights_ms += Date.now() - t;
           return result;
         })(),
@@ -341,6 +346,16 @@ export async function buildCreativesResponse(
       accountPerf.insights_rows = insights.length;
 
       const rowCandidateInsights = insights.filter(shouldBuildCreativeRowFromInsight);
+      if (strictSourceCompleteness && rowCandidateInsights.some((row) => !row.ad_id?.trim())) {
+        throw new Error(`meta_creative_insights_ad_identity_missing:${accountId}`);
+      }
+      const accountRawRowsStart = rawRows.length;
+      if (strictSourceCompleteness) {
+        const ids = rowCandidateInsights.map((row) => row.ad_id!.trim());
+        if (new Set(ids).size !== ids.length) {
+          throw new Error(`meta_creative_insights_duplicate_ad_identity:${accountId}`);
+        }
+      }
       const positiveSpendInsights = rowCandidateInsights.filter(
         (item) => metricNumber(item.spend) > 0,
       );
@@ -744,6 +759,13 @@ export async function buildCreativesResponse(
           }
         }
       }
+      if (strictSourceCompleteness) {
+        const expected = new Set(rowCandidateInsights.map((row) => row.ad_id!.trim()));
+        const actual = rawRows.slice(accountRawRowsStart).map((row) => row.real_ad_id ?? row.id);
+        if (actual.length !== expected.size || actual.some((id) => !expected.has(id))) {
+          throw new Error(`meta_creative_insights_row_coverage_incomplete:${accountId}`);
+        }
+      }
       accountPerf.rows_build_ms += Date.now() - tRowsBuild;
       accountPerf.rows_built += insights.length;
       perf.accounts.push(accountPerf);
@@ -751,6 +773,7 @@ export async function buildCreativesResponse(
       perf.counters.creative_ids_for_details = (perf.counters.creative_ids_for_details ?? 0) + creativeIdsForDetails.length;
       perf.counters.account_image_hashes_seen = (perf.counters.account_image_hashes_seen ?? 0) + accountImageHashes.length;
     } catch (error: unknown) {
+      if (strictSourceCompleteness) throw error;
       console.warn("[meta-creatives] account fetch failed", {
         businessId,
         accountId,

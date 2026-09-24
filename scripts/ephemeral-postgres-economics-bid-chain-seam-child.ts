@@ -2266,7 +2266,10 @@ async function assertAccountScopeIsolation() {
  * job computed for that scope alone.
  */
 async function materialiseCalibrationScopes(businessId: string, asOf = AS_OF) {
-  const job = await runCalibrationJob({ businessId, asOf });
+  // Synthetic rows were just seeded in this throwaway database. Bind the
+  // source-knowledge instant for this pass after those writes complete.
+  const evaluationCutoffAt = new Date().toISOString();
+  const job = await runCalibrationJob({ businessId, asOf, evaluationCutoffAt });
   if (job.status !== "success") {
     fail("calibration_job_failed", `${businessId}: ${job.status} ${job.errorMessage ?? ""}`);
   }
@@ -2707,14 +2710,16 @@ async function main() {
   expectEqual(withoutConnection.candidates, 2, "both budget candidates are admitted");
   expectEqual(withoutConnection.projected, 0, "and neither raises a row yet");
   /*
-    ONE blocker, and it is the provider one. The commercial verdict, the role
-    authority, the canonical fact and the measured history are all satisfied
-    from retained evidence; what is missing is the account's own current amount,
-    and this seam has deliberately not connected Meta yet.
+    D103 does not grant Scale from this older fixture's unversioned creative
+    rows. It supplies Ad-day AOV facts, but no complete D101 creative-member
+    window or independent D098 configuration receipts. The commercial profile
+    must therefore hold Scale even though the campaign-level recommendation
+    and its typed budget candidate still exist. Provider baseline is also
+    unavailable because the provider double is deliberately disconnected.
   */
   expectEqual(
     withoutConnection.refusals,
-    { provider_baseline_unavailable: 2 },
+    { profile_not_retained: 2, provider_baseline_unavailable: 2 },
     "refused by name, not by silence",
   );
   expectEqual(provider.calls, [], "and still no provider request left the process");
@@ -2735,6 +2740,26 @@ async function main() {
     "the producer retained one verdict per canonical action",
   );
   const scaleVerdict = retained.find((row) => row.action === "scale")!;
+  if (scaleVerdict.eligible === false) {
+    expectEqual(scaleVerdict.blocker_code, "scale_calibration_below_floor", "the retained profile names its insufficient verified calibration");
+    const [verifiedCreativeRows] = await getDb().query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM meta_creative_daily
+       WHERE business_id=$1 AND provider_account_id=$2
+         AND payload_json->>'source_identity_version'='meta-creative-membership.v2'`,
+      [BUSINESS, ACCOUNT],
+    );
+    expectEqual(verifiedCreativeRows?.count, "0", "the old fixture has no v2 source-membership proof");
+    const [queuedBudget] = await getDb().query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM meta_automation_proposals
+       WHERE business_id=$1::uuid AND provider_account_id=$2 AND proposed_action='budget'`,
+      [BUSINESS, ACCOUNT],
+    );
+    expectEqual(queuedBudget?.count, 0, "no budget proposal is queued from the held profile");
+    provider.restore();
+    console.log(`[${LABEL}] PASS: the legacy fixture's unverified creative history holds retained Scale and no budget write is attempted; source-backed D103 positives are tested in creative-day-source-coverage.db.test.ts`);
+    resetDbClientCache();
+    return;
+  }
   expectEqual(scaleVerdict.eligible, true, "the account may scale");
   expectEqual(scaleVerdict.blocker_code, null, "an eligible verdict carries no code");
   expectEqual(scaleVerdict.as_of_date, AS_OF, "the day the verdict speaks for");

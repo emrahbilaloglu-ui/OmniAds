@@ -426,6 +426,17 @@ const UNION_REPRESENTATIVE: Record<string, string> = {
 };
 
 const OVERRIDES: Record<string, { base: unknown; alt: unknown }> = {
+  // The page now validates the workspace envelope against its read-model scope
+  // before rendering decisions. Keep the probe's baseline business identity
+  // coherent; mutating either leaf alone still proves the fail-closed gate.
+  "MetaDecisionsWorkspacePayload.businessId": {
+    base: "biz_probe",
+    alt: "biz_probe_alt",
+  },
+  "MetaDecisionsWorkspaceReadModel.scope.businessId": {
+    base: "biz_probe",
+    alt: "biz_probe_alt",
+  },
   /*
     PRE-DEPLOY AUDIT — the budget evidence panel's open-shape leaves.
 

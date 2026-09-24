@@ -5,7 +5,11 @@ import type {
 } from "@/lib/meta/decisions-workspace-contract";
 
 export const META_OS_DECISIONS_PRESENTATION_VERSION =
-  "meta-os-decisions.presentation.v5" as const;
+  "meta-os-decisions.presentation.v6" as const;
+
+export type MetaOsDecisionsPresentationVersion =
+  | typeof META_OS_DECISIONS_PRESENTATION_VERSION
+  | "meta-os-decisions.presentation.v5";
 
 export type MetaOsWorkspaceBannerScope =
   | "workspace"
@@ -276,7 +280,7 @@ export function assertCanonicalDecisionAction(action: MetaOsDecisionAction): Met
 export interface MetaOsDecisionPriority {
   band: "high" | "medium" | "low" | "unrankable";
   rank: number | null;
-  version: typeof META_OS_DECISIONS_PRESENTATION_VERSION;
+  version: MetaOsDecisionsPresentationVersion;
 }
 
 export interface MetaOsDecisionUrgency {
@@ -497,6 +501,12 @@ export interface MetaOsAdDecision {
   /** The specific resolution for the HELD verdict, not the published one. */
   heldResolution?: MetaOsDecisionResolution | null;
   metrics: MetaOsDecisionMetrics;
+  /**
+   * Whether the Ad performance row behind these values was observed. Older
+   * served payloads omit this; without a canonical envelope their numeric
+   * zeros cannot safely be presented as measured zeros.
+   */
+  adPerformanceAvailability?: "observed" | "unavailable";
   /** `image` | `video` | `catalog` from the decided-from lifecycle row. */
   creativeFormat?: string | null;
   /** `none` | `watch` | `fatigued` | `unknown` from the same row. */
@@ -557,7 +567,7 @@ export interface MetaOsInactiveAsset {
 }
 
 export interface MetaOsDecisionsPresentation {
-  contractVersion: typeof META_OS_DECISIONS_PRESENTATION_VERSION;
+  contractVersion: MetaOsDecisionsPresentationVersion;
   generatedAt: string;
   source: {
     snapshotAsOf: string | null;

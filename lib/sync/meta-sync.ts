@@ -18,6 +18,8 @@ import {
 } from "@/lib/meta/provider-local-day";
 import { sanitizeMetaGraphTraceId } from "@/lib/meta/graph-trace-id";
 import { syncMetaCreativesWarehouseDay } from "@/lib/meta/creatives-warehouse";
+import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION } from "@/lib/meta/creatives-types";
+import { certifyCreativeDayConfigFromReceipts } from "@/lib/meta/creative-day-config-proof";
 import {
   META_PRODUCT_CORE_PARTITION_SCOPE,
   META_CORE_PARTITION_SCOPES,
@@ -703,6 +705,11 @@ const META_CREATIVE_WAREHOUSE_INCREMENTAL_COOLDOWN_MINUTES = envNumber(
   "META_CREATIVE_WAREHOUSE_INCREMENTAL_COOLDOWN_MINUTES",
   55,
 );
+// Only the two most recent finalized provider-local days get an automatic
+// legacy-membership upgrade. Older days require source-backed repair rather
+// than repeated current-provider reads masquerading as historical proof.
+const META_CREATIVE_MEMBERSHIP_UPGRADE_FINALIZED_DAYS = 2;
+const META_CREATIVE_MEMBERSHIP_UPGRADE_RETRY_HOURS = 6;
 const META_RECENT_RECOVERY_DAYS = envNumber("META_RECENT_RECOVERY_DAYS", 14);
 const META_RUN_PROGRESS_GRACE_MINUTES = envNumber(
   "META_RUN_PROGRESS_GRACE_MINUTES",
@@ -2132,10 +2139,146 @@ export function shouldBypassMetaCoverageShortCircuit(input: {
   return input.authorityBootstrapForced === true;
 }
 
+type MetaCreativeMembershipUpgradeState = {
+  legacyDecisionBearingRows: number;
+  unmatchedDecisionBearingAds: number;
+  configPendingRows: number;
+};
+
+export function metaCreativeRecentRepairNeeded(
+  state: MetaCreativeMembershipUpgradeState | null | undefined,
+) {
+  return metaCreativeMembershipUpgradeNeeded(state) ||
+    Boolean(state && state.configPendingRows > 0);
+}
+
+export function metaCreativeMembershipUpgradeNeeded(
+  state: MetaCreativeMembershipUpgradeState | null | undefined,
+) {
+  return Boolean(state && (
+    state.legacyDecisionBearingRows > 0 ||
+    state.unmatchedDecisionBearingAds > 0
+  ));
+}
+
+export async function readMetaCreativeMembershipUpgradeState(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+}): Promise<MetaCreativeMembershipUpgradeState> {
+  const [row] = await getDb().query<{
+    legacy_rows: number;
+    unmatched_ad_rows: number;
+    config_pending_rows: number;
+  }>(
+    `WITH creative AS (
+       SELECT c.creative_id, c.payload_json, c.objective, c.optimization_goal,
+         (c.spend <> 0 OR c.impressions <> 0 OR c.clicks <> 0 OR
+          c.conversions <> 0 OR c.revenue <> 0 OR c.link_clicks <> 0) AS has_signal,
+         (c.payload_json->>'source_identity_version' = $4 AND
+          c.payload_json->>'source_ad_ids_complete' = 'true' AND
+          CASE WHEN jsonb_typeof(c.payload_json->'source_ad_ids') = 'array'
+            THEN jsonb_array_length(c.payload_json->'source_ad_ids') ELSE 0 END > 0 AND
+          c.payload_json->>'associated_ads_count' =
+            CASE WHEN jsonb_typeof(c.payload_json->'source_ad_ids') = 'array'
+              THEN jsonb_array_length(c.payload_json->'source_ad_ids')::text ELSE NULL END AND
+          CASE WHEN jsonb_typeof(c.payload_json->'source_creative_ids') = 'array'
+            THEN jsonb_array_length(c.payload_json->'source_creative_ids') ELSE 0 END = 1 AND
+          c.payload_json->'source_creative_ids'->>0 = c.creative_id
+         ) AS versioned_membership
+       FROM meta_creative_daily c
+       WHERE c.business_id = $1 AND c.provider_account_id = $2 AND c.date = $3::date
+     ), members AS (
+       SELECT member.ad_id, COUNT(*)::int AS membership_count
+       FROM creative c
+       CROSS JOIN LATERAL jsonb_array_elements_text(
+         CASE WHEN c.versioned_membership
+           THEN c.payload_json->'source_ad_ids' ELSE '[]'::jsonb END
+       ) AS member(ad_id)
+       GROUP BY member.ad_id
+     ), expected AS (
+       SELECT ad_id FROM meta_ad_daily
+       WHERE business_id = $1 AND provider_account_id = $2 AND date = $3::date
+         AND truth_state = 'finalized' AND validation_status = 'passed'
+         AND (spend <> 0 OR impressions <> 0 OR clicks <> 0 OR
+              conversions <> 0 OR revenue <> 0 OR link_clicks <> 0)
+     )
+     SELECT
+       (SELECT COUNT(*)::int FROM creative
+         WHERE has_signal AND NOT COALESCE(versioned_membership, false)) AS legacy_rows,
+       (SELECT COUNT(*)::int FROM expected e
+         LEFT JOIN members m ON m.ad_id = e.ad_id
+         WHERE COALESCE(m.membership_count, 0) <> 1) AS unmatched_ad_rows,
+       (SELECT COUNT(*)::int FROM creative
+         WHERE has_signal AND versioned_membership AND
+           payload_json->>'source_parent_grain_complete' = 'true' AND
+           (COALESCE(payload_json->>'historical_config_provenance', '') NOT IN
+              ('provider_receipt_day_bracketed',
+               'provider_receipt_legacy_bracketed') OR
+            jsonb_typeof(payload_json->'historical_config_proof') IS DISTINCT FROM
+              'object' OR
+            objective IS DISTINCT FROM
+              payload_json->'historical_config_proof'->>'objective' OR
+            optimization_goal IS DISTINCT FROM
+              payload_json->'historical_config_proof'->>'optimization_goal' OR
+            payload_json->>'custom_event_type' IS DISTINCT FROM
+              payload_json->'historical_config_proof'->>'custom_event_type' OR
+            payload_json->>'custom_conversion_id' IS DISTINCT FROM
+              payload_json->'historical_config_proof'->>'custom_conversion_id'))
+         AS config_pending_rows`,
+    [input.businessId, input.providerAccountId, input.day,
+      META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION],
+  );
+  return {
+    legacyDecisionBearingRows: Number(row?.legacy_rows ?? 0),
+    unmatchedDecisionBearingAds: Number(row?.unmatched_ad_rows ?? 0),
+    configPendingRows: Number(row?.config_pending_rows ?? 0),
+  };
+}
+
 export function shouldBypassMetaCreativeCoverageShortCircuit(input: {
   truthState: "provisional" | "finalized";
+  day?: string;
+  providerLocalToday?: string;
+  legacyDecisionBearingRows?: number;
+  unmatchedDecisionBearingAds?: number;
 }) {
-  return input.truthState === "provisional";
+  if (input.truthState === "provisional") return true;
+  if (!input.day || !input.providerLocalToday ||
+    ((input.legacyDecisionBearingRows ?? 0) <= 0 &&
+      (input.unmatchedDecisionBearingAds ?? 0) <= 0)) return false;
+  // A complete old creative_daily day is not proof of v2 Ad membership. A
+  // provider-local D-1/D-2 partition may retry its strict writer; older days
+  // require source-backed historical repair, not an unbounded current GET.
+  return input.day < input.providerLocalToday &&
+    input.day >= addUtcDays(
+      input.providerLocalToday,
+      -META_CREATIVE_MEMBERSHIP_UPGRADE_FINALIZED_DAYS,
+    );
+}
+
+export function resolveMetaCreativePartitionAction(input: {
+  truthState: "provisional" | "finalized";
+  coverageComplete: boolean;
+  day: string;
+  providerLocalToday?: string;
+  membershipState?: MetaCreativeMembershipUpgradeState | null;
+}): "sync_writer" | "certify_config" | "skip" {
+  if (!input.coverageComplete || shouldBypassMetaCreativeCoverageShortCircuit({
+    truthState: input.truthState,
+    day: input.day,
+    providerLocalToday: input.providerLocalToday,
+    legacyDecisionBearingRows:
+      input.membershipState?.legacyDecisionBearingRows,
+    unmatchedDecisionBearingAds:
+      input.membershipState?.unmatchedDecisionBearingAds,
+  })) return "sync_writer";
+  // Receipt certification is DB-only and remains retryable after an older
+  // historical partition's writer has already completed its v2 membership.
+  // The bounded D-1/D-2 rule above still governs provider re-fetches.
+  if (input.membershipState?.configPendingRows &&
+    input.truthState === "finalized") return "certify_config";
+  return "skip";
 }
 
 export function resolveMetaTruthState(input: {
@@ -2787,10 +2930,27 @@ async function syncMetaPartitionDay(input: {
   }
 
   if (input.scopes.includes("creative_daily")) {
-    const forceCreativeRefetch = shouldBypassMetaCreativeCoverageShortCircuit({
+    // Read the small account/day membership state on any complete finalized
+    // partition. Older days never re-enter the provider writer, but a failed
+    // receipt read must not disappear behind the coverage short circuit.
+    const membershipState = coverageState.creativesComplete &&
+      truthState === "finalized"
+      ? await readMetaCreativeMembershipUpgradeState({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          day: normalizedDay,
+        })
+      : null;
+    const creativeAction = resolveMetaCreativePartitionAction({
       truthState,
+      coverageComplete: coverageState.creativesComplete,
+      day: normalizedDay,
+      providerLocalToday: partitionAuthority.trusted
+        ? partitionAuthority.providerLocalToday
+        : undefined,
+      membershipState,
     });
-    if (forceCreativeRefetch || !coverageState.creativesComplete) {
+    if (creativeAction === "sync_writer") {
       await syncMetaCreativesWarehouseDay({
         businessId: input.businessId,
         day: normalizedDay,
@@ -2801,6 +2961,17 @@ async function syncMetaPartitionDay(input: {
           input.day >= getCreativeMediaRetentionStart(referenceToday)
             ? "full"
             : "metadata",
+      });
+    } else if (creativeAction === "certify_config") {
+      // Once membership is v2, later D098 receipts can certify configuration
+      // without another Meta request. This certifier is idempotent and only
+      // writes proof-backed values; absent receipts leave the row unverified.
+      await certifyCreativeDayConfigFromReceipts({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        day: normalizedDay,
+        knowledgeCutoffAt:
+          (input.evaluationNow ?? new Date()).toISOString(),
       });
     }
   }
@@ -3333,13 +3504,24 @@ function isMetaCreativeDailyFullScanWindow(now = new Date()) {
 function isRecentCreativeWarehouseAttemptFresh(
   finishedAt: string | null | undefined,
   nowMs = Date.now(),
+  cooldownMinutes = META_CREATIVE_WAREHOUSE_INCREMENTAL_COOLDOWN_MINUTES,
 ) {
   const finishedAtMs = parseTimestampMs(finishedAt);
   if (!finishedAtMs) return false;
   return (
     nowMs - finishedAtMs <
-    META_CREATIVE_WAREHOUSE_INCREMENTAL_COOLDOWN_MINUTES * 60_000
+    cooldownMinutes * 60_000
   );
+}
+
+export function metaCreativeMembershipUpgradeCooldownMinutes(input: {
+  legacyMembershipUpgradeNeeded: boolean;
+  previousSource: string | null | undefined;
+}) {
+  return input.legacyMembershipUpgradeNeeded &&
+    input.previousSource === "repair_recent_day"
+    ? META_CREATIVE_MEMBERSHIP_UPGRADE_RETRY_HOURS * 60
+    : META_CREATIVE_WAREHOUSE_INCREMENTAL_COOLDOWN_MINUTES;
 }
 
 async function enqueueMetaCreativeWarehouseDate(input: {
@@ -3349,6 +3531,7 @@ async function enqueueMetaCreativeWarehouseDate(input: {
   source: MetaSyncPartitionSource;
   priority: number;
   enforceIncrementalCooldown?: boolean;
+  legacyMembershipUpgradeNeeded?: boolean;
 }) {
   const existingPartitions = await getMetaPartitionStatesForDate({
     businessId: input.businessId,
@@ -3364,7 +3547,15 @@ async function enqueueMetaCreativeWarehouseDate(input: {
   if (
     input.enforceIncrementalCooldown &&
     existing?.status === "succeeded" &&
-    isRecentCreativeWarehouseAttemptFresh(existing.finishedAt)
+    isRecentCreativeWarehouseAttemptFresh(
+      existing.finishedAt,
+      Date.now(),
+      metaCreativeMembershipUpgradeCooldownMinutes({
+        legacyMembershipUpgradeNeeded:
+          input.legacyMembershipUpgradeNeeded === true,
+        previousSource: existing.source,
+      }),
+    )
   ) {
     return 0;
   }
@@ -3376,7 +3567,11 @@ async function enqueueMetaCreativeWarehouseDate(input: {
     partitionDate: input.date,
     status: "queued",
     priority: input.priority,
-    source: input.source,
+    // This durable source distinguishes an actual v2-upgrade attempt from an
+    // older successful no-op partition, so rollout is not delayed six hours.
+    source: input.legacyMembershipUpgradeNeeded
+      ? "repair_recent_day"
+      : input.source,
     attemptCount: 0,
   }).catch(() => null);
   return row?.id && row.status === "queued" ? 1 : 0;
@@ -3397,8 +3592,37 @@ async function enqueueMetaCreativeWarehousePartitions(
       today,
       -(Math.max(1, META_CREATIVE_WAREHOUSE_RECENT_ENQUEUE_DAYS) - 1),
     );
+    const upgradeDates = [
+      finalizedEndDate,
+      addUtcDays(today, -META_CREATIVE_MEMBERSHIP_UPGRADE_FINALIZED_DAYS),
+    ];
+    const repairStateByDay = new Map<string, MetaCreativeMembershipUpgradeState>();
+    const failedRepairProbes = new Set<string>();
+    for (const date of new Set(upgradeDates)) {
+      const state = await readMetaCreativeMembershipUpgradeState({
+        businessId, providerAccountId, day: date,
+      }).catch((error) => {
+        // A failed probe is not proof that the old day needs no repair. Queue
+        // its bounded retry so the partition can surface the failure and run
+        // again when the read path recovers.
+        failedRepairProbes.add(date);
+        console.warn("[meta-sync] creative_membership_upgrade_probe_failed", {
+          businessId, providerAccountId, day: date,
+          message: durableMetaFailureMessage(error),
+        });
+        return null;
+      });
+      if (state) repairStateByDay.set(date, state);
+    }
     const recentDates = Array.from(
-      new Set([finalizedEndDate, ...enumerateDays(recentStartDate, today, true)]),
+      new Set([
+        finalizedEndDate,
+        ...enumerateDays(recentStartDate, today, true),
+        ...(metaCreativeRecentRepairNeeded(repairStateByDay.get(upgradeDates[1])) ||
+          failedRepairProbes.has(upgradeDates[1])
+          ? [upgradeDates[1]]
+          : []),
+      ]),
     ).sort();
 
     for (const date of recentDates) {
@@ -3416,6 +3640,8 @@ async function enqueueMetaCreativeWarehousePartitions(
         priority:
           source === "finalize_day" ? 64 : source === "today_observe" ? 62 : 58,
         enforceIncrementalCooldown: true,
+        legacyMembershipUpgradeNeeded:
+          metaCreativeMembershipUpgradeNeeded(repairStateByDay.get(date)),
       });
     }
 

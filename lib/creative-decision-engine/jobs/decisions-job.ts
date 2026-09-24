@@ -1,4 +1,5 @@
 import { getDb, runDbTransaction } from "@/lib/db";
+import { requireCreativeDayEvaluationCutoffAt } from "@/lib/meta/creative-day-decision-admission";
 import {
   readCampaignContextMap,
   type CampaignContextEntryWithProvenance,
@@ -38,6 +39,7 @@ type JobStatus = "success" | "failed" | "skipped";
 export interface DecisionsJobInput {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
 }
 
 export interface DecisionsJobResult {
@@ -294,6 +296,7 @@ WITH lifecycle_binding AS (
     AND engine_version = $2
     AND creative_id = ANY($3::text[])
     AND as_of_date <= $4::date
+    AND computed_at <= $5::timestamptz
   ORDER BY creative_id, as_of_date DESC, computed_at DESC
 ),
 warehouse_binding AS (
@@ -304,6 +307,8 @@ warehouse_binding AS (
   WHERE business_ref_id = $1::uuid
     AND creative_id = ANY($3::text[])
     AND date BETWEEN ($4::date - INTERVAL '29 days') AND $4::date
+    AND created_at <= $5::timestamptz
+    AND updated_at <= $5::timestamptz
   ORDER BY creative_id, date DESC, updated_at DESC
 )
 SELECT
@@ -420,6 +425,7 @@ export function decisionsJobAdvisoryLockKey(input: DecisionsJobInput): bigint {
 export async function runDecisionsJob(
   input: DecisionsJobInput,
 ): Promise<DecisionsJobResult> {
+  requireCreativeDayEvaluationCutoffAt(input.evaluationCutoffAt);
   const startedAt = Date.now();
   const businessGuardFailure = await getBusinessGuardFailure(input.businessId);
   if (businessGuardFailure?.reason === "invalid_business_id") {
@@ -525,7 +531,7 @@ export async function runDecisionsJob(
 
       await db.query("SAVEPOINT engine_v3_decisions_job_work");
       try {
-        const dataSource = new WarehouseDataSource();
+        const dataSource = new WarehouseDataSource(input.evaluationCutoffAt);
         /*
           THE BUSINESS-WIDE PROFILE, which is still resolved and still resolved
           FIRST, for two reasons that are not the per-ad decisions below.
@@ -605,6 +611,7 @@ export async function runDecisionsJob(
         const accountByCreative = await readProviderAccountIdByCreative({
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
           creativeIds: creativeInputs.map(
             (creativeInput) => creativeInput.creativeId,
           ),
@@ -612,6 +619,7 @@ export async function runDecisionsJob(
         const profileByAccount = await resolveProfilesByProviderAccount({
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
           flags,
           providerAccountIds: [...accountByCreative.values()],
         });
@@ -625,6 +633,7 @@ export async function runDecisionsJob(
         const campaignLabelsById = await readCreativeCampaignRolesById({
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
           creativeInputs,
         });
         const rawDecisions: DecisionComputation[] = creativeInputs.map(
@@ -651,6 +660,7 @@ export async function runDecisionsJob(
         const previousLabels = await readPreviousPublishedLabels({
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
           creativeIds: dedupedDecisions.map((d) => d.input.creativeId),
         });
         const rawLabelsByCreative = new Map<string, DecisionLabel>();
@@ -672,12 +682,13 @@ export async function runDecisionsJob(
         const lifecycleJoin = await findLatestLifecycleRowIdsByCreative({
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
           creativeIds,
         });
         const lifecycleRowIdsByCreative = lifecycleJoin.byCreative;
         const calibrationRowId = await findLatestCalibrationRowId(input);
 
-        const computedAt = new Date().toISOString();
+        const computedAt = input.evaluationCutoffAt;
         const snapshotRows = decisions.map(
           ({ input: creativeInput, decision }) =>
             toSnapshotPayloadRow({
@@ -719,6 +730,7 @@ export async function runDecisionsJob(
         const previousSnapshots = await findPreviousSnapshotsByCreative({
           businessId: input.businessId,
           asOf: input.asOf,
+          evaluationCutoffAt: input.evaluationCutoffAt,
           creativeIds,
         });
         const changeEventRows = toDecisionChangeEventRows({
@@ -750,6 +762,7 @@ export async function runDecisionsJob(
             snapshotsWritten,
             JSON.stringify({
               metadata: {
+                evaluation_cutoff_at: input.evaluationCutoffAt,
                 change_event_count: changeEventsWritten,
                 pruned_snapshot_count: pruneResult.prunedSnapshots,
                 pruned_event_count: pruneResult.prunedEvents,
@@ -818,10 +831,12 @@ async function findLatestSuccessfulLifecycleRun(input: DecisionsJobInput) {
       AND as_of_date = $3::date
       AND engine_version = $4
       AND status = 'success'
+      AND error_json#>>'{metadata,evaluation_cutoff_at}' <= $5::text
     ORDER BY finished_at DESC NULLS LAST, started_at DESC
     LIMIT 1
     `,
-    [LIFECYCLE_JOB_NAME, input.businessId, input.asOf, ENGINE_VERSION],
+    [LIFECYCLE_JOB_NAME, input.businessId, input.asOf, ENGINE_VERSION,
+      input.evaluationCutoffAt],
   );
 
   return toStringOrNull(row?.id);
@@ -876,6 +891,7 @@ async function insertJobRun(input: {
 async function findLatestLifecycleRowIdsByCreative(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   creativeIds: string[];
 }) {
   if (input.creativeIds.length === 0) {
@@ -890,9 +906,11 @@ async function findLatestLifecycleRowIdsByCreative(input: {
       AND engine_version = $2
       AND creative_id = ANY($3::text[])
       AND as_of_date <= $4::date
+      AND computed_at <= $5::timestamptz
     ORDER BY creative_id, as_of_date DESC, computed_at DESC
     `,
-    [input.businessId, ENGINE_VERSION, input.creativeIds, input.asOf],
+    [input.businessId, ENGINE_VERSION, input.creativeIds, input.asOf,
+      input.evaluationCutoffAt],
   );
 
   // A decision can legitimately bind a prior-day lifecycle row (catch-up,
@@ -925,10 +943,11 @@ async function findLatestCalibrationRowId(input: DecisionsJobInput) {
       AND creative_format = 'overall'
       AND engine_version = $2
       AND as_of_date <= $3::date
+      AND computed_at <= $4::timestamptz
     ORDER BY as_of_date DESC, computed_at DESC
     LIMIT 1
     `,
-    [input.businessId, ENGINE_VERSION, input.asOf],
+    [input.businessId, ENGINE_VERSION, input.asOf, input.evaluationCutoffAt],
   );
 
   return toStringOrNull(row?.id);
@@ -1032,13 +1051,15 @@ async function upsertDecisionSnapshots(rows: DecisionSnapshotPayloadRow[]) {
 async function readProviderAccountIdByCreative(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   creativeIds: string[];
 }): Promise<Map<string, string>> {
   if (input.creativeIds.length === 0) return new Map();
 
   const rows = await getDb().query<ProviderAccountByCreativeRow>(
     READ_PROVIDER_ACCOUNT_BY_CREATIVE_QUERY,
-    [input.businessId, ENGINE_VERSION, input.creativeIds, input.asOf],
+    [input.businessId, ENGINE_VERSION, input.creativeIds, input.asOf,
+      input.evaluationCutoffAt],
   );
 
   return new Map(
@@ -1071,6 +1092,7 @@ async function readProviderAccountIdByCreative(input: {
 async function resolveProfilesByProviderAccount(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   flags: EngineV3Flags;
   providerAccountIds: ReadonlyArray<string | null | undefined>;
 }): Promise<Map<string, AccountDecisionProfile>> {
@@ -1091,7 +1113,7 @@ async function resolveProfilesByProviderAccount(input: {
             businessId: input.businessId,
             asOf: input.asOf,
             dataSource: new AccountScopedDataSource(
-              new WarehouseDataSource(),
+              new WarehouseDataSource(input.evaluationCutoffAt),
               account,
             ),
             flags: input.flags,
@@ -1200,6 +1222,7 @@ async function pruneStaleSnapshotsPerScope(input: {
 async function findPreviousSnapshotsByCreative(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   creativeIds: string[];
 }) {
   if (input.creativeIds.length === 0)
@@ -1214,11 +1237,13 @@ async function findPreviousSnapshotsByCreative(input: {
       AND engine_version = $2
       AND creative_id = ANY($3::text[])
       AND as_of_date < $4::date
+      AND computed_at <= $5::timestamptz
       AND scope_type = 'account'
       AND scope_id = '*'
     ORDER BY creative_id, as_of_date DESC, computed_at DESC
     `,
-    [input.businessId, ENGINE_VERSION, input.creativeIds, input.asOf],
+    [input.businessId, ENGINE_VERSION, input.creativeIds, input.asOf,
+      input.evaluationCutoffAt],
   );
 
   return new Map(
@@ -1328,6 +1353,7 @@ export function dedupeDecisionComputations(
 async function readCreativeCampaignRolesById(input: {
   businessId: string;
   asOf: string;
+  evaluationCutoffAt: string;
   creativeInputs: CreativeInput[];
 }) {
   const campaignIds = Array.from(
@@ -1370,6 +1396,7 @@ async function readCreativeCampaignRolesById(input: {
         providerAccountId,
         campaignIds: scopedCampaignIds,
         asOf: input.asOf,
+        visibleAtCutoff: input.evaluationCutoffAt,
       }),
     ),
   );

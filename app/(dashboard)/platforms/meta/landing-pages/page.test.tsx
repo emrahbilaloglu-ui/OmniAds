@@ -245,8 +245,8 @@ describe("Landing Pages: a 200 with no rows is not automatically empty", () => {
    * operator's account produced by a read that never happened.
    */
   it.each([
-    ["no_connection", "Creative data is temporarily unavailable."],
-    ["no_accounts_assigned", "Creative data is temporarily unavailable."],
+    ["no_connection", "Landing page data could not be loaded. Try again."],
+    ["no_accounts_assigned", "Landing page data could not be loaded. Try again."],
   ])(
     "reports %s as unavailable rather than an empty window",
     (status, message) => {

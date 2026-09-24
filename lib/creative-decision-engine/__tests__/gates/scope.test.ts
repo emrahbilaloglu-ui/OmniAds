@@ -22,6 +22,70 @@ describe("scopeGate", () => {
     expect(result.kind).toBe("advance");
   });
 
+  it("keeps an unverified creative visible as a typed diagnosis before reading its objective", () => {
+    const result = scopeGate(
+      makeGateContext({
+        input: makeCreativeInput({
+          objective: "OUTCOME_SALES",
+          configProvenanceStatus: "unverified",
+        }),
+      }),
+    );
+
+    if (result.kind !== "terminal") throw new Error("Expected a held diagnosis");
+    expect(result.output.label).toBe("diagnose");
+    expect(result.output.reason).toContain("config_provenance_unverified");
+    expect(result.output.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "config_provenance_unverified",
+          status: "missing",
+        }),
+      ]),
+    );
+    expect(result.output.confidence).toBeLessThanOrEqual(40);
+  });
+
+  it("keeps an incomplete Ad-day source window visible without granting a hard decision", () => {
+    const result = scopeGate(makeGateContext({ input: makeCreativeInput({
+      objective: "OUTCOME_SALES",
+      configProvenanceStatus: "verified",
+      sourceCoverageStatus: "incomplete",
+    }) }));
+    if (result.kind !== "terminal") throw new Error("Expected a held diagnosis");
+    expect(result.output.label).toBe("diagnose");
+    expect(result.output.reason).toContain("creative_source_coverage_incomplete");
+    expect(result.output.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ predicate: "creative_source_coverage_incomplete", status: "missing" }),
+    ]));
+  });
+
+  it("labels a later creative-day repair as after-cutoff knowledge, not absent Meta data", () => {
+    const result = scopeGate(makeGateContext({ input: makeCreativeInput({
+      objective: "OUTCOME_SALES",
+      configProvenanceStatus: "verified",
+      sourceCoverageStatus: "after_cutoff",
+    }) }));
+    if (result.kind !== "terminal") throw new Error("Expected a held diagnosis");
+    expect(result.output.label).toBe("diagnose");
+    expect(result.output.reason).toContain("creative_source_knowledge_after_cutoff");
+    expect(result.output.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ predicate: "creative_source_knowledge_after_cutoff", status: "missing" }),
+    ]));
+  });
+
+  it("allows a separately verified creative-day config to continue through scope", () => {
+    const result = scopeGate(
+      makeGateContext({
+        input: makeCreativeInput({
+          objective: "OUTCOME_SALES",
+          configProvenanceStatus: "verified",
+        }),
+      }),
+    );
+    expect(result.kind).toBe("advance");
+  });
+
   it("advances a known, singular purchase decision grain", () => {
     const result = scopeGate(
       makeGateContext({

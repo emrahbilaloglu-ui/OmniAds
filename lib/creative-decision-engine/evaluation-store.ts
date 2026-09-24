@@ -11,6 +11,10 @@ import {
 } from "@/lib/meta/funnel-stage-parse";
 import { META_AD_DAY_LINK_CLICK_CONTRACT_VERSION } from "@/lib/meta/link-click-parse";
 import {
+  META_CREATIVE_DAY_PARENT_GRAIN_CONTRACT_VERSION,
+  META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
+} from "@/lib/meta/creatives-types";
+import {
   canonicalSha256,
   stableCanonicalJson,
   type CanonicalEvaluationProvenance,
@@ -48,6 +52,18 @@ export type { DecisionAuthorityBlocker };
  */
 export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   /*
+  `.v15` — the authenticated Cut-only account AOV overlay can supply the
+  recent-spend sufficiency floor when the exact cell's floor is unavailable.
+  Economic verdicts can change, so the `.v14` contract key is not reused for
+  this new producer behavior; any earlier rows keep their original key.
+
+  `.v14` — the creative-day writer now groups by provider creative id and
+  retains exact member-Ad and single-parent identity. Native-Ad economic facts
+  and resolver math remain Ad-grain, but the creative lifecycle overlay is
+  carried in the hashed `creativeEvidence` input. Its source interpretation
+  therefore needs explicit markers; `.v13` rows keep their original envelope
+  and epoch.
+
   `.v12` — the ad-grain input envelope binds the custom-conversion identity and
   the config observation/verified-window verdict. Before this, a provider
   receipt could change hard-action authority without changing any of the three
@@ -76,12 +92,15 @@ export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   readable under their own key and are never recomputed under current
   semantics.
 */
-  "engine-v3-canonical-ad-evaluation.v13" as const;
+  "engine-v3-canonical-ad-evaluation.v15" as const;
 
 /**
- * The metric parsing rules a `.v13` ad evaluation's inputs were read under.
- * `.v13` adds cutoff-safe, physical-account daily-coverage provenance; it does
- * not restate the observation/publication clock as the reporting-day age.
+ * The source interpretation rules a `.v14` ad evaluation's inputs use.
+ * `.v14` binds creative-day membership and parent-grain contracts because its
+ * lifecycle overlay is hashed even though it does not authorize native-Ad
+ * actions.
+ * `.v13` added cutoff-safe, physical-account daily-coverage provenance without
+ * restating the observation/publication clock as the reporting-day age.
  * Enumerated and hashed (see `metricContract` in the input envelope).
  */
 export const NATIVE_AD_METRIC_CONTRACT = {
@@ -90,6 +109,8 @@ export const NATIVE_AD_METRIC_CONTRACT = {
   adDayLinkClick: META_AD_DAY_LINK_CLICK_CONTRACT_VERSION,
   sourceCoverageFreshness:
     META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
+  creativeDayMembership: META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
+  creativeDayParentGrain: META_CREATIVE_DAY_PARENT_GRAIN_CONTRACT_VERSION,
 } as const;
 
 export interface AdDecisionEvaluationIdentity {

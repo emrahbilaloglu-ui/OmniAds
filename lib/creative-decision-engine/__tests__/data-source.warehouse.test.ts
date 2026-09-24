@@ -589,7 +589,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
       });
     });
 
-    it("reads account calibration across engine version bumps", async () => {
+    it("does not grant current decision authority to an older creative-membership calibration", async () => {
       await insertPrecomputedCalibration({
         engineVersion: "v3-2026-05-04-phase-3.5",
       });
@@ -604,11 +604,11 @@ describe.skipIf(!process.env.DATABASE_URL)(
         asOf: AS_OF,
       });
 
-      expect(calibration.matureCreativeCount).toBe(35);
-      expect(health.calibration.fallbackMode).toBe("precomputed");
-      expect(health.calibration.note).toBe(
-        "computed by engine v3-2026-05-04-phase-3.5",
-      );
+      expect(calibration.matureCreativeCount).not.toBe(35);
+      // The old epoch cannot seed this one, and without any v2 creative-day
+      // plus receipt proof there is no population for a runtime recalibration.
+      expect(health.calibration.fallbackMode).toBe("insufficient");
+      expect(health.calibration.note).not.toContain("computed by engine v3-2026-05-04-phase-3.5");
     });
 
     it("reports lifecycle health as precomputed when lifecycle rows exist", async () => {
@@ -698,7 +698,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
       expect(health.calibration.fallbackMode).toBe("insufficient");
       expect(health.calibration.staleTier).toBe("warning");
       expect(health.calibration.note).toBe(
-        "no precomputed row available; runtime fallback in use",
+        "No receipt-verified creative-day data in the 90-day calibration window",
       );
     });
 

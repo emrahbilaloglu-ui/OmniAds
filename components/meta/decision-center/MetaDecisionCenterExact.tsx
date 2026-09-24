@@ -828,6 +828,8 @@ export interface MetaDecisionCenterExactProps {
   levels?: readonly MetaDecisionCenterExactLevel[];
   onLevelsChange?: (levels: MetaDecisionCenterExactLevel[]) => void;
   onSearchChange?: (query: string) => void;
+  /** More eligible Ad decisions exist beyond the server's current page. */
+  canLoadMoreCreatives?: boolean;
   /**
    * The search term restored from the deep link. The queue is filtered by
    * the page against this same value, so if the box did not show it the
@@ -1984,6 +1986,7 @@ function CreativeCard({
           </div>
         ) : null}
         <div className={styles.creativeMoneyBlock}>
+          <p className={styles.creativeSparkLabel}>{copy.decisionWindowed}</p>
           <p className={styles.moneyValue}>{display(row.money)}</p>
           <p className={styles.moneySub}>{display(row.moneySub)}</p>
         </div>
@@ -2654,6 +2657,7 @@ export function MetaDecisionCenterExact({
   levels = [],
   onLevelsChange,
   onSearchChange,
+  canLoadMoreCreatives = false,
   initialQuery = "",
   onOpenCreativeStudio,
 }: MetaDecisionCenterExactProps) {
@@ -2732,6 +2736,18 @@ export function MetaDecisionCenterExact({
     activeFilters.length > 0
       ? copy.noRowMatchesFilters.replace("{filters}", activeFilters.join(" · "))
       : copy.laneServedNoRows;
+  // Search covers only the Ad decisions the server has served so far. An
+  // empty filtered page cannot prove that a matching creative is absent from
+  // the eligible rows still behind the server cap.
+  const creativeEmptyReason = canLoadMoreCreatives
+    ? language === "tr"
+      ? activeFilters.length > 0
+        ? "Yüklenen kreatif kararlarında bu filtrelerle eşleşme yok. Kalan uygun kararları kontrol etmek için aşağıdan daha fazla karar yükleyin."
+        : "Bu bölümde henüz yüklenmiş kreatif kararı yok. Kalan uygun kararları kontrol etmek için aşağıdan daha fazla karar yükleyin."
+      : activeFilters.length > 0
+        ? "No match among loaded creative decisions. Show more decisions below to check the remaining eligible rows."
+        : "No creative decisions are loaded in this lane yet. Show more decisions below to check the remaining eligible rows."
+    : laneEmptyReason;
   const blockedCreativeRows =
     viewModel.creativeGroups?.find((group) => group.id === "blocked")?.rows
       .length ?? 0;
@@ -3151,7 +3167,9 @@ export function MetaDecisionCenterExact({
             <CreativesScope
               decisions={viewModel.creativeDecisions ?? []}
               emptyReason={
-                activeCreativeLane === "action"
+                canLoadMoreCreatives
+                  ? creativeEmptyReason
+                  : activeCreativeLane === "action"
                   ? actionEmptyReason
                   : laneEmptyReason
               }

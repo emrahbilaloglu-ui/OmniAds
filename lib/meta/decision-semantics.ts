@@ -152,7 +152,7 @@ function resolutionForAuthorityBlocker(
     */
     if (heldAction === "scale" && hasThinScaleSampleEvidence(predicateBlockers)) {
       return {
-        code: "complete_hard_action_evidence",
+        code: "await_scale_calibration_sample",
         category: "system",
         owner: "system",
         label: "Scale Held — Calibration Sample Thin",
@@ -202,7 +202,7 @@ function resolutionForAuthorityBlocker(
     */
     if (heldAction === "scale" && hasMissingScaleWinnerBenchmark(predicateBlockers)) {
       return {
-        code: "complete_hard_action_evidence",
+        code: "await_scale_winner_benchmark",
         category: "system",
         owner: "system",
         label: "Scale Held — Winner Benchmark Missing",
@@ -419,7 +419,10 @@ function resolutionForAuthorityBlocker(
   };
 }
 
-function resolutionFor(codes: ReadonlySet<string>): MetaDecisionResolution {
+function resolutionFor(
+  codes: ReadonlySet<string>,
+  preferMissingAdMetrics = false,
+): MetaDecisionResolution {
   if (codes.has("policy_blocked")) {
     return {
       code: "fix_policy",
@@ -466,6 +469,21 @@ function resolutionFor(codes: ReadonlySet<string>): MetaDecisionResolution {
       owner: "operator",
       label: "Fix Landing Page",
       nextStep: "Review landing-page continuity and conversion before judging this ad.",
+    };
+  }
+  // A non-held diagnosis can carry both this badge and an unresolved campaign
+  // role. Without a finalized native Ad insights row there is no measured
+  // performance to interpret, so the role is not the next evidence gap. Keep
+  // this priority local to diagnoses: a held hard verdict must continue to use
+  // its recorded authority blocker.
+  if (preferMissingAdMetrics && codes.has("ad_metrics_unavailable")) {
+    return {
+      code: "refresh_decision_data",
+      category: "data",
+      owner: "integration",
+      label: "Ad Performance Data Unavailable",
+      nextStep:
+        "No finalized native Ad insights row exists for this decision window; zero spend is not measured performance. Verify the data feed and ad delivery, then evaluate again when Ad-level evidence is available.",
     };
   }
   if (
@@ -638,7 +656,7 @@ export function projectMetaDecisionSemantics(input: {
       decisionState: "blocked",
       legacyBuyerAction: input.legacyBuyerAction,
       buyerAction: null,
-      resolution: resolutionFor(evidenceCodes),
+      resolution: resolutionFor(evidenceCodes, true),
       heldAction: null,
     };
   }

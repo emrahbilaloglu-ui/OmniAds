@@ -1200,6 +1200,48 @@ async function runChildVitest(
   });
 
   if (exitCode !== 0) {
+    // JSON reporter suppresses Vitest's usual assertion output. Surface a
+    // bounded failure before the throwaway runner deletes its database.
+    if (fs.existsSync(reportPath)) {
+      try {
+        const failedReport = JSON.parse(fs.readFileSync(reportPath, "utf8")) as {
+          testResults?: Array<{
+            name?: string;
+            message?: string;
+            assertionResults?: Array<{
+              fullName?: string;
+              status?: string;
+              duration?: number;
+              failureMessages?: string[];
+            }>;
+          }>;
+        };
+        for (const file of failedReport.testResults ?? []) {
+          for (const assertion of file.assertionResults ?? []) {
+            if (assertion.status !== "failed") continue;
+            const messages = (assertion.failureMessages ?? []).join("\n");
+            // Vitest reports a test/hook timeout with the stack of its
+            // placeholder `Error("STACK_TRACE_ERROR")`, which drops the
+            // "timed out in Nms" text. Name it, or it reads as an assertion.
+            const kind = messages.startsWith("Error: STACK_TRACE_ERROR")
+              ? "TIMEOUT (vitest test/hook timeout; stack marks the declaration)"
+              : "assertion/error";
+            const duration = typeof assertion.duration === "number"
+              ? ` after ${Math.round(assertion.duration)}ms`
+              : "";
+            log(
+              `${runLabel} failed [${kind}${duration}]: ${assertion.fullName ?? file.name ?? testPath}\n` +
+                messages.slice(0, 12_000),
+            );
+          }
+          if (file.message) {
+            log(`${runLabel} file failure: ${file.message.slice(0, 12_000)}`);
+          }
+        }
+      } catch (error) {
+        log(`${runLabel} report parse failed: ${String(error)}`);
+      }
+    }
     throw new Error(`${runLabel} exited with code ${exitCode}.`);
   }
 
@@ -1231,6 +1273,43 @@ async function runChildVitest(
     );
   }
   log(`${runLabel} exited clean.`);
+}
+
+/*
+  Whether this cluster can JIT-compile is a timing fact every later seam
+  inherits. Ubuntu's PostgreSQL 16 (CI and production) ships LLVM JIT with
+  jit=on; Homebrew's build has no JIT. A large generated statement whose cost
+  estimate crosses jit_optimize_above_cost then pays seconds of compilation per
+  execution in CI only, which reads as an unexplained CI-only stall.
+*/
+async function logPlannerJitEnvironment(databaseUrl: string): Promise<void> {
+  const client = new Client({ connectionString: databaseUrl });
+  try {
+    await client.connect();
+    const { rows } = await client.query<{
+      available: boolean;
+      jit: string;
+      above: string;
+      optimize: string;
+      inline: string;
+    }>(
+      `SELECT pg_jit_available() AS available,
+              current_setting('jit') AS jit,
+              current_setting('jit_above_cost') AS above,
+              current_setting('jit_optimize_above_cost') AS optimize,
+              current_setting('jit_inline_above_cost') AS inline`,
+    );
+    const row = rows[0];
+    log(
+      `planner JIT: available=${row?.available} jit=${row?.jit} ` +
+        `above_cost=${row?.above} optimize_above_cost=${row?.optimize} ` +
+        `inline_above_cost=${row?.inline}`,
+    );
+  } catch (error) {
+    log(`planner JIT: unreadable (${String(error).slice(0, 200)})`);
+  } finally {
+    await client.end().catch(() => {});
+  }
 }
 
 function dbAdapter(client: Client): DbClient {
@@ -3194,6 +3273,7 @@ async function main() {
       ],
       "createdb",
     );
+    await logPlannerJitEnvironment(databaseUrl);
 
     // Three separate child processes: lib/migrations.ts keeps module-level
     // "already completed" state, so in-process re-runs would be no-ops and
@@ -3484,9 +3564,9 @@ async function main() {
       Strict Meta AOV currency binding and exact timestamp cutoff.
 
       The commercial anchor must accept only Meta purchase evidence whose
-      recorded currency matches the bound Meta account. The fourth case admits
-      a fact at the exact microsecond cutoff while rejecting it one nanosecond
-      earlier. These cases need the migrated provider binding and daily-fact
+      recorded currency matches the bound Meta account. The seam also checks
+      exact microsecond cutoff and western local-day finalization after UTC
+      midnight. These cases need the migrated provider binding and daily-fact
       tables, so register the real PostgreSQL seam rather than letting its
       gated tests report as skipped.
     */
@@ -3499,7 +3579,7 @@ async function main() {
         "meta-aov-calculator.db.test.ts",
       ),
       "Strict Meta AOV currency binding and timestamp precision DB seam check",
-      4,
+      5,
     );
 
     /*
@@ -3748,7 +3828,23 @@ async function main() {
       databaseUrl,
       path.join("lib", "creative-decision-engine", "creative-day-metric-evidence.db.test.ts"),
       "Creative-day measurement stamp DB seam check",
-      10,
+      15,
+    );
+
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "creative-day-source-coverage.db.test.ts"),
+      "Creative-day D101 full source coverage DB seam check",
+      15,
+    );
+
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "creative-decision-engine", "__tests__", "jobs", "decision-outcomes-job.test.ts"),
+      "Creative outcome snapshot and knowledge-cutoff DB seam check",
+      4,
     );
 
     /*
@@ -4151,6 +4247,9 @@ async function main() {
       ["app/api/meta/bootstrap-account-population.db.test.ts", "Meta bootstrap account population", 8],
       ["app/api/meta/anchor-scope-transition-serve.db.test.ts", "Meta anchor scope transition", 6],
       ["lib/creative-decision-engine/profile-scope-callers-account-scope.db.test.ts", "Meta profile scope callers", 4],
+      // Provisions its own logging cluster: proves the decision reads' backend
+      // runs with jit=off, on the CI build that actually has LLVM JIT.
+      ["lib/creative-decision-engine/data-source.jit-scope.db.test.ts", "Creative decision read JIT scope", 5],
     ] as const) {
       await runChildVitest(repoRoot, databaseUrl, file, `${label} DB seam check`, count);
     }

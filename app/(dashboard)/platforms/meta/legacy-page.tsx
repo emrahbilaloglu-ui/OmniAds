@@ -7,11 +7,13 @@ import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { MetaPlatformPage } from "@/components/meta/redesign/MetaPlatformPage";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/app-store";
+import { useOptionalWorkspaceContext } from "@/components/workspace/workspace-context-provider";
 
 interface MetaPageProps {
   businessId?: string | null;
   businessName?: string | null;
   currency?: string | null;
+  businessTimezone?: string | null;
   // The canonical route already resolves the provider account on the server.
   // Forwarding it lets the body fall back to that answer when the client-side
   // accounts read is down, instead of leaving the whole surface empty behind an
@@ -147,6 +149,7 @@ export default function MetaPage({
   businessId: authorizedBusinessId = null,
   businessName: authorizedBusinessName = null,
   currency: authorizedCurrency = null,
+  businessTimezone: authorizedBusinessTimezone = null,
   serverProviderAccountId = null,
   accountSelection = "local",
   decisionWorkflowUiEnabled,
@@ -154,6 +157,7 @@ export default function MetaPage({
 }: MetaPageProps = {}) {
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const scopedBusinessId = useOptionalWorkspaceContext()?.business?.id ?? null;
   const workspaceResolved = useAppStore((state) => state.workspaceResolved);
   const searchParams = useSearchParams();
 
@@ -171,6 +175,22 @@ export default function MetaPage({
   const businessId = authorizedBusinessId ?? selectedBusinessId;
   const business = businesses.find((item) => item.id === businessId) ?? null;
   const requestedBusinessId = searchParams?.get("businessId")?.trim() || null;
+
+  // Compare with the business the shell actually displays. Canonical routes
+  // have their own server-scoped envelope, which correctly outranks a stale
+  // client store selection on a direct link. Unscoped shells use the store;
+  // while a session switch is in flight, hide the old server answer there.
+  if (
+    authorizedBusinessId &&
+    (scopedBusinessId ?? selectedBusinessId) &&
+    authorizedBusinessId !== (scopedBusinessId ?? selectedBusinessId)
+  ) {
+    return (
+      <div data-meta-scope-binding="pending" role="status">
+        Switching business…
+      </div>
+    );
+  }
 
   if (!businessId) return <BusinessEmptyState />;
 
@@ -201,6 +221,7 @@ export default function MetaPage({
       businessId={businessId}
       businessName={authorizedBusinessName ?? business?.name ?? null}
       currency={authorizedCurrency ?? business?.currency ?? null}
+      businessTimezone={authorizedBusinessTimezone ?? business?.timezone ?? null}
       serverProviderAccountId={serverProviderAccountId}
       accountSelection={accountSelection}
       decisionWorkflowUiEnabled={decisionWorkflowUiEnabled}

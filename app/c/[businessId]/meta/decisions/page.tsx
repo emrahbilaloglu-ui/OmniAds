@@ -128,6 +128,7 @@ export default async function MetaDecisionsPage({
         businessId={businessId}
         businessName={business?.name ?? null}
         currency={business?.currency ?? null}
+        businessTimezone={business?.timezone ?? null}
         serverProviderAccountId={providerAccountId}
         accountSelection={readMetaReleaseGates().accountPicker ? "shared" : "local"}
         /*

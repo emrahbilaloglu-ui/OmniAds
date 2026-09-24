@@ -154,6 +154,39 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
 }
 
 describe("resolveAccountDecisionProfile", () => {
+  it("finishes one optional calibration read before starting the next", async () => {
+    const dataSource = new ProfileDataSource(null);
+    const events: string[] = [];
+    const readAccountKinds = dataSource.getAccountCalibrationAllKinds.bind(dataSource);
+    const readFunnelKinds = dataSource.getAccountFunnelCalibrationAllKinds.bind(dataSource);
+    dataSource.getAccountCalibrationAllKinds = async () => {
+      events.push("account:start");
+      await Promise.resolve();
+      events.push("account:end");
+      return readAccountKinds();
+    };
+    dataSource.getAccountFunnelCalibrationAllKinds = async () => {
+      events.push("funnel:start");
+      await Promise.resolve();
+      events.push("funnel:end");
+      return readFunnelKinds();
+    };
+
+    await resolveAccountDecisionProfile({
+      businessId: "biz-1",
+      asOf: "2026-05-04",
+      dataSource,
+      flags: makeFlags(),
+    });
+
+    expect(events).toEqual([
+      "account:start",
+      "account:end",
+      "funnel:start",
+      "funnel:end",
+    ]);
+  });
+
   it("validates account-AOV arithmetic without a fixed currency minor-unit tolerance", () => {
     expect(
       isAccountAovRevenueArithmeticConsistent({

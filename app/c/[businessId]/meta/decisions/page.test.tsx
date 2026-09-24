@@ -137,7 +137,7 @@ beforeEach(() => {
       name: "Client Store Selection",
       currency: "USD",
     },
-    { id: "biz_route", name: "Route Business", currency: "TRY" },
+    { id: "biz_route", name: "Route Business", currency: "TRY", timezone: "Europe/Istanbul" },
   ] as never);
   vi.mocked(providerScope.resolveProviderAccountId).mockResolvedValue(
     "act_assigned",
@@ -174,6 +174,7 @@ describe("Meta Decisions canonical route authority", () => {
       businessId: "biz_route",
       businessName: "Route Business",
       currency: "TRY",
+      businessTimezone: "Europe/Istanbul",
       serverProviderAccountId: "act_assigned",
       accountSelection: "local",
       // Stated rather than left absent, and false because nothing set
@@ -232,6 +233,7 @@ describe("Meta Decisions canonical route authority", () => {
       businessId: "biz_route",
       businessName: "Route Business",
       currency: "TRY",
+      businessTimezone: "Europe/Istanbul",
       serverProviderAccountId: null,
       accountSelection: "local",
       decisionWorkflowUiEnabled: false,

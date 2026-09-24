@@ -201,6 +201,7 @@ describe("WarehouseDataSource lifecycle hydration", () => {
       2,
       1.5,
       "2026-04-20T12:00:00.000Z",
+      expect.any(String),
     ]);
     expect(query.mock.calls[0]?.[0]).toContain(
       "effective_at <= $2::timestamptz",
@@ -334,6 +335,7 @@ describe("WarehouseDataSource lifecycle hydration", () => {
           2,
           1.5,
           "2026-04-20T12:00:00.000Z",
+          expect.any(String),
         ]);
         return [runtimeRow("creative-b", 45)];
       }
@@ -362,6 +364,48 @@ describe("WarehouseDataSource lifecycle hydration", () => {
       1,
     ]);
     expect(query).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps a config-unverified creative visible when a partial lifecycle table has other rows", async () => {
+    query.mockImplementation(async (queryText: string) => {
+      if (queryText.includes("FROM business_target_pack_history")) {
+        return [targetPackRow()];
+      }
+      if (queryText.includes("FROM engine_v3_creative_lifecycle_daily l")) {
+        return [lifecycleRow("verified", 123)];
+      }
+      if (queryText.includes("FROM meta_creative_daily")) {
+        expect(queryText).toContain("config_authority AS (");
+        expect(queryText).toContain("source_parent_grain_complete");
+        expect(queryText).toContain(
+          "FILTER (WHERE d.spend <> 0 OR d.conversions <> 0 OR d.revenue <> 0 OR d.impressions <> 0 OR d.clicks <> 0)",
+        );
+        return [
+          runtimeRow("verified", 123),
+          { ...runtimeRow("unverified", 45), config_authority_verified: false },
+          { ...runtimeRow("after_cutoff", 20), source_coverage_verified: false,
+            source_coverage_after_cutoff: true },
+        ];
+      }
+      return [];
+    });
+
+    const inputs = await new WarehouseDataSource().listCreativeInputs({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+    });
+    expect(inputs.map((input) => input.creativeId)).toEqual([
+      "verified",
+      "unverified",
+      "after_cutoff",
+    ]);
+    expect(inputs.map((input) => input.configProvenanceStatus)).toEqual([
+      "verified",
+      "unverified",
+      "unverified",
+    ]);
+    expect(inputs.find((input) => input.creativeId === "after_cutoff")?.sourceCoverageStatus)
+      .toBe("after_cutoff");
   });
 
   it("hydrates unknown effective cohort for a 95/5 purchase and traffic mix", async () => {

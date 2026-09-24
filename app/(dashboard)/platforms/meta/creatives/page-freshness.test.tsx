@@ -210,7 +210,7 @@ describe("Creative Studio Assets: the age comes from the rows' own source", () =
     render(<CreativeStudioPage businessId="biz_1" providerAccountId="act_1" />);
 
     expect(lastFreshnessCall().partialReason).toBe(
-      "Some creative data is unavailable. Try again.",
+      "Current-day live Meta creative data is still being prepared.",
     );
   });
 

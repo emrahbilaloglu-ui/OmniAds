@@ -1266,3 +1266,15 @@ recent spend only when the run covers the whole recent band or the ad's last
 spend day, read over every finalized row, precedes that band. No day-count threshold
 exists, and a short window after an observed change is a valid decision
 window.
+
+## Provider-zero and unknown action evidence (D108)
+
+An omitted `actions` key is measured zero only when the exact ad-day payload
+belongs to a successful bulk Graph request that asked for actions and its
+account-day/source run completed and published by the evaluation cutoff.
+An explicit malformed key, detached payload or incomplete source remains
+unknown. Purchase aliases are never summed. Every decision-bearing unknown
+purchase day blocks a hard purchase-dependent Ad action and leaves only a
+clearly labelled diagnostic; it does not make unrelated Ads or the whole
+account unknown. The complete source receipt can also supply zero link-click
+and funnel stages without inventing clicks from the delivery `clicks` scalar.

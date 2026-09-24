@@ -58,6 +58,10 @@ import {
 import { canonicalSha256 } from "../../canonical-evaluation";
 import { configFieldEvidenceRefCoherentSql } from "@/lib/meta/config-field-evidence-ref";
 import { NATIVE_AD_ENGINE_VERSION } from "../../types";
+import { buildMetaAdDayProviderZeroReceiptSql } from "@/lib/meta/ad-day-provider-zero-receipt";
+import { buildAdDayAuthoritativePurchasesSql } from "@/lib/meta/purchase-count-parse";
+import { buildAdDayAuthoritativeLinkClicksSql } from "@/lib/meta/link-click-parse";
+import { buildMetaFunnelStageSql } from "@/lib/meta/funnel-stage-parse";
 
 const BUSINESS_ID = "00000000-0000-4000-8000-000000000701";
 const PROVIDER_ACCOUNT_REF_ID = "00000000-0000-4000-8000-000000000702";
@@ -140,6 +144,10 @@ function makeRow(
     clicks: 300,
     linkClicks: 250,
     conversions: 2,
+    authoritativePurchases:
+      overrides.authoritativePurchases === undefined
+        ? (overrides.conversions ?? 2)
+        : overrides.authoritativePurchases,
     revenue: 240,
     landingPageViews: 200,
     addToCart: 50,
@@ -207,6 +215,7 @@ function toDbSourceRow(row: NativeAdCalibrationSourceRow) {
     clicks: row.clicks,
     link_clicks: row.linkClicks,
     conversions: row.conversions,
+    authoritative_purchases: row.authoritativePurchases ?? null,
     revenue: row.revenue,
     landing_page_views: row.landingPageViews,
     add_to_cart: row.addToCart,
@@ -328,6 +337,27 @@ function exactSchemaRows(query: string): Record<string, unknown>[] {
 }
 
 describe("native ad calibration computation", () => {
+  it("keeps an unreadable purchase day out of hard economic samples without losing diagnosis", () => {
+    const measured = makeRow({ conversions: 0, authoritativePurchases: 0, revenue: 0 });
+    const unreadable = { ...measured, authoritativePurchases: null };
+    const measuredObservation = compute([measured]).observations[0]!;
+    const unreadableObservation = compute([unreadable]).observations[0]!;
+    expect(measuredObservation.totalSpend).toBe(100);
+    expect(measuredObservation.totalConversions).toBe(0);
+    expect(measuredObservation.verifiedSample?.totalConversions).toBe(0);
+    expect(unreadableObservation.totalSpend).toBe(100);
+    expect(unreadableObservation.totalConversions).toBe(0);
+    expect(unreadableObservation.verifiedSample).toBeNull();
+    expect(compute([measured]).cells[0]?.zeroConversionAdCount).toBe(1);
+    expect(compute([unreadable]).cells[0]?.zeroConversionAdCount).toBe(0);
+    const v6 = "engine-v3-native-ad-calibration.v6" as const;
+    expect(nativeAdCalibrationSourceContentSignatureForVersion(measured, v6)).toBe(
+      nativeAdCalibrationSourceContentSignatureForVersion(unreadable, v6),
+    );
+    expect(nativeAdCalibrationSourceContentSignatureForVersion(measured, NATIVE_AD_CALIBRATION_CONTRACT_VERSION))
+      .not.toBe(nativeAdCalibrationSourceContentSignatureForVersion(unreadable, NATIVE_AD_CALIBRATION_CONTRACT_VERSION));
+  });
+
   it("aggregates at ad grain and never lets creative overlays own identity", () => {
     const batch = compute([
       makeRow({
@@ -3936,6 +3966,108 @@ async function proveLateSourceRowIsolation(pool: Pool) {
  * opposite — that nothing moved.
  */
 describe.runIf(postgresAvailable)(
+  "native ad provider-zero receipt (real PostgreSQL)",
+  () => {
+    it("admits an omitted actions key only after the exact source run publishes", async () => {
+      await withEphemeralPostgres(async (pool) => {
+        await createEphemeralSchema(pool);
+        const day = "2026-07-11";
+        const raw = { ad_id: "provider-zero-ad", spend: "4.00" };
+        const snapshot = await pool.query<{ id: string }>(`
+          INSERT INTO meta_raw_snapshots (
+            business_id, provider_account_id, endpoint_name, entity_scope,
+            status, provider_http_status, start_date, end_date,
+            request_context, payload_json, fetched_at
+          ) VALUES ($1, $2, 'ad_insights_bulk', 'ad', 'fetched', 200,
+            $3::date, $3::date,
+            '{"source":"bulk_core_sync","level":"ad"}'::jsonb,
+            $4::jsonb, '2026-07-12T01:00:00Z') RETURNING id`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, JSON.stringify([raw])],
+        );
+        await pool.query(`
+          INSERT INTO meta_ad_daily (
+            business_ref_id, business_id, provider_account_ref_id,
+            provider_account_id, date, ad_id, account_timezone,
+            account_currency, spend, impressions, clicks, link_clicks,
+            conversions, revenue, payload_json, source_snapshot_id,
+            source_run_id, truth_state, validation_status, finalized_at,
+            created_at, updated_at
+          ) VALUES ($1::uuid, $1::text, $2::uuid, $3, $4::date,
+            'provider-zero-ad', 'Europe/Istanbul', 'USD', 4, 100, 1,
+            NULL, 0, 0, $5::jsonb, $6::uuid, 'run-provider-zero',
+            'finalized', 'passed', '2026-07-12T01:10:00Z',
+            '2026-07-12T01:10:00Z', '2026-07-12T01:10:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID,
+            day, JSON.stringify(raw), snapshot.rows[0]!.id],
+        );
+        const proof = buildMetaAdDayProviderZeroReceiptSql({
+          qualifier: "d", cutoffSql: "$1::timestamptz",
+        });
+        const purchase = buildAdDayAuthoritativePurchasesSql({
+          qualifier: "d", providerZeroProofSql: "receipt.verified",
+        });
+        const link = buildAdDayAuthoritativeLinkClicksSql({
+          qualifier: "d", providerZeroProofSql: "receipt.verified",
+        });
+        const funnel = buildMetaFunnelStageSql({
+          payloadExpression: "d.payload_json", lateralAlias: "fa",
+          stages: ["landing_page_view"],
+          providerZeroProofSql: "receipt.verified",
+        });
+        const read = async (cutoff: string) => (await pool.query(`
+          SELECT receipt.verified, ${purchase} AS purchases,
+            ${link} AS link_clicks,
+            ${funnel.valueSql("landing_page_view")} AS lpv
+          FROM meta_ad_daily d
+          LEFT JOIN LATERAL (SELECT ${proof} AS verified OFFSET 0) receipt ON TRUE
+          ${funnel.lateralSql}
+          WHERE d.ad_id='provider-zero-ad'`, [cutoff])).rows[0];
+        const cutoff = "2026-07-12T03:00:00Z";
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        await pool.query(`INSERT INTO meta_authoritative_source_manifests
+          (business_id, provider_account_id, day, surface, run_id, fetch_status,
+           fresh_start_applied, checkpoint_reset_applied, completed_at)
+          VALUES ($1,$2,$3::date,'account_daily','run-provider-zero',
+            'completed',true,true,'2026-07-12T01:30:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
+        await pool.query(`INSERT INTO meta_authoritative_publication_pointers
+          (business_id, provider_account_id, day, surface, published_by_run_id,
+           published_at)
+          VALUES ($1,$2,$3::date,'account_daily','run-provider-zero',
+            '2026-07-12T02:00:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
+        expect(await read("2026-07-12T01:59:59Z")).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        expect(await read(cutoff)).toMatchObject({
+          verified: true, purchases: 0, link_clicks: 0, lpv: 0,
+        });
+        await pool.query(`UPDATE meta_raw_snapshots
+          SET request_context='{"source":"bulk_core_sync","level":"ad","fields":"spend,clicks"}'::jsonb
+          WHERE id=$1::uuid`, [snapshot.rows[0]!.id]);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+        await pool.query(`UPDATE meta_raw_snapshots
+          SET request_context='{"source":"bulk_core_sync","level":"ad","fields":"spend,actions"}'::jsonb
+          WHERE id=$1::uuid`, [snapshot.rows[0]!.id]);
+        // JSONB containment alone also matches a provider row with extra
+        // actions. The stored row must equal one exact response element.
+        await pool.query(`UPDATE meta_raw_snapshots SET payload_json=$2::jsonb
+          WHERE id=$1::uuid`, [snapshot.rows[0]!.id, JSON.stringify([{
+          ...raw, actions: [{ action_type: "purchase", value: "1" }],
+        }])]);
+        expect(await read(cutoff)).toMatchObject({
+          verified: false, purchases: null, link_clicks: null, lpv: null,
+        });
+      });
+    }, 120_000);
+  },
+);
+
+describe.runIf(postgresAvailable)(
   "native ad calibration link_clicks: absence is not a measured zero",
   () => {
     it("separates an unsupplied link_clicks from a stored zero, end to end", async () => {
@@ -4542,12 +4674,23 @@ async function createEphemeralSchema(pool: Pool) {
       link_clicks DOUBLE PRECISION,
       conversions DOUBLE PRECISION NOT NULL,
       revenue DOUBLE PRECISION NOT NULL,
+      source_snapshot_id UUID,
+      source_run_id TEXT,
       payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
       truth_state TEXT,
       validation_status TEXT,
       finalized_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL
+    );
+    CREATE TABLE meta_authoritative_source_manifests (
+      business_id TEXT, provider_account_id TEXT, day DATE, surface TEXT,
+      run_id TEXT, fetch_status TEXT, fresh_start_applied BOOLEAN,
+      checkpoint_reset_applied BOOLEAN, completed_at TIMESTAMPTZ
+    );
+    CREATE TABLE meta_authoritative_publication_pointers (
+      business_id TEXT, provider_account_id TEXT, day DATE, surface TEXT,
+      published_by_run_id TEXT, published_at TIMESTAMPTZ
     );
     INSERT INTO businesses (id, name) VALUES ('${BUSINESS_ID}', 'Test');
     INSERT INTO provider_accounts (

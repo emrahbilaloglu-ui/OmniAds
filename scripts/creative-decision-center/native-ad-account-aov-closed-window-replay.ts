@@ -1686,6 +1686,9 @@ function buildAdInput(
       sourceRowCount: candidate.window28.sourceRowCount,
       performanceMetricsObserved: true,
       eventMetricsObserved,
+      // This historical script has no retained raw actions proof for its
+      // already-aggregated window; it cannot authorize a purchase action.
+      purchaseUnverifiedEconomicDays: 1,
     },
     statusEvidence: {
       // No cutoff-safe state capture existed for this historical window.

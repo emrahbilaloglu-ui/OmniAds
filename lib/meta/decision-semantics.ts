@@ -125,6 +125,19 @@ function resolutionForAuthorityBlocker(
   configAuthorityVerified: boolean | null = null,
 ): MetaDecisionResolution {
   const held = heldActionNoun(heldAction);
+  // A purchase gap is independent of an earlier role/config hold. In
+  // particular, it must suppress the D097 manual-Cut invitation: a stored
+  // zero with no raw actions is not complete economic evidence.
+  if (codes.has("purchase_evidence_unverified")) {
+    return {
+      code: "refresh_decision_data",
+      category: "data",
+      owner: "integration",
+      label: `${held} Held — Purchase Observation Incomplete`,
+      nextStep:
+        "Verify or restore the original Meta purchase actions for the affected Ad days before applying this economic verdict. A stored zero without those actions is unmeasured; no provider action is authorized.",
+    };
+  }
   if (authorityBlocker === "profile_hard_action_ineligible") {
     if (
       codes.has("commercial_truth_stale") ||

@@ -140,6 +140,27 @@ describe("the ad-day authority rule (D095) is one rule in both languages", () =>
     ).toBe(expected);
   });
 
+  it("admits provider-zero only with a verified receipt and no actions key", () => {
+    expect(resolveAdDayAuthoritativeLinkClicks({
+      storedLinkClicks: null, payloadJson: {}, providerZeroReceiptVerified: true,
+    })).toBe(0);
+    expect(resolveAdDayAuthoritativeLinkClicks({
+      storedLinkClicks: 0, payloadJson: {}, providerZeroReceiptVerified: true,
+    })).toBe(0);
+    expect(resolveAdDayAuthoritativeLinkClicks({
+      storedLinkClicks: 0, payloadJson: { actions: null },
+      providerZeroReceiptVerified: true,
+    })).toBeNull();
+    expect(resolveAdDayAuthoritativeLinkClicks({
+      storedLinkClicks: 3, payloadJson: {}, providerZeroReceiptVerified: true,
+    })).toBeNull();
+    const sql = buildAdDayAuthoritativeLinkClicksSql({
+      qualifier: "d", providerZeroProofSql: "source_receipt.verified",
+    });
+    expect(sql).toContain("COALESCE(source_receipt.verified, FALSE)");
+    expect(sql).toContain("NOT (d.payload_json ? 'actions')");
+  });
+
   it("emits the historical unqualified SQL byte-for-byte", () => {
     // data-source.ts still exports this text for the operational readback
     // verifier; a qualified builder must not change what those readers run.

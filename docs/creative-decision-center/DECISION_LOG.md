@@ -10372,3 +10372,68 @@ calibration, one pinned REPEATABLE READ READ ONLY snapshot per run; current
 floor, the badge guards and the period labels together, and mint another
 producer/evaluation version. Keep D107 rows intact; never relabel them under
 an earlier key.
+
+## D108 — A complete Meta Insights omission is provider zero (2026-09-24)
+
+**Decision.** An absent `actions` key on a verbatim ad-day Graph Insights row
+means zero action events only when that exact row is in a successful
+`ad_insights_bulk`/`bulk_core_sync` response whose fixed field list requested
+`actions`, and the same account-day/source run has a completed fresh manifest
+and published pointer visible at the evaluation cutoff. This is the
+`provider_zero` state. An `actions` array without an event remains measured
+zero; a missing key without that source proof, an explicit null/object,
+malformed/duplicate action entry, or contradictory stored purchase count
+remains unknown. Aliases for one purchase event must agree; they are not added.
+The source row must equal the stored payload, not merely contain its fields.
+New bulk snapshots record their requested field list; if present it must include
+`actions`. Older snapshots rely on the fixed bulk request shape tested in code.
+The same verified omission supplies zero to purchase, link-click and the
+action-derived funnel stages. Clicks alone supply none of those events.
+
+**Why D095 is amended.** D095 treated every missing `actions` array as unknown.
+That was prudent before the bulk request and complete-source receipt were
+reconciled, but it overheld real zero-action rows. A read-only 2026-08-27 to
+2026-09-23 census found 93 Grandmix and 142 TheSwaf spending ad-days with no
+`actions` key and stored zero purchases. All 235 tie to their exact raw
+snapshot payload, HTTP 200 fetched bulk response, complete fresh account-day
+manifest and same-run published pointer. Snapshot `run_id` was null in this
+older writer, so the proof follows `meta_ad_daily.source_run_id` through the
+manifest and pointer; it does not pretend the snapshot itself carries a run ID.
+An independent, fully paginated Graph `level=adset`, daily 2026-09-17..23
+read returned 49/49 Grandmix and 595/595 TheSwaf adset-days. Among the 99
+adset-days containing 114 no-actions child rows, adset purchase and link-click
+counts exactly matched the sum of all child ad rows (zero mismatches). Six
+spend rows drifted slightly on later read, so parity is claimed for those two
+action counts, not as a frozen spend assertion. Meta has no cited formal
+omission-is-zero guarantee; this is a bounded inference from the fixed request
+shape, independent parent-grain read and complete publication receipts. A
+future parent-child mismatch, unrequested field or incomplete source invalidates
+the inference and keeps the row unknown.
+
+**Authority.** Native hydration and calibration use the same receipt proof.
+An ad's decision-bearing economic window with unknown purchase evidence can
+show a soft stored-value diagnosis, but it cannot authorize a hard
+purchase-dependent Cut, Scale or Refresh. The native snapshot emits nullable
+purchase/ROAS figures for that case. Verified provider zeros remain zeros, so
+the 235 sampled days are not held solely for an omitted key. Calibration
+excludes an ad's incomplete purchase sample from hard economic benchmark
+populations while retaining non-purchase diagnostics. No raw row is rewritten,
+and no UI or provider write authority is added. The creative-day flattened
+legacy grain cannot inherit this ad-day receipt; D109 handles it separately.
+
+**Identity and verification.** The native engine epoch is
+`v3-ad-2026-09-24-provider-zero-receipt-shadow`; the ad evaluation contract is
+`.v17`. Calibration mints `.v7` because `.v6` already has 76 live batches and
+318 cells; its source hash remains byte-compatible, while `.v7` binds purchase
+authority. A same-day new generation is required after an exact-SHA release;
+old generations retain their own keys. Unit tests cover missing-key proof,
+explicit null, malformed/duplicate/contradictory counts, alias equality and
+hard-action gating. The real-PostgreSQL read-only seam verified provider zero
+for 93/93 Grandmix and 142/142 TheSwaf sample rows in purchase, link-click and
+LPV readers. Replay and served readback must show positive controls still
+capable of decisions and truly unverified rows held for the named reason.
+
+**Rollback.** Revert receipt admission and downstream metric/authority changes
+together, then mint a new native epoch and evaluation/calibration versions.
+Leave D108 snapshots and historical v6 calibration rows readable; never
+reinterpret them under another contract.

@@ -2095,7 +2095,9 @@ describe("native ad hydration SQL contract", () => {
       HYDRATE_AD_DECISION_INPUTS_QUERY.indexOf("admitted_metric_context_days AS ("),
     );
     expect(decisionDaysBlock).toContain(
-      `${buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d" })} AS authoritative_link_clicks`,
+      `${buildAdDayAuthoritativeLinkClicksSql({
+        qualifier: "d", providerZeroProofSql: "d.provider_zero_receipt_verified",
+      })} AS authoritative_link_clicks`,
     );
     expect(AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL).toContain(
       "jsonb_typeof(payload_json->'actions') = 'array'",

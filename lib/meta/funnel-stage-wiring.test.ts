@@ -149,7 +149,9 @@ describe("the out-of-scope fields are left alone rather than half-fixed", () => 
     // A legacy stored zero is not a measurement on its own; the shared
     // classifier decides it from the payload, exactly as the loader does.
     expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL).toContain(
-      `${buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d" })} AS link_clicks`,
+      `${buildAdDayAuthoritativeLinkClicksSql({
+        qualifier: "d", providerZeroProofSql: "source_receipt.provider_zero_receipt_verified",
+      })} AS link_clicks`,
     );
     expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL).not.toMatch(
       /^\s*d\.link_clicks,\s*$/m,

@@ -360,6 +360,7 @@ function adInput(input: {
       sourceRowCount: input.metricsObserved === false ? 0 : 28,
       performanceMetricsObserved: input.metricsObserved !== false,
       eventMetricsObserved: input.metricsObserved !== false,
+      purchaseUnverifiedEconomicDays: 0,
       sourceCoverage: {
         contractVersion:
           META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
@@ -2407,6 +2408,26 @@ describe("hard-authority source gates at the emission boundary", () => {
     expect(blocked.label).toBe(payload.label);
     expect(blocked.confidence).toBe(payload.confidence);
     expect(blocked.authority_blocker).toBe("config_source_authority");
+  });
+
+  it("holds only the Ad whose economic window has unreadable purchase evidence", () => {
+    const complete = cutPayload(observedConfigAuthority(AS_OF));
+    const unreadable = cutPayload(observedConfigAuthority(AS_OF), (value) => ({
+      ...value,
+      metricEvidence: {
+        ...value.metricEvidence,
+        purchaseUnverifiedEconomicDays: 1,
+      },
+    }));
+    expect(complete.raw_label).toBe("cut");
+    expect(complete.authority_blocker).toBeNull();
+    expect(unreadable.raw_label).toBe("cut");
+    expect(unreadable.authorized_action).toBeNull();
+    expect(unreadable.authority_blocker).toBe("native_metrics_unavailable");
+    expect(unreadable.blocked_action_type).toBe("cut");
+    expect(unreadable.purchases).toBeNull();
+    expect(unreadable.roas).toBeNull();
+    expect(unreadable.reason).toContain("Stored-value model signal (unverified)");
   });
 
   /*

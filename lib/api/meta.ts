@@ -15,6 +15,7 @@
 
 import { randomUUID } from "node:crypto";
 import { parseMetaLinkClicksFromActions } from "@/lib/meta/link-click-parse";
+import { parseMetaPurchaseActions } from "@/lib/meta/purchase-count-parse";
 import { sanitizeMetaGraphTraceId } from "@/lib/meta/graph-trace-id";
 import { formatMetaFailureForStorage } from "@/lib/sync/meta-error-classification";
 import { classifyAmountField } from "@/lib/meta/budget-fact";
@@ -733,11 +734,10 @@ function parseAction(arr: MetaActionValue[] | undefined, type: string): number {
  *
  * ABSENT AND MEASURED ZERO ARE DIFFERENT FACTS, SO THEY GET DIFFERENT VALUES.
  *
- * - No `actions` array on the row at all -> null. Meta reported no action
- *   breakdown for this ad-day, which says nothing about link clicks. In the
- *   census above, 2,464 rows are in this state; every one of them has
- *   impressions > 0 and 133 of them have clicks > 0, so "no actions array" is
- *   emphatically not a quiet way of saying "nothing happened".
+ * - No `actions` array on the row at all -> null at forward parsing. D108
+ *   permits a later decision reader to call this provider zero only after it
+ *   verifies the exact complete published Graph request that asked for actions.
+ *   Clicks and impressions alone do not prove any action event.
  * - An `actions` array that carries no `link_click` entry -> 0. This is a
  *   MEASUREMENT: Meta lists the action types that occurred and omits the ones
  *   that did not. 3,171 census rows are in this state. The reason the omission
@@ -2911,7 +2911,10 @@ function buildMetrics(input: {
   purchase_roas?: MetaActionValue[];
 }): MetaMetricsData {
   const spend = parseNum(input.spend_str);
-  const purchases = parseAction(input.actions, "purchase");
+  // Aliases name one purchase event, not separate conversions. Raw actions
+  // remain in payload_json, so an absent/malformed array stays distinguishable
+  // from measured zero even while this legacy numeric column stores 0.
+  const purchases = parseMetaPurchaseActions(input.actions) ?? 0;
   const revenueFromValues = parseAction(input.action_values, "purchase");
   const purchaseRoasVal = parseAction(input.purchase_roas, "omni_purchase");
   const revenue =
@@ -3009,6 +3012,10 @@ function getMetaBulkCoreEndpointName() {
   return "ad_insights_bulk";
 }
 
+/** D108 provider-zero proof depends on this fixed bulk request asking for actions. */
+export const META_BULK_CORE_INSIGHTS_FIELDS =
+  "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,reach,frequency,spend,ctr,cpm,impressions,clicks,actions,action_values,purchase_roas";
+
 function buildMetaBulkCoreInsightsUrl(input: {
   accountId: string;
   accessToken: string;
@@ -3021,7 +3028,7 @@ function buildMetaBulkCoreInsightsUrl(input: {
   url.searchParams.set("level", "ad");
   url.searchParams.set(
     "fields",
-    "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,reach,frequency,spend,ctr,cpm,impressions,clicks,actions,action_values,purchase_roas",
+    META_BULK_CORE_INSIGHTS_FIELDS,
   );
   url.searchParams.set(
     "time_range",
@@ -4334,6 +4341,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           requestContext: {
             level: "ad",
             source: "bulk_core_sync",
+            fields: META_BULK_CORE_INSIGHTS_FIELDS,
             pageIndex,
           },
           partitionId: input.partitionId,

@@ -4,6 +4,8 @@ import {
   buildMetaFunnelStageSql,
 } from "@/lib/meta/funnel-stage-parse";
 import { buildAdDayAuthoritativeLinkClicksSql } from "@/lib/meta/link-click-parse";
+import { buildAdDayAuthoritativePurchasesSql } from "@/lib/meta/purchase-count-parse";
+import { buildMetaAdDayProviderZeroReceiptSql } from "@/lib/meta/ad-day-provider-zero-receipt";
 import {
   creativeDayConfigDecisionAdmissionSql,
   creativeDayCompleteWindowSql,
@@ -1386,6 +1388,7 @@ const AD_GRAIN_FUNNEL_STAGE_SQL = buildMetaFunnelStageSql({
   payloadExpression: "payload_json",
   lateralAlias: "funnel_actions",
   stages: ["landing_page_view", "add_to_cart", "initiate_checkout"],
+  providerZeroProofSql: "provider_zero_receipt_verified",
 });
 
 export const AD_DAY_DECISION_BEARING_ACTIVITY_SQL = `(
@@ -1416,7 +1419,12 @@ export const AD_DAY_DECISION_BEARING_ACTIVITY_SQL = `(
 export const AD_DAY_AUTHORITATIVE_LINK_CLICKS_SQL = buildAdDayAuthoritativeLinkClicksSql();
 
 /** The same D095 value, qualified for decision_ad_days' own FROM (selected_ad_days d). */
-const AD_DAY_LINK_CLICKS_ROW_SQL = buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d" });
+const AD_DAY_LINK_CLICKS_ROW_SQL = buildAdDayAuthoritativeLinkClicksSql({
+  qualifier: "d", providerZeroProofSql: "d.provider_zero_receipt_verified",
+});
+const AD_DAY_PURCHASES_ROW_SQL = buildAdDayAuthoritativePurchasesSql({
+  qualifier: "d", providerZeroProofSql: "d.provider_zero_receipt_verified",
+});
 
 /*
   The 28-day rollup's windows, all under ONE rule (buildMetaCompleteWindowSql):
@@ -1733,7 +1741,10 @@ WITH assigned_accounts AS (
     AND (NOT $4::boolean OR binding.provider_account_id = ANY($3::text[]))
 ),
 selected_ad_days AS (
-  SELECT d.*
+  SELECT d.*,
+    ${buildMetaAdDayProviderZeroReceiptSql({
+      qualifier: "d", cutoffSql: "$11::timestamptz",
+    })} AS provider_zero_receipt_verified
   FROM meta_ad_daily d
   INNER JOIN assigned_accounts assignment
     ON assignment.business_id = d.business_id
@@ -2473,7 +2484,8 @@ decision_ad_days AS (
     correlated actions scan once per row instead of once per reader.
   */
   SELECT d.*,
-    ${AD_DAY_LINK_CLICKS_ROW_SQL} AS authoritative_link_clicks
+    ${AD_DAY_LINK_CLICKS_ROW_SQL} AS authoritative_link_clicks,
+    ${AD_DAY_PURCHASES_ROW_SQL} AS authoritative_purchases
   FROM selected_ad_days d
   LEFT JOIN admitted_window_bounds bounds
     ON bounds.provider_account_id = d.provider_account_id
@@ -2821,6 +2833,10 @@ metric_cumulative AS (
     SUM(spend) AS spend,
     SUM(conversions) AS conversions,
     SUM(revenue) AS revenue,
+    COUNT(*) FILTER (
+      WHERE authoritative_purchases IS NULL
+        AND ${AD_DAY_DECISION_BEARING_ACTIVITY_SQL}
+    )::integer AS purchase_unverified_economic_days,
     SUM(impressions) AS impressions,
     -- THE WINDOW RULE (lib/meta/funnel-stage-parse.ts), not a coalesce.
     --
@@ -2877,6 +2893,7 @@ cumulative AS (
     metrics.spend,
     metrics.conversions,
     metrics.revenue,
+    metrics.purchase_unverified_economic_days,
     metrics.impressions,
     metrics.link_clicks,
     metrics.roas,
@@ -3211,6 +3228,7 @@ SELECT
   cumulative.spend,
   cumulative.conversions,
   cumulative.revenue,
+  cumulative.purchase_unverified_economic_days,
   cumulative.impressions,
   cumulative.link_clicks,
   cumulative.roas,
@@ -6330,6 +6348,10 @@ function mapAdDecisionHydrationRow(input: {
         performanceMetricsObserved: metricRowCount > 0,
         eventMetricsObserved:
           metricRowCount > 0 && toBoolean(input.row.event_metrics_observed),
+        purchaseUnverifiedEconomicDays: Math.max(
+          0,
+          toIntegerOrNull(input.row.purchase_unverified_economic_days) ?? metricRowCount,
+        ),
         sourceCoverage,
       },
       /*

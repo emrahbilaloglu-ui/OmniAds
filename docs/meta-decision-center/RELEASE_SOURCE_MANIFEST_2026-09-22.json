@@ -1,5 +1,5 @@
 {
-  "manifestHash": "a7f232fbe24b851c1556fdfac00bb2cbeb0249d72a7f33cb441d3029a9391ee2",
+  "manifestHash": "88939579ff999b296138828a835e1d21f63d33095f731d8214d7281f848b6f5d",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -860,7 +860,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/shopify-hash-identity-boundary.test.ts",
-      "sha256": "b213b75a84e3f5e0ce70fca1be07595115d6b83f80aaaa0c5054631c32b1b867"
+      "sha256": "71fb553195031db5c685956d4cd1918392996ebc7c0d1f6c1e76760e3cebb40b"
     },
     {
       "path": "lib/creative-decision-engine/account-decision-profile.ts",
@@ -1476,7 +1476,7 @@
     },
     {
       "path": "lib/meta/fixtures/demo-native-canonical-generation.v1.json",
-      "sha256": "2445cb9538927f38737ea77ec797bcb315828fa4e51a9dfeb9988b0621ad872d"
+      "sha256": "d373d8ff705b8cbac745ac839e184649113114a828382e5a77f07440f2295d2e"
     },
     {
       "path": "lib/meta/fixtures/meta-funnel-stage-actions.v1.json",
@@ -1745,6 +1745,10 @@
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts",
       "sha256": "0c95d46679957ee29e211a43af403b9b7188aad05adeccecf0f27a68be9151c9"
+    },
+    {
+      "path": "scripts/creative-decision-center/native-ad-account-aov-authority-replay.classifier.test.ts",
+      "sha256": "c256b57fde63e4966d1443688cfbc4cbcbb9be23b9c1fe88600e161897ec9d37"
     },
     {
       "path": "scripts/creative-decision-center/native-ad-account-aov-authority-replay.provenance.test.ts",

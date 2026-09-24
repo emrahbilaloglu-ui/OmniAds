@@ -1,5 +1,5 @@
 {
-  "manifestHash": "3ee71d43415db72059191c19186473238a057c0316e01b4ab3f2d30541a53a96",
+  "manifestHash": "884af721dec250b6bff2625048fe1860c5da4701ad2478438db752e39c6fff42",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -484,7 +484,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/ad-operator-response-detection.test.ts",
-      "sha256": "81e11b2685c5a573453c537e12515424346836fd9a8cb9eecd90613501e6941b"
+      "sha256": "91096266841d7805b715e3bbb6ec03c2cc8504ce11eee09d37ae4e7eafa36446"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/campaign-context-data.test.ts",
@@ -684,7 +684,7 @@
     },
     {
       "path": "lib/creative-decision-engine/creative-day-metric-evidence.db.test.ts",
-      "sha256": "77724159f99e0bd372544ddb9a0c156d44f19097d615a3761e0c1f1da7249956"
+      "sha256": "96cbad5ad2afa8b2a6bf0442cc11a83643ae4b8d7a601915fd7d84b6cb393271"
     },
     {
       "path": "lib/creative-decision-engine/data-source-config-agreement.db.test.ts",
@@ -1524,7 +1524,7 @@
     },
     {
       "path": "scripts/meta/certify-creative-day-config.ts",
-      "sha256": "a9f5c19ad91fea1078c348e8ac131c720f81390088928de4d09c0b9b4ed85ccd"
+      "sha256": "11d504226e405265a3de606c01c510ec8828f093dc1e3d9f418f5a806b096bd0"
     },
     {
       "path": "scripts/meta/creative-day-membership-repair.test.ts",

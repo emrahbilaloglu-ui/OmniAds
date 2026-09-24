@@ -189,6 +189,100 @@ async function writeByDay(rows: MetaCreativeDailyRow[]) {
   }
 }
 
+/**
+ * D101 admits a creative decision only when every provider-local day in the
+ * 90-day window has a published finalized Ad slice. The metric seam must give
+ * the shipped jobs that real source proof; otherwise every row is correctly
+ * held before any funnel calculation is reached.
+ */
+async function publishSourceDays(rows: MetaCreativeDailyRow[]) {
+  const db = getDb();
+  const accounts = [...new Set(rows.map((row) => `${row.businessId}|${row.providerAccountId}`))];
+  for (const key of accounts) {
+    const [businessId, account] = key.split("|");
+    const accountRows = rows.filter((row) => row.businessId === businessId && row.providerAccountId === account);
+    await db.query(
+      `INSERT INTO meta_ad_daily (
+         business_id, provider_account_id, date, ad_id, account_timezone,
+         account_currency, campaign_id, adset_id, spend, conversions,
+         revenue, impressions, clicks, truth_state, validation_status,
+         source_run_id, finalized_at, created_at, updated_at
+       ) SELECT $1, $2, source.date::date, source.ad_id, 'UTC', 'USD',
+           source.campaign_id, source.adset_id, source.spend,
+           source.conversions, source.revenue, source.impressions, source.clicks,
+           'finalized', 'passed',
+           'creative_stamp_' || $2 || '_' || source.date,
+           (source.date::date + INTERVAL '13 hours') AT TIME ZONE 'UTC',
+           (source.date::date + INTERVAL '13 hours') AT TIME ZONE 'UTC',
+           (source.date::date + INTERVAL '13 hours') AT TIME ZONE 'UTC'
+         FROM jsonb_to_recordset($3::jsonb) AS source(
+           date text, ad_id text, campaign_id text, adset_id text,
+           spend numeric, conversions numeric, revenue numeric,
+           impressions bigint, clicks bigint
+         )`,
+      [businessId, account, JSON.stringify(accountRows.map((row) => ({
+        date: row.date,
+        ad_id: row.adId,
+        campaign_id: row.campaignId,
+        adset_id: row.adsetId,
+        spend: row.spend,
+        conversions: row.conversions,
+        revenue: row.revenue,
+        impressions: row.impressions,
+        clicks: row.clicks,
+      })))],
+    );
+    await db.query(
+      `INSERT INTO meta_authoritative_source_manifests (
+         business_id, provider_account_id, day, surface, account_timezone,
+         source_kind, source_window_kind, run_id, fetch_status,
+         started_at, completed_at, created_at, updated_at
+       ) SELECT $1, $2, calendar.day, 'account_daily', 'UTC',
+           'meta_insights', 'complete_day',
+           'creative_stamp_' || $2 || '_' || calendar.day::date::text, 'completed',
+           (calendar.day + INTERVAL '12 hours') AT TIME ZONE 'UTC',
+           (calendar.day + INTERVAL '1 day') AT TIME ZONE 'UTC',
+           (calendar.day + INTERVAL '1 day') AT TIME ZONE 'UTC',
+           (calendar.day + INTERVAL '1 day') AT TIME ZONE 'UTC'
+         FROM generate_series($3::date - INTERVAL '89 days', $3::date,
+           INTERVAL '1 day') AS calendar(day)`,
+      [businessId, account, AS_OF],
+    );
+    await db.query(
+      `INSERT INTO meta_authoritative_slice_versions (
+         business_id, provider_account_id, day, surface, manifest_id,
+         candidate_version, state, truth_state, validation_status, status,
+         source_run_id, staged_row_count, published_at, created_at, updated_at
+       ) SELECT manifest.business_id, manifest.provider_account_id, manifest.day,
+           'ad_daily', manifest.id, 1, 'finalized_verified', 'finalized',
+           'passed', 'published', manifest.run_id,
+           (SELECT COUNT(*) FROM meta_ad_daily ad
+             WHERE ad.business_id = manifest.business_id
+               AND ad.provider_account_id = manifest.provider_account_id
+               AND ad.date = manifest.day),
+           manifest.completed_at, manifest.completed_at, manifest.completed_at
+         FROM meta_authoritative_source_manifests manifest
+        WHERE manifest.business_id = $1 AND manifest.provider_account_id = $2
+          AND manifest.day BETWEEN ($3::date - INTERVAL '89 days') AND $3::date`,
+      [businessId, account, AS_OF],
+    );
+    await db.query(
+      `INSERT INTO meta_authoritative_publication_pointers (
+         business_id, provider_account_id, day, surface,
+         active_slice_version_id, published_by_run_id, publication_reason,
+         published_at, created_at, updated_at
+       ) SELECT slice.business_id, slice.provider_account_id, slice.day,
+           'ad_daily', slice.id, slice.source_run_id, 'creative_stamp_seam',
+           slice.published_at, slice.published_at, slice.published_at
+         FROM meta_authoritative_slice_versions slice
+        WHERE slice.business_id = $1 AND slice.provider_account_id = $2
+          AND slice.day BETWEEN ($3::date - INTERVAL '89 days') AND $3::date
+          AND slice.source_run_id LIKE 'creative_stamp_%'`,
+      [businessId, account, AS_OF],
+    );
+  }
+}
+
 async function seed() {
   const db = getDb();
   await db.query(
@@ -241,6 +335,10 @@ async function cleanup() {
     await db.query(`DELETE FROM engine_v3_creative_lifecycle_daily WHERE business_ref_id = $1::uuid`, [businessId]);
     await db.query(`DELETE FROM engine_v3_account_calibration_daily WHERE business_ref_id = $1::uuid`, [businessId]);
     await db.query(`DELETE FROM engine_v3_job_runs WHERE business_ref_id = $1::uuid`, [businessId]);
+    await db.query(`DELETE FROM meta_authoritative_publication_pointers WHERE business_id = $1`, [businessId]);
+    await db.query(`DELETE FROM meta_authoritative_slice_versions WHERE business_id = $1`, [businessId]);
+    await db.query(`DELETE FROM meta_authoritative_source_manifests WHERE business_id = $1`, [businessId]);
+    await db.query(`DELETE FROM meta_ad_daily WHERE business_id = $1`, [businessId]);
     await db.query(`DELETE FROM meta_creative_daily WHERE business_id = $1`, [businessId]);
     await db.query(`DELETE FROM meta_creative_dimensions WHERE business_id = $1`, [businessId]);
   }
@@ -312,7 +410,7 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     // The display side still says what it always said; only the stamp is read.
     expect(alias.add_to_cart).toBe(5);
 
-    await writeByDay([
+    const sourceRows = [
       // R1: a measured-zero day and an ACTIVE day nothing was observed on.
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_missing", date: day(0), payloadJson: { ...FABRICATED_DISPLAY, ...stamp(ZERO_STAMP) } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_zero_missing", date: day(1), linkClicksColumn: 0, payloadJson: { ...FABRICATED_DISPLAY } }),
@@ -328,7 +426,7 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_legacy", date: day(0), payloadJson: { ...FABRICATED_DISPLAY } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_legacy", date: day(1), payloadJson: { ...FABRICATED_DISPLAY } }),
       // Old name/format-folded creative days have no verified membership.
-      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_old_folded", date: day(0), payloadJson: { ...FABRICATED_DISPLAY, associated_ads_count: 2 }, sourceIdentityComplete: false }),
+      creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_old_folded", date: day(0), idle: true, payloadJson: { ...FABRICATED_DISPLAY, associated_ads_count: 2 }, sourceIdentityComplete: false }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_config_unverified", date: day(0), payloadJson: stamp(ZERO_STAMP) }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_config_unverified", date: day(1), payloadJson: stamp(ZERO_STAMP) }),
       // A verified provider creative reused under two campaign parents is
@@ -349,7 +447,9 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_malformed", date: day(0), payloadJson: { ...FABRICATED_DISPLAY } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_malformed", date: day(1), payloadJson: { ...FABRICATED_DISPLAY } }),
       creativeDay({ businessId: LIFECYCLE_BUSINESS, creativeId: "cre_malformed", date: day(2), payloadJson: { ...FABRICATED_DISPLAY } }),
-    ]);
+    ];
+    await writeByDay(sourceRows);
+    await publishSourceDays(sourceRows);
 
     const db = getDb();
     // This seam tests metric and membership admission, not the D098 receipt
@@ -394,17 +494,20 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     malformedEvidence.stages.initiate_checkout = { state: "measured", value: 1e20 };
     malformedEvidence.stages.outbound_click = { state: "measured", value: { n: 1 } };
     await db.query(
-      `UPDATE meta_creative_daily SET payload_json = $3::jsonb
+      `UPDATE meta_creative_daily
+          SET payload_json = jsonb_set(payload_json, '{metric_evidence}', $3::jsonb)
         WHERE business_id = $1 AND creative_id = 'cre_malformed' AND date = $2::date`,
-      [LIFECYCLE_BUSINESS, day(0), JSON.stringify({ source_identity_version: META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION, source_parent_grain_complete: true, source_ad_ids: ["ad_cre_malformed"], source_ad_ids_complete: true, source_creative_ids: ["cre_malformed"], associated_ads_count: 1, historical_config_provenance: "provider_receipt_day_bracketed", historical_config_proof: { knowledge_cutoff_at: "2026-08-20T12:00:00.000Z", last_receipt_observed_at: "2026-08-20T11:00:00.000Z", objective: "OUTCOME_SALES", optimization_goal: null, custom_event_type: null }, [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: malformedEvidence })],
+      [LIFECYCLE_BUSINESS, day(0), JSON.stringify(malformedEvidence)],
     );
     await db.query(
-      `UPDATE meta_creative_daily SET payload_json = '"not an object"'::jsonb
+      `UPDATE meta_creative_daily
+          SET payload_json = jsonb_set(payload_json, '{metric_evidence}', '"not an object"'::jsonb)
         WHERE business_id = $1 AND creative_id = 'cre_malformed' AND date = $2::date`,
       [LIFECYCLE_BUSINESS, day(1)],
     );
     await db.query(
-      `UPDATE meta_creative_daily SET payload_json = '{"source_identity_version": "meta-creative-membership.v2", "source_parent_grain_complete": true, "source_ad_ids": ["ad_cre_malformed"], "source_ad_ids_complete": true, "source_creative_ids": ["cre_malformed"], "associated_ads_count": 1, "historical_config_provenance": "provider_receipt_day_bracketed", "historical_config_proof": {"knowledge_cutoff_at": "2026-08-20T12:00:00.000Z", "last_receipt_observed_at": "2026-08-20T11:00:00.000Z", "objective": "OUTCOME_SALES", "optimization_goal": null, "custom_event_type": null}, "metric_evidence": [1, 2]}'::jsonb
+      `UPDATE meta_creative_daily
+          SET payload_json = jsonb_set(payload_json, '{metric_evidence}', '[1, 2]'::jsonb)
         WHERE business_id = $1 AND creative_id = 'cre_malformed' AND date = $2::date`,
       [LIFECYCLE_BUSINESS, day(2)],
     );
@@ -489,9 +592,10 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
   });
 
   it("R4: malformed stamps and payload shapes are missing, and the job did not abort", () => {
-    // A malformed economic day cannot prove a complete decision window.
-    expect(lifecycle.has("cre_malformed")).toBe(false);
-    expect(historical.has("cre_malformed")).toBe(false);
+    // The economic row remains source-backed. Only its malformed funnel
+    // measurements are missing; the entire business job still completes.
+    expect(counts("cre_malformed")).toEqual(ALL_NULL);
+    expect(historical.get("cre_malformed")?.last14_click_to_purchase_rate).toBeNull();
   });
 
   it("legacy: an unstamped row is unmeasured, whatever its display column and payload scalars say", () => {
@@ -499,7 +603,18 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
     expect(historical.get("cre_legacy")?.last14_click_to_purchase_rate).toBeNull();
   });
 
-  it("excludes an unverified old folded creative day while admitting source-verified days", () => {
+  it("excludes an unverified old folded creative day while admitting source-verified days", async () => {
+    const rejected = await getDb().query<{ creative_id: string; admitted: boolean }>(
+      `SELECT d.creative_id,
+              COALESCE(${creativeDayConfigDecisionAdmissionSql("d", "$2")}, FALSE) AS admitted
+         FROM meta_creative_daily d
+        WHERE d.business_id = $1 AND d.creative_id IN ('cre_old_folded', 'cre_mixed_parent')`,
+      [LIFECYCLE_BUSINESS, AS_OF],
+    );
+    expect(new Map(rejected.map((row) => [row.creative_id, row.admitted]))).toEqual(new Map([
+      ["cre_old_folded", false],
+      ["cre_mixed_parent", false],
+    ]));
     expect(lifecycle.has("cre_old_folded")).toBe(false);
     expect(historical.has("cre_old_folded")).toBe(false);
     expect(lifecycle.has("cre_mixed_parent")).toBe(false);
@@ -543,7 +658,7 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
   });
 
   it("R5: thumbstop and every video rate are NULL for every creative", () => {
-    expect(lifecycle.size).toBe(9);
+    expect(lifecycle.size).toBe(10);
     for (const row of lifecycle.values()) {
       expect([
         row.thumbstop_28d,
@@ -608,6 +723,7 @@ describe.skipIf(!SEAM)("creative-day measurement stamp (real PostgreSQL)", () =>
       }),
     );
     await writeByDay(rows);
+    await publishSourceDays(rows);
     await getDb().query(
       `UPDATE meta_creative_daily
        SET payload_json = payload_json || jsonb_build_object(

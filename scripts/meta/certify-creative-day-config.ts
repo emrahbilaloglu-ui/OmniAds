@@ -101,12 +101,12 @@ function stableProof(proof: CreativeDayConfigProof) {
 }
 
 async function plan(options: Options) {
-  const [oldRows, verdicts] = await Promise.all([
-    existingRows(options, false),
-    readCreativeDayConfigProofs({ businessId: options.businessId,
-      providerAccountId: options.accountId, day: options.day,
-      knowledgeCutoffAt: options.cutoff }),
-  ]);
+  // This function is also called inside runDbTransaction; use the pinned pg
+  // client sequentially there rather than submitting concurrent queries.
+  const oldRows = await existingRows(options, false);
+  const verdicts = await readCreativeDayConfigProofs({ businessId: options.businessId,
+    providerAccountId: options.accountId, day: options.day,
+    knowledgeCutoffAt: options.cutoff });
   const byId = new Map(oldRows.map((row) => [row.creative_id, row]));
   const seen = new Set(verdicts.map((item) => item.creativeId));
   const excluded = oldRows.filter((row) => !seen.has(row.creative_id));

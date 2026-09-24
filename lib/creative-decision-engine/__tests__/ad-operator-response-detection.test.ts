@@ -1028,10 +1028,19 @@ describe("native ad operator-response detection", () => {
       verificationLineage: null,
     });
 
-    // The digest includes sourceEngineVersion. Pin both the new producer epoch
-    // and the previous immutable receipt contract: an engine bump must not
-    // reinterpret a receipt already stored under its recorded version.
+    // The digest includes sourceEngineVersion. Each producer epoch gets its
+    // own digest; prior receipts still hash under their recorded version.
     expect(legacy.receiptHash).toBe(
+      "57ddc44cd467e7b5ed61f8796fc9571f38296eeb4f7b40c75d857661190dc4eb",
+    );
+    const previousEpoch = action(target, {
+      receiptId: "receipt-legacy-null-lineage",
+      actionLogId: "log-legacy-null-lineage",
+      idempotencyKey: "idem-legacy-null-lineage",
+      verificationLineage: null,
+      sourceEngineVersion: "v3-ad-2026-09-24-creative-membership-evidence-shadow",
+    });
+    expect(previousEpoch.receiptHash).toBe(
       "f8c046c255300b62b60caae9153f8968b712000993f94030ac44b2149ef848b0",
     );
     const priorEpoch = action(target, {

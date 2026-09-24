@@ -49,6 +49,7 @@ suite("native Ad prior-label query in PostgreSQL", () => {
     epoch: string;
     label: string;
     createdAt: string;
+    adId?: string;
     linked?: boolean;
   }) {
     const suffix = String(input.key).padStart(12, "0");
@@ -56,7 +57,7 @@ suite("native Ad prior-label query in PostgreSQL", () => {
     const evaluationId = `20000000-0000-4000-8000-${suffix}`;
     const jobRunId = `30000000-0000-4000-8000-${suffix}`;
     const common = [
-      BUSINESS_ID, BUSINESS_ID, ACCOUNT_REF_ID, ACCOUNT_ID, "ad", "ad-1",
+      BUSINESS_ID, BUSINESS_ID, ACCOUNT_REF_ID, ACCOUNT_ID, "ad", input.adId ?? "ad-1",
       input.day, input.epoch, "account", ACCOUNT_ID, "a".repeat(64),
       "b".repeat(64), jobRunId,
     ];
@@ -83,14 +84,14 @@ suite("native Ad prior-label query in PostgreSQL", () => {
     );
   }
 
-  async function read(cutoff: string | null) {
+  async function read(cutoff: string | null, adId = "ad-1") {
     return (await client.query(READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY, [
       BUSINESS_ID, CURRENT_EPOCH,
       JSON.stringify([{
         provider_account_ref_id: ACCOUNT_REF_ID,
         provider_account_id: ACCOUNT_ID,
         decision_entity_type: "ad",
-        decision_entity_id: "ad-1",
+        decision_entity_id: adId,
       }]),
       "2026-09-24", "account", ACCOUNT_ID, cutoff,
     ])).rows;
@@ -125,5 +126,44 @@ suite("native Ad prior-label query in PostgreSQL", () => {
     expect(historical[0]).toMatchObject({
       source_as_of_date: "2026-09-22", label: "keep",
     });
+  });
+
+  it("materializes only the requested identity batch before reading evaluations", async () => {
+    await addSnapshot({
+      key: 10, adId: "ad-requested", day: "2026-09-23",
+      epoch: CURRENT_EPOCH, label: "keep", createdAt: "2026-09-23T03:00:00Z",
+    });
+    await addSnapshot({
+      key: 11, adId: "ad-other", day: "2026-09-23",
+      epoch: CURRENT_EPOCH, label: "cut", createdAt: "2026-09-23T03:00:00Z",
+    });
+
+    const parameters = [
+      BUSINESS_ID, CURRENT_EPOCH,
+      JSON.stringify([{
+        provider_account_ref_id: ACCOUNT_REF_ID,
+        provider_account_id: ACCOUNT_ID,
+        decision_entity_type: "ad",
+        decision_entity_id: "ad-requested",
+      }]),
+      "2026-09-24", "account", ACCOUNT_ID, null,
+    ];
+    const explain = await client.query(
+      `EXPLAIN (ANALYZE, FORMAT JSON) ${READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY}`,
+      parameters,
+    );
+    const plan = explain.rows[0]["QUERY PLAN"][0].Plan;
+    const findEligibleCte = (node: Record<string, unknown>): Record<string, unknown> | null => {
+      if (node["Subplan Name"] === "CTE eligible_snapshots") return node;
+      for (const child of (node.Plans ?? []) as Record<string, unknown>[]) {
+        const found = findEligibleCte(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    expect(findEligibleCte(plan)?.["Actual Rows"]).toBe(1);
+    expect(await read(null, "ad-requested")).toMatchObject([{
+      decision_entity_id: "ad-requested", label: "keep",
+    }]);
   });
 });

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "acd7f5e6c40929a70f9aad3370eba9a787ca177ba9ad13e3e6e793b89fd0d8ab",
+  "manifestHash": "b30bdfd8d98d4eca2680bb33a28d1244adc61a873046fd88bbd053e558417f7a",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -324,11 +324,11 @@
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.test.ts",
-      "sha256": "b665f69dd57001682aa9e4f59d5d1cd8695bfdfb5ce6047b8c963598731a86ab"
+      "sha256": "c71c9e1b2231b32deaa9fb92f04251304e7eb1b94c988f4b1febe189d433ea37"
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.ts",
-      "sha256": "1db5e051270b924d2beab6ca17a49d0b9428eab0b54643c2247eaf91120cc0ed"
+      "sha256": "2b2f6e9ca3801ea8627a3feba1114db6eda6278d7f579c7335e4dc12c63b7247"
     },
     {
       "path": "components/creatives/creative-evidence-window-wiring.test.ts",
@@ -480,11 +480,11 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "cef5f54bd4ff8e01386cc959e29c1f6bd3698d4758f8def83bcde5a9ba6ded6a"
+      "sha256": "908c971fcc1fec8abe8310d59bb21811e140f2f595db6141f7c400d6e4428458"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
-      "sha256": "fcfbf8f8dd4da1f0a2d36f9d5e1467be4fc1f36e0dd126b5a7dfc549f9d0a0a2"
+      "sha256": "c6616111c76e7f195ac75bface3e7079fe8f20957d61cdc68182cc33c0d532eb"
     },
     {
       "path": "components/meta/redesign/MetaUpperFunnelInformationalCard.test.tsx",
@@ -876,11 +876,11 @@
     },
     {
       "path": "lib/creative-decision-engine/decision-stability.db.test.ts",
-      "sha256": "28bf3528a3caa51faf8deb470ce2fe6bff79e911563722305ea59afd1df929fd"
+      "sha256": "2f093b8694087673218e2730fefa0ace2e67f0ba8ea7f5ed558535821159b1aa"
     },
     {
       "path": "lib/creative-decision-engine/decision-stability.ts",
-      "sha256": "03076dc7e06a8b2d1e20bf15ed575f833d9596bbe003fdd41ae958f61da92f56"
+      "sha256": "88ba0cd351abd56f2e0aebfc3913e1a38273b3d42bf7fe182293a0a77d15f65d"
     },
     {
       "path": "lib/creative-decision-engine/evaluation-store.ts",
@@ -1740,7 +1740,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "a9c735366951bfdd1a9fceeefc7b90094cf65a3c9adca5e04f166559aac3e6c2"
+      "sha256": "5a2e2d2ad2ee232d0b1604c59d769efeed6739a63f38867fcb80ab7dd9268291"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

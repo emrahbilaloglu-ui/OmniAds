@@ -321,7 +321,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(unobserved.funnel?.[3]?.value).toBe("—");
     expect(unobserved.facts?.find((fact) => fact.id === "frequency")?.value).toBe("—");
     expect(unobserved.periodLabels?.funnel).toBe("selected 2026-09-16–2026-09-22");
-    expect(unobserved.moneySub).toBe("vs 3.80 target");
+    expect(unobserved.moneySub).toBe("—");
 
     const measuredZero = buildCreativeEvidenceWindowExactViewModel({
       decision,
@@ -395,8 +395,8 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(measured.periodLabels).toEqual({
       decision: "28d",
       series: "selected 2026-09-16–2026-09-22",
-      funnel: "selected 2026-09-16–2026-09-22",
-      adSets: "ROAS per ad set · selected 2026-09-16–2026-09-22",
+      funnel: "selected 2026-09-16–2026-09-22 · all ads using this creative",
+      adSets: "ROAS per ad set · selected 2026-09-16–2026-09-22 · all ads using this creative",
     });
     expect(measured.money).toBe("$9,700 · ROAS 2.70");
     expect(measured.adSets?.[0]?.spend).toBe("$6,100");
@@ -433,7 +433,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       adRows: [adRow()],
     });
     expect(model.periodLabels?.series).toBe("selected dates unavailable");
-    expect(model.periodLabels?.funnel).toBe("selected dates unavailable");
+    expect(model.periodLabels?.funnel).toBe("selected dates unavailable · all ads using this creative");
   });
 
   it("builds the design's four funnel steps from ad-grain rows", () => {

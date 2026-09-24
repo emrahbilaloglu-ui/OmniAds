@@ -359,15 +359,10 @@ export function metaBuyerCreativeEvidenceViewModel(
   return {
     ...model,
     verdict: model.decisionLabel,
-    readNotice: model.readNotice
-      ? {
-          tone: model.readNotice.tone,
-          text:
-            model.readNotice.tone === "info"
-              ? "Creative metrics are still loading."
-              : "Some creative metrics are unavailable.",
-        }
-      : null,
+    // The adapter distinguishes loading, a failed read, and a verified empty
+    // read. Mapping both informational states to "still loading" left an
+    // empty result looking permanently in flight after it had completed.
+    readNotice: model.readNotice,
     coverage,
     authority: actionAvailability,
     /*

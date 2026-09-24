@@ -3951,7 +3951,8 @@ async function main() {
     );
 
     // The prior-label query must keep epoch, evaluation-lineage, and replay
-    // cutoff semantics while selecting current-epoch snapshots first.
+    // cutoff semantics while selecting current-epoch snapshots first, and
+    // bound materialized history to each requested identity batch.
     await runChildVitest(
       repoRoot,
       databaseUrl,
@@ -3961,7 +3962,7 @@ async function main() {
         "decision-stability.db.test.ts",
       ),
       "Native ad prior-label query DB seam check",
-      1,
+      2,
     );
 
     /*

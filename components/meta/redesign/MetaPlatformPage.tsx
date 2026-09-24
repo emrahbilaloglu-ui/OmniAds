@@ -6165,12 +6165,22 @@ export function MetaPlatformPage({
         // states row-grain authority while staying silent about the authority
         // of the queue that produced the row.
         source: workspaceQuery.data?.decisionReadModel.source ?? null,
+        // The same exact Ad + provider-account-ref proof the queue card's
+        // recovery sends (#306), so a native creative without a warehouse row
+        // recovers here too. Absent either id, the URL keeps the
+        // warehouse-only membership proof.
         previewRecoveryUrl: metaCreativeThumbnailRecoveryUrl({
           businessId,
           providerAccountId: creativeDrill.decision?.providerAccountId ??
             creativeDrill.canonical?.providerAccountId,
           creativeId: creativeDrill.decision?.creativeId ??
             creativeDrill.canonical?.parentChain.creative?.id,
+          adId: creativeDrill.decision?.adId ??
+            creativeDrill.canonical?.parentChain.ad?.id,
+          providerAccountRefId:
+            workspaceQuery.data?.decisionReadModel.source?.authority === "native_ad"
+              ? workspaceQuery.data.decisionReadModel.source.generation?.providerAccountRefId ?? null
+              : null,
         }),
         launchpadRoute: creativeEvidenceLaunchpad,
         primaryActionAuthority: creativeEvidencePrimaryAuthority,

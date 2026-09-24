@@ -79,10 +79,9 @@ import {
 } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
 import {
   CreativeEvidenceWindowExact,
-  META_AD_EVENTS_NOTE,
-  META_AD_EVENTS_TITLE,
   type CreativeEvidenceWindowExactViewModel,
 } from "@/components/creatives/CreativeEvidenceWindowExact";
+import { META_AD_EVENTS_NOTE, META_AD_EVENTS_TITLE } from "@/components/creatives/meta-ad-events-copy";
 import {
   buildCreativeEvidenceWindowExactViewModel,
   buildMetaAdsManagerHref,

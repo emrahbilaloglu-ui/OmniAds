@@ -2,14 +2,11 @@
 
 import { useEffect, type MouseEvent, type ReactNode } from "react";
 import { MetaDecisionCreativeThumbnail } from "@/components/meta/decision-center/MetaDecisionCreativeThumbnail";
+import { META_AD_EVENTS_NOTE, META_AD_EVENTS_TITLE } from "./meta-ad-events-copy";
 
 import styles from "./CreativeEvidenceWindowExact.module.css";
 
 const EM_DASH = "—";
-
-export const META_AD_EVENTS_TITLE = "Meta-reported ad events";
-export const META_AD_EVENTS_NOTE =
-  "Meta reports these events separately. Percentages compare event totals, not a verified path taken by the same people.";
 
 export type CreativeEvidenceWindowExactDisplayValue =
   string | number | null | undefined;

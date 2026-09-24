@@ -740,6 +740,51 @@ describe("Decisions error recovery", () => {
     expect(state.refetched).toEqual(["meta-decisions-workspace"]);
   });
 
+  it("offers mobile Retry for the failed read and disables it while pending", () => {
+    state.queryOverrides = {
+      "meta-decisions-workspace": {
+        data: undefined,
+        error: new Error("workspace request failed"),
+      },
+    };
+    const dom = render();
+    const retry = dom.querySelector<HTMLButtonElement>(
+      "[data-mobile-decisions-retry]",
+    );
+    expect(retry?.disabled).toBe(false);
+    act(() => retry!.click());
+    expect(state.refetched).toEqual(["meta-decisions-workspace"]);
+
+    state.queryOverrides["meta-decisions-workspace"] = {
+      data: undefined,
+      error: new Error("workspace request failed"),
+      isFetching: true,
+    };
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    const pending = dom.querySelector<HTMLButtonElement>(
+      "[data-mobile-decisions-retry]",
+    );
+    expect(pending?.disabled).toBe(true);
+    expect(pending?.textContent).toBe("Retrying...");
+  });
+
+  it("routes mobile Retry to the account metadata read when no account resolved", () => {
+    state.queryOverrides = {
+      "meta-provider-accounts": {
+        data: undefined,
+        error: new Error("meta_history_accounts_unavailable"),
+      },
+    };
+    const dom = render();
+    act(() =>
+      dom.querySelector<HTMLButtonElement>("[data-mobile-decisions-retry]")!
+        .click(),
+    );
+    expect(state.refetched).toEqual(["meta-provider-accounts"]);
+  });
+
   // Law: the server already knows the account, so a failing accounts read must
   // not empty the surface. `serverProviderAccountId` is a fallback only — the
   // server resolver refuses an unassigned id and refuses to choose for a
@@ -816,6 +861,96 @@ describe("Decision queue expansion and auxiliary failures", () => {
     expect(dom.textContent).not.toContain("Anomaly read timed out.");
     expect(dom.textContent).not.toContain("Decision queue unavailable.");
     expect(state.exactProps.viewModel.counts.creatives).toBe(1);
+  });
+});
+
+describe("Creative evidence stays bound to its served workspace", () => {
+  it("closes an open detail when dates, account, or decision lineage change", () => {
+    const first = pendingOsDecision();
+    const original = workspacePayload() as Record<string, any>;
+    state.workspaceData = {
+      ...original,
+      os: osPresentation([first]),
+    };
+    state.search = "providerAccountId=act_1&scope=creatives";
+    const dom = render();
+    const open = (decision: MetaOsAdDecision) => {
+      act(() => state.adapterInput.callbacks.onCreativeReview(decision, null));
+      expect(dom.querySelector("[data-stub-evidence]")).not.toBeNull();
+      expect(
+        dom.querySelector('[data-testid="meta-mobile-creative-evidence"]'),
+      ).not.toBeNull();
+    };
+
+    open(first);
+    state.search =
+      "providerAccountId=act_1&scope=creatives&window=custom&startDate=2026-08-01&endDate=2026-08-31";
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
+    expect(
+      dom.querySelector('[data-testid="meta-mobile-creative-evidence"]'),
+    ).toBeNull();
+
+    open(first);
+    const changed = pendingOsDecision({
+      decisionId: "new_generation:ad_pending",
+      sourceSnapshotId: "new_generation:2026-08-31",
+    });
+    state.workspaceData = {
+      ...original,
+      os: osPresentation([changed]),
+    };
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
+    expect(
+      dom.querySelector('[data-testid="meta-mobile-creative-evidence"]'),
+    ).toBeNull();
+
+    open(changed);
+    state.providerAccounts.push({
+      id: "act_2",
+      name: "Second Meta",
+      currency: "USD",
+      timezone: "UTC",
+    });
+    state.search =
+      "providerAccountId=act_2&scope=creatives&window=custom&startDate=2026-08-01&endDate=2026-08-31";
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
+    expect(
+      dom.querySelector('[data-testid="meta-mobile-creative-evidence"]'),
+    ).toBeNull();
+  });
+
+  it("hides an open detail when the workspace read fails", () => {
+    const decision = pendingOsDecision();
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([decision]),
+    };
+    state.search = "providerAccountId=act_1&scope=creatives";
+    const dom = render();
+    act(() => state.adapterInput.callbacks.onCreativeReview(decision, null));
+    expect(dom.querySelector("[data-stub-evidence]")).not.toBeNull();
+
+    state.queryOverrides["meta-decisions-workspace"] = {
+      data: undefined,
+      error: new Error("workspace request failed"),
+    };
+    act(() => {
+      root!.render(<MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />);
+    });
+    expect(dom.querySelector("[data-stub-evidence]")).toBeNull();
+    expect(
+      dom.querySelector('[data-testid="meta-mobile-creative-evidence"]'),
+    ).toBeNull();
+    expect(dom.querySelector('[data-mobile-read-state="error"]')).not.toBeNull();
   });
 });
 

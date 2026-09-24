@@ -2095,6 +2095,8 @@ function MetaMobileDecisionsScreen({
   onLaneChange,
   loading,
   error,
+  retryPending,
+  onRetryRead,
   anomalies,
   banners,
   historyHref,
@@ -2118,6 +2120,8 @@ function MetaMobileDecisionsScreen({
   onLaneChange: (lane: MetaLaneView) => void;
   loading: boolean;
   error: Error | null;
+  retryPending: boolean;
+  onRetryRead: () => void;
   anomalies: MetaAnomaly[];
   banners: MetaWorkspaceBanner[];
   historyHref: string;
@@ -2233,6 +2237,15 @@ function MetaMobileDecisionsScreen({
               >
                 <b>Decision workspace could not load.</b>
                 <div>We could not load Meta decisions. Please try again.</div>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  data-mobile-decisions-retry
+                  disabled={retryPending}
+                  onClick={onRetryRead}
+                >
+                  {retryPending ? "Retrying..." : "Retry"}
+                </button>
               </article>
             )}
           </div>
@@ -3734,9 +3747,12 @@ export function MetaPlatformPage({
    * on its own; what travels with it is the envelope's ABSENCE, as `null`, so
    * the window can state it rather than infer around it.
    */
-  const [creativeDrill, setCreativeDrill] = useState<{
+  const [creativeDrillSelection, setCreativeDrill] = useState<{
     decision: MetaOsAdDecision | null;
     canonical: MetaCanonicalDecision | null;
+    /** The exact workspace response and query scope that served this verdict. */
+    workspaceRef: MetaDecisionsWorkspacePayload;
+    scopeKey: string;
   } | null>(null);
   const [nativeAdPauseAuthorization, setNativeAdPauseAuthorization] =
     useState<AuthorizedMetaNativeAdPause | null>(null);
@@ -3834,10 +3850,24 @@ export function MetaPlatformPage({
     searchParams,
     selectedReferenceDate,
   );
+  const creativeDrillScopeKey = JSON.stringify([
+    businessId,
+    providerAccountId,
+    selectedWindow,
+    selectedStatusFilter,
+    selectedDateRange.start,
+    selectedDateRange.end,
+  ]);
+  // Stop the auxiliary reads as soon as the selected window/account changes.
+  // The old decision is also hidden synchronously below, before an effect runs.
+  const scopedCreativeDrill =
+    creativeDrillSelection?.scopeKey === creativeDrillScopeKey
+      ? creativeDrillSelection
+      : null;
 
   const creativeEvidenceCreativeId =
-    creativeDrill?.canonical?.parentChain.creative?.id?.trim() ||
-    creativeDrill?.decision?.creativeId?.trim() ||
+    scopedCreativeDrill?.canonical?.parentChain.creative?.id?.trim() ||
+    scopedCreativeDrill?.decision?.creativeId?.trim() ||
     null;
   const creativeEvidenceQuery = useQuery({
     queryKey: [
@@ -3869,8 +3899,8 @@ export function MetaPlatformPage({
    * cross-ad frequency would need a deduplicated reach Meta does not report.
    */
   const creativeEvidenceAdId =
-    creativeDrill?.canonical?.parentChain.ad?.id?.trim() ||
-    creativeDrill?.decision?.adId?.trim() ||
+    scopedCreativeDrill?.canonical?.parentChain.ad?.id?.trim() ||
+    scopedCreativeDrill?.decision?.adId?.trim() ||
     null;
   const creativeEvidenceSeriesQuery = useQuery({
     queryKey: [
@@ -3933,6 +3963,36 @@ export function MetaPlatformPage({
         ? previousData
         : undefined,
   });
+
+  // A decision detail cannot outlive the workspace response that served it.
+  // During a date/account change React Query may keep the prior response as
+  // placeholder data; a new generation may also replace an Ad decision while
+  // the same page stays mounted. Both cases hide the old detail immediately.
+  const selectedLineageStillServed = scopedCreativeDrill?.decision
+    ? workspaceQuery.data?.os?.ads?.items.some(
+        (item) =>
+          item.id === scopedCreativeDrill.decision?.id &&
+          item.decisionId === scopedCreativeDrill.decision?.decisionId &&
+          item.sourceSnapshotId ===
+            scopedCreativeDrill.decision?.sourceSnapshotId,
+      ) === true
+    : scopedCreativeDrill?.canonical
+      ? true // The canonical-only deep-link is checked against the response ref.
+      : false;
+  const creativeDrill =
+    scopedCreativeDrill &&
+    scopedCreativeDrill.workspaceRef === workspaceQuery.data &&
+    workspaceQuery.data?.businessId === businessId &&
+    workspaceQuery.data.decisionReadModel.scope.providerAccountId ===
+      providerAccountId &&
+    !workspaceQuery.isPlaceholderData &&
+    !workspaceQuery.error &&
+    selectedLineageStillServed
+      ? scopedCreativeDrill
+      : null;
+  useEffect(() => {
+    if (creativeDrillSelection && !creativeDrill) setCreativeDrill(null);
+  }, [creativeDrillSelection, creativeDrill]);
 
   /**
    * Forward the server's §9 envelope. Nothing is computed here.
@@ -4720,9 +4780,14 @@ export function MetaPlatformPage({
 
   useEffect(() => {
     if (!creativeSelection || creativeDrill) return;
+    if (!workspaceQuery.data || workspaceQuery.isPlaceholderData || workspaceQuery.error) return;
     const pair = findSelectedCreativeDecisionPair();
     if (!pair) return;
-    setCreativeDrill(pair);
+    setCreativeDrill({
+      ...pair,
+      workspaceRef: workspaceQuery.data,
+      scopeKey: creativeDrillScopeKey,
+    });
   }, [creativeSelectionKey, workspaceQuery.data]);
 
   /**
@@ -5239,7 +5304,13 @@ export function MetaPlatformPage({
             });
             setNativeAdPauseAuthorization(null);
             setNativeAdPauseError(null);
-            setCreativeDrill({ decision, canonical: canonicalDecision });
+            if (!workspaceQuery.data) return;
+            setCreativeDrill({
+              decision,
+              canonical: canonicalDecision,
+              workspaceRef: workspaceQuery.data,
+              scopeKey: creativeDrillScopeKey,
+            });
           },
         },
       })
@@ -5770,6 +5841,8 @@ export function MetaPlatformPage({
           onLaneChange={selectOperatorLane}
           loading={loading}
           error={error}
+          retryPending={briefingRetryPending}
+          onRetryRead={() => void retryBriefingRead()}
           anomalies={anomalies}
           banners={workspaceBanners}
           historyHref={metaHistoryHref}

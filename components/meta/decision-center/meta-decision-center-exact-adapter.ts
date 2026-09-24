@@ -2951,9 +2951,7 @@ function creativeRows(input: {
         roas: adPerformanceMissing ? null : decision.metrics.roas,
         currency: rowCurrency,
       }),
-      moneyWindowLabel: decision.decisionWindow
-        ? `Decision · ${decision.decisionWindow.startDate}–${decision.decisionWindow.endDate} · ${decision.decisionWindow.economicDayCount}/${decision.decisionWindow.calendarDaySpan} economic days`
-        : null,
+      moneyWindow: decision.decisionWindow ?? null,
       moneySub: creativeMoneySub(decision, canonicalDecision, adPerformanceMissing),
       actionLabel: buyerFacingCreativeActionLabel(decision),
       actionTone: actionTone(decision.action),

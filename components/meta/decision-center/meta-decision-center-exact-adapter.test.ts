@@ -5299,9 +5299,12 @@ describe("the native economics caption claims no window it cannot substantiate",
         sourceSnapshotId: creative.sourceSnapshotId,
       },
     });
-    expect(model.creativeDecisions?.[0]?.moneyWindowLabel).toBe(
-      "Decision · 2026-08-10–2026-08-16 · 4/7 economic days",
-    );
+    expect(model.creativeDecisions?.[0]?.moneyWindow).toMatchObject({
+      startDate: "2026-08-10",
+      endDate: "2026-08-16",
+      economicDayCount: 4,
+      calendarDaySpan: 7,
+    });
     expect(model.inspector?.evidenceWindow).toBe("2026-08-10 to 2026-08-16");
     expect(model.inspector?.asOf).toBe(creative.snapshotAsOf);
     expect(model.inspector?.evidence?.find((row) => row.id === "economic-days")?.value).toBe(4);

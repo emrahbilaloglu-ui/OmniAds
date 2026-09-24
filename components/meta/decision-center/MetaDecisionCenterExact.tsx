@@ -365,8 +365,13 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   } | null;
   observedSparkPath?: string | null;
   money?: MetaDecisionCenterExactDisplayValue;
-  /** Server-served admitted Ad economic dates, not the page's filter window. */
-  moneyWindowLabel?: MetaDecisionCenterExactDisplayValue;
+  /** Server-served admitted Ad economic dates, formatted in the viewer's language. */
+  moneyWindow?: {
+    startDate: string;
+    endDate: string;
+    calendarDaySpan: number;
+    economicDayCount: number;
+  } | null;
   moneySub?: MetaDecisionCenterExactDisplayValue;
   actionLabel?: MetaDecisionCenterExactDisplayValue;
   actionTone?: MetaDecisionCenterExactTone;
@@ -2034,8 +2039,10 @@ function CreativeCard({
         ) : null}
         <div className={styles.creativeMoneyBlock}>
           <p className={styles.creativeSparkLabel}>
-            {meaningfulDisplay(row.moneyWindowLabel)
-              ? display(row.moneyWindowLabel)
+            {row.moneyWindow
+              ? language === "tr"
+                ? `Karar · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate} · ${row.moneyWindow.economicDayCount}/${row.moneyWindow.calendarDaySpan} ekonomik gün`
+                : `Decision · ${row.moneyWindow.startDate}–${row.moneyWindow.endDate} · ${row.moneyWindow.economicDayCount}/${row.moneyWindow.calendarDaySpan} economic days`
               : copy.decisionWindowed}
           </p>
           <p className={styles.moneyValue}>{display(row.money)}</p>

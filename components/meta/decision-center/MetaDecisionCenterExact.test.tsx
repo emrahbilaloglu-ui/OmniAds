@@ -800,6 +800,29 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     expect(translated?.getAttribute("title")).toContain("karar yetkisini değiştirmez");
   });
 
+  it("renders the recorded economic period in the viewer's language", () => {
+    const viewModel = exactViewModel();
+    viewModel.creativeDecisions = [{
+      id: "windowed-ad", name: "Windowed Ad", money: "$100 · ROAS 1.20",
+      moneyWindow: {
+        startDate: "2026-09-17", endDate: "2026-09-23",
+        calendarDaySpan: 7, economicDayCount: 4,
+      },
+    }];
+    render(<MetaDecisionCenterExact defaultScope="creatives" viewModel={viewModel} />);
+    const card = document.querySelector('[data-meta-exact-creative-row="windowed-ad"]');
+    expect(card?.textContent).toContain("Decision · 2026-09-17–2026-09-23 · 4/7 economic days");
+    cleanup();
+    render(
+      <ZeroBaseCopyProvider language="tr">
+        <MetaDecisionCenterExact defaultScope="creatives" viewModel={viewModel} />
+      </ZeroBaseCopyProvider>,
+    );
+    const translated = document.querySelector('[data-meta-exact-creative-row="windowed-ad"]');
+    expect(translated?.textContent).toContain("Karar · 2026-09-17–2026-09-23 · 4/7 ekonomik gün");
+    expect(translated?.textContent).not.toContain("economic days");
+  });
+
   it("renders the Grandmix economic Cut and its config gap in Action without a provider pause control", () => {
     const row = {
       id: "grandmix-ad-120247018755120316",

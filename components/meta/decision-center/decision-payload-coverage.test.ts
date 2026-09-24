@@ -1958,6 +1958,34 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaCanonicalDecision.exposureUnavailableReason": N(
     "Exposure is the section queue's ranking input and is not printed on this surface; the reason it is missing explains the absence of a number nobody sees.",
   ),
+  "MetaDecisionAdmittedWindow.contractVersion": N(
+    "The version validates the server projection; the operator sees the admitted dates and day counts, not a protocol tag.",
+  ),
+  "MetaDecisionAdmittedWindow.startDate": W(
+    S.CREATIVES,
+    "the native Ad card's admitted economic period caption",
+  ),
+  "MetaDecisionAdmittedWindow.endDate": W(
+    S.CREATIVES,
+    "the native Ad card's admitted economic period caption",
+  ),
+  "MetaDecisionAdmittedWindow.calendarDaySpan": W(
+    S.CREATIVES,
+    "the denominator of the native Ad card's economic-day count",
+  ),
+  "MetaDecisionAdmittedWindow.observedDayCount": N(
+    "The display reports economically meaningful and context-bridged days; the raw observed-day count remains audit data.",
+  ),
+  "MetaDecisionAdmittedWindow.economicDayCount": W(
+    S.INSPECTOR,
+    "the native Ad inspector's economic-days evidence row",
+    "economic-days",
+  ),
+  "MetaDecisionAdmittedWindow.bridgedUnresolvedDayCount": W(
+    S.INSPECTOR,
+    "the native Ad inspector's context-bridged evidence row",
+    "bridged-context-days",
+  ),
   "MetaDecisionSuppressionReason.code": R(
     S.PROVENANCE,
     "one labelled row per reason in the 'Withheld from queue' group",
@@ -3407,12 +3435,14 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     */
     // D104 adds Ad-performance observation; the current display-only Meta
     // creative taxonomy adds value, fixed source, and source clock.
-    expect(fields.length).toBe(801);
-    expect(new Set(fields.map((field) => field.iface)).size).toBe(67);
+    // D107 adds seven display-window leaves in one new interface; its fixed
+    // contract version cannot vary, while dates and counts can.
+    expect(fields.length).toBe(808);
+    expect(new Set(fields.map((field) => field.iface)).size).toBe(68);
     // Candidate selection v3 retains v2 payload compatibility. Its version
     // leaf now has two values instead of one pinned literal.
     // The new observation leaf and three v5/v6 compatibility version leaves vary.
-    expect(fields.filter((field) => field.varies).length).toBe(751);
+    expect(fields.filter((field) => field.varies).length).toBe(757);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3994,13 +4024,15 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // selected creative do not; the Creatives queue and the source panel sit
   // behind the scope tabs and show only what the resting scope draws.
   // The creative scope is behind a tab in the default desktop render.
-  CREATIVES: [1, 10],
+  // D107's start/end and economic-day denominator reach the creative card.
+  CREATIVES: [1, 13],
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
   // 10 -> 11: the held verdict `heldAction`, behind the Creatives scope tab
   // rather than in the resting desktop DOM.
-  INSPECTOR: [4, 11],
+  // D107's economic and bridged-day counts reach named inspector rows.
+  INSPECTOR: [4, 13],
   // 100 -> 101: `ads.pendingInventoryCount`, the coverage fact that separates
   // ACTIVE inventory awaiting a decision from the decision lanes it used to be
   // counted inside. Like every PROVENANCE claim it sits behind the panel's own
@@ -4060,7 +4092,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // rows.
 // 312 -> 333 with the original receipt-lineage leaves; -> 339 with the six
 // contract-identity leaves. All are behind the evidence-window control.
-const DOM_PROOF_TOTALS: [number, number] = [32, 342];
+const DOM_PROOF_TOTALS: [number, number] = [32, 347];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4090,7 +4122,7 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // Three newly variable legacy-compatible version tags stay hidden; the
 // workspace business id now changes the rendered scope state.
 // The display-only source clock varies but is intentionally not rendered.
-const NOWHERE_LEAVES = 377;
+const NOWHERE_LEAVES = 378;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4907,7 +4939,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // lineage leaves; -> 744 with their six contract-identity leaves; -> 745
     // when candidate-selection v2/v3 became a variable protocol tag.
     // Current creative taxonomy adds two varying display/provenance leaves.
-    expect(outcomes.size).toBe(751);
+    expect(outcomes.size).toBe(757);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -5161,9 +5193,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // 378/231/147 with their six contract-identity leaves; D104 adds one
     // served observation fact on the evidence surface without a stable row id.
     // The Meta-derived creative type adds one badge claim behind the scope tab.
-    expect(rendered.length).toBe(381);
-    expect(withElement.length).toBe(231);
-    expect(withoutElement.length).toBe(150);
+    expect(rendered.length).toBe(386);
+    expect(withElement.length).toBe(233);
+    expect(withoutElement.length).toBe(153);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -6143,6 +6175,11 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaCampaignRoleCoverage.actionAuthoritativeCampaigns",
       "MetaCampaignRoleCoverage.unresolvedCampaigns",
       "MetaCanonicalDecision.sourceDecision.computedAt",
+      "MetaDecisionAdmittedWindow.bridgedUnresolvedDayCount",
+      "MetaDecisionAdmittedWindow.calendarDaySpan",
+      "MetaDecisionAdmittedWindow.economicDayCount",
+      "MetaDecisionAdmittedWindow.endDate",
+      "MetaDecisionAdmittedWindow.startDate",
       "MetaDecisionPipelineHealth.decisionGeneration.ageHours",
       "MetaDecisionPipelineHealth.decisionGeneration.computedAt",
       "MetaDecisionPipelineHealth.decisionGeneration.engineVersion",

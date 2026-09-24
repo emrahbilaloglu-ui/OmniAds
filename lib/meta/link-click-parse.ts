@@ -32,8 +32,9 @@ import { parseMetaActionCountValue } from "@/lib/meta/action-count-parse";
 
 /**
  * Names the ad-day link-click semantics below: the strict value guard, the
- * measured-zero encoding (an `actions` array with no `link_click` entry), and
- * D095's column-versus-payload authority rule. Carried in the native ad
+ * measured-zero encodings (an `actions` array with no `link_click` entry, or
+ * D108's verified provider-zero omission), and D095's column-versus-payload
+ * authority rule. Carried in the native ad
  * evaluation envelope (`metricContract`) so a stored link-click figure can be
  * attributed to the rule that produced it.
  */
@@ -44,8 +45,9 @@ export const META_AD_DAY_LINK_CLICK_CONTRACT_VERSION = "meta-ad-day-link-click.v
  *
  * `actions_absent` and `no_link_click_entry` used to be ONE code, which made the
  * most important distinction in this area caller-dependent: a row with no
- * `actions` array observed nothing (unmeasurable), while an array with no
- * `link_click` entry is Meta's measured-zero encoding (D095). Every caller had
+ * `actions` array was unreadable without a source receipt, while an array with
+ * no `link_click` entry is Meta's measured-zero encoding (D095). D108 also
+ * admits an omitted key under an exact complete published source receipt. Every caller had
  * to re-check `Array.isArray` itself to tell them apart. They are now separate.
  */
 export type MetaLinkClickParseRefusal =
@@ -103,10 +105,12 @@ export function parseMetaLinkClicksFromActions(
  * column alone cannot prove that a stored zero was measured. The verbatim
  * provider payload can:
  *
- *   stored > 0                                   -> the stored value
+ *   stored > 0                                   -> the stored value, except a
+ *                                                   verified provider-zero
+ *                                                   contradiction
  *   stored = 0 and actions has no link_click     -> 0 (Meta's measured zero)
  *   stored = 0 and exactly one all-zero string   -> 0
- *   anything else (no actions, malformed,
+ *   anything else (unverified no actions, malformed,
  *     duplicate, contradicting entry, NULL)      -> unknown
  *
  * It lived as one unqualified SQL constant inside data-source.ts, so every
@@ -118,6 +122,7 @@ export function parseMetaLinkClicksFromActions(
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const SQL_QUALIFIER = /^[a-z_][a-z0-9_]*$/;
+const SQL_PROOF_COLUMN = /^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$/;
 
 /**
  * The per-row authoritative link-click value. With no qualifier the output is
@@ -125,15 +130,27 @@ const SQL_QUALIFIER = /^[a-z_][a-z0-9_]*$/;
  * which is still exported from data-source.ts for its existing readers.
  */
 export function buildAdDayAuthoritativeLinkClicksSql(
-  options: { qualifier?: string } = {},
+  options: { qualifier?: string; providerZeroProofSql?: string } = {},
 ): string {
   const qualifier = options.qualifier ?? "";
   if (qualifier !== "" && !SQL_QUALIFIER.test(qualifier)) {
     throw new Error(`ad_day_link_clicks_sql_qualifier_invalid:${qualifier}`);
   }
   const q = qualifier === "" ? "" : `${qualifier}.`;
+  const providerZeroProofSql = options.providerZeroProofSql ?? "FALSE";
+  if (providerZeroProofSql !== "FALSE" &&
+      !SQL_PROOF_COLUMN.test(providerZeroProofSql)) {
+    throw new Error("ad_day_link_clicks_sql_provider_zero_proof_invalid");
+  }
+  const positiveStoredArm = providerZeroProofSql === "FALSE"
+    ? `WHEN ${q}link_clicks > 0 THEN ${q}link_clicks`
+    : `WHEN ${q}link_clicks > 0
+        AND NOT COALESCE((jsonb_typeof(${q}payload_json) = 'object'
+          AND NOT (${q}payload_json ? 'actions')
+          AND COALESCE(${providerZeroProofSql}, FALSE)), FALSE)
+        THEN ${q}link_clicks`;
   return `(CASE
-      WHEN ${q}link_clicks > 0 THEN ${q}link_clicks
+      ${positiveStoredArm}
       WHEN ${q}link_clicks = 0
         AND jsonb_typeof(${q}payload_json->'actions') = 'array'
         AND (
@@ -159,6 +176,11 @@ export function buildAdDayAuthoritativeLinkClicksSql(
           WHERE action->>'action_type' = 'link_click'
         )
       THEN 0
+      WHEN (${q}link_clicks = 0 OR ${q}link_clicks IS NULL)
+        AND jsonb_typeof(${q}payload_json) = 'object'
+        AND NOT (${q}payload_json ? 'actions')
+        AND COALESCE(${providerZeroProofSql}, FALSE)
+      THEN 0
       ELSE NULL
     END)`;
 }
@@ -168,7 +190,7 @@ export function buildAdDayAuthoritativeLinkClicksSql(
  * NULL, so it can feed `buildMetaCompleteWindowSql` directly.
  */
 export function buildAdDayLinkClicksMissingSql(
-  options: { qualifier?: string } = {},
+  options: { qualifier?: string; providerZeroProofSql?: string } = {},
 ): string {
   return `(${buildAdDayAuthoritativeLinkClicksSql(options)} IS NULL)`;
 }
@@ -180,6 +202,7 @@ export function buildAdDayLinkClicksMissingSql(
 export function resolveAdDayAuthoritativeLinkClicks(input: {
   storedLinkClicks: unknown;
   payloadJson: unknown;
+  providerZeroReceiptVerified?: boolean;
 }): number | null {
   const stored =
     typeof input.storedLinkClicks === "number"
@@ -193,13 +216,27 @@ export function resolveAdDayAuthoritativeLinkClicks(input: {
    * non-negative safe integers. Fractional, scientific, negative and unsafe
    * values are malformed evidence, never an authoritative count.
    */
-  if (stored === null || !Number.isSafeInteger(stored) || stored < 0) return null;
-  if (stored > 0) return stored;
+  if (stored !== null && (!Number.isSafeInteger(stored) || stored < 0)) return null;
+  if (stored === null && input.storedLinkClicks != null) return null;
+  if (stored === null && !input.providerZeroReceiptVerified) return null;
+  if (stored !== null && stored > 0) {
+    if (input.providerZeroReceiptVerified &&
+        typeof input.payloadJson === "object" && input.payloadJson !== null &&
+        !Array.isArray(input.payloadJson) &&
+        !Object.hasOwn(input.payloadJson, "actions")) return null;
+    return stored;
+  }
   const actions =
     typeof input.payloadJson === "object" && input.payloadJson !== null
       ? (input.payloadJson as { actions?: unknown }).actions
       : undefined;
+  if (actions === undefined &&
+      input.providerZeroReceiptVerified &&
+      typeof input.payloadJson === "object" && input.payloadJson !== null &&
+      !Array.isArray(input.payloadJson) &&
+      !Object.hasOwn(input.payloadJson, "actions")) return 0;
   if (!Array.isArray(actions)) return null;
+  if (stored === null) return null;
   const entries = actions.filter(
     (action) =>
       typeof action === "object" &&

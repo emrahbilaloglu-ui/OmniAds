@@ -65,6 +65,25 @@ describe("measured zero is a measurement; absence is not", () => {
     });
   });
 
+  it("reads only a receipt-verified provider omission as a measured zero", () => {
+    expect(readMetaFunnelStageFromPayload(
+      { spend: "1.00" }, "initiate_checkout", { providerZeroReceiptVerified: true },
+    )).toEqual({ state: "measured", value: 0 });
+    expect(readMetaFunnelStageFromPayload(
+      { actions: null }, "initiate_checkout", { providerZeroReceiptVerified: true },
+    )).toEqual({ state: "unmeasurable", reason: "actions_absent" });
+    const sql = buildMetaFunnelStageSql({
+      payloadExpression: "d.payload_json",
+      lateralAlias: "fa",
+      stages: ["initiate_checkout"],
+      providerZeroProofSql: "source_receipt.verified",
+    });
+    expect(sql.valueSql("initiate_checkout")).toContain(
+      "COALESCE(source_receipt.verified, FALSE)",
+    );
+    expect(sql.valueSql("initiate_checkout")).toContain("NOT (d.payload_json ? 'actions')");
+  });
+
   it("reads a payload's actions array through to a value", () => {
     expect(
       readMetaFunnelStageFromPayload(

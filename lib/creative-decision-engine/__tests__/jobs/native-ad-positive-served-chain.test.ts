@@ -175,6 +175,7 @@ function adInput(input: { objectiveReceiptPresent: boolean; coverageComplete: bo
       sourceRowCount: 28,
       performanceMetricsObserved: true,
       eventMetricsObserved: true,
+      purchaseUnverifiedEconomicDays: 0,
       sourceCoverage: {
         contractVersion: META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
         status: input.coverageComplete ? "complete" : "partial",

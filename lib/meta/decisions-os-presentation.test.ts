@@ -2167,7 +2167,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
-    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v6");
+    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v7");
     /*
       RE-PINNED. This asserted `code: "keep_running", intent: "none"` — the
       published `keep` label's own affirmative soft action, served for a row
@@ -2376,6 +2376,43 @@ function nativeReadModel(
 }
 
 describe("held verdicts on the served Ad decision", () => {
+  it("keeps measured spend while naming the typed missing-purchase receipt", () => {
+    const decision = heldCanonicalDecision({
+      id: "purchase-gap-ad",
+      adId: "120000000000000590",
+      heldAction: "cut",
+      publishedLabel: "keep",
+      authorityBlocker: "native_metrics_unavailable",
+      legacyBuyerAction: "test_more",
+      predicateBlockers: [{
+        predicate: "ad_purchase_observation", observed: 1, threshold: 0,
+      }],
+    });
+    decision.sourceDecision.badges = ["purchase_evidence_unverified"];
+    decision.metrics.spend = 250;
+    decision.metrics.purchases = null;
+    decision.metrics.roas = null;
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [], watching: [], nonSales: [],
+      decisionReadModel: nativeReadModel([decision]), currency: "EUR",
+    });
+    const item = result.ads.items[0]!;
+    expect(item).toMatchObject({
+      lane: "blocked",
+      action: { code: "verify_purchase_observation", intent: "review", providerMutation: null },
+      metrics: { spend: 250, purchases: null, roas: null },
+      authorityProvenance: {
+        firstBlocker: {
+          code: "native_metrics_unavailable",
+          label: "Purchase observation is incomplete",
+        },
+      },
+    });
+    expect(item.authorityProvenance?.firstBlocker?.explanation).toContain(
+      "Spend and traffic may be measured",
+    );
+  });
+
   it("serves Ad performance observation state independently of the canonical envelope", () => {
     const unavailable = heldCanonicalDecision({
       id: "unobserved-ad",
@@ -2710,7 +2747,7 @@ describe("held verdicts on the served Ad decision", () => {
     // reads as "not measured", which a reader must not confuse with three
     // measured zeroes or with a measured "no verdict was held".
     expect(serializedBeforeTheseFields.contractVersion).toBe(
-      "meta-os-decisions.presentation.v6",
+      "meta-os-decisions.presentation.v7",
     );
     expect(serializedBeforeTheseFields.ads.heldCounts).toBeUndefined();
     expect(serializedBeforeTheseFields.ads.items[0]!.heldAction).toBeUndefined();

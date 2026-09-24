@@ -455,11 +455,20 @@ one.
 
 ### D095 legacy-zero admission boundary
 
+**Amended by D108:** A complete, published `ad_insights_bulk` request that
+asked for `actions` also proves an omitted key is Meta's provider-zero action
+encoding only when the same-run raw observation preceded the exact published
+`ad_daily` slice's run-level manifest completion and the Ad-day fact preceded
+pointer publication. Canonical raw content's first fetch time does not
+prove a later run's observation. The same exact-row/source-run proof applies to purchase, link-click
+and action-derived funnel readers. A detached or failed payload remains
+unknown, and malformed/contradictory values remain unreadable.
+
 Forward ingestion and the bounded stored-payload repair can now distinguish a
 measured zero from an unsupplied value, but the nullable migration deliberately
 did not rewrite old zeros. Those historical rows remain mixed evidence. Native
 14-day lifecycle bands therefore admit a stored zero only when the same row's
-`payload_json.actions` proves the measured-zero encoding. An uncorroborated or
+`payload_json.actions` or D108's complete source receipt proves the measured-zero encoding. An uncorroborated or
 contradicted zero counts as unavailable on a decision-bearing day, and both the
 decision hydration query and the readback verifier use the same classifier.
 This permits repaired/current evidence to produce Refresh while preventing the

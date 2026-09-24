@@ -52,6 +52,7 @@ import {
 import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "../../execution-safety";
 import { ENGINE_VERSION, NATIVE_AD_ENGINE_VERSION } from "../../types";
 import currentEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.v1.json";
+import latestPriorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-24-config-gap-window-prior-epoch.v1.json";
 import immediatePriorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-24-prior-epoch.v1.json";
 import earlierPriorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-23-prior-epoch.v1.json";
 import earliestPriorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-22-prior-epoch.v1.json";
@@ -110,6 +111,8 @@ interface FrozenEpochFixture {
 }
 
 const priorFixture = priorEpochRawFixture as unknown as FrozenEpochFixture;
+const latestPriorFixture =
+  latestPriorEpochRawFixture as unknown as FrozenEpochFixture;
 const immediatePriorFixture =
   immediatePriorEpochRawFixture as unknown as FrozenEpochFixture;
 const earlierPriorFixture =
@@ -117,6 +120,8 @@ const earlierPriorFixture =
 const earliestPriorFixture =
   earliestPriorEpochRawFixture as unknown as FrozenEpochFixture;
 const currentFixture = currentEpochRawFixture as unknown as FrozenEpochFixture;
+const LATEST_PRIOR_NATIVE_AD_ENGINE_VERSION =
+  "v3-ad-2026-09-24-config-gap-window-shadow";
 const IMMEDIATE_PRIOR_NATIVE_AD_ENGINE_VERSION =
   "v3-ad-2026-09-24-cut-recent-overlay-proof-shadow";
 const EARLIER_PRIOR_NATIVE_AD_ENGINE_VERSION =
@@ -154,7 +159,17 @@ function readPriorEpochFixture(
 }
 
 describe("prior-epoch frozen evidence is distinguishable from the current epoch", () => {
-  it("keeps the immediately previous persisted input body readable under its own epoch while refusing it as current", () => {
+  it("keeps prior persisted input bodies readable under their own epochs while refusing them as current", () => {
+    expect(latestPriorFixture.engineVersion).toBe(
+      LATEST_PRIOR_NATIVE_AD_ENGINE_VERSION,
+    );
+    expect(latestPriorFixture.engineVersion).not.toBe(NATIVE_AD_ENGINE_VERSION);
+    expect(() =>
+      admitAsCurrentEpochAcceptanceFixture(latestPriorFixture),
+    ).toThrow(
+      `Frozen acceptance fixture belongs to epoch ${LATEST_PRIOR_NATIVE_AD_ENGINE_VERSION}, not ${NATIVE_AD_ENGINE_VERSION}.`,
+    );
+    expect(latestPriorFixture.archetypes).toEqual(currentFixture.archetypes);
     expect(immediatePriorFixture.engineVersion).toBe(
       IMMEDIATE_PRIOR_NATIVE_AD_ENGINE_VERSION,
     );

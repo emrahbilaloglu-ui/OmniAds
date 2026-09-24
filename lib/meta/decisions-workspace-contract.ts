@@ -2,10 +2,11 @@ export const META_DECISIONS_WORKSPACE_CONTRACT_VERSION =
   "meta-decisions-workspace.read.v4" as const;
 
 export const META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION =
-  "meta-decisions-classification-overlay.v6" as const;
+  "meta-decisions-classification-overlay.v7" as const;
 
 export type MetaDecisionsClassificationOverlayVersion =
   | typeof META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION
+  | "meta-decisions-classification-overlay.v6"
   | "meta-decisions-classification-overlay.v5";
 
 export const META_DECISIONS_SECTION_SELECTION_VERSION =

@@ -45,6 +45,8 @@ import {
   buildMetaDecisionCenterExactViewModel,
   buildMetaStructureInventoryViewModel,
   buyerFacingCreativeDecisionLabel,
+  buyerFacingCreativeActionLabel,
+  buyerFacingCreativeReason,
   buyerFacingCreativeResolution,
   buyerFacingCreativeScope,
   heldCreativeVerdict,
@@ -4348,6 +4350,44 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       ...overrides,
     };
   }
+
+  it("shows the typed purchase-observation repair instead of a generic metrics outage", () => {
+    const resolution = {
+      code: "verify_purchase_observation",
+      category: "data" as const,
+      owner: "integration" as const,
+      label: "Cut Held — Purchase Observation Incomplete",
+      nextStep: "Verify the original Meta purchase actions.",
+    };
+    const held = heldRefreshFixture({
+      heldAction: "cut",
+      resolution,
+      heldResolution: resolution,
+      action: actionFixture({
+        code: "verify_purchase_observation",
+        label: resolution.label,
+        intent: "review",
+        targetLevel: "ad",
+        providerMutation: null,
+      }),
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "cut",
+        publishedLabel: "keep",
+        firstBlocker: {
+          code: "native_metrics_unavailable",
+          label: "Purchase observation is incomplete",
+          explanation: "Spend and traffic are measured; purchase evidence is not.",
+        },
+      },
+    });
+    expect(buyerFacingCreativeActionLabel(held)).toBe("Verify purchase data");
+    expect(buyerFacingCreativeReason(held)).toContain("purchase observation is incomplete");
+    expect(buyerFacingCreativeResolution(held)).toContain("Spend and traffic can remain measured");
+    expect(heldCreativeVerdict(held)?.nextStep).toContain("original Meta purchase actions");
+    expect(held.action.providerMutation).toBeNull();
+  });
 
   function heldWorkspace(input: {
     /*

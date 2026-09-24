@@ -265,7 +265,14 @@ export function readMetaFunnelStageFromActions(
 export function readMetaFunnelStageFromPayload(
   payloadJson: unknown,
   stageId: MetaFunnelStageId,
+  options: { providerZeroReceiptVerified?: boolean } = {},
 ): MetaFunnelStageReading {
+  if (options.providerZeroReceiptVerified &&
+      typeof payloadJson === "object" && payloadJson !== null &&
+      !Array.isArray(payloadJson) &&
+      !Object.hasOwn(payloadJson, "actions")) {
+    return { state: "measured", value: 0 };
+  }
   const actions =
     typeof payloadJson === "object" && payloadJson !== null
       ? (payloadJson as { actions?: unknown }).actions
@@ -310,6 +317,8 @@ export interface MetaFunnelStageSqlOptions {
   readonly lateralAlias: string;
   /** Defaults to every stage. */
   readonly stages?: readonly MetaFunnelStageId[];
+  /** Verified complete Graph ad-day receipt, available as one SQL boolean column. */
+  readonly providerZeroProofSql?: string;
 }
 
 export interface MetaFunnelStageSql {
@@ -440,6 +449,11 @@ export function buildMetaFunnelStageSql(
   if (!SQL_IDENTIFIER.test(lateralAlias)) {
     throw new Error(`meta_funnel_stage_sql_alias_invalid:${lateralAlias}`);
   }
+  const providerZeroProofSql = options.providerZeroProofSql ?? "FALSE";
+  if (providerZeroProofSql !== "FALSE" &&
+      !SQL_PAYLOAD_EXPRESSION.test(providerZeroProofSql)) {
+    throw new Error("meta_funnel_stage_sql_provider_zero_proof_invalid");
+  }
   const stages = (options.stages ?? META_FUNNEL_STAGES.map((stage) => stage.id)).map(
     metaFunnelStage,
   );
@@ -460,6 +474,9 @@ export function buildMetaFunnelStageSql(
   */
   const isArray = `jsonb_typeof(${actionsExpression}) IS NOT DISTINCT FROM 'array'`;
   const isNotArray = `jsonb_typeof(${actionsExpression}) IS DISTINCT FROM 'array'`;
+  const providerZero = `(jsonb_typeof(${payloadExpression}) = 'object'
+    AND NOT (${payloadExpression} ? 'actions')
+    AND COALESCE(${providerZeroProofSql}, FALSE))`;
   const entryCount = (stage: MetaFunnelStageDefinition) =>
     `${lateralAlias}.${stage.id}_entry_count`;
   const rawValue = (stage: MetaFunnelStageDefinition) =>
@@ -544,6 +561,7 @@ ${projections}
     onValue: string,
     onMalformed: string,
   ) => `CASE
+    ${providerZeroProofSql === "FALSE" ? "" : `WHEN ${providerZero} THEN ${onMeasuredZero}`}
     WHEN ${isNotArray} THEN ${onUnmeasurable}
     WHEN COALESCE(${entryCount(stage)}, 0) = 0 THEN ${onMeasuredZero}
     WHEN ${entryCount(stage)} > 1 THEN ${onDuplicate}

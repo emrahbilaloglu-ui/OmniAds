@@ -128,6 +128,12 @@ function makeSourceRow(
     adsetCreatedAt: "2026-07-12T01:00:00.000Z",
     adsetUpdatedAt: "2026-07-12T02:00:00.000Z",
     ...overrides,
+    // These synthetic positive cells declare a verified purchase count. The
+    // production reader never infers this field from stored conversions.
+    authoritativePurchases:
+      overrides.authoritativePurchases !== undefined
+        ? overrides.authoritativePurchases
+        : (overrides.conversions ?? 2),
     sourceAccountTimezone:
       overrides.sourceAccountTimezone === undefined
         ? "Europe/Istanbul"

@@ -812,6 +812,20 @@ the run the D107 hydration admitted in the read-only Grandmix replay
 | D107-05 | a row with a 2-day admitted window | reason "(2d 2026-09-22..2026-09-23)", not "(28d)"; without a window it keeps "(28d)" |
 | DB-D107 | hydration SQL over real receipts: bridge, observed change, contradicting partial day, older edge, trailing edge, empty gap, receipted gap with a blank currency, a row that observed a different currency | 1 bridged day and not fully verified / starts at the change / ends at the contradicting day / starts after the unreadable edge / ends at the newest resolved day / identity stays known / bridged day is `none` despite complete receipts and identity stays known / never bridged, and the ad fails closed (identity unknown) instead of keeping the shorter run |
 
+## D108 provider-zero receipt (golden cases)
+
+| case | source and payload | expected |
+|---|---|---|
+| D108-01 | exact ad row, `actions` key absent, same-run raw observation before the active published slice's complete manifest, request asked for it, stored purchase/link zero | measured provider zero in purchase, link-click and action-derived funnel; no evidence-only hold |
+| D108-02 | identical stored zero, but no published source receipt by cutoff | purchase/link/funnel unknown; a decision-bearing economic day holds hard Cut, Scale and purchase-based Refresh, with soft diagnosis retained |
+| D108-03 | `actions: []` on a valid row | measured zero without a provider-zero inference |
+| D108-04 | `actions: null`, duplicate purchase alias or stored zero with raw positive purchase | unknown/contradictory; no hard purchase-dependent action |
+| D108-05 | one Ad has an unverified day and a sibling Ad has complete measured days | hold only the affected Ad; sibling's valid verdict remains available |
+| D108-06 | v6 calibration history and a v7 source row differing only in purchase authority | v6 hash unchanged; v7 source hash changes and produces a new native generation |
+| D108-07 | canonical raw content fetched early but same-run observation after the active Ad slice's manifest; a later manifest reuses the run ID | unknown; the active published slice cannot borrow the later manifest's completion |
+| D108-08 | source and observation precede the Ad manifest, but the stored Ad-day fact was updated after its `ad_daily` pointer publication | unknown; a later row cannot borrow an earlier publication |
+| D108-09 | spend and traffic measured, one economic Ad day lacks purchase observation | purchase/ROAS nullable; held hard verdict stays review-only with typed `verify_purchase_observation` resolution and no Meta mutation |
+
 ## Current authority vs historical record
 
 > **Current authority vs historical record.** Which table a decision taken today

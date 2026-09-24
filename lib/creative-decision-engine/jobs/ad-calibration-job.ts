@@ -63,6 +63,8 @@ import {
   type MetaAovQuality,
 } from "../types";
 import { getBusinessGuardFailure } from "./business-guard";
+import { buildAdDayAuthoritativePurchasesSql } from "@/lib/meta/purchase-count-parse";
+import { buildMetaAdDayProviderZeroReceiptSql } from "@/lib/meta/ad-day-provider-zero-receipt";
 import { hashAdvisoryLock } from "./calibration-job";
 // The source SELECT spans retained provider receipts for up to 90 days. A
 // current 9,078-row production read took 29.4s and then exceeded the generic
@@ -76,6 +78,11 @@ export const NATIVE_AD_CALIBRATION_BATCH_TABLE =
   "engine_v3_ad_account_calibration_batches" as const;
 export const NATIVE_AD_CALIBRATION_CONTRACT_VERSION =
   /*
+  `.v7` — ADR D108. The source content signature binds row-local purchase
+  authority. `.v6` is live (76 batches, 318 cells at the 2026-09-24 read) and
+  retains its original signature and stored hashes; no historical row is
+  relabelled or recomputed under the new formula.
+
   `.v6` — ONE change: the cell manifest now binds `configAuthorityCounts`, the
   split of the cell's own sample by what each contributing ad-day's config
   provenance permits.
@@ -133,7 +140,7 @@ export const NATIVE_AD_CALIBRATION_CONTRACT_VERSION =
   batch whose `contractVersion` is not the current one before any hash is
   re-derived, so a historical row is history and not a candidate.
 */
-  "engine-v3-native-ad-calibration.v6" as const;
+  "engine-v3-native-ad-calibration.v7" as const;
 /**
  * The stamp a row written BEFORE `contract_version` existed carries.
  *
@@ -194,6 +201,7 @@ export const NATIVE_AD_CALIBRATION_DURABLE_CONTRACT_VALUES: readonly string[] =
     "engine-v3-native-ad-calibration.v2",
     "engine-v3-native-ad-calibration.v3",
     "engine-v3-native-ad-calibration.v5",
+    "engine-v3-native-ad-calibration.v6",
     NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
     NATIVE_AD_CALIBRATION_LEGACY_UNKNOWN_CONTRACT,
   ]);
@@ -619,6 +627,8 @@ export interface NativeAdCalibrationSourceRow {
    */
   linkClicks: number | null;
   conversions: number;
+  /** Raw-action-corroborated purchase count; null means unknown, never zero. */
+  authoritativePurchases?: number | null;
   revenue: number;
   landingPageViews?: number | null;
   addToCart?: number | null;
@@ -1058,6 +1068,7 @@ const NATIVE_AD_FUNNEL_STAGE_SQL = buildMetaFunnelStageSql({
   payloadExpression: "d.payload_json",
   lateralAlias: "funnel_actions",
   stages: ["landing_page_view", "add_to_cart", "initiate_checkout"],
+  providerZeroProofSql: "source_receipt.provider_zero_receipt_verified",
 });
 
 /*
@@ -1266,8 +1277,13 @@ SELECT
     a click-free day. The shared classifier is the one the
     decision loader uses, so the two cannot call one ad-day different things.
   */
-  ${buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d" })} AS link_clicks,
+  ${buildAdDayAuthoritativeLinkClicksSql({
+    qualifier: "d", providerZeroProofSql: "source_receipt.provider_zero_receipt_verified",
+  })} AS link_clicks,
   d.conversions,
+  ${buildAdDayAuthoritativePurchasesSql({
+    qualifier: "d", providerZeroProofSql: "source_receipt.provider_zero_receipt_verified",
+  })} AS authoritative_purchases,
   d.revenue,
   ${NATIVE_AD_FUNNEL_STAGE_SQL.valueSql("landing_page_view")} AS landing_page_views,
   ${NATIVE_AD_FUNNEL_STAGE_SQL.valueSql("add_to_cart")} AS add_to_cart,
@@ -1297,6 +1313,12 @@ SELECT
   adset.created_at AS adset_created_at,
   adset.updated_at AS adset_updated_at
 FROM meta_ad_daily d
+LEFT JOIN LATERAL (
+  SELECT ${buildMetaAdDayProviderZeroReceiptSql({
+    qualifier: "d", cutoffSql: "$5::timestamptz",
+  })} AS provider_zero_receipt_verified
+  OFFSET 0
+) source_receipt ON TRUE
 ${NATIVE_AD_FUNNEL_STAGE_SQL.lateralSql}
 JOIN business_provider_accounts binding
  ON binding.business_id = d.business_ref_id::text
@@ -2108,6 +2130,7 @@ interface NormalizedSourceRow extends NativeAdCalibrationSourceRow {
   sourceAccountTimezone: string | null;
   sourceAccountCurrency: string | null;
   metricSchemaVersion: number;
+  authoritativePurchases: number | null;
   objective: string | null;
   optimizationGoal: string | null;
   customEventType: string | null;
@@ -3097,6 +3120,7 @@ export type NativeAdCalibrationReadableContractVersion =
   | "engine-v3-native-ad-calibration.v2"
   | "engine-v3-native-ad-calibration.v3"
   | "engine-v3-native-ad-calibration.v5"
+  | "engine-v3-native-ad-calibration.v6"
   | typeof NATIVE_AD_CALIBRATION_CONTRACT_VERSION;
 
 /*
@@ -3141,6 +3165,7 @@ export function isNativeAdCalibrationReadableContract(
     value === "engine-v3-native-ad-calibration.v2" ||
     value === "engine-v3-native-ad-calibration.v3" ||
     value === "engine-v3-native-ad-calibration.v5" ||
+    value === "engine-v3-native-ad-calibration.v6" ||
     value === NATIVE_AD_CALIBRATION_CONTRACT_VERSION
   );
 }
@@ -3154,6 +3179,7 @@ function nativeAdCalibrationProjectsAccountCpa(
     case "engine-v3-native-ad-calibration.v3":
       return false;
     case "engine-v3-native-ad-calibration.v5":
+    case "engine-v3-native-ad-calibration.v6":
     case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
       return true;
     default: {
@@ -3210,6 +3236,7 @@ function nativeAdCalibrationBatchHashesSpendUnitAuthority(
       return false;
     case "engine-v3-native-ad-calibration.v3":
     case "engine-v3-native-ad-calibration.v5":
+    case "engine-v3-native-ad-calibration.v6":
     case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
       return true;
     default: {
@@ -3251,6 +3278,7 @@ export function nativeAdCalibrationDurablyRecomputable(
       return false;
     case "engine-v3-native-ad-calibration.v3":
     case "engine-v3-native-ad-calibration.v5":
+    case "engine-v3-native-ad-calibration.v6":
     case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
       return true;
     default: {
@@ -3328,6 +3356,7 @@ function nativeAdCalibrationBindsConfigAuthority(
     case "engine-v3-native-ad-calibration.v3":
     case "engine-v3-native-ad-calibration.v5":
       return false;
+    case "engine-v3-native-ad-calibration.v6":
     case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
       return true;
     default: {
@@ -3364,6 +3393,7 @@ function nativeAdCalibrationBindsConfigReceipts(
     case "engine-v3-native-ad-calibration.v3":
     case "engine-v3-native-ad-calibration.v5":
       return false;
+    case "engine-v3-native-ad-calibration.v6":
     case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
       return true;
     default: {
@@ -3371,6 +3401,26 @@ function nativeAdCalibrationBindsConfigReceipts(
       throw new Error(
         `Unsupported native ad calibration contract ${String(unsupported)}.`,
       );
+    }
+  }
+}
+
+/** Only D108's v7 source manifest binds purchase measurement provenance. */
+function nativeAdCalibrationBindsPurchaseAuthority(
+  contractVersion: NativeAdCalibrationReadableContractVersion,
+): boolean {
+  switch (contractVersion) {
+    case "engine-v3-native-ad-calibration.v1":
+    case "engine-v3-native-ad-calibration.v2":
+    case "engine-v3-native-ad-calibration.v3":
+    case "engine-v3-native-ad-calibration.v5":
+    case "engine-v3-native-ad-calibration.v6":
+      return false;
+    case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
+      return true;
+    default: {
+      const unsupported: never = contractVersion;
+      throw new Error(`Unsupported native ad calibration contract ${String(unsupported)}.`);
     }
   }
 }
@@ -3384,6 +3434,7 @@ function nativeAdCalibrationProjectsTargetAuthority(
     case "engine-v3-native-ad-calibration.v3":
       return false;
     case "engine-v3-native-ad-calibration.v5":
+    case "engine-v3-native-ad-calibration.v6":
     case NATIVE_AD_CALIBRATION_CONTRACT_VERSION:
       return true;
     default: {
@@ -3530,12 +3581,15 @@ function buildNativeAdSpendUnitAuthority(input: {
   const invalidCanonicalRows = canonicalRows.filter(
     (row) =>
       hasInvalidMetric(row) ||
+      (row.authoritativePurchases !== null &&
+        row.authoritativePurchases !== row.conversions) ||
       (row.conversions > 0 && row.revenue <= 0) ||
       (row.revenue > 0 && row.conversions <= 0),
   );
   const revenueBackedRows = canonicalRows.filter(
     (row) =>
       !hasInvalidMetric(row) &&
+      row.authoritativePurchases === row.conversions &&
       Number.isInteger(row.conversions) &&
       row.conversions > 0 &&
       Number.isFinite(row.revenue) &&
@@ -6039,7 +6093,7 @@ function computeCell(
     },
     eligibleAdCount: observations.length,
     matureAdCount: converterPopulation.length,
-    zeroConversionAdCount: observations.filter(
+    zeroConversionAdCount: hardObservations.filter(
       (row) => row.totalConversions === 0,
     ).length,
     metricSampleCounts,
@@ -6279,6 +6333,12 @@ function aggregateObservation(input: {
       (row) => row.date >= suffix.startDate! && row.date <= suffix.endDate!,
     );
     if (verifiedRows.length === 0) return null;
+    // A complete config suffix is not a complete economic sample if any
+    // delivered day still has unreadable purchase evidence. Keep the raw
+    // aggregate as diagnosis; exclude it from hard benchmark populations.
+    if (input.context.cohort === "purchase" && verifiedRows.some((row) =>
+      sourceRowIsDecisionBearing(row) && row.authoritativePurchases === null
+    )) return null;
     return aggregateObservation({
       rows: verifiedRows,
       sourceRowIds: verifiedRows
@@ -6611,6 +6671,12 @@ function normalizeSourceRow(
     sourceAccountTimezone: normalizeText(row.sourceAccountTimezone),
     sourceAccountCurrency: normalizeGoal(row.sourceAccountCurrency),
     metricSchemaVersion: row.metricSchemaVersion,
+    authoritativePurchases:
+      typeof row.authoritativePurchases === "number" &&
+      Number.isSafeInteger(row.authoritativePurchases) &&
+      row.authoritativePurchases >= 0
+        ? row.authoritativePurchases
+        : null,
     objective: normalizeGoal(row.objective),
     optimizationGoal: normalizeGoal(row.optimizationGoal),
     customEventType: normalizeGoal(row.customEventType),
@@ -6732,8 +6798,12 @@ function sourceContentSignature(
   const receipts = nativeAdCalibrationBindsConfigReceipts(contractVersion)
     ? { configReceiptDigest: row.configReceiptDigest }
     : {};
+  const purchaseAuthority = nativeAdCalibrationBindsPurchaseAuthority(contractVersion)
+    ? { authoritativePurchases: manifestNumber(row.authoritativePurchases) }
+    : {};
   return canonicalSha256({
     ...receipts,
+    ...purchaseAuthority,
     businessId: row.businessId,
     providerAccountRefId: row.providerAccountRefId,
     providerAccountId: row.providerAccountId,
@@ -7607,6 +7677,7 @@ export function mapNativeAdCalibrationSourceRow(
     // receipt becomes contradictory instead of aborting the whole job before
     // a durable fail-closed proof is produced.
     conversions: dbRequiredManifestNumber(row.conversions, "conversions"),
+    authoritativePurchases: dbOptionalNumber(row.authoritative_purchases),
     revenue: dbRequiredManifestNumber(row.revenue, "revenue"),
     landingPageViews: dbOptionalNumber(row.landing_page_views),
     addToCart: dbOptionalNumber(row.add_to_cart),

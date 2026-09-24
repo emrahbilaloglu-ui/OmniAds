@@ -149,6 +149,7 @@ import {
 } from "@/lib/meta/decisions-workspace-read-model";
 import { buildMetaFunnelStageSql } from "@/lib/meta/funnel-stage-parse";
 import { buildAdDayAuthoritativeLinkClicksSql } from "@/lib/meta/link-click-parse";
+import { buildMetaAdDayProviderZeroReceiptSql } from "@/lib/meta/ad-day-provider-zero-receipt";
 import { projectCanonicalNativeAdDecisionToBriefing } from "@/app/api/creatives/briefing/canonical-projection";
 import { buildServedCreativeClassifications } from "@/components/creatives/creative-served-classification";
 import { buildMetaDecisionCenterExactViewModel } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
@@ -431,19 +432,29 @@ const LEDGER_ROW_FILTER = `
   AND d.validation_status = 'passed'`;
 
 const ACTIONS_IS_ARRAY_SQL = "(jsonb_typeof(d.payload_json->'actions') IS NOT DISTINCT FROM 'array')";
+const PROVIDER_ZERO_RECEIPT_SQL = buildMetaAdDayProviderZeroReceiptSql({
+  qualifier: "d", cutoffSql: "$5::timestamptz",
+});
+const PROVIDER_ZERO_LATERAL_SQL = `LEFT JOIN LATERAL (
+  SELECT ${PROVIDER_ZERO_RECEIPT_SQL} AS verified OFFSET 0
+) source_receipt ON TRUE`;
 
 function signCaseSql(expression: string): string {
   return `CASE WHEN (${expression}) IS NULL THEN 'null' WHEN (${expression}) > 0 THEN 'positive' WHEN (${expression}) = 0 THEN 'zero' ELSE 'negative' END`;
 }
 
 function buildLinkClickStatesSql(): string {
-  const authoritative = buildAdDayAuthoritativeLinkClicksSql({ qualifier: "d" });
+  const authoritative = buildAdDayAuthoritativeLinkClicksSql({
+    qualifier: "d", providerZeroProofSql: "source_receipt.verified",
+  });
   return `
-SELECT lc.sign AS lc_sign, ${ACTIONS_IS_ARRAY_SQL} AS actions_is_array, COUNT(*)::int AS n
+SELECT lc.sign AS lc_sign, ${ACTIONS_IS_ARRAY_SQL} AS actions_is_array,
+  source_receipt.verified AS provider_zero_verified, COUNT(*)::int AS n
 FROM meta_ad_daily d
+${PROVIDER_ZERO_LATERAL_SQL}
 CROSS JOIN LATERAL (SELECT ${signCaseSql(authoritative)} AS sign) lc
 WHERE ${LEDGER_ROW_FILTER}
-GROUP BY 1, 2`;
+GROUP BY 1, 2, 3`;
 }
 
 function buildFunnelStatesSql(): string {
@@ -451,6 +462,7 @@ function buildFunnelStatesSql(): string {
     payloadExpression: "d.payload_json",
     lateralAlias: "acc_funnel",
     stages: [...FUNNEL_STAGES],
+    providerZeroProofSql: "source_receipt.verified",
   });
   const columns = FUNNEL_STAGES.map(
     (stage) =>
@@ -458,14 +470,17 @@ function buildFunnelStatesSql(): string {
   ).join(",\n    ");
   const unions = FUNNEL_STAGES.map(
     (stage) => `SELECT '${stage}'::text AS stage, ${stage}_state AS state,
-    ${signCaseSql(`${stage}_value`)} AS value_sign, actions_is_array, COUNT(*)::int AS n
-  FROM staged GROUP BY 1, 2, 3, 4`,
+    ${signCaseSql(`${stage}_value`)} AS value_sign, actions_is_array,
+    provider_zero_verified, COUNT(*)::int AS n
+  FROM staged GROUP BY 1, 2, 3, 4, 5`,
   ).join("\n  UNION ALL\n  ");
   return `
 WITH staged AS MATERIALIZED (
   SELECT ${ACTIONS_IS_ARRAY_SQL} AS actions_is_array,
+    source_receipt.verified AS provider_zero_verified,
     ${columns}
   FROM meta_ad_daily d
+  ${PROVIDER_ZERO_LATERAL_SQL}
   ${funnel.lateralSql}
   WHERE ${LEDGER_ROW_FILTER}
 )
@@ -473,11 +488,15 @@ ${unions}`;
 }
 
 const PURCHASE_STATES_SQL = `
-SELECT ${signCaseSql("d.conversions")} AS conversions_sign, ${ACTIONS_IS_ARRAY_SQL} AS actions_is_array, COUNT(*)::int AS n
+SELECT ${signCaseSql("d.conversions")} AS conversions_sign,
+  ${ACTIONS_IS_ARRAY_SQL} AS actions_is_array,
+  source_receipt.verified AS provider_zero_verified,
+  COUNT(*)::int AS n
 FROM meta_ad_daily d
+${PROVIDER_ZERO_LATERAL_SQL}
 WHERE ${LEDGER_ROW_FILTER}
   AND d.spend > 0
-GROUP BY 1, 2`;
+GROUP BY 1, 2, 3`;
 
 /** Economic campaign-days, as the config readers scope them. */
 const ECONOMIC_CAMPAIGN_DAYS_SQL = `
@@ -719,18 +738,20 @@ async function runLedgerLane(input: {
         });
       }
 
-      const linkRows = await db.query<Row>(buildLinkClickStatesSql(), base);
+      const metricParams = [...base, windowEndCutoff];
+      const linkRows = await db.query<Row>(buildLinkClickStatesSql(), metricParams);
       account.linkClicks = tallyStates<LinkClickRowState>(
         linkRows.map((row) => ({
           state: classifyLinkClickRow({
             authoritativeSign: (text(row.lc_sign) ?? "null") as ReturnType<typeof numericSign>,
             actionsIsArray: row.actions_is_array === true,
+            providerZeroVerified: row.provider_zero_verified === true,
           }),
           n: num(row.n),
         })),
       );
 
-      const funnelRows = await db.query<Row>(buildFunnelStatesSql(), base);
+      const funnelRows = await db.query<Row>(buildFunnelStatesSql(), metricParams);
       for (const stage of FUNNEL_STAGES) {
         account.funnel[stage] = tallyStates<FunnelStageRowState>(
           funnelRows
@@ -740,18 +761,20 @@ async function runLedgerLane(input: {
                 state: text(row.state),
                 valueSign: (text(row.value_sign) ?? "null") as ReturnType<typeof numericSign>,
                 actionsIsArray: row.actions_is_array === true,
+                providerZeroVerified: row.provider_zero_verified === true,
               }),
               n: num(row.n),
             })),
         );
       }
 
-      const purchaseRows = await db.query<Row>(PURCHASE_STATES_SQL, base);
+      const purchaseRows = await db.query<Row>(PURCHASE_STATES_SQL, metricParams);
       account.purchasesOnSpendRows = tallyStates<PurchaseRowState>(
         purchaseRows.map((row) => ({
           state: classifyPurchaseRow({
             conversionsSign: (text(row.conversions_sign) ?? "null") as ReturnType<typeof numericSign>,
             actionsIsArray: row.actions_is_array === true,
+            providerZeroVerified: row.provider_zero_verified === true,
           }),
           n: num(row.n),
         })),

@@ -1110,6 +1110,8 @@ async function createHydrationSourceSchema(client: Client) {
       provider_account_ref_id UUID, provider_account_id TEXT NOT NULL,
       day DATE NOT NULL, surface TEXT NOT NULL, account_timezone TEXT,
       run_id TEXT, fetch_status TEXT NOT NULL, completed_at TIMESTAMPTZ,
+      fresh_start_applied BOOLEAN NOT NULL DEFAULT FALSE,
+      checkpoint_reset_applied BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
     );
     CREATE TABLE meta_authoritative_slice_versions (
@@ -1128,6 +1130,13 @@ async function createHydrationSourceSchema(client: Client) {
       active_slice_version_id UUID NOT NULL,
       published_by_run_id TEXT, published_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+    );
+    CREATE TABLE meta_authoritative_reconciliation_events (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id TEXT NOT NULL, provider_account_id TEXT NOT NULL,
+      day DATE NOT NULL, surface TEXT NOT NULL, manifest_id UUID,
+      event_kind TEXT NOT NULL, result TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL
     );
     CREATE TABLE meta_ad_dimensions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
@@ -1180,9 +1189,11 @@ async function createHydrationSourceSchema(client: Client) {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
       provider_account_id TEXT NOT NULL, endpoint_name TEXT NOT NULL,
       entity_scope TEXT NOT NULL, status TEXT NOT NULL,
+      start_date DATE, end_date DATE,
       provider_http_status INTEGER, request_context JSONB NOT NULL DEFAULT '{}'::jsonb,
       payload_json JSONB NOT NULL DEFAULT '[]'::jsonb,
-      fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE TABLE meta_raw_snapshot_observations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), snapshot_id UUID NOT NULL,
@@ -1190,7 +1201,8 @@ async function createHydrationSourceSchema(client: Client) {
       endpoint_name TEXT NOT NULL, entity_scope TEXT NOT NULL,
       status TEXT NOT NULL, provider_http_status INTEGER,
       request_context JSONB NOT NULL DEFAULT '{}'::jsonb,
-      observed_at TIMESTAMPTZ NOT NULL DEFAULT now(), run_id TEXT
+      observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), run_id TEXT
     );
     CREATE TABLE meta_creative_daily (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,

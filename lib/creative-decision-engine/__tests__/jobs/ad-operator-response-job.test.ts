@@ -68,7 +68,7 @@ describe("held-verdict authority release epoch contract", () => {
       "v3-2026-09-24-zero-conversion-cut-floor",
     );
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
-      "v3-ad-2026-09-24-config-gap-window-shadow",
+      "v3-ad-2026-09-24-provider-zero-receipt-shadow",
     );
     /*
       ROUND 9 ITEM 10. These three had drifted a full version behind the
@@ -83,19 +83,17 @@ describe("held-verdict authority release epoch contract", () => {
       further bump for its own changes.
     */
     /*
-      `.v6`, minted for the config-authority counts the cell manifest now binds.
-      `.v5` is a REAL deployed rung, unlike the `.v4` candidate described above:
-      1,855 rows carry it on the live database, so it stays readable and its
-      formula stays reproducible rather than being amended in place.
+      `.v6` bound config-authority counts and has live rows. D108 mints `.v7`
+      for row-local purchase authority; both earlier formulas remain readable.
     */
     expect(NATIVE_AD_CALIBRATION_CONTRACT_VERSION).toBe(
-      "engine-v3-native-ad-calibration.v6",
+      "engine-v3-native-ad-calibration.v7",
     );
     expect(CANONICAL_EVALUATION_CONTRACT_VERSION).toBe(
       "engine-v3-canonical-evaluation.v9",
     );
     expect(AD_DECISION_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-ad-evaluation.v16",
+      "engine-v3-canonical-ad-evaluation.v17",
     );
     expect(NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION).toBe(
       "v3-ad-2026-07-15-commercial-stop-loss-shadow",

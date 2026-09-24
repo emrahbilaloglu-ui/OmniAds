@@ -156,7 +156,7 @@ describe("the epoch moved with the behaviour", () => {
     // versioned producer contract; old snapshots stay readable under theirs.
     expect(ENGINE_VERSION).toBe("v3-2026-09-24-zero-conversion-cut-floor");
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
-      "v3-ad-2026-09-24-config-gap-window-shadow",
+      "v3-ad-2026-09-24-provider-zero-receipt-shadow",
     );
   });
 });

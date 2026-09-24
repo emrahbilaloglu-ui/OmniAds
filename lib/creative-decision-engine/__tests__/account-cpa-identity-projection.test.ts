@@ -161,7 +161,7 @@ describe("the canonical evaluation identity", () => {
       "engine-v3-canonical-evaluation.v9",
     );
     expect(AD_DECISION_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-ad-evaluation.v16",
+      "engine-v3-canonical-ad-evaluation.v17",
     );
   });
 
@@ -250,8 +250,8 @@ describe("the native calibration cell identity", () => {
     /*
       `.v5` is the version that took the raw account CPA OUT of the cell
       manifest, and that is what the rest of this file proves. It is no longer
-      the CURRENT version — `.v6` binds the config-authority counts as well —
-      and the projection is unchanged across both, so pinning the current
+      the CURRENT version — `.v6` binds config authority and `.v7` binds purchase
+      evidence as well. The projection is unchanged across them, so pinning the current
       constant to `.v5` would fail on every later mint for a reason unrelated to
       the projection. What must hold is that the current version is one that
       HAS the projection.
@@ -260,6 +260,7 @@ describe("the native calibration cell identity", () => {
       [
         "engine-v3-native-ad-calibration.v5",
         "engine-v3-native-ad-calibration.v6",
+        "engine-v3-native-ad-calibration.v7",
       ],
     ).toContain(NATIVE_AD_CALIBRATION_CONTRACT_VERSION);
   });

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "77c83004828a1c092f39aa41655115c3bb9e230b9db42d79f61a7dc877f2ce95",
+  "manifestHash": "6b604c188d595f413573e9ac808016d353f9dff0f2180227f53cb33c98776daa",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -616,7 +616,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-cpa-identity-projection.test.ts",
-      "sha256": "b298229f12238486798697df45c33aaf446585dd589c4278e2887dc0a37d725e"
+      "sha256": "987906e43eefb0f5863c34e0b5231b6bc1dc01f84d9dd45252a1fffcec172be7"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-decision-profile.test.ts",
@@ -636,7 +636,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/ad-operator-response-detection.test.ts",
-      "sha256": "c008fc5ddf15de72c981a929e5cf2fd80436737bf14e90f4ab0193a67a6d598b"
+      "sha256": "35c2598ac571b94b51137955453c0a6dceed030a7be413599fa7ecae7f4e2284"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/campaign-context-data.test.ts",
@@ -768,7 +768,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-operator-response-job.test.ts",
-      "sha256": "2dd7f8b9148f6f75c5d7d9cc966496fbaa38d2dd1ae8cf246b0adb578cb7e73c"
+      "sha256": "41c09b2ebbecadc69222135d11ec809e1dbd6d23e35dc33efd9626e7da061e95"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/calibration-job.failure.test.ts",
@@ -856,7 +856,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/role-held-verdict-preservation.test.ts",
-      "sha256": "c73814f5d6fd13f7b3e26d1c1aa2e5a7c90e5b56c2436021497f4c4b584c7fc8"
+      "sha256": "4f7b3e936305a61554e545aa4148e8fc09656ddb106bcc166d436ee06b6e66b6"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/shopify-hash-identity-boundary.test.ts",

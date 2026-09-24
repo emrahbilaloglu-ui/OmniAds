@@ -10433,3 +10433,37 @@ matching completed manifest after a
 bounded re-fetch or separately reviewed authority repair; a matching Ad
 scalar or run ID alone is insufficient. Rollback reverts the candidate lookup
 rule only; already published candidates and raw sources are retained.
+
+## D113 — Rebind historical Ad slices only to a proved capture (2026-09-24)
+
+**Decision.** D110 does not backdate or silently rewrite old `ad_daily`
+publications. A one-day operational repair may publish a new candidate against
+the completed `account_daily` manifest whose raw Ad page exactly contains the
+already stored Ad population. It requires the same business, account, day,
+run and partition; exact payload and Ad identities; matching source/warehouse
+spend and row count; a run observation or an original run-bound legacy page;
+and that manifest's passing account reconciliation after completion and before
+the old pointer. Any later failed reconciliation through the review cutoff,
+an intervening different completed capture, a missing page or active sync
+partition is a hold. A legacy page marked `superseded` can be used only when
+its one-time status update occurred after the old pointer publication. The
+repair never treats `superseded` as a current fetched observation.
+
+Dry-run records each old pointer, target manifest, proof, blockers and a hash.
+Apply requires the reviewed plan and an explicit opt-in, rechecks under locks,
+then publishes at the actual repair time. Raw pages, Ad facts and prior slices
+remain unchanged; earlier point-in-time evaluations keep their earlier truth.
+Batch repair retains each daily plan and readback receipt and fails closed per
+day. Binding a legacy page does **not** by itself classify absent actions as
+provider zero; the D108 decision reader applies its own receipt rule.
+
+**Evidence and rollback.** Grandmix and two TheSwaf accounts over the reviewed
+90-day period had 170 stale Ad bindings: 169 met this narrow source-binding
+proof; one lacked a matching source population. Of the 169, 69 use the legacy
+run-bound receipt instead of a later observation. These are dry-run results,
+not applied production changes or new decision labels. Unit tests cover late
+supersession, missing receipt, wrong payload and failed reconciliation; a
+migrated-PostgreSQL seam covers dry-run, apply, readback and rerun. To roll
+back, stop the batch and use the retained old-pointer ledger in a separately
+reviewed transaction; the repair never deletes a candidate or rewrites the
+past.

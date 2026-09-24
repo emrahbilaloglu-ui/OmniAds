@@ -3968,6 +3968,158 @@ async function proveLateSourceRowIsolation(pool: Pool) {
 describe.runIf(postgresAvailable)(
   "native ad provider-zero receipt (real PostgreSQL)",
   () => {
+    it("uses only an exact run-bound legacy page, including post-publication supersession", async () => {
+      await withEphemeralPostgres(async (pool) => {
+        await createEphemeralSchema(pool);
+        const day = "2026-07-11";
+        const raw = { ad_id: "legacy-provider-zero-ad", spend: "4.00" };
+        const partition = await pool.query<{ id: string }>(`
+          INSERT INTO meta_sync_partitions
+            (business_id, provider_account_id, lane, scope, partition_date)
+          VALUES ($1, $2, 'core', 'account_daily', $3::date)
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
+        const snapshot = await pool.query<{ id: string }>(`
+          INSERT INTO meta_raw_snapshots (
+            business_id, provider_account_id, partition_id, run_id,
+            endpoint_name, entity_scope, status, provider_http_status,
+            start_date, end_date, request_context, payload_json,
+            fetched_at, created_at, updated_at
+          ) VALUES ($1, $2, $3::uuid, 'run-legacy-zero',
+            'ad_insights_bulk', 'ad', 'fetched', 200,
+            $4::date, $4::date,
+            '{"source":"bulk_core_sync","level":"ad"}'::jsonb,
+            $5::jsonb, '2026-07-12T01:00:00Z',
+            '2026-07-12T01:00:00Z', '2026-07-12T01:00:00Z')
+          RETURNING id`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, partition.rows[0]!.id,
+            day, JSON.stringify([raw])]);
+        await pool.query(`INSERT INTO meta_ad_daily (
+          business_ref_id, business_id, provider_account_ref_id,
+          provider_account_id, date, ad_id, account_timezone,
+          account_currency, spend, impressions, clicks, link_clicks,
+          conversions, revenue, payload_json, source_snapshot_id,
+          source_run_id, truth_state, validation_status, finalized_at,
+          created_at, updated_at
+        ) VALUES ($1::uuid, $1::text, $2::uuid, $3, $4::date,
+          'legacy-provider-zero-ad', 'Europe/Istanbul', 'USD', 4, 100, 1,
+          NULL, 0, 0, $5::jsonb, $6::uuid, 'run-legacy-zero',
+          'finalized', 'passed', '2026-07-12T01:10:00Z',
+          '2026-07-12T01:10:00Z', '2026-07-12T01:10:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_REF_ID, PROVIDER_ACCOUNT_ID,
+            day, JSON.stringify(raw), snapshot.rows[0]!.id]);
+        const manifest = await pool.query<{ id: string }>(`
+          INSERT INTO meta_authoritative_source_manifests
+            (business_id, provider_account_id, day, surface, run_id,
+             fetch_status, fresh_start_applied, checkpoint_reset_applied,
+             completed_at, created_at, updated_at)
+          VALUES ($1, $2, $3::date, 'account_daily', 'run-legacy-zero',
+            'completed', true, true, '2026-07-12T01:30:00Z',
+            '2026-07-12T01:30:00.012Z', '2026-07-12T01:30:00.012Z')
+          RETURNING id`, [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day]);
+        const slice = await pool.query<{ id: string }>(`
+          INSERT INTO meta_authoritative_slice_versions
+            (business_id, provider_account_id, day, surface, manifest_id,
+             source_run_id, state, truth_state, validation_status, status,
+             published_at, created_at, updated_at)
+          VALUES ($1, $2, $3::date, 'ad_daily', $4::uuid,
+            'run-legacy-zero', 'finalized_verified', 'finalized', 'passed',
+            'published', '2026-07-12T01:45:00Z',
+            '2026-07-12T01:45:00Z', '2026-07-12T01:45:00Z')
+          RETURNING id`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, manifest.rows[0]!.id]);
+        await pool.query(`INSERT INTO meta_authoritative_publication_pointers
+          (business_id, provider_account_id, day, surface,
+           active_slice_version_id, published_by_run_id, published_at,
+           created_at, updated_at)
+          VALUES ($1, $2, $3::date, 'ad_daily', $4::uuid,
+            'run-legacy-zero', '2026-07-12T02:00:00Z',
+            '2026-07-12T02:00:00Z', '2026-07-12T02:00:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, slice.rows[0]!.id]);
+        const proof = buildMetaAdDayProviderZeroReceiptSql({
+          qualifier: "d", cutoffSql: "$1::timestamptz",
+        });
+        const purchase = buildAdDayAuthoritativePurchasesSql({
+          qualifier: "d", providerZeroProofSql: "receipt.verified",
+        });
+        const read = async () => (await pool.query(`
+          SELECT receipt.verified, ${purchase} AS purchases
+          FROM meta_ad_daily d
+          LEFT JOIN LATERAL (SELECT ${proof} AS verified OFFSET 0) receipt ON TRUE
+          WHERE d.ad_id='legacy-provider-zero-ad'`,
+          ["2026-07-12T03:00:00Z"])).rows[0];
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        const validation = await pool.query<{ id: string }>(`
+          INSERT INTO meta_authoritative_reconciliation_events
+            (business_id, provider_account_id, day, surface,
+             manifest_id, event_kind, result, created_at)
+          VALUES ($1, $2, $3::date, 'account_daily', $4::uuid,
+            'validation_passed', 'passed', '2026-07-12T01:55:00Z')
+          RETURNING id`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, manifest.rows[0]!.id]);
+        expect(await read()).toMatchObject({verified: true, purchases: 0});
+
+        const sourceId = snapshot.rows[0]!.id;
+        await pool.query(`UPDATE meta_authoritative_slice_versions
+          SET manifest_id=gen_random_uuid() WHERE id=$1::uuid`, [slice.rows[0]!.id]);
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        await pool.query(`UPDATE meta_authoritative_slice_versions
+          SET manifest_id=$2::uuid WHERE id=$1::uuid`,
+          [slice.rows[0]!.id, manifest.rows[0]!.id]);
+        await pool.query(`UPDATE meta_raw_snapshots SET run_id='other-run' WHERE id=$1::uuid`, [sourceId]);
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        await pool.query(`UPDATE meta_raw_snapshots SET run_id='run-legacy-zero' WHERE id=$1::uuid`, [sourceId]);
+        await pool.query(`UPDATE meta_raw_snapshots SET partition_id=gen_random_uuid() WHERE id=$1::uuid`, [sourceId]);
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        await pool.query(`UPDATE meta_raw_snapshots SET partition_id=$2::uuid WHERE id=$1::uuid`,
+          [sourceId, partition.rows[0]!.id]);
+        await pool.query(`UPDATE meta_raw_snapshots SET fetched_at='2026-07-12T01:31:00Z' WHERE id=$1::uuid`, [sourceId]);
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        await pool.query(`UPDATE meta_raw_snapshots SET fetched_at='2026-07-12T01:00:00Z' WHERE id=$1::uuid`, [sourceId]);
+        await pool.query(`UPDATE meta_raw_snapshots SET payload_json='[]'::jsonb WHERE id=$1::uuid`, [sourceId]);
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        await pool.query(`UPDATE meta_raw_snapshots SET payload_json=$2::jsonb WHERE id=$1::uuid`,
+          [sourceId, JSON.stringify([raw])]);
+        await pool.query(`UPDATE meta_raw_snapshots SET request_context='{"source":"bulk_core_sync","level":"ad","fields":"spend,clicks"}'::jsonb WHERE id=$1::uuid`, [sourceId]);
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        await pool.query(`UPDATE meta_raw_snapshots SET request_context='{"source":"bulk_core_sync","level":"ad","fields":"spend,actions"}'::jsonb WHERE id=$1::uuid`, [sourceId]);
+        await pool.query(`UPDATE meta_raw_snapshots SET request_context='{"source":"other","level":"ad","fields":"spend,actions"}'::jsonb WHERE id=$1::uuid`, [sourceId]);
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        await pool.query(`UPDATE meta_raw_snapshots SET request_context='{"source":"bulk_core_sync","level":"ad","fields":"spend,actions"}'::jsonb WHERE id=$1::uuid`, [sourceId]);
+        await pool.query(`UPDATE meta_raw_snapshots SET status='partial' WHERE id=$1::uuid`, [sourceId]);
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        await pool.query(`UPDATE meta_raw_snapshots SET status='fetched' WHERE id=$1::uuid`, [sourceId]);
+        await pool.query(`DELETE FROM meta_authoritative_reconciliation_events WHERE id=$1::uuid`,
+          [validation.rows[0]!.id]);
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        await pool.query(`INSERT INTO meta_authoritative_reconciliation_events
+          (business_id, provider_account_id, day, surface,
+           manifest_id, event_kind, result, created_at)
+          VALUES ($1, $2, $3::date, 'account_daily', $4::uuid,
+            'validation_passed', 'passed', '2026-07-12T01:55:00Z')`,
+          [BUSINESS_ID, PROVIDER_ACCOUNT_ID, day, manifest.rows[0]!.id]);
+        await pool.query(`UPDATE meta_raw_snapshots
+          SET status='superseded', updated_at='2026-07-12T02:30:00Z'
+          WHERE id=$1::uuid`, [sourceId]);
+        expect(await read()).toMatchObject({verified: true, purchases: 0});
+        await pool.query(`UPDATE meta_raw_snapshots
+          SET updated_at='2026-07-12T01:59:00Z' WHERE id=$1::uuid`, [sourceId]);
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+        await pool.query(`UPDATE meta_raw_snapshots
+          SET status='fetched', updated_at='2026-07-12T01:00:00Z'
+          WHERE id=$1::uuid`, [sourceId]);
+        await pool.query(`INSERT INTO meta_raw_snapshot_observations (
+          snapshot_id, business_id, provider_account_id, endpoint_name,
+          entity_scope, status, provider_http_status, run_id,
+          request_context, observed_at, created_at
+        ) VALUES ($1::uuid,$2,$3,'ad_insights_bulk','ad','fetched',200,
+          'run-legacy-zero','{"source":"bulk_core_sync","level":"ad"}'::jsonb,
+          '2026-07-12T01:40:00Z','2026-07-12T01:40:00Z')`,
+          [sourceId, BUSINESS_ID, PROVIDER_ACCOUNT_ID]);
+        // A late or invalid receipt cannot be bypassed by the legacy arm.
+        expect(await read()).toMatchObject({verified: false, purchases: null});
+      });
+    }, 120_000);
+
     it("admits an omitted actions key only after the exact source run publishes", async () => {
       await withEphemeralPostgres(async (pool) => {
         await createEphemeralSchema(pool);
@@ -4748,6 +4900,9 @@ async function createEphemeralSchema(pool: Pool) {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       business_id TEXT,
       provider_account_id TEXT,
+      partition_id UUID,
+      run_id TEXT,
+      content_key TEXT,
       endpoint_name TEXT,
       entity_scope TEXT,
       status TEXT,
@@ -4758,7 +4913,16 @@ async function createEphemeralSchema(pool: Pool) {
       request_context JSONB,
       payload_json JSONB,
       fetched_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ
+      created_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ
+    );
+    CREATE TABLE meta_sync_partitions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id TEXT,
+      provider_account_id TEXT,
+      lane TEXT,
+      scope TEXT,
+      partition_date DATE
     );
     CREATE TABLE meta_raw_snapshot_observations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

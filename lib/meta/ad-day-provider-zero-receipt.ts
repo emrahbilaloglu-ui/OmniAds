@@ -8,12 +8,18 @@
  * `buildMetaBulkCoreInsightsUrl` requests `actions`. New snapshots record the
  * field list and must explicitly include actions. Keep the fixed historical
  * request invariant tested whenever the bulk request changes.
+ *
+ * Pre-two-layer snapshots have no observation row. Their own run and partition
+ * identity can establish the same binding, but only for the exact published
+ * account day and with a complete source/validation chain. A legacy snapshot
+ * superseded after publication was still fetched at publication; a snapshot
+ * superseded earlier cannot testify to that publication.
  */
 const SQL_QUALIFIER = /^[a-z_][a-z0-9_]*$/;
 const SQL_CUTOFF = /^(\$[1-9][0-9]*::timestamptz|transaction_timestamp\(\))$/;
 
 export const META_AD_DAY_PROVIDER_ZERO_RECEIPT_CONTRACT_VERSION =
-  "meta-ad-day-provider-zero-receipt.v1";
+  "meta-ad-day-provider-zero-receipt.v2";
 
 export function buildMetaAdDayProviderZeroReceiptSql(options: {
   qualifier: string;
@@ -80,7 +86,7 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND manifest.updated_at <= slice.published_at
           -- The writer records completed_at from the finished fetch and then
           -- inserts this manifest; created_at can follow completed_at.
-        JOIN meta_raw_snapshot_observations observation
+        LEFT JOIN meta_raw_snapshot_observations observation
           ON observation.snapshot_id = source.id
           AND observation.business_id = source.business_id
           AND observation.provider_account_id = source.provider_account_id
@@ -92,6 +98,11 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND observation.observed_at <= manifest.completed_at
           AND observation.created_at <= ${cutoffSql}
           AND observation.created_at <= manifest.completed_at
+          AND source.fetched_at <= observation.observed_at
+          AND observation.request_context->>'source' = 'bulk_core_sync'
+          AND observation.request_context->>'level' = 'ad'
+          AND (NOT (observation.request_context ? 'fields')
+            OR 'actions' = ANY(string_to_array(observation.request_context->>'fields', ',')))
         WHERE source.id = ${d}source_snapshot_id
           AND source.business_id = ${d}business_id
           AND source.provider_account_id = ${d}provider_account_id
@@ -99,11 +110,9 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND source.end_date = ${d}date
           AND source.endpoint_name = 'ad_insights_bulk'
           AND source.entity_scope = 'ad'
-          AND source.status = 'fetched'
           AND source.provider_http_status = 200
           AND source.fetched_at <= ${cutoffSql}
           AND source.created_at <= ${cutoffSql}
-          AND source.fetched_at <= observation.observed_at
           AND source.fetched_at <= manifest.completed_at
           AND source.created_at <= manifest.completed_at
           AND manifest.completed_at <= ${cutoffSql}
@@ -140,10 +149,35 @@ export function buildMetaAdDayProviderZeroReceiptSql(options: {
           AND source.request_context->>'level' = 'ad'
           AND (NOT (source.request_context ? 'fields')
             OR 'actions' = ANY(string_to_array(source.request_context->>'fields', ',')))
-          AND observation.request_context->>'source' = 'bulk_core_sync'
-          AND observation.request_context->>'level' = 'ad'
-          AND (NOT (observation.request_context ? 'fields')
-            OR 'actions' = ANY(string_to_array(observation.request_context->>'fields', ',')))
+          AND (
+            -- Canonical content retains the original same-run observation
+            -- requirement. A late or mismatched receipt cannot use legacy.
+            (source.status = 'fetched' AND observation.id IS NOT NULL)
+            OR (
+              source.content_key IS NULL
+              AND source.run_id = manifest.run_id
+              AND source.partition_id IS NOT NULL
+              AND source.status IN ('fetched', 'superseded')
+              -- Legacy supersession mutates status and updated_at together.
+              -- Only a mutation after publication can preserve the original
+              -- fetched state at this exact published pointer.
+              AND (source.status = 'fetched'
+                OR source.updated_at > pointer.published_at)
+              AND NOT EXISTS (
+                SELECT 1 FROM meta_raw_snapshot_observations any_observation
+                WHERE any_observation.snapshot_id = source.id
+              )
+              AND EXISTS (
+                SELECT 1 FROM meta_sync_partitions legacy_partition
+                WHERE legacy_partition.id = source.partition_id
+                  AND legacy_partition.business_id = source.business_id
+                  AND legacy_partition.provider_account_id = source.provider_account_id
+                  AND legacy_partition.lane = 'core'
+                  AND legacy_partition.scope = 'account_daily'
+                  AND legacy_partition.partition_date = source.start_date
+              )
+            )
+          )
           AND source.payload_json @> jsonb_build_array(${d}payload_json)
           AND EXISTS (
             SELECT 1

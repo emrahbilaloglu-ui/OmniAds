@@ -14,6 +14,11 @@
  */
 
 import { randomUUID } from "node:crypto";
+import {
+  buildMetaCoreCaptureFingerprint,
+  recordMetaAdPageSourceSnapshots,
+  type MetaCorePageEvidence,
+} from "@/lib/meta/core-capture-fingerprint";
 import { parseMetaLinkClicksFromActions } from "@/lib/meta/link-click-parse";
 import { sanitizeMetaGraphTraceId } from "@/lib/meta/graph-trace-id";
 import { formatMetaFailureForStorage } from "@/lib/sync/meta-error-classification";
@@ -4082,6 +4087,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
 
   let rowsFetchedTotal = 0;
   let latestSnapshotId: string | null = null;
+  const adSourceSnapshotIds = new Map<string, string | null>();
   await captureMetaAccountCoreSubStage({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -4109,6 +4115,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         const payload = Array.isArray(rawPage.payload_json)
           ? (rawPage.payload_json as RawAdInsight[])
           : [];
+        recordMetaAdPageSourceSnapshots(adSourceSnapshotIds, payload, rawPage.id);
         applyAdInsightRowsToAggregates(payload, aggregates);
         captureMemorySnapshot();
       }
@@ -4132,6 +4139,17 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     since: normalizedDay,
     until: normalizedDay,
   });
+  const coreRequestFields = new URL(initialPageUrl).searchParams.get("fields") ?? "";
+  const corePageEvidence: MetaCorePageEvidence[] = restoredPages.map((page) => ({
+    pageIndex: page.page_index ?? -1,
+    snapshotId: page.id,
+    rowCount: Array.isArray(page.payload_json) ? page.payload_json.length : -1,
+    hasNext: Boolean(page.provider_cursor),
+    providerHttpStatus: page.provider_http_status ?? -1,
+    status: page.status,
+    requestFields: typeof page.request_context?.fields === "string"
+      ? page.request_context.fields : "",
+  }));
   // When the resume rewound to the durable raw frontier, the checkpoint's own
   // cursor must NOT be used: it points one page past the page that never
   // landed, so following it would skip that page's rows without any error.
@@ -4335,6 +4353,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             level: "ad",
             source: "bulk_core_sync",
             pageIndex,
+            fields: coreRequestFields,
           },
           partitionId: input.partitionId,
           checkpointId,
@@ -4345,6 +4364,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             "x-business-use-case-usage": usageSummary.raw,
           },
         });
+        corePageEvidence.push({ pageIndex, snapshotId: latestSnapshotId ?? "",
+          rowCount: rows.length, hasNext: Boolean(json.paging?.next),
+          providerHttpStatus: response.status, status: "fetched",
+          requestFields: coreRequestFields });
+        recordMetaAdPageSourceSnapshots(adSourceSnapshotIds, rows, latestSnapshotId ?? "");
         applyAdInsightRowsToAggregates(rows, aggregates);
         captureMemorySnapshot();
         rowsFetchedTotal += rows.length;
@@ -5004,7 +5028,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
            * "unavailable" for the ad-days where it genuinely does not.
            */
           linkClicks: metrics.linkClicks,
-          sourceSnapshotId,
+          sourceSnapshotId: adSourceSnapshotIds.get(adId) ?? null,
           payloadJson: value.payloadJson ?? null,
           truthState,
           truthVersion: 1,
@@ -5156,6 +5180,13 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
               workerId: input.workerId,
               restoredPageCount: restoredPages.length,
               rowsFetchedTotal,
+              coreCapture: buildMetaCoreCaptureFingerprint({
+                businessId: input.credentials.businessId,
+                providerAccountId: input.accountId, day: normalizedDay,
+                sourceRunId, requestFields: coreRequestFields,
+                pages: corePageEvidence, rowsFetchedTotal,
+                accountRows, campaignRows, adsetRows, adRows,
+              }),
             },
             startedAt: coreCheckpointStartedAt,
             completedAt: new Date().toISOString(),

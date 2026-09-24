@@ -10372,3 +10372,47 @@ calibration, one pinned REPEATABLE READ READ ONLY snapshot per run; current
 floor, the badge guards and the period labels together, and mint another
 producer/evaluation version. Keep D107 rows intact; never relabel them under
 an earlier key.
+
+## D110 — Bind Each Authoritative Candidate To Its Own Source Manifest
+
+**Problem and evidence.** A finalized Meta day can be fetched again under the
+same partition/source run ID. The writer creates a new completed source
+manifest, but `createMetaAuthoritativeSliceVersion` formerly reused the first
+candidate found for that run, regardless of its manifest. Subsequent writes
+republished that old candidate while replacing Ad facts and raw snapshots.
+For one Grandmix 2026-09-21 Ad, the active candidate's manifest completed on
+2026-09-22 08:04:31Z, while its current raw snapshot was first fetched on
+2026-09-23 06:50:31Z and the pointer was republished two seconds later. A
+separate, completed manifest from the later fetch exists; the active candidate
+simply never bound to it. Same-run IDs alone therefore cannot prove that an
+active slice's manifest covered its current source.
+
+**Decision.** Reuse an authoritative candidate only when business, account,
+day, surface, source run ID **and manifest ID** all match. A later manifest
+under the same run gets a new candidate version unless its complete ordered
+raw-page IDs, requested fields, every normalized account/campaign/adset/Ad
+fact, source spend and validation basis have the same `meta-core-capture.v2`
+fingerprint as the still-active published candidate. That reuse also requires
+the old candidate's exact current warehouse population to remain unchanged
+since publication; a stale or superseded candidate cannot be resurrected.
+The existing publication step moves the pointer only after validation. Apply
+the same identity checks after a candidate-version uniqueness race. Each Ad
+row now records the raw page where that Ad occurred, rather than stamping all
+Ads with the last page's watermark. Duplicate Ad IDs across pages have no
+single-page source and remain unverified. Old raw content, manifests,
+candidates, and historical decision rows remain intact. No legacy pointer is
+silently rebound by this code change.
+
+**Verification and release boundary.** The real migrated-PostgreSQL D101 seam
+proves same-manifest retry reuse, a distinct candidate for a changed later
+manifest under the same run, same-content idempotence, changed-action detection
+at unchanged spend, multi-page order sensitivity, pointer stability before
+publish, new manifest/pointer chronology after publish, and preservation of
+both raw content generations. A pure seam proves per-Ad page attribution and
+rejects ambiguous duplicate IDs.
+Unit coverage checks the lookup and candidate-conflict path. Historical
+creative purchase backfill must independently prove the exact source
+observation and the active candidate's matching completed manifest after a
+bounded re-fetch or separately reviewed authority repair; a matching Ad
+scalar or run ID alone is insufficient. Rollback reverts the candidate lookup
+rule only; already published candidates and raw sources are retained.

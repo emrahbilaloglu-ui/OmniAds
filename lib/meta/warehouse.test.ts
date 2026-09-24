@@ -3464,7 +3464,7 @@ describe("meta warehouse ownership safety", () => {
     ).toBe(true);
   });
 
-  it("reuses an existing slice version for the same source run id", async () => {
+  it("reuses an existing slice only for the same source run and manifest", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("FROM meta_authoritative_slice_versions") && query.includes("source_run_id")) {
@@ -3518,15 +3518,64 @@ describe("meta warehouse ownership safety", () => {
     expect(slice?.id).toBe("slice-existing");
     expect(slice?.candidateVersion).toBe(4);
     expect(sql).toHaveBeenCalledTimes(1);
+    expect(sql.mock.calls[0]?.[0].join(" ")).toContain(
+      "manifest_id IS NOT DISTINCT FROM",
+    );
+  });
+
+  it("creates a new candidate when a reused source run has a new manifest", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("FROM meta_authoritative_slice_versions") &&
+          query.includes("source_run_id")) return [];
+      if (query.includes("FROM meta_authoritative_publication_pointers pointer")) return [];
+      if (query.includes("SELECT COALESCE(MAX(candidate_version), 0) + 1")) {
+        return [{ next_candidate_version: 5 }];
+      }
+      if (query.includes("INSERT INTO meta_authoritative_slice_versions")) {
+        return [{ id: "slice-new", business_id: "biz-1",
+          provider_account_id: "acct-1", day: "2026-04-05",
+          surface: "ad_daily", manifest_id: "manifest-new",
+          candidate_version: 5, state: "finalizing", truth_state: "finalized",
+          validation_status: "pending", status: "staging", staged_row_count: 12,
+          aggregated_spend: 42.5, validation_summary: {}, source_run_id: "run-1",
+          stage_started_at: "2026-04-06T00:01:00.000Z",
+          stage_completed_at: null, published_at: null, superseded_at: null,
+          created_at: "2026-04-06T00:01:00.000Z",
+          updated_at: "2026-04-06T00:01:00.000Z" }];
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const slice = await createMetaAuthoritativeSliceVersion({
+      businessId: "biz-1", providerAccountId: "acct-1", day: "2026-04-05",
+      surface: "ad_daily", manifestId: "manifest-new",
+      state: "finalizing", truthState: "finalized", validationStatus: "pending",
+      status: "staging", stagedRowCount: 12, aggregatedSpend: 42.5,
+      validationSummary: {}, sourceRunId: "run-1",
+      stageStartedAt: "2026-04-06T00:01:00.000Z",
+    });
+
+    expect(slice?.id).toBe("slice-new");
+    expect(slice?.manifestId).toBe("manifest-new");
+    expect(queries[0]).toContain("manifest_id IS NOT DISTINCT FROM");
+    expect(queries.some((query) => query.includes("INSERT INTO meta_authoritative_slice_versions")))
+      .toBe(true);
   });
 
   it("retries candidate version creation after a unique conflict", async () => {
     let insertAttempts = 0;
+    const lookupQueries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("FROM meta_authoritative_slice_versions") && query.includes("source_run_id")) {
+        lookupQueries.push(query);
         return [];
       }
+      if (query.includes("FROM meta_authoritative_publication_pointers pointer")) return [];
       if (query.includes("SELECT COALESCE(MAX(candidate_version), 0) + 1")) {
         return [{ next_candidate_version: insertAttempts === 0 ? 2 : 3 }];
       }
@@ -3590,6 +3639,9 @@ describe("meta warehouse ownership safety", () => {
     expect(slice?.id).toBe("slice-3");
     expect(slice?.candidateVersion).toBe(3);
     expect(insertAttempts).toBe(2);
+    expect(lookupQueries).toHaveLength(2);
+    expect(lookupQueries.every((query) => query.includes("manifest_id IS NOT DISTINCT FROM")))
+      .toBe(true);
   });
 
   it("looks up the active published slice version for a historical surface", async () => {

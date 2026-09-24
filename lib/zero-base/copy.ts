@@ -1328,7 +1328,7 @@ export const ZERO_BASE_COPY = {
     resume: "Sürdür",
     note: "Not",
     inspecting: "İnceleniyor",
-    ctrWindowed: "CTR",
+    ctrWindowed: "CTR: Tıklama oranı",
     decisionWindowed: "Karar",
     showingOfServedRows: "{served} kararın {shown} tanesi gösteriliyor",
     allServedRowsShown: "{served} karar",

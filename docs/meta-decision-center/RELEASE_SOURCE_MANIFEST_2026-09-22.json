@@ -1,5 +1,5 @@
 {
-  "manifestHash": "888ea22a0bce04d001505c27be39959c3c4e429bed9766d5cfc7516bae4442a0",
+  "manifestHash": "acd7f5e6c40929a70f9aad3370eba9a787ca177ba9ad13e3e6e793b89fd0d8ab",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1596,7 +1596,7 @@
     },
     {
       "path": "lib/zero-base/copy.ts",
-      "sha256": "db4bed96c104e08135d2b548663302c6fcce5237b3b79d31b440dbdb2b9937d5"
+      "sha256": "1ece6862c27068cf7f54023b97294b9f39a2f2d735b6b8e9fdaed2c7f4ff45fd"
     },
     {
       "path": "lib/zero-base/meta/automation-posture.ts",

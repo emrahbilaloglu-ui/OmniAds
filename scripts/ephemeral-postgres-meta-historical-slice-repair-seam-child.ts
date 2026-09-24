@@ -90,7 +90,7 @@ async function main() {
          fresh_start_applied, checkpoint_reset_applied,
          raw_snapshot_watermark, source_spend, validation_basis_version,
          meta_json, started_at, completed_at, created_at, updated_at)
-      VALUES ($1::uuid, $2, $2::uuid, $3, $4::uuid, $5::date,
+      VALUES ($1::uuid, ($2::uuid)::text, $2::uuid, $3, $4::uuid, $5::date,
         'account_daily', 'Europe/Istanbul', 'finalize_day', 'historical',
         $6, 'completed', TRUE, TRUE, $7, 50,
         'meta-authoritative-finalization-v2', $8::jsonb,
@@ -106,7 +106,7 @@ async function main() {
        provider_account_ref_id, day, surface, manifest_id,
        event_kind, severity, source_spend, warehouse_account_spend,
        tolerance_applied, result, details_json, created_at)
-    VALUES ($1, $1::uuid, $2, $3::uuid, $4::date, 'account_daily',
+    VALUES (($1::uuid)::text, $1::uuid, $2, $3::uuid, $4::date, 'account_daily',
       $5::uuid, 'validation_passed', 'info', 50, 50, 0.01,
       'passed', '{}'::jsonb, '2026-09-23T06:50:32.900Z')
   `, [BUSINESS, ACCOUNT, ACCOUNT_REF, DAY, TARGET_MANIFEST]);
@@ -118,7 +118,7 @@ async function main() {
        staged_row_count, aggregated_spend, source_run_id,
        stage_started_at, stage_completed_at, published_at,
        created_at, updated_at)
-    VALUES ($1, $1::uuid, $2, $3::uuid, $4::date, 'ad_daily', $5::uuid,
+    VALUES (($1::uuid)::text, $1::uuid, $2, $3::uuid, $4::date, 'ad_daily', $5::uuid,
       1, 'finalized_verified', 'finalized', 'passed', 'published',
       1, 50, $6, '2026-09-22T08:05:00.000Z',
       '2026-09-22T08:05:00.000Z', '2026-09-23T06:50:33.000Z',
@@ -132,7 +132,7 @@ async function main() {
        provider_account_ref_id, day, surface, active_slice_version_id,
        published_by_run_id, publication_reason, published_at,
        created_at, updated_at)
-    VALUES ($1, $1::uuid, $2, $3::uuid, $4::date, 'ad_daily',
+    VALUES (($1::uuid)::text, $1::uuid, $2, $3::uuid, $4::date, 'ad_daily',
       $5::uuid, $6, 'authoritative_refresh',
       '2026-09-23T06:50:33.000Z', '2026-09-22T08:05:00.000Z',
       '2026-09-23T06:50:33.000Z')
@@ -144,7 +144,7 @@ async function main() {
        account_currency, spend, impressions, clicks, reach,
        source_snapshot_id, source_run_id, payload_json, truth_state,
        validation_status, created_at, updated_at)
-    VALUES ($1, $1::uuid, $2, $3::uuid, $4::date, 'ad-d112',
+    VALUES (($1::uuid)::text, $1::uuid, $2, $3::uuid, $4::date, 'ad-d112',
       'Europe/Istanbul', 'USD', 50, 500, 10, 400,
       $5::uuid, $6, $7::jsonb, 'finalized', 'passed',
       '2026-09-23T06:50:32.700Z', '2026-09-23T06:50:32.700Z')
@@ -197,7 +197,8 @@ async function main() {
       SELECT status FROM meta_authoritative_slice_versions WHERE id=$1::uuid
     `, [oldSlice.id]);
     assert(prior[0]?.status === "superseded", "old slice not preserved as superseded");
-    await runHistoricalSourceSliceRepair({ ...base, out: join(temp, "after.json") });
+    await runHistoricalSourceSliceRepair({ ...base,
+      cutoff: new Date().toISOString(), out: join(temp, "after.json") });
     const repeat = JSON.parse(readFileSync(join(temp, "after.json"), "utf8")) as {
       state: string;
     };

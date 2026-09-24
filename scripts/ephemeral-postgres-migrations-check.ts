@@ -21,6 +21,9 @@
  * Usage: npm run test:migrations-from-zero
  * Env overrides:
  *   EPHEMERAL_PG_BIN_DIR  — directory containing initdb/pg_ctl/postgres
+ *   ADSECUTE_EPHEMERAL_ONLY_HISTORICAL_REBIND_SEAM=1 — run the historical
+ *     rebind seam after real migrations and schema checks, skipping unrelated
+ *     child seams for a focused repair verification.
  */
 
 import fs from "node:fs";
@@ -3328,6 +3331,16 @@ async function main() {
       databaseUrl,
       targetHistoryCases.missingHistoryBusinessId,
     );
+
+    if (process.env.ADSECUTE_EPHEMERAL_ONLY_HISTORICAL_REBIND_SEAM === "1") {
+      await runChildScript(
+        repoRoot,
+        databaseUrl,
+        path.join("scripts", "ephemeral-postgres-meta-historical-slice-repair-seam-child.ts"),
+        "Meta historical source-slice repair dry-run/apply/readback DB seam check",
+      );
+      return;
+    }
 
     await runChildScript(
       repoRoot, databaseUrl,

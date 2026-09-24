@@ -8,6 +8,7 @@ import {
 import { computeFunnelDiagnosis } from "../funnel";
 import { resolveAccountDecisionProfile } from "../account-decision-profile";
 import { AccountScopedDataSource, WarehouseDataSource } from "../data-source";
+import { LIFECYCLE_MATERIALIZATION_VERSION } from "../lifecycle-materialization";
 import { resolveEngineV3Flags, type EngineV3Flags } from "../feature-flags";
 import {
   ENGINE_VERSION,
@@ -31,8 +32,15 @@ import {
 import { buildMetaCompleteWindowSql } from "@/lib/meta/funnel-stage-parse";
 import { creativeDayCompleteWindowSql, creativeDayConfigDecisionAdmissionSql, requireCreativeDayEvaluationCutoffAt } from "@/lib/meta/creative-day-decision-admission";
 import { creativeMemberEffectiveStatusLateralSql } from "@/lib/meta/creative-member-effective-status";
+import {
+  buildMetaCreativePurchaseLateralSql,
+  buildMetaCreativePurchaseWindowSql,
+} from "@/lib/meta/creative-day-purchase-evidence";
 
 export const JOB_NAME = "engine_v3_lifecycle_job";
+export { LIFECYCLE_MATERIALIZATION_VERSION } from "../lifecycle-materialization";
+export type LifecycleMaterializationStatus =
+  "materialized" | "held_no_admissible_rows";
 
 type JobStatus = "success" | "failed" | "skipped";
 type TrajectoryStatus = "rising" | "flat" | "falling" | "volatile" | "unknown";
@@ -81,7 +89,9 @@ export interface LifecycleJobResult {
   status: JobStatus;
   rowsWritten: number;
   durationMs: number;
-  reason?: "engine_v3_disabled" | "business_not_found" | "invalid_business_id";
+  /** A successful empty computation is a held creative overlay, not zero fatigue. */
+  materializationStatus?: LifecycleMaterializationStatus;
+  reason?: "engine_v3_disabled" | "business_not_found" | "invalid_business_id" | "no_admissible_creative_lifecycle_rows";
   errorMessage?: string;
 }
 
@@ -186,7 +196,7 @@ interface LifecycleUpsertRow {
   as_of_date: string;
   engine_version: string;
   spend_28d: number;
-  purchases_28d: number;
+  purchases_28d: number | null;
   purchase_value_28d: number | null;
   impressions_28d: number | null;
   link_clicks_28d: number | null;
@@ -195,7 +205,7 @@ interface LifecycleUpsertRow {
   ctr_28d: number | null;
   frequency_28d: number | null;
   spend_7d: number;
-  purchases_7d: number;
+  purchases_7d: number | null;
   roas_7d: number | null;
   impressions_7d: number | null;
   first_seen_date: string | null;
@@ -301,6 +311,10 @@ const CREATIVE_DAY_EVIDENCE = buildMetaCreativeDayMetricEvidenceLateralSql({
   rowAlias: "d",
   lateralAlias: "creative_day_evidence",
 });
+const CREATIVE_DAY_PURCHASE_EVIDENCE = buildMetaCreativePurchaseLateralSql({
+  rowAlias: "d",
+  lateralAlias: "creative_purchase_evidence",
+});
 
 /** One creative-day: complete only when every decision-bearing row measured the stage. */
 function creativeDayStageSumSql(stage: MetaCreativeDayMetricStage) {
@@ -312,6 +326,7 @@ function creativeDayStageSumSql(stage: MetaCreativeDayMetricStage) {
 }
 
 const LAST_28_DAYS_SQL = "date >= ($2::date - INTERVAL '27 days')";
+const LAST_7_DAYS_SQL = "date >= ($2::date - INTERVAL '6 days')";
 
 /**
  * A window over the per-day rows of the `daily` CTE: complete only when every
@@ -325,6 +340,14 @@ function creativeWindowStageSumSql(dailyColumn: string, rowFilterSql: string) {
     rowFilterSql,
   }).sumSql;
 }
+
+/** Purchase counts obey the same complete-window rule as each funnel stage. */
+const PURCHASES_28D_SQL = creativeWindowStageSumSql("purchases", LAST_28_DAYS_SQL);
+const PURCHASES_7D_SQL = creativeWindowStageSumSql("purchases", LAST_7_DAYS_SQL);
+const HISTORICAL_PURCHASES_SQL = buildMetaCreativePurchaseWindowSql({
+  valueSql: "purchases",
+  activitySql: "decision_bearing_activity",
+});
 
 /**
  * The persisted count columns are `integer`. A valid count too large for one is
@@ -366,7 +389,10 @@ daily AS (
     d.creative_id,
     d.date,
     SUM(d.spend)::double precision AS spend,
-    SUM(d.conversions)::double precision AS purchases,
+    ${buildMetaCreativePurchaseWindowSql({
+      valueSql: CREATIVE_DAY_PURCHASE_EVIDENCE.valueSql,
+      activitySql: CREATIVE_DAY_PURCHASE_EVIDENCE.activitySql,
+    })}::double precision AS purchases,
     SUM(d.revenue)::double precision AS revenue,
     SUM(d.impressions)::bigint AS impressions,
     SUM(d.clicks)::bigint AS clicks,
@@ -389,6 +415,7 @@ daily AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   ${CREATIVE_DAY_EVIDENCE.lateralSql}
+  ${CREATIVE_DAY_PURCHASE_EVIDENCE.lateralSql}
   WHERE d.business_ref_id = $1::uuid
     AND ${creativeDayConfigDecisionAdmissionSql("d", "$2", "$4")}
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
@@ -428,7 +455,7 @@ windows AS (
   SELECT
     creative_id,
     COALESCE(SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)::double precision AS spend_28d,
-    COALESCE(SUM(purchases) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)::double precision AS purchases_28d,
+    (${PURCHASES_28D_SQL})::double precision AS purchases_28d,
     SUM(revenue) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::double precision AS purchase_value_28d,
     SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days'))::bigint AS impressions_28d,
     (${creativeWindowStageSumSql("link_clicks", LAST_28_DAYS_SQL)})::bigint AS link_clicks_28d,
@@ -438,9 +465,9 @@ windows AS (
         NULLIF(SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
     END AS roas_28d,
     CASE
-      WHEN SUM(purchases) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
+      WHEN (${PURCHASES_28D_SQL}) > 0
       THEN SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) /
-        NULLIF(SUM(purchases) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')), 0)
+        NULLIF((${PURCHASES_28D_SQL}), 0)
     END AS cpa_28d,
     CASE
       WHEN SUM(impressions) FILTER (WHERE date >= ($2::date - INTERVAL '27 days')) > 0
@@ -469,7 +496,7 @@ windows AS (
     NULL::double precision AS video75_rate_28d,
     NULL::double precision AS video100_rate_28d,
     COALESCE(SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '6 days')), 0)::double precision AS spend_7d,
-    COALESCE(SUM(purchases) FILTER (WHERE date >= ($2::date - INTERVAL '6 days')), 0)::double precision AS purchases_7d,
+    (${PURCHASES_7D_SQL})::double precision AS purchases_7d,
     CASE
       WHEN SUM(spend) FILTER (WHERE date >= ($2::date - INTERVAL '6 days')) > 0
       THEN SUM(revenue) FILTER (WHERE date >= ($2::date - INTERVAL '6 days')) /
@@ -492,7 +519,10 @@ rolling AS (
       THEN SUM(revenue) OVER rolling_window / SUM(spend) OVER rolling_window
     END AS rolling_3d_roas,
     SUM(spend) OVER rolling_window AS rolling_3d_spend,
-    SUM(purchases) OVER rolling_window AS rolling_3d_purchases
+    CASE WHEN COUNT(*) FILTER (
+      WHERE purchases IS NULL AND COALESCE(decision_bearing_activity, TRUE)
+    ) OVER rolling_window = 0
+      THEN SUM(purchases) OVER rolling_window END AS rolling_3d_purchases
   FROM daily_with_roas
   WHERE date >= ($2::date - INTERVAL '29 days')
   WINDOW rolling_window AS (
@@ -599,7 +629,7 @@ historical_source AS (
     d.spend,
     d.impressions,
     d.clicks,
-    d.conversions,
+    ${CREATIVE_DAY_PURCHASE_EVIDENCE.valueSql} AS purchases,
     d.revenue,
     -- The stamped link-click measurement, NULL when this row did not measure
     -- it. The historical click-to-purchase rate below divides by it only when
@@ -610,6 +640,7 @@ historical_source AS (
   FROM meta_creative_daily d
   INNER JOIN selected_creatives s ON s.creative_id = d.creative_id
   ${CREATIVE_DAY_EVIDENCE.lateralSql}
+  ${CREATIVE_DAY_PURCHASE_EVIDENCE.lateralSql}
   CROSS JOIN LATERAL (
     VALUES
       ('last14', d.date BETWEEN ($2::date - INTERVAL '13 days') AND $2::date),
@@ -636,9 +667,9 @@ historical_aggregates AS (
     CASE WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend) END AS roas,
     CASE
       WHEN ${HISTORICAL_LINK_CLICKS_SQL} > 0
-      THEN SUM(conversions)::double precision / NULLIF(${HISTORICAL_LINK_CLICKS_SQL}, 0)
+      THEN (${HISTORICAL_PURCHASES_SQL})::double precision / NULLIF(${HISTORICAL_LINK_CLICKS_SQL}, 0)
     END AS click_to_purchase_rate,
-    SUM(conversions) AS purchases
+    (${HISTORICAL_PURCHASES_SQL})::double precision AS purchases
   FROM historical_source
   GROUP BY creative_id, window_key
 ),
@@ -1262,6 +1293,8 @@ export async function runLifecycleJob(
           flags,
         });
         const rowsWritten = await upsertLifecycleRows(batch.rows);
+        const materializationStatus: LifecycleMaterializationStatus =
+          rowsWritten > 0 ? "materialized" : "held_no_admissible_rows";
         const durationMs = Date.now() - startedAt;
 
         await db.query(
@@ -1285,7 +1318,17 @@ export async function runLifecycleJob(
             batch.sourceMinDate,
             batch.sourceMaxDate,
             batch.sourceMaxUpdatedAt,
-            JSON.stringify({ metadata: { evaluation_cutoff_at: input.evaluationCutoffAt } }),
+            JSON.stringify({
+              metadata: {
+                evaluation_cutoff_at: input.evaluationCutoffAt,
+                lifecycle_materialization: {
+                  contract_version: LIFECYCLE_MATERIALIZATION_VERSION,
+                  status: materializationStatus,
+                  lookback_days: 90,
+                  rows_written: rowsWritten,
+                },
+              },
+            }),
             jobRunId,
           ],
         );
@@ -1295,6 +1338,10 @@ export async function runLifecycleJob(
           dependencyRunId,
           status: "success",
           rowsWritten,
+          materializationStatus,
+          ...(rowsWritten === 0
+            ? { reason: "no_admissible_creative_lifecycle_rows" as const }
+            : {}),
           durationMs,
         };
       } catch (error) {
@@ -1581,7 +1628,12 @@ function mapLifecycleComputationRow(input: {
   if (creativeId === null) return null;
 
   const spend28d = toNumberOrNull(input.row.spend_28d) ?? 0;
-  const purchases28d = toNumberOrNull(input.row.purchases_28d) ?? 0;
+  const purchases28d = toNumberOrNull(input.row.purchases_28d);
+  const purchases7d = toNumberOrNull(input.row.purchases_7d);
+  const purchases90d = toNumberOrNull(input.row.last90_purchases);
+  const purchaseEvidenceStatus =
+    purchases28d !== null && purchases7d !== null && purchases90d !== null
+      ? "verified" : "unverified";
   const purchaseValue28d = toNumberOrNull(input.row.purchase_value_28d);
   const impressions28d = toIntegerOrNull(input.row.impressions_28d);
   const linkClicks28d = toIntegerOrNull(input.row.link_clicks_28d);
@@ -1649,10 +1701,11 @@ function mapLifecycleComputationRow(input: {
         recent7dRoas,
       })
     : "insufficient_history";
-  const fatigue = computeFatigue({
+  const computedFatigue = computeFatigue({
     ctr: ctr28d,
     roas: roas28d,
     clickToPurchaseRate:
+      purchaseEvidenceStatus === "verified" && purchases28d !== null &&
       purchases28d > 0 && linkClicks28d !== null && linkClicks28d > 0
         ? purchases28d / linkClicks28d
         : null,
@@ -1663,17 +1716,29 @@ function mapLifecycleComputationRow(input: {
     // lucky-window defect persisted (the computeFatigue defaults are 0/1).
     winnerMemoryMinSpend: input.profile.thresholds.winnerMemoryMinSpend,
     winnerMemoryMinPurchases: input.profile.thresholds.winnerMemoryMinPurchases,
-    historicalWindows: {
+    historicalWindows: purchaseEvidenceStatus === "verified" ? {
       last14: toHistoricalWindow(input.row, "last14"),
       last30: toHistoricalWindow(input.row, "last30"),
       last90: toHistoricalWindow(input.row, "last90"),
-      allHistory: toHistoricalWindow(input.row, "all_history"),
-    },
+      // D103 closes 90 days. An older day has no complete membership/config
+      // proof, so all-history cannot establish a second winner-memory band.
+      allHistory: null,
+    } : { last14: null, last30: null, last90: null, allHistory: null },
     spendConcentration: null,
     frequency: frequency28d,
     benchmarkRoasStatus: null,
     benchmarkClickToPurchaseStatus: null,
   });
+  const fatigue = purchaseEvidenceStatus === "unverified"
+    ? {
+        ...computedFatigue,
+        status: "unknown" as const,
+        missingContext: [
+          ...computedFatigue.missingContext,
+          "Purchase evidence is incomplete in a required lifecycle window",
+        ],
+      }
+    : computedFatigue;
   const funnelCreativeInput: CreativeInput = {
     creativeId,
     creativeName: null,
@@ -1681,7 +1746,8 @@ function mapLifecycleComputationRow(input: {
     campaignId: toStringOrNull(input.row.campaign_id),
     objective: toCampaignObjective(input.row.objective),
     spend: spend28d,
-    purchases: purchases28d,
+    purchases: purchases28d ?? 0,
+    purchaseEvidenceStatus,
     purchaseValue: purchaseValue28d,
     impressions: impressions28d,
     linkClicks: linkClicks28d,
@@ -1690,7 +1756,7 @@ function mapLifecycleComputationRow(input: {
     ctr: ctr28d,
     frequency: frequency28d,
     recent7dSpend: toNumberOrNull(input.row.spend_7d),
-    recent7dPurchases: toNumberOrNull(input.row.purchases_7d),
+    recent7dPurchases: purchases7d,
     recent7dRoas,
     recent7dImpressions: toIntegerOrNull(input.row.impressions_7d),
     effectiveStatus: null,
@@ -1765,7 +1831,7 @@ function mapLifecycleComputationRow(input: {
     ctr_28d: ctr28d,
     frequency_28d: frequency28d,
     spend_7d: toNumberOrNull(input.row.spend_7d) ?? 0,
-    purchases_7d: toNumberOrNull(input.row.purchases_7d) ?? 0,
+    purchases_7d: purchases7d,
     roas_7d: recent7dRoas,
     impressions_7d: toIntegerOrNull(input.row.impressions_7d),
     first_seen_date: toIsoDateOrNull(input.row.first_seen_date),
@@ -1941,6 +2007,8 @@ function toHistoricalWindow(
 ): HistoricalWindow | null {
   const rowCount = toNumberOrNull(row[`${prefix}_row_count`]) ?? 0;
   if (rowCount <= 0) return null;
+  const purchases = toNumberOrNull(row[`${prefix}_purchases`]);
+  if (purchases === null) return null;
 
   return {
     spend: toNumberOrNull(row[`${prefix}_spend`]) ?? 0,
@@ -1951,7 +2019,7 @@ function toHistoricalWindow(
     // is `number | null`, and a 0 here would read as a 100% decay wherever a
     // prior14 baseline is supplied.
     clickToPurchaseRate: toNumberOrNull(row[`${prefix}_click_to_purchase_rate`]),
-    purchases: toNumberOrNull(row[`${prefix}_purchases`]) ?? 0,
+    purchases,
   };
 }
 

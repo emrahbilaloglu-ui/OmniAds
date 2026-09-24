@@ -2316,7 +2316,7 @@ export async function supersedeMetaAuthoritativeSliceVersions(input: {
       ),
       state = 'superseded',
       status = 'superseded',
-      superseded_at = COALESCE(superseded_at, now()),
+      superseded_at = now(),
       updated_at = now()
     WHERE business_id = ${input.businessId}
       AND provider_account_id = ${input.providerAccountId}
@@ -2374,7 +2374,9 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
       SET
         state = 'superseded',
         status = 'superseded',
-        superseded_at = COALESCE(superseded_at, now()),
+        -- A slice may have been published again after an earlier supersession.
+        -- Close the current publication interval, not its first old interval.
+        superseded_at = now(),
         updated_at = now()
       WHERE business_id = ${input.businessId}
         AND provider_account_id = ${input.providerAccountId}
@@ -2401,6 +2403,8 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
         status = 'published',
         publish_started_at = COALESCE(${input.publishStartedAt ?? null}, publish_started_at, now()),
         published_at = now(),
+        -- Reactivated versions must not retain a prior supersession clock.
+        superseded_at = NULL,
         updated_at = now()
       WHERE id = ${input.sliceVersionId}::uuid
     `;

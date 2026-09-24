@@ -3408,6 +3408,11 @@ describe("meta warehouse ownership safety", () => {
 
     expect(publication?.activeSliceVersionId).toBe("slice-4");
     expect(templateCalls.some((query) => query.includes("UPDATE meta_authoritative_slice_versions"))).toBe(true);
+    const sliceUpdates = templateCalls.filter((query) =>
+      query.includes("UPDATE meta_authoritative_slice_versions"));
+    expect(sliceUpdates).toHaveLength(2);
+    expect(sliceUpdates[0]).toContain("superseded_at = now()");
+    expect(sliceUpdates[1]).toContain("superseded_at = NULL");
     expect(
       templateCalls.some((query) =>
         query.includes("publish_started_at = COALESCE"),
@@ -3692,31 +3697,35 @@ describe("meta warehouse ownership safety", () => {
   });
 
   it("supersedes older candidate versions for the same publication key", async () => {
-    const sql = vi.fn(async () => [
-      {
-        id: "slice-old",
-        business_id: "biz-1",
-        provider_account_id: "acct-1",
-        day: "2026-04-05",
-        surface: "account_daily",
-        manifest_id: "manifest-1",
-        candidate_version: 1,
-        state: "superseded",
-        truth_state: "finalized",
-        validation_status: "passed",
-        status: "superseded",
-        staged_row_count: 1,
-        aggregated_spend: 1,
-        validation_summary: {},
-        source_run_id: "run-1",
-        stage_started_at: null,
-        stage_completed_at: null,
-        published_at: null,
-        superseded_at: "2026-04-06T00:04:00.000Z",
-        created_at: "2026-04-06T00:01:00.000Z",
-        updated_at: "2026-04-06T00:04:00.000Z",
-      },
-    ]);
+    const templateCalls: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      templateCalls.push(strings.join(" "));
+      return [
+        {
+          id: "slice-old",
+          business_id: "biz-1",
+          provider_account_id: "acct-1",
+          day: "2026-04-05",
+          surface: "account_daily",
+          manifest_id: "manifest-1",
+          candidate_version: 1,
+          state: "superseded",
+          truth_state: "finalized",
+          validation_status: "passed",
+          status: "superseded",
+          staged_row_count: 1,
+          aggregated_spend: 1,
+          validation_summary: {},
+          source_run_id: "run-1",
+          stage_started_at: null,
+          stage_completed_at: null,
+          published_at: null,
+          superseded_at: "2026-04-06T00:04:00.000Z",
+          created_at: "2026-04-06T00:01:00.000Z",
+          updated_at: "2026-04-06T00:04:00.000Z",
+        },
+      ];
+    });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
     const rows = await supersedeMetaAuthoritativeSliceVersions({
@@ -3730,6 +3739,7 @@ describe("meta warehouse ownership safety", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe("superseded");
     expect(rows[0]?.state).toBe("superseded");
+    expect(templateCalls[0]).toContain("superseded_at = now()");
   });
   it("builds a business-wide authoritative ops snapshot", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {

@@ -3,6 +3,10 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getDb } from "@/lib/db";
+import {
+  publishMetaAuthoritativeSliceVersion,
+  supersedeMetaAuthoritativeSliceVersions,
+} from "@/lib/meta/warehouse";
 import { runHistoricalSourceSliceRepair, type Options } from "./meta/historical-source-slice-repair";
 
 const BUSINESS = "d1120000-0000-4000-8000-000000000001";
@@ -115,12 +119,13 @@ async function main() {
        provider_account_ref_id, day, surface, manifest_id,
        candidate_version, state, truth_state, validation_status, status,
        staged_row_count, aggregated_spend, source_run_id,
-       stage_started_at, stage_completed_at, published_at,
+       stage_started_at, stage_completed_at, published_at, superseded_at,
        created_at, updated_at)
     VALUES (($1::uuid)::text, $1::uuid, $2, $3::uuid, $4::date, 'ad_daily', $5::uuid,
       1, 'finalized_verified', 'finalized', 'passed', 'published',
       1, 50, $6, '2026-09-22T08:05:00.000Z',
       '2026-09-22T08:05:00.000Z', '2026-09-23T06:50:32.997Z',
+      '2026-09-22T12:00:00.000Z',
       '2026-09-22T08:05:00.000Z', '2026-09-23T06:50:33.000Z')
     RETURNING id::text
   `, [BUSINESS, ACCOUNT, ACCOUNT_REF, DAY, OLD_MANIFEST, run]);
@@ -175,10 +180,12 @@ async function main() {
       expectedHash: plan.planHash });
     const after = await sql.query<{
       slice_id: string; manifest_id: string; reason: string;
+      pointer_published_at: string;
     }>(`
       SELECT pointer.active_slice_version_id::text AS slice_id,
         slice.manifest_id::text AS manifest_id,
-        pointer.publication_reason AS reason
+        pointer.publication_reason AS reason,
+        pointer.published_at::text AS pointer_published_at
       FROM meta_authoritative_publication_pointers pointer
       JOIN meta_authoritative_slice_versions slice
         ON slice.id=pointer.active_slice_version_id
@@ -196,16 +203,52 @@ async function main() {
     `, [BUSINESS, ACCOUNT, DAY]);
     assert(fact[0]?.n === 1 && fact[0]?.spend === 50 && fact[0]?.raw_id === RAW,
       "apply changed the Ad fact");
-    const prior = await sql.query<{ status: string }>(`
-      SELECT status FROM meta_authoritative_slice_versions WHERE id=$1::uuid
+    const prior = await sql.query<{ status: string; superseded_at: string }>(`
+      SELECT status, superseded_at::text FROM meta_authoritative_slice_versions
+      WHERE id=$1::uuid
     `, [oldSlice.id]);
-    assert(prior[0]?.status === "superseded", "old slice not preserved as superseded");
+    assert(prior[0]?.status === "superseded" &&
+      Date.parse(prior[0].superseded_at) >= Date.parse("2026-09-23T06:50:33.000Z"),
+    "rebound old slice retained a stale supersession clock");
     await runHistoricalSourceSliceRepair({ ...base,
       cutoff: new Date().toISOString(), out: join(temp, "after.json") });
     const repeat = JSON.parse(readFileSync(join(temp, "after.json"), "utf8")) as {
       state: string;
     };
     assert(repeat.state === "already_bound", "rerun was not idempotent");
+
+    // A later lifecycle operation must also close the current publication
+    // interval, even when a legacy active row carries an older clock.
+    await sql.query(`
+      UPDATE meta_authoritative_slice_versions
+      SET superseded_at='2026-09-22T12:00:00.000Z'::timestamptz
+      WHERE id=$1::uuid
+    `, [after[0].slice_id]);
+    await supersedeMetaAuthoritativeSliceVersions({
+      businessId: BUSINESS, providerAccountId: ACCOUNT,
+      day: DAY, surface: "ad_daily", excludeSliceVersionId: oldSlice.id,
+    });
+    const closed = await sql.query<{ status: string; superseded_at: string }>(`
+      SELECT status, superseded_at::text FROM meta_authoritative_slice_versions
+      WHERE id=$1::uuid
+    `, [after[0].slice_id]);
+    assert(closed[0]?.status === "superseded" &&
+      Date.parse(closed[0].superseded_at) >= Date.parse(after[0].pointer_published_at),
+    "generic supersede retained a stale supersession clock");
+    await publishMetaAuthoritativeSliceVersion({
+      businessId: BUSINESS, providerAccountId: ACCOUNT,
+      day: DAY, surface: "ad_daily", sliceVersionId: after[0].slice_id,
+      publishedByRunId: run, publicationReason: "test_republish",
+    });
+    const reactivated = await sql.query<{
+      status: string; superseded_at: string | null;
+    }>(`
+      SELECT status, superseded_at::text FROM meta_authoritative_slice_versions
+      WHERE id=$1::uuid
+    `, [after[0].slice_id]);
+    assert(reactivated[0]?.status === "published" &&
+      reactivated[0].superseded_at === null,
+    "reactivated slice retained a stale supersession clock");
     console.log("historical source slice repair real-PG seam: PASS");
   } finally {
     rmSync(temp, { recursive: true, force: true });

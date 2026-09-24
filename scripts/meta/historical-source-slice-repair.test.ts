@@ -390,4 +390,13 @@ describe("historical source slice repair proof", () => {
       "2026-09-23T07:00:00.000Z";
     expect(plan(wrongRawClock).blockers).toContain("rebind_prior_publication_receipt_invalid");
   });
+
+  it("accepts a reactivated slice only when superseded at its current publication interval", () => {
+    const value = reboundObservationEvidence();
+    // A previous supersession can predate this slice's later republication.
+    value.oldSlice!.supersededAt = "2026-09-22T12:00:00.000Z";
+    expect(plan(value).blockers).toContain("rebind_prior_publication_receipt_invalid");
+    value.oldSlice!.supersededAt = value.pointer!.publishedAt;
+    expect(plan(value)).toMatchObject({ state: "already_bound", blockers: [] });
+  });
 });

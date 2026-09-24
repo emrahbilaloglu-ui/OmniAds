@@ -2310,6 +2310,21 @@ export function buyerFacingCreativeReason(decision: MetaOsAdDecision): string {
   if (decision.publishedLabel === "out_of_scope") {
     return "This ad is outside the verified purchase-ROAS decision scope. This workflow makes no scale, spend-reduction, or creative-refresh call for it.";
   }
+  // A blocked row already carries the producer's first authority blocker.
+  // Show that served reason in the inspector instead of a generic review
+  // sentence. The code is translated through the buyer-copy catalog; provider
+  // labels and free-form producer prose never become display text.
+  if (decision.lane === "blocked") {
+    const primary = knownBuyerCopy(
+      BUYER_CREATIVE_BLOCKER_COPY,
+      decision.authorityProvenance?.firstBlocker?.code,
+    );
+    const secondary = (decision.blockers ?? [])
+      .map((blocker) => knownBuyerCopy(BUYER_CREATIVE_BLOCKER_COPY, blocker.code))
+      .find((copy) => copy !== null);
+    if (primary) return primary;
+    if (secondary) return secondary;
+  }
   return (
     knownBuyerCopy(BUYER_CREATIVE_ACTION_CONTEXT_COPY, decision.action.code) ??
     (decision.lane === "act"

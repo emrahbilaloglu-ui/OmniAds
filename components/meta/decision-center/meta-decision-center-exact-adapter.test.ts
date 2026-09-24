@@ -4773,7 +4773,32 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(inspector?.blockers).toBe(
       "The campaign configuration behind this decision is not verified for the evaluation day or its economic window.",
     );
+    expect(inspector?.reasons?.[0]).toBe(inspector?.blockers);
     expect(JSON.stringify(inspector)).not.toContain("Internal config source authority");
+  });
+
+  it("puts the served primary blocker in the inspector's Why line", () => {
+    const inspector = heldInspector(
+      heldRefreshFixture({
+        authorityProvenance: {
+          availability: "available",
+          preAuthorityLabel: "refresh",
+          postAuthorityRawLabel: "keep",
+          publishedLabel: "keep",
+          firstBlocker: {
+            code: "config_source_authority",
+            label: "Internal config source authority",
+            explanation: "Internal producer explanation",
+          },
+        },
+        blockers: [{ code: "pending_transition", label: "Internal pending label" }],
+      }),
+    );
+
+    expect(inspector?.reasons?.[0]).toBe(
+      "The campaign configuration behind this decision is not verified for the evaluation day or its economic window.",
+    );
+    expect(JSON.stringify(inspector)).not.toContain("Internal producer explanation");
   });
 
   it("explains the inspector's held verdict with the held resolution, not the published one", () => {

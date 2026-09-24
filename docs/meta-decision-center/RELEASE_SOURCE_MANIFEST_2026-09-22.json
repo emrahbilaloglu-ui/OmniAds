@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d152e4a46aeeb3ae9fd4615bab392441589bc0346ca28a11d07e59f13ab99098",
+  "manifestHash": "251a1877411a378929c2b5f8ca5007352c895a474282665d0b13abe353a2505c",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -339,8 +339,12 @@
       "sha256": "6909aeb43f566c3aab59a15ee1af00b54b8cbd87ca1c7ebbb9f0d9b9518165ad"
     },
     {
+      "path": "components/creatives/creative-evidence-held-verdict.test.tsx",
+      "sha256": "c2cd984037658de6cc99b1dbbc4d5ccb7517cdd677843e3115347d656f1dae18"
+    },
+    {
       "path": "components/creatives/creative-evidence-window-exact-adapter.test.ts",
-      "sha256": "d72877c14a6cf100356604a8c3da4b5ad56cd8d662740cf4333c839508505fd4"
+      "sha256": "e86ebfc58906364d452de66632a9ac665146aa6c12520506e97aaaddd0f849a3"
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.ts",
@@ -407,12 +411,16 @@
       "sha256": "ded68d0559cf540d76f83fde1a104d6915a2771518c3b24e3f2d3c2ae94f4062"
     },
     {
+      "path": "components/meta/decision-center/held-resolution-owner-copy.test.ts",
+      "sha256": "3a7d581f84fa41db9850a3f36d7a51eeaac6403017777e891415c52145722d6c"
+    },
+    {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "389f47e775b3584925446031cfafc4bd1f66c7cdbabee3420acb5156a583a7ee"
+      "sha256": "1d90a3a1c2ec12a2572e6c42b8b3454f0bf012bf0451d938566a7d20b489ea3e"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "b1c6e00072599f2892ba893870e065cfe37f2259d3b153025acde2364b7cf13e"
+      "sha256": "03563f0331499494ccb59120926c0ff6bda91c4da52754b2c36e321db81c8950"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -552,7 +560,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "a2f76b7c3f6f88004497a988b47276fba1cd0d5089a13fc237edb374a68cf2f8"
+      "sha256": "58ea8d24666b8dfac2da883037a0d446e001904b8261ccea1e55e218754e73cd"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -768,7 +776,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-calibration-job.test.ts",
-      "sha256": "4be416618f1bc5593509a44df4f89c231150d7ca0adb44bd5f438433d62687c5"
+      "sha256": "cebbfd3f6c0575d0427c0011b2f8e70581380159d6de1a64cea8ea1e0a2b5de4"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/ad-calibration-migration-shape.test.ts",
@@ -1036,7 +1044,7 @@
     },
     {
       "path": "lib/creative-decision-engine/jobs/native-ad-scheduled.ts",
-      "sha256": "e3559a2168892dd8d16ca4c72ebd982decac6e409630c710d6b7b860622d5583"
+      "sha256": "c3a238c8a13d9b7503e1efa7647d053e85898c3ed48de971458539a1cdee5d23"
     },
     {
       "path": "lib/creative-decision-engine/jobs/operator-response-job.ts",
@@ -1192,7 +1200,7 @@
     },
     {
       "path": "lib/meta/ad-day-provider-zero-receipt.ts",
-      "sha256": "4a4375518966c3e3a430b46568128724a57f748ff5d20138a958b72724f56aaf"
+      "sha256": "81c261ae034669e1974b093e19a3e66fec4116d4bb803fbeca14ade75aad8617"
     },
     {
       "path": "lib/meta/ad-funnel-evidence-read.test.ts",
@@ -1831,6 +1839,14 @@
       "sha256": "8d3750624f3861f9eca82dd223049139656973264112085421fb9843581d61bb"
     },
     {
+      "path": "scripts/creative-decision-center/native-ad-canary-recompute.test.ts",
+      "sha256": "6da4a2ae472da095af6976c3734873b5d21cd1db7005032d0608dc975f84ebdf"
+    },
+    {
+      "path": "scripts/creative-decision-center/native-ad-canary-recompute.ts",
+      "sha256": "4c5a8acc28ec9f29fa26a8226df789095f76e987c3a5efd6414b2e827d38f57b"
+    },
+    {
       "path": "scripts/creative-decision-center/native-ad-current-code-historical-simulation.test.ts",
       "sha256": "0cc51492b0fedd9ceb191eb3a1f8338fb09de186ab6872c62d40dea3c404bf68"
     },
@@ -1892,7 +1908,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-meta-historical-slice-repair-seam-child.ts",
-      "sha256": "ec530441f9095affe89c277cca01f4280a41fbafe4c70645ab68c174de13cd2f"
+      "sha256": "a75cb88732313e237374bea41293537d5082c215169115f7b184f205e243d356"
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
@@ -1900,7 +1916,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
-      "sha256": "302e4a0d3720b5bb2c785193373043a89ff0920f7b3dac8e9f7b26fb7c3cb674"
+      "sha256": "8d92692d3022527a0b17257826d15de8d6a13cfbc3e81b0ab8a50fb54b9c08f0"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
@@ -1956,11 +1972,11 @@
     },
     {
       "path": "scripts/meta/historical-source-slice-repair.test.ts",
-      "sha256": "b6ac427e93d34efb536dadd4fb4c5df43764682c2f527f52636275564a977c5c"
+      "sha256": "9b0f89db30ff6be82ca75b821a86635bfcebd9a06a5e2946c51d9484d72a9479"
     },
     {
       "path": "scripts/meta/historical-source-slice-repair.ts",
-      "sha256": "d434fe613b224343ffd61bbbc5328757e882f85fe5059b40efa3e5983c884527"
+      "sha256": "2dad9a9497444e943c7f76b6aa22cdf13c74d182b105d0231afd217315fc809c"
     },
     {
       "path": "scripts/meta/link-click-repair-backfill.db.test.ts",

@@ -10629,7 +10629,10 @@ provider zero; the D108 decision reader applies its own receipt rule.
 **Evidence and rollback.** Grandmix and two TheSwaf accounts over the reviewed
 90-day period had 170 stale Ad bindings: 169 met this narrow source-binding
 proof; one lacked a matching source population. Of the 169, 69 use the legacy
-run-bound receipt instead of a later observation. These are dry-run results,
+run-bound receipt instead of a later observation. A later `v2` read at
+2026-09-24T15:57Z found 168 repairable and two held; one additional pointer
+had changed after that cutoff and became repairable on a fresh 16:03Z read.
+These are dry-run results,
 not applied production changes or new decision labels. Unit tests cover late
 supersession, missing receipt, wrong payload and failed reconciliation; a
 migrated-PostgreSQL seam covers dry-run, apply, readback and rerun. To roll

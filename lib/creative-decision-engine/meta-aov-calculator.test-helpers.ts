@@ -1,5 +1,9 @@
 import type { DbClient } from "@/lib/db";
 import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metrics";
+import {
+  buildMetaCreativeDayPurchaseEvidence,
+  META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY,
+} from "@/lib/meta/creative-day-purchase-evidence";
 import { META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION } from "@/lib/meta/creatives-types";
 import type {
   MetaAdDailyRow,
@@ -139,9 +143,20 @@ export async function seedCanonicalMetaAdDailyFacts(input: {
       if (!row.creativeId || !row.objective || !row.optimizationGoal) {
         throw new Error("Certified creative fixture needs identity and config.");
       }
+      // These are explicit synthetic provider actions for the controlled
+      // fixture, not an inference from the flattened creative scalar.
+      const purchaseEvidence = buildMetaCreativeDayPurchaseEvidence(
+        [{ action_type: "purchase", value: String(row.conversions) }],
+        { completeActionsRequest: true },
+      );
+      if (purchaseEvidence.state !== "measured" ||
+          purchaseEvidence.value !== row.conversions) {
+        throw new Error("Certified creative fixture purchase actions disagree with its scalar.");
+      }
       return {
         creative_id: row.creativeId,
         payload_json: {
+          [META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY]: purchaseEvidence,
           source_identity_version: META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION,
           source_ad_ids_complete: true,
           source_ad_ids: [row.adId],

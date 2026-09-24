@@ -29,8 +29,11 @@ import { getMetaAdDailyRange, getMetaCreativeDailyRange } from "@/lib/meta/wareh
 import type { MetaAdDailyRow, MetaCreativeDailyRow } from "@/lib/meta/warehouse-types";
 import { configureOperationalScriptRuntime } from "../_operational-runtime";
 
-const CONTRACT = "adsecute.meta-creative-day-source-evidence-repair.v1";
+const CONTRACT = "adsecute.meta-creative-day-source-evidence-repair.v2";
+const REBIND_CONTRACT = "meta-historical-source-slice-repair.v2";
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+const SHA = /^[a-f0-9]{64}$/;
 function stable(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stable);
   if (value && typeof value === "object") {
@@ -56,12 +59,14 @@ type Snapshot = {
   id: string; business_id: string; provider_account_id: string;
   endpoint_name: string; start_date: string; end_date: string;
   entity_scope: string; status: string; provider_http_status: number | null; payload_hash: string;
-  payload_json: unknown; fetched_at: string; created_at: string;
+  payload_json: unknown; fetched_at: string; created_at: string; updated_at: string;
   request_context: unknown; partition_id: string | null; run_id: string | null;
   content_key: string | null; page_index: number | null; provider_cursor: string | null;
 };
 type Receipt = {
-  day: string; published_by_run_id: string; published_at: string | null;
+  day: string; pointer_id: string; slice_id: string; manifest_id: string;
+  publication_reason: string; slice_validation_summary: unknown;
+  published_by_run_id: string; published_at: string | null;
   slice_source_run_id: string; slice_state: string; slice_truth_state: string;
   slice_validation_status: string; slice_status: string; staged_row_count: number | null;
   manifest_fetch_status: string; manifest_account_timezone: string;
@@ -69,6 +74,16 @@ type Receipt = {
   manifest_raw_snapshot_watermark: string | null;
   manifest_rows_fetched_total: number | null; manifest_partition_id: string | null;
   manifest_fresh_start_applied: boolean; manifest_checkpoint_reset_applied: boolean;
+};
+type PriorSlice = {
+  id: string; business_id: string; provider_account_id: string; day: string;
+  surface: string; manifest_id: string; source_run_id: string | null;
+  status: string; truth_state: string; validation_status: string;
+  published_at: string | null; superseded_at: string | null;
+};
+type ValidationEvent = {
+  manifest_id: string; day: string; surface: string;
+  event_kind: string; result: string; created_at: string;
 };
 type Observation = {
   snapshot_id: string; run_id: string | null; partition_id: string | null;
@@ -79,6 +94,7 @@ type Observation = {
 type RepairInputs = Scope & {
   creativeRows: MetaCreativeDailyRow[]; adRows: MetaAdDailyRow[];
   snapshots: Snapshot[]; receipts: Receipt[]; observations: Observation[];
+  priorSlices: PriorSlice[]; validationEvents: ValidationEvent[];
 };
 type Scalars = {
   spend: number; impressions: number; clicks: number; reach: number;
@@ -92,7 +108,10 @@ type PlannedChange = {
   nextPayload: Record<string, unknown>;
   old: Scalars; next: Scalars;
   source: Array<{ adId: string; snapshotId: string; payloadHash: string;
-    sourceRunId: string; fetchedAt: string }>;
+    sourceRunId: string; manifestId: string; fetchedAt: string;
+    snapshotStatus: string; rawUpdatedAt: string;
+    priorPublication: null | { pointerId: string; sliceId: string;
+      publishedAt: string; reviewedPlanHash: string } }>;
   reason: "evidence_only" | "finalized_ad_day_restatement";
 };
 
@@ -141,7 +160,23 @@ function memberIds(row: MetaCreativeDailyRow): string[] | null {
 }
 
 function verifiedReceipt(receipt: Receipt | undefined, day: string,
-  accountTimezone: string, sourceRunId: string) {
+  accountTimezone: string, sourceRunId: string,
+  validationEvents: ValidationEvent[]) {
+  const completed = Date.parse(receipt?.manifest_completed_at ?? "");
+  const published = Date.parse(receipt?.published_at ?? "");
+  const validations = validationEvents.filter((event) =>
+    event.manifest_id === receipt?.manifest_id && event.day === day &&
+    event.surface === "account_daily");
+  const reconciled = validations.some((passed) => {
+    const at = Date.parse(passed.created_at);
+    return passed.event_kind === "validation_passed" && passed.result === "passed" &&
+      Number.isFinite(at) && at >= completed && at <= published &&
+      !validations.some((later) => {
+        const failedAt = Date.parse(later.created_at);
+        return (later.result === "failed" || later.result === "repair_required") &&
+          Number.isFinite(failedAt) && failedAt >= at && failedAt <= published;
+      });
+  });
   return receipt?.day === day && receipt.published_by_run_id === sourceRunId &&
     receipt.slice_source_run_id === sourceRunId && receipt.slice_state === "finalized_verified" &&
     receipt.slice_truth_state === "finalized" && receipt.slice_validation_status === "passed" &&
@@ -149,7 +184,7 @@ function verifiedReceipt(receipt: Receipt | undefined, day: string,
     receipt.manifest_account_timezone === accountTimezone &&
     receipt.manifest_fresh_start_applied && receipt.manifest_checkpoint_reset_applied &&
     receipt.manifest_completed_at != null && receipt.manifest_started_at != null &&
-    receipt.published_at != null;
+    receipt.published_at != null && reconciled;
 }
 
 function actionsRequested(context: unknown) {
@@ -199,6 +234,55 @@ function causalSinglePageReceipt(input: {
     Date.parse(snapshot.fetched_at) >= started;
 }
 
+/** D113 preserves the pre-rebind publication clock on its new candidate. */
+function provedLegacySupersession(input: {
+  snapshot: Snapshot; receipt: Receipt; priorSlices: PriorSlice[];
+  observations: Observation[]; businessId: string; accountId: string;
+  day: string; sourceRunId: string;
+}): boolean {
+  const { snapshot, receipt, priorSlices, observations, businessId,
+    accountId, day, sourceRunId } = input;
+  const proof = record(receipt.slice_validation_summary);
+  const oldPublished = Date.parse(String(proof.oldPublishedAt ?? ""));
+  const rawUpdated = Date.parse(snapshot.updated_at);
+  const provedRawUpdated = Date.parse(String(proof.rawUpdatedAt ?? ""));
+  const currentPublished = Date.parse(receipt.published_at ?? "");
+  const prior = priorSlices.find((slice) => slice.id === proof.oldSliceId);
+  const priorPublished = Date.parse(prior?.published_at ?? "");
+  const priorSuperseded = Date.parse(prior?.superseded_at ?? "");
+  return snapshot.status === "superseded" && snapshot.content_key === null &&
+    observations.every((observation) => observation.snapshot_id !== snapshot.id) &&
+    receipt.publication_reason === "manifest_rebind_repair" &&
+    proof.repairContract === REBIND_CONTRACT &&
+    typeof proof.reviewedPlanHash === "string" && SHA.test(proof.reviewedPlanHash) &&
+    proof.receiptKind === "legacy_run_bound_raw" &&
+    proof.sourceSnapshotId === snapshot.id &&
+    proof.targetManifestId === receipt.manifest_id &&
+    proof.sourcePartitionId === receipt.manifest_partition_id &&
+    proof.oldPointerId === receipt.pointer_id &&
+    typeof proof.oldSliceId === "string" && UUID.test(proof.oldSliceId) &&
+    proof.oldSliceId !== receipt.slice_id &&
+    typeof proof.oldManifestId === "string" && UUID.test(proof.oldManifestId) &&
+    proof.oldManifestId !== receipt.manifest_id &&
+    proof.oldRunId === sourceRunId &&
+    proof.oldRunId === receipt.published_by_run_id &&
+    snapshot.run_id === sourceRunId &&
+    snapshot.partition_id === receipt.manifest_partition_id &&
+    prior !== undefined && prior.business_id === businessId &&
+    prior.provider_account_id === accountId &&
+    prior.day === day && prior.surface === "ad_daily" &&
+    prior.status === "superseded" &&
+    prior.truth_state === "finalized" && prior.validation_status === "passed" &&
+    prior.manifest_id === proof.oldManifestId &&
+    prior.source_run_id === proof.oldRunId &&
+    Number.isFinite(oldPublished) && Number.isFinite(rawUpdated) &&
+    Number.isFinite(provedRawUpdated) && Number.isFinite(currentPublished) &&
+    Number.isFinite(priorPublished) && Number.isFinite(priorSuperseded) &&
+    rawUpdated === provedRawUpdated && priorPublished <= oldPublished &&
+    oldPublished < rawUpdated && oldPublished < currentPublished &&
+    priorSuperseded >= oldPublished && priorSuperseded <= currentPublished;
+}
+
 export function buildCreativeDaySourceEvidenceRepairPlan(input: RepairInputs) {
   const ads = new Map(input.adRows.map((row) => [`${row.date}|${row.adId}`, row]));
   const snapshots = new Map(input.snapshots.map((row) => [row.id, row]));
@@ -232,14 +316,22 @@ export function buildCreativeDaySourceEvidenceRepairPlan(input: RepairInputs) {
     for (const id of ids) {
       const ad = ads.get(`${row.date}|${id}`);
       const snapshot = ad?.sourceSnapshotId ? snapshots.get(ad.sourceSnapshotId) : null;
+      if (snapshot?.status === "superseded" && receipt &&
+          !provedLegacySupersession({ snapshot, receipt,
+            priorSlices: input.priorSlices, observations: input.observations,
+            businessId: input.businessId, accountId: input.accountId,
+            day: row.date, sourceRunId: ad?.sourceRunId ?? "" })) {
+        fail(`legacy_supersession_receipt_invalid:${id}`); break;
+      }
       if (!ad || !snapshot || ad.businessId !== input.businessId ||
           ad.providerAccountId !== input.accountId || ad.truthState !== "finalized" ||
           ad.validationStatus !== "passed" || !ad.finalizedAt || !ad.sourceRunId ||
-          !verifiedReceipt(receipt, row.date, ad.accountTimezone, ad.sourceRunId) ||
+          !verifiedReceipt(receipt, row.date, ad.accountTimezone, ad.sourceRunId,
+            input.validationEvents) ||
           snapshot.business_id !== input.businessId ||
           snapshot.provider_account_id !== input.accountId ||
           snapshot.endpoint_name !== "ad_insights_bulk" || snapshot.entity_scope !== "ad" ||
-          snapshot.status !== "fetched" ||
+          (snapshot.status !== "fetched" && snapshot.status !== "superseded") ||
           snapshot.provider_http_status !== 200 || !snapshot.payload_hash ||
           snapshot.start_date !== row.date || snapshot.end_date !== row.date ||
           !causalSinglePageReceipt({ snapshot, receipt, observations: input.observations,
@@ -348,9 +440,19 @@ export function buildCreativeDaySourceEvidenceRepairPlan(input: RepairInputs) {
     changes.push({ creativeId: row.creativeId, day: row.date,
       oldPayloadHash: hash(oldPayload), oldUpdatedAt: row.updatedAt, oldPayload,
       nextPayload, old, next,
-      source: members.map(({ ad, snapshot }) => ({ adId: ad.adId,
-        snapshotId: snapshot.id, payloadHash: snapshot.payload_hash,
-        sourceRunId: ad.sourceRunId!, fetchedAt: snapshot.fetched_at })),
+      source: members.map(({ ad, snapshot }) => {
+        const proof = record(receipt.slice_validation_summary);
+        return { adId: ad.adId, snapshotId: snapshot.id,
+          payloadHash: snapshot.payload_hash, sourceRunId: ad.sourceRunId!,
+          manifestId: receipt.manifest_id, fetchedAt: snapshot.fetched_at,
+          snapshotStatus: snapshot.status, rawUpdatedAt: snapshot.updated_at,
+          priorPublication: snapshot.status === "superseded" ? {
+            pointerId: String(proof.oldPointerId),
+            sliceId: String(proof.oldSliceId),
+            publishedAt: String(proof.oldPublishedAt),
+            reviewedPlanHash: String(proof.reviewedPlanHash),
+          } : null };
+      }),
       reason: economicsChanged ? "finalized_ad_day_restatement" : "evidence_only" });
   }
   const manifest = { contract: CONTRACT,
@@ -380,6 +482,9 @@ async function loadInputs(scope: Scope): Promise<RepairInputs> {
   const adRows = await getMetaAdDailyRange({ businessId: scope.businessId,
     providerAccountIds: [scope.accountId], startDate: scope.from, endDate: scope.to });
   const receiptRows = await getDb().query<Receipt>(`SELECT p.day::text AS day,
+        p.id::text AS pointer_id, s.id::text AS slice_id,
+        s.manifest_id::text AS manifest_id, p.publication_reason,
+        s.validation_summary AS slice_validation_summary,
         p.published_by_run_id, p.published_at::text AS published_at,
         s.source_run_id AS slice_source_run_id, s.state AS slice_state,
         s.truth_state AS slice_truth_state, s.validation_status AS slice_validation_status,
@@ -405,6 +510,26 @@ async function loadInputs(scope: Scope): Promise<RepairInputs> {
       WHERE p.business_id=$1 AND p.provider_account_id=$2
         AND p.day BETWEEN $3::date AND $4::date AND p.surface='ad_daily'`,
       [scope.businessId, scope.accountId, scope.from, scope.to]);
+  const priorSliceIds = [...new Set(receiptRows.map((receipt) =>
+    record(receipt.slice_validation_summary).oldSliceId).filter(
+    (id): id is string => typeof id === "string" && UUID.test(id)))];
+  const priorSlices = priorSliceIds.length ? await getDb().query<PriorSlice>(
+    `SELECT id::text AS id, business_id, provider_account_id,
+        day::text AS day, surface, manifest_id::text AS manifest_id,
+        source_run_id, status, truth_state, validation_status,
+        published_at::text AS published_at,
+        superseded_at::text AS superseded_at
+      FROM meta_authoritative_slice_versions WHERE id=ANY($1::uuid[])`,
+    [priorSliceIds]) : [];
+  const manifestIds = [...new Set(receiptRows.map((receipt) => receipt.manifest_id)
+    .filter((id) => UUID.test(id)))];
+  const validationEvents = manifestIds.length ? await getDb().query<ValidationEvent>(
+    `SELECT manifest_id::text AS manifest_id, day::text AS day, surface,
+        event_kind, result, created_at::text AS created_at
+      FROM meta_authoritative_reconciliation_events
+      WHERE manifest_id=ANY($1::uuid[]) AND business_id=$2
+        AND provider_account_id=$3`,
+    [manifestIds, scope.businessId, scope.accountId]) : [];
   const ids = [...new Set(adRows.map((ad) => ad.sourceSnapshotId).filter(
     (id): id is string => Boolean(id)))];
   const snapshots = ids.length ? await getDb().query<Snapshot>(
@@ -412,6 +537,7 @@ async function loadInputs(scope: Scope): Promise<RepairInputs> {
         start_date::text AS start_date, end_date::text AS end_date,
         status, provider_http_status, payload_hash, payload_json,
         fetched_at::text AS fetched_at, created_at::text AS created_at,
+        updated_at::text AS updated_at,
         request_context, partition_id::text AS partition_id, run_id,
         content_key, page_index, provider_cursor
       FROM meta_raw_snapshots WHERE id=ANY($1::uuid[])`, [ids]) : [];
@@ -423,7 +549,7 @@ async function loadInputs(scope: Scope): Promise<RepairInputs> {
       FROM meta_raw_snapshot_observations
       WHERE snapshot_id=ANY($1::uuid[])`, [ids]) : [];
   return { ...scope, creativeRows, adRows, snapshots, receipts: receiptRows,
-    observations };
+    observations, priorSlices, validationEvents };
 }
 
 async function applyPlan(scope: Scope, expectedManifestHash: string) {

@@ -1335,7 +1335,7 @@ describe("Decisions deep links", () => {
     render();
     await act(async () => { await Promise.resolve(); });
     expect(state.evidenceProps.viewModel.readNotice?.text).toContain(
-      "No verified ad-day rows were found",
+      "No stored Ad-day rows were found for this Ad",
     );
     expect(state.evidenceProps.viewModel.readNotice?.text).not.toContain(
       "still loading",

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "7f6c58fb26786e5d01d1f31ee90e19eee27ea552e28c35fe084a7040f71737b5",
+  "manifestHash": "793840418494b5ae0b5a595f04194542325bd925ded57e96b94d7441270bb4cb",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -637,6 +637,10 @@
     {
       "path": "lib/creative-decision-engine/__tests__/ad-operator-response-detection.test.ts",
       "sha256": "35c2598ac571b94b51137955453c0a6dceed030a7be413599fa7ecae7f4e2284"
+    },
+    {
+      "path": "lib/creative-decision-engine/__tests__/aov-native-meta-basis-authority.test.ts",
+      "sha256": "f9e40b2ef50d5e78c22d469a3ea249e6fafb3089eee5ef4d7b4b4c6d98fe60f6"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/campaign-context-data.test.ts",

@@ -205,6 +205,9 @@ function makeSourceRow(
     clicks: 300,
     linkClicks: 250,
     conversions: 1,
+    // These direct source-row fixtures represent a corroborated raw-actions
+    // purchase count. D108 does not infer authority from conversions alone.
+    authoritativePurchases: overrides.conversions ?? 1,
     revenue: 100,
     landingPageViews: 200,
     addToCart: 50,

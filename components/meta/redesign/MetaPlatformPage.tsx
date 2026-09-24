@@ -2097,6 +2097,9 @@ function MetaMobileDecisionsScreen({
   error,
   retryPending,
   onRetryRead,
+  accountMetadataDegraded,
+  accountMetadataRetryPending,
+  onRetryAccountMetadata,
   anomalies,
   banners,
   historyHref,
@@ -2122,6 +2125,9 @@ function MetaMobileDecisionsScreen({
   error: Error | null;
   retryPending: boolean;
   onRetryRead: () => void;
+  accountMetadataDegraded: boolean;
+  accountMetadataRetryPending: boolean;
+  onRetryAccountMetadata: () => void;
   anomalies: MetaAnomaly[];
   banners: MetaWorkspaceBanner[];
   historyHref: string;
@@ -2272,6 +2278,30 @@ function MetaMobileDecisionsScreen({
             Updated {mobileDisplay(identity.syncedLabel)} ·{" "}
             {mobileDisplay(identity.currency)}
           </div>
+
+          {accountMetadataDegraded ? (
+            <article
+              className="ad-mobile-anomaly"
+              data-tone="warning"
+              data-mobile-account-metadata-warning
+              role="status"
+            >
+              <b>Account details are unavailable.</b>
+              <div>
+                Decisions are available, but the account name and currency could
+                not be refreshed.
+              </div>
+              <button
+                type="button"
+                className="btn btn--sm"
+                data-mobile-account-metadata-retry
+                disabled={accountMetadataRetryPending}
+                onClick={onRetryAccountMetadata}
+              >
+                {accountMetadataRetryPending ? "Retrying..." : "Retry"}
+              </button>
+            </article>
+          ) : null}
 
           {bannerPresentation ? (
             <article
@@ -5843,6 +5873,9 @@ export function MetaPlatformPage({
           error={error}
           retryPending={briefingRetryPending}
           onRetryRead={() => void retryBriefingRead()}
+          accountMetadataDegraded={providerAccountMetadataDegraded}
+          accountMetadataRetryPending={providerAccountsQuery.isFetching}
+          onRetryAccountMetadata={() => void providerAccountsQuery.refetch()}
           anomalies={anomalies}
           banners={workspaceBanners}
           historyHref={metaHistoryHref}

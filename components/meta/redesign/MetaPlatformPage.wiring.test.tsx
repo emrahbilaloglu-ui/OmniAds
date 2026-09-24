@@ -808,6 +808,47 @@ describe("Decisions error recovery", () => {
     expect(workspaceKey).toBeDefined();
     expect(workspaceKey?.[2]).toBe("act_server");
   });
+
+  it("keeps mobile decisions visible and retries only account details when metadata fails", () => {
+    state.queryOverrides = {
+      "meta-provider-accounts": {
+        data: undefined,
+        error: new Error("meta_history_accounts_unavailable"),
+      },
+    };
+    state.workspaceData = workspacePayload();
+    const dom = render({ serverProviderAccountId: "act_1" });
+    const warning = dom.querySelector("[data-mobile-account-metadata-warning]");
+    expect(warning?.textContent).toContain("Account details are unavailable.");
+    expect(warning?.textContent).toContain("Decisions are available");
+    expect(dom.querySelector('[data-mobile-read-state="error"]')).toBeNull();
+    expect(dom.querySelector('[data-testid="meta-mobile-decisions"]')).not.toBeNull();
+    act(() =>
+      dom.querySelector<HTMLButtonElement>("[data-mobile-account-metadata-retry]")!
+        .click(),
+    );
+    expect(state.refetched).toEqual(["meta-provider-accounts"]);
+
+    state.queryOverrides["meta-provider-accounts"] = {
+      data: undefined,
+      error: new Error("meta_history_accounts_unavailable"),
+      isFetching: true,
+    };
+    act(() => {
+      root!.render(
+        <MetaPlatformPage
+          businessId="biz_1"
+          businessName="TheSwaf"
+          serverProviderAccountId="act_1"
+        />,
+      );
+    });
+    const pending = dom.querySelector<HTMLButtonElement>(
+      "[data-mobile-account-metadata-retry]",
+    );
+    expect(pending?.disabled).toBe(true);
+    expect(pending?.textContent).toBe("Retrying...");
+  });
 });
 
 describe("Decision queue expansion and auxiliary failures", () => {

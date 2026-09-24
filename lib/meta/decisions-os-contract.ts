@@ -2,6 +2,7 @@ import type {
   MetaDecisionAuthorityBlocker,
   MetaDecisionConfirmationCeremony,
   MetaDecisionRiskTier,
+  MetaDecisionSourceCreativeType,
 } from "@/lib/meta/decisions-workspace-contract";
 
 export const META_OS_DECISIONS_PRESENTATION_VERSION =
@@ -509,6 +510,8 @@ export interface MetaOsAdDecision {
   adPerformanceAvailability?: "observed" | "unavailable";
   /** `image` | `video` | `catalog` from the decided-from lifecycle row. */
   creativeFormat?: string | null;
+  /** Current creative taxonomy from Meta data; display only, not a verdict input. */
+  sourceCreativeType?: MetaDecisionSourceCreativeType | null;
   /** `none` | `watch` | `fatigued` | `unknown` from the same row. */
   fatigueStatus?: string | null;
   rawLabel: string | null;

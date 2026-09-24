@@ -980,11 +980,15 @@
 .creativeKind {
   grid-area: 1 / 1;
   z-index: 1;
-  padding: 1px 5px;
+  max-width: 54px;
+  padding: 1px 3px;
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.85);
   color: #45526b;
   font-family: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  overflow-wrap: anywhere;
+  text-align: center;
+  line-height: 1.1;
 }
 
 .creativeIdentity {

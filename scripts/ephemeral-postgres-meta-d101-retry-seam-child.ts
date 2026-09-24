@@ -206,6 +206,29 @@ async function main() {
   });
   assert(active.complete && active.active,
     "only same-run core with post-close Ad proof may be reused on retry");
+  // A zero-row publish can leave an older generation's Ad rows behind. Such
+  // rows make the active slice inadmissible even though no row bears runId.
+  const staleAdRunId = randomUUID();
+  await db.query(`
+    INSERT INTO meta_ad_daily
+      (business_id, business_ref_id, provider_account_id,
+       provider_account_ref_id, date, ad_id, account_timezone,
+       account_currency, spend, source_run_id)
+    VALUES ($1::text, $1::uuid, $2, $3::uuid, $4::date,
+            'ad-stale-run', 'UTC', 'USD', 10, $5)
+  `, [BUSINESS, ACCOUNT, ACCOUNT_REF, DAY, staleAdRunId]);
+  const staleAdRows = await getMetaCorePublishedRetryState({
+    businessId: BUSINESS, providerAccountId: ACCOUNT, day: DAY, partitionId: runId,
+    accountTimezone: "UTC",
+  });
+  assert(!staleAdRows.complete && !staleAdRows.active &&
+      staleAdRows.requiresProviderRefetch,
+    "Ad rows from a different source run must invalidate retry proof");
+  await db.query(`
+    DELETE FROM meta_ad_daily
+    WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
+      AND ad_id='ad-stale-run'
+  `, [BUSINESS, ACCOUNT, DAY]);
   const [campaignSlice] = await db.query<{ id: string }>(`
     SELECT id::text AS id FROM meta_authoritative_slice_versions
     WHERE business_id=$1 AND provider_account_id=$2 AND day=$3::date

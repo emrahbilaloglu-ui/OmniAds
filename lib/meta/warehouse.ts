@@ -2508,9 +2508,9 @@ export async function getMetaCorePublishedRetryState(input: {
             WHERE ad.business_id = slice.business_id
               AND ad.provider_account_id = slice.provider_account_id
               AND ad.date = slice.day
-              AND ad.source_run_id = slice.source_run_id
               AND (
-                NULLIF(BTRIM(ad.account_timezone), '') IS DISTINCT FROM ${input.accountTimezone}
+                ad.source_run_id IS DISTINCT FROM slice.source_run_id
+                OR NULLIF(BTRIM(ad.account_timezone), '') IS DISTINCT FROM ${input.accountTimezone}
                 OR ad.business_ref_id IS DISTINCT FROM slice.business_ref_id
                 OR ad.provider_account_ref_id IS DISTINCT FROM slice.provider_account_ref_id
                 OR ad.truth_state IS DISTINCT FROM 'finalized'

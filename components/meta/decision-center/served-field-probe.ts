@@ -598,6 +598,7 @@ const OVERRIDES: Record<string, { base: unknown; alt: unknown }> = {
    * read. Anything else renders as an em dash at BOTH ends of the probe.
    */
   "MetaOsAdDecision.creativeFormat": { base: "video", alt: "image" },
+  "MetaDecisionSourceCreativeType.value": { base: "video", alt: "flexible" },
   "MetaCanonicalDecision.creativeFormat": { base: "video", alt: "image" },
   "MetaOsAdDecision.fatigueStatus": { base: "fatigued", alt: "none" },
   "MetaCanonicalDecision.fatigueStatus": { base: "fatigued", alt: "none" },

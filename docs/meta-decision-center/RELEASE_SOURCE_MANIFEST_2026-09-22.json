@@ -1,5 +1,5 @@
 {
-  "manifestHash": "fe5eabd5b7e88174a652cefa40e588bc8b420a0d7ba7a414fab29cf7686990c9",
+  "manifestHash": "d204d01c4ccfa04979885cec0f5b4d4f80fb0f5e739d7a1df31e55ced262f08f",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -396,19 +396,19 @@
     },
     {
       "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
-      "sha256": "d21098c587f2b34f7d78ae46e721eab0835c9d1e761abe6b697f00cb84072a3e"
+      "sha256": "b7769d9f18641d901c3c00b855f41d7f8a5a2b2500efdf12fbeb4620ddefe3ef"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "8ae24240334ad5f7eb79994f5b2f139b3d54d2fd5a700671e298c09c6097a5ea"
+      "sha256": "90d498ed8fff259eadfdc45d67d55308ab6b142db28922bb35d43a50ac9d01ea"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "c8cd525b8614ff9c3fc7ad97f6f047fe5d06c2d1c26ae5861608084f141e1e7b"
+      "sha256": "86732a837aa734e2d817f7a482454659d15fa08092fc168571b1d75d946db882"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
-      "sha256": "4495f8d290c99fbda5e72dc90f2c7797756d1aed1e5e3f5747dc4ceda035243f"
+      "sha256": "fef70b354283614a6d68fae5a1d3ab4f8222cc7ef4cac5faa1cd96addc860767"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
@@ -416,7 +416,7 @@
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
-      "sha256": "131a424db2eb29a4cae82d2e7eced508e009b8115edd610353ef0854db90fe62"
+      "sha256": "c619516c180a3ab81f22bcd59c9f96aec85860606176553d8c51f6e28a60942f"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCreativeThumbnail.test.tsx",
@@ -432,7 +432,7 @@
     },
     {
       "path": "components/meta/decision-center/served-field-probe.ts",
-      "sha256": "18daa2609b361ff4574780ed89de05f407201d033947b72f2d706e53d07fd8ba"
+      "sha256": "1c77978e85cae5d04311868d4b87ab0e8035fe0523a39f4f10629f1eeefdb37a"
     },
     {
       "path": "components/meta/decision-center/stale-fresh-cta-boundary.test.tsx",
@@ -1392,27 +1392,27 @@
     },
     {
       "path": "lib/meta/decisions-os-contract.ts",
-      "sha256": "bf67404d8550ebb032599fc728af9e17a56b48cd26d5b61c6a0e431db013351d"
+      "sha256": "a4a448e10b2eb335cf6c79c0eca726049ccdc997609deb1f3b5f6743da8cf4f9"
     },
     {
       "path": "lib/meta/decisions-os-presentation.test.ts",
-      "sha256": "b57c1fabedd2086866f0d10a4115daed0e7d238dde8f0f5cc4e93d35d4d8118b"
+      "sha256": "b4aa8a7aefb3d55946b137bc26bfd0a8c056d89ba1b0d808cceffdbafd2f3367"
     },
     {
       "path": "lib/meta/decisions-os-presentation.ts",
-      "sha256": "5934d3e231357cecdf68725fdbcc21f3e9a7bb204a27e30f8a81535581ead40c"
+      "sha256": "f1c316f75ea8c5ba87cc97a5674cf056c8605fd6a2bbfe2211aa8f6828b604e7"
     },
     {
       "path": "lib/meta/decisions-workspace-contract.ts",
-      "sha256": "c3a5157786c893fc83c232ca9c8f244f1300e5a61f3b6a98c81a0d26804a8e67"
+      "sha256": "cc31ec10c149710a6d5bd0527c29d91d5dfea57fc1f473f9b20239e353fc9301"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
-      "sha256": "bc1b6496dfde45f423302d0ee3444482327dc1cb24bde8870654416b22c71bf7"
+      "sha256": "881f1d07ab5cb4593e6be092c19794dc6110ba62f7b4559b84be76645c0f9786"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
-      "sha256": "943d9e71a3037415873e41ccc9a0a3cb9b5fd00539078c925b74a3dda4578ad5"
+      "sha256": "c9fed088ecc9765a6ca34c77eee08c59f0e850fd484e8a4d3b3a914665b29bb5"
     },
     {
       "path": "lib/meta/entity-signals-backfill.test.ts",
@@ -1572,7 +1572,7 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "74df13dfe9f459f2400d8210f2e71c4b6078e25ab82fc4e00d29dae36240ffaf"
+      "sha256": "bebee67f1f3afce8ecda169b059e97e5755aba04370f41195b053ee993191449"
     },
     {
       "path": "lib/meta/write-safety-contract.test.ts",
@@ -1760,7 +1760,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-meta-d101-retry-seam-child.ts",
-      "sha256": "16697552e7959a71e198ee9ccc5b975bb73e6d34dcecaa542a70abde54b6b138"
+      "sha256": "94e65fd94b1c771d017d0a13fef8ae39d4ebf424aaf4c20a19136bf68e610e3f"
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",

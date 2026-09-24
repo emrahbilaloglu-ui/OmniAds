@@ -288,6 +288,9 @@ export interface MetaNativeDecisionSnapshotSourceRow {
    * generation persisted before this join stays readable; absent is unknown.
    */
   creative_format?: string | null;
+  /** Current Meta-derived warehouse taxonomy, not historical decision input. */
+  provider_asset_type?: string | null;
+  provider_asset_type_source_updated_at?: string | null;
   ctr_28d?: unknown;
   frequency_28d?: unknown;
   fatigue_status?: string | null;
@@ -2900,6 +2903,18 @@ function applyNativeCanonicalDecisionAuthority(input: {
     response.episodeKey ??
     stableId("mde", [decision.decisionId, row.label, row.episode_started_at]);
   decision.identityGrain = "ad";
+  const sourceCreativeType = nonEmptyString(row.provider_asset_type);
+  // `feed` is also the warehouse taxonomy's default when no positive creative
+  // classification signal exists. Do not turn that fallback into a verified
+  // type on a decision card.
+  decision.sourceCreativeType =
+    row.creative_id && sourceCreativeType && sourceCreativeType !== "feed"
+      ? {
+          value: sourceCreativeType,
+          source: "meta_creative_dimensions",
+          sourceUpdatedAt: row.provider_asset_type_source_updated_at ?? null,
+        }
+      : null;
   decision.configEvidence = servedConfigEvidence({
     lineage: row.config_evidence_lineage ?? null,
     verified:
@@ -4156,6 +4171,8 @@ async function readNativeSnapshotRows(input: {
       COALESCE(media.updated_at, creative_dim.updated_at, ad_dim.updated_at)::text
         AS source_updated_at,
       lifecycle.creative_format AS creative_format,
+      creative_dim.asset_type AS provider_asset_type,
+      creative_dim.source_updated_at::text AS provider_asset_type_source_updated_at,
       lifecycle.ctr_28d AS ctr_28d,
       lifecycle.frequency_28d AS frequency_28d,
       lifecycle.fatigue_status AS fatigue_status,

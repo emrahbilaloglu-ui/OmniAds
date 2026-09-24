@@ -61,8 +61,18 @@ import {
   buildMetaCreativeDayMetricEvidence,
   META_CREATIVE_DAY_METRIC_EVIDENCE_KEY,
   mergeMetaCreativeDayMetricEvidence,
+  readMetaCreativeDayMetricEvidence,
   readMetaCreativeDayStageValue,
+  withMetaCreativeDayMetricEvidence,
 } from "@/lib/meta/creative-day-metric-evidence";
+import {
+  buildMetaCreativeDayPurchaseEvidence,
+  constrainMetaCreativeDayPurchaseEvidenceToScalar,
+  META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY,
+  META_CREATIVE_DAY_PURCHASE_EVIDENCE_VERSION,
+  readMetaCreativeDayPurchaseEvidence,
+  withMetaCreativeDayPurchaseEvidence,
+} from "@/lib/meta/creative-day-purchase-evidence";
 
 export type MetaCreativesAccountScopeResolution =
   | {
@@ -624,7 +634,8 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
     video100: Number(apiRow.video100 ?? 0),
   });
   const legacyCreativeClassification = deriveLegacyCreativeClassification(reconciledCreativeTaxonomy);
-  return {
+  return withMetaCreativeDayPurchaseEvidence(
+    withMetaCreativeDayMetricEvidence({
     id: apiRow.id,
     creative_id: apiRow.creative_id,
     real_ad_id: apiRow.real_ad_id ?? null,
@@ -702,7 +713,8 @@ export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
     video75: Number(apiRow.video75 ?? 0),
     video100: Number(apiRow.video100 ?? 0),
     debug: apiRow.debug,
-  } satisfies RawCreativeRow;
+  } satisfies RawCreativeRow, readMetaCreativeDayMetricEvidence(value)),
+  readMetaCreativeDayPurchaseEvidence(value));
 }
 
 /**
@@ -1226,14 +1238,26 @@ export function buildCanonicalCreativeDayMetrics(
   const reach = sum((fact) => fact.reach);
   const conversions = sum((fact) => fact.conversions);
   const revenue = sum((fact) => fact.revenue);
-  // A NOT NULL zero in meta_ad_daily does not establish an observed purchase
-  // event when the provider never supplied actions for that Ad-day (D099).
-  const purchasesObserved = facts.every((fact) => {
+  // The strict, completely paginated Insights read supplied this exact Ad
+  // membership. It can certify Graph's omitted zero-action field, but only
+  // when its purchase count agrees with the finalized Ad-day economics.
+  const adRawActionConflict = facts.some((fact) => {
     const payload = fact.payloadJson;
-    return payload !== null && typeof payload === "object" &&
-      !Array.isArray(payload) &&
-      Array.isArray((payload as Record<string, unknown>).actions);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+        !Object.hasOwn(payload, "actions")) return false;
+    const observed = buildMetaCreativeDayPurchaseEvidence(
+      (payload as Record<string, unknown>).actions,
+    );
+    return observed.state !== "measured" || observed.value !== fact.conversions;
   });
+  const purchaseEvidence = adRawActionConflict
+    ? { version: META_CREATIVE_DAY_PURCHASE_EVIDENCE_VERSION,
+        source: "meta_actions" as const, state: "incomplete" as const,
+        reason: "source_scalar_conflict" as const }
+    : constrainMetaCreativeDayPurchaseEvidenceToScalar(
+        readMetaCreativeDayPurchaseEvidence(row), conversions,
+      );
+  const purchasesObserved = purchaseEvidence?.state === "measured";
   const linkClicks = facts.every((fact) => fact.linkClicks != null)
     ? sum((fact) => fact.linkClicks!) : null;
   const outboundClicks = facts.every((fact) => fact.outboundClicks != null)
@@ -1242,7 +1266,7 @@ export function buildCanonicalCreativeDayMetrics(
     fact.payloadJson && typeof fact.payloadJson === "object" && !Array.isArray(fact.payloadJson)
       ? fact.payloadJson as Record<string, unknown> : {},
   ));
-  const evidence = evidenceParts.slice(1).reduce(
+  const evidence = readMetaCreativeDayMetricEvidence(row) ?? evidenceParts.slice(1).reduce(
     (merged, part) => mergeMetaCreativeDayMetricEvidence(merged, part), evidenceParts[0]!,
   );
   const stage = (key: "link_click" | "landing_page_view" | "add_to_cart" |
@@ -1259,7 +1283,7 @@ export function buildCanonicalCreativeDayMetrics(
     ctr: impressions > 0 ? clicks / impressions * 100 : null,
     cpc: linkClicks != null && linkClicks > 0 ? spend / linkClicks : null,
     linkClicks, outboundClicks, landingPageViews, addToCart,
-    initiateCheckout, evidence,
+    initiateCheckout, evidence, purchaseEvidence,
     sourceSnapshotIds: [...new Set(facts.map((fact) => fact.sourceSnapshotId).filter(Boolean))],
     sourceRunIds: [...new Set(facts.map((fact) => fact.sourceRunId).filter(Boolean))],
     metricPresence: {
@@ -1593,6 +1617,7 @@ async function syncMetaCreativesAccountDay(input: {
       frequency: canonical.frequency,
       metric_presence: { ...payloadRow.metric_presence, ...canonical.metricPresence },
       [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: canonical.evidence,
+      [META_CREATIVE_DAY_PURCHASE_EVIDENCE_KEY]: canonical.purchaseEvidence,
       source_membership_scope: provisionalPresentation
         ? "current_provider_ad_days_provisional" : "all_provider_ad_days",
       source_economics_provenance: provisionalPresentation

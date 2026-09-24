@@ -10581,12 +10581,10 @@ is required, while `buyerAction` and provider authority remain null. The
 classification overlay and OS presentation advance to `.v8`; `.v7` snapshots
 remain readable under their original contract.
 
-**Identity and verification.** The shared resolver epoch moves to
-`v3-2026-09-24-cut-proof-floor-story`; the native epoch moves to
+**Identity and verification.** The shared resolver epoch for the integrated
+D109/D111 release is `v3-2026-09-24-creative-purchase-cut-proof`; the native epoch moves to
 `v3-ad-2026-09-24-cut-proof-floor-story-shadow`; native Ad evaluation contract
-becomes `.v18`. When stacked after D109's creative purchase epoch, the shared
-epoch must be re-minted with a combined name rather than silently retaining
-either parent's old key. Earlier snapshots and evaluations remain readable.
+becomes `.v18`. Earlier snapshots and evaluations remain readable.
 Targeted tests pin below/above-floor zero-purchase examples, a genuinely
 missing-AOV negative, and role-plus-source/config versus role-only blocker
 priority. A read-only Grandmix/TheSwaf replay is a diagnostic, not a provider
@@ -10671,3 +10669,82 @@ same-epoch snapshots. Historical snapshots and raw evidence remain intact.
 
 **Rollback.** Revert this legacy receipt arm and its v2 source-manifest
 contract in a new release epoch; do not rewrite raw or decision history.
+
+## D109 — Creative purchase and funnel zeroes need an exact source receipt (2026-09-24)
+
+**Observed failure.** The creative-day writer flattened absent `actions` to
+`purchases=0`; creative calibration, lifecycle and runtime hydration then
+summed `conversions` as if every zero was measured. The same issue affected
+link clicks and funnel stages. Complete Graph ad, ad-set and campaign reads
+for Grandmix and TheSwaf showed that an omitted `actions` list on a completed,
+requested Ad-day means zero events: the independent 17–23 September ad-set
+read matched all 644 parent days, including 99 with no-actions children, for
+both purchases and link clicks. A missing field on an incomplete or unproven
+request remains unknown. Thus either universal `absent=unknown` or universal
+`absent=zero` would be wrong.
+
+**Decision.** A strictly completed, paginated creative Insights read that
+requested `actions` may stamp an omitted list as measured zero. Malformed,
+conflicting or unrequested actions cannot. A new additive
+`purchase_evidence.v1` sidecar carries that reading through each Ad-to-creative
+fold; the finalized Ad-day purchase scalar must agree before the stamp can
+authorize a creative day. `metric_evidence.v2` applies the same complete
+request rule to action-derived link-click, landing-page-view, add-to-cart and
+checkout stages, while V1 stamps remain readable. Outbound clicks still need
+their separate rich-field observation. Thumbstop and video rates remain NULL
+without provider-correct numerators and denominators.
+
+Creative calibration and decision hydration use complete-or-NULL purchase
+windows; the lifecycle job adopts the same helper in its separate repair.
+A delivered day with no valid stamp cannot enter a purchase
+sample as zero. If a target or benchmark exists, its purchase-dependent
+creative decision is an explicit `purchase_evidence_unverified` diagnosis.
+Without a profit comparison, the existing quality-only gate may still return
+a soft Keep/Test More from independent CTR/CPM/upstream funnel observations;
+all purchase-rate numerators are NULL when purchase evidence is unverified,
+the missing purchase receipt remains explicit and its output purchase metric
+is NULL. A fully
+verified window continues through the existing resolver, commercial targets,
+20/30 sample floors and hard-action gates. UI never computes a buyer action.
+
+The Meta Decisions→Creatives evidence drawer reads its supplemental funnel
+for the served exact Ad and the selected account-calendar period. The reader
+publishes `meta-ad-funnel-evidence.v1` on that supplemental API; it
+uses the D108 source receipt for omitted action-list zeros, strict row-local
+purchase/scalar agreement, and the shared funnel action parser. It requires
+complete account Ad-day coverage for the selected period. It displays all six
+stages (impressions, link clicks, landing-page views, add-to-cart, checkout,
+purchases), with an unavailable stage distinct from measured zero. It does
+not fill a missing selected-period purchase from the decision's separate,
+possibly shortened economic window, nor depend on current creative identity
+to retrieve historical Ad facts. This read remains explanatory only.
+
+**Historical repair.** Original raw snapshot, exact business/account/day/Ad
+membership, finalized Ad facts and a causal same-run D101 published source
+receipt are required before adding the stamp. The current repair tool admits
+only a complete single-page capture: its raw ID must equal the active
+manifest watermark, the full Ad population and payloads must match, and an
+observation must precede manifest completion (or an older run-bound raw
+receipt must be proved). Multi-page historical captures remain an explicit
+hold. A bounded, dry-run-first manifest lists old/new economics, evidence,
+source snapshot identity and reason; apply rechecks the manifest under a
+transaction and is idempotent. The initial 2026-08-27 to 2026-09-23 audit
+found 276 candidate creative days and 282 member Ads whose raw actions and
+stored Ad values agreed, including two creative zeros that conflicted with
+later finalized Ad purchases. That first audit checked same-run publication
+but **not** causal manifest chronology. The stricter readback blocked all 276
+under their then-active stale Ad manifests; it wrote nothing. A separate
+manifest-bound slice repair must first prove and publish the exact source.
+Only then may this tool reconcile the full creative economic row and stamp
+evidence. Older flattened rows without exact lineage remain unknown.
+
+**Version, compatibility, rollback.** The integrated D109/D111 shared
+`ENGINE_VERSION` is `v3-2026-09-24-creative-purchase-cut-proof` for changed
+creative decisions;
+old snapshots retain their original epoch. The purchase sidecar is additive,
+V1 funnel stamps remain readable, and V1/operator/V2 views are unchanged.
+Native Ad parser and its engine epoch are D108's separate contract. Revert
+the writer, repair and reader together, mint a new creative epoch, and keep
+old evidence rows for explanation. Validate the exact source and decision
+chain on representative Grandmix and TheSwaf historical cutoffs before
+release; production regeneration under the new epoch is separately required.

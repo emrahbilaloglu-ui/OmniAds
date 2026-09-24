@@ -65,7 +65,7 @@ describe("held-verdict authority release epoch contract", () => {
       remain readable under it.
     */
     expect(ENGINE_VERSION).toBe(
-      "v3-2026-09-24-cut-proof-floor-story",
+      "v3-2026-09-24-creative-purchase-cut-proof",
     );
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
       "v3-ad-2026-09-24-cut-proof-floor-story-shadow",

@@ -1231,6 +1231,13 @@ payload text. Creative-grain decision readers read only the stamped
 `metric_evidence`. Thumbstop and video rates are NULL until a verified provider
 contract exists.
 
+For creative purchase counts (D109), a complete requested Graph actions row
+may encode a measured zero by omitting `actions`; this needs a completed source
+receipt and a scalar match with the finalized Ad day. A partial, malformed or
+unproven row is unknown. Purchase windows use the same complete-or-NULL rule;
+unstamped historical creative zeroes cannot enter calibration or authorize a
+purchase action, and their decision output purchase metric is NULL.
+
 ## A config verdict names its receipt (D099)
 
 A native ad decision's config authority binds the SELECTED receipt per field

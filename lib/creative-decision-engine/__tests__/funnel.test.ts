@@ -113,6 +113,26 @@ describe("computeFunnelDiagnosis", () => {
     expect(result.evidence.join(" ")).toContain("IC-to-purchase");
   });
 
+  it("does not turn an unverified purchase placeholder into a checkout failure", () => {
+    const result = diagnose({
+      creative: {
+        spend: 500,
+        linkClicks: 600,
+        landingPageViews: 480,
+        addToCart: 80,
+        initiateCheckout: 40,
+        purchases: 0,
+        purchaseEvidenceStatus: "unverified",
+      },
+    });
+
+    expect(result.rates.icToPurchaseRate).toBeNull();
+    expect(result.rates.atcToPurchaseRate).toBeNull();
+    expect(result.rates.clickToPurchaseRate).toBeNull();
+    expect(result.rates.lpvToAtcRate).not.toBeNull();
+    expect(result.primaryWeakStage).not.toBe("checkout");
+  });
+
   it("returns insufficient_signal when the weak denominator is too thin", () => {
     const result = diagnose({
       creative: {

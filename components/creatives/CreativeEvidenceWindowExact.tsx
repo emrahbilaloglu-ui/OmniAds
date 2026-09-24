@@ -188,10 +188,12 @@ const TONE_CLASS: Record<CreativeEvidenceWindowExactTone, string> = {
   neutral: styles.toneNeutral,
 };
 
-/** The design's funnel bars step through four blues into the purchase green. */
+/** Six measured-or-unavailable steps from impression to purchase. */
 const FUNNEL_STEP_CLASS = [
   styles.funnelFillA,
   styles.funnelFillB,
+  styles.funnelFillB,
+  styles.funnelFillC,
   styles.funnelFillC,
   styles.funnelFillD,
 ];
@@ -285,12 +287,9 @@ export function CreativeEvidenceWindowExact({
   }, [onClose]);
 
   const reasons = (viewModel.reasons ?? []).filter(meaningful);
-  const funnel = (viewModel.funnel ?? []).filter(
-    (step) =>
-      meaningful(step.label) &&
-      (meaningful(step.value) ||
-        (typeof step.share === "number" && Number.isFinite(step.share))),
-  );
+  // Preserve unavailable stages so a measured purchase zero cannot visually
+  // erase the missing LPV/checkout evidence above it.
+  const funnel = (viewModel.funnel ?? []).filter((step) => meaningful(step.label));
   const placements = (viewModel.placements ?? []).filter(
     (placement) =>
       meaningful(placement.label) &&

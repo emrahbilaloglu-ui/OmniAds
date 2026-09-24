@@ -288,6 +288,23 @@ async function verifyCalibrationReuseAccountIdentity(
   client: Client,
   db: DbClient,
 ) {
+  // This check runs before the broader Meta warehouse fixture is installed.
+  // Temporary lineage tables let it exercise the production reuse SQL without
+  // changing that later fixture's schema or historical test rows.
+  await client.query(`
+    CREATE TEMP TABLE meta_authoritative_slice_versions (
+      id UUID PRIMARY KEY, business_id TEXT NOT NULL,
+      provider_account_id TEXT NOT NULL, day DATE NOT NULL,
+      surface TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL,
+      superseded_at TIMESTAMPTZ
+    );
+    CREATE TEMP TABLE meta_authoritative_publication_pointers (
+      id UUID PRIMARY KEY, business_id TEXT NOT NULL,
+      provider_account_id TEXT NOT NULL, day DATE NOT NULL,
+      surface TEXT NOT NULL, active_slice_version_id UUID NOT NULL,
+      publication_reason TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL
+    );
+  `);
   const businessId = "00000000-0000-4000-8000-000000000980";
   const calibratedAccountRefId = "00000000-0000-4000-8000-000000000981";
   const replacementAccountRefId = "00000000-0000-4000-8000-000000000982";
@@ -410,7 +427,7 @@ async function verifyCalibrationReuseAccountIdentity(
   const input = {
     businessId,
     asOf: AS_OF,
-    decisionCutoff: CUTOFF,
+    decisionCutoff: `${AS_OF}T03:20:00.000Z`,
   };
   assert(
     await hasReusableNativeCalibration(input, db),
@@ -461,6 +478,134 @@ async function verifyCalibrationReuseAccountIdentity(
     "Restoring target truth before the safety window did not restore reuse.",
   );
 
+  const oldSliceId = "00000000-0000-4000-8000-000000000988";
+  const newSliceId = "00000000-0000-4000-8000-000000000989";
+  const prestagedSliceId = "00000000-0000-4000-8000-000000000992";
+  const selectedPointerId = "00000000-0000-4000-8000-000000000990";
+  await client.query(
+    `INSERT INTO meta_authoritative_slice_versions (
+       id, business_id, provider_account_id, day, surface, created_at
+     ) VALUES
+       ($1::uuid, $4::text, 'act_calibrated', $5::date, 'ad_daily',
+        '2026-07-12T03:00:00.000Z'),
+       ($2::uuid, $4::text, 'act_calibrated', $5::date, 'ad_daily',
+        '2026-07-12T03:16:00.000Z'),
+       ($3::uuid, $4::text, 'act_calibrated', $5::date, 'ad_daily',
+        '2026-07-12T03:00:00.000Z')`,
+    [oldSliceId, newSliceId, prestagedSliceId, businessId, AS_OF],
+  );
+  await client.query(
+    `INSERT INTO meta_authoritative_publication_pointers (
+       id, business_id, provider_account_id, day, surface,
+       active_slice_version_id, publication_reason, updated_at
+     ) VALUES (
+       gen_random_uuid(), $1::text, 'act_deselected', $2::date, 'ad_daily',
+       $3::uuid, 'authoritative_refresh', '2026-07-12T03:17:00.000Z'
+     )`,
+    [businessId, AS_OF, newSliceId],
+  );
+  assert(
+    await hasReusableNativeCalibration(input, db),
+    "An unselected account's changed source invalidated selected calibration.",
+  );
+  await client.query(
+    `INSERT INTO meta_authoritative_publication_pointers (
+       id, business_id, provider_account_id, day, surface,
+       active_slice_version_id, publication_reason, updated_at
+     ) VALUES (
+       $1::uuid, $2::text, 'act_calibrated', $3::date, 'ad_daily',
+       $4::uuid, 'authoritative_refresh', '2026-07-12T03:17:00.000Z'
+     )`,
+    [selectedPointerId, businessId, AS_OF, oldSliceId],
+  );
+  assert(
+    await hasReusableNativeCalibration(input, db),
+    "An unchanged slice re-publication needlessly invalidated calibration.",
+  );
+  await client.query(
+    `UPDATE meta_authoritative_slice_versions
+     SET superseded_at = '2026-07-12T03:17:00.000Z'
+     WHERE id = $1::uuid`,
+    [oldSliceId],
+  );
+  await client.query(
+    `UPDATE meta_authoritative_publication_pointers
+     SET active_slice_version_id = $2::uuid
+     WHERE id = $1::uuid`,
+    [selectedPointerId, prestagedSliceId],
+  );
+  assert(
+    !(await hasReusableNativeCalibration(input, db)),
+    "A newly published pre-staged Ad slice reused the prior calibration.",
+  );
+  await client.query(
+    `UPDATE meta_authoritative_slice_versions
+     SET superseded_at = NULL WHERE id = $1::uuid`,
+    [oldSliceId],
+  );
+  await client.query(
+    `UPDATE meta_authoritative_publication_pointers
+     SET active_slice_version_id = $2::uuid
+     WHERE id = $1::uuid`,
+    [selectedPointerId, newSliceId],
+  );
+  assert(
+    !(await hasReusableNativeCalibration(input, db)),
+    "A newly published Ad slice reused calibration from before that source.",
+  );
+  await client.query(
+    `UPDATE meta_authoritative_publication_pointers
+     SET active_slice_version_id = $2::uuid,
+         publication_reason = 'manifest_rebind_repair'
+     WHERE id = $1::uuid`,
+    [selectedPointerId, oldSliceId],
+  );
+  assert(
+    !(await hasReusableNativeCalibration(input, db)),
+    "A rebind to an older Ad slice reused calibration from before repair.",
+  );
+  await client.query(
+    `UPDATE meta_authoritative_publication_pointers
+     SET updated_at = '2026-07-12T03:21:00.000Z'
+     WHERE id = $1::uuid`,
+    [selectedPointerId],
+  );
+  assert(
+    await hasReusableNativeCalibration(input, db),
+    "A source rebind after the decision cutoff leaked into this cutoff.",
+  );
+  await client.query(
+    `UPDATE meta_authoritative_publication_pointers
+     SET updated_at = '2026-07-12T03:17:00.000Z'
+     WHERE id = $1::uuid`,
+    [selectedPointerId],
+  );
+  assert(
+    !(await hasReusableNativeCalibration(input, db)),
+    "Restored in-cutoff source rebind did not invalidate stale calibration.",
+  );
+  await client.query(
+    `INSERT INTO engine_v3_job_runs (
+       id, job_name, business_ref_id, business_id, as_of_date,
+       engine_version, status, started_at, finished_at, error_json
+     ) SELECT
+       '00000000-0000-4000-8000-000000000991'::uuid, job_name,
+       business_ref_id, business_id, as_of_date, engine_version, status,
+       '2026-07-12T03:18:00.000Z'::timestamptz,
+       '2026-07-12T03:18:30.000Z'::timestamptz, error_json
+     FROM engine_v3_job_runs
+     WHERE id = '00000000-0000-4000-8000-000000000984'::uuid`,
+  );
+  assert(
+    await hasReusableNativeCalibration(input, db),
+    "A fresh successful calibration run could not reuse its unchanged content batch.",
+  );
+  await client.query(
+    `DELETE FROM meta_authoritative_publication_pointers
+     WHERE id = $1::uuid`,
+    [selectedPointerId],
+  );
+
   await client.query(
     `UPDATE business_provider_accounts
      SET provider_account_id = 'act_corrected'
@@ -482,6 +627,10 @@ async function verifyCalibrationReuseAccountIdentity(
     !(await hasReusableNativeCalibration(input, db)),
     "Same-count account replacement incorrectly reused the previous account calibration.",
   );
+  await client.query(`
+    DROP TABLE meta_authoritative_publication_pointers;
+    DROP TABLE meta_authoritative_slice_versions;
+  `);
 }
 
 async function verifyDecisionRetrySemanticEvidence(
@@ -1121,6 +1270,7 @@ async function createHydrationSourceSchema(client: Client) {
       candidate_version INTEGER NOT NULL, state TEXT NOT NULL,
       truth_state TEXT NOT NULL, validation_status TEXT NOT NULL,
       status TEXT NOT NULL, source_run_id TEXT, published_at TIMESTAMPTZ,
+      superseded_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
     );
     CREATE TABLE meta_authoritative_publication_pointers (
@@ -1128,7 +1278,8 @@ async function createHydrationSourceSchema(client: Client) {
       provider_account_ref_id UUID, provider_account_id TEXT NOT NULL,
       day DATE NOT NULL, surface TEXT NOT NULL,
       active_slice_version_id UUID NOT NULL,
-      published_by_run_id TEXT, published_at TIMESTAMPTZ NOT NULL,
+      published_by_run_id TEXT, publication_reason TEXT NOT NULL DEFAULT 'authoritative_finalize',
+      published_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
     );
     CREATE TABLE meta_authoritative_reconciliation_events (
@@ -1185,15 +1336,22 @@ async function createHydrationSourceSchema(client: Client) {
     -- D098 hydration reads the raw provider field-source contract even when
     -- this seam intentionally seeds no config receipt. Empty tables still need
     -- the production columns so the emitted SQL can fail closed at row level.
+    CREATE TABLE meta_sync_partitions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id TEXT NOT NULL, provider_account_id TEXT NOT NULL,
+      lane TEXT NOT NULL, scope TEXT NOT NULL, partition_date DATE NOT NULL
+    );
     CREATE TABLE meta_raw_snapshots (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
       provider_account_id TEXT NOT NULL, endpoint_name TEXT NOT NULL,
       entity_scope TEXT NOT NULL, status TEXT NOT NULL,
       start_date DATE, end_date DATE,
+      run_id TEXT, partition_id UUID, content_key TEXT,
       provider_http_status INTEGER, request_context JSONB NOT NULL DEFAULT '{}'::jsonb,
       payload_json JSONB NOT NULL DEFAULT '[]'::jsonb,
       fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE TABLE meta_raw_snapshot_observations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), snapshot_id UUID NOT NULL,
@@ -3748,7 +3906,7 @@ async function main() {
       resetDbClientCache();
     }
     console.log(
-      "[native-ad-seam] PASS capture-axis and compaction-aware receipts, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, semantic retry backoff, post-lock fresh cutoff, business/day session lock, account-identity and target-time reuse, D063 held Cut authority, three-valued legacy authority upgrade, FK, soft-only, and daily-fact owner fail-closed checks",
+      "[native-ad-seam] PASS capture-axis and compaction-aware receipts, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, semantic retry backoff, post-lock fresh cutoff, business/day session lock, account-identity, target-time and source-rebind reuse, D063 held Cut authority, three-valued legacy authority upgrade, FK, soft-only, and daily-fact owner fail-closed checks",
     );
   } finally {
     if (started) {

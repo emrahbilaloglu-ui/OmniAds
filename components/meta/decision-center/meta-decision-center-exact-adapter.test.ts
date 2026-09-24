@@ -873,12 +873,14 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
     for (const id of ["served_missing", "served_legacy_unknown"]) {
       expect(rows.get(id)?.money).toBe("—");
+      expect(rows.get(id)?.moneySub).not.toContain("vs 3.10 target");
       expect(rows.get(id)?.ctrValue).toBeNull();
       expect(rows.get(id)?.chips).not.toContain("ROAS 0.00");
     }
     expect(rows.get("served_missing")?.note).toContain("No finalized ad performance data");
     expect(rows.get("served_legacy_unknown")?.note).toContain("observation status was not served");
     expect(rows.get("served_observed_zero")?.money).toContain("ROAS 0.00");
+    expect(rows.get("served_observed_zero")?.moneySub).toContain("vs 3.10 target");
     expect(rows.get("served_observed_zero")?.chips).toContain("ROAS 0.00");
     const inspector = buildMetaDecisionCenterExactViewModel({
       workspace,

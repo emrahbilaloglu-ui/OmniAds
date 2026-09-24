@@ -2031,8 +2031,12 @@ function creativeChips(
 function creativeMoneySub(
   decision: MetaOsAdDecision,
   canonical: MetaCanonicalDecision | null,
+  performanceMissing: boolean,
 ): string {
-  const target = printableTargetRoas(decision.metrics.effectiveTargetRoas);
+  const target =
+    performanceMissing || finite(decision.metrics.roas) === null
+      ? null
+      : printableTargetRoas(decision.metrics.effectiveTargetRoas);
   const parts = [
     target === null ? null : `vs ${target.toFixed(2)} target`,
     buyerFacingCreativeScope(decision, canonical),
@@ -2866,7 +2870,7 @@ function creativeRows(input: {
         roas: adPerformanceMissing ? null : decision.metrics.roas,
         currency: rowCurrency,
       }),
-      moneySub: creativeMoneySub(decision, canonicalDecision),
+      moneySub: creativeMoneySub(decision, canonicalDecision, adPerformanceMissing),
       actionLabel: buyerFacingCreativeActionLabel(decision),
       actionTone: actionTone(decision.action),
       ...(review ? { onPrimary: review, onOpen: review } : {}),

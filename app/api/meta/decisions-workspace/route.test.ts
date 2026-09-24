@@ -965,6 +965,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     const sql = mockDigestSql();
     let asOfDate = "2026-07-10";
     let jobRunId = "00000000-0000-4000-8000-000000000001";
+    let publishedJobRunId = jobRunId;
     const query = vi.fn(async (statement: string) => {
       if (statement.includes("AS job_run_id")) {
         return [{
@@ -972,6 +973,9 @@ describe("GET /api/meta/decisions-workspace", () => {
           as_of_date: asOfDate,
           status: "success",
           finished_at: "2026-07-11T06:00:00Z",
+          published_job_run_id: publishedJobRunId,
+          published_status: "success",
+          published_updated_at: "2026-07-11T06:00:00Z",
         }];
       }
       if (statement.includes("SELECT MAX(as_of_date)::text AS latest_as_of")) {
@@ -995,6 +999,7 @@ describe("GET /api/meta/decisions-workspace", () => {
       // TTL, and the metric URL remains on its original completed-day range.
       asOfDate = "2026-07-11";
       jobRunId = "00000000-0000-4000-8000-000000000002";
+      publishedJobRunId = jobRunId;
       const second = await GET(new NextRequest(url));
       expect(second.status).toBe(200);
       expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledTimes(2);
@@ -1005,15 +1010,25 @@ describe("GET /api/meta/decisions-workspace", () => {
       // An engine deployment can publish another generation for the SAME day.
       // Date-only cache identity would keep the earlier decision envelope.
       jobRunId = "00000000-0000-4000-8000-000000000003";
+      publishedJobRunId = jobRunId;
       const third = await GET(new NextRequest(url));
       expect(third.status).toBe(200);
       expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledTimes(3);
       expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenLastCalledWith(
         expect.objectContaining({ asOfDate: "2026-07-11" }),
       );
+      // A later published backfill can change the retained fallback even
+      // though the maximum as-of day and its job stay unchanged.
+      publishedJobRunId = "00000000-0000-4000-8000-000000000004";
+      const fourth = await GET(new NextRequest(url));
+      expect(fourth.status).toBe(200);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledTimes(4);
+      expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ asOfDate: "2026-07-11" }),
+      );
       expect(query).toHaveBeenCalledWith(
         expect.stringContaining("FROM engine_v3_job_runs"),
-        ["biz_1"],
+        ["biz_1", 7],
       );
       // A later advisory-lock skip is not the effective terminal generation
       // when its overlapping lock holder publishes. Cache identity must use
@@ -1022,7 +1037,7 @@ describe("GET /api/meta/decisions-workspace", () => {
         expect.stringMatching(
           /run\.status = 'skipped'[\s\S]*Advisory lock not acquired%[\s\S]*holder\.status IN \('success', 'failed'\)/,
         ),
-        ["biz_1"],
+        ["biz_1", 7],
       );
     } finally {
       delete (globalThis as Record<string, unknown>).__omniadsServerCache;

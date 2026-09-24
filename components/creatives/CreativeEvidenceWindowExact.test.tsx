@@ -361,9 +361,11 @@ describe("CreativeEvidenceWindowExact operator surface", () => {
   });
 
   it("says a helper read is loading or unreadable instead of dashing silently", () => {
+    const onRetryMetrics = vi.fn();
     const { rerender } = render(
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
+        onRetryMetrics={onRetryMetrics}
         viewModel={viewModel({
           readNotice: {
             tone: "info",
@@ -376,10 +378,12 @@ describe("CreativeEvidenceWindowExact operator surface", () => {
       document.querySelector('[data-creative-evidence-read-state="loading"]')
         ?.textContent,
     ).toContain("is loading");
+    expect(screen.queryByRole("button", { name: "Retry metrics" })).toBeNull();
 
     rerender(
       <CreativeEvidenceWindowExact
         onClose={vi.fn()}
+        onRetryMetrics={onRetryMetrics}
         viewModel={viewModel({
           readNotice: {
             tone: "negative",
@@ -392,6 +396,23 @@ describe("CreativeEvidenceWindowExact operator surface", () => {
       document.querySelector('[data-creative-evidence-read-state="error"]')
         ?.textContent,
     ).toContain("could not be loaded");
+    fireEvent.click(screen.getByRole("button", { name: "Retry metrics" }));
+    expect(onRetryMetrics).toHaveBeenCalledOnce();
+
+    rerender(
+      <CreativeEvidenceWindowExact
+        onClose={vi.fn()}
+        onRetryMetrics={onRetryMetrics}
+        retryMetricsPending
+        viewModel={viewModel({
+          readNotice: {
+            tone: "negative",
+            text: "Some creative performance data could not be loaded.",
+          },
+        })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Retrying metrics…" })).toBeDisabled();
   });
 
   it("renders no read banner and no empty audit blocks when nothing is served", () => {

@@ -1413,6 +1413,51 @@ describe.skipIf(!SEAM)(
       expect(restored.payload.os.ads.items.length).toBe(
         META_DECISIONS_AD_CANDIDATE_LIMIT,
       );
+
+      // A newer report day can fail, then a later older-day backfill can
+      // change the canonical retained-success candidate. Its publication must
+      // invalidate the cache even though the maximum as-of bound stays put.
+      const backfillClient = new Client({ connectionString: process.env.DATABASE_URL });
+      await backfillClient.connect();
+      let olderSuccessId: string;
+      try {
+        await backfillClient.query(
+          `INSERT INTO engine_v3_job_runs
+             (job_name, business_ref_id, business_id, as_of_date, engine_version,
+              status, started_at, finished_at, updated_at, row_count)
+           VALUES ('engine_v3_native_ad_decisions_shadow_job', $1::uuid, $1::text,
+                   ($2::date + 1), $3, 'failed', now() - interval '2 minutes',
+                   clock_timestamp(), clock_timestamp(), 0)`,
+          [BUSINESS_ID, asOfDate, ENGINE_VERSION],
+        );
+        const beforeBackfill = await readLatestNativeDecisionJobMarker(BUSINESS_ID);
+        expect(beforeBackfill).not.toBeNull();
+        expect(beforeBackfill).not.toBe("read_failed");
+        const inserted = await backfillClient.query<{ id: string }>(
+          `INSERT INTO engine_v3_job_runs
+             (job_name, business_ref_id, business_id, as_of_date, engine_version,
+              status, started_at, finished_at, updated_at, row_count)
+           VALUES ('engine_v3_native_ad_decisions_shadow_job', $1::uuid, $1::text,
+                   $2::date, $3, 'success', now() - interval '30 seconds',
+                   clock_timestamp(), clock_timestamp(), 0)
+           RETURNING id`,
+          [BUSINESS_ID, asOfDate, ENGINE_VERSION],
+        );
+        olderSuccessId = inserted.rows[0]!.id;
+        const afterBackfill = await readLatestNativeDecisionJobMarker(BUSINESS_ID);
+        expect(afterBackfill).not.toBeNull();
+        expect(afterBackfill).not.toBe("read_failed");
+        if (
+          beforeBackfill && beforeBackfill !== "read_failed" &&
+          afterBackfill && afterBackfill !== "read_failed"
+        ) {
+          expect(afterBackfill.asOfDate).toBe(beforeBackfill.asOfDate);
+          expect(afterBackfill.cacheIdentity).not.toBe(beforeBackfill.cacheIdentity);
+          expect(afterBackfill.cacheIdentity).toContain(olderSuccessId);
+        }
+      } finally {
+        await backfillClient.end();
+      }
     }, 240_000);
   },
 );

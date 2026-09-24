@@ -18,6 +18,9 @@ export const META_DECISIONS_AD_CANDIDATE_LANE_RESERVE = 10;
 export const META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION =
   "meta-decisions-ad-candidate-selection.v3" as const;
 
+/** Maximum age of a retained successful native generation at serve time. */
+export const NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS = 7;
+
 export const META_DECISION_QUEUE_SECTION_KEYS = [
   "integrity_fires",
   "money_moves",

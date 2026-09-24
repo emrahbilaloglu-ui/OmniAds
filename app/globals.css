@@ -1552,6 +1552,23 @@
       line-height: 1.6;
     }
 
+    .ad-mobile-metrics-retry {
+      display: block;
+      min-height: 44px;
+      margin-top: 4px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--adc-info-fg);
+      font: inherit;
+      font-weight: 600;
+      text-align: left;
+    }
+
+    .ad-mobile-metrics-retry:disabled {
+      opacity: 0.6;
+    }
+
     .ad-mobile-cite {
       border: 1px solid var(--adc-info-bd);
       border-radius: 3px;

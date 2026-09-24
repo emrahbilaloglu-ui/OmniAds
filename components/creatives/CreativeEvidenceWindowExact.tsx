@@ -172,6 +172,8 @@ export interface CreativeEvidenceWindowExactViewModel {
 export interface CreativeEvidenceWindowExactProps {
   viewModel: CreativeEvidenceWindowExactViewModel;
   onClose: () => void;
+  onRetryMetrics?: () => void;
+  retryMetricsPending?: boolean;
 }
 
 const TONE_CLASS: Record<CreativeEvidenceWindowExactTone, string> = {
@@ -268,6 +270,8 @@ function BodyCard({
 export function CreativeEvidenceWindowExact({
   viewModel,
   onClose,
+  onRetryMetrics,
+  retryMetricsPending = false,
 }: CreativeEvidenceWindowExactProps) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -382,7 +386,7 @@ export function CreativeEvidenceWindowExact({
 
         <div className={styles.body}>
           {viewModel.readNotice ? (
-            <p
+            <div
               className={`${styles.readNotice} ${toneClass(viewModel.readNotice.tone)}`}
               data-creative-evidence-read-state={
                 viewModel.readNotice.tone === "negative" ? "error" : "loading"
@@ -390,7 +394,18 @@ export function CreativeEvidenceWindowExact({
               role="status"
             >
               {viewModel.readNotice.text}
-            </p>
+              {viewModel.readNotice.tone === "negative" && onRetryMetrics ? (
+                <button
+                  type="button"
+                  className={styles.retryMetrics}
+                  data-creative-evidence-retry-metrics
+                  disabled={retryMetricsPending}
+                  onClick={onRetryMetrics}
+                >
+                  {retryMetricsPending ? "Retrying metrics…" : "Retry metrics"}
+                </button>
+              ) : null}
+            </div>
           ) : null}
           {viewModel.actionNotice ? (
             <p

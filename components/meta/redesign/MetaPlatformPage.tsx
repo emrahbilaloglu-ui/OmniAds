@@ -4208,13 +4208,20 @@ export function MetaPlatformPage({
     ],
     enabled: Boolean(businessId) && queueCreativeAdIds.length > 0 &&
       queueCtrWindow !== null,
-    queryFn: () =>
-      fetchMetaQueueCtrSeries({
+    // `enabled` gates scheduling only; a manual refetch still runs this. With
+    // no served snapshot date there is no 28-day window to request, so fail
+    // as a query error instead of dereferencing a null window.
+    queryFn: async () => {
+      if (queueCtrWindow === null) {
+        throw new Error("The CTR trail window needs the served snapshot date.");
+      }
+      return fetchMetaQueueCtrSeries({
         businessId,
         adIds: queueCreativeAdIds,
-        start: queueCtrWindow!.start,
-        end: queueCtrWindow!.end,
-      }),
+        start: queueCtrWindow.start,
+        end: queueCtrWindow.end,
+      });
+    },
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });

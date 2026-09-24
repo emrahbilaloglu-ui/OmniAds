@@ -1986,6 +1986,7 @@ function CreativeCard({
           </div>
         ) : null}
         <div className={styles.creativeMoneyBlock}>
+          <p className={styles.creativeSparkLabel}>{copy.decisionWindowed}</p>
           <p className={styles.moneyValue}>{display(row.money)}</p>
           <p className={styles.moneySub}>{display(row.moneySub)}</p>
         </div>

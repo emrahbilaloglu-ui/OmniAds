@@ -1166,7 +1166,9 @@ export default function MetaCreativeStudioPage({
         : assetsState === "error"
           ? "Creative data could not be loaded. Try again."
           : assetsState === "unavailable"
-            ? sourceHealth.partialReason
+            ? sourceHealth.kind === "unavailable"
+              ? sourceHealth.message
+              : sourceHealth.partialReason
             : assetsState === "empty"
               ? "No creatives found for this date range."
               : null;

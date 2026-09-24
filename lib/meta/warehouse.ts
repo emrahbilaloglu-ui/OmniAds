@@ -11127,7 +11127,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         creative_primary_type = COALESCE(EXCLUDED.creative_primary_type, meta_creative_daily.creative_primary_type),
         creative_secondary_type = COALESCE(EXCLUDED.creative_secondary_type, meta_creative_daily.creative_secondary_type),
         image_hash = COALESCE(EXCLUDED.image_hash, meta_creative_daily.image_hash),
-        payload_json = CASE WHEN ${preserveCertifiedConfig}
+        payload_json = (CASE WHEN ${preserveCertifiedConfig}
           THEN EXCLUDED.payload_json || jsonb_build_object(
             'historical_config_provenance',
               meta_creative_daily.payload_json->>'historical_config_provenance',
@@ -11140,8 +11140,25 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
             'customEventType', meta_creative_daily.payload_json->'customEventType',
             'customConversionId', meta_creative_daily.payload_json->'customConversionId'
           )
-          ELSE EXCLUDED.payload_json END,
+          ELSE EXCLUDED.payload_json END) ||
+          CASE
+            WHEN meta_creative_daily.payload_json->>'historical_config_provenance' IN
+              ('provider_receipt_day_bracketed', 'provider_receipt_legacy_bracketed')
+              AND (${preserveCertifiedConfig}) IS NOT TRUE
+            THEN jsonb_build_object('historical_config_authority_changed_at',
+              to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+            WHEN meta_creative_daily.payload_json ? 'historical_config_authority_changed_at'
+            THEN jsonb_build_object('historical_config_authority_changed_at',
+              meta_creative_daily.payload_json->'historical_config_authority_changed_at')
+            ELSE '{}'::jsonb
+          END,
         updated_at = now()
+      WHERE NOT (
+        COALESCE(EXCLUDED.payload_json->>'source_economics_provenance' =
+          'provisional_meta_ad_daily', false)
+        AND COALESCE(meta_creative_daily.payload_json->>'source_identity_version' =
+          '${META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION}', false)
+      )
     `,
       values
     );

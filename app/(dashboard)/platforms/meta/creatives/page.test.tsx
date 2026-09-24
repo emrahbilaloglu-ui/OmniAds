@@ -308,9 +308,13 @@ describe("Creative Studio Assets: a 200 with no rows is not automatically empty"
    * window.": a definite statement about the operator's Meta account, produced
    * by a read that never happened. An operator can cut a creative on that.
    */
-  it.each(["no_connection", "no_access_token", "no_accounts_assigned"])(
+  it.each([
+    ["no_connection", "This business has no connected Meta account"],
+    ["no_access_token", "The Meta connection has no usable access token"],
+    ["no_accounts_assigned", "No Meta ad account is assigned to this business"],
+  ])(
     "reports %s as unavailable rather than an empty window",
-    (status) => {
+    (status, expectedMessage) => {
       const html = renderPage({
         businessId: "biz_1",
         providerAccounts: [{ id: "act_1", timezone: "UTC", currency: "USD" }],
@@ -320,7 +324,7 @@ describe("Creative Studio Assets: a 200 with no rows is not automatically empty"
 
       expect(html).toContain(`data-assets-state="unavailable"`);
       expect(html).toContain(`data-assets-source-status="${status}"`);
-      expect(html).toContain("Creative data is temporarily unavailable.");
+      expect(html).toContain(expectedMessage);
       expect(html).not.toContain("No creatives found for this date range.");
       // A count is only a count when a read produced one.
       expect(html).not.toContain("synced · Meta");

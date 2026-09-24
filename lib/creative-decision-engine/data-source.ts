@@ -36,7 +36,8 @@ import {
   buildMetaAdsetConfigFieldSourceSql,
   buildMetaConfigFieldSourceSql,
 } from "@/lib/meta/config-field-source-contract";
-import { getDb } from "@/lib/db";
+import { getDb as getSharedDb, type DbClient } from "@/lib/db";
+import { runWithDbJitDisabled } from "@/lib/db-jit-scope";
 import { resolveBusinessTargetPackFreshness } from "@/lib/business-commercial";
 import {
   canonicalCommercialTargetInstant,
@@ -91,6 +92,30 @@ import type {
   OperatorResponseResult,
   OperatorResponseType,
 } from "./operator-response-detection";
+
+/**
+ * The database handle for every read in this module, with LLVM JIT disabled.
+ *
+ * Creative and Ad decision hydration, the lifecycle-table read, calibration
+ * fallbacks and the Meta-attributed AOV reader are very large generated
+ * statements (D101 coverage, D105 cutoffs, D106 member status). On real data
+ * their cost estimate crosses jit_optimize_above_cost while the work itself is
+ * sub-second, so JIT turns a ~0.3 s read into a multi-second one on the
+ * production PostgreSQL build -- enough to breach the 8 s web statement
+ * timeout. `runWithDbJitDisabled` scopes the setting to these statements only
+ * (see `lib/db-jit-scope.ts`); the module-local name keeps every call site
+ * below on this handle, which `data-source.jit-scope.test.ts` pins.
+ */
+export function getCreativeDecisionReadDb(): DbClient {
+  const db = getSharedDb();
+  const query = ((...args: Parameters<DbClient["query"]>) =>
+    runWithDbJitDisabled(() => db.query(...args))) as DbClient["query"];
+  const template = ((strings: TemplateStringsArray, ...values: unknown[]) =>
+    runWithDbJitDisabled(() => db(strings, ...values))) as DbClient;
+  return Object.assign(template, { query });
+}
+
+const getDb = getCreativeDecisionReadDb;
 
 const CALIBRATION_CAMPAIGN_KINDS: readonly CalibrationCampaignKind[] = [
   "all",

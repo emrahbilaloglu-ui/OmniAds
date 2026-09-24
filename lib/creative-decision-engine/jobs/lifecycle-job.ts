@@ -1211,6 +1211,11 @@ export async function runLifecycleJob(
   return runDbTransaction(
     async () => {
       const db = getDb();
+      // No LLVM JIT for this job's very large lifecycle statement, the same
+      // measured reason as the calibration job (316 ms vs 7.3 s per statement
+      // on the production PostgreSQL build). SET LOCAL ends with the
+      // transaction; the data-source reads made inside it are scoped too.
+      await db.query("SET LOCAL jit = off");
       const [lockRow] = await db.query<AdvisoryLockRow>(
         "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
         [lockKey.toString()],

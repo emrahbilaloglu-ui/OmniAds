@@ -1781,6 +1781,9 @@ describe("meta warehouse ownership safety", () => {
     expect(query).toContain("THEN meta_creative_daily.objective ELSE EXCLUDED.objective");
     expect(query).toContain("THEN meta_creative_daily.optimization_goal ELSE EXCLUDED.optimization_goal");
     expect(query).toContain("'historical_config_proof',");
+    expect(query).toContain("historical_config_authority_changed_at");
+    expect(query).toContain("AND (");
+    expect(query).toContain("IS NOT TRUE");
     const columns = query.match(/INSERT INTO meta_creative_daily \(([\s\S]*?)\)\s*VALUES/)![1]!
       .split(",").map((column) => column.trim());
     expect(values[columns.indexOf("effective_status")]).toBeNull();
@@ -1792,6 +1795,34 @@ describe("meta warehouse ownership safety", () => {
     expect(query).toContain(
       "ELSE COALESCE(EXCLUDED.effective_status, meta_creative_daily.effective_status)",
     );
+  });
+
+  it("keeps provisional creative rows non-authoritative and cannot overwrite a certified day", async () => {
+    const queryMock = vi.fn(async (_query: string, _values?: unknown[]) => []);
+    const sql = vi.fn(async () => []);
+    Object.assign(sql, { query: queryMock });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    await upsertMetaCreativeDailyRows([{
+      businessId: "biz-1", providerAccountId: "acct-1", date: "2026-09-21",
+      campaignId: "cmp-1", adsetId: "set-1", adId: "ad-1",
+      creativeId: "provider-creative-1", accountTimezone: "UTC",
+      accountCurrency: "USD", spend: 10, impressions: 100, clicks: 5,
+      reach: 80, conversions: 0, revenue: 0,
+      payloadJson: { source_ad_ids: ["ad-1"], source_ad_ids_complete: false,
+        source_creative_ids: ["provider-creative-1"], associated_ads_count: 1,
+        source_membership_scope: "current_provider_ad_days_provisional",
+        source_economics_provenance: "provisional_meta_ad_daily" },
+    }] as never);
+    const call = queryMock.mock.calls.find(([query]) =>
+      String(query).includes("INSERT INTO meta_creative_daily"));
+    expect(call).toBeDefined();
+    const query = String(call?.[0]);
+    const values = call?.[1] as unknown[];
+    const payload = JSON.parse(String(values[60]));
+    expect(payload.source_identity_version).toBeUndefined();
+    expect(payload.source_ad_ids_complete).toBe(false);
+    expect(query).toContain("COALESCE(EXCLUDED.payload_json->>'source_economics_provenance'");
+    expect(query).toContain("COALESCE(meta_creative_daily.payload_json->>'source_identity_version'");
   });
 
   it("batches meta ad daily upserts instead of writing one row per query", async () => {

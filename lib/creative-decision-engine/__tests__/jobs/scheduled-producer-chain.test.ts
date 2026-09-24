@@ -205,7 +205,7 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(calibrationJob.runCalibrationJob).toHaveBeenCalledTimes(2);
   });
 
-  it("skips an unchanged successful day and compares stable config certification clocks", async () => {
+  it("skips an unchanged successful day and checks both certification and demotion clocks", async () => {
     const query = makeDbRows([{
       business_ref_id: "biz_1", as_of_date: "2026-05-07",
     }]).query;
@@ -217,6 +217,7 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     expect(query.mock.calls[1]?.[0]).toContain("historical_config_proof,certified_at");
     expect(query.mock.calls[1]?.[0]).toContain("> latest_decision.evaluation_cutoff_at");
     expect(query.mock.calls[1]?.[0]).not.toContain("decisions_finished_at");
+    expect(query.mock.calls[1]?.[0]).toContain("historical_config_authority_changed_at");
     expect(query.mock.calls[1]?.[0]).not.toContain("creative.updated_at >");
     expect(calibrationJob.runCalibrationJob).not.toHaveBeenCalled();
   });

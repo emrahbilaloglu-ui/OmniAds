@@ -614,6 +614,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("Creative decision CTR trail", () => {
+  it("uses the decision's 28 days when the selected page range is seven days", () => {
+    state.search =
+      "providerAccountId=act_1&scope=creatives&window=7d&startDate=2026-07-04&endDate=2026-07-10";
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    };
+    render();
+
+    const trailKey = state.queryKeys.find(
+      (key) => key[0] === "meta-queue-ctr-series",
+    );
+    expect(trailKey).toEqual([
+      "meta-queue-ctr-series", "biz_1", "2026-06-13", "2026-07-10",
+      "ad_pending",
+    ]);
+  });
+});
+
 describe("Decisions account scope ownership", () => {
   it("keeps canonical account selection in the shared shell", () => {
     state.providerAccounts = [

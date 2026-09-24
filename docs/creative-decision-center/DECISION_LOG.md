@@ -10092,9 +10092,13 @@ the prior successful decision job's persisted knowledge cutoff; a proof that
 arrives while that job is running is therefore still retried. An earlier
 calibration or lifecycle success from a different cutoff cannot satisfy a
 failed step in the retry. Unchanged proof identity and source pointers
-do not. The complete 90-day source and config checks still gate the resulting
-decisions, including measured zero days and the D103 account-wide unknown-Ad
-identity bound. A publication receipt does not itself grant a hard action.
+do not. If a previously certified creative day loses config authority, its
+writer stamps a stable authority-change instant; the producer also retries
+when that instant is later than the prior decision cutoff. Routine same-content
+syncs do not advance this clock. The complete 90-day source and config checks
+still gate the resulting decisions, including measured zero days and the D103
+account-wide unknown-Ad identity bound. A publication receipt does not itself
+grant a hard action.
 
 **Replay limit and versioning.** A captured instant prevents future rows from
 granting a decision, but mutable creative rows and current-only D101 pointers
@@ -10138,6 +10142,10 @@ The reader first selects the latest admissible row for each creative in a
 materialized source CTE, then resolves member status once for that creative.
 This keeps the same cutoff and parent checks without repeating the state-history
 lookup for every daily metric row in a 28- or 90-day window.
+The operator-response follow-up also bounds recommendations, lifecycle,
+campaign context, budgets and action receipts to that cutoff. A provider
+PAUSED or DELETED state without a dated receipt is detected at the knowledge
+cutoff, not backdated to the creative report day.
 
 **Version and rollback.** D106 is part of the still-unshipped D105
 `v3-2026-09-24-creative-knowledge-bound` epoch. Earlier snapshots retain

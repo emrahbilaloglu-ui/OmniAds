@@ -22,6 +22,7 @@ import {
   type DateWindowValue,
 } from "@/components/date-range/DateRangePicker";
 import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
+import { addDaysToIsoDate } from "@/lib/meta/history";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import {
@@ -2698,6 +2699,15 @@ async function fetchMetaQueueCtrSeries(input: {
   return byAdId;
 }
 
+function queueCtrTrailWindow(asOf: string | null | undefined) {
+  if (!asOf || !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return null;
+  const date = new Date(asOf + "T00:00:00.000Z");
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== asOf) {
+    return null;
+  }
+  return { start: addDaysToIsoDate(asOf, -27), end: asOf };
+}
+
 async function fetchCreativeEvidenceAdSeries(input: {
   businessId: string;
   adIds: string[];
@@ -4183,21 +4193,27 @@ export function MetaPlatformPage({
         .filter((adId): adId is string => Boolean(adId)),
     ),
   ).slice(0, 25);
+  // The row's CTR value is the decision snapshot's 28-day metric. Fetch the
+  // trail over those same 28 report days, even when the page filter is 7d.
+  const queueCtrWindow = queueCtrTrailWindow(
+    workspaceQuery.data?.os?.source?.snapshotAsOf,
+  );
   const queueCtrSeriesQuery = useQuery({
     queryKey: [
       "meta-queue-ctr-series",
       businessId,
-      selectedDateRange.start,
-      selectedDateRange.end,
+      queueCtrWindow?.start,
+      queueCtrWindow?.end,
       queueCreativeAdIds.join(","),
     ],
-    enabled: Boolean(businessId) && queueCreativeAdIds.length > 0,
+    enabled: Boolean(businessId) && queueCreativeAdIds.length > 0 &&
+      queueCtrWindow !== null,
     queryFn: () =>
       fetchMetaQueueCtrSeries({
         businessId,
         adIds: queueCreativeAdIds,
-        start: selectedDateRange.start,
-        end: selectedDateRange.end,
+        start: queueCtrWindow!.start,
+        end: queueCtrWindow!.end,
       }),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,

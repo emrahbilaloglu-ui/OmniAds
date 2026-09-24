@@ -870,6 +870,20 @@ export async function runCalibrationJob(
   return runDbTransaction(
     async () => {
       const db = getDb();
+      /*
+        No LLVM JIT inside this job. One run executes COMPUTE_CALIBRATION_QUERY
+        for every scope × format × kind (dozens of statements per business),
+        and each is a very large generated statement whose planner estimate
+        crosses jit_above_cost / jit_optimize_above_cost on real data while its
+        actual work is sub-second. On the Ubuntu PostgreSQL 16 build used by
+        production and CI, one execution measured 316 ms with jit=off against
+        7.3 s with jit=on (422 compiled functions, inlining + optimization) --
+        the compile time, repaid on every statement, pushed this job past its
+        transaction deadline and the DB seams past their test timeouts.
+        SET LOCAL scopes the setting to this transaction; the pooled
+        connection returns to the server default at COMMIT/ROLLBACK.
+      */
+      await db.query("SET LOCAL jit = off");
       const [lockRow] = await db.query<AdvisoryLockRow>(
         "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
         [lockKey.toString()],

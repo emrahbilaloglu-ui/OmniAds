@@ -1211,6 +1211,7 @@ async function runChildVitest(
             assertionResults?: Array<{
               fullName?: string;
               status?: string;
+              duration?: number;
               failureMessages?: string[];
             }>;
           }>;
@@ -1218,9 +1219,19 @@ async function runChildVitest(
         for (const file of failedReport.testResults ?? []) {
           for (const assertion of file.assertionResults ?? []) {
             if (assertion.status !== "failed") continue;
+            const messages = (assertion.failureMessages ?? []).join("\n");
+            // Vitest reports a test/hook timeout with the stack of its
+            // placeholder `Error("STACK_TRACE_ERROR")`, which drops the
+            // "timed out in Nms" text. Name it, or it reads as an assertion.
+            const kind = messages.startsWith("Error: STACK_TRACE_ERROR")
+              ? "TIMEOUT (vitest test/hook timeout; stack marks the declaration)"
+              : "assertion/error";
+            const duration = typeof assertion.duration === "number"
+              ? ` after ${Math.round(assertion.duration)}ms`
+              : "";
             log(
-              `${runLabel} failed: ${assertion.fullName ?? file.name ?? testPath}\n` +
-                (assertion.failureMessages ?? []).join("\n").slice(0, 12_000),
+              `${runLabel} failed [${kind}${duration}]: ${assertion.fullName ?? file.name ?? testPath}\n` +
+                messages.slice(0, 12_000),
             );
           }
           if (file.message) {
@@ -1262,6 +1273,43 @@ async function runChildVitest(
     );
   }
   log(`${runLabel} exited clean.`);
+}
+
+/*
+  Whether this cluster can JIT-compile is a timing fact every later seam
+  inherits. Ubuntu's PostgreSQL 16 (CI and production) ships LLVM JIT with
+  jit=on; Homebrew's build has no JIT. A large generated statement whose cost
+  estimate crosses jit_optimize_above_cost then pays seconds of compilation per
+  execution in CI only, which reads as an unexplained CI-only stall.
+*/
+async function logPlannerJitEnvironment(databaseUrl: string): Promise<void> {
+  const client = new Client({ connectionString: databaseUrl });
+  try {
+    await client.connect();
+    const { rows } = await client.query<{
+      available: boolean;
+      jit: string;
+      above: string;
+      optimize: string;
+      inline: string;
+    }>(
+      `SELECT pg_jit_available() AS available,
+              current_setting('jit') AS jit,
+              current_setting('jit_above_cost') AS above,
+              current_setting('jit_optimize_above_cost') AS optimize,
+              current_setting('jit_inline_above_cost') AS inline`,
+    );
+    const row = rows[0];
+    log(
+      `planner JIT: available=${row?.available} jit=${row?.jit} ` +
+        `above_cost=${row?.above} optimize_above_cost=${row?.optimize} ` +
+        `inline_above_cost=${row?.inline}`,
+    );
+  } catch (error) {
+    log(`planner JIT: unreadable (${String(error).slice(0, 200)})`);
+  } finally {
+    await client.end().catch(() => {});
+  }
 }
 
 function dbAdapter(client: Client): DbClient {
@@ -3225,6 +3273,7 @@ async function main() {
       ],
       "createdb",
     );
+    await logPlannerJitEnvironment(databaseUrl);
 
     // Three separate child processes: lib/migrations.ts keeps module-level
     // "already completed" state, so in-process re-runs would be no-ops and
@@ -4198,6 +4247,9 @@ async function main() {
       ["app/api/meta/bootstrap-account-population.db.test.ts", "Meta bootstrap account population", 8],
       ["app/api/meta/anchor-scope-transition-serve.db.test.ts", "Meta anchor scope transition", 6],
       ["lib/creative-decision-engine/profile-scope-callers-account-scope.db.test.ts", "Meta profile scope callers", 4],
+      // Provisions its own logging cluster: proves the decision reads' backend
+      // runs with jit=off, on the CI build that actually has LLVM JIT.
+      ["lib/creative-decision-engine/data-source.jit-scope.db.test.ts", "Creative decision read JIT scope", 5],
     ] as const) {
       await runChildVitest(repoRoot, databaseUrl, file, `${label} DB seam check`, count);
     }

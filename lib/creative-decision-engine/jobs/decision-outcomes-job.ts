@@ -197,7 +197,7 @@ SELECT
     WHEN COALESCE(SUM(d.spend), 0) > 0
     THEN COALESCE(SUM(d.revenue), 0) / NULLIF(SUM(d.spend), 0)
   END AS outcome_roas,
-  (COUNT(d.id) > 0 AND ${creativeDayOutcomeSourceCoverageSql("c", "$2", "$8")}) AS outcome_source_complete
+  ${creativeDayOutcomeSourceCoverageSql("c", "$2", "$8")} AS outcome_source_complete
 FROM candidate_windows c
 LEFT JOIN meta_creative_daily d
   ON (d.business_ref_id::text = $1 OR d.business_id = $1)

@@ -966,6 +966,35 @@ function adDayKnownAtCutoff(row: MetaAdDailyRow, cutoffAt: string) {
     Number.isFinite(updatedMs) && createdMs < cutoffMs && updatedMs < cutoffMs;
 }
 
+function isCurrentProviderLocalDay(day: string, timeZone: string | null | undefined) {
+  if (!timeZone?.trim()) return false;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date());
+    const value = (type: string) => parts.find((part) => part.type === type)?.value;
+    return day === `${value("year")}-${value("month")}-${value("day")}`;
+  } catch {
+    return false;
+  }
+}
+
+function isPresentableProvisionalCreativeDay(row: MetaCreativeDailyRow) {
+  const payload = row.payloadJson;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const record = payload as Record<string, unknown>;
+  const identity = readCreativeSourceIdentity(record);
+  return isCurrentProviderLocalDay(row.date, row.accountTimezone) &&
+    record.source_economics_provenance === "provisional_meta_ad_daily" &&
+    record.source_membership_scope === "current_provider_ad_days_provisional" &&
+    record.source_scope_status !== "empty_provider_and_ad_daily" &&
+    record.source_identity_version == null &&
+    identity?.source_ad_ids_complete === false &&
+    identity.source_ad_ids.length > 0 &&
+    identity.source_creative_ids.length === 1 &&
+    identity.source_creative_ids[0] === row.creativeId;
+}
+
 /**
  * A creative-filtered Ad read must use point-in-time provider Ad identity,
  * never a mutable current dimension or a collapsed creative-day aggregate.
@@ -1018,6 +1047,7 @@ export async function readProvableAdCreativeIdentityForDays(input: {
               AND authoritative.observed_at < bounds.day_end + INTERVAL '36 hours'
               AND authoritative.observed_at < $6::timestamptz
               AND authoritative.captured_at < $6::timestamptz
+              AND authoritative.created_at < $6::timestamptz
             ORDER BY authoritative.observed_at ASC,
                      authoritative.captured_at ASC, authoritative.id ASC
             LIMIT 1
@@ -1035,6 +1065,7 @@ export async function readProvableAdCreativeIdentityForDays(input: {
             AND h.observed_at <= d.day_start
             AND h.observed_at < $6::timestamptz
             AND h.captured_at < $6::timestamptz
+            AND h.created_at < $6::timestamptz
           ORDER BY h.observed_at DESC, h.captured_at DESC,
                    h.created_at DESC, h.id DESC LIMIT 1
        ) before_day ON true
@@ -1051,6 +1082,7 @@ export async function readProvableAdCreativeIdentityForDays(input: {
              AND change.observed_at <= bracket.bracket_observed_at
              AND change.observed_at < $6::timestamptz
              AND change.captured_at < $6::timestamptz
+             AND change.created_at < $6::timestamptz
              AND (change.creative_id IS DISTINCT FROM before_day.creative_id
                OR change.campaign_id IS DISTINCT FROM d.campaign_id
                OR change.adset_id IS DISTINCT FROM d.adset_id
@@ -1064,6 +1096,7 @@ export async function readProvableAdCreativeIdentityForDays(input: {
              AND gone.observed_at <= bracket.bracket_observed_at
              AND gone.observed_at < $6::timestamptz
              AND gone.captured_at < $6::timestamptz
+             AND gone.created_at < $6::timestamptz
         )`,
     [input.businessId, input.providerAccountId, input.requestedCreativeId ?? null,
       input.start, input.end, input.knowledgeCutoffAt],
@@ -1093,10 +1126,10 @@ export async function readAdCreativeIdsForDays(input: {
 
 /**
  * A current Ad detail response is not evidence of the Ad's creative on an
- * earlier reporting day. Admit a creative-day fact only when every retained
- * provider Ad row agrees with a finalized Ad-day fact and the strict state
- * history/day-bracket identity proof. Skipping a day preserves any previously
- * certified creative-day row on retry.
+ * earlier reporting day. Finalized creative-day facts require every provider
+ * Ad row to agree with an Ad-day fact and strict day-bracket identity proof.
+ * The separate provisional mode permits current-day presentation only; its
+ * caller withholds the v2 admission marker and config certification.
  */
 export function assessCreativeDayWriterIdentityProof(input: {
   providerAccountId: string;
@@ -1104,6 +1137,7 @@ export function assessCreativeDayWriterIdentityProof(input: {
   rows: RawCreativeRow[];
   adFacts: MetaAdDailyRow[];
   provenCreativeByAdDay: Map<string, string>;
+  mode?: "finalized" | "provisional_presentation";
 }): { canWrite: true; accountTimezone: string; accountCurrency: string } |
   { canWrite: false; reason: string; adId: string | null } {
   const facts = new Map(input.adFacts.map((row) => [row.adId, row]));
@@ -1120,11 +1154,15 @@ export function assessCreativeDayWriterIdentityProof(input: {
     }
     providerAdIds.add(adId);
     const fact = facts.get(adId);
+    const provisional = input.mode === "provisional_presentation";
     if (!fact || fact.providerAccountId !== input.providerAccountId ||
-        fact.date !== input.day || fact.truthState !== "finalized" ||
-        fact.validationStatus !== "passed" || !fact.sourceSnapshotId ||
-        !fact.sourceRunId || !fact.finalizedAt) {
-      return { canWrite: false, reason: "finalized_ad_day_fact_missing", adId };
+        fact.date !== input.day || !fact.sourceSnapshotId || !fact.sourceRunId ||
+        (provisional
+          ? fact.truthState !== "provisional" || fact.validationStatus !== "pending"
+          : fact.truthState !== "finalized" || fact.validationStatus !== "passed" ||
+            !fact.finalizedAt)) {
+      return { canWrite: false, reason: provisional
+        ? "provisional_ad_day_fact_missing" : "finalized_ad_day_fact_missing", adId };
     }
     if (!fact.accountTimezone?.trim() || !fact.accountCurrency?.trim() ||
         fact.accountCurrency !== row.currency ||
@@ -1138,14 +1176,16 @@ export function assessCreativeDayWriterIdentityProof(input: {
         fact.campaignId !== row.campaign_id || fact.adsetId !== row.adset_id) {
       return { canWrite: false, reason: "ad_day_parent_identity_mismatch", adId };
     }
-    const provenCreativeId = input.provenCreativeByAdDay.get(JSON.stringify([
-      input.providerAccountId, input.day, adId,
-    ]));
-    if (!provenCreativeId) {
-      return { canWrite: false, reason: "historical_creative_identity_unprovable", adId };
-    }
-    if (provenCreativeId !== row.creative_id) {
-      return { canWrite: false, reason: "current_ad_detail_conflicts_with_historical_creative_identity", adId };
+    if (!provisional) {
+      const provenCreativeId = input.provenCreativeByAdDay.get(JSON.stringify([
+        input.providerAccountId, input.day, adId,
+      ]));
+      if (!provenCreativeId) {
+        return { canWrite: false, reason: "historical_creative_identity_unprovable", adId };
+      }
+      if (provenCreativeId !== row.creative_id) {
+        return { canWrite: false, reason: "current_ad_detail_conflicts_with_historical_creative_identity", adId };
+      }
     }
   }
   for (const fact of input.adFacts) {
@@ -1438,17 +1478,18 @@ async function syncMetaCreativesAccountDay(input: {
       businessId: input.businessId, providerAccountIds: [input.accountId],
       startDate: input.day, endDate: input.day,
     });
-    const finalizedPositiveFacts = adFacts.filter((fact) =>
-      fact.truthState === "finalized" && fact.validationStatus === "passed" &&
+    const positiveFacts = adFacts.filter((fact) =>
+      ((fact.truthState === "finalized" && fact.validationStatus === "passed") ||
+        (fact.truthState === "provisional" && fact.validationStatus === "pending")) &&
       [fact.spend, fact.impressions, fact.clicks, fact.conversions, fact.revenue]
         .some((value) => value > 0));
-    if (finalizedPositiveFacts.length > 0) {
+    if (positiveFacts.length > 0) {
       // A current Meta re-read can restate history. The existing finalized
       // Ad-day version still owns economics; an empty later report does not
       // erase that prior observation or any matching certified creative row.
-      console.warn("[meta-creatives] empty provider scope conflicts with finalized Ad-day facts", {
+      console.warn("[meta-creatives] empty provider scope conflicts with Ad-day facts", {
         businessId: input.businessId, accountId: input.accountId,
-        day: input.day, finalizedPositiveAds: finalizedPositiveFacts.length,
+        day: input.day, positiveAds: positiveFacts.length,
       });
       return;
     }
@@ -1457,13 +1498,20 @@ async function syncMetaCreativesAccountDay(input: {
     // its authority marker; keep the row as audit history and leave media.
     await getDb().query(
       `UPDATE meta_creative_daily
-          SET payload_json = (COALESCE(payload_json, '{}'::jsonb)
+          SET payload_json = ((COALESCE(payload_json, '{}'::jsonb)
             - 'source_identity_version' - 'historical_config_proof') ||
             jsonb_build_object('source_scope_status', 'empty_provider_and_ad_daily',
-              'historical_config_provenance', 'unverified'),
+              'historical_config_provenance', 'unverified')) ||
+            CASE WHEN payload_json->>'historical_config_provenance' IN
+                ('provider_receipt_day_bracketed', 'provider_receipt_legacy_bracketed')
+              AND jsonb_typeof(payload_json->'historical_config_proof') = 'object'
+              THEN jsonb_build_object('historical_config_authority_changed_at',
+                to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+              ELSE '{}'::jsonb END,
               updated_at = now()
         WHERE business_id = $1 AND provider_account_id = $2 AND date = $3::date
-          AND payload_json->>'source_identity_version' = $4`,
+          AND (payload_json->>'source_identity_version' = $4
+            OR payload_json->>'source_economics_provenance' = 'provisional_meta_ad_daily')`,
       [input.businessId, input.accountId, input.day,
         META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION],
     );
@@ -1479,6 +1527,11 @@ async function syncMetaCreativesAccountDay(input: {
     const fact = factsByAd.get(row.real_ad_id ?? row.id);
     return fact?.truthState === "finalized" && fact.validationStatus === "passed";
   });
+  const provisionalPresentation = !allFactsFinalized && adFacts.length > 0 &&
+    adFacts.every((fact) => fact.providerAccountId === input.accountId &&
+      fact.date === input.day && fact.truthState === "provisional" &&
+      fact.validationStatus === "pending" &&
+      isCurrentProviderLocalDay(input.day, fact.accountTimezone));
   const provenCreativeByAdDay = allFactsFinalized
     ? await readProvableAdCreativeIdentityForDays({ businessId: input.businessId,
       providerAccountId: input.accountId, start: input.day, end: input.day,
@@ -1487,6 +1540,7 @@ async function syncMetaCreativesAccountDay(input: {
   const identityProof = assessCreativeDayWriterIdentityProof({
     providerAccountId: input.accountId, day: input.day, rows: rawRows,
     adFacts, provenCreativeByAdDay,
+    mode: provisionalPresentation ? "provisional_presentation" : "finalized",
   });
   if (!identityProof.canWrite) {
     console.warn("[meta-creatives] creative-day fact write deferred", {
@@ -1539,8 +1593,17 @@ async function syncMetaCreativesAccountDay(input: {
       frequency: canonical.frequency,
       metric_presence: { ...payloadRow.metric_presence, ...canonical.metricPresence },
       [META_CREATIVE_DAY_METRIC_EVIDENCE_KEY]: canonical.evidence,
-      source_membership_scope: "all_provider_ad_days",
-      source_economics_provenance: "finalized_meta_ad_daily",
+      source_membership_scope: provisionalPresentation
+        ? "current_provider_ad_days_provisional" : "all_provider_ad_days",
+      source_economics_provenance: provisionalPresentation
+        ? "provisional_meta_ad_daily" : "finalized_meta_ad_daily",
+      // Current Ad detail has no historical membership proof. Keep its source
+      // list for display without minting the v2 decision-admission marker.
+      ...(provisionalPresentation ? {
+        source_identity_version: undefined,
+        source_ad_ids_complete: false,
+        source_parent_grain_complete: false,
+      } : {}),
       source_snapshot_ids: canonical.sourceSnapshotIds,
       source_run_ids: canonical.sourceRunIds,
       // Mutable current Ad detail is useful for media, not a historical
@@ -1662,7 +1725,7 @@ async function syncMetaCreativesAccountDay(input: {
   // Membership and configuration are independent proofs. The writer above
   // leaves config unverified; this separate D098 receipt path may certify it
   // only after the v2 row exists and its stored fields agree with the receipt.
-  await certifyCreativeDayConfigFromReceipts({
+  if (!provisionalPresentation) await certifyCreativeDayConfigFromReceipts({
     businessId: input.businessId,
     providerAccountId: input.accountId,
     day: input.day,
@@ -1946,13 +2009,23 @@ export async function getMetaCreativesWarehousePayload(input: {
           (row) => row.creativeId === creativeId,
         )
       : accountScopedSourceRows;
+  // Intraday Ad facts have not passed finalization or historical identity
+  // proof. Their current provider creative mapping is presentation-only and
+  // expires with the account-local day; explicit historical reads never use it.
+  const presentableProvisional = (row: MetaCreativeDailyRow) =>
+    !input.knowledgeCutoffAt && isPresentableProvisionalCreativeDay(row);
+  const provisionalCreativeDays = useCreativeWarehouse
+    ? (sourceRowsBeforeAdCreativeFilter as MetaCreativeDailyRow[]).filter(
+        presentableProvisional,
+      )
+    : [];
   // Legacy creative-day writer rows can contain several provider creatives
   // under the first ID. Their spend and funnel are real measurements but not
   // proven measurements OF that ID, so they cannot be served as verified Studio
   // metrics. The repair can restore these rows with versioned source identity.
   const unverifiedCreativeDays = useCreativeWarehouse
     ? (sourceRowsBeforeAdCreativeFilter as MetaCreativeDailyRow[]).filter(
-        (row) => !hasVerifiedCreativeDayIdentity(row),
+        (row) => !hasVerifiedCreativeDayIdentity(row) && !presentableProvisional(row),
       )
     : [];
   const provenAdCreativeIds =
@@ -1986,7 +2059,7 @@ export async function getMetaCreativesWarehousePayload(input: {
         )
       : useCreativeWarehouse
         ? (sourceRowsBeforeAdCreativeFilter as MetaCreativeDailyRow[]).filter(
-            hasVerifiedCreativeDayIdentity,
+            (row) => hasVerifiedCreativeDayIdentity(row) || presentableProvisional(row),
           )
         : sourceRowsBeforeAdCreativeFilter;
   const creativeSourceRowsForDimensions = useCreativeWarehouse
@@ -2181,11 +2254,14 @@ export async function getMetaCreativesWarehousePayload(input: {
   return {
     status: "ok",
     rows: responseRows,
-    isPartial: unverifiedCreativeDays.length > 0 || unverifiedAdDays.length > 0,
+    isPartial: unverifiedCreativeDays.length > 0 || unverifiedAdDays.length > 0 ||
+      provisionalCreativeDays.length > 0,
     notReadyReason: unverifiedCreativeDays.length > 0
       ? `${unverifiedCreativeDays.length} historical creative-day rows have unverified provider membership; their metrics are withheld until source-backed repair.`
       : unverifiedAdDays.length > 0
         ? `${unverifiedAdDays.length} active Ad-day rows have unverified historical creative identity; their metrics cannot be attributed to the requested creative.`
+      : provisionalCreativeDays.length > 0
+        ? `${provisionalCreativeDays.length} current-day creative rows are provisional; their metrics are for presentation until the Ad day is finalized and its identity is proved.`
       : null,
     ...buildMetaCreativesAccountScopeMetadata(accountScope),
     media_mode: input.mediaMode,

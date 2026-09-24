@@ -38,6 +38,9 @@ describe("decision outcomes job SQL contracts", () => {
     expect(source).toContain("WHERE engine_v3_decision_outcomes_daily.computed_at <= EXCLUDED.computed_at");
     expect(source).toContain("creativeDayOutcomeSourceCoverageSql");
     expect(source).toContain("outcome_source_complete");
+    // A published, complete Ad-day chain can prove seven zero-delivery days
+    // even when no creative metric row exists in the outcome window.
+    expect(source).not.toContain("COUNT(d.id) > 0");
     expect(source).toContain('rule: "creative_source_coverage_incomplete"');
     expect(source).toContain("($4::integer - 1)");
     expect(source).toContain("LIMIT $5::integer");

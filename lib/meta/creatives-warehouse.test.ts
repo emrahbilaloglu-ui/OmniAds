@@ -450,6 +450,12 @@ describe("meta creatives warehouse", () => {
       expect.stringContaining("UPDATE meta_creative_daily"),
       ["biz-1", "act_1", "2026-04-03", META_CREATIVE_DAY_SOURCE_IDENTITY_VERSION],
     );
+    expect(String(dbQuery.mock.calls[0]?.[0])).toContain(
+      "historical_config_authority_changed_at",
+    );
+    expect(String(dbQuery.mock.calls[0]?.[0])).toContain(
+      "payload_json->>'source_economics_provenance' = 'provisional_meta_ad_daily'",
+    );
     expect(warehouse.upsertMetaCreativeDailyRows).not.toHaveBeenCalled();
     expect(warehouse.upsertMetaCreativeMediaRows).not.toHaveBeenCalled();
 
@@ -490,6 +496,111 @@ describe("meta creatives warehouse", () => {
       adFacts: [buildCertifiedAdFactRow({ accountTimezone: "" })] as never,
       provenCreativeByAdDay: proof })).toMatchObject({
       canWrite: false, reason: "account_context_missing_or_mixed" });
+  });
+
+  it("keeps current account-day provisional creative metrics presentational and out of decision admission", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-04-04T02:00:00.000Z")); // Chicago: April 3
+      vi.mocked(creativesService.buildCreativesResponse).mockResolvedValue({
+        rows: [buildProjectionRow({ creative_id: "crt-1", currency: "USD" })],
+      } as never);
+      vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
+        buildCertifiedAdFactRow({ accountTimezone: "America/Chicago",
+          truthState: "provisional", validationStatus: "pending", finalizedAt: null,
+          spend: 12, impressions: 80 }),
+      ] as never);
+
+      await syncMetaCreativesWarehouseDay({ businessId: "biz-1", day: "2026-04-03",
+        accessToken: "token", assignedAccountIds: ["act_1"], mediaMode: "full" });
+
+      expect(warehouse.upsertMetaCreativeDailyRows).toHaveBeenCalledOnce();
+      const [rows] = vi.mocked(warehouse.upsertMetaCreativeDailyRows).mock.calls[0]!;
+      expect(rows[0]).toMatchObject({ spend: 12, impressions: 80,
+        payloadJson: { source_economics_provenance: "provisional_meta_ad_daily",
+          source_membership_scope: "current_provider_ad_days_provisional",
+          source_ad_ids: ["ad-1"], source_ad_ids_complete: false,
+          source_parent_grain_complete: false } });
+      expect((rows[0]!.payloadJson as Record<string, unknown>).source_identity_version).toBeUndefined();
+      expect(warehouse.upsertMetaCreativeMediaRows).toHaveBeenCalledOnce();
+      expect(configProof.certifyCreativeDayConfigFromReceipts).not.toHaveBeenCalled();
+      expect(dbQuery).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not turn a stale provisional Ad day into creative presentation", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-04-05T02:00:00.000Z")); // Chicago: April 4
+      vi.mocked(creativesService.buildCreativesResponse).mockResolvedValue({
+        rows: [buildProjectionRow({ creative_id: "crt-1", currency: "USD" })],
+      } as never);
+      vi.mocked(warehouse.getMetaAdDailyRange).mockResolvedValue([
+        buildCertifiedAdFactRow({ accountTimezone: "America/Chicago",
+          truthState: "provisional", validationStatus: "pending", finalizedAt: null }),
+      ] as never);
+      await syncMetaCreativesWarehouseDay({ businessId: "biz-1", day: "2026-04-03",
+        accessToken: "token", assignedAccountIds: ["act_1"] });
+      expect(warehouse.upsertMetaCreativeDailyRows).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds each receipt, state, change and tombstone insertion to the replay cutoff", async () => {
+    dbQuery.mockResolvedValue([]);
+    const recovered = await readAdCreativeIdsForDays({
+      businessId: "biz-1", providerAccountId: "act_1",
+      start: "2026-04-03", end: "2026-04-03",
+      knowledgeCutoffAt: "2026-04-04T10:00:00.000Z",
+    });
+    expect(recovered.size).toBe(0);
+    const query = String(dbQuery.mock.calls[0]?.[0]);
+    for (const alias of ["authoritative", "h", "change", "gone"]) {
+      expect(query).toContain(`${alias}.observed_at < $6::timestamptz`);
+      expect(query).toContain(`${alias}.captured_at < $6::timestamptz`);
+      expect(query).toContain(`${alias}.created_at < $6::timestamptz`);
+    }
+  });
+
+  it("shows provisional creative rows only on the current local day and never in historical reads", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-04-04T02:00:00.000Z")); // Chicago: April 3
+      vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
+        buildCreativeFactRow({ accountTimezone: "America/Chicago", spend: 12,
+          payloadJson: { source_ad_ids: ["ad-1"], source_ad_ids_complete: false,
+            source_creative_ids: ["crt-1"], associated_ads_count: 1,
+            source_membership_scope: "current_provider_ad_days_provisional",
+            source_economics_provenance: "provisional_meta_ad_daily" } }),
+      ] as never);
+      vi.mocked(requestModelStore.readMetaCreativeDimensions).mockResolvedValue(
+        new Map([["crt-1", { projectionJson: buildProjectionRow() }]]) as never,
+      );
+      dbQuery.mockResolvedValue([{ observed_at: "2026-04-04T02:00:00.000Z" }]);
+      const input = { businessId: "biz-1", providerAccountId: "act_1",
+        start: "2026-04-03", end: "2026-04-03", groupBy: "creative" as const,
+        format: "all" as const, sort: "spend" as const,
+        mediaMode: "metadata" as const };
+      const current = await getMetaCreativesWarehousePayload(input);
+      expect(current.rows).toHaveLength(1);
+      expect(current.rows[0]).toMatchObject({ creative_id: "crt-1", spend: 12 });
+      expect(current).toMatchObject({ isPartial: true });
+      if (current.status !== "ok") throw new Error("expected scoped warehouse payload");
+      expect(current.notReadyReason).toContain("provisional");
+
+      const historical = await getMetaCreativesWarehousePayload({ ...input,
+        knowledgeCutoffAt: "2026-04-04T01:00:00.000Z" });
+      expect(historical.rows).toHaveLength(0);
+
+      vi.setSystemTime(new Date("2026-04-05T02:00:00.000Z")); // Chicago: April 4
+      const expired = await getMetaCreativesWarehousePayload(input);
+      expect(expired.rows).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("treats legacy, missing, and duplicate creative memberships as a recent coverage gap", () => {

@@ -235,6 +235,24 @@ async function findBusinessesPendingDecisions(input: {
             ELSE FALSE END
       )
       AND NOT EXISTS (
+        SELECT 1 FROM meta_creative_daily creative
+        WHERE creative.business_ref_id = completed.business_ref_id
+          AND creative.date BETWEEN (completed.as_of_date - INTERVAL '89 days')
+            AND completed.as_of_date
+          -- The writer stamps this only when a previously certified creative
+          -- day loses authority. Ordinary same-content upserts advance
+          -- updated_at, so that clock would rerun the chain on every sync.
+          AND CASE WHEN
+            creative.payload_json->>'historical_config_authority_changed_at' ~
+              '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$'
+            AND pg_input_is_valid(
+              creative.payload_json->>'historical_config_authority_changed_at',
+              'timestamptz')
+            THEN (creative.payload_json->>'historical_config_authority_changed_at')::timestamptz
+              > latest_decision.evaluation_cutoff_at
+            ELSE FALSE END
+      )
+      AND NOT EXISTS (
         SELECT 1 FROM meta_authoritative_publication_pointers pointer
         WHERE pointer.business_id = completed.business_ref_id::text
           AND pointer.day BETWEEN (completed.as_of_date - INTERVAL '89 days')

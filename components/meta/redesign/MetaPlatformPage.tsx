@@ -86,7 +86,7 @@ import {
   type CreativeEvidenceWindowExactAdRow,
   type CreativeEvidenceWindowExactSeriesPayload,
 } from "@/components/creatives/creative-evidence-window-exact-adapter";
-import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
+import type { MetaAdFunnelEvidenceRow } from "@/lib/meta/ad-funnel-evidence";
 import styles from "./MetaPlatformPage.module.css";
 import {
   decisionLabelForRec,
@@ -1244,6 +1244,10 @@ function metaEvidenceReadError(query: {
   error: unknown;
 }): string | null {
   if (!query.isError) return null;
+  if (query.error instanceof Error &&
+      query.error.message === "incomplete_ad_day_coverage") {
+    return "incomplete_ad_day_coverage";
+  }
   return "Creative metrics could not be loaded.";
 }
 
@@ -1762,9 +1766,7 @@ function MetaMobileCreativeEvidenceScreen({
       displayValue !== "unreadable"
     );
   };
-  const funnel = (viewModel.funnel ?? []).filter(
-    (step) => isMeaningful(step.label) && isMeaningful(step.value),
-  );
+  const funnel = (viewModel.funnel ?? []).filter((step) => isMeaningful(step.label));
   const facts = (viewModel.facts ?? []).filter(
     (fact) => isMeaningful(fact.label) && isMeaningful(fact.value),
   );
@@ -2612,9 +2614,8 @@ function canonicalCreativeSearchMatch(
 
 /**
  * The decisions-workspace contract stops at spend / purchases / ROAS. The
- * funnel, thumbstop, first-seen date and per-ad-set split the evidence window
- * draws are ad-grain facts served by `/api/meta/creatives`, which keeps its
- * own `requireBusinessAccess` gate. Reading them here adds no new authority.
+ * selected-period funnel is read for this exact Ad from warehouse ad-days;
+ * it never supplies the engine's decision-window metric or action authority.
  */
 const CREATIVE_EVIDENCE_CLIENT_TIMEOUT_MS = 30_000;
 
@@ -2626,54 +2627,35 @@ function creativeEvidenceRequestSignal(signal?: AbortSignal): AbortSignal {
 export async function fetchCreativeEvidenceAdRows(input: {
   businessId: string;
   providerAccountId: string;
-  creativeId: string;
+  adId: string;
   start: string;
   end: string;
 }, signal?: AbortSignal): Promise<CreativeEvidenceWindowExactAdRow[]> {
   const query = new URLSearchParams({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
-    creativeId: input.creativeId,
-    groupBy: "ad",
-    mediaMode: "metadata",
+    adId: input.adId,
     start: input.start,
     end: input.end,
   });
-  const response = await fetch(`/api/meta/creatives?${query.toString()}`, {
+  const response = await fetch(`/api/meta/ads/funnel?${query.toString()}`, {
     cache: "no-store",
     signal: creativeEvidenceRequestSignal(signal),
   });
+  if (response.status === 409) {
+    throw new Error("incomplete_ad_day_coverage");
+  }
   if (!response.ok) {
     throw new Error("Ad-grain creative evidence is unavailable.");
   }
   const payload: unknown = await response.json();
-  const rows: MetaCreativeApiRow[] =
-    payload &&
-    typeof payload === "object" &&
-    Array.isArray((payload as { rows?: unknown }).rows)
-      ? ((payload as { rows: MetaCreativeApiRow[] }).rows ?? [])
-      : [];
-  return rows
-    .filter((row) => row.creative_id === input.creativeId)
-    .map((row) => ({
-      id: row.id,
-      adsetId: row.adset_id ?? null,
-      adsetName: row.adset_name ?? null,
-      spend: numberOrNull(row.spend),
-      purchaseValue: numberOrNull(row.purchase_value),
-      roas: numberOrNull(row.roas),
-      impressions: numberOrNull(row.impressions),
-      linkClicks: numberOrNull(row.link_clicks),
-      linkClicksObserved: row.metric_presence?.link_clicks === true,
-      addToCart: numberOrNull(row.add_to_cart),
-      addToCartObserved: row.metric_presence?.add_to_cart === true,
-      purchases: numberOrNull(row.purchases),
-      purchasesObserved: row.metric_presence?.purchases === true,
-      thumbstop: numberOrNull(row.thumbstop),
-      thumbstopObserved:
-        row.format === "video" && row.metric_presence?.thumbstop === true,
-      launchDate: row.launch_date ?? null,
-    }));
+  if (!payload || typeof payload !== "object" ||
+      (payload as { status?: unknown }).status !== "ok" ||
+      !Array.isArray((payload as { rows?: unknown }).rows)) {
+    throw new Error("Ad-grain creative evidence returned an invalid response.");
+  }
+  return ((payload as { rows: MetaAdFunnelEvidenceRow[] }).rows ?? [])
+    .filter((row) => row.id === input.adId);
 }
 
 /**
@@ -4010,27 +3992,27 @@ export function MetaPlatformPage({
       ? creativeDrillSelection
       : null;
 
-  const creativeEvidenceCreativeId =
-    scopedCreativeDrill?.canonical?.parentChain.creative?.id?.trim() ||
-    scopedCreativeDrill?.decision?.creativeId?.trim() ||
+  const creativeEvidenceAdId =
+    scopedCreativeDrill?.canonical?.parentChain.ad?.id?.trim() ||
+    scopedCreativeDrill?.decision?.adId?.trim() ||
     null;
   const creativeEvidenceQuery = useQuery({
     queryKey: [
       "meta-creative-evidence-ad-rows",
       businessId,
       providerAccountId,
-      creativeEvidenceCreativeId,
+      creativeEvidenceAdId,
       selectedDateRange.start,
       selectedDateRange.end,
     ],
     enabled: Boolean(
-      businessId && providerAccountId && creativeEvidenceCreativeId,
+      businessId && providerAccountId && creativeEvidenceAdId,
     ),
     queryFn: ({ signal }) =>
       fetchCreativeEvidenceAdRows({
         businessId,
         providerAccountId: providerAccountId!,
-        creativeId: creativeEvidenceCreativeId!,
+        adId: creativeEvidenceAdId!,
         start: selectedDateRange.start,
         end: selectedDateRange.end,
       }, signal),
@@ -4044,10 +4026,6 @@ export function MetaPlatformPage({
    * set: the Frequency evidence key beside it is that ad's frequency, and a
    * cross-ad frequency would need a deduplicated reach Meta does not report.
    */
-  const creativeEvidenceAdId =
-    scopedCreativeDrill?.canonical?.parentChain.ad?.id?.trim() ||
-    scopedCreativeDrill?.decision?.adId?.trim() ||
-    null;
   const creativeEvidenceSeriesQuery = useQuery({
     queryKey: [
       "meta-creative-evidence-series",

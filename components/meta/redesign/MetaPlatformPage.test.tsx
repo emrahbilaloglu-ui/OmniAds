@@ -160,15 +160,29 @@ describe("creativeEvidenceStudioHref", () => {
 });
 
 describe("creative evidence helper reads", () => {
+  it("requests the exact Ad and keeps an incomplete source window unavailable", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ error: "incomplete_ad_day_coverage" }),
+      { status: 409 },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchCreativeEvidenceAdRows({
+      businessId: "biz_1", providerAccountId: "act_1", adId: "ad_1",
+      start: "2026-09-16", end: "2026-09-22",
+    })).rejects.toThrow("incomplete_ad_day_coverage");
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("adId=ad_1");
+    expect(fetchMock.mock.calls[0]?.[0]).not.toContain("creativeId=");
+  });
+
   const requests = [
     {
       name: "Ad rows",
-      path: "/api/meta/creatives?",
+      path: "/api/meta/ads/funnel?",
       run: (signal: AbortSignal) =>
         fetchCreativeEvidenceAdRows({
           businessId: "biz_1",
           providerAccountId: "act_1",
-          creativeId: "creative_1",
+          adId: "ad_1",
           start: "2026-09-16",
           end: "2026-09-22",
         }, signal),

@@ -148,8 +148,12 @@ function adRow(
     impressions: 1_420_000,
     linkClicks: 15_200,
     linkClicksObserved: true,
+    landingPageViews: 12_000,
+    landingPageViewsObserved: true,
     addToCart: 942,
     addToCartObserved: true,
+    initiateCheckout: 500,
+    initiateCheckoutObserved: true,
     purchases: 318,
     purchasesObserved: true,
     thumbstop: 22,
@@ -318,7 +322,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     });
     expect(unobserved.money).toBe("—");
     expect(unobserved.adSets?.[0]).toMatchObject({ spend: "—", roas: "—" });
-    expect(unobserved.funnel?.[3]?.value).toBe("—");
+    expect(unobserved.funnel?.[5]?.value).toBe("—");
     expect(unobserved.facts?.find((fact) => fact.id === "frequency")?.value).toBe("—");
     expect(unobserved.periodLabels?.funnel).toBe("selected 2026-09-16–2026-09-22");
     expect(unobserved.moneySub).toBe("—");
@@ -331,7 +335,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     });
     expect(measuredZero.money).toBe("$0 · ROAS 0.00");
     expect(measuredZero.adSets?.[0]).toMatchObject({ spend: "$0", roas: "0.00" });
-    expect(measuredZero.funnel?.[3]?.value).toBe("0");
+    expect(measuredZero.funnel?.[5]?.value).toBe("—");
     expect(measuredZero.facts?.find((fact) => fact.id === "frequency")?.value).toBe("0.0");
 
     const measuredHelper = buildCreativeEvidenceWindowExactViewModel({
@@ -342,7 +346,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     });
     expect(measuredHelper.money).toBe("—");
     expect(measuredHelper.adSets?.[0]?.spend).toBe("$100");
-    expect(measuredHelper.funnel?.[3]?.value).toBe("2");
+    expect(measuredHelper.funnel?.[5]?.value).toBe("2");
   });
 
   it("distinguishes missing, observed-zero, and legacy-unknown served-only metrics", () => {
@@ -366,14 +370,14 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     for (const model of [windowFor("unavailable"), windowFor()]) {
       expect(model.money).toBe("—");
       expect(model.adSets?.[0]).toMatchObject({ spend: "—", roas: "—" });
-      expect(model.funnel?.[3]?.value).toBe("—");
+      expect(model.funnel?.[5]?.value).toBe("—");
       expect(model.facts?.find((fact) => fact.id === "frequency")?.value).toBe("—");
     }
     expect(windowFor("unavailable").coverage?.note).toContain("No finalized Ad performance row");
     expect(windowFor().coverage?.note).toContain("does not establish whether Ad performance was observed");
     const observed = windowFor("observed");
     expect(observed.money).toBe("$0 · ROAS 0.00");
-    expect(observed.funnel?.[3]?.value).toBe("0");
+    expect(observed.funnel?.[5]?.value).toBe("—");
     expect(observed.coverage?.note).not.toContain("decision metrics are withheld");
   });
 
@@ -395,12 +399,12 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(measured.periodLabels).toEqual({
       decision: "period unavailable",
       series: "selected 2026-09-16–2026-09-22",
-      funnel: "selected 2026-09-16–2026-09-22 · all ads using this creative",
-      adSets: "ROAS per ad set · selected 2026-09-16–2026-09-22 · all ads using this creative",
+      funnel: "selected 2026-09-16–2026-09-22 · this Ad",
+      adSets: "ROAS per ad set · selected 2026-09-16–2026-09-22 · this Ad",
     });
     expect(measured.money).toBe("$9,700 · ROAS 2.70");
     expect(measured.adSets?.[0]?.spend).toBe("$6,100");
-    expect(measured.funnel?.[3]?.value).toBe("5");
+    expect(measured.funnel?.[5]?.value).toBe("5");
 
     const fallback = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
@@ -409,13 +413,13 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       adRows: [],
       adRowsState: "loaded",
     });
-    expect(fallback.periodLabels?.funnel).toBe("decision period unavailable · purchases only");
+    expect(fallback.periodLabels?.funnel).toBe("selected 2026-09-16–2026-09-22");
     expect(fallback.periodLabels?.adSets).toBe(
       "Ad set context · decision period unavailable metrics when available",
     );
     expect(fallback.funnel?.[0]?.value).toBe("—");
-    expect(fallback.funnel?.[3]?.value).toBe("318");
-    expect(fallback.readNotice?.text).toContain("No verified ad-day rows");
+    expect(fallback.funnel?.[5]?.value).toBe("—");
+    expect(fallback.readNotice?.text).toContain("No stored Ad-day rows");
     expect(fallback.adSets?.[0]?.spend).toBe("$9,700");
 
     const unreadable = buildCreativeEvidenceWindowExactViewModel({
@@ -423,7 +427,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       helperRange,
       adRowsState: "error",
     });
-    expect(unreadable.periodLabels?.funnel).toBe("decision period unavailable · purchases only");
+    expect(unreadable.periodLabels?.funnel).toBe("selected 2026-09-16–2026-09-22");
     expect(unreadable.readNotice?.tone).toBe("negative");
   });
 
@@ -451,10 +455,10 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       adRows: [adRow()],
     });
     expect(model.periodLabels?.series).toBe("selected dates unavailable");
-    expect(model.periodLabels?.funnel).toBe("selected dates unavailable · all ads using this creative");
+    expect(model.periodLabels?.funnel).toBe("selected dates unavailable · this Ad");
   });
 
-  it("builds the design's four funnel steps from ad-grain rows", () => {
+  it("builds all six funnel steps from one selected Ad period", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
       canonical: canonicalFixture(),
@@ -463,18 +467,24 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(model.funnel?.map((step) => step.label)).toEqual([
       "Impressions",
       "Link clicks",
+      "Landing page views",
       "Add to cart",
+      "Checkout initiated",
       "Purchases",
     ]);
     expect(model.funnel?.map((step) => step.value)).toEqual([
       "1,420,000",
       "15,200",
+      "12,000",
       "942",
+      "500",
       "318",
     ]);
     expect(model.funnel?.[1]?.sub).toBe("CTR 1.07%");
-    expect(model.funnel?.[2]?.sub).toBe("ATC 6.2%");
-    expect(model.funnel?.[3]?.sub).toBe("CVR 2.1%");
+    expect(model.funnel?.[2]?.sub).toBe("LPV 78.9%");
+    expect(model.funnel?.[3]?.sub).toBe("ATC 7.8%");
+    expect(model.funnel?.[4]?.sub).toBe("Checkout 53.1%");
+    expect(model.funnel?.[5]?.sub).toBe("CVR 63.6%");
   });
 
   it("withholds incomplete funnel totals and rates without losing measured zeros", () => {
@@ -495,13 +505,13 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       ],
     });
     expect(partial.funnel?.slice(1).map((step) => step.value)).toEqual([
-      "—", "—", "—",
+      "—", "24,000", "—", "1,000", "—",
     ]);
     expect(partial.funnel?.slice(1).map((step) => step.sub)).toEqual([
-      "—", "—", "—",
+      "—", "—", "—", "—", "—",
     ]);
     expect(partial.funnel?.slice(1).map((step) => step.share)).toEqual([
-      null, null, null,
+      null, expect.any(Number), null, expect.any(Number), null,
     ]);
 
     const missingOnlyAtc = buildCreativeEvidenceWindowExactViewModel({
@@ -511,17 +521,17 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       ],
     });
     expect(missingOnlyAtc.funnel?.[1]?.value).toBe("150");
-    expect(missingOnlyAtc.funnel?.[2]?.value).toBe("—");
-    expect(missingOnlyAtc.funnel?.[2]?.sub).toBe("—");
-    expect(missingOnlyAtc.funnel?.[3]?.value).toBe("1");
+    expect(missingOnlyAtc.funnel?.[3]?.value).toBe("—");
+    expect(missingOnlyAtc.funnel?.[3]?.sub).toBe("—");
+    expect(missingOnlyAtc.funnel?.[5]?.value).toBe("1");
 
     const measuredZero = buildCreativeEvidenceWindowExactViewModel({
       adRows: [adRow({ linkClicks: 100, addToCart: 0, purchases: 0 })],
     });
     expect(measuredZero.funnel?.[1]?.value).toBe("100");
-    expect(measuredZero.funnel?.[2]?.value).toBe("0");
-    expect(measuredZero.funnel?.[2]?.sub).toBe("ATC 0.0%");
     expect(measuredZero.funnel?.[3]?.value).toBe("0");
+    expect(measuredZero.funnel?.[3]?.sub).toBe("ATC 0.0%");
+    expect(measuredZero.funnel?.[5]?.value).toBe("0");
   });
 
   it("draws the funnel bars on the design's own decade scale", () => {
@@ -558,7 +568,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       expect(model.funnel?.[0]?.share).toBe(1);
       for (const [index, width] of funnel.widths.entries()) {
         residuals.push(
-          Math.abs((model.funnel?.[index + 1]?.share ?? 0) - width),
+          Math.abs((model.funnel?.[[1, 3, 5][index]!]?.share ?? 0) - width),
         );
       }
     }
@@ -570,15 +580,14 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
     expect(Math.max(...residuals)).toBeLessThan(0.11);
   });
 
-  it("keeps the funnel's four rows and em-dashes them when no ad-grain read resolved", () => {
+  it("keeps all six stages unavailable when no selected-period Ad read resolved", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
       canonical: canonicalFixture(),
     });
-    expect(model.funnel).toHaveLength(4);
+    expect(model.funnel).toHaveLength(6);
     expect(model.funnel?.[0]?.value).toBe("—");
-    // Purchases is on the decisions contract even without the ad-grain read.
-    expect(model.funnel?.[3]?.value).toBe("318");
+    expect(model.funnel?.[5]?.value).toBe("—");
   });
 
   it("groups Where it runs by ad set with a spend-weighted ROAS", () => {
@@ -607,6 +616,14 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       label: "Retargeting 14d",
       roas: "4.00",
     });
+  });
+
+  it("labels an exact-Ad ad-set row from served identity when the fact has only an ID", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      adRows: [adRow({ adsetName: null, adsetId: "set_1" })],
+    });
+    expect(model.adSets?.[0]?.label).toBe("Prospecting — Broad");
   });
 
   it("falls back to the decision's own ad set when no ad-grain read resolved", () => {
@@ -917,7 +934,7 @@ describe("buildCreativeEvidenceWindowExactViewModel helper read state", () => {
       adSeriesState: "loaded",
     });
     expect(model.readNotice?.tone).toBe("info");
-    expect(model.readNotice?.text).toContain("separate 28-day decision");
+    expect(model.readNotice?.text).toContain("performance period is separate");
     expect(model.funnel?.[0]?.value).toBe("—");
     expect(model.ctr?.note).toBe("—");
   });
@@ -960,15 +977,37 @@ describe("buildCreativeEvidenceWindowExactViewModel helper read state", () => {
     expect(model.readNotice?.text).not.toContain("502");
   });
 
-  it("never overwrites a served value with a read-state token", () => {
+  it("names incomplete selected-period coverage without inventing a purchase zero", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      adRowsState: "error",
+      adRowsErrorMessage: "incomplete_ad_day_coverage",
+    });
+    expect(model.readNotice?.text).toContain("complete Ad-day coverage");
+    expect(model.funnel?.map((step) => step.value)).toEqual([
+      "unreadable", "unreadable", "unreadable",
+      "unreadable", "unreadable", "unreadable",
+    ]);
+  });
+
+  it("labels an unverified stage in an otherwise loaded funnel without holding measured stages", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      adRowsState: "loaded",
+      adRows: [adRow({ purchases: 0, purchasesObserved: false })],
+    });
+    expect(model.readNotice?.text).toContain("not measured zeroes");
+    expect(model.funnel?.[2]?.value).toBe("12,000");
+    expect(model.funnel?.[5]?.value).toBe("—");
+  });
+
+  it("does not borrow a served purchase from another window after helper failure", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
       canonical: canonicalFixture(),
       adRowsState: "error",
     });
-    // Purchases falls back to the decision's own served metric, which is a
-    // measured number and stays one even while the helper read is broken.
-    expect(model.funnel?.[3]?.value).toBe("318");
+    expect(model.funnel?.[5]?.value).toBe("unreadable");
   });
 });
 

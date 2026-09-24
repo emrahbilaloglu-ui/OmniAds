@@ -1915,10 +1915,8 @@ const COVERAGE: Record<string, Coverage> = {
     S.EVIDENCE,
     "the window's money line and its spend fact",
   ),
-  "MetaCanonicalDecision.metrics.purchases": R(
-    S.EVIDENCE,
-    "the window's funnel and purchases fact",
-    "purchases",
+  "MetaCanonicalDecision.metrics.purchases": N(
+    "The canonical decision's admitted economic dates are not carried into this drawer. Its purchase count cannot fill the separately selected exact-Ad funnel without mixing periods; the served decision remains available in the inspector.",
   ),
   "MetaCanonicalDecision.metrics.roas": R(
     S.EVIDENCE,
@@ -3977,10 +3975,9 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 94 -> 93: `firstBlocker.explanation` is no longer rendered (Round 8 item 7).
   // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
-  // six labelled config rows the diagnostics now print.
-  // The Ad id now keys the evidence window rather than a selected-date CTR
-  // spark under the decision metric.
-  EVIDENCE: [120, 19],
+  // six labelled config rows the diagnostics now print. The Ad id keys the
+  // exact-Ad evidence window; D109 removes a cross-period purchase claim.
+  EVIDENCE: [119, 19],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
@@ -4067,8 +4064,9 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 107 -> 106: `firstBlocker.explanation` is no longer rendered, so it leaves
   // the behind-a-control half of the evidence window (Round 8 item 7).
   // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
-  // contract-identity leaves. All sit behind the evidence-window control.
-  EVIDENCE: [0, 135],
+  // contract-identity leaves. D109 removes the cross-period purchase claim;
+  // the remaining claims sit behind the evidence-window control.
+  EVIDENCE: [0, 134],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including
@@ -4097,8 +4095,9 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // sentence, and `limitations[].code` / `firstBlocker.code` still prove those
 // rows.
 // 312 -> 333 with the original receipt-lineage leaves; -> 339 with the six
-// contract-identity leaves. All are behind the evidence-window control.
-const DOM_PROOF_TOTALS: [number, number] = [32, 347];
+// contract-identity leaves. D109 removes one cross-period purchase claim;
+// the remaining evidence claims are behind the window control.
+const DOM_PROOF_TOTALS: [number, number] = [32, 346];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4128,7 +4127,7 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // Three newly variable legacy-compatible version tags stay hidden; the
 // workspace business id now changes the rendered scope state.
 // The display-only source clock varies but is intentionally not rendered.
-const NOWHERE_LEAVES = 378;
+const NOWHERE_LEAVES = 379;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4146,7 +4145,9 @@ const NOWHERE_LEAVES = 378;
 // The source clock still travels inside the unmodified creative callback.
 // D107's observed-day count stays in the served review callback but is not
 // projected into the card or inspector, moving this count from 68 to 69.
-const NOWHERE_BUT_AT_THE_BOUNDARY = 69;
+// D109's purchase fact stays in the callback but leaves the selected exact-Ad
+// funnel, moving this count from 69 to 70.
+const NOWHERE_BUT_AT_THE_BOUNDARY = 70;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -4351,15 +4352,11 @@ function callbackChannel(payload: MetaDecisionsWorkspacePayload): string {
  * that already reach the window through the empty-read fallback. The suspicion
  * was worth measuring and the honest result is that it cost nothing.
  *
- * WHY BOTH STATES ARE OBSERVED AND NOT JUST THE POPULATED ONE. Replacing the
- * empty read instead of adding to it was measured too, and it LOSES a proof:
- * with rows carrying their own `purchases`, `buildFunnel` sums the rows and
- * `MetaCanonicalDecision.metrics.purchases` stops reaching the funnel, taking
- * the count of leaves reaching nowhere from 252 to 253 and turning a proven
- * RENDERED claim into an unprovable one. The empty read is not a degenerate
- * fixture, it is the state every account is in until the helper read lands,
- * and the fallbacks it opens are real rendering. So the window is observed in
- * both, and a field that moves in either one counts.
+ * WHY BOTH STATES ARE OBSERVED AND NOT JUST THE POPULATED ONE. The empty read
+ * is a real state, but D109 no longer borrows a purchase count from the
+ * canonical decision's separate, undated economic window. Populated helper
+ * rows carry their own exact-Ad selected-period purchases. Both states stay
+ * in the probe so a future fallback cannot silently mix periods again.
  *
  * These rows are CONSTANTS and are deliberately not derived from the probe
  * payload. A fixture that echoed a served field back into the window would let
@@ -5201,8 +5198,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // 378/231/147 with their six contract-identity leaves; D104 adds one
     // served observation fact on the evidence surface without a stable row id.
     // The Meta-derived creative type adds one badge claim behind the scope tab.
-    expect(rendered.length).toBe(386);
-    expect(withElement.length).toBe(233);
+    // D109 removes one canonical purchase claim from a different period.
+    expect(rendered.length).toBe(385);
+    expect(withElement.length).toBe(232);
     expect(withoutElement.length).toBe(153);
 
     /*

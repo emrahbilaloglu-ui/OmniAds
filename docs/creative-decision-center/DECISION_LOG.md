@@ -10709,6 +10709,18 @@ is NULL. A fully
 verified window continues through the existing resolver, commercial targets,
 20/30 sample floors and hard-action gates. UI never computes a buyer action.
 
+The Meta Decisions→Creatives evidence drawer reads its supplemental funnel
+for the served exact Ad and the selected account-calendar period. The reader
+publishes `meta-ad-funnel-evidence.v1` on that supplemental API; it
+uses the D108 source receipt for omitted action-list zeros, strict row-local
+purchase/scalar agreement, and the shared funnel action parser. It requires
+complete account Ad-day coverage for the selected period. It displays all six
+stages (impressions, link clicks, landing-page views, add-to-cart, checkout,
+purchases), with an unavailable stage distinct from measured zero. It does
+not fill a missing selected-period purchase from the decision's separate,
+possibly shortened economic window, nor depend on current creative identity
+to retrieve historical Ad facts. This read remains explanatory only.
+
 **Historical repair.** Original raw snapshot, exact business/account/day/Ad
 membership, finalized Ad facts and a causal same-run D101 published source
 receipt are required before adding the stamp. The current repair tool admits

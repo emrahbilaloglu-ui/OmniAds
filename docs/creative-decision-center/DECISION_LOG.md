@@ -10696,8 +10696,9 @@ checkout stages, while V1 stamps remain readable. Outbound clicks still need
 their separate rich-field observation. Thumbstop and video rates remain NULL
 without provider-correct numerators and denominators.
 
-Creative calibration, lifecycle and decision hydration use complete-or-NULL
-purchase windows. A delivered day with no valid stamp cannot enter a purchase
+Creative calibration and decision hydration use complete-or-NULL purchase
+windows; the lifecycle job adopts the same helper in its separate repair.
+A delivered day with no valid stamp cannot enter a purchase
 sample as zero. If a target or benchmark exists, its purchase-dependent
 creative decision is an explicit `purchase_evidence_unverified` diagnosis.
 Without a profit comparison, the existing quality-only gate may still return
@@ -10709,18 +10710,23 @@ verified window continues through the existing resolver, commercial targets,
 20/30 sample floors and hard-action gates. UI never computes a buyer action.
 
 **Historical repair.** Original raw snapshot, exact business/account/day/Ad
-membership, finalized Ad facts and the same-run D101 published source receipt
-are required before adding the stamp. A bounded, dry-run-first manifest lists
-old/new economics, evidence, source snapshot identity and reason; apply
-rechecks the manifest under a transaction and is idempotent. The 2026-08-27 to
-2026-09-23 source audit found 276 decision-bearing creative days, 282 member
-Ads, exact raw/Ad actions parity for all members and same-run publication for
-all candidate days. Two 2026-09-23 creative zeros conflicted with later
-finalized Ad purchases (one each); a repair must reconcile the whole economic
-row from that exact source rather than stamping the stale zero. A bounded
-Grandmix 154-row and TheSwaf 122-row manifest dry run had zero blockers. No
-DB repair or live acceptance is claimed by the dry run. Older flattened rows
-without exact lineage remain unknown pending source-backed repair.
+membership, finalized Ad facts and a causal same-run D101 published source
+receipt are required before adding the stamp. The current repair tool admits
+only a complete single-page capture: its raw ID must equal the active
+manifest watermark, the full Ad population and payloads must match, and an
+observation must precede manifest completion (or an older run-bound raw
+receipt must be proved). Multi-page historical captures remain an explicit
+hold. A bounded, dry-run-first manifest lists old/new economics, evidence,
+source snapshot identity and reason; apply rechecks the manifest under a
+transaction and is idempotent. The initial 2026-08-27 to 2026-09-23 audit
+found 276 candidate creative days and 282 member Ads whose raw actions and
+stored Ad values agreed, including two creative zeros that conflicted with
+later finalized Ad purchases. That first audit checked same-run publication
+but **not** causal manifest chronology. The stricter readback blocked all 276
+under their then-active stale Ad manifests; it wrote nothing. A separate
+manifest-bound slice repair must first prove and publish the exact source.
+Only then may this tool reconcile the full creative economic row and stamp
+evidence. Older flattened rows without exact lineage remain unknown.
 
 **Version, compatibility, rollback.** `ENGINE_VERSION` moves to
 `v3-2026-09-24-creative-purchase-evidence` for changed creative decisions;

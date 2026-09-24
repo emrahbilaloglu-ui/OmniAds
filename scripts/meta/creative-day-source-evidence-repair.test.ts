@@ -250,6 +250,19 @@ describe("source-backed creative day evidence repair", () => {
     expect(result.manifest.contract).toBe("adsecute.meta-creative-day-source-evidence-repair.v3");
   });
 
+  it("keeps D113 v3's cent-precision rebind eligible for exact creative source evidence", () => {
+    const result = legacyRebind({ proof: {
+      ...legacyProof,
+      repairContract: "meta-historical-source-slice-repair.v3",
+      spendVarianceProof: {
+        sourceCents: 5002, adCents: 5000, absoluteDeltaCents: 2,
+        rowCount: 5, maxQuantizationDoubleCents: 6,
+      },
+    } });
+    expect(result.blockers).toEqual([]);
+    expect(result.changes).toHaveLength(1);
+  });
+
   it("rejects superseded raw without the exact old pointer, slice and clock proof", () => {
     const blocked = (result: ReturnType<typeof legacyRebind>) =>
       expect(result.blockers).toMatchObject([{

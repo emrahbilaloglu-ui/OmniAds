@@ -30,7 +30,10 @@ import type { MetaAdDailyRow, MetaCreativeDailyRow } from "@/lib/meta/warehouse-
 import { configureOperationalScriptRuntime } from "../_operational-runtime";
 
 const CONTRACT = "adsecute.meta-creative-day-source-evidence-repair.v3";
-const REBIND_CONTRACT = "meta-historical-source-slice-repair.v2";
+const REBIND_CONTRACTS = new Set([
+  "meta-historical-source-slice-repair.v2",
+  "meta-historical-source-slice-repair.v3",
+]);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const SHA = /^[a-f0-9]{64}$/;
@@ -256,7 +259,7 @@ function provedLegacySupersession(input: {
   return snapshot.status === "superseded" && snapshot.content_key === null &&
     observations.every((observation) => observation.snapshot_id !== snapshot.id) &&
     receipt.publication_reason === "manifest_rebind_repair" &&
-    proof.repairContract === REBIND_CONTRACT &&
+    REBIND_CONTRACTS.has(String(proof.repairContract)) &&
     typeof proof.reviewedPlanHash === "string" && SHA.test(proof.reviewedPlanHash) &&
     proof.receiptKind === "legacy_run_bound_raw" &&
     proof.sourceSnapshotId === snapshot.id &&

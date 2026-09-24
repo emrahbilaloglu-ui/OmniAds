@@ -138,6 +138,9 @@ describe("historical source slice repair proof", () => {
     const late = evidence();
     late.reconciliations[0]!.createdAt = "2026-09-23T06:50:34.000Z";
     expect(plan(late).blockers).toContain("exact_manifest_validation_receipt_missing_or_failed");
+    const premature = evidence();
+    premature.reconciliations[0]!.createdAt = "2026-09-23T06:50:32.000Z";
+    expect(plan(premature).blockers).toContain("exact_manifest_validation_receipt_missing_or_failed");
     const laterFailure = evidence();
     laterFailure.reconciliations.push({ ...laterFailure.reconciliations[0]!,
       id: "later-failure", eventKind: "totals_mismatch", result: "repair_required",

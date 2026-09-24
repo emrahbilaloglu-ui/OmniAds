@@ -294,6 +294,7 @@ export function evaluateHistoricalSourceSlice(input: {
       time(event.createdAt) <= cutoff);
     const passed = events.filter((event) =>
       event.eventKind === "validation_passed" && event.result === "passed" &&
+      time(event.createdAt) >= time(target.completedAt) &&
       time(event.createdAt) <= time(pointer?.publishedAt) &&
       numeric(event.sourceSpend) !== null &&
       Math.abs(event.sourceSpend! - (sourceSpend ?? NaN)) <= 0.01 &&

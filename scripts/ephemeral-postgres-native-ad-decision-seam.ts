@@ -1110,6 +1110,8 @@ async function createHydrationSourceSchema(client: Client) {
       provider_account_ref_id UUID, provider_account_id TEXT NOT NULL,
       day DATE NOT NULL, surface TEXT NOT NULL, account_timezone TEXT,
       run_id TEXT, fetch_status TEXT NOT NULL, completed_at TIMESTAMPTZ,
+      fresh_start_applied BOOLEAN NOT NULL DEFAULT FALSE,
+      checkpoint_reset_applied BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL
     );
     CREATE TABLE meta_authoritative_slice_versions (
@@ -1180,6 +1182,7 @@ async function createHydrationSourceSchema(client: Client) {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_id TEXT NOT NULL,
       provider_account_id TEXT NOT NULL, endpoint_name TEXT NOT NULL,
       entity_scope TEXT NOT NULL, status TEXT NOT NULL,
+      start_date DATE, end_date DATE,
       provider_http_status INTEGER, request_context JSONB NOT NULL DEFAULT '{}'::jsonb,
       payload_json JSONB NOT NULL DEFAULT '[]'::jsonb,
       fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()

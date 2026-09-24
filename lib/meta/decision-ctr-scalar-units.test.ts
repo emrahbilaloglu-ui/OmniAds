@@ -44,9 +44,10 @@ vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
  *   THE SCALAR. `engine_v3_creative_lifecycle_daily.ctr_28d`, written by the
  *   single production writer lib/creative-decision-engine/jobs/lifecycle-job.ts
  *   as SUM(clicks) / SUM(impressions) * 100 over meta_creative_daily. PERCENT.
- *   lib/meta/decisions-workspace-read-model.ts joins that exact row back by
- *   `creative_evidence_lifecycle_row_id` and hands the value through unscaled
- *   into `metrics.ctr`.
+ *   The legacy creative snapshot carries this lifecycle value as `ctr_28d`
+ *   and the legacy bridge hands it through unscaled into `metrics.ctr`.
+ *   Native Ad presentation instead reads its hash-bound admitted-window CTR;
+ *   the creative lifecycle join is only for format and fatigue.
  *
  *   THE TRAIL. `meta_ad_daily.ctr`, whose single authorized writer is the
  *   authoritative insights sync (see lib/meta/ad-daily-write-ownership.test.ts)
@@ -149,10 +150,11 @@ describe("legacy creative CTR and supplemental Ad-day CTR share units, not autho
       .find((item) => item.parentChain.creative?.id === "creative_1");
     expect(decision, "the legacy producer served no decision to read").toBeTruthy();
     expect(decision!.metrics.ctr).toBe(2.41);
-    // And the read model's own SQL takes it from the lifecycle row the engine
-    // decided on, which is where the percent was written.
-    expect(READ_MODEL).toContain("lifecycle.ctr_28d AS ctr_28d");
+    // The legacy bridge reads the scalar on its own snapshot. The native Ad
+    // SQL must never project the creative-grain lifecycle scalar as its CTR.
     expect(READ_MODEL).toContain("ctr: finiteNumber(input.snapshot.ctr_28d),");
+    expect(READ_MODEL).not.toContain("lifecycle.ctr_28d AS ctr_28d");
+    expect(READ_MODEL).toContain("evaluation.creative_input_json -> 'ctr' AS decision_ctr");
     // The OS presentation carries the same number on to MetaOsDecisionMetrics
     // without touching it, so the scalar the queue would draw is this one.
     expect(

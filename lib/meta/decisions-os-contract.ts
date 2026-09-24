@@ -3,6 +3,7 @@ import type {
   MetaDecisionConfirmationCeremony,
   MetaDecisionRiskTier,
   MetaDecisionSourceCreativeType,
+  MetaDecisionAdmittedWindow,
 } from "@/lib/meta/decisions-workspace-contract";
 
 export const META_OS_DECISIONS_PRESENTATION_VERSION =
@@ -437,6 +438,8 @@ export interface MetaOsAdDecision {
   id: string;
   decisionId: string;
   sourceSnapshotId: string;
+  /** Exact native economic window. Absent on older snapshots. Display only. */
+  decisionWindow?: MetaDecisionAdmittedWindow | null;
   episodeId: string;
   providerAccountId: string;
   adId: string;

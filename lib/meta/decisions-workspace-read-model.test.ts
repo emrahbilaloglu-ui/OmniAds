@@ -1254,6 +1254,97 @@ describe("Meta Decisions workspace canonical read model", () => {
     });
   });
 
+  it("carries only a valid, hash-bound native economic window into presentation", () => {
+    const window = {
+      startDate: "2026-07-05",
+      endDate: "2026-07-12",
+      calendarDaySpan: 8,
+      observedDayCount: 4,
+      economicDayCount: 3,
+      bridgedUnresolvedDayCount: 1,
+    };
+    const rows = [
+      nativeSnapshot("120000000000000072", {
+        decision_window: window,
+        decision_ctr: 1.37,
+        decision_frequency: 2.41,
+        ctr_28d: 9.9,
+        frequency_28d: 8.8,
+      }),
+    ];
+    const inventory = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(rows),
+      snapshotRows: rows,
+      campaignContextRows: [context()],
+    });
+    expect(inventory.status).toBe("available");
+    if (inventory.status === "available") {
+      expect(inventory.items[0]?.decisionWindow).toEqual({
+        contractVersion: "meta-decision-admitted-window.presentation.v1",
+        ...window,
+      });
+      expect(inventory.items[0]?.metrics).toMatchObject({
+        ctr: 1.37,
+        frequency: 2.41,
+      });
+    }
+
+    const badRows = [nativeSnapshot("120000000000000073", {
+      decision_window: { ...window, endDate: "2026-07-32" },
+    })];
+    const bad = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(badRows),
+      snapshotRows: badRows,
+      campaignContextRows: [context()],
+    });
+    expect(bad.status).toBe("available");
+    if (bad.status === "available") {
+      expect(bad.items[0]?.decisionWindow).toBeNull();
+      expect(bad.items[0]?.metrics.ctr).toBeNull();
+      expect(bad.items[0]?.metrics.frequency).toBeNull();
+    }
+
+    const missing = [nativeSnapshot("120000000000000074", {
+      decision_window: window,
+      ctr_28d: 9.9,
+      frequency_28d: 8.8,
+    })];
+    const missingInventory = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(missing),
+      snapshotRows: missing,
+      campaignContextRows: [context()],
+    });
+    expect(missingInventory.status).toBe("available");
+    if (missingInventory.status === "available") {
+      expect(missingInventory.items[0]?.metrics.ctr).toBeNull();
+      expect(missingInventory.items[0]?.metrics.frequency).toBeNull();
+    }
+
+    const zero = [nativeSnapshot("120000000000000075", {
+      decision_window: window,
+      decision_ctr: 0,
+      decision_frequency: 0,
+    })];
+    const zeroInventory = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(zero),
+      snapshotRows: zero,
+      campaignContextRows: [context()],
+    });
+    expect(zeroInventory.status).toBe("available");
+    if (zeroInventory.status === "available") {
+      expect(zeroInventory.items[0]?.metrics.ctr).toBe(0);
+      expect(zeroInventory.items[0]?.metrics.frequency).toBe(0);
+    }
+  });
+
   it("serves an authoritative native zero-Ad account as available, not missing", () => {
     const model = nativeModel([]);
     expect(model).toMatchObject({
@@ -5347,6 +5438,9 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
     expect(nativeSql).toContain("input_evidence.input_hash IS NOT NULL");
     expect(nativeSql).not.toContain("creative_input_json -> 'configEvidence'");
     expect(nativeSql).toContain("AS config_evidence_lineage");
+    expect(nativeSql).toContain("evaluation.creative_input_json -> 'decisionWindow' AS decision_window");
+    expect(nativeSql).toContain("evaluation.creative_input_json -> 'ctr' AS decision_ctr");
+    expect(nativeSql).toContain("evaluation.creative_input_json -> 'frequency' AS decision_frequency");
   });
 
   describe("serves the recorded receipts read-only, re-validated", () => {

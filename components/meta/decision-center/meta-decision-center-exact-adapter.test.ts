@@ -1414,7 +1414,7 @@ describe("the bands the reference draws are backed, or honestly blank", () => {
 
     // (4 × 900 + 1 × 100) / 1000 = 3.7 — spend-weighted, not the flat mean 2.5.
     expect(byId.get("average-frequency")?.value).toBe("3.7");
-    expect(byId.get("average-frequency")?.detail).toBe("2 of 3 creatives");
+    expect(byId.get("average-frequency")?.detail).toBe("spend-weighted · 2 of 3 ads");
     expect(byId.get("refresh-pipeline")?.value).toBe("2");
     expect(byId.get("refresh-pipeline")?.detail).toBe("of 3 served decisions");
     // No served fatigue status and no served notion of a winner: the adapter
@@ -1460,7 +1460,7 @@ describe("the bands the reference draws are backed, or honestly blank", () => {
 });
 
 describe("the lineage read fills what the reference draws", () => {
-  it("binds media kind, fatigue share, row sparkline and the entity's own ROAS trail", () => {
+  it("binds media kind and fatigue share without presenting a selected-date trail as decision evidence", () => {
     const fatigued = creativeFixture({
       id: "os_ad_fatigued",
       adId: "ad_fatigued",
@@ -1516,7 +1516,7 @@ describe("the lineage read fills what the reference draws", () => {
     expect(rows.get("os_ad_healthy")?.kindShort).toBe("CAT");
     // No served format is unknown, not a kind invented from something else.
     expect(rows.get("os_ad_unknown")?.kindShort).toBe("—");
-    expect(rows.get("os_ad_fatigued")?.sparkPath).toContain("M0.0");
+    expect(rows.get("os_ad_fatigued")?.sparkPath).toBeNull();
     // An ad the caller had no series for keeps the empty path rather than
     // borrowing the shape of the row above it.
     expect(rows.get("os_ad_healthy")?.sparkPath).toBeNull();
@@ -5237,8 +5237,8 @@ describe("the refresh posture tile separates authorized from held", () => {
 
 describe("the native economics caption claims no window it cannot substantiate", () => {
   /*
-    D098 metrics can cover fewer than 28 days, and the served row carries no
-    admitted-window dates. The captions must not claim a fixed period.
+    D107 metrics can cover fewer than 28 days. If an older served row carries
+    no admitted-window dates, the captions must not claim a fixed period.
   */
   const inspectorFor = (metrics: Partial<MetaCanonicalDecision["metrics"]>) => {
     const creative = creativeFixture({ blockers: [] });
@@ -5277,6 +5277,51 @@ describe("the native economics caption claims no window it cannot substantiate",
       expect(row.label, row.id).not.toMatch(/\b\d+\s*d(ays)?\b/i);
       expect(row.label, row.id).not.toContain("28");
     }
+  });
+
+  it("shows the admitted Ad period instead of the page's reporting filter", () => {
+    const creative = creativeFixture({
+      decisionWindow: {
+        contractVersion: "meta-decision-admitted-window.presentation.v1",
+        startDate: "2026-08-10",
+        endDate: "2026-08-16",
+        calendarDaySpan: 7,
+        observedDayCount: 5,
+        economicDayCount: 4,
+        bridgedUnresolvedDayCount: 1,
+      },
+    });
+    const model = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ os: fullOs({ creatives: [creative] }) }),
+      selection: {
+        kind: "creative",
+        decisionId: creative.decisionId,
+        sourceSnapshotId: creative.sourceSnapshotId,
+      },
+    });
+    // The card consumes only these four fields. Keep the raw observation count
+    // and protocol version out of its view model and visible surface.
+    expect(model.creativeDecisions?.[0]?.moneyWindow).toEqual({
+      startDate: "2026-08-10",
+      endDate: "2026-08-16",
+      economicDayCount: 4,
+      calendarDaySpan: 7,
+    });
+    expect(model.inspector?.evidenceWindow).toBe("2026-08-10 to 2026-08-16");
+    expect(model.inspector?.asOf).toBe(creative.snapshotAsOf);
+    expect(model.inspector?.evidence?.find((row) => row.id === "economic-days")?.value).toBe(4);
+    expect(model.inspector?.evidence?.find((row) => row.id === "bridged-context-days")?.value).toBe(1);
+
+    const legacy = creativeFixture({ decisionWindow: null });
+    const legacyModel = buildMetaDecisionCenterExactViewModel({
+      workspace: workspaceFixture({ os: fullOs({ creatives: [legacy] }) }),
+      selection: {
+        kind: "creative",
+        decisionId: legacy.decisionId,
+        sourceSnapshotId: legacy.sourceSnapshotId,
+      },
+    });
+    expect(legacyModel.inspector?.evidenceWindow).toBe("—");
   });
 
 });

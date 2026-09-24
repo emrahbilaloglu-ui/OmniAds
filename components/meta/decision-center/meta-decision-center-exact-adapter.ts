@@ -50,6 +50,7 @@ import { canCreateBrief } from "@/lib/zero-base/creative/studio-adapters";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
 import { adPerformanceAvailability } from "@/lib/meta/ad-performance-availability";
 import type { MetaAdCtrObservation } from "@/app/api/meta/ads/series/route";
+import { metaCreativeThumbnailRecoveryUrl } from "@/lib/meta/creative-thumbnail-recovery-url";
 
 const EM_DASH = "—";
 
@@ -65,7 +66,7 @@ const CREATIVE_POSTURE_SLOTS = [
     tone: "warning",
   },
   // Decision frequency uses each ad's admitted economic window.
-  { id: "average-frequency", label: "Avg frequency", tone: "warning" },
+  { id: "average-frequency", label: "Avg daily frequency", tone: "warning" },
   /*
     RENAMED to what it actually counts (Codex C22). "Refresh pipeline" implied
     every Refresh the engine reached; the number underneath counted only the
@@ -1897,9 +1898,10 @@ export function buildMetaStructureInventoryViewModel(input: {
  * account. Two of them are plain descriptions of rows the workspace already
  * serves and are computed here:
  *
- * - **Avg frequency · 28d** — the spend-weighted mean of the served
- *   `metrics.frequency`. Spend-weighted, not a flat mean, because a £4 test ad
- *   at frequency 9 should not drag the account's number around.
+ * - **Avg daily frequency** — the spend-weighted mean of served native Ad
+ *   frequencies. Each Ad's denominator is the sum of daily reach over its
+ *   admitted economic window, not deduplicated period reach. These windows
+ *   may differ across Ads.
  * - **Refresh pipeline** — how many served decisions carry the engine's
  *   `refresh` verdict. A count of a server label, not a client verdict.
  * - **Fatigued spend share** — the share of served spend sitting on creatives
@@ -1980,7 +1982,7 @@ function creativePosture(
       detail:
         averageFrequency === null
           ? EM_DASH
-          : `${frequencyRows} of ${decisions.length} creatives`,
+          : `spend-weighted · ${frequencyRows} of ${decisions.length} ads`,
     },
     "refresh-pipeline": {
       value: decisions.length === 0 ? EM_DASH : formatNumber(refreshCount),
@@ -2874,15 +2876,11 @@ function creativeRows(input: {
           ? null
           : nonBlank(decision.sourceCreativeType?.value),
       thumbnailUrl: normalizeMediaUrl(decision.thumbnailUrl),
-      thumbnailRecoveryUrl:
-        /^\d+$/.test(decision.creativeId ?? "") &&
-        /^act_\d+$/.test(decision.providerAccountId)
-          ? `/api/meta/creative-thumbnail?${new URLSearchParams({
-              businessId: input.businessId,
-              providerAccountId: decision.providerAccountId,
-              creativeId: decision.creativeId!,
-            })}`
-          : null,
+      thumbnailRecoveryUrl: metaCreativeThumbnailRecoveryUrl({
+        businessId: input.businessId,
+        providerAccountId: decision.providerAccountId,
+        creativeId: decision.creativeId,
+      }),
       // The reference's thumb is a neutral striped placeholder. Colouring it by
       // verdict would let the strip read as a second opinion beside the label
       // that already carries the tone, so it keeps the design's default pair.
@@ -2926,9 +2924,10 @@ function creativeRows(input: {
         held?.nextStep ??
         blockedNextStep ??
         buyerFacingCreativeReason(decision),
-      sparkPath: adPerformanceMissing
-        ? null
-        : sparkPath(input.ctrSeriesByAdId.get(decision.adId) ?? null),
+      // The supplemental warehouse trail uses the selected report dates, not
+      // this decision's admitted economic dates. It belongs only in the
+      // separately labelled Observed CTR block below.
+      sparkPath: null,
       ctrValue:
         adPerformanceMissing || finite(decision.metrics.ctr) === null
           ? null
@@ -2951,6 +2950,12 @@ function creativeRows(input: {
         roas: adPerformanceMissing ? null : decision.metrics.roas,
         currency: rowCurrency,
       }),
+      moneyWindow: decision.decisionWindow ? {
+        startDate: decision.decisionWindow.startDate,
+        endDate: decision.decisionWindow.endDate,
+        calendarDaySpan: decision.decisionWindow.calendarDaySpan,
+        economicDayCount: decision.decisionWindow.economicDayCount,
+      } : null,
       moneySub: creativeMoneySub(decision, canonicalDecision, adPerformanceMissing),
       actionLabel: buyerFacingCreativeActionLabel(decision),
       actionTone: actionTone(decision.action),
@@ -3043,13 +3048,14 @@ function creativeFootnote(
   return "Open a decision for details, or use Creative Studio to compare performance.";
 }
 
-/** The served row lacks admitted-window dates; do not label these as 28 days. */
+/** Spend and purchases share the admitted Ad period only when it was recorded. */
 function metricEvidence(input: {
   spend: number | null | undefined;
   purchases: number | null | undefined;
   snapshot: string | null | undefined;
   lifecycle: string | null | undefined;
   currency: string | null;
+  decisionWindow?: MetaOsAdDecision["decisionWindow"];
 }): NonNullable<MetaDecisionCenterExactInspectorViewModel["evidence"]> {
   return [
     {
@@ -3062,6 +3068,15 @@ function metricEvidence(input: {
       label: "Purchases",
       value: finite(input.purchases) ?? EM_DASH,
     },
+    ...(input.decisionWindow ? [{
+      id: "economic-days",
+      label: "Decision economic days",
+      value: input.decisionWindow.economicDayCount,
+    }, {
+      id: "bridged-context-days",
+      label: "Context-bridged days",
+      value: input.decisionWindow.bridgedUnresolvedDayCount,
+    }] : []),
     {
       id: "snapshot",
       label: "Snapshot",
@@ -3251,13 +3266,11 @@ function servedEvidenceRows(
 }
 
 /**
- * The provenance every inspector states: when, and over what.
+ * Workspace provenance for structure inspectors: when, and over what.
  *
- * Read off the payload rather than composed: `snapshotCreatedAt` is the
- * engine's write time and `startDate`/`endDate` are the window the figures
- * cover. They are separate fields because they are separate facts — a snapshot
- * written this morning can describe a window that ended three days ago, and a
- * panel that printed one as the other would make a stale read look current.
+ * Native Ad inspectors override this with their exact decision snapshot day
+ * and admitted economic period. The workspace reporting dates do not describe
+ * a native Ad's decision sums after D107 shortens its admitted run.
  */
 function inspectorProvenance(workspace: MetaDecisionsWorkspacePayload): {
   asOf: string;
@@ -3486,6 +3499,7 @@ function creativeInspector(input: {
       snapshot: decision.snapshotAsOf,
       lifecycle: decision.lifecycleRole,
       currency: rowCurrency,
+      decisionWindow: decision.decisionWindow,
     }),
     actionLabel,
     actionTone: actionTone(decision.action),
@@ -3624,7 +3638,13 @@ function inspector(input: {
       fallbackCurrency: input.fallbackCurrency,
       callback: input.callbacks.onCreativeReview,
     }),
-    ...input.provenance,
+    // Structure recommendations use the workspace reporting range. A native
+    // Ad's spend/purchases/ROAS use its own D107 admitted economic run, which
+    // may be shorter. Never present the page filter as that decision window.
+    asOf: nonBlank(decision.snapshotAsOf) ?? EM_DASH,
+    evidenceWindow: decision.decisionWindow
+      ? `${decision.decisionWindow.startDate} to ${decision.decisionWindow.endDate}`
+      : EM_DASH,
     provenanceGaps: provenanceGaps(decision.metrics),
     brief: !input.callbacks.briefHref
       ? null

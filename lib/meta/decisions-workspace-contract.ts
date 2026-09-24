@@ -398,6 +398,9 @@ export interface MetaCanonicalDecision {
   sourceAuthority?: MetaDecisionSourceAuthority;
   /** @see MetaDecisionConfigEvidence. Native ad rows only; absent elsewhere. */
   configEvidence?: MetaDecisionConfigEvidence | null;
+  /** The admitted native Ad economic period, read from its hashed evaluation.
+   * Older creative and Ad snapshots omit it; absence is never a full 28 days. */
+  decisionWindow?: MetaDecisionAdmittedWindow | null;
   sourceDecision: {
     label: string;
     /** Persisted mathematical/semantic verdict before the first authority gate.
@@ -498,6 +501,20 @@ export interface MetaCanonicalDecision {
   exposureUnavailableReason:
     "spend_unavailable" | "currency_unavailable" | null;
   history: MetaDecisionHistoryEnvelope;
+}
+
+/** Display-only projection of the period actually summed for a native Ad. */
+export const META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION =
+  "meta-decision-admitted-window.presentation.v1" as const;
+
+export interface MetaDecisionAdmittedWindow {
+  contractVersion: typeof META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION;
+  startDate: string;
+  endDate: string;
+  calendarDaySpan: number;
+  observedDayCount: number;
+  economicDayCount: number;
+  bridgedUnresolvedDayCount: number;
 }
 
 export interface MetaDecisionSuppressionReason {

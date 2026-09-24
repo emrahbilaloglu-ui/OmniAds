@@ -60,6 +60,7 @@ import {
   MetaDecisionCenterExact,
   metaNeedsResolutionNextStep,
   type MetaDecisionCenterExactDisplayValue,
+  type MetaDecisionCenterExactCreativeDecisionViewModel,
   type MetaDecisionCenterExactInspectorViewModel,
   type MetaDecisionCenterExactLane,
   type MetaDecisionCenterExactScope,
@@ -70,6 +71,7 @@ import {
   type MetaDecisionCenterExactWorkflow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
 import { MetaDecisionCreativeThumbnail } from "@/components/meta/decision-center/MetaDecisionCreativeThumbnail";
+import { metaCreativeThumbnailRecoveryUrl } from "@/lib/meta/creative-thumbnail-recovery-url";
 import {
   buildMetaDecisionCenterExactViewModel,
   type MetaDecisionCenterExactArchiveItem,
@@ -1550,6 +1552,8 @@ interface MetaMobileQueueRowModel {
   decisionLabel?: MetaDecisionCenterExactDisplayValue;
   decisionTone?: MetaDecisionCenterExactTone;
   money?: MetaDecisionCenterExactDisplayValue;
+  /** The server-admitted decision period, separate from the selected report range. */
+  moneyWindow?: MetaDecisionCenterExactCreativeDecisionViewModel["moneyWindow"];
   moneySub?: MetaDecisionCenterExactDisplayValue;
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
   actionLabel?: MetaDecisionCenterExactDisplayValue;
@@ -1627,6 +1631,7 @@ function mobileQueueRowsForLane(
       heldVerdictLabel: row.heldVerdictLabel ?? null,
       heldVerdictNextStep: row.heldVerdictNextStep ?? null,
       money: row.money,
+      moneyWindow: row.moneyWindow,
       moneySub: row.moneySub,
       chips: row.chips,
       actionLabel: row.actionLabel,
@@ -1908,6 +1913,7 @@ function MetaMobileQueueRow({
   heldVerdictLabel,
   heldVerdictNextStep,
   money,
+  moneyWindow,
   moneySub,
   chips,
   actionLabel,
@@ -1935,6 +1941,7 @@ function MetaMobileQueueRow({
   heldVerdictLabel?: MetaDecisionCenterExactDisplayValue | null;
   heldVerdictNextStep?: MetaDecisionCenterExactDisplayValue | null;
   money?: MetaDecisionCenterExactDisplayValue;
+  moneyWindow?: MetaDecisionCenterExactCreativeDecisionViewModel["moneyWindow"];
   moneySub?: MetaDecisionCenterExactDisplayValue;
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
   actionLabel?: MetaDecisionCenterExactDisplayValue;
@@ -1970,6 +1977,12 @@ function MetaMobileQueueRow({
             data-tone={mobileToneAttr(stateTone)}
           >
             {mobileDisplay(stateLabel)}
+          </p>
+        ) : null}
+        {moneyWindow ? (
+          <p data-mobile-creative-decision-window>
+            Decision period · {moneyWindow.startDate}–{moneyWindow.endDate} ·{" "}
+            {moneyWindow.economicDayCount}/{moneyWindow.calendarDaySpan} economic days
           </p>
         ) : null}
         <p data-tone={mobileToneAttr(decisionTone)}>
@@ -5806,14 +5819,19 @@ export function MetaPlatformPage({
    * screen and the authority row that explains them cannot disagree about
    * whether a route exists.
    */
-  const creativeEvidenceLaunchpad = creativeDrill
+  const creativeEvidenceAction = creativeDrill?.decision?.action ?? null;
+  // Informational and manual-review verdicts are not failed Launchpad routes.
+  // Their buyer action remains readable in the decision, with no inert CTA.
+  const creativeEvidenceLaunchpad = creativeDrill &&
+    creativeEvidenceAction?.providerMutation === null &&
+    (creativeEvidenceAction.intent === "launchpad" ||
+      creativeEvidenceAction.intent === "brief")
     ? creativeEvidenceLaunchpadRoute({
         canonical: creativeDrill.canonical,
-        action: creativeDrill.decision?.action ?? null,
+        action: creativeEvidenceAction,
         providerAccountId,
       })
     : null;
-  const creativeEvidenceAction = creativeDrill?.decision?.action ?? null;
   const creativeEvidenceIsNativePause = Boolean(
     creativeEvidenceAction?.code === "cut" &&
     creativeEvidenceAction.intent === "execute" &&
@@ -5913,6 +5931,13 @@ export function MetaPlatformPage({
         // states row-grain authority while staying silent about the authority
         // of the queue that produced the row.
         source: workspaceQuery.data?.decisionReadModel.source ?? null,
+        previewRecoveryUrl: metaCreativeThumbnailRecoveryUrl({
+          businessId,
+          providerAccountId: creativeDrill.decision?.providerAccountId ??
+            creativeDrill.canonical?.providerAccountId,
+          creativeId: creativeDrill.decision?.creativeId ??
+            creativeDrill.canonical?.parentChain.creative?.id,
+        }),
         launchpadRoute: creativeEvidenceLaunchpad,
         primaryActionAuthority: creativeEvidencePrimaryAuthority,
         fallbackCurrency: moneyCurrency,

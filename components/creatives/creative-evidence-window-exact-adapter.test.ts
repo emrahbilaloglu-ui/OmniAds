@@ -316,7 +316,7 @@ describe("buildCreativeEvidenceWindowExactViewModel identity and contract", () =
 
     expect(model.reasons).toHaveLength(1);
     expect(model.reasons?.[0]).toContain("decision profile does not yet authorize");
-    expect(model.reasons?.[0]).toContain("campaign configuration for every day");
+    expect(model.reasons?.[0]).toContain("campaign configuration is not verified for every day");
     expect(model.reasons?.[0]).not.toContain("Internal producer");
     expect(model.reasons?.[0]).not.toBe("More verified evidence is required for this change.");
   });
@@ -1309,7 +1309,7 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
       }),
     });
     const reason = String(value(model.authority, "held-reason"));
-    expect(reason).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(reason).toContain("The campaign configuration is not verified for every day used by this recommendation.");
     expect(reason).toContain("Fresh, completed Meta source data is still arriving.");
     expect(reason).toContain("The next decision run still has to confirm it.");
     expect(reason).not.toContain("Internal producer copy");

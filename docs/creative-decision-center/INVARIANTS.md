@@ -379,6 +379,15 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
   and performance badges still select their review-only mapping. A recorded
   held hard action and a pre-authority hard verdict remain subject to the
   existing role guard; this exception never grants provider authority.
+- (ADR D119) If a held hard verdict records a first authority blocker other
+  than `campaign_context`, a role badge must not replace that blocker as the
+  primary diagnosis. The role remains secondary evidence; no apply authority
+  is gained from this presentation rule.
+- (ADR D120) Campaign/ad-set entity-state coverage must describe observed
+  cohort, delivery and maturity even when role authority is missing. An
+  unresolved role cannot itself turn a coverage state into `Diagnose` or grant
+  a hard action. An ad set may differ from its parent campaign in Main/Test
+  purpose, so parent role is never its own role authority.
 - A provisional automatic campaign role derived from persisted resolver scores
   is presentation-only. It must not replace a null resolver kind in evaluation
   inputs, select a kind-specific calibration cell, trigger Test semantics,

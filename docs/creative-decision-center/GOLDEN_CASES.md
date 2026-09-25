@@ -837,6 +837,16 @@ the run the D107 hydration admitted in the read-only Grandmix replay
 | D111-05 | role-held economic Cut with complete source and config | campaign context remains the blocker; no authorized action |
 | D111-06 | held economic Cut with `config_source_authority` and `pending_transition` | typed resolution names the missing date-authoritative configuration first and also names the needed consecutive confirmation; no buyer or provider action |
 
+## D119/D120 role presentation and entity-state coverage (golden cases)
+
+| case | input | expected |
+|---|---|---|
+| D119-01 | held Cut with unresolved role badge and first blocker `config_source_authority` | remains blocked; the configuration gap is primary, role is secondary; no apply |
+| D119-02 | held Scale with unresolved role badge and first blocker `profile_hard_action_ineligible` | remains blocked; profile eligibility is primary, role is secondary; no apply |
+| D119-03 | held hard verdict with first blocker `campaign_context` | role diagnosis remains primary; no apply |
+| D120-01 | active purchase campaign, mature performance, no authoritative role | entity-state coverage is `no_action`/Keep; no hard action is authorized |
+| D120-02 | active purchase ad set, thin performance, Main parent campaign or unresolved parent role | entity-state coverage is `watch`; parent role cannot change its own state or grant an ad-set action |
+
 ## Current authority vs historical record
 
 > **Current authority vs historical record.** Which table a decision taken today

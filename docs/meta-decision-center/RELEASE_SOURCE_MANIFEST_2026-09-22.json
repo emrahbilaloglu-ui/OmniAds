@@ -1,5 +1,5 @@
 {
-  "manifestHash": "cf7cc805d12d4c9a5cf32a8ae9b5e953c0968b564b31669c00697fac951d742c",
+  "manifestHash": "696aeeb1f277aa01b690a5c8df2cf4871010d4a01be6142b22427f7682a1f8fb",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -561,6 +561,14 @@
     {
       "path": "components/meta/redesign/mobile-card-apply-ceremony.test.tsx",
       "sha256": "4c3ddfb00ae2a283aaad8d6725adf9daebfe822d898188983d1cf4f91a948b0e"
+    },
+    {
+      "path": "components/overview/v2/meta-morning-card.test.tsx",
+      "sha256": "d566bf7920add10eafe30341b22e740cec3fc2eba2f632f2e3b39cd6fbe14333"
+    },
+    {
+      "path": "components/overview/v2/meta-morning-card.tsx",
+      "sha256": "302699d85074764eb29cfdad65d73fc3ce604cc9e07a6a4a98a90366fcae6054"
     },
     {
       "path": "components/overview/v2/platform-card.test.tsx",
@@ -1549,6 +1557,10 @@
     {
       "path": "lib/meta/current-evidence-gate.ts",
       "sha256": "95e410fa3fadbd7f7769ce9daae6b177b4bb2b6cd74134bdc23ca87234fae4f9"
+    },
+    {
+      "path": "lib/meta/daily-brief.ts",
+      "sha256": "850bc0514c5ef14c5e9e101cef217a84612fe3bbc1e7fa0f3db53a57c9f88280"
     },
     {
       "path": "lib/meta/decision-ctr-scalar-units.test.ts",

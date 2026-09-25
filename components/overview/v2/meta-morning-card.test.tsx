@@ -29,6 +29,8 @@ describe("the morning card answers the questions the operator opens with", () =>
     expect(html).toContain("1 failed");
     expect(html).toContain("2 need attention");
     expect(html).toContain("Budget Automatic · Pause Semi-automatic");
+    expect(html).toContain("Snapshot recommendations");
+    expect(html).toContain("Separate from Decisions Action Now");
   });
 
   it("names the snapshot the numbers came from", () => {

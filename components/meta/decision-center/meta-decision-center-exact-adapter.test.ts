@@ -3712,7 +3712,7 @@ describe("served structure inventory", () => {
     expect(serialized).not.toContain("internal_executor_schema_receipt");
   });
 
-  it("withholds an inferred role chip until the independent action-authority gate passes", () => {
+  it("shows inferred campaign roles as estimates without assigning the parent's role to an ad set", () => {
     const reviewOnly = metaRec({
       id: "rec_role_review_only",
       campaignId: "cmp_role_review_only",
@@ -3735,8 +3735,20 @@ describe("served structure inventory", () => {
         trustedForAction: true,
       },
     });
+    const adset = metaRec({
+      id: "rec_role_adset",
+      level: "adset",
+      campaignId: "cmp_role_adset_parent",
+      campaignName: "Parent campaign",
+      campaignContext: {
+        kind: "main",
+        source: "system_inferred",
+        confidence: "high",
+        trustedForAction: true,
+      },
+    });
     const workspace = workspaceFixture({
-      actionNow: [reviewOnly, authoritative],
+      actionNow: [reviewOnly, authoritative, adset],
       os: fullOs({
         nodes: [
           structureNodeFixture({
@@ -3757,6 +3769,16 @@ describe("served structure inventory", () => {
             name: "Authoritative role",
             lane: "blocked",
           }),
+          structureNodeFixture({
+            id: "adset:rec_role_adset",
+            level: "adset",
+            sourceRecommendationId: adset.id,
+            providerEntityId: "rec_role_adset",
+            campaignId: "cmp_role_adset_parent",
+            campaignName: "Parent campaign",
+            name: "Ad set",
+            lane: "blocked",
+          }),
         ],
       }),
     });
@@ -3765,11 +3787,14 @@ describe("served structure inventory", () => {
 
     expect(
       model.needsResolutionRows?.find((row) => row.id === reviewOnly.id)?.chips,
-    ).toEqual([]);
+    ).toEqual(["Campaign likely Main · unverified"]);
     expect(
       model.needsResolutionRows?.find((row) => row.id === authoritative.id)
         ?.chips,
-    ).toEqual(["Auto · Main"]);
+    ).toEqual(["Campaign · Main"]);
+    expect(
+      model.needsResolutionRows?.find((row) => row.id === adset.id)?.chips,
+    ).toEqual(["Parent campaign · Main"]);
   });
 
   it("does not count recommendation-free Monitor inventory as watched decisions", () => {

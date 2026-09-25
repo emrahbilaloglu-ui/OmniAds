@@ -10954,3 +10954,28 @@ manifest-listed missing snapshot must refuse the read. The Studio status for a
 historical Ad outside the current generation is not evaluated, while current
 decisions remain visible. Revert the two presentation opt-ins to restore the
 strict all-requested-Ad refusal without changing persisted generations.
+
+## D119 — The recorded first authority blocker outranks a role badge (2026-09-25)
+
+**Failure.** The V3-to-V2.1 bridge classified every held hard verdict with an
+unresolved campaign-role badge as `campaign_role_unresolved`, even when the
+engine recorded `config_source_authority` or
+`profile_hard_action_ineligible` as its first authority blocker. This made a
+real configuration or profile gap appear to be a role-verification task.
+
+**Decision.** A held hard verdict remains a non-applicable `Diagnose` row, but
+the bridge's primary problem class and blocker reason come from the engine's
+recorded first authority blocker when it exists and is not
+`campaign_context`. The role badge remains secondary evidence. Only an actual
+`campaign_context` first blocker, or a role gap without a different recorded
+first blocker, uses `campaign_role_unresolved` as the primary reason. This
+narrows D115's conditional Keep rule without authorizing execution or
+rewriting the persisted engine verdict. The served mapping contract advances
+to `creative-decision-center.v3-bridge.v3`.
+
+**Acceptance and rollback.** A role-unresolved held Cut whose first blocker is
+`config_source_authority` must stay blocked and expose that blocker; a held
+Scale blocked by `profile_hard_action_ineligible` must do likewise. A pure
+role-held hard verdict must remain a campaign-context diagnosis. Soft Keep and
+no-apply controls remain unchanged. Reverting this mapping/version restores
+the older presentation; native decisions and provider state are unchanged.

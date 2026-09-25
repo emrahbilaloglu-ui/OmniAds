@@ -133,7 +133,8 @@ pre-authority hard verdict still follows the conservative role guard.
 
 | V3 evidence | V2.1 primaryDecision | problemClass | actionability | reasonTags |
 |---|---|---|---|---|
-| unresolved role with `authorityBlocker`, `blockedActionType`, or pre-authority hard verdict | `Diagnose` | `campaign_context` | `diagnose` | `campaign_role_unresolved` |
+| unresolved role with `authorityBlocker = campaign_context`, a held hard verdict without another recorded first blocker, or a pre-authority hard verdict | `Diagnose` | `campaign_context` | `diagnose` | `campaign_role_unresolved` |
+| held hard verdict with a different recorded first authority blocker | `Diagnose` | source-specific `data_quality` or `insufficient_signal` | `diagnose` | exact first blocker code |
 | unresolved role on a soft `keep` with no independent review badge | `Protect` | `performance` | `review_only` | `v3_keep`, `stable_keep_running` |
 | `scale_readiness_blocked` badge | `Test More` | `insufficient_signal` | `review_only` | `near_scale_blocked` |
 | `scale_calibration_thin` badge | `Test More` | `data_quality` | `review_only` | `scale_calibration_thin` |
@@ -289,14 +290,14 @@ engine identifiers remain forbidden for every Creative Decision Center module.
 ## Versioning
 
 The bridge exposes `CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION =
-"creative-decision-center.v3-bridge.v2"`. The `DecisionCenterSnapshot`
+"creative-decision-center.v3-bridge.v3"`. The `DecisionCenterSnapshot`
 contract does not gain a new top-level
 `bridgeVersion` field in PR7B-beta; route wiring may compose the string into
 `adapterVersion` (for example `bridge-v2+adapter-v1`) when a non-empty bridged
 snapshot is emitted behind `?decisionCenter=1`.
 
 Current enabled-route wiring composes
-`creative-decision-center.v3-bridge.v2+creative-decision-center.shadow-adapter.v1`
+`creative-decision-center.v3-bridge.v3+creative-decision-center.shadow-adapter.v1`
 whenever the flagged route attempts the bridge path, even when every V3
 decision is omitted and `rowDecisions` is empty. Disabled-engine snapshots do
 not attempt the bridge path and keep the base shadow adapter version.

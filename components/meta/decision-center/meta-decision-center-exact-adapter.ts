@@ -530,15 +530,14 @@ function entityName(recommendation: MetaRecommendation): string {
 
 function automaticRoleChip(recommendation: MetaRecommendation): string | null {
   const context = recommendation.campaignContext;
-  if (!context) return null;
-  if (
-    context.source !== "system_inferred" ||
-    context.trustedForAction !== true ||
-    !context.kind
-  ) {
-    return null;
-  }
-  return `Auto · ${titleToken(context.kind)}`;
+  if (!context || context.source !== "system_inferred" || !context.kind) return null;
+  // An ad set can have a different operational role from its parent campaign.
+  // The current source describes the campaign only, so never label the ad set
+  // itself Main or Test from this inherited context.
+  const owner = recommendation.level === "adset" ? "Parent campaign" : "Campaign";
+  return context.trustedForAction === true
+    ? `${owner} · ${titleToken(context.kind)}`
+    : `${owner} likely ${titleToken(context.kind)} · unverified`;
 }
 
 function structureChips(recommendation: MetaRecommendation): string[] {
@@ -1139,8 +1138,31 @@ function buyerFacingReadinessBlocker(
 
 function buyerFacingReadinessResolution(
   readiness: MetaRecommendation["automationReadiness"],
+  node?: MetaOsStructureNode | null,
 ): string {
   const blocker = highestPriorityReadinessIssue(readiness);
+  if (
+    (blocker === "campaign_context_unresolved" ||
+      blocker === "missing_campaign_label") &&
+    node
+  ) {
+    if (node.campaignRoleTrustedForAction === true) {
+      return "Campaign role is now verified. Refresh decisions to replace this older blocked recommendation.";
+    }
+    const role = node.lifecycleRole;
+    if (role === "main" || role === "test" || role === "mixed") {
+      const estimate = `${titleToken(role)} (${titleToken(node.campaignRoleConfidence ?? "unknown")} confidence)`;
+      return node.level === "adset"
+        ? `Parent campaign is estimated as ${estimate}; the ad set's own role is not verified.`
+        : `Campaign is estimated as ${estimate}; its role is not verified for this decision.`;
+    }
+    if (node.campaignRoleExplanation?.unresolvedReason === "conflicting_signals") {
+      return "Campaign role signals conflict. Review its actual purpose before acting.";
+    }
+    if (node.campaignRoleExplanation?.unresolvedReason === "insufficient_evidence") {
+      return "There is not enough campaign evidence to verify its Main or Test role.";
+    }
+  }
   if (blocker) return BUYER_READINESS_RESOLUTION_COPY[blocker];
   if ((readiness?.missingEvidence.length ?? 0) > 0) {
     return "Review the missing evidence, then check this decision again.";
@@ -1323,7 +1345,7 @@ function needsResolutionRows(input: {
       blockerBuyerFacing: true,
       blockerCount: blockerParts.length,
       blockerTone: "warning",
-      resolution: buyerFacingReadinessResolution(readiness),
+      resolution: buyerFacingReadinessResolution(readiness, node),
       money: recommendationMoney(recommendation, node, input.fallbackCurrency),
       confidence: titleToken(confidence),
       confidenceTone: confidenceTone(confidence),
@@ -3612,7 +3634,7 @@ function structureInspector(input: {
     tone: decisionTone(recommendation.decisionLabel),
     serverVerdict: actionLabel,
     contractDetail: readinessIssue
-      ? BUYER_READINESS_RESOLUTION_COPY[readinessIssue]
+      ? buyerFacingReadinessResolution(readiness, node)
       : buyerFacingStructureScope(action),
     reasons: [buyerFacingStructureReason(recommendation, node)],
     moneyValue: recommendationMoney(

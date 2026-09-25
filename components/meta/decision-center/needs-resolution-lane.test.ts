@@ -620,6 +620,63 @@ describe("a blocked row is drawn without an action", () => {
     expect(Object.keys(row ?? {})).not.toContain("actionLabel");
   });
 
+  it("explains an unresolved role at the correct campaign or ad set scope", () => {
+    const readiness = {
+      contractVersion: "meta-automation-readiness.v1" as const,
+      tier: "manual_review" as const,
+      autoExecuteEligible: false,
+      operatorReviewRequired: true,
+      decisionLabel: "diagnose" as const,
+      blockers: ["campaign_context_unresolved" as const],
+      missingEvidence: [],
+      requiredEvidence: [],
+      reason: "Internal role gate",
+    };
+    const campaign = metaRec({
+      id: "campaign_role_estimate",
+      level: "campaign",
+      automationReadiness: readiness,
+      campaignContext: {
+        kind: "test",
+        source: "system_inferred",
+        confidence: "medium",
+        trustedForAction: false,
+      },
+    });
+    const adset = metaRec({
+      id: "adset_role_unknown",
+      level: "adset",
+      automationReadiness: readiness,
+      campaignContext: {
+        kind: "main",
+        source: "system_inferred",
+        confidence: "medium",
+        trustedForAction: false,
+      },
+    });
+    const model = build(workspace({
+      actionNow: [campaign, adset],
+      nodes: [
+        node(campaign.id, "blocked", {
+          level: "campaign",
+          lifecycleRole: "test",
+          campaignRoleConfidence: "medium",
+          campaignRoleTrustedForAction: false,
+        }),
+        node(adset.id, "blocked", {
+          level: "adset",
+          lifecycleRole: "main",
+          campaignRoleConfidence: "medium",
+          campaignRoleTrustedForAction: false,
+        }),
+      ],
+    }));
+    expect(model.needsResolutionRows?.find((row) => row.id === campaign.id)?.resolution)
+      .toBe("Campaign is estimated as Test (Medium confidence); its role is not verified for this decision.");
+    expect(model.needsResolutionRows?.find((row) => row.id === adset.id)?.resolution)
+      .toBe("Parent campaign is estimated as Main (Medium confidence); the ad set's own role is not verified.");
+  });
+
   it("keeps an executor-only next step conditional on human review", () => {
     const recommendation = metaRec({
       id: "rec_executor_only",

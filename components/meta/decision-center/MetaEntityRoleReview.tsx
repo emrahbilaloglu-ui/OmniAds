@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MetaOsStructureGroup, MetaOsStructureNode } from "@/lib/meta/decisions-os-contract";
 import styles from "./MetaEntityRoleReview.module.css";
 
@@ -11,6 +11,22 @@ type RoleRow = {
   node: MetaOsStructureNode;
   campaignName: string | null;
 };
+type RoleHistoryEvent = {
+  id: string;
+  entityType: "campaign" | "adset";
+  entityId: string;
+  parentCampaignId: string | null;
+  event: "declare" | "revoke";
+  declaredRole: Role | null;
+  effectiveFrom: string;
+  declaredAt: string;
+  contractVersion: string;
+};
+type RoleReviewState =
+  | { event: "declare"; role: Role }
+  | { event: "revoke" }
+  | { event: "unverified" };
+const ROLE_DECLARATION_VERSION = "meta-entity-role-declaration.v1";
 
 function roleRow(node: MetaOsStructureNode, campaignName: string | null): RoleRow | null {
   const id = node.providerEntityId?.trim();
@@ -18,7 +34,16 @@ function roleRow(node: MetaOsStructureNode, campaignName: string | null): RoleRo
   return { key: `${node.level}:${id}`, node, campaignName };
 }
 
-function currentRole(node: MetaOsStructureNode): string {
+function currentRole(node: MetaOsStructureNode, review?: RoleReviewState): string {
+  if (review?.event === "declare") {
+    return `Confirmed ${review.role.toUpperCase()} · pending decision run`;
+  }
+  if (review?.event === "revoke") {
+    return "Confirmation removed · pending decision run";
+  }
+  if (review?.event === "unverified") {
+    return "Declaration belongs to another campaign · unverified";
+  }
   const role = node.lifecycleRole;
   if (node.roleBasis === "declared" && (role === "main" || role === "test" || role === "mixed")) {
     return `Confirmed ${role.toUpperCase()}`;
@@ -29,6 +54,40 @@ function currentRole(node: MetaOsStructureNode): string {
       : `Unverified · system suggests ${role.toUpperCase()}`;
   }
   return "Unverified · no role evidence";
+}
+
+/** Recent account-scoped history is for review display only; it never grants a decision. */
+function reviewStateFromHistory(
+  events: readonly RoleHistoryEvent[],
+  rows: readonly RoleRow[],
+  asOf: string,
+): Record<string, RoleReviewState> {
+  const byKey: Record<string, RoleReviewState> = {};
+  const visible = new Map(rows.map((row) => [row.key, row]));
+  for (const event of [...events].sort((a, b) =>
+    String(b.declaredAt ?? "").localeCompare(String(a.declaredAt ?? "")) ||
+    String(b.id ?? "").localeCompare(String(a.id ?? "")))) {
+    const key = `${event.entityType}:${event.entityId}`;
+    const row = visible.get(key);
+    if (!row || byKey[key] || event.contractVersion !== ROLE_DECLARATION_VERSION ||
+        event.effectiveFrom > asOf || !/^\d{4}-\d{2}-\d{2}$/.test(event.effectiveFrom) ||
+        !Number.isFinite(Date.parse(event.declaredAt))) {
+      continue;
+    }
+    if (event.entityType === "adset" &&
+        (!row.node.campaignId || event.parentCampaignId !== row.node.campaignId)) {
+      byKey[key] = { event: "unverified" };
+      continue;
+    }
+    if (event.event === "revoke") {
+      byKey[key] = { event: "revoke" };
+    } else if (event.event === "declare" &&
+      (event.declaredRole === "main" || event.declaredRole === "test" ||
+        (event.entityType === "campaign" && event.declaredRole === "mixed"))) {
+      byKey[key] = { event: "declare", role: event.declaredRole };
+    }
+  }
+  return byKey;
 }
 
 /** Operator assertion only. The client never computes a decision or promotes a suggestion. */
@@ -51,6 +110,8 @@ export function MetaEntityRoleReview({
   const [choices, setChoices] = useState<Record<string, RoleChoice>>({});
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [reviewState, setReviewState] = useState<Record<string, RoleReviewState>>({});
+  const historyRequestVersion = useRef(0);
   const rows = useMemo(() => groups.flatMap((group) => {
     const campaign = roleRow(group.campaign, null);
     const adsets = group.adsets
@@ -60,8 +121,10 @@ export function MetaEntityRoleReview({
   }), [groups]);
   // A retained verdict may still be blocked by its old role authority after
   // the latest role was confirmed. Count role review state, not verdict state.
-  const unresolvedCount = rows.filter(({ node }) =>
-    node.roleBasis !== "declared" && node.campaignRoleTrustedForAction !== true,
+  const unresolvedCount = rows.filter(({ key, node }) =>
+    reviewState[key]?.event === "revoke" || reviewState[key]?.event === "unverified" ||
+    (reviewState[key]?.event !== "declare" &&
+      node.roleBasis !== "declared" && node.campaignRoleTrustedForAction !== true),
   ).length;
   const selected = rows.filter((row) => Boolean(choices[row.key]));
   const today = new Date().toISOString().slice(0, 10);
@@ -70,6 +133,25 @@ export function MetaEntityRoleReview({
   // is dated yesterday, use that day so today's declaration can be considered
   // in a fresh recomputation. declaredAt remains today's true observation time.
   const effectiveFrom = decisionAsOf === yesterday ? yesterday : today;
+
+  useEffect(() => {
+    if (!open) return;
+    const version = ++historyRequestVersion.current;
+    void fetch(
+      `/api/meta/entity-role-declarations?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`,
+      { cache: "no-store", headers: { Accept: "application/json" } },
+    ).then(async (response) => {
+      const payload = await response.json().catch(() => null) as
+        | { ok?: boolean; declarations?: RoleHistoryEvent[] }
+        | null;
+      if (version === historyRequestVersion.current && response.ok && payload?.ok &&
+          Array.isArray(payload.declarations)) {
+        setReviewState(reviewStateFromHistory(payload.declarations, rows, today));
+      }
+    }).catch(() => {
+      // The last decision generation remains visible when review history is unavailable.
+    });
+  }, [open, businessId, providerAccountId, groups, today]);
 
   async function save() {
     if (pending || readOnly || selected.length === 0) return;
@@ -128,6 +210,20 @@ export function MetaEntityRoleReview({
       })) {
         throw new Error("Roles were submitted, but their database readback could not be verified. Refresh before retrying.");
       }
+      const nextReviewState = reviewStateFromHistory(
+        history.declarations as RoleHistoryEvent[], rows, today,
+      );
+      if (!selected.every(({ key }, index) => {
+        const recorded = nextReviewState[key];
+        const requested = requests[index]!;
+        return requested.event === "revoke"
+          ? recorded?.event === "revoke"
+          : recorded?.event === "declare" && recorded.role === requested.role;
+      })) {
+        throw new Error("Roles were submitted, but their current account and campaign binding could not be verified. Refresh role history before retrying.");
+      }
+      ++historyRequestVersion.current;
+      setReviewState(nextReviewState);
       setChoices({});
       const confirmed = `${requests.length} role${requests.length === 1 ? "" : "s"} confirmed. Existing verdicts keep their recorded authority; the next native decision run will reassess them.`;
       try {
@@ -165,7 +261,7 @@ export function MetaEntityRoleReview({
                   <strong>{node.name}</strong>
                   <small>{node.level === "adset" ? `Ad set · ${campaignName ?? "Campaign unknown"}` : "Campaign"} · {node.providerEntityId}</small>
                 </span>
-                <span className={styles.current}>{currentRole(node)}</span>
+                <span className={styles.current}>{currentRole(node, reviewState[key])}</span>
                 <select
                   aria-label={`Confirm role for ${node.level} ${node.name}`}
                   disabled={readOnly || pending}
@@ -176,7 +272,9 @@ export function MetaEntityRoleReview({
                   <option value="main">Confirm Main</option>
                   <option value="test">Confirm Test</option>
                   {node.level === "campaign" ? <option value="mixed">Confirm Mixed</option> : null}
-                  {node.roleBasis === "declared" ? <option value="revoke">Remove confirmed role</option> : null}
+                  {reviewState[key]?.event === "declare" ||
+                  (reviewState[key]?.event !== "revoke" && node.roleBasis === "declared")
+                    ? <option value="revoke">Remove confirmed role</option> : null}
                 </select>
               </label>
             ))}

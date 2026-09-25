@@ -313,7 +313,8 @@ const state = vi.hoisted(() => ({
   viewer: null as unknown,
   killSwitch: false,
   killSwitchReason: null as string | null,
-  search: "window=28d",
+  // Bid apply is a structure-row ceremony; the bare Decisions route now opens Ads.
+  search: "window=28d&scope=structure",
   decisionRec: null as ReturnType<typeof metaRec> | null,
   structureNode: null as MetaOsStructureNode | null,
   routerPush: vi.fn(),
@@ -438,7 +439,7 @@ beforeEach(() => {
   };
   state.killSwitch = false;
   state.killSwitchReason = null;
-  state.search = "window=28d";
+  state.search = "window=28d&scope=structure";
   state.decisionRec = null;
   state.structureNode = null;
   state.routerPush.mockClear();

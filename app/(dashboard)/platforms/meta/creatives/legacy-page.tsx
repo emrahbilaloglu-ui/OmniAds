@@ -36,10 +36,13 @@ import type { CreativesBriefingResponse } from "@/components/creatives/briefing/
 import {
   buildServedCreativeClassifications,
   creativeDecisionStatusFallback,
+  decisionEvidenceLines,
+  servedAdDecisionPlacement,
   servedClassificationForRow,
   type CreativeDecisionReadState,
   type ServedCreativeClassification,
 } from "@/components/creatives/creative-served-classification";
+import { selectCreativeThumbnail } from "@/components/creatives/creative-thumbnail-placeholder";
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { hasDateWindowParams } from "@/lib/dashboard/date-window-url";
@@ -119,18 +122,66 @@ function deliveryStatusLabel(status: string | null): string | null {
   ].join(" ");
 }
 
+/**
+ * Each Ad's own verdict on a row whose Ads differ, named by what tells those
+ * Ads apart. The row already names the creative, so an entry names where the
+ * Ad runs, leaving out a campaign or ad set every entry shares (Grandmix
+ * "Cat-Sale": one campaign, two ad sets). When nothing served tells two
+ * entries apart, the Ad id does.
+ */
+function decisionEntriesFor(
+  adDecisions: ServedCreativeClassification["adDecisions"],
+): NonNullable<CreativeStudioAssetRow["decisionEntries"]> {
+  const shared = (read: (entry: (typeof adDecisions)[number]) => string | null) =>
+    new Set(adDecisions.map(read)).size === 1;
+  const sameAdset = shared((entry) => entry.adsetName);
+  const sameCampaign = shared((entry) => entry.campaignName);
+  const places = adDecisions.map((entry) => {
+    const parts = [
+      sameAdset ? null : entry.adsetName,
+      sameCampaign ? null : entry.campaignName,
+    ].filter(Boolean);
+    return parts.length > 0
+      ? parts.join(" · ")
+      : (servedAdDecisionPlacement(entry) ?? entry.adName);
+  });
+  return adDecisions.map((entry, index) => {
+    const place = places[index];
+    const unique =
+      place !== null &&
+      places.filter((candidate) => candidate === place).length === 1;
+    return {
+      adId: entry.adId,
+      who: unique
+        ? place!
+        : [place, `Ad ${entry.adId}`].filter(Boolean).join(" · "),
+      verdict: [entry.segment, entry.label].filter(Boolean).join(" · "),
+      tone: entry.tone,
+    };
+  });
+}
+
+function assetImage(row: MetaCreativeRow) {
+  // Same preference order as before; Meta's shared catalog placeholder is
+  // skipped for any real image the row carries, and a catalog row with only
+  // the placeholder says so instead of drawing a grey tile as its creative.
+  return selectCreativeThumbnail({
+    candidates: [
+      row.tableThumbnailUrl,
+      row.cachedThumbnailUrl,
+      row.thumbnailUrl,
+      row.imageUrl,
+      row.preview.poster_url,
+      row.preview.image_url,
+      row.cardPreviewUrl,
+      row.previewUrl,
+    ],
+    isCatalog: row.isCatalog === true,
+  });
+}
+
 function assetImageUrl(row: MetaCreativeRow): string | null {
-  return (
-    row.tableThumbnailUrl ??
-    row.cachedThumbnailUrl ??
-    row.thumbnailUrl ??
-    row.imageUrl ??
-    row.preview.poster_url ??
-    row.preview.image_url ??
-    row.cardPreviewUrl ??
-    row.previewUrl ??
-    null
-  );
+  return assetImage(row).imageUrl;
 }
 
 /**
@@ -360,16 +411,30 @@ export function toCreativeStudioAssetRows(
         row.sourceAdIdsComplete === true,
       );
 
+    const image = assetImage(row);
+    // Presentation of served fields only: each Ad keeps its own server
+    // verdict, and a single verdict names the period it was judged on.
+    const decisionEntries = classification.variesByAd
+      ? decisionEntriesFor(classification.adDecisions)
+      : undefined;
+    const decisionBasis =
+      !classification.variesByAd && classification.adDecisions.length === 1
+        ? decisionEvidenceLines(classification.adDecisions[0]!.evidence)
+        : null;
+
     return {
       id: row.id,
       name: row.name,
       kind: row.creativePrimaryLabel ?? row.creativeTypeLabel ?? row.format,
-      imageUrl: assetImageUrl(row),
+      imageUrl: image.imageUrl,
+      imageNote: image.imageNote,
       status: classification.label,
       statusTone: classification.tone,
       decisionSegment: classification.segment,
       statusDetail: classification.detail,
       decisionCount: classification.decisionCount,
+      ...(decisionEntries ? { decisionEntries } : {}),
+      decisionBasis,
       deliveryStatus: deliveryStatusLabel(row.effectiveStatus ?? null),
       marketingAngle,
       currency: resolveCreativeCurrency(row.currency ?? null, defaultCurrency),
@@ -1235,8 +1300,12 @@ export default function MetaCreativeStudioPage({
     () => ({
       state: assetsState,
       message: assetsMessage,
+      sourcePartialReason:
+        assetsState === "ready" ? sourceHealth.partialReason : null,
       decisionReadState,
       decisionAsOfDate,
+      metricWindow:
+        drStart && drEnd ? { startDate: drStart, endDate: drEnd } : null,
       decisionRetainedGeneration,
       syncedCount:
         assetsState === "ready" || assetsState === "empty"
@@ -1258,7 +1327,10 @@ export default function MetaCreativeStudioPage({
       decisionAsOfDate,
       decisionReadState,
       decisionRetainedGeneration,
+      drEnd,
+      drStart,
       providerAccountId,
+      sourceHealth.partialReason,
     ],
   );
   const tabHrefs = useMemo(

@@ -1014,6 +1014,12 @@ img.creativeThumbImage + .creativeKind {
   font-weight: 700;
 }
 
+.creativeCurrentDisposition {
+  color: #45526b;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 /*
  * The served decision state, and the reasons behind it.
  *

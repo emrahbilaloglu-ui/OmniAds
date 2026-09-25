@@ -352,6 +352,15 @@ function parseNativeDecisionWindow(
       (value.economicDayCount as number) > (value.observedDayCount as number) ||
       (value.bridgedUnresolvedDayCount as number) < 0 ||
       (value.bridgedUnresolvedDayCount as number) > (value.economicDayCount as number)) return null;
+  // The recent band is carried only when the engine recorded both of its days
+  // inside the admitted run; otherwise no recent figure can be labelled.
+  const recentBand =
+    validDay(value.recentStartDate) && validDay(value.recentEndDate) &&
+    value.recentStartDate <= value.recentEndDate &&
+    value.recentStartDate >= value.startDate &&
+    value.recentEndDate <= value.endDate
+      ? { recentStartDate: value.recentStartDate, recentEndDate: value.recentEndDate }
+      : {};
   return {
     contractVersion: META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION,
     startDate: value.startDate,
@@ -360,6 +369,7 @@ function parseNativeDecisionWindow(
     observedDayCount: value.observedDayCount as number,
     economicDayCount: value.economicDayCount as number,
     bridgedUnresolvedDayCount: value.bridgedUnresolvedDayCount as number,
+    ...recentBand,
   };
 }
 

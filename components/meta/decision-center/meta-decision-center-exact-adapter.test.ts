@@ -1585,6 +1585,22 @@ describe("the lineage read fills what the reference draws", () => {
 });
 
 describe("the creative queue is the served set, split by the served state", () => {
+  it("does not give a Keep card a competing testing verdict", () => {
+    const decision = creativeFixture({
+      lane: "monitor",
+      publishedLabel: "keep",
+      action: actionFixture({
+        code: "continue_test",
+        label: "Continue testing",
+        intent: "none",
+        targetLevel: "ad",
+      }),
+    });
+    expect(buyerFacingCreativeDecisionLabel(decision)).toBe("Keep monitoring");
+    expect(buyerFacingCreativeReason(decision)).toBe(
+      "Keep this ad running while more test evidence is collected.",
+    );
+  });
   it("shows a retained Cut only in the review group when the native source is degraded", () => {
     const retained = creativeFixture({
       rawLabel: "cut",

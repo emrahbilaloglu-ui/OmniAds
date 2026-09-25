@@ -1,5 +1,6 @@
 import type {
   BriefingActionItem,
+  BriefingCanonicalDecisionEvidence,
   BriefingCreativeCard,
   CreativesBriefingResponse,
 } from "@/components/creatives/briefing/types";
@@ -58,6 +59,39 @@ export interface ServedCreativeClassification {
    * guessing which branch produced a cell.
    */
   source: "canonical_decision" | "assessment" | "decision_label";
+  /**
+   * Every exact-Ad decision behind this row, each paired with its OWN state,
+   * label and evidence, in the server's lane order. A creative-grain row can
+   * stand for several Ads (the Studio groups by name and format), and joining
+   * their states and labels separately ("Blocked / Monitor · Cut · Held /
+   * Protect") lost which verdict belonged to which Ad. Empty for legacy
+   * creative-grain answers, which name no Ad.
+   */
+  adDecisions: ServedAdDecision[];
+  /** True when those Ads were served different verdicts. */
+  variesByAd: boolean;
+}
+
+/** One exact-Ad server decision as a creative-grain row presents it. */
+export interface ServedAdDecision {
+  adId: string;
+  /**
+   * The Ad's own name and where it runs. Same-named Ads in one Studio row
+   * usually differ by ad set (Grandmix "Cat-Sale": one campaign, two ad sets).
+   */
+  adName: string | null;
+  adsetName: string | null;
+  campaignName: string | null;
+  segment: string | null;
+  label: string;
+  tone: CreativeStudioTone;
+  detail: string | null;
+  /**
+   * What the verdict was judged on. Undefined when the payload predates the
+   * field; a present value with a null period is the server saying the period
+   * is unknown.
+   */
+  evidence?: BriefingCanonicalDecisionEvidence;
 }
 
 export interface CreativeDecisionStatusFallback {
@@ -67,6 +101,8 @@ export interface CreativeDecisionStatusFallback {
   detail: string | null;
   decisionCount: 0;
   source: "read_state";
+  adDecisions: [];
+  variesByAd: false;
 }
 
 /**
@@ -141,7 +177,7 @@ function buyerActionLabel(value: string | null | undefined): string | null {
     protect: "Protect performance",
     keep: "Keep running",
     refresh: "Refresh creative",
-    cut: "Stop",
+    cut: "Pause ad",
     test_more: "Test more",
     diagnose: "Review data",
     fix_delivery: "Fix delivery",
@@ -214,7 +250,12 @@ export interface ClassificationCandidate {
    */
   adId: string | null;
   decisionKey: string;
-  value: Omit<ServedCreativeClassification, "decisionCount">;
+  value: Omit<
+    ServedCreativeClassification,
+    "decisionCount" | "adDecisions" | "variesByAd"
+  >;
+  /** Canonical Ad-grain candidates only. */
+  adDecision?: ServedAdDecision;
 }
 
 function canonicalClassificationForCard(
@@ -241,27 +282,41 @@ function canonicalClassificationForCard(
     const heldLabel = buyerActionLabel(decision.classification.heldAction);
     details.push(
       heldLabel
-        ? `${heldLabel} is waiting for review`
-        : "An action is waiting for review",
+        ? `${heldLabel} recommendation awaits review`
+        : "Recommendation awaits review",
     );
   } else if (decision.classification.buyerAction) {
     const actionLabel = buyerActionLabel(decision.classification.buyerAction);
     if (actionLabel) details.push(`Recommended action: ${actionLabel}`);
   }
 
+  const value = {
+    label,
+    tone: canonicalTone(
+      decision.classification.decisionState,
+      decision.classification.buyerAction,
+    ),
+    segment: (decisionState && DECISION_STATE_DISPLAY[decisionState]) ?? null,
+    detail: details.length > 0 ? details.join(" · ") : null,
+    source: "canonical_decision" as const,
+  };
   return {
     creativeId,
     adId,
     decisionKey: decision.decisionId,
-    value: {
-      label,
-      tone: canonicalTone(
-        decision.classification.decisionState,
-        decision.classification.buyerAction,
-      ),
-      segment: (decisionState && DECISION_STATE_DISPLAY[decisionState]) ?? null,
-      detail: details.length > 0 ? details.join(" · ") : null,
-      source: "canonical_decision",
+    value,
+    adDecision: {
+      adId,
+      adName: nonEmpty(card.name),
+      adsetName: nonEmpty(card.adsetName) ?? nonEmpty(card.adset),
+      campaignName: nonEmpty(card.campaignName) ?? nonEmpty(card.campaign),
+      segment: value.segment,
+      label: value.label,
+      tone: value.tone,
+      detail: value.detail,
+      ...(decision.decisionEvidence !== undefined
+        ? { evidence: decision.decisionEvidence }
+        : {}),
     },
   };
 }
@@ -315,13 +370,18 @@ function legacyClassificationForCard(
   };
 }
 
+function verdictKey(value: { segment: string | null; label: string }) {
+  return `${value.segment ?? ""}\u0000${value.label}`;
+}
+
 function collapseCandidates(
   candidates: readonly ClassificationCandidate[],
 ): ServedCreativeClassification {
   const decisions = new Map<string, ClassificationCandidate>();
   for (const candidate of candidates)
     decisions.set(candidate.decisionKey, candidate);
-  const values = [...decisions.values()].map((candidate) => candidate.value);
+  const served = [...decisions.values()];
+  const values = served.map((candidate) => candidate.value);
 
   const unique = <T>(
     read: (value: (typeof values)[number]) => T | null,
@@ -333,22 +393,172 @@ function collapseCandidates(
     }
     return result;
   };
-  const labels = unique((value) => value.label);
-  const segments = unique((value) => value.segment);
+  const verdicts = unique((value) => verdictKey(value));
   const tones = unique((value) => value.tone);
   const details = unique((value) => value.detail);
   const sources = unique((value) => value.source);
+  const adDecisions = served.flatMap((candidate) =>
+    candidate.adDecision ? [candidate.adDecision] : [],
+  );
+  const source = sources.includes("canonical_decision")
+    ? ("canonical_decision" as const)
+    : (sources[0] ?? "decision_label");
 
+  // One verdict, however many Ads carry it: the server's own state and label.
+  if (verdicts.length <= 1) {
+    const first = values[0];
+    const sharedNote =
+      adDecisions.length > 1
+        ? `Same recommendation for ${adDecisions.length} Ads.`
+        : null;
+    const perAd =
+      adDecisions.length > 1
+        ? adDecisions.map((entry) => servedAdDecisionLine(entry))
+        : adDecisions[0]
+          ? [decisionEvidenceSentence(adDecisions[0].evidence)].filter(
+              (line): line is string => line !== null,
+            )
+          : [];
+    const detailParts = [
+      details.length > 0 ? details.join(" · ") : null,
+      sharedNote,
+      ...perAd,
+    ].filter((part): part is string => Boolean(part));
+    return {
+      label: first?.label ?? "Decision unavailable",
+      segment: first?.segment ?? null,
+      tone: tones.length === 1 ? tones[0]! : "neutral",
+      detail: detailParts.length > 0 ? detailParts.join("\n") : null,
+      decisionCount: decisions.size,
+      source,
+      adDecisions,
+      variesByAd: false,
+    };
+  }
+
+  /*
+    Different verdicts on one row. The surface may not choose between them,
+    and it may not join states and labels separately either: that printed
+    "Blocked / Monitor · Cut · Held / Protect", a pairing no Ad was served.
+    The row says how many recommendations it holds; each one is listed with
+    the Ad it belongs to.
+  */
+  const count = adDecisions.length > 0 ? adDecisions.length : decisions.size;
+  const lines =
+    adDecisions.length > 0
+      ? adDecisions.map((entry) => servedAdDecisionLine(entry))
+      : values.map((value) =>
+          [value.segment, value.label].filter(Boolean).join(" · "),
+        );
   return {
-    label: labels.join(" / ") || "Decision unavailable",
-    segment: segments.join(" / ") || null,
-    tone: tones.length === 1 ? tones[0]! : "neutral",
-    detail: details.length > 0 ? details.join(" · ") : null,
+    label:
+      adDecisions.length > 0
+        ? `${count} Ads · different recommendations`
+        : `${count} different recommendations`,
+    segment: null,
+    tone: "neutral",
+    detail: lines.join("\n"),
     decisionCount: decisions.size,
-    source: sources.includes("canonical_decision")
-      ? "canonical_decision"
-      : (sources[0] ?? "decision_label"),
+    source,
+    adDecisions,
+    variesByAd: true,
   };
+}
+
+function formatEvidenceMoney(
+  value: number | null,
+  currency: string | null,
+): string | null {
+  if (value === null || !Number.isFinite(value) || !currency) return null;
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return null;
+  }
+}
+
+/** `2026-09-09–09-24` within one year; both dates in full across years. */
+function compactDayRange(start: string, end: string): string {
+  return start.slice(0, 4) === end.slice(0, 4)
+    ? `${start}–${end.slice(5)}`
+    : `${start}–${end}`;
+}
+
+/**
+ * What a decision rests on, in the words a row can show: its own admitted
+ * period and the figures the engine recorded for it, then the recent band
+ * inside that period. Null when the payload carries no evidence at all.
+ * Every number is the server's; a missing one is left out, never zeroed.
+ */
+export function decisionEvidenceLines(
+  evidence: BriefingCanonicalDecisionEvidence | undefined,
+): { period: string; figures: string | null; recent: string | null } | null {
+  if (evidence === undefined) return null;
+  const period = evidence.period;
+  if (!period) {
+    return { period: "Decision period unavailable", figures: null, recent: null };
+  }
+  const figures = [
+    evidence.roas !== null ? `ROAS ${evidence.roas.toFixed(2)}` : null,
+    evidence.purchases !== null
+      ? `${evidence.purchases} ${evidence.purchases === 1 ? "purchase" : "purchases"}`
+      : null,
+    (() => {
+      const money = formatEvidenceMoney(evidence.spend, evidence.currency);
+      return money ? `${money} spend` : null;
+    })(),
+  ].filter((part): part is string => part !== null);
+  const recent = evidence.recent
+    ? `Recent ${compactDayRange(evidence.recent.startDate, evidence.recent.endDate)}: ROAS ${
+        evidence.recent.roas !== null
+          ? evidence.recent.roas.toFixed(2)
+          : "unavailable"
+      }`
+    : null;
+  return {
+    period: `Decided on ${compactDayRange(period.startDate, period.endDate)} · ${period.economicDayCount}/${period.calendarDaySpan} economic days`,
+    figures: figures.length > 0 ? figures.join(" · ") : null,
+    recent,
+  };
+}
+
+function decisionEvidenceSentence(
+  evidence: BriefingCanonicalDecisionEvidence | undefined,
+): string | null {
+  const lines = decisionEvidenceLines(evidence);
+  if (!lines) return null;
+  return [lines.period, lines.figures, lines.recent]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+}
+
+/** Where an Ad runs: its ad set and campaign, as served. */
+export function servedAdDecisionPlacement(entry: ServedAdDecision): string | null {
+  const placement = [entry.adsetName, entry.campaignName]
+    .filter(Boolean)
+    .join(" · ");
+  return placement || null;
+}
+
+/** One Ad's verdict, named by its Ad and placement, for a row's detail text. */
+export function servedAdDecisionLine(entry: ServedAdDecision): string {
+  const placement = servedAdDecisionPlacement(entry);
+  const who = [
+    entry.adName ?? `Ad ${entry.adId}`,
+    placement ? `(${placement})` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const verdict = [entry.segment, entry.label].filter(Boolean).join(" · ");
+  const basis = decisionEvidenceSentence(entry.evidence);
+  return [`${who}: ${verdict}`, entry.detail, basis]
+    .filter((part): part is string => Boolean(part))
+    .join(" — ");
 }
 
 /**
@@ -541,6 +751,8 @@ export function creativeDecisionStatusFallback(
       detail: "Recommendation is loading.",
       decisionCount: 0,
       source: "read_state",
+      adDecisions: [],
+      variesByAd: false,
     };
   }
   if (state === "unavailable") {
@@ -551,6 +763,8 @@ export function creativeDecisionStatusFallback(
       detail: "Recommendation is temporarily unavailable.",
       decisionCount: 0,
       source: "read_state",
+      adDecisions: [],
+      variesByAd: false,
     };
   }
   if (!sourceAdIdsComplete) {
@@ -562,6 +776,8 @@ export function creativeDecisionStatusFallback(
         "This row's Ad membership is incomplete, so a recommendation cannot be assigned safely.",
       decisionCount: 0,
       source: "read_state",
+      adDecisions: [],
+      variesByAd: false,
     };
   }
   return {
@@ -571,5 +787,7 @@ export function creativeDecisionStatusFallback(
     detail: "No recommendation is available for this creative.",
     decisionCount: 0,
     source: "read_state",
+    adDecisions: [],
+    variesByAd: false,
   };
 }

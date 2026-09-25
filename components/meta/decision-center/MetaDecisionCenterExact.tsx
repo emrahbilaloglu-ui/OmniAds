@@ -1954,22 +1954,25 @@ function CreativeCard({
       <div className={styles.creativeIdentity}>
         <div className={styles.creativeHeading}>
           <span className={styles.creativeName}>{display(row.name)}</span>
-          <span
-            className={`${styles.creativeDecisionLabel} ${toneClass(row.decisionTone)}`}
-          >
-            {display(row.decisionLabel)}
-          </span>
-          {/* The engine's withheld conclusion, drawn beside the authorized
-              label and never merged into it. It borrows the state badge's
-              class because it is the same pill shape and the stylesheet is
-              owned by another lane this round; it carries its own attribute
-              and its own tone, so nothing about it reads as the state. */}
+          {/* Lead with the actual recommendation when its authority is held.
+              The published fallback stays visible, but cannot look like the
+              recommendation the buyer should act on. */}
           {nonBlankDisplay(row.heldVerdictLabel) ? (
             <span
-              className={`${styles.creativeStateBadge} ${toneClass(row.heldVerdictTone)}`}
+              className={`${styles.creativeDecisionLabel} ${toneClass(row.heldVerdictTone)}`}
               data-meta-exact-creative-held-verdict
             >
               {display(row.heldVerdictLabel)}
+            </span>
+          ) : null}
+          {nonBlankDisplay(row.decisionLabel) ? (
+            <span
+              className={isHeld ? styles.creativeCurrentDisposition : `${styles.creativeDecisionLabel} ${toneClass(row.decisionTone)}`}
+              data-meta-exact-creative-current-disposition={isHeld ? "true" : undefined}
+            >
+              {isHeld
+                ? `${language === "tr" ? "Mevcut durum" : "Current status"}: ${display(row.decisionLabel)}`
+                : display(row.decisionLabel)}
             </span>
           ) : null}
           {!grouped && nonBlankDisplay(row.stateLabel) ? (
@@ -3047,7 +3050,7 @@ export function MetaDecisionCenterExact({
             data-meta-exact-scope="creatives"
             {...controlProps(() => selectScope("creatives"))}
           >
-            {copy.creatives}
+            {language === "tr" ? "Reklam kararları" : "Ad decisions"}
             {meaningfulDisplay(counts?.creatives) ? (
               <span>{display(counts?.creatives)}</span>
             ) : null}

@@ -1984,6 +1984,12 @@ const COVERAGE: Record<string, Coverage> = {
     "the native Ad inspector's context-bridged evidence row",
     "bridged-context-days",
   ),
+  "MetaDecisionAdmittedWindow.recentStartDate": N(
+    "The recent band labels a recent ROAS, and this surface prints no recent ROAS. Creative Studio shows it through the briefing's decisionEvidence.recent.",
+  ),
+  "MetaDecisionAdmittedWindow.recentEndDate": N(
+    "The recent band labels a recent ROAS, and this surface prints no recent ROAS. Creative Studio shows it through the briefing's decisionEvidence.recent.",
+  ),
   "MetaDecisionSuppressionReason.code": R(
     S.PROVENANCE,
     "one labelled row per reason in the 'Withheld from queue' group",
@@ -3434,15 +3440,16 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // D104 adds Ad-performance observation; the current display-only Meta
     // creative taxonomy adds value, fixed source, and source clock.
     // D107 adds seven display-window leaves in one new interface; its fixed
-    // contract version cannot vary, while dates and counts can.
-    expect(fields.length).toBe(808);
+    // contract version cannot vary, while dates and counts can. The window's
+    // recent band adds two more varying dates (808 -> 810).
+    expect(fields.length).toBe(810);
     expect(new Set(fields.map((field) => field.iface)).size).toBe(68);
     // Candidate selection v3 retains v2 payload compatibility. Its version
     // leaf now has two values instead of one pinned literal.
     // The new observation leaf and three v5/v6 compatibility version leaves vary.
     // The media-backed creative type adds a second source literal, so that
     // provenance leaf now varies while remaining intentionally unrendered.
-    expect(fields.filter((field) => field.varies).length).toBe(758);
+    expect(fields.filter((field) => field.varies).length).toBe(760);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -4131,7 +4138,9 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // Three newly variable legacy-compatible version tags stay hidden; the
 // workspace business id now changes the rendered scope state.
 // The display-only source clock varies but is intentionally not rendered.
-const NOWHERE_LEAVES = 380;
+// The admitted window's recent band (two dates) is shown only by Creative
+// Studio, through the briefing, never on this surface: 380 -> 382.
+const NOWHERE_LEAVES = 382;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4152,7 +4161,9 @@ const NOWHERE_LEAVES = 380;
 // D109's purchase fact stays in the callback but leaves the selected exact-Ad
 // funnel, moving this count from 69 to 70. The media-backed creative type
 // provenance also travels in the review tuple without a rendered value.
-const NOWHERE_BUT_AT_THE_BOUNDARY = 71;
+// +2: the admitted window's recent band travels inside the decision handed
+// to the drawer callback and is printed nowhere on this surface: 71 -> 73.
+const NOWHERE_BUT_AT_THE_BOUNDARY = 73;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -4949,7 +4960,8 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // lineage leaves; -> 744 with their six contract-identity leaves; -> 745
     // when candidate-selection v2/v3 became a variable protocol tag.
     // Current creative taxonomy adds two varying display/provenance leaves.
-    expect(outcomes.size).toBe(758);
+    // The admitted window's recent band adds two varying dates -> 760.
+    expect(outcomes.size).toBe(760);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -5535,7 +5547,12 @@ describe("Meta Decision payload · every claim, proven against the running code"
       expect(surface).not.toMatch(/ since 2026-/);
     }
     expect(truncated.BANNERS).toBe(whole.BANNERS);
-    expect(truncated.MOBILE).toBe(whole.MOBILE);
+    // The mobile page also contains decision rows, whose presentation can
+    // legitimately change independently of this compact action alert.
+    const mobileAlert = (surface: string) =>
+      surface.match(/<article\b[^>]*data-mobile-banner="[^"]+"[^>]*>[\s\S]*?<\/article>/)?.[0];
+    expect(mobileAlert(truncated.MOBILE)).toBeDefined();
+    expect(mobileAlert(truncated.MOBILE)).toBe(mobileAlert(whole.MOBILE));
 
     const noCap = observeSurfaces(
       buildProbePayload("MetaDecisionsDigest.actions.countedRowCap"),

@@ -176,6 +176,25 @@ export interface CreativeStudioAssetRow {
   /** Distinct exact-Ad decisions represented by this creative-grain row. */
   decisionCount?: number;
   /**
+   * Set only when the row's Ads were served DIFFERENT verdicts: each Ad's own
+   * state and label, named by its Ad and campaign, in the server's order. The
+   * `status` then says how many recommendations the row holds rather than
+   * joining states and labels into a pairing no Ad was served.
+   */
+  decisionEntries?: CreativeStudioAssetDecisionEntry[];
+  /**
+   * What a single served verdict rests on: the Ad's own admitted decision
+   * period and the figures recorded for it. Null or absent when the row has
+   * no single verdict or the payload carries no evidence.
+   */
+  decisionBasis?: CreativeStudioDecisionBasis | null;
+  /**
+   * Why `imageUrl` is empty although the provider returned an image. Only
+   * `catalog_template`: Meta returns one generic placeholder as the thumbnail
+   * of a catalog (template) creative, whose product images vary per viewer.
+   */
+  imageNote?: "catalog_template" | null;
+  /**
    * The provider's delivery state, kept because moving the classification into
    * `status` must not delete a fact the surface used to show. It renders
    * beside the creative's format in the identity cell, not as the Status
@@ -185,6 +204,27 @@ export interface CreativeStudioAssetRow {
   marketingAngle: string | null;
   currency: string | null;
   metrics: Partial<Record<CreativeAssetMetricId, number | null>>;
+}
+
+export interface CreativeStudioAssetDecisionEntry {
+  adId: string;
+  /**
+   * Where the Ad runs (ad set · campaign), since the row already names the
+   * creative; the Ad id is added when two entries would read the same.
+   */
+  who: string;
+  /** The server's state and label for this Ad, e.g. `Blocked · Cut · Held`. */
+  verdict: string;
+  tone: CreativeStudioTone;
+}
+
+export interface CreativeStudioDecisionBasis {
+  /** `Decided on 2026-09-09–2026-09-24 · 16/16 economic days`. */
+  period: string;
+  /** Recorded figures for that period, e.g. `ROAS 5.17 · $537 spend`. */
+  figures: string | null;
+  /** The recent band inside the period, e.g. `Recent …: ROAS 0.00`. */
+  recent: string | null;
 }
 
 /**
@@ -277,6 +317,8 @@ export function retainedDecisionGenerationFromInventory(
 export interface CreativeStudioAssetsModel {
   state: CreativeStudioDataState;
   message: string | null;
+  /** Source-authored reason when some rows are served but their metric coverage is partial. */
+  sourcePartialReason?: string | null;
   /**
    * Availability of the recommendation source for the whole Assets read.
    * When it is unavailable the surface explains that once, rather than
@@ -291,6 +333,11 @@ export interface CreativeStudioAssetsModel {
    * or absent means no generation day is known, and none is shown.
    */
   decisionAsOfDate?: string | null;
+  /**
+   * The selected range the performance columns cover. Named beside the
+   * decision day so the two are never read as one period (D090).
+   */
+  metricWindow?: { startDate: string; endDate: string } | null;
   /**
    * Set only with `decisionReadState: "degraded"`. A degraded read that cannot
    * name both runs cannot say what it is showing, so it reads as unavailable.

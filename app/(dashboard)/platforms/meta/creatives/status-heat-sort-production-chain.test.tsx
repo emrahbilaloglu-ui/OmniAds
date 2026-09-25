@@ -294,6 +294,10 @@ function canonicalCard(input: {
   buyerLabel: string;
   sourceLabel: DecisionOutput["label"];
   heldAction?: BriefingCanonicalNativeAdDecision["classification"]["heldAction"];
+  adName?: string;
+  adsetName?: string;
+  campaignName?: string;
+  decisionEvidence?: BriefingCanonicalNativeAdDecision["decisionEvidence"];
 }): BriefingCreativeCard {
   const base = cardForDecision({
     decision: engineDecision({
@@ -352,12 +356,20 @@ function canonicalCard(input: {
       reviewOnlyReason:
         input.decisionState === "act" ? null : "Review only fixture",
     },
+    ...(input.decisionEvidence !== undefined
+      ? { decisionEvidence: input.decisionEvidence }
+      : {}),
   };
   return {
     ...base,
     id: `card_${input.adId}`,
     adId: input.adId,
     creativeId: input.creativeId,
+    ...(input.adName !== undefined ? { name: input.adName } : {}),
+    ...(input.adsetName !== undefined ? { adsetName: input.adsetName } : {}),
+    ...(input.campaignName !== undefined
+      ? { campaignName: input.campaignName }
+      : {}),
     canonicalDecision,
   };
 }
@@ -993,7 +1005,12 @@ describe("Creative Studio Status column carries the engine's classification", ()
       "2026-08-19",
     );
     expect(note?.textContent).toContain("Recommendations as of 2026-08-19.");
-    expect(note?.textContent).not.toContain("2026-08-17");
+    // The metric window end may appear only as the selected range the
+    // performance columns cover — never as the recommendations' day.
+    expect(note?.textContent).not.toContain("as of 2026-08-17");
+    expect(note?.textContent).toContain(
+      "Performance figures cover the selected date range (2026-07-21–2026-08-17).",
+    );
     expect(
       document.querySelector('[data-creative-decision-availability="unavailable"]'),
     ).toBeNull();
@@ -1018,7 +1035,8 @@ describe("Creative Studio Status column carries the engine's classification", ()
   });
 
   /**
-   * LAW: the surface may not choose between two server answers.
+   * LAW: the surface may not choose between two server answers — and it may
+   * not pair them wrongly either.
    *
    * The Assets table is creative-grain and the briefing is ad-grain, so several
    * cards can land on one row. Measured on the live account, 2 of 96 creatives
@@ -1026,8 +1044,14 @@ describe("Creative Studio Status column carries the engine's classification", ()
    * other). Picking either — or the "worse" one, or the first one — would be
    * the surface inventing a decision the engine never published, so the cell
    * keeps both literal server answers.
+   *
+   * It used to keep them by joining states and labels SEPARATELY:
+   * "Monitor / Blocked · Keep learning / Cut held". On Grandmix 2026-09-18..24
+   * that read "Blocked / Monitor · Cut · Held / Protect" for a row that is two
+   * same-named Ads in two campaigns — a pairing no Ad was served. The row now
+   * says it holds two recommendations and lists each with its own Ad.
    */
-  it("keeps both served answers when two ads sharing a creative differ", () => {
+  it("keeps both served answers, each paired with its own Ad, when two ads differ", () => {
     const rows = buildApiRows([
       creativeDay({
         creativeId: "cre_split",
@@ -1060,6 +1084,9 @@ describe("Creative Studio Status column carries the engine's classification", ()
             buyerAction: "watch_launch",
             buyerLabel: "Keep learning",
             sourceLabel: "test_more",
+            adName: "Split verdict",
+            adsetName: "LAL3-Purchase730",
+            campaignName: "Claude-WallArt-LAL3-CostCap-v1",
           }),
           canonicalCard({
             creativeId: "cre_split",
@@ -1069,14 +1096,149 @@ describe("Creative Studio Status column carries the engine's classification", ()
             buyerLabel: "Cut held",
             sourceLabel: "cut",
             heldAction: "cut",
+            adName: "Split verdict",
+            adsetName: "LAL3-WallArtPurchase180Catalog/Klaviyo",
+            campaignName: "Claude-WallArt-LAL3-CostCap-v1",
           }),
         ],
       },
     });
 
-    expect(statusColumn()).toEqual([
-      "Monitor / Blocked · Keep learning / Cut held",
+    const pill = document.querySelector("[data-creative-classification]");
+    expect(pill?.textContent).toBe("2 Ads · different recommendations");
+    expect(pill?.getAttribute("data-creative-decision-segment")).toBe("none");
+    const entries = Array.from(
+      document.querySelectorAll("[data-creative-decision-entry]"),
+    ).map((entry) => [
+      entry.getAttribute("data-creative-decision-entry"),
+      ...Array.from(entry.children).map((part) => part.textContent),
     ]);
+    // Server lane order, each verdict with the Ad it was served for.
+    expect(entries).toEqual([
+      // One campaign, two ad sets: the ad set is what tells them apart.
+      ["ad_split_a", "Monitor · Keep learning", "LAL3-Purchase730"],
+      ["ad_split_b", "Blocked · Cut held", "LAL3-WallArtPurchase180Catalog/Klaviyo"],
+    ]);
+    expect(statusColumn()[0]).not.toContain("Monitor / Blocked");
+    // Both answers stay visible: nothing was chosen.
+    expect(pill?.getAttribute("title")).toContain(
+      "Split verdict (LAL3-Purchase730 · Claude-WallArt-LAL3-CostCap-v1): Monitor · Keep learning",
+    );
+    expect(pill?.getAttribute("title")).toContain(
+      "Split verdict (LAL3-WallArtPurchase180Catalog/Klaviyo · Claude-WallArt-LAL3-CostCap-v1): Blocked · Cut held — Pause ad recommendation awaits review",
+    );
+  });
+
+  /**
+   * LAW: a verdict names the period it was judged on, beside the selected
+   * range's own numbers, and neither is rewritten to agree with the other.
+   *
+   * Grandmix, BathroomMeta-Bestseller (Ad 120249371638060316), live read
+   * 2026-09-25: selected 2026-09-18..24 shows $219.38 spend and $0 revenue,
+   * while the served verdict is Monitor · Protect. The engine judged it on
+   * its admitted period 2026-09-09..24 (16/16 economic days): $536.56 spend,
+   * 10 purchases, ROAS 5.17, with a recent band 2026-09-19..24 at ROAS 0.00.
+   */
+  it("shows the decision period a Protect verdict rests on when the selected range shows no revenue", () => {
+    const rows = buildApiRows([
+      creativeDay({
+        creativeId: "cre_bestseller",
+        adId: "ad_bestseller",
+        name: "BathroomMeta-Bestseller",
+        spend: 219.38,
+        revenue: 0,
+        purchases: 0,
+      }),
+    ]);
+
+    renderStudio({
+      rows,
+      briefing: {
+        actionNow: [],
+        watching: [],
+        healthy: [
+          canonicalCard({
+            creativeId: "cre_bestseller",
+            adId: "ad_bestseller",
+            decisionState: "monitor",
+            buyerAction: "protect",
+            buyerLabel: "Protect",
+            sourceLabel: "keep",
+            adName: "BathroomMeta-Bestseller",
+            decisionEvidence: {
+              period: {
+                startDate: "2026-09-09",
+                endDate: "2026-09-24",
+                calendarDaySpan: 16,
+                economicDayCount: 16,
+              },
+              spend: 536.56,
+              purchases: 10,
+              roas: 5.17,
+              currency: "USD",
+              recent: { startDate: "2026-09-19", endDate: "2026-09-24", roas: 0 },
+            },
+          }),
+        ],
+      },
+    });
+
+    const pill = document.querySelector("[data-creative-classification]");
+    // The served verdict is unchanged.
+    expect(pill?.textContent).toBe("Monitor · Protect");
+    const basis = document.querySelector("[data-creative-decision-basis]");
+    expect(
+      Array.from(basis?.children ?? []).map((line) => line.textContent),
+    ).toEqual([
+      "Decided on 2026-09-09–09-24 · 16/16 economic days",
+      "ROAS 5.17 · 10 purchases · $537 spend",
+      "Recent 2026-09-19–09-24: ROAS 0.00",
+    ]);
+    // The selected range keeps its own measured zero.
+    expect(metricColumn("Revenue")).toEqual(["$0"]);
+  });
+
+  it("says the decision period is unknown rather than printing unlabelled figures", () => {
+    const rows = buildApiRows([
+      creativeDay({
+        creativeId: "cre_no_window",
+        adId: "ad_no_window",
+        name: "No window",
+        spend: 50,
+        revenue: 0,
+        purchases: 0,
+      }),
+    ]);
+
+    renderStudio({
+      rows,
+      briefing: {
+        actionNow: [],
+        watching: [],
+        healthy: [
+          canonicalCard({
+            creativeId: "cre_no_window",
+            adId: "ad_no_window",
+            decisionState: "monitor",
+            buyerAction: "protect",
+            buyerLabel: "Protect",
+            sourceLabel: "keep",
+            decisionEvidence: {
+              period: null,
+              spend: 536.56,
+              purchases: 10,
+              roas: 5.17,
+              currency: "USD",
+              recent: null,
+            },
+          }),
+        ],
+      },
+    });
+
+    const basis = document.querySelector("[data-creative-decision-basis]");
+    expect(basis?.textContent).toBe("Decision period unavailable");
+    expect(basis?.textContent).not.toContain("5.17");
   });
 
   /**

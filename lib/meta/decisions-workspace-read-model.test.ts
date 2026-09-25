@@ -1307,6 +1307,53 @@ describe("Meta Decisions workspace canonical read model", () => {
     });
   });
 
+  it("carries the recent band only when both of its days lie inside the admitted window", () => {
+    const base = {
+      startDate: "2026-06-27",
+      endDate: "2026-07-12",
+      calendarDaySpan: 16,
+      observedDayCount: 16,
+      economicDayCount: 16,
+      bridgedUnresolvedDayCount: 1,
+      lookbackStartDate: "2026-06-15",
+      lookbackEndDate: "2026-07-13",
+    };
+    const windows = [
+      { ...base, recentStartDate: "2026-07-07", recentEndDate: "2026-07-12" },
+      // Outside the admitted run: the band is not labelled.
+      { ...base, recentStartDate: "2026-07-07", recentEndDate: "2026-07-13" },
+      // Not recorded (the run ends before the band): no band.
+      { ...base, recentStartDate: null, recentEndDate: null },
+    ];
+    const rows = windows.map((window, index) =>
+      nativeSnapshot(`12000000000000009${index}`, { decision_window: window }),
+    );
+    const inventory = buildNativeMetaCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      generation: nativeBuildGeneration(rows),
+      snapshotRows: rows,
+      campaignContextRows: [context()],
+    });
+    expect(inventory.status).toBe("available");
+    if (inventory.status !== "available") return;
+    const byAd = new Map(
+      inventory.items.map((item) => [item.parentChain.ad?.id, item.decisionWindow]),
+    );
+    expect(byAd.get("120000000000000090")).toMatchObject({
+      startDate: "2026-06-27",
+      endDate: "2026-07-12",
+      recentStartDate: "2026-07-07",
+      recentEndDate: "2026-07-12",
+    });
+    for (const adId of ["120000000000000091", "120000000000000092"]) {
+      const window = byAd.get(adId);
+      expect(window?.startDate).toBe("2026-06-27");
+      expect(window).not.toHaveProperty("recentStartDate");
+      expect(window).not.toHaveProperty("recentEndDate");
+    }
+  });
+
   it("carries only a valid, hash-bound native economic window into presentation", () => {
     const window = {
       startDate: "2026-07-05",

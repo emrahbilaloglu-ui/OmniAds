@@ -92,7 +92,7 @@ const state = vi.hoisted(() => ({
   pulsePayload: null as any,
   labelCampaigns: [] as any[],
   campaignLabels: [] as any[],
-  search: "window=28d",
+  search: "window=28d&scope=structure",
   pathname: "/platforms/meta",
   storeBusinesses: [] as Array<{ id: string; name: string; currency: string }>,
   workspaceBanners: [] as any[],
@@ -810,7 +810,7 @@ describe("MetaPlatformPage", () => {
     state.pulsePayload = null;
     state.labelCampaigns = [];
     state.campaignLabels = [];
-    state.search = "window=28d";
+    state.search = "window=28d&scope=structure";
     state.pathname = "/platforms/meta";
     state.storeBusinesses = [];
     state.workspaceBanners = [];
@@ -2772,7 +2772,7 @@ describe("concise header freshness", () => {
   beforeEach(() => {
     state.lanePayload = null;
     state.pulsePayload = null;
-    state.search = "window=28d";
+    state.search = "window=28d&scope=structure";
     state.storeBusinesses = [];
   });
 
@@ -2951,7 +2951,7 @@ describe("evidence-source disclosure", () => {
     state.pulsePayload = null;
     state.workspaceBanners = [];
     state.workspaceDigest = quietWorkspaceDigest();
-    state.search = "window=28d";
+    state.search = "window=28d&scope=structure";
     state.storeBusinesses = [];
   });
 
@@ -3191,7 +3191,7 @@ describe("silent action failure disclosure", () => {
     state.pulsePayload = null;
     state.workspaceBanners = [];
     state.workspaceDigest = null;
-    state.search = "window=28d";
+    state.search = "window=28d&scope=structure";
     state.storeBusinesses = [];
   });
 
@@ -3653,7 +3653,7 @@ describe("mobile decision surface parity", () => {
     state.pulsePayload = null;
     state.labelCampaigns = [];
     state.campaignLabels = [];
-    state.search = "window=28d";
+    state.search = "window=28d&scope=structure";
     state.pathname = "/platforms/meta";
     state.storeBusinesses = [];
     state.workspaceBanners = [];

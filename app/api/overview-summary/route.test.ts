@@ -439,6 +439,14 @@ describe("GET /api/overview-summary", () => {
           dataSource: expect.objectContaining({ key: "shopify_live_fallback" }),
         }),
       );
+      // Blended CPA uses the same complete paid-spend numerator and store-order
+      // denominator; the raw overview KPI is deliberately inconsistent here.
+      expect(payload.summary.customMetrics.find((metric: { id: string }) => metric.id === "custom-blended-cpa"))
+        .toEqual(expect.objectContaining({
+          value: 80,
+          previousValue: 70,
+          subtitle: "Paid spend / store orders",
+        }));
     });
 
     it("drops previous values and deltas when a provider's two windows came from different sources", async () => {
@@ -461,6 +469,8 @@ describe("GET /api/overview-summary", () => {
       expect(payload.summary.pins.find((metric: { id: string }) => metric.id === "pins-mer")).toEqual(
         expect.objectContaining({ value: 1.25, previousValue: null, changePct: null }),
       );
+      expect(payload.summary.customMetrics.find((metric: { id: string }) => metric.id === "custom-blended-cpa"))
+        .toEqual(expect.objectContaining({ value: 80, previousValue: null, changePct: null }));
     });
 
     it("shows partial provider data while keeping full-window paid aggregates closed", async () => {
@@ -493,6 +503,8 @@ describe("GET /api/overview-summary", () => {
       expect(payload.summary.pins.find((metric: { id: string }) => metric.id === "pins-mer")).toEqual(
         expect.objectContaining({ value: null, previousValue: null, changePct: null }),
       );
+      expect(payload.summary.customMetrics.find((metric: { id: string }) => metric.id === "custom-blended-cpa"))
+        .toEqual(expect.objectContaining({ value: null, previousValue: null, changePct: null, sparklineData: [] }));
     });
 
     it("fails every paid aggregate closed when a connected provider source is unknown", async () => {

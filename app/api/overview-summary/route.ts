@@ -569,11 +569,17 @@ export async function GET(request: NextRequest) {
     currentOverviewForProviderScope,
     currentBlendedRoas,
   );
-  const blendedCpaSeries = toRatioSparklineSeries(
-    currentOverview.trends.custom,
-    (point) => point.spend,
-    (point) => point.purchases
-  );
+  // Blended CPA is paid spend / store orders. The combined trend fills absent
+  // provider dates with zero spend, so only plot dates with complete paid
+  // provider coverage and a measured positive commerce denominator.
+  const blendedCpaSeries = currentMerSpend !== null && verifiedPurchasesCurrent !== null
+    ? currentOverview.trends.custom.flatMap((point) => {
+        const spend = verifiedPaidSpendByDate.get(point.date);
+        return spend !== undefined && Number.isFinite(point.purchases) && point.purchases > 0
+          ? [{ date: point.date, value: roundSparklineValue(spend / point.purchases) }]
+          : [];
+      })
+    : [];
   const ga4RevenueSeries = toSparklineSeries(ga4DailyTrends, (point) => point.revenue);
   const ga4PurchaseSeries = toSparklineSeries(ga4DailyTrends, (point) => point.purchases);
   const shopifyGrossSalesSeries = toSparklineSeries(
@@ -1280,11 +1286,30 @@ export async function GET(request: NextRequest) {
     buildMetricCard({
       id: "custom-blended-cpa",
       title: "Blended CPA",
-      value: currentOverview.kpis.cpa ?? null,
-      previousValue: previousOverview?.kpis.cpa ?? null,
+      subtitle: tr("Paid spend / store orders", "Reklam harcaması / mağaza siparişleri"),
+      value:
+        currentMerSpend !== null && verifiedPurchasesCurrent !== null && verifiedPurchasesCurrent > 0
+          ? currentMerSpend / verifiedPurchasesCurrent
+          : null,
+      previousValue:
+        paidSpendComparisonComparable && previousMerSpend !== null &&
+        verifiedPurchasesPrevious !== null && verifiedPurchasesPrevious > 0
+          ? previousMerSpend / verifiedPurchasesPrevious
+          : null,
       unit: "currency",
-      sourceKey: "ad_platforms",
-      sourceLabel: tr("Ad platforms", "Reklam platformlari"),
+      sourceKey: currentMerSpend !== null && verifiedPurchasesCurrent !== null
+        ? "paid_spend_and_store_orders"
+        : "unavailable",
+      sourceLabel: currentMerSpend !== null && verifiedPurchasesCurrent !== null
+        ? tr("Ad platforms + store orders", "Reklam platformları + mağaza siparişleri")
+        : tr("Unavailable", "Kullanılamıyor"),
+      helperText: currentMerSpend === null
+        ? tr("Paid-media coverage is incomplete for this window", "Bu dönem için reklam verisi kapsamı eksik")
+        : verifiedPurchasesCurrent === null
+          ? commerceUnavailableHelper
+          : verifiedPurchasesCurrent <= 0
+            ? tr("No measured store orders for this window", "Bu dönem için ölçülmüş mağaza siparişi yok")
+            : undefined,
       sparklineData: blendedCpaSeries,
       compareMode,
     }),

@@ -10927,3 +10927,30 @@ Grandmix/TheSwaf's D103 creative membership/config gaps or their full
 Do not relabel or delete previous slices. Any already published v3 pointer
 needs a separate reviewed rollback to its recorded predecessor; old
 manifest hashes are never reused.
+
+## D117 — Preserve verified decisions while newer Ads await their first generation (2026-09-25)
+
+**Failure.** The current-Ad Decisions projection and Creative Studio's
+visible-Ad projection previously refused every decision if even one requested
+Ad was absent from the latest native generation. A new Ad can enter Meta's
+active inventory between scheduled decision runs; an old Ad can also appear in
+a selected historical Studio window without belonging to the current
+generation. Neither absence invalidates decisions for Ads that were generated.
+
+**Decision.** These two presentation readers explicitly opt in to serving the
+intersection of requested Ads and the complete, manifest-validated generation.
+An Ad absent from that generation receives no invented verdict or action. The
+complete current-Ad census reports it as pending native evaluation, outside
+the decision lanes and their counts. A requested Ad that *is* in the manifest
+but is absent from the snapshot read still fails closed as a corrupt projection.
+The default exact-Ad subset reader remains strict for all other callers.
+Partial Meta active-inventory reads, invalid generation manifests, retained
+failed-run authority stripping, and provider-write checks keep their existing
+rules. No resolver, threshold, or producer version changes.
+
+**Acceptance and rollback.** A mixed generated/new-Ad case must serve only
+the generated verdict, count the new Ad as pending, and offer it no action; a
+manifest-listed missing snapshot must refuse the read. The Studio status for a
+historical Ad outside the current generation is not evaluated, while current
+decisions remain visible. Revert the two presentation opt-ins to restore the
+strict all-requested-Ad refusal without changing persisted generations.

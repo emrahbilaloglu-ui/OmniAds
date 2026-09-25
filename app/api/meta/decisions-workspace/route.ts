@@ -601,6 +601,7 @@ async function canonicalDecisionReadModel(input: {
         adIds: input.activeOnly
           ? input.currentAds.rows.map((row) => row.adId)
           : undefined,
+        allowMissingProjectedAdIds: input.activeOnly,
       }),
     };
   } catch {
@@ -1510,6 +1511,11 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams,
   );
   const compactOsSurface = request.nextUrl.searchParams.get("surface") === "os";
+  // The full Decision Center payload also needs only the verified current-Ad
+  // projection. `surface=os` controls response shape, not decision authority.
+  const activeAdDecisions =
+    compactOsSurface ||
+    request.nextUrl.searchParams.get("activeAdDecisions") === "1";
   const executionGovernancePromise = readEffectiveMetaWriteGovernance({
     businessId,
   });
@@ -1865,7 +1871,7 @@ export async function GET(request: NextRequest) {
         adCandidateLimit,
         asOfDate: decisionAsOfDate,
         currentAds,
-        activeOnly: compactOsSurface,
+        activeOnly: activeAdDecisions,
         generatedAt: requestGeneratedAt,
       });
     const decisionRead =
@@ -1875,7 +1881,7 @@ export async function GET(request: NextRequest) {
         ? await loadDecisionRead()
         : (
             await getCachedValue({
-              key: `meta-decisions-read-v10:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${nativeDecisionCacheIdentity}:${adCandidateLimit}:${compactOsSurface ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
+              key: `meta-decisions-read-v10:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${nativeDecisionCacheIdentity}:${adCandidateLimit}:${activeAdDecisions ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
               ttlMs: 60_000,
               staleWhileRevalidateMs: 240_000,
               loader: loadDecisionRead,

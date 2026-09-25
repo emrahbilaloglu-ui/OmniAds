@@ -422,6 +422,7 @@ async function readCreativeRows(input: {
   providerAccountId: string;
   start: string;
   end: string;
+  metadataOnly?: boolean;
 }): Promise<MetaCreativeApiRow[]> {
   if (await isDemoBusiness(input.businessId)) {
     return getDemoMetaCreatives().rows.filter(
@@ -433,7 +434,9 @@ async function readCreativeRows(input: {
     requestStartedAt: Date.now(),
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
-    mediaMode: "full",
+    // Studio fetches its own full-media asset rows. This briefing read only
+    // needs exact Ad IDs and measurement context for the visible status cells.
+    mediaMode: input.metadataOnly ? "metadata" : "full",
     format: "all",
     sort: "spend",
     start: input.start,
@@ -446,11 +449,11 @@ async function readCreativeRows(input: {
     enableCopyRecovery: false,
     enableCreativeBasicsFallback: false,
     enableCreativeDetails: false,
-    enableThumbnailBackfill: true,
-    enableCardThumbnailBackfill: true,
-    enableImageHashLookup: true,
-    enableMediaRecovery: true,
-    enableMediaCache: true,
+    enableThumbnailBackfill: !input.metadataOnly,
+    enableCardThumbnailBackfill: !input.metadataOnly,
+    enableImageHashLookup: !input.metadataOnly,
+    enableMediaRecovery: !input.metadataOnly,
+    enableMediaCache: !input.metadataOnly,
     enableDeepAudit: false,
     perAccountSampleLimit: 5,
   } as const;
@@ -572,6 +575,12 @@ export async function GET(request: NextRequest) {
   const includeDecisionCenter = shouldIncludeDecisionCenter(
     request.nextUrl.searchParams,
   );
+  // Creative Studio renders only Ads present in its selected metric window.
+  // Its status read can use the exact Ad subset after the full native
+  // generation manifest has been validated. Other briefing clients continue
+  // to receive the complete inventory.
+  const visibleAdDecisions =
+    request.nextUrl.searchParams.get("visibleAdDecisions") === "1";
 
   if (!businessId) {
     return NextResponse.json(
@@ -684,20 +693,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ...disabledBody, ...accountScopeMetadata });
   }
 
-  const liveCanonicalInventoryPromise = demoBusiness
+  const canonicalReadInput = {
+    businessId: resolvedBusinessId,
+    providerAccountId,
+    asOfDate: decisionAsOfDate ?? undefined,
+    generatedAt: requestEvaluatedAt.toISOString(),
+    ...(decisionAsOfDate === null
+      ? { allowLastSuccessfulGenerationFallback: true }
+      : {}),
+  };
+  const liveCanonicalInventoryPromise = demoBusiness || visibleAdDecisions
     ? null
-    : readMetaNativeCanonicalDecisionInventory({
-        businessId: resolvedBusinessId,
-        providerAccountId,
-        asOfDate: decisionAsOfDate ?? undefined,
-        generatedAt: requestEvaluatedAt.toISOString(),
-        // D102: only a CURRENT read may be shown the retained same-epoch
-        // generation after a failed latest run, and only read-only. An
-        // explicit asOf asks a historical question and keeps failing closed.
-        ...(decisionAsOfDate === null
-          ? { allowLastSuccessfulGenerationFallback: true }
-          : {}),
-      });
+    : readMetaNativeCanonicalDecisionInventory(canonicalReadInput);
   const liveExecutionGovernancePromise = demoBusiness
     ? null
     : readEffectiveMetaWriteGovernance({ businessId: resolvedBusinessId });
@@ -715,19 +722,34 @@ export async function GET(request: NextRequest) {
       providerAccountId,
       start,
       end: metricEnd,
+      metadataOnly: visibleAdDecisions,
     }).catch(() => [] as MetaCreativeApiRow[]),
     readTriageState({
       businessId: resolvedBusinessId,
       scopeType: "creative",
     }).catch(() => ({ rows: [], deferredCount: 0 })),
   ]);
+  const visibleAdIds = [...new Set(creativeRows
+    .map((row) => usableMetaAdId(row.real_ad_id))
+    .filter((id): id is string => id !== null))];
   const rawCanonicalInventory = demoBusiness
     ? readDemoNativeCanonicalDecisionInventory({
       businessId: resolvedBusinessId,
       providerAccountId,
       rows: creativeRows,
     })
-    : await liveCanonicalInventoryPromise!;
+    : visibleAdDecisions
+      ? await readMetaNativeCanonicalDecisionInventory({
+          ...canonicalReadInput,
+          // An empty or unreadable performance response is not proof that the
+          // decision generation has no Ads. Preserve the full read in that
+          // case; the separate assets request reports its own failure.
+          ...(visibleAdIds.length > 0 ? { adIds: visibleAdIds } : {}),
+          ...(visibleAdIds.length > 0
+            ? { allowMissingProjectedAdIds: true }
+            : {}),
+        })
+      : await liveCanonicalInventoryPromise!;
   const canonicalInventory =
     demoBusiness || rawCanonicalInventory.status === "unavailable"
       ? rawCanonicalInventory

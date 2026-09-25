@@ -413,6 +413,7 @@ async function fetchCreativeStudioBriefing(input: {
     end: input.end,
     decisionCenter: "1",
     status_filter: "all",
+    visibleAdDecisions: "1",
   });
   const response = await fetch(`/api/creatives/briefing?${query.toString()}`, {
     headers: { Accept: "application/json" },

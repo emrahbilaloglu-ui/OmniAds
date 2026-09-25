@@ -661,6 +661,7 @@ describe("GET /api/meta/decisions-workspace", () => {
       currentAds: [],
       currentAdSourceComplete: false,
       adIds: undefined,
+      allowMissingProjectedAdIds: false,
     });
     expect(payload.decisionReadModel).toMatchObject({
       status: "available",
@@ -1522,6 +1523,52 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(payload).not.toHaveProperty("lanes");
     expect(payload).not.toHaveProperty("queue");
     expect(payload).not.toHaveProperty("digest");
+  });
+
+  it("serves the full Decision Center payload from a validated active-Ad subset", async () => {
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
+      id: "assignment_1",
+      business_id: "biz_1",
+      provider: "meta",
+      account_ids: ["act_1"],
+      created_at: "2026-07-01T00:00:00.000Z",
+      updated_at: "2026-07-01T00:00:00.000Z",
+    });
+    metaApiMock.resolveMetaCredentials.mockResolvedValue({
+      accessToken: "token",
+      accountIds: ["act_1"],
+    });
+    metaApiMock.fetchMetaActiveAdConfigsReceipt.mockResolvedValue({
+      complete: true,
+      termination: "complete",
+      rows: [{
+        id: "ad_1",
+        name: "Active Ad",
+        campaign_id: "campaign_1",
+        adset_id: "adset_1",
+        status: "ACTIVE",
+        effective_status: "ACTIVE",
+        creative: { id: "creative_1" },
+      }],
+    });
+    stubWorkspaceHttpUpstreams();
+
+    const response = await GET(new NextRequest(
+      "http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&activeAdDecisions=1",
+    ));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adIds: ["ad_1"],
+        currentAdSourceComplete: true,
+        allowMissingProjectedAdIds: true,
+      }),
+    );
+    expect(payload).toHaveProperty("lanes");
+    expect(payload).toHaveProperty("digest");
+    expect(payload).toHaveProperty("decisionReadModel");
   });
 
   it("does not substitute stale snapshots when compact active inventory is unavailable", async () => {

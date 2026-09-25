@@ -71,7 +71,7 @@ describe("served creative classification copy", () => {
     expect(result).toMatchObject({
       label: "Cut",
       segment: "Blocked",
-      detail: "Fix delivery is waiting for review",
+      detail: "Fix delivery recommendation awaits review",
     });
     expect(result?.detail).not.toContain("fix_delivery");
     expect(result?.detail).not.toContain("Held:");
@@ -249,7 +249,7 @@ describe("a creative-grain row holding several exact-Ad verdicts", () => {
     ]);
     expect(result?.label).not.toContain("/");
     expect(result?.detail?.split("\n")).toEqual([
-      "Cat-Sale (LAL3-WallArtPurchase180Catalog/Klaviyo · Claude-WallArt-LAL3-CostCap-v1): Blocked · Cut · Held — Stop is waiting for review",
+      "Cat-Sale (LAL3-WallArtPurchase180Catalog/Klaviyo · Claude-WallArt-LAL3-CostCap-v1): Blocked · Cut · Held — Pause ad recommendation awaits review",
       "Cat-Sale (LAL3-Purchase730 · Claude-WallArt-LAL3-CostCap-v1): Monitor · Protect — Recommended action: Protect performance",
     ]);
   });

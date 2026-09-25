@@ -293,6 +293,7 @@ describe("/platforms/meta/creatives page", () => {
     });
 
     expect(withRows).toContain("Served asset");
+    expect(withRows).not.toContain("data-creative-source-partial");
     expect(headerButtonMarkup(withRows, "Export CSV")).not.toContain(
       "disabled",
     );
@@ -371,6 +372,32 @@ describe("Creative Studio Assets: a 200 with no rows is not automatically empty"
     expect(html).not.toContain("No creatives found for this date range.");
     expect(html).not.toContain("No data for this view.");
     expect(html).not.toContain("0 creatives");
+  });
+
+  it("names partial source coverage even when some creative rows are available", () => {
+    const reason =
+      "7 historical creative-day rows have unverified provider membership; their metrics are withheld until source-backed repair.";
+    const html = renderPage({
+      businessId: "biz_1",
+      providerAccounts: [{ id: "act_1", timezone: "UTC", currency: "USD" }],
+      creativeApiRows: [{
+        id: "creative_1",
+        creative_id: "creative_1",
+        account_id: "act_1",
+        name: "Served asset",
+        spend: 100,
+      }],
+      creativeEnvelope: {
+        status: "ok",
+        isPartial: true,
+        notReadyReason: reason,
+      },
+    });
+
+    expect(html).toContain('data-assets-state="ready"');
+    expect(html).toContain('data-creative-source-partial="true"');
+    expect(html).toContain(reason);
+    expect(html).toContain("Some metrics in this period are incomplete.");
   });
 });
 

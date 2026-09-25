@@ -1125,7 +1125,7 @@ describe("Creative Studio Status column carries the engine's classification", ()
       "Split verdict (LAL3-Purchase730 · Claude-WallArt-LAL3-CostCap-v1): Monitor · Keep learning",
     );
     expect(pill?.getAttribute("title")).toContain(
-      "Split verdict (LAL3-WallArtPurchase180Catalog/Klaviyo · Claude-WallArt-LAL3-CostCap-v1): Blocked · Cut held — Stop is waiting for review",
+      "Split verdict (LAL3-WallArtPurchase180Catalog/Klaviyo · Claude-WallArt-LAL3-CostCap-v1): Blocked · Cut held — Pause ad recommendation awaits review",
     );
   });
 

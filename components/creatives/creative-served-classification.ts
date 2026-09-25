@@ -177,7 +177,7 @@ function buyerActionLabel(value: string | null | undefined): string | null {
     protect: "Protect performance",
     keep: "Keep running",
     refresh: "Refresh creative",
-    cut: "Stop",
+    cut: "Pause ad",
     test_more: "Test more",
     diagnose: "Review data",
     fix_delivery: "Fix delivery",
@@ -282,8 +282,8 @@ function canonicalClassificationForCard(
     const heldLabel = buyerActionLabel(decision.classification.heldAction);
     details.push(
       heldLabel
-        ? `${heldLabel} is waiting for review`
-        : "An action is waiting for review",
+        ? `${heldLabel} recommendation awaits review`
+        : "Recommendation awaits review",
     );
   } else if (decision.classification.buyerAction) {
     const actionLabel = buyerActionLabel(decision.classification.buyerAction);

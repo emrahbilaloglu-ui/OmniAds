@@ -1182,6 +1182,16 @@ function AssetsView({
         </p>
       ) : null}
 
+      {model?.state === "ready" && model.sourcePartialReason?.trim() ? (
+        <p
+          className={styles.sourcePartialNotice}
+          data-creative-source-partial
+          role="note"
+        >
+          Some metrics in this period are incomplete. {model.sourcePartialReason}
+        </p>
+      ) : null}
+
       {pinnedRows.length > 0 ? (
         <section className={styles.comparisonBoard}>
           <div className={styles.sectionHeadingRow}>

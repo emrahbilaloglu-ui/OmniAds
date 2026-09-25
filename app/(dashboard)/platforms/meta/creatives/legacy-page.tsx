@@ -1300,6 +1300,8 @@ export default function MetaCreativeStudioPage({
     () => ({
       state: assetsState,
       message: assetsMessage,
+      sourcePartialReason:
+        assetsState === "ready" ? sourceHealth.partialReason : null,
       decisionReadState,
       decisionAsOfDate,
       metricWindow:
@@ -1328,6 +1330,7 @@ export default function MetaCreativeStudioPage({
       drEnd,
       drStart,
       providerAccountId,
+      sourceHealth.partialReason,
     ],
   );
   const tabHrefs = useMemo(

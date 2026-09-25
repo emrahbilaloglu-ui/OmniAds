@@ -317,6 +317,8 @@ export function retainedDecisionGenerationFromInventory(
 export interface CreativeStudioAssetsModel {
   state: CreativeStudioDataState;
   message: string | null;
+  /** Source-authored reason when some rows are served but their metric coverage is partial. */
+  sourcePartialReason?: string | null;
   /**
    * Availability of the recommendation source for the whole Assets read.
    * When it is unavailable the surface explains that once, rather than

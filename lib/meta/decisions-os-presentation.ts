@@ -1582,7 +1582,10 @@ function presentedCampaignRole(input: {
       : ("unknown" as const);
   const roleBasis = parentSuggestion
     ? "parent_campaign_suggestion" as const
-    : (context?.roleBasis ?? (context?.source === "system_inferred" ? "automatic" : "none"));
+    : (context?.roleBasis ?? (
+        context?.source === "operator_declared" ? "declared"
+          : context?.source === "system_inferred" ? "automatic" : "none"
+      ));
   const confidence = parentSuggestion && context?.confidenceClass === "high"
     ? "medium" as const
     : (context?.confidenceClass ?? "unknown");

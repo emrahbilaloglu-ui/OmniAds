@@ -530,11 +530,15 @@ function entityName(recommendation: MetaRecommendation): string {
 
 function automaticRoleChip(recommendation: MetaRecommendation): string | null {
   const context = recommendation.campaignContext;
-  if (!context || context.source !== "system_inferred" || !context.kind) return null;
-  // An ad set can have a different operational role from its parent campaign.
-  // The current source describes the campaign only, so never label the ad set
-  // itself Main or Test from this inherited context.
-  const owner = recommendation.level === "adset" ? "Parent campaign" : "Campaign";
+  if (!context || !context.kind ||
+      (context.source !== "system_inferred" && context.source !== "operator_declared")) return null;
+  // The ad-set row may carry its parent's kind as an untrusted suggestion.
+  // Without an explicit role-basis field on this snapshot, don't print that
+  // suggestion as if the ad set itself had been classified.
+  if (recommendation.level === "adset" && context.trustedForAction !== true) {
+    return "Ad set role unverified";
+  }
+  const owner = recommendation.level === "adset" ? "Ad set" : "Campaign";
   return context.trustedForAction === true
     ? `${owner} · ${titleToken(context.kind)}`
     : `${owner} likely ${titleToken(context.kind)} · unverified`;
@@ -2076,6 +2080,17 @@ function creativeRoleLabel(decision: MetaOsAdDecision): string {
     return "Role unresolved";
   }
   const kind = titleToken(role);
+  if (decision.roleBasis === "parent_campaign_suggestion") {
+    return `Ad set unverified · parent suggests ${kind}`;
+  }
+  if (decision.roleEntityType === "adset") {
+    return decision.campaignRoleTrustedForAction === true
+      ? `Ad set · ${kind}`
+      : `Ad set likely ${kind} · unverified`;
+  }
+  if (decision.roleEntityType === "campaign" && decision.roleBasis === "declared") {
+    return `Campaign · ${kind}`;
+  }
   return decision.campaignRoleTrustedForAction === true
     ? kind
     : `${kind} (inferred)`;

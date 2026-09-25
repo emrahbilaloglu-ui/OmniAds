@@ -26,6 +26,7 @@ import type {
   CommercialAnchorInputCode,
 } from "@/lib/creative-decision-engine/commercial-anchor";
 import { isCampaignContextResolverAuthorityValidated } from "@/lib/creative-decision-engine/campaign-context/source";
+import { evaluateAccountScopedRoleAuthority } from "@/lib/meta/campaign-role-authority";
 import {
   toCanonicalDecisionAction,
   type ValidatedBudgetIntent,
@@ -915,6 +916,7 @@ function structureNode(
   currency: string | null,
   suppressedAlternativeCount: number,
   contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
+  adsetRoles: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
 ): MetaOsStructureNode {
   const rec = input.rec;
   const campaignId = rec.campaignId?.trim() || null;
@@ -929,8 +931,11 @@ function structureNode(
   const campaignRole = presentedCampaignRole({
     campaignId,
     campaignName: rec.campaignName?.trim() || null,
+    adsetId: rec.level === "adset" ? rec.adsetId?.trim() || null : null,
+    adsetRoleRequired: rec.level === "adset",
     currentValue: lifecycleRole(rec),
     contexts,
+    adsetRoles,
   });
   return {
     id: `${rec.level}:${providerEntityId ?? rec.id}`,
@@ -944,6 +949,8 @@ function structureNode(
     campaignRoleSource: campaignRole.source,
     campaignRoleConfidence: campaignRole.confidence,
     campaignRoleTrustedForAction: campaignRole.trustedForAction,
+    roleEntityType: campaignRole.roleEntityType,
+    roleBasis: campaignRole.roleBasis,
     campaignRoleExplanation: campaignRole.explanation,
     ...ownership,
     status: rec.entityConfiguration?.status ?? null,
@@ -1002,6 +1009,7 @@ function inventoryStructureNode(
   row: MetaStructureInventoryEntity,
   currency: string | null,
   contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
+  adsetRoles: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
 ): MetaOsStructureNode {
   const campaignId = row.campaignId?.trim() || null;
   const status = row.status?.trim() || null;
@@ -1009,6 +1017,8 @@ function inventoryStructureNode(
   const campaignRole = presentedCampaignRole({
     campaignId,
     campaignName: row.campaignName,
+    adsetId: row.level === "adset" ? row.id : null,
+    adsetRoleRequired: row.level === "adset",
     currentValue:
       row.campaignKind === "main" ||
       row.campaignKind === "test" ||
@@ -1016,6 +1026,7 @@ function inventoryStructureNode(
         ? row.campaignKind
         : "unknown",
     contexts,
+    adsetRoles,
   });
   const configuration = row.entityConfiguration;
   return {
@@ -1030,6 +1041,8 @@ function inventoryStructureNode(
     campaignRoleSource: campaignRole.source,
     campaignRoleConfidence: campaignRole.confidence,
     campaignRoleTrustedForAction: campaignRole.trustedForAction,
+    roleEntityType: campaignRole.roleEntityType,
+    roleBasis: campaignRole.roleBasis,
     campaignRoleExplanation: campaignRole.explanation,
     budgetOwner: configuration.budgetOwner,
     budgetMode: configuration.budgetMode,
@@ -1100,7 +1113,15 @@ function syntheticCampaignNode(
   campaignName: string | null,
   child: MetaOsStructureNode,
   currency: string | null,
+  contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
+  adsetRoles: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
 ): MetaOsStructureNode {
+  const campaignRole = presentedCampaignRole({
+    campaignId,
+    campaignName,
+    contexts,
+    adsetRoles,
+  });
   return {
     id: `campaign:${campaignId ?? `unknown:${child.id}`}`,
     sourceRecommendationId: null,
@@ -1109,11 +1130,13 @@ function syntheticCampaignNode(
     campaignId,
     campaignName,
     name: campaignName ?? "Campaign unavailable",
-    lifecycleRole: child.lifecycleRole,
-    campaignRoleSource: child.campaignRoleSource,
-    campaignRoleConfidence: child.campaignRoleConfidence,
-    campaignRoleTrustedForAction: child.campaignRoleTrustedForAction,
-    campaignRoleExplanation: child.campaignRoleExplanation,
+    lifecycleRole: campaignRole.value,
+    campaignRoleSource: campaignRole.source,
+    campaignRoleConfidence: campaignRole.confidence,
+    campaignRoleTrustedForAction: campaignRole.trustedForAction,
+    roleEntityType: campaignRole.roleEntityType,
+    roleBasis: campaignRole.roleBasis,
+    campaignRoleExplanation: campaignRole.explanation,
     budgetOwner: child.budgetOwner === "adset" ? "adset" : "unknown",
     budgetMode:
       child.budgetMode === "adset_budget" ? "adset_budget" : "unknown",
@@ -1515,51 +1538,67 @@ function campaignRoleExplanationFor(
 function presentedCampaignRole(input: {
   campaignId: string | null;
   campaignName?: string | null;
+  adsetId?: string | null;
+  adsetRoleRequired?: boolean;
   currentValue?: MetaOsAdDecision["lifecycleRole"];
   currentSource?: MetaOsAdDecision["campaignRoleSource"];
   currentConfidence?: MetaOsAdDecision["campaignRoleConfidence"];
   currentTrustedForAction?: boolean;
   contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>;
+  adsetRoles: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>;
 }): {
   value: MetaOsAdDecision["lifecycleRole"];
   source: MetaOsAdDecision["campaignRoleSource"];
   confidence: MetaOsAdDecision["campaignRoleConfidence"];
   trustedForAction: boolean;
+  roleEntityType: "campaign" | "adset";
+  roleBasis: "declared" | "automatic" | "parent_campaign_suggestion" | "none";
   explanation: MetaOsCampaignRoleExplanation;
 } {
-  const context = input.campaignId
+  const campaignContext = input.campaignId
     ? (input.contexts.get(input.campaignId) ?? null)
     : null;
+  const adsetCandidate = input.adsetId
+    ? (input.adsetRoles.get(input.adsetId) ?? null)
+    : null;
+  const adsetContext = adsetCandidate &&
+    adsetCandidate.roleEntityType === "adset" &&
+    adsetCandidate.roleEntityId === input.adsetId &&
+    adsetCandidate.campaignId === input.campaignId
+      ? adsetCandidate
+      : null;
+  // A campaign can be Main while one ad set is Test. A missing ad-set row
+  // therefore carries the parent's kind only as a suggestion, never authority.
+  const needsAdsetRole = input.adsetRoleRequired === true || Boolean(input.adsetId);
+  const parentSuggestion = needsAdsetRole && !adsetContext;
+  const context = adsetContext ?? campaignContext;
   const explanation = campaignRoleExplanationFor(context);
   const contextValue = context?.kind ?? context?.suggestedKind ?? null;
   const contextSource =
-    context?.source === "system_inferred"
+    context?.source === "operator_declared"
+      ? ("user_override" as const)
+      : context?.source === "system_inferred"
       ? ("automatic" as const)
       : ("unknown" as const);
-  if (
-    input.currentValue &&
-    input.currentValue !== "label_needed" &&
-    input.currentValue !== "role_unresolved" &&
-    input.currentValue !== "unknown" &&
-    input.currentSource === "automatic" &&
-    contextValue === input.currentValue
-  ) {
-    return {
-      value: input.currentValue,
-      source: contextSource,
-      confidence: context?.confidenceClass ?? "unknown",
-      trustedForAction: Boolean(
-        context?.kind &&
-          context.source === "system_inferred" &&
-          context.confidenceClass === "high" &&
-          isCampaignContextResolverAuthorityValidated(
-            context.resolverVersion,
-          ) &&
-          input.currentTrustedForAction !== false,
-      ),
-      explanation,
-    };
-  }
+  const roleBasis = parentSuggestion
+    ? "parent_campaign_suggestion" as const
+    : (context?.roleBasis ?? (context?.source === "system_inferred" ? "automatic" : "none"));
+  const confidence = parentSuggestion && context?.confidenceClass === "high"
+    ? "medium" as const
+    : (context?.confidenceClass ?? "unknown");
+  const contextTrusted = Boolean(
+    context?.kind &&
+    !parentSuggestion &&
+    roleBasis !== "parent_campaign_suggestion" &&
+    evaluateAccountScopedRoleAuthority({
+      kind: context.kind,
+      source: context.source,
+      confidenceClass: context.confidenceClass,
+      resolverVersion: context.resolverVersion,
+      declarationContractVersion: context.declarationContractVersion ?? null,
+      isResolverVersionValidated: isCampaignContextResolverAuthorityValidated,
+    }).satisfiesRoleAuthority,
+  );
   const hasCampaignIdentity = Boolean(input.campaignId?.trim());
   const value =
     context?.kind ??
@@ -1579,13 +1618,10 @@ function presentedCampaignRole(input: {
         : hasCampaignIdentity
           ? ("automatic" as const)
           : ("unknown" as const),
-    confidence: context?.confidenceClass ?? ("unknown" as const),
-    trustedForAction: Boolean(
-        context?.kind &&
-        context.source === "system_inferred" &&
-        context.confidenceClass === "high" &&
-        isCampaignContextResolverAuthorityValidated(context.resolverVersion),
-    ),
+    confidence,
+    trustedForAction: contextTrusted && input.currentTrustedForAction !== false,
+    roleEntityType: needsAdsetRole ? "adset" : "campaign",
+    roleBasis,
     explanation,
   };
 }
@@ -1631,6 +1667,7 @@ export function adOsLaneForCanonicalDecision(
 function adDecision(
   decision: MetaCanonicalDecision,
   contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
+  adsetRoles: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
   targetHardActionEligibility: MetaTargetHardActionEligibility,
   sourceDegraded: boolean,
 ): MetaOsAdDecision | null {
@@ -1655,6 +1692,10 @@ function adDecision(
   const campaignRole = presentedCampaignRole({
     campaignId: decision.parentChain.campaign?.id ?? null,
     campaignName: decision.parentChain.campaign?.name ?? null,
+    adsetId: decision.sourceAuthority?.status === "native_exact"
+      ? decision.parentChain.adset?.id ?? null
+      : null,
+    adsetRoleRequired: decision.sourceAuthority?.status === "native_exact",
     currentValue: decision.classification.lifecycleRole.value,
     currentSource:
       decision.classification.lifecycleRole.provenance?.source ===
@@ -1665,6 +1706,7 @@ function adDecision(
     currentTrustedForAction:
       decision.classification.lifecycleRole.trustedForAction,
     contexts,
+    adsetRoles,
   });
   return {
     id: `ad:${ad.id}`,
@@ -1687,6 +1729,8 @@ function adDecision(
     campaignRoleSource: campaignRole.source,
     campaignRoleConfidence: campaignRole.confidence,
     campaignRoleTrustedForAction: campaignRole.trustedForAction,
+    roleEntityType: campaignRole.roleEntityType,
+    roleBasis: campaignRole.roleBasis,
     campaignRoleExplanation: campaignRole.explanation,
     action: mapped.action,
     lane: mapped.lane,
@@ -2041,6 +2085,7 @@ export function buildMetaOsDecisionsPresentation(input: {
    */
   currentAdsComplete?: boolean;
   currentAdCampaignContexts?: readonly MetaDecisionCampaignContextSourceRow[];
+  currentAdsetRoleRows?: readonly MetaDecisionCampaignContextSourceRow[];
   currency: string | null;
   targetHardActionEligibility?: MetaTargetHardActionEligibility;
   pipelineHealth?: Pick<
@@ -2063,6 +2108,11 @@ export function buildMetaOsDecisionsPresentation(input: {
       context.campaignId,
       context,
     ]),
+  );
+  const currentAdsetRoleRows = new Map(
+    (input.currentAdsetRoleRows ?? [])
+      .filter((row) => row.roleEntityType === "adset" && row.roleEntityId)
+      .map((row) => [row.roleEntityId!, row]),
   );
   const targetHardActionEligibility = input.targetHardActionEligibility ?? {
     scale: true,
@@ -2128,6 +2178,7 @@ export function buildMetaOsDecisionsPresentation(input: {
         input.currency,
         Math.max(0, sorted.length - 1),
         currentAdCampaignContexts,
+        currentAdsetRoleRows,
       );
     },
   );
@@ -2137,6 +2188,7 @@ export function buildMetaOsDecisionsPresentation(input: {
       row,
       input.currency,
       currentAdCampaignContexts,
+      currentAdsetRoleRows,
     );
     selectedNodesById.set(node.id, node);
   }
@@ -2170,6 +2222,8 @@ export function buildMetaOsDecisionsPresentation(input: {
         adset.campaignName,
         adset,
         input.currency,
+        currentAdCampaignContexts,
+        currentAdsetRoleRows,
       );
       group = {
         id: `group:${key}`,
@@ -2229,6 +2283,7 @@ export function buildMetaOsDecisionsPresentation(input: {
     const item = adDecision(
       decision,
       currentAdCampaignContexts,
+      currentAdsetRoleRows,
       targetHardActionEligibility,
       sourceDegraded,
     );

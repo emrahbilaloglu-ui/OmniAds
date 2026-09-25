@@ -3794,7 +3794,7 @@ describe("served structure inventory", () => {
     ).toEqual(["Campaign · Main"]);
     expect(
       model.needsResolutionRows?.find((row) => row.id === adset.id)?.chips,
-    ).toEqual(["Parent campaign · Main"]);
+    ).toEqual(["Ad set · Main"]);
   });
 
   it("does not count recommendation-free Monitor inventory as watched decisions", () => {

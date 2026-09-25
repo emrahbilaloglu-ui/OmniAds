@@ -16,6 +16,7 @@ import {
 import { metaLanePayload } from "@/components/meta/redesign/test-fixtures";
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
 import { CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV } from "@/lib/creative-decision-engine/campaign-context/source";
+import { ENTITY_ROLE_DECLARATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -863,6 +864,82 @@ describe("buildMetaOsDecisionsPresentation", () => {
       campaignRoleSource: "automatic",
       campaignRoleConfidence: "high",
       campaignRoleTrustedForAction: true,
+    });
+  });
+
+  it("keeps an independently declared Test ad set inside a Main campaign", () => {
+    const campaignContext = {
+      campaignId: "cmp_1",
+      kind: "main" as const,
+      source: "operator_declared" as const,
+      confidenceClass: "high" as const,
+      sourceUpdatedAt: "2026-09-25T08:00:00.000Z",
+      resolverVersion: null,
+      roleEntityType: "campaign" as const,
+      roleEntityId: "cmp_1",
+      roleBasis: "declared" as const,
+      declarationContractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+    };
+    const adsetContext = {
+      ...campaignContext,
+      kind: "test" as const,
+      roleEntityType: "adset" as const,
+      roleEntityId: "set_1",
+    };
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [recommendation({
+        id: "adset-role-test",
+        level: "adset",
+        campaignId: "cmp_1",
+        campaignName: "Main campaign",
+        adsetId: "set_1",
+        adsetName: "Test cell",
+      })],
+      nonSales: [],
+      decisionReadModel: readModel([]),
+      currentAdCampaignContexts: [campaignContext],
+      currentAdsetRoleRows: [adsetContext],
+      currency: "EUR",
+    });
+    const group = result.structure.groups[0]!;
+    // The grouping row is synthetic. It must not inherit the child's Test.
+    expect(group.campaign).toMatchObject({
+      lifecycleRole: "main",
+      campaignRoleSource: "user_override",
+      campaignRoleTrustedForAction: true,
+      roleEntityType: "campaign",
+      roleBasis: "declared",
+    });
+    expect(group.adsets[0]).toMatchObject({
+      lifecycleRole: "test",
+      campaignRoleSource: "user_override",
+      campaignRoleTrustedForAction: true,
+      roleEntityType: "adset",
+      roleBasis: "declared",
+    });
+
+    const withoutAdsetDeclaration = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [recommendation({
+        id: "adset-role-suggestion",
+        level: "adset",
+        campaignId: "cmp_1",
+        campaignName: "Main campaign",
+        adsetId: "set_1",
+        adsetName: "Test cell",
+      })],
+      nonSales: [],
+      decisionReadModel: readModel([]),
+      currentAdCampaignContexts: [campaignContext],
+      currency: "EUR",
+    });
+    expect(withoutAdsetDeclaration.structure.groups[0]!.adsets[0]).toMatchObject({
+      lifecycleRole: "main",
+      campaignRoleConfidence: "medium",
+      campaignRoleTrustedForAction: false,
+      roleEntityType: "adset",
+      roleBasis: "parent_campaign_suggestion",
     });
   });
 
@@ -2179,7 +2256,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
-    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v8");
+    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v9");
     /*
       RE-PINNED. This asserted `code: "keep_running", intent: "none"` — the
       published `keep` label's own affirmative soft action, served for a row
@@ -2794,7 +2871,7 @@ describe("held verdicts on the served Ad decision", () => {
     // reads as "not measured", which a reader must not confuse with three
     // measured zeroes or with a measured "no verdict was held".
     expect(serializedBeforeTheseFields.contractVersion).toBe(
-      "meta-os-decisions.presentation.v8",
+      "meta-os-decisions.presentation.v9",
     );
     expect(serializedBeforeTheseFields.ads.heldCounts).toBeUndefined();
     expect(serializedBeforeTheseFields.ads.items[0]!.heldAction).toBeUndefined();

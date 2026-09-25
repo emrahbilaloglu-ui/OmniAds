@@ -72,6 +72,7 @@ import {
   type MetaDecisionCenterExactWorkflow,
 } from "@/components/meta/decision-center/MetaDecisionCenterExact";
 import { MetaDecisionCreativeThumbnail } from "@/components/meta/decision-center/MetaDecisionCreativeThumbnail";
+import { MetaEntityRoleReview } from "@/components/meta/decision-center/MetaEntityRoleReview";
 import { metaCreativeThumbnailRecoveryUrl } from "@/lib/meta/creative-thumbnail-recovery-url";
 import {
   buildMetaDecisionCenterExactViewModel,
@@ -2230,6 +2231,7 @@ function MetaMobileDecisionsScreen({
   manualActionFor,
   ceremonyRowId,
   ceremony,
+  roleReview,
   localAccountSelection,
 }: {
   businessName?: string | null;
@@ -2278,6 +2280,7 @@ function MetaMobileDecisionsScreen({
   /** The row whose ceremony is open, so the sheet renders beside its card. */
   ceremonyRowId?: string | null;
   ceremony?: ReactNode;
+  roleReview?: ReactNode;
   localAccountSelection?: {
     accounts: MetaHistoryAccount[];
     providerAccountId: string | null;
@@ -2426,6 +2429,8 @@ function MetaMobileDecisionsScreen({
             Meta data: {mobileDisplay(identity.syncedLabel)} ·{" "}
             {mobileDisplay(identity.currency)}
           </div>
+
+          {roleReview}
 
           {refreshFailedOverLoadedRows ? (
             <article
@@ -6385,6 +6390,16 @@ export function MetaPlatformPage({
           manualActionFor={mobileManualActionFor}
           ceremonyRowId={manualCeremonyRec?.id ?? null}
           ceremony={manualCeremonySheetFor("mobile")}
+          roleReview={workspaceQuery.data?.os && providerAccountId ? (
+            <MetaEntityRoleReview
+              businessId={businessId}
+              providerAccountId={providerAccountId}
+              groups={workspaceQuery.data.os.structure.groups}
+              decisionAsOf={workspaceQuery.data.os.source.snapshotAsOf}
+              readOnly={isViewerReadOnly}
+              onSaved={refreshDecisionData}
+            />
+          ) : null}
           localAccountSelection={
             accountSelection === "local"
               ? {
@@ -6578,6 +6593,17 @@ export function MetaPlatformPage({
             )
           }
         />
+
+        {workspaceQuery.data?.os && providerAccountId ? (
+          <MetaEntityRoleReview
+            businessId={businessId}
+            providerAccountId={providerAccountId}
+            groups={workspaceQuery.data.os.structure.groups}
+            decisionAsOf={workspaceQuery.data.os.source.snapshotAsOf}
+            readOnly={isViewerReadOnly}
+            onSaved={refreshDecisionData}
+          />
+        ) : null}
 
         {workspaceQuery.data ? (
           <MetaDecisionCenterExact

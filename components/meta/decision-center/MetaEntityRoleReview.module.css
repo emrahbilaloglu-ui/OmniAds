@@ -1,0 +1,89 @@
+.panel {
+  margin: 0 0 14px;
+  border: 1px solid var(--adc-b2, #d8deeb);
+  border-radius: 12px;
+  background: var(--adc-s1, #fff);
+  color: var(--adc-ink, #172033);
+}
+
+.toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  padding: 14px 16px;
+  text-align: left;
+}
+
+.toggle span:last-child {
+  color: var(--adc-ink3, #657184);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.body {
+  border-top: 1px solid var(--adc-b1, #e5e9f0);
+  padding: 14px 16px 16px;
+}
+
+.body > p {
+  margin: 0 0 12px;
+  color: var(--adc-ink2, #3c485a);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rows {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--adc-b1, #e5e9f0);
+  border-radius: 8px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(190px, auto) minmax(155px, auto);
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--adc-b1, #e5e9f0);
+  padding: 10px 12px;
+}
+
+.row:last-child { border-bottom: 0; }
+
+.identity { min-width: 0; }
+.identity strong, .identity small { display: block; overflow-wrap: anywhere; }
+.identity strong { font-size: 13px; font-weight: 650; }
+.identity small { margin-top: 2px; color: var(--adc-ink3, #657184); font-size: 11px; }
+.current { color: var(--adc-ink2, #3c485a); font-size: 12px; }
+
+.row select {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--adc-b2, #d8deeb);
+  border-radius: 6px;
+  background: var(--adc-s1, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 12px; }
+.footer button { min-height: 36px; border: 0; border-radius: 6px; background: #2455d5; color: white; cursor: pointer; font: inherit; font-weight: 650; padding: 8px 12px; }
+.footer button:disabled { cursor: not-allowed; opacity: .5; }
+.notice { margin-top: 12px !important; }
+
+@media (max-width: 700px) {
+  .toggle { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .row { grid-template-columns: 1fr; gap: 6px; }
+  .footer { align-items: stretch; flex-direction: column; }
+}

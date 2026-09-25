@@ -466,7 +466,7 @@ export interface MetaOsAdDecision {
     /** @deprecated Historical snapshots only; new runtime output uses role_unresolved. */
     | "label_needed"
     | "unknown";
-  campaignRoleSource: "automatic" | "user_override" | "unknown";
+  campaignRoleSource: "automatic" | "operator_declared" | "user_override" | "unknown";
   campaignRoleConfidence: "high" | "medium" | "low" | "unknown" | "conflict";
   campaignRoleTrustedForAction: boolean;
   /** D118: native Ad decisions use their ad set's own role. Older payloads omit it. */

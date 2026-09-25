@@ -906,14 +906,14 @@ describe("buildMetaOsDecisionsPresentation", () => {
     // The grouping row is synthetic. It must not inherit the child's Test.
     expect(group.campaign).toMatchObject({
       lifecycleRole: "main",
-      campaignRoleSource: "user_override",
+      campaignRoleSource: "operator_declared",
       campaignRoleTrustedForAction: true,
       roleEntityType: "campaign",
       roleBasis: "declared",
     });
     expect(group.adsets[0]).toMatchObject({
       lifecycleRole: "test",
-      campaignRoleSource: "user_override",
+      campaignRoleSource: "operator_declared",
       campaignRoleTrustedForAction: true,
       roleEntityType: "adset",
       roleBasis: "declared",

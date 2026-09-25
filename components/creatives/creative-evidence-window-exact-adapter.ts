@@ -1190,10 +1190,12 @@ function authorityRows(input: {
     );
     push(
       "served-campaign-role",
-      "Served campaign role",
+      decision.roleEntityType === "adset" ? "Served ad set role" : "Served campaign role",
       [
         nonBlank(decision.lifecycleRole),
-        nonBlank(decision.campaignRoleSource),
+        decision.campaignRoleSource === "operator_declared"
+          ? "operator confirmed"
+          : nonBlank(decision.campaignRoleSource),
         nonBlank(decision.campaignRoleConfidence)
           ? `confidence ${decision.campaignRoleConfidence}`
           : null,

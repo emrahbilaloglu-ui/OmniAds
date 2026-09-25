@@ -1576,7 +1576,7 @@ function presentedCampaignRole(input: {
   const contextValue = context?.kind ?? context?.suggestedKind ?? null;
   const contextSource =
     context?.source === "operator_declared"
-      ? ("user_override" as const)
+      ? ("operator_declared" as const)
       : context?.source === "system_inferred"
       ? ("automatic" as const)
       : ("unknown" as const);

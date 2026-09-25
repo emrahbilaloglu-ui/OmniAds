@@ -45,16 +45,19 @@ describe("AiBriefCard", () => {
     }
   });
 
-  it("uses an em dash instead of fabricated loading, empty, or error copy", () => {
-    render(<AiBriefCard insight={null} loading error="private backend detail" />);
-
-    expect(screen.getAllByText("—")).toHaveLength(5);
-    expect(screen.getByText("Opportunity")).toBeTruthy();
-    expect(screen.getByText("Risk")).toBeTruthy();
-    expect(screen.getByText("Action")).toBeTruthy();
+  it("distinguishes loading, missing, and failed briefs without exposing backend details", () => {
+    const { rerender } = render(<AiBriefCard insight={null} loading error="private backend detail" />);
+    expect(screen.getByRole("status").textContent).toBe("Loading daily brief…");
+    expect(screen.queryByText("Opportunity")).toBeNull();
     expect(screen.queryByText(/private backend detail/i)).toBeNull();
-    expect(screen.queryByText(/no ai brief available/i)).toBeNull();
-    expect(document.querySelector(".animate-pulse")).toBeNull();
+
+    rerender(<AiBriefCard insight={null} onRegenerate={vi.fn()} />);
+    expect(screen.getByRole("status").textContent).toContain("No daily brief is available yet");
+    expect(screen.getByRole("button", { name: "Generate brief" })).toBeTruthy();
+
+    rerender(<AiBriefCard insight={null} error="private backend detail" />);
+    expect(screen.getByRole("status").textContent).toBe("Daily brief could not be loaded. Try again.");
+    expect(screen.queryByText(/private backend detail/i)).toBeNull();
   });
 
   it("keeps the exact caption and 8px radius while the guarded action is pending", () => {

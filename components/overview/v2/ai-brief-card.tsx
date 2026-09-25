@@ -33,6 +33,7 @@ function toRows(insight: AiDailyInsightSnapshot | null | undefined) {
 export function AiBriefCard({
   insight,
   loading,
+  error,
   onRegenerate,
   regenerating,
 }: {
@@ -45,6 +46,13 @@ export function AiBriefCard({
   const rows = toRows(insight);
   const summary = insight?.summary.trim() || "—";
   const insightDate = insight?.insightDate.trim() || "—";
+  const emptyMessage = loading
+    ? "Loading daily brief…"
+    : regenerating
+      ? "Generating daily brief…"
+      : error
+        ? "Daily brief could not be loaded. Try again."
+        : "No daily brief is available yet. Generate one to see opportunities, risks, and actions.";
 
   return (
     <article className="adv-card overflow-hidden" aria-busy={Boolean(loading || regenerating)}>
@@ -74,8 +82,10 @@ export function AiBriefCard({
         </span>
       </div>
       <div className="flex flex-col gap-3 px-4 py-3.5">
-        <p className="m-0 text-[13px] leading-[1.6] text-[#45526B]">{summary}</p>
-        {rows.map((row) => (
+        {insight ? <p className="m-0 text-[13px] leading-[1.6] text-[#45526B]">{summary}</p> : (
+          <p className="m-0 text-[13px] leading-[1.6] text-[#45526B]" role="status">{emptyMessage}</p>
+        )}
+        {insight ? rows.map((row) => (
           <div
             key={row.kind}
             data-overview-brief-kind={row.kind}
@@ -93,7 +103,7 @@ export function AiBriefCard({
             </span>
             <span className="text-[12.5px] leading-[1.5] text-[#0E1526]">{row.text}</span>
           </div>
-        ))}
+        )) : null}
         <button
           type="button"
           onClick={onRegenerate}
@@ -102,7 +112,7 @@ export function AiBriefCard({
           className="adv-btn h-8 justify-center !px-0 !text-[12.5px] !text-[#45526B]"
           style={{ height: 32, borderRadius: 8, opacity: 1, cursor: "pointer" }}
         >
-          Regenerate brief
+          {insight ? "Regenerate brief" : "Generate brief"}
         </button>
       </div>
     </article>

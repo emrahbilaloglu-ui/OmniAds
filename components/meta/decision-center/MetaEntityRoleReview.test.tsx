@@ -81,4 +81,19 @@ describe("Meta entity role review", () => {
     }]} readOnly onSaved={() => {}} />);
     expect(screen.getByRole("button", { name: /Review Main \/ Test roles/i }).textContent).toContain("0 unverified");
   });
+
+  it("keeps a verified write confirmed when the subsequent screen refresh fails", async () => {
+    vi.stubGlobal("fetch", vi.fn((_: string, init?: RequestInit) => Promise.resolve({
+      ok: true,
+      json: async () => ({ ok: true, declarations: [{
+        id: "saved-1", entityType: "adset", entityId: "456", event: "declare", declaredRole: "test",
+      }] }),
+    })));
+    render(<MetaEntityRoleReview businessId="biz-1" providerAccountId="act_1" groups={groups} readOnly={false} onSaved={() => Promise.reject(new Error("refresh failed"))} />);
+    fireEvent.click(screen.getByRole("button", { name: /Review Main \/ Test roles/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Confirm role for adset Test cell" }), { target: { value: "test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm selected roles" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("1 role confirmed"));
+    expect(screen.getByRole("status").textContent).toContain("The screen did not refresh");
+  });
 });

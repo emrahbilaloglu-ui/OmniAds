@@ -129,8 +129,13 @@ export function MetaEntityRoleReview({
         throw new Error("Roles were submitted, but their database readback could not be verified. Refresh before retrying.");
       }
       setChoices({});
-      setNotice(`${requests.length} role${requests.length === 1 ? "" : "s"} confirmed. Refreshing decision context; existing verdicts keep their recorded authority until regenerated.`);
-      await onSaved();
+      const confirmed = `${requests.length} role${requests.length === 1 ? "" : "s"} confirmed. Existing verdicts keep their recorded authority until regenerated.`;
+      try {
+        await onSaved();
+        setNotice(confirmed);
+      } catch {
+        setNotice(`${confirmed} The screen did not refresh; reload it to see the saved roles.`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Role review failed.";
       setNotice(submissionUncertain

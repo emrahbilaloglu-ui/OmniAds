@@ -601,6 +601,7 @@ async function canonicalDecisionReadModel(input: {
         adIds: input.activeOnly
           ? input.currentAds.rows.map((row) => row.adId)
           : undefined,
+        allowMissingProjectedAdIds: input.activeOnly,
       }),
     };
   } catch {

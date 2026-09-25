@@ -661,6 +661,7 @@ describe("GET /api/meta/decisions-workspace", () => {
       currentAds: [],
       currentAdSourceComplete: false,
       adIds: undefined,
+      allowMissingProjectedAdIds: false,
     });
     expect(payload.decisionReadModel).toMatchObject({
       status: "available",
@@ -1559,7 +1560,11 @@ describe("GET /api/meta/decisions-workspace", () => {
 
     expect(response.status).toBe(200);
     expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledWith(
-      expect.objectContaining({ adIds: ["ad_1"], currentAdSourceComplete: true }),
+      expect.objectContaining({
+        adIds: ["ad_1"],
+        currentAdSourceComplete: true,
+        allowMissingProjectedAdIds: true,
+      }),
     );
     expect(payload).toHaveProperty("lanes");
     expect(payload).toHaveProperty("digest");

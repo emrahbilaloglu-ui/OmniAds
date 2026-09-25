@@ -2477,6 +2477,13 @@ export interface ReadValidatedMetaNativeDecisionGenerationBundleInput {
   /** Optional exact-Ad serving projection. Full generation authority is still proven. */
   adIds?: readonly string[];
   /**
+   * Presentation-only projection: Ads first seen after the last generation
+   * have no decision to serve. Keep the validated decisions for the other Ads
+   * and let the current-inventory census report these as pending. Callers that
+   * need every requested Ad to have a snapshot retain the strict default.
+   */
+  allowMissingProjectedAdIds?: boolean;
+  /**
    * AREA 3 opt-in: serve the last COMPLETE successful generation, read-only and
    * explicitly marked, when the latest terminal run FAILED. Decisions workspace
    * and Creative Briefing opt in only when their response carries the source
@@ -4710,7 +4717,16 @@ async function readValidatedMetaNativeDecisionSubset(
     const storedAdIds = new Set(
       storedSnapshotRows.map((row) => row.ad_id.trim()),
     );
-    if (requestedAdIds.some((adId) => !storedAdIds.has(adId))) {
+    const manifestAdIds = new Set(manifestRows.map((row) => row.ad_id.trim()));
+    const missingRequestedAdIds = requestedAdIds.filter(
+      (adId) => !storedAdIds.has(adId),
+    );
+    // A newly opened Ad may be absent from the proven generation. A snapshot
+    // that IS in the manifest but disappeared from the projected read is a
+    // different failure: never silently drop a generated decision.
+    if (missingRequestedAdIds.some(
+      (adId) => !input.allowMissingProjectedAdIds || manifestAdIds.has(adId),
+    )) {
       return refuse("native_serving_subset_incomplete");
     }
   }
@@ -5843,8 +5859,10 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
   asOfDate?: string;
   currentAds?: readonly MetaCurrentAdStatusSourceRow[];
   currentAdSourceComplete?: boolean;
-  /** Exact active-Ad projection for the compact operator surface. */
+  /** Exact active-Ad projection for the operator surface. */
   adIds?: readonly string[];
+  /** Preserve decided Ads when a newer Ad is pending its first generation. */
+  allowMissingProjectedAdIds?: boolean;
   generatedAt?: string;
   sectionLimit?: number;
   adCandidateLimit?: number;

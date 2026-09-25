@@ -745,6 +745,9 @@ export async function GET(request: NextRequest) {
           // decision generation has no Ads. Preserve the full read in that
           // case; the separate assets request reports its own failure.
           ...(visibleAdIds.length > 0 ? { adIds: visibleAdIds } : {}),
+          ...(visibleAdIds.length > 0
+            ? { allowMissingProjectedAdIds: true }
+            : {}),
         })
       : await liveCanonicalInventoryPromise!;
   const canonicalInventory =

@@ -377,6 +377,7 @@ describe("GET /api/creatives/briefing canonical native-ad authority", () => {
         businessId: "biz_1",
         providerAccountId: "act_1",
         adIds: ["ad_2", "ad_1"],
+        allowMissingProjectedAdIds: true,
       }),
     );
     expect(getMetaCreativesApiPayload).toHaveBeenCalledWith(

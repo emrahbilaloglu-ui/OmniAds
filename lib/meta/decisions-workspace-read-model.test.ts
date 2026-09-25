@@ -646,6 +646,7 @@ function campaignContextDbRow(overrides: Record<string, unknown> = {}) {
 function workspaceReadQuery(input: {
   generationRows?: unknown[];
   nativeRows?: MetaNativeDecisionSnapshotSourceRow[];
+  manifestAdIds?: string[];
   legacyRows?: MetaDecisionSnapshotSourceRow[];
   /** Defaults to none, which is what an unresolved campaign looks like. */
   campaignContextRows?: unknown[];
@@ -658,7 +659,8 @@ function workspaceReadQuery(input: {
       return input.campaignContextRows ?? [];
     }
     if (sql.includes("native-ad-serving-manifest")) {
-      return (input.nativeRows ?? []).map((row) => ({ ad_id: row.ad_id }));
+      return (input.manifestAdIds ?? (input.nativeRows ?? []).map((row) => row.ad_id))
+        .map((adId) => ({ ad_id: adId }));
     }
     if (sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot")) {
       const creativeIds = new Set((params?.[7] ?? []) as string[]);
@@ -4637,6 +4639,99 @@ describe("Meta Decisions workspace canonical read model", () => {
     expect(model.source.fallbackReason).toBe(
       "native_serving_subset_incomplete",
     );
+  });
+
+  it("keeps proven decisions visible when a newer Ad awaits its first generation", async () => {
+    const decidedAdId = "120000000000000121";
+    const pendingAdId = "120000000000000999";
+    const rows = [nativeSnapshot(decidedAdId)];
+    const query = workspaceReadQuery({
+      generationRows: [nativeGenerationForRows(rows)],
+      nativeRows: rows,
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const currentAds = [decidedAdId, pendingAdId].map((adId) => ({
+      providerAccountId: "act_1",
+      adId,
+      adName: `Ad ${adId}`,
+      campaignId: "campaign_1",
+      campaignName: "Campaign",
+      adsetId: "adset_1",
+      creativeId: adId === decidedAdId ? "creative_shared" : "creative_new",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      providerUpdatedAt: null,
+      fetchedAt: "2026-07-16T12:00:00.000Z",
+    }));
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adIds: [decidedAdId, pendingAdId],
+      allowMissingProjectedAdIds: true,
+      currentAdSourceComplete: true,
+      currentAds,
+    });
+
+    expect(model.status).toBe("available");
+    expect(model.source).toMatchObject({
+      authority: "native_ad",
+      generation: { expectedAdCount: 1 },
+    });
+    const servedAdIds = new Set([
+      ...Object.values(model.queue.sections).flatMap((section) =>
+        section.items.map((item) => item.parentChain.ad?.id),
+      ),
+      ...(model.queue.adCandidates?.items.map(
+        (item) => item.parentChain.ad?.id,
+      ) ?? []),
+    ]);
+    expect([...servedAdIds]).toEqual([decidedAdId]);
+    expect(JSON.stringify(model)).not.toContain(pendingAdId);
+    const os = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: model,
+      currentAds,
+      currentAdsComplete: true,
+      currency: "USD",
+    });
+    expect(os.ads.pendingInventoryCount).toBe(1);
+    expect(os.ads.items.some((item) => item.adId === pendingAdId)).toBe(false);
+
+    const inventory = await readMetaNativeCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adIds: [decidedAdId, pendingAdId],
+      allowMissingProjectedAdIds: true,
+    });
+    expect(inventory.status).toBe("available");
+    if (inventory.status !== "available") return;
+    expect(inventory.items.map((item) => item.parentChain.ad?.id)).toEqual([
+      decidedAdId,
+    ]);
+  });
+
+  it("still refuses a projected snapshot missing from its verified manifest", async () => {
+    const adId = "120000000000000121";
+    const row = nativeSnapshot(adId);
+    const query = workspaceReadQuery({
+      generationRows: [nativeGenerationForRows([row])],
+      manifestAdIds: [adId],
+      nativeRows: [],
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adIds: [adId],
+      allowMissingProjectedAdIds: true,
+    });
+
+    expect(model.status).toBe("unavailable");
+    expect(model.source.fallbackReason).toBe("native_serving_subset_incomplete");
   });
 
   it("keeps invalid bundles unavailable without querying legacy snapshots", async () => {

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "9f866c44db7f9566d4d525a205198823d615b71e37627545c13b7ca6f0fbd01a",
+  "manifestHash": "fd95defbf874b4c8fa92fb343b1b1f184341d248431f4bd0e67327f9ca5677f3",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -144,11 +144,11 @@
     },
     {
       "path": "app/api/creatives/briefing/route.test.ts",
-      "sha256": "08cdd0fb2501fe98c794377b82955737a1ab2cd0cea11ec221ae61285509338e"
+      "sha256": "0f836e2ae2766c0b318a2fbada6d6a75d0013d384ed978f2f74a0671ce23af84"
     },
     {
       "path": "app/api/creatives/briefing/route.ts",
-      "sha256": "820b88b6a0a36576e9b719f7b5cab69001de20dfe034979782f6cbce93227e7f"
+      "sha256": "22b716086c32e403f14558b959ea1749e77d09c8e7927989393dd5cd0dc1bfd7"
     },
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.test.ts",
@@ -236,11 +236,11 @@
     },
     {
       "path": "app/api/meta/decisions-workspace/route.test.ts",
-      "sha256": "c7168d5f14cee41a1046cdd9ca06fbca2ee11fcb23c686423181a9207a8be7c7"
+      "sha256": "1308235dae32d3da283409e10255241d200899969c8ed0eb1af593a26db4dea1"
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "8473fdc2dab44017052c92c2d13160e59ed42c1d90b213110b48737066b059ea"
+      "sha256": "fefdd3d7956771a2f5b442ecf89b9d63755588f7d2f0d5df34b8453f179f3a7b"
     },
     {
       "path": "app/api/meta/lane-classify/route.test.ts",
@@ -612,7 +612,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "efddd4540a4b9c5a52a3d9c3f0ba14f5423e3e144fbf33da383c2913847e0113"
+      "sha256": "6dce9de502bfbd6e7df636a6d1dd7a141c5de0248c91dfe2c8e7160158f81f8d"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1624,11 +1624,11 @@
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
-      "sha256": "d4a1acbbc96fd6d988fa4deb6d200d28937a3ff57d80e0264c82f3d5fb179908"
+      "sha256": "fc0271958339e247808a8c7a49cc1d1b218d85d59635695c268cbf837976d9d0"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
-      "sha256": "7bd21af83e708b5304041383c87a0e8e98164bf440a00e26c63c9e5092203c09"
+      "sha256": "5ad8e47d3b2903a81311d166ccad2762a30515168b3dfb91fb6030185bb550e5"
     },
     {
       "path": "lib/meta/entity-signals-backfill.test.ts",

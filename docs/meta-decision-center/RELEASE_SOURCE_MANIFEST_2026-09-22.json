@@ -1,5 +1,5 @@
 {
-  "manifestHash": "c652cedaf90ef8835cd96258995505701210766d621da01dfb606449c0aa2cbf",
+  "manifestHash": "6e7911f9209b77845a9986c9523d3e7dae2883aeb7567e776122e3ec30717c42",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -584,7 +584,7 @@
     },
     {
       "path": "components/meta/redesign/mobile-card-apply-ceremony.test.tsx",
-      "sha256": "4c3ddfb00ae2a283aaad8d6725adf9daebfe822d898188983d1cf4f91a948b0e"
+      "sha256": "df99ab1b9a847d795f4623184b4fa08a22cc0ecd4d616b2261e2a9109ed15ec7"
     },
     {
       "path": "components/overview/v2/ai-brief-card.test.tsx",

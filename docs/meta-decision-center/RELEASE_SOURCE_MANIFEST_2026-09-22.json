@@ -1,5 +1,5 @@
 {
-  "manifestHash": "22b919609f9edbae27086ac816a73b5a6087d2a7d1181ff3e04f5d4e6fcbc6ed",
+  "manifestHash": "2b6af69a8508b2bddd25ea20fb641540193d4e6d989960b7f0d57eec02eed20e",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -76,7 +76,7 @@
     },
     {
       "path": "app/(dashboard)/platforms/meta/creatives/legacy-page.tsx",
-      "sha256": "1374630b3c43199cc4785d485983a5e1980fccbd7e0f3c41002b11598c84a301"
+      "sha256": "bd274a1288abc55c08665517e023606600ae811b338ef03418fed1ad76590b1b"
     },
     {
       "path": "app/(dashboard)/platforms/meta/creatives/null-vs-zero-production-chain.test.tsx",
@@ -104,7 +104,7 @@
     },
     {
       "path": "app/(dashboard)/platforms/meta/creatives/status-heat-sort-production-chain.test.tsx",
-      "sha256": "622e9273c5f84b95e26e8417e4d1edae60f86e554d080f7d3fdb65d795f395e4"
+      "sha256": "2275c414f3451faaeec6b72e6c856e78f4d6eef4014c85f6d9093b6e1412ed58"
     },
     {
       "path": "app/(dashboard)/platforms/meta/landing-pages/page.test.tsx",
@@ -144,11 +144,11 @@
     },
     {
       "path": "app/api/creatives/briefing/route.test.ts",
-      "sha256": "a33e347fbb29ce47e0b0604fd65db4bee6c9fcf7f5e2d5ddd2dbe4fdd7bddf8a"
+      "sha256": "08cdd0fb2501fe98c794377b82955737a1ab2cd0cea11ec221ae61285509338e"
     },
     {
       "path": "app/api/creatives/briefing/route.ts",
-      "sha256": "1cd6f06b35f583a49fc7232ce503b468eda672b707e9ac01691eff683e497779"
+      "sha256": "820b88b6a0a36576e9b719f7b5cab69001de20dfe034979782f6cbce93227e7f"
     },
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.test.ts",

@@ -360,6 +360,52 @@ afterEach(() => {
 });
 
 describe("GET /api/creatives/briefing canonical native-ad authority", () => {
+  it("validates the full generation but serves only exact Ads visible in Creative Studio", async () => {
+    vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [creativeRow("ad_2"), creativeRow("ad_1"), creativeRow("ad_2")],
+      media_mode: "metadata",
+      media_hydrated: false,
+    });
+
+    await GET(new NextRequest(
+      "http://localhost/api/creatives/briefing?businessId=biz_1&visibleAdDecisions=1",
+    ));
+
+    expect(readMetaNativeCanonicalDecisionInventory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        adIds: ["ad_2", "ad_1"],
+      }),
+    );
+    expect(getMetaCreativesApiPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groupBy: "ad",
+        mediaMode: "metadata",
+        enableThumbnailBackfill: false,
+        enableMediaRecovery: false,
+      }),
+    );
+  });
+
+  it("does not mistake an empty creative read for an empty decision generation", async () => {
+    vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [],
+      media_mode: "metadata",
+      media_hydrated: false,
+    });
+
+    await GET(new NextRequest(
+      "http://localhost/api/creatives/briefing?businessId=biz_1&visibleAdDecisions=1",
+    ));
+
+    expect(
+      vi.mocked(readMetaNativeCanonicalDecisionInventory).mock.calls.at(-1)?.[0],
+    ).not.toHaveProperty("adIds");
+  });
+
   it("serves an exact native card with the complete producer-to-handler lineage", async () => {
     const exactAdId = "100000000000001";
     vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({

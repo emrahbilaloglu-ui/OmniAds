@@ -946,6 +946,7 @@ describe("Creative Studio Status column carries the engine's classification", ()
     expect(url.searchParams.get("start")).toBe("2026-07-21");
     expect(url.searchParams.get("end")).toBe("2026-08-17");
     expect(url.searchParams.has("asOf")).toBe(false);
+    expect(url.searchParams.get("visibleAdDecisions")).toBe("1");
   });
 
   it("names the served generation's own day, even when it is after the metric window end", () => {

@@ -1177,8 +1177,8 @@ function AssetsView({
           {metricWindow
             ? ` (${metricWindow.startDate}–${metricWindow.endDate})`
             : ""}
-          . Each recommendation is judged on its Ad&apos;s own decision
-          period, shown under its status, so the two can differ.
+          . A recommendation may use a different period. When this row
+          represents one Ad, its decision period appears under the status.
         </p>
       ) : null}
 

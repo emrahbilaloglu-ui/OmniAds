@@ -5547,7 +5547,12 @@ describe("Meta Decision payload · every claim, proven against the running code"
       expect(surface).not.toMatch(/ since 2026-/);
     }
     expect(truncated.BANNERS).toBe(whole.BANNERS);
-    expect(truncated.MOBILE).toBe(whole.MOBILE);
+    // The mobile page also contains decision rows, whose presentation can
+    // legitimately change independently of this compact action alert.
+    const mobileAlert = (surface: string) =>
+      surface.match(/<article\b[^>]*data-mobile-banner="[^"]+"[^>]*>[\s\S]*?<\/article>/)?.[0];
+    expect(mobileAlert(truncated.MOBILE)).toBeDefined();
+    expect(mobileAlert(truncated.MOBILE)).toBe(mobileAlert(whole.MOBILE));
 
     const noCap = observeSurfaces(
       buildProbePayload("MetaDecisionsDigest.actions.countedRowCap"),

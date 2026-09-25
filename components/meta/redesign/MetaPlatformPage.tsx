@@ -6392,6 +6392,7 @@ export function MetaPlatformPage({
           ceremony={manualCeremonySheetFor("mobile")}
           roleReview={workspaceQuery.data?.os?.structure?.groups && providerAccountId ? (
             <MetaEntityRoleReview
+              key={`${businessId}:${providerAccountId}`}
               businessId={businessId}
               providerAccountId={providerAccountId}
               groups={workspaceQuery.data.os.structure.groups}
@@ -6596,6 +6597,7 @@ export function MetaPlatformPage({
 
         {workspaceQuery.data?.os?.structure?.groups && providerAccountId ? (
           <MetaEntityRoleReview
+            key={`${businessId}:${providerAccountId}`}
             businessId={businessId}
             providerAccountId={providerAccountId}
             groups={workspaceQuery.data.os.structure.groups}

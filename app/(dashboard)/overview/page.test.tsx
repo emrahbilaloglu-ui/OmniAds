@@ -528,11 +528,8 @@ describe("OverviewPage timezone date selection", () => {
       "Klaviyo",
       "Organic · GA4",
     ]);
-    expect(Array.from(html.matchAll(/data-overview-brief-kind="([^"]+)"/g), (match) => match[1])).toEqual([
-      "Opportunity",
-      "Risk",
-      "Action",
-    ]);
+    expect(Array.from(html.matchAll(/data-overview-brief-kind="([^"]+)"/g), (match) => match[1])).toEqual([]);
+    expect(html).toContain("No daily brief is available yet. Generate one");
     for (const extra of [
       "MER injected",
       "Gross Sales injected",

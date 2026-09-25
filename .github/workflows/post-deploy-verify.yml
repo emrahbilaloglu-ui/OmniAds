@@ -154,8 +154,8 @@ jobs:
           fi
 
           if ! tr -d '\r' < .artifacts/workspace-redirect.headers \
-            | grep -Eq '^location: /login\?next=%2Fapp%2Fhome$'; then
-            echo "Anonymous workspace redirect does not point to the clean login URL."
+            | grep -Eq '^location: (https://adsecute\.com)?/login\?next=%2Fapp%2Fhome$'; then
+            echo "Anonymous workspace redirect does not point to the clean same-origin login URL."
             exit 1
           fi
 

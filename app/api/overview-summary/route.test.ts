@@ -463,7 +463,7 @@ describe("GET /api/overview-summary", () => {
       );
     });
 
-    it("fails the current aggregate closed when one provider scalar does not cover the requested window", async () => {
+    it("shows partial provider data while keeping full-window paid aggregates closed", async () => {
       const sources = {
         current: { meta: "warehouse_published_campaign_daily", google: "warehouse_account_aggregate" },
         previous: { meta: "warehouse_published_campaign_daily", google: "warehouse_account_aggregate" },
@@ -478,7 +478,10 @@ describe("GET /api/overview-summary", () => {
         providers: ["google"],
         complete: false,
       });
-      expect(metrics["meta-spend"]).toEqual(expect.objectContaining({ value: null, previousValue: null }));
+      expect(metrics["meta-spend"]).toEqual(expect.objectContaining({ value: 100, previousValue: null, changePct: null }));
+      expect(payload.summary.platforms.find((section: { provider: string }) => section.provider === "meta")?.coverageNote)
+        .toContain("2026-03-29");
+      expect(payload.summary.attribution[0]).toEqual(expect.objectContaining({ spend: null, revenue: null }));
       expect(metrics["google-spend"]?.previousValue).toBe(60);
       expect(metrics["google-spend"]?.changePct).toBe(0);
       expect(

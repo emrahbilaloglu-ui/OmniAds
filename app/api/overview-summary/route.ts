@@ -1345,9 +1345,10 @@ export async function GET(request: NextRequest) {
     }),
   ];
   const platforms = buildPlatformSections(
-    currentOverviewForProviderScope,
+    currentOverview,
     previousOverviewForProviderComparison,
     compareMode,
+    { startDate: resolvedStart, endDate: resolvedEnd },
   );
 
   const summary: OverviewSummaryData = {

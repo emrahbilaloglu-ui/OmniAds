@@ -227,13 +227,40 @@ describe("held and blocked creative steps follow the served resolution owner", (
     });
     const verdict = heldCreativeVerdict(held, configGap);
 
-    expect(verdict?.label).toBe("Recommendation on hold: Pause ad");
-    expect(verdict?.nextStep).toBe(
-      "The evidence this change needs is still being completed. " +
-        "The campaign configuration for every day behind it is not confirmed yet. " +
-        "No action is needed from you; this Pause ad recommendation is re-checked on each decision run.",
+    expect(verdict?.label).toBe("Pause signal · configuration unverified");
+    expect(verdict?.nextStep).toContain(
+      "Review the current setup and recent results in Meta before making a manual decision.",
     );
+    expect(verdict?.nextStep).toContain("no automated change is available");
     for (const chore of CHORES) expect(verdict?.nextStep).not.toMatch(chore);
+  });
+
+  it("does not suggest a manual pause when native confirmation or campaign-role authority is also missing", () => {
+    const held = decision({
+      blockers: [{ code: "config_source_authority", label: "Internal" }],
+      authorityProvenance: configProvenance("config_source_authority"),
+    });
+    const pending = {
+      ...configGap,
+      sourceDecision: { badges: ["pending_transition"] },
+    } as MetaCanonicalDecision;
+    const lowTrust = {
+      ...configGap,
+      classification: {
+        lifecycleRole: { trustedForAction: false },
+        blockers: [{ code: "campaign_context_low_confidence" }],
+      },
+    } as MetaCanonicalDecision;
+
+    for (const [decisionRow, canonical] of [
+      [held, pending],
+      [held, lowTrust],
+      [decision({ ...held, campaignRoleTrustedForAction: false }), configGap],
+    ] as const) {
+      const verdict = heldCreativeVerdict(decisionRow, canonical);
+      expect(verdict?.label).not.toBe("Pause signal · configuration unverified");
+      expect(verdict?.nextStep).not.toContain("before making a manual decision");
+    }
   });
 
   it("states a system-owned D101 gap on a cut signal without asking the buyer to restore data", () => {

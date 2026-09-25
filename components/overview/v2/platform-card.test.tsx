@@ -66,6 +66,21 @@ afterEach(() => {
 });
 
 describe("PlatformMiniDashboard", () => {
+  it("labels partial provider coverage next to measured metrics", () => {
+    render(
+      <PlatformMiniDashboard
+        provider="meta"
+        title="Meta Ads"
+        currencySymbol="$"
+        metrics={[metric("meta-spend", "Spend", 150, "currency")]}
+        coverageNote="Available source range: 2026-09-18–2026-09-23; selected range: 2026-09-18–2026-09-24. Totals do not cover the full selection."
+      />,
+    );
+
+    expect(screen.getByText(/2026-09-24\. Totals do not cover the full selection/)).toBeTruthy();
+    expect(document.querySelector('[data-provider-metric-id="meta-spend"]')?.textContent).toContain("150");
+  });
+
   it("renders Meta's eight KPIs in the fixed order inside heading and list semantics", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-17T12:12:00.000Z"));

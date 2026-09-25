@@ -389,13 +389,25 @@ const PROVIDER_METRIC_ICONS: Record<string, string> = {
 export function buildPlatformSections(
   current: OverviewAggregateData,
   previous: OverviewAggregateData | null,
-  compareMode: CompareMode
+  compareMode: CompareMode,
+  requestedWindow?: { startDate: string; endDate: string },
 ): OverviewPlatformSection[] {
   return OVERVIEW_PAID_PROVIDER_SPECS.map(({ provider, label }) => {
-    const primitives = providerPrimitives(aggregateVerifiedOverviewProviderRow(current, provider));
+    const coverage = current.providerScalarRanges?.[provider];
+    const coverageWithinWindow = !requestedWindow || !coverage || (
+      coverage.startDate >= requestedWindow.startDate &&
+      coverage.endDate <= requestedWindow.endDate &&
+      coverage.startDate <= coverage.endDate
+    );
+    const partialCoverage = Boolean(requestedWindow && coverage && coverageWithinWindow && (
+      coverage.startDate !== requestedWindow.startDate || coverage.endDate !== requestedWindow.endDate
+    ));
+    const primitives = coverageWithinWindow
+      ? providerPrimitives(aggregateVerifiedOverviewProviderRow(current, provider))
+      : null;
     // A previous value is only meaningful when both windows were read from the
     // same source and grain; otherwise the change would compare different rows.
-    const previousPrimitives = providerScalarSourcesComparable(
+    const previousPrimitives = !partialCoverage && providerScalarSourcesComparable(
       provider,
       current.providerSources?.[provider],
       previous?.providerSources?.[provider],
@@ -415,6 +427,9 @@ export function buildPlatformSections(
       id: provider,
       title: label,
       provider,
+      coverageNote: partialCoverage && primitives && coverage && requestedWindow
+        ? `Available source range: ${coverage.startDate}–${coverage.endDate}; selected range: ${requestedWindow.startDate}–${requestedWindow.endDate}. Totals do not cover the full selection.`
+        : null,
       metrics: OVERVIEW_PROVIDER_METRIC_SPECS[provider].map((spec) => {
         const id = providerMetricId(provider, spec.suffix);
         const icon = PROVIDER_METRIC_ICONS[spec.suffix];

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "c1b7681fec45329f69130c92b2ea0292471f2c708fb21f479b45035847adf0ba",
+  "manifestHash": "22b919609f9edbae27086ac816a73b5a6087d2a7d1181ff3e04f5d4e6fcbc6ed",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -25,6 +25,10 @@
     {
       "path": ".github/workflows/automation-capability-toggle-integration.test.ts",
       "sha256": "b1d42731490ee2a3b0e22bbbb9c13e3b91239dec1402d333ddd753a09bb3b0b0"
+    },
+    {
+      "path": ".github/workflows/post-deploy-verify.yml",
+      "sha256": "86b6fe49187a76075ccee211e67b6d341c1fa04c3e9f8dc55c0e3ae28ead07ca"
     },
     {
       "path": "app/(dashboard)/overview/legacy-page.tsx",

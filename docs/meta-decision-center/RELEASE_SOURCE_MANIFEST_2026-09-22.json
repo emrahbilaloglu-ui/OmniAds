@@ -1,5 +1,5 @@
 {
-  "manifestHash": "f05ec72cde4608df5142857941c0c12f616801ce0afe63b2675ff7c97b610ebf",
+  "manifestHash": "9876552760cd3b8fbb0a0c5c327d59a7d7ca963c1bf2c7f05d4a6164293bf855",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -148,7 +148,7 @@
     },
     {
       "path": "app/api/creatives/briefing/route.test.ts",
-      "sha256": "f2d4753197af45c2a52ac30685fc03877190fe9ff23cc52047d4c81fc1de8531"
+      "sha256": "9cde22ae04c12150639ca6e83113b41985cdfd630509c567f5aa9687c87d4957"
     },
     {
       "path": "app/api/creatives/briefing/route.ts",
@@ -239,12 +239,16 @@
       "sha256": "535f75c3ddc43a49cff197f95f006468fac3ff1aa18b55a16388bec0ccc65f0e"
     },
     {
+      "path": "app/api/meta/decisions-workspace/posture-isolation.test.ts",
+      "sha256": "4a4fbbee753882d01600f2eef10a7fd5441a04370019efe82a61c71eeb113842"
+    },
+    {
       "path": "app/api/meta/decisions-workspace/route.test.ts",
-      "sha256": "1308235dae32d3da283409e10255241d200899969c8ed0eb1af593a26db4dea1"
+      "sha256": "4200b53e67fe3a0a77f41f6ecb9e88564d9c17554433265e4ee8b6af7bffc828"
     },
     {
       "path": "app/api/meta/decisions-workspace/route.ts",
-      "sha256": "fefdd3d7956771a2f5b442ecf89b9d63755588f7d2f0d5df34b8453f179f3a7b"
+      "sha256": "cae66590faef47457dae3cc0950f608f5f5ddad3eeaa00548683a7eedb07341f"
     },
     {
       "path": "app/api/meta/entity-role-declarations/route.ts",
@@ -368,11 +372,11 @@
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.test.ts",
-      "sha256": "0e1fe424c0afcfca5628ee7dd56342ca9dc53be10f3d110cc148f394eaf0d8d5"
+      "sha256": "af9f64362a1804f5ecc78c18edfd6a870e96b44116045543c0f5f6ec1c11db47"
     },
     {
       "path": "components/creatives/creative-evidence-window-exact-adapter.ts",
-      "sha256": "da6a4d84f1e6f33d6b1989a9dea9625ea9ffe9e4ee78ec2ed8c61392f02d31bc"
+      "sha256": "a1b774135594abf353370900a268223f1ffece837a7ea754a571bba173cd2965"
     },
     {
       "path": "components/creatives/creative-evidence-window-wiring.test.ts",
@@ -456,11 +460,11 @@
     },
     {
       "path": "components/meta/decision-center/creative-row-role-and-action-labels.test.ts",
-      "sha256": "1195307ceae6fbcde224105d295d24d876627593f9a77b92b68e3395fe6d8234"
+      "sha256": "3a3fe6e172c7146c5fbb996fc82ae2244561d0afc3927fb918bf7368c18c1edd"
     },
     {
       "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
-      "sha256": "8397d521b853553f0902c3b6fdf8004b0726e8c6d4d2fe0715b5021d37b4b397"
+      "sha256": "5158168435288379a935a042f3d988efe5713ee0e700bd5fb942285de07640fe"
     },
     {
       "path": "components/meta/decision-center/held-resolution-owner-copy.test.ts",
@@ -468,11 +472,11 @@
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "46854e4214c5832b6a1d112bda64bfbcff2decff3fb475fcebfd3d09f9d91674"
+      "sha256": "176cae80d6b4a82218e14b4ac24d13590f824f529cdeb652e96905597d98ccb4"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "ea5367661c94252baff544e8635afb35361f54d6a71b77fdb5697ba84432c1a6"
+      "sha256": "05eb536278ebdaf2810d3204d8b2221c2f69e7e5950bbbabfcb8c6788c32a948"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -480,11 +484,11 @@
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
-      "sha256": "26bde6f590390cfeefb70416a82c59347baac50204e51134336c340fa3411afc"
+      "sha256": "5a4938a54cbb7a06923d94d03d41ecd9ebc7dd8e5facd5085b79e82641932f4d"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
-      "sha256": "e46788f4330f1eb7a06e018d32fdba271eaa53a0057785a1cf163a63b5d4864f"
+      "sha256": "41a23155357785d222bba5d03bebeec66d8f9b99cd743a412515349d0e13f5d2"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCreativeThumbnail.test.tsx",
@@ -493,6 +497,22 @@
     {
       "path": "components/meta/decision-center/MetaDecisionCreativeThumbnail.tsx",
       "sha256": "891e0dc2b168424dfed8db019b00dd5d28b9d7286694ad530e95cb7e7d4eb73b"
+    },
+    {
+      "path": "components/meta/decision-center/MetaEntityRoleReview.module.css",
+      "sha256": "4973d25377ce6e51df97cc9540b82206036a44308cd74396742d478442e3b436"
+    },
+    {
+      "path": "components/meta/decision-center/MetaEntityRoleReview.test.tsx",
+      "sha256": "da5b8b4ca5f885b070dc31bc607429c60ef898dba34714700994e2fb96ad1573"
+    },
+    {
+      "path": "components/meta/decision-center/MetaEntityRoleReview.tsx",
+      "sha256": "270ac6f2df69f9282d960dd11f59337ef48e78a16ea1e3e54c8b55e78cb94de4"
+    },
+    {
+      "path": "components/meta/decision-center/needs-resolution-lane.test.ts",
+      "sha256": "d9891332dba1798348f54fa5ccd9c1662cb6e9752aa845ed4732bfa63ca64e52"
     },
     {
       "path": "components/meta/decision-center/queue-controls.test.tsx",
@@ -568,11 +588,11 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.test.tsx",
-      "sha256": "3726cf9b81c010197903ab249d0dbb5b6d1b2246e47ecc885a844e99388892d3"
+      "sha256": "a98aa51e940990ddd0f2cb119c64375ef3eff25765cd1ea8485fbf83bbb64513"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "8aec20e3c716bf3d26ca20f033491a83cd95c2150e583d50904f6ca54eb4772a"
+      "sha256": "179234a49d0fbb17eb91a8fc02c5f0ee4f23e97aa206e5daa5901456b4859e0f"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
@@ -648,27 +668,27 @@
     },
     {
       "path": "docs/creative-decision-center/DATA_READINESS.md",
-      "sha256": "8d30b7f0ba98cce4b0a0ce498480a79033d884f33ab3ce996e52e1d693643885"
+      "sha256": "cdc6cba86c6e0a965a04fd21e75b7d5aeab88665fbfe6876c9a9a8ab6bc5477a"
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "bbdb69fa5e53a6a4f1bfaed57a0f30eaf7f99f32197028f9e73a5cc9c787ad3b"
+      "sha256": "fc7f5a77cc680f6e9d05702b00548c3b216fb9db9b47dade84cc64fbe5ef118b"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
-      "sha256": "7dfe10727b01ef387123c1e4bdb121fc28446055a70c9cc9d62585eeb12aacd5"
+      "sha256": "2d889df24048dcacc96bb8b56b7151cd7ce6ff94acfab3f60e47aadb390b8a9d"
     },
     {
       "path": "docs/creative-decision-center/INVARIANTS.md",
-      "sha256": "e13f14ed8bf276ca7c9f592f4b66e05562a2b455ba9a46d808e56a446f9f7f67"
+      "sha256": "558b28c81594eac6f3e17ffd90d43dc6a4a52ae5935f527ff8378bf83866449d"
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "919e86e104051d9918c8d7305c73949928bfcab18fd93fa1c94b61850c3cde3a"
+      "sha256": "4a49cbe227e617e07a927d1006c55a9c224c26c7627b8f553e99cc053530c149"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
-      "sha256": "2c5f859d2038fa7080aaf4f7dd7b418e51a6cfed219ed03bd7e81d1495481d80"
+      "sha256": "283370f37420e6f37a334f399bf51980a9510c7d6a83b706c32d34e7282e99c1"
     },
     {
       "path": "docs/meta-decision-center/CALIBRATION_SOURCE_QUERY_PERF_2026-09-22.md",
@@ -728,11 +748,11 @@
     },
     {
       "path": "lib/creative-decision-center/__tests__/v3-bridge.test.ts",
-      "sha256": "af6237b38b8e9aa3eb6a54fdc399a73c621ee2bd43f52951c6f983e97423200f"
+      "sha256": "ff9a9bfc09026346ce54dd3b8fc76a02430c5144ff30d4c6bd187236aed5aa3f"
     },
     {
       "path": "lib/creative-decision-center/v3-bridge.ts",
-      "sha256": "930a9cd5394c8f2498f941aa5e3af801dd36734703d4c3a4fe8c98c228adb0fa"
+      "sha256": "6ed4d1b0521fb692400b7bc6605d1ca47f33f7ee510527470113501904ccd246"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/account-cpa-identity-projection.test.ts",
@@ -768,7 +788,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/campaign-context-source.test.ts",
-      "sha256": "b8ec250cfec0e0269de0f8224dc4b2d6d8c95491f0ffabc417f66e218f9047b1"
+      "sha256": "7bd31aefb02cc0b8ac3487662d0c165245abbb7ae0b71e87040c721369612296"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/campaign-label-guard.test.ts",
@@ -1024,11 +1044,11 @@
     },
     {
       "path": "lib/creative-decision-engine/campaign-context/entity-role.ts",
-      "sha256": "4c6c419f22fa40ae08b8b74537b2189f5672a45d3486a4c3402424fc15a1a7aa"
+      "sha256": "228393ddf48e90931c752b25caf8f686c6bb01392e2aea1fe2d9e169e8fdb7c3"
     },
     {
       "path": "lib/creative-decision-engine/campaign-context/entity-role.write.test.ts",
-      "sha256": "b6beca184547f54f27fb17857d288fb29c428dbe111cc9621fda1d600416a3c5"
+      "sha256": "aebfc35c37569c51937bd3962e211dc34afe963fcda830de7318eddaea05af53"
     },
     {
       "path": "lib/creative-decision-engine/campaign-context/source.ts",
@@ -1136,7 +1156,7 @@
     },
     {
       "path": "lib/creative-decision-engine/jobs/ad-decisions-job.ts",
-      "sha256": "a4f036a478d7a721248e5567d2eaf6ccf0ae184bfe27e288702d1651b0d3d12f"
+      "sha256": "e9cd9fddfe51d3e039cf291dd9220084f0af390d7a9a769f57284d0b59fb772d"
     },
     {
       "path": "lib/creative-decision-engine/jobs/advisory-lock.ts",
@@ -1392,15 +1412,15 @@
     },
     {
       "path": "lib/meta/budget-declared-role-authority.test.ts",
-      "sha256": "2bfcbc74f1410e5773979ce20348b5dcae21f6aebc1faa14390f09591ffe5342"
+      "sha256": "5409cd595548e573948ecd016e97f8b0ef076f92dc5297a0c884e1cf56eb5b1f"
     },
     {
       "path": "lib/meta/budget-declared-role-authority.ts",
-      "sha256": "fd81e7b8c0c80f7ca2931acf720a5c5896e0eea24f88ceb765c6b49ed3ee6b78"
+      "sha256": "6e791a74e9f42ed3e5b606248ee23f04d9f7cd91783894e0ccf2b48f86a33474"
     },
     {
       "path": "lib/meta/budget-execution-composition.ts",
-      "sha256": "ddb33c8b3a1e18402b7b7995a215ed8724fcf7b2b35d7ae78c02ac2ec58674b4"
+      "sha256": "264c5fec60567af03fe0d9004bae6387a22ec6fe779d346e65b6abbc710b72b4"
     },
     {
       "path": "lib/meta/budget-fact.test.ts",
@@ -1420,31 +1440,31 @@
     },
     {
       "path": "lib/meta/budget-production-path.c3.test.ts",
-      "sha256": "dae97acdf98e32d5ce8a5e4348fbccec4f5f9a3ccb03cd55506a4c323e991649"
+      "sha256": "14691b0a5b09f0b6634e8c04c82045252916fa19cfe41583e5da67fd02e2d681"
     },
     {
       "path": "lib/meta/budget-proposal-dry-run.test.ts",
-      "sha256": "6f2e759ea8478e18edb8a6009655958767eaf2361ae3640cda4ad0b7239bfbff"
+      "sha256": "4b6f5e9165fdaffb0cb08410d804d4815096fb003e39269b76ebb883adb23a24"
     },
     {
       "path": "lib/meta/budget-proposal-dry-run.ts",
-      "sha256": "11b5044197ca948386e1f7942e8855ca513e939f181eb6b1ef9ae2401104ecff"
+      "sha256": "f527dee695dd3baf077bf7ac32e6a3a5e51dc5e8e00015a521e37d5689d0bd7b"
     },
     {
       "path": "lib/meta/budget-proposal-producer.ts",
-      "sha256": "3805c47bd4c82a038a5cb59edef709154328312f79bacea1acc2df037b888e37"
+      "sha256": "e80508288f681d774a05edd97b69d58c61a524dd50f7d7d6ad76470bce076eeb"
     },
     {
       "path": "lib/meta/budget-proposal-server-readers.ts",
-      "sha256": "ecdc3d48776b8f1b6b19bb3fa002fae58592c8d0f3177cf0c12467672f61e714"
+      "sha256": "40d5b79ff11de865ae4246b1b105c95b7be4a62afd49889edc909e51535ea7a9"
     },
     {
       "path": "lib/meta/budget-proposal-server-runtime.test.ts",
-      "sha256": "29880e15282566c3451d9a933b62bf57c639cac2839b482e9508be2c4e3f99e6"
+      "sha256": "1d1256b40f5de36635798e1d0287818901665aa1043fba3952993053023771c9"
     },
     {
       "path": "lib/meta/budget-proposal-source-loader.ts",
-      "sha256": "f9613586e4e86b1831b8aaa52dcf7d10c2b4db0e146875ac4ee9b2b88d5a2eab"
+      "sha256": "a53f527ffac24e914deac234109143769bff8c751c1589684895e6607933ac99"
     },
     {
       "path": "lib/meta/budget-readiness-retention.ts",
@@ -1700,7 +1720,7 @@
     },
     {
       "path": "lib/meta/decisions-os-contract.ts",
-      "sha256": "856afba6b7b5ce941008c5aa6e245214d7a17ab10043e8870f3a396d81484ee4"
+      "sha256": "b020187a4700640e34c4f628c9c91fb2834e486b79f23943d2a46a2ea092719e"
     },
     {
       "path": "lib/meta/decisions-os-lane-counts.test.ts",
@@ -1708,11 +1728,11 @@
     },
     {
       "path": "lib/meta/decisions-os-presentation.test.ts",
-      "sha256": "8c007de88b9687146e11542205a677cd03ac4ef5980181313975131f42d20530"
+      "sha256": "4616b666d92a67c8f3cc58767643563419669b911b570fe76d06153c4834f895"
     },
     {
       "path": "lib/meta/decisions-os-presentation.ts",
-      "sha256": "09d6057d3b8bf305a7bb70a04ee66eec1a97c223cfe490c6864ca6b2eabaa4bf"
+      "sha256": "d43f29d64ad40abd57fe7702c610183e8761e073f3ea1fd139f5c233938302ce"
     },
     {
       "path": "lib/meta/decisions-pre-cap-ad-candidates.ts",
@@ -1728,11 +1748,19 @@
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
-      "sha256": "a8f05fd82f98ae00bf15ee7567b291e559ad16d5f7b8023e60f6029246743681"
+      "sha256": "d008ece95af8544ccb9df56b3bc8945b6c1315c69d38154d6492a520a533ea07"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
-      "sha256": "0c12491b263827371dca4d2e488bd97fda9d891422c14fc53c83c71704292d42"
+      "sha256": "fb3e5c20ce78461b4a3fbd20a7b54ce03117be726b17702e5457e60a3ba9a9fe"
+    },
+    {
+      "path": "lib/meta/engine-v1/state-rows.test.ts",
+      "sha256": "d5160e16cc2eab44dd4e6ad9c2ef8aa8a4fac60da486e3922db9116a8c3c143e"
+    },
+    {
+      "path": "lib/meta/engine-v1/state-rows.ts",
+      "sha256": "51249e3dcb026b8af2c4b9f1d241efff735aa2b5a0424617465869ff2397e1fe"
     },
     {
       "path": "lib/meta/entity-signals-backfill.test.ts",
@@ -1784,11 +1812,11 @@
     },
     {
       "path": "lib/meta/intent-projection-context.test.ts",
-      "sha256": "e55b1feeefc022bbdd2ace3a475fece7e119f41601d1780abe141c5afa6bee07"
+      "sha256": "b4e0b446d8484e5c273ccfaa2dc8728433f0b95cfdcb86d006cfd249054497b0"
     },
     {
       "path": "lib/meta/intent-projection-context.ts",
-      "sha256": "bc6793264c7981a7aff7656329b1e0b6bb729d2982f854e845d3477d2788bced"
+      "sha256": "f38330f1d95711df4231f4764ba2769bfb1186e8c34e00debb9652d3c2868f02"
     },
     {
       "path": "lib/meta/link-click-parse.test.ts",
@@ -1891,8 +1919,12 @@
       "sha256": "5479fd3512517b3ba767c4b50ce04cdd929b7ee199358e6c04c4a59ddeedd0e7"
     },
     {
+      "path": "lib/meta/snapshot.test.ts",
+      "sha256": "7ae5a70fa59ba4fd399c831040249f6869da62dc882146274fb9e9947b2fc09e"
+    },
+    {
       "path": "lib/meta/snapshot.ts",
-      "sha256": "4bbd2ede58be7a97beea140072bc1be501db39d11aeca2f0d60dde2a16f719dd"
+      "sha256": "c7c42a756c156e9d9009a1dbc20e61d99f31d0a44cafd1c2bd90252580b287f0"
     },
     {
       "path": "lib/meta/surface-registry.ts",
@@ -2032,15 +2064,15 @@
     },
     {
       "path": "scripts/audits/d085-budget-proposal-dry-run.ts",
-      "sha256": "ab69163557a687d0f559104e195485361538409c2e945b7c32134fe74e729f5b"
+      "sha256": "c72a3af3690b83a001c9c925451e00616dccd9bae0bf2f23a3b35a743cf9931a"
     },
     {
       "path": "scripts/audits/d088-budget-counterfactual-replay.test.ts",
-      "sha256": "c5a576746af79f97998130484201bdb8be887505e20ab54ba1d4e6282ec7fab9"
+      "sha256": "50c0f90deb555c8272b33e18b38cb8f1ddfba38d55c105b33ca8b9227d9cccd9"
     },
     {
       "path": "scripts/audits/d088-budget-counterfactual-replay.ts",
-      "sha256": "f800389ca5134897622dbf35c1e6ecd0018a5a13304f716095cef81ea2e326db"
+      "sha256": "cbfe4acf251827cee728d54e4624ed99cbf6e27062e310b0e693c970af8aa098"
     },
     {
       "path": "scripts/creative-decision-center/generalized-pit-replay.test.ts",
@@ -2056,11 +2088,11 @@
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.test.ts",
-      "sha256": "a9388b5f561e4a6c91fc9d29aee09ab09d25f7434d7dabe4f459e2ad98026be6"
+      "sha256": "02ed4a84c4c88e251a98ea4ce1da387d089dfbaefd415bce34710e5f0adf8f50"
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts",
-      "sha256": "0c95d46679957ee29e211a43af403b9b7188aad05adeccecf0f27a68be9151c9"
+      "sha256": "b036ba5455e01fe700ca9f794efe09610d5b54693f27f6e8e550d4b0066710fc"
     },
     {
       "path": "scripts/creative-decision-center/native-ad-account-aov-authority-replay.classifier.test.ts",
@@ -2092,11 +2124,11 @@
     },
     {
       "path": "scripts/creative-decision-center/native-ad-current-code-historical-simulation.test.ts",
-      "sha256": "0cc51492b0fedd9ceb191eb3a1f8338fb09de186ab6872c62d40dea3c404bf68"
+      "sha256": "2cbdbc20728615d71a77afdd27f6f8b1f9950c2ed7e09a1663cb644e2d19568a"
     },
     {
       "path": "scripts/creative-decision-center/native-ad-current-code-historical-simulation.ts",
-      "sha256": "e8aace7fbece59ce8ccbe19a8f885db35fe62302e374ae00c08a1bd1d1a19e40"
+      "sha256": "4c755ee7b6865c83b8e7e95b7bb06a909c4f6f28b1ac13cd3fc59d5d33edec9c"
     },
     {
       "path": "scripts/creative-decision-center/native-ad-grain-paired-replay.ts",

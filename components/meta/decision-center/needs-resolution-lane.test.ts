@@ -672,9 +672,9 @@ describe("a blocked row is drawn without an action", () => {
       ],
     }));
     expect(model.needsResolutionRows?.find((row) => row.id === campaign.id)?.resolution)
-      .toBe("Campaign is estimated as Test (Medium confidence); its role is not verified for this decision.");
+      .toBe("Campaign is estimated as Test (Medium confidence); its role is not verified for this decision. Review its Main/Test role in the role panel.");
     expect(model.needsResolutionRows?.find((row) => row.id === adset.id)?.resolution)
-      .toBe("Parent campaign is estimated as Main (Medium confidence); the ad set's own role is not verified.");
+      .toBe("Parent campaign is estimated as Main (Medium confidence); the ad set's own role is not verified. Review this ad set's Main/Test role in the role panel.");
   });
 
   it("keeps an executor-only next step conditional on human review", () => {

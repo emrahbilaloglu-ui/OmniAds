@@ -51,7 +51,7 @@ export interface MetaDailyBrief {
   };
   decisions: {
     state: BriefSectionState;
-    /** Rows the server is serving as act-now, not the whole list. */
+    /** Act-state rows in the daily snapshot; not the Decision Center queue. */
     actionable: number;
     top: Array<{ scopeType: string; scopeId: string; label: string; title: string }>;
     snapshotDate: string | null;

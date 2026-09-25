@@ -77,9 +77,9 @@ export function MetaMorningCard({
           field="alerts"
         />
         <Cell
-          label="Decisions to act on"
+          label="Snapshot recommendations"
           value={brief ? count(brief.decisions, brief.decisions.actionable) : "—"}
-          note={null}
+          note="Separate from Decisions Action Now"
           field="actionable-decisions"
         />
       </dl>

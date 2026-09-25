@@ -1,5 +1,5 @@
 {
-  "manifestHash": "48642b20dbb7d92dd0d509932e783ed1e177f3a155b433836c0947001f3c5d1c",
+  "manifestHash": "c1b7681fec45329f69130c92b2ea0292471f2c708fb21f479b45035847adf0ba",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -260,11 +260,11 @@
     },
     {
       "path": "app/api/overview-summary/route.test.ts",
-      "sha256": "04a85951163ce84e40352dbcdf0b74aa2259377b0c7ae31c603554562d03bbf1"
+      "sha256": "3c5fef977184ea8008af3be23faaf7853358fc5003f748fadfcaab9797a1fdac"
     },
     {
       "path": "app/api/overview-summary/route.ts",
-      "sha256": "79f05662af680233236a6c7d395d11f85722a996e5f16dc63fc8a23129264e0a"
+      "sha256": "07cf353d58f4a6fa797028aeef478c735df65607a08823020f18248a8d9fbd27"
     },
     {
       "path": "app/api/sync/cron/route.test.ts",
@@ -561,6 +561,14 @@
     {
       "path": "components/meta/redesign/mobile-card-apply-ceremony.test.tsx",
       "sha256": "4c3ddfb00ae2a283aaad8d6725adf9daebfe822d898188983d1cf4f91a948b0e"
+    },
+    {
+      "path": "components/overview/v2/meta-morning-card.test.tsx",
+      "sha256": "d566bf7920add10eafe30341b22e740cec3fc2eba2f632f2e3b39cd6fbe14333"
+    },
+    {
+      "path": "components/overview/v2/meta-morning-card.tsx",
+      "sha256": "302699d85074764eb29cfdad65d73fc3ce604cc9e07a6a4a98a90366fcae6054"
     },
     {
       "path": "components/overview/v2/platform-card.test.tsx",
@@ -1551,6 +1559,10 @@
       "sha256": "95e410fa3fadbd7f7769ce9daae6b177b4bb2b6cd74134bdc23ca87234fae4f9"
     },
     {
+      "path": "lib/meta/daily-brief.ts",
+      "sha256": "850bc0514c5ef14c5e9e101cef217a84612fe3bbc1e7fa0f3db53a57c9f88280"
+    },
+    {
       "path": "lib/meta/decision-ctr-scalar-units.test.ts",
       "sha256": "a6f1f0aa575c2fc3d8da6cfe52f6edc81263258046dc6bd19940f90bcd01a670"
     },
@@ -1685,6 +1697,10 @@
     {
       "path": "lib/meta/live.ts",
       "sha256": "ff9b46e813f372acad45ecc5546023f44f3d35f326e85dd475a79e50173bac66"
+    },
+    {
+      "path": "lib/meta/migration-ddl-session-boundedness.db.test.ts",
+      "sha256": "d4facfa86f20e4f9a6ac20b99fa031aacd7b72928cf11b23caff6d84da1f3569"
     },
     {
       "path": "lib/meta/native-config-action-authority.fixture.ts",

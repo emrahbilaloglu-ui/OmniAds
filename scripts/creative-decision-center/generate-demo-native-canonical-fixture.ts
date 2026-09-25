@@ -13,6 +13,11 @@ import {
 } from "@/lib/creative-decision-engine/jobs/ad-decisions-job";
 import type { CampaignContextLabelMap } from "@/lib/creative-decision-engine/campaign-context/source";
 import {
+  adsetRoleKey,
+  declaredEntityRoleEntry,
+  ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+} from "@/lib/creative-decision-engine/campaign-context/entity-role";
+import {
   NATIVE_AD_ENGINE_VERSION,
   type AdDecisionInput,
 } from "@/lib/creative-decision-engine/types";
@@ -100,6 +105,33 @@ function campaignContext(
       ] as const;
     }),
   );
+}
+
+function adsetRoles(
+  rows: ReturnType<typeof getDemoMetaCreatives>["rows"],
+): CampaignContextLabelMap {
+  const byAdset = new Map(rows.map((row) => [row.adset_id, row]));
+  return new Map([...byAdset].map(([adsetId, row]) => {
+    const role = lifecycleByCampaignId[row.campaign_id] ?? "main";
+    return [adsetRoleKey(PROVIDER_ACCOUNT_ID, adsetId), declaredEntityRoleEntry({
+      mode: "automatic",
+      declaration: {
+        id: `demo-role-${adsetId}`,
+        businessId: DEMO_BUSINESS_ID,
+        providerAccountId: PROVIDER_ACCOUNT_ID,
+        entityType: "adset",
+        entityId: adsetId,
+        parentCampaignId: row.campaign_id,
+        event: "declare",
+        declaredRole: role,
+        effectiveFrom: AS_OF_DATE,
+        declaredAt: `${AS_OF_DATE}T02:00:00.000Z`,
+        declaredBy: "demo_fixture",
+        reason: "Synthetic demo role",
+        contractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+      },
+    })] as const;
+  }));
 }
 
 function toAdDecisionInput(
@@ -383,6 +415,7 @@ export function buildDemoNativeCanonicalFixture() {
   });
   const adInputs = rows.map(toAdDecisionInput);
   const context = campaignContext(rows);
+  const adsetRoleByKey = adsetRoles(rows);
   const firstPass = computeNativeAdDecisions({
     businessId: DEMO_BUSINESS_ID,
     profile,
@@ -390,6 +423,7 @@ export function buildDemoNativeCanonicalFixture() {
     adInputs,
     campaignContextMode: "automatic",
     campaignContextById: context,
+    adsetRoleByKey,
     previousLabels: new Map(),
   });
   const confirmed = computeNativeAdDecisions({
@@ -399,6 +433,7 @@ export function buildDemoNativeCanonicalFixture() {
     adInputs,
     campaignContextMode: "automatic",
     campaignContextById: context,
+    adsetRoleByKey,
     previousLabels: previousLabelsFrom(firstPass),
   });
   const fixture = finalizeDemoNativeCanonicalFixture({

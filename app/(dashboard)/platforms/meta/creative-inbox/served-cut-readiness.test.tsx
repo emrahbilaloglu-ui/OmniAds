@@ -6,6 +6,7 @@ import MetaCreativeInboxPage from "@/app/(dashboard)/platforms/meta/creative-inb
 import { projectCanonicalNativeAdDecisionToBriefing } from "@/app/api/creatives/briefing/canonical-projection";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
+import { ENTITY_ROLE_DECLARATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import {
@@ -227,6 +228,19 @@ const CAMPAIGN_CONTEXTS = [
   },
 ] as MetaDecisionCampaignContextSourceRow[];
 
+const ADSET_ROLES: MetaDecisionCampaignContextSourceRow[] = [{
+  campaignId: "cmp_main",
+  kind: "main",
+  source: "operator_declared",
+  confidenceClass: "high",
+  sourceUpdatedAt: "2026-09-23T01:00:00.000Z",
+  resolverVersion: null,
+  roleEntityType: "adset",
+  roleEntityId: "as_1",
+  roleBasis: "declared",
+  declarationContractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+}];
+
 /** An authorized, config-verified Cut: the one row that can reach Action now. */
 const authorizedCut = (
   overrides: Partial<MetaNativeDecisionSnapshotSourceRow> = {},
@@ -346,6 +360,7 @@ function serve(input: {
     },
     snapshotRows: input.rows,
     campaignContextRows: CAMPAIGN_CONTEXTS,
+    adsetRoleRows: ADSET_ROLES,
   });
   expect(inventory.status).toBe("available");
   const governed = applyMetaExecutionGovernanceToCanonicalDecisions({

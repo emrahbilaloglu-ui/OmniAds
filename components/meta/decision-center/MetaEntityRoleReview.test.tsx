@@ -70,4 +70,15 @@ describe("Meta entity role review", () => {
     expect(screen.getByRole("combobox", { name: "Confirm role for adset Test cell" }).hasAttribute("disabled")).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("does not call a confirmed role unverified just because an older verdict remains held", () => {
+    const confirmedAdset = {
+      ...node("adset", "456", "test", true),
+      campaignRoleTrustedForAction: false,
+    } as MetaOsStructureNode;
+    render(<MetaEntityRoleReview businessId="biz-1" providerAccountId="act_1" groups={[{
+      ...groups[0]!, adsets: [confirmedAdset],
+    }]} readOnly onSaved={() => {}} />);
+    expect(screen.getByRole("button", { name: /Review Main \/ Test roles/i }).textContent).toContain("0 unverified");
+  });
 });

@@ -150,7 +150,7 @@ export function MetaEntityRoleReview({
       </button>
       {open ? (
         <div className={styles.body}>
-          <p>Meta does not supply a Main / Test field. Each campaign and ad set has its own role; a Main campaign can contain a Test ad set. Suggestions below are not confirmed roles.</p>
+          <p>The available Meta data does not establish your Main / Test intent. Review each campaign and ad set separately; a Main campaign can contain a Test ad set. Suggestions below are not confirmed roles.</p>
           <p>Selections take effect from {effectiveFrom}. The recorded confirmation time remains today; earlier point-in-time replays cannot use it.</p>
           {readOnly ? <p className={styles.notice}>This account is read-only for you.</p> : null}
           <div className={styles.rows}>

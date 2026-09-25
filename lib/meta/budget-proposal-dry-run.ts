@@ -113,7 +113,7 @@ import {
  * here as a string literal and once in the audit script — so the two could
  * drift silently. Both now derive from this single integer.
  */
-export const D085_REVISION = 17 as const;
+export const D085_REVISION = 18 as const;
 
 export const META_BUDGET_PROPOSAL_DRY_RUN_CONTRACT = `meta.budget-proposal-dry-run.v${D085_REVISION}` as const;
 
@@ -374,8 +374,9 @@ export interface RoleContext {
     `operator_declared`, and then all four are required: the entity the
     declaration names (the proposal's own entity, never a parent standing in
     for an ad set), the declaration record's exact contract, and the instant
-    it was recorded, which must sit inside the knowledge cutoff. An automatic
-    context carrying any of them is refused.
+    the record the DECISION rested on was made, which must sit at or before
+    both the decision's own instant (r18) and the knowledge cutoff. An
+    automatic context carrying any of them is refused.
   */
   entityGrain?: string | null;
   entityId?: string | null;
@@ -1533,6 +1534,7 @@ export const DRY_RUN_POLICY = {
       source: ENTITY_ROLE_DECLARATION_SOURCE,
       declarationContract: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
       bindsOwnEntity: true,
+      recordPredatesDecision: true,
     },
   },
   fieldAllowlist: WOULD_WRITE_FIELD_ALLOWLIST,
@@ -2584,6 +2586,23 @@ function buildFromObservedInput(rawInput: DryRunInput): BudgetProposalDryRun {
         block(
           "role_identity_unbound",
           `the declared role names ${JSON.stringify(input.role.entityGrain ?? null)} ${JSON.stringify(input.role.entityId ?? null)}, not the proposal's own ${input.scope.entityGrain ?? "unknown"} ${input.scope.entityId ?? "unknown"}`,
+        );
+      }
+      /*
+        r18 — THE RECORD MUST PREDATE THE DECISION IT AUTHORISES.
+
+        r17 bound the declaration's recording instant only to the knowledge
+        cutoff, so a declaration recorded AFTER a decision — back-dated to take
+        effect on the decision's day — could lift that older decision into a
+        proposal. `declaredAt` is the record the decision rested on, and it must
+        sit at or before the decision's own instant.
+      */
+      const declaredMs = instantOrDay(input.role.declaredAt);
+      const decidedMs = instantOrDay(input.decision?.decidedAt ?? null);
+      if (declaredMs === null || decidedMs === null || declaredMs > decidedMs) {
+        block(
+          "role_identity_unbound",
+          `the role declaration was recorded at ${JSON.stringify(input.role.declaredAt ?? null)}, after the decision it would authorise (${JSON.stringify(input.decision?.decidedAt ?? null)})`,
         );
       }
     }

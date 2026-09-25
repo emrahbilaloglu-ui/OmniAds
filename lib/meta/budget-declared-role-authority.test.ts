@@ -67,6 +67,7 @@ function request(over: Partial<DeclaredBudgetRoleRequest> = {}): DeclaredBudgetR
     entityId: TEST_ADSET,
     parentCampaignId: MAIN_CAMPAIGN,
     decisionDay: "2026-09-24",
+    decidedAt: "2026-09-24T15:00:00.000Z",
     proposalDay: "2026-09-25",
     recordedBy: RUN_STARTED,
     ...over,
@@ -107,11 +108,13 @@ describe("D121 — which declaration authorises a budget proposal", () => {
   });
 
   it("R121-04: a declaration recorded after the run began is not this run's knowledge", () => {
+    // A decision recorded after the run began, so the run start is the bound.
+    const decidedLater = request({ decidedAt: "2026-09-25T06:30:00.000Z" });
     const late = event({ declaredAt: "2026-09-25T03:00:00.001Z" });
-    expect(resolveDeclaredBudgetRoleAuthority(request(), [late]))
+    expect(resolveDeclaredBudgetRoleAuthority(decidedLater, [late]))
       .toEqual({ status: "none", refusal: "declaration_absent" });
     const exact = event({ declaredAt: RUN_STARTED });
-    expect(resolveDeclaredBudgetRoleAuthority(request(), [exact]).status).toBe("declared");
+    expect(resolveDeclaredBudgetRoleAuthority(decidedLater, [exact]).status).toBe("declared");
   });
 
   it("R121-05: a declaration effective only after the decision day refuses, without fallback", () => {
@@ -178,6 +181,58 @@ describe("D121 — which declaration authorises a budget proposal", () => {
   });
 });
 
+describe("D121 C1 — the decision's own knowledge bounds the decision day", () => {
+  /*
+    The counterexample: a decision computed 24 Sep 15:00; a declaration
+    recorded 25 Sep 16:00 with effectiveFrom 24 Sep; a proposal run 25 Sep
+    17:00. The decision was never made under that declaration, so it can
+    never be lifted into a proposal by it.
+  */
+  const counterexample = () => request({
+    decisionDay: "2026-09-24",
+    decidedAt: "2026-09-24T15:00:00.000Z",
+    proposalDay: "2026-09-25",
+    recordedBy: "2026-09-25T17:00:00.000Z",
+  });
+
+  it("R121-13: a declaration recorded after the decision never authorises that decision", () => {
+    const late = event({ effectiveFrom: "2026-09-24", declaredAt: "2026-09-25T16:00:00.000Z" });
+    expect(resolveDeclaredBudgetRoleAuthority(counterexample(), [late]))
+      .toEqual({ status: "none", refusal: "declaration_not_in_force_on_decision_day" });
+  });
+
+  it("R121-14: the proposal run still sees a revoke recorded after the decision", () => {
+    const before = event({ effectiveFrom: "2026-09-20", declaredAt: "2026-09-24T10:00:00.000Z" });
+    const revoke = event({
+      event: "revoke", declaredRole: null,
+      effectiveFrom: "2026-09-25", declaredAt: "2026-09-25T16:00:00.000Z",
+    });
+    expect(resolveDeclaredBudgetRoleAuthority(counterexample(), [before]).status).toBe("declared");
+    expect(resolveDeclaredBudgetRoleAuthority(counterexample(), [before, revoke]))
+      .toEqual({ status: "none", refusal: "declaration_withdrawn_since_decision_day" });
+  });
+
+  it("R121-15: in the deciding run itself, the run's start is the tighter decision bound", () => {
+    const sameRun = request({
+      decisionDay: "2026-09-25",
+      decidedAt: "2026-09-25T06:30:00.000Z",
+      proposalDay: "2026-09-25",
+      recordedBy: "2026-09-25T03:00:00.000Z",
+    });
+    const betweenStartAndDecision = event({
+      effectiveFrom: "2026-09-24", declaredAt: "2026-09-25T05:00:00.000Z",
+    });
+    expect(resolveDeclaredBudgetRoleAuthority(sameRun, [betweenStartAndDecision]))
+      .toEqual({ status: "none", refusal: "declaration_absent" });
+  });
+
+  it("R121-16: an unparseable decision instant admits nothing", () => {
+    expect(resolveDeclaredBudgetRoleAuthority(
+      request({ decidedAt: "not-an-instant" }), [event()],
+    )).toEqual({ status: "none", refusal: "declaration_knowledge_bound_invalid" });
+  });
+});
+
 describe("D121 — the composition re-checks what the loader resolved", () => {
   const bound = () => {
     const result = resolveDeclaredBudgetRoleAuthority(request(), [event()]);
@@ -188,6 +243,7 @@ describe("D121 — the composition re-checks what the loader resolved", () => {
     ownerGrain: "adset" as const,
     entityId: TEST_ADSET,
     parentCampaignId: MAIN_CAMPAIGN,
+    decidedAt: "2026-09-24T15:00:00.000Z",
     knowledgeMs: Date.parse("2026-09-25T04:00:00.000Z"),
   };
 
@@ -209,5 +265,19 @@ describe("D121 — the composition re-checks what the loader resolved", () => {
       ...authority, declaredAt: "2026-09-25T03:30:00.000Z",
     }, scope)).toBe(false);
     expect(declaredBudgetRoleBindsScope(null, scope)).toBe(false);
+    // D121 C1: another decision, or a decision record made after the decision.
+    expect(declaredBudgetRoleBindsScope(authority, {
+      ...scope, decidedAt: "2026-09-23T15:00:00.000Z",
+    })).toBe(false);
+    expect(declaredBudgetRoleBindsScope(authority, { ...scope, decidedAt: null })).toBe(false);
+    expect(declaredBudgetRoleBindsScope({
+      ...authority, decisionDeclaredAt: "2026-09-24T15:00:00.001Z",
+    }, scope)).toBe(false);
+    // A decision record the reading run could not have known.
+    expect(declaredBudgetRoleBindsScope({
+      ...authority,
+      decidedAt: "2026-09-26T00:00:00.000Z",
+      decisionDeclaredAt: "2026-09-25T03:00:00.001Z",
+    }, { ...scope, decidedAt: "2026-09-26T00:00:00.000Z" })).toBe(false);
   });
 });

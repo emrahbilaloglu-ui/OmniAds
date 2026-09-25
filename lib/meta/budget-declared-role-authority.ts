@@ -11,11 +11,14 @@
  * - An ad set budget reads the AD SET's declaration, and only while the ad set
  *   still sits under the campaign it was declared under. The campaign's role
  *   is never the ad set's: a Main campaign can run a Test ad set.
- * - Knowledge is bounded twice. A declaration counts only if it was recorded
- *   by the instant the reading run began, and only if it is in force both on
- *   the decision's own day and on the proposal's day, with the same role —
- *   so the recommendation and the proposal rest on the same statement, and a
- *   revoke or a change recorded before the run stops the proposal.
+ * - Knowledge is bounded twice, by two different instants (D121 C1). On the
+ *   decision's day the declaration must have been recorded by the DECISION's
+ *   own instant (or the reading run's start, whichever is earlier): a
+ *   statement recorded after a decision — even one back-dated to take effect
+ *   on the decision's day — was never what that decision rested on. On the
+ *   proposal's day it must still be in force, with the same role, as recorded
+ *   by the reading run's start, so a revoke or change recorded before the run
+ *   stops the proposal.
  *
  * It grants nothing on its own: the composition root admits it for a
  * PROPOSAL only (`composeBudgetProposalCandidate`). Execution re-reads role
@@ -35,7 +38,8 @@ export const BUDGET_DECLARED_ROLE_AUTHORITY_CONTRACT =
 
 /**
  * Why a declared route did not bind. Only `declaration_absent` lets the
- * caller fall back to the automatic route: every other code means a
+ * caller fall back to the automatic route, and only for a CAMPAIGN budget (an
+ * ad set has no automatic role of its own): every other code means a
  * declaration governs this entity and does not cleanly authorise this
  * proposal, so nothing else may stand in for it.
  */
@@ -59,10 +63,15 @@ export interface DeclaredBudgetRoleAuthority {
   entityId: string;
   /** The campaign the role binds under: the campaign itself, or the ad set's parent. */
   campaignId: string;
+  /** The record in force on the proposal's day. */
   declarationId: string;
   declaredAt: string;
   effectiveFrom: string;
-  /** The knowledge bound the declaration was read under. */
+  /** The record the DECISION rested on, and that decision's own instant. */
+  decisionDeclarationId: string;
+  decisionDeclaredAt: string;
+  decidedAt: string;
+  /** The proposal run's knowledge bound. */
   recordedBy: string;
 }
 
@@ -79,6 +88,8 @@ export interface DeclaredBudgetRoleRequest {
   parentCampaignId: string | null;
   /** The day the persisted decision was computed for. */
   decisionDay: string;
+  /** The instant the persisted decision was recorded. */
+  decidedAt: string;
   /** The day this proposal is composed as of. */
   proposalDay: string;
   /** The instant the reading run began. Later records are not its knowledge. */
@@ -95,7 +106,9 @@ export function resolveDeclaredBudgetRoleAuthority(
   request: DeclaredBudgetRoleRequest,
   events: readonly EntityRoleDeclarationEvent[],
 ): DeclaredBudgetRoleResolution {
-  if (!Number.isFinite(Date.parse(request.recordedBy))) {
+  const recordedByMs = Date.parse(request.recordedBy);
+  const decidedAtMs = Date.parse(request.decidedAt);
+  if (!Number.isFinite(recordedByMs) || !Number.isFinite(decidedAtMs)) {
     return refuse("declaration_knowledge_bound_invalid");
   }
   const scope = {
@@ -103,15 +116,19 @@ export function resolveDeclaredBudgetRoleAuthority(
     providerAccountId: request.providerAccountId,
     entityType: request.ownerGrain,
     entityId: request.entityId,
-    visibleAtCutoff: request.recordedBy,
   };
+  // What the decision could have known: nothing recorded after it was made,
+  // nor after the run that reads it began.
   const onDecisionDay = selectActiveEntityRoleDeclaration(events, {
     ...scope,
     asOf: request.decisionDay,
+    visibleAtCutoff: decidedAtMs <= recordedByMs ? request.decidedAt : request.recordedBy,
   });
+  // What is true now: the reading run's own knowledge, revokes included.
   const onProposalDay = selectActiveEntityRoleDeclaration(events, {
     ...scope,
     asOf: request.proposalDay,
+    visibleAtCutoff: request.recordedBy,
   });
   if (!onDecisionDay && !onProposalDay) return refuse("declaration_absent");
   if (!onDecisionDay) return refuse("declaration_not_in_force_on_decision_day");
@@ -149,6 +166,9 @@ export function resolveDeclaredBudgetRoleAuthority(
       declarationId: declaration.id,
       declaredAt: declaration.declaredAt,
       effectiveFrom: declaration.effectiveFrom,
+      decisionDeclarationId: onDecisionDay.id,
+      decisionDeclaredAt: onDecisionDay.declaredAt,
+      decidedAt: request.decidedAt,
       recordedBy: request.recordedBy,
     },
   };
@@ -164,6 +184,8 @@ export function declaredBudgetRoleBindsScope(
     ownerGrain: "campaign" | "adset";
     entityId: string;
     parentCampaignId: string | null;
+    /** The persisted decision's own instant, as the composition holds it. */
+    decidedAt: string | null;
     knowledgeMs: number;
   },
 ): boolean {
@@ -176,11 +198,20 @@ export function declaredBudgetRoleBindsScope(
   const expectedCampaign =
     scope.ownerGrain === "campaign" ? scope.entityId : (scope.parentCampaignId ?? "");
   if (expectedCampaign === "" || authority.campaignId !== expectedCampaign) return false;
+  // The decision it would authorise must be THIS proposal's decision, and
+  // the record that decision rested on must predate it.
+  if (scope.decidedAt === null || authority.decidedAt !== scope.decidedAt) return false;
+  const decidedAtMs = Date.parse(authority.decidedAt);
+  const decisionDeclaredMs = Date.parse(authority.decisionDeclaredAt);
   const declaredMs = Date.parse(authority.declaredAt);
   const recordedByMs = Date.parse(authority.recordedBy);
   return (
+    Number.isFinite(decidedAtMs) &&
+    Number.isFinite(decisionDeclaredMs) &&
     Number.isFinite(declaredMs) &&
     Number.isFinite(recordedByMs) &&
+    decisionDeclaredMs <= decidedAtMs &&
+    decisionDeclaredMs <= recordedByMs &&
     declaredMs <= recordedByMs &&
     recordedByMs <= scope.knowledgeMs
   );

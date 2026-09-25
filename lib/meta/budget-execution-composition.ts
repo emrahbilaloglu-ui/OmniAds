@@ -101,6 +101,12 @@ export const D088_COMPOSITION_BLOCKERS = [
     an ad set's money), or whose record is outside the knowledge bound.
   */
   "role_authority_declared_unbound",
+  /*
+    D121 C1: an automatic role presented for an AD SET's budget. Automatic
+    inference is campaign-level only, so it can only be the parent campaign's
+    role — which a Main campaign's separate Test ad set must never inherit.
+  */
+  "role_authority_adset_inherited",
 ] as const;
 export type BudgetCompositionBlocker = (typeof D088_COMPOSITION_BLOCKERS)[number];
 
@@ -371,7 +377,9 @@ function composeBudgetCandidate(
   // --- 4. role authority, a retained profile, measured history -------------
   const declaredRole = sources.role?.source === "declared";
   if (!sources.role) add("role_authority_absent");
-  else if (declaredRole) {
+  else if (sources.ownerGrain === "adset" && !declaredRole) {
+    add("role_authority_adset_inherited");
+  } else if (declaredRole) {
     if (roleAdmission !== "automatic_or_declared") add("role_authority_not_automatic");
     else if (
       sources.role.producer !== DECLARED_ROLE_AUTHORITY_RULE.producer
@@ -380,6 +388,7 @@ function composeBudgetCandidate(
         ownerGrain: sources.ownerGrain,
         entityId: sources.entityId,
         parentCampaignId: sources.parentCampaignId,
+        decidedAt: sources.decision?.decidedAt ?? null,
         knowledgeMs: sources.nowMs,
       })
     ) {
@@ -547,7 +556,8 @@ function composeBudgetCandidate(
         entityGrain: sources.role!.declared!.entityGrain,
         entityId: sources.role!.declared!.entityId,
         declarationContract: sources.role!.declared!.declarationContract,
-        declaredAt: sources.role!.declared!.declaredAt,
+        // The record the DECISION rested on; D085 binds it to that decision.
+        declaredAt: sources.role!.declared!.decisionDeclaredAt,
       }
       : {
         role: sources.role!.kind, source: "system_inferred",

@@ -109,11 +109,15 @@ export async function loadBudgetCompositionSourcesForCandidate(
 
     A campaign budget reads the campaign's declaration; an ad set budget reads
     the ad set's, bound to the campaign it was declared under. It counts only
-    if recorded by the start of the run that sized this candidate (or, called
-    on its own, by this loader's start) and only if in force, with the same
-    role, on the decision's day and today. Only a genuinely absent declaration
-    falls through to the automatic D081 route below, unchanged; a declaration
-    that exists but does not bind leaves the proposal with no role authority.
+    on the decision's day if recorded by the decision's own instant, and today
+    if still in force with the same role as recorded by the start of this run
+    (or, called on its own, this loader's start). For a CAMPAIGN budget, only
+    a genuinely absent declaration falls through to the automatic D081 route
+    below; a declaration that exists but does not bind leaves the proposal with
+    no role authority. An AD SET budget has no automatic route at all (D121 C1):
+    automatic inference is campaign-level, so the only automatic role an ad set
+    could be handed is its campaign's, which a Main campaign's separate Test ad
+    set must never inherit.
   */
   const declaredRole = (await readDeclaredBudgetRoleAuthority({
     businessId,
@@ -122,6 +126,7 @@ export async function loadBudgetCompositionSourcesForCandidate(
     entityId: candidate.scopeId,
     parentCampaignId: candidate.parentCampaignId,
     decisionDay: candidate.snapshotDate,
+    decidedAt: candidate.decisionAt,
     proposalDay: nowIso.slice(0, 10),
     recordedBy: options.roleDeclarationsRecordedBy ?? nowIso,
   }).catch(() => null)) as DeclaredBudgetRoleResolution | null;
@@ -144,7 +149,7 @@ export async function loadBudgetCompositionSourcesForCandidate(
     intendedAmountMinor: candidate.targetAmountMinor,
     nowMs,
   });
-  const roleRows = (await getDb().query(
+  const roleRows = candidate.scopeType !== "campaign" ? [] : (await getDb().query(
     /* business_id and campaign_id are SELECTED, not assumed: the resolver
        re-checks the composite scope against the request, and a row relabelled
        with the id we asked for cannot be cross-checked at all. */
@@ -210,7 +215,8 @@ export async function loadBudgetCompositionSourcesForCandidate(
     exactly as the runtime reads it.
   */
   const automaticRole: BudgetCompositionRole | null =
-    roleResolution.satisfiesRoleAuthority && roleResolution.role
+    candidate.scopeType === "campaign"
+    && roleResolution.satisfiesRoleAuthority && roleResolution.role
       ? {
         kind: roleResolution.role,
         source: "automatic",

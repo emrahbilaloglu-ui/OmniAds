@@ -1,5 +1,5 @@
 {
-  "manifestHash": "a1f4848f72a7727958b1936dc54f2a3a8762463cbf040475f987f08141384c37",
+  "manifestHash": "f05ec72cde4608df5142857941c0c12f616801ce0afe63b2675ff7c97b610ebf",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -639,24 +639,28 @@
       "sha256": "2b8c7bc082cc3daa98de01656348d5f6f60cc473520d6360e92ffe6c3a6752a0"
     },
     {
+      "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r18.json",
+      "sha256": "867e5ae288d8af889866536b5e75da01a651c349482e3dfb08323a170af828ce"
+    },
+    {
       "path": "docs/creative-decision-center/CONTRACTS.md",
       "sha256": "7b0b5889c2631e61913b759422d52a94733c65eb5ee455e54f6f70a76ebf51b6"
     },
     {
       "path": "docs/creative-decision-center/DATA_READINESS.md",
-      "sha256": "4d228f1ce161d6b29ac08f19df53995840db5906c2822312eba81cb4d7a8b46c"
+      "sha256": "8d30b7f0ba98cce4b0a0ce498480a79033d884f33ab3ce996e52e1d693643885"
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "d421a10a8ba6041bf730fc0e5115a244011619a1c1d4245059d98f1882713915"
+      "sha256": "bbdb69fa5e53a6a4f1bfaed57a0f30eaf7f99f32197028f9e73a5cc9c787ad3b"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
-      "sha256": "7940a3f81d01592343dc1bb67e359961278e9931796070a29bb21168b2d817fc"
+      "sha256": "7dfe10727b01ef387123c1e4bdb121fc28446055a70c9cc9d62585eeb12aacd5"
     },
     {
       "path": "docs/creative-decision-center/INVARIANTS.md",
-      "sha256": "7793da5e88f868a109e8a865058f4a360a2a63d53968adaa0a0720cc7141581f"
+      "sha256": "e13f14ed8bf276ca7c9f592f4b66e05562a2b455ba9a46d808e56a446f9f7f67"
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
@@ -1388,15 +1392,15 @@
     },
     {
       "path": "lib/meta/budget-declared-role-authority.test.ts",
-      "sha256": "e787f664eeb4a2d050b11b5fccedab828ed0f5c8f54000cf1b8826e15c94d5f7"
+      "sha256": "2bfcbc74f1410e5773979ce20348b5dcae21f6aebc1faa14390f09591ffe5342"
     },
     {
       "path": "lib/meta/budget-declared-role-authority.ts",
-      "sha256": "39cef5599a557b9e7337dde094193f493c2d0586ea8ac71d945c777d579b045d"
+      "sha256": "fd81e7b8c0c80f7ca2931acf720a5c5896e0eea24f88ceb765c6b49ed3ee6b78"
     },
     {
       "path": "lib/meta/budget-execution-composition.ts",
-      "sha256": "4957312dd5f628686c5c798c4c3f72419d5db20d759116deda71956b45d234e5"
+      "sha256": "ddb33c8b3a1e18402b7b7995a215ed8724fcf7b2b35d7ae78c02ac2ec58674b4"
     },
     {
       "path": "lib/meta/budget-fact.test.ts",
@@ -1416,23 +1420,31 @@
     },
     {
       "path": "lib/meta/budget-production-path.c3.test.ts",
-      "sha256": "ec07714601b28894b8064258eb1aa095e5e7066cffa920d1f121e373ab884ddb"
+      "sha256": "dae97acdf98e32d5ce8a5e4348fbccec4f5f9a3ccb03cd55506a4c323e991649"
     },
     {
       "path": "lib/meta/budget-proposal-dry-run.test.ts",
-      "sha256": "30ab5b31dc45a5d9c665721d1ba0ba883fb099f903ebb25d500d8f424493d750"
+      "sha256": "6f2e759ea8478e18edb8a6009655958767eaf2361ae3640cda4ad0b7239bfbff"
     },
     {
       "path": "lib/meta/budget-proposal-dry-run.ts",
-      "sha256": "4f8e9222d0fd6906e429bdc043312c855dc197289e03f486a85034b1d5e8382e"
+      "sha256": "11b5044197ca948386e1f7942e8855ca513e939f181eb6b1ef9ae2401104ecff"
     },
     {
       "path": "lib/meta/budget-proposal-producer.ts",
       "sha256": "3805c47bd4c82a038a5cb59edef709154328312f79bacea1acc2df037b888e37"
     },
     {
+      "path": "lib/meta/budget-proposal-server-readers.ts",
+      "sha256": "ecdc3d48776b8f1b6b19bb3fa002fae58592c8d0f3177cf0c12467672f61e714"
+    },
+    {
+      "path": "lib/meta/budget-proposal-server-runtime.test.ts",
+      "sha256": "29880e15282566c3451d9a933b62bf57c639cac2839b482e9508be2c4e3f99e6"
+    },
+    {
       "path": "lib/meta/budget-proposal-source-loader.ts",
-      "sha256": "ce1071e9e2b345224abd2569d7bd041282e66887738732476d4edcf5fd4d3faf"
+      "sha256": "f9613586e4e86b1831b8aaa52dcf7d10c2b4db0e146875ac4ee9b2b88d5a2eab"
     },
     {
       "path": "lib/meta/budget-readiness-retention.ts",
@@ -2020,7 +2032,15 @@
     },
     {
       "path": "scripts/audits/d085-budget-proposal-dry-run.ts",
-      "sha256": "026f429633e656bdf0b8ba9817048507e9a9821c2bb0c669f7d477323c7d88ac"
+      "sha256": "ab69163557a687d0f559104e195485361538409c2e945b7c32134fe74e729f5b"
+    },
+    {
+      "path": "scripts/audits/d088-budget-counterfactual-replay.test.ts",
+      "sha256": "c5a576746af79f97998130484201bdb8be887505e20ab54ba1d4e6282ec7fab9"
+    },
+    {
+      "path": "scripts/audits/d088-budget-counterfactual-replay.ts",
+      "sha256": "f800389ca5134897622dbf35c1e6ecd0018a5a13304f716095cef81ea2e326db"
     },
     {
       "path": "scripts/creative-decision-center/generalized-pit-replay.test.ts",

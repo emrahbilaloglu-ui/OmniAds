@@ -11211,17 +11211,65 @@ gets no role and no parent fallback; a declaration recorded after the run
 began waits for the next run; a foreign account or business is ignored; the
 same declared sources through the execution composition are refused.
 
-**Residual, stated plainly.** Execution's server readers still bind an ad-set
-budget to its PARENT campaign's automatic role (D081, unchanged by
-instruction). It is unreachable today — the resolver gate is unset, the kill
-switch is engaged, no runtime is injected, and after this ADR an ad set
-budget is only sized under the ad set's own role — but it must be closed
-(execution reading the ad set's own role) before the resolver gate or budget
-automation is ever enabled. The Meta serving re-guard
-(`readLatestMetaDecisionSnapshot`) still reads declarations at read time.
+**Residual, stated plainly.** ~~Execution's server readers still bind an
+ad-set budget to its PARENT campaign's automatic role.~~ Closed by D121
+Correction 1. The Meta serving re-guard (`readLatestMetaDecisionSnapshot`)
+was closed separately by D122.
 
 **Rollback.** Revert the commit. No migration, no persisted row and no
 provider state is involved; the r17 artifact is additive beside r16.
+
+### D121 Correction 1 — no inherited ad set role anywhere; decision-time knowledge is its own bound (2026-09-25)
+
+Two counterexamples from an independent review of the D121 commit, both
+reproduced as failing tests before the fix.
+
+1. **An undeclared ad set inherited its parent's automatic role.** The loader
+   fell back to `resolveCampaignRoleAuthority` for the PARENT campaign when an
+   ad set had no declaration, and the execution readers read the parent's
+   automatic row for every ad set proposal. In the anchor case — a Main
+   campaign running a separate Test ad set — an undeclared ad set would be
+   judged Main. Automatic inference is campaign-level only and no automatic
+   ad-set inference exists, so an ad set budget now has **no automatic role at
+   any gate**: the loader and the execution readers read no role evidence for
+   an ad set, and both compositions refuse an automatic role presented for an
+   ad set's budget (`role_authority_adset_inherited`) before D085 runs. This
+   deliberately retires the D081/D088 behaviour of binding an ad-set budget to
+   its campaign's role, at the user's instruction. The D088 counterfactual
+   lane now catches its ad-set cells by that name instead of at the D087
+   off-gate, and the D088 runtime test's ABO case now asserts a refusal with
+   zero provider contact. D085's pure validator keeps its r16 automatic rule
+   (an ad-set scope bound to its parent campaign); no runtime path can present
+   it one. **Consequence:** no ad-set budget can be executed at all now — the
+   automatic route is closed and the declared route is proposal-only. Opening
+   execution for a declared ad-set role is a separate, explicit decision.
+2. **A later declaration could lift an older decision.** Both days were
+   selected under the proposal run's start, so a decision computed on 24 Sep
+   at 15:00 plus a declaration recorded on 25 Sep at 16:00 with
+   `effectiveFrom` 24 Sep made the old decision look as if it had been made
+   under that declaration. The decision day is now selected under the
+   decision's own instant (`candidate.decisionAt`, or the run's start if
+   earlier), and the proposal day under the run's start (current state and
+   revokes). The authority carries both records and the decision instant; the
+   composition re-checks that it is this proposal's decision and that the
+   decision's record predates it; D085 r18 requires `role.declaredAt` (the
+   record the decision rested on) to be at or before `decision.decidedAt`.
+   r17 is recorded in the D085 lineage as rejected for these findings; the
+   r18 artifact was assembled and verified offline with unchanged cell
+   verdicts.
+
+**Acceptance.** R121-13..16, R121-C11..C17, R121-D9 (GOLDEN_CASES D121).
+R121-C15 drives the real execution readers over projected envelopes and was
+shown to fail with the reader fix reverted; R121-C17 fails if the composition
+hands D085 the proposal-day record instead of the decision's.
+
+**Known limits.** `candidate.decisionAt` is the decision row's write time,
+not the deciding run's start; in the snapshot's own run the run start is the
+tighter bound and is used, but a standalone or overlapping later read bounds
+the decision day by the write time. Proposal rows raised by pre-correction
+code are not withdrawn here (production has none) and cannot execute.
+
+**Rollback.** Revert the commit; no migration or persisted state.
 
 ## D122 — A served Meta snapshot cannot learn a role declared after its run (2026-09-25)
 

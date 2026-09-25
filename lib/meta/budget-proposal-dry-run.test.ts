@@ -2109,6 +2109,17 @@ describe("r17 — a declared role binds the proposal's own entity", () => {
     expect(blockers).toContain("capture_after_knowledge_cutoff");
   });
 
+  it("R121-D9: a declaration recorded after the decision cannot authorise that decision", () => {
+    // Inside the knowledge cutoff, but after the decision it would authorise.
+    const result = buildBudgetProposalDryRun(bestCase({
+      role: declaredRole({ declaredAt: "2026-09-01T06:00:00.000Z" }),
+      knowledgeAsOf: "2026-09-01T12:00:00.000Z",
+    }));
+    expect(result.blockers).toContain("role_identity_unbound");
+    expect(result.blockerDetail.find((d) => d.code === "role_identity_unbound")?.why)
+      .toContain("after the decision");
+  });
+
   it("R121-D6: an automatic context may not carry a declared-only field", () => {
     for (const key of ["entityGrain", "entityId", "declarationContract", "declaredAt"]) {
       const role = { ...bestCase().role, [key]: "x" } as DryRunInput["role"];

@@ -80,9 +80,15 @@ describe("D088 replay — two lanes, never mixed", () => {
     expect(report.cells.every((c) => c.wouldWrite === false)).toBe(true);
   });
 
-  it("catches every assumption cell on the default-off gate, by name", () => {
-    expect(report.guardrailCatches["d087:automation_disabled"])
-      .toBe(report.totals["counterfactual-assumption"].cells);
+  it("catches every assumption cell by name: campaigns on the default-off gate, ad sets on their missing own role", () => {
+    const assumption = report.cells.filter((c) => c.lane === "counterfactual-assumption");
+    const campaignCells = assumption.filter((c) => c.ownerGrain === "campaign").length;
+    const adsetCells = assumption.filter((c) => c.ownerGrain === "adset").length;
+    expect(campaignCells + adsetCells).toBe(report.totals["counterfactual-assumption"].cells);
+    expect(report.guardrailCatches["d087:automation_disabled"]).toBe(campaignCells);
+    // D121 C1: the lane assumes an automatic role, and for an ad set that can
+    // only be its parent campaign's — refused before anything is composed.
+    expect(report.guardrailCatches.role_authority_adset_inherited).toBe(adsetCells);
   });
 
   it("reports activation as NOT ready, with its named conditions", () => {

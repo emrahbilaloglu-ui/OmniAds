@@ -291,10 +291,12 @@ stop-loss path" in that row now refers to.
   own start (`roleDeclarationsRecordedBy`), and the budget proposals of that
   run read with the same bound.
 - A proposal's declared role is ready when the governing entity's declaration
-  is in force with the same role on the decision's day and on the proposal's
-  day, was recorded by the run's start, and (ad set) names the ad set's
-  current campaign. Otherwise it is not ready, and only a genuinely absent
-  declaration lets the automatic D081 route answer.
+  was in force on the decision's day as recorded by the decision's own
+  instant (or the run's start, if earlier), is still in force with the same
+  role on the proposal's day as recorded by the run's start, and (ad set)
+  names the ad set's current campaign. Otherwise it is not ready. Only for a
+  campaign budget does a genuinely absent declaration let the automatic D081
+  route answer; an ad set budget has no automatic route (D121 C1).
 - D086 budget readiness (`role_authority_retention`,
   `automatic_role_authority_absent`) is the AUTOMATION ACTIVATION readiness
   and stays automatic-only by design: declarations never make execution

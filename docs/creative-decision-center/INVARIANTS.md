@@ -740,12 +740,22 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
   A campaign's role — automatic or declared — never sizes or proposes its ad
   set's money. A declared role reaches a budget proposal only through the
   separately versioned `meta.budget-declared-role-authority.v1` route and
-  D085 r17's `operator_declared` rule: recorded by the start of the run that
-  sized the candidate, in force with the same role on the decision's day and
-  the proposal's day, and (for an ad set) still under the campaign it was
-  declared under. A declaration that exists but does not bind leaves the
-  proposal with NO role authority; only a genuinely absent declaration falls
-  through to the unchanged automatic route.
+  D085 r18's `operator_declared` rule: recorded by the decision instant (or
+  earlier run start) on the decision's day and by the proposal run start on
+  the proposal's day, with the same role, and (for an ad set) still under the
+  campaign it was declared under. A declaration that exists but does not bind
+  leaves the proposal with NO role authority; for a CAMPAIGN budget only a genuinely
+  absent declaration falls through to the unchanged automatic route.
+- (D121 C1) An ad set budget has no automatic role at any gate. Automatic
+  inference is campaign-level, so the only automatic role an ad set could be
+  handed is its parent's; the loader, the execution readers and both
+  compositions (`role_authority_adset_inherited`) refuse it.
+- (D121 C1) Decision-time and proposal-time knowledge are separate bounds. On
+  the decision's day a declaration counts only if recorded by the decision's
+  own instant (or the reading run's start, if earlier); on the proposal's day
+  the run's start bounds current state and revokes. A declaration recorded
+  after a decision never authorises that decision, even back-dated to its day
+  (D085 r18: `role.declaredAt` ≤ `decision.decidedAt`).
 - (D121) Execution stays automatic-only. `composeBudgetExecutionCandidate`,
   the server readers and the D086 activation readiness admit only
   `system_inferred`; only `composeBudgetProposalCandidate` admits a

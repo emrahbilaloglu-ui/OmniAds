@@ -882,7 +882,7 @@ running a separate Test ad set.
 Executable in `lib/meta/budget-declared-role-authority.test.ts` (resolver),
 `lib/meta/intent-projection-context.test.ts` (sizing gate),
 `lib/meta/budget-production-path.c3.test.ts` (real producer → loader →
-composition → D085) and `lib/meta/budget-proposal-dry-run.test.ts` (D085 r17).
+composition → D085) and `lib/meta/budget-proposal-dry-run.test.ts` (D085 r18).
 Same anchor: a Main campaign running a separate Test ad set.
 
 | case | input | expected |
@@ -901,7 +901,15 @@ Same anchor: a Main campaign running a separate Test ad set.
 | R121-C5..C8 | recorded after the run began (then a later run); effective after the decision day; campaign budget; foreign account/business | refused then projects / refused / projects / refused |
 | R121-C9 | the same declared sources through both compositions | proposal `would_write_available`; execution `role_authority_not_automatic`, no dry run |
 | R121-C10 | declared authority relabelled to the parent campaign, or recorded after the knowledge instant | `role_authority_declared_unbound` |
-| R121-D1..D8 | D085 r17: exact declared ad set; each defect; the parent campaign's declaration; another ad set / campaign; record after the cutoff; automatic context with declared-only fields; relabelled automatic context; automatic fixture | canonical with no resolver approval / `role_authority_not_canonical` naming the defect / `role_identity_unbound` / `role_identity_unbound` / `capture_after_knowledge_cutoff` / refused / refused / unchanged |
+| R121-D1..D8 | D085 r18: exact declared ad set; each defect; the parent campaign's declaration; another ad set / campaign; record after the cutoff; automatic context with declared-only fields; relabelled automatic context; automatic fixture | canonical with no resolver approval / `role_authority_not_canonical` naming the defect / `role_identity_unbound` / `role_identity_unbound` / `capture_after_knowledge_cutoff` / refused / refused / unchanged |
+| R121-13..16 | decision 24 Sep 15:00, declaration recorded 25 Sep 16:00 effective 24 Sep, run 25 Sep 17:00; revoke recorded after the decision; same-run decision after the run start; unparseable decision instant | `declaration_not_in_force_on_decision_day` / withdrawn / run start is the bound / refused |
+| R121-C11 | retained ad set candidate, parent campaign automatic Main, no declaration | `role_authority_absent`; loader hands no role |
+| R121-C12 | an automatic role presented for an ad set, through the proposal AND execution compositions | `role_authority_adset_inherited`, no dry run, not executable |
+| R121-C13..C14 | declaration recorded after the decision row (back-dated); authority whose decision record postdates the decision, or another decision instant | `role_authority_absent` / `role_authority_declared_unbound` |
+| R121-C15 | execution readers over real projected envelopes: automatic Main campaign, declared Test ad set | campaign keeps `automatic main`; ad set gets no role; execution composition `role_authority_absent` |
+| R121-C16 | execution runtime (mocked transport) for an ABO ad set handed an automatic role | refused with `role_authority_adset_inherited`; zero fetches, zero POSTs, no journal row (the CBO campaign case still writes once) |
+| R121-C17 | same-role re-declaration recorded after the decision (earlier record before it) | projects; the authority carries both records and D085 receives the one the decision rested on |
+| R121-D9 | D085: declared record inside the knowledge cutoff but after `decision.decidedAt` | `role_identity_unbound` |
 
 ## D122 served snapshot role-knowledge cases
 

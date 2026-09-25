@@ -295,6 +295,7 @@ function fixedPlatformSections(sections: OverviewPlatformSection[] | undefined) 
       provider,
       title,
       metrics,
+      coverageNote: source?.coverageNote ?? null,
     } satisfies OverviewPlatformSection;
   });
 }
@@ -735,6 +736,7 @@ export default function OverviewPage() {
           provider={platform.provider}
           title={platform.title}
           metrics={platform.metrics}
+          coverageNote={platform.coverageNote}
           currencySymbol={symbol}
           dateDomain={providerDateDomain}
           previousDateDomain={providerPreviousDateDomain}

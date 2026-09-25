@@ -5,6 +5,7 @@ import { proxy } from "@/proxy";
 
 function buildRequest(input: {
   pathname: string;
+  origin?: string;
   bearerToken?: string;
   sessionToken?: string;
   method?: string;
@@ -14,7 +15,7 @@ function buildRequest(input: {
     headers.set("authorization", `Bearer ${input.bearerToken}`);
   }
 
-  const request = new NextRequest(`http://localhost${input.pathname}`, {
+  const request = new NextRequest(`${input.origin ?? "http://localhost"}${input.pathname}`, {
     headers,
     method: input.method,
   });
@@ -29,6 +30,27 @@ function buildRequest(input: {
 describe("proxy internal sync auth", () => {
   beforeEach(() => {
     process.env.CRON_SECRET = "secret";
+  });
+
+  it("keeps scoped and login redirects on the configured public origin", () => {
+    const previous = process.env.NEXT_PUBLIC_APP_URL;
+    process.env.NEXT_PUBLIC_APP_URL = "https://adsecute.com";
+    try {
+      const scoped = proxy(buildRequest({
+        origin: "http://0.0.0.0:3000",
+        pathname: "/c/biz_1/creative/performance?providerAccountId=act_1",
+        sessionToken: "session_123",
+      }));
+      expect(scoped.headers.get("location")).toBe(
+        "https://adsecute.com/switch-business/biz_1?next=%2Fapp%2Fcreative%2Fperformance%3FproviderAccountId%3Dact_1",
+      );
+
+      const login = proxy(buildRequest({ origin: "http://0.0.0.0:3000", pathname: "/overview" }));
+      expect(login.headers.get("location")).toBe("https://adsecute.com/login?next=%2Foverview");
+    } finally {
+      if (previous === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+      else process.env.NEXT_PUBLIC_APP_URL = previous;
+    }
   });
 
   it("blocks sync refresh without session or internal auth", async () => {

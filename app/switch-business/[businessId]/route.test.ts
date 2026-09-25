@@ -44,6 +44,21 @@ beforeEach(() => {
 });
 
 describe("GET /switch-business/[businessId]", () => {
+  it("redirects from an internal container URL to the configured public origin", async () => {
+    const previous = process.env.NEXT_PUBLIC_APP_URL;
+    process.env.NEXT_PUBLIC_APP_URL = "https://adsecute.com";
+    try {
+      const internal = new NextRequest(`http://0.0.0.0:3000/switch-business/${businessId}?next=%2Fapp%2Fcreative%2Fperformance`);
+      const response = await GET(internal, { params: Promise.resolve({ businessId }) });
+      expect(response.headers.get("Location")).toBe(
+        `https://adsecute.com/switch-business/${businessId}/finish?next=%2Fapp%2Fcreative%2Fperformance`,
+      );
+    } finally {
+      if (previous === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+      else process.env.NEXT_PUBLIC_APP_URL = previous;
+    }
+  });
+
   it("redirects an authorized cross-business GET to POST completion without writing", async () => {
     const target = "/app/meta/decisions?scope=creatives&window=7d";
     const response = await get(`?next=${encodeURIComponent(target)}`);

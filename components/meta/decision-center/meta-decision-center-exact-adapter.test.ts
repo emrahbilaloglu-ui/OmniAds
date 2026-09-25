@@ -5203,6 +5203,14 @@ describe("the buyer's verdict word comes from the type, never from English", () 
     expect(new Set(words).size).toBe(words.length);
   });
 
+  it("does not turn a blocked held Cut into an imperative pause label", () => {
+    expect(buyerFacingCreativeDecisionLabel({
+      publishedLabel: "cut",
+      lane: "blocked",
+      heldAction: "cut",
+    } as MetaOsAdDecision)).toBe("Pause signal · verify first");
+  });
+
   it("does not let a substring of one label reach another label's word", () => {
     /*
       The old regexes were partial matches, so any string CONTAINING a keyword

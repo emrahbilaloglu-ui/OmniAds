@@ -227,12 +227,11 @@ describe("held and blocked creative steps follow the served resolution owner", (
     });
     const verdict = heldCreativeVerdict(held, configGap);
 
-    expect(verdict?.label).toBe("Recommendation on hold: Pause ad");
-    expect(verdict?.nextStep).toBe(
-      "The evidence this change needs is still being completed. " +
-        "The campaign configuration for every day behind it is not confirmed yet. " +
-        "No action is needed from you; this Pause ad recommendation is re-checked on each decision run.",
+    expect(verdict?.label).toBe("Pause signal · configuration unverified");
+    expect(verdict?.nextStep).toContain(
+      "Review the current setup and recent results in Meta before making a manual decision.",
     );
+    expect(verdict?.nextStep).toContain("no automated change is available");
     for (const chore of CHORES) expect(verdict?.nextStep).not.toMatch(chore);
   });
 

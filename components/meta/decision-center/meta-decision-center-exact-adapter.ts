@@ -2473,6 +2473,11 @@ const BUYER_CREATIVE_DECISION_LABEL: Readonly<Record<string, string>> = {
 export function buyerFacingCreativeDecisionLabel(
   decision: MetaOsAdDecision,
 ): string {
+  // A Cut held in Needs Resolution is an economic signal, not an instruction
+  // to pause. The separate held verdict names the exact missing authority.
+  if (decision.lane === "blocked" && decision.heldAction === "cut" && decision.publishedLabel === "cut") {
+    return "Pause signal · verify first";
+  }
   const typed = knownBuyerCopy(
     BUYER_CREATIVE_DECISION_LABEL,
     nonBlank(decision.publishedLabel)?.toLowerCase(),
@@ -2816,6 +2821,14 @@ export function heldCreativeVerdict(
     closing clause. The D097 manual Cut is operator-owned and never enters here.
   */
   if (resolutionWaitsOnSystem(decision.heldResolution) && !manualCutCandidate) {
+    if (action === "cut" && needsConfig && !needsFreshSource && !needsConfirmation && !needsCampaignContext) {
+      return {
+        action,
+        label: "Pause signal · configuration unverified",
+        nextStep:
+          "The recorded performance raises a pause signal, but the campaign configuration is not verified for every day in this decision window. Review the current setup and recent results in Meta before making a manual decision. Adsecute will re-check the signal as source evidence improves; no automated change is available.",
+      };
+    }
     const primaryReason = heldPrimaryReason(decision, authorityBlocker);
     const waits = [
       primaryReason

@@ -6626,9 +6626,8 @@ export function MetaPlatformPage({
             onOpenCreativeStudio={
               providerAccountId
                 ? () => {
-                    // The Studio route reads and authorizes both identities
-                    // and the selected window. A session business can change
-                    // before an /app link opens in another tab.
+                    // Preserve the selected business across navigation; the
+                    // scoped redirect uses the configured public origin.
                     const params = new URLSearchParams({
                       providerAccountId,
                       startDate: selectedDateRange.start,

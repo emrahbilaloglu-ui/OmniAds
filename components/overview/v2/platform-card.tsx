@@ -143,6 +143,7 @@ export function PlatformMiniDashboard({
   provider,
   title,
   metrics,
+  coverageNote,
   currencySymbol,
   latestSync,
   dateDomain,
@@ -151,6 +152,7 @@ export function PlatformMiniDashboard({
   provider: string;
   title: string;
   metrics: OverviewMetricCardData[];
+  coverageNote?: string | null;
   currencySymbol: string;
   latestSync?: { finishedAt?: string | null; status?: string | null } | null;
   dateDomain?: SparklineDateDomain;
@@ -220,6 +222,11 @@ export function PlatformMiniDashboard({
             </Link>
           ) : null}
         </div>
+        {coverageNote ? (
+          <p data-overview-provider-coverage className="m-0 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {coverageNote}
+          </p>
+        ) : null}
         <ul role="list" aria-label={`${label} metrics`} className={styles.stats}>
           {knownProvider
             ? specs.map((spec) => (

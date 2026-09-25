@@ -52,6 +52,24 @@ function metricsFor(sections: ReturnType<typeof buildPlatformSections>, provider
 }
 
 describe("Dashboard v2 Overview provider contracts", () => {
+  it("shows source-backed provider metrics for a partial window without inventing a full-period comparison", () => {
+    const current = Object.assign(
+      overview([row("meta", { spend: 150, revenue: 300, purchases: 3 })]),
+      { providerScalarRanges: { meta: { startDate: "2026-09-18", endDate: "2026-09-23" }, google: null } },
+    ) as Parameters<typeof buildPlatformSections>[0];
+    const previous = overview([row("meta", { spend: 100, revenue: 200, purchases: 2 })]);
+    const sections = buildPlatformSections(current, previous, "previous_period", {
+      startDate: "2026-09-18", endDate: "2026-09-24",
+    });
+
+    expect(sections.find((section) => section.provider === "meta")?.coverageNote).toContain(
+      "2026-09-24",
+    );
+    expect(metricsFor(sections, "meta")["meta-spend"]).toEqual(
+      expect.objectContaining({ value: 150, previousValue: null, changePct: null }),
+    );
+  });
+
   it("aggregates account-grain rows into one provider total", () => {
     const source = overview([
       {

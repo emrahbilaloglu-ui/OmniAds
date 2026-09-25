@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isPublicPagePath } from "@/lib/public-page-prefixes";
+import { publicRedirectBaseUrl } from "@/lib/public-redirect-url";
 import { resolvePublicRouteRedirect } from "@/lib/zero-base/public-routes";
 
 const AUTH_COOKIE = "omniads_session";
@@ -156,7 +157,7 @@ export function proxy(request: NextRequest) {
     const destination = publicRoute.businessId
       ? `/switch-business/${encodeURIComponent(publicRoute.businessId)}?next=${encodeURIComponent(`${publicRoute.destination}${request.nextUrl.search}`)}`
       : `${publicRoute.destination}${request.nextUrl.search}`;
-    const response = NextResponse.redirect(new URL(destination, request.url));
+    const response = NextResponse.redirect(new URL(destination, publicRedirectBaseUrl(request)));
     if (!hasLanguage) {
       response.cookies.set(LANGUAGE_COOKIE, "en", {
         path: "/",
@@ -174,7 +175,7 @@ export function proxy(request: NextRequest) {
     !pathname.includes(".")
   ) {
     if (!hasSession) {
-      const loginUrl = new URL("/login", request.url);
+      const loginUrl = new URL("/login", publicRedirectBaseUrl(request));
       const nextPath = `${pathname}${request.nextUrl.search}`;
       if (nextPath !== "/") {
         loginUrl.searchParams.set("next", nextPath);

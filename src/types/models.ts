@@ -290,6 +290,8 @@ export interface OverviewPlatformSection {
   title: string;
   provider: string;
   metrics: OverviewMetricCardData[];
+  /** Explicit provider coverage when the selected window has unpublished days. */
+  coverageNote?: string | null;
 }
 
 export interface OverviewInsightCard {

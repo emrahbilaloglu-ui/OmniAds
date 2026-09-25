@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromCookies } from "@/lib/auth";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { sanitizeNextPath } from "@/lib/auth-routing";
+import { publicRedirectBaseUrl } from "@/lib/public-redirect-url";
 import {
   AGENCY_RETURN_PARAM,
   parseAgencyReturn,
@@ -54,7 +55,7 @@ export async function GET(
 }
 
 function switchRedirect(request: NextRequest, destination: string): NextResponse {
-  const response = NextResponse.redirect(new URL(destination, request.url));
+  const response = NextResponse.redirect(new URL(destination, publicRedirectBaseUrl(request)));
   response.headers.set("Cache-Control", "private, no-store, max-age=0");
   response.headers.set("Vary", "Cookie");
   return response;

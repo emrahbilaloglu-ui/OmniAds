@@ -444,18 +444,17 @@ describe.skipIf(!SEAM)("migration DDL is bounded to one session", () => {
 
   it("runs EVERY migration DDL statement on the single pinned backend", async () => {
     delete process.env.MIGRATION_LOCK_TIMEOUT_MS;
-    const recorded: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const leasedBackendPids: number[] = [];
     vi.resetModules();
-    vi.doMock("@/lib/startup-diagnostics", async () => {
-      const actual =
-        await vi.importActual<typeof import("@/lib/startup-diagnostics")>(
-          "@/lib/startup-diagnostics",
-        );
+    vi.doMock("@/lib/db", async () => {
+      const actual = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
       return {
         ...actual,
-        logStartupEvent: (event: string, details: Record<string, unknown>) => {
-          recorded.push({ event, details });
-        },
+        withPinnedDbClient: (async (fn: (client: unknown) => Promise<unknown>, options?: unknown) =>
+          actual.withPinnedDbClient(async (client) => {
+            leasedBackendPids.push(Number(client.backendPid));
+            return fn(client);
+          }, options as never)) as typeof actual.withPinnedDbClient,
       };
     });
     const { migrations } = await freshMigrationsFor(TRACE_DB);
@@ -483,11 +482,13 @@ describe.skipIf(!SEAM)("migration DDL is bounded to one session", () => {
     /*
       AND IT IS THE PINNED ONE. Distinctness alone would pass if every statement
       had escaped to the same second backend, so the observed PID is compared to
-      the lease the migration logged -- the backend it proved the lock bound on.
+      the lease handed to the migration -- the backend where its lock bound was
+      verified. Capture the lease directly, not through a diagnostics mock that
+      can lose its module binding across earlier migration cases.
     */
-    const preflight = recorded.find((entry) => entry.event === "migrations_preflight");
-    expect(preflight).toBeDefined();
-    expect(distinctPids.has(Number(preflight?.details.backendPid))).toBe(true);
+    expect(leasedBackendPids).toHaveLength(1);
+    expect(leasedBackendPids[0]).toBeGreaterThan(0);
+    expect(distinctPids.has(leasedBackendPids[0]!)).toBe(true);
 
     /*
       AND THE NATIVE-AD GROUP IS THE POINT. This is the group that used to open
@@ -506,7 +507,7 @@ describe.skipIf(!SEAM)("migration DDL is bounded to one session", () => {
       ),
     ).toBe(true);
     for (const row of nativeObjects) {
-      expect(row.pid).toBe(Number(preflight?.details.backendPid));
+      expect(row.pid).toBe(leasedBackendPids[0]);
     }
 
     /*
@@ -527,7 +528,7 @@ describe.skipIf(!SEAM)("migration DDL is bounded to one session", () => {
         "SELECT pg_backend_pid() AS pid",
       );
       expect(Number(escapePid[0]!.pid)).not.toBe(
-        Number(preflight?.details.backendPid),
+        leasedBackendPids[0],
       );
       await escapeClient.query(
         "CREATE TABLE r20_escaped_ddl_probe (id integer PRIMARY KEY)",
@@ -541,6 +542,7 @@ describe.skipIf(!SEAM)("migration DDL is bounded to one session", () => {
       afterEscape.some((row) => row.identity === "public.r20_escaped_ddl_probe"),
     ).toBe(true);
 
-    vi.doUnmock("@/lib/startup-diagnostics");
+    vi.doUnmock("@/lib/db");
+    vi.resetModules();
   }, 900_000);
 });

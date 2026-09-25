@@ -1,5 +1,5 @@
 {
-  "manifestHash": "696aeeb1f277aa01b690a5c8df2cf4871010d4a01be6142b22427f7682a1f8fb",
+  "manifestHash": "c1b7681fec45329f69130c92b2ea0292471f2c708fb21f479b45035847adf0ba",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1697,6 +1697,10 @@
     {
       "path": "lib/meta/live.ts",
       "sha256": "ff9b46e813f372acad45ecc5546023f44f3d35f326e85dd475a79e50173bac66"
+    },
+    {
+      "path": "lib/meta/migration-ddl-session-boundedness.db.test.ts",
+      "sha256": "d4facfa86f20e4f9a6ac20b99fa031aacd7b72928cf11b23caff6d84da1f3569"
     },
     {
       "path": "lib/meta/native-config-action-authority.fixture.ts",

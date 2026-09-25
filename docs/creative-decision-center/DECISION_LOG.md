@@ -10979,3 +10979,26 @@ Scale blocked by `profile_hard_action_ineligible` must do likewise. A pure
 role-held hard verdict must remain a campaign-context diagnosis. Soft Keep and
 no-apply controls remain unchanged. Reverting this mapping/version restores
 the older presentation; native decisions and provider state are unchanged.
+
+## D120 — Entity coverage does not diagnose a missing Main/Test role (2026-09-25)
+
+**Failure.** The campaign/ad-set state-row writer returned
+`campaign_context_unresolved` before checking delivery or performance whenever
+an active purchase entity lacked an authoritative campaign role. Since the
+presentation maps that state to `Diagnose`, generic coverage rows filled Needs
+Resolution with the same role-verification message. An ad set inherited the
+campaign's role test even though its own purpose may differ.
+
+**Decision.** State rows now describe only the observed purchase cohort,
+delivery and maturity. A missing role does not replace `watch`, `no_action`,
+or `stable_winner_protected`. Role-gated hard recommendations remain guarded
+by the existing role authority path; state rows stay `decisionState: watch`
+and have no provider action. The old state token remains readable for retained
+snapshots but is not minted by the new state writer. The state semantics carry
+`meta-entity-state.v2-role-independent` in `signalQuality`.
+
+**Acceptance and rollback.** With no trusted role, a mature campaign must be
+`no_action`, a thin ad set must be `watch`, and neither may become a hard
+action. Declaring the parent campaign Main must not change the ad set's
+performance state. Revert the writer to restore the former coverage mapping;
+retained rows are never rewritten.

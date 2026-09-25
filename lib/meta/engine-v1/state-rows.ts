@@ -6,7 +6,6 @@ import {
   type MetaRecommendation,
 } from "@/lib/meta/recommendations";
 import {
-  hasMetaCampaignLabel,
   META_AUTOMATIC_CONTEXT_REVIEW_REASON,
   type MetaCampaignLabelKindMap,
 } from "@/lib/meta/campaign-label-guard";
@@ -21,6 +20,7 @@ export type MetaEntityStateLabel =
   | "watch"
   | "out_of_scope"
   | "non_sales_eligible"
+  /** @deprecated Historical state rows only; role is separate from entity state. */
   | "campaign_context_unresolved"
   /** @deprecated pre-D074b alias; parse-only for older payloads. */
   | "unlabeled_campaign_context"
@@ -28,11 +28,15 @@ export type MetaEntityStateLabel =
   | "no_action"
   | "stable_winner_protected";
 
+export const META_ENTITY_STATE_CONTRACT_VERSION =
+  "meta-entity-state.v2-role-independent" as const;
+
 export interface BuildMetaEntityStateRowsInput {
   campaigns: MetaCampaignRow[];
   adsets: MetaAdSetData[];
   calibrationContext?: MetaCalibrationContext | null;
   calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
+  /** Retained for older callers; entity coverage no longer depends on roles. */
   campaignLabelsById?: MetaCampaignLabelKindMap | null;
 }
 
@@ -52,7 +56,6 @@ interface MetaEntityStateResolution {
 function stateForCampaign(
   campaign: MetaCampaignRow,
   context: MetaCalibrationContext | null,
-  labelMap: MetaCampaignLabelKindMap | null | undefined,
 ): MetaEntityStateResolution {
   const cohort = resolveMetaFunnelCohort({
     optimizationGoal: campaign.optimizationGoal,
@@ -61,14 +64,9 @@ function stateForCampaign(
     purchases: campaign.purchases,
     revenue: campaign.revenue,
   });
-  if (
-    labelMap &&
-    String(campaign.status ?? "").toUpperCase() === "ACTIVE" &&
-    isPurchaseCohort(cohort) &&
-    !hasMetaCampaignLabel(campaign.id, labelMap)
-  ) {
-    return { state: "campaign_context_unresolved", cohort };
-  }
+  // Entity-state coverage describes observed delivery and performance. Role
+  // authority belongs to hard recommendations; making it the state itself
+  // turns every otherwise healthy campaign into a blocked diagnosis.
   if (!isPurchaseCohort(cohort)) {
     if (cohort === "unknown") {
       if (isPaused(campaign.status) && campaign.spend <= 0) return { state: "archived", cohort };
@@ -89,7 +87,6 @@ function stateForAdset(
   adset: MetaAdSetData,
   campaign: MetaCampaignRow | null,
   context: MetaCalibrationContext | null,
-  labelMap: MetaCampaignLabelKindMap | null | undefined,
 ): MetaEntityStateResolution {
   const cohort = resolveMetaFunnelCohort({
     optimizationGoal: adset.optimizationGoal,
@@ -98,14 +95,8 @@ function stateForAdset(
     purchases: adset.purchases,
     revenue: adset.revenue,
   });
-  if (
-    labelMap &&
-    String(adset.status ?? "").toUpperCase() === "ACTIVE" &&
-    isPurchaseCohort(cohort) &&
-    !hasMetaCampaignLabel(adset.campaignId, labelMap)
-  ) {
-    return { state: "campaign_context_unresolved", cohort };
-  }
+  // An ad set can be Test inside a Main campaign. The parent's role is never
+  // evidence for this ad set's own state or action authority.
   if (!isPurchaseCohort(cohort)) {
     if (cohort === "unknown") {
       if (isPaused(adset.status) && adset.spend <= 0) return { state: "archived", cohort };
@@ -237,12 +228,17 @@ function stateRecommendation(input: {
     signalQuality:
       input.state === "campaign_context_unresolved"
         ? {
+            state_contract_version: META_ENTITY_STATE_CONTRACT_VERSION,
             quality_status: "campaign_context_unresolved",
             confidence_cap: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
             campaign_context_status: "unavailable",
             campaign_context_action_authority: "review_only",
           }
-        : { quality_status: "missing", confidence_cap: "low_without_signal_table" },
+        : {
+            state_contract_version: META_ENTITY_STATE_CONTRACT_VERSION,
+            quality_status: "missing",
+            confidence_cap: "low_without_signal_table",
+          },
     cohort: input.cohort,
   };
 }
@@ -253,7 +249,7 @@ export function buildMetaEntityStateRows(input: BuildMetaEntityStateRowsInput): 
 
   for (const campaign of input.campaigns) {
     const context = input.calibrationContextByCampaignId?.[campaign.id] ?? input.calibrationContext ?? null;
-    const state = stateForCampaign(campaign, context, input.campaignLabelsById);
+    const state = stateForCampaign(campaign, context);
     rows.push(stateRecommendation({
       level: "campaign",
       id: campaign.id,
@@ -269,7 +265,7 @@ export function buildMetaEntityStateRows(input: BuildMetaEntityStateRowsInput): 
   for (const adset of input.adsets) {
     const campaign = campaignsById.get(adset.campaignId) ?? null;
     const context = input.calibrationContextByCampaignId?.[adset.campaignId] ?? input.calibrationContext ?? null;
-    const state = stateForAdset(adset, campaign, context, input.campaignLabelsById);
+    const state = stateForAdset(adset, campaign, context);
     rows.push(stateRecommendation({
       level: "adset",
       id: adset.id,

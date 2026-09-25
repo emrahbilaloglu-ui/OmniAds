@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaAdSetData } from "@/lib/api/meta";
-import { buildMetaCampaignLabelKindMap } from "@/lib/meta/campaign-label-guard";
-import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
+import {
+  applyMetaCampaignLabelGuard,
+  buildMetaCampaignLabelKindMap,
+} from "@/lib/meta/campaign-label-guard";
+import {
+  buildMetaEntityStateRows,
+  META_ENTITY_STATE_CONTRACT_VERSION,
+} from "@/lib/meta/engine-v1/state-rows";
 
 function campaign(overrides: Partial<MetaCampaignRow> = {}): MetaCampaignRow {
   return {
@@ -222,7 +228,7 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
     expect(row?.evidence).toContainEqual({ label: "Cohort", value: "upper_funnel", tone: "neutral" });
   });
 
-  it("emits unlabeled campaign context when campaign labels are enforced and missing", () => {
+  it("keeps role-independent entity states when Main/Test authority is missing", () => {
     const rows = buildMetaEntityStateRows({
       campaigns: [campaign()],
       adsets: [adset()],
@@ -230,24 +236,42 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
     });
 
     expect(rows.find((row) => row.level === "campaign")).toMatchObject({
-      decision: "campaign_context_unresolved",
-      decisionLabel: "diagnose",
+      decision: "no_action",
+      decisionLabel: "keep",
       decisionState: "watch",
       confidence: "low",
-      signalQuality: {
-        quality_status: "campaign_context_unresolved",
-        campaign_context_action_authority: "review_only",
-      },
+      signalQuality: { state_contract_version: META_ENTITY_STATE_CONTRACT_VERSION },
     });
     expect(rows.find((row) => row.level === "adset")).toMatchObject({
-      decision: "campaign_context_unresolved",
+      decision: "watch",
+      decisionLabel: "diagnose",
     });
+    expect(rows.some((row) => row.decision === "campaign_context_unresolved"))
+      .toBe(false);
+    const guarded = applyMetaCampaignLabelGuard({
+      recommendations: rows,
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+      campaignContextById: new Map(),
+      automaticContextEnabled: true,
+      activeCampaignIds: ["cmp-1"],
+    }).recommendations;
+    expect(guarded.every((row) => row.decisionState === "watch" && row.kind === "state"))
+      .toBe(true);
+    expect(guarded.every((row) => row.automationReadiness?.autoExecuteEligible === false))
+      .toBe(true);
   });
 
-  it("uses existing purchase-path state when the campaign label exists", () => {
-    const rows = buildMetaEntityStateRows({
+  it("does not change an ad set state when its parent campaign is Main", () => {
+    const input = {
       campaigns: [campaign()],
-      adsets: [adset()],
+      adsets: [adset({ purchases: 4, spend: 500 })],
+    };
+    const noRole = buildMetaEntityStateRows({
+      ...input,
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+    });
+    const parentMain = buildMetaEntityStateRows({
+      ...input,
       campaignLabelsById: buildMetaCampaignLabelKindMap([
         {
           campaignId: "cmp-1",
@@ -256,7 +280,7 @@ describe("Meta Engine v1 state rows funnel cohort labels", () => {
       ]),
     });
 
-    expect(rows.find((row) => row.level === "campaign")?.decision).not.toBe("campaign_context_unresolved");
-    expect(rows.find((row) => row.level === "adset")?.decision).not.toBe("campaign_context_unresolved");
+    expect(noRole.map((row) => row.decision)).toEqual(["no_action", "no_action"]);
+    expect(parentMain.map((row) => row.decision)).toEqual(noRole.map((row) => row.decision));
   });
 });

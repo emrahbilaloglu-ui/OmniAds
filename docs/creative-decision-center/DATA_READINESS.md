@@ -262,6 +262,27 @@ stop-loss path" in that row now refers to.
   counts include the exact measured multi-endpoint exclusion, with
   fail-closed run- and row-level count reconciliation.
 
+## D118 entity role declarations (2026-09-25)
+
+- Source: `meta_entity_role_declarations`, append-only, one row per
+  declare/revoke event for ONE campaign or ad set in ONE physical provider
+  account. Readiness of a declared role = the row exists, its contract is the
+  exact `meta-entity-role-declaration.v1`, its `effective_from` is on or
+  before the read's as-of day and, on a replay, its `declared_at` is on or
+  before the cutoff. The latest such event wins; a winning `revoke` means no
+  declaration.
+- Binding: a write is refused unless the entity was observed under that
+  account in provider observation (`meta_entity_state_history`, present rows)
+  or Ad-day facts (`meta_ad_daily`); an ad set's parent campaign must be
+  unique there and is stored as context. Names are never consulted.
+- Absence: before the migration the table does not exist and reads as "no
+  declarations", which can only withhold role authority. `CAMPAIGN_CONTEXT_MODE
+  = unknown` disables declarations together with automatic context.
+- An ad set without its own declaration is NOT ready for role-dependent
+  action even when its campaign is: the campaign role is served beside it as
+  a capped suggestion (`roleBasis: parent_campaign_suggestion`,
+  `adset_role_unresolved` when the campaign itself would have been authority).
+
 ## D074b vocabulary closure (2026-08-30)
 
 - Active runtime, readiness contracts, API projections, and buyer UI now

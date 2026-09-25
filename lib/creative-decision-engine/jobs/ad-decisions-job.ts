@@ -19,11 +19,16 @@ import {
 } from "../campaign-label-guard";
 import {
   campaignContextProvenanceFor,
+  readAdsetRoleMap,
   readCampaignContextMap,
   resolveCampaignContextMode,
   type CampaignContextMap,
   type CampaignContextPitExclusion,
 } from "../campaign-context/source";
+import {
+  adsetRoleEntryFromParent,
+  adsetRoleKey,
+} from "../campaign-context/entity-role";
 import {
   buildCanonicalEvaluationProvenance,
   canonicalSha256,
@@ -772,6 +777,22 @@ export async function runAdDecisionsJob(
               ...input,
               adInputs,
               mode: campaignContextMode,
+              // D118 — the same declaration cut every later read of this
+              // generation uses: recorded by this run's start.
+              declarationKnowledgeJobRunId: jobRunId,
+            }),
+        );
+        // Role reads share one stage: the timer adds, so the stage reports
+        // the total spent resolving campaign and ad set roles.
+        const adsetRoleByKey = await stageTimer.measure(
+          "read_campaign_context",
+          () =>
+            readAdAdsetRoles({
+              ...input,
+              adInputs,
+              mode: campaignContextMode,
+              campaignContextById,
+              declarationKnowledgeJobRunId: jobRunId,
             }),
         );
         const previousLabels = new Map<string, PreviousAdPublishedLabel>();
@@ -830,6 +851,7 @@ export async function runAdDecisionsJob(
                   dataHealth,
                   campaignContextMode,
                   campaignContextById,
+                  adsetRoleByKey,
                   previousLabels,
                   frequencyPressureThresholdByAccount,
                 })
@@ -840,6 +862,7 @@ export async function runAdDecisionsJob(
                   adInputs: group.adInputs,
                   campaignContextMode,
                   campaignContextById,
+                  adsetRoleByKey,
                   previousLabels,
                   evaluatedAt,
                 });
@@ -1493,12 +1516,51 @@ function latestText(values: Array<string | null | undefined>) {
   return present.sort().at(-1) ?? null;
 }
 
+/**
+ * D118 — the role that governs one Ad is its AD SET's role.
+ *
+ * A Main campaign can run a Test ad set, so an Ad never takes its campaign's
+ * role as authority. Its ad set's own declaration, resolved in
+ * `adsetRoleByKey`, is used when present. Otherwise the campaign's role is
+ * carried as a suggestion capped below action authority. That is also what a
+ * caller that supplies no ad set map gets: omitting the map can never pass
+ * campaign authority down to an Ad.
+ */
+export function nativeAdRoleEntry(input: {
+  ad: Pick<AdDecisionInput, "providerAccountId" | "adsetId" | "campaignId">;
+  campaignContextById: CampaignContextMap;
+  adsetRoleByKey?: CampaignContextMap | null;
+  mode: ReturnType<typeof resolveCampaignContextMode>;
+}) {
+  const adsetId = input.ad.adsetId?.trim() || null;
+  const campaignId = input.ad.campaignId?.trim() || null;
+  if (adsetId && input.adsetRoleByKey) {
+    const resolved = input.adsetRoleByKey.get(
+      adsetRoleKey(input.ad.providerAccountId, adsetId),
+    );
+    // A declared ad set role binds the ad set under the campaign it was
+    // declared in; an Ad under any other campaign cannot borrow it.
+    const placementMatches =
+      resolved?.roleBasis !== "declared" ||
+      (campaignId !== null && resolved.provenance.campaignId === campaignId);
+    if (resolved && placementMatches) return resolved;
+  }
+  return adsetRoleEntryFromParent({
+    adsetId,
+    campaignId,
+    parent: campaignId ? (input.campaignContextById.get(campaignId) ?? null) : null,
+    mode: input.mode === "unknown" ? "unknown" : "automatic",
+  });
+}
+
 export function computeReadyNativeAdDecisions(input: {
   group: NativeAdDecisionProfileGroup;
   businessId: string;
   dataHealth: DataHealth;
   campaignContextMode: ReturnType<typeof resolveCampaignContextMode>;
   campaignContextById: CampaignContextMap;
+  /** D118 — ad set roles keyed by `adsetRoleKey`. @see nativeAdRoleEntry */
+  adsetRoleByKey?: CampaignContextMap | null;
   previousLabels: Map<string, PreviousAdPublishedLabel>;
   frequencyPressureThresholdByAccount: ReadonlyMap<string, number | null>;
 }) {
@@ -1518,6 +1580,7 @@ export function computeReadyNativeAdDecisions(input: {
     adInputs: input.group.adInputs,
     campaignContextMode: input.campaignContextMode,
     campaignContextById: input.campaignContextById,
+    adsetRoleByKey: input.adsetRoleByKey,
     previousLabels: input.previousLabels,
     frequencyPressureThresholdByAccount:
       input.frequencyPressureThresholdByAccount,
@@ -1531,6 +1594,8 @@ export function computeSoftOnlyNativeAdDecisions(input: {
   adInputs: AdDecisionInput[];
   campaignContextMode: ReturnType<typeof resolveCampaignContextMode>;
   campaignContextById: CampaignContextMap;
+  /** D118 — ad set roles keyed by `adsetRoleKey`. @see nativeAdRoleEntry */
+  adsetRoleByKey?: CampaignContextMap | null;
   previousLabels: Map<string, PreviousAdPublishedLabel>;
   evaluatedAt: string;
 }): AdDecisionComputation[] {
@@ -1544,9 +1609,16 @@ export function computeSoftOnlyNativeAdDecisions(input: {
     "native_ad_profile_unready:native_non_purchase_roas_unsupported";
   return input.adInputs
     .map((adInput) => {
+      const roleEntry = nativeAdRoleEntry({
+        ad: adInput,
+        campaignContextById: input.campaignContextById,
+        adsetRoleByKey: input.adsetRoleByKey,
+        mode: input.campaignContextMode,
+      });
       const withCampaign = withCreativeCampaignLabelContext(
         adInput,
         input.campaignContextById,
+        roleEntry,
       );
       const stabilityKey = adDecisionStabilityKey({
         businessId: input.businessId,
@@ -1632,9 +1704,7 @@ export function computeSoftOnlyNativeAdDecisions(input: {
         campaignContext: campaignContextProvenanceFor({
           mode: input.campaignContextMode,
           campaignId: withCampaign.campaignId,
-          entry: withCampaign.campaignId
-            ? input.campaignContextById.get(withCampaign.campaignId)
-            : null,
+          entry: withCampaign.campaignId ? roleEntry : null,
         }),
         priorHysteresis: toPriorHysteresisProvenance(
           input.businessId,
@@ -1658,6 +1728,8 @@ export function computeNativeAdDecisions(input: {
   adInputs: AdDecisionInput[];
   campaignContextMode: ReturnType<typeof resolveCampaignContextMode>;
   campaignContextById: CampaignContextMap;
+  /** D118 — ad set roles keyed by `adsetRoleKey`. @see nativeAdRoleEntry */
+  adsetRoleByKey?: CampaignContextMap | null;
   previousLabels: Map<string, PreviousAdPublishedLabel>;
   resolveDecision?: (
     input: CreativeInput,
@@ -1678,9 +1750,16 @@ export function computeNativeAdDecisions(input: {
     resolveNativeAdFrequencyPressureThresholdsByAccount(input.adInputs);
   return input.adInputs
     .map((adInput) => {
+      const roleEntry = nativeAdRoleEntry({
+        ad: adInput,
+        campaignContextById: input.campaignContextById,
+        adsetRoleByKey: input.adsetRoleByKey,
+        mode: input.campaignContextMode,
+      });
       const withCampaign = withCreativeCampaignLabelContext(
         adInput,
         input.campaignContextById,
+        roleEntry,
       );
       const adLifecycle = computeNativeAdLifecycleEvidence({
         ad: withCampaign,
@@ -1699,6 +1778,7 @@ export function computeNativeAdDecisions(input: {
         decision: semanticDecision,
         input: withCampaign,
         campaignLabelsById: input.campaignContextById,
+        roleEntry,
       });
       const adDecision = nativeAdLifecycleEvidenceBlockers(
         guardUnverifiedAdPurchases(
@@ -1729,9 +1809,7 @@ export function computeNativeAdDecisions(input: {
         campaignContext: campaignContextProvenanceFor({
           mode: input.campaignContextMode,
           campaignId: withCampaign.campaignId,
-          entry: withCampaign.campaignId
-            ? input.campaignContextById.get(withCampaign.campaignId)
-            : null,
+          entry: withCampaign.campaignId ? roleEntry : null,
         }),
         priorHysteresis: toPriorHysteresisProvenance(
           input.businessId,
@@ -2712,6 +2790,7 @@ export async function readAdCampaignContext(
     mode: ReturnType<typeof resolveCampaignContextMode>;
     visibleAtCutoff?: string | null;
     pitExclusions?: Map<string, CampaignContextPitExclusion>;
+    declarationKnowledgeJobRunId?: string | null;
   },
 ) {
   const campaignIdsByAccount = new Map<string, Set<string>>();
@@ -2734,10 +2813,56 @@ export async function readAdCampaignContext(
         mode: input.mode,
         visibleAtCutoff: input.visibleAtCutoff ?? null,
         pitExclusions: input.pitExclusions,
+        declarationKnowledgeJobRunId: input.declarationKnowledgeJobRunId ?? null,
       }),
     ),
   );
   return new Map(maps.flatMap((map) => [...map]));
+}
+
+/**
+ * D118 — each ad set's own role, per physical account, keyed by
+ * `adsetRoleKey`. The campaign map is passed in so an undeclared ad set can
+ * carry its campaign's role as a capped suggestion.
+ */
+async function readAdAdsetRoles(
+  input: AdDecisionsJobInput & {
+    adInputs: AdDecisionInput[];
+    mode: ReturnType<typeof resolveCampaignContextMode>;
+    campaignContextById: CampaignContextMap;
+    visibleAtCutoff?: string | null;
+    declarationKnowledgeJobRunId?: string | null;
+  },
+): Promise<CampaignContextMap> {
+  const adsetsByAccount = new Map<string, Map<string, string | null>>();
+  for (const ad of input.adInputs) {
+    const providerAccountId = ad.providerAccountId.trim();
+    const adsetId = ad.adsetId?.trim() ?? "";
+    if (!providerAccountId || !adsetId) continue;
+    const adsets = adsetsByAccount.get(providerAccountId) ?? new Map();
+    adsets.set(adsetId, ad.campaignId?.trim() || null);
+    adsetsByAccount.set(providerAccountId, adsets);
+  }
+  const maps = await Promise.all(
+    [...adsetsByAccount].map(async ([providerAccountId, adsets]) => {
+      const map = await readAdsetRoleMap({
+        businessId: input.businessId,
+        providerAccountId,
+        adsets: [...adsets]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([adsetId, campaignId]) => ({ adsetId, campaignId })),
+        campaignContext: input.campaignContextById,
+        asOf: input.asOf,
+        mode: input.mode,
+        visibleAtCutoff: input.visibleAtCutoff ?? null,
+        declarationKnowledgeJobRunId: input.declarationKnowledgeJobRunId ?? null,
+      });
+      return [...map].map(
+        ([adsetId, entry]) => [adsetRoleKey(providerAccountId, adsetId), entry] as const,
+      );
+    }),
+  );
+  return new Map(maps.flat());
 }
 
 export function toNativeSnapshotPayload(input: {

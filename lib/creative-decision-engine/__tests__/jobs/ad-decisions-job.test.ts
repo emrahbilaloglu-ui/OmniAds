@@ -8,6 +8,11 @@ import type { DbClient } from "@/lib/db";
 import { NATIVE_AD_DB_BATCH_SIZE } from "../../batching";
 import type { CampaignContextLabelMap } from "../../campaign-context/source";
 import {
+  adsetRoleKey,
+  declaredEntityRoleEntry,
+  ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+} from "../../campaign-context/entity-role";
+import {
   AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
   hashAdDecisionIdentityManifest,
   type AdDecisionHydrationReceipt,
@@ -464,6 +469,40 @@ function automaticCampaignContext(
   ]);
 }
 
+/**
+ * D118 — an Ad's role-dependent authority reads its OWN ad set's role; a
+ * trusted campaign no longer passes it down. "Fully trusted" fixtures name the
+ * ad set's declaration, built through the production projection.
+ */
+function declaredAdsetRoles(
+  adIds: readonly string[],
+  role: "main" | "test" = "main",
+): CampaignContextLabelMap {
+  return new Map(
+    adIds.map((adId) => [
+      adsetRoleKey("act-1", `adset-${adId}`),
+      declaredEntityRoleEntry({
+        mode: "automatic",
+        declaration: {
+          id: `declaration-adset-${adId}`,
+          businessId: BUSINESS_ID,
+          providerAccountId: "act-1",
+          entityType: "adset",
+          entityId: `adset-${adId}`,
+          parentCampaignId: "campaign-a",
+          event: "declare",
+          declaredRole: role,
+          effectiveFrom: AS_OF,
+          declaredAt: `${AS_OF}T00:30:00.000Z`,
+          declaredBy: "operator-1",
+          reason: null,
+          contractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+        },
+      }),
+    ]),
+  );
+}
+
 function hydrationReceipt(input: {
   adIds: string[];
   authoritative?: boolean;
@@ -592,6 +631,7 @@ describe("native ad decision computation", () => {
       adInputs: [adInput({ adId, campaignId: "campaign-a" })],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
       previousLabels,
       resolveDecision: (resolverInput) =>
         hardCutDecision({ creativeId: resolverInput.creativeId }),
@@ -663,6 +703,10 @@ describe("native ad decision computation", () => {
         adInputs: [adInput({ adId, campaignId: "campaign-a" })],
         campaignContextMode: "automatic",
         campaignContextById: automaticCampaignContext(contextTrust),
+        // D118 — the trusted case names the Ad's own ad set role; the campaign
+        // context alone no longer reaches an Ad as authority.
+        adsetRoleByKey:
+          contextTrust === "high" ? declaredAdsetRoles([adId]) : undefined,
         previousLabels,
         resolveDecision: (resolverInput) =>
           hardCutDecision({ creativeId: resolverInput.creativeId }),
@@ -793,6 +837,7 @@ describe("native ad decision computation", () => {
       adInputs: [input],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
       previousLabels: new Map(),
     })[0];
     if (!first) throw new Error("Expected first stop-loss computation.");
@@ -840,6 +885,7 @@ describe("native ad decision computation", () => {
       adInputs: [input],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
       previousLabels: new Map([
         [
           stabilityKey,
@@ -1308,6 +1354,7 @@ describe("native ad decision computation", () => {
       ],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles(["ad-no-creative"]),
       previousLabels: new Map(),
       resolveDecision: (resolverInput) =>
         hardScaleDecision({ creativeId: resolverInput.creativeId }),
@@ -1452,6 +1499,7 @@ describe("native ad decision computation", () => {
       adInputs: [adInput({ adId: "ad-pending", campaignId: "campaign-a" })],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles(["ad-pending"]),
       previousLabels: new Map(),
       resolveDecision: (resolverInput) =>
         hardScaleDecision({ creativeId: resolverInput.creativeId }),
@@ -2206,6 +2254,7 @@ describe("hard-authority source gates at the emission boundary", () => {
       ],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
       /* A prior published Cut, so hysteresis publishes the hard label rather
          than holding it — the gate under test is the config one, not that. */
       previousLabels: new Map([
@@ -2640,6 +2689,7 @@ describe("hard-authority source gates at the emission boundary", () => {
       ],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
       previousLabels: new Map(),
       resolveDecision: (resolverInput) => ({
         ...hardCutDecision({ creativeId: resolverInput.creativeId }),

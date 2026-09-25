@@ -10955,6 +10955,124 @@ historical Ad outside the current generation is not evaluated, while current
 decisions remain visible. Revert the two presentation opt-ins to restore the
 strict all-requested-Ad refusal without changing persisted generations.
 
+## D118 — Campaign and ad set roles are separate, explicitly declared, account-scoped entities (2026-09-25)
+
+**Status.** Implemented on `claude/campaign-role-authority` (not merged, not
+deployed). Supersedes D074's clause "there is no override path" at the
+user's explicit instruction of 2026-09-25 ("Main/Test konusu asla problem
+olmayacak şekilde çöz; Adsecute kampanya/adset rolünü net belirlesin", with
+the clarification that a Main campaign can run a separate Test ad set).
+Everything else in D074, D076, D081 and D097 stands.
+
+**Failure (read-only, production, 2026-09-25).**
+- Role authority was structurally unreachable. `high` trust needs the
+  resolver identity approved through `CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION`
+  (D074), which is deliberately unset because v2's validated high-confidence
+  accuracy was 0.20 (D076). Across the latest account-scoped rows, 9 of 58
+  campaigns are persisted `high` in 7 businesses and every one is served
+  `medium`; nothing is trusted anywhere.
+- It is not a threshold defect. TheSwaf-Main's 5 spending campaigns
+  (2026-09-18..24) are persisted `medium`; the resolver's naming-free evidence
+  agrees with the operator's own naming on every classified campaign but
+  stays below 0.6 (D081 C2/C5 exclude names from `high`, correctly).
+- Meta exposes no Main/Test field. The operator's intent exists, but only as
+  a human statement.
+- The role unit was wrong. Every consumer keyed role by campaign, so an Ad
+  in a Test ad set inside a Main campaign would have received Main semantics
+  the day a campaign role became trusted.
+
+**Decision.**
+1. A new append-only record, `meta_entity_role_declarations`, holds explicit
+   role declarations for exactly one entity each: `entity_type` `campaign`
+   (main/test/mixed) or `adset` (main/test), in one physical provider account,
+   with `effective_from`, `declared_at`, author, reason and the contract
+   `meta-entity-role-declaration.v1`. Change is a later `declare` or `revoke`
+   event; nothing is updated or deleted. `effective_from` cannot precede the
+   recording day (one day of time-zone slack), so authority is never granted
+   retroactively and a replay sees a declaration only from its `declared_at`.
+   A write is refused unless the entity was observed under that account in
+   provider observation; an ad set's parent campaign must be unique there.
+   `meta_campaign_labels` stays frozen and unread; names are never read.
+2. Role is resolved per entity. A campaign reads its own declaration, else
+   the automatic row exactly as before (still resolver-gated). An ad set
+   reads ONLY its own declaration; without one, its campaign's role is
+   carried as a suggestion with trust capped below `high` (`roleBasis:
+   parent_campaign_suggestion`) and never grants role-dependent authority.
+3. Consumers read the governing entity. A native Ad's role-dependent
+   semantics (kind-aware calibration, Test transforms, the D097 role hold)
+   read its ad set; a Meta ad-set recommendation reads its ad set; a
+   campaign recommendation reads its campaign. Omitting ad set roles never
+   passes campaign authority down.
+4. One predicate, `isEntityRoleTrustedForAction`, defines authority for every
+   consumer: `system_inferred` + high + approved resolver identity, or
+   `operator_declared` + high + the exact declaration contract.
+5. The read model names the real gap: `adset_role_unresolved` only when the
+   campaign itself would have been authority and the ad set's own role is
+   missing; otherwise the campaign's own gap is reported exactly as before.
+6. Knowledge binding (review round 1). A generation's roles are the
+   declarations recorded by the `started_at` of the run that published it
+   (`engine_v3_job_runs`). The native job reads with its own run id and every
+   later read of that generation (Decisions, Briefing, retained D102 serving)
+   reads with the generation's run id, through one SQL predicate, so a
+   declaration recorded after a run began never retrofits that generation; the
+   next run takes it. An unknown run admits no declaration.
+7. Placement binding (review round 1). An ad set declaration is bound to the
+   campaign it was observed under when declared (`parent_campaign_id`). An Ad
+   or recommendation whose ad set now sits under any other campaign, or whose
+   campaign is unknown, does not receive it; the ad set falls back to its
+   actual campaign's capped suggestion.
+
+**Scope and what does not change.** Resolver math, thresholds, families,
+the resolver version and its env gate, `authorized_action` rules, governance
+STOP, hierarchy, preflight and every provider write path are unchanged.
+`CAMPAIGN_CONTEXT_MODE=unknown` disables declarations together with
+automatic context. No engine epoch moves: with nothing declared the
+production output is identical (an undeclared ad set passes a sub-`high`
+campaign entry through with the same trust and provenance object, so no
+hashed evaluation input changes); declared rows are distinguishable by their
+hash-bound `operator_declared` provenance. The budget lane (D081/D086
+retention contract) still requires `system_inferred` and does not honour
+declarations in this slice. Automatic ad-set inference does not exist; an
+undeclared ad set is unresolved by design.
+
+**Open, reserved for the next shared slice — budget lane.** The D081/D086
+budget path (`budget-proposal-source-loader`, `budget-proposal-server-readers`,
+`budget-readiness-read-model`, the retention contract
+`d086.budget-readiness-retention.v13`) still accepts only
+`kind_source = system_inferred`. A declared campaign or ad set role therefore
+does NOT authorise a budget proposal today. Opening it needs a retention
+contract bump and the same per-entity rule (an ad-set budget reads the ad
+set's own role), and is deliberately left to the next joint slice.
+
+**Consumer boundary (not in this slice).** `lib/creative-decision-center/v3-bridge.ts`
+`mapDecision` maps every hard verdict with a role gap to
+`Diagnose / campaign_role_unresolved` before the recorded blocker; on
+TheSwaf's 2026-09-25 generation 0 rows carry `authority_blocker =
+campaign_context` and the held verdicts' real blockers are
+`config_source_authority` (8 Cut) and `profile_hard_action_ineligible`
+(4 Scale, 2 Refresh). `decisions-os-presentation.ts` `presentedCampaignRole`
+recomputes trust from campaign-keyed contexts with its own `system_inferred`
+check, so it fails closed on declared and ad set roles until it calls the
+shared predicate. The exact adapter has no copy for `adset_role_unresolved`.
+
+**Acceptance.** Golden R118-01..13 (engine), R118-S1..S6 (structure lane),
+R118-R1..R5 and R118-P1..P3 (served read model, knowledge binding), source
+reads including replay cutoff, run binding, placement binding, circuit
+breaker and pre-migration absence, and atomic batch writes. The run-start
+predicate and the table's CHECK constraints were also executed against a
+throwaway local PostgreSQL built from the migration DDL: a run started before
+the declaration sees nothing, a run started after sees it, an unknown run sees
+nothing; Mixed ad sets, role-less declares and role-carrying revokes are
+rejected by the database. Read-only live check: with no declarations the
+served role overlay is byte-identical to main for TheSwaf (143 active Ads)
+and Grandmix (53); with a simulated set on TheSwaf the Test ad set inside
+TS_MAIN_DPA_BIDCAP is trusted `test`, its undeclared sibling is `main`
+context with `adset_role_unresolved`, and Grandmix is untouched.
+
+**Rollback.** Revert the code; the table is additive and inert under old
+code (no reader). `CAMPAIGN_CONTEXT_MODE=unknown` is the immediate lever. No
+persisted decision row needs rewriting.
+
 ## D119 — The recorded first authority blocker outranks a role badge (2026-09-25)
 
 **Failure.** The V3-to-V2.1 bridge classified every held hard verdict with an

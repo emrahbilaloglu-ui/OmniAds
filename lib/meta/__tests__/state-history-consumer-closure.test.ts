@@ -143,6 +143,25 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     category: "admission",
     count: 1,
   },
+  /*
+    D118 entity role declarations. A declaration write is admitted only when
+    the campaign or ad set was observed under that exact provider account
+    (`presence = 'present'` rows only, so a scope-exit row never binds), and
+    an ad set's parent campaign must be unique across those observations.
+    It is an identity/membership guard: no entity value becomes decision
+    input and it grants no authority by itself.
+  */
+  {
+    file: "lib/creative-decision-engine/campaign-context/entity-role.ts",
+    category: "admission",
+    count: 1,
+  },
+  // Its write test routes the binding read by that table name; no query runs.
+  {
+    file: "lib/creative-decision-engine/campaign-context/entity-role.write.test.ts",
+    category: "test",
+    count: 1,
+  },
   {
     file: "lib/meta/decisions-workspace-read-model.ts",
     category: "content-reader",

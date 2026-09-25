@@ -358,6 +358,8 @@ export const VERIFIED_TABLES: readonly string[] = [
   "business_commerce_cost_structure_history",
   "shopify_variant_unit_costs",
   "shopify_variant_unit_cost_history",
+  // D118 — explicit, account-scoped campaign/ad set role declarations.
+  "meta_entity_role_declarations",
 ];
 
 interface EncryptedSecretColumnSpec {

@@ -15,6 +15,7 @@ import {
   readMetaDecisionCampaignContextRows,
   readMetaDecisionsWorkspaceReadModel,
   readMetaNativeCanonicalDecisionInventory,
+  readMetaDecisionAdsetRoleRows,
   readValidatedMetaNativeDecisionGenerationBundle,
   resolveProvisionalCampaignKind,
   validateMetaNativeDecisionGenerationBundle,
@@ -24,6 +25,8 @@ import {
   type MetaNativeDecisionGenerationSourceRow,
   type MetaNativeDecisionSnapshotSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
+import { declaredContextRow } from "@/lib/meta/decisions-workspace-read-model";
+import { ENTITY_ROLE_DECLARATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 import { currentEffectiveAdStatus } from "@/lib/meta/current-ad-delivery-status";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
@@ -474,14 +477,71 @@ function nativeSnapshot(
   };
 }
 
+/**
+ * D118 — an Ad's role-dependent authority reads its OWN ad set's role. The
+ * default fixture context means "this Ad's role is fully trusted", so the
+ * default also declares each Ad's ad set, through the production row shape.
+ */
+function declaredAdsetRow(
+  adsetId: string,
+  role: "main" | "test" = "main",
+  campaignId = "cmp_1",
+): MetaDecisionCampaignContextSourceRow {
+  return declaredContextRow({
+    automatic: null,
+    declaration: {
+      id: `declaration-${adsetId}`,
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      entityType: "adset",
+      entityId: adsetId,
+      parentCampaignId: campaignId,
+      event: "declare",
+      declaredRole: role,
+      effectiveFrom: "2026-07-12",
+      declaredAt: "2026-07-12T00:30:00.000Z",
+      declaredBy: "operator-fixture",
+      reason: null,
+      contractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+    },
+  });
+}
+
+/** D118 — one ad set declaration as the database returns it. */
+function adsetDeclarationDbRow(adsetId = "adset_1", role: "main" | "test" = "main") {
+  return {
+    id: `declaration-${adsetId}`,
+    business_id: "biz_1",
+    provider_account_id: "act_1",
+    entity_type: "adset",
+    entity_id: adsetId,
+    parent_campaign_id: "cmp_1",
+    event: "declare",
+    declared_role: role,
+    effective_from: "2026-07-01",
+    declared_at: "2026-07-01T00:30:00.000Z",
+    declared_by: "operator-fixture",
+    reason: null,
+    contract_version: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+  };
+}
+
 function nativeModel(
   rows: MetaNativeDecisionSnapshotSourceRow[],
   options: {
     adCandidateLimit?: number;
     campaignContextRows?: MetaDecisionCampaignContextSourceRow[];
+    adsetRoleRows?: MetaDecisionCampaignContextSourceRow[];
   } = {},
 ) {
   const adIds = rows.map((row) => row.ad_id);
+  const adsetRoleRows =
+    options.adsetRoleRows ??
+    (options.campaignContextRows === undefined
+      ? [...new Set(rows.map((row) => row.adset_id).filter((id): id is string => Boolean(id)))].map(
+          (adsetId) => declaredAdsetRow(adsetId),
+        )
+      : undefined);
   return buildNativeMetaDecisionsWorkspaceReadModel({
     businessId: "biz_1",
     providerAccountId: "act_1",
@@ -499,6 +559,7 @@ function nativeModel(
     },
     snapshotRows: rows,
     campaignContextRows: options.campaignContextRows ?? [context()],
+    adsetRoleRows,
     eventSourceAvailable: false,
     outcomeSourceAvailable: false,
     responseSourceAvailable: false,
@@ -650,6 +711,8 @@ function workspaceReadQuery(input: {
   legacyRows?: MetaDecisionSnapshotSourceRow[];
   /** Defaults to none, which is what an unresolved campaign looks like. */
   campaignContextRows?: unknown[];
+  /** D118 — declaration rows, returned for any declaration read. */
+  entityRoleDeclarationRows?: unknown[];
 }) {
   return vi.fn(async (sql: string, params?: unknown[]) => {
     if (sql.includes("WITH candidate_runs AS")) {
@@ -657,6 +720,9 @@ function workspaceReadQuery(input: {
     }
     if (sql.includes("FROM engine_v3_campaign_context_daily")) {
       return input.campaignContextRows ?? [];
+    }
+    if (sql.includes("FROM meta_entity_role_declarations")) {
+      return input.entityRoleDeclarationRows ?? [];
     }
     if (sql.includes("native-ad-serving-manifest")) {
       return (input.manifestAdIds ?? (input.nativeRows ?? []).map((row) => row.ad_id))
@@ -3009,6 +3075,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       // context every one of them is already review-only for
       // `served_decision_is_not_actionable`.
       campaignContextRows: [campaignContextDbRow()],
+      entityRoleDeclarationRows: [adsetDeclarationDbRow()],
     });
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
 
@@ -3071,6 +3138,7 @@ describe("Meta Decisions workspace canonical read model", () => {
         generation: nativeBuildGeneration(rows),
         snapshotRows: rows,
         campaignContextRows: [context()],
+      adsetRoleRows: [declaredAdsetRow("adset_1")],
         sourceDegradation: degraded
           ? {
               reason:
@@ -3187,6 +3255,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       generation: nativeBuildGeneration(rows),
       snapshotRows: rows,
       campaignContextRows: [context()],
+      adsetRoleRows: [declaredAdsetRow("adset_1")],
       sourceDegradation: {
         reason: "native_latest_job_failed_serving_last_successful_generation",
         generation: nativeBuildGeneration(rows),
@@ -3236,6 +3305,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       generation: nativeBuildGeneration(rows),
       snapshotRows: rows,
       campaignContextRows: [context()],
+      adsetRoleRows: [declaredAdsetRow("adset_1")],
       sourceDegradation: {
         reason: "native_latest_job_failed_serving_last_successful_generation",
         generation: nativeBuildGeneration(rows),
@@ -4015,6 +4085,7 @@ describe("Meta Decisions workspace canonical read model", () => {
           generation: nativeBuildGeneration(rows),
           snapshotRows: rows,
           campaignContextRows: [context()],
+      adsetRoleRows: [declaredAdsetRow("adset_1")],
           sourceDegradation: degraded
             ? {
                 reason:
@@ -5890,7 +5961,10 @@ describe("D102 retained generation through the canonical inventory reader", () =
         nativeRows: rows,
         // Resolved Main context, so every retained Cut is action-eligible
         // BEFORE the degradation and the stripping below proves something.
+        // D118 — the Ads' own ad set is declared: a campaign alone is not
+        // an Ad's role authority.
         campaignContextRows: [campaignContextDbRow()],
+        entityRoleDeclarationRows: [adsetDeclarationDbRow()],
       }),
     } as never);
   };
@@ -6158,5 +6232,201 @@ describe("D102 retained generation through the canonical inventory reader", () =
       status: "unavailable",
       unavailableReason: "native_latest_job_failed",
     });
+  });
+});
+
+/*
+  D118 consumer golden — the served read model.
+
+  One Main campaign, two ad sets: one declared Test, one undeclared. Each Ad's
+  lifecycle role comes from ITS ad set. The undeclared ad set carries the
+  campaign's role as context and names its own missing role as the gap.
+*/
+describe("D118 — each served Ad reads its own ad set's role", () => {
+  const campaignDeclaration = {
+    id: "declaration-cmp_1",
+    businessId: "biz_1",
+    providerAccountId: "act_1",
+    entityType: "campaign" as const,
+    entityId: "cmp_1",
+    parentCampaignId: null,
+    event: "declare" as const,
+    declaredRole: "main" as const,
+    effectiveFrom: "2026-07-12",
+    declaredAt: "2026-07-12T00:10:00.000Z",
+    declaredBy: "operator-fixture",
+    reason: null,
+    contractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+  };
+  const rows = [
+    nativeSnapshot("120000000000000901", { adset_id: "adset_test" }),
+    nativeSnapshot("120000000000000902", { adset_id: "adset_open" }),
+  ];
+  const roleOf = (
+    model: ReturnType<typeof nativeModel>,
+    adId: string,
+  ) =>
+    model.queue.adCandidates?.items.find(
+      (item) => item.parentChain.ad?.id === adId,
+    )?.classification.lifecycleRole;
+
+  it("R118-R1: Test ad set inside a declared Main campaign — Test, trusted, from the declaration", () => {
+    const model = nativeModel(rows, {
+      campaignContextRows: [
+        declaredContextRow({ declaration: campaignDeclaration, automatic: context() }),
+      ],
+      adsetRoleRows: [declaredAdsetRow("adset_test", "test")],
+    });
+    expect(roleOf(model, "120000000000000901")).toMatchObject({
+      value: "test",
+      trustedForAction: true,
+      blockerCode: null,
+      provenance: {
+        source: "meta_entity_role_declarations",
+        recordId: "adset_test",
+        version: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+      },
+    });
+  });
+
+  it("R118-R2: undeclared ad set of the same campaign — Main as context, untrusted, its own role named as the gap", () => {
+    const model = nativeModel(rows, {
+      campaignContextRows: [
+        declaredContextRow({ declaration: campaignDeclaration, automatic: context() }),
+      ],
+      adsetRoleRows: [declaredAdsetRow("adset_test", "test")],
+    });
+    expect(roleOf(model, "120000000000000902")).toMatchObject({
+      value: "main",
+      trustedForAction: false,
+      blockerCode: "adset_role_unresolved",
+      // The suggestion's record is the campaign's declaration, not the ad set.
+      provenance: { source: "meta_entity_role_declarations", recordId: "cmp_1" },
+    });
+  });
+
+  it("R118-R3: NEGATIVE CONTROL — nothing declared and a medium campaign serves exactly the pre-D118 role", () => {
+    const model = nativeModel(rows, {
+      campaignContextRows: [context({ confidenceClass: "medium" })],
+      adsetRoleRows: [],
+    });
+    for (const adId of ["120000000000000901", "120000000000000902"]) {
+      expect(roleOf(model, adId)).toMatchObject({
+        value: "main",
+        trustedForAction: false,
+        blockerCode: "campaign_context_low_confidence",
+        provenance: { source: "engine_v3_campaign_context_daily" },
+      });
+    }
+  });
+
+  it("R118-R5: a declaration made under another campaign grants nothing to this placement", () => {
+    const model = nativeModel(rows, {
+      campaignContextRows: [
+        declaredContextRow({ declaration: campaignDeclaration, automatic: context() }),
+      ],
+      adsetRoleRows: [declaredAdsetRow("adset_test", "test", "cmp_other")],
+    });
+    expect(roleOf(model, "120000000000000901")).toMatchObject({
+      value: "main",
+      trustedForAction: false,
+      blockerCode: "adset_role_unresolved",
+    });
+  });
+
+  it("R118-R4: a trusted automatic campaign does not make an undeclared ad set trusted", () => {
+    const model = nativeModel(rows, {
+      campaignContextRows: [context()],
+      adsetRoleRows: [],
+    });
+    expect(roleOf(model, "120000000000000902")).toMatchObject({
+      value: "main",
+      trustedForAction: false,
+      blockerCode: "adset_role_unresolved",
+    });
+  });
+});
+
+/*
+  D118 review finding — a declaration recorded after a generation's run
+  started must not retrofit that generation's served role; the next run
+  reads it. The mock evaluates the reader's run-start predicate.
+*/
+describe("D118 — declarations are bound to the knowledge of the publishing run", () => {
+  const RUN_STARTED: Record<string, string> = {
+    "00000000-0000-4000-8000-000000000a01": "2026-07-12T03:00:00.000Z",
+    "00000000-0000-4000-8000-000000000a02": "2026-07-12T15:00:00.000Z",
+  };
+  const declaredToday = {
+    ...adsetDeclarationDbRow("adset_1", "test"),
+    effective_from: "2026-07-11",
+    declared_at: "2026-07-12T08:00:00.000Z",
+  };
+  const campaignRows = [context()];
+
+  function pitQuery() {
+    return vi.fn(async (sql: string, params?: unknown[]) => {
+      if (!sql.includes("FROM meta_entity_role_declarations")) return [];
+      const runId = (params?.[6] as string | null) ?? null;
+      const startedAt = runId === null ? null : (RUN_STARTED[runId] ?? null);
+      if (runId !== null && startedAt === null) return [];
+      return [declaredToday].filter(
+        (row) =>
+          row.entity_type === params?.[2] &&
+          (startedAt === null || row.declared_at <= startedAt),
+      );
+    });
+  }
+
+  it("R118-P1: the earlier generation keeps its role; the next run picks the declaration up", async () => {
+    vi.mocked(db.getDb).mockReturnValue({ query: pitQuery() } as never);
+    const read = (runId: string) =>
+      readMetaDecisionAdsetRoleRows({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        adsets: [{ adsetId: "adset_1", campaignId: "cmp_1" }],
+        snapshotAsOf: "2026-07-12",
+        campaignRows,
+        declarationKnowledgeJobRunId: runId,
+      });
+    const earlier = await read("00000000-0000-4000-8000-000000000a01");
+    const later = await read("00000000-0000-4000-8000-000000000a02");
+    expect(earlier[0]).toMatchObject({ roleBasis: "parent_campaign_suggestion", kind: "main" });
+    expect(later[0]).toMatchObject({ roleBasis: "declared", kind: "test", confidenceClass: "high" });
+  });
+
+  it("R118-P2: an unknown publishing run admits no declaration", async () => {
+    vi.mocked(db.getDb).mockReturnValue({ query: pitQuery() } as never);
+    const [row] = await readMetaDecisionAdsetRoleRows({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adsets: [{ adsetId: "adset_1", campaignId: "cmp_1" }],
+      snapshotAsOf: "2026-07-12",
+      campaignRows,
+      declarationKnowledgeJobRunId: "00000000-0000-4000-8000-000000000a99",
+    });
+    expect(row?.roleBasis).toBe("parent_campaign_suggestion");
+  });
+
+  it("R118-P3: the served inventory reads declarations with the served generation's own run", async () => {
+    const row = nativeSnapshot("120000000000000971");
+    const query = workspaceReadQuery({
+      generationRows: [nativeGenerationForRows([row])],
+      nativeRows: [row],
+      campaignContextRows: [campaignContextDbRow()],
+      entityRoleDeclarationRows: [adsetDeclarationDbRow()],
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    await readMetaNativeCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+    const declarationCalls = query.mock.calls.filter(([sql]) =>
+      String(sql).includes("FROM meta_entity_role_declarations"),
+    );
+    expect(declarationCalls.length).toBeGreaterThan(0);
+    for (const [, params] of declarationCalls) {
+      expect((params as unknown[])[6]).toBe(row.job_run_id);
+    }
   });
 });

@@ -27,6 +27,11 @@ import {
 } from "@/lib/creative-decision-engine/campaign-context/source";
 import { DEFAULT_CONTEXT_CONFIG } from "@/lib/creative-decision-engine/campaign-context/resolver";
 import { evaluateAccountScopedRoleAuthority } from "@/lib/meta/campaign-role-authority";
+import {
+  ENTITY_ROLE_DECLARATION_SOURCE,
+  readActiveEntityRoleDeclarations,
+  type EntityRoleDeclarationEvent,
+} from "@/lib/creative-decision-engine/campaign-context/entity-role";
 import type { MetaCreativeAssessmentPresentation } from "@/lib/meta/creative-assessment";
 import { projectCanonicalMetaDecisionPresentation } from "@/lib/meta/canonical-decision-presentation";
 import {
@@ -169,6 +174,8 @@ const BLOCKER_LABELS: Record<string, string> = {
   campaign_context_resolver_unvalidated:
     "Automatic campaign-role resolver has not passed its authority gate",
   campaign_context_conflict: "Campaign context sources conflict",
+  adset_role_unresolved:
+    "The ad set has no declared role; its campaign's role is context only",
   campaign_role_unresolved: "Campaign context is missing",
   // Pre-D074b alias key: only older persisted payloads carry it.
   campaign_label_missing: "Campaign context is missing",
@@ -451,7 +458,25 @@ export interface MetaDecisionCampaignContextSourceRow {
   campaignId: string;
   kind: "main" | "test" | "mixed" | null;
   suggestedKind?: "main" | "test" | "mixed" | null;
-  source: "system_inferred" | "unknown";
+  /** `operator_declared` — D118 explicit entity role declaration. */
+  source: "system_inferred" | "operator_declared" | "unknown";
+  /**
+   * D118 — the entity this role belongs to, and how it was reached. An ad
+   * set row with `parent_campaign_suggestion` carries its campaign's role as
+   * context only; its confidence is capped below `high`, so it is never
+   * action authority. Absent on rows built before D118 (campaign rows).
+   */
+  roleEntityType?: "campaign" | "adset";
+  roleEntityId?: string | null;
+  roleBasis?: "declared" | "automatic" | "parent_campaign_suggestion" | "none";
+  /** The exact declaration contract of an `operator_declared` row. */
+  declarationContractVersion?: string | null;
+  /**
+   * On a `parent_campaign_suggestion` row: the campaign row's own class
+   * before it was capped, so a blocker can name the real gap — the ad set's
+   * missing role only when the campaign itself would have been authority.
+   */
+  parentConfidenceClass?: "high" | "medium" | "low" | "unknown" | "conflict";
   confidenceClass: "high" | "medium" | "low" | "unknown" | "conflict";
   sourceUpdatedAt: string | null;
   resolverVersion: string | null;
@@ -540,6 +565,8 @@ export interface BuildMetaDecisionsWorkspaceReadModelInput {
   authorityMode?: "legacy_review_only" | "native_exact";
   /** Native-only read safety; absent on retained creative-grain rows. */
   nativeConfigSafetyBySnapshot?: ReadonlyMap<string, NativeConfigSafety>;
+  /** D118 — native ad set role rows, keyed by `roleEntityId`. */
+  adsetRoleRows?: readonly MetaDecisionCampaignContextSourceRow[];
 }
 
 type NativeConfigSafety = {
@@ -580,6 +607,132 @@ export function exactCampaignContextSource(
   value: unknown,
 ): "system_inferred" | "unknown" {
   return value === "system_inferred" ? "system_inferred" : "unknown";
+}
+
+/**
+ * D118 — an explicit declaration as a context row. The automatic row it
+ * replaces stays visible as evidence, so a disagreement is never hidden.
+ */
+export function declaredContextRow(input: {
+  declaration: EntityRoleDeclarationEvent;
+  automatic: MetaDecisionCampaignContextSourceRow | null;
+}): MetaDecisionCampaignContextSourceRow {
+  const { declaration, automatic } = input;
+  const kind = declaration.declaredRole;
+  const automaticKind = automatic?.kind ?? automatic?.suggestedKind ?? null;
+  const campaignId =
+    declaration.entityType === "campaign"
+      ? declaration.entityId
+      : (declaration.parentCampaignId ?? automatic?.campaignId ?? "");
+  return {
+    campaignId,
+    kind,
+    suggestedKind: kind,
+    source: ENTITY_ROLE_DECLARATION_SOURCE,
+    confidenceClass: "high",
+    sourceUpdatedAt: declaration.declaredAt,
+    resolverVersion: null,
+    roleEntityType: declaration.entityType,
+    roleEntityId: declaration.entityId,
+    roleBasis: "declared",
+    declarationContractVersion: declaration.contractVersion,
+    confidenceScore: null,
+    evidence: [
+      `operator_declared ${declaration.entityType} role=${kind} effective_from=${declaration.effectiveFrom}`,
+      ...(automaticKind && automaticKind !== kind
+        ? [
+            `automatic_inference_differs kind=${automaticKind} confidence=${automatic?.confidenceClass ?? "unknown"}`,
+          ]
+        : []),
+      ...(automatic?.evidence ?? []),
+    ],
+    conflictReasons: automatic?.conflictReasons ?? [],
+    unresolvedReason: null,
+    lastEvaluatedAt: declaration.declaredAt,
+  };
+}
+
+/**
+ * D118 — an ad set without its own declaration. A Main campaign can run a
+ * Test ad set, so the campaign's row is carried as a SUGGESTION: same kind and
+ * evidence, confidence capped below `high`, so no role-dependent authority
+ * can follow. With no campaign row the ad set is plainly unresolved.
+ */
+export function adsetSuggestionContextRow(input: {
+  adsetId: string | null;
+  campaignId: string | null;
+  parent: MetaDecisionCampaignContextSourceRow | null | undefined;
+}): MetaDecisionCampaignContextSourceRow {
+  const parent = input.parent ?? null;
+  if (!parent) {
+    return {
+      campaignId: input.campaignId ?? "",
+      kind: null,
+      source: "unknown",
+      confidenceClass: "unknown",
+      sourceUpdatedAt: null,
+      resolverVersion: null,
+      roleEntityType: "adset",
+      roleEntityId: input.adsetId,
+      roleBasis: "none",
+      confidenceScore: null,
+      evidence: [],
+      conflictReasons: [],
+      unresolvedReason: "not_yet_evaluated",
+      lastEvaluatedAt: null,
+    };
+  }
+  return {
+    ...parent,
+    confidenceClass:
+      parent.confidenceClass === "high" ? "medium" : parent.confidenceClass,
+    roleEntityType: "adset",
+    roleEntityId: input.adsetId,
+    roleBasis: "parent_campaign_suggestion",
+    parentConfidenceClass: parent.confidenceClass,
+  };
+}
+
+function adsetRoleRowsById(
+  rows: readonly MetaDecisionCampaignContextSourceRow[] | undefined,
+): Map<string, MetaDecisionCampaignContextSourceRow> {
+  const byId = new Map<string, MetaDecisionCampaignContextSourceRow>();
+  for (const row of rows ?? []) {
+    if (row.roleEntityType === "adset" && row.roleEntityId) {
+      byId.set(row.roleEntityId, row);
+    }
+  }
+  return byId;
+}
+
+/**
+ * D118 — the context row that governs one decision. A native Ad reads its AD
+ * SET's row (declared, or its campaign's as a capped suggestion); a retained
+ * creative-grain row, which never carries authority, keeps its campaign's.
+ */
+function governingContextRow(input: {
+  authorityMode: "legacy_review_only" | "native_exact";
+  campaignId: string | null;
+  adsetId: string | null;
+  contextByCampaignId: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>;
+  adsetRowById: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>;
+}): MetaDecisionCampaignContextSourceRow | null {
+  const campaignRow = input.campaignId
+    ? (input.contextByCampaignId.get(input.campaignId) ?? null)
+    : null;
+  if (input.authorityMode !== "native_exact") return campaignRow;
+  const adsetRow = input.adsetId ? input.adsetRowById.get(input.adsetId) : undefined;
+  // A declared row describes the ad set under one campaign only.
+  const placementMatches =
+    adsetRow?.roleBasis !== "declared" ||
+    (input.campaignId !== null && adsetRow.campaignId === input.campaignId);
+  if (adsetRow && placementMatches) return adsetRow;
+  if (!input.campaignId && !input.adsetId) return null;
+  return adsetSuggestionContextRow({
+    adsetId: input.adsetId,
+    campaignId: input.campaignId,
+    parent: campaignRow,
+  });
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -1141,28 +1294,55 @@ function campaignRole(input: {
    * shared helper, not by a second copy of the rule here. The two must agree:
    * a divergence would mean this surface and the audit were enforcing
    * different things, so the disagreement is asserted rather than tolerated.
+   * D118 — the helper also proves an explicit declaration by its own contract.
    */
   const scopedAuthority = evaluateAccountScopedRoleAuthority({
     kind: contextKind,
     source: context?.source ?? null,
     confidenceClass: context?.confidenceClass ?? null,
     resolverVersion: context?.resolverVersion ?? null,
+    declarationContractVersion: context?.declarationContractVersion ?? null,
     // The single call above is reused; the helper never calls out again.
     isResolverVersionValidated: () => resolverVersionValidated,
   });
   const trustedForAction = scopedAuthority.satisfiesRoleAuthority;
+  /*
+    D118 — an ad set that only carries its campaign's role. The class that
+    names the gap is the campaign's own: if the campaign itself would be
+    authority, the one thing missing is the ad set's own role; otherwise the
+    campaign's gap is still the first one, reported exactly as before.
+  */
+  const isAdsetSuggestion =
+    context?.roleEntityType === "adset" &&
+    context.roleBasis === "parent_campaign_suggestion";
+  const codeClass = isAdsetSuggestion
+    ? (context?.parentConfidenceClass ?? context?.confidenceClass ?? null)
+    : (context?.confidenceClass ?? null);
   let blockerCode: string | null = null;
-  if (context?.confidenceClass === "conflict")
-    blockerCode = "campaign_context_conflict";
+  if (trustedForAction) blockerCode = null;
+  else if (codeClass === "conflict") blockerCode = "campaign_context_conflict";
+  else if (
+    isAdsetSuggestion &&
+    evaluateAccountScopedRoleAuthority({
+      kind: contextKind,
+      source: context?.source ?? null,
+      confidenceClass: codeClass,
+      resolverVersion: context?.resolverVersion ?? null,
+      declarationContractVersion: context?.declarationContractVersion ?? null,
+      isResolverVersionValidated: () => resolverVersionValidated,
+    }).satisfiesRoleAuthority
+  )
+    blockerCode = "adset_role_unresolved";
   else if (
     contextKind &&
-    context?.confidenceClass === "high" &&
+    codeClass === "high" &&
+    context?.source === "system_inferred" &&
     !resolverAuthorityValidated
   )
     blockerCode = "campaign_context_resolver_unvalidated";
-  else if (contextKind && !trustedForAction)
-    blockerCode = "campaign_context_low_confidence";
-  else if (!contextKind) blockerCode = "campaign_context_unresolved";
+  else if (contextKind) blockerCode = "campaign_context_low_confidence";
+  else blockerCode = "campaign_context_unresolved";
+  const declared = context?.source === ENTITY_ROLE_DECLARATION_SOURCE;
   return {
     value: contextKind ?? "role_unresolved",
     confidence,
@@ -1172,11 +1352,20 @@ function campaignRole(input: {
       source:
         context?.source === "system_inferred"
           ? "engine_v3_campaign_context_daily"
-          : "meta_decisions_classification_overlay",
-      field: "inferred_kind",
-      recordId: input.identity.campaign_id,
+          : declared
+            ? "meta_entity_role_declarations"
+            : "meta_decisions_classification_overlay",
+      field: declared ? "declared_role" : "inferred_kind",
+      // An ad set's own declaration names the ad set; a suggestion inherited
+      // from a declared campaign names the campaign whose record it is.
+      recordId:
+        declared && context?.roleBasis === "declared"
+          ? (context.roleEntityId ?? input.identity.campaign_id)
+          : input.identity.campaign_id,
       asOf: context?.sourceUpdatedAt ?? null,
-      version: context?.resolverVersion ?? null,
+      version: declared
+        ? (context?.declarationContractVersion ?? null)
+        : (context?.resolverVersion ?? null),
     }),
   };
 }
@@ -2212,6 +2401,7 @@ export function buildMetaDecisionsWorkspaceReadModel(
   const contextByCampaignId = new Map(
     (input.campaignContextRows ?? []).map((row) => [row.campaignId, row]),
   );
+  const adsetRowById = adsetRoleRowsById(input.adsetRoleRows);
   const eventsByCreativeId = new Map<string, MetaDecisionEventSourceRow[]>();
   for (const row of input.eventRows ?? []) {
     const rows = eventsByCreativeId.get(row.creative_id) ?? [];
@@ -2257,9 +2447,13 @@ export function buildMetaDecisionsWorkspaceReadModel(
         snapshot.snapshot_id,
       ),
       identity,
-      campaignContext: identity.campaign_id
-        ? (contextByCampaignId.get(identity.campaign_id) ?? null)
-        : null,
+      campaignContext: governingContextRow({
+        authorityMode: input.authorityMode ?? "legacy_review_only",
+        campaignId: identity.campaign_id,
+        adsetId: identity.adset_id,
+        contextByCampaignId,
+        adsetRowById,
+      }),
       eventRows: eventsByCreativeId.get(snapshot.creative_id) ?? [],
       outcomeRows: outcomesBySnapshotId.get(snapshot.snapshot_id) ?? [],
       eventSourceAvailable: input.eventSourceAvailable !== false,
@@ -2596,6 +2790,8 @@ export interface BuildNativeMetaDecisionsWorkspaceReadModelInput {
   /** AREA 3. Present only when `generation` is the retained last good one. */
   sourceDegradation?: MetaNativeDecisionSourceDegradation | null;
   campaignContextRows?: MetaDecisionCampaignContextSourceRow[];
+  /** D118 — each generated Ad's ad set role row. */
+  adsetRoleRows?: MetaDecisionCampaignContextSourceRow[];
   eventRows?: MetaDecisionEventSourceRow[];
   outcomeRows?: MetaDecisionOutcomeSourceRow[];
   responseRows?: MetaNativeDecisionResponseSourceRow[];
@@ -3167,6 +3363,8 @@ export interface BuildNativeMetaCanonicalDecisionInventoryInput {
   generation: MetaNativeDecisionGeneration;
   snapshotRows: readonly MetaNativeDecisionSnapshotSourceRow[];
   campaignContextRows?: readonly MetaDecisionCampaignContextSourceRow[];
+  /** D118 — each Ad's ad set role row, keyed by `roleEntityId`. */
+  adsetRoleRows?: readonly MetaDecisionCampaignContextSourceRow[];
   eventRows?: readonly MetaDecisionEventSourceRow[];
   outcomeRows?: readonly MetaDecisionOutcomeSourceRow[];
   responseRows?: readonly MetaNativeDecisionResponseSourceRow[];
@@ -3197,6 +3395,7 @@ export function buildNativeMetaCanonicalDecisionInventory(
   const contextByCampaignId = new Map(
     (input.campaignContextRows ?? []).map((row) => [row.campaignId, row]),
   );
+  const adsetRowById = adsetRoleRowsById(input.adsetRoleRows);
   const eventsByAdId = new Map<string, MetaDecisionEventSourceRow[]>();
   for (const row of input.eventRows ?? []) {
     const rows = eventsByAdId.get(row.creative_id) ?? [];
@@ -3226,9 +3425,13 @@ export function buildNativeMetaCanonicalDecisionInventory(
       snapshot,
       nativeConfigSafety: nativeConfigSafetyForRow(row),
       identity: nativeSnapshotToIdentity(row),
-      campaignContext: row.campaign_id
-        ? (contextByCampaignId.get(row.campaign_id) ?? null)
-        : null,
+      campaignContext: governingContextRow({
+        authorityMode: "native_exact",
+        campaignId: row.campaign_id,
+        adsetId: row.adset_id,
+        contextByCampaignId,
+        adsetRowById,
+      }),
       eventRows: eventsByAdId.get(row.ad_id) ?? [],
       outcomeRows: outcomesBySnapshotId.get(row.snapshot_id) ?? [],
       eventSourceAvailable: input.eventSourceAvailable !== false,
@@ -3497,6 +3700,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
     snapshotRows: internalSnapshotRows,
     identityRows,
     campaignContextRows: input.campaignContextRows,
+    adsetRoleRows: input.adsetRoleRows,
     eventRows: input.eventRows,
     outcomeRows: input.outcomeRows,
     eventSourceAvailable: input.eventSourceAvailable,
@@ -4991,6 +5195,8 @@ async function readNativeResponseRows(input: {
 
 interface MetaNativeDecisionAncillaryRows {
   campaignContextRows: MetaDecisionCampaignContextSourceRow[];
+  /** D118 — each generated Ad's ad set role row. */
+  adsetRoleRows: MetaDecisionCampaignContextSourceRow[];
   eventRows: MetaDecisionEventSourceRow[];
   outcomeRows: MetaDecisionOutcomeSourceRow[];
   responseRows: MetaNativeDecisionResponseSourceRow[];
@@ -5023,6 +5229,7 @@ async function readNativeDecisionAncillaryRows(input: {
         providerAccountId: input.providerAccountId,
         campaignIds,
         snapshotAsOf: input.bundle.generation.asOfDate,
+        declarationKnowledgeJobRunId: input.bundle.generation.jobRunId,
       }),
       readNativeEventRows({
         businessId: input.businessId,
@@ -5043,9 +5250,28 @@ async function readNativeDecisionAncillaryRows(input: {
         snapshotIds,
       }),
     ]);
+  const campaignContextRows =
+    contextResult.status === "fulfilled" ? contextResult.value : [];
+  /*
+    D118 — read after the campaign rows, which an undeclared ad set carries as
+    its capped suggestion. A failed read leaves every Ad on that suggestion
+    path, which can only withhold role-dependent authority.
+  */
+  const adsets = new Map<string, string | null>();
+  for (const row of input.bundle.snapshotRows) {
+    if (row.adset_id) adsets.set(row.adset_id, row.campaign_id ?? null);
+  }
+  const adsetRoleRows = await readMetaDecisionAdsetRoleRows({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    adsets: [...adsets].map(([adsetId, campaignId]) => ({ adsetId, campaignId })),
+    snapshotAsOf: input.bundle.generation.asOfDate,
+    campaignRows: campaignContextRows,
+    declarationKnowledgeJobRunId: input.bundle.generation.jobRunId,
+  }).catch(() => [] as MetaDecisionCampaignContextSourceRow[]);
   return {
-    campaignContextRows:
-      contextResult.status === "fulfilled" ? contextResult.value : [],
+    campaignContextRows,
+    adsetRoleRows,
     eventRows: eventResult.status === "fulfilled" ? eventResult.value : [],
     outcomeRows:
       outcomeResult.status === "fulfilled" ? outcomeResult.value : [],
@@ -5655,6 +5881,89 @@ async function readIdentityRowsWithoutStateHistory(input: {
 }
 
 export async function readMetaDecisionCampaignContextRows(input: {
+  businessId: string;
+  providerAccountId: string;
+  campaignIds: string[];
+  snapshotAsOf: string;
+  /**
+   * D118 — the run that published the served generation. Declarations count
+   * only if recorded by its start, so a later declaration never retrofits an
+   * earlier generation's role. @see readEntityRoleDeclarationEvents
+   */
+  declarationKnowledgeJobRunId?: string | null;
+}): Promise<MetaDecisionCampaignContextSourceRow[]> {
+  const automatic = await readAutomaticMetaDecisionCampaignContextRows(input);
+  if (input.campaignIds.length === 0 || resolveCampaignContextMode() === "unknown") {
+    return automatic;
+  }
+  // D118 — a campaign's own declaration, in force at the generation's day.
+  const declarations = await readActiveEntityRoleDeclarations({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    entityType: "campaign",
+    entityIds: input.campaignIds,
+    asOf: input.snapshotAsOf,
+    knowledgeJobRunId: input.declarationKnowledgeJobRunId ?? null,
+  });
+  if (declarations.size === 0) return automatic;
+  return automatic.map((row) => {
+    const declaration = declarations.get(row.campaignId);
+    return declaration ? declaredContextRow({ declaration, automatic: row }) : row;
+  });
+}
+
+/**
+ * D118 — every requested ad set's own role row. Declared ad sets read their
+ * declaration; the rest carry their campaign's row as a capped suggestion.
+ * `campaignRows` must be the same account's campaign rows at the same day.
+ */
+export async function readMetaDecisionAdsetRoleRows(input: {
+  businessId: string;
+  providerAccountId: string;
+  adsets: ReadonlyArray<{ adsetId: string; campaignId: string | null }>;
+  snapshotAsOf: string;
+  campaignRows: readonly MetaDecisionCampaignContextSourceRow[];
+  /** @see readMetaDecisionCampaignContextRows */
+  declarationKnowledgeJobRunId?: string | null;
+}): Promise<MetaDecisionCampaignContextSourceRow[]> {
+  const adsets = new Map<string, string | null>();
+  for (const adset of input.adsets) {
+    const adsetId = adset.adsetId.trim();
+    if (adsetId) adsets.set(adsetId, adset.campaignId?.trim() || null);
+  }
+  if (adsets.size === 0) return [];
+  const campaignById = new Map(input.campaignRows.map((row) => [row.campaignId, row]));
+  const unknownMode = resolveCampaignContextMode() === "unknown";
+  const declarations = unknownMode
+    ? new Map<string, EntityRoleDeclarationEvent>()
+    : await readActiveEntityRoleDeclarations({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        entityType: "adset",
+        entityIds: [...adsets.keys()],
+        asOf: input.snapshotAsOf,
+        knowledgeJobRunId: input.declarationKnowledgeJobRunId ?? null,
+      });
+  return [...adsets].map(([adsetId, campaignId]) => {
+    const parent = campaignId ? (campaignById.get(campaignId) ?? null) : null;
+    // Bound to the campaign it was declared under; a moved ad set, or one
+    // whose campaign is unknown, carries no declared role.
+    const candidate = declarations.get(adsetId);
+    const declaration =
+      candidate && campaignId && candidate.parentCampaignId === campaignId
+        ? candidate
+        : undefined;
+    return declaration
+      ? declaredContextRow({ declaration, automatic: parent })
+      : adsetSuggestionContextRow({
+          adsetId,
+          campaignId,
+          parent: unknownMode ? null : parent,
+        });
+  });
+}
+
+async function readAutomaticMetaDecisionCampaignContextRows(input: {
   businessId: string;
   providerAccountId: string;
   campaignIds: string[];

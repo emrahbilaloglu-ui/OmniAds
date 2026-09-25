@@ -8,6 +8,7 @@ vi.mock("@/lib/db", () => ({
 
 import {
   campaignContextProvenanceFor,
+  readAdsetRoleMap,
   readCampaignContextMap,
   resolveCampaignContextMode,
 } from "../campaign-context/source";
@@ -470,5 +471,212 @@ describe("readCampaignContextMap exact source and version provenance", () => {
     // No whitespace or case variant may hash identically to the exact value,
     // or to another variant.
     expect(new Set(hashes).size).toBe(variants.length);
+  });
+});
+
+describe("D118 — explicit entity role declarations at the source", () => {
+  const AUTOMATIC_MEDIUM = {
+    ...INFERRED_ROW,
+    campaign_id: "cmp-main",
+    confidence_class: "medium",
+  };
+  const declarationRow = (overrides: Record<string, unknown>) => ({
+    id: "00000000-0000-4000-8000-00000000d118",
+    business_id: "biz-1",
+    provider_account_id: "act_1",
+    entity_type: "campaign",
+    entity_id: "cmp-main",
+    parent_campaign_id: null,
+    event: "declare",
+    declared_role: "main",
+    effective_from: "2026-07-12",
+    declared_at: "2026-07-12T01:00:00.000Z",
+    declared_by: "user-1",
+    reason: null,
+    contract_version: "meta-entity-role-declaration.v1",
+    ...overrides,
+  });
+  const DECLARATIONS = [
+    declarationRow({}),
+    declarationRow({
+      id: "00000000-0000-4000-8000-00000000d119",
+      entity_type: "adset",
+      entity_id: "as-test",
+      parent_campaign_id: "cmp-main",
+      declared_role: "test",
+    }),
+  ];
+
+  function dispatch(declarationResult: () => unknown[]) {
+    mocks.query.mockImplementation(async (sql: string, params: unknown[]) => {
+      if (sql.includes("FROM engine_v3_campaign_context_daily")) return [AUTOMATIC_MEDIUM];
+      if (sql.includes("FROM meta_entity_role_declarations")) {
+        const rows = declarationResult();
+        return rows.filter(
+          (row) => (row as { entity_type: string }).entity_type === params[2],
+        );
+      }
+      return [];
+    });
+  }
+
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    mocks.query.mockReset();
+  });
+
+  it("a campaign declaration replaces the automatic row, and each ad set is resolved on its own", async () => {
+    dispatch(() => DECLARATIONS);
+    const campaigns = await readCampaignContextMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      campaignIds: ["cmp-main"],
+      asOf: "2026-07-12",
+    });
+    expect(campaigns.get("cmp-main")).toMatchObject({
+      kind: "main",
+      contextTrust: "high",
+      declarationAuthorityValidated: true,
+      resolverAuthorityValidated: false,
+      roleEntityType: "campaign",
+      provenance: {
+        source: "operator_declared",
+        sourceRecordType: "meta_entity_role_declarations",
+      },
+    });
+    const adsets = await readAdsetRoleMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      adsets: [
+        { adsetId: "as-test", campaignId: "cmp-main" },
+        { adsetId: "as-open", campaignId: "cmp-main" },
+      ],
+      campaignContext: campaigns,
+      asOf: "2026-07-12",
+    });
+    expect(adsets.get("as-test")).toMatchObject({
+      kind: "test",
+      contextTrust: "high",
+      declarationAuthorityValidated: true,
+      roleEntityType: "adset",
+    });
+    expect(adsets.get("as-open")).toMatchObject({
+      kind: "main",
+      contextTrust: "medium",
+      declarationAuthorityValidated: false,
+      roleBasis: "parent_campaign_suggestion",
+    });
+  });
+
+  it("the unknown circuit breaker disables declarations with automatic context", async () => {
+    vi.stubEnv("CAMPAIGN_CONTEXT_MODE", "unknown");
+    dispatch(() => DECLARATIONS);
+    const campaigns = await readCampaignContextMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      campaignIds: ["cmp-main"],
+      asOf: "2026-07-12",
+    });
+    expect(campaigns.size).toBe(0);
+    const adsets = await readAdsetRoleMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      adsets: [{ adsetId: "as-test", campaignId: "cmp-main" }],
+      campaignContext: campaigns,
+      asOf: "2026-07-12",
+    });
+    expect(adsets.get("as-test")).toMatchObject({ kind: null, contextTrust: "unknown" });
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
+  it("before the migration the missing table reads as nothing declared; any other failure throws", async () => {
+    dispatch(() => {
+      throw Object.assign(new Error("relation does not exist"), { code: "42P01" });
+    });
+    const campaigns = await readCampaignContextMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      campaignIds: ["cmp-main"],
+      asOf: "2026-07-12",
+    });
+    expect(campaigns.get("cmp-main")).toMatchObject({
+      contextTrust: "medium",
+      provenance: { source: "system_inferred" },
+    });
+    dispatch(() => {
+      throw Object.assign(new Error("statement timeout"), { code: "57014" });
+    });
+    await expect(
+      readCampaignContextMap({
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        campaignIds: ["cmp-main"],
+        asOf: "2026-07-12",
+      }),
+    ).rejects.toThrow("statement timeout");
+  });
+
+  it("a declared ad set placed under another campaign carries no declared role", async () => {
+    dispatch(() => DECLARATIONS);
+    const campaigns = await readCampaignContextMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      campaignIds: ["cmp-main"],
+      asOf: "2026-07-12",
+    });
+    const adsets = await readAdsetRoleMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      adsets: [{ adsetId: "as-test", campaignId: "cmp-moved" }],
+      campaignContext: campaigns,
+      asOf: "2026-07-12",
+    });
+    expect(adsets.get("as-test")).toMatchObject({
+      contextTrust: "unknown",
+      declarationAuthorityValidated: false,
+    });
+    expect(adsets.get("as-test")?.roleBasis).not.toBe("declared");
+  });
+
+  it("binds declarations to the knowledge of the run that publishes the generation", async () => {
+    dispatch(() => DECLARATIONS);
+    await readAdsetRoleMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      adsets: [{ adsetId: "as-test", campaignId: "cmp-main" }],
+      campaignContext: new Map(),
+      asOf: "2026-07-12",
+      declarationKnowledgeJobRunId: "00000000-0000-4000-8000-0000000000aa",
+    });
+    const [sql, params] = mocks.query.mock.calls.find(([text]) =>
+      String(text).includes("FROM meta_entity_role_declarations"),
+    )!;
+    expect(String(sql)).toMatch(
+      /declared_at <= \(\s*SELECT run\.started_at FROM engine_v3_job_runs run WHERE run\.id = \$7::uuid\s*\)/,
+    );
+    expect(params[6]).toBe("00000000-0000-4000-8000-0000000000aa");
+  });
+
+  it("a replay binds the declaration read to its cutoff", async () => {
+    dispatch(() => DECLARATIONS);
+    await readCampaignContextMap({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      campaignIds: ["cmp-main"],
+      asOf: "2026-07-12",
+      visibleAtCutoff: "2026-07-12T00:59:00.000Z",
+    });
+    const declarationCall = mocks.query.mock.calls.find(([sql]) =>
+      String(sql).includes("FROM meta_entity_role_declarations"),
+    );
+    expect(declarationCall?.[1]).toEqual([
+      "biz-1",
+      "act_1",
+      "campaign",
+      ["cmp-main"],
+      "2026-07-12",
+      "2026-07-12T00:59:00.000Z",
+      null,
+    ]);
   });
 });

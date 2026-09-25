@@ -837,6 +837,36 @@ the run the D107 hydration admitted in the read-only Grandmix replay
 | D111-05 | role-held economic Cut with complete source and config | campaign context remains the blocker; no authorized action |
 | D111-06 | held economic Cut with `config_source_authority` and `pending_transition` | typed resolution names the missing date-authoritative configuration first and also names the needed consecutive confirmation; no buyer or provider action |
 
+## D118 entity roles (golden cases)
+
+Executable in `lib/creative-decision-engine/__tests__/d118-entity-role.golden.test.ts`
+(engine), `lib/meta/d118-adset-role-guard.test.ts` (structure lane) and the
+D118 block of `lib/meta/decisions-workspace-read-model.test.ts` (served model).
+Module goldens, not rows of the canonical 11-column table, so their IDs do
+not start with `GC-`. The anchor shape is the operator's: a Main campaign
+running a separate Test ad set.
+
+| case | input | expected |
+|---|---|---|
+| R118-01 | Main campaign declared; Ad in an ad set declared Test | Ad role `test`, trusted; Scale keeps no role hold; `campaignKind` test |
+| R118-02 | same campaign; Ad in an undeclared ad set | role `main` as context only (trust medium); hard Cut keeps its verdict, held by `campaign_context` |
+| R118-03 | campaign automatic `high` + validated resolver; undeclared ad set; also with no ad set map | ad set not trusted either way |
+| R118-04 | ad set declared Test; campaign has no role | Ad trusted `test` |
+| R118-05 | Ad without an ad set identity | no role authority |
+| R118-06 | declare, later re-declare, later revoke | latest recorded event wins; revoke leaves no declaration |
+| R118-07 | replay cutoff before `declared_at`; `effective_from` after as-of | not in force |
+| R118-08 | other account / business / entity type / contract; ad set declared Mixed | ignored |
+| R118-09 | back-dated `effective_from`, Mixed ad set, role on revoke, a name as entity id | refused at write |
+| R118-10 | NEGATIVE CONTROL: nothing declared, campaign below high | ad set entry carries identical trust and provenance object |
+| R118-11 | only `system_inferred`+resolver or `operator_declared`+contract | anything else, including `user_override`, is not authority |
+| R118-12 | role authority source | reads no name and no retired label table |
+| R118-13 | Test ad set declared under campaign A; the Ad now sits under campaign B | declaration not applied; not authority |
+| R118-S1..S3 | structure lane: campaign rec, Test ad set rec, undeclared ad set rec | Main act / promote-to-main Test transform / watch, context Main untrusted |
+| R118-S4..S6 | no ad set map; validated automatic campaign; declaration without proof | ad set recs held; campaign rec acts; not authority |
+| R118-R1..R4 | served model: Test ad set, undeclared sibling, medium campaign, trusted automatic campaign | trusted `test` from declaration / `main` untrusted `adset_role_unresolved` naming the campaign record / pre-D118 output unchanged / sibling still untrusted |
+| R118-R5 | served model: ad set declared under another campaign | not applied; `adset_role_unresolved` |
+| R118-P1..P3 | declaration recorded 08:00 effective the day before; generation runs started 03:00 and 15:00; unknown run; served inventory | 03:00 generation keeps the suggestion, 15:00 run reads the declaration / unknown run admits none / the served read passes the generation's own run id |
+
 ## D119/D120 role presentation and entity-state coverage (golden cases)
 
 | case | input | expected |

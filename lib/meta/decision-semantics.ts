@@ -510,6 +510,8 @@ function resolutionFor(
     codes.has("campaign_context_conflict") ||
     codes.has("campaign_context_unresolved") ||
     codes.has("campaign_context_low_confidence") ||
+    // D118 — the ad set's own role is undeclared; its campaign's is context only.
+    codes.has("adset_role_unresolved") ||
     codes.has("campaign_label_missing") ||
     codes.has("campaign_role_unresolved") ||
     codes.has("unlabeled_campaign_context") ||

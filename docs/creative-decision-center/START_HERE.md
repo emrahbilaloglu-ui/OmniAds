@@ -6,6 +6,15 @@ The H5 release also includes [D096](DECISION_LOG.md#d096--additive-receipt-attem
 and the [receipt rollback and index-maintenance contract](../architecture/meta-receipt-additive-rollback.md).
 Read them before changing receipt storage or executing this release's migrations.
 
+> **Campaign / ad set roles (D118, 2026-09-25).** Role is per entity: a
+> campaign and an ad set each have their own, and a Main campaign can run a
+> Test ad set. Authority comes only from automatic inference (campaign,
+> resolver-gated, D074) or an explicit account-scoped declaration in
+> `meta_entity_role_declarations` (`operator_declared`), through the single
+> predicate `isEntityRoleTrustedForAction`. An Ad reads its ad set's role; an
+> undeclared ad set carries its campaign's role as context only. Read D118
+> before touching role sources or consumers.
+
 ## The current decision contract (D091, 2026-09-07) — read before anything else
 
 Everything below this section is older than this section. Where any passage in

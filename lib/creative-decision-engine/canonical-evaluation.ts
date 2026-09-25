@@ -110,11 +110,22 @@ export type CanonicalDataHealthNoteCode =
 export type CampaignContextProvenanceMode =
   "legacy_labels" | "automatic" | "unknown";
 
+/**
+ * `operator_declared` (D118) is an explicit, account-scoped role declaration
+ * for one campaign or ad set. It is NOT the retired `user_override` /
+ * `legacy_label` manual-label origin, which stays deserialization-only.
+ */
 export type CampaignContextProvenanceSource =
-  "legacy_label" | "user_override" | "system_inferred" | "unknown";
+  | "legacy_label"
+  | "user_override"
+  | "system_inferred"
+  | "operator_declared"
+  | "unknown";
 
 export type CampaignContextSourceRecordType =
-  "meta_campaign_label" | "engine_v3_campaign_context_daily";
+  | "meta_campaign_label"
+  | "engine_v3_campaign_context_daily"
+  | "meta_entity_role_declarations";
 
 export interface CampaignContextProvenance {
   mode: CampaignContextProvenanceMode;
@@ -128,6 +139,12 @@ export interface CampaignContextProvenance {
   sourceAsOfDate?: string | null;
   sourceUpdatedAt?: string | null;
   sourceHash?: string | null;
+  /**
+   * D118: the entity the role belongs to. Present only on a declaration's
+   * provenance, so every automatic-only provenance hashes exactly as before.
+   */
+  roleEntityType?: "campaign" | "adset" | null;
+  roleEntityId?: string | null;
 }
 
 export type PriorHysteresisSource =

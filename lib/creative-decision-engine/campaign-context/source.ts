@@ -18,6 +18,11 @@ import {
   type CampaignKind,
   type ContextConfidenceClass,
 } from "./resolver";
+import {
+  adsetRoleEntryFromParent,
+  declaredEntityRoleEntry,
+  readActiveEntityRoleDeclarations,
+} from "./entity-role";
 
 export type CampaignContextMode = "legacy_labels" | "automatic" | "unknown";
 
@@ -100,6 +105,20 @@ interface PersistedContextRow {
 
 export interface CampaignContextEntryWithProvenance extends CreativeCampaignContextEntry {
   provenance: CampaignContextProvenance;
+  /**
+   * D118. True only for an exact, current-contract operator declaration. The
+   * resolver flag above stays false for a declaration: the resolver gate is
+   * neither consulted nor opened by it.
+   */
+  declarationAuthorityValidated?: boolean;
+  /** The entity this role belongs to. Absent on legacy/automatic-only reads. */
+  roleEntityType?: "campaign" | "adset";
+  roleEntityId?: string | null;
+  /**
+   * `parent_campaign_suggestion`: an ad set with no declaration of its own,
+   * carrying its campaign's role as context only. Never action authority.
+   */
+  roleBasis?: "declared" | "automatic" | "parent_campaign_suggestion" | "none";
 }
 
 export type CampaignContextMap = ReadonlyMap<
@@ -260,6 +279,11 @@ export async function readCampaignContextMap(input: {
   visibleAtCutoff?: string | null;
   /** Receives every campaign withheld by `visibleAtCutoff`. */
   pitExclusions?: Map<string, CampaignContextPitExclusion>;
+  /**
+   * D118 — the decision run whose knowledge the declarations must match.
+   * @see readEntityRoleDeclarationEvents
+   */
+  declarationKnowledgeJobRunId?: string | null;
 }): Promise<CampaignContextMap> {
   const requestedMode = input.mode ?? resolveCampaignContextMode();
   const mode: CampaignContextMode =
@@ -347,6 +371,23 @@ export async function readCampaignContextMap(input: {
       },
     });
   }
+  /*
+    D118 — an explicit declaration for THIS campaign, in THIS account, in force
+    at `asOf` (and, on a replay, recorded by the cutoff) takes the place of the
+    automatic row. It says nothing about the campaign's ad sets.
+  */
+  const declarations = await readActiveEntityRoleDeclarations({
+    businessId: input.businessId,
+    providerAccountId,
+    entityType: "campaign",
+    entityIds: input.campaignIds,
+    asOf,
+    visibleAtCutoff,
+    knowledgeJobRunId: input.declarationKnowledgeJobRunId ?? null,
+  });
+  for (const [campaignId, declaration] of declarations) {
+    entries.set(campaignId, declaredEntityRoleEntry({ declaration, mode }));
+  }
   for (const campaignId of input.campaignIds) {
     if (!entries.has(campaignId)) {
       entries.set(campaignId, {
@@ -362,6 +403,81 @@ export async function readCampaignContextMap(input: {
         }),
       });
     }
+  }
+  return entries;
+}
+
+/**
+ * D118 — ad set roles, each in its own right.
+ *
+ * An ad set's role is read from ITS OWN declaration only. A Main campaign can
+ * run a Test ad set, so the campaign's role is carried for an undeclared ad
+ * set as a suggestion capped below action authority
+ * (`adsetRoleEntryFromParent`), never as its role.
+ *
+ * `campaignContext` must be the map `readCampaignContextMap` returned for the
+ * same account and as-of. Keyed by ad set id; one account per call.
+ */
+export async function readAdsetRoleMap(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  adsets: ReadonlyArray<{ adsetId: string; campaignId: string | null }>;
+  campaignContext: CampaignContextMap;
+  asOf?: string;
+  mode?: CampaignContextMode;
+  visibleAtCutoff?: string | null;
+  /** @see readEntityRoleDeclarationEvents */
+  declarationKnowledgeJobRunId?: string | null;
+}): Promise<CampaignContextMap> {
+  const requestedMode = input.mode ?? resolveCampaignContextMode();
+  const mode: CampaignContextMode =
+    requestedMode === "unknown" ? "unknown" : "automatic";
+  const asOf = input.asOf ?? new Date().toISOString().slice(0, 10);
+  const providerAccountId = input.providerAccountId?.trim() ?? "";
+  const adsets = new Map<string, string | null>();
+  for (const adset of input.adsets) {
+    const adsetId = adset.adsetId.trim();
+    if (adsetId) adsets.set(adsetId, adset.campaignId?.trim() || null);
+  }
+  const entries = new Map<string, CampaignContextEntryWithProvenance>();
+  const declarations =
+    mode === "unknown" || !providerAccountId
+      ? new Map()
+      : await readActiveEntityRoleDeclarations({
+          businessId: input.businessId,
+          providerAccountId,
+          entityType: "adset",
+          entityIds: [...adsets.keys()],
+          asOf,
+          visibleAtCutoff: input.visibleAtCutoff ?? null,
+          knowledgeJobRunId: input.declarationKnowledgeJobRunId ?? null,
+        });
+  for (const [adsetId, campaignId] of adsets) {
+    /*
+      A declaration binds an ad set as it was observed under ONE campaign. If
+      the ad set now sits under another campaign (or the caller cannot name
+      one), the declaration no longer describes this placement and grants
+      nothing; the ad set falls back to its actual campaign's suggestion.
+    */
+    const candidate = declarations.get(adsetId);
+    const declaration =
+      candidate && campaignId && candidate.parentCampaignId === campaignId
+        ? candidate
+        : null;
+    entries.set(
+      adsetId,
+      declaration
+        ? declaredEntityRoleEntry({ declaration, mode })
+        : adsetRoleEntryFromParent({
+            adsetId,
+            campaignId,
+            parent:
+              mode === "unknown" || !campaignId
+                ? null
+                : (input.campaignContext.get(campaignId) ?? null),
+            mode,
+          }),
+    );
   }
   return entries;
 }

@@ -856,3 +856,10 @@ enters the closure ledger with **1** literal reference, category `test`. Its
 assertion checks that the daily-spend query uses the shared member-status
 reader instead of a cleared legacy creative-day status. It issues no direct
 state-history query and grants no status authority by itself.
+
+### D118 entity role declaration addendum (2026-09-25)
+
+| file | references | verdict |
+| --- | ---: | --- |
+| `lib/creative-decision-engine/campaign-context/entity-role.ts` | 1 | Admission. A role declaration is written only when the campaign or ad set was observed under that exact provider account; the read keeps `presence = 'present'` rows only, so a scope-exit row never binds an entity, and an ad set's parent campaign must be unique across those observations. No entity value becomes decision input and the read grants no authority by itself. |
+| `lib/creative-decision-engine/campaign-context/entity-role.write.test.ts` | 1 | Test. Its mocked database routes the binding read by the table name; no query reaches a database. |

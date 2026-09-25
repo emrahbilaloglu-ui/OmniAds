@@ -13662,6 +13662,39 @@ export async function runMigrations(options?: {
         ]);
 
         /*
+        ── D118: explicit, account-scoped entity role declarations ──
+
+        Append-only. A campaign and an ad set each carry their own role: a Main
+        campaign can run a Test ad set, so no row here speaks for any entity
+        but its own. A change of mind is a later row (`revoke`, or a new
+        `declare`); nothing is updated or deleted. This is NOT the retired
+        `meta_campaign_labels` table, which stays frozen and unread.
+        */
+        await runMigrationBatchSequentially([
+          sql`CREATE TABLE IF NOT EXISTS meta_entity_role_declarations (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          entity_type         TEXT NOT NULL CHECK (entity_type IN ('campaign', 'adset')),
+          entity_id           TEXT NOT NULL,
+          parent_campaign_id  TEXT,
+          event               TEXT NOT NULL CHECK (event IN ('declare', 'revoke')),
+          declared_role       TEXT CHECK (declared_role IN ('main', 'test', 'mixed')),
+          effective_from      DATE NOT NULL,
+          declared_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          declared_by         TEXT NOT NULL,
+          reason              TEXT,
+          contract_version    TEXT NOT NULL,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK ((event = 'declare') = (declared_role IS NOT NULL)),
+          CHECK (entity_type = 'campaign' OR declared_role IS DISTINCT FROM 'mixed')
+        )`,
+          sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_role_declarations_scope
+          ON meta_entity_role_declarations
+          (business_id, provider_account_id, entity_type, entity_id, declared_at, id)`,
+        ]);
+
+        /*
         ── Retained campaign-role authority ──
 
         (Not part of the read-only capability study that first described this

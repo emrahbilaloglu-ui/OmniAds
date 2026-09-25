@@ -699,23 +699,53 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
 - `rebuild_creative` is review-only until every provider image, creative, and
   Ad step has an immutable attempt/result receipt and an ambiguity-safe recovery
   contract.
-- Runtime campaign role has exactly one source: automatic account-scoped
-  inference from `engine_v3_campaign_context_daily` (D074). No live route,
-  decision producer, read model, or UI component may read or write
-  `meta_campaign_labels` / `meta_campaign_label_history`; the historical tables
-  are frozen evaluation/migration evidence and the static isolation guard
-  (`lib/meta/__tests__/campaign-labels-isolation.test.ts`) enforces the
-  boundary. There is no manual assignment or override path; resolver
-  disagreement is evidence for a future versioned resolver, never a label.
+- ~~Runtime campaign role has exactly one source … There is no manual
+  assignment or override path.~~ **Amended by D118 (2026-09-25).** Runtime
+  entity role has exactly two sources, each with its own proof:
+  automatic account-scoped inference from `engine_v3_campaign_context_daily`
+  (D074, campaign only, still resolver-gated), and an explicit
+  account-scoped declaration in `meta_entity_role_declarations` (D118,
+  campaign or ad set, `operator_declared`, exact declaration contract). No
+  live route, decision producer, read model, or UI component may read or
+  write `meta_campaign_labels` / `meta_campaign_label_history`; the historical
+  tables stay frozen evaluation/migration evidence and the static isolation
+  guard (`lib/meta/__tests__/campaign-labels-isolation.test.ts`) still
+  enforces that boundary. A declaration is not a label: it is append-only,
+  names one entity in one physical account, carries an author, a reason and
+  an `effective_from` that cannot reach back before the day it is recorded,
+  and a replay sees it only from its `declared_at`.
+- (D118) A campaign and an ad set are separate role entities. A Main campaign
+  can run a Test ad set, so an ad set's role is its OWN declaration only; the
+  campaign's role reaches an ad set as a suggestion capped below `high` and
+  never as role-dependent authority. An Ad's role-dependent semantics
+  (kind-aware calibration, Test refresh→cut / scale→promote, hard-action
+  role hold) read its AD SET's role; an ad-set-level recommendation reads its
+  ad set's role; a campaign-level recommendation reads its campaign's.
+  Omitting the ad set roles can never pass campaign authority down.
+- (D118) Campaign and ad set names are never read by role authority, on
+  either source. A rename changes nothing.
+- (D118) A generation's declared roles are exactly the declarations recorded
+  by the `started_at` of the run that published it; the producing run and
+  every later read of that generation use the same run-bound predicate, and an
+  unknown run admits none. A declaration never retrofits an earlier
+  generation.
+- (D118) An ad set declaration is bound to the campaign it was declared
+  under; under any other (or an unknown) campaign it grants nothing.
+- (D118, open) The budget lane (D081/D086 retention) still accepts only
+  `system_inferred`; declared roles do not authorise budget proposals.
 - Campaign-role identity is `business + physical provider account + campaign +
   as-of date`. A context read that cannot prove provider-account scope returns
   no roles and every context-dependent hard action stays review-only. Rows
   with a null provider account can never be updated into runtime authority.
-- High-trust campaign-role semantics require BOTH `confidenceClass = high` AND
-  the exact resolver-version authority gate
+- High-trust AUTOMATIC campaign-role semantics require BOTH
+  `confidenceClass = high` AND the exact resolver-version authority gate
   (`CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION` equal to the compiled
   resolver version). The gate defaults unset; an engine or env rollback may
-  only narrow authority (`unknown` mode), never re-arm manual labels.
+  only narrow authority (`unknown` mode, which also disables declarations),
+  never re-arm manual labels. A declared role (D118) never borrows or opens
+  this gate; it is authority only through `isEntityRoleTrustedForAction`
+  (`lib/creative-decision-engine/campaign-context/entity-role.ts`), the one
+  shared predicate every role consumer calls.
 - Resolver challengers are versioned modules gated by a predeclared,
   frozen-before-validation promotion gate (D076). A challenger that fails
   its gate must NOT become the compiled default, must not bump the runtime

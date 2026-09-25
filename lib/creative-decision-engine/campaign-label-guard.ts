@@ -62,6 +62,14 @@ interface CreativeCampaignLabelGuardInput {
   decision: DecisionOutput;
   input: Pick<CreativeInput, "campaignId">;
   campaignLabelsById: CreativeCampaignLabelMap | null | undefined;
+  /**
+   * D118 — the role entry that governs THIS decision, when the caller has
+   * resolved it for a narrower entity than the campaign (an Ad reads its ad
+   * set's role). Supplied, it replaces the campaign-map lookup entirely;
+   * `null` means the governing entity has no role. Omitted, the campaign map
+   * is read as before.
+   */
+  roleEntry?: CreativeCampaignContextEntry | null;
 }
 
 const HARD_DECISION_LABELS = new Set<DecisionLabel>([
@@ -430,9 +438,16 @@ function isTrustedForKindSemantics(
 export function withCreativeCampaignLabelContext<T extends Pick<CreativeInput, "campaignId">>(
   input: T,
   campaignLabelsById: CreativeCampaignLabelMap | null | undefined,
+  /** D118 — the governing entity's role; replaces the campaign lookup. */
+  roleEntry?: CreativeCampaignContextEntry | null,
 ): T & Pick<CreativeInput, "campaignKind"> {
   const campaignId = input.campaignId?.trim() || null;
-  const entry = campaignId ? (campaignLabelsById?.get(campaignId) ?? null) : null;
+  const entry =
+    roleEntry !== undefined
+      ? roleEntry
+      : campaignId
+        ? (campaignLabelsById?.get(campaignId) ?? null)
+        : null;
   return {
     ...input,
     // Kind semantics (kind-aware calibration, Test transforms) require full
@@ -445,6 +460,7 @@ export function applyCreativeCampaignLabelGuard({
   decision,
   input,
   campaignLabelsById,
+  roleEntry,
 }: CreativeCampaignLabelGuardInput): DecisionOutput {
   const campaignId = input.campaignId?.trim() || null;
   if (!campaignId) {
@@ -469,7 +485,10 @@ export function applyCreativeCampaignLabelGuard({
     });
   }
 
-  const label = campaignLabelsById?.get(campaignId) ?? null;
+  const label =
+    roleEntry !== undefined
+      ? roleEntry
+      : (campaignLabelsById?.get(campaignId) ?? null);
   if (label && isTrustedForKindSemantics(label)) {
     return withCampaignContext(decision, {
       status: "resolved",

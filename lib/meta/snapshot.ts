@@ -69,6 +69,8 @@ import {
 } from "@/lib/meta/campaign-label-guard";
 import {
   readCampaignContextLabelMap,
+  readAdsetRoleMap,
+  type CampaignContextMap,
   resolveCampaignContextMode,
 } from "@/lib/creative-decision-engine/campaign-context/source";
 import { readMetaEntityDecisionSignalsDaily } from "@/lib/meta/entity-signals";
@@ -302,6 +304,8 @@ async function readCampaignContextGuardState(input: {
 }): Promise<{
   campaignLabelsById: MetaCampaignLabelKindMap;
   campaignContextById: MetaCampaignContextGuardMap;
+  /** The resolved source map, so ad set roles can carry it as a suggestion. */
+  campaignContextSource: CampaignContextMap;
   automaticContextEnabled: boolean;
 }> {
   const mode = resolveCampaignContextMode();
@@ -316,15 +320,7 @@ async function readCampaignContextGuardState(input: {
     const context = new Map<string, MetaCampaignContextGuardEntry>();
     const labels = new Map<string, MetaCampaignKind>();
     for (const [campaignId, entry] of resolved) {
-      const source = entry.provenance.source;
-      const contextTrust = entry.contextTrust ?? "unknown";
-      const guardEntry: MetaCampaignContextGuardEntry = {
-        kind: entry.kind,
-        contextTrust,
-        source,
-        inferenceConfidenceClass: entry.inferenceConfidenceClass,
-        resolverAuthorityValidated: entry.resolverAuthorityValidated,
-      };
+      const guardEntry = toMetaCampaignContextGuardEntry(entry);
       context.set(campaignId, guardEntry);
       /*
         ONE predicate, imported — not a second, looser copy of it.
@@ -354,6 +350,7 @@ async function readCampaignContextGuardState(input: {
     return {
       campaignLabelsById: labels,
       campaignContextById: context,
+      campaignContextSource: resolved,
       automaticContextEnabled: mode === "automatic",
     };
   } catch (error) {
@@ -364,8 +361,68 @@ async function readCampaignContextGuardState(input: {
     return {
       campaignLabelsById: new Map(),
       campaignContextById: new Map(),
+      campaignContextSource: new Map(),
       automaticContextEnabled: mode === "automatic",
     };
+  }
+}
+
+/** The guard's view of one resolved role entry, copied field for field. */
+function toMetaCampaignContextGuardEntry(
+  entry: CampaignContextMap extends ReadonlyMap<string, infer V> ? V : never,
+): MetaCampaignContextGuardEntry {
+  return {
+    kind: entry.kind,
+    contextTrust: entry.contextTrust ?? "unknown",
+    source: entry.provenance.source,
+    inferenceConfidenceClass: entry.inferenceConfidenceClass,
+    resolverAuthorityValidated: entry.resolverAuthorityValidated,
+    declarationAuthorityValidated: entry.declarationAuthorityValidated,
+    roleBasis: entry.roleBasis,
+  };
+}
+
+/**
+ * D118 — each ad-set recommendation's own ad set role, keyed by ad set id.
+ * The campaign's resolved role is passed only as the suggestion an undeclared
+ * ad set carries; it never becomes the ad set's authority. A read failure
+ * leaves every ad set without a role, which only withholds.
+ */
+async function readAdsetContextGuardState(input: {
+  businessId: string;
+  providerAccountId: string | null;
+  recommendations: readonly MetaRecommendation[];
+  campaignContextSource: CampaignContextMap;
+  asOf: string;
+}): Promise<MetaCampaignContextGuardMap> {
+  const adsets = new Map<string, string | null>();
+  for (const rec of input.recommendations) {
+    if (rec.level !== "adset") continue;
+    const adsetId = rec.adsetId?.trim();
+    if (adsetId) adsets.set(adsetId, rec.campaignId?.trim() || null);
+  }
+  if (adsets.size === 0) return new Map();
+  try {
+    const resolved = await readAdsetRoleMap({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      adsets: [...adsets].map(([adsetId, campaignId]) => ({ adsetId, campaignId })),
+      campaignContext: input.campaignContextSource,
+      asOf: input.asOf,
+      mode: resolveCampaignContextMode(),
+    });
+    return new Map(
+      [...resolved].map(([adsetId, entry]) => [
+        adsetId,
+        toMetaCampaignContextGuardEntry(entry),
+      ]),
+    );
+  } catch (error) {
+    console.warn("[meta-snapshot] adset_role_read_failed", {
+      businessId: input.businessId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return new Map();
   }
 }
 
@@ -1565,10 +1622,23 @@ async function buildSnapshotRecommendations(input: {
     campaignLabelsById,
   });
 
+  const unguardedRecommendations = [
+    ...stateRows,
+    ...campaignRecommendations,
+    ...adsetRecommendations,
+  ];
+  const adsetContextById = await readAdsetContextGuardState({
+    businessId: input.businessId,
+    providerAccountId: accountId,
+    recommendations: unguardedRecommendations,
+    campaignContextSource: campaignContextState.campaignContextSource,
+    asOf: endDate,
+  });
   const labelGuarded = applyMetaCampaignLabelGuard({
-    recommendations: [...stateRows, ...campaignRecommendations, ...adsetRecommendations],
+    recommendations: unguardedRecommendations,
     campaignLabelsById,
     campaignContextById: campaignContextState.campaignContextById,
+    adsetContextById,
     automaticContextEnabled: campaignContextState.automaticContextEnabled,
     activeCampaignIds: campaignIds,
   }).recommendations;
@@ -2952,10 +3022,18 @@ export async function readLatestMetaDecisionSnapshot(input: {
     asOf: rows[0]?.snapshot_date ?? normalizeDate(input.endDate),
   });
   const campaignLabelsById = campaignContextState.campaignLabelsById;
+  const adsetContextById = await readAdsetContextGuardState({
+    businessId: input.businessId,
+    providerAccountId: account,
+    recommendations: commerciallyGuardedRecommendations,
+    campaignContextSource: campaignContextState.campaignContextSource,
+    asOf: rows[0]?.snapshot_date ?? normalizeDate(input.endDate),
+  });
   const guardedRecommendations = applyMetaCampaignLabelGuard({
     recommendations: commerciallyGuardedRecommendations,
     campaignLabelsById,
     campaignContextById: campaignContextState.campaignContextById,
+    adsetContextById,
     automaticContextEnabled: campaignContextState.automaticContextEnabled,
     activeCampaignIds: campaignIds,
   }).recommendations;

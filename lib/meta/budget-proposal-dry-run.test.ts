@@ -50,6 +50,7 @@ import { validateBudgetIntent } from "@/lib/meta/budget-intent-contract";
 import { ISO_4217_REGISTRY_VERSION } from "@/lib/currency/iso-4217-minor-units";
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
 import { campaignContextAuthorityResolverVersion } from "@/lib/creative-decision-engine/campaign-context/source";
+import { ENTITY_ROLE_DECLARATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 
 /*
   TEST-LOCAL adversarial resealing — private to this file by construction.
@@ -2022,5 +2023,113 @@ describe("D085 C6 — capability refusal is never reported as an intent failure"
     expect(validateCapability(PROVIDER_CAPABILITY_TODAY).valid).toBe(true);
     expect(validateCapability(PROVIDER_CAPABILITY_TODAY, "daily_budget").valid).toBe(false);
     expect(capabilityPermitsWrite(PROVIDER_CAPABILITY_TODAY)).toBe(false);
+  });
+});
+
+/*
+  r17 — THE DECLARED ROLE ROUTE (D121).
+
+  The operator's own declaration for the entity whose budget moves: a Test ad
+  set inside a Main campaign is judged by the AD SET's declaration, bound to
+  the campaign it was declared under. It is a separate rule, so it clears the
+  resolver floor without any resolver approval — and every way it can fail to
+  describe THIS proposal is refused by name.
+*/
+describe("r17 — a declared role binds the proposal's own entity", () => {
+  const PARENT = "23859876543210987";
+  const ADSET = "23851234567890123";
+  const declaredRole = (over: Record<string, unknown> = {}) => ({
+    ...bestCase().role,
+    role: "test",
+    source: "operator_declared",
+    resolverVersion: null,
+    producer: "operator_declaration",
+    campaignId: PARENT,
+    why: "resolved from the adset's own operator declaration",
+    entityGrain: "adset",
+    entityId: ADSET,
+    declarationContract: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+    declaredAt: "2026-08-31T10:00:00.000Z",
+    ...over,
+  }) as DryRunInput["role"];
+  const blockersWith = (role: DryRunInput["role"]) =>
+    buildBudgetProposalDryRun(bestCase({ role })).blockers;
+
+  it("R121-D1: an exact declared Test ad set is canonical with no resolver approval at all", () => {
+    expect(validateRoleAuthority(declaredRole())).toEqual({ canonical: true, problems: [] });
+    const blockers = blockersWith(declaredRole());
+    expect(blockers).not.toContain("role_authority_not_canonical");
+    expect(blockers).not.toContain("role_identity_unbound");
+    expect(blockers).not.toContain("role_provenance_incoherent");
+    // The structural gate still stands: nothing here is a write path.
+    expect(blockers).toContain("no_provider_write_path_exists");
+  });
+
+  it.each([
+    ["a resolver identity", { resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION }, "never borrows the resolver gate"],
+    ["a Mixed ad set", { role: "mixed" }, "is not a role a declared adset can hold"],
+    ["a commercial action as a role", { role: "scale" }, "is not a role a declared adset can hold"],
+    ["another declaration contract", { declarationContract: "meta-entity-role-declaration.v0" }, "declaration contract"],
+    ["no entity grain", { entityGrain: undefined }, "entity grain"],
+    ["no entity", { entityId: "" }, "names no entityId"],
+    ["a non-high confidence", { confidence: "medium" }, "role confidence"],
+    ["the automatic producer", { producer: "automatic_inference" }, "role producer"],
+    ["an unsatisfied verdict", { satisfiesRoleAuthority: false }, "satisfiesRoleAuthority is false"],
+    ["carried blockers", { authorityBlockers: ["role_declaration_contract_unvalidated"] }, "carries blockers"],
+    ["a day instead of a recording instant", { declaredAt: "2026-08-31" }, "no valid recording instant"],
+    ["no recording instant", { declaredAt: null }, "no valid recording instant"],
+    ["a campaign declaration bound under another campaign",
+      { entityGrain: "campaign", entityId: PARENT, campaignId: "23850000000000000", role: "main" },
+      "must bind under that same campaign"],
+  ])("R121-D2: refuses a declared context with %s", (_label, patch, expected) => {
+    const direct = validateRoleAuthority(declaredRole(patch));
+    expect(direct.canonical).toBe(false);
+    expect(direct.problems.join("; ")).toContain(expected as string);
+    expect(blockersWith(declaredRole(patch))).toContain("role_authority_not_canonical");
+  });
+
+  it("R121-D3: the Main campaign's declaration cannot authorise its Test ad set's budget", () => {
+    const campaignDeclaration = declaredRole({
+      role: "main", entityGrain: "campaign", entityId: PARENT, campaignId: PARENT,
+    });
+    expect(validateRoleAuthority(campaignDeclaration).canonical).toBe(true);
+    const blockers = blockersWith(campaignDeclaration);
+    expect(blockers).toContain("role_identity_unbound");
+  });
+
+  it("R121-D4: another ad set's declaration, or one declared under another campaign, is unbound", () => {
+    expect(blockersWith(declaredRole({ entityId: "23851234567890999" })))
+      .toContain("role_identity_unbound");
+    expect(blockersWith(declaredRole({ campaignId: "23850000000000000" })))
+      .toContain("role_identity_unbound");
+  });
+
+  it("R121-D5: a declaration recorded after the knowledge cutoff is leakage", () => {
+    const blockers = blockersWith(declaredRole({ declaredAt: "2026-09-01T06:00:00.000Z" }));
+    expect(blockers).toContain("capture_after_knowledge_cutoff");
+  });
+
+  it("R121-D6: an automatic context may not carry a declared-only field", () => {
+    for (const key of ["entityGrain", "entityId", "declarationContract", "declaredAt"]) {
+      const role = { ...bestCase().role, [key]: "x" } as DryRunInput["role"];
+      const direct = validateRoleAuthority(role);
+      expect(direct.canonical).toBe(false);
+      expect(direct.problems.join("; ")).toContain(`declared-only field ${key}`);
+    }
+  });
+
+  it("R121-D7: relabelling an automatic context as declared is not a declaration", () => {
+    const relabelled = { ...bestCase().role, source: "operator_declared" } as DryRunInput["role"];
+    expect(validateRoleAuthority(relabelled).canonical).toBe(false);
+    expect(blockersWith(relabelled)).toContain("role_authority_not_canonical");
+  });
+
+  it("R121-D8: the automatic route is byte-for-byte what r16 accepted", () => {
+    // The automatic fixture still carries no declared-only key, and the
+    // policy publishes both routes by their own rule.
+    for (const key of ["entityGrain", "entityId", "declarationContract", "declaredAt"]) {
+      expect(Object.prototype.hasOwnProperty.call(bestCase().role, key)).toBe(false);
+    }
+    expect(dryRunPolicyFingerprint()).toContain(META_BUDGET_PROPOSAL_DRY_RUN_CONTRACT);
   });
 });

@@ -82,13 +82,34 @@ function isCalendarDay(value: unknown): value is string {
   );
 }
 
-function isDeclarableRole(
+/**
+ * The tighter of two knowledge bounds on declarations: a replay cutoff and
+ * the instant the reading run began. Either absent defers to the other. An
+ * unparseable bound is returned as-is so the read fails closed on it rather
+ * than silently dropping it.
+ */
+export function declarationKnowledgeCutoff(
+  visibleAtCutoff: string | null | undefined,
+  recordedBy: string | null | undefined,
+): string | null {
+  const replay = visibleAtCutoff ?? null;
+  const run = recordedBy ?? null;
+  if (replay === null) return run;
+  if (run === null) return replay;
+  const replayMs = Date.parse(replay);
+  const runMs = Date.parse(run);
+  if (!Number.isFinite(replayMs)) return replay;
+  if (!Number.isFinite(runMs)) return run;
+  return replayMs <= runMs ? replay : run;
+}
+
+export function isDeclarableRole(
   entityType: RoleEntityType,
   role: unknown,
 ): role is DeclaredRole {
   return (
     typeof role === "string" &&
-    (DECLARABLE_ROLES[entityType] as readonly string[]).includes(role)
+    ((DECLARABLE_ROLES[entityType] ?? []) as readonly string[]).includes(role)
   );
 }
 

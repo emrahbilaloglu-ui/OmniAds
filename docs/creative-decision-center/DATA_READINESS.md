@@ -283,6 +283,23 @@ stop-loss path" in that row now refers to.
   a capped suggestion (`roleBasis: parent_campaign_suggestion`,
   `adset_role_unresolved` when the campaign itself would have been authority).
 
+## D121 budget role authority (2026-09-25)
+
+- A budget intent is sized only when its own entity's role is trusted: the
+  campaign's label for a campaign budget, the ad set's own guard entry for an
+  ad set budget. The Meta snapshot reads declarations recorded by the run's
+  own start (`roleDeclarationsRecordedBy`), and the budget proposals of that
+  run read with the same bound.
+- A proposal's declared role is ready when the governing entity's declaration
+  is in force with the same role on the decision's day and on the proposal's
+  day, was recorded by the run's start, and (ad set) names the ad set's
+  current campaign. Otherwise it is not ready, and only a genuinely absent
+  declaration lets the automatic D081 route answer.
+- D086 budget readiness (`role_authority_retention`,
+  `automatic_role_authority_absent`) is the AUTOMATION ACTIVATION readiness
+  and stays automatic-only by design: declarations never make execution
+  ready. It keeps reporting automatic retention exactly as before.
+
 ## D074b vocabulary closure (2026-08-30)
 
 - Active runtime, readiness contracts, API projections, and buyer UI now

@@ -333,6 +333,15 @@ export const D085_REJECTED_PASSES: readonly D085RejectedPass[] = Object.freeze([
     why:
       "a published historical record that no file matched, and testability that widened write authority. (1) D085_REJECTED_LINEAGE published 0495c156cc2… as the SHA-256 of r2 while the file hashes to 0495c156fcc2… — a hand-copied literal missing an f, 63 characters where a SHA-256 has 64, with the correct value eleven lines away in the r2 record; verifyArtifact never opened a historical file, so it compared one authored constant to another and passed. (2) the claimed whole-production-graph forge-helper invariant walked four directories of eight, matched .ts/.tsx only while production here also ships .js/.mjs, omitted src, store, providers, hooks and 27 root-level files, and sat inside describe.skipIf(!RESOLVER_APPROVED) so the ordinary no-approval run skipped it. (3) atomicPublish was exported with a caller-selected finalPath, a caller-selected tempPath and a caller-supplied policy callback, and demonstrably overwrote an arbitrary file through a no-op revalidate; assertWritableArtifactPath guards runAssemble's closure, not that export. (4) contiguousRejectedVersions remained an exported production-runtime helper that threw on malformed input and existed only to build constants. (5) the comment above the rejected lineage still read 'v1 through v9' while the list held fourteen entries.",
   }),
+  rejectedPass({
+    revision: 16,
+    fileSha256: "df645050d20ca2e3d2304790279b76ee006886f4c18e8b8eff0d1ee437717211",
+    artifactHash: "8b0a1fc69e22d33692ff8b438699b59564fc3e23868ab1f431268601a3764da7",
+    snapshotHash: "08f40b473623343a54b50c1cbf1656ff0470a1292022b73848899fde9ed7cfe8",
+    analysisHash: "2dc6789625ec68e61c29da977dfe4a83926501e5a71442ef7615aa06391bb469",
+    why:
+      "superseded, not found defective (D119). The lineage record type has no other status, so the supersession is stated here rather than implied. r16's role boundary admitted exactly one authority — system_inferred automatic inference keyed by CAMPAIGN, with an ad-set proposal bound to its parent campaign — so the D118 operator declaration, the only role authority production can reach while the resolver gate stays unapproved, could not be carried at all, and an ad set's budget could only ever be judged by its campaign's role although a Main campaign can run a Test ad set. r17 adds a second, separately validated route: an operator_declared role context under the exact meta-entity-role-declaration.v1 contract, carrying the entity it was declared for (which must be the proposal's own grain and entity), the campaign it binds under, and its recording instant (which must sit inside the knowledge cutoff); a declared context carrying a resolver version is refused, and an automatic context carrying any declared-only field is refused. The automatic route, every other gate and the replay over the pinned bindings are unchanged.",
+  }),
 ]);
 
 /*

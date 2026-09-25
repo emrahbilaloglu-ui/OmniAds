@@ -877,6 +877,32 @@ running a separate Test ad set.
 | D120-01 | active purchase campaign, mature performance, no authoritative role | entity-state coverage is `no_action`/Keep; no hard action is authorized |
 | D120-02 | active purchase ad set, thin performance, Main parent campaign or unresolved parent role | entity-state coverage is `watch`; parent role cannot change its own state or grant an ad-set action |
 
+## D121 budget role authority (golden cases)
+
+Executable in `lib/meta/budget-declared-role-authority.test.ts` (resolver),
+`lib/meta/intent-projection-context.test.ts` (sizing gate),
+`lib/meta/budget-production-path.c3.test.ts` (real producer → loader →
+composition → D085) and `lib/meta/budget-proposal-dry-run.test.ts` (D085 r17).
+Same anchor: a Main campaign running a separate Test ad set.
+
+| case | input | expected |
+|---|---|---|
+| R121-01 | Main campaign declared; its ad set declared Test | ad set budget binds the ad set's own `test`, bound under the Main campaign |
+| R121-02 | same, campaign budget | binds the campaign's own `main` |
+| R121-03 | Main campaign declared; ad set undeclared | no declared role for the ad set (`declaration_absent`) |
+| R121-04 | declaration recorded 1 ms after the run began; exactly at it | not this run's knowledge / binds |
+| R121-05..07 | effective only after the decision day; revoked since it; role changed since it | refused by name, no automatic fallback |
+| R121-08..09 | ad set now under another campaign; parent unknown; either day's record names another placement | refused, no automatic fallback |
+| R121-10..12 | other account / business / contract / entity type; Mixed ad set; unparseable bound | ignored or refused |
+| R121-B1..B3 | sizing: trusted parent campaign, own ad set role, ad set id in the campaign map | ad set not sized / sized / not sized |
+| R121-S1..S5 | sizing maps from guard entries: declared Test ad set in declared Main campaign; undeclared ad set of declared or validated-automatic Main campaign; unproven declaration; unlabelled campaign | sized / not / not / not / not |
+| R121-C1..C2 | real producer: Test ad set declared inside declared Main campaign, no automatic evidence; only the campaign declared | projects one proposal with a `declared` `test` role / `role_authority_absent` |
+| R121-C3..C4 | automatic Main evidence for the parent plus an ad set Test declaration; the declaration names another campaign | declared `test` wins / `role_authority_absent` (no parent fallback) |
+| R121-C5..C8 | recorded after the run began (then a later run); effective after the decision day; campaign budget; foreign account/business | refused then projects / refused / projects / refused |
+| R121-C9 | the same declared sources through both compositions | proposal `would_write_available`; execution `role_authority_not_automatic`, no dry run |
+| R121-C10 | declared authority relabelled to the parent campaign, or recorded after the knowledge instant | `role_authority_declared_unbound` |
+| R121-D1..D8 | D085 r17: exact declared ad set; each defect; the parent campaign's declaration; another ad set / campaign; record after the cutoff; automatic context with declared-only fields; relabelled automatic context; automatic fixture | canonical with no resolver approval / `role_authority_not_canonical` naming the defect / `role_identity_unbound` / `role_identity_unbound` / `capture_after_knowledge_cutoff` / refused / refused / unchanged |
+
 ## Current authority vs historical record
 
 > **Current authority vs historical record.** Which table a decision taken today

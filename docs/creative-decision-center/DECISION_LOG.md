@@ -11030,19 +11030,15 @@ automatic context. No engine epoch moves: with nothing declared the
 production output is identical (an undeclared ad set passes a sub-`high`
 campaign entry through with the same trust and provenance object, so no
 hashed evaluation input changes); declared rows are distinguishable by their
-hash-bound `operator_declared` provenance. The budget lane (D081/D086
-retention contract) still requires `system_inferred` and does not honour
-declarations in this slice. Automatic ad-set inference does not exist; an
-undeclared ad set is unresolved by design.
+hash-bound `operator_declared` provenance. The budget proposal lane was
+addressed separately in D121; its execution and D086 activation gates remain
+automatic-only.
+Automatic ad-set inference does not exist; an undeclared ad set is
+unresolved by design.
 
-**Open, reserved for the next shared slice — budget lane.** The D081/D086
-budget path (`budget-proposal-source-loader`, `budget-proposal-server-readers`,
-`budget-readiness-read-model`, the retention contract
-`d086.budget-readiness-retention.v13`) still accepts only
-`kind_source = system_inferred`. A declared campaign or ad set role therefore
-does NOT authorise a budget proposal today. Opening it needs a retention
-contract bump and the same per-entity rule (an ad-set budget reads the ad
-set's own role), and is deliberately left to the next joint slice.
+**Budget lane.** D121 corrected the campaign-keyed sizing gate and added an
+entity-bound declaration route for reviewable proposals. D086 is automation
+activation readiness, not the proposal gate, and stays automatic-only.
 
 **Consumer boundary (not in this slice).** `lib/creative-decision-center/v3-bridge.ts`
 `mapDecision` maps every hard verdict with a role gap to
@@ -11120,3 +11116,109 @@ snapshots but is not minted by the new state writer. The state semantics carry
 action. Declaring the parent campaign Main must not change the ad set's
 performance state. Revert the writer to restore the former coverage mapping;
 retained rows are never rewritten.
+
+## D121 — A budget's role is its own entity's; a declaration can raise a proposal, never a write (2026-09-25)
+
+**Status.** Implemented on `claude/campaign-role-authority` on top of D118
+(not merged, not deployed). Closes D118's open budget lane at the user's
+instruction of 2026-09-25: campaign budget ← the campaign's own Main/Test
+declaration, ad set budget ← the ad set's own; full business/account/entity/
+parent binding; recorded before the run began; as-of bound; the commercial
+profile, evidence thresholds, budget safety and automation permissions are not
+relaxed; execution and Meta writes are not opened; the D081 automatic route is
+not broken.
+
+**Findings (code + read-only production, 2026-09-25).**
+1. The budget lane has three role gates, not one. (a) Sizing
+   (`snapshot.ts` → `intent-projection-context.ts` → `sizeBudgetChange`)
+   decides whether a recommendation gets a typed budget amount. (b) The
+   proposal composition (`budget-proposal-source-loader` →
+   `composeBudgetExecutionCandidate` → D085) decides whether a reviewable row
+   is raised. (c) Execution (`budget-proposal-server-readers` →
+   `budget-proposal-server-runtime`) and the D086 activation readiness decide
+   whether anything may be written. D086's `role_authority_retention` is (c):
+   it feeds `budget-activation-readiness-server.ts`, not the proposal path.
+2. **D118 had already opened gate (a), keyed wrongly.** The sizing role map
+   was `campaignLabelsById.has(campaign)`, which D118 made declaration-aware,
+   and an AD SET budget was sized under its PARENT campaign's entry
+   (`row.campaign_id`). A declared Main campaign therefore authorised sizing
+   of its Test (or undeclared) ad set's money. The label guard held most such
+   ad-set recs, but the key was wrong and the ad set's own declaration was
+   ignored (a Test ad set under an undeclared campaign could not be sized).
+3. Gate (b) accepted only `source === "automatic"`, and D085 r16 accepted
+   only a `system_inferred` role bound to the campaign (for an ad set, its
+   parent) — a declared role could not be carried at all.
+4. Production reach today: one automation control row, kill switch engaged;
+   zero budget proposals ever; zero typed budget intents in the last 30 days;
+   1,034 retained role rows, all `system_inferred`, none trusted (resolver
+   gate unset). Nothing in this ADR can move money in production.
+
+**Decision.**
+1. *Sizing, per entity.* `budgetRoleAuthorityByEntity` builds the sizing role
+   maps from the SAME entries the label guard used: a campaign from its
+   published label, an ad set only from its OWN entry (an undeclared ad set's
+   entry is the capped parent suggestion, which the shared predicate never
+   trusts). `readIntentProjectionContexts` takes `roleAuthorityByAdsetId`
+   and never consults the campaign for an ad set. The snapshot reads
+   declarations recorded by the run's own start (`roleDeclarationsRecordedBy`,
+   a declarations-only bound; automatic rows are untouched).
+2. *A separately versioned declared route for proposals.*
+   `lib/meta/budget-declared-role-authority.ts`
+   (`meta.budget-declared-role-authority.v1`) resolves the governing entity's
+   declaration: campaign grain → the campaign's; ad set grain → the ad set's,
+   with its recorded `parent_campaign_id` equal to the candidate's parent on
+   BOTH days. It counts only if recorded by the run's start (the producer
+   passes the snapshot run's start; standalone, the loader's own start), and
+   only if in force with the same role on the decision's day and the
+   proposal's day. Refusals are named; only `declaration_absent` lets the
+   loader fall through to the unchanged D081 automatic resolution. A
+   declaration that exists but does not bind (parent moved, withdrawn or
+   changed since the decision, effective only later) leaves the proposal with
+   no role authority — the parent campaign's automatic row never stands in.
+   The loader's verdict comes from D118's shared
+   `evaluateAccountScopedRoleAuthority`, not from an asserted literal.
+3. *Two compositions.* `composeBudgetProposalCandidate` (the producer)
+   admits a `declared` role only after re-checking that it names this exact
+   grain, entity and campaign, carries the exact contracts and was recorded
+   inside the knowledge instant (`role_authority_declared_unbound`
+   otherwise), and its result is never `executable` for a declared role.
+   `composeBudgetExecutionCandidate` (approval and scheduled runtimes) is
+   unchanged and refuses a declared role as `role_authority_not_automatic`.
+   Server readers and D086 are untouched.
+4. *D085 r17.* `RoleContext` gains optional `entityGrain`, `entityId`,
+   `declarationContract`, `declaredAt`. `validateRoleAuthority` routes
+   `operator_declared` to a separate rule (exact
+   `meta-entity-role-declaration.v1`, `operator_declaration` producer, high,
+   satisfied, no blockers, a role the grain can hold — never Mixed for an ad
+   set — a real recording instant, and a resolver version REFUSED, not
+   ignored); an automatic context carrying any declared-only field is
+   refused. The builder binds a declared role to the proposal's own grain
+   and entity (a campaign's declaration cannot authorise its ad set) and adds
+   `role.declaredAt` to the point-in-time clocks against the knowledge
+   cutoff. `DRY_RUN_POLICY` publishes both routes. r16 is recorded in the
+   lineage as superseded (not found defective); the r17 artifact was
+   assembled and verified offline (0 queries, 0 provider contacts) and its
+   14 cells' verdicts and blockers are identical to r16's — only the
+   version-bound fingerprints moved.
+
+**Acceptance.** R121-01..12, B1..B3, S1..S5, C1..C10, D1..D8 (GOLDEN_CASES
+D121). The anchor is the operator's: a Main campaign running a separate
+Test ad set. Positive: the Test ad set's budget projects under its own
+declared `test` role with no automatic evidence, and wins over its parent's
+automatic Main row. Negative: the Main campaign's declaration never
+authorises its undeclared ad set; an ad set declared under another campaign
+gets no role and no parent fallback; a declaration recorded after the run
+began waits for the next run; a foreign account or business is ignored; the
+same declared sources through the execution composition are refused.
+
+**Residual, stated plainly.** Execution's server readers still bind an ad-set
+budget to its PARENT campaign's automatic role (D081, unchanged by
+instruction). It is unreachable today — the resolver gate is unset, the kill
+switch is engaged, no runtime is injected, and after this ADR an ad set
+budget is only sized under the ad set's own role — but it must be closed
+(execution reading the ad set's own role) before the resolver gate or budget
+automation is ever enabled. The Meta serving re-guard
+(`readLatestMetaDecisionSnapshot`) still reads declarations at read time.
+
+**Rollback.** Revert the commit. No migration, no persisted row and no
+provider state is involved; the r17 artifact is additive beside r16.

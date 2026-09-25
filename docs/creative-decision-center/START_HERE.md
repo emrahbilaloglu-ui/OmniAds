@@ -13,7 +13,10 @@ Read them before changing receipt storage or executing this release's migrations
 > `meta_entity_role_declarations` (`operator_declared`), through the single
 > predicate `isEntityRoleTrustedForAction`. An Ad reads its ad set's role; an
 > undeclared ad set carries its campaign's role as context only. Read D118
-> before touching role sources or consumers.
+> before touching role sources or consumers. Budgets follow the same rule
+> (D121): an ad set budget is sized and proposed under the ad set's own role,
+> a declaration can raise a reviewable proposal, and execution stays
+> automatic-only.
 
 ## The current decision contract (D091, 2026-09-07) — read before anything else
 

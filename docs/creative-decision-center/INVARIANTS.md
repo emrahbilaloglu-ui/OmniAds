@@ -731,8 +731,22 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
   generation.
 - (D118) An ad set declaration is bound to the campaign it was declared
   under; under any other (or an unknown) campaign it grants nothing.
-- (D118, open) The budget lane (D081/D086 retention) still accepts only
-  `system_inferred`; declared roles do not authorise budget proposals.
+- (D121) A budget is sized and proposed under its OWN entity's role: a
+  campaign budget under the campaign's, an ad set budget under the ad set's.
+  A campaign's role — automatic or declared — never sizes or proposes its ad
+  set's money. A declared role reaches a budget proposal only through the
+  separately versioned `meta.budget-declared-role-authority.v1` route and
+  D085 r17's `operator_declared` rule: recorded by the start of the run that
+  sized the candidate, in force with the same role on the decision's day and
+  the proposal's day, and (for an ad set) still under the campaign it was
+  declared under. A declaration that exists but does not bind leaves the
+  proposal with NO role authority; only a genuinely absent declaration falls
+  through to the unchanged automatic route.
+- (D121) Execution stays automatic-only. `composeBudgetExecutionCandidate`,
+  the server readers and the D086 activation readiness admit only
+  `system_inferred`; only `composeBudgetProposalCandidate` admits a
+  declaration, so a declared role can raise a reviewable proposal and never
+  reach a write.
 - Campaign-role identity is `business + physical provider account + campaign +
   as-of date`. A context read that cannot prove provider-account scope returns
   no roles and every context-dependent hard action stays review-only. Rows

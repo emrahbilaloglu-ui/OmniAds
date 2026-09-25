@@ -51,15 +51,30 @@ import {
   campaignContextAuthorityResolverVersion,
   isCampaignContextResolverAuthorityValidated,
 } from "@/lib/creative-decision-engine/campaign-context/source";
-import { resolveCampaignRoleAuthority } from "@/lib/meta/campaign-role-authority";
+import {
+  DECLARED_ROLE_AUTHORITY_RULE,
+  evaluateAccountScopedRoleAuthority,
+  resolveCampaignRoleAuthority,
+} from "@/lib/meta/campaign-role-authority";
+import { ENTITY_ROLE_DECLARATION_SOURCE } from "@/lib/creative-decision-engine/campaign-context/entity-role";
+import {
+  readDeclaredBudgetRoleAuthority,
+  type DeclaredBudgetRoleResolution,
+} from "@/lib/meta/budget-declared-role-authority";
 import { readMeasuredBudgetHistory } from "@/lib/meta/budget-proposal-server-readers";
 import { CANONICAL_PROFILE_CONTRACT } from "@/lib/meta/budget-proposal-dry-run";
 import {
   projectBudgetPolicySafety,
   projectionWriteSafety,
 } from "@/lib/meta/budget-write-safety-projection";
-import type { BudgetCompositionSources } from "@/lib/meta/budget-execution-composition";
-import type { TypedBudgetCandidate } from "@/lib/meta/budget-proposal-producer";
+import type {
+  BudgetCompositionRole,
+  BudgetCompositionSources,
+} from "@/lib/meta/budget-execution-composition";
+import type {
+  BudgetCompositionSourceOptions,
+  TypedBudgetCandidate,
+} from "@/lib/meta/budget-proposal-producer";
 
 /**
  * A retained TIMESTAMPTZ, as the strict classifier expects to receive it.
@@ -82,11 +97,36 @@ function retainedInstant(value: unknown): unknown {
 
 export async function loadBudgetCompositionSourcesForCandidate(
   candidate: TypedBudgetCandidate,
+  options: BudgetCompositionSourceOptions = {},
 ): Promise<Omit<BudgetCompositionSources, "proposalId" | "claimToken"> | null> {
   const businessId = candidate.businessId;
   const providerAccountId = candidate.providerAccountId;
   const nowMs = Date.now();
   const nowIso = new Date(nowMs).toISOString();
+
+  /*
+    D121 — THE GOVERNING ENTITY'S OWN DECLARATION, read first.
+
+    A campaign budget reads the campaign's declaration; an ad set budget reads
+    the ad set's, bound to the campaign it was declared under. It counts only
+    if recorded by the start of the run that sized this candidate (or, called
+    on its own, by this loader's start) and only if in force, with the same
+    role, on the decision's day and today. Only a genuinely absent declaration
+    falls through to the automatic D081 route below, unchanged; a declaration
+    that exists but does not bind leaves the proposal with no role authority.
+  */
+  const declaredRole = (await readDeclaredBudgetRoleAuthority({
+    businessId,
+    providerAccountId,
+    ownerGrain: candidate.scopeType,
+    entityId: candidate.scopeId,
+    parentCampaignId: candidate.parentCampaignId,
+    decisionDay: candidate.snapshotDate,
+    proposalDay: nowIso.slice(0, 10),
+    recordedBy: options.roleDeclarationsRecordedBy ?? nowIso,
+  }).catch(() => null)) as DeclaredBudgetRoleResolution | null;
+  // A read that failed is UNKNOWN, and unknown raises nothing.
+  if (declaredRole === null) return null;
 
   const observations = (await getDb().query(
     D086_STATE_BUDGET_SQL, [businessId, providerAccountId, nowIso, 500],
@@ -163,6 +203,63 @@ export async function loadBudgetCompositionSourcesForCandidate(
     rawDaily !== null && rawDaily !== undefined ? "daily_budget"
     : rawLifetime !== null && rawLifetime !== undefined ? "lifetime_budget"
     : null;
+
+  /*
+    THE ROLE THIS PROPOSAL RESTS ON: the governing entity's declaration when
+    one binds, else — only when none exists — the canonical RESOLVER's verdict,
+    exactly as the runtime reads it.
+  */
+  const automaticRole: BudgetCompositionRole | null =
+    roleResolution.satisfiesRoleAuthority && roleResolution.role
+      ? {
+        kind: roleResolution.role,
+        source: "automatic",
+        resolverVersion: campaignContextAuthorityResolverVersion(),
+        confidence: roleResolution.confidence,
+        asOf: roleResolution.provenance.evidenceAsOf,
+        accountScoped: roleResolution.provenance.accountScope !== "absent",
+        satisfiesRoleAuthority: roleResolution.satisfiesRoleAuthority,
+        producer: roleResolution.provenance.producer,
+        authorityBlockers: roleResolution.blockers,
+      }
+      : null;
+  /*
+    A bound declaration is judged by the SAME shared rule every D118 consumer
+    uses (`evaluateAccountScopedRoleAuthority`), so this loader asserts no
+    verdict of its own: the rule checks the role and the exact declaration
+    contract, and never consults the resolver gate for a declaration.
+  */
+  const declaredVerdict = declaredRole.status === "declared"
+    ? evaluateAccountScopedRoleAuthority({
+      kind: declaredRole.authority.role,
+      source: ENTITY_ROLE_DECLARATION_SOURCE,
+      confidenceClass: DECLARED_ROLE_AUTHORITY_RULE.requiredConfidence,
+      resolverVersion: null,
+      declarationContractVersion: declaredRole.authority.declarationContract,
+      isResolverVersionValidated: isCampaignContextResolverAuthorityValidated,
+    })
+    : null;
+  const role: BudgetCompositionRole | null =
+    declaredRole.status === "declared"
+      ? declaredVerdict?.satisfiesRoleAuthority === true
+        ? {
+          kind: declaredRole.authority.role,
+          source: "declared",
+          resolverVersion: null,
+          confidence: DECLARED_ROLE_AUTHORITY_RULE.requiredConfidence,
+          // The day the declaration was confirmed in force for this proposal.
+          asOf: nowIso.slice(0, 10),
+          accountScoped: true,
+          satisfiesRoleAuthority: declaredVerdict.satisfiesRoleAuthority,
+          producer: DECLARED_ROLE_AUTHORITY_RULE.producer,
+          authorityBlockers: [],
+          declared: declaredRole.authority,
+        }
+        : null
+      : declaredRole.refusal === "declaration_absent"
+        ? automaticRole
+        : null;
+  const roleReady = role !== null;
 
   const guardrailsForPolicy = control.businessControl.guardrails;
   /*
@@ -359,20 +456,7 @@ export async function loadBudgetCompositionSourcesForCandidate(
       intendedAmountMinor: candidate.targetAmountMinor,
       percent: null,
     },
-    // The canonical RESOLVER's verdict, exactly as the runtime reads it.
-    role: roleResolution.satisfiesRoleAuthority && roleResolution.role
-      ? {
-        kind: roleResolution.role,
-        source: "automatic",
-        resolverVersion: campaignContextAuthorityResolverVersion(),
-        confidence: roleResolution.confidence,
-        asOf: roleResolution.provenance.evidenceAsOf,
-        accountScoped: roleResolution.provenance.accountScope !== "absent",
-        satisfiesRoleAuthority: roleResolution.satisfiesRoleAuthority,
-        producer: roleResolution.provenance.producer,
-        authorityBlockers: roleResolution.blockers,
-      }
-      : null,
+    role,
     profileRetained: profileEligible,
     // Measured, prospective, and `null` when the population is not provable.
     changeHistory: history,
@@ -426,7 +510,7 @@ export async function loadBudgetCompositionSourcesForCandidate(
     /* Measured where this row's evidence decides, declared where the approval
        path does. Nothing here asserts a step on its own authority. */
     writeSafety: projectionWriteSafety({
-      roleReady: roleResolution.satisfiesRoleAuthority,
+      roleReady,
       profileReady: profileEligible,
       baselineFresh: baseline !== null,
       killSwitchClear: control.globalKillSwitch.engaged === false
@@ -445,7 +529,7 @@ export async function loadBudgetCompositionSourcesForCandidate(
       reason: profileBlockerCode,
       blockerCodes: profileBlockerCode ? [profileBlockerCode] : [],
       evidenceFloorsClear: profileEligible,
-      changeSafetyClear: roleResolution.satisfiesRoleAuthority,
+      changeSafetyClear: roleReady,
     },
     /* The persisted decision's OWN hash and OWN clock, both selected with the
        candidate. Neither is the snapshot day, and neither is a fingerprint of

@@ -20,6 +20,7 @@ import {
 } from "./resolver";
 import {
   adsetRoleEntryFromParent,
+  declarationKnowledgeCutoff,
   declaredEntityRoleEntry,
   readActiveEntityRoleDeclarations,
 } from "./entity-role";
@@ -284,6 +285,12 @@ export async function readCampaignContextMap(input: {
    * @see readEntityRoleDeclarationEvents
    */
   declarationKnowledgeJobRunId?: string | null;
+  /**
+   * The instant the reading run began, for a run with no job-run row. Bounds
+   * declarations only: one recorded after the run began reaches the next run.
+   * Automatic rows are untouched by it.
+   */
+  declarationsRecordedBy?: string | null;
 }): Promise<CampaignContextMap> {
   const requestedMode = input.mode ?? resolveCampaignContextMode();
   const mode: CampaignContextMode =
@@ -382,7 +389,10 @@ export async function readCampaignContextMap(input: {
     entityType: "campaign",
     entityIds: input.campaignIds,
     asOf,
-    visibleAtCutoff,
+    visibleAtCutoff: declarationKnowledgeCutoff(
+      visibleAtCutoff,
+      input.declarationsRecordedBy,
+    ),
     knowledgeJobRunId: input.declarationKnowledgeJobRunId ?? null,
   });
   for (const [campaignId, declaration] of declarations) {
@@ -428,6 +438,8 @@ export async function readAdsetRoleMap(input: {
   visibleAtCutoff?: string | null;
   /** @see readEntityRoleDeclarationEvents */
   declarationKnowledgeJobRunId?: string | null;
+  /** @see readCampaignContextMap */
+  declarationsRecordedBy?: string | null;
 }): Promise<CampaignContextMap> {
   const requestedMode = input.mode ?? resolveCampaignContextMode();
   const mode: CampaignContextMode =
@@ -449,7 +461,10 @@ export async function readAdsetRoleMap(input: {
           entityType: "adset",
           entityIds: [...adsets.keys()],
           asOf,
-          visibleAtCutoff: input.visibleAtCutoff ?? null,
+          visibleAtCutoff: declarationKnowledgeCutoff(
+            input.visibleAtCutoff,
+            input.declarationsRecordedBy,
+          ),
           knowledgeJobRunId: input.declarationKnowledgeJobRunId ?? null,
         });
   for (const [adsetId, campaignId] of adsets) {

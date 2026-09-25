@@ -85,8 +85,14 @@ import { WRITE_SAFETY_STEPS, type WriteSafetyStep } from "@/lib/meta/write-safet
 import {
   AUTOMATIC_CAMPAIGN_ROLES,
   CANONICAL_ROLE_AUTHORITY_RULE,
+  DECLARED_ROLE_AUTHORITY_RULE,
   REQUIRED_KIND_SOURCE,
 } from "@/lib/meta/campaign-role-authority";
+import {
+  DECLARABLE_ROLES,
+  ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+  ENTITY_ROLE_DECLARATION_SOURCE,
+} from "@/lib/creative-decision-engine/campaign-context/entity-role";
 import {
   campaignContextAuthorityResolverVersion,
   isCampaignContextResolverAuthorityValidated,
@@ -107,7 +113,7 @@ import {
  * here as a string literal and once in the audit script — so the two could
  * drift silently. Both now derive from this single integer.
  */
-export const D085_REVISION = 16 as const;
+export const D085_REVISION = 17 as const;
 
 export const META_BUDGET_PROPOSAL_DRY_RUN_CONTRACT = `meta.budget-proposal-dry-run.v${D085_REVISION}` as const;
 
@@ -363,6 +369,18 @@ export interface RoleContext {
   providerAccountId: string | null;
   resolved: boolean;
   why: string;
+  /*
+    r17 — THE DECLARED ROUTE (D121). Present only when `source` is
+    `operator_declared`, and then all four are required: the entity the
+    declaration names (the proposal's own entity, never a parent standing in
+    for an ad set), the declaration record's exact contract, and the instant
+    it was recorded, which must sit inside the knowledge cutoff. An automatic
+    context carrying any of them is refused.
+  */
+  entityGrain?: string | null;
+  entityId?: string | null;
+  declarationContract?: string | null;
+  declaredAt?: string | null;
 }
 
 export interface CanonicalBudgetFactBinding {
@@ -1503,6 +1521,20 @@ function instantOrDay(value: string | null | undefined): number | null {
 export const DRY_RUN_POLICY = {
   contractVersion: META_BUDGET_PROPOSAL_DRY_RUN_CONTRACT,
   intentContract: META_BUDGET_INTENT_CONTRACT_VERSION,
+  /*
+    r17 — the two role authorities this contract admits, each by its own rule.
+    The declared route binds the proposal's OWN entity; the automatic route is
+    unchanged.
+  */
+  roleAuthorities: {
+    automatic: { producer: CANONICAL_ROLE_AUTHORITY_RULE.producer, source: REQUIRED_KIND_SOURCE },
+    declared: {
+      producer: DECLARED_ROLE_AUTHORITY_RULE.producer,
+      source: ENTITY_ROLE_DECLARATION_SOURCE,
+      declarationContract: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+      bindsOwnEntity: true,
+    },
+  },
   fieldAllowlist: WOULD_WRITE_FIELD_ALLOWLIST,
   endpointClass: WOULD_WRITE_ENDPOINT_CLASS,
   preflightMaxAgeSeconds: PREFLIGHT_MAX_AGE_SECONDS,
@@ -1609,11 +1641,17 @@ export const ROLE_CONTEXT_REQUIRED_KEYS = [
  */
 export const ROLE_CONTEXT_OPTIONAL_KEYS = [
   "satisfiesRoleAuthority", "authorityBlockers", "producer", "campaignId",
+  "entityGrain", "entityId", "declarationContract", "declaredAt",
+] as const;
+/** r17 — the keys only a declared role context may carry. */
+export const ROLE_CONTEXT_DECLARED_KEYS = [
+  "entityGrain", "entityId", "declarationContract", "declaredAt",
 ] as const;
 const _roleKeyGuard: Record<keyof RoleContext, true> = {
   role: true, source: true, resolverVersion: true, confidence: true, asOf: true,
   satisfiesRoleAuthority: true, authorityBlockers: true, producer: true, campaignId: true,
   accountScoped: true, businessId: true, providerAccountId: true, resolved: true, why: true,
+  entityGrain: true, entityId: true, declarationContract: true, declaredAt: true,
 };
 void _roleKeyGuard;
 
@@ -2219,6 +2257,11 @@ function buildFromObservedInput(rawInput: DryRunInput): BudgetProposalDryRun {
       { path: "decision.decidedAt", label: "the decision", value: input.decision.decidedAt, nullable: true },
       { path: "role.asOf", label: "the role context as-of", value: input.role.asOf, nullable: true },
     ];
+    // r17: a declaration counts only if it was RECORDED by the knowledge
+    // cutoff; a later record is not what this proposal could have known.
+    if (input.role?.source === ENTITY_ROLE_DECLARATION_SOURCE) {
+      clocks.push({ path: "role.declaredAt", label: "the role declaration record", value: input.role.declaredAt, nullable: false });
+    }
     for (const flag of SAFETY_POSTURE_KEYS) {
       clocks.push({ path: `safety.${flag}.asOf`, label: `the ${flag} evidence as-of`, value: input.safety?.[flag]?.asOf, nullable: true });
     }
@@ -2526,6 +2569,25 @@ function buildFromObservedInput(rawInput: DryRunInput): BudgetProposalDryRun {
       );
     }
     /*
+      r17 — A DECLARED ROLE BINDS THE PROPOSAL'S OWN ENTITY.
+
+      A campaign's declaration is the campaign's role; an ad set's declaration
+      is the ad set's. The campaign leg above still holds (an ad set's record
+      names the campaign it was declared under), and on top of it the record
+      must name this exact grain and entity: a Main campaign's declaration can
+      never authorise a Test ad set's budget, and vice versa.
+    */
+    if (input.role.source === ENTITY_ROLE_DECLARATION_SOURCE) {
+      if (input.role.entityGrain !== input.scope.entityGrain
+          || !isNonEmptyString(input.role.entityId)
+          || input.role.entityId !== input.scope.entityId) {
+        block(
+          "role_identity_unbound",
+          `the declared role names ${JSON.stringify(input.role.entityGrain ?? null)} ${JSON.stringify(input.role.entityId ?? null)}, not the proposal's own ${input.scope.entityGrain ?? "unknown"} ${input.scope.entityId ?? "unknown"}`,
+        );
+      }
+    }
+    /*
       AND THE AS-OF.
 
       A role resolution carries the moment it was true. r7 required only that
@@ -2556,7 +2618,11 @@ function buildFromObservedInput(rawInput: DryRunInput): BudgetProposalDryRun {
     const roleProblems: string[] = [];
     if (input.role.accountScoped !== true) roleProblems.push("it is not account-scoped");
     if (!trimmed(input.role.source)) roleProblems.push("it names no source");
-    if (!trimmed(input.role.resolverVersion)) roleProblems.push("it names no resolver version");
+    // r17: a declaration's provenance is its record contract; it never
+    // borrows a resolver identity.
+    if (input.role.source === ENTITY_ROLE_DECLARATION_SOURCE) {
+      if (!trimmed(input.role.declarationContract)) roleProblems.push("it names no declaration contract");
+    } else if (!trimmed(input.role.resolverVersion)) roleProblems.push("it names no resolver version");
     if (input.role.asOf === null || instantOrDay(input.role.asOf) === null) roleProblems.push("its as-of is missing or invalid");
     if (roleProblems.length > 0) {
       block("role_provenance_incoherent", `the role context claims to be resolved but ${roleProblems.join("; ")}`);
@@ -3366,6 +3432,14 @@ export function validateRoleAuthority(role: RoleContext): { canonical: boolean; 
     return { canonical: false, problems: [`role.resolved is ${JSON.stringify(role.resolved)}, not a literal boolean`] };
   }
   if (!role.resolved) return { canonical: false, problems: ["the role context is unresolved"] };
+  if (role.source === ENTITY_ROLE_DECLARATION_SOURCE) return validateDeclaredRoleAuthority(role);
+  // r17: declaration fields belong to the declared route only. An automatic
+  // context that carries one is describing something else.
+  for (const key of ROLE_CONTEXT_DECLARED_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(role, key)) {
+      return { canonical: false, problems: [`an automatic role context carries the declared-only field ${key}`] };
+    }
+  }
 
   // EVERY authority-bearing field is REQUIRED. r6 treated `producer`,
   // `satisfiesRoleAuthority`, `authorityBlockers` and `campaignId` as optional,
@@ -3411,6 +3485,63 @@ export function validateRoleAuthority(role: RoleContext): { canonical: boolean; 
     );
   }
   if (!isNonEmptyString(role.asOf)) problems.push("the role resolution carries no as-of");
+  return { canonical: problems.length === 0, problems };
+}
+
+/**
+ * r17 — the DECLARED route (D118/D121): the operator's own statement of ONE
+ * entity's role, recorded under the exact declaration contract.
+ *
+ * It is a separate rule, not a relaxation of the automatic one: it never
+ * borrows the resolver gate (a resolver version is refused, not ignored), the
+ * role must be one the entity's grain can hold (an ad set is never Mixed), and
+ * the record must name the entity and the campaign it binds under. Binding
+ * those to the proposal's own scope, and the record's instant to the
+ * knowledge cutoff, happens in the builder beside the automatic bindings.
+ */
+function validateDeclaredRoleAuthority(role: RoleContext): { canonical: boolean; problems: string[] } {
+  const problems: string[] = [];
+  if (role.accountScoped !== true) problems.push("the role context is not account-scoped");
+  const grain = role.entityGrain;
+  if (grain !== "campaign" && grain !== "adset") {
+    problems.push(`the declared role names the entity grain ${JSON.stringify(grain ?? null)}, not campaign or adset`);
+  } else if (!(DECLARABLE_ROLES[grain] as readonly string[]).includes(String(role.role))) {
+    problems.push(`role ${JSON.stringify(role.role)} is not a role a declared ${grain} can hold (${DECLARABLE_ROLES[grain].join("|")})`);
+  }
+  if (role.declarationContract !== ENTITY_ROLE_DECLARATION_CONTRACT_VERSION) {
+    problems.push(`declaration contract ${JSON.stringify(role.declarationContract ?? null)} is not ${ENTITY_ROLE_DECLARATION_CONTRACT_VERSION}`);
+  }
+  if (role.resolverVersion !== null) {
+    problems.push(`a declared role carries the resolver version ${JSON.stringify(role.resolverVersion)}; a declaration never borrows the resolver gate`);
+  }
+  if (role.confidence !== DECLARED_ROLE_AUTHORITY_RULE.requiredConfidence) {
+    problems.push(`role confidence ${JSON.stringify(role.confidence)} is not ${DECLARED_ROLE_AUTHORITY_RULE.requiredConfidence}`);
+  }
+  if (role.producer !== DECLARED_ROLE_AUTHORITY_RULE.producer) {
+    problems.push(`role producer ${JSON.stringify(role.producer)} is not ${DECLARED_ROLE_AUTHORITY_RULE.producer}`);
+  }
+  if (role.satisfiesRoleAuthority !== true) {
+    problems.push(`satisfiesRoleAuthority is ${JSON.stringify(role.satisfiesRoleAuthority)}, not the literal true a declared authority requires`);
+  }
+  if (!Array.isArray(role.authorityBlockers)) {
+    problems.push(`authorityBlockers is ${JSON.stringify(role.authorityBlockers)}, not an array`);
+  } else if (role.authorityBlockers.length > 0) {
+    problems.push(`the declared role carries blockers: ${role.authorityBlockers.join(", ")}`);
+  }
+  for (const [name, value] of [
+    ["businessId", role.businessId], ["providerAccountId", role.providerAccountId],
+    ["campaignId", role.campaignId], ["entityId", role.entityId],
+  ] as ReadonlyArray<readonly [string, unknown]>) {
+    if (!isNonEmptyString(value)) problems.push(`the declared role names no ${name} for its composite scope`);
+  }
+  if (grain === "campaign" && isNonEmptyString(role.entityId) && role.campaignId !== role.entityId) {
+    problems.push("a declared campaign role must bind under that same campaign");
+  }
+  if (!isNonEmptyString(role.declaredAt) || role.declaredAt.trim().length === 10
+      || instantOrDay(role.declaredAt) === null) {
+    problems.push("the declared role carries no valid recording instant");
+  }
+  if (!isNonEmptyString(role.asOf)) problems.push("the declared role carries no as-of");
   return { canonical: problems.length === 0, problems };
 }
 

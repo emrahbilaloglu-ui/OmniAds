@@ -58,7 +58,11 @@ export function MetaEntityRoleReview({
       .filter((row): row is RoleRow => row !== null);
     return campaign ? [campaign, ...adsets] : adsets;
   }), [groups]);
-  const unresolvedCount = rows.filter(({ node }) => node.campaignRoleTrustedForAction !== true).length;
+  // A retained verdict may still be blocked by its old role authority after
+  // the latest role was confirmed. Count role review state, not verdict state.
+  const unresolvedCount = rows.filter(({ node }) =>
+    node.roleBasis !== "declared" && node.campaignRoleTrustedForAction !== true,
+  ).length;
   const selected = rows.filter((row) => Boolean(choices[row.key]));
   const today = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);

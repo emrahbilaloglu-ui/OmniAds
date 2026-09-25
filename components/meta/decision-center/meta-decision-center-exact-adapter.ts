@@ -984,9 +984,9 @@ const BUYER_READINESS_RESOLUTION_COPY = {
     "Review the evidence. No change can be applied right now.",
   low_confidence: "Wait for more performance data, then review again.",
   missing_campaign_label:
-    "Wait for campaign context verification, then review again.",
+    "Review the Main/Test role in the role panel, then refresh decisions.",
   campaign_context_unresolved:
-    "Wait for campaign context verification, then review again.",
+    "Review the Main/Test role in the role panel, then refresh decisions.",
   campaign_context_resolver_unvalidated:
     "Review the campaign structure before acting.",
   // A target ROAS alone is now sufficient — the spend unit is the account's own
@@ -1151,20 +1151,20 @@ function buyerFacingReadinessResolution(
     node
   ) {
     if (node.campaignRoleTrustedForAction === true) {
-      return "Campaign role is now verified. Refresh decisions to replace this older blocked recommendation.";
+      return `${node.level === "adset" ? "Ad set" : "Campaign"} role is now verified. Refresh decisions to replace this older blocked recommendation.`;
     }
     const role = node.lifecycleRole;
     if (role === "main" || role === "test" || role === "mixed") {
       const estimate = `${titleToken(role)} (${titleToken(node.campaignRoleConfidence ?? "unknown")} confidence)`;
       return node.level === "adset"
-        ? `Parent campaign is estimated as ${estimate}; the ad set's own role is not verified.`
-        : `Campaign is estimated as ${estimate}; its role is not verified for this decision.`;
+        ? `Parent campaign is estimated as ${estimate}; the ad set's own role is not verified. Review this ad set's Main/Test role in the role panel.`
+        : `Campaign is estimated as ${estimate}; its role is not verified for this decision. Review its Main/Test role in the role panel.`;
     }
     if (node.campaignRoleExplanation?.unresolvedReason === "conflicting_signals") {
-      return "Campaign role signals conflict. Review its actual purpose before acting.";
+      return "Campaign role signals conflict. Review its actual purpose and confirm Main/Test in the role panel before acting.";
     }
     if (node.campaignRoleExplanation?.unresolvedReason === "insufficient_evidence") {
-      return "There is not enough campaign evidence to verify its Main or Test role.";
+      return "There is not enough campaign evidence to verify its Main or Test role. Review and confirm its role in the role panel.";
     }
   }
   if (blocker) return BUYER_READINESS_RESOLUTION_COPY[blocker];
@@ -2226,7 +2226,7 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
   fix_checkout: "Review checkout performance before changing the ad.",
   fix_landing_page: "Review landing-page performance before changing the ad.",
   resolve_campaign_role:
-    "Wait for campaign context verification before acting.",
+    "Review the Main/Test role in the role panel, then refresh decisions.",
   /*
     ADR D097 round 4. The Cut performance verdict is complete, but a relative
     boundary does not itself prove realised financial loss. The owner-based
@@ -2359,12 +2359,16 @@ export function buyerFacingCreativeResolution(
   ) {
     return "The pause recommendation has economic evidence, but the campaign configuration for every day behind it is not confirmed. Check the campaign's current setup in Ads Manager before deciding on a manual pause; no automated Meta action is authorized.";
   }
-  // A system-owned resolution names what it waits on and that nothing is
-  // required; only an operator (or tracking) resolution is phrased as a task.
+  // A system-owned resolution names what it waits on. Role review now has a
+  // real operator path, so its specific code is handled above.
   // @see resolutionWaitsOnSystem
-  const mapped = resolutionWaitsOnSystem(resolution)
-    ? `${systemResolutionStatus(resolution)} ${NO_BUYER_ACTION_NEEDED}; this ad is re-checked on each decision run.`
-    : knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
+  const mapped = resolution.code === "resolve_campaign_role"
+    ? decision.campaignRoleTrustedForAction === true
+      ? "The role is now confirmed. Refresh decisions to replace this older blocked result."
+      : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel, then refresh decisions.`
+    : resolutionWaitsOnSystem(resolution)
+      ? `${systemResolutionStatus(resolution)} ${NO_BUYER_ACTION_NEEDED}; this ad is re-checked on each decision run.`
+      : knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
   // Metric availability is supplementary evidence for an already blocked row
   // with a server-produced resolution. It never creates a blocked resolution.
   // `native_metrics_unavailable` also represents a missing account winner
@@ -2603,8 +2607,10 @@ export function buyerHeldVerdictLabel(
  * turned the Needs Resolution lane into a list of chores nobody outside the
  * pipeline can do.
  *
- * `operator` resolutions, other integration categories (tracking) and rows with
- * no served resolution keep their imperative steps unchanged. This chooses
+ * Role confirmation is the exception: the role review panel lets an operator
+ * state the campaign or ad-set role. Other operator resolutions, integration
+ * categories (tracking) and rows with no served resolution keep their
+ * imperative steps unchanged. This chooses
  * WORDING only: the lane, the held action, the published label and every
  * authority gate stay exactly as served.
  */
@@ -2626,7 +2632,7 @@ const SYSTEM_RESOLUTION_STATUS_COPY: Readonly<Record<string, string>> = {
   restore_native_profile:
     "The ad-level decision profile is rebuilt by the next decision run.",
   resolve_campaign_role:
-    "The campaign role is still being verified automatically.",
+    "The Main/Test role has not been confirmed.",
   await_decision_confirmation:
     "The next decision run still has to confirm it.",
   await_recent_evidence: "More recent performance data is still accruing.",
@@ -2720,7 +2726,7 @@ const HELD_PRIMARY_STEP_COPY: Readonly<Record<HeldPrimaryReason, string>> = {
   profile_not_authorized:
     "The decision profile does not yet authorize this change. Review its action-specific evidence and missing requirement before applying it.",
   campaign_role_unresolved:
-    "The campaign role is still unresolved. Verify its context before deciding how to apply this change.",
+    "The Main/Test role has not been confirmed. Review the entity's role in the role panel before applying this change.",
 };
 
 /** The same primary reasons, as the status a system-owned hold is waiting on. */
@@ -2815,14 +2821,14 @@ export function heldCreativeVerdict(
     canonical?.classification?.blockers?.some((blocker) =>
       blocker.code === "pending_transition" || blocker.code.startsWith("campaign_context"),
     ) === true;
-  // Every prerequisite below is a pipeline condition — a config receipt, source
-  // coverage, a confirming run, the automatic role — so it is stated as what
-  // is outstanding, never as a buyer task, whoever owns the resolution.
+  // Config receipts, source coverage and confirmation remain pipeline facts.
+  // Role confirmation has a separate operator path in the role review panel.
   const prerequisites = [
     needsConfig ? HELD_PREREQUISITE_STATUS.config : null,
     needsFreshSource ? HELD_PREREQUISITE_STATUS.source : null,
     needsConfirmation ? HELD_PREREQUISITE_STATUS.confirmation : null,
-    needsCampaignContext && primaryStep === null && (needsConfig || needsFreshSource || needsConfirmation)
+    needsCampaignContext && decision.campaignRoleTrustedForAction !== true &&
+      primaryStep === null && (needsConfig || needsFreshSource || needsConfirmation)
       ? HELD_PREREQUISITE_STATUS.campaignRole
       : null,
   ].filter((part): part is string => Boolean(part));
@@ -2870,11 +2876,10 @@ export function heldCreativeVerdict(
   /*
     A SYSTEM-OWNED HOLD STATES WHAT IT WAITS ON, NOT A CHORE.
 
-    The typed `owner` on the held resolution says nobody but the pipeline can
-    clear it (see `resolutionWaitsOnSystem`). Same typed facts as the
-    imperative path below — primary reason, config/source/confirmation/role
-    prerequisites — rendered as the conditions being waited on, then one
-    closing clause. The D097 manual Cut is operator-owned and never enters here.
+    The typed `owner` on the held resolution still governs the decision run.
+    Config/source/confirmation remain conditions the pipeline clears. A role
+    hold now also points to the explicit role review action without changing
+    the verdict or its authority gate. The D097 manual Cut is operator-owned.
   */
   if (resolutionWaitsOnSystem(decision.heldResolution) && !manualCutCandidate) {
     if (action === "cut" && needsConfig && !needsFreshSource && !needsConfirmation && !needsCampaignContext &&
@@ -2890,20 +2895,28 @@ export function heldCreativeVerdict(
     const primaryReason = heldPrimaryReason(decision, authorityBlocker);
     const waits = [
       primaryReason
-        ? HELD_PRIMARY_STATUS_COPY[primaryReason]
+        ? primaryReason === "campaign_role_unresolved" && decision.campaignRoleTrustedForAction === true
+          ? "This older verdict still carries a role hold."
+          : HELD_PRIMARY_STATUS_COPY[primaryReason]
         : systemResolutionStatus(decision.heldResolution!),
       ...prerequisites,
-      needsCampaignContext ? HELD_PREREQUISITE_STATUS.campaignRole : null,
+      needsCampaignContext && decision.campaignRoleTrustedForAction !== true
+        ? HELD_PREREQUISITE_STATUS.campaignRole : null,
     ].filter((part): part is string => Boolean(part));
+    const roleReviewStep = needsCampaignContext
+      ? decision.campaignRoleTrustedForAction === true
+        ? "Refresh decisions to replace this older role-held verdict."
+        : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel, then refresh decisions.`
+      : null;
     return {
       action,
       label: cutSignalAwaitingEvidence
         ? "Pause signal awaiting verification"
         : `Recommendation on hold: ${verdict}`,
-      nextStep: `${[...new Set(waits)].join(" ")} ${NO_BUYER_ACTION_NEEDED}; ${
+      nextStep: `${[...new Set(waits)].join(" ")} ${roleReviewStep ?? `${NO_BUYER_ACTION_NEEDED};`} ${
         cutSignalAwaitingEvidence
-          ? "the pause signal"
-          : `this ${verdict} recommendation`
+          ? roleReviewStep ? "The pause signal" : "the pause signal"
+          : `${roleReviewStep ? "This" : "this"} ${verdict} recommendation`
       } is re-checked on each decision run.`,
     };
   }
@@ -3498,8 +3511,8 @@ const READINESS_FACT_LABELS: Readonly<Record<string, string>> = {
   empirical_outcome_sample: "An empirical outcome sample is required",
   live_preflight: "Live Meta preflight evidence is required",
   rollback_plan: "A rollback plan is required",
-  // Pre-D074b alias key retained for older persisted payloads; the copy
-  // never asks for a label — roles are inferred automatically.
+  // Pre-D074b alias key retained for older persisted payloads. The retired
+  // label endpoint is not the explicit entity-role declaration contract.
   campaign_label: "Automatic campaign-role authority is required",
   operator_enablement: "Operator enablement is required",
   /*

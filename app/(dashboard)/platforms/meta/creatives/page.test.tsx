@@ -4,6 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { MetaCreativeRowSourceIdentity } from "./page-support";
+import { buildServedCreativeClassifications } from "@/components/creatives/creative-served-classification";
+import type { CreativesBriefingResponse } from "@/components/creatives/briefing/types";
 import {
   getPresetDatesForReferenceDate,
   getTodayIsoForTimeZone,
@@ -740,5 +742,168 @@ describe("Creative Studio Assets projection", () => {
     // The page's export and the shared module are the same function, not two
     // copies that happen to agree today.
     expect(buildCreativeStudioTabHrefs).toBe(sharedTabHrefBuilder);
+  });
+});
+
+describe("Creative Studio Assets: what a row shows about its image and its verdicts", () => {
+  const PLACEHOLDER =
+    "https://scontent-xxc1-1.xx.fbcdn.net/v/t39.2147-6/75341531_494485104475166_2751028116179648512_n.png?_nc_cat=1&oe=6ABBFF44";
+
+  it("does not present Meta's catalog placeholder as the creative's image", () => {
+    const [catalog, video] = toCreativeStudioAssetRows(
+      [
+        creativeRow({
+          id: "creative_catalog",
+          creativeId: "creative_catalog",
+          isCatalog: true,
+          tableThumbnailUrl: PLACEHOLDER,
+          thumbnailUrl: PLACEHOLDER,
+          imageUrl: PLACEHOLDER,
+        }),
+        creativeRow({
+          id: "creative_video",
+          creativeId: "creative_video",
+          isCatalog: false,
+          tableThumbnailUrl: "https://cdn.example/poster.jpg",
+        }),
+      ],
+      "USD",
+      new Map(),
+      WINDOW_END,
+    );
+
+    expect(catalog).toMatchObject({ imageUrl: null, imageNote: "catalog_template" });
+    expect(video).toMatchObject({
+      imageUrl: "https://cdn.example/poster.jpg",
+      imageNote: null,
+    });
+  });
+
+  it("lists each Ad's own verdict on a row whose Ads were served different ones", () => {
+    const briefing = {
+      actionNow: [
+        {
+          id: "card_cut",
+          creativeId: "creative_cut",
+          name: "Cat-Sale",
+          adsetName: "LAL3-WallArtPurchase180Catalog/Klaviyo",
+          campaignName: "Claude-WallArt-LAL3-CostCap-v1",
+          canonicalDecision: {
+            adId: "ad_cut",
+            creativeId: "creative_cut",
+            decisionId: "decision_cut",
+            sourceDecision: { label: "cut" },
+            classification: {
+              decisionState: "blocked",
+              buyerLabel: "Cut · Held",
+              buyerAction: null,
+              heldAction: "cut",
+            },
+          },
+        },
+      ],
+      watching: [
+        {
+          id: "card_keep",
+          creativeId: "creative_keep",
+          name: "Cat-Sale",
+          adsetName: "LAL3-Purchase730",
+          campaignName: "Claude-WallArt-LAL3-CostCap-v1",
+          canonicalDecision: {
+            adId: "ad_keep",
+            creativeId: "creative_keep",
+            decisionId: "decision_keep",
+            sourceDecision: { label: "keep" },
+            classification: {
+              decisionState: "monitor",
+              buyerLabel: "Protect",
+              buyerAction: "protect",
+              heldAction: null,
+            },
+            decisionEvidence: {
+              period: {
+                startDate: "2026-09-10",
+                endDate: "2026-09-24",
+                calendarDaySpan: 15,
+                economicDayCount: 15,
+              },
+              spend: 130.03,
+              purchases: 2,
+              roas: 5.33,
+              currency: "USD",
+              recent: null,
+            },
+          },
+        },
+      ],
+      healthy: [],
+    } as unknown as CreativesBriefingResponse;
+
+    const [row] = toCreativeStudioAssetRows(
+      [
+        creativeRow({
+          name: "Cat-Sale",
+          creativeId: "creative_cut",
+          sourceAdIds: ["ad_cut", "ad_keep"],
+          sourceAdIdsComplete: true,
+        }),
+      ],
+      "USD",
+      buildServedCreativeClassifications(briefing),
+      WINDOW_END,
+    );
+
+    expect(row).toMatchObject({
+      status: "2 Ads · different recommendations",
+      decisionSegment: null,
+      decisionCount: 2,
+      decisionBasis: null,
+      decisionEntries: [
+        {
+          adId: "ad_cut",
+          who: "LAL3-WallArtPurchase180Catalog/Klaviyo",
+          verdict: "Blocked · Cut · Held",
+          tone: "warning",
+        },
+        {
+          adId: "ad_keep",
+          who: "LAL3-Purchase730",
+          verdict: "Monitor · Protect",
+          tone: "neutral",
+        },
+      ],
+    });
+  });
+
+  it("adds the Ad id when two Ads would otherwise read the same", () => {
+    const card = (adId: string, state: string, label: string) => ({
+      id: `card_${adId}`,
+      creativeId: `creative_${adId}`,
+      name: "MAF-Hero",
+      adsetName: "Broad",
+      campaignName: "Main",
+      canonicalDecision: {
+        adId,
+        creativeId: `creative_${adId}`,
+        decisionId: `decision_${adId}`,
+        sourceDecision: { label: "test_more" },
+        classification: { decisionState: state, buyerLabel: label, buyerAction: null, heldAction: null },
+      },
+    });
+    const briefing = {
+      actionNow: [],
+      watching: [card("ad_1", "monitor", "Test more"), card("ad_2", "blocked", "Review data")],
+      healthy: [],
+    } as unknown as CreativesBriefingResponse;
+    const [row] = toCreativeStudioAssetRows(
+      [creativeRow({ sourceAdIds: ["ad_1", "ad_2"], sourceAdIdsComplete: true })],
+      "USD",
+      buildServedCreativeClassifications(briefing),
+      WINDOW_END,
+    );
+    expect(row?.decisionEntries?.map((entry) => entry.who)).toEqual([
+      "Broad · Main · Ad ad_1",
+      "Broad · Main · Ad ad_2",
+    ]);
   });
 });

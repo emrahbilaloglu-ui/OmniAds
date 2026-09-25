@@ -489,6 +489,26 @@
   background: repeating-linear-gradient(135deg, #dce8ff, #dce8ff 6px, #eaf0ff 6px, #eaf0ff 12px);
 }
 
+/* A catalog creative has no fixed image; say so on the large preview, below
+   the centred format badge rather than under it. */
+.assetCatalogPlaceholder {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 20px;
+}
+
+.assetCatalogPlaceholderText {
+  max-width: 80%;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #45526b;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
 .kindBadge {
   position: relative;
   z-index: 1;
@@ -505,12 +525,17 @@
   z-index: 2;
   top: 8px;
   left: 8px;
+  /* Clear of the unpin button; the full text is on the badge's title. */
+  max-width: calc(100% - 46px);
   padding: 2px 8px;
+  overflow: hidden;
   border-radius: 6px;
   background: var(--tone-bg);
   color: var(--tone-fg);
   font-size: 10.5px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .boardCardBody {
@@ -1027,6 +1052,58 @@
 .tableStatus {
   padding: 2px 8px;
   font-size: 12px;
+}
+
+/* What a single verdict rests on, under its pill: its own decision period.
+   A fixed min-width: in the auto-layout table a narrower min-content would
+   let the column collapse and wrap the dates word by word. */
+.decisionBasis {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+  min-width: 240px;
+  max-width: 280px;
+  color: #5b6781;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* Each Ad's own verdict, when a row's Ads were served different ones. The
+   verdict chip sits above where that Ad runs, so a long ad set name wraps
+   under it instead of squeezing the column. */
+.decisionEntries {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+  min-width: 240px;
+  max-width: 280px;
+  list-style: none;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.decisionEntries li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.decisionEntryVerdict {
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--tone-bg);
+  color: var(--tone-fg);
+  font-weight: 700;
+}
+
+.decisionEntryWho {
+  max-width: 100%;
+  color: #5b6781;
+  overflow-wrap: break-word;
 }
 
 /*

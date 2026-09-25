@@ -1367,3 +1367,40 @@ describe("CreativeStudioExact source-backed tab shapes", () => {
     expect(document.body.textContent).not.toContain("Carousel — 5 SKUs");
   });
 });
+
+describe("CreativeStudioExact Assets: a catalog creative without a fixed image", () => {
+  it("says it is a catalog ad instead of drawing Meta's grey placeholder as the creative", () => {
+    const catalog: CreativeStudioAssetRow = {
+      ...asset("asset-catalog", "BathroomMeta-Shipping", 224, 3.1),
+      kind: "Catalog",
+      imageUrl: null,
+      imageNote: "catalog_template",
+    };
+    renderStudio("assets", {
+      assets: assetsModel({ rows: [catalog, asset("asset-b", "Beta asset", 500, 2.1)] }),
+    });
+
+    const row = document.querySelector(
+      '[data-creative-studio-asset-row="asset-catalog"]',
+    )!;
+    expect(row.querySelector("img")).toBeNull();
+    const tile = row.querySelector('[data-creative-image-note="catalog_template"]');
+    expect(tile?.getAttribute("role")).toBe("img");
+    expect(tile?.getAttribute("aria-label")).toBe(
+      "Catalog ad: product images vary per viewer, so Meta provides no fixed thumbnail.",
+    );
+
+    // The pinned board's large preview says it in words.
+    fireEvent.click(row);
+    const pinned = document.querySelector('[data-pinned-asset="asset-catalog"]');
+    expect(pinned?.textContent).toContain(
+      "Catalog ad · product images vary per viewer",
+    );
+    // A row with neither an image nor a note keeps the plain placeholder.
+    expect(
+      document
+        .querySelector('[data-creative-studio-asset-row="asset-b"]')
+        ?.querySelector("[data-creative-image-note]"),
+    ).toBeNull();
+  });
+});

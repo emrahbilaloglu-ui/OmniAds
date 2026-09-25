@@ -1,4 +1,5 @@
 import type {
+  BriefingCanonicalDecisionEvidence,
   BriefingCanonicalNativeAdDecision,
   BriefingCreativeCard,
   BriefingPrimaryAction,
@@ -77,6 +78,40 @@ function sha256(value: string | null | undefined) {
 
 function finite(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * The admitted period and the figures the engine recorded for it, display
+ * only. Read from the decision's own hashed evaluation (`decisionWindow`) and
+ * its snapshot metrics; never from the selected metric range, which scopes
+ * the joined row and not the verdict (D090).
+ */
+function canonicalDecisionEvidence(
+  decision: MetaCanonicalDecision,
+): BriefingCanonicalDecisionEvidence {
+  const window = decision.decisionWindow ?? null;
+  return {
+    period: window
+      ? {
+          startDate: window.startDate,
+          endDate: window.endDate,
+          calendarDaySpan: window.calendarDaySpan,
+          economicDayCount: window.economicDayCount,
+        }
+      : null,
+    spend: finite(decision.metrics.spend),
+    purchases: finite(decision.metrics.purchases),
+    roas: finite(decision.metrics.roas),
+    currency: nonEmpty(decision.metrics.currency),
+    recent:
+      window?.recentStartDate && window.recentEndDate
+        ? {
+            startDate: window.recentStartDate,
+            endDate: window.recentEndDate,
+            roas: finite(decision.metrics.recent7dRoas),
+          }
+        : null,
+  };
 }
 
 function nullableFinite(value: number | null): boolean {
@@ -523,6 +558,7 @@ export function projectCanonicalNativeAdDecisionToBriefing(input: {
       computedAt: decision.sourceDecision.computedAt,
     },
     sourceAuthority,
+    decisionEvidence: canonicalDecisionEvidence(decision),
   };
   const missingMeasurement =
     present.metrics.spend === null || present.metrics.purchases === null;

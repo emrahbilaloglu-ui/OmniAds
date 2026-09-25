@@ -606,7 +606,7 @@ describe("Creative Studio — retained generation after a failed latest run (D3/
     expect(served.source?.canonicalDecisionInventory?.status).toBe("available");
     const note = document.querySelector("[data-creative-decision-as-of]");
     expect(note?.textContent).toBe(
-      "Recommendations as of 2026-09-22. Performance figures cover the selected date range.",
+      "Recommendations as of 2026-09-22. Performance figures cover the selected date range (2026-08-24–2026-09-22). Each recommendation is judged on its Ad's own decision period, shown under its status, so the two can differ.",
     );
     expect(
       document.querySelector("[data-creative-decision-availability]"),

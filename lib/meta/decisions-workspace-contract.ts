@@ -517,6 +517,15 @@ export interface MetaDecisionAdmittedWindow {
   observedDayCount: number;
   economicDayCount: number;
   bridgedUnresolvedDayCount: number;
+  /**
+   * The recent band the engine summed for `metrics.recent7dRoas`: the last
+   * seven lookback days clipped to this admitted run (`DecisionEvidenceWindow`
+   * in lib/creative-decision-engine/types.ts). Present only when both days were
+   * recorded and fall inside the window; absent means the band is not known,
+   * and a recent figure must then not be shown under any period label.
+   */
+  recentStartDate?: string;
+  recentEndDate?: string;
 }
 
 export interface MetaDecisionSuppressionReason {

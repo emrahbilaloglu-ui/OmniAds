@@ -128,6 +128,34 @@ export interface BriefingCreativePreview {
  * `buyerAction` contract cannot faithfully represent a canonical review-only
  * or unavailable action.
  */
+/**
+ * What one native Ad decision was judged on, display only.
+ *
+ * The decision generation is not the selected metric range (D090): each Ad is
+ * decided on its own admitted economic period (D107). These are the server's
+ * recorded figures for THAT period, so a surface can say what a verdict rests
+ * on beside the selected-range columns instead of leaving the two to look
+ * contradictory. Nothing here is a decision input or grants any authority.
+ */
+export interface BriefingCanonicalDecisionEvidence {
+  /** The admitted period; null when the evaluation recorded none. */
+  period: {
+    startDate: string;
+    endDate: string;
+    calendarDaySpan: number;
+    economicDayCount: number;
+  } | null;
+  spend: number | null;
+  purchases: number | null;
+  roas: number | null;
+  currency: string | null;
+  /**
+   * The recent band the engine summed inside that period, with its ROAS. Null
+   * when the band's days were not recorded, so no recent figure is labelled.
+   */
+  recent: { startDate: string; endDate: string; roas: number | null } | null;
+}
+
 export interface BriefingCanonicalNativeAdDecision {
   contractVersion: "briefing-canonical-native-ad.v1";
   identityGrain: "ad";
@@ -186,6 +214,8 @@ export interface BriefingCanonicalNativeAdDecision {
       maxAgeHours: number;
     };
   };
+  /** Optional so payloads serialized before this field stay renderable. */
+  decisionEvidence?: BriefingCanonicalDecisionEvidence;
 }
 
 export interface BriefingCanonicalInventorySource {

@@ -568,6 +568,72 @@ describe("projectCanonicalNativeAdDecisionToBriefing", () => {
     expect(isCutPrimaryAction(projection!.card)).toBe(false);
   });
 
+  it("serves what the verdict rests on: its own admitted period, figures and recent band", () => {
+    const decision = heldCutDecision({ badges: [] });
+    decision.decisionWindow = {
+      contractVersion: "meta-decision-admitted-window.presentation.v1",
+      startDate: "2026-09-09",
+      endDate: "2026-09-24",
+      calendarDaySpan: 16,
+      observedDayCount: 16,
+      economicDayCount: 16,
+      bridgedUnresolvedDayCount: 1,
+      recentStartDate: "2026-09-19",
+      recentEndDate: "2026-09-24",
+    };
+    decision.metrics = {
+      ...decision.metrics,
+      spend: 536.56,
+      purchases: 10,
+      roas: 5.17,
+      recent7dRoas: 0,
+      currency: "USD",
+    };
+
+    const projection = projectCanonicalNativeAdDecisionToBriefing({ decision });
+
+    expect(projection?.card.canonicalDecision?.decisionEvidence).toEqual({
+      period: {
+        startDate: "2026-09-09",
+        endDate: "2026-09-24",
+        calendarDaySpan: 16,
+        economicDayCount: 16,
+      },
+      spend: 536.56,
+      purchases: 10,
+      roas: 5.17,
+      currency: "USD",
+      recent: { startDate: "2026-09-19", endDate: "2026-09-24", roas: 0 },
+    });
+  });
+
+  it("names no period or recent band the evaluation did not record", () => {
+    const decision = heldCutDecision({ badges: [] });
+    decision.decisionWindow = null;
+    decision.metrics = { ...decision.metrics, recent7dRoas: 0.4 };
+    const withoutWindow = projectCanonicalNativeAdDecisionToBriefing({ decision });
+    expect(withoutWindow?.card.canonicalDecision?.decisionEvidence).toMatchObject({
+      period: null,
+      recent: null,
+    });
+
+    // A window without its recent band keeps the period and labels no recent ROAS.
+    decision.decisionWindow = {
+      contractVersion: "meta-decision-admitted-window.presentation.v1",
+      startDate: "2026-09-10",
+      endDate: "2026-09-24",
+      calendarDaySpan: 15,
+      observedDayCount: 15,
+      economicDayCount: 15,
+      bridgedUnresolvedDayCount: 0,
+    };
+    const withoutBand = projectCanonicalNativeAdDecisionToBriefing({ decision });
+    expect(withoutBand?.card.canonicalDecision?.decisionEvidence).toMatchObject({
+      period: { startDate: "2026-09-10", endDate: "2026-09-24" },
+      recent: null,
+    });
+  });
+
   it("preserves measured zero separately from missing measurements", () => {
     const decision = heldCutDecision({ badges: [] });
     decision.metrics = {

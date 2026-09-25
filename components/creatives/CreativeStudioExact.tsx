@@ -770,11 +770,68 @@ function AssetVisual({
       <img alt="" className={className} draggable={false} src={row.imageUrl} />
     );
   }
+  if (row.imageNote === "catalog_template") {
+    // Meta returns one shared grey placeholder for a catalog creative, whose
+    // product images vary per viewer. Say that, rather than draw it as the
+    // creative's image. @see creative-thumbnail-placeholder.ts
+    const note =
+      "Catalog ad: product images vary per viewer, so Meta provides no fixed thumbnail.";
+    return (
+      <span
+        aria-label={note}
+        className={`${className} ${styles.assetPlaceholder} ${styles.assetCatalogPlaceholder}`}
+        data-creative-image-note="catalog_template"
+        role="img"
+        title={note}
+      >
+        {compact ? null : (
+          <span className={styles.assetCatalogPlaceholderText}>
+            Catalog ad · product images vary per viewer
+          </span>
+        )}
+      </span>
+    );
+  }
   return (
     <span
       aria-hidden="true"
       className={`${className} ${styles.assetPlaceholder}`}
     />
+  );
+}
+
+/**
+ * Under the Status pill: either each Ad's own served verdict, when the row's
+ * Ads were served different ones, or the period a single verdict was judged
+ * on. Both are server fields; nothing here ranks, picks or recomputes.
+ */
+function CreativeDecisionContext({ row }: { row: CreativeStudioAssetRow }) {
+  if (row.decisionEntries && row.decisionEntries.length > 0) {
+    return (
+      <ul className={styles.decisionEntries} data-creative-decision-entries="">
+        {row.decisionEntries.map((entry) => (
+          <li data-creative-decision-entry={entry.adId} key={entry.adId}>
+            <span
+              className={`${styles.decisionEntryVerdict} ${TONE_CLASSES[entry.tone]}`}
+            >
+              {entry.verdict}
+            </span>
+            <span className={styles.decisionEntryWho}>
+              {entry.who}
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  const basis = row.decisionBasis;
+  if (!basis) return null;
+  return (
+    <span className={styles.decisionBasis} data-creative-decision-basis="">
+      <span>{basis.period}</span>
+      {basis.figures ? <span>{basis.figures}</span> : null}
+      {basis.recent ? <span>{basis.recent}</span> : null}
+    </span>
   );
 }
 
@@ -847,6 +904,10 @@ function AssetsView({
   const decisionAsOfDate =
     model?.decisionReadState === "available"
       ? model.decisionAsOfDate?.trim() || null
+      : null;
+  const metricWindow =
+    model?.metricWindow?.startDate && model.metricWindow.endDate
+      ? model.metricWindow
       : null;
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [metricSet, setMetricSet] = useState<MetricSetId>("performance");
@@ -1112,7 +1173,12 @@ function AssetsView({
           role="note"
         >
           Recommendations as of {decisionAsOfDate}. Performance figures cover
-          the selected date range.
+          the selected date range
+          {metricWindow
+            ? ` (${metricWindow.startDate}–${metricWindow.endDate})`
+            : ""}
+          . Each recommendation is judged on its Ad&apos;s own decision
+          period, shown under its status, so the two can differ.
         </p>
       ) : null}
 
@@ -1153,7 +1219,11 @@ function AssetsView({
                   {!decisionDataUnavailable ? (
                     <span
                       className={`${styles.statusBadge} ${TONE_CLASSES[row.statusTone]}`}
-                      title={row.statusDetail ?? undefined}
+                      title={
+                        [creativeDecisionStatusText(row), row.statusDetail]
+                          .filter(Boolean)
+                          .join("\n") || undefined
+                      }
                     >
                       {creativeDecisionStatusText(row)}
                     </span>
@@ -1459,6 +1529,7 @@ function AssetsView({
                           >
                             {creativeDecisionStatusText(row)}
                           </span>
+                          <CreativeDecisionContext row={row} />
                         </td>
                       ) : null}
                       {/*

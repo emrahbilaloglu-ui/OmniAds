@@ -461,6 +461,9 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
     expect(
       document.querySelector("[data-meta-exact-operator-summary]"),
     ).toBeNull();
+    expect(
+      document.querySelector('[data-meta-exact-scope="creatives"]')?.textContent,
+    ).toContain("Ad decisions");
     fireEvent.click(
       document.querySelector('[data-meta-exact-scope="creatives"]')!,
     );

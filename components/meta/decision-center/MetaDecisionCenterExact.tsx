@@ -3050,7 +3050,7 @@ export function MetaDecisionCenterExact({
             data-meta-exact-scope="creatives"
             {...controlProps(() => selectScope("creatives"))}
           >
-            {copy.creatives}
+            {language === "tr" ? "Reklam kararları" : "Ad decisions"}
             {meaningfulDisplay(counts?.creatives) ? (
               <span>{display(counts?.creatives)}</span>
             ) : null}

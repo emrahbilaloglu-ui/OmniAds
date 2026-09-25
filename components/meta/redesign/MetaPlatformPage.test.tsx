@@ -929,7 +929,7 @@ describe("MetaPlatformPage", () => {
         Accept: "application/json",
       },
       cache: "no-store",
-      body: JSON.stringify({ businessId: "biz_1" }),
+      body: JSON.stringify({ businessId: "biz_1", providerAccountId: "act_1" }),
     });
 
     fetchMock.mockClear();

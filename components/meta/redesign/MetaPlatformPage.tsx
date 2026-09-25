@@ -5126,7 +5126,7 @@ export function MetaPlatformPage({
           Accept: "application/json",
         },
         cache: "no-store",
-        body: JSON.stringify({ businessId }),
+        body: JSON.stringify({ businessId, providerAccountId }),
       });
       const payload = await response.json().catch(() => null);
       const outcome = interpretMetaSnapshotRunResponse(response.ok, payload);
@@ -6390,7 +6390,7 @@ export function MetaPlatformPage({
           manualActionFor={mobileManualActionFor}
           ceremonyRowId={manualCeremonyRec?.id ?? null}
           ceremony={manualCeremonySheetFor("mobile")}
-          roleReview={workspaceQuery.data?.os && providerAccountId ? (
+          roleReview={workspaceQuery.data?.os?.structure?.groups && providerAccountId ? (
             <MetaEntityRoleReview
               businessId={businessId}
               providerAccountId={providerAccountId}
@@ -6594,7 +6594,7 @@ export function MetaPlatformPage({
           }
         />
 
-        {workspaceQuery.data?.os && providerAccountId ? (
+        {workspaceQuery.data?.os?.structure?.groups && providerAccountId ? (
           <MetaEntityRoleReview
             businessId={businessId}
             providerAccountId={providerAccountId}

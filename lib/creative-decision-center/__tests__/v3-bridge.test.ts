@@ -297,6 +297,7 @@ describe("Creative Decision Center V3 bridge", () => {
       }));
       expect(result.engine.primaryDecision).toBe("Diagnose");
       expect(result.engine.blockerReasons).toContain("campaign_role_unresolved");
+      expect(result.engine.blockerReasons).not.toContain("campaign_context");
       expect(validateMappedBridge(result).buyerAction).toBe("diagnose_data");
     }
   });

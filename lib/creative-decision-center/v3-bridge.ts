@@ -519,7 +519,9 @@ function buildBlockerReasons(
   missingData: readonly string[],
 ): string[] {
   const blockers = [...missingData];
-  if (decision.authorityBlocker) blockers.push(decision.authorityBlocker);
+  if (decision.authorityBlocker && decision.authorityBlocker !== "campaign_context") {
+    blockers.push(decision.authorityBlocker);
+  }
   if (mapping.reasonTags.includes("campaign_role_unresolved")) {
     blockers.push("campaign_role_unresolved");
   }

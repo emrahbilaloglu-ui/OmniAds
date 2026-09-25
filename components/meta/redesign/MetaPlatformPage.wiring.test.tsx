@@ -1177,6 +1177,22 @@ describe("Decisions write honesty", () => {
 });
 
 describe("Decisions deep links", () => {
+  it("opens current creative signals by default and preserves an explicit structure choice", () => {
+    state.workspaceData = {
+      ...(workspacePayload() as Record<string, unknown>),
+      os: osPresentation([pendingOsDecision()]),
+    };
+
+    render();
+    expect(state.exactProps.scope).toBe("creatives");
+    expect(state.exactProps.lane).toBe("needsres");
+    expect(String(state.routerReplace.mock.lastCall?.[0])).toContain("scope=creatives");
+
+    act(() => state.exactProps.onScopeChange("structure"));
+    expect(state.exactProps.scope).toBe("structure");
+    expect(String(state.routerReplace.mock.lastCall?.[0])).toContain("scope=structure");
+  });
+
   it("opens served blocked Ads when a creative scope link has no explicit lane", () => {
     state.workspaceData = {
       ...(workspacePayload() as Record<string, unknown>),
@@ -1198,6 +1214,7 @@ describe("Decisions deep links", () => {
       ...(workspacePayload() as Record<string, unknown>),
       os: osPresentation([pendingOsDecision()]),
     };
+    state.search = "providerAccountId=act_1&scope=structure";
 
     render();
     expect(state.exactProps.lane).toBe("action");
@@ -1225,6 +1242,7 @@ describe("Decisions deep links", () => {
       ...(workspacePayload() as Record<string, unknown>),
       os: osPresentation([pendingOsDecision()]),
     };
+    state.search = "providerAccountId=act_1&scope=structure";
     const dom = render();
     const mobileAction = Array.from(
       dom.querySelectorAll<HTMLButtonElement>(

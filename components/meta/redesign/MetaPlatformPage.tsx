@@ -509,8 +509,8 @@ function parseMetaWorkspaceLane(params: {
  *
  * The lane was already deep-linkable and the scope was not, so a pasted link to
  * a creative decision reopened on Campaigns & Ad sets and the operator had to
- * find their way back. `structure` is the reference's resting scope and stays
- * out of the query string.
+ * find their way back. Creatives are the resting scope; an operator's explicit
+ * Campaigns & Ad sets choice remains in the URL on refresh.
  */
 function parseMetaScope(params: {
   get(name: string): string | null;
@@ -522,7 +522,16 @@ function parseMetaScope(params: {
   // landed on Campaigns & Ad sets — exactly the failure that adapter's own
   // comment says it is guarding against. A link that names a creative opens on
   // creatives.
-  return parseMetaCreativeSelection(params) ? "creatives" : "structure";
+  if (parseMetaCreativeSelection(params)) return "creatives";
+  // Older structure links did not carry a scope. Keep their selected lane
+  // rather than silently opening that lane under Creatives.
+  if (
+    params.get("scope") === null &&
+    (params.get("lane") !== null ||
+      params.get("area") !== null ||
+      params.get("segment") !== null)
+  ) return "structure";
+  return params.get("scope") === null ? "creatives" : "structure";
 }
 
 /**
@@ -593,7 +602,7 @@ export interface MetaDeepLinkCompatibilityEntry {
  *
  * So: every parameter this screen cannot restore is named here with the
  * behaviour that replaced it, and the screen states it. Parameters it CAN
- * restore (`q`, `scope=creatives`, `entity`, `creativeId`, `row=ad:<id>`,
+ * restore (`q`, `scope=creatives|structure`, `entity`, `creativeId`, `row=ad:<id>`,
  * `lane=act|watch`) are absent from this report precisely because they were
  * honoured — silence here means "restored", never "ignored".
  */
@@ -4982,7 +4991,7 @@ export function MetaPlatformPage({
     setNativeAdPauseError(null);
     setCreativeDrill(null);
     setManualCeremonyRec(null);
-    setActiveScope("structure");
+    setActiveScope("creatives");
     setActiveLane("action");
     explicitLaneSelectionRef.current = false;
     setActiveLevels([]);
@@ -5013,8 +5022,7 @@ export function MetaPlatformPage({
     setInspectorDismissed(false);
     const params = currentUrlParams();
     params.delete("entity");
-    if (next === "creatives") params.set("scope", "creatives");
-    else params.delete("scope");
+    params.set("scope", next);
     replaceMetaParams(params);
   };
 
@@ -5023,6 +5031,9 @@ export function MetaPlatformPage({
     setDrillItem(null);
     setInspectorDismissed(false);
     const params = currentUrlParams();
+    // A lane without a scope is an old structure link. Keep the current scope
+    // explicit so an auto-selected creative hold survives a page refresh.
+    params.set("scope", activeScope);
     params.delete("entity");
     params.delete("lane");
     if (next === "action") {

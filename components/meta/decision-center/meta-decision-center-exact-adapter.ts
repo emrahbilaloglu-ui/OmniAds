@@ -2394,6 +2394,16 @@ export function buyerFacingCreativeReason(decision: MetaOsAdDecision): string {
     if (primary) return primary;
     if (secondary) return secondary;
   }
+  // A Keep verdict can carry the server's continue-test follow-up. Describe
+  // the shared next step without making the card say both "Keep monitoring"
+  // and "Keep testing" as if they were competing decisions.
+  if (
+    decision.lane === "monitor" &&
+    decision.publishedLabel === "keep" &&
+    decision.action.code === "continue_test"
+  ) {
+    return "Keep this ad running while more test evidence is collected.";
+  }
   return (
     knownBuyerCopy(BUYER_CREATIVE_ACTION_CONTEXT_COPY, decision.action.code) ??
     (decision.lane === "act"

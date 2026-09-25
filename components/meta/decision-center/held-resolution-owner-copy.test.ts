@@ -13,10 +13,11 @@ import type { MetaOsAdDecision } from "@/lib/meta/decisions-os-contract";
 
   `lib/meta/decision-semantics.ts` stamps every resolution with an `owner`. A
   `system` resolution (and an `integration` one in the `data` category) clears
-  when the pipeline catches up, so its copy states what is outstanding and that
-  nothing is required. Only an `operator` resolution — or an integration hold
-  outside `data`, such as tracking — is phrased as a task. The lane, state,
-  published label and held action are never touched: this is wording only.
+  when the pipeline catches up, so its copy states what is outstanding. A
+  config-only economic hold may offer a manual evidence review, never a Meta
+  mutation; unrelated holds still require no buyer action. An `operator`
+  resolution — or an integration hold outside `data`, such as tracking — is
+  phrased as a task. Lane, state, published label and held action stay served.
 */
 
 type Resolution = NonNullable<MetaOsAdDecision["resolution"]>;
@@ -220,6 +221,21 @@ function workspaceWith(rows: MetaOsAdDecision[]) {
 }
 
 describe("held and blocked creative steps follow the served resolution owner", () => {
+  it("offers manual review only for a config-only Scale signal with a trusted role", () => {
+    const held = decision({
+      heldAction: "scale",
+      rawLabel: "scale",
+      blockers: [{ code: "config_source_authority", label: "Internal" }],
+      authorityProvenance: configProvenance("config_source_authority"),
+    });
+    const verdict = heldCreativeVerdict(held, configGap);
+
+    expect(verdict?.nextStep).toContain("Review spend, purchases, and recent ROAS in Meta");
+    expect(verdict?.nextStep).toContain("Adsecute will not change the budget");
+    expect(heldCreativeVerdict({ ...held, campaignRoleTrustedForAction: false }, configGap)?.nextStep)
+      .toContain("No action is needed from you");
+  });
+
   it("states a system-owned config hold as a condition, never a chore", () => {
     const held = decision({
       blockers: [{ code: "config_source_authority", label: "Internal" }],
@@ -306,7 +322,7 @@ describe("held and blocked creative steps follow the served resolution owner", (
     expect(verdict?.label).toBe("Recommendation awaiting review: Refresh creative");
     expect(verdict?.nextStep).toBe(
       "Confirm the commercial target before acting. " +
-        "The campaign configuration for every day behind it is not confirmed yet. " +
+        "The campaign configuration is not verified for every day used by this recommendation. " +
         "Then review this Refresh creative recommendation again.",
     );
     expect(verdict?.nextStep).not.toContain("No action is needed from you");

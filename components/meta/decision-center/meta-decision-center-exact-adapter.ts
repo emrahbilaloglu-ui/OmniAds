@@ -2744,11 +2744,21 @@ const HELD_PRIMARY_STATUS_COPY: Readonly<Record<HeldPrimaryReason, string>> = {
 /** The pipeline conditions a held verdict can additionally be waiting on. */
 const HELD_PREREQUISITE_STATUS = {
   config:
-    "The campaign configuration for every day behind it is not confirmed yet.",
+    "The campaign configuration is not verified for every day used by this recommendation.",
   source: "Fresh, completed Meta source data is still arriving.",
   confirmation: SYSTEM_RESOLUTION_STATUS_COPY.await_decision_confirmation!,
   campaignRole: SYSTEM_RESOLUTION_STATUS_COPY.resolve_campaign_role!,
 } as const;
+
+/** A held economic signal is still useful to review, without implying approval to apply it. */
+const HELD_VERDICT_MANUAL_REVIEW_COPY: Readonly<Record<CreativeHeldVerdict["action"], string>> = {
+  scale:
+    "Review spend, purchases, and recent ROAS in Meta before considering a manual budget increase. Adsecute will not change the budget from this recommendation.",
+  cut:
+    "Review current delivery, spend, and purchase actions in Meta before deciding whether to pause manually. Adsecute will not pause the ad from this recommendation.",
+  refresh:
+    "Review recent performance and creative-fatigue evidence in Meta before replacing this creative. Adsecute will not apply a refresh from this recommendation.",
+};
 
 function heldPrimaryStep(
   decision: MetaOsAdDecision,
@@ -2908,16 +2918,22 @@ export function heldCreativeVerdict(
         ? "A new decision run will replace this older role-held verdict."
         : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel; the next decision run will reassess it.`
       : null;
+    const manualEvidenceReview = needsConfig && !needsFreshSource &&
+      !needsConfirmation && !needsCampaignContext && !canonicalHasOtherHold &&
+      !primaryReason && decision.campaignRoleTrustedForAction === true;
+    const hasBuyerReview = roleReviewStep !== null || manualEvidenceReview;
+    const nextStep = roleReviewStep ?? (manualEvidenceReview
+      ? HELD_VERDICT_MANUAL_REVIEW_COPY[action]
+      : `${NO_BUYER_ACTION_NEEDED};`);
+    const recheckSubject = cutSignalAwaitingEvidence
+      ? hasBuyerReview ? "The pause signal" : "the pause signal"
+      : `${hasBuyerReview ? "This" : "this"} ${verdict} recommendation`;
     return {
       action,
       label: cutSignalAwaitingEvidence
         ? "Pause signal awaiting verification"
         : `Recommendation on hold: ${verdict}`,
-      nextStep: `${[...new Set(waits)].join(" ")} ${roleReviewStep ?? `${NO_BUYER_ACTION_NEEDED};`} ${
-        cutSignalAwaitingEvidence
-          ? roleReviewStep ? "The pause signal" : "the pause signal"
-          : `${roleReviewStep ? "This" : "this"} ${verdict} recommendation`
-      } is re-checked on each decision run.`,
+      nextStep: `${[...new Set(waits)].join(" ")} ${nextStep} ${recheckSubject} is re-checked on each decision run.`,
     };
   }
   /*

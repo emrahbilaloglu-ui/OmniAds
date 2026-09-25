@@ -4650,7 +4650,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
 
     expect(verdict?.nextStep).toContain("Confirm the commercial target before acting.");
     expect(verdict?.nextStep).toContain(
-      "The campaign configuration for every day behind it is not confirmed yet.",
+      "The campaign configuration is not verified for every day used by this recommendation.",
     );
     expect(verdict?.nextStep).toContain("Then review this Refresh creative recommendation again.");
   });
@@ -4687,7 +4687,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     });
     const row = model.creativeDecisions?.[0];
     expect(row?.note).toMatch(/^The account does not yet have enough mature creatives for the Scale calibration floor\./);
-    expect(row?.note).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(row?.note).toContain("The campaign configuration is not verified for every day used by this recommendation.");
     expect(row?.note).toContain("No action is needed from you");
     expect(row?.note).not.toMatch(/\b(Verify|Restore|Wait for)\b/);
     expect(row?.heldVerdictNextStep).toBe(row?.note);
@@ -4724,7 +4724,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     );
     const roleStep = heldCreativeVerdict(firstBlocker("campaign_context"), canonical)?.nextStep;
     expect(roleStep).toMatch(/^The Main\/Test role has not been confirmed\./);
-    expect(roleStep).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(roleStep).toContain("The campaign configuration is not verified for every day used by this recommendation.");
     expect(roleStep).toContain("Review this ad set's Main/Test role in the role panel");
     // Stated once, not once as the primary reason and again as a prerequisite.
     expect(roleStep?.split("The Main/Test role has not been confirmed.").length).toBe(2);
@@ -4818,7 +4818,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       }),
     });
     const row = model.creativeDecisions?.[0];
-    expect(row?.note).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(row?.note).toContain("The campaign configuration is not verified for every day used by this recommendation.");
     expect(row?.note).toContain("Fresh, completed Meta source data is still arriving.");
     expect(row?.note).toContain("The next decision run still has to confirm it.");
     expect(row?.note).toContain("No action is needed from you");

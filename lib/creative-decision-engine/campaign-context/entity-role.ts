@@ -204,6 +204,7 @@ export function declaredEntityRoleEntry(input: {
     sourceHash,
     roleEntityType: declaration.entityType,
     roleEntityId: declaration.entityId,
+    roleDeclarationContractVersion: declaration.contractVersion,
   };
   return {
     kind,

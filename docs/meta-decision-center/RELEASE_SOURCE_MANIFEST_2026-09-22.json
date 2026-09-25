@@ -1,5 +1,5 @@
 {
-  "manifestHash": "9876552760cd3b8fbb0a0c5c327d59a7d7ca963c1bf2c7f05d4a6164293bf855",
+  "manifestHash": "c4d50a5426c4da2b2f5394f14039f640672234c6f7d1f4954bc69b9010d26dd7",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -104,7 +104,7 @@
     },
     {
       "path": "app/(dashboard)/platforms/meta/creatives/retained-generation-degraded.test.tsx",
-      "sha256": "9d15fc3b6038918d63a850f53cc6be27031d959f4098e12e9e6961af85e17a70"
+      "sha256": "35b0a480c7ee0fe2a5ee5e69b55ab0a0782c541c0e4c865d1a65a6278c48bac2"
     },
     {
       "path": "app/(dashboard)/platforms/meta/creatives/status-heat-sort-production-chain.test.tsx",
@@ -500,7 +500,7 @@
     },
     {
       "path": "components/meta/decision-center/MetaEntityRoleReview.module.css",
-      "sha256": "4973d25377ce6e51df97cc9540b82206036a44308cd74396742d478442e3b436"
+      "sha256": "5da9c7daaa2da803a7a80e45b4f1d1afc5f675fbd5f789426a56d0a9708ae7be"
     },
     {
       "path": "components/meta/decision-center/MetaEntityRoleReview.test.tsx",
@@ -1044,7 +1044,7 @@
     },
     {
       "path": "lib/creative-decision-engine/campaign-context/entity-role.ts",
-      "sha256": "228393ddf48e90931c752b25caf8f686c6bb01392e2aea1fe2d9e169e8fdb7c3"
+      "sha256": "b4a849ddad6ca24192ba5049ebef253749fa00e0868ac6f8279d8c786824a4f8"
     },
     {
       "path": "lib/creative-decision-engine/campaign-context/entity-role.write.test.ts",
@@ -1060,7 +1060,7 @@
     },
     {
       "path": "lib/creative-decision-engine/canonical-evaluation.ts",
-      "sha256": "6f15169067547d40281fed77c10cfb5f95bb44181f173ae0772f699ac4224052"
+      "sha256": "96c102258a5f96a3a77852cb2d5f888ddafffec23a7ba4ddcbc1b7c7ff9ceb45"
     },
     {
       "path": "lib/creative-decision-engine/creative-day-metric-evidence.db.test.ts",
@@ -1293,6 +1293,10 @@
     {
       "path": "lib/meta-graph-error-observability.test.ts",
       "sha256": "4f3e85de6acd1b0a2f9dea36e184deaabd3c3fde70f989f03fa31f2a31421196"
+    },
+    {
+      "path": "lib/meta/__tests__/campaign-role-vocabulary-closure.test.ts",
+      "sha256": "8b44b00cd8b86bf360d860371f92ac2395fd733dcb5085c63c4dd1ef932ee453"
     },
     {
       "path": "lib/meta/__tests__/creatives-fetchers.test.ts",
@@ -2096,7 +2100,7 @@
     },
     {
       "path": "scripts/creative-decision-center/native-ad-account-aov-authority-replay.classifier.test.ts",
-      "sha256": "c256b57fde63e4966d1443688cfbc4cbcbb9be23b9c1fe88600e161897ec9d37"
+      "sha256": "9c4c5c93e4ddde71d257e4aea3027737b1adca39b70525e659ecd32945813660"
     },
     {
       "path": "scripts/creative-decision-center/native-ad-account-aov-authority-replay.provenance.test.ts",
@@ -2104,7 +2108,7 @@
     },
     {
       "path": "scripts/creative-decision-center/native-ad-account-aov-authority-replay.ts",
-      "sha256": "3616c65da939ff6ebfc2ce701b42374272d45e645ee84249a3489b4d1aecf566"
+      "sha256": "829cb57b02655446c1ed0d93604ef84689454175103138436953c524945acc3a"
     },
     {
       "path": "scripts/creative-decision-center/native-ad-account-aov-closed-window-replay.test.ts",

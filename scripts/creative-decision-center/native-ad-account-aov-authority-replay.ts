@@ -19,6 +19,12 @@ import type {
   CampaignContextEntryWithProvenance,
   CampaignContextLabelMap,
 } from "@/lib/creative-decision-engine/campaign-context/source";
+import {
+  adsetRoleKey,
+  ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+  ENTITY_ROLE_DECLARATION_SOURCE,
+  ENTITY_ROLE_DECLARATION_TABLE,
+} from "@/lib/creative-decision-engine/campaign-context/entity-role";
 import { isAccountAovRevenueArithmeticConsistent } from "@/lib/creative-decision-engine/account-decision-profile";
 import {
   canonicalSha256,
@@ -2031,6 +2037,7 @@ function normalizeCampaignContext(value: unknown): CampaignContextProvenance {
     source !== "legacy_label" &&
     source !== "user_override" &&
     source !== "system_inferred" &&
+    source !== ENTITY_ROLE_DECLARATION_SOURCE &&
     source !== "unknown"
   ) {
     throw new TypeError(
@@ -2064,13 +2071,22 @@ function normalizeCampaignContext(value: unknown): CampaignContextProvenance {
         : null,
     sourceRecordType:
       row.sourceRecordType === "meta_campaign_label" ||
-      row.sourceRecordType === "engine_v3_campaign_context_daily"
+      row.sourceRecordType === "engine_v3_campaign_context_daily" ||
+      row.sourceRecordType === ENTITY_ROLE_DECLARATION_TABLE
         ? row.sourceRecordType
         : null,
     sourceRecordId: optionalText(row.sourceRecordId),
     sourceAsOfDate: optionalText(row.sourceAsOfDate),
     sourceUpdatedAt: optionalText(row.sourceUpdatedAt),
     sourceHash: optionalText(row.sourceHash),
+    ...(source === ENTITY_ROLE_DECLARATION_SOURCE ? {
+      roleEntityType:
+        row.roleEntityType === "campaign" || row.roleEntityType === "adset"
+          ? row.roleEntityType
+          : null,
+      roleEntityId: optionalText(row.roleEntityId),
+      roleDeclarationContractVersion: optionalText(row.roleDeclarationContractVersion),
+    } : {}),
   };
 }
 
@@ -3496,6 +3512,7 @@ function campaignContextMapFromProvenance(
   const campaignId = context.campaignId;
   if (
     !campaignId ||
+    context.roleEntityType === "adset" ||
     (context.source === "unknown" && context.mode !== "automatic")
   ) {
     return new Map();
@@ -3515,6 +3532,41 @@ function campaignContextMapFromProvenance(
       },
     ],
   ]);
+}
+
+/** Replay only a persisted, exact-contract AD SET declaration as ad-set authority. */
+function adsetRoleMapFromProvenance(
+  context: CampaignContextProvenance,
+  exactInput: AdDecisionInput,
+): CampaignContextLabelMap {
+  const adsetId = exactInput.adsetId?.trim();
+  if (
+    context.source !== ENTITY_ROLE_DECLARATION_SOURCE ||
+    context.sourceRecordType !== ENTITY_ROLE_DECLARATION_TABLE ||
+    context.roleDeclarationContractVersion !== ENTITY_ROLE_DECLARATION_CONTRACT_VERSION ||
+    context.roleEntityType !== "adset" ||
+    !adsetId ||
+    context.roleEntityId !== adsetId ||
+    context.campaignId !== exactInput.campaignId ||
+    (context.kind !== "main" && context.kind !== "test") ||
+    context.contextTrust !== "high" ||
+    !context.sourceRecordId ||
+    !/^[0-9a-f]{64}$/.test(context.sourceHash ?? "")
+  ) {
+    return new Map();
+  }
+  return new Map([[adsetRoleKey(exactInput.providerAccountId, adsetId), {
+    kind: context.kind,
+    testDimension: context.testDimension,
+    contextTrust: "high",
+    inferenceConfidenceClass: "high",
+    resolverAuthorityValidated: false,
+    declarationAuthorityValidated: true,
+    roleEntityType: "adset",
+    roleEntityId: adsetId,
+    roleBasis: "declared",
+    provenance: context,
+  }]]);
 }
 
 function campaignContextMap(row: BaselineRow): CampaignContextLabelMap {
@@ -4766,6 +4818,7 @@ async function replayChallengerRow(input: {
   prior: ReturnType<typeof priorHysteresisMap>;
   campaignContextMode: CampaignContextProvenance["mode"];
   campaignContextById: CampaignContextLabelMap;
+  adsetRoleByKey: CampaignContextLabelMap;
   previousLabels: Map<string, PreviousAdPublishedLabel>;
 }): Promise<ChallengerRow> {
   const { row, slice, prior } = input;
@@ -4801,6 +4854,7 @@ async function replayChallengerRow(input: {
         adInputs: [row.creativeInput],
         campaignContextMode: input.campaignContextMode,
         campaignContextById: input.campaignContextById,
+        adsetRoleByKey: input.adsetRoleByKey,
         previousLabels: input.previousLabels,
       })[0];
     const computation = isSoftOnlyProfile
@@ -4811,6 +4865,7 @@ async function replayChallengerRow(input: {
           adInputs: [row.creativeInput],
           campaignContextMode: input.campaignContextMode,
           campaignContextById: input.campaignContextById,
+          adsetRoleByKey: input.adsetRoleByKey,
           previousLabels: input.previousLabels,
           evaluatedAt: row.evaluatedAt,
         })[0]
@@ -4977,6 +5032,7 @@ export async function replayPreparedAccountSlice(
   let priorByCohortKey: Map<string, ReturnType<typeof priorHysteresisMap>>;
   let previousLabels: Map<string, PreviousAdPublishedLabel>;
   let campaignContextById: Map<string, CampaignContextEntryWithProvenance>;
+  let adsetRoleByKey: Map<string, CampaignContextEntryWithProvenance>;
   let campaignContextMode: CampaignContextProvenance["mode"];
   let profileResolutions: Map<string, ProductionReplayProfileResolution>;
   try {
@@ -4999,6 +5055,7 @@ export async function replayPreparedAccountSlice(
     priorByCohortKey = new Map();
     previousLabels = new Map();
     campaignContextById = new Map();
+    adsetRoleByKey = new Map();
     for (const row of slice.rows) {
       const prior = priorHysteresisMap(row);
       priorByCohortKey.set(row.cohortKey, prior);
@@ -5018,6 +5075,16 @@ export async function replayPreparedAccountSlice(
           );
         }
         campaignContextById.set(campaignId, value);
+      }
+      for (const [key, value] of adsetRoleMapFromProvenance(
+        row.campaignContext,
+        row.creativeInput,
+      )) {
+        const existing = adsetRoleByKey.get(key);
+        if (existing && canonicalSha256(existing) !== canonicalSha256(value)) {
+          throw new Error(`${slice.sliceKey}: conflicting persisted ad set role for ${key}`);
+        }
+        adsetRoleByKey.set(key, value);
       }
     }
     profileResolutions = await resolveProductionReplayProfiles(slice, flags);
@@ -5051,6 +5118,7 @@ export async function replayPreparedAccountSlice(
         prior,
         campaignContextMode,
         campaignContextById,
+        adsetRoleByKey,
         previousLabels,
       }),
     );
@@ -5233,7 +5301,15 @@ function replayCampaignContextMatchesInput(input: {
   campaignContext: CampaignContextProvenance;
   exactInput: AdDecisionInput;
 }) {
-  return input.campaignContext.campaignId === input.exactInput.campaignId;
+  return (
+    input.campaignContext.campaignId === input.exactInput.campaignId &&
+    (input.campaignContext.roleEntityType !== "adset" ||
+      (input.campaignContext.roleEntityId === input.exactInput.adsetId &&
+        input.campaignContext.source === ENTITY_ROLE_DECLARATION_SOURCE &&
+        input.campaignContext.sourceRecordType === ENTITY_ROLE_DECLARATION_TABLE &&
+        input.campaignContext.roleDeclarationContractVersion ===
+          ENTITY_ROLE_DECLARATION_CONTRACT_VERSION))
+  );
 }
 
 function hasProvenScaleRefreshContextRestatement(input: {
@@ -5588,6 +5664,10 @@ function replayOrdinaryProductionEnvelope(input: {
   const campaignContextById = replayCampaignContextMap(
     input.campaignContext,
   );
+  const adsetRoleByKey = adsetRoleMapFromProvenance(
+    input.campaignContext,
+    input.exactInput,
+  );
   const computation =
     "profileType" in input.profile
       ? computeSoftOnlyNativeAdDecisions({
@@ -5597,6 +5677,7 @@ function replayOrdinaryProductionEnvelope(input: {
           adInputs: [input.exactInput],
           campaignContextMode: input.campaignContext.mode,
           campaignContextById,
+          adsetRoleByKey,
           previousLabels: new Map(),
           evaluatedAt: "1970-01-01T00:00:00.000Z",
         })[0]
@@ -5607,6 +5688,7 @@ function replayOrdinaryProductionEnvelope(input: {
           adInputs: [input.exactInput],
           campaignContextMode: input.campaignContext.mode,
           campaignContextById,
+          adsetRoleByKey,
           previousLabels: new Map(),
         })[0];
   if (!computation) return null;

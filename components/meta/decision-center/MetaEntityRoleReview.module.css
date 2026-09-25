@@ -62,7 +62,7 @@
 .identity { min-width: 0; }
 .identity strong, .identity small { display: block; overflow-wrap: anywhere; }
 .identity strong { font-size: 13px; font-weight: 650; }
-.identity small { margin-top: 2px; color: var(--adc-ink3, #657184); font-size: 11px; }
+.identity small { margin-top: 2px; color: var(--adc-ink3, #657184); font-size: 12px; }
 .current { color: var(--adc-ink2, #3c485a); font-size: 12px; }
 
 .row select {

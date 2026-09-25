@@ -145,6 +145,8 @@ export interface CampaignContextProvenance {
    */
   roleEntityType?: "campaign" | "adset" | null;
   roleEntityId?: string | null;
+  /** Exact contract behind an operator declaration; replay must not infer it. */
+  roleDeclarationContractVersion?: string | null;
 }
 
 export type PriorHysteresisSource =

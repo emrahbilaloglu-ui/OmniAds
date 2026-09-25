@@ -731,6 +731,10 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
   generation.
 - (D118) An ad set declaration is bound to the campaign it was declared
   under; under any other (or an unknown) campaign it grants nothing.
+- (D122) A persisted Meta snapshot's served role guard uses only declarations
+  recorded by that snapshot run's stored knowledge instant. An unstamped,
+  mixed-stamp or invalid-stamp generation admits no declarations on read;
+  a later role confirmation cannot upgrade an older verdict.
 - (D121) A budget is sized and proposed under its OWN entity's role: a
   campaign budget under the campaign's, an ad set budget under the ad set's.
   A campaign's role — automatic or declared — never sizes or proposes its ad

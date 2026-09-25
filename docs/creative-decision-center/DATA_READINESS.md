@@ -300,6 +300,15 @@ stop-loss path" in that row now refers to.
   and stays automatic-only by design: declarations never make execution
   ready. It keeps reporting automatic retention exactly as before.
 
+## D122 served snapshot role knowledge (2026-09-25)
+
+- New persisted Meta recommendation rows carry the generating run's
+  `roleSourceKnowledge` instant in `signal_quality`. The served role re-guard
+  uses that instant, never the time of a later page read.
+- Legacy, mixed or invalid stamps cannot use declarations to raise an old
+  verdict. Recompute a new generation after a role confirmation; do not
+  backfill the stamp from the row's `created_at` or today's role state.
+
 ## D074b vocabulary closure (2026-08-30)
 
 - Active runtime, readiness contracts, API projections, and buyer UI now

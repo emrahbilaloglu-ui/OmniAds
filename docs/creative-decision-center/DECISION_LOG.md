@@ -11222,3 +11222,26 @@ automation is ever enabled. The Meta serving re-guard
 
 **Rollback.** Revert the commit. No migration, no persisted row and no
 provider state is involved; the r17 artifact is additive beside r16.
+
+## D122 — A served Meta snapshot cannot learn a role declared after its run (2026-09-25)
+
+**Failure.** The snapshot producer bounded declarations by its run start, but
+`readLatestMetaDecisionSnapshot` re-read campaign and ad-set roles without
+that bound. An operator declaration recorded after a persisted verdict could
+therefore make that older row appear role-authorized on its next read.
+
+**Decision.** Each newly written recommendation row carries
+`signal_quality.roleSourceKnowledge` under
+`meta-snapshot-role-knowledge.v1`, containing the generating run's actual
+declaration-read instant. The served reader accepts that instant only when
+every selected row has the same exact-version stamp and it is no later than
+the row's creation time. It passes the instant to both campaign and ad-set
+role reads. An older, mixed or malformed generation admits no declarations;
+its automatic role path remains independent. A later declaration reaches a
+new snapshot run, never an earlier one. This metadata grants no action by
+itself and changes neither provider writes nor the native-Ad run binding.
+
+**Acceptance and rollback.** A stamped generation reads its run-start role
+state; unstamped and future-stamped rows read no declarations. All rows in a
+served generation must agree on the stamp. Reverting the reader restores the
+old unbounded guard; removing the additive stamp does not alter old rows.

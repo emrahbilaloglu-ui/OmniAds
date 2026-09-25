@@ -903,6 +903,15 @@ Same anchor: a Main campaign running a separate Test ad set.
 | R121-C10 | declared authority relabelled to the parent campaign, or recorded after the knowledge instant | `role_authority_declared_unbound` |
 | R121-D1..D8 | D085 r17: exact declared ad set; each defect; the parent campaign's declaration; another ad set / campaign; record after the cutoff; automatic context with declared-only fields; relabelled automatic context; automatic fixture | canonical with no resolver approval / `role_authority_not_canonical` naming the defect / `role_identity_unbound` / `role_identity_unbound` / `capture_after_knowledge_cutoff` / refused / refused / unchanged |
 
+## D122 served snapshot role-knowledge cases
+
+| case | input | expected |
+|---|---|---|
+| R122-01 | new snapshot recommendation rows written in one run | every row stores the same `meta-snapshot-role-knowledge.v1` run-start instant |
+| R122-02 | retained row without a role-knowledge stamp | served campaign and ad-set readers admit no later declaration |
+| R122-03 | valid stamp before row creation; later declaration exists | served role readers stay bounded by that stamp |
+| R122-04 | stamp after row creation or mixed stamps in one served set | declarations withheld; automatic role source remains independently readable |
+
 ## Current authority vs historical record
 
 > **Current authority vs historical record.** Which table a decision taken today

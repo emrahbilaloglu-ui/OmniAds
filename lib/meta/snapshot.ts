@@ -231,6 +231,32 @@ type SnapshotDbRow = {
   signal_quality?: unknown;
 };
 
+const SNAPSHOT_ROLE_KNOWLEDGE_CONTRACT = "meta-snapshot-role-knowledge.v1";
+/** Before the first possible declaration: unstamped legacy rows admit none. */
+const NO_ROLE_DECLARATION_KNOWLEDGE = "1970-01-01T00:00:00.000Z";
+
+/** Every served row must name the SAME generating run's declaration cutoff. */
+function snapshotRoleDeclarationCutoff(rows: readonly SnapshotDbRow[]): string | null {
+  let cutoff: string | null = null;
+  for (const row of rows) {
+    const quality = row.signal_quality;
+    if (!quality || typeof quality !== "object" || Array.isArray(quality)) return null;
+    const raw = (quality as Record<string, unknown>).roleSourceKnowledge;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const stamp = raw as Record<string, unknown>;
+    if (stamp.contractVersion !== SNAPSHOT_ROLE_KNOWLEDGE_CONTRACT ||
+        typeof stamp.recordedBy !== "string") return null;
+    const parsed = new Date(stamp.recordedBy);
+    const createdAt = Date.parse(row.created_at);
+    if (!Number.isFinite(parsed.getTime()) ||
+        parsed.toISOString() !== stamp.recordedBy ||
+        !Number.isFinite(createdAt) || parsed.getTime() > createdAt ||
+        (cutoff !== null && cutoff !== stamp.recordedBy)) return null;
+    cutoff = stamp.recordedBy;
+  }
+  return cutoff;
+}
+
 interface SnapshotPayloadRow {
   scope_type: "account" | "campaign" | "adset";
   scope_id: string;
@@ -498,6 +524,7 @@ function recommendationToSnapshotRow(
   snapshotDate: string,
   evidenceTrail: MetaEvidenceTrail | null,
   lineage: SnapshotAccountLineage | null = null,
+  roleDeclarationsRecordedBy: string | null = null,
 ): SnapshotPayloadRow {
   const scope = scopeForRecommendation(recommendation, businessId);
   const recommendationWithTrail = evidenceTrail
@@ -532,7 +559,15 @@ function recommendationToSnapshotRow(
     decision_label: decisionLabelForMetaRec(recommendation),
     state_reason: recommendation.stateReason ?? null,
     calibration_scope: recommendation.calibrationScope ?? {},
-    signal_quality: recommendation.signalQuality ?? {},
+    signal_quality: {
+      ...(recommendation.signalQuality ?? {}),
+      ...(roleDeclarationsRecordedBy ? {
+        roleSourceKnowledge: {
+          contractVersion: SNAPSHOT_ROLE_KNOWLEDGE_CONTRACT,
+          recordedBy: roleDeclarationsRecordedBy,
+        },
+      } : {}),
+    },
   };
 }
 
@@ -2149,6 +2184,7 @@ export async function runMetaSnapshotForBusiness(
           normalizedSnapshotDate,
           evidenceTrails[recommendation.id] ?? null,
           scopedLineage,
+          roleDeclarationsRecordedBy,
         ),
       );
       await upsertSnapshotRows({
@@ -3051,11 +3087,17 @@ export async function readLatestMetaDecisionSnapshot(input: {
         .filter((campaignId): campaignId is string => Boolean(campaignId)),
     ),
   );
+  // A new declaration must never retrofit an older persisted verdict. Older
+  // snapshots have no run-start stamp and therefore admit no declarations on
+  // read; automatic context continues through its independent source path.
+  const roleDeclarationCutoff =
+    snapshotRoleDeclarationCutoff(rows) ?? NO_ROLE_DECLARATION_KNOWLEDGE;
   const campaignContextState = await readCampaignContextGuardState({
     businessId: input.businessId,
     providerAccountId: account,
     campaignIds,
     asOf: rows[0]?.snapshot_date ?? normalizeDate(input.endDate),
+    declarationsRecordedBy: roleDeclarationCutoff,
   });
   const campaignLabelsById = campaignContextState.campaignLabelsById;
   const adsetContextById = await readAdsetContextGuardState({
@@ -3064,6 +3106,7 @@ export async function readLatestMetaDecisionSnapshot(input: {
     recommendations: commerciallyGuardedRecommendations,
     campaignContextSource: campaignContextState.campaignContextSource,
     asOf: rows[0]?.snapshot_date ?? normalizeDate(input.endDate),
+    declarationsRecordedBy: roleDeclarationCutoff,
   });
   const guardedRecommendations = applyMetaCampaignLabelGuard({
     recommendations: commerciallyGuardedRecommendations,

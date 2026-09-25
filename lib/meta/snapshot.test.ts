@@ -673,6 +673,69 @@ describe("meta snapshot job", () => {
     });
   });
 
+  it("stamps a snapshot with the run's role-knowledge instant", async () => {
+    const sql = makeSqlMock();
+    vi.mocked(db.getDb).mockReturnValue(sql.tag);
+    await runMetaSnapshotForBusiness("biz_1", "2026-05-06");
+    const rows = persistedRows<{ kind: string; signal_quality: Record<string, unknown> }>(
+      sql.queryPayloads,
+    ).filter((row) => row.kind === "recommendation");
+    expect(rows.length).toBeGreaterThan(0);
+    const stamps = rows.map((row) => row.signal_quality.roleSourceKnowledge);
+    expect(new Set(stamps.map((stamp) => JSON.stringify(stamp))).size).toBe(1);
+    expect(stamps[0]).toMatchObject({
+      contractVersion: "meta-snapshot-role-knowledge.v1",
+      recordedBy: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+    });
+  });
+
+  it("does not give an old or invalidly stamped snapshot a later role declaration", async () => {
+    const baseRow = {
+      scope_type: "campaign", scope_id: "cmp_1", business_id: "biz_1",
+      snapshot_date: "2026-05-06", rec_id: "rec_1", rec_type: "campaign_budget",
+      level: "campaign", decision_state: "act", confidence_score: 0.8,
+      recommended_action: "Scale.", reasoning: "Because.", engine_version: "v1",
+      created_at: "2026-05-06T03:00:00.000Z",
+    };
+    const cases = [
+      { quality: undefined, expected: "1970-01-01T00:00:00.000Z" },
+      { quality: { roleSourceKnowledge: {
+        contractVersion: "meta-snapshot-role-knowledge.v1",
+        recordedBy: "2026-05-06T02:00:00.000Z",
+      } }, expected: "2026-05-06T02:00:00.000Z" },
+      { quality: { roleSourceKnowledge: {
+        contractVersion: "meta-snapshot-role-knowledge.v1",
+        recordedBy: "2026-05-06T04:00:00.000Z",
+      } }, expected: "1970-01-01T00:00:00.000Z" },
+    ];
+    for (const testCase of cases) {
+      const sql = makeSqlMock([{ ...baseRow, signal_quality: testCase.quality }]);
+      vi.mocked(db.getDb).mockReturnValue(sql.tag);
+      await readLatestMetaDecisionSnapshot({
+        businessId: "biz_1", startDate: "2026-05-01", endDate: "2026-05-06",
+        providerAccountId: "act_1",
+      });
+      expect(vi.mocked(campaignContextSource.readCampaignContextLabelMap)
+        .mock.lastCall?.[0].declarationsRecordedBy).toBe(testCase.expected);
+    }
+    const mixed = makeSqlMock([
+      { ...baseRow, rec_id: "rec_1", signal_quality: cases[1]!.quality },
+      { ...baseRow, rec_id: "rec_2", signal_quality: {
+        roleSourceKnowledge: {
+          contractVersion: "meta-snapshot-role-knowledge.v1",
+          recordedBy: "2026-05-06T02:30:00.000Z",
+        },
+      } },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(mixed.tag);
+    await readLatestMetaDecisionSnapshot({
+      businessId: "biz_1", startDate: "2026-05-01", endDate: "2026-05-06",
+      providerAccountId: "act_1",
+    });
+    expect(vi.mocked(campaignContextSource.readCampaignContextLabelMap)
+      .mock.lastCall?.[0].declarationsRecordedBy).toBe("1970-01-01T00:00:00.000Z");
+  });
+
   it("refuses an account the workspace no longer has, and computes nothing", async () => {
     const sql = makeSqlMock();
     vi.mocked(db.getDb).mockReturnValue(sql.tag);

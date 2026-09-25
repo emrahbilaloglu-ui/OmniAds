@@ -16,7 +16,9 @@ Read them before changing receipt storage or executing this release's migrations
 > before touching role sources or consumers. Budgets follow the same rule
 > (D121): an ad set budget is sized and proposed under the ad set's own role,
 > a declaration can raise a reviewable proposal, and execution stays
-> automatic-only.
+> automatic-only. A served persisted snapshot also binds role reads to its
+> own run-start knowledge stamp (D122); a later declaration never upgrades an
+> earlier snapshot.
 
 ## The current decision contract (D091, 2026-09-07) — read before anything else
 

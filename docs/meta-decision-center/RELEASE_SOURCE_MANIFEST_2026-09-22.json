@@ -1,5 +1,5 @@
 {
-  "manifestHash": "55664559b345cd6729e73caf27596efdc0e6e5c666149d90b7fc43181abd6d66",
+  "manifestHash": "09295e77e34cc983efe89e22bf3f1397b3d29d4a6dfc258c85f25e0b887e4875",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -444,7 +444,7 @@
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "819699d391ad66469cb8adae59da515f805c5b0853f7c15070c170fb7bb44f55"
+      "sha256": "676375827860696eb0b07e541b658ae228cebb62d3c5ace3f48b89a48bfe10ba"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",

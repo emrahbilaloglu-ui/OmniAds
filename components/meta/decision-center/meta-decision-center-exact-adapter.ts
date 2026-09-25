@@ -2821,7 +2821,7 @@ export function heldCreativeVerdict(
     closing clause. The D097 manual Cut is operator-owned and never enters here.
   */
   if (resolutionWaitsOnSystem(decision.heldResolution) && !manualCutCandidate) {
-    if (action === "cut" && needsConfig && !needsFreshSource && !needsConfirmation && !needsCampaignContext) {
+    if (action === "cut" && needsConfig && !needsFreshSource && !needsConfirmation && !needsCampaignContext && !heldPrimaryReason(decision, authorityBlocker)) {
       return {
         action,
         label: "Pause signal · configuration unverified",

@@ -750,6 +750,13 @@ describe("GET /api/overview-summary", () => {
         firstTimePurchasers: 410,
       },
     } as never);
+    vi.mocked(overviewSummarySupport.getGa4LtvSnapshot).mockResolvedValue({
+      revenuePerCustomer: 120,
+      repeatPurchaseRate: 20,
+      averageCustomerLtv: 120,
+      ltvToCac: 2.4,
+      customerLifespan: null,
+    });
     const baseOverview = await overviewService.getOverviewData({} as never);
     vi.mocked(overviewService.getOverviewData).mockResolvedValue({
       ...baseOverview,
@@ -806,6 +813,13 @@ describe("GET /api/overview-summary", () => {
         dataSource: { key: "ga4_fallback", label: "GA4 fallback" },
       })
     );
+    expect(overviewSummarySupport.getGa4LtvSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ spend: 0 }),
+    );
+    expect(payload.summary.ltv.find((metric: { id: string }) => metric.id === "ltv-average"))
+      .toEqual(expect.objectContaining({ value: 120 }));
+    expect(payload.summary.ltv.some((metric: { id: string }) => metric.id === "ltv-cac"))
+      .toBe(false);
   });
 
   it("fails closed when the Shopify connection state is unknown", async () => {

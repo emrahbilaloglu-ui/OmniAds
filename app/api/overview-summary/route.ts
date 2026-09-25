@@ -721,7 +721,7 @@ export async function GET(request: NextRequest) {
           businessId,
           startDate: resolvedStart,
           endDate: resolvedEnd,
-          spend: currentOverview.kpis.spend ?? 0,
+          spend: currentMerSpend ?? 0,
         })
       : Promise.resolve(null),
     analyticsConnected && ga4CommerceFallbackAllowed && previousWindow.startDate && previousWindow.endDate
@@ -729,7 +729,7 @@ export async function GET(request: NextRequest) {
           businessId,
           startDate: previousWindow.startDate,
           endDate: previousWindow.endDate,
-          spend: previousOverview?.kpis.spend ?? 0,
+          spend: paidSpendComparisonComparable ? (previousMerSpend ?? 0) : 0,
         })
       : Promise.resolve(null),
   ]);
@@ -992,32 +992,18 @@ export async function GET(request: NextRequest) {
           compareMode,
         })
       : null,
-    currentGa4Ltv?.ltvToCac !== null && currentGa4Ltv?.ltvToCac !== undefined
+    currentMerSpend !== null && currentGa4Ltv?.ltvToCac !== null && currentGa4Ltv?.ltvToCac !== undefined
       ? buildMetricCard({
           id: "ltv-cac",
           title: "LTV : CAC",
           helperText: ltvEstimatedHelper,
           value: currentGa4Ltv.ltvToCac,
-          previousValue: previousGa4Ltv?.ltvToCac ?? null,
+          previousValue: paidSpendComparisonComparable ? (previousGa4Ltv?.ltvToCac ?? null) : null,
           unit: "ratio",
           sourceKey: "ga4_fallback",
           sourceLabel: ltvSourceLabel,
-          sparklineData:
-            currentOverview.kpis.spend > 0
-              ? toRatioSparklineSeries(
-                  ga4RevenuePerCustomerSeries,
-                  (point) => point.value,
-                  () => {
-                    return 1;
-                  }
-                ).map((point, index) => ({
-                  date: point.date,
-                  value:
-                    blendedCpaSeries[index] && blendedCpaSeries[index].value > 0
-                      ? roundSparklineValue(point.value / blendedCpaSeries[index].value)
-                      : 0,
-                }))
-              : [],
+          // GA4 revenue/customer and paid CPA are not a matched daily cohort.
+          sparklineData: [],
           compareMode,
         })
       : null,

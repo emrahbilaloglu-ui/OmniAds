@@ -901,6 +901,7 @@ function fetchDecisionsWorkspace(
     window,
     status_filter: statusFilter,
     adLimit: String(adCandidateLimit),
+    activeAdDecisions: "1",
   });
   // The dates travel for EVERY window, not just `custom`. Sending a bare
   // `window=7d` handed the route the job of picking an end date, and it picked

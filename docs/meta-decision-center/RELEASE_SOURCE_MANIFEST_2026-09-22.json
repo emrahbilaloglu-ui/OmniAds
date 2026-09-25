@@ -1,5 +1,5 @@
 {
-  "manifestHash": "68b729d49e4821f5a01e6f1a69ed1958a8b58533c0deca0582649868aeda223a",
+  "manifestHash": "55664559b345cd6729e73caf27596efdc0e6e5c666149d90b7fc43181abd6d66",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -25,6 +25,10 @@
     {
       "path": ".github/workflows/automation-capability-toggle-integration.test.ts",
       "sha256": "b1d42731490ee2a3b0e22bbbb9c13e3b91239dec1402d333ddd753a09bb3b0b0"
+    },
+    {
+      "path": "app/(dashboard)/overview/legacy-page.tsx",
+      "sha256": "2a34052402ab0391120b2e99fdee4346bbf7729b10e481919ca6446a7afa1a7b"
     },
     {
       "path": "app/(dashboard)/platforms/meta/audiences/legacy-page.tsx",
@@ -255,6 +259,14 @@
       "sha256": "d82159aefa8feefefb7921e41afea9e571d84945fd9f3a1cd45d52d4fa6f3a1f"
     },
     {
+      "path": "app/api/overview-summary/route.test.ts",
+      "sha256": "04a85951163ce84e40352dbcdf0b74aa2259377b0c7ae31c603554562d03bbf1"
+    },
+    {
+      "path": "app/api/overview-summary/route.ts",
+      "sha256": "79f05662af680233236a6c7d395d11f85722a996e5f16dc63fc8a23129264e0a"
+    },
+    {
       "path": "app/api/sync/cron/route.test.ts",
       "sha256": "3811f14a75d3d4ad1893db9d00f849b87851eec0cd224d873355abb77165dca1"
     },
@@ -296,11 +308,11 @@
     },
     {
       "path": "app/switch-business/[businessId]/route.test.ts",
-      "sha256": "09599d5bab28effa1d4dbf5807ea99462fc7da067f65350a28365fdbf74299b8"
+      "sha256": "0b65479cac913c84eff5fc620751c855dfc7fff2382927eca1daf5c45d4edea3"
     },
     {
       "path": "app/switch-business/[businessId]/route.ts",
-      "sha256": "4e42a4da89a3ccc722def775763e4691c69ea25394c30c518407f34e03033f5e"
+      "sha256": "10e9f13a64b3dbfa63edaf5be2f6fa5457f048b660c6465aea8c90d11d122f18"
     },
     {
       "path": "components/common/briefing/CompareDrawer.tsx",
@@ -424,15 +436,15 @@
     },
     {
       "path": "components/meta/decision-center/held-resolution-owner-copy.test.ts",
-      "sha256": "2d8c31b902584ba7a4f03d284acab9b04b1855a5a7f46f8756e8b1227d3935f4"
+      "sha256": "ba7d41aa02a926ce64e24fff7cb19dc39bf8274c12c8f60c05ef332ebddfa6a1"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.test.ts",
-      "sha256": "1d9e053035b2e84757fd638fe9116ddb7f5d896d07d4feedae621d566a3c0749"
+      "sha256": "273b24ab162ca61bc452388f46e6bc1817c025d09778ecfe2672ac856c7c813f"
     },
     {
       "path": "components/meta/decision-center/meta-decision-center-exact-adapter.ts",
-      "sha256": "21a78ff9a81e26483542d4ba49a5925e4b249986e985abf8d3fbd87812f1ce4e"
+      "sha256": "819699d391ad66469cb8adae59da515f805c5b0853f7c15070c170fb7bb44f55"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.module.css",
@@ -532,7 +544,7 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "4d08ff304eacc3701cf6879529af523b40f65b81a2f92402342c0cc01d7524fb"
+      "sha256": "6d3a8fd8e835b7108f8e6cfd28ff8b869dee24c4434cfc68585fadba4ef87d49"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
@@ -549,6 +561,14 @@
     {
       "path": "components/meta/redesign/mobile-card-apply-ceremony.test.tsx",
       "sha256": "4c3ddfb00ae2a283aaad8d6725adf9daebfe822d898188983d1cf4f91a948b0e"
+    },
+    {
+      "path": "components/overview/v2/platform-card.test.tsx",
+      "sha256": "29cdc52c5a84ac04034260b71e245c3bb0f078432dae7517423df113424fa057"
+    },
+    {
+      "path": "components/overview/v2/platform-card.tsx",
+      "sha256": "76710ba9099cf5c2b6e583d9702d374f648d2abbf32fc4ef4447b6d22c749b9a"
     },
     {
       "path": "components/zero-base/agency/agency.test.tsx",
@@ -1779,6 +1799,18 @@
       "sha256": "a86a8e6c8cab7534cc9669a3b5542af9ad0bd84767efebd931151151871a835e"
     },
     {
+      "path": "lib/overview-summary-support.test.ts",
+      "sha256": "636e99044b780cd5b843eb6d42462db2c44758ef946b6b1f57b32a17142e2a49"
+    },
+    {
+      "path": "lib/overview-summary-support.ts",
+      "sha256": "5f35d39121fc1e2288ff163cee61b30810f3c0e70a40743842f9584f0e4ed694"
+    },
+    {
+      "path": "lib/public-redirect-url.ts",
+      "sha256": "228645f011e469c12a1aea3d1e2dad78608d3da8d7fbee4f09b424275fb0b711"
+    },
+    {
       "path": "lib/server-cache.test.ts",
       "sha256": "f0cd948e5f3653ffc5467342e0f9d2101d3291bc537616da8164411259c46a42"
     },
@@ -1857,6 +1889,14 @@
     {
       "path": "playwright/tests/meta-runtime-write-gates.spec.ts",
       "sha256": "a408240877e52b8fd731556db16904a209fce4241827c0795b2cdd8ca3609281"
+    },
+    {
+      "path": "proxy.test.ts",
+      "sha256": "e6e55c6957705f456e4a06e642d0d2024f7b3c14f8ce79d2145dd73e476a40c9"
+    },
+    {
+      "path": "proxy.ts",
+      "sha256": "f09c15af53a2571948d49caa127050ef95a071522ad2b0cfe70f7b01f0421dbb"
     },
     {
       "path": "scripts/creative-decision-center/generalized-pit-replay.test.ts",
@@ -2073,6 +2113,10 @@
     {
       "path": "scripts/verify-database-seams.sh",
       "sha256": "f45e5b6b905688fc776a855fa3cf898b29bdf490054b5dcc50b3067e29ddecd4"
+    },
+    {
+      "path": "src/types/models.ts",
+      "sha256": "d4442e4b90eb6222d6b94a11f76a9de72c0ae607cac9b62cfdd1308448e62915"
     }
   ]
 }

@@ -13,6 +13,8 @@ vi.mock("@/lib/db", () => ({
 import {
   appendEntityRoleDeclarations,
   ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+  listEntityRoleDeclarations,
+  readActiveEntityRoleDeclarations,
 } from "./entity-role";
 
 const NOW = new Date("2026-09-25T12:00:00.000Z");
@@ -51,6 +53,28 @@ const insertCalls = () =>
   mocks.query.mock.calls.filter(([sql]) =>
     String(sql).includes("INSERT INTO meta_entity_role_declarations"),
   );
+
+describe("D118 — pre-migration reads inside a pinned transaction", () => {
+  it("does not issue a failed table SELECT that would abort PostgreSQL's transaction", async () => {
+    mocks.query.mockReset();
+    mocks.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
+        return [{ table_name: null }];
+      }
+      throw new Error(`missing relation was referenced: ${sql}`);
+    });
+    const active = await readActiveEntityRoleDeclarations({
+      businessId: "biz", providerAccountId: "act_1", entityType: "adset",
+      entityIds: [ADSET], asOf: "2026-09-25",
+    });
+    const history = await listEntityRoleDeclarations({
+      businessId: "biz", providerAccountId: "act_1",
+    });
+    expect(active.size).toBe(0);
+    expect(history).toEqual([]);
+    expect(mocks.query).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("D118 — writing a declaration", () => {
   beforeEach(() => {

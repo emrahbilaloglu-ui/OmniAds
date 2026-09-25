@@ -509,6 +509,9 @@ describe("D118 — explicit entity role declarations at the source", () => {
 
   function dispatch(declarationResult: () => unknown[]) {
     mocks.query.mockImplementation(async (sql: string, params: unknown[]) => {
+      if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
+        return [{ table_name: "meta_entity_role_declarations" }];
+      }
       if (sql.includes("FROM engine_v3_campaign_context_daily")) return [AUTOMATIC_MEDIUM];
       if (sql.includes("FROM meta_entity_role_declarations")) {
         const rows = declarationResult();

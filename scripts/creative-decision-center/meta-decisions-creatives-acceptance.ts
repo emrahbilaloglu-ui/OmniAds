@@ -111,6 +111,7 @@ import {
   groupNativeProfileInputsByScope,
   mergeUniqueMap,
   readAdCampaignContext,
+  readAdAdsetRoles,
   resolveNativeAdDecisionProfileGroups,
   resolveNativeAdFrequencyPressureThresholdsByAccount,
   toNativeSnapshotPayload,
@@ -141,6 +142,7 @@ import {
   buildNativeMetaCanonicalDecisionInventory,
   buildNativeMetaDecisionsWorkspaceReadModel,
   readMetaDecisionCampaignContextRows,
+  readMetaDecisionAdsetRoleRows,
   readMetaDecisionsWorkspaceReadModel,
   readValidatedMetaNativeDecisionGenerationBundle,
   validateMetaNativeDecisionGenerationBundle,
@@ -297,11 +299,12 @@ function pick(value: unknown, path: readonly string[]): unknown {
   return current;
 }
 
-async function assertTransactionAlive(db: DbClient, after: string): Promise<void> {
+async function assertTransactionAlive(db: DbClient, after: string, originalError?: unknown): Promise<void> {
   try {
     await db.query("SELECT 1 AS alive");
   } catch (error) {
-    throw new Error(`transaction aborted after ${after}: ${errorMessage(error)}`);
+    const original = originalError === undefined ? "" : `; original failure: ${errorMessage(originalError)}`;
+    throw new Error(`transaction aborted after ${after}: ${errorMessage(error)}${original}`);
   }
 }
 
@@ -1292,15 +1295,30 @@ async function presentAccount(input: {
     return { report, episodes: built.episodes };
   }
 
-  // Serve-time campaign role: same reader as production (bounded by as_of_date only).
+  // Serve the simulated generation with the same entity-role readers as
+  // production, but bound declarations to this historical knowledge cutoff.
   const campaignIds = [...new Set(rows.map((row) => row.campaign_id).filter((id): id is string => Boolean(id)))];
   const campaignContextRows = await readMetaDecisionCampaignContextRows({
     businessId,
     providerAccountId: receipt.providerAccountId,
     campaignIds,
     snapshotAsOf: asOf,
+    visibleAtCutoff: cutoff,
   });
   await assertTransactionAlive(db, "readMetaDecisionCampaignContextRows");
+  const adsets = [...new Map(rows
+    .filter((row) => Boolean(row.adset_id))
+    .map((row) => [row.adset_id!, { adsetId: row.adset_id!, campaignId: row.campaign_id ?? null }]))
+    .values()];
+  const adsetRoleRows = await readMetaDecisionAdsetRoleRows({
+    businessId,
+    providerAccountId: receipt.providerAccountId,
+    adsets,
+    snapshotAsOf: asOf,
+    campaignRows: campaignContextRows,
+    visibleAtCutoff: cutoff,
+  });
+  await assertTransactionAlive(db, "readMetaDecisionAdsetRoleRows");
 
   const common = {
     businessId,
@@ -1308,6 +1326,7 @@ async function presentAccount(input: {
     generation: built.generation,
     snapshotRows: rows,
     campaignContextRows,
+    adsetRoleRows,
     eventRows: [],
     outcomeRows: [],
     responseRows: [],
@@ -1783,6 +1802,14 @@ async function runDecisionLane(input: {
           visibleAtCutoff: day.cutoff,
           pitExclusions: contextExclusions,
         });
+        const adsetRoleByKey = await readAdAdsetRoles({
+          businessId,
+          asOf: day.asOf,
+          adInputs: hydration.inputs,
+          mode: campaignContextMode,
+          campaignContextById,
+          visibleAtCutoff: day.cutoff,
+        });
         mark("campaign_context", since);
 
         since = Date.now();
@@ -1845,6 +1872,7 @@ async function runDecisionLane(input: {
                   dataHealth,
                   campaignContextMode,
                   campaignContextById,
+                  adsetRoleByKey,
                   previousLabels: prior.labels,
                   frequencyPressureThresholdByAccount: frequency,
                 })
@@ -1855,6 +1883,7 @@ async function runDecisionLane(input: {
                   adInputs: group.adInputs,
                   campaignContextMode,
                   campaignContextById,
+                  adsetRoleByKey,
                   previousLabels: prior.labels,
                   evaluatedAt: day.cutoff,
                 });
@@ -1997,7 +2026,7 @@ async function runDecisionLane(input: {
       } catch (error) {
         dayReport.status = "failed";
         dayReport.reason = errorMessage(error);
-        await assertTransactionAlive(db, `decision day ${day.asOf}`);
+        await assertTransactionAlive(db, `decision day ${day.asOf}`, error);
       }
     }
     return {
@@ -2127,7 +2156,7 @@ async function runPersistedServedLane(input: { businessId: string }): Promise<Pe
         };
       } catch (error) {
         workspace = { error: errorMessage(error) };
-        await assertTransactionAlive(db, "readMetaDecisionsWorkspaceReadModel (failed)");
+        await assertTransactionAlive(db, "readMetaDecisionsWorkspaceReadModel (failed)", error);
       }
       accounts.push({
         providerAccountId: binding.providerAccountId,

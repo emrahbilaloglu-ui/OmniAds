@@ -715,6 +715,9 @@ function workspaceReadQuery(input: {
   entityRoleDeclarationRows?: unknown[];
 }) {
   return vi.fn(async (sql: string, params?: unknown[]) => {
+    if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
+      return [{ table_name: "meta_entity_role_declarations" }];
+    }
     if (sql.includes("WITH candidate_runs AS")) {
       return input.generationRows ?? [];
     }
@@ -6366,6 +6369,9 @@ describe("D118 — declarations are bound to the knowledge of the publishing run
 
   function pitQuery() {
     return vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
+        return [{ table_name: "meta_entity_role_declarations" }];
+      }
       if (!sql.includes("FROM meta_entity_role_declarations")) return [];
       const runId = (params?.[6] as string | null) ?? null;
       const startedAt = runId === null ? null : (RUN_STARTED[runId] ?? null);

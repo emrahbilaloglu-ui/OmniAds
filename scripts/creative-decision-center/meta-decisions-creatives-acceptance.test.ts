@@ -470,6 +470,22 @@ describe("buildSimulatedGeneration", () => {
 
 /* ========================================== read-model projection parity */
 
+describe("D118 historical entity-role parity", () => {
+  it("feeds the production ad set reader to both decisions and presentation at the cutoff", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts"),
+      "utf8",
+    );
+    expect(source).toContain("readAdAdsetRoles({");
+    expect(source).toMatch(/readAdAdsetRoles\(\{[\s\S]*?visibleAtCutoff: day\.cutoff/);
+    expect(source).toMatch(/computeReadyNativeAdDecisions\(\{[\s\S]*?adsetRoleByKey,/);
+    expect(source).toMatch(/computeSoftOnlyNativeAdDecisions\(\{[\s\S]*?adsetRoleByKey,/);
+    expect(source).toContain("readMetaDecisionAdsetRoleRows({");
+    expect(source).toMatch(/readMetaDecisionAdsetRoleRows\(\{[\s\S]*?visibleAtCutoff: cutoff/);
+    expect(source).toContain("adsetRoleRows,\n    eventRows:");
+  });
+});
+
 describe("config projection parity with the read-model SQL", () => {
   const repo = path.resolve(__dirname, "../..");
   const readModelSql = readFileSync(path.join(repo, "lib/meta/decisions-workspace-read-model.ts"), "utf8");

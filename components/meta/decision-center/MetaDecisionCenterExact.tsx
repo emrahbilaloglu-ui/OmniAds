@@ -3006,7 +3006,7 @@ export function MetaDecisionCenterExact({
               onClick={onRunSnapshot}
               type="button"
             >
-              {language === "tr" ? "Kararları yenile" : "Refresh decisions"}
+              {language === "tr" ? "Yapı kararlarını yenile" : "Refresh structure decisions"}
             </button>
           ) : null}
           {adsManagerHref ? (

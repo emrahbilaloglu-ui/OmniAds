@@ -5885,6 +5885,8 @@ export async function readMetaDecisionCampaignContextRows(input: {
   providerAccountId: string;
   campaignIds: string[];
   snapshotAsOf: string;
+  /** Historical simulation only: do not admit declarations recorded later. */
+  visibleAtCutoff?: string | null;
   /**
    * D118 — the run that published the served generation. Declarations count
    * only if recorded by its start, so a later declaration never retrofits an
@@ -5903,6 +5905,7 @@ export async function readMetaDecisionCampaignContextRows(input: {
     entityType: "campaign",
     entityIds: input.campaignIds,
     asOf: input.snapshotAsOf,
+    visibleAtCutoff: input.visibleAtCutoff ?? null,
     knowledgeJobRunId: input.declarationKnowledgeJobRunId ?? null,
   });
   if (declarations.size === 0) return automatic;
@@ -5922,6 +5925,8 @@ export async function readMetaDecisionAdsetRoleRows(input: {
   providerAccountId: string;
   adsets: ReadonlyArray<{ adsetId: string; campaignId: string | null }>;
   snapshotAsOf: string;
+  /** Historical simulation only: do not admit declarations recorded later. */
+  visibleAtCutoff?: string | null;
   campaignRows: readonly MetaDecisionCampaignContextSourceRow[];
   /** @see readMetaDecisionCampaignContextRows */
   declarationKnowledgeJobRunId?: string | null;
@@ -5942,6 +5947,7 @@ export async function readMetaDecisionAdsetRoleRows(input: {
         entityType: "adset",
         entityIds: [...adsets.keys()],
         asOf: input.snapshotAsOf,
+        visibleAtCutoff: input.visibleAtCutoff ?? null,
         knowledgeJobRunId: input.declarationKnowledgeJobRunId ?? null,
       });
   return [...adsets].map(([adsetId, campaignId]) => {

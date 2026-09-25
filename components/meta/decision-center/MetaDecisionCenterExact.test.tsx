@@ -332,7 +332,7 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
       0,
     );
     expect(
-      screen.queryByRole("button", { name: "Refresh decisions" }),
+      screen.queryByRole("button", { name: "Refresh structure decisions" }),
     ).toBeNull();
     expect(screen.getByText("Spend · today")).toBeTruthy();
     expect(screen.getByText("ROAS · 28d")).toBeTruthy();

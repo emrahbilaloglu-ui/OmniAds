@@ -857,7 +857,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     });
     const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
     expect(rows.get("no_metrics")?.note).toBe(
-      "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance. Review this ad set's Main/Test role in the role panel, then refresh decisions.",
+      "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance. Review this ad set's Main/Test role in the role panel; the next decision run will reassess it.",
     );
     expect(rows.get("no_metrics")?.money).toBe("—");
     expect(rows.get("no_metrics")?.ctrValue).toBeNull();
@@ -882,7 +882,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
 
     // A numeric zero alone says nothing about delivery or read completeness.
     expect(buyerFacingCreativeResolution(noMetrics)).toBe(
-      "Review this ad set's Main/Test role in the role panel, then refresh decisions.",
+      "Review this ad set's Main/Test role in the role panel; the next decision run will reassess it.",
     );
     // This broad blocker also covers an observed ad whose account winner
     // benchmark is missing; it must not claim the ad has no performance day.

@@ -129,7 +129,7 @@ export function MetaEntityRoleReview({
         throw new Error("Roles were submitted, but their database readback could not be verified. Refresh before retrying.");
       }
       setChoices({});
-      const confirmed = `${requests.length} role${requests.length === 1 ? "" : "s"} confirmed. Existing verdicts keep their recorded authority until regenerated.`;
+      const confirmed = `${requests.length} role${requests.length === 1 ? "" : "s"} confirmed. Existing verdicts keep their recorded authority; the next native decision run will reassess them.`;
       try {
         await onSaved();
         setNotice(confirmed);

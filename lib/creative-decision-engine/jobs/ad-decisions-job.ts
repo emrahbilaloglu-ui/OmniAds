@@ -2825,7 +2825,7 @@ export async function readAdCampaignContext(
  * `adsetRoleKey`. The campaign map is passed in so an undeclared ad set can
  * carry its campaign's role as a capped suggestion.
  */
-async function readAdAdsetRoles(
+export async function readAdAdsetRoles(
   input: AdDecisionsJobInput & {
     adInputs: AdDecisionInput[];
     mode: ReturnType<typeof resolveCampaignContextMode>;

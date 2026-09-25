@@ -984,9 +984,9 @@ const BUYER_READINESS_RESOLUTION_COPY = {
     "Review the evidence. No change can be applied right now.",
   low_confidence: "Wait for more performance data, then review again.",
   missing_campaign_label:
-    "Review the Main/Test role in the role panel, then refresh decisions.",
+    "Review the Main/Test role in the role panel; the next decision run will reassess it.",
   campaign_context_unresolved:
-    "Review the Main/Test role in the role panel, then refresh decisions.",
+    "Review the Main/Test role in the role panel; the next decision run will reassess it.",
   campaign_context_resolver_unvalidated:
     "Review the campaign structure before acting.",
   // A target ROAS alone is now sufficient — the spend unit is the account's own
@@ -1151,7 +1151,7 @@ function buyerFacingReadinessResolution(
     node
   ) {
     if (node.campaignRoleTrustedForAction === true) {
-      return `${node.level === "adset" ? "Ad set" : "Campaign"} role is now verified. Refresh decisions to replace this older blocked recommendation.`;
+      return `${node.level === "adset" ? "Ad set" : "Campaign"} role is now verified. A new decision run will replace this older blocked recommendation.`;
     }
     const role = node.lifecycleRole;
     if (role === "main" || role === "test" || role === "mixed") {
@@ -2226,7 +2226,7 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
   fix_checkout: "Review checkout performance before changing the ad.",
   fix_landing_page: "Review landing-page performance before changing the ad.",
   resolve_campaign_role:
-    "Review the Main/Test role in the role panel, then refresh decisions.",
+    "Review the Main/Test role in the role panel; the next decision run will reassess it.",
   /*
     ADR D097 round 4. The Cut performance verdict is complete, but a relative
     boundary does not itself prove realised financial loss. The owner-based
@@ -2364,8 +2364,8 @@ export function buyerFacingCreativeResolution(
   // @see resolutionWaitsOnSystem
   const mapped = resolution.code === "resolve_campaign_role"
     ? decision.campaignRoleTrustedForAction === true
-      ? "The role is now confirmed. Refresh decisions to replace this older blocked result."
-      : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel, then refresh decisions.`
+      ? "The role is now confirmed. A new decision run will replace this older blocked result."
+      : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel; the next decision run will reassess it.`
     : resolutionWaitsOnSystem(resolution)
       ? `${systemResolutionStatus(resolution)} ${NO_BUYER_ACTION_NEEDED}; this ad is re-checked on each decision run.`
       : knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
@@ -2905,8 +2905,8 @@ export function heldCreativeVerdict(
     ].filter((part): part is string => Boolean(part));
     const roleReviewStep = needsCampaignContext
       ? decision.campaignRoleTrustedForAction === true
-        ? "Refresh decisions to replace this older role-held verdict."
-        : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel, then refresh decisions.`
+        ? "A new decision run will replace this older role-held verdict."
+        : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel; the next decision run will reassess it.`
       : null;
     return {
       action,

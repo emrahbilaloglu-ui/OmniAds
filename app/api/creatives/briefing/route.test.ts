@@ -1421,6 +1421,9 @@ describe("GET /api/creatives/briefing retained generation after a failed latest 
   const mockNativeDb = (generationRows: D102GenerationRow[]) => {
     const rows = AD_IDS.map(nativeRow);
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
+        return [{ table_name: "meta_entity_role_declarations" }];
+      }
       if (sql.includes("WITH candidate_runs AS")) return generationRows;
       // D118 — each served Ad's own ad set role; a trusted campaign alone is
       // not an Ad's role authority.

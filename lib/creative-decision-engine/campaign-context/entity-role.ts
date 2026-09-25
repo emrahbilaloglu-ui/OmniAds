@@ -384,6 +384,20 @@ function isUndefinedTable(error: unknown): boolean {
 }
 
 /**
+ * During a rolling migration the declaration table may not exist yet. A
+ * failed SELECT would poison a caller's read-only PostgreSQL transaction even
+ * if we caught 42P01 in JavaScript, so probe the catalog before referencing
+ * the relation. Keep checking until it appears; a long-lived process can
+ * span the migration without caching an absent table forever.
+ */
+async function declarationTableExists(): Promise<boolean> {
+  const [row] = await getDb().query<Row>(
+    "SELECT to_regclass('meta_entity_role_declarations')::text AS table_name",
+  );
+  return typeof row?.table_name === "string" && row.table_name.length > 0;
+}
+
+/**
  * Every declaration event that can bear on `entityIds` at `asOf`.
  *
  * Before the D118 migration has run the table does not exist; that reads as
@@ -408,6 +422,7 @@ export async function readEntityRoleDeclarationEvents(input: {
   knowledgeJobRunId?: string | null;
 }): Promise<EntityRoleDeclarationEvent[]> {
   if (input.entityIds.length === 0 || !input.providerAccountId) return [];
+  if (!(await declarationTableExists())) return [];
   try {
     const rows = await getDb().query<Row>(
       `
@@ -695,6 +710,7 @@ export async function listEntityRoleDeclarations(input: {
   providerAccountId: string;
   limit?: number;
 }): Promise<EntityRoleDeclarationEvent[]> {
+  if (!(await declarationTableExists())) return [];
   try {
     const rows = await getDb().query<Row>(
       `

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "f7f315cc23f328f1faf1e069908510935ed1c0293f93c1af9f9e8a652f2c2a2a",
+  "manifestHash": "3a345bfeb8a10918f6d483a95d4d28107933fa03d0cb2b42c160eedddbfa46ac",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -100,7 +100,7 @@
     },
     {
       "path": "app/(dashboard)/platforms/meta/creatives/retained-generation-degraded.test.tsx",
-      "sha256": "31dd7192eb8dbbf16d189da2f20f2f227195a5e7ed59855206a2a42f5d5e9998"
+      "sha256": "9d15fc3b6038918d63a850f53cc6be27031d959f4098e12e9e6961af85e17a70"
     },
     {
       "path": "app/(dashboard)/platforms/meta/creatives/status-heat-sort-production-chain.test.tsx",
@@ -412,7 +412,7 @@
     },
     {
       "path": "components/creatives/CreativeStudioExact.tsx",
-      "sha256": "c7b3bdfe9d52995fa6b04efa5439a6fab9018bf242b6a051747d9b1cde3537a4"
+      "sha256": "dd8b42466a6afee8c59b958192b006f41949828d152ee9002372127fe91106ef"
     },
     {
       "path": "components/creatives/meta-ad-event-step-rates.test.tsx",

@@ -428,7 +428,7 @@ export function buildPlatformSections(
       title: label,
       provider,
       coverageNote: partialCoverage && primitives && coverage && requestedWindow
-        ? `Verified provider data: ${coverage.startDate}–${coverage.endDate}. Selected window ends ${requestedWindow.endDate}; remaining days pending.`
+        ? `Available source range: ${coverage.startDate}–${coverage.endDate}; selected range: ${requestedWindow.startDate}–${requestedWindow.endDate}. Totals do not cover the full selection.`
         : null,
       metrics: OVERVIEW_PROVIDER_METRIC_SPECS[provider].map((spec) => {
         const id = providerMetricId(provider, spec.suffix);

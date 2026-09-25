@@ -2759,6 +2759,15 @@ export function heldCreativeVerdict(
     authorityBlocker === "campaign_context" ||
     blockerCodes.has("campaign_context") ||
     blockerCodes.has("campaign_context_unresolved");
+  // The served blocker list is not exhaustive: the native confirmation badge
+  // and automatic role trust also live on the canonical decision. A config-only
+  // manual-review sentence must not hide either independent hold.
+  const canonicalHasOtherHold =
+    canonical?.sourceDecision?.badges?.includes("pending_transition") === true ||
+    canonical?.classification?.lifecycleRole?.trustedForAction === false ||
+    canonical?.classification?.blockers?.some((blocker) =>
+      blocker.code === "pending_transition" || blocker.code.startsWith("campaign_context"),
+    ) === true;
   // Every prerequisite below is a pipeline condition — a config receipt, source
   // coverage, a confirming run, the automatic role — so it is stated as what
   // is outstanding, never as a buyer task, whoever owns the resolution.
@@ -2821,7 +2830,9 @@ export function heldCreativeVerdict(
     closing clause. The D097 manual Cut is operator-owned and never enters here.
   */
   if (resolutionWaitsOnSystem(decision.heldResolution) && !manualCutCandidate) {
-    if (action === "cut" && needsConfig && !needsFreshSource && !needsConfirmation && !needsCampaignContext && !heldPrimaryReason(decision, authorityBlocker)) {
+    if (action === "cut" && needsConfig && !needsFreshSource && !needsConfirmation && !needsCampaignContext &&
+      decision.campaignRoleTrustedForAction === true && !canonicalHasOtherHold &&
+      !heldPrimaryReason(decision, authorityBlocker)) {
       return {
         action,
         label: "Pause signal · configuration unverified",

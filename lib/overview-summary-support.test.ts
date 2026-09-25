@@ -62,8 +62,8 @@ describe("Dashboard v2 Overview provider contracts", () => {
       startDate: "2026-09-18", endDate: "2026-09-24",
     });
 
-    expect(sections.find((section) => section.provider === "meta")?.coverageNote).toContain(
-      "2026-09-24",
+    expect(sections.find((section) => section.provider === "meta")?.coverageNote).toBe(
+      "Available source range: 2026-09-18–2026-09-23; selected range: 2026-09-18–2026-09-24. Totals do not cover the full selection.",
     );
     expect(metricsFor(sections, "meta")["meta-spend"]).toEqual(
       expect.objectContaining({ value: 150, previousValue: null, changePct: null }),

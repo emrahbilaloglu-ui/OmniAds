@@ -216,6 +216,9 @@ const query = vi.fn(async (sql: string, params: unknown[] = []) => {
   if (text.includes("FROM engine_v3_campaign_role_authority")) {
     return roleRowsPresent ? [roleRow(String(params[1]))] : [];
   }
+  if (text.includes("to_regclass('meta_entity_role_declarations')")) {
+    return [{ table_name: "meta_entity_role_declarations" }];
+  }
   if (text.includes("FROM meta_entity_role_declarations")) {
     return declarationRows.filter((row) =>
       row.entity_type === params[2]

@@ -1903,7 +1903,7 @@ describe("a held verdict renders as evidence and never as an affordance", () => 
     };
   }
 
-  it("draws the engine's held verdict as its own element beside the published label", () => {
+  it("leads with the held recommendation and labels the published fallback as temporary", () => {
     render(
       <MetaDecisionCenterExact
         lane="needsres"
@@ -1922,6 +1922,11 @@ describe("a held verdict renders as evidence and never as an affordance", () => 
     // is mistaken for the other.
     expect(row.textContent).toContain("Keep monitoring");
     expect(held?.textContent).not.toContain("Keep monitoring");
+    const current = row.querySelector("[data-meta-exact-creative-current-disposition]");
+    expect(current?.textContent).toBe("Current status: Keep monitoring");
+    expect(held?.compareDocumentPosition(current!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(held?.className).toContain(styles.creativeDecisionLabel);
+    expect(current?.className).toContain(styles.creativeCurrentDisposition);
     // The specific held resolution, not the generic evidence sentence.
     expect(
       row.querySelector("[data-meta-exact-creative-next-step]")?.textContent,

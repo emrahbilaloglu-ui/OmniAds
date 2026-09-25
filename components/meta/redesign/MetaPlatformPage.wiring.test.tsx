@@ -1971,6 +1971,8 @@ describe("Decisions deep-link compatibility matrix", () => {
     expect(card?.textContent).toContain(
       "Recommendation awaiting review: Refresh creative",
     );
+    const current = card?.nextElementSibling;
+    expect(current?.textContent).toContain("Current status: Needs review");
     expect(card?.closest('[data-mobile-row-id]')?.querySelector('.ad-mobile-action-note')).toBeNull();
 
     // Tap through.

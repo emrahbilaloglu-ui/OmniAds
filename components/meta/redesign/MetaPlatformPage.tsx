@@ -2044,8 +2044,15 @@ function MetaMobileQueueRow({
             {moneyWindow.economicDayCount}/{moneyWindow.calendarDaySpan} economic days
           </p>
         ) : null}
-        <p data-tone={mobileToneAttr(decisionTone)}>
-          {mobileDisplay(decisionLabel)}
+        {isHeldCreative ? (
+          <p data-mobile-held-verdict="true" data-tone="caution">
+            {mobileDisplay(heldVerdictLabel)}
+          </p>
+        ) : null}
+        <p data-tone={isHeldCreative ? undefined : mobileToneAttr(decisionTone)}>
+          {isHeldCreative
+            ? `Current status: ${mobileDisplay(decisionLabel)}`
+            : mobileDisplay(decisionLabel)}
           {moneyLine ? ` · ${moneyLine}` : ""}
         </p>
         {chips && chips.length > 0 ? (
@@ -2058,11 +2065,6 @@ function MetaMobileQueueRow({
           in the same buyer language — `heldCreativeVerdict` is the one producer
           for both, so the two surfaces cannot drift into different sentences.
         */}
-        {heldVerdictLabel && mobileDisplay(heldVerdictLabel) !== "—" ? (
-          <p data-mobile-held-verdict="true" data-tone="caution">
-            {mobileDisplay(heldVerdictLabel)}
-          </p>
-        ) : null}
         {heldVerdictNextStep && mobileDisplay(heldVerdictNextStep) !== "—" ? (
           <p data-mobile-held-next-step="true" data-tone="caution">
             {mobileDisplay(heldVerdictNextStep)}

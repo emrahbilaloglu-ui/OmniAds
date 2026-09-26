@@ -1,5 +1,5 @@
 {
-  "manifestHash": "8563049f1ddd4a8db144710211354040cfbb2dbd7f1464d6d42efc7fdce17a4f",
+  "manifestHash": "0a7a550e747c5576dd3d12f52b64052ff3ed64de7061878c91b14517808c9321",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -464,7 +464,7 @@
     },
     {
       "path": "components/meta/decision-center/decision-payload-coverage.test.ts",
-      "sha256": "5158168435288379a935a042f3d988efe5713ee0e700bd5fb942285de07640fe"
+      "sha256": "93fc5570d6a4fbd1570323534723818cf3b91f1dd17a69c04a7b539018e53590"
     },
     {
       "path": "components/meta/decision-center/entity-role-name-suggestion.test.ts",
@@ -532,7 +532,7 @@
     },
     {
       "path": "components/meta/decision-center/served-field-probe.ts",
-      "sha256": "d23808bac6697a1726f2c67eaaf6475c2ed10634f5a4fd31b4f0e0181b44ff4d"
+      "sha256": "b047bcfac60e0137e626156de66fc4602dafa7451dd23567d0e00d294b3eaed5"
     },
     {
       "path": "components/meta/decision-center/stale-fresh-cta-boundary.test.tsx",
@@ -676,7 +676,7 @@
     },
     {
       "path": "docs/creative-decision-center/D123_MANUAL_CUT_ACCEPTANCE_2026-09-26.md",
-      "sha256": "780fc83df12f0aa5ea30385a9bac0bd68e301867f5a68e28f791f8abee6a0a9d"
+      "sha256": "801b191a9b65fd0a042d3ceee6dbfc61fc2c598c24d1de16a7e17154d9483820"
     },
     {
       "path": "docs/creative-decision-center/DATA_READINESS.md",
@@ -1760,7 +1760,7 @@
     },
     {
       "path": "lib/meta/decisions-pre-cap-ad-candidates.ts",
-      "sha256": "31dfea460a78e28da5809aba01bfe5ba35c8393f6547d1c9dc6a0d5a41b59be1"
+      "sha256": "8cadade84a1514c881cc6f4d8a54dbd70eb76b185e6ee0974359e4c9534da88d"
     },
     {
       "path": "lib/meta/decisions-workspace-contract.ts",
@@ -1772,11 +1772,11 @@
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.test.ts",
-      "sha256": "c83c1dc6dc47e93ceac91217bc38a137eda75ebefc0a06bb78cfea4f10f8ef0e"
+      "sha256": "55741ae9669753c7353676c21a781d8c75e220b103a54ab9c2ccbf719aa21316"
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
-      "sha256": "64ad184d53e4cc2757a101eb7b42099037f40f6dce12068467cc39ddfcb37aed"
+      "sha256": "9ae80738aa9d76b223843d50e67092019829a6a5c97f75e3875b92e4da4b64b3"
     },
     {
       "path": "lib/meta/engine-v1/state-rows.test.ts",
@@ -2184,7 +2184,7 @@
     },
     {
       "path": "scripts/creative-decision-center/native-manual-cut-advisory-serving-replay.ts",
-      "sha256": "15542b02758322eb888ae5910705dec4a134e102699541d8785f8d345f380b92"
+      "sha256": "fdb83f2f09c326c9d203738d0a9bae668d7d32b09be8680c910b7c29e152b4fe"
     },
     {
       "path": "scripts/creative-decision-center/read-only-snapshot.ts",

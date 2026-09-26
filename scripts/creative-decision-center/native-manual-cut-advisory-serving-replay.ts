@@ -126,9 +126,15 @@ export function replayManualCutServing(capture: Capture, identity: IdentityCaptu
       buyerNextStep: buyerFacingCreativeResolution(presented, canonical),
     };
   });
+  for (const lane of ["act", "blocked", "monitor"] as const) {
+    if (os.ads.statePreCapCounts?.[lane] !== results.filter((row) => row.lane === lane).length) {
+      throw new Error(`Selected-Ad lane count disagrees with its cards: ${lane}`);
+    }
+  }
   return {
     mode: "offline_selected_ad_serving_replay" as const, fullAccountAdmissionProven: false,
     persistedOrLive: false, asOf: capture.asOf, cutoff: capture.cutoff,
+    laneCounts: os.ads.statePreCapCounts,
     sourceAccountInputCount: capture.hydration.accountInputCount,
     selectedAdCount: ads.length, evaluationContract: entries[0]?.evaluation.contractVersion,
     // Runtime controls are explicit presentation assumptions, not DB evidence.

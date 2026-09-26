@@ -570,6 +570,8 @@ export interface BuildMetaDecisionsWorkspaceReadModelInput {
   authorityMode?: "legacy_review_only" | "native_exact";
   /** Native-only read safety; absent on retained creative-grain rows. */
   nativeConfigSafetyBySnapshot?: ReadonlyMap<string, NativeConfigSafety>;
+  /** Populate native authority before the pre-cap lane projection is captured. */
+  hydrateNativeDecision?: (decision: MetaCanonicalDecision) => void;
   /** D118 — native ad set role rows, keyed by `roleEntityId`. */
   adsetRoleRows?: readonly MetaDecisionCampaignContextSourceRow[];
 }
@@ -2613,6 +2615,14 @@ export function buildMetaDecisionsWorkspaceReadModel(
       snapshotAvailable: true,
     }),
   };
+  // Keep selection's compatibility identity rules, then hydrate every native
+  // candidate before projecting its lane. Hydrating only the selected rows
+  // left the pre-cap counts with legacy authority and no freshness clock.
+  if (input.authorityMode === "native_exact" && input.hydrateNativeDecision) {
+    for (const decision of [...canonicalDecisions, ...inactiveAssets]) {
+      input.hydrateNativeDecision(decision);
+    }
+  }
   attachCanonicalAdUniverse(
     readModel,
     new Set(
@@ -3729,6 +3739,10 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
       : empty;
   }
 
+  const nativeBySnapshot = new Map(
+    input.snapshotRows.map((row) => [row.snapshot_id, row]),
+  );
+  const generatedAt = new Date(input.generatedAt ?? Date.now());
   const model = buildMetaDecisionsWorkspaceReadModel({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -3746,33 +3760,19 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
     requireActiveHierarchy: true,
     authorityMode: "native_exact",
     nativeConfigSafetyBySnapshot,
+    hydrateNativeDecision: (decision) => {
+      const row = nativeBySnapshot.get(decision.sourceSnapshotId);
+      if (!row) throw new Error("Native decision lost its snapshot identity.");
+      applyNativeCanonicalDecisionAuthority({
+        businessId: input.businessId,
+        decision,
+        row,
+        responseRows: input.responseRows ?? [],
+        responseSourceAvailable: input.responseSourceAvailable === true,
+        now: generatedAt,
+      });
+    },
   });
-  const nativeBySnapshot = new Map(
-    input.snapshotRows.map((row) => [row.snapshot_id, row]),
-  );
-  const generatedAt = new Date(input.generatedAt ?? Date.now());
-  const allDecisions = new Map<string, MetaCanonicalDecision>();
-  for (const section of Object.values(model.queue.sections)) {
-    for (const decision of section.items)
-      allDecisions.set(decision.sourceSnapshotId, decision);
-  }
-  for (const decision of model.queue.adCandidates?.items ?? [])
-    allDecisions.set(decision.sourceSnapshotId, decision);
-  for (const decision of model.queue.inactiveAssets?.items ?? [])
-    allDecisions.set(decision.sourceSnapshotId, decision);
-
-  for (const decision of allDecisions.values()) {
-    const row = nativeBySnapshot.get(decision.sourceSnapshotId);
-    if (!row) throw new Error("Native decision lost its snapshot identity.");
-    applyNativeCanonicalDecisionAuthority({
-      businessId: input.businessId,
-      decision,
-      row,
-      responseRows: input.responseRows ?? [],
-      responseSourceAvailable: input.responseSourceAvailable === true,
-      now: generatedAt,
-    });
-  }
   model.source = {
     status: "available",
     authority: "native_ad",

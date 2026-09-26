@@ -120,6 +120,47 @@ describe("structured purchase Cut advice remains separate from action authority"
     expect(item?.configEvidence?.verified).toBe(false);
   });
 
+  it.each([
+    ["fresh", "2026-07-12T12:00:00.000Z", "act", { act: 1, blocked: 0, monitor: 0 }],
+    ["stale", "2026-07-13T12:00:00.000Z", "blocked", { act: 0, blocked: 1, monitor: 0 }],
+  ] as const)("counts %s manual advice in the same lane as its card", (_state, generatedAt, lane, counts) => {
+    const model = nativeModel([row()], { generatedAt });
+    const os = buildMetaOsDecisionsPresentation({
+      actionNow: [], watching: [], nonSales: [], decisionReadModel: model,
+      currency: "USD", generatedAt,
+      targetHardActionEligibility: { scale: true, cut: true, refresh: true },
+    });
+    expect(os.ads.items).toHaveLength(1);
+    expect(os.ads.items[0]?.lane).toBe(lane);
+    expect(os.ads.statePreCapCounts).toEqual(counts);
+    expect(os.ads.items[0]?.action.providerMutation).toBeNull();
+  });
+
+  it("counts manual advice beyond the response cap and refreshes its cached freshness", () => {
+    const rows = Array.from({ length: 70 }, (_, index) => {
+      const adId = `120000000000${String(index + 1).padStart(6, "0")}`;
+      return { ...row(), ad_id: adId, snapshot_id: `snapshot_${adId}`, manual_cut_advisory: { ...proof(), adId } };
+    });
+    const model = nativeModel(rows, { adCandidateLimit: 60 });
+    const present = (decisionReadModel: typeof model) => buildMetaOsDecisionsPresentation({
+      actionNow: [], watching: [], nonSales: [], decisionReadModel,
+      currency: "USD", targetHardActionEligibility: { scale: true, cut: true, refresh: true },
+    });
+    expect(present(model).ads).toMatchObject({
+      actCount: 60, statePreCapCounts: { act: 70, blocked: 0, monitor: 0 },
+    });
+    const stale = applyMetaExecutionGovernanceToReadModel({
+      model,
+      governance: { verified: false, controlsConfigured: false, writeBlocked: true, blockReason: null },
+      pipeline: { verified: false, executionReady: false },
+      now: new Date("2026-07-13T12:00:00.000Z"),
+    });
+    expect(present(stale).ads).toMatchObject({
+      actCount: 0, blockedCount: 60, statePreCapCounts: { act: 0, blocked: 70, monitor: 0 },
+    });
+    expect(present(model).ads.statePreCapCounts?.act).toBe(70);
+  });
+
   it("retains the proof but withdraws the manual pause invitation when the decision is stale", () => {
     const item = serve()!;
     item.sourceAuthority!.decisionFreshness = {
@@ -652,6 +693,7 @@ function nativeModel(
   rows: MetaNativeDecisionSnapshotSourceRow[],
   options: {
     adCandidateLimit?: number;
+    generatedAt?: string;
     campaignContextRows?: MetaDecisionCampaignContextSourceRow[];
     adsetRoleRows?: MetaDecisionCampaignContextSourceRow[];
   } = {},
@@ -685,7 +727,7 @@ function nativeModel(
     eventSourceAvailable: false,
     outcomeSourceAvailable: false,
     responseSourceAvailable: false,
-    generatedAt: "2026-07-12T12:00:00.000Z",
+    generatedAt: options.generatedAt ?? "2026-07-12T12:00:00.000Z",
     adCandidateLimit: options.adCandidateLimit,
   });
 }
@@ -2423,11 +2465,14 @@ describe("Meta Decisions workspace canonical read model", () => {
      * `items` carries `pending_native_evidence` any more.
      */
     expect(os.ads.eligiblePreCapCount).toBe(360);
+    // All 200 native Cuts still need execution governance. Count them in the
+    // same Blocked lane as their cards, not the raw engine's Act bucket.
     expect(os.ads.statePreCapCounts).toEqual({
-      act: 200,
-      blocked: 80,
+      act: 0,
+      blocked: 280,
       monitor: 80,
     });
+    expect(os.ads).toMatchObject({ actCount: 0, blockedCount: 280, monitorCount: 20 });
     expect(os.ads.pendingInventoryCount).toBe(1);
     expect(
       os.ads.items.filter(

@@ -48,6 +48,22 @@ presentation, inactive hierarchy, deterministic hashes and v18 readability.
 Native decision epoch and D036 hysteresis remain unchanged; only the native
 evaluation evidence contract moves to v19.
 
+Mounted UI acceptance used those two captured Ads through the production
+adapter and component, with a fixture page shell. The positive card appears
+under **Action Now (1)**, the negative under **Needs Resolution (1)**, and the
+positive thumbnail loads. This exposed a pre-cap counting defect: native
+authority was hydrated only after the lane population had been projected.
+Hydration now precedes that projection, which also carries manual-advice and
+freshness fields. Tests cover fresh/stale advice, 70 decisions behind a 60-row
+cap, and a cached source crossing its freshness deadline without mutating the
+cache. The replay rejects a count that disagrees with its cards.
+
+Separate read-only pre-release browser checks on the existing live version
+confirmed TheSwaf Overview metrics load and the Decisions-to-Creative-Studio
+button preserves the account and September 18–24 window. The direct-serving
+preflight passed at `2026-09-26T07:42:07.520Z`; authenticated scripted HTTP
+smoke was not supplied, so the browser checks are recorded separately.
+
 This acceptance is limited to the new recommendation path. Scale/Refresh
 sample floors, historical configuration authority and all provider-write
 controls remain separate requirements. No arbitrary 24-hour wait is part of

@@ -573,6 +573,7 @@ function hardRow(overrides: Partial<HardRowRecord> = {}): HardRowRecord {
     adId: "ad-3",
     campaignId: "c-1",
     adsetId: "as-1",
+    hierarchyAtCutoff: { adStatus: "ACTIVE", adsetStatus: "ACTIVE", campaignStatus: "ACTIVE" },
     rawLabel: "cut",
     preAuthorityLabel: "cut",
     publishedLabel: "cut",
@@ -1922,6 +1923,18 @@ describe("the decision-to-report mapping lives in core and is tested (P2)", () =
     });
   });
 
+  it("binds activity evidence to the ad's own hierarchy and keeps absent status unknown", () => {
+    const input = { asOf: ASOF, entry: entrySource(), campaignContextById: new Map() };
+    const identity = { campaign_id: "c-1", adset_id: "as-1", ad_status: "ACTIVE", adset_status: "ACTIVE", campaign_status: "ACTIVE" };
+    expect(toHardRowRecord(input).hierarchyAtCutoff).toBeNull();
+    expect(toHardRowRecord({ ...input, identityAtCutoff: identity }).hierarchyAtCutoff).toEqual({
+      adStatus: "ACTIVE", adsetStatus: "ACTIVE", campaignStatus: "ACTIVE",
+    });
+    expect(toHardRowRecord({ ...input, identityAtCutoff: { ...identity, adset_id: "different-parent" } }).hierarchyAtCutoff).toBeNull();
+    expect(toHardRowRecord({ ...input, identityAtCutoff: { ...identity, campaign_id: "different-campaign" } }).hierarchyAtCutoff).toBeNull();
+    expect(toHardRowRecord({ ...input, identityAtCutoff: { ...identity, adset_status: null } }).hierarchyAtCutoff?.adsetStatus).toBeNull();
+  });
+
   it("does not mistake account-level Cut overlay eligibility for the ad's effective Cut authority", () => {
     const entry = entrySource({ rawLabel: "test_more", preAuthorityLabel: "cut", label: "test_more", blocked: "cut" });
     entry.computation.input.spend = 39;
@@ -2193,7 +2206,7 @@ describe("hardAuthorityOutcome: presence PASS is not a source-authorized hard ac
       profile_calibration_eligibility: 0, receipt: 0, other: 0,
     });
     expect(outcome.totals.effectiveBlockers).toEqual({ source_freshness: 2 });
-    expect(describeHardAuthority(outcome)).toMatch(/^NOT DEMONSTRATED \(raw hard 2, pre-authority hard 2, held 2, authorized 0, source-authorized 0; blockers: objective_config 2, d101_coverage 2;/);
+    expect(describeHardAuthority(outcome)).toMatch(/^NOT DEMONSTRATED \(raw hard 2, pre-authority hard 2, held 2, authorized 0, source-authorized 0; candidates 2 active\/0 inactive\/0 unknown, active source-authorized 0; blockers: objective_config 2, d101_coverage 2;/);
     const report = { mode: "release" as const, businesses: [subject], args: { negativeControl: null } };
     const gates = evaluateReleaseGates(report, "pre_deploy");
     expect(gates.hardAuthorityOutcome.map((entry) => entry.status)).toEqual(["not_demonstrated"]);
@@ -2245,6 +2258,40 @@ describe("hardAuthorityOutcome: presence PASS is not a source-authorized hard ac
     ]);
     expect(hardAuthorityBlockerCategories(hardRow({ effectiveAuthorityBlocker: "native_metrics_unavailable", config: groundedRow().config, coverage: groundedRow().coverage }), true)).toEqual(["other"]);
     expect(hardAuthorityBlockerCategories(hardRow({ effectiveAuthorityBlocker: "config_source_authority" }), false)).toEqual(["objective_config", "d101_coverage", "receipt"]);
+  });
+
+  it.each(["adStatus", "adsetStatus", "campaignStatus"] as const)(
+    "an authorized archived %s cannot prove live readiness beside unrelated active inventory",
+    (field) => {
+      const row = groundedRow({ hierarchyAtCutoff: { ...groundedRow().hierarchyAtCutoff!, [field]: "PAUSED" } });
+      const subject = subjectWithHardRows([row], { authorizedActions: { cut: 1, none: 2 } });
+      const outcome = evaluateHardAuthority(subject);
+      expect(outcome.status).toBe("not_demonstrated");
+      expect(outcome.totals).toMatchObject({
+        authorizedGrounded: 2, activeAuthorizedGrounded: 0,
+        candidatesByActivity: { active: 0, inactive: 2, unknown: 0 },
+      });
+      expect(outcome.days.every((day) => day.groundedSample.length === 0)).toBe(true);
+      const report = { mode: "release" as const, businesses: [subject], args: { negativeControl: null, requireHardAuthority: true } };
+      const gates = evaluateReleaseGates(report, "pre_deploy");
+      expect(gates.gates.pre_deploy.accepted).toBe(false);
+      // A producer may retain an archived economic verdict; only the live
+      // release claim fails. Do not invent an engine authority violation.
+      expect(evaluateAcceptanceInvariants(report).violations).toEqual([]);
+    },
+  );
+
+  it("missing historical status is unknown; an ACTIVE grounded control proves readiness", () => {
+    const unknown = groundedRow({ hierarchyAtCutoff: null });
+    const subject = subjectWithHardRows([unknown], { authorizedActions: { cut: 1, none: 2 } });
+    expect(evaluateHardAuthority(subject).totals.candidatesByActivity).toEqual({ active: 0, inactive: 0, unknown: 2 });
+    expect(evaluateHardAuthority(subject).status).toBe("not_demonstrated");
+    const active = subjectWithHardRows([unknown, groundedRow({ adId: "active-ad" })], { authorizedActions: { cut: 2, none: 1 } });
+    expect(evaluateHardAuthority(active)).toMatchObject({
+      status: "demonstrated",
+      totals: { activeAuthorizedGrounded: 2 },
+      days: [{ groundedSample: ["active-ad:cut"] }, { groundedSample: ["active-ad:cut"] }],
+    });
   });
 });
 

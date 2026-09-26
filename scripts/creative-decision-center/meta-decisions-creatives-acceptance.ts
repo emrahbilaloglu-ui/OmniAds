@@ -46,7 +46,8 @@
  * objective on the target days, and an unauthorized held/raw hard verdict
  * from real data. A control that merely ran is NOT MET.
  * Separately, hardAuthorityOutcome says whether any row carries a
- * SOURCE-AUTHORIZED hard action; stdout prints it beside the gate so a
+ * SOURCE-AUTHORIZED hard action on an ACTIVE ad/ad set/campaign hierarchy at
+ * the decision cutoff; stdout prints it beside the gate so a
  * presence PASS never reads as one. Only --require-hard-authority lets it
  * change the exit code. The report records git HEAD, the porcelain status and
  * the hashes of dirty loaded modules; --require-clean refuses a dirty tree.
@@ -1974,10 +1975,34 @@ async function runDecisionLane(input: {
             independent: independentByAccount.get(providerAccountId) ?? null,
           }),
         );
-        // The hard-row filter and mapping are the pure core functions (isHardRowEntry / toHardRowRecord).
-        dayReport.hardRows = scoped
-          .filter((entry) => isHardRowEntry(entry))
-          .map((entry) => toHardRowRecord({ asOf: day.asOf, entry, campaignContextById: contextMap }));
+        // Release proof must come from a currently delivering hierarchy at
+        // this cutoff. The producer also evaluates archived ads, so its raw
+        // hard-row count alone cannot prove a useful live recommendation.
+        const hardEntries = scoped.filter((entry) => isHardRowEntry(entry));
+        const hardIdentityByAd = new Map<string, Partial<SimulatedIdentity>>();
+        for (const receipt of receipts) {
+          const entries = hardEntries.filter((entry) =>
+            entry.payload.provider_account_id === receipt.providerAccountId &&
+            entry.payload.provider_account_ref_id === receipt.providerAccountRefId,
+          );
+          if (entries.length === 0) continue;
+          const identities = await db.query<Row>(IDENTITY_AT_CUTOFF_SQL, [
+            businessId, receipt.providerAccountId,
+            entries.map((entry) => entry.payload.ad_id),
+            entries.map((entry) => entry.payload.creative_id),
+            day.asOf, receipt.providerAccountRefId, day.cutoff,
+          ]);
+          for (const identity of identities) {
+            hardIdentityByAd.set(
+              `${receipt.providerAccountId}\u0000${text(identity.ad_id) ?? ""}`,
+              identityFromRow(identity),
+            );
+          }
+        }
+        dayReport.hardRows = hardEntries.map((entry) => toHardRowRecord({
+          asOf: day.asOf, entry, campaignContextById: contextMap,
+          identityAtCutoff: hardIdentityByAd.get(`${entry.payload.provider_account_id}\u0000${entry.payload.ad_id}`),
+        }));
         dayReport.status = "computed";
 
         // Episodes advance on every computed day, so a later day's episode start is chain-derived.

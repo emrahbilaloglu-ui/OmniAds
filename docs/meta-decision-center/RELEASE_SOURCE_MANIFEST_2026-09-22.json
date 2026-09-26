@@ -1,5 +1,5 @@
 {
-  "manifestHash": "a8d22037c98084e6d250486dccb5d57a2d82331d9d8b480eebeb2a583f3bb52c",
+  "manifestHash": "9e70b37114b99dfa0efe1cf363b0a23a24f0a257edb56e7a4363674205014340",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -2088,15 +2088,15 @@
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance-core.ts",
-      "sha256": "e92972e3e75486544f89c705b40665548719c91d314abc1cb77dbe7a64003c93"
+      "sha256": "95ea66eb206714d988d6a7d84d2aacdc927e01e9c49f6738078909fe5c67e45a"
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.test.ts",
-      "sha256": "02ed4a84c4c88e251a98ea4ce1da387d089dfbaefd415bce34710e5f0adf8f50"
+      "sha256": "9c16e6ebd564aceb96444fec62b30c05cc9c25a57a1ad44fae520321728614a0"
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts",
-      "sha256": "b036ba5455e01fe700ca9f794efe09610d5b54693f27f6e8e550d4b0066710fc"
+      "sha256": "3b1608e75b55b6bec0427c4ee9f0e009c0fc18206b29ca17d3f8f68cffe5d9c5"
     },
     {
       "path": "scripts/creative-decision-center/native-ad-account-aov-authority-replay.classifier.test.ts",

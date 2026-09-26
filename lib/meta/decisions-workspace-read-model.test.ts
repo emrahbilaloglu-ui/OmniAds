@@ -28,6 +28,7 @@ import {
 import { declaredContextRow } from "@/lib/meta/decisions-workspace-read-model";
 import { ENTITY_ROLE_DECLARATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 import { currentEffectiveAdStatus } from "@/lib/meta/current-ad-delivery-status";
+import { META_PURCHASE_CONTEXT_MANUAL_ADVISORY_CONTRACT } from "./manual-cut-advisory";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
 import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
@@ -58,6 +59,92 @@ vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
   isCampaignContextResolverAuthorityValidated: vi.fn(() => true),
   CAMPAIGN_CONTEXT_MAX_AGE_DAYS: 2,
 }));
+
+describe("structured purchase Cut advice remains separate from action authority", () => {
+  const proof = () => ({
+    advised: true,
+    contractVersion: META_PURCHASE_CONTEXT_MANUAL_ADVISORY_CONTRACT,
+    basis: "peer_free_commercial_stop_loss",
+    confidenceCap: "medium",
+    authority: "none",
+    economicDayCount: 3,
+    bracketedDays: 2,
+    pointObservedDays: 1,
+    historicalObjectiveUnverifiedDays: 3,
+  });
+  const row = (over: Partial<MetaNativeDecisionSnapshotSourceRow> = {}) =>
+    nativeSnapshot("120000000000000999", {
+      label: "cut", raw_label: "cut", pre_authority_label: "cut",
+      blocked_action_type: "cut", authority_blocker: "config_source_authority",
+      authorized_action: null, config_authority_verified: false,
+      manual_cut_advisory: proof(), ...over,
+    });
+  const serve = (over: Partial<MetaNativeDecisionSnapshotSourceRow> = {}) =>
+    nativeModel([row(over)]).queue.adCandidates?.items[0];
+
+  it("serves a medium manual recommendation with its historical uncertainty and zero write authority", () => {
+    const item = serve()!;
+    expect(item.manualCutAdvisory).toEqual(proof());
+    expect(item.configEvidence?.verified).toBe(false);
+    expect(item.classification).toMatchObject({
+      decisionState: "blocked", buyerAction: null, heldAction: "cut",
+      resolution: { code: "apply_purchase_cut_manually", owner: "operator" },
+    });
+    expect(item.classification.resolution?.nextStep).toContain("1 uncertain day(s) out of 3");
+    expect(item.classification.resolution?.nextStep).toContain("settings remain incomplete");
+    expect(item.sourceDecision.confidence).toBeLessThan(70);
+    expect(item.sourceDecision.confidenceBand).toBe("medium");
+    expect(item.sourceAuthority).toMatchObject({ actionEligible: false, authorizedAction: null });
+    expect(adAction(item, { scale: true, cut: true, refresh: true })).toMatchObject({
+      lane: "act", action: { code: "apply_purchase_cut_manually", intent: "review", providerMutation: null },
+    });
+  });
+
+  it("does not demote stronger purchase-intent evidence when only the historical objective is missing", () => {
+    const item = serve({ manual_cut_advisory: { ...proof(), bracketedDays: 3, pointObservedDays: 0 } });
+    expect(item?.classification.resolution?.code).toBe("apply_purchase_cut_manually");
+    expect(item?.classification.resolution?.nextStep).toContain("verified on all 3 economic days");
+    expect(item?.configEvidence?.verified).toBe(false);
+  });
+
+  it.each([
+    ["missing structured proof", { manual_cut_advisory: null }],
+    ["unsupported contract", { manual_cut_advisory: { ...proof(), contractVersion: "v0" } }],
+    ["a high-confidence claim", { manual_cut_advisory: { ...proof(), confidenceCap: "high" } }],
+    ["authority promotion", { manual_cut_advisory: { ...proof(), authority: "execute" } }],
+    ["NaN count", { manual_cut_advisory: { ...proof(), pointObservedDays: NaN } }],
+    ["negative count", { manual_cut_advisory: { ...proof(), pointObservedDays: -1 } }],
+    ["inconsistent day count", { manual_cut_advisory: { ...proof(), bracketedDays: 3 } }],
+    ["unverified objective count exceeds window", { manual_cut_advisory: { ...proof(), historicalObjectiveUnverifiedDays: 4 } }],
+    ["missing source lineage", { config_evidence_lineage: null }],
+    ["pending confirmation", { label: "keep", badges: [{ type: "pending_transition", severity: "info", label: "Pending" }] }],
+    ["failed source coverage", { badges: [{ type: "source_coverage_unverified", severity: "warning", label: "Missing" }] }],
+    ["an inactive ad", { ad_status: "PAUSED" }],
+    ["an inactive ad set", { adset_status: "PAUSED" }],
+    ["unknown campaign status", { campaign_status: null }],
+  ] as const)("refuses %s", (_name, overrides) => {
+    const item = serve(overrides);
+    expect(item?.manualCutAdvisory ?? null).toBeNull();
+    expect(item?.classification.resolution?.code).not.toBe("apply_purchase_cut_manually");
+  });
+
+  it("refuses a manifest that describes a different economic population", () => {
+    const lineage = completeConfigLineage();
+    lineage.receiptManifest.economicDayCount = 4;
+    expect(serve({ config_evidence_lineage: lineage })?.manualCutAdvisory).toBeNull();
+  });
+
+  it("refuses a corrupted current provider reference", () => {
+    const lineage = completeConfigLineage();
+    lineage.refs.objective.observationId = "not-an-observation";
+    expect(serve({ config_evidence_lineage: lineage })?.manualCutAdvisory).toBeNull();
+  });
+  it("refuses a current configuration the producer did not observe even with parseable references", () => {
+    const lineage = completeConfigLineage();
+    lineage.currentObserved = false;
+    expect(serve({ config_evidence_lineage: lineage })?.manualCutAdvisory).toBeNull();
+  });
+});
 
 describe("resolveProvisionalCampaignKind", () => {
   it("uses stored resolver scores without granting a trusted kind", () => {
@@ -401,6 +488,7 @@ function completeConfigLineage() {
     },
     refRefusals: {},
     lineageSupplied: true,
+    currentObserved: true,
     receiptManifest: {
       manifestVersion: "meta-config-receipt-window-manifest.v1",
       refContractVersion: "meta-config-field-evidence-ref.v1",

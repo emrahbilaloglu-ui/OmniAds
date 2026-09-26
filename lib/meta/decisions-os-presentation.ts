@@ -1286,7 +1286,9 @@ export function adAction(
     */
     const isRoleHeldCut =
       decision.classification.heldAction === "cut" &&
-      resolution?.code === "apply_cut_manually";
+      (resolution?.code === "apply_cut_manually" ||
+        (resolution?.code === "apply_purchase_cut_manually" &&
+          decision.manualCutAdvisory?.advised === true));
 
     return {
       lane: isRoleHeldCut ? "act" : "blocked",

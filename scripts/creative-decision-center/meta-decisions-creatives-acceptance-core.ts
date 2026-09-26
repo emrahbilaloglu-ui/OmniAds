@@ -918,6 +918,7 @@ export function projectConfigEvidenceLineage(
     refs: at(["configEvidence", "currentValueEvidence", "refs"]),
     refRefusals: at(["configEvidence", "currentValueEvidence", "refRefusals"]),
     lineageSupplied: at(["configEvidence", "currentValueEvidence", "lineageSupplied"]),
+    currentObserved: at(["configEvidence", "currentValueEvidence", "observed"]),
     receiptManifest: at(["configEvidence", "decisionEconomics", "receiptManifest"]),
     currentConfigDay: at(["configEvidence", "currentConfigDay"]),
     metricContract: at(["metricContract"]),
@@ -1207,6 +1208,7 @@ export function buildSimulatedGeneration(input: {
       fatigue_status: null,
       predicate_blockers: projectPredicateBlockers(evaluation.decisionPayload),
       config_authority_verified: projectConfigAuthorityVerified(evidence),
+      manual_cut_advisory: jsonbPath(evidence, ["configEvidence", "manualCutAdvisory"]),
       config_evidence_lineage: projectConfigEvidenceLineage(evidence, evaluation.contractVersion),
     });
   }

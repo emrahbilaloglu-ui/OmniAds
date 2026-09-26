@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { currentHierarchyStatuses } from "@/lib/meta/current-ad-delivery-status";
+import { readManualCutAdvisory, type MetaManualCutAdvisory } from "./manual-cut-advisory";
 import { CREATIVE_DECISION_CENTER_ADAPTER_VERSION } from "@/lib/creative-decision-center/adapter";
 import { CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION } from "@/lib/creative-decision-center/v3-bridge";
-import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
+import { HARD_ACTION_HOLD_CONFIDENCE_CAP, STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
 import {
   DECISION_BADGE_DISPLAY,
   DECISION_AUTHORITY_BLOCKERS,
@@ -247,6 +248,7 @@ export interface MetaDecisionSnapshotSourceRow {
    * verified. NULL/absent when the envelope carries no config evidence.
    */
   config_authority_verified?: boolean | null;
+  manual_cut_advisory?: MetaManualCutAdvisory | null;
 }
 
 export interface MetaNativeDecisionSnapshotSourceRow {
@@ -325,6 +327,8 @@ export interface MetaNativeDecisionSnapshotSourceRow {
    * receipt lineage. Re-validated by `servedConfigEvidence` before serving.
    */
   config_evidence_lineage?: Record<string, unknown> | null;
+  /** Structured, hash-bound manual recommendation; never inferred from a badge. */
+  manual_cut_advisory?: unknown;
   /** Native evaluation's hashed creativeInput.decisionWindow; display only. */
   decision_window?: unknown;
   /** Native evaluation's hashed, admitted Ad-window metrics; never lifecycle fallbacks. */
@@ -1855,6 +1859,7 @@ function buildCanonicalDecision(input: {
       typeof input.snapshot.config_authority_verified === "boolean"
         ? input.snapshot.config_authority_verified
         : null,
+    manualCutAdvisory: input.snapshot.manual_cut_advisory ?? null,
   });
   if (presentation.kind === "omitted") {
     return {
@@ -1934,6 +1939,7 @@ function buildCanonicalDecision(input: {
       providerAccountId: input.providerAccountId,
       identityGrain: "creative",
       sourceSnapshotId: input.snapshot.snapshot_id,
+      manualCutAdvisory: input.snapshot.manual_cut_advisory ?? null,
       sourceAuthority: {
         status: "legacy_review_only",
         actionEligible: false,
@@ -2969,6 +2975,18 @@ function nativeSnapshotToInternalSnapshot(
       : recordedVerified === true
         ? servedEvidence?.verified === true
         : recordedVerified;
+  const manualCutAdvisory = readManualCutAdvisory({
+    value: row.manual_cut_advisory,
+    currentEpoch: row.engine_version === NATIVE_AD_ENGINE_VERSION,
+    activeHierarchy: deliveryScopeForIdentity(nativeSnapshotToIdentity(row)).state === "active",
+    rawLabel: row.raw_label,
+    publishedLabel: row.label,
+    heldAction: row.blocked_action_type,
+    authorityBlocker: row.authority_blocker ?? null,
+    authorizedAction: row.authorized_action,
+    badgeCodes: parseBadges(row.badges).codes,
+    config: servedEvidence,
+  });
   return {
     snapshot_id: row.snapshot_id,
     provider_account_id: row.provider_account_id,
@@ -3001,6 +3019,7 @@ function nativeSnapshotToInternalSnapshot(
     fatigue_status: row.fatigue_status,
     predicate_blockers: row.predicate_blockers,
     config_authority_verified: verifiedForPresentation,
+    manual_cut_advisory: manualCutAdvisory,
   };
 }
 
@@ -3102,6 +3121,7 @@ function servedConfigEvidence(input: {
     evaluationContractVersion:
       typeof lineage.contractVersion === "string" ? lineage.contractVersion : "",
     verified: servedVerified,
+    currentObserved: typeof lineage.currentObserved === "boolean" ? lineage.currentObserved : null,
     lineageSupplied,
     currentConfigDay:
       typeof lineage.currentConfigDay === "string" ? lineage.currentConfigDay : null,
@@ -3247,6 +3267,14 @@ function applyNativeCanonicalDecisionAuthority(input: {
         ? row.config_authority_verified
         : null,
   });
+  if (decision.manualCutAdvisory) {
+    // Keep the mathematical score in its evaluation. The recommendation
+    // carries explicit uncertainty and can never be presented as HIGH trust.
+    decision.sourceDecision.confidence = Math.min(decision.sourceDecision.confidence, HARD_ACTION_HOLD_CONFIDENCE_CAP);
+    if (decision.sourceDecision.confidenceBand === "high") {
+      decision.sourceDecision.confidenceBand = "medium";
+    }
+  }
   decision.parentChain.ad = { id: row.ad_id, name: row.ad_name };
   decision.parentChain.creative = row.creative_id
     ? { id: row.creative_id, name: row.creative_name }
@@ -4562,6 +4590,7 @@ async function readNativeSnapshotRows(input: {
           FALSE
         )
       END AS config_authority_verified,
+      input_evidence.input_evidence_json #> '{configEvidence,manualCutAdvisory}' AS manual_cut_advisory,
       /* The receipts the verdict rests on, served READ-ONLY for the inspector:
          current-day ConfigFieldEvidenceRef per field and the economic window's
          manifest. NULL for rows that predate receipt lineage; never computed
@@ -4573,6 +4602,7 @@ async function readNativeSnapshotRows(input: {
             'refs', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,refs}',
             'refRefusals', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,refRefusals}',
             'lineageSupplied', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,lineageSupplied}',
+            'currentObserved', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,observed}',
             'receiptManifest', input_evidence.input_evidence_json #> '{configEvidence,decisionEconomics,receiptManifest}',
             'currentConfigDay', input_evidence.input_evidence_json #> '{configEvidence,currentConfigDay}',
             'metricContract', input_evidence.input_evidence_json -> 'metricContract'

@@ -220,6 +220,43 @@ interface WorkspaceFixtureInput {
   budgetEvidence?: MetaBudgetDecisionEvidenceByDirection;
 }
 
+describe("manual purchase Cut presentation", () => {
+  const resolution = {
+    code: "apply_purchase_cut_manually", category: "commercial_truth" as const,
+    owner: "operator" as const, label: "Manual pause recommended · Medium confidence",
+    nextStep: "Pause manually with medium confidence; one purchase-intent day is point-observed and historical configuration remains unverified.",
+  };
+  const decision = () => creativeFixture({
+    rawLabel: "cut", publishedLabel: "cut", heldAction: "cut", lane: "act",
+    resolution, heldResolution: resolution,
+    action: actionFixture({ code: resolution.code, label: resolution.label, intent: "review", targetLevel: "ad", providerMutation: null }),
+  });
+  const canonical = canonicalFixture({ manualCutAdvisory: {
+    advised: true, contractVersion: "meta-purchase-context-manual-advisory.v1",
+    basis: "peer_free_commercial_stop_loss", confidenceCap: "medium", authority: "none",
+    economicDayCount: 3, bracketedDays: 2, pointObservedDays: 1, historicalObjectiveUnverifiedDays: 3,
+  } });
+
+  it("renders the server recommendation and uncertainty without another generic wait", () => {
+    const ad = decision();
+    expect(heldCreativeVerdict(ad, canonical)).toMatchObject({
+      label: "Pause ad · manual recommendation", nextStep: resolution.nextStep,
+    });
+    expect(buyerFacingCreativeResolution(ad, canonical)).toBe(resolution.nextStep);
+    expect(buyerFacingCreativeActionLabel(ad)).toBe("Review manual pause");
+    expect(buyerFacingCreativeScope(ad, canonical)).toContain("no Meta change can be applied");
+  });
+
+  it("does not invite a pause from a retained or unproved recommendation", () => {
+    const ad = decision();
+    ad.lane = "blocked";
+    ad.action = actionFixture({ code: "review_retained_decision", intent: "review", targetLevel: "ad", providerMutation: null });
+    expect(heldCreativeVerdict(ad, canonical)?.label).not.toBe("Pause ad · manual recommendation");
+    expect(buyerFacingCreativeResolution(ad, canonical)).not.toBe(resolution.nextStep);
+    expect(buyerFacingCreativeResolution(decision(), null)).not.toBe(resolution.nextStep);
+  });
+});
+
 function fullOs(
   input: {
     nodes?: MetaOsStructureNode[];

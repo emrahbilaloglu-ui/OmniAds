@@ -2300,6 +2300,7 @@ const BUYER_CREATIVE_SCOPE_COPY: Readonly<Record<string, string>> = {
 };
 
 const BUYER_CREATIVE_ACTION_COPY: Readonly<Record<string, string>> = {
+  apply_purchase_cut_manually: "Review manual pause",
   plan_promotion: "Review promotion",
   review_structure: "Review campaign structure",
   keep_running: "Keep running",
@@ -2353,6 +2354,11 @@ export function buyerFacingCreativeResolution(
 ): string | null {
   const resolution = decision.resolution;
   if (!resolution) return null;
+  if (resolution.code === "apply_purchase_cut_manually") {
+    return decision.action.code === resolution.code && canonical?.manualCutAdvisory?.advised === true
+      ? resolution.nextStep
+      : "Review the retained evidence; a current manual recommendation is not available.";
+  }
   if (
     resolution.code === "apply_cut_manually" &&
     canonical?.configEvidence?.verified !== true
@@ -2459,6 +2465,9 @@ export function buyerFacingCreativeScope(
   decision: MetaOsAdDecision,
   canonical: MetaCanonicalDecision | null = null,
 ): string | null {
+  if (decision.action.code === "apply_purchase_cut_manually") {
+    return "Manual pause recommendation with at most medium confidence. Historical configuration is not fully verified; no Meta change can be applied here.";
+  }
   if (decision.action.code === "apply_cut_manually") {
     if (canonical?.configEvidence?.verified !== true) {
       return "Review-only pause recommendation. Check the campaign's current setup in Ads Manager before a manual pause; automated stop is held.";
@@ -2793,6 +2802,18 @@ export function heldCreativeVerdict(
   const action = decision.heldAction ?? null;
   if (action !== "scale" && action !== "cut" && action !== "refresh") {
     return null;
+  }
+  if (
+    action === "cut" && decision.lane === "act" &&
+    decision.action.code === "apply_purchase_cut_manually" &&
+    decision.heldResolution?.code === "apply_purchase_cut_manually" &&
+    canonical?.manualCutAdvisory?.advised === true
+  ) {
+    return {
+      action,
+      label: "Pause ad · manual recommendation",
+      nextStep: decision.heldResolution.nextStep,
+    };
   }
   const verdict = BUYER_HELD_VERDICT_COPY[action];
   const blockerCodes = new Set((decision.blockers ?? []).map((blocker) => blocker.code));

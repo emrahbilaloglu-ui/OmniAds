@@ -2430,8 +2430,6 @@ function MetaMobileDecisionsScreen({
             {mobileDisplay(identity.currency)}
           </div>
 
-          {roleReview}
-
           {refreshFailedOverLoadedRows ? (
             <article
               className="ad-mobile-anomaly"
@@ -2550,6 +2548,7 @@ function MetaMobileDecisionsScreen({
               </button>
             ))}
           </nav>
+          {roleReview}
 
           {scope === "structure" ? (
             <nav className="ad-mobile-tabs" aria-label="Decision lane">
@@ -6595,20 +6594,19 @@ export function MetaPlatformPage({
           }
         />
 
-        {workspaceQuery.data?.os?.structure?.groups && providerAccountId ? (
-          <MetaEntityRoleReview
-            key={`${businessId}:${providerAccountId}`}
-            businessId={businessId}
-            providerAccountId={providerAccountId}
-            groups={workspaceQuery.data.os.structure.groups}
-            decisionAsOf={workspaceQuery.data.os.source.snapshotAsOf}
-            readOnly={isViewerReadOnly}
-            onSaved={refreshDecisionData}
-          />
-        ) : null}
-
         {workspaceQuery.data ? (
           <MetaDecisionCenterExact
+            roleReview={workspaceQuery.data.os?.structure?.groups && providerAccountId ? (
+              <MetaEntityRoleReview
+                key={`${businessId}:${providerAccountId}`}
+                businessId={businessId}
+                providerAccountId={providerAccountId}
+                groups={workspaceQuery.data.os.structure.groups}
+                decisionAsOf={workspaceQuery.data.os.source.snapshotAsOf}
+                readOnly={isViewerReadOnly}
+                onSaved={refreshDecisionData}
+              />
+            ) : null}
             viewModel={exactViewModelWithWorkflow}
             canLoadMoreCreatives={canLoadMoreCreatives}
             lane={exactLaneForMetaLane(activeLane)}

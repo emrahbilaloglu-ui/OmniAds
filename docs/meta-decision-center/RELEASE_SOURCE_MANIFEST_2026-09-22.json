@@ -1,5 +1,5 @@
 {
-  "manifestHash": "0a7a550e747c5576dd3d12f52b64052ff3ed64de7061878c91b14517808c9321",
+  "manifestHash": "2aab1eb11769eca9b659c9ffb875989bf5426ea93efe92d75566c9d5d5fbb39d",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -492,11 +492,11 @@
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.test.tsx",
-      "sha256": "5a4938a54cbb7a06923d94d03d41ecd9ebc7dd8e5facd5085b79e82641932f4d"
+      "sha256": "9e8f24ba54801ce3dc858cdeb11df3311419f24900df9a14bc13d28ed189905e"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCenterExact.tsx",
-      "sha256": "41a23155357785d222bba5d03bebeec66d8f9b99cd743a412515349d0e13f5d2"
+      "sha256": "5eb16a5707faf4817033e4e373b6f5c3cbccbdc33ec13079c3072f4cd7863806"
     },
     {
       "path": "components/meta/decision-center/MetaDecisionCreativeThumbnail.test.tsx",
@@ -508,15 +508,15 @@
     },
     {
       "path": "components/meta/decision-center/MetaEntityRoleReview.module.css",
-      "sha256": "337eea3bb11e18b916312293325272a901466df32fe21d41986ae9edb3d595bf"
+      "sha256": "b506ae4dd8263dc99ebcd68e48aedd2631e1d7c87ffb9a525b3c2d730319a938"
     },
     {
       "path": "components/meta/decision-center/MetaEntityRoleReview.test.tsx",
-      "sha256": "615fef6b1c6817ca7b4abf33c8bf3cbbd0c6045d56f70297aaa6a7a2c77188eb"
+      "sha256": "48e251e9aa9dd8ebf43023ccd7a5511ef8b4acc9ef27f6a380439e875f4a2957"
     },
     {
       "path": "components/meta/decision-center/MetaEntityRoleReview.tsx",
-      "sha256": "0c9e442ed0384bafb9f77b147f7d95e53fe825537941f46b1aac0d88b5609f5c"
+      "sha256": "2c836cca53a1cae107b8fa538d2f8be40e144ae2fce231f527e845f3b809026a"
     },
     {
       "path": "components/meta/decision-center/needs-resolution-lane.test.ts",
@@ -600,7 +600,7 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "179234a49d0fbb17eb91a8fc02c5f0ee4f23e97aa206e5daa5901456b4859e0f"
+      "sha256": "1f4ab09ed9fabb3b2523369822f105eeb6902811b55cf8551d75d289e7015e79"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",

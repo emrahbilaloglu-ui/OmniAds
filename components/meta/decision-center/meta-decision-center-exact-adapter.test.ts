@@ -232,7 +232,7 @@ describe("manual purchase Cut presentation", () => {
     action: actionFixture({ code: resolution.code, label: resolution.label, intent: "review", targetLevel: "ad", providerMutation: null }),
   });
   const canonical = canonicalFixture({ manualCutAdvisory: {
-    advised: true, contractVersion: "meta-purchase-context-manual-advisory.v1",
+    advised: true, contractVersion: "meta-native-manual-cut-advisory.v1",
     basis: "peer_free_commercial_stop_loss", confidenceCap: "medium", authority: "none",
     economicDayCount: 3, bracketedDays: 2, pointObservedDays: 1, historicalObjectiveUnverifiedDays: 3,
   } });
@@ -244,6 +244,7 @@ describe("manual purchase Cut presentation", () => {
     });
     expect(buyerFacingCreativeResolution(ad, canonical)).toBe(resolution.nextStep);
     expect(buyerFacingCreativeActionLabel(ad)).toBe("Review manual pause");
+    expect(buyerFacingCreativeReason(ad)).toContain("Spend and purchases support a manual pause");
     expect(buyerFacingCreativeScope(ad, canonical)).toContain("no Meta change can be applied");
   });
 

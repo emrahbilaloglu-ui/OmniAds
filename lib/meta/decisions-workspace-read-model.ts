@@ -329,6 +329,7 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   config_evidence_lineage?: Record<string, unknown> | null;
   /** Structured, hash-bound manual recommendation; never inferred from a badge. */
   manual_cut_advisory?: unknown;
+  purchase_intent_window?: unknown;
   /** Native evaluation's hashed creativeInput.decisionWindow; display only. */
   decision_window?: unknown;
   /** Native evaluation's hashed, admitted Ad-window metrics; never lifecycle fallbacks. */
@@ -2977,6 +2978,12 @@ function nativeSnapshotToInternalSnapshot(
         : recordedVerified;
   const manualCutAdvisory = readManualCutAdvisory({
     value: row.manual_cut_advisory,
+    purchaseIntentWindow: row.purchase_intent_window,
+    identity: {
+      adId: row.ad_id, providerAccountId: row.provider_account_id,
+      asOfDate: row.as_of_date, engineVersion: row.engine_version,
+      computedAt: row.computed_at, targetRoas: finiteNumber(row.effective_target_roas),
+    },
     currentEpoch: row.engine_version === NATIVE_AD_ENGINE_VERSION,
     activeHierarchy: deliveryScopeForIdentity(nativeSnapshotToIdentity(row)).state === "active",
     rawLabel: row.raw_label,
@@ -4591,6 +4598,7 @@ async function readNativeSnapshotRows(input: {
         )
       END AS config_authority_verified,
       input_evidence.input_evidence_json #> '{configEvidence,manualCutAdvisory}' AS manual_cut_advisory,
+      input_evidence.input_evidence_json #> '{configEvidence,purchaseIntentWindow}' AS purchase_intent_window,
       /* The receipts the verdict rests on, served READ-ONLY for the inspector:
          current-day ConfigFieldEvidenceRef per field and the economic window's
          manifest. NULL for rows that predate receipt lineage; never computed

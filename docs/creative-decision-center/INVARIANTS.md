@@ -44,6 +44,15 @@ These rules are hard gates for V2.1.
   proof is an additional hold even when `campaign_context` remains the first
   blocker; it must be persisted as typed evidence and must suppress the manual
   Cut invitation and action-lane placement.
+- (ADR D123) A separately recorded purchase-context manual Cut recommendation
+  may also occupy the action lane with `apply_purchase_cut_manually`. It needs
+  a same-day receipt naming purchase intent on every economic day, complete
+  source/purchase evidence, coherent current receipt lineage, the commercial
+  target, and both peer-free and point-day sensitivity Cut results from the
+  existing core. It remains `blocked` with null `buyerAction`, null
+  `authorized_action`, `intent: review` and null `providerMutation`. Historical
+  configuration stays unverified and confidence cannot exceed medium. Neither
+  a badge nor a later receipt may create this recommendation for an old row.
 - A blocked, held, review-only, or action-ineligible canonical decision must
   not map to any Launchpad mode. In particular, a held Cut with compatibility
   label `test_more` must never appear as `Fresh Test`.

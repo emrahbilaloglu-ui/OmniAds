@@ -555,6 +555,7 @@ describe("config projection parity with the read-model SQL", () => {
       refs: { objective: { id: 1 } },
       refRefusals: null,
       lineageSupplied: true,
+      currentObserved: null,
       receiptManifest: { hash: "h" },
       currentConfigDay: "2026-09-22",
       metricContract: { version: "m" },

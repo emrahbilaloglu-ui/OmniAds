@@ -1209,6 +1209,7 @@ export function buildSimulatedGeneration(input: {
       predicate_blockers: projectPredicateBlockers(evaluation.decisionPayload),
       config_authority_verified: projectConfigAuthorityVerified(evidence),
       manual_cut_advisory: jsonbPath(evidence, ["configEvidence", "manualCutAdvisory"]),
+      purchase_intent_window: jsonbPath(evidence, ["configEvidence", "purchaseIntentWindow"]),
       config_evidence_lineage: projectConfigEvidenceLineage(evidence, evaluation.contractVersion),
     });
   }

@@ -11271,6 +11271,85 @@ code are not withdrawn here (production has none) and cannot execute.
 
 **Rollback.** Revert the commit; no migration or persisted state.
 
+## D123 — Purchase-context manual Cut advice is separate from configuration and write authority (2026-09-26)
+
+**Status.** Local implementation and acceptance work; not released. Real active
+positive and negative acceptance, the current revision's complete test gate,
+and mounted UI readback are required before this changes production.
+
+**Problem.** Correcting the configuration endpoint cannot recreate every old
+campaign-objective receipt. A whole-entity update clock also prevents some
+otherwise observed purchase-intent days from proving continuous configuration.
+D098 correctly refuses provider authority from that history. Applying the same
+proof requirement to every manual recommendation, however, hides an economic
+finding even when it does not depend on the unknown objective or on the
+uncertain day's loss. Current objectives remain recorded, never removed or
+derived from purchase results.
+
+**Decision.** Keep D098, D100 and every provider-write boundary unchanged.
+Add one versioned, hash-bound manual Cut recommendation. It can be produced
+only when all of the following hold:
+
+1. The original, full-window core publishes a confirmed Cut. A Scale, Refresh,
+   Test More, recovery Keep or Test-role Refresh transformed into Cut does not
+   qualify. Source coverage, purchase observation and the commercial anchor
+   have no independent gap.
+2. Admissible same-day receipts name the purchase goal and PURCHASE/VALUE event
+   on every economic day. A custom conversion, non-purchase event, goal
+   contradiction, objective-receipt conflict, missing receipt or unknown receipt day refuses the advice.
+   Current configuration must have supplied, coherent receipt lineage, and the
+   receipt manifest must describe exactly the admitted economic window.
+3. The SAME core also returns a clean Cut when only the Cut-enabling peer
+   ratios are removed. This is a sensitivity check, not removal of the ad from
+   its comparison group. The actual profile, original verdict, full window,
+   20/30 sample floors, commercial spend floor and target remain unchanged.
+4. For each point-observed day, independently raise its revenue to
+   `max(actual revenue, spend × commercial target)` in a temporary sensitivity
+   input. Update cumulative and overlapping recent/lifecycle revenue and
+   recompute the existing lifecycle and decision functions. The result must
+   still be Cut in BOTH the original profile and the peer-free profile,
+   including recovery and fatigue protection. A peer-free fallback can be
+   looser than a low account P25; it cannot replace the original recovery
+   test. Do not change any
+   published metric, spend, purchases, date or threshold. An unconstructible
+   sensitivity input refuses the recommendation. Fully bracketed purchase
+   intent does not require this additional stress calculation.
+
+**Claim and limit.** The structured proof names the exact ad, account,
+receipt manifest, actual/stressed economics and days with
+partial configuration evidence. It says that the existing commercial Cut
+survives those checks. It does not establish the historical objective,
+whole-day configuration on point-observed days, causal performance lift or
+execution readiness. `decisionEconomics.fullyVerified` stays false.
+
+**Serving.** Revalidate the persisted proof and its identity/manifest against
+the same evaluation, including exact purchase-intent days and their economics.
+The invocation clock comes from the evaluation/snapshot `computed_at`; it is
+not hashed into the proof, so repeated identical evidence stays deterministic.
+A badge or reason string cannot grant a recommendation.
+Only an active hierarchy can receive the manual-pause invitation. Cap displayed
+confidence at medium, retain the configuration gap, and render a clear manual
+recommendation instead of a generic instruction to wait. `decisionState`
+remains blocked, buyerAction remains null, and the OS action remains review
+with no provider mutation. Scale and Refresh receive no new fallback.
+
+**Roles.** Main/Test remains per entity (D118–122). A Main campaign can contain
+a Test ad set. Clear own-name tokens may preselect an operator's batch review;
+they are never declarations without confirmation, never inherited by a child,
+and never written again after an ambiguous save without readback. Age/spend
+maturity stays in the existing core; this change creates no age-only core.
+
+**Compatibility and rollback.** Native evaluation evidence moves from `.v18`
+to `.v19`; the new proof is `meta-native-manual-cut-advisory.v1`. Keep
+`NATIVE_AD_ENGINE_VERSION` unchanged because original labels, thresholds,
+D036 confirmation and provider-write authority did not change. Earlier labels
+remain valid hysteresis history without an artificial new waiting day.
+Preserve earlier evaluations and their lack of
+this proof; never manufacture it at read time. Reverting producer and serving
+together removes the manual recommendation while all configuration/write
+gates continue to refuse incomplete authority. No provider mutation or
+destructive schema change is part of this addition.
+
 ## D122 — A served Meta snapshot cannot learn a role declared after its run (2026-09-25)
 
 **Failure.** The snapshot producer bounded declarations by its run start, but

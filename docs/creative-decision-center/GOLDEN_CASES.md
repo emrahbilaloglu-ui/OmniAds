@@ -911,6 +911,25 @@ Same anchor: a Main campaign running a separate Test ad set.
 | R121-C17 | same-role re-declaration recorded after the decision (earlier record before it) | projects; the authority carries both records and D085 receives the one the decision rested on |
 | R121-D9 | D085: declared record inside the knowledge cutoff but after `decision.decidedAt` | `role_identity_unbound` |
 
+## D123 manual purchase Cut advice
+
+| Case | Evidence | Required result |
+| --- | --- | --- |
+| R123-01 | Confirmed active Cut; purchase intent on every day; point-day stress remains Cut in original and peer-free profiles | Medium-capped manual pause recommendation in Action Now; configuration still unverified, all Meta-write authority null |
+| R123-02 | The stressed original profile recovers above break-even, while peer-free still says Cut | Refuse `stressed_original_cut_not_confirmed`; original verdict and metrics stay unchanged |
+| R123-03 | Every purchase-intent day bracketed, historical objective absent | Same bounded advice can qualify without point-day stress; never invent historical objective |
+| R123-04 | Missing receipt, custom/non-purchase event, conflicting goal/objective, source gap, pending hysteresis, inactive hierarchy | No manual pause invitation; retain the specific evidence/confirmation hold |
+| R123-05 | Proof identity, manifest, point-day economics or evaluation version does not match the served row | No manual advice; badges/prose cannot substitute |
+| R123-06 | Same inputs and evidence at a later invocation time | Same v19 hashes; `computed_at` stays on the evaluation/snapshot, outside the proof hash |
+
+Real selected-Ad replay (2026-09-26 07:06:23.027Z): TheSwaf Ad ending
+`295620042` stays Cut with stressed ROAS 1.475312; Ad ending `342030042`
+becomes Keep at 1.733764 against break-even 1.71 and receives no advice.
+Both hierarchies were ACTIVE at that cutoff. These are selected-Ad replay
+and presentation cases, not a full-account persisted generation or live
+deployment claim. See `native-manual-cut-advisory-serving-replay.ts` and
+`D123_MANUAL_CUT_ACCEPTANCE_2026-09-26.md`.
+
 ## D122 served snapshot role-knowledge cases
 
 | case | input | expected |

@@ -8,6 +8,15 @@ readiness, or the required post-deploy natural scheduler wave.
 
 Known facts to preserve unless repo evidence proves otherwise:
 
+- D123 separates a bounded manual purchase Cut recommendation from D098 hard
+  authority. It never relabels historical objective or point observations as
+  whole-day configuration proof. The full economic window stays intact; the
+  original core, sample/spend floors, recovery, source coverage and confirmation
+  gates remain. The recommendation must survive the same core without
+  Cut-enabling peer ratios and with each point-observed day's revenue raised to
+  at least the commercial target, including overlapping recent/lifecycle bands.
+  Missing purchase-intent receipts cannot be replaced by measured purchases.
+
 - V3 input now carries `ctr`, `cpm`, `frequency`, `firstSeenAt`, `firstSpendAt`, `spend24h`, `impressions24h`, `reviewStatus`, `disapprovalReason`, and `limitedReason` where warehouse rows expose them.
 - `fix_delivery`, `fix_policy`, and `watch_launch` remain proof-gated: they may emit only when those fields are present and the bridge can map the server-produced diagnostic badge.
 - If required data is missing, fallback to `diagnose_data` or cap confidence.

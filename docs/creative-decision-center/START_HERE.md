@@ -70,7 +70,7 @@ Current version keys (verify against the constants, never against this list):
 | `ENGINE_VERSION` | `v3-2026-09-24-creative-purchase-cut-proof` (D109 + D111 combined epoch) | `lib/creative-decision-engine/types.ts` |
 | `NATIVE_AD_ENGINE_VERSION` | `v3-ad-2026-09-24-cut-proof-floor-story-shadow` (D111) | `lib/creative-decision-engine/types.ts` |
 | `CANONICAL_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-evaluation.v9` | `lib/creative-decision-engine/canonical-evaluation.ts` |
-| `AD_DECISION_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-ad-evaluation.v18` (D111) | `lib/creative-decision-engine/evaluation-store.ts` |
+| `AD_DECISION_EVALUATION_CONTRACT_VERSION` | `engine-v3-canonical-ad-evaluation.v19` (D123; manual advice evidence only, original decision epoch unchanged) | `lib/creative-decision-engine/evaluation-store.ts` |
 | Creative-day legacy decision admission | `meta-creative-membership.v2`, `meta-creative-parent-grain.v1`, and separate day-bracketed config provenance | `lib/meta/creative-day-decision-admission.ts`, `lib/meta/creatives-types.ts` |
 | `NATIVE_AD_CALIBRATION_CONTRACT_VERSION` | `engine-v3-native-ad-calibration.v6` minted; earlier versions remain readable under their own formulas and are refused as current authority | `lib/creative-decision-engine/jobs/ad-calibration-job.ts` |
 | `D086_RETENTION_CONTRACT` | `d086.budget-readiness-retention.v13` | `lib/meta/budget-readiness-retention.ts` |

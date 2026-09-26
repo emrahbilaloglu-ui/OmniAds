@@ -29,6 +29,7 @@
 import {
   addConfigAuthorityDay,
   classifyConfigAuthorityDay,
+  classifyPurchaseIntentDay,
   EMPTY_CONFIG_SAMPLE_AUTHORITY_COUNTS,
   EMPTY_VERIFIED_AUTHORITY_SUFFIX,
   resolveCalibrationSampleAuthority,
@@ -235,6 +236,32 @@ export interface HydratedConfigAuthority {
     objective: number;
     optimizationGoal: number;
   };
+  /**
+   * How each economic day's PURCHASE INTENT was observed, for the native manual
+   * Cut advisory only. It never widens `decisionEconomics` and grants nothing.
+   * Absent on the empty authority and on a row whose arrays disagree.
+   */
+  purchaseIntentWindow?: PurchaseIntentWindow;
+}
+
+export const META_PURCHASE_INTENT_WINDOW_CONTRACT = "meta-purchase-intent-window.v1" as const;
+
+export interface PurchaseIntentWindow {
+  contractVersion: typeof META_PURCHASE_INTENT_WINDOW_CONTRACT;
+  /** The same economic days `decisionEconomics` counts. */
+  economicDayCount: number;
+  bracketedDays: number;
+  pointObservedDays: number;
+  unnamedDays: number;
+  /** Economic days whose own campaign-objective receipt carried authority. */
+  historicalObjectiveVerifiedDays: number;
+  historicalObjectiveUnverifiedDays: number;
+  /**
+   * Each point-observed economic day with its own spend and revenue, in date
+   * order, so a sensitivity input can move each day separately. Aggregating
+   * them would let one day's surplus hide another day's shortfall.
+   */
+  pointObserved: Array<{ date: string; spend: number; revenue: number }>;
 }
 
 export const EMPTY_HYDRATED_CONFIG_AUTHORITY: HydratedConfigAuthority = {
@@ -449,6 +476,11 @@ function arraysAgree(row: HydratedConfigAuthorityRow): boolean {
 
 export function resolveHydratedConfigAuthority(input: {
   cohort: MetaFunnelCohort;
+  /**
+   * The admitted run's single optimisation goal value, or null when the run's
+   * context identity is unknown. Read only for `purchaseIntentWindow`.
+   */
+  optimizationGoal?: string | null;
   /** The evaluation day, for measuring a receipt's age against the horizon. */
   asOfDate: string;
   row: HydratedConfigAuthorityRow;
@@ -523,6 +555,13 @@ export function resolveHydratedConfigAuthority(input: {
   let counts = EMPTY_CONFIG_SAMPLE_AUTHORITY_COUNTS;
   let economicDayCount = 0;
   let unverifiedEconomicDayCount = 0;
+  const intent = {
+    bracketedDays: 0,
+    pointObservedDays: 0,
+    unnamedDays: 0,
+    historicalObjectiveVerifiedDays: 0,
+    pointObserved: [] as PurchaseIntentWindow["pointObserved"],
+  };
   for (let i = 0; i < row.authorityDates.length; i += 1) {
     const dayClass = classifyConfigAuthorityDay({
       cohort: input.cohort,
@@ -550,6 +589,27 @@ export function resolveHydratedConfigAuthority(input: {
       economicDayCount += 1;
       if (dayClass !== "decision_authority") {
         unverifiedEconomicDayCount += 1;
+      }
+      const observation = classifyPurchaseIntentDay({
+        optimizationGoal: input.optimizationGoal ?? null,
+        optimizationGoalReadiness: row.authorityGoalReadiness[i],
+        optimizationGoalTier: row.authorityGoalTier[i],
+        customEventType: row.authorityEventValue[i],
+        customEventTypeReadiness: row.authorityEventReadiness[i],
+        customEventTypeTier: row.authorityEventTier[i],
+        customConversionId: row.authorityCustomConversionId[i],
+      });
+      if (observation === "bracketed") intent.bracketedDays += 1;
+      else if (observation === "point_observed") {
+        intent.pointObservedDays += 1;
+        intent.pointObserved.push({
+          date: row.authorityDates[i]!,
+          spend,
+          revenue: row.authorityRevenue[i] ?? 0,
+        });
+      } else intent.unnamedDays += 1;
+      if (row.authorityObjectiveReadiness[i] === "decision_authority") {
+        intent.historicalObjectiveVerifiedDays += 1;
       }
     }
     classified.push({
@@ -588,5 +648,16 @@ export function resolveHydratedConfigAuthority(input: {
     suffix: resolveVerifiedAuthoritySuffix(classified),
     window: resolveCalibrationSampleAuthority(counts),
     receiptDisagreements,
+    purchaseIntentWindow: {
+      contractVersion: META_PURCHASE_INTENT_WINDOW_CONTRACT,
+      economicDayCount,
+      bracketedDays: intent.bracketedDays,
+      pointObservedDays: intent.pointObservedDays,
+      unnamedDays: intent.unnamedDays,
+      historicalObjectiveVerifiedDays: intent.historicalObjectiveVerifiedDays,
+      historicalObjectiveUnverifiedDays:
+        economicDayCount - intent.historicalObjectiveVerifiedDays,
+      pointObserved: intent.pointObserved,
+    },
   };
 }

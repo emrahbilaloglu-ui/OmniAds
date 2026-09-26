@@ -1253,6 +1253,17 @@ export function adAction(
     decision.classification.heldAction !== null
   ) {
     const resolution = decision.classification.resolution;
+    if (resolution?.code === "apply_purchase_cut_manually" &&
+      decision.sourceAuthority?.decisionFreshness?.status !== "fresh") {
+      return {
+        lane: "blocked",
+        action: base({
+          code: "refresh_decision_data", label: "Refresh Decision", intent: "review",
+          providerMutation: null,
+          scopeNote: "A fresh decision is required before using this earlier manual pause recommendation.",
+        }),
+      };
+    }
     /*
       ADR D097 round 3. One held row is not like the others.
 

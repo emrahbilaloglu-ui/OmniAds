@@ -84,6 +84,7 @@ import {
 import {
   assertEmptyNativeAdHydrationIsAuthoritative,
   buildNativeAdDataHealth,
+  buildNativeManualCutAdvisory,
   computeReadyNativeAdDecisions,
   computeSoftOnlyNativeAdDecisions,
   groupNativeProfileInputsByScope,
@@ -338,7 +339,11 @@ export function buildSimulationEvaluation(input: {
   evaluatedAt: string;
 }): AdCanonicalEvaluationProvenance {
   const { computation } = input;
+  const advisory = buildNativeManualCutAdvisory(
+    computation, input.profile.asOfDate, input.evaluatedAt,
+  );
   return buildAdCanonicalEvaluationProvenance({
+    manualCutAdvisory: advisory.status === "advised" ? advisory.proof : null,
     identity: {
       providerAccountRefId: computation.input.providerAccountRefId,
       providerAccountId: computation.input.providerAccountId,

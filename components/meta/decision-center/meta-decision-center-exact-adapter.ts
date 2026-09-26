@@ -2257,6 +2257,8 @@ export const RETAINED_GENERATION_REVIEW_COPY =
   "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.";
 
 const BUYER_CREATIVE_ACTION_CONTEXT_COPY: Readonly<Record<string, string>> = {
+  apply_purchase_cut_manually:
+    "Spend and purchases support a manual pause; confidence is limited by incomplete historical campaign settings.",
   plan_promotion: "This winning test is ready for a promotion review.",
   review_structure: "Review the campaign structure before scaling.",
   keep_running: "Keep this ad running and continue monitoring.",

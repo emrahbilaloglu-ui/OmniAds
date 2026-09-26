@@ -61,30 +61,43 @@ vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
 }));
 
 describe("structured purchase Cut advice remains separate from action authority", () => {
+  const manualLineage = () => ({ ...completeConfigLineage(), contractVersion: "engine-v3-canonical-ad-evaluation.v19" });
   const proof = () => ({
-    advised: true,
+    recommendation: "cut",
+    heldBy: "config_source_authority",
+    adId: "120000000000000999", providerAccountId: "act_1",
+    asOfDate: "2026-07-12",
+    engineVersion: NATIVE_AD_ENGINE_VERSION, engineAuthorityBlocker: null,
+    commercialTargetRoas: 2, receiptManifestHash: "c".repeat(64),
     contractVersion: META_PURCHASE_CONTEXT_MANUAL_ADVISORY_CONTRACT,
     basis: "peer_free_commercial_stop_loss",
     confidenceCap: "medium",
     authority: "none",
     economicDayCount: 3,
     bracketedDays: 2,
-    pointObservedDays: 1,
+    pointObservedDays: [{ date: "2026-07-11", spend: 10, revenue: 0, stressedRevenue: 20 }],
+    stress: { purchaseValue: { actual: 120, stressed: 140 }, roas: { actual: 1, stressed: 140 / 120 }, recent7dRoas: null, bands: [] },
     historicalObjectiveUnverifiedDays: 3,
+  });
+  const intentWindow = () => ({
+    contractVersion: "meta-purchase-intent-window.v1", economicDayCount: 3,
+    bracketedDays: 2, pointObservedDays: 1, unnamedDays: 0,
+    historicalObjectiveVerifiedDays: 0, historicalObjectiveUnverifiedDays: 3,
+    pointObserved: [{ date: "2026-07-11", spend: 10, revenue: 0 }],
   });
   const row = (over: Partial<MetaNativeDecisionSnapshotSourceRow> = {}) =>
     nativeSnapshot("120000000000000999", {
       label: "cut", raw_label: "cut", pre_authority_label: "cut",
       blocked_action_type: "cut", authority_blocker: "config_source_authority",
       authorized_action: null, config_authority_verified: false,
-      manual_cut_advisory: proof(), ...over,
+      manual_cut_advisory: proof(), purchase_intent_window: intentWindow(), config_evidence_lineage: manualLineage(), ...over,
     });
   const serve = (over: Partial<MetaNativeDecisionSnapshotSourceRow> = {}) =>
     nativeModel([row(over)]).queue.adCandidates?.items[0];
 
   it("serves a medium manual recommendation with its historical uncertainty and zero write authority", () => {
     const item = serve()!;
-    expect(item.manualCutAdvisory).toEqual(proof());
+    expect(item.manualCutAdvisory).toMatchObject({ advised: true, economicDayCount: 3, pointObservedDays: 1, confidenceCap: "medium", authority: "none" });
     expect(item.configEvidence?.verified).toBe(false);
     expect(item.classification).toMatchObject({
       decisionState: "blocked", buyerAction: null, heldAction: "cut",
@@ -101,14 +114,35 @@ describe("structured purchase Cut advice remains separate from action authority"
   });
 
   it("does not demote stronger purchase-intent evidence when only the historical objective is missing", () => {
-    const item = serve({ manual_cut_advisory: { ...proof(), bracketedDays: 3, pointObservedDays: 0 } });
+    const item = serve({ manual_cut_advisory: { ...proof(), bracketedDays: 3, pointObservedDays: [], stress: null }, purchase_intent_window: { ...intentWindow(), bracketedDays: 3, pointObservedDays: 0, pointObserved: [] } });
     expect(item?.classification.resolution?.code).toBe("apply_purchase_cut_manually");
     expect(item?.classification.resolution?.nextStep).toContain("verified on all 3 economic days");
     expect(item?.configEvidence?.verified).toBe(false);
   });
 
+  it("retains the proof but withdraws the manual pause invitation when the decision is stale", () => {
+    const item = serve()!;
+    item.sourceAuthority!.decisionFreshness = {
+      ...item.sourceAuthority!.decisionFreshness!, status: "stale", ageHours: 13,
+    };
+    expect(item.manualCutAdvisory?.advised).toBe(true);
+    expect(adAction(item, { scale: true, cut: true, refresh: true })).toMatchObject({
+      lane: "blocked", action: { code: "refresh_decision_data", intent: "review", providerMutation: null },
+    });
+  });
+
   it.each([
     ["missing structured proof", { manual_cut_advisory: null }],
+    ["wrong ad", { manual_cut_advisory: { ...proof(), adId: "another-ad" } }],
+    ["wrong account", { manual_cut_advisory: { ...proof(), providerAccountId: "act_another" } }],
+    ["wrong report date", { manual_cut_advisory: { ...proof(), asOfDate: "2026-07-10" } }],
+    ["missing purchase window", { purchase_intent_window: null }],
+    ["different point-day economics", { purchase_intent_window: { ...intentWindow(), pointObserved: [{ date: "2026-07-11", spend: 11, revenue: 0 }] } }],
+    ["unnamed purchase intent", { purchase_intent_window: { ...intentWindow(), unnamedDays: 1 } }],
+    ["volatile clock in stored proof", { manual_cut_advisory: { ...proof(), computedAt: "2026-07-12T06:00:00Z" } }],
+    ["wrong target", { manual_cut_advisory: { ...proof(), commercialTargetRoas: 3 } }],
+    ["wrong source manifest", { manual_cut_advisory: { ...proof(), receiptManifestHash: "e".repeat(64) } }],
+    ["prior evaluation contract", { config_evidence_lineage: completeConfigLineage() }],
     ["unsupported contract", { manual_cut_advisory: { ...proof(), contractVersion: "v0" } }],
     ["a high-confidence claim", { manual_cut_advisory: { ...proof(), confidenceCap: "high" } }],
     ["authority promotion", { manual_cut_advisory: { ...proof(), authority: "execute" } }],
@@ -129,18 +163,18 @@ describe("structured purchase Cut advice remains separate from action authority"
   });
 
   it("refuses a manifest that describes a different economic population", () => {
-    const lineage = completeConfigLineage();
+    const lineage = manualLineage();
     lineage.receiptManifest.economicDayCount = 4;
     expect(serve({ config_evidence_lineage: lineage })?.manualCutAdvisory).toBeNull();
   });
 
   it("refuses a corrupted current provider reference", () => {
-    const lineage = completeConfigLineage();
+    const lineage = manualLineage();
     lineage.refs.objective.observationId = "not-an-observation";
     expect(serve({ config_evidence_lineage: lineage })?.manualCutAdvisory).toBeNull();
   });
   it("refuses a current configuration the producer did not observe even with parseable references", () => {
-    const lineage = completeConfigLineage();
+    const lineage = manualLineage();
     lineage.currentObserved = false;
     expect(serve({ config_evidence_lineage: lineage })?.manualCutAdvisory).toBeNull();
   });

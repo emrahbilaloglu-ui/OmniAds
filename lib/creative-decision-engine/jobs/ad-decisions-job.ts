@@ -83,6 +83,14 @@ import { AD_CALIBRATION_JOB_NAME } from "./ad-calibration-job";
 import { getBusinessGuardFailure } from "./business-guard";
 import { hashAdvisoryLock } from "./calibration-job";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
+import {
+  buildManualCutStressedAdInput,
+  peerFreeCutProfile,
+  resolveNativeManualCutAdvisory,
+  type ManualCutCoreVerdict,
+  type ManualCutSensitivity,
+  type NativeManualCutAdvisory,
+} from "../native-manual-cut-advisory";
 
 export const AD_DECISIONS_JOB_NAME = "engine_v3_native_ad_decisions_shadow_job";
 
@@ -182,6 +190,13 @@ export interface AdDecisionComputation {
   input: AdDecisionInput;
   decision: AdDecisionOutput;
   rawLabel: DecisionLabel;
+  /**
+   * The manual Cut advisory's core evidence (meta-native-manual-cut-advisory.v1):
+   * the same core re-run peer-free, and on the point-day sensitivity input.
+   * Computed only when the core returned a Cut; it grants nothing and no
+   * payload field reads it. See `buildNativeManualCutAdvisory`.
+   */
+  manualCutSensitivity?: ManualCutSensitivity;
   hysteresisSuppressed: boolean;
   campaignContext: CampaignContextProvenance;
   priorHysteresis: PriorHysteresisProvenance;
@@ -874,8 +889,10 @@ export async function runAdDecisionsJob(
         });
         const storedEvaluations = new Map<string, StoredAdDecisionEvaluation>();
         for (const group of decisionGroups) {
-          const canonicalEvaluations = group.decisions.map((computation) =>
-            buildAdCanonicalEvaluationProvenance({
+          const canonicalEvaluations = group.decisions.map((computation) => {
+            const advisory = buildNativeManualCutAdvisory(computation, input.asOf, evaluatedAt);
+            return buildAdCanonicalEvaluationProvenance({
+              manualCutAdvisory: advisory.status === "advised" ? advisory.proof : null,
               identity: {
                 providerAccountRefId: computation.input.providerAccountRefId,
                 providerAccountId: computation.input.providerAccountId,
@@ -903,8 +920,8 @@ export async function runAdDecisionsJob(
                 hysteresisSuppressed: computation.hysteresisSuppressed,
                 evaluatedAt,
               }),
-            }),
-          );
+            });
+          });
           if (canonicalEvaluations.length === 0) continue;
           const storedGroup = await persistAdDecisionEvaluations(
             {
@@ -1774,6 +1791,19 @@ export function computeNativeAdDecisions(input: {
       const semanticDecision = normalizeSiteOwnedAdDecision(
         resolveDecision(resolverInput, input.profile, input.dataHealth),
       );
+      const manualCutSensitivity =
+        semanticDecision.label === "cut"
+          ? evaluateManualCutSensitivity({
+              ad: withCampaign,
+              resolverInput,
+              decision: semanticDecision,
+              profile: input.profile,
+              dataHealth: input.dataHealth,
+              resolveDecision,
+              frequencyPressureThreshold:
+                frequencyPressureThresholdByAccount.get(adInput.providerAccountId) ?? null,
+            })
+          : undefined;
       const guarded = applyCreativeCampaignLabelGuard({
         decision: semanticDecision,
         input: withCampaign,
@@ -1805,6 +1835,7 @@ export function computeNativeAdDecisions(input: {
         input: withCampaign,
         decision: stabilized.decision as AdDecisionOutput,
         rawLabel: stabilized.rawLabel,
+        ...(manualCutSensitivity ? { manualCutSensitivity } : {}),
         hysteresisSuppressed: stabilized.suppressed,
         campaignContext: campaignContextProvenanceFor({
           mode: input.campaignContextMode,
@@ -1824,6 +1855,79 @@ export function computeNativeAdDecisions(input: {
           right.input.providerAccountId,
         ) || left.input.adId.localeCompare(right.input.adId),
     );
+}
+
+function manualCutCoreVerdict(decision: DecisionOutput): ManualCutCoreVerdict {
+  return {
+    label: decision.label,
+    authorityBlocker: decision.authorityBlocker ?? null,
+    labelTransform: decision.labelTransform ?? null,
+  };
+}
+
+/**
+ * The manual Cut advisory's evidence, from the SAME core that produced the
+ * decision: once on the peer-free profile, and on the point-day sensitivity
+ * input under BOTH the peer-free and the original profile. The stressed
+ * lifecycle verdict is recomputed from its own moved bands, so recovery,
+ * fatigue, sample floors and every other gate judge the stressed figures.
+ * Spend, purchases, the window and every threshold are the original ones.
+ */
+export function evaluateManualCutSensitivity(input: {
+  ad: AdDecisionInput;
+  resolverInput: CreativeInput;
+  decision: DecisionOutput;
+  profile: AccountDecisionProfile;
+  dataHealth: DataHealth;
+  resolveDecision: (
+    input: CreativeInput,
+    profile: AccountDecisionProfile,
+    dataHealth: DataHealth,
+  ) => DecisionOutput;
+  frequencyPressureThreshold: number | null;
+}): ManualCutSensitivity {
+  const peerFreeProfile = peerFreeCutProfile(input.profile);
+  const commercialTargetRoas =
+    input.decision.truthSource === "commercial_truth" ? input.decision.effectiveTargetRoas : null;
+  const peerFree = manualCutCoreVerdict(
+    normalizeSiteOwnedAdDecision(
+      input.resolveDecision(input.resolverInput, peerFreeProfile, input.dataHealth),
+    ),
+  );
+  const window = input.ad.configAuthority.purchaseIntentWindow;
+  if (window && window.pointObserved.length === 0) {
+    return { commercialTargetRoas, peerFree, stress: { status: "not_required" } };
+  }
+  const built = buildManualCutStressedAdInput(input.ad, commercialTargetRoas);
+  if (!built.ok) {
+    return {
+      commercialTargetRoas,
+      peerFree,
+      stress: { status: "unconstructible", refusal: built.refusal },
+    };
+  }
+  const stressedLifecycle = computeNativeAdLifecycleEvidence({
+    ad: built.ad,
+    profile: input.profile,
+    frequencyPressureThreshold: input.frequencyPressureThreshold,
+  });
+  const stressedResolverInput = toResolverInput(built.ad, stressedLifecycle);
+  const stressedOn = (profile: AccountDecisionProfile) =>
+    manualCutCoreVerdict(
+      normalizeSiteOwnedAdDecision(
+        input.resolveDecision(stressedResolverInput, profile, input.dataHealth),
+      ),
+    );
+  return {
+    commercialTargetRoas,
+    peerFree,
+    stress: {
+      status: "evaluated",
+      verdict: stressedOn(peerFreeProfile),
+      originalProfileVerdict: stressedOn(input.profile),
+      detail: built.detail,
+    },
+  };
 }
 
 function toResolverInput(
@@ -2865,6 +2969,78 @@ export async function readAdAdsetRoles(
   return new Map(maps.flat());
 }
 
+/**
+ * The producer's three emission-boundary source gates for one computation:
+ * D098 config, D101 source coverage and purchase observation. One definition,
+ * read by the snapshot payload and by the manual Cut advisory, so the advisory
+ * can never judge a different gate than the row it annotates.
+ */
+export function nativeSnapshotSourceGates(input: {
+  computation: AdDecisionComputation;
+  asOf: string;
+  computedAt: string;
+}): {
+  configSourceBlocked: boolean;
+  sourceCoverageFailure: string | null;
+  sourceCoverageBlocked: boolean;
+  purchaseEvidenceBlocked: boolean;
+} {
+  const ad = input.computation.input;
+  const configSourceBlocked =
+    isHardLabel(input.computation.rawLabel) &&
+    (!ad.configAuthority.currentValueEvidence.observed ||
+      !ad.configAuthority.decisionEconomics.fullyVerified);
+  const sourceCoverageFailure = isHardLabel(input.computation.rawLabel)
+    ? nativeAdSourceCoverageAuthorityFailure({
+        ad,
+        asOf: input.asOf,
+        computedAt: input.computedAt,
+      })
+    : null;
+  const sourceCoverageBlocked = sourceCoverageFailure !== null;
+  const purchaseEvidenceBlocked = isHardLabel(input.computation.rawLabel) &&
+    unverifiedAdPurchaseDays(ad) > 0;
+  return {
+    configSourceBlocked,
+    sourceCoverageFailure,
+    sourceCoverageBlocked,
+    purchaseEvidenceBlocked,
+  };
+}
+
+/**
+ * The manual Cut advisory for one computation, as a structured proof or a
+ * named refusal (meta-native-manual-cut-advisory.v1). It never changes the
+ * snapshot row: the caller hashes and persists the proof, and a server
+ * revalidates it with `parseNativeManualCutAdvisoryProof`.
+ */
+export function buildNativeManualCutAdvisory(
+  computation: AdDecisionComputation,
+  asOf: string,
+  computedAt: string,
+): NativeManualCutAdvisory {
+  const gates = nativeSnapshotSourceGates({ computation, asOf, computedAt });
+  return resolveNativeManualCutAdvisory({
+    asOfDate: asOf,
+    computedAt,
+    engineVersion: NATIVE_AD_ENGINE_VERSION,
+    providerAccountId: computation.input.providerAccountId,
+    adId: computation.input.adId,
+    rawLabel: computation.rawLabel,
+    publishedLabel: computation.decision.label,
+    hysteresisSuppressed: computation.hysteresisSuppressed,
+    labelTransform: computation.decision.labelTransform ?? null,
+    engineAuthorityBlocker: computation.decision.authorityBlocker ?? null,
+    configSourceBlocked: gates.configSourceBlocked,
+    sourceCoverageBlocked: gates.sourceCoverageBlocked,
+    purchaseEvidenceBlocked: gates.purchaseEvidenceBlocked,
+    truthSource: computation.decision.truthSource,
+    effectiveTargetRoas: computation.decision.effectiveTargetRoas,
+    configAuthority: computation.input.configAuthority,
+    sensitivity: computation.manualCutSensitivity,
+  });
+}
+
 export function toNativeSnapshotPayload(input: {
   businessId: string;
   asOf: string;
@@ -2910,20 +3086,12 @@ export function toNativeSnapshotPayload(input: {
     returns null for a non-hard raw label, so stamping a blocker on one would add
     a reason to a decision that was never asking for authority.
   */
-  const configSourceBlocked =
-    isHardLabel(input.computation.rawLabel) &&
-    (!ad.configAuthority.currentValueEvidence.observed ||
-      !ad.configAuthority.decisionEconomics.fullyVerified);
-  const sourceCoverageFailure = isHardLabel(input.computation.rawLabel)
-    ? nativeAdSourceCoverageAuthorityFailure({
-        ad,
-        asOf: input.asOf,
-        computedAt: input.computedAt,
-      })
-    : null;
-  const sourceCoverageBlocked = sourceCoverageFailure !== null;
-  const purchaseEvidenceBlocked = isHardLabel(input.computation.rawLabel) &&
-    unverifiedAdPurchaseDays(ad) > 0;
+  const {
+    configSourceBlocked,
+    sourceCoverageFailure,
+    sourceCoverageBlocked,
+    purchaseEvidenceBlocked,
+  } = nativeSnapshotSourceGates(input);
   // Source/config evidence is the first blocker on a role-held hard verdict.
   // The economic finding survives, but unresolved campaign role must not
   // present a Cut as manually ready while its own reporting window is unproved.

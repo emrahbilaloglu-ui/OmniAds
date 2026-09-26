@@ -16,7 +16,7 @@
   cursor: pointer;
 }
 .trigger:hover { border-color: #8ba8f6; background: #f8faff; }
-.triggerCount { padding: 2px 6px; border-radius: 5px; background: #eef2ff; color: #3554ac; font-size: 11px; font-weight: 550; white-space: nowrap; }
+.triggerCount { padding: 2px 6px; border-radius: 5px; background: #eef2ff; color: #3554ac; font-size: 12px; font-weight: 550; white-space: nowrap; }
 .overlay { position: fixed; inset: 0; z-index: 120; background: rgb(11 16 32 / 48%); }
 .dialog {
   position: fixed;
@@ -58,7 +58,7 @@
 .filters { display: flex; align-items: center; gap: 4px; }
 .filters button { display: inline-flex; align-items: center; gap: 6px; padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; color: #59657a; font-size: 12px; white-space: nowrap; }
 .filters button[aria-pressed="true"] { background: #eef2ff; color: #244fbb; font-weight: 650; }
-.filters button span { font-variant-numeric: tabular-nums; font-size: 11px; }
+.filters button span { font-variant-numeric: tabular-nums; font-size: 12px; }
 .contextNote { margin: 10px 0 0; color: #67738a; font-size: 12px; }
 .suggestions { display: flex; flex-shrink: 0; justify-content: space-between; align-items: center; gap: 12px; margin: 0 26px 16px; padding: 13px 16px; border: 1px solid #dbe5fe; border-radius: 10px; background: #f5f8ff; }
 .suggestions > div { display: flex; align-items: center; gap: 11px; color: #3554ac; }
@@ -67,7 +67,7 @@
 .secondaryButton { min-height: 38px; padding: 8px 13px; border: 1px solid #d3dcea; border-radius: 8px; color: #34445e; background: #fff; font-weight: 600 !important; font-size: 12px !important; white-space: nowrap; }
 .secondaryButton:hover { background: #f3f6fc; }
 .list { flex: 1; min-height: 100px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border-block: 1px solid #e5e9f1; }
-.columnHead { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; position: sticky; top: 0; z-index: 1; padding: 9px 26px; border-bottom: 1px solid #e5e9f1; background: #f8f9fc; color: #66728a; font-size: 11px; font-weight: 600; }
+.columnHead { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; position: sticky; top: 0; z-index: 1; padding: 9px 26px; border-bottom: 1px solid #e5e9f1; background: #f8f9fc; color: #66728a; font-size: 12px; font-weight: 600; }
 .columnHead span:last-child { text-align: right; }
 .campaign { border-bottom: 1px solid #edf0f6; }
 .campaign:last-child { border-bottom: 0; }
@@ -77,8 +77,8 @@
 .entityName { display: flex; align-items: flex-start; gap: 8px; }
 .entityName > svg { flex-shrink: 0; margin-top: 2px; color: #62769e; }
 .entityName strong { font-size: 13px; line-height: 1.4; font-weight: 650; overflow-wrap: anywhere; }
-.identity > small { display: block; margin: 4px 0 0 24px; font-size: 11px; color: #647189; overflow-wrap: anywhere; }
-.evidence { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 10px; margin: 5px 0 0 24px; font-size: 11px; color: #69768d; }
+.identity > small { display: block; margin: 4px 0 0 24px; font-size: 12px; color: #647189; overflow-wrap: anywhere; }
+.evidence { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 10px; margin: 5px 0 0 24px; font-size: 12px; color: #69768d; }
 .confirmed { display: inline-flex; align-items: center; gap: 3px; color: #26734e; }
 .nameHint { color: #375994; }
 .conflict { color: #946222; }
@@ -88,23 +88,23 @@
 .roleButtons button { min-width: 72px; min-height: 32px; padding: 5px 13px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #526079; font-size: 12px; font-weight: 600; }
 .roleButtons button:hover { background: #f0f4fd; }
 .roleButtons button[aria-pressed="true"] { background: #2d60e8; border-color: #2d60e8; color: #fff; }
-.rowActions { display: flex; gap: 8px; align-items: center; min-height: 19px; color: #687790; font-size: 10.5px; }
+.rowActions { display: flex; gap: 8px; align-items: center; min-height: 19px; color: #687790; font-size: 12px; }
 .rowActions button { padding: 0 2px; border: 0; background: transparent; color: #315bc2; font-size: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .campaign[data-selected="true"] .rowActions { color: #315bc2; }
 .exceptionButton { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 8px 10px; border: 1px solid #dce2ed; border-radius: 8px; background: #fff; color: #526079; font-size: 12px !important; }
 .exceptionButton:hover, .exceptionButton[aria-expanded="true"] { background: #eef3ff; border-color: #b7c9f6; color: #315bc2; }
 .exceptionButton[aria-expanded="true"] > svg { transform: rotate(180deg); }
-.exceptionButton span { min-width: 17px; padding: 1px 4px; border-radius: 4px; background: #e7edfc; font-size: 10px; font-variant-numeric: tabular-nums; }
+.exceptionButton span { min-width: 17px; padding: 1px 4px; border-radius: 4px; background: #e7edfc; font-size: 12px; font-variant-numeric: tabular-nums; }
 .exceptionsPanel { margin: 0 26px 16px 50px; padding: 16px; border: 1px solid #dfe6f2; border-left: 3px solid #b7c9f6; border-radius: 10px; background: #f8faff; }
 .exceptionsHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .exceptionsHeading strong { font-size: 12px; color: #36445e; }
 .exceptionsHeading p { margin: 3px 0 0; font-size: 12px; color: #647189; }
-.exceptionsHeading > span { flex-shrink: 0; font-size: 11px; color: #647189; }
+.exceptionsHeading > span { flex-shrink: 0; font-size: 12px; color: #647189; }
 .exceptionRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; padding: 13px 0; border-top: 1px solid #e1e7f2; }
 .exceptionRow strong { display: block; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
-.exceptionRow small { display: block; margin-top: 3px; font-size: 11px; color: #647189; }
+.exceptionRow small { display: block; margin-top: 3px; font-size: 12px; color: #647189; }
 .exceptionActions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-.exceptionActions .textButton { min-height: 26px; padding: 3px 0; color: #315bc2; font-size: 11px !important; }
+.exceptionActions .textButton { min-height: 26px; padding: 3px 0; color: #315bc2; font-size: 12px !important; }
 .noExceptions { margin: 0 0 12px; color: #647189; font-size: 12px; }
 .addException { display: flex; align-items: center; gap: 8px; max-width: 100%; padding-left: 11px; border: 1px solid #ccd8ed; border-radius: 8px; background: #fff; color: #536c9b; }
 .addException > svg { flex-shrink: 0; }
@@ -122,7 +122,7 @@
 .primaryButton { min-height: 40px; padding: 9px 17px; border: 1px solid #2d60e8; border-radius: 8px; background: #2d60e8; color: #fff; font-size: 13px !important; font-weight: 650 !important; }
 .primaryButton:hover { background: #224fc7; }
 .textButton { padding: 9px 7px; min-height: 38px; border: 0; background: transparent; color: #647189; font-size: 12px !important; }
-.effectiveNote { width: 100%; margin: 0; color: #728096; font-size: 10.5px; }
+.effectiveNote { width: 100%; margin: 0; color: #728096; font-size: 12px; }
 @media (max-width: 700px) {
   .dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); border-radius: 14px; }
   .header { padding: 18px 16px 14px; gap: 8px; }
@@ -138,7 +138,7 @@
   .contextNote { display: none; }
   .suggestions { align-items: stretch; flex-direction: column; gap: 9px; margin: 0 16px 12px; padding: 11px 12px; }
   .suggestions .secondaryButton { width: 100%; min-height: 40px; }
-  .suggestions small { font-size: 11px; }
+  .suggestions small { font-size: 12px; }
   .columnHead { display: none; }
   .row { grid-template-columns: 1fr; gap: 10px; padding: 14px 16px; }
   .entityName strong { font-size: 12px; }
@@ -161,7 +161,7 @@
   .footerActions { width: 100%; flex-wrap: wrap; }
   .footerActions .primaryButton { flex: 1; }
   .footerActions .textButton { padding-left: 0; }
-  .effectiveNote { font-size: 10px; }
+  .effectiveNote { font-size: 12px; }
   .notice, .error { padding: 10px 16px; }
   .error { flex-direction: column; align-items: flex-start; }
 }

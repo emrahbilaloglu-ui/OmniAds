@@ -1,5 +1,5 @@
 {
-  "manifestHash": "74aab7b67fb6ea8589b2f31d87243dfec5234c549ff1a06fc678a93b37bc202c",
+  "manifestHash": "2aab1eb11769eca9b659c9ffb875989bf5426ea93efe92d75566c9d5d5fbb39d",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -508,7 +508,7 @@
     },
     {
       "path": "components/meta/decision-center/MetaEntityRoleReview.module.css",
-      "sha256": "cc441effa2f7c35681320280a14ccbfbf3407766a3065ddd90bb68e3326e8ed8"
+      "sha256": "b506ae4dd8263dc99ebcd68e48aedd2631e1d7c87ffb9a525b3c2d730319a938"
     },
     {
       "path": "components/meta/decision-center/MetaEntityRoleReview.test.tsx",

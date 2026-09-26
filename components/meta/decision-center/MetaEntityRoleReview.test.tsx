@@ -109,6 +109,7 @@ describe("Meta entity role review", () => {
     })));
     render(<MetaEntityRoleReview businessId="biz-1" providerAccountId="act_1" groups={groups} readOnly={false} onSaved={() => Promise.reject(new Error("refresh failed"))} />);
     fireEvent.click(screen.getByRole("button", { name: /Review Main \/ Test roles/i }));
+    await waitFor(() => expect(screen.queryByText("Loading saved roles…")).toBeNull());
     fireEvent.change(screen.getByRole("combobox", { name: "Confirm role for adset Test cell" }), { target: { value: "test" } });
     saved = true;
     fireEvent.click(screen.getByRole("button", { name: "Confirm selected roles" }));
@@ -129,5 +130,66 @@ describe("Meta entity role review", () => {
     fireEvent.click(screen.getByRole("button", { name: /Review Main \/ Test roles/i }));
     await waitFor(() => expect(screen.getByText("Declaration belongs to another campaign · unverified")).toBeTruthy());
     expect(screen.getByRole("button", { name: /Review Main \/ Test roles/i }).textContent).toContain("1 unverified");
+  });
+
+  it("selects each entity's own clear name without inheriting Main, overriding confirmation, or writing before confirmation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ ok: true, declarations: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const namedGroups = [{
+      campaign: { ...node("campaign", "123", "main"), name: "TS_MAIN_DPA" },
+      adsets: [
+        { ...node("adset", "456", "main"), name: "TS_TEST_01" },
+        { ...node("adset", "457", "main"), name: "Broad" },
+        { ...node("adset", "458", "main"), name: "MAIN_TEST_conflict" },
+        { ...node("adset", "459", "main", true), name: "TEST_old_name" },
+      ],
+    }] as MetaOsStructureGroup[];
+    render(<MetaEntityRoleReview businessId="biz-1" providerAccountId="act_1" groups={namedGroups} readOnly={false} onSaved={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Review Main \/ Test roles/i }));
+    const select = await screen.findByRole("button", { name: "Select 2 roles from names" });
+    await waitFor(() => expect(select.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(select);
+    const roleValue = (name: string) => (screen.getByRole("combobox", { name }) as HTMLSelectElement).value;
+    expect(roleValue("Confirm role for campaign TS_MAIN_DPA")).toBe("main");
+    expect(roleValue("Confirm role for adset TS_TEST_01")).toBe("test");
+    expect(roleValue("Confirm role for adset Broad")).toBe("");
+    expect(roleValue("Confirm role for adset MAIN_TEST_conflict")).toBe("");
+    expect(roleValue("Confirm role for adset TEST_old_name")).toBe("");
+    expect(screen.getByText("Name contains MAIN and TEST · choose this entity's role")).toBeTruthy();
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method !== "POST")).toBe(true);
+  });
+
+  it("blocks confirmation after an ambiguous write and reconciles using GET before any further write", async () => {
+    const post = vi.fn().mockRejectedValue(new Error("Connection lost"));
+    let persisted = false;
+    const get = vi.fn().mockImplementation(async () => ({
+      ok: true, json: async () => ({ ok: true, declarations: persisted ? [savedTestRole] : [] }),
+    }));
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => init?.method === "POST" ? post(url, init) : get(url, init)));
+    render(<MetaEntityRoleReview businessId="biz-1" providerAccountId="act_1" groups={groups} readOnly={false} onSaved={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Review Main \/ Test roles/i }));
+    await waitFor(() => expect(screen.queryByText("Loading saved roles…")).toBeNull());
+    fireEvent.change(screen.getByRole("combobox", { name: "Confirm role for adset Test cell" }), { target: { value: "test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm selected roles" }));
+    await screen.findByRole("button", { name: "Refresh role history" });
+    expect(screen.getByRole("button", { name: "Confirm selected roles" }).hasAttribute("disabled")).toBe(true);
+    persisted = true;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh role history" }));
+    await screen.findByText("Confirmed TEST · pending decision run");
+    expect(post).toHaveBeenCalledOnce();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Confirm selected roles" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("does not overwrite a newer role from history with an unconfirmed name hint", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ ok: true, declarations: [{ ...savedTestRole, declaredRole: "main" }] }),
+    }));
+    render(<MetaEntityRoleReview businessId="biz-1" providerAccountId="act_1" groups={groups} readOnly={false} onSaved={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Review Main \/ Test roles/i }));
+    await screen.findByText("Confirmed MAIN · pending decision run");
+    expect(screen.getByRole("button", { name: "Select 0 roles from names" }).hasAttribute("disabled")).toBe(true);
   });
 });

@@ -64,6 +64,10 @@
 .identity strong { font-size: 13px; font-weight: 650; }
 .identity small { margin-top: 2px; color: var(--adc-ink3, #657184); font-size: 12px; }
 .current { color: var(--adc-ink2, #3c485a); font-size: 12px; }
+.current small { display: block; margin-top: 4px; }
+.suggestions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; font-size: 12px; }
+.suggestions button, .notice button { min-height: 34px; border: 1px solid var(--adc-b2, #d8deeb); border-radius: 6px; background: var(--adc-s1, #fff); color: inherit; cursor: pointer; font: inherit; padding: 6px 10px; }
+.suggestions button:disabled, .notice button:disabled { cursor: not-allowed; opacity: .5; }
 
 .row select {
   width: 100%;

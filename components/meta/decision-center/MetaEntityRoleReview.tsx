@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MetaOsStructureGroup, MetaOsStructureNode } from "@/lib/meta/decisions-os-contract";
+import { entityRoleNameSuggestion } from "./entity-role-name-suggestion";
 import styles from "./MetaEntityRoleReview.module.css";
 
 type Role = "main" | "test" | "mixed";
@@ -36,7 +37,8 @@ function roleRow(node: MetaOsStructureNode, campaignName: string | null): RoleRo
 
 function currentRole(node: MetaOsStructureNode, review?: RoleReviewState): string {
   if (review?.event === "declare") {
-    return `Confirmed ${review.role.toUpperCase()} · pending decision run`;
+    const alreadyInDecision = node.roleBasis === "declared" && node.lifecycleRole === review.role;
+    return `Confirmed ${review.role.toUpperCase()}${alreadyInDecision ? "" : " · pending decision run"}`;
   }
   if (review?.event === "revoke") {
     return "Confirmation removed · pending decision run";
@@ -111,6 +113,8 @@ export function MetaEntityRoleReview({
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [reviewState, setReviewState] = useState<Record<string, RoleReviewState>>({});
+  const [historyStatus, setHistoryStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   const historyRequestVersion = useRef(0);
   const rows = useMemo(() => groups.flatMap((group) => {
     const campaign = roleRow(group.campaign, null);
@@ -127,6 +131,16 @@ export function MetaEntityRoleReview({
       node.roleBasis !== "declared" && node.campaignRoleTrustedForAction !== true),
   ).length;
   const selected = rows.filter((row) => Boolean(choices[row.key]));
+  const namedSuggestions = rows.flatMap(({ key, node }) => {
+    const suggestion = entityRoleNameSuggestion(node.name);
+    const current = reviewState[key];
+    // A current declaration, a deliberate revocation, a parent-binding
+    // conflict or an operator's selection always wins over a name hint.
+    if (current || choices[key] || node.roleBasis === "declared" ||
+        node.campaignRoleTrustedForAction === true ||
+        (suggestion !== "main" && suggestion !== "test")) return [];
+    return [{ key, role: suggestion }];
+  });
   const today = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
   // The server permits a one-day timezone bracket. When the latest generation
@@ -137,6 +151,7 @@ export function MetaEntityRoleReview({
   useEffect(() => {
     if (!open) return;
     const version = ++historyRequestVersion.current;
+    setHistoryStatus("loading");
     void fetch(
       `/api/meta/entity-role-declarations?businessId=${encodeURIComponent(businessId)}&providerAccountId=${encodeURIComponent(providerAccountId)}`,
       { cache: "no-store", headers: { Accept: "application/json" } },
@@ -144,17 +159,30 @@ export function MetaEntityRoleReview({
       const payload = await response.json().catch(() => null) as
         | { ok?: boolean; declarations?: RoleHistoryEvent[] }
         | null;
-      if (version === historyRequestVersion.current && response.ok && payload?.ok &&
-          Array.isArray(payload.declarations)) {
-        setReviewState(reviewStateFromHistory(payload.declarations, rows, today));
+      if (version !== historyRequestVersion.current) return;
+      if (!response.ok || !payload?.ok || !Array.isArray(payload.declarations)) {
+        setHistoryStatus("error");
+        return;
       }
+      setReviewState(reviewStateFromHistory(payload.declarations, rows, today));
+      setHistoryStatus("ready");
     }).catch(() => {
-      // The last decision generation remains visible when review history is unavailable.
+      if (version === historyRequestVersion.current) setHistoryStatus("error");
     });
-  }, [open, businessId, providerAccountId, groups, today]);
+    return () => { ++historyRequestVersion.current; };
+  }, [open, businessId, providerAccountId, rows, today, historyRefresh]);
+
+  function selectNamedRoles() {
+    if (readOnly || pending || historyStatus !== "ready") return;
+    setChoices((previous) => ({
+      ...previous,
+      ...Object.fromEntries(namedSuggestions.slice(0, Math.max(0, 200 - selected.length))
+        .map(({ key, role }) => [key, role])),
+    }));
+  }
 
   async function save() {
-    if (pending || readOnly || selected.length === 0) return;
+    if (pending || readOnly || historyStatus !== "ready" || selected.length === 0 || selected.length > 200) return;
     setPending(true);
     setNotice(null);
     let submissionUncertain = false;
@@ -186,11 +214,14 @@ export function MetaEntityRoleReview({
             item.entityId === requests[index]!.entityId &&
             item.event === requests[index]!.event &&
             item.declaredRole === requests[index]!.role));
-      if (response.ok && !acknowledgementMatches) submissionUncertain = true;
+      if (response.status >= 500 || (response.ok && !acknowledgementMatches)) submissionUncertain = true;
       if (!response.ok || !acknowledgementMatches) {
         throw new Error(payload?.error?.message ?? "Role declarations could not be saved.");
       }
       const savedDeclarations = payload!.declarations!;
+      // Any failure after acknowledgement needs a read-only reconciliation;
+      // never leave the form ready to blindly repeat an append-only write.
+      submissionUncertain = true;
       // A write response is not readback. Verify the same account's persisted
       // events before telling the operator that the roles are confirmed.
       const readback = await fetch(
@@ -225,6 +256,7 @@ export function MetaEntityRoleReview({
       ++historyRequestVersion.current;
       setReviewState(nextReviewState);
       setChoices({});
+      submissionUncertain = false;
       const confirmed = `${requests.length} role${requests.length === 1 ? "" : "s"} confirmed. Existing verdicts keep their recorded authority; the next native decision run will reassess them.`;
       try {
         await onSaved();
@@ -234,6 +266,10 @@ export function MetaEntityRoleReview({
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Role review failed.";
+      if (submissionUncertain) {
+        setChoices({});
+        setHistoryStatus("error");
+      }
       setNotice(submissionUncertain
         ? `${message} Submission status is uncertain; check role history before retrying.`
         : message);
@@ -251,9 +287,22 @@ export function MetaEntityRoleReview({
       </button>
       {open ? (
         <div className={styles.body}>
-          <p>The available Meta data does not establish your Main / Test intent. Review each campaign and ad set separately; a Main campaign can contain a Test ad set. Suggestions below are not confirmed roles.</p>
-          <p>Selections take effect from {effectiveFrom}. The recorded confirmation time remains today; earlier point-in-time replays cannot use it.</p>
+          <p>Confirm each campaign and ad set separately; a Main campaign can contain a Test ad set. Clear MAIN / TEST words in an entity's own name can fill your selections for review.</p>
+          <p>Roles apply from {effectiveFrom}. Saved roles will be used in the next decision run.</p>
           {readOnly ? <p className={styles.notice}>This account is read-only for you.</p> : null}
+          <div className={styles.suggestions}>
+            <button type="button" disabled={readOnly || pending || historyStatus !== "ready" || namedSuggestions.length === 0 || selected.length >= 200} onClick={selectNamedRoles}>
+              Select {Math.min(namedSuggestions.length, Math.max(0, 200 - selected.length))} roles from names
+            </button>
+            <span>Review the selections, then confirm. Ambiguous names remain unselected.</span>
+          </div>
+          {historyStatus === "loading" ? <p role="status">Loading saved roles…</p> : null}
+          {historyStatus === "error" ? (
+            <p className={styles.notice} role="alert">
+              Saved roles could not be verified. Refresh role history before confirming.
+              {" "}<button type="button" disabled={pending} onClick={() => setHistoryRefresh((value) => value + 1)}>Refresh role history</button>
+            </p>
+          ) : null}
           <div className={styles.rows}>
             {rows.map(({ key, node, campaignName }) => (
               <label className={styles.row} key={key} data-role-entity={key}>
@@ -261,7 +310,12 @@ export function MetaEntityRoleReview({
                   <strong>{node.name}</strong>
                   <small>{node.level === "adset" ? `Ad set · ${campaignName ?? "Campaign unknown"}` : "Campaign"} · {node.providerEntityId}</small>
                 </span>
-                <span className={styles.current}>{currentRole(node, reviewState[key])}</span>
+                <span className={styles.current}>
+                  {currentRole(node, reviewState[key])}
+                  {entityRoleNameSuggestion(node.name) === "conflict"
+                    ? <small>Name contains MAIN and TEST · choose this entity's role</small>
+                    : null}
+                </span>
                 <select
                   aria-label={`Confirm role for ${node.level} ${node.name}`}
                   disabled={readOnly || pending}
@@ -281,7 +335,7 @@ export function MetaEntityRoleReview({
           </div>
           <div className={styles.footer}>
             <span>{selected.length} role{selected.length === 1 ? "" : "s"} selected</span>
-            <button type="button" disabled={readOnly || pending || selected.length === 0 || selected.length > 200} onClick={() => void save()}>
+            <button type="button" disabled={readOnly || pending || historyStatus !== "ready" || selected.length === 0 || selected.length > 200} onClick={() => void save()}>
               {pending ? "Verifying…" : "Confirm selected roles"}
             </button>
           </div>

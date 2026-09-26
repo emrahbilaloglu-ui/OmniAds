@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
 
 import * as db from "@/lib/db";
-import { readIntentProjectionContexts } from "@/lib/meta/intent-projection-context";
+import {
+  budgetRoleAuthorityByEntity,
+  readIntentProjectionContexts,
+} from "@/lib/meta/intent-projection-context";
+import type { MetaCampaignContextGuardEntry } from "@/lib/meta/campaign-label-guard";
 
 const BUSINESS = "11111111-1111-4111-8111-111111111111";
 
@@ -136,6 +140,7 @@ function read(overrides: Partial<Parameters<typeof readIntentProjectionContexts>
     snapshotDate: "2026-09-05",
     cohortByEntityId: new Map([["camp_cbo", "purchase"], ["set_abo", "purchase"]]),
     roleAuthorityByCampaignId: new Map([["camp_cbo", true]]),
+    roleAuthorityByAdsetId: new Map(),
     maturityByEntityId: new Map([["camp_cbo", true], ["set_under_cbo", true]]),
     calibrationSampleByEntityId: new Map([["camp_cbo", 64]]),
     deliveryConstrainedAdsetIds: new Set(["set_under_cbo"]),
@@ -184,6 +189,110 @@ describe("the budget owner comes from budget_origin, never from an amount", () =
     const contexts = await read();
     expect(contexts!.budgetByEntityId.get("camp_cbo")?.accountShareBefore)
       .toBeCloseTo(250_000 / 300_000, 6);
+  });
+});
+
+describe("D118 — each budget is sized under its own entity's role", () => {
+  it("R118-B1: a trusted parent campaign never authorises its ad set's budget", async () => {
+    const contexts = await read({
+      roleAuthorityByCampaignId: new Map([["camp_cbo", true], ["camp_abo", true]]),
+      roleAuthorityByAdsetId: new Map([["set_abo", false]]),
+    });
+    expect(contexts!.budgetByEntityId.get("camp_cbo")?.roleAuthoritySatisfied).toBe(true);
+    expect(contexts!.budgetByEntityId.get("set_abo")?.roleAuthoritySatisfied).toBe(false);
+  });
+
+  it("R118-B2: the ad set's own trusted role authorises it without any campaign role", async () => {
+    const contexts = await read({
+      roleAuthorityByCampaignId: new Map(),
+      roleAuthorityByAdsetId: new Map([["set_abo", true]]),
+    });
+    expect(contexts!.budgetByEntityId.get("set_abo")?.roleAuthoritySatisfied).toBe(true);
+    expect(contexts!.budgetByEntityId.get("camp_cbo")?.roleAuthoritySatisfied).toBe(false);
+  });
+
+  it("R118-B3: an ad set id in the campaign map is not an ad set role", async () => {
+    const contexts = await read({
+      roleAuthorityByCampaignId: new Map([["set_abo", true]]),
+      roleAuthorityByAdsetId: new Map(),
+    });
+    expect(contexts!.budgetByEntityId.get("set_abo")?.roleAuthoritySatisfied).toBe(false);
+  });
+});
+
+describe("D118/D121 — the sizing role gate comes from each entity's own guard entry", () => {
+  const declared = (kind: "main" | "test"): MetaCampaignContextGuardEntry => ({
+    kind,
+    contextTrust: "high",
+    source: "operator_declared",
+    inferenceConfidenceClass: "high",
+    resolverAuthorityValidated: false,
+    declarationAuthorityValidated: true,
+    roleBasis: "declared",
+  });
+  const automaticMain: MetaCampaignContextGuardEntry = {
+    kind: "main",
+    contextTrust: "high",
+    source: "system_inferred",
+    inferenceConfidenceClass: "high",
+    resolverAuthorityValidated: true,
+  };
+  /** What an undeclared ad set carries: its campaign's role, capped. */
+  const suggestionFrom = (parent: MetaCampaignContextGuardEntry): MetaCampaignContextGuardEntry => ({
+    ...parent,
+    contextTrust: "medium",
+    resolverAuthorityValidated: false,
+    declarationAuthorityValidated: false,
+    roleBasis: "parent_campaign_suggestion",
+  });
+
+  it("R121-S1: a declared Test ad set inside a declared Main campaign is sized under its own role", () => {
+    const maps = budgetRoleAuthorityByEntity({
+      campaignIds: ["cmp_main"],
+      campaignLabelsById: new Map([["cmp_main", "main"]]),
+      adsetContextById: new Map([["as_test", declared("test")]]),
+    });
+    expect(maps.roleAuthorityByCampaignId.get("cmp_main")).toBe(true);
+    expect(maps.roleAuthorityByAdsetId.get("as_test")).toBe(true);
+  });
+
+  it("R121-S2: an undeclared ad set of a declared Main campaign has no sizing authority", () => {
+    const maps = budgetRoleAuthorityByEntity({
+      campaignIds: ["cmp_main"],
+      campaignLabelsById: new Map([["cmp_main", "main"]]),
+      adsetContextById: new Map([["as_open", suggestionFrom(declared("main"))]]),
+    });
+    expect(maps.roleAuthorityByCampaignId.get("cmp_main")).toBe(true);
+    expect(maps.roleAuthorityByAdsetId.get("as_open")).toBe(false);
+  });
+
+  it("R121-S3: a validated automatic Main campaign never sizes its ad set's budget", () => {
+    const maps = budgetRoleAuthorityByEntity({
+      campaignIds: ["cmp_auto"],
+      campaignLabelsById: new Map([["cmp_auto", "main"]]),
+      adsetContextById: new Map([["as_open", suggestionFrom(automaticMain)]]),
+    });
+    expect(maps.roleAuthorityByAdsetId.get("as_open")).toBe(false);
+  });
+
+  it("R121-S4: an ad set declaration without its contract proof is not authority", () => {
+    const maps = budgetRoleAuthorityByEntity({
+      campaignIds: [],
+      campaignLabelsById: new Map(),
+      adsetContextById: new Map([
+        ["as_unproven", { ...declared("test"), declarationAuthorityValidated: false }],
+      ]),
+    });
+    expect(maps.roleAuthorityByAdsetId.get("as_unproven")).toBe(false);
+  });
+
+  it("R121-S5: a campaign without a published label has no sizing authority", () => {
+    const maps = budgetRoleAuthorityByEntity({
+      campaignIds: ["cmp_unlabelled"],
+      campaignLabelsById: new Map(),
+      adsetContextById: new Map(),
+    });
+    expect(maps.roleAuthorityByCampaignId.get("cmp_unlabelled")).toBe(false);
   });
 });
 

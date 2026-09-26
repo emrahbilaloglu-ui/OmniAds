@@ -373,6 +373,66 @@ export function classifyConfigAuthorityDay(
     : "review_only_settled";
 }
 
+/**
+ * How one economic ad-day's PURCHASE INTENT was observed.
+ *
+ * For the native manual Cut advisory only. It grants nothing and is not a
+ * relaxation of `classifyConfigAuthorityDay`, which still decides whether a
+ * day's whole configuration (the campaign objective included) is proven. It
+ * never states, infers or defaults the objective, and never maps an event onto
+ * one.
+ *
+ * `bracketed`: the goal's and the event's own receipts carry decision
+ * authority for the day. `point_observed`: both were named by a same-day
+ * receipt (a timed point, a single or paged legacy page, or a pending
+ * corroboration) but the day was not bracketed, so a change-and-revert inside
+ * the day cannot be excluded. `none` otherwise, including every day whose
+ * EVENT is not PURCHASE/VALUE (a goal alone never states a purchase), whose
+ * goal is not in the purchase family, that names a custom conversion (its
+ * event lives on an object not read here), that was bridged (readiness forced
+ * to `none`), or whose only witness is interval-uncertain, typed or an
+ * observed absence.
+ */
+export type PurchaseIntentDayObservation = "bracketed" | "point_observed" | "none";
+
+export interface PurchaseIntentDayInput {
+  /** The admitted run's single optimisation goal VALUE. */
+  optimizationGoal: string | null | undefined;
+  optimizationGoalReadiness: string | null | undefined;
+  optimizationGoalTier: string | null | undefined;
+  customEventType: string | null | undefined;
+  customEventTypeReadiness: string | null | undefined;
+  customEventTypeTier: string | null | undefined;
+  customConversionId: string | null | undefined;
+}
+
+export function classifyPurchaseIntentDay(
+  input: PurchaseIntentDayInput,
+): PurchaseIntentDayObservation {
+  const eventStatesPurchase =
+    hasValue(input.customEventType) &&
+    isPurchaseCohort(
+      resolveMetaFunnelCohortFromConfigOnly({ customEventType: input.customEventType }),
+    );
+  const goalIsPurchaseFamily =
+    hasValue(input.optimizationGoal) &&
+    isPurchaseCohort(
+      resolveMetaFunnelCohortFromConfigOnly({ optimizationGoal: input.optimizationGoal }),
+    );
+  if (!eventStatesPurchase || !goalIsPurchaseFamily || hasValue(input.customConversionId)) {
+    return "none";
+  }
+  const goal = readinessOf(input.optimizationGoalReadiness);
+  const event = readinessOf(input.customEventTypeReadiness);
+  if (goal === "none" || event === "none") return "none";
+  if (goal === "decision_authority" && event === "decision_authority") return "bracketed";
+  const named = (tier: string | null | undefined) =>
+    tier !== null && tier !== undefined && RECEIPT_NAMED_VALUE_TIERS.has(tier);
+  return named(input.optimizationGoalTier) && named(input.customEventTypeTier)
+    ? "point_observed"
+    : "none";
+}
+
 /** Whole days from `from` to `to`, or null if either date is unreadable. */
 function wholeDaysBetween(from: string, to: string): number | null {
   const start = Date.parse(`${from}T00:00:00Z`);

@@ -202,6 +202,8 @@ async function main() {
     snapshotDate: AS_OF,
     cohortByEntityId: new Map([[CBO, "purchase"], [CBO_ADSET, "purchase"]]),
     roleAuthorityByCampaignId: new Map([[CBO, true]]),
+    // D118: an ad set's budget reads the ad set's own role, never its campaign's.
+    roleAuthorityByAdsetId: new Map(),
     maturityByEntityId: new Map([[CBO, true], [CBO_ADSET, true]]),
     calibrationSampleByEntityId: new Map([[CBO, 64]]),
     deliveryConstrainedAdsetIds: new Set([CBO_ADSET]),

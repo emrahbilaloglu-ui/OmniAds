@@ -307,6 +307,9 @@ export function buildD088Replay(root: string): D088ReplayReport {
           };
           const composed = composeBudgetExecutionCandidate(sources);
           const refusals: string[] = [...composed.blockers];
+          // A refusal by the composition root itself is a catch by name too
+          // (D121 C1: an ad set's assumed automatic role is its campaign's).
+          for (const blocker of composed.blockers) count(guardrailCatches, blocker);
           if (composed.dryRun && composed.dryRun.status !== "would_write_available") {
             for (const blocker of composed.dryRun.blockers) {
               refusals.push(`d085:${blocker}`);

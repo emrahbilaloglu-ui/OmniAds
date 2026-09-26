@@ -8,6 +8,7 @@ import { GET } from "@/app/api/creatives/briefing/route";
 import type { CreativesBriefingResponse } from "@/components/creatives/briefing/types";
 import { requireBusinessAccess } from "@/lib/access";
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
+import { ENTITY_ROLE_DECLARATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
@@ -295,6 +296,26 @@ function failedRun(): MetaNativeDecisionGenerationSourceRow {
 
 function mockNativeDb(generationRows: MetaNativeDecisionGenerationSourceRow[]) {
   const query = vi.fn(async (sql: string) => {
+    if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
+      return [{ table_name: "meta_entity_role_declarations" }];
+    }
+    if (sql.includes("FROM meta_entity_role_declarations")) {
+      return [{
+        id: "50000000-0000-4000-8000-000000000001",
+        business_id: "biz_1",
+        provider_account_id: "act_1",
+        entity_type: "adset",
+        entity_id: "adset_1",
+        parent_campaign_id: "cmp_1",
+        event: "declare",
+        declared_role: "main",
+        effective_from: RETAINED_AS_OF,
+        declared_at: "2026-09-22T01:00:00.000Z",
+        declared_by: "fixture_operator",
+        reason: "Known before retained generation",
+        contract_version: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+      }];
+    }
     if (sql.includes("WITH candidate_runs AS")) return generationRows;
     if (sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot")) {
       return RETAINED_ROWS;

@@ -25,6 +25,10 @@
  * nothing, and this module will not read it.
  */
 import { isCampaignContextResolverAuthorityValidated } from "@/lib/creative-decision-engine/campaign-context/source";
+import {
+  ENTITY_ROLE_DECLARATION_SOURCE,
+  isEntityRoleDeclarationAuthorityValidated,
+} from "@/lib/creative-decision-engine/campaign-context/entity-role";
 
 /** The only role kinds automatic inference may produce. */
 export const AUTOMATIC_CAMPAIGN_ROLES = ["test", "main", "mixed"] as const;
@@ -60,6 +64,8 @@ export const ROLE_AUTHORITY_BLOCKERS = [
   "role_resolver_version_absent",
   "role_resolver_version_unvalidated",
   "role_source_not_system_inferred",
+  /** D118 — a declaration row whose contract is not the exact current one. */
+  "role_declaration_contract_unvalidated",
 ] as const;
 export type RoleAuthorityBlocker = (typeof ROLE_AUTHORITY_BLOCKERS)[number];
 
@@ -419,6 +425,32 @@ export const CANONICAL_ROLE_AUTHORITY_RULE = {
 } as const;
 
 /**
+ * D118 — the second, separately proven route to role authority: an explicit
+ * operator declaration for ONE entity. It is not a manual label (the retired
+ * `meta_campaign_labels` table is never read) and it never borrows the
+ * resolver gate. The audit path above (`resolveCampaignRoleAuthority`) stays
+ * automatic-only by design; this rule is enforced where a read path has
+ * already scoped and dated the row, through `evaluateAccountScopedRoleAuthority`.
+ */
+export const DECLARED_ROLE_AUTHORITY_RULE = {
+  producer: "operator_declaration",
+  requiredSource: ENTITY_ROLE_DECLARATION_SOURCE,
+  requiredConfidence: "high",
+  requiresExactDeclarationContract: true,
+  requiresExactCompositeScope: [
+    "businessId",
+    "providerAccountId",
+    "entityType",
+    "entityId",
+    "effectiveFrom",
+  ],
+  entityTypes: ["campaign", "adset"],
+  adsetInheritsCampaignAuthority: false,
+  manualLabelTableRead: false,
+  entityNamesConsulted: false,
+} as const;
+
+/**
  * D081 C2 — the pure, dependency-free core of the authority rule.
  *
  * The full resolver above adds composite-scope and point-in-time selection on
@@ -433,10 +465,31 @@ export function evaluateAccountScopedRoleAuthority(input: {
   source: string | null;
   confidenceClass: string | null;
   resolverVersion: string | null;
+  /** D118 — the declaration contract a `operator_declared` row carries. */
+  declarationContractVersion?: string | null;
   isResolverVersionValidated: ResolverVersionValidator;
 }): { satisfiesRoleAuthority: boolean; blocker: RoleAuthorityBlocker | null } {
   if (!input.kind || !(AUTOMATIC_CAMPAIGN_ROLES as readonly string[]).includes(input.kind)) {
     return { satisfiesRoleAuthority: false, blocker: "role_kind_unrecognised" };
+  }
+  if (input.source === ENTITY_ROLE_DECLARATION_SOURCE) {
+    // A declaration is proven by its own exact contract, never by the
+    // resolver gate, and a capped (non-high) declared row is not authority.
+    if (input.confidenceClass !== "high") {
+      return { satisfiesRoleAuthority: false, blocker: "role_confidence_not_high" };
+    }
+    if (
+      !isEntityRoleDeclarationAuthorityValidated({
+        source: input.source,
+        contractVersion: input.declarationContractVersion ?? null,
+      })
+    ) {
+      return {
+        satisfiesRoleAuthority: false,
+        blocker: "role_declaration_contract_unvalidated",
+      };
+    }
+    return { satisfiesRoleAuthority: true, blocker: null };
   }
   if (input.source !== REQUIRED_KIND_SOURCE) {
     return { satisfiesRoleAuthority: false, blocker: "role_source_not_system_inferred" };

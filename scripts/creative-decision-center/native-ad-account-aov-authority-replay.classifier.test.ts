@@ -74,20 +74,23 @@ const exactInput = {
 } as unknown as AdDecisionInput;
 const dataHealth = makeDataHealth() as DataHealth;
 const campaignContext: CampaignContextProvenance = {
-  // D074: overrides no longer exist and grant nothing; the trusted state the
-  // classifier's proven projections require is high-confidence automatic
-  // inference.
+  // D118: an Ad takes its role from its own ad set. This persisted declaration
+  // is exact-contract proof; a campaign's high automatic role is only a
+  // suggestion and cannot recreate the production action tuple.
   mode: "automatic",
-  source: "system_inferred",
+  source: "operator_declared",
   campaignId: "campaign-1",
   kind: "main",
   testDimension: null,
   contextTrust: "high",
-  sourceRecordType: "engine_v3_campaign_context_daily",
-  sourceRecordId: "classifier-campaign-context",
+  sourceRecordType: "meta_entity_role_declarations",
+  sourceRecordId: "classifier-adset-declaration",
   sourceAsOfDate: "2026-07-18",
   sourceUpdatedAt: "2026-07-18T00:00:00.000Z",
   sourceHash: "c".repeat(64),
+  roleEntityType: "adset",
+  roleEntityId: "classifier-adset",
+  roleDeclarationContractVersion: "meta-entity-role-declaration.v1",
 };
 
 function proofProfile(input: {
@@ -609,7 +612,7 @@ describe("native-ad replay semantic drift classifier", () => {
       campaignId: "campaign-1",
       kind: null,
       testDimension: null,
-      contextTrust: null,
+      contextTrust: "unknown",
       sourceRecordType: null,
       sourceRecordId: null,
       sourceAsOfDate: null,
@@ -648,6 +651,17 @@ describe("native-ad replay semantic drift classifier", () => {
     expect(scaleRefreshProjectionDrift(input)).toBe(true);
     expect(scaleRefreshCalibrationRestatement(input)).toBe(false);
     expect(scaleRefreshProfileAvailabilityRestatement(input)).toBe(false);
+  });
+
+  it("does not reconstruct ad set authority from a wrong entity or contract", () => {
+    for (const challengerCampaignContext of [
+      { ...campaignContext, roleEntityId: "another-adset" },
+      { ...campaignContext, roleDeclarationContractVersion: "unapproved" },
+    ]) {
+      const input = provenInput({ challengerCampaignContext });
+      expect(scaleRefreshProjectionDrift(input)).toBe(true);
+      expect(scaleRefreshCalibrationRestatement(input)).toBe(false);
+    }
   });
 
   it("fails closed for input drift and malformed proof material", () => {

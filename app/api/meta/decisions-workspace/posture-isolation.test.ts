@@ -29,6 +29,7 @@ const assignmentsMock = vi.hoisted(() => ({
 const readModelMock = vi.hoisted(() => ({
   buildUnavailableMetaDecisionsWorkspaceReadModel: vi.fn(),
   readMetaDecisionCampaignContextRows: vi.fn(),
+  readMetaDecisionAdsetRoleRows: vi.fn(),
   readMetaDecisionsWorkspaceReadModel: vi.fn(),
 }));
 const metaApiMock = vi.hoisted(() => ({
@@ -66,6 +67,8 @@ vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
     readModelMock.buildUnavailableMetaDecisionsWorkspaceReadModel,
   readMetaDecisionCampaignContextRows:
     readModelMock.readMetaDecisionCampaignContextRows,
+  readMetaDecisionAdsetRoleRows:
+    readModelMock.readMetaDecisionAdsetRoleRows,
   readMetaDecisionsWorkspaceReadModel:
     readModelMock.readMetaDecisionsWorkspaceReadModel,
 }));
@@ -95,6 +98,7 @@ function everyLiveDependency() {
     ["getProviderAccountAssignments", assignmentsMock.getProviderAccountAssignments],
     ["readMetaDecisionsWorkspaceReadModel", readModelMock.readMetaDecisionsWorkspaceReadModel],
     ["readMetaDecisionCampaignContextRows", readModelMock.readMetaDecisionCampaignContextRows],
+    ["readMetaDecisionAdsetRoleRows", readModelMock.readMetaDecisionAdsetRoleRows],
     ["buildUnavailableMetaDecisionsWorkspaceReadModel", readModelMock.buildUnavailableMetaDecisionsWorkspaceReadModel],
     ["resolveMetaCredentials", metaApiMock.resolveMetaCredentials],
     ["fetchMetaActiveAdConfigsReceipt", metaApiMock.fetchMetaActiveAdConfigsReceipt],

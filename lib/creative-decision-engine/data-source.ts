@@ -6216,6 +6216,8 @@ function mapAdDecisionHydrationRow(input: {
       });
   const configAuthority = resolveHydratedConfigAuthority({
     cohort: effectiveCohort,
+    // The admitted run's single goal value, for the purchase-intent window only.
+    optimizationGoal: contextIdentityUnknown ? null : optimizationGoal,
     asOfDate: input.asOf,
     row: {
       objectiveTier: toStringOrNull(input.row.objective_tier),

@@ -69,6 +69,8 @@ import {
 } from "@/lib/meta/campaign-label-guard";
 import {
   readCampaignContextLabelMap,
+  readAdsetRoleMap,
+  type CampaignContextMap,
   resolveCampaignContextMode,
 } from "@/lib/creative-decision-engine/campaign-context/source";
 import { readMetaEntityDecisionSignalsDaily } from "@/lib/meta/entity-signals";
@@ -95,7 +97,10 @@ import { resolveSpendUnit } from "@/lib/creative-decision-engine/spend-unit-reso
 import {
   getMetaAutomationControlPlane,
 } from "@/lib/meta/automation-control-plane";
-import { readIntentProjectionContexts } from "@/lib/meta/intent-projection-context";
+import {
+  budgetRoleAuthorityByEntity,
+  readIntentProjectionContexts,
+} from "@/lib/meta/intent-projection-context";
 import { projectBudgetIntents } from "@/lib/meta/budget-intent-projection";
 import { projectBidIntents } from "@/lib/meta/bid-intent-projection";
 import { resolveMetaIntentProjectionAuthority } from "@/lib/meta/intent-projection-authority";
@@ -226,6 +231,32 @@ type SnapshotDbRow = {
   signal_quality?: unknown;
 };
 
+const SNAPSHOT_ROLE_KNOWLEDGE_CONTRACT = "meta-snapshot-role-knowledge.v1";
+/** Before the first possible declaration: unstamped legacy rows admit none. */
+const NO_ROLE_DECLARATION_KNOWLEDGE = "1970-01-01T00:00:00.000Z";
+
+/** Every served row must name the SAME generating run's declaration cutoff. */
+function snapshotRoleDeclarationCutoff(rows: readonly SnapshotDbRow[]): string | null {
+  let cutoff: string | null = null;
+  for (const row of rows) {
+    const quality = row.signal_quality;
+    if (!quality || typeof quality !== "object" || Array.isArray(quality)) return null;
+    const raw = (quality as Record<string, unknown>).roleSourceKnowledge;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const stamp = raw as Record<string, unknown>;
+    if (stamp.contractVersion !== SNAPSHOT_ROLE_KNOWLEDGE_CONTRACT ||
+        typeof stamp.recordedBy !== "string") return null;
+    const parsed = new Date(stamp.recordedBy);
+    const createdAt = Date.parse(row.created_at);
+    if (!Number.isFinite(parsed.getTime()) ||
+        parsed.toISOString() !== stamp.recordedBy ||
+        !Number.isFinite(createdAt) || parsed.getTime() > createdAt ||
+        (cutoff !== null && cutoff !== stamp.recordedBy)) return null;
+    cutoff = stamp.recordedBy;
+  }
+  return cutoff;
+}
+
 interface SnapshotPayloadRow {
   scope_type: "account" | "campaign" | "adset";
   scope_id: string;
@@ -299,9 +330,13 @@ async function readCampaignContextGuardState(input: {
   providerAccountId: string | null;
   campaignIds: string[];
   asOf: string;
+  /** The run's own start: declarations recorded later reach the next run. */
+  declarationsRecordedBy?: string | null;
 }): Promise<{
   campaignLabelsById: MetaCampaignLabelKindMap;
   campaignContextById: MetaCampaignContextGuardMap;
+  /** The resolved source map, so ad set roles can carry it as a suggestion. */
+  campaignContextSource: CampaignContextMap;
   automaticContextEnabled: boolean;
 }> {
   const mode = resolveCampaignContextMode();
@@ -312,19 +347,12 @@ async function readCampaignContextGuardState(input: {
       campaignIds: input.campaignIds,
       asOf: input.asOf,
       mode,
+      declarationsRecordedBy: input.declarationsRecordedBy ?? null,
     });
     const context = new Map<string, MetaCampaignContextGuardEntry>();
     const labels = new Map<string, MetaCampaignKind>();
     for (const [campaignId, entry] of resolved) {
-      const source = entry.provenance.source;
-      const contextTrust = entry.contextTrust ?? "unknown";
-      const guardEntry: MetaCampaignContextGuardEntry = {
-        kind: entry.kind,
-        contextTrust,
-        source,
-        inferenceConfidenceClass: entry.inferenceConfidenceClass,
-        resolverAuthorityValidated: entry.resolverAuthorityValidated,
-      };
+      const guardEntry = toMetaCampaignContextGuardEntry(entry);
       context.set(campaignId, guardEntry);
       /*
         ONE predicate, imported — not a second, looser copy of it.
@@ -354,6 +382,7 @@ async function readCampaignContextGuardState(input: {
     return {
       campaignLabelsById: labels,
       campaignContextById: context,
+      campaignContextSource: resolved,
       automaticContextEnabled: mode === "automatic",
     };
   } catch (error) {
@@ -364,8 +393,71 @@ async function readCampaignContextGuardState(input: {
     return {
       campaignLabelsById: new Map(),
       campaignContextById: new Map(),
+      campaignContextSource: new Map(),
       automaticContextEnabled: mode === "automatic",
     };
+  }
+}
+
+/** The guard's view of one resolved role entry, copied field for field. */
+function toMetaCampaignContextGuardEntry(
+  entry: CampaignContextMap extends ReadonlyMap<string, infer V> ? V : never,
+): MetaCampaignContextGuardEntry {
+  return {
+    kind: entry.kind,
+    contextTrust: entry.contextTrust ?? "unknown",
+    source: entry.provenance.source,
+    inferenceConfidenceClass: entry.inferenceConfidenceClass,
+    resolverAuthorityValidated: entry.resolverAuthorityValidated,
+    declarationAuthorityValidated: entry.declarationAuthorityValidated,
+    roleBasis: entry.roleBasis,
+  };
+}
+
+/**
+ * D118 — each ad-set recommendation's own ad set role, keyed by ad set id.
+ * The campaign's resolved role is passed only as the suggestion an undeclared
+ * ad set carries; it never becomes the ad set's authority. A read failure
+ * leaves every ad set without a role, which only withholds.
+ */
+async function readAdsetContextGuardState(input: {
+  businessId: string;
+  providerAccountId: string | null;
+  recommendations: readonly MetaRecommendation[];
+  campaignContextSource: CampaignContextMap;
+  asOf: string;
+  /** @see readCampaignContextGuardState */
+  declarationsRecordedBy?: string | null;
+}): Promise<MetaCampaignContextGuardMap> {
+  const adsets = new Map<string, string | null>();
+  for (const rec of input.recommendations) {
+    if (rec.level !== "adset") continue;
+    const adsetId = rec.adsetId?.trim();
+    if (adsetId) adsets.set(adsetId, rec.campaignId?.trim() || null);
+  }
+  if (adsets.size === 0) return new Map();
+  try {
+    const resolved = await readAdsetRoleMap({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      adsets: [...adsets].map(([adsetId, campaignId]) => ({ adsetId, campaignId })),
+      campaignContext: input.campaignContextSource,
+      asOf: input.asOf,
+      mode: resolveCampaignContextMode(),
+      declarationsRecordedBy: input.declarationsRecordedBy ?? null,
+    });
+    return new Map(
+      [...resolved].map(([adsetId, entry]) => [
+        adsetId,
+        toMetaCampaignContextGuardEntry(entry),
+      ]),
+    );
+  } catch (error) {
+    console.warn("[meta-snapshot] adset_role_read_failed", {
+      businessId: input.businessId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return new Map();
   }
 }
 
@@ -432,6 +524,7 @@ function recommendationToSnapshotRow(
   snapshotDate: string,
   evidenceTrail: MetaEvidenceTrail | null,
   lineage: SnapshotAccountLineage | null = null,
+  roleDeclarationsRecordedBy: string | null = null,
 ): SnapshotPayloadRow {
   const scope = scopeForRecommendation(recommendation, businessId);
   const recommendationWithTrail = evidenceTrail
@@ -466,7 +559,15 @@ function recommendationToSnapshotRow(
     decision_label: decisionLabelForMetaRec(recommendation),
     state_reason: recommendation.stateReason ?? null,
     calibration_scope: recommendation.calibrationScope ?? {},
-    signal_quality: recommendation.signalQuality ?? {},
+    signal_quality: {
+      ...(recommendation.signalQuality ?? {}),
+      ...(roleDeclarationsRecordedBy ? {
+        roleSourceKnowledge: {
+          contractVersion: SNAPSHOT_ROLE_KNOWLEDGE_CONTRACT,
+          recordedBy: roleDeclarationsRecordedBy,
+        },
+      } : {}),
+    },
   };
 }
 
@@ -946,6 +1047,12 @@ async function attachSizedIntents(input: {
   campaigns: MetaCampaignRow[];
   adsets: readonly MetaAdSetData[];
   campaignLabelsById: MetaCampaignLabelKindMap;
+  /**
+   * D118 — each ad set's OWN role entry, exactly as the label guard read it.
+   * An ad set budget is sized only under that entry; the campaign's role is
+   * never its authority.
+   */
+  adsetContextById: MetaCampaignContextGuardMap;
   commercialTargets: Awaited<ReturnType<typeof readMetaCommercialTargets>> | null;
   accountCurrency: string | null;
   contexts: { byCampaignId: Record<string, MetaCalibrationContext> };
@@ -1087,20 +1194,23 @@ async function attachSizedIntents(input: {
   });
 
   /*
-    The role gate, taken from the SAME map the label guard used.
+    The role gate, taken from the SAME maps the label guard used, per entity.
 
-    A campaign carries a published role only when the context resolver
-    returned high trust from a system inference — the exact condition the
-    budget policy's role check is about. Re-deriving it here from other
-    evidence could disagree with the guard the operator already saw.
+    A campaign budget is sized under the campaign's own role: it carries a
+    published role only when the shared predicate trusts it (a validated
+    automatic inference, or an exact operator declaration). An ad set budget
+    is sized under the AD SET's own role (D118): a Main campaign can run a
+    Test ad set, so the campaign's role — which an undeclared ad set carries
+    only as a capped suggestion — never authorises the ad set's money.
+    Re-deriving either from other evidence could disagree with the guard the
+    operator already saw.
   */
-  const roleAuthorityByCampaignId = new Map<string, boolean>();
-  for (const campaign of input.campaigns) {
-    roleAuthorityByCampaignId.set(
-      campaign.id,
-      input.campaignLabelsById.has(campaign.id),
-    );
-  }
+  const { roleAuthorityByCampaignId, roleAuthorityByAdsetId } =
+    budgetRoleAuthorityByEntity({
+      campaignIds: input.campaigns.map((campaign) => campaign.id),
+      campaignLabelsById: input.campaignLabelsById,
+      adsetContextById: input.adsetContextById,
+    });
 
   const cohortByEntityId = new Map<string, string>();
   const maturityByEntityId = new Map<string, boolean>();
@@ -1174,6 +1284,7 @@ async function attachSizedIntents(input: {
     snapshotDate: input.snapshotDate,
     cohortByEntityId,
     roleAuthorityByCampaignId,
+    roleAuthorityByAdsetId,
     maturityByEntityId,
     calibrationSampleByEntityId,
     /*
@@ -1351,6 +1462,11 @@ async function buildSnapshotRecommendations(input: {
    * business-scoped callers that are not account surfaces have not moved.
    */
   providerAccountId?: string | null;
+  /**
+   * The instant this snapshot run began. Role declarations recorded after it
+   * are not this run's knowledge (D118): they reach the next run.
+   */
+  roleDeclarationsRecordedBy?: string | null;
 }): Promise<{
   recommendations: MetaRecommendation[];
   lineage: SnapshotAccountLineage;
@@ -1431,6 +1547,7 @@ async function buildSnapshotRecommendations(input: {
     providerAccountId: accountId,
     campaignIds,
     asOf: endDate,
+    declarationsRecordedBy: input.roleDeclarationsRecordedBy ?? null,
   });
   const campaignLabelsById = campaignContextState.campaignLabelsById;
   const entitySignals = await readMetaEntityDecisionSignalsDaily({
@@ -1565,10 +1682,24 @@ async function buildSnapshotRecommendations(input: {
     campaignLabelsById,
   });
 
+  const unguardedRecommendations = [
+    ...stateRows,
+    ...campaignRecommendations,
+    ...adsetRecommendations,
+  ];
+  const adsetContextById = await readAdsetContextGuardState({
+    businessId: input.businessId,
+    providerAccountId: accountId,
+    recommendations: unguardedRecommendations,
+    campaignContextSource: campaignContextState.campaignContextSource,
+    asOf: endDate,
+    declarationsRecordedBy: input.roleDeclarationsRecordedBy ?? null,
+  });
   const labelGuarded = applyMetaCampaignLabelGuard({
-    recommendations: [...stateRows, ...campaignRecommendations, ...adsetRecommendations],
+    recommendations: unguardedRecommendations,
     campaignLabelsById,
     campaignContextById: campaignContextState.campaignContextById,
+    adsetContextById,
     automaticContextEnabled: campaignContextState.automaticContextEnabled,
     activeCampaignIds: campaignIds,
   }).recommendations;
@@ -1594,6 +1725,7 @@ async function buildSnapshotRecommendations(input: {
     campaigns,
     adsets: adsetRows.rows ?? [],
     campaignLabelsById,
+    adsetContextById,
     commercialTargets,
     /*
       The account's own currency, from the rows this run already read.
@@ -1761,6 +1893,13 @@ export async function runMetaSnapshotForBusiness(
   providerAccountIds?: string | readonly string[] | null,
 ): Promise<RunMetaSnapshotResult> {
   const normalizedSnapshotDate = normalizeDate(snapshotDate);
+  /*
+    D118 — this run's knowledge bound for role declarations. The decisions,
+    the budget sizing and the budget proposals of this run all read the
+    declarations recorded by this instant, so they agree about every role; a
+    declaration recorded later reaches the next run.
+  */
+  const roleDeclarationsRecordedBy = new Date().toISOString();
   const calibration = await runMetaCalibrationForBusiness(
     businessId,
     normalizedSnapshotDate,
@@ -1984,6 +2123,7 @@ export async function runMetaSnapshotForBusiness(
           snapshotDate: normalizedSnapshotDate,
           providerAccountId: accountId,
           deliveryConstrainedAdsetIds,
+          roleDeclarationsRecordedBy,
         });
       // CDC discipline: act-boundary state flips must hold two consecutive
       // snapshots before publishing. Memory-read failure degrades to
@@ -2044,6 +2184,7 @@ export async function runMetaSnapshotForBusiness(
           normalizedSnapshotDate,
           evidenceTrails[recommendation.id] ?? null,
           scopedLineage,
+          roleDeclarationsRecordedBy,
         ),
       );
       await upsertSnapshotRows({
@@ -2232,6 +2373,7 @@ export async function runMetaSnapshotForBusiness(
     // above. A generation-successful account whose profile production failed
     // must not borrow an older same-day profile row.
     providerAccountIds: retainedProfileProviderAccountIds,
+    roleDeclarationsRecordedBy,
     loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
     insertProposal: async (insert) => insertBudgetProposalRow({
       businessId,
@@ -2945,17 +3087,32 @@ export async function readLatestMetaDecisionSnapshot(input: {
         .filter((campaignId): campaignId is string => Boolean(campaignId)),
     ),
   );
+  // A new declaration must never retrofit an older persisted verdict. Older
+  // snapshots have no run-start stamp and therefore admit no declarations on
+  // read; automatic context continues through its independent source path.
+  const roleDeclarationCutoff =
+    snapshotRoleDeclarationCutoff(rows) ?? NO_ROLE_DECLARATION_KNOWLEDGE;
   const campaignContextState = await readCampaignContextGuardState({
     businessId: input.businessId,
     providerAccountId: account,
     campaignIds,
     asOf: rows[0]?.snapshot_date ?? normalizeDate(input.endDate),
+    declarationsRecordedBy: roleDeclarationCutoff,
   });
   const campaignLabelsById = campaignContextState.campaignLabelsById;
+  const adsetContextById = await readAdsetContextGuardState({
+    businessId: input.businessId,
+    providerAccountId: account,
+    recommendations: commerciallyGuardedRecommendations,
+    campaignContextSource: campaignContextState.campaignContextSource,
+    asOf: rows[0]?.snapshot_date ?? normalizeDate(input.endDate),
+    declarationsRecordedBy: roleDeclarationCutoff,
+  });
   const guardedRecommendations = applyMetaCampaignLabelGuard({
     recommendations: commerciallyGuardedRecommendations,
     campaignLabelsById,
     campaignContextById: campaignContextState.campaignContextById,
+    adsetContextById,
     automaticContextEnabled: campaignContextState.automaticContextEnabled,
     activeCampaignIds: campaignIds,
   }).recommendations;

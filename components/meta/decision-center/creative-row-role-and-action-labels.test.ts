@@ -264,6 +264,28 @@ describe("the creative role chip shows a campaign role only as the server trusts
   });
 });
 
+it("names a native Ad's own ad-set role separately from a parent-campaign suggestion", () => {
+  const model = buildMetaDecisionCenterExactViewModel({ workspace: workspaceWith([
+    monitorRow("declared_test_adset", {
+      lifecycleRole: "test",
+      roleEntityType: "adset",
+      roleBasis: "declared",
+      campaignRoleSource: "user_override",
+      campaignRoleTrustedForAction: true,
+    }),
+    monitorRow("parent_main_suggestion", {
+      lifecycleRole: "main",
+      roleEntityType: "adset",
+      roleBasis: "parent_campaign_suggestion",
+      campaignRoleTrustedForAction: false,
+    }),
+  ]) });
+  expect(row(model, "declared_test_adset").chips?.[0]).toBe("Ad set · Test");
+  expect(row(model, "parent_main_suggestion").chips?.[0]).toBe(
+    "Ad set unverified · parent suggests Main",
+  );
+});
+
 describe("an Ad-level Cut is named for what it does", () => {
   it("names an Ad-level Cut as pausing the ad, held or ready", () => {
     expect(buyerHeldVerdictLabel("cut")).toBe("Pause ad");

@@ -1,4 +1,5 @@
 import { observedConfigAuthority } from "@/lib/creative-decision-engine/__tests__/config-authority-fixture";
+import { declaredAdsetRoleMap } from "../entity-role-fixture";
 import { describe, expect, it } from "vitest";
 import { type NativeAdCalibrationCellQuery } from "../../ad-account-decision-profile";
 import type { CampaignContextLabelMap } from "../../campaign-context/source";
@@ -597,6 +598,12 @@ function compute(
     adInputs,
     campaignContextMode: "automatic",
     campaignContextById: campaignContext(),
+    // D118 — each archetype Ad's own ad set role; the campaign alone no
+    // longer reaches an Ad as authority.
+    adsetRoleByKey: declaredAdsetRoleMap(adInputs, {
+      businessId: fixture.businessId,
+      asOf: fixture.firstAsOfDate,
+    }),
     previousLabels,
   });
 }

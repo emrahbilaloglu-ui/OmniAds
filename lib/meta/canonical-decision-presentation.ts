@@ -6,6 +6,7 @@ import {
   type V3BridgeMappedResult,
 } from "@/lib/creative-decision-center/v3-bridge";
 import type { DecisionOutput } from "@/lib/creative-decision-engine/types";
+import type { MetaManualCutAdvisory } from "./manual-cut-advisory";
 import {
   classifyMetaCreativeAssessment,
   type MetaCreativeAssessmentPresentation,
@@ -67,6 +68,7 @@ export function projectCanonicalMetaDecisionPresentation(input: {
    * config receipt or with unverified economic days; `null` means unknown.
    */
   configAuthorityVerified?: boolean | null;
+  manualCutAdvisory?: MetaManualCutAdvisory | null;
 }): CanonicalMetaDecisionPresentationProjection {
   const bridge = bridgeV3DecisionToV21({
     decision: input.decision,
@@ -124,6 +126,7 @@ export function projectCanonicalMetaDecisionPresentation(input: {
     */
     predicateBlockers: input.decision.blockers ?? [],
     configAuthorityVerified: input.configAuthorityVerified ?? null,
+    manualCutAdvisory: input.manualCutAdvisory,
   });
 
   return {

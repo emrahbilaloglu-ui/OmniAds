@@ -8,6 +8,15 @@ readiness, or the required post-deploy natural scheduler wave.
 
 Known facts to preserve unless repo evidence proves otherwise:
 
+- D123 separates a bounded manual purchase Cut recommendation from D098 hard
+  authority. It never relabels historical objective or point observations as
+  whole-day configuration proof. The full economic window stays intact; the
+  original core, sample/spend floors, recovery, source coverage and confirmation
+  gates remain. The recommendation must survive the same core without
+  Cut-enabling peer ratios and with each point-observed day's revenue raised to
+  at least the commercial target, including overlapping recent/lifecycle bands.
+  Missing purchase-intent receipts cannot be replaced by measured purchases.
+
 - V3 input now carries `ctr`, `cpm`, `frequency`, `firstSeenAt`, `firstSpendAt`, `spend24h`, `impressions24h`, `reviewStatus`, `disapprovalReason`, and `limitedReason` where warehouse rows expose them.
 - `fix_delivery`, `fix_policy`, and `watch_launch` remain proof-gated: they may emit only when those fields are present and the bridge can map the server-produced diagnostic badge.
 - If required data is missing, fallback to `diagnose_data` or cap confidence.
@@ -261,6 +270,55 @@ stop-loss path" in that row now refers to.
   honestly unknown without an operator artifact). Per-reason protection
   counts include the exact measured multi-endpoint exclusion, with
   fail-closed run- and row-level count reconciliation.
+
+## D118 entity role declarations (2026-09-25)
+
+- Source: `meta_entity_role_declarations`, append-only, one row per
+  declare/revoke event for ONE campaign or ad set in ONE physical provider
+  account. Readiness of a declared role = the row exists, its contract is the
+  exact `meta-entity-role-declaration.v1`, its `effective_from` is on or
+  before the read's as-of day and, on a replay, its `declared_at` is on or
+  before the cutoff. The latest such event wins; a winning `revoke` means no
+  declaration.
+- Binding: a write is refused unless the entity was observed under that
+  account in provider observation (`meta_entity_state_history`, present rows)
+  or Ad-day facts (`meta_ad_daily`); an ad set's parent campaign must be
+  unique there and is stored as context. Names are never consulted.
+- Absence: before the migration the table does not exist and reads as "no
+  declarations", which can only withhold role authority. `CAMPAIGN_CONTEXT_MODE
+  = unknown` disables declarations together with automatic context.
+- An ad set without its own declaration is NOT ready for role-dependent
+  action even when its campaign is: the campaign role is served beside it as
+  a capped suggestion (`roleBasis: parent_campaign_suggestion`,
+  `adset_role_unresolved` when the campaign itself would have been authority).
+
+## D121 budget role authority (2026-09-25)
+
+- A budget intent is sized only when its own entity's role is trusted: the
+  campaign's label for a campaign budget, the ad set's own guard entry for an
+  ad set budget. The Meta snapshot reads declarations recorded by the run's
+  own start (`roleDeclarationsRecordedBy`), and the budget proposals of that
+  run read with the same bound.
+- A proposal's declared role is ready when the governing entity's declaration
+  was in force on the decision's day as recorded by the decision's own
+  instant (or the run's start, if earlier), is still in force with the same
+  role on the proposal's day as recorded by the run's start, and (ad set)
+  names the ad set's current campaign. Otherwise it is not ready. Only for a
+  campaign budget does a genuinely absent declaration let the automatic D081
+  route answer; an ad set budget has no automatic route (D121 C1).
+- D086 budget readiness (`role_authority_retention`,
+  `automatic_role_authority_absent`) is the AUTOMATION ACTIVATION readiness
+  and stays automatic-only by design: declarations never make execution
+  ready. It keeps reporting automatic retention exactly as before.
+
+## D122 served snapshot role knowledge (2026-09-25)
+
+- New persisted Meta recommendation rows carry the generating run's
+  `roleSourceKnowledge` instant in `signal_quality`. The served role re-guard
+  uses that instant, never the time of a later page read.
+- Legacy, mixed or invalid stamps cannot use declarations to raise an old
+  verdict. Recompute a new generation after a role confirmation; do not
+  backfill the stamp from the row's `created_at` or today's role state.
 
 ## D074b vocabulary closure (2026-08-30)
 

@@ -30,7 +30,7 @@ import {
 } from "./contracts";
 
 export const CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION =
-  "creative-decision-center.v3-bridge.v2";
+  "creative-decision-center.v3-bridge.v3";
 
 type V3BadgeType = DecisionBadge["type"];
 
@@ -291,6 +291,12 @@ function deriveProblemClass(
 function mapKeep(
   decision: DecisionOutput,
 ): MappingDecision | V3BridgeOmitReason {
+  // A published Keep can carry a held hard verdict. Its recorded first
+  // authority blocker remains the primary explanation, even when the role is
+  // also unresolved. The role badge is still retained as secondary evidence.
+  const recordedHold = mappingForRecordedAuthorityBlocker(decision);
+  if (recordedHold) return recordedHold;
+
   if (hasBadge(decision, "pending_transition")) {
     return {
       primaryDecision: "Test More",
@@ -363,6 +369,23 @@ function mapKeep(
   };
 }
 
+function mappingForRecordedAuthorityBlocker(
+  decision: DecisionOutput,
+): MappingDecision | null {
+  const blocker = decision.authorityBlocker;
+  if (!blocker || blocker === "campaign_context") return null;
+  return {
+    primaryDecision: "Diagnose",
+    problemClass:
+      blocker === "profile_hard_action_ineligible" ||
+      blocker === "recent_recovery_unverifiable"
+        ? "insufficient_signal"
+        : "data_quality",
+    actionability: "diagnose",
+    reasonTags: [blocker],
+  };
+}
+
 function mapDecision(
   decision: DecisionOutput,
 ): MappingDecision | V3BridgeOmitReason {
@@ -370,7 +393,7 @@ function mapDecision(
     HARD_V3_ACTION_LABELS.has(decision.label) &&
     hasCampaignLabelGap(decision)
   ) {
-    return {
+    return mappingForRecordedAuthorityBlocker(decision) ?? {
       primaryDecision: "Diagnose",
       problemClass: deriveProblemClass(decision, decision.label),
       actionability: "diagnose",
@@ -491,10 +514,14 @@ function buildReasonTags(
 }
 
 function buildBlockerReasons(
+  decision: DecisionOutput,
   mapping: MappingDecision,
   missingData: readonly string[],
 ): string[] {
   const blockers = [...missingData];
+  if (decision.authorityBlocker && decision.authorityBlocker !== "campaign_context") {
+    blockers.push(decision.authorityBlocker);
+  }
   if (mapping.reasonTags.includes("campaign_role_unresolved")) {
     blockers.push("campaign_role_unresolved");
   }
@@ -548,7 +575,7 @@ export function bridgeV3DecisionToV21(input: {
     priority: derivePriority(decision, context, mapping),
     reasonTags,
     evidenceSummary: evidenceSummaryFor(decision),
-    blockerReasons: buildBlockerReasons(mapping, missingData.missingData),
+    blockerReasons: buildBlockerReasons(decision, mapping, missingData.missingData),
     missingData: missingData.missingData,
     queueEligible: false,
     applyEligible: false,

@@ -44,9 +44,15 @@ import {
   parseBudgetProposalEnvelope,
 } from "@/lib/meta/budget-proposal-runtime";
 import {
-  composeBudgetExecutionCandidate,
+  composeBudgetProposalCandidate,
   type BudgetCompositionSources,
 } from "@/lib/meta/budget-execution-composition";
+
+/** What a projection run tells the source loader about its own knowledge. */
+export interface BudgetCompositionSourceOptions {
+  /** @see BudgetProposalProducerDeps.roleDeclarationsRecordedBy */
+  roleDeclarationsRecordedBy?: string | null;
+}
 
 export const BUDGET_PROPOSAL_PRODUCER_CONTRACT =
   "meta.budget-proposal-producer.v1" as const;
@@ -247,9 +253,19 @@ export interface BudgetProposalProducerDeps {
   /** Accounts whose decision generation completed in this exact snapshot run. */
   providerAccountIds: readonly string[];
   /** Reads the per-candidate evidence the composition root needs. */
-  loadCompositionSources(candidate: TypedBudgetCandidate): Promise<
+  loadCompositionSources(
+    candidate: TypedBudgetCandidate,
+    options?: BudgetCompositionSourceOptions,
+  ): Promise<
     Omit<BudgetCompositionSources, "proposalId" | "claimToken"> | null
   >;
+  /**
+   * D121 — the instant the snapshot run that sized these candidates began.
+   * Role declarations recorded after it are not this run's knowledge, so the
+   * proposal reads exactly the declarations the recommendation was sized
+   * under. Absent, the loader bounds on its own start.
+   */
+  roleDeclarationsRecordedBy?: string | null;
   /** Persists a projected row on the EXISTING table. */
   insertProposal(input: {
     /** The id the envelope was fingerprinted against. Inserted verbatim. */
@@ -335,7 +351,9 @@ export async function projectMetaBudgetProposals(
 
   let projected = 0;
   for (const candidate of candidates) {
-    const sources = await deps.loadCompositionSources(candidate);
+    const sources = await deps.loadCompositionSources(candidate, {
+      roleDeclarationsRecordedBy: deps.roleDeclarationsRecordedBy ?? null,
+    });
     if (!sources) { refuse("composition_sources_unavailable"); continue; }
 
     /*
@@ -348,7 +366,12 @@ export async function projectMetaBudgetProposals(
     */
     const proposalId = candidate.existingProposalId?.trim()
       || (deps.newProposalId ? deps.newProposalId() : randomUUID());
-    const composed = composeBudgetExecutionCandidate({
+    /*
+      The PROPOSAL composition: it admits a governing-entity role declaration
+      (D121) beside automatic authority. Execution composes again through
+      `composeBudgetExecutionCandidate`, which stays automatic-only.
+    */
+    const composed = composeBudgetProposalCandidate({
       ...sources,
       proposalId,
       // The claim does not exist until approval; the durable idempotency key is

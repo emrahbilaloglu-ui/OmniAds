@@ -502,7 +502,16 @@ export function createBudgetServerReaders(
       const roleCampaignId = envelope.ownerGrain === "campaign"
         ? envelope.entityId : envelope.parentCampaignId;
       if (!roleCampaignId) return null;
-      const roleEvidence = (await getDb().query(
+      /*
+        D121 C1 — an AD SET budget is never executed on its campaign's role.
+
+        Automatic inference is campaign-level only, so for an ad set the only
+        automatic verdict this read could return is its PARENT campaign's — the
+        role a Main campaign's separate Test ad set must never inherit. No
+        evidence is read for an ad set, the resolver finds none, and the
+        composition refuses with no role authority.
+      */
+      const roleEvidence = envelope.ownerGrain !== "campaign" ? [] : (await getDb().query(
         `SELECT business_id, provider_account_id, campaign_id, as_of_date::text AS as_of_date,
                 inferred_kind, kind_source, confidence_class, resolver_version
            FROM engine_v3_campaign_role_authority

@@ -70,9 +70,13 @@ export function preCapLaneProjection(
             executionReadiness: authority.executionReadiness,
             authorizedAction: authority.authorizedAction,
             engineVersion: authority.engineVersion,
+            decisionFreshness: authority.decisionFreshness,
           },
         }
       : {}),
+    // D123's manual recommendation changes the presentation lane only when
+    // its structured proof and freshness both survive this projection.
+    manualCutAdvisory: decision.manualCutAdvisory,
     sourceDecision: {
       computedAt: decision.sourceDecision.computedAt,
       engineVersion: decision.sourceDecision.engineVersion,

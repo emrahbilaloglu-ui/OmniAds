@@ -288,7 +288,13 @@ export interface MetaRecommendation {
   campaignKind?: MetaCampaignKind | null;
   campaignContext?: {
     kind: MetaCampaignKind | null;
-    source: "legacy_label" | "user_override" | "system_inferred" | "unknown";
+    /** `operator_declared` — D118 explicit entity role declaration. */
+    source:
+      | "legacy_label"
+      | "user_override"
+      | "system_inferred"
+      | "operator_declared"
+      | "unknown";
     confidence:
       | "override"
       | "high"

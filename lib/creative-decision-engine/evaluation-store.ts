@@ -1,6 +1,10 @@
 import { getDb, type DbClient } from "@/lib/db";
 import { chunkDecisionRows } from "./batching";
 import {
+  parseNativeManualCutAdvisoryProof,
+  type NativeManualCutAdvisoryProof,
+} from "./native-manual-cut-advisory";
+import {
   canonicalConfigFieldEvidenceRef,
   canonicalConfigReceiptWindowManifest,
   META_CONFIG_EVIDENCE_FIELDS,
@@ -54,6 +58,10 @@ export type { DecisionAuthorityBlocker };
  */
 export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   /*
+  `.v19` — ADR D123. Hash the purchase-intent window and the separately
+  recorded manual Cut proof. Core verdicts, D036 hysteresis and provider-write
+  authority keep their existing epoch; older evaluations cannot acquire proof.
+
   `.v18` — ADR D111. A trusted physical-account Cut floor below which the
   thin-cell fallback minted an advisory Cut now produces an explicit Test More
   with the verified floor and no held hard action. Source/config evidence takes
@@ -111,7 +119,7 @@ export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   readable under their own key and are never recomputed under current
   semantics.
 */
-  "engine-v3-canonical-ad-evaluation.v18" as const;
+  "engine-v3-canonical-ad-evaluation.v19" as const;
 
 /**
  * The source interpretation rules a `.v14` ad evaluation's inputs use.
@@ -943,8 +951,14 @@ export function buildAdCanonicalEvaluationProvenance(input: {
   identity: AdDecisionEvaluationIdentity;
   base: CanonicalEvaluationProvenance;
   adEvidence: Pick<AdDecisionInput, "customConversionId" | "configAuthority">;
+  manualCutAdvisory?: NativeManualCutAdvisoryProof | null;
 }): AdCanonicalEvaluationProvenance {
   const identity = normalizeAdDecisionEvaluationIdentity(input.identity);
+  const intent = input.adEvidence.configAuthority.purchaseIntentWindow;
+  const manualCutAdvisory = parseNativeManualCutAdvisoryProof(input.manualCutAdvisory);
+  if (input.manualCutAdvisory && !manualCutAdvisory) {
+    throw new Error("Invalid native manual Cut advisory proof");
+  }
   const contextPayload = {
     ...withoutKeys(input.base.contextPayload, ["contractVersion"]),
     contractVersion: AD_DECISION_EVALUATION_CONTRACT_VERSION,
@@ -963,6 +977,22 @@ export function buildAdCanonicalEvaluationProvenance(input: {
       creativeGroupingId: identity.creativeId,
     },
     configEvidence: {
+          // Observation receipts are hash-bound above/below; the invocation
+          // clock is the evaluation/snapshot computed_at, never input identity.
+          manualCutAdvisory: manualCutAdvisory
+            ? withoutKeys({ ...manualCutAdvisory }, ["computedAt"]) : null,
+          purchaseIntentWindow: intent ? {
+            contractVersion: intent.contractVersion,
+            economicDayCount: intent.economicDayCount,
+            bracketedDays: intent.bracketedDays,
+            pointObservedDays: intent.pointObservedDays,
+            unnamedDays: intent.unnamedDays,
+            historicalObjectiveVerifiedDays: intent.historicalObjectiveVerifiedDays,
+            historicalObjectiveUnverifiedDays: intent.historicalObjectiveUnverifiedDays,
+            pointObserved: intent.pointObserved.map((day) => ({
+              date: day.date, spend: day.spend, revenue: day.revenue,
+            })),
+          } : null,
           customConversionId: input.adEvidence.customConversionId ?? null,
           latestDay: {
             readiness: input.adEvidence.configAuthority.latestDay.readiness,

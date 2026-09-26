@@ -38,6 +38,12 @@ import {
   type BudgetWriteRequest,
 } from "@/lib/meta/budget-write-request";
 import type { BudgetWriteProviderBaseline } from "@/lib/meta/budget-write-preflight";
+import {
+  declaredBudgetRoleBindsScope,
+  type DeclaredBudgetRoleAuthority,
+} from "@/lib/meta/budget-declared-role-authority";
+import { DECLARED_ROLE_AUTHORITY_RULE } from "@/lib/meta/campaign-role-authority";
+import { ENTITY_ROLE_DECLARATION_SOURCE } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 
 /** D085's own posture shapes. A caller must supply real ones. */
 export type DryRunSafetyPosture = SafetyPosture;
@@ -89,12 +95,27 @@ export const D088_COMPOSITION_BLOCKERS = [
   "canonical_fact_provenance_incomplete",
   /* The resolver's as-of IS the authority evidence date. Absent is unknown. */
   "role_authority_as_of_unknown",
+  /*
+    D121: a declared role that does not name this proposal's own entity (an
+    ad set's declaration under another campaign, a campaign's declaration for
+    an ad set's money), or whose record is outside the knowledge bound.
+  */
+  "role_authority_declared_unbound",
+  /*
+    D121 C1: an automatic role presented for an AD SET's budget. Automatic
+    inference is campaign-level only, so it can only be the parent campaign's
+    role — which a Main campaign's separate Test ad set must never inherit.
+  */
+  "role_authority_adset_inherited",
 ] as const;
 export type BudgetCompositionBlocker = (typeof D088_COMPOSITION_BLOCKERS)[number];
 
 export interface BudgetCompositionRole {
   kind: string;
-  /** Only `automatic` role authority may reach a write. */
+  /**
+   * `automatic` (D081) or `declared` (D121). Only `automatic` may reach a
+   * write: `declared` is admitted by the PROPOSAL composition alone.
+   */
   source: string;
   resolverVersion: string | null;
   /*
@@ -108,6 +129,8 @@ export interface BudgetCompositionRole {
   satisfiesRoleAuthority: boolean;
   producer: string;
   authorityBlockers: readonly string[];
+  /** D121 — the governing entity's declaration, when `source` is `declared`. */
+  declared?: DeclaredBudgetRoleAuthority | null;
 }
 
 export interface BudgetCompositionIntent {
@@ -217,8 +240,41 @@ const isNonEmptyText = (value: unknown): value is string =>
 const fingerprintOf = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
+/**
+ * Which role authorities a composition admits.
+ *
+ * `automatic_only` is the D081 rule every write re-checks. The declared route
+ * (D121) is admitted only while PROJECTING a proposal for an operator to
+ * review; nothing here makes it executable.
+ */
+type RoleAdmission = "automatic_only" | "automatic_or_declared";
+
+/**
+ * The EXECUTION composition: automatic role authority only, exactly as D088
+ * shipped it. The approval and scheduled runtimes call this one.
+ */
 export function composeBudgetExecutionCandidate(
   sources: BudgetCompositionSources,
+): BudgetCompositionResult {
+  return composeBudgetCandidate(sources, "automatic_only");
+}
+
+/**
+ * D121 — the PROPOSAL composition. Identical to the execution one except that
+ * it also admits the governing entity's own role declaration: the campaign's
+ * for a campaign budget, the ad set's for an ad set budget. Every other gate —
+ * the canonical fact, the exact intent, the retained profile, the measured
+ * history, the fresh baseline and D085 itself — is the same code.
+ */
+export function composeBudgetProposalCandidate(
+  sources: BudgetCompositionSources,
+): BudgetCompositionResult {
+  return composeBudgetCandidate(sources, "automatic_or_declared");
+}
+
+function composeBudgetCandidate(
+  sources: BudgetCompositionSources,
+  roleAdmission: RoleAdmission,
 ): BudgetCompositionResult {
   const blockers: BudgetCompositionBlocker[] = [];
   const add = (blocker: BudgetCompositionBlocker) => {
@@ -318,9 +374,27 @@ export function composeBudgetExecutionCandidate(
     add("intent_amount_invalid");
   }
 
-  // --- 4. automatic role authority, a retained profile, measured history ----
+  // --- 4. role authority, a retained profile, measured history -------------
+  const declaredRole = sources.role?.source === "declared";
   if (!sources.role) add("role_authority_absent");
-  else if (sources.role.source !== "automatic") add("role_authority_not_automatic");
+  else if (sources.ownerGrain === "adset" && !declaredRole) {
+    add("role_authority_adset_inherited");
+  } else if (declaredRole) {
+    if (roleAdmission !== "automatic_or_declared") add("role_authority_not_automatic");
+    else if (
+      sources.role.producer !== DECLARED_ROLE_AUTHORITY_RULE.producer
+      || sources.role.kind !== sources.role.declared?.role
+      || !declaredBudgetRoleBindsScope(sources.role.declared, {
+        ownerGrain: sources.ownerGrain,
+        entityId: sources.entityId,
+        parentCampaignId: sources.parentCampaignId,
+        decidedAt: sources.decision?.decidedAt ?? null,
+        knowledgeMs: sources.nowMs,
+      })
+    ) {
+      add("role_authority_declared_unbound");
+    }
+  } else if (sources.role.source !== "automatic") add("role_authority_not_automatic");
   if (sources.profileRetained !== true) add("profile_not_retained");
   if (!sources.changeHistory) add("change_history_unknown");
 
@@ -460,21 +534,46 @@ export function composeBudgetExecutionCandidate(
     currencyExponent: fact.currencyExponent,
     currencyRegistryVersion: fact.currencyRegistryVersion,
     unitConfidence: "exact",
-    role: {
-      role: sources.role!.kind, source: "system_inferred",
-      resolverVersion: sources.role!.resolverVersion,
-      // The resolver's findings, carried verbatim.
-      confidence: sources.role!.confidence,
-      asOf: sources.role!.asOf,
-      accountScoped: sources.role!.accountScoped,
-      satisfiesRoleAuthority: sources.role!.satisfiesRoleAuthority,
-      authorityBlockers: sources.role!.authorityBlockers,
-      producer: sources.role!.producer,
-      campaignId: sources.ownerGrain === "campaign"
-        ? sources.entityId : sources.parentCampaignId,
-      businessId: sources.businessId, providerAccountId: sources.providerAccountId,
-      resolved: true, why: "resolved from automatic role authority",
-    },
+    role: declaredRole
+      ? {
+        /*
+          D121: the governing entity's own declaration, in D085's declared
+          form. It never borrows the resolver identity, and it names the
+          entity it was declared for so D085 binds it to this exact budget.
+        */
+        role: sources.role!.kind, source: ENTITY_ROLE_DECLARATION_SOURCE,
+        resolverVersion: null,
+        confidence: sources.role!.confidence,
+        asOf: sources.role!.asOf,
+        accountScoped: sources.role!.accountScoped,
+        satisfiesRoleAuthority: sources.role!.satisfiesRoleAuthority,
+        authorityBlockers: sources.role!.authorityBlockers,
+        producer: sources.role!.producer,
+        campaignId: sources.role!.declared!.campaignId,
+        businessId: sources.businessId, providerAccountId: sources.providerAccountId,
+        resolved: true,
+        why: `resolved from the ${sources.ownerGrain}'s own operator declaration`,
+        entityGrain: sources.role!.declared!.entityGrain,
+        entityId: sources.role!.declared!.entityId,
+        declarationContract: sources.role!.declared!.declarationContract,
+        // The record the DECISION rested on; D085 binds it to that decision.
+        declaredAt: sources.role!.declared!.decisionDeclaredAt,
+      }
+      : {
+        role: sources.role!.kind, source: "system_inferred",
+        resolverVersion: sources.role!.resolverVersion,
+        // The resolver's findings, carried verbatim.
+        confidence: sources.role!.confidence,
+        asOf: sources.role!.asOf,
+        accountScoped: sources.role!.accountScoped,
+        satisfiesRoleAuthority: sources.role!.satisfiesRoleAuthority,
+        authorityBlockers: sources.role!.authorityBlockers,
+        producer: sources.role!.producer,
+        campaignId: sources.ownerGrain === "campaign"
+          ? sources.entityId : sources.parentCampaignId,
+        businessId: sources.businessId, providerAccountId: sources.providerAccountId,
+        resolved: true, why: "resolved from automatic role authority",
+      },
     budgetFact: {
       contractVersion: CANONICAL_BUDGET_FACT_CONTRACT,
       available: true,
@@ -639,6 +738,9 @@ export function composeBudgetExecutionCandidate(
       environment, so nothing composed here is executable today — which is the
       honest answer, not a placeholder.
     */
-    executable: blockers.length === 0 && dryRun.status === "would_write_available",
+    executable: blockers.length === 0 && dryRun.status === "would_write_available"
+      /* D121: a declared role raises a reviewable proposal and nothing more;
+         execution re-composes automatic-only and refuses it. */
+      && !declaredRole,
   };
 }

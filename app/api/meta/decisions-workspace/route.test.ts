@@ -40,6 +40,7 @@ const readModelMock = vi.hoisted(() => ({
   buildUnavailableMetaDecisionsWorkspaceReadModel: vi.fn(),
   applyMetaExecutionGovernanceToReadModel: vi.fn(),
   readMetaDecisionCampaignContextRows: vi.fn(),
+  readMetaDecisionAdsetRoleRows: vi.fn(),
   readMetaDecisionsWorkspaceReadModel: vi.fn(),
 }));
 const governanceMock = vi.hoisted(() => ({
@@ -118,6 +119,8 @@ vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
     readModelMock.applyMetaExecutionGovernanceToReadModel,
   readMetaDecisionCampaignContextRows:
     readModelMock.readMetaDecisionCampaignContextRows,
+  readMetaDecisionAdsetRoleRows:
+    readModelMock.readMetaDecisionAdsetRoleRows,
   readMetaDecisionsWorkspaceReadModel:
     readModelMock.readMetaDecisionsWorkspaceReadModel,
 }));
@@ -395,6 +398,7 @@ describe("GET /api/meta/decisions-workspace", () => {
       scope: { businessId: "biz_1", providerAccountId: "act_1" },
     });
     readModelMock.readMetaDecisionCampaignContextRows.mockResolvedValue([]);
+    readModelMock.readMetaDecisionAdsetRoleRows.mockResolvedValue([]);
     readModelMock.applyMetaExecutionGovernanceToReadModel.mockImplementation(
       (input: { model: unknown }) => input.model,
     );
@@ -835,6 +839,16 @@ describe("GET /api/meta/decisions-workspace", () => {
       campaignIds: ["cmp_1", "cmp_ended"],
       snapshotAsOf: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     });
+    expect(readModelMock.readMetaDecisionAdsetRoleRows).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        adsets: expect.arrayContaining([
+          { adsetId: "adset_1", campaignId: "cmp_1" },
+          { adsetId: "adset_ended", campaignId: "cmp_ended" },
+        ]),
+      }),
+    );
   });
 
   it("explains a campaign the resolver has never evaluated as not yet evaluated", async () => {

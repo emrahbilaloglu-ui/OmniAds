@@ -2,7 +2,7 @@
  * Read-only historical simulation of the CURRENT native Meta decision chain.
  *
  * WHAT THIS IS. Orchestration only: the calibration batch, hydration, profile
- * resolution, campaign-role map, prior-label read, ready/soft-only decision
+ * resolution, campaign and ad set role maps, prior-label read, ready/soft-only decision
  * computation and the empty-hydration guard are the PRODUCTION functions,
  * imported from `jobs/ad-decisions-job.ts` and `jobs/ad-calibration-job.ts`
  * and called the way `runAdDecisionsJob` calls them. This file holds no
@@ -22,10 +22,11 @@
  *
  * POINT-IN-TIME. Every production reader it calls is bounded by the simulated
  * cutoff: hydration via `decisionCutoff`, calibration and target authority via
- * their cutoff parameter, and the campaign-role map and prior published labels
- * via `visibleAtCutoff`. Those two tables are upserted in place, so a row that
- * existed at the cutoff but was rewritten afterwards is WITHHELD and counted,
- * never replaced by an older day the job did not read.
+ * their cutoff parameter, and the entity-role maps and prior published labels
+ * via `visibleAtCutoff`. Automatic context and prior labels are upserted in
+ * place, so a row rewritten after the cutoff is WITHHELD rather than guessed.
+ * Append-only role declarations are admitted only when recorded by the cutoff;
+ * today's confirmation cannot become historical authority.
  *
  * CHAINED DAYS. Hysteresis publishes a hard label only on its second
  * consecutive evaluation, and prior labels are read only under the CURRENT
@@ -83,11 +84,13 @@ import {
 import {
   assertEmptyNativeAdHydrationIsAuthoritative,
   buildNativeAdDataHealth,
+  buildNativeManualCutAdvisory,
   computeReadyNativeAdDecisions,
   computeSoftOnlyNativeAdDecisions,
   groupNativeProfileInputsByScope,
   mergeUniqueMap,
   readAdCampaignContext,
+  readAdAdsetRoles,
   resolveNativeAdDecisionProfileGroups,
   resolveNativeAdFrequencyPressureThresholdsByAccount,
   toNativeSnapshotPayload,
@@ -336,7 +339,11 @@ export function buildSimulationEvaluation(input: {
   evaluatedAt: string;
 }): AdCanonicalEvaluationProvenance {
   const { computation } = input;
+  const advisory = buildNativeManualCutAdvisory(
+    computation, input.profile.asOfDate, input.evaluatedAt,
+  );
   return buildAdCanonicalEvaluationProvenance({
+    manualCutAdvisory: advisory.status === "advised" ? advisory.proof : null,
     identity: {
       providerAccountRefId: computation.input.providerAccountRefId,
       providerAccountId: computation.input.providerAccountId,
@@ -666,6 +673,17 @@ async function simulateOneDay(input: {
     visibleAtCutoff: day.cutoff,
     pitExclusions: contextExclusions,
   });
+  // Use the same per-adset role reader as the native job. In particular, a
+  // Main campaign cannot grant Main authority to an undeclared ad set, and a
+  // Test declaration recorded after this historical cutoff is invisible.
+  const adsetRoleByKey = await readAdAdsetRoles({
+    businessId,
+    asOf: day.asOf,
+    adInputs: hydration.inputs,
+    mode: campaignContextMode,
+    campaignContextById,
+    visibleAtCutoff: day.cutoff,
+  });
 
   const persisted = new Map<string, PreviousAdPublishedLabel>();
   const persistedWithheld = new Map<string, PreviousLabelPitExclusion>();
@@ -741,6 +759,7 @@ async function simulateOneDay(input: {
             dataHealth,
             campaignContextMode,
             campaignContextById,
+            adsetRoleByKey,
             previousLabels: prior.labels,
             frequencyPressureThresholdByAccount,
           })
@@ -751,6 +770,7 @@ async function simulateOneDay(input: {
             adInputs: group.adInputs,
             campaignContextMode,
             campaignContextById,
+            adsetRoleByKey,
             previousLabels: prior.labels,
             evaluatedAt: day.cutoff,
           });

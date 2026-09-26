@@ -41,7 +41,7 @@ import type {
 } from "@/lib/meta/decisions-workspace-read-model";
 
 export const ACCEPTANCE_CONTRACT_VERSION =
-  "meta-decisions-creatives-acceptance.v1" as const;
+  "meta-decisions-creatives-acceptance.v2" as const;
 
 /** Every identifier this harness mints starts with this, and nothing else does. */
 export const SYNTHETIC_ID_PREFIX = "read-only-simulation:" as const;
@@ -918,6 +918,7 @@ export function projectConfigEvidenceLineage(
     refs: at(["configEvidence", "currentValueEvidence", "refs"]),
     refRefusals: at(["configEvidence", "currentValueEvidence", "refRefusals"]),
     lineageSupplied: at(["configEvidence", "currentValueEvidence", "lineageSupplied"]),
+    currentObserved: at(["configEvidence", "currentValueEvidence", "observed"]),
     receiptManifest: at(["configEvidence", "decisionEconomics", "receiptManifest"]),
     currentConfigDay: at(["configEvidence", "currentConfigDay"]),
     metricContract: at(["metricContract"]),
@@ -1207,6 +1208,8 @@ export function buildSimulatedGeneration(input: {
       fatigue_status: null,
       predicate_blockers: projectPredicateBlockers(evaluation.decisionPayload),
       config_authority_verified: projectConfigAuthorityVerified(evidence),
+      manual_cut_advisory: jsonbPath(evidence, ["configEvidence", "manualCutAdvisory"]),
+      purchase_intent_window: jsonbPath(evidence, ["configEvidence", "purchaseIntentWindow"]),
       config_evidence_lineage: projectConfigEvidenceLineage(evidence, evaluation.contractVersion),
     });
   }
@@ -1491,6 +1494,7 @@ export function toHardRowRecord(input: {
   asOf: string;
   entry: DecisionEntrySource;
   campaignContextById: ReadonlyMap<string, unknown>;
+  identityAtCutoff?: Partial<SimulatedIdentity>;
 }): HardRowRecord {
   const { computation: c, payload: p, group: g } = input.entry;
   const authority = c.input.configAuthority;
@@ -1525,6 +1529,15 @@ export function toHardRowRecord(input: {
     adId: c.input.adId,
     campaignId,
     adsetId: c.input.adsetId ?? null,
+    hierarchyAtCutoff: input.identityAtCutoff &&
+      input.identityAtCutoff.campaign_id === campaignId &&
+      input.identityAtCutoff.adset_id === (c.input.adsetId ?? null)
+      ? {
+          adStatus: input.identityAtCutoff.ad_status ?? null,
+          adsetStatus: input.identityAtCutoff.adset_status ?? null,
+          campaignStatus: input.identityAtCutoff.campaign_status ?? null,
+        }
+      : null,
     rawLabel: c.rawLabel,
     preAuthorityLabel: c.decision.preAuthorityLabel ?? null,
     publishedLabel: c.decision.label,
@@ -2178,6 +2191,12 @@ export interface HardRowRecord {
   adId: string;
   campaignId: string | null;
   adsetId: string | null;
+  /** Provider state known at this decision cutoff, never present-day status. */
+  hierarchyAtCutoff: {
+    adStatus: string | null;
+    adsetStatus: string | null;
+    campaignStatus: string | null;
+  } | null;
   rawLabel: string;
   preAuthorityLabel: string | null;
   publishedLabel: string;
@@ -2702,7 +2721,7 @@ export const ACCEPTANCE_CLAIMS = {
   provenance:
     "The report records git HEAD, `git status --porcelain` and the sha256 of every loaded repo module that differs from HEAD (read-only git: rev-parse, --no-optional-locks status). A pass with any dirty loaded module, including acceptance scripts, certifies that working tree, never HEAD; --require-clean makes it NOT MET. The production-module count is diagnostic only.",
   hardAuthority:
-    "PRESENCE (both gates) and HARD AUTHORITY are separate results. hardAuthorityOutcome is `demonstrated` only when a row on a successful simulated native decision day passes the full production authorization rule (published == raw == authorized hard action, not hysteresis-suppressed, eligible for that action, receipt gate passed, config observed and fully verified, coverage complete, both blockers null); otherwise `not_demonstrated` with raw / pre-authority / held counts and a blocker breakdown (objective_config, d101_coverage, role_campaign_context, hysteresis, profile_calibration_eligibility, receipt, other). In --knowledge-cutoffs replay this outcome refers ONLY to the native report-day cutoff shown in decisions.days, never to the later knowledge instant in args.chain; replay is diagnostic and cannot grant release or later-knowledge hard authority. A presence PASS never means a source-authorized Cut/Scale/Refresh. Only --require-hard-authority lets not_demonstrated change a release-mode exit code (NOT MET, exit 3).",
+    "PRESENCE (both gates) and HARD AUTHORITY are separate results. hardAuthorityOutcome is `demonstrated` only when a row on a successful simulated native decision day passes the full production authorization rule (published == raw == authorized hard action, not hysteresis-suppressed, eligible for that action, receipt gate passed, config observed and fully verified, coverage complete, both blockers null) AND the ad, ad set and campaign were all ACTIVE at that decision cutoff; otherwise `not_demonstrated`. Archived and unknown-state candidates are counted separately and cannot pass the release gate. The report includes raw / pre-authority / held counts and a blocker breakdown (objective_config, d101_coverage, role_campaign_context, hysteresis, profile_calibration_eligibility, receipt, other). In --knowledge-cutoffs replay this outcome refers ONLY to the native report-day cutoff shown in decisions.days, never to the later knowledge instant in args.chain; replay is diagnostic and cannot grant release or later-knowledge hard authority. A presence PASS never means a source-authorized Cut/Scale/Refresh. Only --require-hard-authority lets not_demonstrated change a release-mode exit code (NOT MET, exit 3).",
   hardRowCutEvidence:
     "hardRows[].hardActionEligibility is the account/group profile before per-ad gates. On a pre-authority Cut, cutEvidence.effectiveProfileEligible is the actual decision profile-gate result. Its candidate spend, purchases, canonical eligibility, account-AOV spend floors and decision reason explain an account-level Cut=true that still correctly ends review-only; the floors alone do not recalculate or grant authority.",
   cutoffs:
@@ -3813,6 +3832,9 @@ export interface HardAuthorityCounts {
   authorized: number;
   /** Authorized rows that pass the full production authorization rule. */
   authorizedGrounded: number;
+  /** Hard/held candidates by delivery state; archived rows are not live proof. */
+  candidatesByActivity: StatusBuckets;
+  activeAuthorizedGrounded: number;
   /** Rows (a row can count in several) that fail each condition; hard, held or authorized rows only. */
   blockers: Record<HardAuthorityBlockerCategory, number>;
   /** The single blocker production names per row (payload authority_blocker). */
@@ -3828,7 +3850,9 @@ export interface HardAuthorityDayOutcome extends HardAuthorityCounts {
 
 /**
  * Separate from PRESENCE: whether any real row carries a SOURCE-AUTHORIZED
- * hard action (the full production authorization rule). A presence PASS with
+ * hard action on an ACTIVE ad, ad set and campaign at the decision cutoff.
+ * Archived or unknown delivery states remain reported but cannot prove live
+ * decision readiness. A presence PASS with
  * this not_demonstrated proves the UI path, not an authorized Cut/Scale/Refresh.
  */
 export interface HardAuthorityOutcome {
@@ -3878,6 +3902,8 @@ function emptyHardAuthorityCounts(): HardAuthorityCounts {
     held: 0,
     authorized: 0,
     authorizedGrounded: 0,
+    candidatesByActivity: { active: 0, inactive: 0, unknown: 0 },
+    activeAuthorizedGrounded: 0,
     blockers: Object.fromEntries(HARD_AUTHORITY_BLOCKER_CATEGORIES.map((category) => [category, 0])) as Record<HardAuthorityBlockerCategory, number>,
     effectiveBlockers: {},
   };
@@ -3889,6 +3915,10 @@ function addHardAuthorityCounts(into: HardAuthorityCounts, from: HardAuthorityCo
   into.held += from.held;
   into.authorized += from.authorized;
   into.authorizedGrounded += from.authorizedGrounded;
+  into.activeAuthorizedGrounded += from.activeAuthorizedGrounded;
+  for (const state of ["active", "inactive", "unknown"] as const) {
+    into.candidatesByActivity[state] += from.candidatesByActivity[state];
+  }
   for (const category of HARD_AUTHORITY_BLOCKER_CATEGORIES) into.blockers[category] += from.blockers[category];
   for (const [blocker, count] of Object.entries(from.effectiveBlockers)) {
     into.effectiveBlockers[blocker] = (into.effectiveBlockers[blocker] ?? 0) + count;
@@ -3909,6 +3939,12 @@ export function evaluateHardAuthority(business: BusinessAcceptanceReport): HardA
       day.perAccount.find((account) => account.providerAccountId === providerAccountId)?.receipt?.gate.pass === true;
     const grounded: string[] = [];
     for (const row of day.hardRows) {
+      const hierarchy = row.hierarchyAtCutoff;
+      const states = [hierarchy?.adStatus, hierarchy?.adsetStatus, hierarchy?.campaignStatus].map(statusBucket);
+      const activity = states.every((state) => state === "active")
+        ? "active"
+        : states.includes("inactive") ? "inactive" : "unknown";
+      counts.candidatesByActivity[activity] += 1;
       if (isHardLabel(row.rawLabel)) counts.rawHard += 1;
       if (isHardLabel(row.preAuthorityLabel)) counts.preAuthorityHard += 1;
       if (row.blockedActionType !== null) counts.held += 1;
@@ -3916,7 +3952,10 @@ export function evaluateHardAuthority(business: BusinessAcceptanceReport): HardA
       const passed = receiptPassed(row.providerAccountId);
       if (row.authorizedAction !== null && isHardLabel(row.authorizedAction) && authorizationGroundingFailures(row, passed).length === 0) {
         counts.authorizedGrounded += 1;
-        grounded.push(`${row.adId}:${row.authorizedAction}`);
+        if (activity === "active") {
+          counts.activeAuthorizedGrounded += 1;
+          grounded.push(`${row.adId}:${row.authorizedAction}`);
+        }
         continue;
       }
       for (const category of hardAuthorityBlockerCategories(row, passed)) counts.blockers[category] += 1;
@@ -3927,7 +3966,7 @@ export function evaluateHardAuthority(business: BusinessAcceptanceReport): HardA
     outcome.days.push({
       asOf: day.asOf,
       cutoff: day.cutoff,
-      status: !successful ? "day_not_successful" : counts.authorizedGrounded > 0 ? "demonstrated" : "not_demonstrated",
+      status: !successful ? "day_not_successful" : counts.activeAuthorizedGrounded > 0 ? "demonstrated" : "not_demonstrated",
       groundedSample: sample(grounded),
       ...counts,
     });
@@ -3943,7 +3982,7 @@ export function describeHardAuthority(outcome: HardAuthorityOutcome): string {
     .map((category) => `${category} ${totals.blockers[category]}`)
     .join(", ");
   const days = outcome.days.map((day) => `${day.asOf}:${day.status}`).join(" ");
-  return `${outcome.status === "demonstrated" ? "DEMONSTRATED" : "NOT DEMONSTRATED"} (raw hard ${totals.rawHard}, pre-authority hard ${totals.preAuthorityHard}, held ${totals.held}, authorized ${totals.authorized}, source-authorized ${totals.authorizedGrounded}; blockers: ${blockers || "none"}; ${days})`;
+  return `${outcome.status === "demonstrated" ? "DEMONSTRATED" : "NOT DEMONSTRATED"} (raw hard ${totals.rawHard}, pre-authority hard ${totals.preAuthorityHard}, held ${totals.held}, authorized ${totals.authorized}, source-authorized ${totals.authorizedGrounded}; candidates ${totals.candidatesByActivity.active} active/${totals.candidatesByActivity.inactive} inactive/${totals.candidatesByActivity.unknown} unknown, active source-authorized ${totals.activeAuthorizedGrounded}; blockers: ${blockers || "none"}; ${days})`;
 }
 
 /** An account-day's receipt at its cutoff: reported as it is, never repaired. */

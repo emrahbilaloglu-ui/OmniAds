@@ -333,6 +333,24 @@ export const D085_REJECTED_PASSES: readonly D085RejectedPass[] = Object.freeze([
     why:
       "a published historical record that no file matched, and testability that widened write authority. (1) D085_REJECTED_LINEAGE published 0495c156cc2… as the SHA-256 of r2 while the file hashes to 0495c156fcc2… — a hand-copied literal missing an f, 63 characters where a SHA-256 has 64, with the correct value eleven lines away in the r2 record; verifyArtifact never opened a historical file, so it compared one authored constant to another and passed. (2) the claimed whole-production-graph forge-helper invariant walked four directories of eight, matched .ts/.tsx only while production here also ships .js/.mjs, omitted src, store, providers, hooks and 27 root-level files, and sat inside describe.skipIf(!RESOLVER_APPROVED) so the ordinary no-approval run skipped it. (3) atomicPublish was exported with a caller-selected finalPath, a caller-selected tempPath and a caller-supplied policy callback, and demonstrably overwrote an arbitrary file through a no-op revalidate; assertWritableArtifactPath guards runAssemble's closure, not that export. (4) contiguousRejectedVersions remained an exported production-runtime helper that threw on malformed input and existed only to build constants. (5) the comment above the rejected lineage still read 'v1 through v9' while the list held fourteen entries.",
   }),
+  rejectedPass({
+    revision: 16,
+    fileSha256: "df645050d20ca2e3d2304790279b76ee006886f4c18e8b8eff0d1ee437717211",
+    artifactHash: "8b0a1fc69e22d33692ff8b438699b59564fc3e23868ab1f431268601a3764da7",
+    snapshotHash: "08f40b473623343a54b50c1cbf1656ff0470a1292022b73848899fde9ed7cfe8",
+    analysisHash: "2dc6789625ec68e61c29da977dfe4a83926501e5a71442ef7615aa06391bb469",
+    why:
+      "superseded, not found defective (D121). The lineage record type has no other status, so the supersession is stated here rather than implied. r16's role boundary admitted exactly one authority — system_inferred automatic inference keyed by CAMPAIGN, with an ad-set proposal bound to its parent campaign — so the D118 operator declaration, the only role authority production can reach while the resolver gate stays unapproved, could not be carried at all, and an ad set's budget could only ever be judged by its campaign's role although a Main campaign can run a Test ad set. r17 adds a second, separately validated route: an operator_declared role context under the exact meta-entity-role-declaration.v1 contract, carrying the entity it was declared for (which must be the proposal's own grain and entity), the campaign it binds under, and its recording instant (which must sit inside the knowledge cutoff); a declared context carrying a resolver version is refused, and an automatic context carrying any declared-only field is refused. The automatic route, every other gate and the replay over the pinned bindings are unchanged.",
+  }),
+  rejectedPass({
+    revision: 17,
+    fileSha256: "2b8c7bc082cc3daa98de01656348d5f6f60cc473520d6360e92ffe6c3a6752a0",
+    artifactHash: "b99b34016c147cfb943dc344de3c1e4f297ab927a06871405d86527f8ae3ab9a",
+    snapshotHash: "2841eb18d11161b225ef344ba804a979108e96c4f28bfc7646949de78a36ce83",
+    analysisHash: "c53d2ed80f1b710a7104f5b8561e4017cf9c9c5b57a4822215c82a2a4797bc72",
+    why:
+      "two independently reproduced counterexamples (D121 C1). (1) r17 bound a declared role's recording instant only to the knowledge cutoff, never to the decision it would authorise: a decision computed on 24 Sep at 15:00 and a declaration recorded on 25 Sep at 16:00 with effectiveFrom 24 Sep let the older decision be lifted into a proposal by a statement it was never made under. role.declaredAt is now the record the DECISION rested on and must sit at or before decision.decidedAt; the loader selects the decision day under the decision's own instant (or the run's start, if earlier) and the proposal day under the run's start. (2) Outside this module, the composition root admitted an automatic role for an AD SET's budget, which can only be the parent campaign's (automatic inference is campaign-level), so an undeclared ad set inside a Main campaign inherited Main; the loader, the execution readers and both compositions now refuse it (role_authority_adset_inherited). This validator's automatic route is unchanged and still binds an ad-set scope to its parent campaign as r16 did; no runtime path can present it one.",
+  }),
 ]);
 
 /*

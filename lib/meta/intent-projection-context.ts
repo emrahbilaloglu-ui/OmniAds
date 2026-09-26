@@ -47,6 +47,10 @@ import { getDb } from "@/lib/db";
 import type { BudgetIntentEntityContext } from "@/lib/meta/budget-intent-projection";
 import type { BidIntentEntityContext } from "@/lib/meta/bid-intent-projection";
 import { classifyBudgetUniverse } from "@/lib/meta/budget-readiness-retention";
+import {
+  isContextTrustedForAction,
+  type MetaCampaignContextGuardEntry,
+} from "@/lib/meta/campaign-label-guard";
 
 export interface IntentProjectionContexts {
   budgetByEntityId: Map<string, BudgetIntentEntityContext>;
@@ -108,13 +112,52 @@ function ownerModeFrom(origin: string | null): string {
   return "unknown";
 }
 
+/**
+ * D118/D121 — the budget sizing role gate, per entity, from the SAME entries
+ * the label guard used.
+ *
+ * A campaign carries role authority exactly when the guard published a label
+ * for it (the shared predicate: a validated automatic inference or an exact
+ * operator declaration). An ad set carries it only from its OWN entry: an
+ * undeclared ad set's entry is its campaign's role as a capped suggestion, which
+ * the shared predicate never trusts, so a Main campaign's role can never size a
+ * Test (or any undeclared) ad set's budget.
+ */
+export function budgetRoleAuthorityByEntity(input: {
+  campaignIds: readonly string[];
+  campaignLabelsById: ReadonlyMap<string, unknown>;
+  adsetContextById: ReadonlyMap<string, MetaCampaignContextGuardEntry>;
+}): {
+  roleAuthorityByCampaignId: Map<string, boolean>;
+  roleAuthorityByAdsetId: Map<string, boolean>;
+} {
+  const roleAuthorityByCampaignId = new Map<string, boolean>();
+  for (const campaignId of input.campaignIds) {
+    roleAuthorityByCampaignId.set(campaignId, input.campaignLabelsById.has(campaignId));
+  }
+  const roleAuthorityByAdsetId = new Map<string, boolean>();
+  for (const [adsetId, entry] of input.adsetContextById) {
+    roleAuthorityByAdsetId.set(
+      adsetId,
+      Boolean(entry.kind) && isContextTrustedForAction(entry),
+    );
+  }
+  return { roleAuthorityByCampaignId, roleAuthorityByAdsetId };
+}
+
 export async function readIntentProjectionContexts(input: {
   businessId: string;
   providerAccountId: string;
   snapshotDate: string;
   /** Funnel cohort per entity, resolved by the caller from its own reader. */
   cohortByEntityId: Map<string, string>;
+  /** A campaign budget's role authority: the campaign's own. */
   roleAuthorityByCampaignId: Map<string, boolean>;
+  /**
+   * An ad set budget's role authority: the AD SET's own (D118). Its parent
+   * campaign's role is never consulted for an ad set's money.
+   */
+  roleAuthorityByAdsetId: Map<string, boolean>;
   maturityByEntityId: Map<string, boolean>;
   calibrationSampleByEntityId: Map<string, number | null>;
   deliveryConstrainedAdsetIds: Set<string>;
@@ -300,9 +343,9 @@ export async function readIntentProjectionContexts(input: {
     const currentMinorUnits = Number(row.owned_field_count) === 1
       ? num(row.owned_minor)
       : null;
-    const roleCampaignId = grain === "campaign"
-      ? row.entity_id
-      : row.campaign_id;
+    const roleAuthoritySatisfied = grain === "campaign"
+      ? input.roleAuthorityByCampaignId.get(row.entity_id) === true
+      : input.roleAuthorityByAdsetId.get(row.entity_id) === true;
     const change = changeByEntity.get(row.entity_id);
 
     budgetByEntityId.set(row.entity_id, {
@@ -315,9 +358,7 @@ export async function readIntentProjectionContexts(input: {
       // one owned amount, which is already refused above.
       isBudgetMixed: Number(row.owned_field_count) > 1,
       funnelCohort: input.cohortByEntityId.get(row.entity_id) ?? "unknown",
-      roleAuthoritySatisfied: roleCampaignId
-        ? input.roleAuthorityByCampaignId.get(roleCampaignId) === true
-        : false,
+      roleAuthoritySatisfied,
       maturityOk: input.maturityByEntityId.get(row.entity_id) === true,
       roas28d: num(metric?.roas28d),
       spend28d: num(metric?.spend28d),

@@ -1,3 +1,5 @@
+import type { MetaManualCutAdvisory } from "./manual-cut-advisory";
+
 export const META_DECISIONS_WORKSPACE_CONTRACT_VERSION =
   "meta-decisions-workspace.read.v4" as const;
 
@@ -369,6 +371,8 @@ export interface MetaDecisionConfigEvidence {
   evaluationContractVersion: string;
   /** D098's verdict: a receipt named the current config AND every economic day had authority. */
   verified: boolean | null;
+  /** Whether the evaluation day's values were named by admissible receipts. */
+  currentObserved?: boolean | null;
   /** False when the engine had no receipt lineage to record (explicit, never inferred). */
   lineageSupplied: boolean;
   /** The provider-local day the current receipts describe. */
@@ -400,6 +404,8 @@ export interface MetaCanonicalDecision {
   sourceAuthority?: MetaDecisionSourceAuthority;
   /** @see MetaDecisionConfigEvidence. Native ad rows only; absent elsewhere. */
   configEvidence?: MetaDecisionConfigEvidence | null;
+  /** Hash-bound, medium-confidence manual recommendation. Never write authority. */
+  manualCutAdvisory?: MetaManualCutAdvisory | null;
   /** The admitted native Ad economic period, read from its hashed evaluation.
    * Older creative and Ad snapshots omit it; absence is never a full 28 days. */
   decisionWindow?: MetaDecisionAdmittedWindow | null;

@@ -7,6 +7,7 @@ import {
   applyMetaExecutionGovernanceToReadModel,
   type MetaDecisionCampaignContextSourceRow,
   type MetaNativeDecisionSnapshotSourceRow,
+  declaredContextRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
@@ -24,6 +25,7 @@ import {
 } from "./meta-native-ad-pause";
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION } from "@/lib/creative-decision-engine/campaign-context/resolver";
 import { CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV } from "@/lib/creative-decision-engine/campaign-context/source";
+import { ENTITY_ROLE_DECLARATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 
 // D074: the zero-blocker state this file authorizes from is reachable only
 // after the deliberate operator act of validating the exact resolver version.
@@ -195,6 +197,31 @@ function campaignContext(): MetaDecisionCampaignContextSourceRow {
   };
 }
 
+/**
+ * D118 — the Ad's own ad set role. A native Ad's role authority reads its ad
+ * set; a trusted campaign alone no longer reaches it.
+ */
+function adsetRole() {
+  return declaredContextRow({
+    automatic: null,
+    declaration: {
+      id: "declaration-adset_1",
+      businessId: BUSINESS_ID,
+      providerAccountId: ACCOUNT_ID,
+      entityType: "adset",
+      entityId: "adset_1",
+      parentCampaignId: "cmp_1",
+      event: "declare",
+      declaredRole: "main",
+      effectiveFrom: AS_OF_DATE,
+      declaredAt: `${AS_OF_DATE}T00:30:00.000Z`,
+      declaredBy: "operator-fixture",
+      reason: null,
+      contractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+    },
+  });
+}
+
 function generationFor(rows: readonly MetaNativeDecisionSnapshotSourceRow[]) {
   return {
     jobRunId: JOB_RUN_ID,
@@ -222,6 +249,7 @@ function producerOutput(): {
     generation: generationFor(rows),
     snapshotRows: rows,
     campaignContextRows: [campaignContext()],
+    adsetRoleRows: [adsetRole()],
   });
   if (inventory.status !== "available" || inventory.items.length !== 1) {
     throw new Error(
@@ -235,6 +263,7 @@ function producerOutput(): {
       generation: generationFor(rows),
       snapshotRows: rows,
       campaignContextRows: [campaignContext()],
+      adsetRoleRows: [adsetRole()],
       eventSourceAvailable: false,
       outcomeSourceAvailable: false,
       responseSourceAvailable: false,

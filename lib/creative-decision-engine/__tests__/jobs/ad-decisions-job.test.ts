@@ -1,4 +1,8 @@
-import { observedConfigAuthority } from "@/lib/creative-decision-engine/__tests__/config-authority-fixture";
+import {
+  observedConfigAuthority,
+  purchaseIntentConfigAuthority,
+  type PurchaseIntentFixtureDay,
+} from "@/lib/creative-decision-engine/__tests__/config-authority-fixture";
 import { EMPTY_HYDRATED_CONFIG_AUTHORITY } from "@/lib/creative-decision-engine/native-ad-hydration-authority";
 import { readFileSync } from "node:fs";
 import { NATIVE_AD_CALIBRATION_CONTRACT_VERSION } from "../../jobs/ad-calibration-job";
@@ -7,6 +11,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { DbClient } from "@/lib/db";
 import { NATIVE_AD_DB_BATCH_SIZE } from "../../batching";
 import type { CampaignContextLabelMap } from "../../campaign-context/source";
+import {
+  adsetRoleKey,
+  declaredEntityRoleEntry,
+  ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+} from "../../campaign-context/entity-role";
 import {
   AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
   hashAdDecisionIdentityManifest,
@@ -19,6 +28,7 @@ import {
   UPSERT_NATIVE_AD_DECISION_SNAPSHOTS_QUERY,
   assertEmptyNativeAdHydrationIsAuthoritative,
   buildNativeAdDecisionChangeEvents,
+  buildNativeManualCutAdvisory,
   buildNativeAdDataHealth,
   computeNativeAdDecisions,
   computeSoftOnlyNativeAdDecisions,
@@ -45,6 +55,10 @@ import {
   type NativeAdTargetAuthorityInput,
 } from "../../jobs/ad-calibration-job";
 import type { EngineV3Flags } from "../../feature-flags";
+import {
+  META_NATIVE_MANUAL_CUT_ADVISORY_CONTRACT,
+  parseNativeManualCutAdvisoryProof,
+} from "../../native-manual-cut-advisory";
 import {
   META_AD_SOURCE_COVERAGE_FRESHNESS_CONTRACT_VERSION,
   NATIVE_AD_ENGINE_VERSION,
@@ -464,6 +478,40 @@ function automaticCampaignContext(
   ]);
 }
 
+/**
+ * D118 — an Ad's role-dependent authority reads its OWN ad set's role; a
+ * trusted campaign no longer passes it down. "Fully trusted" fixtures name the
+ * ad set's declaration, built through the production projection.
+ */
+function declaredAdsetRoles(
+  adIds: readonly string[],
+  role: "main" | "test" = "main",
+): CampaignContextLabelMap {
+  return new Map(
+    adIds.map((adId) => [
+      adsetRoleKey("act-1", `adset-${adId}`),
+      declaredEntityRoleEntry({
+        mode: "automatic",
+        declaration: {
+          id: `declaration-adset-${adId}`,
+          businessId: BUSINESS_ID,
+          providerAccountId: "act-1",
+          entityType: "adset",
+          entityId: `adset-${adId}`,
+          parentCampaignId: "campaign-a",
+          event: "declare",
+          declaredRole: role,
+          effectiveFrom: AS_OF,
+          declaredAt: `${AS_OF}T00:30:00.000Z`,
+          declaredBy: "operator-1",
+          reason: null,
+          contractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+        },
+      }),
+    ]),
+  );
+}
+
 function hydrationReceipt(input: {
   adIds: string[];
   authoritative?: boolean;
@@ -592,6 +640,7 @@ describe("native ad decision computation", () => {
       adInputs: [adInput({ adId, campaignId: "campaign-a" })],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
       previousLabels,
       resolveDecision: (resolverInput) =>
         hardCutDecision({ creativeId: resolverInput.creativeId }),
@@ -663,6 +712,10 @@ describe("native ad decision computation", () => {
         adInputs: [adInput({ adId, campaignId: "campaign-a" })],
         campaignContextMode: "automatic",
         campaignContextById: automaticCampaignContext(contextTrust),
+        // D118 — the trusted case names the Ad's own ad set role; the campaign
+        // context alone no longer reaches an Ad as authority.
+        adsetRoleByKey:
+          contextTrust === "high" ? declaredAdsetRoles([adId]) : undefined,
         previousLabels,
         resolveDecision: (resolverInput) =>
           hardCutDecision({ creativeId: resolverInput.creativeId }),
@@ -793,6 +846,7 @@ describe("native ad decision computation", () => {
       adInputs: [input],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
       previousLabels: new Map(),
     })[0];
     if (!first) throw new Error("Expected first stop-loss computation.");
@@ -840,6 +894,7 @@ describe("native ad decision computation", () => {
       adInputs: [input],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
       previousLabels: new Map([
         [
           stabilityKey,
@@ -1308,6 +1363,7 @@ describe("native ad decision computation", () => {
       ],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles(["ad-no-creative"]),
       previousLabels: new Map(),
       resolveDecision: (resolverInput) =>
         hardScaleDecision({ creativeId: resolverInput.creativeId }),
@@ -1452,6 +1508,7 @@ describe("native ad decision computation", () => {
       adInputs: [adInput({ adId: "ad-pending", campaignId: "campaign-a" })],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles(["ad-pending"]),
       previousLabels: new Map(),
       resolveDecision: (resolverInput) =>
         hardScaleDecision({ creativeId: resolverInput.creativeId }),
@@ -2206,6 +2263,7 @@ describe("hard-authority source gates at the emission boundary", () => {
       ],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
       /* A prior published Cut, so hysteresis publishes the hard label rather
          than holding it — the gate under test is the config one, not that. */
       previousLabels: new Map([
@@ -2640,6 +2698,7 @@ describe("hard-authority source gates at the emission boundary", () => {
       ],
       campaignContextMode: "legacy_labels",
       campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
       previousLabels: new Map(),
       resolveDecision: (resolverInput) => ({
         ...hardCutDecision({ creativeId: resolverInput.creativeId }),
@@ -2672,4 +2731,412 @@ describe("hard-authority source gates at the emission boundary", () => {
     });
     expect(payload.authority_blocker).not.toBe("config_source_authority");
   });
+});
+
+/*
+  meta-native-manual-cut-advisory.v1 through the REAL decision core
+  (decideCreative, no resolver override). The profile is the default fixture:
+  commercial target 2.2, break-even 1.71, so the peer-free Cut boundary is
+  min(0.70, 1.71/2.2) and a sufficiently sampled recent ROAS above 2.2 is a
+  recovery hold. Totals are the fixture days' own sums.
+*/
+describe("native manual Cut advisory through the real decision core", () => {
+  const adId = "ad-manual-advisory";
+  const COMPUTED_AT = `${AS_OF}T03:10:00.000Z`;
+  const DECISION_WINDOW = {
+    startDate: "2026-06-15",
+    endDate: "2026-07-11",
+    calendarDaySpan: 27,
+    observedDayCount: 27,
+    economicDayCount: 5,
+    bridgedUnresolvedDayCount: 0,
+    lookbackStartDate: "2026-06-15",
+    lookbackEndDate: "2026-07-12",
+    recentStartDate: "2026-07-05",
+    recentEndDate: "2026-07-11",
+  };
+  const RECENT = ["2026-07-05", "2026-07-11"] as const;
+
+  function run(
+    days: PurchaseIntentFixtureDay[],
+    options: {
+      authority?: Parameters<typeof purchaseIntentConfigAuthority>[1];
+      ad?: Partial<AdDecisionInput>;
+      thresholds?: NonNullable<Parameters<typeof makeAccountDecisionProfile>[0]>["thresholds"];
+    } = {},
+  ) {
+    const configAuthority = purchaseIntentConfigAuthority(AS_OF, { days, ...options.authority });
+    const sum = (list: PurchaseIntentFixtureDay[], key: "spend" | "revenue" | "conversions") =>
+      list.reduce((total, day) => total + (day[key] ?? 0), 0);
+    const recentDays = days.filter((day) => day.date >= RECENT[0] && day.date <= RECENT[1]);
+    const spend = sum(days, "spend");
+    const revenue = sum(days, "revenue");
+    const recentSpend = sum(recentDays, "spend");
+    const profile = makeAccountDecisionProfile({
+      asOfDate: AS_OF,
+      quality: {
+        commercialTruthReady: true,
+        commercialTruthFreshness: "fresh",
+        calibrationReady: true,
+        metaAovQuality: "ready",
+        thresholdQuality: "ready",
+      },
+      ...(options.thresholds ? { thresholds: options.thresholds } : {}),
+    });
+    const ad: AdDecisionInput = {
+      ...adInput({ adId, campaignId: "campaign-a", configAuthority }),
+      optimizationGoal: "OFFSITE_CONVERSIONS",
+      spend,
+      purchases: sum(days, "conversions"),
+      purchaseValue: revenue,
+      roas: revenue / spend,
+      cpa: spend / Math.max(1, sum(days, "conversions")),
+      recent7dSpend: recentSpend,
+      recent7dPurchases: sum(recentDays, "conversions"),
+      recent7dRoas: recentSpend > 0 ? sum(recentDays, "revenue") / recentSpend : null,
+      lastSpendAt: "2026-07-11",
+      // No funnel-step readings: the question here is the economic Cut alone.
+      outboundClicks: null,
+      landingPageViews: null,
+      addToCart: null,
+      initiateCheckout: null,
+      decisionWindow: DECISION_WINDOW,
+      adBandEvidence: null,
+      ...options.ad,
+    };
+    const [computation] = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile,
+      dataHealth: makeDataHealth(),
+      adInputs: [ad],
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      adsetRoleByKey: declaredAdsetRoles([adId]),
+      previousLabels: new Map([
+        [
+          `${BUSINESS_ID}\u0000${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000${adId}\u0000account\u0000*`,
+          {
+            businessId: BUSINESS_ID,
+            providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+            providerAccountId: "act-1",
+            decisionEntityType: "ad" as const,
+            decisionEntityId: adId,
+            sourceSnapshotId: "snapshot-prior-cut",
+            sourceEvaluationId: "evaluation-prior-cut",
+            sourceEngineVersion: NATIVE_AD_ENGINE_VERSION,
+            sourceAsOfDate: "2026-07-11",
+            sourceComputedAt: "2026-07-11T03:15:00.000Z",
+            sourceInputHash: "a".repeat(64),
+            sourceDecisionHash: "b".repeat(64),
+            publishedLabel: "keep" as const,
+            rawLabel: "cut" as const,
+          },
+        ],
+      ]),
+    });
+    if (!computation) throw new Error("Expected native Ad computation.");
+    const payload = toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000761",
+      scope: profile.scope,
+      computation,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000762",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: adId,
+        inputHash: "5".repeat(64),
+        decisionHash: "6".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: COMPUTED_AT,
+    });
+    return {
+      computation,
+      payload,
+      advisory: buildNativeManualCutAdvisory(computation, AS_OF, COMPUTED_AT),
+    };
+  }
+
+  const day = (
+    date: string,
+    spend: number,
+    revenue: number,
+    observation: PurchaseIntentFixtureDay["observation"] = "bracketed",
+    extra: Partial<PurchaseIntentFixtureDay> = {},
+  ): PurchaseIntentFixtureDay => ({
+    date,
+    spend,
+    revenue,
+    conversions: revenue > 0 ? 1 : 0,
+    observation,
+    ...extra,
+  });
+
+  /* The published row is always the unchanged D098 hold. */
+  const expectConfigHeld = (payload: NativeSnapshotPayloadRow) => {
+    expect(payload.raw_label).toBe("cut");
+    expect(payload.authority_blocker).toBe("config_source_authority");
+    expect(payload.blocked_action_type).toBe("cut");
+    expect(payload.authorized_action).toBeNull();
+  };
+  const refusal = (result: ReturnType<typeof run>) =>
+    result.advisory.status === "refused" ? result.advisory.refusal : "advised";
+
+  // Losing bracketed days; the recent band (Jul 5-11) holds Jul 8 and Jul 10.
+  const LOSS = [
+    day("2026-06-20", 300, 150),
+    day("2026-06-27", 300, 150),
+    day("2026-07-04", 280, 150),
+    day("2026-07-08", 100, 0),
+    day("2026-07-10", 20, 50),
+  ];
+  const withPoint = (days: PurchaseIntentFixtureDay[], ...dates: string[]) =>
+    days.map((entry) =>
+      dates.includes(entry.date) ? { ...entry, observation: "point" as const } : entry,
+    );
+
+  it("RC-01: a point-observed day that cannot rescue the loss yields a medium manual Cut on a still-held row", () => {
+    const result = run(withPoint(LOSS, "2026-06-20"));
+    expect(result.computation.decision.label).toBe("cut");
+    expectConfigHeld(result.payload);
+    expect(result.advisory.status).toBe("advised");
+    if (result.advisory.status !== "advised") return;
+    const proof = result.advisory.proof;
+    expect(proof).toMatchObject({
+      contractVersion: META_NATIVE_MANUAL_CUT_ADVISORY_CONTRACT,
+      recommendation: "cut",
+      basis: "peer_free_commercial_stop_loss",
+      confidenceCap: "medium",
+      authority: "none",
+      heldBy: "config_source_authority",
+      commercialTargetRoas: 2.2,
+      economicDayCount: 5,
+      bracketedDays: 4,
+      historicalObjectiveUnverifiedDays: 5,
+      pointObservedDays: [
+        { date: "2026-06-20", spend: 300, revenue: 150, stressedRevenue: 660 },
+      ],
+      stress: {
+        purchaseValue: { actual: 500, stressed: 1010 },
+        roas: { actual: 0.5, stressed: 1.01 },
+        recent7dRoas: null,
+        bands: [],
+      },
+    });
+    expect(parseNativeManualCutAdvisoryProof(JSON.parse(JSON.stringify(proof)))).toEqual(proof);
+    const stress = result.computation.manualCutSensitivity?.stress;
+    expect(stress?.status === "evaluated" && stress.verdict.label).toBe("cut");
+    expect(stress?.status === "evaluated" && stress.originalProfileVerdict.label).toBe("cut");
+    // The advisory reads the computation; it never widens the hydrated window.
+    expect(result.computation.input.configAuthority.decisionEconomics.fullyVerified).toBe(false);
+  });
+
+  it("RC-02: RECOVERY AFTER STRESS — the same loss with the point day inside the recent band is refused", () => {
+    // Raising Jul 8 to target lifts recent ROAS from 50/120 to 270/120 = 2.25 > 2.2.
+    const result = run(withPoint(LOSS, "2026-07-08"));
+    expect(result.computation.decision.label).toBe("cut");
+    expectConfigHeld(result.payload);
+    expect(refusal(result)).toBe("stressed_cut_not_confirmed");
+    const stress = result.computation.manualCutSensitivity?.stress;
+    expect(stress?.status).toBe("evaluated");
+    if (stress?.status !== "evaluated") return;
+    expect(stress.verdict.label).toBe("keep");
+    expect(stress.detail.recent7dRoas?.actual).toBeCloseTo(50 / 120, 10);
+    expect(stress.detail.recent7dRoas?.stressed).toBeCloseTo(2.25, 10);
+    // Spend, purchases and the window are the original ones.
+    expect(result.computation.input.recent7dSpend).toBe(120);
+    expect(result.computation.input.roas).toBe(0.5);
+  });
+
+  it("RC-03: MIXED point days — a winning day cannot hide another day's shortfall", () => {
+    const days = [
+      day("2026-06-20", 50, 300, "point"),
+      day("2026-06-27", 180, 0, "point"),
+      day("2026-07-04", 170, 100),
+      day("2026-07-08", 50, 50),
+      day("2026-07-10", 50, 50),
+    ];
+    // An aggregate max(sum actual 300, sum at target 230 x 2.2 = 506) would add
+    // only 206 and leave ROAS 1.412 (ratio 0.64), still a Cut. Per day, the
+    // winner stays 300 and the loser rises to 396: ROAS 1.792, above break-even.
+    const result = run(days);
+    expect(result.computation.decision.label).toBe("cut");
+    expectConfigHeld(result.payload);
+    expect(refusal(result)).toBe("stressed_cut_not_confirmed");
+    const stress = result.computation.manualCutSensitivity?.stress;
+    if (stress?.status !== "evaluated") throw new Error("expected an evaluated stress");
+    const [winner, loser] = stress.detail.days;
+    expect(winner?.stressedRevenue).toBe(300);
+    expect(loser?.stressedRevenue).toBeCloseTo(396, 10);
+    expect(stress.detail.roas.stressed).toBeCloseTo(1.792, 10);
+  });
+
+  it("RC-04: point-observed days that decide the loss are refused", () => {
+    const result = run(withPoint(LOSS, "2026-06-20", "2026-06-27", "2026-07-04"));
+    expect(result.computation.decision.label).toBe("cut");
+    expect(refusal(result)).toBe("stressed_cut_not_confirmed");
+  });
+
+  it("RC-05: FULL purchase brackets with the historical objective missing get the same manual advice, unstressed", () => {
+    const result = run(LOSS);
+    expectConfigHeld(result.payload);
+    expect(result.computation.input.configAuthority.decisionEconomics).toMatchObject({
+      fullyVerified: false,
+      unverifiedEconomicDayCount: 5,
+    });
+    expect(result.computation.manualCutSensitivity?.stress).toEqual({ status: "not_required" });
+    expect(result.advisory.status).toBe("advised");
+    if (result.advisory.status !== "advised") return;
+    expect(result.advisory.proof).toMatchObject({
+      bracketedDays: 5,
+      pointObservedDays: [],
+      stress: null,
+      historicalObjectiveUnverifiedDays: 5,
+    });
+  });
+
+  it.each([
+    ["a typed witness only (no receipt) on a day", { observation: "typed" as const }],
+    ["an observed-absent event on a day", { observation: "absent" as const }],
+    ["an interval-uncertain receipt on a day", { observation: "interval_uncertain" as const }],
+    ["a non-purchase event on a day", { eventValue: "ADD_TO_CART" }],
+    ["a custom conversion on a day", { customConversionId: "555" }],
+  ])("RC-06: MISSING RECEIPT / NON-PURCHASE — %s refuses", (_label, patch) => {
+    const days = LOSS.map((entry) =>
+      entry.date === "2026-06-27" ? { ...entry, ...patch } : entry,
+    );
+    const result = run(days);
+    expectConfigHeld(result.payload);
+    expect(refusal(result)).toBe("purchase_intent_unnamed");
+  });
+
+  it.each([
+    ["no manifest", { manifest: null }, "receipt_manifest_incoherent"],
+    ["a manifest counting another window", { manifest: { economicDayCount: 4 } }, "receipt_manifest_incoherent"],
+    ["a manifest with an incoherent day", { manifest: { incoherentDayCount: 1 } }, "receipt_manifest_incoherent"],
+    ["a negative manifest count", { manifest: { economicDayCount: -5 } }, "receipt_manifest_incoherent"],
+    ["an infinite manifest count", { manifest: { economicDayCount: Infinity } }, "receipt_manifest_incoherent"],
+    ["a fractional manifest count", { manifest: { economicDayCount: 4.5 } }, "receipt_manifest_incoherent"],
+    ["a malformed manifest hash", { manifest: { hash: "not-a-hash" } }, "receipt_manifest_incoherent"],
+    ["no current receipt lineage", { currentEvidenceRefs: null }, "current_receipt_lineage_unverified"],
+    [
+      "a refused current reference",
+      { currentEvidenceRefs: { custom_conversion_id: { field: "custom_conversion_id" } } },
+      "current_receipt_lineage_unverified",
+    ],
+    ["an unobserved current objective", { currentObjectiveReadiness: "none" }, "current_config_unobserved"],
+    ["a goal receipt that named another value", { goalReceiptDisagreements: 1 }, "goal_receipt_conflict"],
+    [
+      "an objective receipt that named another objective",
+      { objectiveReceiptDisagreements: 1 },
+      "objective_receipt_conflict",
+    ],
+  ])("RC-07: %s refuses", (_label, authority, expected) => {
+    const result = run(withPoint(LOSS, "2026-06-20"), { authority });
+    expect(result.computation.decision.label).toBe("cut");
+    expect(result.payload.authorized_action).toBeNull();
+    expect(result.payload.authority_blocker).toBe("config_source_authority");
+    expect(refusal(result)).toBe(expected);
+  });
+
+  it("RC-08: a D101 source-coverage gap refuses", () => {
+    const base = adInput({ adId, campaignId: "campaign-a" });
+    const result = run(withPoint(LOSS, "2026-06-20"), {
+      ad: {
+        metricEvidence: {
+          ...base.metricEvidence,
+          sourceCoverage: {
+            ...base.metricEvidence.sourceCoverage!,
+            publishedAt: "2026-07-12T03:10:00.001Z",
+          },
+        },
+      },
+    });
+    expect(result.payload.authority_blocker).toBe("source_freshness");
+    expect(refusal(result)).toBe("source_coverage_gap");
+  });
+
+  it("RC-09: incomplete purchase observation refuses", () => {
+    const base = adInput({ adId, campaignId: "campaign-a" });
+    const result = run(withPoint(LOSS, "2026-06-20"), {
+      ad: { metricEvidence: { ...base.metricEvidence, purchaseUnverifiedEconomicDays: 1 } },
+    });
+    // The purchase guard already holds the decision itself, so the advisory
+    // stops at that engine hold before reaching its own purchase gate.
+    expect(result.computation.decision.authorityBlocker).toBe("native_metrics_unavailable");
+    expect(result.payload.authorized_action).toBeNull();
+    expect(refusal(result)).toBe("engine_validity_hold");
+  });
+
+  it("RC-10: a Cut that only the peer P25 boundary makes is refused", () => {
+    // Ratio 0.72: below a peer P25 of 0.75, above the peer-free 0.70. Peer-free,
+    // the row lands in the break-even strip, where 40 of recent spend is below
+    // the 50 floor, so the core holds it rather than cutting.
+    const days = [
+      day("2026-06-20", 150, 240),
+      day("2026-06-27", 150, 240),
+      day("2026-07-04", 160, 272),
+      day("2026-07-08", 20, 20),
+      day("2026-07-10", 20, 20),
+    ];
+    const result = run(days, { thresholds: { bottomQuartileRatio: 0.75 } });
+    expect(result.computation.decision.label).toBe("cut");
+    expect(result.computation.manualCutSensitivity?.peerFree.label).not.toBe("cut");
+    expect(refusal(result)).toBe("peer_free_cut_not_confirmed");
+  });
+
+  /*
+    B1 — the peer-free profile is not uniformly stricter. Account P25 0.45,
+    target 2.2, break-even 1.71 (ratio 0.777), recent 7d ROAS 1.80 on 100:
+    between break-even and target. Actual ratio 0.409 (<0.45, the legacy zone:
+    recovery only above target) is a Cut under both profiles. Raising the
+    point day Jun 20 (150 spend, 0 revenue) to target adds 330 and gives ratio
+    0.559. Peer-free that is still below its 0.70 boundary, so still a Cut; on
+    the ORIGINAL profile it is in the break-even strip, where recent ROAS at or
+    above break-even is an economic recovery hold.
+  */
+  const B1_DAYS = [
+    day("2026-06-20", 150, 0, "point"),
+    day("2026-06-27", 375, 360),
+    day("2026-07-04", 375, 360),
+    day("2026-07-08", 60, 108),
+    day("2026-07-10", 40, 72),
+  ];
+
+  it("RC-12: B1 — a stress the original profile would hold for economic recovery is refused", () => {
+    const result = run(B1_DAYS, { thresholds: { bottomQuartileRatio: 0.45 } });
+    expect(result.computation.decision.label).toBe("cut");
+    expect(result.computation.input.recent7dRoas).toBeCloseTo(1.8, 12);
+    expectConfigHeld(result.payload);
+    const sensitivity = result.computation.manualCutSensitivity;
+    expect(sensitivity?.peerFree.label).toBe("cut");
+    const stress = sensitivity?.stress;
+    if (stress?.status !== "evaluated") throw new Error("expected an evaluated stress");
+    expect(stress.detail.roas.stressed / 2.2).toBeCloseTo(0.559, 3);
+    expect(stress.detail.recent7dRoas).toBeNull();
+    expect(stress.verdict.label).toBe("cut");
+    expect(stress.originalProfileVerdict.label).toBe("keep");
+    expect(refusal(result)).toBe("stressed_original_cut_not_confirmed");
+  });
+
+  it("RC-13: B1 contrast — with the account P25 at the peer-free 0.70 the same evidence is advised", () => {
+    const result = run(B1_DAYS);
+    expect(result.computation.decision.label).toBe("cut");
+    const stress = result.computation.manualCutSensitivity?.stress;
+    if (stress?.status !== "evaluated") throw new Error("expected an evaluated stress");
+    expect(stress.originalProfileVerdict.label).toBe("cut");
+    expect(result.advisory.status).toBe("advised");
+  });
+
+  it("RC-11: a Scale on the same evidence never runs the sensitivity or gets advice", () => {
+    const days = LOSS.map((entry) => ({ ...entry, revenue: entry.spend * 5, conversions: 3 }));
+    const result = run(days);
+    expect(result.computation.decision.label).not.toBe("cut");
+    expect(result.computation.manualCutSensitivity).toBeUndefined();
+    expect(refusal(result)).toBe("not_a_published_cut");
+  });
+
 });

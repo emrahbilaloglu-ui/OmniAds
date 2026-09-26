@@ -22,6 +22,7 @@ import {
   META_DECISION_ADMITTED_WINDOW_PRESENTATION_VERSION,
   META_DECISION_QUEUE_SECTION_KEYS,
 } from "@/lib/meta/decisions-workspace-contract";
+import { META_PURCHASE_CONTEXT_MANUAL_ADVISORY_CONTRACT } from "@/lib/meta/manual-cut-advisory";
 import type { MetaDecisionsWorkspacePayload } from "@/components/meta/redesign/types";
 
 /**
@@ -83,6 +84,10 @@ const CONTRACT_FILES = [
   "lib/meta/budget-decision-gates.ts",
   // The second unresolved served branch: `system.budgetDryRun`.
   "lib/meta/budget-dry-run-panel.ts",
+  // `MetaCanonicalDecision.manualCutAdvisory` (D123): the served, bounded
+  // manual Cut recommendation is declared beside its reader, not in the
+  // workspace contract, so the walk opens that file too.
+  "lib/meta/manual-cut-advisory.ts",
 ] as const;
 
 /** The one payload the Decision page is handed. Everything walks from here. */
@@ -121,6 +126,7 @@ const TYPEOF_CONSTANTS: Record<string, string> = {
   META_BUDGET_DECISION_EVIDENCE_DIRECTIONAL_CONTRACT,
   META_BUDGET_DECISION_EVIDENCE_PANEL_CONTRACT,
   META_BUDGET_DRY_RUN_PANEL_CONTRACT,
+  META_PURCHASE_CONTEXT_MANUAL_ADVISORY_CONTRACT,
 };
 
 /**

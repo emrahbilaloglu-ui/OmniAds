@@ -15,6 +15,7 @@ import {
   readMetaDecisionCampaignContextRows,
   readMetaDecisionsWorkspaceReadModel,
   readMetaNativeCanonicalDecisionInventory,
+  readMetaDecisionAdsetRoleRows,
   readValidatedMetaNativeDecisionGenerationBundle,
   resolveProvisionalCampaignKind,
   validateMetaNativeDecisionGenerationBundle,
@@ -24,7 +25,10 @@ import {
   type MetaNativeDecisionGenerationSourceRow,
   type MetaNativeDecisionSnapshotSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
+import { declaredContextRow } from "@/lib/meta/decisions-workspace-read-model";
+import { ENTITY_ROLE_DECLARATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 import { currentEffectiveAdStatus } from "@/lib/meta/current-ad-delivery-status";
+import { META_PURCHASE_CONTEXT_MANUAL_ADVISORY_CONTRACT } from "./manual-cut-advisory";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
 import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
@@ -55,6 +59,167 @@ vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
   isCampaignContextResolverAuthorityValidated: vi.fn(() => true),
   CAMPAIGN_CONTEXT_MAX_AGE_DAYS: 2,
 }));
+
+describe("structured purchase Cut advice remains separate from action authority", () => {
+  const manualLineage = () => ({ ...completeConfigLineage(), contractVersion: "engine-v3-canonical-ad-evaluation.v19" });
+  const proof = () => ({
+    recommendation: "cut",
+    heldBy: "config_source_authority",
+    adId: "120000000000000999", providerAccountId: "act_1",
+    asOfDate: "2026-07-12",
+    engineVersion: NATIVE_AD_ENGINE_VERSION, engineAuthorityBlocker: null,
+    commercialTargetRoas: 2, receiptManifestHash: "c".repeat(64),
+    contractVersion: META_PURCHASE_CONTEXT_MANUAL_ADVISORY_CONTRACT,
+    basis: "peer_free_commercial_stop_loss",
+    confidenceCap: "medium",
+    authority: "none",
+    economicDayCount: 3,
+    bracketedDays: 2,
+    pointObservedDays: [{ date: "2026-07-11", spend: 10, revenue: 0, stressedRevenue: 20 }],
+    stress: { purchaseValue: { actual: 120, stressed: 140 }, roas: { actual: 1, stressed: 140 / 120 }, recent7dRoas: null, bands: [] },
+    historicalObjectiveUnverifiedDays: 3,
+  });
+  const intentWindow = () => ({
+    contractVersion: "meta-purchase-intent-window.v1", economicDayCount: 3,
+    bracketedDays: 2, pointObservedDays: 1, unnamedDays: 0,
+    historicalObjectiveVerifiedDays: 0, historicalObjectiveUnverifiedDays: 3,
+    pointObserved: [{ date: "2026-07-11", spend: 10, revenue: 0 }],
+  });
+  const row = (over: Partial<MetaNativeDecisionSnapshotSourceRow> = {}) =>
+    nativeSnapshot("120000000000000999", {
+      label: "cut", raw_label: "cut", pre_authority_label: "cut",
+      blocked_action_type: "cut", authority_blocker: "config_source_authority",
+      authorized_action: null, config_authority_verified: false,
+      manual_cut_advisory: proof(), purchase_intent_window: intentWindow(), config_evidence_lineage: manualLineage(), ...over,
+    });
+  const serve = (over: Partial<MetaNativeDecisionSnapshotSourceRow> = {}) =>
+    nativeModel([row(over)]).queue.adCandidates?.items[0];
+
+  it("serves a medium manual recommendation with its historical uncertainty and zero write authority", () => {
+    const item = serve()!;
+    expect(item.manualCutAdvisory).toMatchObject({ advised: true, economicDayCount: 3, pointObservedDays: 1, confidenceCap: "medium", authority: "none" });
+    expect(item.configEvidence?.verified).toBe(false);
+    expect(item.classification).toMatchObject({
+      decisionState: "blocked", buyerAction: null, heldAction: "cut",
+      resolution: { code: "apply_purchase_cut_manually", owner: "operator" },
+    });
+    expect(item.classification.resolution?.nextStep).toContain("1 uncertain day(s) out of 3");
+    expect(item.classification.resolution?.nextStep).toContain("settings remain incomplete");
+    expect(item.sourceDecision.confidence).toBeLessThan(70);
+    expect(item.sourceDecision.confidenceBand).toBe("medium");
+    expect(item.sourceAuthority).toMatchObject({ actionEligible: false, authorizedAction: null });
+    expect(adAction(item, { scale: true, cut: true, refresh: true })).toMatchObject({
+      lane: "act", action: { code: "apply_purchase_cut_manually", intent: "review", providerMutation: null },
+    });
+  });
+
+  it("does not demote stronger purchase-intent evidence when only the historical objective is missing", () => {
+    const item = serve({ manual_cut_advisory: { ...proof(), bracketedDays: 3, pointObservedDays: [], stress: null }, purchase_intent_window: { ...intentWindow(), bracketedDays: 3, pointObservedDays: 0, pointObserved: [] } });
+    expect(item?.classification.resolution?.code).toBe("apply_purchase_cut_manually");
+    expect(item?.classification.resolution?.nextStep).toContain("verified on all 3 economic days");
+    expect(item?.configEvidence?.verified).toBe(false);
+  });
+
+  it.each([
+    ["fresh", "2026-07-12T12:00:00.000Z", "act", { act: 1, blocked: 0, monitor: 0 }],
+    ["stale", "2026-07-13T12:00:00.000Z", "blocked", { act: 0, blocked: 1, monitor: 0 }],
+  ] as const)("counts %s manual advice in the same lane as its card", (_state, generatedAt, lane, counts) => {
+    const model = nativeModel([row()], { generatedAt });
+    const os = buildMetaOsDecisionsPresentation({
+      actionNow: [], watching: [], nonSales: [], decisionReadModel: model,
+      currency: "USD", generatedAt,
+      targetHardActionEligibility: { scale: true, cut: true, refresh: true },
+    });
+    expect(os.ads.items).toHaveLength(1);
+    expect(os.ads.items[0]?.lane).toBe(lane);
+    expect(os.ads.statePreCapCounts).toEqual(counts);
+    expect(os.ads.items[0]?.action.providerMutation).toBeNull();
+  });
+
+  it("counts manual advice beyond the response cap and refreshes its cached freshness", () => {
+    const rows = Array.from({ length: 70 }, (_, index) => {
+      const adId = `120000000000${String(index + 1).padStart(6, "0")}`;
+      return { ...row(), ad_id: adId, snapshot_id: `snapshot_${adId}`, manual_cut_advisory: { ...proof(), adId } };
+    });
+    const model = nativeModel(rows, { adCandidateLimit: 60 });
+    const present = (decisionReadModel: typeof model) => buildMetaOsDecisionsPresentation({
+      actionNow: [], watching: [], nonSales: [], decisionReadModel,
+      currency: "USD", targetHardActionEligibility: { scale: true, cut: true, refresh: true },
+    });
+    expect(present(model).ads).toMatchObject({
+      actCount: 60, statePreCapCounts: { act: 70, blocked: 0, monitor: 0 },
+    });
+    const stale = applyMetaExecutionGovernanceToReadModel({
+      model,
+      governance: { verified: false, controlsConfigured: false, writeBlocked: true, blockReason: null },
+      pipeline: { verified: false, executionReady: false },
+      now: new Date("2026-07-13T12:00:00.000Z"),
+    });
+    expect(present(stale).ads).toMatchObject({
+      actCount: 0, blockedCount: 60, statePreCapCounts: { act: 0, blocked: 70, monitor: 0 },
+    });
+    expect(present(model).ads.statePreCapCounts?.act).toBe(70);
+  });
+
+  it("retains the proof but withdraws the manual pause invitation when the decision is stale", () => {
+    const item = serve()!;
+    item.sourceAuthority!.decisionFreshness = {
+      ...item.sourceAuthority!.decisionFreshness!, status: "stale", ageHours: 13,
+    };
+    expect(item.manualCutAdvisory?.advised).toBe(true);
+    expect(adAction(item, { scale: true, cut: true, refresh: true })).toMatchObject({
+      lane: "blocked", action: { code: "refresh_decision_data", intent: "review", providerMutation: null },
+    });
+  });
+
+  it.each([
+    ["missing structured proof", { manual_cut_advisory: null }],
+    ["wrong ad", { manual_cut_advisory: { ...proof(), adId: "another-ad" } }],
+    ["wrong account", { manual_cut_advisory: { ...proof(), providerAccountId: "act_another" } }],
+    ["wrong report date", { manual_cut_advisory: { ...proof(), asOfDate: "2026-07-10" } }],
+    ["missing purchase window", { purchase_intent_window: null }],
+    ["different point-day economics", { purchase_intent_window: { ...intentWindow(), pointObserved: [{ date: "2026-07-11", spend: 11, revenue: 0 }] } }],
+    ["unnamed purchase intent", { purchase_intent_window: { ...intentWindow(), unnamedDays: 1 } }],
+    ["volatile clock in stored proof", { manual_cut_advisory: { ...proof(), computedAt: "2026-07-12T06:00:00Z" } }],
+    ["wrong target", { manual_cut_advisory: { ...proof(), commercialTargetRoas: 3 } }],
+    ["wrong source manifest", { manual_cut_advisory: { ...proof(), receiptManifestHash: "e".repeat(64) } }],
+    ["prior evaluation contract", { config_evidence_lineage: completeConfigLineage() }],
+    ["unsupported contract", { manual_cut_advisory: { ...proof(), contractVersion: "v0" } }],
+    ["a high-confidence claim", { manual_cut_advisory: { ...proof(), confidenceCap: "high" } }],
+    ["authority promotion", { manual_cut_advisory: { ...proof(), authority: "execute" } }],
+    ["NaN count", { manual_cut_advisory: { ...proof(), pointObservedDays: NaN } }],
+    ["negative count", { manual_cut_advisory: { ...proof(), pointObservedDays: -1 } }],
+    ["inconsistent day count", { manual_cut_advisory: { ...proof(), bracketedDays: 3 } }],
+    ["unverified objective count exceeds window", { manual_cut_advisory: { ...proof(), historicalObjectiveUnverifiedDays: 4 } }],
+    ["missing source lineage", { config_evidence_lineage: null }],
+    ["pending confirmation", { label: "keep", badges: [{ type: "pending_transition", severity: "info", label: "Pending" }] }],
+    ["failed source coverage", { badges: [{ type: "source_coverage_unverified", severity: "warning", label: "Missing" }] }],
+    ["an inactive ad", { ad_status: "PAUSED" }],
+    ["an inactive ad set", { adset_status: "PAUSED" }],
+    ["unknown campaign status", { campaign_status: null }],
+  ] as const)("refuses %s", (_name, overrides) => {
+    const item = serve(overrides);
+    expect(item?.manualCutAdvisory ?? null).toBeNull();
+    expect(item?.classification.resolution?.code).not.toBe("apply_purchase_cut_manually");
+  });
+
+  it("refuses a manifest that describes a different economic population", () => {
+    const lineage = manualLineage();
+    lineage.receiptManifest.economicDayCount = 4;
+    expect(serve({ config_evidence_lineage: lineage })?.manualCutAdvisory).toBeNull();
+  });
+
+  it("refuses a corrupted current provider reference", () => {
+    const lineage = manualLineage();
+    lineage.refs.objective.observationId = "not-an-observation";
+    expect(serve({ config_evidence_lineage: lineage })?.manualCutAdvisory).toBeNull();
+  });
+  it("refuses a current configuration the producer did not observe even with parseable references", () => {
+    const lineage = manualLineage();
+    lineage.currentObserved = false;
+    expect(serve({ config_evidence_lineage: lineage })?.manualCutAdvisory).toBeNull();
+  });
+});
 
 describe("resolveProvisionalCampaignKind", () => {
   it("uses stored resolver scores without granting a trusted kind", () => {
@@ -398,6 +563,7 @@ function completeConfigLineage() {
     },
     refRefusals: {},
     lineageSupplied: true,
+    currentObserved: true,
     receiptManifest: {
       manifestVersion: "meta-config-receipt-window-manifest.v1",
       refContractVersion: "meta-config-field-evidence-ref.v1",
@@ -474,14 +640,72 @@ function nativeSnapshot(
   };
 }
 
+/**
+ * D118 — an Ad's role-dependent authority reads its OWN ad set's role. The
+ * default fixture context means "this Ad's role is fully trusted", so the
+ * default also declares each Ad's ad set, through the production row shape.
+ */
+function declaredAdsetRow(
+  adsetId: string,
+  role: "main" | "test" = "main",
+  campaignId = "cmp_1",
+): MetaDecisionCampaignContextSourceRow {
+  return declaredContextRow({
+    automatic: null,
+    declaration: {
+      id: `declaration-${adsetId}`,
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      entityType: "adset",
+      entityId: adsetId,
+      parentCampaignId: campaignId,
+      event: "declare",
+      declaredRole: role,
+      effectiveFrom: "2026-07-12",
+      declaredAt: "2026-07-12T00:30:00.000Z",
+      declaredBy: "operator-fixture",
+      reason: null,
+      contractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+    },
+  });
+}
+
+/** D118 — one ad set declaration as the database returns it. */
+function adsetDeclarationDbRow(adsetId = "adset_1", role: "main" | "test" = "main") {
+  return {
+    id: `declaration-${adsetId}`,
+    business_id: "biz_1",
+    provider_account_id: "act_1",
+    entity_type: "adset",
+    entity_id: adsetId,
+    parent_campaign_id: "cmp_1",
+    event: "declare",
+    declared_role: role,
+    effective_from: "2026-07-01",
+    declared_at: "2026-07-01T00:30:00.000Z",
+    declared_by: "operator-fixture",
+    reason: null,
+    contract_version: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+  };
+}
+
 function nativeModel(
   rows: MetaNativeDecisionSnapshotSourceRow[],
   options: {
     adCandidateLimit?: number;
+    generatedAt?: string;
     campaignContextRows?: MetaDecisionCampaignContextSourceRow[];
+    adsetRoleRows?: MetaDecisionCampaignContextSourceRow[];
   } = {},
 ) {
   const adIds = rows.map((row) => row.ad_id);
+  const adsetRoleRows =
+    options.adsetRoleRows ??
+    (options.campaignContextRows === undefined
+      ? [...new Set(rows.map((row) => row.adset_id).filter((id): id is string => Boolean(id)))].map(
+          (adsetId) => declaredAdsetRow(adsetId),
+        )
+      : undefined);
   return buildNativeMetaDecisionsWorkspaceReadModel({
     businessId: "biz_1",
     providerAccountId: "act_1",
@@ -499,10 +723,11 @@ function nativeModel(
     },
     snapshotRows: rows,
     campaignContextRows: options.campaignContextRows ?? [context()],
+    adsetRoleRows,
     eventSourceAvailable: false,
     outcomeSourceAvailable: false,
     responseSourceAvailable: false,
-    generatedAt: "2026-07-12T12:00:00.000Z",
+    generatedAt: options.generatedAt ?? "2026-07-12T12:00:00.000Z",
     adCandidateLimit: options.adCandidateLimit,
   });
 }
@@ -650,13 +875,21 @@ function workspaceReadQuery(input: {
   legacyRows?: MetaDecisionSnapshotSourceRow[];
   /** Defaults to none, which is what an unresolved campaign looks like. */
   campaignContextRows?: unknown[];
+  /** D118 — declaration rows, returned for any declaration read. */
+  entityRoleDeclarationRows?: unknown[];
 }) {
   return vi.fn(async (sql: string, params?: unknown[]) => {
+    if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
+      return [{ table_name: "meta_entity_role_declarations" }];
+    }
     if (sql.includes("WITH candidate_runs AS")) {
       return input.generationRows ?? [];
     }
     if (sql.includes("FROM engine_v3_campaign_context_daily")) {
       return input.campaignContextRows ?? [];
+    }
+    if (sql.includes("FROM meta_entity_role_declarations")) {
+      return input.entityRoleDeclarationRows ?? [];
     }
     if (sql.includes("native-ad-serving-manifest")) {
       return (input.manifestAdIds ?? (input.nativeRows ?? []).map((row) => row.ad_id))
@@ -2232,11 +2465,14 @@ describe("Meta Decisions workspace canonical read model", () => {
      * `items` carries `pending_native_evidence` any more.
      */
     expect(os.ads.eligiblePreCapCount).toBe(360);
+    // All 200 native Cuts still need execution governance. Count them in the
+    // same Blocked lane as their cards, not the raw engine's Act bucket.
     expect(os.ads.statePreCapCounts).toEqual({
-      act: 200,
-      blocked: 80,
+      act: 0,
+      blocked: 280,
       monitor: 80,
     });
+    expect(os.ads).toMatchObject({ actCount: 0, blockedCount: 280, monitorCount: 20 });
     expect(os.ads.pendingInventoryCount).toBe(1);
     expect(
       os.ads.items.filter(
@@ -3009,6 +3245,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       // context every one of them is already review-only for
       // `served_decision_is_not_actionable`.
       campaignContextRows: [campaignContextDbRow()],
+      entityRoleDeclarationRows: [adsetDeclarationDbRow()],
     });
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
 
@@ -3071,6 +3308,7 @@ describe("Meta Decisions workspace canonical read model", () => {
         generation: nativeBuildGeneration(rows),
         snapshotRows: rows,
         campaignContextRows: [context()],
+      adsetRoleRows: [declaredAdsetRow("adset_1")],
         sourceDegradation: degraded
           ? {
               reason:
@@ -3187,6 +3425,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       generation: nativeBuildGeneration(rows),
       snapshotRows: rows,
       campaignContextRows: [context()],
+      adsetRoleRows: [declaredAdsetRow("adset_1")],
       sourceDegradation: {
         reason: "native_latest_job_failed_serving_last_successful_generation",
         generation: nativeBuildGeneration(rows),
@@ -3236,6 +3475,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       generation: nativeBuildGeneration(rows),
       snapshotRows: rows,
       campaignContextRows: [context()],
+      adsetRoleRows: [declaredAdsetRow("adset_1")],
       sourceDegradation: {
         reason: "native_latest_job_failed_serving_last_successful_generation",
         generation: nativeBuildGeneration(rows),
@@ -4015,6 +4255,7 @@ describe("Meta Decisions workspace canonical read model", () => {
           generation: nativeBuildGeneration(rows),
           snapshotRows: rows,
           campaignContextRows: [context()],
+      adsetRoleRows: [declaredAdsetRow("adset_1")],
           sourceDegradation: degraded
             ? {
                 reason:
@@ -5890,7 +6131,10 @@ describe("D102 retained generation through the canonical inventory reader", () =
         nativeRows: rows,
         // Resolved Main context, so every retained Cut is action-eligible
         // BEFORE the degradation and the stripping below proves something.
+        // D118 — the Ads' own ad set is declared: a campaign alone is not
+        // an Ad's role authority.
         campaignContextRows: [campaignContextDbRow()],
+        entityRoleDeclarationRows: [adsetDeclarationDbRow()],
       }),
     } as never);
   };
@@ -6158,5 +6402,204 @@ describe("D102 retained generation through the canonical inventory reader", () =
       status: "unavailable",
       unavailableReason: "native_latest_job_failed",
     });
+  });
+});
+
+/*
+  D118 consumer golden — the served read model.
+
+  One Main campaign, two ad sets: one declared Test, one undeclared. Each Ad's
+  lifecycle role comes from ITS ad set. The undeclared ad set carries the
+  campaign's role as context and names its own missing role as the gap.
+*/
+describe("D118 — each served Ad reads its own ad set's role", () => {
+  const campaignDeclaration = {
+    id: "declaration-cmp_1",
+    businessId: "biz_1",
+    providerAccountId: "act_1",
+    entityType: "campaign" as const,
+    entityId: "cmp_1",
+    parentCampaignId: null,
+    event: "declare" as const,
+    declaredRole: "main" as const,
+    effectiveFrom: "2026-07-12",
+    declaredAt: "2026-07-12T00:10:00.000Z",
+    declaredBy: "operator-fixture",
+    reason: null,
+    contractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+  };
+  const rows = [
+    nativeSnapshot("120000000000000901", { adset_id: "adset_test" }),
+    nativeSnapshot("120000000000000902", { adset_id: "adset_open" }),
+  ];
+  const roleOf = (
+    model: ReturnType<typeof nativeModel>,
+    adId: string,
+  ) =>
+    model.queue.adCandidates?.items.find(
+      (item) => item.parentChain.ad?.id === adId,
+    )?.classification.lifecycleRole;
+
+  it("R118-R1: Test ad set inside a declared Main campaign — Test, trusted, from the declaration", () => {
+    const model = nativeModel(rows, {
+      campaignContextRows: [
+        declaredContextRow({ declaration: campaignDeclaration, automatic: context() }),
+      ],
+      adsetRoleRows: [declaredAdsetRow("adset_test", "test")],
+    });
+    expect(roleOf(model, "120000000000000901")).toMatchObject({
+      value: "test",
+      trustedForAction: true,
+      blockerCode: null,
+      provenance: {
+        source: "meta_entity_role_declarations",
+        recordId: "adset_test",
+        version: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+      },
+    });
+  });
+
+  it("R118-R2: undeclared ad set of the same campaign — Main as context, untrusted, its own role named as the gap", () => {
+    const model = nativeModel(rows, {
+      campaignContextRows: [
+        declaredContextRow({ declaration: campaignDeclaration, automatic: context() }),
+      ],
+      adsetRoleRows: [declaredAdsetRow("adset_test", "test")],
+    });
+    expect(roleOf(model, "120000000000000902")).toMatchObject({
+      value: "main",
+      trustedForAction: false,
+      blockerCode: "adset_role_unresolved",
+      // The suggestion's record is the campaign's declaration, not the ad set.
+      provenance: { source: "meta_entity_role_declarations", recordId: "cmp_1" },
+    });
+  });
+
+  it("R118-R3: NEGATIVE CONTROL — nothing declared and a medium campaign serves exactly the pre-D118 role", () => {
+    const model = nativeModel(rows, {
+      campaignContextRows: [context({ confidenceClass: "medium" })],
+      adsetRoleRows: [],
+    });
+    for (const adId of ["120000000000000901", "120000000000000902"]) {
+      expect(roleOf(model, adId)).toMatchObject({
+        value: "main",
+        trustedForAction: false,
+        blockerCode: "campaign_context_low_confidence",
+        provenance: { source: "engine_v3_campaign_context_daily" },
+      });
+    }
+  });
+
+  it("R118-R5: a declaration made under another campaign grants nothing to this placement", () => {
+    const model = nativeModel(rows, {
+      campaignContextRows: [
+        declaredContextRow({ declaration: campaignDeclaration, automatic: context() }),
+      ],
+      adsetRoleRows: [declaredAdsetRow("adset_test", "test", "cmp_other")],
+    });
+    expect(roleOf(model, "120000000000000901")).toMatchObject({
+      value: "main",
+      trustedForAction: false,
+      blockerCode: "adset_role_unresolved",
+    });
+  });
+
+  it("R118-R4: a trusted automatic campaign does not make an undeclared ad set trusted", () => {
+    const model = nativeModel(rows, {
+      campaignContextRows: [context()],
+      adsetRoleRows: [],
+    });
+    expect(roleOf(model, "120000000000000902")).toMatchObject({
+      value: "main",
+      trustedForAction: false,
+      blockerCode: "adset_role_unresolved",
+    });
+  });
+});
+
+/*
+  D118 review finding — a declaration recorded after a generation's run
+  started must not retrofit that generation's served role; the next run
+  reads it. The mock evaluates the reader's run-start predicate.
+*/
+describe("D118 — declarations are bound to the knowledge of the publishing run", () => {
+  const RUN_STARTED: Record<string, string> = {
+    "00000000-0000-4000-8000-000000000a01": "2026-07-12T03:00:00.000Z",
+    "00000000-0000-4000-8000-000000000a02": "2026-07-12T15:00:00.000Z",
+  };
+  const declaredToday = {
+    ...adsetDeclarationDbRow("adset_1", "test"),
+    effective_from: "2026-07-11",
+    declared_at: "2026-07-12T08:00:00.000Z",
+  };
+  const campaignRows = [context()];
+
+  function pitQuery() {
+    return vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
+        return [{ table_name: "meta_entity_role_declarations" }];
+      }
+      if (!sql.includes("FROM meta_entity_role_declarations")) return [];
+      const runId = (params?.[6] as string | null) ?? null;
+      const startedAt = runId === null ? null : (RUN_STARTED[runId] ?? null);
+      if (runId !== null && startedAt === null) return [];
+      return [declaredToday].filter(
+        (row) =>
+          row.entity_type === params?.[2] &&
+          (startedAt === null || row.declared_at <= startedAt),
+      );
+    });
+  }
+
+  it("R118-P1: the earlier generation keeps its role; the next run picks the declaration up", async () => {
+    vi.mocked(db.getDb).mockReturnValue({ query: pitQuery() } as never);
+    const read = (runId: string) =>
+      readMetaDecisionAdsetRoleRows({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        adsets: [{ adsetId: "adset_1", campaignId: "cmp_1" }],
+        snapshotAsOf: "2026-07-12",
+        campaignRows,
+        declarationKnowledgeJobRunId: runId,
+      });
+    const earlier = await read("00000000-0000-4000-8000-000000000a01");
+    const later = await read("00000000-0000-4000-8000-000000000a02");
+    expect(earlier[0]).toMatchObject({ roleBasis: "parent_campaign_suggestion", kind: "main" });
+    expect(later[0]).toMatchObject({ roleBasis: "declared", kind: "test", confidenceClass: "high" });
+  });
+
+  it("R118-P2: an unknown publishing run admits no declaration", async () => {
+    vi.mocked(db.getDb).mockReturnValue({ query: pitQuery() } as never);
+    const [row] = await readMetaDecisionAdsetRoleRows({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adsets: [{ adsetId: "adset_1", campaignId: "cmp_1" }],
+      snapshotAsOf: "2026-07-12",
+      campaignRows,
+      declarationKnowledgeJobRunId: "00000000-0000-4000-8000-000000000a99",
+    });
+    expect(row?.roleBasis).toBe("parent_campaign_suggestion");
+  });
+
+  it("R118-P3: the served inventory reads declarations with the served generation's own run", async () => {
+    const row = nativeSnapshot("120000000000000971");
+    const query = workspaceReadQuery({
+      generationRows: [nativeGenerationForRows([row])],
+      nativeRows: [row],
+      campaignContextRows: [campaignContextDbRow()],
+      entityRoleDeclarationRows: [adsetDeclarationDbRow()],
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    await readMetaNativeCanonicalDecisionInventory({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+    const declarationCalls = query.mock.calls.filter(([sql]) =>
+      String(sql).includes("FROM meta_entity_role_declarations"),
+    );
+    expect(declarationCalls.length).toBeGreaterThan(0);
+    for (const [, params] of declarationCalls) {
+      expect((params as unknown[])[6]).toBe(row.job_run_id);
+    }
   });
 });

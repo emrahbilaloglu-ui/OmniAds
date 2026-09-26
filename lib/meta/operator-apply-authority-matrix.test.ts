@@ -322,14 +322,32 @@ const CONTEXT_CASES: ContextCase[] = [
   },
 ];
 
-/** The production path: guard, then the server-owned annotation. */
-function serve(candidate: MetaRecommendation, context: ContextCase) {
+/**
+ * The production path: guard, then the server-owned annotation.
+ *
+ * D118 — a row is governed by the role of ITS entity: an ad-set row by its ad
+ * set's own role, a campaign row by the campaign's. The matrix places each
+ * state on the entity that governs the row, so every case still asks "given
+ * this role state, what does the row offer". `adsetEntry: null` isolates the
+ * D118 rule itself: a resolved campaign with no ad set role of its own.
+ */
+function serve(
+  candidate: MetaRecommendation,
+  context: ContextCase,
+  options: { adsetEntry?: MetaCampaignContextGuardEntry | null } = {},
+) {
+  const adsetEntry =
+    options.adsetEntry !== undefined ? options.adsetEntry : context.entry;
   const { recommendations } = applyMetaCampaignLabelGuard({
     recommendations: [candidate],
     campaignLabelsById: null,
     campaignContextById: context.entry
       ? new Map([[CAMPAIGN_ID, context.entry]])
       : new Map(),
+    adsetContextById:
+      candidate.level === "adset" && candidate.adsetId && adsetEntry
+        ? new Map([[candidate.adsetId, adsetEntry]])
+        : new Map(),
     automaticContextEnabled: context.automaticContextEnabled ?? true,
     activeCampaignIds: [CAMPAIGN_ID],
   });
@@ -504,4 +522,15 @@ describe("the gate reads the row, not the pipeline that produced it", () => {
       entityId: ADSET_ID,
     });
   });
+});
+
+describe("operator apply authority matrix — D118 ad set roles", () => {
+  const resolved = CONTEXT_CASES.find((context) => context.withheld === null)!;
+  for (const action of ACTION_CASES.filter((item) => item.offered?.grain === "adset")) {
+    it(`withholds ${action.name} when only the campaign role is resolved`, () => {
+      const served = serve(action.candidate(), resolved, { adsetEntry: null });
+      expect(operatorApplyWithheldReasonForRec(served)).toBe("campaign_role_unresolved");
+      expect(served.operatorApply ?? null).toBeNull();
+    });
+  }
 });

@@ -46,7 +46,8 @@
  * objective on the target days, and an unauthorized held/raw hard verdict
  * from real data. A control that merely ran is NOT MET.
  * Separately, hardAuthorityOutcome says whether any row carries a
- * SOURCE-AUTHORIZED hard action; stdout prints it beside the gate so a
+ * SOURCE-AUTHORIZED hard action on an ACTIVE ad/ad set/campaign hierarchy at
+ * the decision cutoff; stdout prints it beside the gate so a
  * presence PASS never reads as one. Only --require-hard-authority lets it
  * change the exit code. The report records git HEAD, the porcelain status and
  * the hashes of dirty loaded modules; --require-clean refuses a dirty tree.
@@ -111,6 +112,7 @@ import {
   groupNativeProfileInputsByScope,
   mergeUniqueMap,
   readAdCampaignContext,
+  readAdAdsetRoles,
   resolveNativeAdDecisionProfileGroups,
   resolveNativeAdFrequencyPressureThresholdsByAccount,
   toNativeSnapshotPayload,
@@ -141,6 +143,7 @@ import {
   buildNativeMetaCanonicalDecisionInventory,
   buildNativeMetaDecisionsWorkspaceReadModel,
   readMetaDecisionCampaignContextRows,
+  readMetaDecisionAdsetRoleRows,
   readMetaDecisionsWorkspaceReadModel,
   readValidatedMetaNativeDecisionGenerationBundle,
   validateMetaNativeDecisionGenerationBundle,
@@ -297,11 +300,12 @@ function pick(value: unknown, path: readonly string[]): unknown {
   return current;
 }
 
-async function assertTransactionAlive(db: DbClient, after: string): Promise<void> {
+async function assertTransactionAlive(db: DbClient, after: string, originalError?: unknown): Promise<void> {
   try {
     await db.query("SELECT 1 AS alive");
   } catch (error) {
-    throw new Error(`transaction aborted after ${after}: ${errorMessage(error)}`);
+    const original = originalError === undefined ? "" : `; original failure: ${errorMessage(originalError)}`;
+    throw new Error(`transaction aborted after ${after}: ${errorMessage(error)}${original}`);
   }
 }
 
@@ -1292,15 +1296,30 @@ async function presentAccount(input: {
     return { report, episodes: built.episodes };
   }
 
-  // Serve-time campaign role: same reader as production (bounded by as_of_date only).
+  // Serve the simulated generation with the same entity-role readers as
+  // production, but bound declarations to this historical knowledge cutoff.
   const campaignIds = [...new Set(rows.map((row) => row.campaign_id).filter((id): id is string => Boolean(id)))];
   const campaignContextRows = await readMetaDecisionCampaignContextRows({
     businessId,
     providerAccountId: receipt.providerAccountId,
     campaignIds,
     snapshotAsOf: asOf,
+    visibleAtCutoff: cutoff,
   });
   await assertTransactionAlive(db, "readMetaDecisionCampaignContextRows");
+  const adsets = [...new Map(rows
+    .filter((row) => Boolean(row.adset_id))
+    .map((row) => [row.adset_id!, { adsetId: row.adset_id!, campaignId: row.campaign_id ?? null }]))
+    .values()];
+  const adsetRoleRows = await readMetaDecisionAdsetRoleRows({
+    businessId,
+    providerAccountId: receipt.providerAccountId,
+    adsets,
+    snapshotAsOf: asOf,
+    campaignRows: campaignContextRows,
+    visibleAtCutoff: cutoff,
+  });
+  await assertTransactionAlive(db, "readMetaDecisionAdsetRoleRows");
 
   const common = {
     businessId,
@@ -1308,6 +1327,7 @@ async function presentAccount(input: {
     generation: built.generation,
     snapshotRows: rows,
     campaignContextRows,
+    adsetRoleRows,
     eventRows: [],
     outcomeRows: [],
     responseRows: [],
@@ -1783,6 +1803,14 @@ async function runDecisionLane(input: {
           visibleAtCutoff: day.cutoff,
           pitExclusions: contextExclusions,
         });
+        const adsetRoleByKey = await readAdAdsetRoles({
+          businessId,
+          asOf: day.asOf,
+          adInputs: hydration.inputs,
+          mode: campaignContextMode,
+          campaignContextById,
+          visibleAtCutoff: day.cutoff,
+        });
         mark("campaign_context", since);
 
         since = Date.now();
@@ -1845,6 +1873,7 @@ async function runDecisionLane(input: {
                   dataHealth,
                   campaignContextMode,
                   campaignContextById,
+                  adsetRoleByKey,
                   previousLabels: prior.labels,
                   frequencyPressureThresholdByAccount: frequency,
                 })
@@ -1855,6 +1884,7 @@ async function runDecisionLane(input: {
                   adInputs: group.adInputs,
                   campaignContextMode,
                   campaignContextById,
+                  adsetRoleByKey,
                   previousLabels: prior.labels,
                   evaluatedAt: day.cutoff,
                 });
@@ -1945,10 +1975,34 @@ async function runDecisionLane(input: {
             independent: independentByAccount.get(providerAccountId) ?? null,
           }),
         );
-        // The hard-row filter and mapping are the pure core functions (isHardRowEntry / toHardRowRecord).
-        dayReport.hardRows = scoped
-          .filter((entry) => isHardRowEntry(entry))
-          .map((entry) => toHardRowRecord({ asOf: day.asOf, entry, campaignContextById: contextMap }));
+        // Release proof must come from a currently delivering hierarchy at
+        // this cutoff. The producer also evaluates archived ads, so its raw
+        // hard-row count alone cannot prove a useful live recommendation.
+        const hardEntries = scoped.filter((entry) => isHardRowEntry(entry));
+        const hardIdentityByAd = new Map<string, Partial<SimulatedIdentity>>();
+        for (const receipt of receipts) {
+          const entries = hardEntries.filter((entry) =>
+            entry.payload.provider_account_id === receipt.providerAccountId &&
+            entry.payload.provider_account_ref_id === receipt.providerAccountRefId,
+          );
+          if (entries.length === 0) continue;
+          const identities = await db.query<Row>(IDENTITY_AT_CUTOFF_SQL, [
+            businessId, receipt.providerAccountId,
+            entries.map((entry) => entry.payload.ad_id),
+            entries.map((entry) => entry.payload.creative_id),
+            day.asOf, receipt.providerAccountRefId, day.cutoff,
+          ]);
+          for (const identity of identities) {
+            hardIdentityByAd.set(
+              `${receipt.providerAccountId}\u0000${text(identity.ad_id) ?? ""}`,
+              identityFromRow(identity),
+            );
+          }
+        }
+        dayReport.hardRows = hardEntries.map((entry) => toHardRowRecord({
+          asOf: day.asOf, entry, campaignContextById: contextMap,
+          identityAtCutoff: hardIdentityByAd.get(`${entry.payload.provider_account_id}\u0000${entry.payload.ad_id}`),
+        }));
         dayReport.status = "computed";
 
         // Episodes advance on every computed day, so a later day's episode start is chain-derived.
@@ -1997,7 +2051,7 @@ async function runDecisionLane(input: {
       } catch (error) {
         dayReport.status = "failed";
         dayReport.reason = errorMessage(error);
-        await assertTransactionAlive(db, `decision day ${day.asOf}`);
+        await assertTransactionAlive(db, `decision day ${day.asOf}`, error);
       }
     }
     return {
@@ -2127,7 +2181,7 @@ async function runPersistedServedLane(input: { businessId: string }): Promise<Pe
         };
       } catch (error) {
         workspace = { error: errorMessage(error) };
-        await assertTransactionAlive(db, "readMetaDecisionsWorkspaceReadModel (failed)");
+        await assertTransactionAlive(db, "readMetaDecisionsWorkspaceReadModel (failed)", error);
       }
       accounts.push({
         providerAccountId: binding.providerAccountId,

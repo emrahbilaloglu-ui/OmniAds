@@ -79,7 +79,7 @@ function validateMappedBridge(result: V3BridgeMappedResult) {
 describe("Creative Decision Center V3 bridge", () => {
   it("exposes a stable bridge version", () => {
     expect(CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION).toBe(
-      "creative-decision-center.v3-bridge.v2",
+      "creative-decision-center.v3-bridge.v3",
     );
   });
 
@@ -297,7 +297,33 @@ describe("Creative Decision Center V3 bridge", () => {
       }));
       expect(result.engine.primaryDecision).toBe("Diagnose");
       expect(result.engine.blockerReasons).toContain("campaign_role_unresolved");
+      expect(result.engine.blockerReasons).not.toContain("campaign_context");
       expect(validateMappedBridge(result).buyerAction).toBe("diagnose_data");
+    }
+  });
+
+  it("does not replace the recorded first authority blocker with a role diagnosis", () => {
+    const cases = [
+      { authorityBlocker: "config_source_authority" as const, problemClass: "data_quality" },
+      { authorityBlocker: "profile_hard_action_ineligible" as const, problemClass: "insufficient_signal" },
+    ] as const;
+    for (const testCase of cases) {
+      const result = requireMapped(bridgeV3DecisionToV21({
+        decision: makeV3Decision({
+          label: "keep",
+          preAuthorityLabel: "cut",
+          blockedActionType: "cut",
+          campaignRoleStatus: "unresolved",
+          campaignKind: null,
+          authorityBlocker: testCase.authorityBlocker,
+          badges: [badge("campaign_context_unresolved")],
+        }),
+      }));
+      expect(result.engine.primaryDecision).toBe("Diagnose");
+      expect(result.engine.problemClass).toBe(testCase.problemClass);
+      expect(result.engine.blockerReasons).toContain(testCase.authorityBlocker);
+      expect(result.engine.blockerReasons).not.toContain("campaign_role_unresolved");
+      expect(result.engine.applyEligible).toBe(false);
     }
   });
 

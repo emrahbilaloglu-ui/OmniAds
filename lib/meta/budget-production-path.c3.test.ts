@@ -26,6 +26,8 @@ import { CAMPAIGN_CONTEXT_AUTHORITY_RESOLVER_VERSION_ENV }
 import { CAMPAIGN_CONTEXT_RESOLVER_VERSION }
   from "@/lib/creative-decision-engine/campaign-context/resolver";
 import { DEFAULT_META_AUTOMATION_GUARDRAILS } from "@/lib/meta/automation-control-plane";
+import { ENTITY_ROLE_DECLARATION_CONTRACT_VERSION }
+  from "@/lib/creative-decision-engine/campaign-context/entity-role";
 
 const BIZ = "33333333-3333-4333-8333-333333333333";
 const ACCOUNT = "act_123";
@@ -197,6 +199,33 @@ const inserted: Array<Record<string, unknown>> = [];
 let profileActions: string[] = ["scale", "cut"];
 let roleRowsPresent = true;
 let concentrationKnown = true;
+/** D121 — role declaration events the loader reads first. None by default. */
+let declarationRows: Array<Record<string, unknown>> = [];
+
+const RUN_STARTED = "2026-08-31T07:00:00.000Z";
+const declaration = (over: Record<string, unknown> = {}) => ({
+  id: `decl-${String(over.entity_id ?? ABO.entityId)}-${String(over.declared_at ?? "a")}`,
+  business_id: BIZ,
+  provider_account_id: ACCOUNT,
+  entity_type: "adset",
+  entity_id: ABO.entityId,
+  parent_campaign_id: ABO.parentCampaignId,
+  event: "declare",
+  declared_role: "test",
+  effective_from: "2026-08-30",
+  declared_at: "2026-08-30T09:00:00.000Z",
+  declared_by: "22222222-2222-4222-8222-222222222222",
+  reason: "Separate Test cell",
+  contract_version: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+  ...over,
+});
+const mainCampaignDeclaration = declaration({
+  entity_type: "campaign",
+  entity_id: ABO.parentCampaignId,
+  parent_campaign_id: null,
+  declared_role: "main",
+  reason: "Main campaign",
+});
 
 const query = vi.fn(async (sql: string, params: unknown[] = []) => {
   const text = String(sql);
@@ -211,6 +240,14 @@ const query = vi.fn(async (sql: string, params: unknown[] = []) => {
   }
   if (text.includes("FROM engine_v3_campaign_role_authority")) {
     return roleRowsPresent ? [roleRow(String(params[1]))] : [];
+  }
+  if (text.includes("to_regclass('meta_entity_role_declarations')")) {
+    return [{ table_name: "meta_entity_role_declarations" }];
+  }
+  if (text.includes("FROM meta_entity_role_declarations")) {
+    return declarationRows.filter((row) =>
+      row.entity_type === params[2]
+      && (params[3] as string[]).includes(String(row.entity_id)));
   }
   if (text.includes("FROM meta_entity_observation_receipts_v2")) {
     return completeRunRows;
@@ -294,6 +331,8 @@ const { loadBudgetCompositionSourcesForCandidate } =
 const { readMeasuredBudgetHistory } =
   await import("@/lib/meta/budget-proposal-server-readers");
 const { parseBudgetProposalEnvelope } = await import("@/lib/meta/budget-proposal-runtime");
+const { composeBudgetExecutionCandidate, composeBudgetProposalCandidate } =
+  await import("@/lib/meta/budget-execution-composition");
 
 const json = (payload: unknown, status = 200) =>
   new Response(JSON.stringify(payload), {
@@ -344,6 +383,7 @@ describe("D088 C3 — the real producer projects real rows", () => {
     profileActions = ["scale", "cut"];
     roleRowsPresent = true;
     concentrationKnown = true;
+    declarationRows = [];
     query.mockClear();
     vi.stubGlobal("fetch", vi.fn(async (url: string) =>
       json({
@@ -415,7 +455,10 @@ describe("D088 C3 — the real producer projects real rows", () => {
     expect(result.candidates).toBe(1);
     expect(result.refusals).toEqual({ composition_sources_unavailable: 1 });
     expect(loadCompositionSources).toHaveBeenCalledTimes(1);
-    expect(loadCompositionSources).toHaveBeenCalledWith(allowed);
+    // D121: the run's declaration bound travels with it (none injected here).
+    expect(loadCompositionSources).toHaveBeenCalledWith(allowed, {
+      roleDeclarationsRecordedBy: null,
+    });
   });
 
   it("refuses injected candidates from another business or snapshot day", async () => {
@@ -445,7 +488,10 @@ describe("D088 C3 — the real producer projects real rows", () => {
       composition_sources_unavailable: 1,
     });
     expect(loadCompositionSources).toHaveBeenCalledTimes(1);
-    expect(loadCompositionSources).toHaveBeenCalledWith(allowed);
+    // D121: the run's declaration bound travels with it (none injected here).
+    expect(loadCompositionSources).toHaveBeenCalledWith(allowed, {
+      roleDeclarationsRecordedBy: null,
+    });
   });
 
   it.each([
@@ -506,6 +552,9 @@ describe("D088 C3 — the real producer projects real rows", () => {
     ["semi-auto", "semi_auto"],
     ["auto", "auto"],
   ] as const)("projects account-scoped pending rows in %s mode", async (_label, mode) => {
+    // D121 C1: the ad set projects on its OWN declared role; it never takes
+    // its campaign's automatic one.
+    declarationRows = [declaration()];
     const readBudgetMode = mode === null
       ? undefined
       : vi.fn(async () => mode);
@@ -540,6 +589,7 @@ describe("D088 C3 — the real producer projects real rows", () => {
   });
 
   it("keeps projecting the family when another writer wins an open slot", async () => {
+    declarationRows = [declaration()];
     const openSlotConflict = Object.assign(new Error("duplicate key"), {
       code: "23505",
       constraint: "uq_meta_automation_proposals_open_slot",
@@ -583,6 +633,7 @@ describe("D088 C3 — the real producer projects real rows", () => {
   });
 
   it("the stored envelope carries the DECISION's own hash, clock and lineage", async () => {
+    declarationRows = [declaration()];
     await projectMetaBudgetProposals({
       // This suite is about composition refusals, so the family's standing
       // mode is stated: a manual business projects nothing at all, which is
@@ -786,5 +837,361 @@ describe("D088 C3 — the real producer projects real rows", () => {
     expect(result.refusals.role_authority_absent).toBe(1);
     expect(inserted).toHaveLength(0);
     query.mockImplementation(original);
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* D121 — the governing entity's OWN role declaration.               */
+  /*                                                                   */
+  /* A Main campaign can run a Test ad set. An ad set budget reads the */
+  /* ad set's declaration; the campaign's never stands in for it, and */
+  /* nothing recorded after the run began is this run's knowledge.     */
+  /* ---------------------------------------------------------------- */
+  const onlyCandidates = (shapes: Array<typeof CBO | typeof ABO>) => {
+    const original = query.getMockImplementation()!;
+    query.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      if (String(sql).includes("FROM meta_decision_snapshots_daily")) {
+        return shapes.map(candidateRow);
+      }
+      return original(sql, params);
+    });
+    return () => query.mockImplementation(original);
+  };
+  const projectWithDeclarations = (recordedBy: string | null = RUN_STARTED) =>
+    projectMetaBudgetProposals({
+      readBudgetMode: async () => "semi_auto",
+      businessId: BIZ, snapshotDate: "2026-08-31",
+      providerAccountIds: [ACCOUNT],
+      roleDeclarationsRecordedBy: recordedBy,
+      loadCompositionSources: loadBudgetCompositionSourcesForCandidate,
+      insertProposal: async (input) => insertBudgetProposalRow({
+        businessId: BIZ,
+        proposalId: input.proposalId,
+        candidate: input.candidate,
+        envelopeJson: input.envelopeJson,
+        actionLabel: input.actionLabel,
+      }),
+    });
+  const aboCandidate = async () => {
+    const restore = onlyCandidates([ABO]);
+    const [candidate] = await listTypedBudgetCandidates(BIZ, "2026-08-31", [ACCOUNT]);
+    restore();
+    return candidate!;
+  };
+
+  it("R121-C1: a Test ad set declared inside a declared Main campaign projects under its OWN role", async () => {
+    roleRowsPresent = false;
+    declarationRows = [mainCampaignDeclaration, declaration()];
+    const restore = onlyCandidates([ABO]);
+    const result = await projectWithDeclarations();
+    restore();
+    expect(result.refusals, JSON.stringify(result.refusals)).toEqual({});
+    expect(result.projected).toBe(1);
+
+    const sources = await loadBudgetCompositionSourcesForCandidate(await aboCandidate(), {
+      roleDeclarationsRecordedBy: RUN_STARTED,
+    });
+    expect(sources?.role).toMatchObject({
+      kind: "test",
+      source: "declared",
+      resolverVersion: null,
+      declared: {
+        entityGrain: "adset",
+        entityId: ABO.entityId,
+        campaignId: ABO.parentCampaignId,
+        role: "test",
+      },
+    });
+  });
+
+  it("R121-C2: the Main campaign's declaration never authorises its undeclared ad set's budget", async () => {
+    roleRowsPresent = false;
+    declarationRows = [mainCampaignDeclaration];
+    const restore = onlyCandidates([ABO]);
+    const result = await projectWithDeclarations();
+    restore();
+    expect(result.projected).toBe(0);
+    expect(result.refusals).toEqual({ role_authority_absent: 1 });
+    expect(inserted).toHaveLength(0);
+  });
+
+  it("R121-C3: a declared Test ad set wins over its campaign's automatic Main evidence", async () => {
+    roleRowsPresent = true; // the parent campaign's automatic row says Main
+    declarationRows = [declaration()];
+    const sources = await loadBudgetCompositionSourcesForCandidate(await aboCandidate(), {
+      roleDeclarationsRecordedBy: RUN_STARTED,
+    });
+    expect(sources?.role).toMatchObject({ kind: "test", source: "declared" });
+  });
+
+  it("R121-C4: an ad set declared under ANOTHER campaign has no role, and no automatic fallback", async () => {
+    roleRowsPresent = true; // automatic Main evidence exists for the actual parent
+    declarationRows = [declaration({ parent_campaign_id: "23850000000000000" })];
+    const restore = onlyCandidates([ABO]);
+    const result = await projectWithDeclarations();
+    restore();
+    expect(result.projected).toBe(0);
+    expect(result.refusals).toEqual({ role_authority_absent: 1 });
+  });
+
+  it("R121-C5: a declaration recorded after the run began is the NEXT run's knowledge", async () => {
+    roleRowsPresent = false;
+    // Recorded 06:00, before the 06:30 decision, effective that day.
+    declarationRows = [declaration({ declared_at: "2026-08-31T06:00:00.000Z", effective_from: "2026-08-31" })];
+    const restore = onlyCandidates([ABO]);
+    const before = await projectWithDeclarations("2026-08-31T05:00:00.000Z");
+    expect(before.refusals).toEqual({ role_authority_absent: 1 });
+    const after = await projectWithDeclarations(RUN_STARTED);
+    restore();
+    expect(after.refusals, JSON.stringify(after.refusals)).toEqual({});
+    expect(after.projected).toBe(1);
+  });
+
+  it("R121-C6: a declaration effective only after the decision day does not govern it", async () => {
+    roleRowsPresent = false;
+    declarationRows = [declaration({ effective_from: "2026-09-01" })];
+    const restore = onlyCandidates([ABO]);
+    const result = await projectWithDeclarations();
+    restore();
+    expect(result.refusals).toEqual({ role_authority_absent: 1 });
+  });
+
+  it("R121-C7: a campaign budget reads the campaign's own declaration", async () => {
+    roleRowsPresent = false;
+    declarationRows = [declaration({
+      entity_type: "campaign", entity_id: CBO.entityId, parent_campaign_id: null,
+      declared_role: "main",
+    })];
+    const restore = onlyCandidates([CBO]);
+    const result = await projectWithDeclarations();
+    restore();
+    expect(result.refusals, JSON.stringify(result.refusals)).toEqual({});
+    expect(result.projected).toBe(1);
+  });
+
+  it("R121-C8: another account's or business's declaration is not this account's", async () => {
+    roleRowsPresent = false;
+    for (const foreign of [
+      declaration({ provider_account_id: "act_999" }),
+      declaration({ business_id: "99999999-9999-4999-8999-999999999999" }),
+    ]) {
+      declarationRows = [foreign];
+      const restore = onlyCandidates([ABO]);
+      const result = await projectWithDeclarations();
+      restore();
+      expect(result.refusals).toEqual({ role_authority_absent: 1 });
+    }
+  });
+
+  it("R121-C9: execution composition stays automatic-only for the very same declared sources", async () => {
+    roleRowsPresent = false;
+    declarationRows = [declaration()];
+    const sources = await loadBudgetCompositionSourcesForCandidate(await aboCandidate(), {
+      roleDeclarationsRecordedBy: RUN_STARTED,
+    });
+    expect(sources?.role?.source).toBe("declared");
+    const identity = {
+      proposalId: "11111111-1111-4111-8111-111111111111",
+      claimToken: "11111111-1111-4111-8111-111111111111",
+    };
+    const execution = composeBudgetExecutionCandidate({ ...sources!, ...identity });
+    expect(execution.blockers).toContain("role_authority_not_automatic");
+    expect(execution.executable).toBe(false);
+    expect(execution.dryRun).toBeNull();
+    const proposal = composeBudgetProposalCandidate({ ...sources!, ...identity });
+    expect(proposal.blockers).toEqual([]);
+    expect(proposal.dryRun?.status).toBe("would_write_available");
+    // A reviewable proposal, never an executable one.
+    expect(proposal.executable).toBe(false);
+  });
+
+  it("R121-C10: a declared role naming another entity is refused by the proposal composition", async () => {
+    roleRowsPresent = false;
+    declarationRows = [declaration()];
+    const sources = await loadBudgetCompositionSourcesForCandidate(await aboCandidate(), {
+      roleDeclarationsRecordedBy: RUN_STARTED,
+    });
+    const identity = {
+      proposalId: "11111111-1111-4111-8111-111111111111",
+      claimToken: "11111111-1111-4111-8111-111111111111",
+    };
+    // The ad set's parent campaign standing in for the ad set.
+    const asCampaign = composeBudgetProposalCandidate({
+      ...sources!, ...identity,
+      role: {
+        ...sources!.role!,
+        declared: { ...sources!.role!.declared!, entityGrain: "campaign", entityId: ABO.parentCampaignId! },
+      },
+    });
+    expect(asCampaign.blockers).toContain("role_authority_declared_unbound");
+    // A record the run could not have known.
+    const late = composeBudgetProposalCandidate({
+      ...sources!, ...identity,
+      role: {
+        ...sources!.role!,
+        declared: { ...sources!.role!.declared!, recordedBy: "2026-09-02T00:00:00.000Z" },
+      },
+    });
+    expect(late.blockers).toContain("role_authority_declared_unbound");
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* D121 C1 — the two counterexamples, end to end.                    */
+  /* ---------------------------------------------------------------- */
+  it("R121-C11: a retained ad set candidate never takes its parent's automatic Main role", async () => {
+    roleRowsPresent = true; // automatic Main evidence for the ad set's parent campaign
+    declarationRows = [];
+    const restore = onlyCandidates([ABO]);
+    const result = await projectWithDeclarations();
+    restore();
+    expect(result.projected).toBe(0);
+    expect(result.refusals).toEqual({ role_authority_absent: 1 });
+    const sources = await loadBudgetCompositionSourcesForCandidate(await aboCandidate(), {
+      roleDeclarationsRecordedBy: RUN_STARTED,
+    });
+    expect(sources?.role).toBeNull();
+  });
+
+  it("R121-C12: both compositions refuse an automatic role presented for an ad set's budget", async () => {
+    roleRowsPresent = false;
+    declarationRows = [declaration()];
+    const sources = await loadBudgetCompositionSourcesForCandidate(await aboCandidate(), {
+      roleDeclarationsRecordedBy: RUN_STARTED,
+    });
+    const identity = {
+      proposalId: "11111111-1111-4111-8111-111111111111",
+      claimToken: "11111111-1111-4111-8111-111111111111",
+    };
+    // What the pre-correction loader and the execution readers built for an
+    // ad set: the PARENT campaign's automatic verdict.
+    const inherited = {
+      ...sources!,
+      ...identity,
+      role: {
+        kind: "main", source: "automatic",
+        resolverVersion: CAMPAIGN_CONTEXT_RESOLVER_VERSION,
+        confidence: "high", asOf: "2026-08-30", accountScoped: true,
+        satisfiesRoleAuthority: true, producer: "automatic_inference",
+        authorityBlockers: [],
+      },
+    };
+    for (const composed of [
+      composeBudgetProposalCandidate(inherited),
+      composeBudgetExecutionCandidate(inherited),
+    ]) {
+      expect(composed.blockers).toContain("role_authority_adset_inherited");
+      expect(composed.dryRun).toBeNull();
+      expect(composed.executable).toBe(false);
+    }
+  });
+
+  it("R121-C13: a declaration recorded after the decision never lifts that decision into a proposal", async () => {
+    roleRowsPresent = false;
+    // The decision row was created 2026-08-31T06:30; the declaration is
+    // recorded afterwards, back-dated to take effect the day before.
+    declarationRows = [declaration({
+      declared_at: "2026-08-31T08:00:00.000Z", effective_from: "2026-08-30",
+    })];
+    const restore = onlyCandidates([ABO]);
+    const result = await projectWithDeclarations("2026-08-31T09:00:00.000Z");
+    restore();
+    expect(result.projected).toBe(0);
+    expect(result.refusals).toEqual({ role_authority_absent: 1 });
+  });
+
+  it("R121-C14: the composition refuses a declared authority whose decision record postdates the decision", async () => {
+    roleRowsPresent = false;
+    declarationRows = [declaration()];
+    const sources = await loadBudgetCompositionSourcesForCandidate(await aboCandidate(), {
+      roleDeclarationsRecordedBy: RUN_STARTED,
+    });
+    const identity = {
+      proposalId: "11111111-1111-4111-8111-111111111111",
+      claimToken: "11111111-1111-4111-8111-111111111111",
+    };
+    const declared = sources!.role!.declared! as unknown as Record<string, unknown>;
+    const lifted = composeBudgetProposalCandidate({
+      ...sources!, ...identity,
+      role: {
+        ...sources!.role!,
+        declared: { ...declared, decisionDeclaredAt: "2026-08-31T08:00:00.000Z" } as never,
+      },
+    });
+    expect(lifted.blockers).toContain("role_authority_declared_unbound");
+    const otherDecision = composeBudgetProposalCandidate({
+      ...sources!, ...identity,
+      decision: { ...sources!.decision, decidedAt: "2026-08-30T06:30:00.000Z" },
+    });
+    expect(otherDecision.blockers).toContain("role_authority_declared_unbound");
+  });
+
+  it("R121-C15: the execution readers never hand an ad set its parent's automatic role", async () => {
+    roleRowsPresent = true; // automatic Main evidence for every campaign asked about
+    declarationRows = [declaration()]; // the ad set's own Test declaration
+    const projected = await projectWithDeclarations();
+    expect(projected.refusals, JSON.stringify(projected.refusals)).toEqual({});
+    expect(projected.projected).toBe(2);
+
+    const { createBudgetServerReaders } =
+      await import("@/lib/meta/budget-proposal-server-readers");
+    const { buildMetaBudgetWriteContextForProposal } =
+      await import("@/lib/meta/budget-proposal-write-context");
+    const readers = createBudgetServerReaders({
+      businessId: BIZ,
+      actorUserId: "22222222-2222-4222-8222-222222222222",
+      writeContext: await buildMetaBudgetWriteContextForProposal({
+        businessId: BIZ, providerAccountId: ACCOUNT,
+      }),
+    });
+    const roles: Record<string, unknown> = {};
+    for (const row of inserted) {
+      const params = row.params as unknown[];
+      const proposal = {
+        id: String(params[18]),
+        businessId: BIZ,
+        providerAccountId: ACCOUNT,
+        recId: String(params[5]),
+        evidenceRef: JSON.parse(String(params[15])),
+        budgetEnvelope: parseBudgetProposalEnvelope(JSON.parse(String(params[17]))),
+      };
+      const sources = await readers.loadCompositionSources({
+        proposal: proposal as never,
+        claimToken: String(params[18]),
+        explicitlyApproved: true,
+      });
+      expect(sources, String(params[3])).not.toBeNull();
+      roles[String(params[3])] = sources!.role;
+      if (params[3] === "adset") {
+        const composed = composeBudgetExecutionCandidate({
+          ...sources!, proposalId: String(params[18]), claimToken: String(params[18]),
+        });
+        expect(composed.blockers).toContain("role_authority_absent");
+        expect(composed.executable).toBe(false);
+      }
+    }
+    // Execution: the campaign keeps its own automatic role; the ad set gets
+    // none — neither its parent's automatic Main nor its own declaration.
+    expect(roles.campaign).toMatchObject({ source: "automatic", kind: "main" });
+    expect(roles.adset).toBeNull();
+  });
+
+  it("R121-C17: a same-role re-declaration after the decision confirms it; D085 sees the record the decision rested on", async () => {
+    roleRowsPresent = false;
+    declarationRows = [
+      declaration(), // A: recorded 08-30 09:00, before the 06:30 decision
+      declaration({ id: "decl-B", declared_at: "2026-08-31T08:00:00.000Z", effective_from: "2026-08-31" }),
+    ];
+    const restore = onlyCandidates([ABO]);
+    const result = await projectWithDeclarations("2026-08-31T09:00:00.000Z");
+    restore();
+    expect(result.refusals, JSON.stringify(result.refusals)).toEqual({});
+    expect(result.projected).toBe(1);
+    const sources = await loadBudgetCompositionSourcesForCandidate(await aboCandidate(), {
+      roleDeclarationsRecordedBy: "2026-08-31T09:00:00.000Z",
+    });
+    expect(sources?.role?.declared).toMatchObject({
+      declarationId: "decl-B",
+      declaredAt: "2026-08-31T08:00:00.000Z",
+      decisionDeclaredAt: "2026-08-30T09:00:00.000Z",
+    });
   });
 });

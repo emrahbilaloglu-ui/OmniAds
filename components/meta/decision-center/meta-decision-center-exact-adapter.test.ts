@@ -220,6 +220,44 @@ interface WorkspaceFixtureInput {
   budgetEvidence?: MetaBudgetDecisionEvidenceByDirection;
 }
 
+describe("manual purchase Cut presentation", () => {
+  const resolution = {
+    code: "apply_purchase_cut_manually", category: "commercial_truth" as const,
+    owner: "operator" as const, label: "Manual pause recommended · Medium confidence",
+    nextStep: "Pause manually with medium confidence; one purchase-intent day is point-observed and historical configuration remains unverified.",
+  };
+  const decision = () => creativeFixture({
+    rawLabel: "cut", publishedLabel: "cut", heldAction: "cut", lane: "act",
+    resolution, heldResolution: resolution,
+    action: actionFixture({ code: resolution.code, label: resolution.label, intent: "review", targetLevel: "ad", providerMutation: null }),
+  });
+  const canonical = canonicalFixture({ manualCutAdvisory: {
+    advised: true, contractVersion: "meta-native-manual-cut-advisory.v1",
+    basis: "peer_free_commercial_stop_loss", confidenceCap: "medium", authority: "none",
+    economicDayCount: 3, bracketedDays: 2, pointObservedDays: 1, historicalObjectiveUnverifiedDays: 3,
+  } });
+
+  it("renders the server recommendation and uncertainty without another generic wait", () => {
+    const ad = decision();
+    expect(heldCreativeVerdict(ad, canonical)).toMatchObject({
+      label: "Pause ad · manual recommendation", nextStep: resolution.nextStep,
+    });
+    expect(buyerFacingCreativeResolution(ad, canonical)).toBe(resolution.nextStep);
+    expect(buyerFacingCreativeActionLabel(ad)).toBe("Review manual pause");
+    expect(buyerFacingCreativeReason(ad)).toContain("Spend and purchases support a manual pause");
+    expect(buyerFacingCreativeScope(ad, canonical)).toContain("no Meta change can be applied");
+  });
+
+  it("does not invite a pause from a retained or unproved recommendation", () => {
+    const ad = decision();
+    ad.lane = "blocked";
+    ad.action = actionFixture({ code: "review_retained_decision", intent: "review", targetLevel: "ad", providerMutation: null });
+    expect(heldCreativeVerdict(ad, canonical)?.label).not.toBe("Pause ad · manual recommendation");
+    expect(buyerFacingCreativeResolution(ad, canonical)).not.toBe(resolution.nextStep);
+    expect(buyerFacingCreativeResolution(decision(), null)).not.toBe(resolution.nextStep);
+  });
+});
+
 function fullOs(
   input: {
     nodes?: MetaOsStructureNode[];
@@ -814,6 +852,8 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
         label: "Automatic classification pending",
         nextStep: "Internal producer copy",
       },
+      campaignRoleTrustedForAction: false,
+      roleEntityType: "adset",
     });
     const unknownScope = creativeFixture({
       id: "unknown_scope",
@@ -855,7 +895,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     });
     const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
     expect(rows.get("no_metrics")?.note).toBe(
-      "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance. The campaign role is still being verified automatically. No action is needed from you; this ad is re-checked on each decision run.",
+      "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance. Review this ad set's Main/Test role in the role panel; the next decision run will reassess it.",
     );
     expect(rows.get("no_metrics")?.money).toBe("—");
     expect(rows.get("no_metrics")?.ctrValue).toBeNull();
@@ -880,7 +920,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
 
     // A numeric zero alone says nothing about delivery or read completeness.
     expect(buyerFacingCreativeResolution(noMetrics)).toBe(
-      "The campaign role is still being verified automatically. No action is needed from you; this ad is re-checked on each decision run.",
+      "Review this ad set's Main/Test role in the role panel; the next decision run will reassess it.",
     );
     // This broad blocker also covers an observed ad whose account winner
     // benchmark is missing; it must not claim the ad has no performance day.
@@ -3712,7 +3752,7 @@ describe("served structure inventory", () => {
     expect(serialized).not.toContain("internal_executor_schema_receipt");
   });
 
-  it("withholds an inferred role chip until the independent action-authority gate passes", () => {
+  it("shows inferred campaign roles as estimates without assigning the parent's role to an ad set", () => {
     const reviewOnly = metaRec({
       id: "rec_role_review_only",
       campaignId: "cmp_role_review_only",
@@ -3735,8 +3775,20 @@ describe("served structure inventory", () => {
         trustedForAction: true,
       },
     });
+    const adset = metaRec({
+      id: "rec_role_adset",
+      level: "adset",
+      campaignId: "cmp_role_adset_parent",
+      campaignName: "Parent campaign",
+      campaignContext: {
+        kind: "main",
+        source: "system_inferred",
+        confidence: "high",
+        trustedForAction: true,
+      },
+    });
     const workspace = workspaceFixture({
-      actionNow: [reviewOnly, authoritative],
+      actionNow: [reviewOnly, authoritative, adset],
       os: fullOs({
         nodes: [
           structureNodeFixture({
@@ -3757,6 +3809,16 @@ describe("served structure inventory", () => {
             name: "Authoritative role",
             lane: "blocked",
           }),
+          structureNodeFixture({
+            id: "adset:rec_role_adset",
+            level: "adset",
+            sourceRecommendationId: adset.id,
+            providerEntityId: "rec_role_adset",
+            campaignId: "cmp_role_adset_parent",
+            campaignName: "Parent campaign",
+            name: "Ad set",
+            lane: "blocked",
+          }),
         ],
       }),
     });
@@ -3765,11 +3827,14 @@ describe("served structure inventory", () => {
 
     expect(
       model.needsResolutionRows?.find((row) => row.id === reviewOnly.id)?.chips,
-    ).toEqual([]);
+    ).toEqual(["Campaign likely Main · unverified"]);
     expect(
       model.needsResolutionRows?.find((row) => row.id === authoritative.id)
         ?.chips,
-    ).toEqual(["Auto · Main"]);
+    ).toEqual(["Campaign · Main"]);
+    expect(
+      model.needsResolutionRows?.find((row) => row.id === adset.id)?.chips,
+    ).toEqual(["Ad set · Main"]);
   });
 
   it("does not count recommendation-free Monitor inventory as watched decisions", () => {
@@ -4623,7 +4688,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
 
     expect(verdict?.nextStep).toContain("Confirm the commercial target before acting.");
     expect(verdict?.nextStep).toContain(
-      "The campaign configuration for every day behind it is not confirmed yet.",
+      "The campaign configuration is not verified for every day used by this recommendation.",
     );
     expect(verdict?.nextStep).toContain("Then review this Refresh creative recommendation again.");
   });
@@ -4660,7 +4725,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     });
     const row = model.creativeDecisions?.[0];
     expect(row?.note).toMatch(/^The account does not yet have enough mature creatives for the Scale calibration floor\./);
-    expect(row?.note).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(row?.note).toContain("The campaign configuration is not verified for every day used by this recommendation.");
     expect(row?.note).toContain("No action is needed from you");
     expect(row?.note).not.toMatch(/\b(Verify|Restore|Wait for)\b/);
     expect(row?.heldVerdictNextStep).toBe(row?.note);
@@ -4682,6 +4747,8 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     });
     const firstBlocker = (code: "profile_hard_action_ineligible" | "campaign_context") => ({
       ...held,
+      campaignRoleTrustedForAction: code === "campaign_context" ? false : held.campaignRoleTrustedForAction,
+      roleEntityType: "adset" as const,
       authorityProvenance: {
         availability: "available" as const,
         preAuthorityLabel: "refresh",
@@ -4694,10 +4761,11 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       /^The account's decision profile does not yet authorize this change\./,
     );
     const roleStep = heldCreativeVerdict(firstBlocker("campaign_context"), canonical)?.nextStep;
-    expect(roleStep).toMatch(/^The campaign role is still being verified automatically\./);
-    expect(roleStep).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(roleStep).toMatch(/^The Main\/Test role has not been confirmed\./);
+    expect(roleStep).toContain("The campaign configuration is not verified for every day used by this recommendation.");
+    expect(roleStep).toContain("Review this ad set's Main/Test role in the role panel");
     // Stated once, not once as the primary reason and again as a prerequisite.
-    expect(roleStep?.split("The campaign role is still being verified automatically.").length).toBe(2);
+    expect(roleStep?.split("The Main/Test role has not been confirmed.").length).toBe(2);
   });
 
   it("names a missing winner benchmark only for the producer's native-metrics hold", () => {
@@ -4788,7 +4856,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       }),
     });
     const row = model.creativeDecisions?.[0];
-    expect(row?.note).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(row?.note).toContain("The campaign configuration is not verified for every day used by this recommendation.");
     expect(row?.note).toContain("Fresh, completed Meta source data is still arriving.");
     expect(row?.note).toContain("The next decision run still has to confirm it.");
     expect(row?.note).toContain("No action is needed from you");
@@ -4805,6 +4873,8 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
       heldCreativeVerdict(
         {
           ...heldCut,
+          campaignRoleTrustedForAction: false,
+          roleEntityType: "adset",
           authorityProvenance: {
             ...heldCut.authorityProvenance!,
             firstBlocker: {
@@ -4816,12 +4886,14 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
         },
         canonical,
       )?.nextStep,
-    ).toContain("The campaign role is still being verified automatically.");
+    ).toContain("Review this ad set's Main/Test role in the role panel");
   });
 
   it("keeps a role-first Cut with a later D101 gap in evidence-repair copy", () => {
     const held = heldRefreshFixture({
       heldAction: "cut",
+      campaignRoleTrustedForAction: false,
+      roleEntityType: "adset",
       blockers: [{
         code: "source_coverage_unverified",
         label: "Verified daily source coverage incomplete",
@@ -4848,7 +4920,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     const verdict = heldCreativeVerdict(held);
     expect(verdict?.nextStep).toContain("Decision data for this ad is waiting for the next Meta sync.");
     expect(verdict?.nextStep).toContain("Fresh, completed Meta source data is still arriving.");
-    expect(verdict?.nextStep).toContain("The campaign role is still being verified automatically.");
+    expect(verdict?.nextStep).toContain("Review this ad set's Main/Test role in the role panel");
     expect(verdict?.nextStep).not.toContain("Refresh decision data");
     expect(verdict?.nextStep).not.toContain("Pause this ad");
   });

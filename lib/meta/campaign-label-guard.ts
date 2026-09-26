@@ -6,6 +6,7 @@ import type {
 } from "@/lib/meta/recommendations";
 import { withMetaAutomationReadiness } from "@/lib/meta/automation-readiness";
 import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
+import { isEntityRoleTrustedForAction } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 
 /** @deprecated pre-D074b reason; recognition-only for persisted payloads. */
 export const META_CAMPAIGN_LABEL_GUARD_REASON = "unlabeled_campaign_soft_only";
@@ -20,7 +21,13 @@ export const META_AUTOMATIC_CONTEXT_RESOLVER_UNVALIDATED_REASON =
 export interface MetaCampaignContextGuardEntry {
   kind: MetaCampaignKind | null;
   contextTrust: "override" | "high" | "medium" | "low" | "unknown" | "conflict";
-  source: "legacy_label" | "user_override" | "system_inferred" | "unknown";
+  /** `operator_declared` — D118 explicit entity role declaration. */
+  source:
+    | "legacy_label"
+    | "user_override"
+    | "system_inferred"
+    | "operator_declared"
+    | "unknown";
   inferenceConfidenceClass?:
     | "high"
     | "medium"
@@ -28,6 +35,14 @@ export interface MetaCampaignContextGuardEntry {
     | "unknown"
     | "conflict";
   resolverAuthorityValidated?: boolean;
+  /** D118 — true only for an exact, current-contract declaration. */
+  declarationAuthorityValidated?: boolean;
+  /**
+   * D118 — `parent_campaign_suggestion`: an ad set's entry that only carries
+   * its campaign's role as context. Its gap is the ad set's own role, never a
+   * pending resolver validation.
+   */
+  roleBasis?: "declared" | "automatic" | "parent_campaign_suggestion" | "none";
 }
 
 export type MetaCampaignContextGuardMap = ReadonlyMap<
@@ -261,6 +276,14 @@ function isResolverValidationPending(
   entry: MetaCampaignContextGuardEntry | null,
 ): boolean {
   if (!entry || entry.resolverAuthorityValidated === true) return false;
+  // D118 — neither a declaration nor an ad set's inherited suggestion waits
+  // on the resolver gate; saying so would name the wrong missing fact.
+  if (
+    entry.source === "operator_declared" ||
+    entry.roleBasis === "parent_campaign_suggestion"
+  ) {
+    return false;
+  }
   return entry.inferenceConfidenceClass === "high" || entry.contextTrust === "high";
 }
 
@@ -322,10 +345,21 @@ export function isContextTrustedForAction(
   entry: MetaCampaignContextGuardEntry | null | undefined,
 ): boolean {
   if (!entry) return false;
-  if (entry.contextTrust !== "high" || entry.source !== "system_inferred") return false;
-  if (entry.resolverAuthorityValidated !== true) return false;
-  if (entry.inferenceConfidenceClass !== "high") return false;
-  return true;
+  /*
+    D118 — the four-fact rule above is now one of two, and both live in ONE
+    shared predicate: an automatic row still needs `system_inferred`, a high
+    class and the approved resolver identity; an explicit declaration needs
+    `operator_declared`, a high class and the exact declaration contract. The
+    entry's own `source` field is authoritative here, exactly as before.
+  */
+  return isEntityRoleTrustedForAction({
+    kind: entry.kind,
+    contextTrust: entry.contextTrust,
+    inferenceConfidenceClass: entry.inferenceConfidenceClass,
+    resolverAuthorityValidated: entry.resolverAuthorityValidated,
+    declarationAuthorityValidated: entry.declarationAuthorityValidated,
+    source: entry.source,
+  });
 }
 
 function automaticContextEvidence(
@@ -686,10 +720,34 @@ function withCanonicalDirection(rec: MetaRecommendation): MetaRecommendation {
   return { ...rec, decisionLabel: canonical };
 }
 
+/**
+ * D118 — the role map that governs one ad-set recommendation: its ad set's
+ * trusted role, keyed by the rec's campaign id so the existing kind helpers
+ * read it. An ad set in a Main campaign can be a Test ad set, so the
+ * campaign's own role never stands in; without a trusted ad set role the map
+ * is empty and the rec is treated as unresolved.
+ */
+function adsetGoverningLabelMap(
+  rec: MetaRecommendation,
+  adsetEntry: MetaCampaignContextGuardEntry | null,
+): MetaCampaignLabelKindMap {
+  const campaignId = rec.campaignId?.trim();
+  if (!campaignId || !adsetEntry?.kind || !isContextTrustedForAction(adsetEntry)) {
+    return new Map();
+  }
+  return new Map([[campaignId, adsetEntry.kind]]);
+}
+
 export function applyMetaCampaignLabelGuard(input: {
   recommendations: MetaRecommendation[];
   campaignLabelsById: MetaCampaignLabelKindMap | null | undefined;
   campaignContextById?: MetaCampaignContextGuardMap | null;
+  /**
+   * D118 — ad set roles keyed by ad set id. An ad-set recommendation is
+   * governed by its ad set's own role; omitted, every ad-set rec is treated
+   * as having none (the campaign's role is never inherited as authority).
+   */
+  adsetContextById?: MetaCampaignContextGuardMap | null;
   automaticContextEnabled?: boolean;
   activeCampaignIds?: readonly string[];
 }): MetaCampaignLabelGuardResult {
@@ -712,15 +770,26 @@ export function applyMetaCampaignLabelGuard(input: {
   let downgradedCount = 0;
   let accountLevelDowngraded = false;
 
+  const adsetContextById =
+    input.adsetContextById ?? new Map<string, MetaCampaignContextGuardEntry>();
+
   const recommendations = input.recommendations.map((candidate) => {
-    const contextEntry = campaignContextEntryForRec(
-      candidate,
-      activeCampaignIds,
-      contextById,
-    );
+    const isAdsetRec = candidate.level === "adset";
+    const adsetId = candidate.adsetId?.trim() || null;
+    const adsetEntry = isAdsetRec
+      ? adsetId
+        ? (adsetContextById.get(adsetId) ?? null)
+        : null
+      : null;
+    const contextEntry = isAdsetRec
+      ? adsetEntry
+      : campaignContextEntryForRec(candidate, activeCampaignIds, contextById);
+    const governingLabelMap = isAdsetRec
+      ? adsetGoverningLabelMap(candidate, adsetEntry)
+      : labelMap;
     const rec = applyTestCampaignSemantics(
-      attachCampaignKind(candidate, labelMap, activeCampaignIds),
-      labelMap,
+      attachCampaignKind(candidate, governingLabelMap, activeCampaignIds),
+      governingLabelMap,
     );
     const contextAnnotatedRec = contextEntry
       ? {
@@ -745,7 +814,9 @@ export function applyMetaCampaignLabelGuard(input: {
     const campaignIds = campaignIdsForRec(rec, activeCampaignIds);
     const isUnlabeled =
       campaignIds.length === 0 ||
-      campaignIds.some((campaignId) => !hasMetaCampaignLabel(campaignId, labelMap));
+      campaignIds.some(
+        (campaignId) => !hasMetaCampaignLabel(campaignId, governingLabelMap),
+      );
     if (!isUnlabeled) {
       return directionCorrected;
     }

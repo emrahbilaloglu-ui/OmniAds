@@ -837,6 +837,108 @@ the run the D107 hydration admitted in the read-only Grandmix replay
 | D111-05 | role-held economic Cut with complete source and config | campaign context remains the blocker; no authorized action |
 | D111-06 | held economic Cut with `config_source_authority` and `pending_transition` | typed resolution names the missing date-authoritative configuration first and also names the needed consecutive confirmation; no buyer or provider action |
 
+## D118 entity roles (golden cases)
+
+Executable in `lib/creative-decision-engine/__tests__/d118-entity-role.golden.test.ts`
+(engine), `lib/meta/d118-adset-role-guard.test.ts` (structure lane) and the
+D118 block of `lib/meta/decisions-workspace-read-model.test.ts` (served model).
+Module goldens, not rows of the canonical 11-column table, so their IDs do
+not start with `GC-`. The anchor shape is the operator's: a Main campaign
+running a separate Test ad set.
+
+| case | input | expected |
+|---|---|---|
+| R118-01 | Main campaign declared; Ad in an ad set declared Test | Ad role `test`, trusted; Scale keeps no role hold; `campaignKind` test |
+| R118-02 | same campaign; Ad in an undeclared ad set | role `main` as context only (trust medium); hard Cut keeps its verdict, held by `campaign_context` |
+| R118-03 | campaign automatic `high` + validated resolver; undeclared ad set; also with no ad set map | ad set not trusted either way |
+| R118-04 | ad set declared Test; campaign has no role | Ad trusted `test` |
+| R118-05 | Ad without an ad set identity | no role authority |
+| R118-06 | declare, later re-declare, later revoke | latest recorded event wins; revoke leaves no declaration |
+| R118-07 | replay cutoff before `declared_at`; `effective_from` after as-of | not in force |
+| R118-08 | other account / business / entity type / contract; ad set declared Mixed | ignored |
+| R118-09 | back-dated `effective_from`, Mixed ad set, role on revoke, a name as entity id | refused at write |
+| R118-10 | NEGATIVE CONTROL: nothing declared, campaign below high | ad set entry carries identical trust and provenance object |
+| R118-11 | only `system_inferred`+resolver or `operator_declared`+contract | anything else, including `user_override`, is not authority |
+| R118-12 | role authority source | reads no name and no retired label table |
+| R118-13 | Test ad set declared under campaign A; the Ad now sits under campaign B | declaration not applied; not authority |
+| R118-S1..S3 | structure lane: campaign rec, Test ad set rec, undeclared ad set rec | Main act / promote-to-main Test transform / watch, context Main untrusted |
+| R118-S4..S6 | no ad set map; validated automatic campaign; declaration without proof | ad set recs held; campaign rec acts; not authority |
+| R118-R1..R4 | served model: Test ad set, undeclared sibling, medium campaign, trusted automatic campaign | trusted `test` from declaration / `main` untrusted `adset_role_unresolved` naming the campaign record / pre-D118 output unchanged / sibling still untrusted |
+| R118-R5 | served model: ad set declared under another campaign | not applied; `adset_role_unresolved` |
+| R118-P1..P3 | declaration recorded 08:00 effective the day before; generation runs started 03:00 and 15:00; unknown run; served inventory | 03:00 generation keeps the suggestion, 15:00 run reads the declaration / unknown run admits none / the served read passes the generation's own run id |
+
+## D119/D120 role presentation and entity-state coverage (golden cases)
+
+| case | input | expected |
+|---|---|---|
+| D119-01 | held Cut with unresolved role badge and first blocker `config_source_authority` | remains blocked; the configuration gap is primary, role is secondary; no apply |
+| D119-02 | held Scale with unresolved role badge and first blocker `profile_hard_action_ineligible` | remains blocked; profile eligibility is primary, role is secondary; no apply |
+| D119-03 | held hard verdict with first blocker `campaign_context` | role diagnosis remains primary; no apply |
+| D120-01 | active purchase campaign, mature performance, no authoritative role | entity-state coverage is `no_action`/Keep; no hard action is authorized |
+| D120-02 | active purchase ad set, thin performance, Main parent campaign or unresolved parent role | entity-state coverage is `watch`; parent role cannot change its own state or grant an ad-set action |
+
+## D121 budget role authority (golden cases)
+
+Executable in `lib/meta/budget-declared-role-authority.test.ts` (resolver),
+`lib/meta/intent-projection-context.test.ts` (sizing gate),
+`lib/meta/budget-production-path.c3.test.ts` (real producer → loader →
+composition → D085) and `lib/meta/budget-proposal-dry-run.test.ts` (D085 r18).
+Same anchor: a Main campaign running a separate Test ad set.
+
+| case | input | expected |
+|---|---|---|
+| R121-01 | Main campaign declared; its ad set declared Test | ad set budget binds the ad set's own `test`, bound under the Main campaign |
+| R121-02 | same, campaign budget | binds the campaign's own `main` |
+| R121-03 | Main campaign declared; ad set undeclared | no declared role for the ad set (`declaration_absent`) |
+| R121-04 | declaration recorded 1 ms after the run began; exactly at it | not this run's knowledge / binds |
+| R121-05..07 | effective only after the decision day; revoked since it; role changed since it | refused by name, no automatic fallback |
+| R121-08..09 | ad set now under another campaign; parent unknown; either day's record names another placement | refused, no automatic fallback |
+| R121-10..12 | other account / business / contract / entity type; Mixed ad set; unparseable bound | ignored or refused |
+| R121-B1..B3 | sizing: trusted parent campaign, own ad set role, ad set id in the campaign map | ad set not sized / sized / not sized |
+| R121-S1..S5 | sizing maps from guard entries: declared Test ad set in declared Main campaign; undeclared ad set of declared or validated-automatic Main campaign; unproven declaration; unlabelled campaign | sized / not / not / not / not |
+| R121-C1..C2 | real producer: Test ad set declared inside declared Main campaign, no automatic evidence; only the campaign declared | projects one proposal with a `declared` `test` role / `role_authority_absent` |
+| R121-C3..C4 | automatic Main evidence for the parent plus an ad set Test declaration; the declaration names another campaign | declared `test` wins / `role_authority_absent` (no parent fallback) |
+| R121-C5..C8 | recorded after the run began (then a later run); effective after the decision day; campaign budget; foreign account/business | refused then projects / refused / projects / refused |
+| R121-C9 | the same declared sources through both compositions | proposal `would_write_available`; execution `role_authority_not_automatic`, no dry run |
+| R121-C10 | declared authority relabelled to the parent campaign, or recorded after the knowledge instant | `role_authority_declared_unbound` |
+| R121-D1..D8 | D085 r18: exact declared ad set; each defect; the parent campaign's declaration; another ad set / campaign; record after the cutoff; automatic context with declared-only fields; relabelled automatic context; automatic fixture | canonical with no resolver approval / `role_authority_not_canonical` naming the defect / `role_identity_unbound` / `role_identity_unbound` / `capture_after_knowledge_cutoff` / refused / refused / unchanged |
+| R121-13..16 | decision 24 Sep 15:00, declaration recorded 25 Sep 16:00 effective 24 Sep, run 25 Sep 17:00; revoke recorded after the decision; same-run decision after the run start; unparseable decision instant | `declaration_not_in_force_on_decision_day` / withdrawn / run start is the bound / refused |
+| R121-C11 | retained ad set candidate, parent campaign automatic Main, no declaration | `role_authority_absent`; loader hands no role |
+| R121-C12 | an automatic role presented for an ad set, through the proposal AND execution compositions | `role_authority_adset_inherited`, no dry run, not executable |
+| R121-C13..C14 | declaration recorded after the decision row (back-dated); authority whose decision record postdates the decision, or another decision instant | `role_authority_absent` / `role_authority_declared_unbound` |
+| R121-C15 | execution readers over real projected envelopes: automatic Main campaign, declared Test ad set | campaign keeps `automatic main`; ad set gets no role; execution composition `role_authority_absent` |
+| R121-C16 | execution runtime (mocked transport) for an ABO ad set handed an automatic role | refused with `role_authority_adset_inherited`; zero fetches, zero POSTs, no journal row (the CBO campaign case still writes once) |
+| R121-C17 | same-role re-declaration recorded after the decision (earlier record before it) | projects; the authority carries both records and D085 receives the one the decision rested on |
+| R121-D9 | D085: declared record inside the knowledge cutoff but after `decision.decidedAt` | `role_identity_unbound` |
+
+## D123 manual purchase Cut advice
+
+| Case | Evidence | Required result |
+| --- | --- | --- |
+| R123-01 | Confirmed active Cut; purchase intent on every day; point-day stress remains Cut in original and peer-free profiles | Medium-capped manual pause recommendation in Action Now; configuration still unverified, all Meta-write authority null |
+| R123-02 | The stressed original profile recovers above break-even, while peer-free still says Cut | Refuse `stressed_original_cut_not_confirmed`; original verdict and metrics stay unchanged |
+| R123-03 | Every purchase-intent day bracketed, historical objective absent | Same bounded advice can qualify without point-day stress; never invent historical objective |
+| R123-04 | Missing receipt, custom/non-purchase event, conflicting goal/objective, source gap, pending hysteresis, inactive hierarchy | No manual pause invitation; retain the specific evidence/confirmation hold |
+| R123-05 | Proof identity, manifest, point-day economics or evaluation version does not match the served row | No manual advice; badges/prose cannot substitute |
+| R123-06 | Same inputs and evidence at a later invocation time | Same v19 hashes; `computed_at` stays on the evaluation/snapshot, outside the proof hash |
+
+Real selected-Ad replay (2026-09-26 07:06:23.027Z): TheSwaf Ad ending
+`295620042` stays Cut with stressed ROAS 1.475312; Ad ending `342030042`
+becomes Keep at 1.733764 against break-even 1.71 and receives no advice.
+Both hierarchies were ACTIVE at that cutoff. These are selected-Ad replay
+and presentation cases, not a full-account persisted generation or live
+deployment claim. See `native-manual-cut-advisory-serving-replay.ts` and
+`D123_MANUAL_CUT_ACCEPTANCE_2026-09-26.md`.
+
+## D122 served snapshot role-knowledge cases
+
+| case | input | expected |
+|---|---|---|
+| R122-01 | new snapshot recommendation rows written in one run | every row stores the same `meta-snapshot-role-knowledge.v1` run-start instant |
+| R122-02 | retained row without a role-knowledge stamp | served campaign and ad-set readers admit no later declaration |
+| R122-03 | valid stamp before row creation; later declaration exists | served role readers stay bounded by that stamp |
+| R122-04 | stamp after row creation or mixed stamps in one served set | declarations withheld; automatic role source remains independently readable |
+
 ## Current authority vs historical record
 
 > **Current authority vs historical record.** Which table a decision taken today

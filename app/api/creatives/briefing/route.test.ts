@@ -1420,8 +1420,31 @@ describe("GET /api/creatives/briefing retained generation after a failed latest 
   const retained = () => generationRow({ selection: "last_success" });
   const mockNativeDb = (generationRows: D102GenerationRow[]) => {
     const rows = AD_IDS.map(nativeRow);
-    const query = vi.fn(async (sql: string) => {
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
+        return [{ table_name: "meta_entity_role_declarations" }];
+      }
       if (sql.includes("WITH candidate_runs AS")) return generationRows;
+      // D118 — each served Ad's own ad set role; a trusted campaign alone is
+      // not an Ad's role authority.
+      if (sql.includes("FROM meta_entity_role_declarations")) {
+        if (params?.[2] !== "adset") return [];
+        return [...new Set(rows.map((row) => row.adset_id))].map((adsetId) => ({
+          id: `declaration-${adsetId}`,
+          business_id: params?.[0],
+          provider_account_id: params?.[1],
+          entity_type: "adset",
+          entity_id: adsetId,
+          parent_campaign_id: "cmp_1",
+          event: "declare",
+          declared_role: "main",
+          effective_from: "2026-07-01",
+          declared_at: "2026-07-01T00:00:00.000Z",
+          declared_by: "operator-fixture",
+          reason: null,
+          contract_version: "meta-entity-role-declaration.v1",
+        }));
+      }
       if (sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot")) {
         return rows;
       }
@@ -1650,6 +1673,27 @@ describe("GET /api/creatives/briefing retained generation after a failed latest 
           resolverVersion,
         },
       ],
+      // D118 — the Ads' own ad set role, so the producer's Cut is authorized.
+      adsetRoleRows: [...new Set(rows.map((row) => row.adset_id))].map((adsetId) =>
+        actual.declaredContextRow({
+          automatic: null,
+          declaration: {
+            id: `declaration-${adsetId}`,
+            businessId: "biz_1",
+            providerAccountId: "act_1",
+            entityType: "adset",
+            entityId: String(adsetId),
+            parentCampaignId: "cmp_1",
+            event: "declare",
+            declaredRole: "main",
+            effectiveFrom: "2026-07-01",
+            declaredAt: "2026-07-01T00:00:00.000Z",
+            declaredBy: "operator-fixture",
+            reason: null,
+            contractVersion: "meta-entity-role-declaration.v1",
+          },
+        }),
+      ),
       generatedAt: SERVING_INSTANT,
     });
     expect(unstripped.status).toBe("available");

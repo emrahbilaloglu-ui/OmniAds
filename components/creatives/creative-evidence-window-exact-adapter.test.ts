@@ -316,7 +316,7 @@ describe("buildCreativeEvidenceWindowExactViewModel identity and contract", () =
 
     expect(model.reasons).toHaveLength(1);
     expect(model.reasons?.[0]).toContain("decision profile does not yet authorize");
-    expect(model.reasons?.[0]).toContain("campaign configuration for every day");
+    expect(model.reasons?.[0]).toContain("campaign configuration is not verified for every day");
     expect(model.reasons?.[0]).not.toContain("Internal producer");
     expect(model.reasons?.[0]).not.toBe("More verified evidence is required for this change.");
   });
@@ -1155,6 +1155,21 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     );
   });
 
+  it("names an independently confirmed Test ad set as the source of the served role", () => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture({
+        roleEntityType: "adset",
+        roleBasis: "declared",
+        lifecycleRole: "test",
+        campaignRoleSource: "operator_declared",
+      }),
+      canonical,
+    });
+    const role = model.authority?.find((row) => row.id === "served-campaign-role");
+    expect(role?.label).toBe("Served ad set role");
+    expect(role?.value).toBe("test · operator confirmed · confidence high · trusted for action");
+  });
+
   it("separates exact decision age from decision authorization and execution readiness", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture(),
@@ -1294,7 +1309,7 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
       }),
     });
     const reason = String(value(model.authority, "held-reason"));
-    expect(reason).toContain("The campaign configuration for every day behind it is not confirmed yet.");
+    expect(reason).toContain("The campaign configuration is not verified for every day used by this recommendation.");
     expect(reason).toContain("Fresh, completed Meta source data is still arriving.");
     expect(reason).toContain("The next decision run still has to confirm it.");
     expect(reason).not.toContain("Internal producer copy");

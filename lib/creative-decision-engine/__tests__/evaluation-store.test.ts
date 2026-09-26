@@ -31,7 +31,8 @@ import {
 } from "../evaluation-store";
 import type { EngineV3Flags } from "../feature-flags";
 import type { DecisionOutput } from "../types";
-import { observedConfigAuthority } from "./config-authority-fixture";
+import { observedConfigAuthority, purchaseIntentConfigAuthority } from "./config-authority-fixture";
+import type { NativeManualCutAdvisoryProof } from "../native-manual-cut-advisory";
 import {
   makeAccountDecisionProfile,
   makeCreativeInput,
@@ -199,6 +200,45 @@ function evidenceRows(
 }
 
 describe("ad decision evaluation identity", () => {
+  it("v19 binds the purchase-intent days and the separately stored manual recommendation", () => {
+    const configAuthority = purchaseIntentConfigAuthority();
+    const proof: NativeManualCutAdvisoryProof = {
+      contractVersion: "meta-native-manual-cut-advisory.v1", recommendation: "cut",
+      basis: "peer_free_commercial_stop_loss", confidenceCap: "medium", authority: "none",
+      heldBy: "config_source_authority", adId: "ad-1", providerAccountId: "act-1",
+      asOfDate: "2026-07-12", computedAt: "2026-07-12T03:00:01.000Z",
+      engineVersion: "v3-test", engineAuthorityBlocker: "campaign_context",
+      commercialTargetRoas: 2, receiptManifestHash: "c".repeat(64),
+      economicDayCount: 5, bracketedDays: 4, historicalObjectiveUnverifiedDays: 5,
+      pointObservedDays: [{ date: "2026-07-08", spend: 100, revenue: 100, stressedRevenue: 200 }],
+      stress: { purchaseValue: { actual: 500, stressed: 600 }, roas: { actual: 1, stressed: 1.2 }, recent7dRoas: null, bands: [] },
+    };
+    const build = (advice: NativeManualCutAdvisoryProof | null = proof, authority = configAuthority) =>
+      buildAdCanonicalEvaluationProvenance({
+        base: buildCanonicalEvaluationProvenance(baseEvaluation()),
+        identity: adEvaluation().identity,
+        adEvidence: { customConversionId: null, configAuthority: authority },
+        manualCutAdvisory: advice,
+      });
+    const original = build();
+    expect(original.contractVersion).toBe("engine-v3-canonical-ad-evaluation.v19");
+    const { computedAt: _computedAt, ...storedProof } = proof;
+    expect(original.inputPayload.configEvidence).toMatchObject({ manualCutAdvisory: storedProof, purchaseIntentWindow: configAuthority.purchaseIntentWindow });
+    const repeated = build({ ...proof, computedAt: "2026-07-12T04:00:00.000Z" });
+    expect(repeated.inputHash).toBe(original.inputHash);
+    expect(repeated.decisionHash).toBe(original.decisionHash);
+    const otherReceipt = build({ ...proof, receiptManifestHash: "d".repeat(64) });
+    const otherDay = build(proof, { ...configAuthority, purchaseIntentWindow: {
+      ...configAuthority.purchaseIntentWindow!,
+      pointObserved: [{ date: "2026-07-08", spend: 101, revenue: 100 }],
+    } });
+    for (const changed of [build(null), otherReceipt, otherDay]) {
+      expect(changed.inputHash).not.toBe(original.inputHash);
+      expect(changed.decisionHash).not.toBe(original.decisionHash);
+      expect(changed.contextHash).toBe(original.contextHash);
+    }
+    expect(build(null).inputPayload.configEvidence).toMatchObject({ manualCutAdvisory: null });
+  });
   it("binds config observation and custom-conversion identity to the native input hash", () => {
     const base = buildCanonicalEvaluationProvenance(baseEvaluation());
     const identity = {

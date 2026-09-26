@@ -1,3 +1,4 @@
+import { manualCutAdvisoryNextStep, type MetaManualCutAdvisory } from "./manual-cut-advisory";
 import type {
   MetaDecisionBuyerAction,
   MetaDecisionAuthorityBlocker,
@@ -510,6 +511,8 @@ function resolutionFor(
     codes.has("campaign_context_conflict") ||
     codes.has("campaign_context_unresolved") ||
     codes.has("campaign_context_low_confidence") ||
+    // D118 — the ad set's own role is undeclared; its campaign's is context only.
+    codes.has("adset_role_unresolved") ||
     codes.has("campaign_label_missing") ||
     codes.has("campaign_role_unresolved") ||
     codes.has("unlabeled_campaign_context") ||
@@ -635,6 +638,7 @@ export function projectMetaDecisionSemantics(input: {
    * `null`/absent means the envelope carries no such evidence; nothing changes.
    */
   configAuthorityVerified?: boolean | null;
+  manualCutAdvisory?: MetaManualCutAdvisory | null;
 }): MetaDecisionSemanticProjection {
   const evidenceCodes = new Set([
     ...input.badgeCodes,
@@ -649,11 +653,22 @@ export function projectMetaDecisionSemantics(input: {
   const heldAction = input.heldAction ?? null;
 
   if (heldAction) {
+    const manualAdvice = heldAction === "cut" && input.manualCutAdvisory &&
+      (input.authorityBlocker === "config_source_authority" || input.authorityBlocker === "campaign_context") &&
+      !["pending_transition", "source_coverage_unverified", "purchase_evidence_unverified", "ad_purchase_observation", "ad_metrics_unavailable", "stale_evidence", "unknown_freshness"]
+        .some((code) => evidenceCodes.has(code))
+      ? input.manualCutAdvisory : null;
     return {
       decisionState: "blocked",
       legacyBuyerAction: input.legacyBuyerAction,
       buyerAction: null,
-      resolution: input.authorityBlocker
+      resolution: manualAdvice ? {
+        code: "apply_purchase_cut_manually",
+        category: "commercial_truth",
+        owner: "operator",
+        label: "Manual pause recommended · Medium confidence",
+        nextStep: manualCutAdvisoryNextStep(manualAdvice),
+      } : input.authorityBlocker
         ? resolutionForAuthorityBlocker(
             input.authorityBlocker,
             evidenceCodes,

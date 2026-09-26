@@ -7,10 +7,11 @@ import type {
 } from "@/lib/meta/decisions-workspace-contract";
 
 export const META_OS_DECISIONS_PRESENTATION_VERSION =
-  "meta-os-decisions.presentation.v8" as const;
+  "meta-os-decisions.presentation.v9" as const;
 
 export type MetaOsDecisionsPresentationVersion =
   | typeof META_OS_DECISIONS_PRESENTATION_VERSION
+  | "meta-os-decisions.presentation.v8"
   | "meta-os-decisions.presentation.v7"
   | "meta-os-decisions.presentation.v6"
   | "meta-os-decisions.presentation.v5";
@@ -385,6 +386,10 @@ export interface MetaOsStructureNode {
   campaignRoleSource?: MetaOsAdDecision["campaignRoleSource"];
   campaignRoleConfidence?: MetaOsAdDecision["campaignRoleConfidence"];
   campaignRoleTrustedForAction?: boolean;
+  /** D118: the entity whose own role is displayed. Older payloads omit it. */
+  roleEntityType?: "campaign" | "adset";
+  /** Parent campaign is only a suggestion for an undeclared ad set. */
+  roleBasis?: "declared" | "automatic" | "parent_campaign_suggestion" | "none";
   /** Optional only so previously serialized payloads remain renderable; the
    * current builder always emits it. */
   campaignRoleExplanation?: MetaOsCampaignRoleExplanation;
@@ -461,9 +466,12 @@ export interface MetaOsAdDecision {
     /** @deprecated Historical snapshots only; new runtime output uses role_unresolved. */
     | "label_needed"
     | "unknown";
-  campaignRoleSource: "automatic" | "user_override" | "unknown";
+  campaignRoleSource: "automatic" | "operator_declared" | "user_override" | "unknown";
   campaignRoleConfidence: "high" | "medium" | "low" | "unknown" | "conflict";
   campaignRoleTrustedForAction: boolean;
+  /** D118: native Ad decisions use their ad set's own role. Older payloads omit it. */
+  roleEntityType?: "campaign" | "adset";
+  roleBasis?: "declared" | "automatic" | "parent_campaign_suggestion" | "none";
   /** Optional only so previously serialized payloads remain renderable; the
    * current builder always emits it. */
   campaignRoleExplanation?: MetaOsCampaignRoleExplanation;

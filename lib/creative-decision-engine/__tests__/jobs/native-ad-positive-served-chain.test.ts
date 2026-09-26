@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { ENTITY_ROLE_DECLARATION_CONTRACT_VERSION } from "../../campaign-context/entity-role";
+import { declaredAdsetRoleMap } from "../entity-role-fixture";
 
 vi.mock("@/lib/creative-decision-engine/campaign-context/source", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/creative-decision-engine/campaign-context/source")>(),
@@ -20,6 +22,7 @@ import { configReceiptManifestLine, hashConfigReceiptManifest } from "@/lib/meta
 import {
   applyMetaExecutionGovernanceToReadModel,
   buildNativeMetaDecisionsWorkspaceReadModel,
+  declaredContextRow,
   type MetaNativeDecisionSnapshotSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 
@@ -246,6 +249,11 @@ function produce(input: { objectiveReceiptPresent: boolean; coverageComplete: bo
     profile,
     dataHealth: makeDataHealth(),
     adInputs: [adInput(input)],
+    // D118 — the Ad's own ad set role; the campaign alone is not authority.
+    adsetRoleByKey: declaredAdsetRoleMap([adInput(input)], {
+      businessId: BUSINESS,
+      asOf: AS_OF,
+    }),
     campaignContextMode: "automatic",
     campaignContextById: new Map([[CAMPAIGN, {
       kind: "main", testDimension: null, contextTrust: "high",
@@ -312,6 +320,17 @@ function produce(input: { objectiveReceiptPresent: boolean; coverageComplete: bo
       confidenceClass: "high", sourceUpdatedAt: "2026-07-12T02:00:00.000Z",
       resolverVersion: "campaign-context-v2-account-scoped",
     }],
+    // D118 — the served Ad reads its own ad set's role.
+    adsetRoleRows: [declaredContextRow({
+      automatic: null,
+      declaration: {
+        id: "declaration-adset-901", businessId: BUSINESS, providerAccountId: ACCOUNT,
+        entityType: "adset", entityId: "adset-901", parentCampaignId: CAMPAIGN,
+        event: "declare", declaredRole: "main", effectiveFrom: AS_OF,
+        declaredAt: "2026-07-12T00:30:00.000Z", declaredBy: "operator-fixture",
+        reason: null, contractVersion: ENTITY_ROLE_DECLARATION_CONTRACT_VERSION,
+      },
+    })],
     generatedAt: "2026-07-12T03:30:00.000Z",
   });
   const model = applyMetaExecutionGovernanceToReadModel({

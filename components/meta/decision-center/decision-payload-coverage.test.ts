@@ -2086,6 +2086,15 @@ const COVERAGE: Record<string, Coverage> = {
     S.CREATIVES,
     "the row's first chip, and the window's 'served campaign role'",
   ),
+  "MetaOsAdDecision.roleEntityType": W(
+    S.EVIDENCE,
+    "the evidence window names the served ad set or campaign role at the served-campaign-role row",
+    "served-campaign-role",
+  ),
+  "MetaOsAdDecision.roleBasis": W(
+    S.CREATIVES,
+    "the queue distinguishes an ad set's unverified parent suggestion from its own declared role",
+  ),
   "MetaOsAdDecision.campaignRoleSource": R(
     S.EVIDENCE,
     "the 'served campaign role' line",
@@ -2447,6 +2456,45 @@ const COVERAGE: Record<string, Coverage> = {
     "the config evidence contract row, beside the evaluation contract",
     "config-evaluation-contract",
   ),
+  "MetaDecisionConfigEvidence.currentObserved": N(
+    "The evaluation day's current-config observation, one ingredient of the D098 verdict. The server's manual Cut binding (readManualCutAdvisory) reads it as a precondition; the evidence window prints the `verified` verdict and each current-day receipt it rests on instead, so a bare boolean ingredient beside them adds nothing an operator can check.",
+  ),
+
+  // ── D123: the bounded manual Cut recommendation ─────────────────────────
+  // Server-validated (readManualCutAdvisory) and never an authority. The
+  // adapters read only the pinned `advised` marker as a presence gate; the
+  // operator-facing sentence is written by the server into the manual
+  // resolution's next step, and the non-executability is stated by the served
+  // action and authority envelope. Measured: none of the four varying counts
+  // moves any surface, and neither distinctive literal is printed anywhere.
+  "MetaManualCutAdvisory.advised": N(
+    "Pinned to `true` by the type and never printed. The exact adapter reads it only as the presence gate that lets an already-served `apply_purchase_cut_manually` resolution print its manual next step and held verdict; the object's presence, not a value, is what the surface branches on.",
+  ),
+  "MetaManualCutAdvisory.contractVersion": N(
+    "A pinned proof-contract identifier. The server checks it before serving the recommendation at all; an operator cannot act on a version string.",
+  ),
+  "MetaManualCutAdvisory.basis": N(
+    "Pinned to `peer_free_commercial_stop_loss`. The served next step states the basis in words (a pause recommended from this ad's own spend and purchases); the internal token would repeat it in a vocabulary the operator does not use.",
+  ),
+  "MetaManualCutAdvisory.confidenceCap": N(
+    "Pinned to `medium`. The server applies the cap to the served confidence and confidence band, which is what the surfaces print; a second, unapplied copy of the cap would be a label beside the number it already limited.",
+  ),
+  "MetaManualCutAdvisory.authority": N(
+    "Pinned to `none`. Non-executability reaches the operator through the served action (review intent, no provider mutation) and the authority envelope; this marker restates it for the proof, not for the screen.",
+  ),
+  "MetaManualCutAdvisory.economicDayCount": N(
+    "The server writes this count into the manual recommendation's next-step sentence ('N uncertain day(s) out of M'); no adapter reads the structured copy, so printing it again would be a second number the reader cannot check against anything new.",
+  ),
+  "MetaManualCutAdvisory.bracketedDays": N(
+    "An audit count of the economic days whose purchase intent was bracketed. The operator-facing sentence names only the uncertain days and the total; the split is proof evidence for the evaluation, not a pause instruction.",
+  ),
+  "MetaManualCutAdvisory.pointObservedDays": N(
+    "The server writes this count into the manual recommendation's next-step sentence as the uncertain days treated as meeting the target; no adapter reads the structured copy.",
+  ),
+  "MetaManualCutAdvisory.historicalObjectiveUnverifiedDays": N(
+    "The next-step sentence states this uncertainty in words (historical campaign settings remain incomplete) and caps confidence for it; the per-day count is audit evidence for the evaluation, not something an operator can act on before pausing manually.",
+  ),
+
   ...Object.fromEntries(
     [
       "refContractVersion",
@@ -2736,6 +2784,12 @@ const COVERAGE: Record<string, Coverage> = {
   ),
   "MetaOsStructureNode.lifecycleRole": N(
     "The row states the campaign's kind as a chip from its own served campaign context; the node's lifecycle role is the same role under the OS vocabulary.",
+  ),
+  "MetaOsStructureNode.roleEntityType": N(
+    "The role-review control uses the node level and provider id to identify the entity; this transport field is not a separate buyer-facing fact on a decision row.",
+  ),
+  "MetaOsStructureNode.roleBasis": N(
+    "The separate role-review control uses this to distinguish a confirmation from a suggestion; decision rows present their own role authority and blocker.",
   ),
   "MetaOsStructureNode.campaignRoleTrustedForAction": N(
     "Whether the role may be acted on is already expressed where it bites: a row whose context is untrusted carries the server's blocker label as a chip and its action tuple says review.",
@@ -3441,15 +3495,21 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // creative taxonomy adds value, fixed source, and source clock.
     // D107 adds seven display-window leaves in one new interface; its fixed
     // contract version cannot vary, while dates and counts can. The window's
-    // recent band adds two more varying dates (808 -> 810).
-    expect(fields.length).toBe(810);
-    expect(new Set(fields.map((field) => field.iface)).size).toBe(68);
+    // recent band adds two more varying dates (808 -> 810). D118 adds four
+    // campaign/ad set identity and role-basis leaves.
+    // D123 adds ten: `MetaDecisionConfigEvidence.currentObserved` and the nine
+    // leaves of the new `MetaManualCutAdvisory` interface (814 -> 824).
+    expect(fields.length).toBe(824);
+    // The manual-advice DTO contributes one new reachable interface.
+    expect(new Set(fields.map((field) => field.iface)).size).toBe(69);
     // Candidate selection v3 retains v2 payload compatibility. Its version
     // leaf now has two values instead of one pinned literal.
     // The new observation leaf and three v5/v6 compatibility version leaves vary.
     // The media-backed creative type adds a second source literal, so that
     // provenance leaf now varies while remaining intentionally unrendered.
-    expect(fields.filter((field) => field.varies).length).toBe(760);
+    // D123: `currentObserved` and the four manual-advice counts vary; the five
+    // pinned manual-advice markers do not (764 -> 769).
+    expect(fields.filter((field) => field.varies).length).toBe(769);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3814,6 +3874,16 @@ const SCENARIOS: readonly ProbeScenario[] = [
     },
   },
   {
+    // A Main campaign's role is only a suggestion for its undeclared ad set.
+    // The queue chip and evidence label must react to the ad set identity.
+    name: "parentRoleSuggestion",
+    force: {
+      "MetaOsAdDecision.lifecycleRole": "main",
+      "MetaOsAdDecision.roleEntityType": "adset",
+      "MetaOsAdDecision.roleBasis": "parent_campaign_suggestion",
+    },
+  },
+  {
     /*
      * THE ACTION DIGEST THAT FITS INSIDE ITS OWN ROW CAP.
      *
@@ -3980,13 +4050,13 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // creative badge, with surface-level proof and no stable badge element id.
   // D107's three admitted-window caption leaves reach this surface; the
   // unpublished observed-day count and protocol tag stay out of its model.
-  CREATIVES: [0, 14],
+  CREATIVES: [0, 15],
   // 94 -> 93: `firstBlocker.explanation` is no longer rendered (Round 8 item 7).
   // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
   // six labelled config rows the diagnostics now print. The Ad id keys the
   // exact-Ad evidence window; D109 removes a cross-period purchase claim.
-  EVIDENCE: [119, 19],
+  EVIDENCE: [120, 19],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
@@ -4038,7 +4108,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // The creative scope is behind a tab in the default desktop render.
   // D107's start/end and economic-day denominator reach the creative card.
   // Pre-cap counts now also drive the lane tabs and scope pill in the resting DOM.
-  CREATIVES: [2, 12],
+  CREATIVES: [2, 13],
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
@@ -4076,7 +4146,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
   // contract-identity leaves. D109 removes the cross-period purchase claim;
   // the remaining claims sit behind the evidence-window control.
-  EVIDENCE: [0, 134],
+  EVIDENCE: [0, 135],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including
@@ -4108,7 +4178,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // contract-identity leaves. D109 removes one cross-period purchase claim;
 // the remaining evidence claims are behind the window control. The pre-cap
 // counts move into the resting DOM as the lane-tab and scope-pill counts.
-const DOM_PROOF_TOTALS: [number, number] = [33, 345];
+const DOM_PROOF_TOTALS: [number, number] = [33, 347];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4140,7 +4210,11 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // The display-only source clock varies but is intentionally not rendered.
 // The admitted window's recent band (two dates) is shown only by Creative
 // Studio, through the briefing, never on this surface: 380 -> 382.
-const NOWHERE_LEAVES = 382;
+// D118's two structure role transport leaves are consumed by the separate
+// role-review control, outside the decision-card probe: 382 -> 384.
+// D123: `currentObserved` and the four manual-advice counts move no surface;
+// each is classified with its own reason above: 384 -> 389.
+const NOWHERE_LEAVES = 389;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4163,7 +4237,8 @@ const NOWHERE_LEAVES = 382;
 // provenance also travels in the review tuple without a rendered value.
 // +2: the admitted window's recent band travels inside the decision handed
 // to the drawer callback and is printed nowhere on this surface: 71 -> 73.
-const NOWHERE_BUT_AT_THE_BOUNDARY = 73;
+// D123's five varying audit leaves travel in that same callback tuple.
+const NOWHERE_BUT_AT_THE_BOUNDARY = 78;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -4831,6 +4906,13 @@ const PINNED_BEYOND_TEXT_PROOF: Record<string, string> = {
     "the pinned value is `null`, which has no text to search for",
   "MetaDecisionHistoryEvent.actorAttributionStatus":
     "the literal is 'unavailable', which every capability and status fact prints",
+  // D123 — three manual-advice proof markers text cannot decide.
+  "MetaManualCutAdvisory.advised":
+    "the pinned value is `true`, which has no text to search for",
+  "MetaManualCutAdvisory.confidenceCap":
+    "the literal is 'medium', the same word the served confidence band prints",
+  "MetaManualCutAdvisory.authority":
+    "the literal is 'none', an ordinary word",
 };
 
 describe("Meta Decision payload · every claim, proven against the running code", () => {
@@ -4961,7 +5043,8 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // when candidate-selection v2/v3 became a variable protocol tag.
     // Current creative taxonomy adds two varying display/provenance leaves.
     // The admitted window's recent band adds two varying dates -> 760.
-    expect(outcomes.size).toBe(760);
+    // D123's five varying leaves -> 769.
+    expect(outcomes.size).toBe(769);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -5216,9 +5299,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // served observation fact on the evidence surface without a stable row id.
     // The Meta-derived creative type adds one badge claim behind the scope tab.
     // D109 removes one canonical purchase claim from a different period.
-    expect(rendered.length).toBe(385);
-    expect(withElement.length).toBe(232);
-    expect(withoutElement.length).toBe(153);
+    expect(rendered.length).toBe(387);
+    expect(withElement.length).toBe(233);
+    expect(withoutElement.length).toBe(154);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -6261,6 +6344,8 @@ describe("Meta Decision payload · the named starting points", () => {
       "MetaLanePayload.startDate",
       "MetaOsAdDecision.adPerformanceAvailability",
       "MetaOsAdDecision.heldAction",
+      "MetaOsAdDecision.roleBasis",
+      "MetaOsAdDecision.roleEntityType",
       "MetaOsCampaignRoleExplanation.confidenceClass",
       "MetaOsCampaignRoleExplanation.confidenceScore",
       "MetaOsCampaignRoleExplanation.conflictReasons",

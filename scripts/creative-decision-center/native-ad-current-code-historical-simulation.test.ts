@@ -155,6 +155,7 @@ describe("it runs the production chain, not a copy of it", () => {
     for (const shared of [
       "computeReadyNativeAdDecisions(",
       "readAdCampaignContext(",
+      "readAdAdsetRoles(",
       "groupNativeProfileInputsByScope(",
       "mergeUniqueMap(",
       "assertEmptyNativeAdHydrationIsAuthoritative(",
@@ -181,6 +182,7 @@ describe("it runs the production chain, not a copy of it", () => {
     for (const exported of [
       "export function computeReadyNativeAdDecisions(",
       "export async function readAdCampaignContext(",
+      "export async function readAdAdsetRoles(",
       "export function groupNativeProfileInputsByScope(",
       "export function mergeUniqueMap<T>(",
       "export function assertEmptyNativeAdHydrationIsAuthoritative(",
@@ -192,6 +194,7 @@ describe("it runs the production chain, not a copy of it", () => {
     // The job body ends at the first top-level closing brace after it.
     const run = job.slice(start, job.indexOf("\n}\n", start));
     expect(run).toContain("readAdCampaignContext(");
+    expect(run).toContain("readAdAdsetRoles(");
     expect(run).toContain("readPreviousPublishedAdLabels(");
     expect(run).not.toContain("visibleAtCutoff");
   });
@@ -200,6 +203,10 @@ describe("it runs the production chain, not a copy of it", () => {
     const source = code(SIMULATOR);
     const context = source.slice(source.indexOf("readAdCampaignContext({"));
     expect(context.slice(0, 400)).toContain("visibleAtCutoff: day.cutoff");
+    const adsets = source.slice(source.indexOf("readAdAdsetRoles({"));
+    expect(adsets.slice(0, 450)).toContain("visibleAtCutoff: day.cutoff");
+    expect(source).toMatch(/computeReadyNativeAdDecisions\(\{[\s\S]*?adsetRoleByKey,/);
+    expect(source).toMatch(/computeSoftOnlyNativeAdDecisions\(\{[\s\S]*?adsetRoleByKey,/);
     const prior = source.slice(source.indexOf("readPreviousPublishedAdLabels("));
     expect(prior.slice(0, 900)).toContain("visibleAtCutoff: day.cutoff");
   });

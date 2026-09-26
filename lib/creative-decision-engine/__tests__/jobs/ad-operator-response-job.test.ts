@@ -93,7 +93,7 @@ describe("held-verdict authority release epoch contract", () => {
       "engine-v3-canonical-evaluation.v9",
     );
     expect(AD_DECISION_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-ad-evaluation.v18",
+      "engine-v3-canonical-ad-evaluation.v19",
     );
     expect(NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION).toBe(
       "v3-ad-2026-07-15-commercial-stop-loss-shadow",

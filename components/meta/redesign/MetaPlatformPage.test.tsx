@@ -870,7 +870,7 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain('data-meta-exact-inspector="true"');
     expect(html).toContain('aria-label="Sort decisions"');
     expect(html).toContain('aria-label="Find entities"');
-    expect(html).toContain("Refresh decisions");
+    expect(html).toContain("Refresh structure decisions");
     expect(html).not.toContain("+ New campaign");
     expect(html).not.toContain('data-testid="meta-business-strip"');
     expect(html).not.toContain('data-testid="meta-overnight-digest"');
@@ -929,7 +929,7 @@ describe("MetaPlatformPage", () => {
         Accept: "application/json",
       },
       cache: "no-store",
-      body: JSON.stringify({ businessId: "biz_1" }),
+      body: JSON.stringify({ businessId: "biz_1", providerAccountId: "act_1" }),
     });
 
     fetchMock.mockClear();
@@ -4300,7 +4300,7 @@ describe("workspace posture banners", () => {
     expect(row).toMatch(
       /<button[^>]*disabled=""[^>]*>Review recommendation<\/button>/,
     );
-    expect(html).not.toContain(">Refresh decisions</button>");
+    expect(html).not.toContain(">Refresh structure decisions</button>");
     expect(html).not.toContain("+ New campaign");
     expect(html).not.toContain('data-action-authority="execute"');
     expect(html).not.toContain('data-action="undefer"');

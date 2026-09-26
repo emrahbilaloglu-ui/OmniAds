@@ -11,6 +11,7 @@ import {
   type AutomaticRoleEvidenceRow,
   type ObservedCampaignIdentity,
   type RoleAuthorityRequest,
+  evaluateAccountScopedRoleAuthority,
 } from "@/lib/meta/campaign-role-authority";
 
 const BIZ = "biz-1";
@@ -355,5 +356,69 @@ describe("D081 C1 — only the canonical confidence and resolver version grant a
     expect(CANONICAL_ROLE_AUTHORITY_RULE.campaignNameConsulted).toBe(false);
     expect([...CANONICAL_ROLE_AUTHORITY_RULE.requiresExactCompositeScope])
       .toEqual(["businessId", "providerAccountId", "campaignId", "asOfDate"]);
+  });
+});
+
+describe("D118 — an explicit declaration is proven by its own contract", () => {
+  const base = {
+    kind: "test",
+    source: "operator_declared",
+    confidenceClass: "high",
+    resolverVersion: null,
+    declarationContractVersion: "meta-entity-role-declaration.v1",
+    // The resolver gate is never consulted for a declaration.
+    isResolverVersionValidated: () => {
+      throw new Error("a declaration must not consult the resolver gate");
+    },
+  };
+
+  it("satisfies role authority with the exact contract and a high class", () => {
+    expect(evaluateAccountScopedRoleAuthority(base)).toEqual({
+      satisfiesRoleAuthority: true,
+      blocker: null,
+    });
+  });
+
+  it("refuses a capped (inherited) or wrongly versioned declaration", () => {
+    expect(evaluateAccountScopedRoleAuthority({ ...base, confidenceClass: "medium" })).toEqual({
+      satisfiesRoleAuthority: false,
+      blocker: "role_confidence_not_high",
+    });
+    expect(
+      evaluateAccountScopedRoleAuthority({
+        ...base,
+        declarationContractVersion: "meta-entity-role-declaration.v0",
+      }),
+    ).toEqual({
+      satisfiesRoleAuthority: false,
+      blocker: "role_declaration_contract_unvalidated",
+    });
+  });
+
+  it("keeps the automatic branch exactly as it was", () => {
+    expect(
+      evaluateAccountScopedRoleAuthority({
+        kind: "main",
+        source: "system_inferred",
+        confidenceClass: "high",
+        resolverVersion: "v",
+        isResolverVersionValidated: () => false,
+      }),
+    ).toEqual({
+      satisfiesRoleAuthority: false,
+      blocker: "role_resolver_version_unvalidated",
+    });
+    expect(
+      evaluateAccountScopedRoleAuthority({
+        kind: "main",
+        source: "user_override",
+        confidenceClass: "high",
+        resolverVersion: "v",
+        isResolverVersionValidated: () => true,
+      }),
+    ).toEqual({
+      satisfiesRoleAuthority: false,
+      blocker: "role_source_not_system_inferred",
+    });
   });
 });

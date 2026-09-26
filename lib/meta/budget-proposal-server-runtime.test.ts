@@ -297,7 +297,7 @@ describe("D088 C1 — the real runtime composition, mocked transport", () => {
     vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({ blocked: false, reason: null, message: null, rehearsal: false });
   });
 
-  it.each([["CBO campaign", CBO], ["ABO ad set", ABO]] as const)(
+  it.each([["CBO campaign", CBO]] as const)(
     "%s: exactly ONE POST and an exact read-back",
     async (_label, shape) => {
       vi.mocked(fetch)
@@ -325,6 +325,30 @@ describe("D088 C1 — the real runtime composition, mocked transport", () => {
       expect(journal.rows[0]!.beforeAmountMinor).toBe(shape.current);
     },
   );
+
+  /*
+    D121 C1 — an AD SET budget is never executed on an automatic role.
+
+    Automatic inference is campaign-level only, so an automatic verdict handed
+    to an ad set can only be its parent campaign's — the role a Main
+    campaign's separate Test ad set must never inherit. The runtime composes
+    through the execution root, which refuses it before any provider contact.
+  */
+  it("ABO ad set with an (inherited) automatic role: refused, ZERO provider contact", async () => {
+    const journal = makeJournal();
+    const result = await runtimeFor(ABO, journal)({
+      proposal: proposalFor(ABO), dryRunOnly: false,
+      claimToken: "77777777-7777-4777-8777-777777777777",
+      authorization: {
+        kind: "manual", explicitConfirmation: true, operatorUserId: ACTOR,
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).toContain("role_authority_adset_inherited");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(posts()).toHaveLength(0);
+    expect(journal.rows).toHaveLength(0);
+  });
 
   it("uses the DEFAULT composition — no injected verdict, request or safety", () => {
     /*

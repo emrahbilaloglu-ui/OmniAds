@@ -328,11 +328,38 @@ function failedRun(): MetaNativeDecisionGenerationSourceRow {
   } as MetaNativeDecisionGenerationSourceRow;
 }
 
-function mockNativeDb(generationRows: MetaNativeDecisionGenerationSourceRow[]) {
-  const query = vi.fn(async (sql: string) => {
+function mockNativeDb(
+  generationRows: MetaNativeDecisionGenerationSourceRow[],
+  options: { adsetRoleDeclared?: boolean } = {},
+) {
+  const query = vi.fn(async (sql: string, params?: unknown[]) => {
     if (sql.includes("WITH candidate_runs AS")) return generationRows;
     if (sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot")) {
       return RETAINED_ROWS;
+    }
+    if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
+      return [{ table_name: "meta_entity_role_declarations" }];
+    }
+    if (sql.includes("FROM meta_entity_role_declarations")) {
+      return options.adsetRoleDeclared === false ||
+          params?.[2] !== "adset" ||
+          params?.[6] !== RETAINED_RUN_ID
+        ? []
+        : [{
+            id: "40000000-0000-4000-8000-000000000001",
+            business_id: "biz_1",
+            provider_account_id: "act_1",
+            entity_type: "adset",
+            entity_id: "adset_1",
+            parent_campaign_id: "cmp_1",
+            event: "declare",
+            declared_role: "main",
+            effective_from: "2026-09-21",
+            declared_at: "2026-09-21T09:00:00.000Z",
+            declared_by: "user_1",
+            reason: "Test fixture: ad set role known before retained run",
+            contract_version: "meta-entity-role-declaration.v1",
+          }];
     }
     if (sql.includes("FROM engine_v3_campaign_context_daily")) {
       return [
@@ -430,8 +457,9 @@ function renderStudio() {
 async function readThroughStudio(
   generationRows: MetaNativeDecisionGenerationSourceRow[],
   tamper?: (payload: CreativesBriefingResponse) => void,
+  options?: { adsetRoleDeclared?: boolean },
 ) {
-  mockNativeDb(generationRows);
+  mockNativeDb(generationRows, options);
   queryState.creatives = {
     status: "ok",
     rows: assetApiRows(),
@@ -613,6 +641,16 @@ describe("Creative Studio — retained generation after a failed latest run (D3/
     ).toBeNull();
     expect(statusByName()[CUT_NAME]?.label).toBe("Cut");
     expect(statusByName()[KEEP_NAME]?.label).toBe("Protect");
+  });
+
+  it("does not use a Main campaign as the ad set's own role authority", async () => {
+    await readThroughStudio(
+      [successfulRun()],
+      undefined,
+      { adsetRoleDeclared: false },
+    );
+
+    expect(statusByName()[CUT_NAME]?.label).toBe("Diagnose data");
   });
 
   it("keeps the served decisions in the Status column under a read-only note naming both runs", async () => {

@@ -36,6 +36,7 @@ import {
   buildUnavailableMetaDecisionsWorkspaceReadModel,
   applyMetaExecutionGovernanceToReadModel,
   readMetaDecisionCampaignContextRows,
+  readMetaDecisionAdsetRoleRows,
   readMetaDecisionsWorkspaceReadModel,
   type MetaCurrentAdStatusSourceRow,
   type MetaDecisionCampaignContextSourceRow,
@@ -94,7 +95,6 @@ import {
   type MetaCommercialTargets,
 } from "@/lib/meta/commercial-targets";
 import {
-  metaDecisionCampaignContextScopeKey,
   normalizeMetaDecisionCampaignContextIds,
 } from "@/lib/meta/decisions-workspace-cache-scope";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
@@ -1960,19 +1960,48 @@ export async function GET(request: NextRequest) {
         snapshotAsOf: decisionAsOfDate,
         campaignIds: campaignContextIds,
       });
-    const currentCampaignContextsPromise =
-      process.env.VITEST === "true" || process.env.NODE_ENV === "test"
-        ? loadCurrentCampaignContexts()
-        : getCachedValue({
-            key: `meta-decisions-context-v1:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${metaDecisionCampaignContextScopeKey(campaignContextIds)}`,
-            ttlMs: 60_000,
-            staleWhileRevalidateMs: 240_000,
-            loader: loadCurrentCampaignContexts,
-          }).then((cached) => cached.value);
+    // Role declarations are operator input. A stale context cache after a
+    // declaration would make a fresh workspace refresh repeat the old role.
+    const currentCampaignContextsPromise = loadCurrentCampaignContexts();
+    const currentAdsetRoleRowsPromise = Promise.all([
+      currentAdsPromise,
+      decisionReadPromise,
+      currentCampaignContextsPromise,
+    ]).then(async ([ads, decisionRead, campaignRows]) => {
+      if (!providerAccountId) return [];
+      const adsets = new Map<string, string | null>();
+      const add = (adsetId: string | null | undefined, campaignId: string | null | undefined) => {
+        if (adsetId?.trim()) adsets.set(adsetId.trim(), campaignId?.trim() || null);
+      };
+      for (const row of ads.rows) add(row.adsetId, row.campaignId);
+      for (const row of scopedRecommendations) add(row.adsetId, row.campaignId);
+      for (const row of lanes.structureInventory ?? []) {
+        if (row.level === "adset") add(row.id, row.campaignId);
+      }
+      if (decisionRead.ok) {
+        for (const item of decisionRead.model.queue?.adCandidates?.items ?? []) {
+          add(item.parentChain.adset?.id, item.parentChain.campaign?.id);
+        }
+      }
+      try {
+        return await readMetaDecisionAdsetRoleRows({
+          businessId,
+          providerAccountId,
+          adsets: [...adsets].map(([adsetId, campaignId]) => ({ adsetId, campaignId })),
+          snapshotAsOf: decisionAsOfDate,
+          campaignRows,
+        });
+      } catch {
+        // The presentation keeps the parent role as a non-authoritative
+        // suggestion. A failed read must never authorise an ad-set action.
+        return [];
+      }
+    });
     const [
       currentAds,
       decisionRead,
       currentAdCampaignContexts,
+      currentAdsetRoleRows,
       digest,
       commercialTargetRead,
       executionGovernance,
@@ -1982,6 +2011,7 @@ export async function GET(request: NextRequest) {
       currentAdsPromise,
       decisionReadPromise,
       currentCampaignContextsPromise,
+      currentAdsetRoleRowsPromise,
       compactOsSurface
         ? Promise.resolve(null)
         : readDecisionDigest({
@@ -2554,6 +2584,7 @@ export async function GET(request: NextRequest) {
         // An incomplete read makes un-decided inventory unknown, not zero.
         currentAdsComplete: currentAds.complete,
         currentAdCampaignContexts,
+        currentAdsetRoleRows,
         currency: pulse.currency ?? null,
         targetHardActionEligibility,
         pipelineHealth,

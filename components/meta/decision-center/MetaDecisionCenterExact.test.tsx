@@ -2212,3 +2212,13 @@ describe("the evidence panel states a held verdict and offers no way to act on i
     expect(panel().textContent).toContain("Keep monitoring");
   });
 });
+
+
+it("places role review beside the scope switch in both decision scopes", () => {
+  const { rerender } = render(<MetaDecisionCenterExact viewModel={exactViewModel()} roleReview={<button>Main / Test roles</button>} scope="structure" />);
+  const control = screen.getByRole("button", { name: "Main / Test roles" });
+  expect(control.parentElement?.className).toContain(styles.scopeRow);
+  expect(control.previousElementSibling?.textContent).toContain("Campaigns & Ad sets");
+  rerender(<MetaDecisionCenterExact viewModel={exactViewModel()} roleReview={<button>Main / Test roles</button>} scope="creatives" />);
+  expect(screen.getByRole("button", { name: "Main / Test roles" }).parentElement?.className).toContain(styles.scopeRow);
+});

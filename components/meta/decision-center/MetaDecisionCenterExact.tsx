@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import {
   useCopy,
@@ -814,6 +814,7 @@ export interface MetaDecisionCenterExactViewModel {
 
 export interface MetaDecisionCenterExactProps {
   viewModel: MetaDecisionCenterExactViewModel;
+  roleReview?: ReactNode;
   scope?: MetaDecisionCenterExactScope;
   defaultScope?: MetaDecisionCenterExactScope;
   lane?: MetaDecisionCenterExactLane;
@@ -2769,6 +2770,7 @@ function EvidenceInspector({
 
 export function MetaDecisionCenterExact({
   viewModel,
+  roleReview,
   scope,
   defaultScope = "structure",
   lane,
@@ -3056,6 +3058,7 @@ export function MetaDecisionCenterExact({
             ) : null}
           </span>
         </span>
+        {roleReview}
       </div>
 
       {activeScope === "structure" ? (

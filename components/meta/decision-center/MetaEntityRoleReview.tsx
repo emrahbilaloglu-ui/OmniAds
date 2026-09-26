@@ -166,6 +166,7 @@ export function MetaEntityRoleReview({
       }
       setReviewState(reviewStateFromHistory(payload.declarations, rows, today));
       setHistoryStatus("ready");
+      if (historyRefresh > 0) setNotice("Saved roles reloaded. Review the recorded roles above before making further changes.");
     }).catch(() => {
       if (version === historyRequestVersion.current) setHistoryStatus("error");
     });

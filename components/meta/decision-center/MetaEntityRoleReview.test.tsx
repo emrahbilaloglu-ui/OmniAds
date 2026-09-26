@@ -181,6 +181,8 @@ describe("Meta entity role review", () => {
     expect(post).toHaveBeenCalledOnce();
     expect(get).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("button", { name: "Confirm selected roles" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain("Saved roles reloaded");
+    expect(screen.queryByText(/Submission status is uncertain/)).toBeNull();
   });
 
   it("does not overwrite a newer role from history with an unconfirmed name hint", async () => {

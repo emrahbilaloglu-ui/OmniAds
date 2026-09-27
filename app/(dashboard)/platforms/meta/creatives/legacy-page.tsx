@@ -1,5 +1,6 @@
 "use client";
 
+import { CreativeMembershipCoverageTable } from "@/components/creatives/CreativeMembershipCoverageTable";
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -1500,6 +1501,9 @@ export default function MetaCreativeStudioPage({
           onOpenSharedLinks={() => setLinksOpen(true)}
           assets={assetsModel}
         />
+
+        <CreativeMembershipCoverageTable coverage={creativesQuery.data?.membershipCoverage}
+          businessId={businessId} providerAccountId={providerAccountId} startDate={drStart} endDate={drEnd} />
 
         {shareModalOpen ? (
           <ShareSnapshotModal

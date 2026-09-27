@@ -390,6 +390,13 @@ export interface MetaDecisionConfigEvidence {
     nullObservationIdCount: number;
     incoherentDayCount: number;
   } | null;
+  /** Recorded sample only. No current configuration is backfilled into history. */
+  historyCoverage?: {
+    economicDayCount: number | null;
+    unverifiedEconomicDayCount: number | null;
+    unverifiedSpend: number | null;
+    unverifiedDates: string[] | null;
+  };
   /** The metric parsing rules the inputs were read under, joined for display. */
   metricContract: string | null;
 }
@@ -487,6 +494,8 @@ export interface MetaCanonicalDecision {
     purchases: number | null;
     roas: number | null;
     recent7dRoas: number | null;
+    recent7dSpend?: number | null;
+    recent7dPurchases?: number | null;
     /**
      * 28-day CTR and frequency read back from the lifecycle row the engine
      * decided from. Optional because payloads serialized before the lineage
@@ -697,6 +706,9 @@ export interface MetaDecisionsWorkspaceReadModel {
         | typeof META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION
         | "meta-decisions-ad-candidate-selection.v2";
       limit: number;
+      /** Page position within the same source-bound ordered population. */
+      offset?: number;
+      selectionKey?: string;
       preCapCount: number;
       eligiblePreCapCount: number;
       selectedCount: number;

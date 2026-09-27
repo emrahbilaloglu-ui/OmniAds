@@ -292,10 +292,15 @@ describe("the window travels as arrays and is classified by the shared rule", ()
       readiness: "review_only",
       reason: "unprovenanced_days",
     });
-    expect(authority.decisionEconomics).toEqual({
+    expect(authority.decisionEconomics).toMatchObject({
       fullyVerified: false,
       economicDayCount: 3,
       unverifiedEconomicDayCount: 1,
+      economicDays: [
+        { date: "2026-09-19", dayClass: "none", spend: expect.any(Number) },
+        { date: "2026-09-20", dayClass: "decision_authority", spend: expect.any(Number) },
+        { date: "2026-09-21", dayClass: "decision_authority", spend: expect.any(Number) },
+      ],
       receiptManifest: null,
     });
   });
@@ -310,7 +315,7 @@ describe("the window travels as arrays and is classified by the shared rule", ()
       authorityObjectiveReadiness: ["none", "decision_authority", "decision_authority"],
     });
     expect(authority.window.readiness).toBe("review_only");
-    expect(authority.decisionEconomics).toEqual({
+    expect(authority.decisionEconomics).toMatchObject({
       fullyVerified: true,
       economicDayCount: 2,
       unverifiedEconomicDayCount: 0,

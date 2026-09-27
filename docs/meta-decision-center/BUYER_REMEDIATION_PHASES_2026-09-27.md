@@ -57,4 +57,5 @@ readback and rollback to be ready; no piecemeal release.
   actual production business-switch readback, integrated checks.
 - Phase 2: code reviewed APPROVE by Claude (r3). Recorded refusals round-trip through real PostgreSQL; v19 missing reasons stay unknown. Focused 579, compatibility 151, held-copy 147 passed; served-field census 36 passed before final narrow copy correction. Typecheck and changed-file lint passed. Final full gate remains phase 5.
   Review SHA256: 4687e69d1cdcf31f42db5a0e70872608a4a14d5d2840c6576250e3fc35ab30dc.
-- Phases 3–5: pending.
+- Phase 3: Claude r2 APPROVE. Full 530-row population is reachable; source-bound pages, fresh 409 recovery, recent-window metrics, rendered config-history coverage and daily Studio source coverage. Source reconciliation reproduces Q037 Studio $38.01/0 and separately records $86.49 withheld and $22.77 residual source difference. Real PostgreSQL seam passed; focused 479+118 tests, served census36, corrected DOM/route208 tests (one query-key pin corrected and19 re-passed); typecheck/lint passed. Review SHA256: a6db0c967d342d51c0fe5fa1f6d341bc52da12232d2d3023e75b259a18ede6c2.
+- Phases 4–5: pending. Mobile detail parity, lane ergonomics, byte impact and final full gate remain in phase5.

@@ -55,7 +55,12 @@ export async function verifyManualCutRefusalRoundTrip(input: {
       decision, rawLabel: "cut", publishedLabel: "cut", hysteresisSuppressed: false, evaluatedAt: cutoff });
     return buildAdCanonicalEvaluationProvenance({ base,
       identity: { decisionEntityType: "ad", decisionEntityId: adId, adId, creativeId: creativeInput.creativeId, providerAccountRefId: accountRefId, providerAccountId: accountId },
-      adEvidence: { customConversionId: null, configAuthority: EMPTY_HYDRATED_CONFIG_AUTHORITY }, manualCutAdvisoryRefusal: "current_config_unobserved" });
+      adEvidence: { customConversionId: null, configAuthority: {
+        ...EMPTY_HYDRATED_CONFIG_AUTHORITY,
+        decisionEconomics: { fullyVerified: false, economicDayCount: 2, unverifiedEconomicDayCount: 1, receiptManifest: null,
+          economicDays: [{ date: "2026-07-11", dayClass: "none", spend: 19 }, { date: "2026-07-12", dayClass: "decision_authority", spend: 23 }] },
+        counts: { ...EMPTY_HYDRATED_CONFIG_AUTHORITY.counts, noneSpend: 19, noneDays: 1, decisionAuthorityDays: 1, decisionAuthoritySpend: 23 },
+      } }, manualCutAdvisoryRefusal: "current_config_unobserved" });
   };
   const newAd = "120000000000990001", oldAd = "120000000000990002";
   const current = build(newAd);
@@ -69,6 +74,7 @@ export async function verifyManualCutRefusalRoundTrip(input: {
   const contextHash = canonicalSha256(contextPayload);
   const config = { ...(seed.inputPayload.configEvidence as Record<string, unknown>) };
   delete config.manualCutAdvisoryRefusal;
+  delete (config.decisionEconomics as Record<string, unknown>).economicDays;
   const inputPayload = { ...seed.inputPayload, contractVersion: version, contextHash, configEvidence: config };
   const inputHash = canonicalSha256(inputPayload);
   const decisionPayload: Record<string, unknown> = { ...seed.decisionPayload, contractVersion: version, contextHash, inputHash };
@@ -99,10 +105,13 @@ export async function verifyManualCutRefusalRoundTrip(input: {
   assert.equal(inventory.status, "available", JSON.stringify(inventory));
   assert.equal(inventory.items.find((item) => item.parentChain.ad?.id === newAd)?.manualCutRefusal?.code, "current_config_unobserved");
   assert.equal(inventory.items.find((item) => item.parentChain.ad?.id === oldAd)?.manualCutRefusal?.code, "not_recorded");
+  assert.deepEqual(inventory.items.find((item) => item.parentChain.ad?.id === newAd)?.configEvidence?.historyCoverage,
+    { economicDayCount: 2, unverifiedEconomicDayCount: 1, unverifiedSpend: 19, unverifiedDates: ["2026-07-11"] });
+  assert.equal(inventory.items.find((item) => item.parentChain.ad?.id === oldAd)?.configEvidence?.historyCoverage?.unverifiedDates, null);
   for (const item of inventory.items) {
     assert.equal(item.sourceAuthority?.actionEligible, false);
     assert.equal(item.sourceAuthority?.authorizedAction, null);
     assert.equal(item.manualCutAdvisory, null);
   }
-  console.log("[native-ad-seam] PASS v20 persisted refusal and genuine v19 absence through production snapshot reader and canonical inventory");
+  console.log("[native-ad-seam] PASS v20 persisted refusal and dated config gaps, genuine v19 absence through production snapshot reader and canonical inventory");
 }

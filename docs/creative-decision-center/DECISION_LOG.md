@@ -11394,3 +11394,39 @@ none of these display fields enters decision/action identity.
 
 Rollback reverts producer encoding and consumers together; all previous
 records remain readable, and execution gates stay closed throughout.
+
+
+## D125 — Source-bound decision pages and dated evidence presentation (2026-09-27)
+
+The 300-Ad response bound stays in place. An offset page requires the opaque
+selection key of the same account-scoped, ordered snapshot population; a changed
+population returns 409 and the client restarts at the first page. Lane reserves
+remain at the start of one stable sequence. All eligible rows, including a
+530-row population with 485 blocked and 45 monitoring, remain reachable. Search
+and lane controls still filter the served page, whose position is explicit.
+Old envelopes without a selection key remain readable; they cannot claim a
+verified continuation page.
+
+The unreleased v20 additive input encoding also records each classified economic
+config day (date, authority class and spend). It changes no admission, calibration
+or provider authority. Older evaluations retain counts but cannot acquire dates
+from today's configuration. The reader shows unverified dates only when they
+are valid, unique and reconcile to the recorded counts. Reported Ad spend and
+spend excluded from configuration authority are named separately. Integration
+owns dated source repair; new dated proof and a new decision run are the recheck
+conditions, never a promised calendar date. The campaign config endpoint fix
+already on the base release is preserved; missing historical observations are
+not fabricated.
+
+Recent ROAS is accompanied by the spend and purchases from the same hash-bound
+admitted recent window. A missing old field remains unknown. Native admitted
+frequency is labelled as a daily-reach proxy, not period-unique exposure. Studio
+serves daily verified/provisional/withheld source-row totals before format filters;
+withheld candidate economics cannot be attributed to the creative. The table is
+bound to business, account and reporting dates. Provider data is unchanged.
+
+Validation: account isolation, stale population rejection, failed page recovery,
+530-row exhaustive reachability, observed zero versus missing sample, old-history
+absence, and source membership coverage. The Q037 read-only production day
+reconciliation is retained with the implementation evidence, not promoted to a
+production repair. Remaining data-restatement gaps stay disclosed.

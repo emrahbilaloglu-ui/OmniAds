@@ -1,3 +1,4 @@
+import type { CreativeMembershipCoverage } from "@/lib/meta/creative-membership-coverage";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import {
   META_AI_TAG_KEYS,
@@ -80,6 +81,7 @@ export interface MetaCreativesResponse {
    */
   isPartial?: boolean;
   notReadyReason?: string | null;
+  membershipCoverage?: CreativeMembershipCoverage;
   /**
    * When the warehouse rows behind this payload were last written. `null` means
    * the age is unknown (a live read, or an unreadable timestamp) and must be

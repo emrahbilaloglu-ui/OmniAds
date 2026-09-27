@@ -3323,9 +3323,9 @@ function creativeRows(input: {
       } : null,
       moneySub: creativeMoneySub(decision, canonicalDecision, adPerformanceMissing),
       metricDetails: adPerformanceMissing ? [] : [
-        `${decision.metrics.purchases === null ? EM_DASH : formatNumber(decision.metrics.purchases)} purchases · CPA ${formatMoney(decision.metrics.cpa, decision.metrics.currency)}`,
+        `${finite(decision.metrics.purchases) === null ? EM_DASH : formatNumber(decision.metrics.purchases!)} purchases · CPA ${formatMoney(decision.metrics.cpa, decision.metrics.currency)}`,
         canonicalDecision?.decisionWindow?.recentStartDate && canonicalDecision.decisionWindow.recentEndDate
-          ? `Recent ROAS ${formatRoas(canonicalDecision.metrics.recent7dRoas)} · ${canonicalDecision.decisionWindow.recentStartDate} – ${canonicalDecision.decisionWindow.recentEndDate}`
+          ? `Recent ROAS ${formatRoas(canonicalDecision.metrics.recent7dRoas)} · ${formatMoney(canonicalDecision.metrics.recent7dSpend ?? null, rowCurrency)} spend · ${canonicalDecision.metrics.recent7dPurchases == null ? EM_DASH : formatNumber(canonicalDecision.metrics.recent7dPurchases)} purchases · ${canonicalDecision.decisionWindow.recentStartDate} – ${canonicalDecision.decisionWindow.recentEndDate}`
           : "Recent ROAS period unavailable",
       ],
       actionLabel: buyerFacingCreativeActionLabel(decision),

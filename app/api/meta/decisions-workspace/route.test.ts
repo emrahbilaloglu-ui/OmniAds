@@ -620,6 +620,24 @@ describe("GET /api/meta/decisions-workspace", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it.each(["-1", "1.2", "1000001", "NaN", "300"])("refuses an invalid or unbound page %s before source reads", async (offset) => {
+    const response = await GET(new NextRequest(`http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&adOffset=${offset}`));
+    expect(response.status).toBe(400);
+    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).not.toHaveBeenCalled();
+  });
+
+  it.each([["selection-a", 200], ["old-or-other-account-key", 409]])("binds later pages to the current scoped population: %s", async (key, expected) => {
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({ account_ids: ["act_1"] });
+    readModelMock.readMetaDecisionsWorkspaceReadModel.mockResolvedValue({
+      contractVersion: "meta-decisions-workspace.read.v1", status: "available", scope: { businessId: "biz_1", providerAccountId: "act_1" },
+      queue: { sections: {}, adCandidates: { items: [], selectionKey: "selection-a", offset: 300 } },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => new URL(String(url)).pathname === "/api/meta/account-pulse" ? jsonResponse(metaPulse()) : jsonResponse(metaLanePayload())));
+    const response = await GET(new NextRequest(`http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&adLimit=300&adOffset=300&adSelectionKey=${key}`));
+    expect(response.status).toBe(expected);
+    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledWith(expect.objectContaining({ adCandidateOffset: 300, adCandidateLimit: 300, providerAccountId: "act_1" }));
+  });
+
   it("validates and forwards providerAccountId before reading the account-scoped model", async () => {
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       id: "assignment_1",
@@ -660,6 +678,7 @@ describe("GET /api/meta/decisions-workspace", () => {
       businessId: "biz_1",
       providerAccountId: "act_1",
       adCandidateLimit: 120,
+      adCandidateOffset: 0,
       asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       generatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
       currentAds: [],

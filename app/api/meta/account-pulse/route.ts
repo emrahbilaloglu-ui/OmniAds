@@ -544,7 +544,7 @@ export async function GET(request: NextRequest) {
   }
   const startDate = statedStart || addDaysToISO(endDate, -(windowDays(window) - 1));
   const selectedSpanDays = reportingDayCount(startDate, endDate);
-  if (selectedSpanDays === null) {
+  if (selectedSpanDays === null || selectedSpanDays > 366) {
     return NextResponse.json({ error: "invalid_reporting_period" }, { status: 400 });
   }
   const previousEnd = addDaysToISO(startDate, -1);

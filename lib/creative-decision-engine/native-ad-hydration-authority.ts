@@ -210,6 +210,7 @@ export interface HydratedConfigAuthority {
     fullyVerified: boolean;
     economicDayCount: number;
     unverifiedEconomicDayCount: number;
+    economicDays?: Array<{ date: string; dayClass: MetaConfigDayAuthorityClass; spend: number }>;
     /**
      * WHICH RECEIPTS the economic days rested on, as a compact manifest. Null
      * when lineage was not supplied, or when the supplied manifest was
@@ -555,6 +556,7 @@ export function resolveHydratedConfigAuthority(input: {
   let counts = EMPTY_CONFIG_SAMPLE_AUTHORITY_COUNTS;
   let economicDayCount = 0;
   let unverifiedEconomicDayCount = 0;
+  const economicDays: NonNullable<HydratedConfigAuthority["decisionEconomics"]["economicDays"]> = [];
   const intent = {
     bracketedDays: 0,
     pointObservedDays: 0,
@@ -587,6 +589,7 @@ export function resolveHydratedConfigAuthority(input: {
       (row.authorityRevenue[i] ?? 0) !== 0;
     if (economicallyMeaningful) {
       economicDayCount += 1;
+      economicDays.push({ date: row.authorityDates[i]!, dayClass, spend });
       if (dayClass !== "decision_authority") {
         unverifiedEconomicDayCount += 1;
       }
@@ -643,6 +646,7 @@ export function resolveHydratedConfigAuthority(input: {
             receiptManifest.incoherentDayCount === 0)),
       economicDayCount,
       unverifiedEconomicDayCount,
+      economicDays,
       receiptManifest,
     },
     suffix: resolveVerifiedAuthoritySuffix(classified),

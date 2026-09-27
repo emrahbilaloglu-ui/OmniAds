@@ -1048,6 +1048,7 @@ export function buildAdCanonicalEvaluationProvenance(input: {
             ),
           },
           decisionEconomics: {
+            economicDays: input.adEvidence.configAuthority.decisionEconomics.economicDays ?? null,
             fullyVerified:
               input.adEvidence.configAuthority.decisionEconomics.fullyVerified,
             economicDayCount:

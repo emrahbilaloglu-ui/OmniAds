@@ -738,6 +738,7 @@ function nativeModel(
   rows: MetaNativeDecisionSnapshotSourceRow[],
   options: {
     adCandidateLimit?: number;
+    adCandidateOffset?: number;
     generatedAt?: string;
     campaignContextRows?: MetaDecisionCampaignContextSourceRow[];
     adsetRoleRows?: MetaDecisionCampaignContextSourceRow[];
@@ -774,6 +775,7 @@ function nativeModel(
     responseSourceAvailable: false,
     generatedAt: options.generatedAt ?? "2026-07-12T12:00:00.000Z",
     adCandidateLimit: options.adCandidateLimit,
+    adCandidateOffset: options.adCandidateOffset,
   });
 }
 
@@ -2383,6 +2385,29 @@ describe("Meta Decisions workspace canonical read model", () => {
         .slice(0, 60)
         .map((item) => item.decisionId),
     ).toEqual(first.queue.adCandidates?.items.map((item) => item.decisionId));
+  });
+
+  it("makes all 485 blocked and 45 watching ads reachable without duplicates beyond the 300-row cap", () => {
+    const rows = Array.from({ length: 530 }, (_, index) => nativeSnapshot(`120000${String(index + 1).padStart(12, "0")}`, index < 485 ? {
+      label: "test_more", raw_label: "test_more", pre_authority_label: "cut", authority_blocker: "profile_hard_action_ineligible",
+      blocked_action_type: "cut", authorized_action: null,
+    } : { label: "keep", raw_label: "keep", pre_authority_label: "keep", authorized_action: null }));
+    const first = nativeModel(rows, { adCandidateLimit: 300 }).queue.adCandidates!;
+    const next = nativeModel(rows, { adCandidateLimit: 300, adCandidateOffset: 300 }).queue.adCandidates!;
+    expect(first.items).toHaveLength(300);
+    expect(next.items).toHaveLength(230);
+    expect(next.selectionKey).toBe(first.selectionKey);
+    const all = [...first.items, ...next.items];
+    expect(new Set(all.map((item) => item.parentChain.ad!.id)).size).toBe(530);
+    expect(all.filter((item) => item.classification.decisionState === "monitor")).toHaveLength(45);
+    expect(nativeModel(rows.slice(1), { adCandidateLimit: 300 }).queue.adCandidates!.selectionKey).not.toBe(first.selectionKey);
+  });
+
+  it("serves recent sample only for its recorded window, preserving measured zero and legacy absence", () => {
+    const row = nativeSnapshot("120000000000000993", { decision_recent_spend: 0, decision_recent_purchases: 0,
+      decision_window: { startDate: "2026-07-06", endDate: "2026-07-12", calendarDaySpan: 7, observedDayCount: 7, economicDayCount: 7, bridgedUnresolvedDayCount: 0, recentStartDate: "2026-07-06", recentEndDate: "2026-07-12" } });
+    expect(nativeModel([row]).queue.adCandidates!.items[0]!.metrics).toMatchObject({ recent7dSpend: 0, recent7dPurchases: 0 });
+    expect(nativeModel([{ ...row, decision_window: null }]).queue.adCandidates!.items[0]!.metrics).toMatchObject({ recent7dSpend: null, recent7dPurchases: null });
   });
 
   it("keeps mixed-lane 60 and 120 responses as prefixes of the 300-row response", () => {
@@ -6078,6 +6103,17 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
         incoherentDayCount: 0,
       });
       expect(evidence?.metricContract).toContain("meta-funnel-stage.v1");
+    });
+
+    it("reports dated history gaps without inferring missing old dates from the current receipt", () => {
+      const stored = { ...lineage(receipt()), decisionEconomics: { economicDayCount: 2, unverifiedEconomicDayCount: 1,
+        economicDays: [{ date: "2026-07-11", dayClass: "none", spend: 19 }, { date: "2026-07-12", dayClass: "decision_authority", spend: 23 }] },
+        counts: { reviewOnlyPendingSpend: 0, reviewOnlySettledSpend: 0, noneSpend: 19 } };
+      const read = (config: Record<string, unknown>) => nativeModel([nativeSnapshot("120000000000000994", { config_evidence_lineage: config })]).queue.adCandidates!.items[0]!.configEvidence!.historyCoverage;
+      expect(read(stored)).toEqual({ economicDayCount: 2, unverifiedEconomicDayCount: 1, unverifiedSpend: 19, unverifiedDates: ["2026-07-11"] });
+      expect(read({ ...stored, decisionEconomics: { economicDayCount: 2, unverifiedEconomicDayCount: 1 } })?.unverifiedDates).toBeNull();
+      expect(read({ ...stored, counts: null })?.unverifiedSpend).toBeNull();
+      expect(read({ ...stored, decisionEconomics: { ...stored.decisionEconomics, economicDays: [stored.decisionEconomics.economicDays[0], stored.decisionEconomics.economicDays[0]] } })?.unverifiedDates).toBeNull();
     });
 
     it("NEGATIVE: a malformed stored reference is listed as refused, never printed as evidence", () => {

@@ -1268,6 +1268,8 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.selectionVersion": N(
     "The version of the candidate selection algorithm; the panel states what the selection DID - how many identities were eligible, selected and omitted, and for which reason - which is the part that changes what the operator sees.",
   ),
+  "MetaDecisionsWorkspaceReadModel.queue.adCandidates.offset": N("Rendered by the page-level pagination control outside these adapters; real page navigation is pinned in MetaPlatformPage.refetch-resilience.test.tsx."),
+  "MetaDecisionsWorkspaceReadModel.queue.adCandidates.selectionKey": N("Opaque source-bound pagination token; forwarded to the server, never a buyer-facing value. Route and page tests cover invalidation."),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.limit": N(
     "The cap's configured size; the panel states the two numbers the cap produced against TWO eligible pre-cap counts - the read model's own and the OS presentation's own served count, each under a label naming which one it is - and that pair is what tells an operator the list is partial.",
   ),
@@ -1920,6 +1922,8 @@ const COVERAGE: Record<string, Coverage> = {
     S.EVIDENCE,
     "the window's money line",
   ),
+  "MetaCanonicalDecision.metrics.recent7dSpend": R(S.CREATIVES, "the recent sample spend beside ROAS and its recorded period"),
+  "MetaCanonicalDecision.metrics.recent7dPurchases": R(S.CREATIVES, "the recent purchase count beside ROAS and its recorded period"),
   "MetaCanonicalDecision.metrics.recent7dRoas": R(S.CREATIVES, "the recent ROAS alongside its exact period on the Ad card"),
   "MetaCanonicalDecision.metrics.ctr": N(
     "The native Ad row draws this evaluation's admitted-window all-click CTR; the selected-date warehouse trail is separate and cannot substitute for the decision metric.",
@@ -2408,6 +2412,10 @@ const COVERAGE: Record<string, Coverage> = {
     "the diagnostics' refused config receipts",
     "config-refused",
   ),
+  "MetaDecisionConfigEvidence.historyCoverage.economicDayCount": R(S.EVIDENCE, "the recorded historical configuration sample", "config-history-coverage"),
+  "MetaDecisionConfigEvidence.historyCoverage.unverifiedEconomicDayCount": R(S.EVIDENCE, "the historical economic days still lacking authority", "config-history-coverage"),
+  "MetaDecisionConfigEvidence.historyCoverage.unverifiedSpend": R(S.EVIDENCE, "the spend excluded from config authority, not from measured ad spend", "config-history-coverage"),
+  "MetaDecisionConfigEvidence.historyCoverage.unverifiedDates": R(S.EVIDENCE, "the recorded dates lacking authority, never inferred from today's config", "config-history-coverage"),
   "MetaDecisionConfigEvidence.economicWindow.manifestHash": R(
     S.EVIDENCE,
     "the economic window's receipt manifest hash",
@@ -3495,7 +3503,8 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // D124 adds two refusal fields (826 leaves, 771 varying); the new held-refusal scenario verifies the rendered sentence.
     // D123 adds ten: `MetaDecisionConfigEvidence.currentObserved` and the nine
     // leaves of the new `MetaManualCutAdvisory` interface (814 -> 824).
-    expect(fields.length).toBe(826);
+    // D125 adds two page controls, two recent-sample metrics and four config-history fields.
+    expect(fields.length).toBe(834);
     // The manual-advice DTO contributes one new reachable interface.
     expect(new Set(fields.map((field) => field.iface)).size).toBe(70);
     // Candidate selection v3 retains v2 payload compatibility. Its version
@@ -3505,7 +3514,7 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // provenance leaf now varies while remaining intentionally unrendered.
     // D123: `currentObserved` and the four manual-advice counts vary; the five
     // pinned manual-advice markers do not (764 -> 769).
-    expect(fields.filter((field) => field.varies).length).toBe(771);
+    expect(fields.filter((field) => field.varies).length).toBe(779);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -4051,13 +4060,13 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // creative badge, with surface-level proof and no stable badge element id.
   // D107's three admitted-window caption leaves reach this surface; the
   // unpublished observed-day count and protocol tag stay out of its model.
-  CREATIVES: [0, 19],
+  CREATIVES: [0, 21],
   // 94 -> 93: `firstBlocker.explanation` is no longer rendered (Round 8 item 7).
   // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
   // six labelled config rows the diagnostics now print. The Ad id keys the
   // exact-Ad evidence window; D109 removes a cross-period purchase claim.
-  EVIDENCE: [120, 19],
+  EVIDENCE: [124, 19],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
@@ -4109,7 +4118,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // The creative scope is behind a tab in the default desktop render.
   // D107's start/end and economic-day denominator reach the creative card.
   // Pre-cap counts now also drive the lane tabs and scope pill in the resting DOM.
-  CREATIVES: [2, 17],
+  CREATIVES: [2, 19],
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
@@ -4147,7 +4156,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
   // contract-identity leaves. D109 removes the cross-period purchase claim;
   // the remaining claims sit behind the evidence-window control.
-  EVIDENCE: [0, 135],
+  EVIDENCE: [0, 139],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including
@@ -4179,7 +4188,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // contract-identity leaves. D109 removes one cross-period purchase claim;
 // the remaining evidence claims are behind the window control. The pre-cap
 // counts move into the resting DOM as the lane-tab and scope-pill counts.
-const DOM_PROOF_TOTALS: [number, number] = [33, 352];
+const DOM_PROOF_TOTALS: [number, number] = [33, 358];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4215,7 +4224,7 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // role-review control, outside the decision-card probe: 382 -> 384.
 // D123: `currentObserved` and the four manual-advice counts move no surface;
 // each is classified with its own reason above: 384 -> 389.
-const NOWHERE_LEAVES = 386;
+const NOWHERE_LEAVES = 388;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -5053,7 +5062,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // Current creative taxonomy adds two varying display/provenance leaves.
     // The admitted window's recent band adds two varying dates -> 760.
     // D123's five varying leaves -> 769.
-    expect(outcomes.size).toBe(771);
+    expect(outcomes.size).toBe(779);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -5308,9 +5317,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // served observation fact on the evidence surface without a stable row id.
     // The Meta-derived creative type adds one badge claim behind the scope tab.
     // D109 removes one canonical purchase claim from a different period.
-    expect(rendered.length).toBe(392);
-    expect(withElement.length).toBe(233);
-    expect(withoutElement.length).toBe(159);
+    expect(rendered.length).toBe(398);
+    expect(withElement.length).toBe(237);
+    expect(withoutElement.length).toBe(161);
 
     /*
      * AND WHICH ENTRIES, not merely how many.

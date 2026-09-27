@@ -912,7 +912,7 @@ function buildFacts(input: {
     { label: string; value: string }
   > = {
     frequency: {
-      label: "Frequency",
+      label: "Daily reach frequency (proxy)",
       value: frequency === null ? EM_DASH : frequency.toFixed(1),
     },
     // Plain reach IS served per ad (`meta_ad_daily.reach`, surfaced as
@@ -941,12 +941,17 @@ function buildFacts(input: {
     },
   };
 
-  return FACT_SLOTS.map((slot) => ({
+  const facts: CreativeEvidenceWindowExactFact[] = FACT_SLOTS.map((slot) => ({
     id: slot,
     label: values[slot].label,
     value: values[slot].value,
     tone: "neutral" as const,
   }));
+  const history = input.canonical?.configEvidence?.historyCoverage
+        ? `${input.canonical.configEvidence.historyCoverage.unverifiedEconomicDayCount ?? "unknown"} of ${input.canonical.configEvidence.historyCoverage.economicDayCount ?? "unknown"} economic days lack authority; ${formatEvidenceMoney(input.canonical.configEvidence.historyCoverage.unverifiedSpend, input.canonical.metrics.currency)} spend excluded from configuration authority (not from reported ad spend). Dates: ${input.canonical.configEvidence.historyCoverage.unverifiedDates === null ? "not recorded" : input.canonical.configEvidence.historyCoverage.unverifiedDates.join(", ") || "none"}. Owner: data integration. Re-evaluate after dated provider evidence is verified and a new decision runs; current settings cannot verify missing history, and a calendar date alone does not clear other holds.`
+        : null;
+  if (history) facts.push({ id: "config-history-coverage", label: "Historical configuration coverage", value: history, tone: "neutral" });
+  return facts;
 }
 
 function buildKind(input: {

@@ -167,6 +167,7 @@ describe("GET /api/meta/account-pulse", () => {
 
   it.each([
     ["2026-02-30", "2026-03-03"],
+    ["2025-01-01", "2026-09-24"],
     ["2026-09-24", "2026-09-18"],
     ["2026-09-18", "invalid"],
   ])("refuses invalid reporting period %s to %s before reading metrics", async (start, end) => {

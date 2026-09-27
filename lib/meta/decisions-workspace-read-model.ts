@@ -1,3 +1,4 @@
+import { reportingDayCount } from "@/lib/meta/reporting-period";
 import { createHash } from "node:crypto";
 import { currentHierarchyStatuses } from "@/lib/meta/current-ad-delivery-status";
 import { readManualCutAdvisory, readManualCutRefusal, type MetaManualCutRefusal, type MetaManualCutAdvisory } from "./manual-cut-advisory";
@@ -337,6 +338,8 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   /** Native evaluation's hashed, admitted Ad-window metrics; never lifecycle fallbacks. */
   decision_ctr?: unknown;
   decision_frequency?: unknown;
+  decision_recent_spend?: unknown;
+  decision_recent_purchases?: unknown;
 }
 
 function parseNativeDecisionWindow(
@@ -568,6 +571,7 @@ export interface BuildMetaDecisionsWorkspaceReadModelInput {
   generatedAt?: string;
   sectionLimit?: number;
   adCandidateLimit?: number;
+  adCandidateOffset?: number;
   requireActiveHierarchy?: boolean;
   authorityMode?: "legacy_review_only" | "native_exact";
   /** Native-only read safety; absent on retained creative-grain rows. */
@@ -1129,6 +1133,7 @@ export function buildUnavailableMetaDecisionsWorkspaceReadModel(input: {
   generatedAt?: string;
   sectionLimit?: number;
   adCandidateLimit?: number;
+  adCandidateOffset?: number;
 }): MetaDecisionsWorkspaceReadModel {
   const topN = Math.max(
     1,
@@ -2207,7 +2212,7 @@ function carryCanonicalAdUniverse(
   attachCanonicalAdUniverse(to, adIds);
 }
 
-function selectAdCandidates(items: MetaCanonicalDecision[], limit: number) {
+function selectAdCandidates(items: MetaCanonicalDecision[], limit: number, offset = 0) {
   const states: SelectableAdState[] = ["act", "blocked", "monitor"];
   const buckets = Object.fromEntries(
     states.map((state) => [
@@ -2225,16 +2230,17 @@ function selectAdCandidates(items: MetaCanonicalDecision[], limit: number) {
           META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
           Math.floor(limit / nonEmptyStates.length),
         );
-  const selected = nonEmptyStates.flatMap((state) =>
+  const reserved = nonEmptyStates.flatMap((state) =>
     buckets[state].slice(0, reserve),
   );
-  const selectedIds = new Set(selected.map((item) => item.decisionId));
-  selected.push(
+  const selectedIds = new Set(reserved.map((item) => item.decisionId));
+  const ordered = [...reserved,
     ...items
       .filter((item) => !selectedIds.has(item.decisionId))
-      .sort(compareAdCandidates)
-      .slice(0, Math.max(0, limit - selected.length)),
-  );
+      .sort(compareAdCandidates),
+  ];
+  const selected = ordered.slice(offset, offset + limit);
+  const selectionKey = stableId("madp", ordered.flatMap((item) => [item.providerAccountId, item.decisionId, item.sourceSnapshotId, item.classification.decisionState]));
   /*
    * The lane reserves are the beginning of the canonical ordering, not a
    * temporary set that may be re-sorted away.
@@ -2253,6 +2259,7 @@ function selectAdCandidates(items: MetaCanonicalDecision[], limit: number) {
    */
   return {
     selected,
+    selectionKey,
     stateCounts: Object.fromEntries(
       states.map((state) => [
         state,
@@ -2392,6 +2399,7 @@ export function buildMetaDecisionsWorkspaceReadModel(
       generatedAt: input.generatedAt,
       sectionLimit: input.sectionLimit,
       adCandidateLimit: input.adCandidateLimit,
+      adCandidateOffset: input.adCandidateOffset,
     });
   }
   const topN = Math.max(
@@ -2556,6 +2564,7 @@ export function buildMetaDecisionsWorkspaceReadModel(
   const adCandidateSelection = selectAdCandidates(
     exactAdCandidates,
     adCandidateLimit,
+    Math.max(0, Math.trunc(input.adCandidateOffset ?? 0)),
   );
   const readModel: MetaDecisionsWorkspaceReadModel = {
     contractVersion: META_DECISIONS_WORKSPACE_CONTRACT_VERSION,
@@ -2589,6 +2598,8 @@ export function buildMetaDecisionsWorkspaceReadModel(
       adCandidates: {
         selectionVersion: META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION,
         limit: adCandidateLimit,
+        offset: Math.max(0, Math.trunc(input.adCandidateOffset ?? 0)),
+        selectionKey: adCandidateSelection.selectionKey,
         preCapCount: canonicalDecisions.length,
         eligiblePreCapCount: exactAdCandidates.length,
         selectedCount: adCandidateSelection.selected.length,
@@ -2821,6 +2832,7 @@ export interface BuildNativeMetaDecisionsWorkspaceReadModelInput {
   generatedAt?: string;
   sectionLimit?: number;
   adCandidateLimit?: number;
+  adCandidateOffset?: number;
 }
 
 function unavailableNativeGenerationBundle(input: {
@@ -3159,8 +3171,29 @@ function servedConfigEvidence(input: {
           incoherentDayCount: manifest.incoherentDayCount,
         }
       : null,
+    historyCoverage: readConfigHistoryCoverage(lineage),
     metricContract,
   };
+}
+
+function readConfigHistoryCoverage(lineage: Record<string, unknown>): NonNullable<MetaDecisionConfigEvidence["historyCoverage"]> {
+  const economics = lineage.decisionEconomics as Record<string, unknown> | null;
+  const counts = lineage.counts as Record<string, unknown> | null;
+  const nonnegative = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+  const count = (value: unknown) => { const n = nonnegative(value); return n !== null && Number.isInteger(n) ? n : null; };
+  const economicDayCount = count(economics?.economicDayCount);
+  const unverifiedCount = count(economics?.unverifiedEconomicDayCount);
+  const unverifiedEconomicDayCount = economicDayCount !== null && unverifiedCount !== null && unverifiedCount <= economicDayCount ? unverifiedCount : null;
+  const spendParts = [counts?.reviewOnlyPendingSpend, counts?.reviewOnlySettledSpend, counts?.noneSpend].map(nonnegative);
+  const days = economics?.economicDays;
+  const validDays = Array.isArray(days) && days.length === economicDayCount && days.every((day) =>
+    day && typeof day.date === "string" && reportingDayCount(day.date, day.date) === 1 &&
+    ["decision_authority", "review_only_pending", "review_only_settled", "none"].includes(day.dayClass) && nonnegative(day.spend) !== null) &&
+    new Set(days.map((day) => day.date)).size === days.length;
+  const unverifiedDates = validDays ? days.filter((day) => day.dayClass !== "decision_authority").map((day) => day.date).sort() : null;
+  return { economicDayCount, unverifiedEconomicDayCount,
+    unverifiedSpend: spendParts.every((part) => part !== null) ? spendParts.reduce<number>((sum, part) => sum + part!, 0) : null,
+    unverifiedDates: unverifiedDates?.length === unverifiedEconomicDayCount ? unverifiedDates : null };
 }
 
 function hasExplicitProviderImageMedia(
@@ -3255,6 +3288,9 @@ function applyNativeCanonicalDecisionAuthority(input: {
   decision.metrics.frequency = decision.decisionWindow
     ? admittedMetric(row.decision_frequency)
     : null;
+  const recentWindowKnown = Boolean(decision.decisionWindow?.recentStartDate && decision.decisionWindow.recentEndDate);
+  decision.metrics.recent7dSpend = recentWindowKnown ? admittedMetric(row.decision_recent_spend) : null;
+  decision.metrics.recent7dPurchases = recentWindowKnown ? admittedMetric(row.decision_recent_purchases) : null;
   decision.metrics.provenance = provenance({
     source: "engine_v3_ad_decision_snapshots_daily+engine_v3_decision_evaluations",
     field: "spend,purchases,roas,recent7d_roas,effective_target_roas,ratio_to_target,creative_input_json.ctr,creative_input_json.frequency,creative_input_json.decisionWindow",
@@ -3732,6 +3768,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
       generatedAt: input.generatedAt,
       sectionLimit: input.sectionLimit,
       adCandidateLimit: input.adCandidateLimit,
+      adCandidateOffset: input.adCandidateOffset,
     });
     empty.status = "available";
     empty.unavailable = null;
@@ -3778,6 +3815,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
     generatedAt: input.generatedAt,
     sectionLimit: input.sectionLimit,
     adCandidateLimit: input.adCandidateLimit,
+    adCandidateOffset: input.adCandidateOffset,
     requireActiveHierarchy: true,
     authorityMode: "native_exact",
     nativeConfigSafetyBySnapshot,
@@ -4595,6 +4633,8 @@ export async function readNativeSnapshotRows(input: {
       evaluation.creative_input_json -> 'decisionWindow' AS decision_window,
       evaluation.creative_input_json -> 'ctr' AS decision_ctr,
       evaluation.creative_input_json -> 'frequency' AS decision_frequency,
+      evaluation.creative_input_json -> 'recent7dSpend' AS decision_recent_spend,
+      evaluation.creative_input_json -> 'recent7dPurchases' AS decision_recent_purchases,
       /* ADR D098 config authority, as the ENGINE recorded it in the
          evaluation's own hashed input (configEvidence), which is persisted in
          the hash-keyed input-evidence table. NULL when the mapping is absent;
@@ -4632,6 +4672,8 @@ export async function readNativeSnapshotRows(input: {
             'lineageSupplied', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,lineageSupplied}',
             'currentObserved', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,observed}',
             'receiptManifest', input_evidence.input_evidence_json #> '{configEvidence,decisionEconomics,receiptManifest}',
+            'decisionEconomics', input_evidence.input_evidence_json #> '{configEvidence,decisionEconomics}',
+            'counts', input_evidence.input_evidence_json #> '{configEvidence,counts}',
             'currentConfigDay', input_evidence.input_evidence_json #> '{configEvidence,currentConfigDay}',
             'metricContract', input_evidence.input_evidence_json -> 'metricContract'
           )
@@ -6249,6 +6291,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
   generatedAt?: string;
   sectionLimit?: number;
   adCandidateLimit?: number;
+  adCandidateOffset?: number;
 }): Promise<MetaDecisionsWorkspaceReadModel> {
   // AREA 3 is opted into this workspace envelope. Creative Briefing also opts
   // in with its own source-degraded marker and stripped execution authority.
@@ -6270,6 +6313,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
         generatedAt: input.generatedAt,
         sectionLimit: input.sectionLimit,
         adCandidateLimit: input.adCandidateLimit,
+        adCandidateOffset: input.adCandidateOffset,
       });
       unavailable.source.fallbackReason = subsetRead.unavailableReason;
       return unavailable;
@@ -6289,6 +6333,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
       generatedAt: input.generatedAt,
       sectionLimit: input.sectionLimit,
       adCandidateLimit: input.adCandidateLimit,
+      adCandidateOffset: input.adCandidateOffset,
     });
     if (model.source.generation) {
       model.source.generation = {
@@ -6319,6 +6364,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
         generatedAt: input.generatedAt,
         sectionLimit: input.sectionLimit,
         adCandidateLimit: input.adCandidateLimit,
+        adCandidateOffset: input.adCandidateOffset,
       });
     } catch {
       // Fall through to legacy. The reason is named below, once.
@@ -6354,6 +6400,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
       generatedAt: input.generatedAt,
       sectionLimit: input.sectionLimit,
       adCandidateLimit: input.adCandidateLimit,
+      adCandidateOffset: input.adCandidateOffset,
     });
     unavailable.source.fallbackReason = nativeFallbackReason;
     return unavailable;
@@ -6418,6 +6465,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
     generatedAt: input.generatedAt,
     sectionLimit: input.sectionLimit,
     adCandidateLimit: input.adCandidateLimit,
+    adCandidateOffset: input.adCandidateOffset,
     requireActiveHierarchy: true,
   });
   legacyModel.source.fallbackReason = nativeFallbackReason;

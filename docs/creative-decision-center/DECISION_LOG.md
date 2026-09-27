@@ -11602,3 +11602,26 @@ the same epoch; same-day refusal and local seams never substitute for it.
 Rollback: revert this release's code/image through the controlled release path.
 No schema or advertising mutation is required. Preserve retained generation
 evidence and distinguish operational capacity refusal from a release regression.
+
+### D128 live acceptance amendment — short-cycle process heartbeat
+
+The first deployed D128 process restarted under autoheal despite continuing
+provider work. Many business cycles each completed before the 150-second
+keepalive timer fired, while the aggregate batch exceeded the five-minute health
+window. Provider rows advanced but the `all` row stayed at the batch's start.
+The existing single-long-cycle test did not cover this schedule. A deterministic
+eight-business runtime test reproduced the stale process row before the repair.
+
+A successfully persisted provider `idle` or `running` heartbeat also refreshes
+process liveness, rate-limited by the process row's own clock and coalesced across
+concurrent writers. It never refreshes another provider. Failed provider writes,
+failed business discovery, staged/disabled registration and shutdown cannot
+produce this mirror. Independent cycle deadlines, admission and shutdown drain
+remain enforced; the mirror is process evidence, not evidence of successful
+provider publication. Mirrored metadata is limited to process identity and
+active-provider/business context, without copying provider consumption outcomes.
+Positive and failed-write short-cycle cases, concurrent mirror coalescing,
+mirror-write failure/retry and a stuck cycle alongside concurrent progress
+supplement the existing long-cycle, discovery and retirement tests. This source
+repair requires a new reviewed candidate and live stability window; the earlier
+deployment's successful UI and authority reads do not establish worker stability.

@@ -280,6 +280,175 @@ describe("worker runtime heartbeat repair metadata", () => {
     expect(consumedBusinesses).toEqual(["biz-priority"]);
   });
 
+  it.each([false, true])("keeps truthful process liveness across many short cycles (provider write fails: %s)", async (providerWriteFails) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-27T18:00:00Z"));
+    vi.stubEnv("WORKER_CYCLE_KEEPALIVE_INTERVAL_MS", "150000");
+    vi.stubEnv("WORKER_HEARTBEAT_INTERVAL_MS", "15000");
+    vi.stubEnv("WORKER_MAX_BUSINESSES_PER_TICK", "8");
+    readActiveBusinesses.mockResolvedValue({
+      ok: true,
+      businesses: Array.from({ length: 8 }, (_, i) => ({ id: `biz-${i}`, name: `Biz ${i}` })),
+    });
+    const writes: Array<{ scope: string; status: string; at: number }> = [];
+    heartbeatSyncWorker.mockImplementation(async (input) => {
+      if (providerWriteFails && input.providerScope === "meta") throw new Error("heartbeat write failed");
+      writes.push({ scope: input.providerScope, status: input.status, at: Date.now() });
+    });
+    let completed = 0;
+    const adapter = {
+      providerScope: "meta", planPartitions: async () => ({ partitions: [] }),
+      leasePartitions: async () => [], getCheckpoint: async () => null,
+      fetchChunk: async () => ({}), persistChunk: async () => {}, transformChunk: async () => {},
+      writeFacts: async () => {}, advanceCheckpoint: async () => {}, completePartition: async () => {},
+      classifyFailure: () => "test",
+      getReadiness: async () => ({ readinessLevel: "usable", checkpointHealth: null, domainReadiness: null }),
+      consumeBusiness: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 60_000));
+        completed++;
+        return { outcome: "consume_succeeded" };
+      },
+    };
+    const { runDurableWorkerRuntime } = await import("@/lib/sync/worker-runtime");
+    const runtime = runDurableWorkerRuntime({ adapters: [adapter] as never });
+    try {
+      const elapsed = providerWriteFails ? 180_001 : 360_001;
+      await vi.advanceTimersByTimeAsync(elapsed);
+      expect(completed).toBeGreaterThanOrEqual(providerWriteFails ? 3 : 6);
+      // Each cycle finishes before its 150s keepalive fires. Provider work is
+      // progressing, so the process row must not age out after five minutes.
+      const latestProcessWrite = writes.filter((x) => x.scope === "all" && ["idle", "running"].includes(x.status)).at(-1);
+      expect(latestProcessWrite).toBeDefined();
+      if (providerWriteFails) {
+        // Failed provider writes cannot mint fresh process evidence.
+        expect(Date.now() - latestProcessWrite!.at).toBe(elapsed);
+      } else {
+        expect(Date.now() - latestProcessWrite!.at).toBeLessThan(300_000);
+      }
+    } finally {
+      process.emit("SIGTERM");
+      await vi.advanceTimersByTimeAsync(60_000);
+      await runtime;
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([false, true])("coalesces concurrent mirrors without changing consumption when the process write fails: %s", async (mirrorWriteFails) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-27T18:00:00Z"));
+    vi.stubEnv("WORKER_HEARTBEAT_INTERVAL_MS", "15000");
+    vi.stubEnv("WORKER_CYCLE_KEEPALIVE_INTERVAL_MS", "150000");
+    vi.stubEnv("WORKER_GLOBAL_DB_CONCURRENCY", "4");
+    vi.stubEnv("META_WORKER_CONCURRENCY", "4");
+    vi.stubEnv("WORKER_MAX_BUSINESSES_PER_TICK", "8");
+    readActiveBusinesses.mockResolvedValue({
+      ok: true,
+      businesses: Array.from({ length: 8 }, (_, i) => ({ id: `biz-${i}`, name: `Biz ${i}` })),
+    });
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const mirrors: Array<{ at: number; meta: Record<string, unknown> }> = [];
+    heartbeatSyncWorker.mockImplementation(async (input) => {
+      if (!input.metaJson?.processHeartbeatFromProvider) return;
+      mirrors.push({ at: Date.now(), meta: input.metaJson });
+      maxInFlight = Math.max(maxInFlight, ++inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      inFlight--;
+      if (mirrorWriteFails) throw new Error("process heartbeat write failed");
+    });
+    const consumed: string[] = [];
+    let releases = 0;
+    releaseSyncRunnerLease.mockImplementation(async () => {
+      if (++releases === 8) process.emit("SIGTERM");
+    });
+    const adapter = {
+      providerScope: "meta", planPartitions: async () => ({ partitions: [] }),
+      leasePartitions: async () => [], getCheckpoint: async () => null,
+      fetchChunk: async () => ({}), persistChunk: async () => {}, transformChunk: async () => {},
+      writeFacts: async () => {}, advanceCheckpoint: async () => {}, completePartition: async () => {},
+      classifyFailure: () => "test",
+      getReadiness: async () => ({ readinessLevel: "usable", checkpointHealth: null, domainReadiness: null }),
+      consumeBusiness: async (businessId: string) => {
+        await new Promise((resolve) => setTimeout(resolve, Number(businessId.slice(4)) < 4 ? 60_000 : 1_000));
+        consumed.push(businessId);
+        return { outcome: "consume_succeeded" };
+      },
+    };
+    const { runDurableWorkerRuntime } = await import("@/lib/sync/worker-runtime");
+    const runtime = runDurableWorkerRuntime({ adapters: [adapter] as never });
+    try {
+      await vi.advanceTimersByTimeAsync(65_000);
+      await runtime;
+      expect(new Set(consumed).size).toBe(8);
+      expect(releases).toBe(8);
+      expect(maxInFlight).toBe(1);
+      const outcomes = heartbeatSyncWorker.mock.calls.filter(([x]) => x.providerScope === "meta" && x.metaJson?.consumeOutcome === "consume_succeeded");
+      expect(outcomes).toHaveLength(8);
+      expect(mirrors.length).toBeGreaterThan(0);
+      for (const { meta } of mirrors) {
+        expect(meta).not.toHaveProperty("consumeOutcome");
+        expect(meta).not.toHaveProperty("consumeStage");
+        expect(meta).not.toHaveProperty("providerScope");
+        expect(meta.activeProviderScope).toBe("meta");
+      }
+      if (mirrorWriteFails) {
+        // A failed process write must not advance its own throttle clock.
+        expect(mirrors.length).toBeGreaterThan(1);
+        expect(mirrors[1].at - mirrors[0].at).toBeLessThan(15_000);
+      } else {
+        expect(mirrors).toHaveLength(1);
+      }
+    } finally {
+      process.emit("SIGTERM");
+      await vi.advanceTimersByTimeAsync(65_000);
+      await runtime;
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("exits a stuck cycle while another concurrent cycle keeps producing process evidence", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-27T18:00:00Z"));
+    vi.stubEnv("WORKER_HEARTBEAT_INTERVAL_MS", "15");
+    vi.stubEnv("WORKER_CYCLE_KEEPALIVE_INTERVAL_MS", "15");
+    vi.stubEnv("WORKER_CYCLE_MAX_MS", "200");
+    vi.stubEnv("WORKER_STALL_EXIT_MS", "50");
+    vi.stubEnv("WORKER_GLOBAL_DB_CONCURRENCY", "2");
+    vi.stubEnv("META_WORKER_CONCURRENCY", "2");
+    vi.stubEnv("WORKER_MAX_BUSINESSES_PER_TICK", "2");
+    readActiveBusinesses.mockResolvedValue({ ok: true, businesses: [{ id: "stuck", name: "Stuck" }, { id: "progress", name: "Progress" }] });
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    let finish!: () => void;
+    const held = new Promise<void>((resolve) => { finish = resolve; });
+    const adapter = {
+      providerScope: "meta", planPartitions: async () => ({ partitions: [] }),
+      leasePartitions: async () => [], getCheckpoint: async () => null,
+      fetchChunk: async () => ({}), persistChunk: async () => {}, transformChunk: async () => {},
+      writeFacts: async () => {}, advanceCheckpoint: async () => {}, completePartition: async () => {},
+      classifyFailure: () => "test",
+      getReadiness: async () => ({ readinessLevel: "usable", checkpointHealth: null, domainReadiness: null }),
+      consumeBusiness: async (businessId: string) => {
+        if (businessId === "stuck") await held;
+        else await new Promise((resolve) => setTimeout(resolve, 180));
+        return { outcome: "consume_succeeded" };
+      },
+    };
+    const { runDurableWorkerRuntime } = await import("@/lib/sync/worker-runtime");
+    const runtime = runDurableWorkerRuntime({ adapters: [adapter] as never });
+    try {
+      await vi.advanceTimersByTimeAsync(200);
+      expect(heartbeatSyncWorker.mock.calls.some(([x]) => x.providerScope === "all" && x.lastBusinessId === "progress" && (x.metaJson?.cycleKeepalive || x.metaJson?.processHeartbeatFromProvider))).toBe(true);
+      expect(exit).toHaveBeenCalledWith(1);
+    } finally {
+      process.emit("SIGTERM"); finish();
+      await vi.advanceTimersByTimeAsync(1);
+      await runtime;
+      exit.mockRestore(); vi.useRealTimers(); vi.unstubAllEnvs();
+    }
+  });
+
   it("keeps process liveness during one long provider cycle without inventing other-provider progress", async () => {
     process.env.WORKER_CYCLE_KEEPALIVE_INTERVAL_MS = "10";
     let finishCycle!: () => void;

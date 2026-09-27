@@ -37,6 +37,7 @@ export type MetaDecisionPipelineBlocker =
   | "sync_activity_missing"
   | "sync_activity_stale"
   | "sync_admission_blocked"
+  | "sync_admission_unavailable"
   | "warehouse_cutoff_missing"
   | "warehouse_cutoff_stale"
   | "account_timezone_unavailable"
@@ -158,9 +159,12 @@ function admissionDimension(
   decision: DbGrowthFenceDecision,
 ): MetaDecisionPipelineOperationalHealth["admission"] {
   const offender = decision.offender;
+  // An evaluated telemetry refusal closes admission even when capacity is
+  // unknown. A reader-specific failure cannot establish the worker's state.
+  const readerUnavailable = decision.reason === "fence_read_failed";
   return {
     status: !decision.allowed
-      ? "blocked"
+      ? readerUnavailable ? "unavailable" : "blocked"
       : decision.warning
         ? "warning"
         : "fresh",
@@ -326,7 +330,10 @@ export async function readMetaDecisionPipelineOperationalHealth(input: {
 
     let syncStatus: MetaDecisionPipelineDimensionStatus;
     let syncReason: string | null = null;
-    if (!admission.allowed) {
+    if (admission.status === "unavailable") {
+      blockers.push("sync_admission_unavailable");
+    }
+    if (admission.status === "blocked") {
       syncStatus = "blocked";
       syncReason = `New sync work is refused by the growth fence (${admission.reason}).`;
       blockers.push("sync_admission_blocked");
@@ -388,8 +395,10 @@ export async function readMetaDecisionPipelineOperationalHealth(input: {
     }
 
     const unique = uniqueBlockers(blockers);
-    const overall = !admission.allowed
-      ? "blocked"
+    const overall = admission.status === "unavailable"
+      ? "unavailable"
+      : !admission.allowed
+        ? "blocked"
       : unique.length > 0
         ? "degraded"
         : "healthy";

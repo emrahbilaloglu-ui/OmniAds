@@ -1804,6 +1804,58 @@ describe("GET /api/meta/decisions-workspace", () => {
     });
   });
 
+  it.each(["physical_snapshot_stale", "measurement_invalid"])(
+    "names a completed %s safety refusal without asserting storage is full", async (reason) => {
+      const healthy = healthyPipelineHealth();
+      pipelineHealthMock.buildMetaDecisionPipelineHealth.mockReturnValue({
+        ...healthy, overall: "blocked", executionReady: false,
+        blockers: ["sync_admission_blocked"],
+        admission: { ...healthy.admission, status: "blocked", allowed: false, reason, offender: null },
+      });
+      stubWorkspaceHttpUpstreams();
+      const response = await GET(new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1",
+      ));
+      const payload = await response.json();
+      const banner = payload.banners.find((item: { id: string }) => item.id === "meta_decision_pipeline_health");
+      expect(banner.title).toContain("New Meta sync work is blocked");
+      expect(banner.detail).toContain("Available capacity is unknown");
+      expect(banner.detail).not.toContain("does not establish");
+      expect(banner.detail).not.toContain("measured storage safety limit");
+      expect(payload.system.pipelineHealth.executionReady).toBe(false);
+    },
+  );
+
+  it("does not call sync stopped when operational health could not be read", async () => {
+    const healthy = healthyPipelineHealth();
+    pipelineHealthMock.buildMetaDecisionPipelineHealth.mockReturnValue({
+      ...healthy,
+      overall: "unavailable",
+      executionReady: false,
+      blockers: ["pipeline_read_failed"],
+      syncActivity: { ...healthy.syncActivity, status: "unavailable", reason: "Read failed" },
+      warehouse: { ...healthy.warehouse, status: "unavailable" },
+      admission: { ...healthy.admission, status: "unavailable", allowed: false },
+    });
+    stubWorkspaceHttpUpstreams();
+    const response = await GET(new NextRequest(
+      "http://localhost/api/meta/decisions-workspace?businessId=biz_1",
+    ));
+    const payload = await response.json();
+    const banner = payload.banners.find((item: { id: string }) =>
+      item.id === "meta_decision_pipeline_health",
+    );
+    expect(response.status).toBe(200);
+    expect(banner).toMatchObject({
+      title: "Meta pipeline health could not be verified — decisions are review-only.",
+      blocking: true,
+    });
+    expect(banner.title).not.toContain("sync is stopped");
+    expect(banner.detail).not.toContain("gate is closed");
+    expect(banner.detail).toContain("could not be verified");
+    expect(payload.system.pipelineHealth.executionReady).toBe(false);
+  });
+
   it("names a decision-generation failure without misdirecting the operator to sync recovery", async () => {
     const degraded = {
       ...healthyPipelineHealth(),

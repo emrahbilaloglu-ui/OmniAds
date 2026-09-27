@@ -275,6 +275,7 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     count: 2,
   },
   { file: "lib/sync/db-growth-fence.ts", category: "size-only", count: 14 },
+  { file: "lib/sync/db-growth-capacity-report.ts", category: "size-only", count: 1 },
   {
     file: "lib/sync/state-history-effective-size.ts",
     category: "size-only",

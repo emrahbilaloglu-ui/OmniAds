@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/lib/auth", () => ({
@@ -36,6 +36,7 @@ function get(query = "") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("ZERO_BASE_UI_MODE", "on");
   vi.mocked(auth.getSessionFromCookies).mockResolvedValue(session);
   vi.mocked(access.requireBusinessPageContext).mockResolvedValue({
     kind: "ok",
@@ -43,7 +44,28 @@ beforeEach(() => {
   } as never);
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("GET /switch-business/[businessId]", () => {
+  it.each([true, false])("resolves the disabled Meta surface before React hydration (already active: %s)", async (alreadyActive) => {
+    vi.stubEnv("ZERO_BASE_UI_MODE", "off");
+    if (alreadyActive) vi.mocked(auth.getSessionFromCookies).mockResolvedValue({
+      ...session, activeBusinessId: businessId,
+    });
+    const query = "window=7d&startDate=2026-09-19&endDate=2026-09-25&kind=a&kind=b";
+    const response = await get(`?next=${encodeURIComponent(`/app/meta/decisions?${query}`)}`);
+    const location = new URL(response.headers.get("Location")!);
+    const destination = alreadyActive
+      ? location.pathname + location.search
+      : location.searchParams.get("next");
+    expect(destination).toBe(`/platforms/meta?${query}`);
+    expect(access.requireBusinessPageContext).toHaveBeenCalledWith({ businessId });
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    // A different business still requires the existing authenticated POST;
+    // resolving presentation does not change the GET's mutation boundary.
+    expect(location.pathname).toBe(alreadyActive
+      ? "/platforms/meta" : `/switch-business/${businessId}/finish`);
+  });
   it("redirects from an internal container URL to the configured public origin", async () => {
     const previous = process.env.NEXT_PUBLIC_APP_URL;
     process.env.NEXT_PUBLIC_APP_URL = "https://adsecute.com";

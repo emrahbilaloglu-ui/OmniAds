@@ -1218,6 +1218,10 @@ async function readDecisionDigest(input: {
 function pipelineHealthBanner(
   health: MetaDecisionPipelineHealth,
 ): MetaOsWorkspaceBanner {
+  const healthUnavailable = health.overall === "unavailable" ||
+    health.admission.status === "unavailable";
+  const admissionBlocked = health.admission.status === "blocked" &&
+    !health.admission.allowed;
   const dataThrough = health.warehouse.latestFinalizedDate;
   const syncHealthy =
     health.syncActivity.status === "fresh" &&
@@ -1241,10 +1245,12 @@ function pipelineHealthBanner(
       ? (health.warehouse.reason ??
         "The finalized Meta warehouse cutoff is not current.")
       : null,
-    !health.admission.allowed
-      ? health.admission.offender
-        ? "A storage safety limit stopped new Meta observations."
-        : "The sync admission gate is closed."
+    health.admission.status === "unavailable"
+      ? "The sync safety checks could not be verified. This does not establish that sync has stopped."
+      : admissionBlocked
+      ? ["database_budget_exceeded", "table_budget_exceeded", "physical_free_space_low", "physical_projected_free_space_low"].includes(health.admission.reason)
+        ? "A measured storage safety limit blocks new Meta sync work."
+        : "New Meta sync work is refused because storage safety telemetry is missing, stale, or invalid. Available capacity is unknown; restore the safety measurement before retrying."
       : null,
     health.decisionGeneration.status !== "fresh"
       ? (health.decisionGeneration.reason ??
@@ -1260,10 +1266,12 @@ function pipelineHealthBanner(
   return {
     id: "meta_decision_pipeline_health",
     tone: health.overall === "blocked" ? "danger" : "warning",
-    title: !syncHealthy
-      ? health.admission.allowed
-        ? "Meta data is not current — decisions are review-only."
-        : "Meta data sync is stopped — current decisions are unavailable."
+    title: healthUnavailable
+      ? "Meta pipeline health could not be verified — decisions are review-only."
+      : !syncHealthy
+        ? admissionBlocked
+          ? "New Meta sync work is blocked — decisions are review-only."
+          : "Meta data is not current — decisions are review-only."
       : !generationHealthy && health.manifest.status !== "fresh"
         ? "The latest decision run is incomplete — decisions are review-only."
         : "Decision generation is not current — decisions are review-only.",

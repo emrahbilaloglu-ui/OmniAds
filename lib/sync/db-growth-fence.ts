@@ -567,6 +567,8 @@ export interface DbGrowthFenceDecision {
   databaseBytes: number | null;
   databaseBudgetBytes: number;
   tableBytes: Partial<Record<FencedTable, number>>;
+  /** Budgets actually used by this evaluation; absent on incomplete measurements. */
+  tableBudgetBytes?: Partial<Record<FencedTable, number>>;
   /** Exact table + budget that denied, for actionable diagnostics. */
   offender: { table: FencedTable | "database"; bytes: number; budget: number } | null;
   evaluatedAt: string;
@@ -960,6 +962,7 @@ export async function evaluateDbGrowthFence(input?: {
         databaseBytes,
         databaseBudgetBytes: databaseBudget,
         tableBytes,
+        tableBudgetBytes: tableBudgets,
         offender,
         evaluatedAt,
         errorMessage: null,
@@ -980,6 +983,7 @@ export async function evaluateDbGrowthFence(input?: {
       databaseBytes,
       databaseBudgetBytes: databaseBudget,
       tableBytes,
+      tableBudgetBytes: tableBudgets,
       offender,
       evaluatedAt,
       errorMessage: null,
@@ -1004,6 +1008,7 @@ export async function evaluateDbGrowthFence(input?: {
     databaseBytes,
     databaseBudgetBytes: databaseBudget,
     tableBytes,
+    tableBudgetBytes: tableBudgets,
     offender: null,
     evaluatedAt,
     errorMessage: null,

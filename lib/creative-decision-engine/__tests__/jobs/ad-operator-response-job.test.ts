@@ -65,10 +65,10 @@ describe("held-verdict authority release epoch contract", () => {
       remain readable under it.
     */
     expect(ENGINE_VERSION).toBe(
-      "v3-2026-09-24-creative-purchase-cut-proof",
+      "v3-2026-09-27-buyer-evidence-repair",
     );
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
-      "v3-ad-2026-09-24-cut-proof-floor-story-shadow",
+      "v3-ad-2026-09-27-buyer-evidence-repair-shadow",
     );
     /*
       ROUND 9 ITEM 10. These three had drifted a full version behind the

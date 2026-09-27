@@ -11430,3 +11430,60 @@ Validation: account isolation, stale population rejection, failed page recovery,
 absence, and source membership coverage. The Q037 read-only production day
 reconciliation is retained with the implementation evidence, not promoted to a
 production repair. Remaining data-restatement gaps stay disclosed.
+
+## D126 — Buyer evidence correctness without unvalidated policy thresholds (2026-09-27)
+
+Status: candidate implementation; not deployed. Shared and native producer epochs
+move to `v3-2026-09-27-buyer-evidence-repair` and
+`v3-ad-2026-09-27-buyer-evidence-repair-shadow`. The preceding native acceptance
+fixture is retained unchanged as `native-ad-frozen-exact-replay.2026-09-24-cut-proof-floor-prior-epoch.v1.json`;
+old epochs remain readable and do not acquire current authority.
+
+- Refresh requires distinct recorded windows when dates exist and a ratio below
+  both the calibrated boundary and 1, with 1e-9 numerical tolerance. Missing old
+  window metadata is not reconstructed. The recorded four-day Bilsem case can
+  no longer say ROAS declined to 100% because of floating-point division.
+- Scale recent holding must clear the existing account recent-sample spend
+  floor. Missing/thin evidence or confirmed fatigue plus sampled economic decay
+  produces Keep with explicit predicate evidence. No new purchase count, age,
+  uplift percentage or calibration floor is introduced. Confirmed fatigue
+  without decay alone does not refuse Scale. Calibration-only held verdicts
+  require these same economic prerequisites.
+- All funnel stages are evaluated before choosing the existing primary-stage
+  order (upper, landing, checkout). Parallel evidence is retained. CPM above
+  account P75 is auction pressure, not proof of creative responsibility, and
+  cannot hide a downstream bottleneck. A diagnostic signal is not proof of a
+  site defect; the native copy says investigate rather than fix.
+- The lifecycle writer records unassessed tracking score as NULL, not zero.
+  The existing column is nullable. Account pulse reports unknown for no score
+  or a low score from this narrow source; absence of a detected anomaly does
+  not establish working tracking. Elevated recorded scores retain warnings.
+- Break-even and historical winner/profit guarantees are removed where no
+  evidence establishes them. E1 is a frequency-pressure review. F4 is a decline
+  versus baseline. Historical bid bands use the provider currency offset and
+  describe historical CPA, including Turkish text. Unknown currencies refuse
+  a money band. Geo input order no longer defines the leaders, and spend alone
+  cannot promote a loss leader into the mature split.
+
+Policy disposition: the proposed universal three-purchase / 14-day / 15–20%
+scale rules and blanket recent-ROAS-above-break-even Cut veto are NOT adopted.
+Counterexamples establish inconsistency or uncertainty, not superior delayed
+outcomes. C5 still demonstrates the old canonical/expanded recovery boundary;
+changing it needs point-in-time, basket-value and delayed-outcome evidence.
+This residual policy question is explicit, not declared repaired. Existing
+stop-loss, 20/30 calibration, purchase-proof and execution safeguards remain.
+
+Validation: bounded before/after pure-core replay has nine selected cases
+(eight synthetic/control, one retained live input). Three primary labels change;
+C7 separately loses its false held Refresh. This is not a live population or
+performance estimate. Current golden decisions remain unchanged. Prior-epoch
+fixtures and current frozen acceptance pass independently. Rollback is this
+phase's code revert; retained rows keep their producer keys.
+
+
+D126 rollout acceptance (Claude phase4 R1): the new epoch intentionally does not
+reuse old-epoch hysteresis memory. The first new run starts confirmation again;
+manual advice can be withheld as `hysteresis_pending` until confirmed. Old rows
+must remain visible as prior-epoch review evidence during this transition, never
+as current execution authority. Phase5 must verify the real confirmation timing,
+continuity, and explicit re-confirmation copy before release.

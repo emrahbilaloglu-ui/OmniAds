@@ -2431,3 +2431,37 @@ describe("the canonical unit gates Scale on the real builder", () => {
     ).toBeUndefined();
   });
 });
+
+
+describe("D126 latent recommendation correctness", () => {
+  it.each(["USD", "JPY", "HUF"])("renders historical CPA in %s major units without a 100x multiplier", (currency) => {
+    const row = campaign({ currency, spend: 1000, purchases: 20, revenue: 3000, roas: 3 });
+    const result = buildMetaRecommendations({ windows: { selected: [row], previousSelected: [], last3: [row], last7: [row], last14: [row], last30: [row], last90: [row], allHistory: [row] }, breakdowns });
+    const rec = result.recommendations.find(r => r.type === "bid_band_from_history");
+    expect(rec?.defensiveBidBand).toMatch(/45/);
+    expect(rec?.defensiveBidBand).toMatch(/55/);
+    expect(rec?.defensiveBidBand).not.toMatch(/4,?500|5,?500/);
+    expect(rec?.recommendedAction).toContain("not a profitability guarantee");
+  });
+  it("does not invent a provider currency offset", () => {
+    const row = campaign({ currency: "XYZ" });
+    const result = buildMetaRecommendations({ windows: { selected: [row], previousSelected: [], last3: [row], last7: [row], last14: [row], last30: [row], last90: [row], allHistory: [row] }, breakdowns });
+    const rec = result.recommendations.find(r => r.type === "bid_band_from_history");
+    expect(rec?.defensiveBidBand).toBeFalsy();
+  });
+  it("sorts geo evidence by spend without promoting a loss leader or overlapping clusters", () => {
+    const rows = [
+      { key: "loss", label: "Loss leader", spend: 7000, purchases: 1, revenue: 70, clicks: 0, impressions: 0 },
+      { key: "win", label: "Measured winner", spend: 3000, purchases: 50, revenue: 9000, clicks: 0, impressions: 0 },
+      ...[1, 2, 3].map(n => ({ key: `thin${n}`, label: `Thin ${n}`, spend: 1000, purchases: 1, revenue: 10, clicks: 0, impressions: 0 })),
+    ];
+    const run = (location: typeof rows) => buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({ windows: { selected: [campaign({})], previousSelected: [], last3: [], last7: [], last14: [], last30: [], last90: [], allHistory: [] }, breakdowns: { ...breakdowns, location }, creativeIntelligence }).recommendations.find(r => r.type === "geo_cluster_for_signal_density");
+    const rec = run(rows);
+    expect(rec).toBeTruthy();
+    expect(rec?.scalingGeoCluster).toEqual(["Measured winner"]);
+    expect(rec?.matureGeoSplit).toEqual([]);
+    expect(rec?.testingGeoCluster).toContain("Loss leader");
+    expect(rec?.recommendedAction).not.toContain("Keep Loss leader");
+    expect(run([...rows].reverse())).toEqual(rec);
+  });
+});

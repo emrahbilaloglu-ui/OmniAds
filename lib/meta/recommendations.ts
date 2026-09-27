@@ -6,7 +6,7 @@ import {
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { AppLanguage } from "@/lib/i18n";
 import { formatMoney } from "@/components/creatives/money";
-import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
+import { metaMinorUnitsToMajor, resolveMetaCurrencyOffset } from "@/lib/currency/meta-currency-offsets";
 import type {
   MetaCalibrationScopeResult,
   MetaCalibrationThresholds,
@@ -748,13 +748,13 @@ function localizeMetaRecommendation(recommendation: MetaRecommendation, language
       return {
         ...recommendation,
         decision: "Tek nokta tahmini yerine tarihsel verimlilik bantlarını kullan",
-        title: "Tarihsel bid bantları daha güvenli bir çalışma alanı veriyor",
+        title: "Tarihsel CPA bantları bid incelemesi için referans verir",
         why: "Bid kararlarını tek bir son datapointe göre değil, çoklu pencere AOV ve ROAS bantlarına göre almak daha sağlıklı olur.",
         summary: defensiveBidBand
           ? `Defansif bid bandi ${defensiveBidBand}${scaleBidBand ? `, scaling bandi ise ${scaleBidBand}` : ""}.`
           : `Önerilen ROAS çalışma bandi ${roasBand}.`,
         recommendedAction: defensiveBidBand
-          ? `${defensiveBidBand} bandini karlılık korumasi için, ${scaleBidBand ?? defensiveBidBand} bandini ise daha agresif scaling için referans alin.`
+          ? `${defensiveBidBand} tarihsel CPA referansıdır; kârlılık garantisi değildir. ${scaleBidBand ?? defensiveBidBand} bandını ancak güncel verimlilik ve maliyetler doğrulandığında scaling incelemesinde kullanın.`
           : `${roasBand ?? "Mevcut ROAS bandini"} çalışan hedef band olarak kullanin ve gerçek ROAS buna göre ayarlansin.`,
         expectedImpact: "Bid değişikliklerinde daha istikrarli bir akıs ve kisa vadeli oynakliga daha az asiri tepki.",
         evidence: localizedEvidence,
@@ -1584,7 +1584,7 @@ function maybeGeoClusterRecommendation(
     ...row,
     roas: row.spend > 0 ? row.revenue / row.spend : 0,
     spendShare: row.spend / totalSpend,
-  }));
+  })).sort((a, b) => b.spend - a.spend || a.key.localeCompare(b.key));
   const avgRoas = average(enrichedRows.map((row) => row.roas).filter((value) => value > 0));
   const topTwo = enrichedRows.slice(0, 2);
   const topTwoShare = topTwo.reduce((sum, row) => sum + row.spend, 0) / totalSpend;
@@ -1592,7 +1592,7 @@ function maybeGeoClusterRecommendation(
     (row) => row.purchases >= 5 && row.roas >= Math.max(avgRoas * 0.9, 1.6)
   );
   const thinSignalRows = enrichedRows.filter(
-    (row) => row.purchases < 3 || (row.spendShare < 0.12 && row.roas < Math.max(avgRoas * 0.75, 1.2))
+    (row) => !matureRows.includes(row) && (row.purchases < 3 || (row.spendShare < 0.12 && row.roas < Math.max(avgRoas * 0.75, 1.2)))
   );
   const thinSignalSpend = thinSignalRows.reduce((sum, row) => sum + row.spend, 0);
   const thinSignalShare = thinSignalSpend / totalSpend;
@@ -1603,7 +1603,7 @@ function maybeGeoClusterRecommendation(
   const pooledCountries = thinSignalRows.length;
   const scalingGeoCluster = matureRows.slice(0, 3).map((row) => row.label);
   const testingGeoCluster = thinSignalRows.slice(0, 5).map((row) => row.label);
-  const matureGeoSplit = topTwoShare >= 0.6 ? topTwo.map((row) => row.label) : [];
+  const matureGeoSplit = topTwoShare >= 0.6 && topTwo.every(row => matureRows.includes(row)) ? topTwo.map((row) => row.label) : [];
   const familyCreativeSummary =
     structureSnapshot ? creativeIntelligence?.byFamily[structureSnapshot.family] ?? null : null;
   const scalingCreatives = familyCreativeSummary?.scalingReadyNames?.slice(0, 3) ?? [];
@@ -1615,14 +1615,14 @@ function maybeGeoClusterRecommendation(
     type: "geo_cluster_for_signal_density",
     lens: "structure",
     priority: "high",
-    confidence: topTwoShare >= 0.6 ? "high" : "medium",
+    confidence: matureGeoSplit.length > 0 ? "high" : "medium",
     decisionState: "act",
     decision: "Cluster weak-signal countries instead of fragmenting them",
     title: "Geo signal is too thin across secondary markets",
     why: "Country-level signal is fragmented. Too many markets are spending without enough conversion depth to justify isolated scaling learning.",
     summary: `${pooledCountries} countries are still below meaningful conversion depth while ${matureRows.length > 0 ? `${matureRows.length} mature market${matureRows.length === 1 ? "" : "s"} already show cleaner purchase economics` : "top markets already absorb most spend"}.`,
     recommendedAction:
-      topTwoShare >= 0.6
+      matureGeoSplit.length > 0
         ? `Keep ${strongestCountry}${topTwo[1] ? ` and ${topTwo[1].label}` : ""} as mature ${familyLabel} scaling geos${scalingCreatives.length > 0 ? ` for creatives like ${scalingCreatives.join(", ")}` : ""}, and pool ${testingGeoCluster.join(", ")} into one shared TEST geo cluster${testCreatives.length > 0 ? ` for exploratory creatives like ${testCreatives.join(", ")}` : ""}.`
         : `Group low-volume countries like ${testingGeoCluster.join(", ")} into a clustered ${familyLabel} TEST geo until conversion signal is denser${scalingGeoCluster.length > 0 ? `, then keep stronger geos like ${scalingGeoCluster.join(", ")} in scaling` : ""}.`,
     expectedImpact: "Stronger learning density, fewer under-informed geo decisions, and cleaner creative validation in smaller markets.",
@@ -2291,12 +2291,14 @@ function accountDisjointSegments(input: MetaRecommendationWindows) {
   });
 }
 
-function historicalBidCandidates(input: MetaRecommendationWindows) {
+function historicalBidCandidates(input: MetaRecommendationWindows, currency: string | null | undefined) {
+  const offset = resolveMetaCurrencyOffset(currency);
+  if (offset.status !== "resolved") return [];
   return accountDisjointSegments(input)
     .map((segment) => {
       if (segment.roas <= 0 || segment.purchases <= 0) return null;
       const aov = segment.revenue / segment.purchases;
-      return (aov / segment.roas) * 100;
+      return (aov / segment.roas) * offset.offset;
     })
     .filter(
       (value): value is number =>
@@ -2325,8 +2327,8 @@ function historicalRoasRange(input: MetaRecommendationWindows) {
   };
 }
 
-function historicalBidRange(input: MetaRecommendationWindows) {
-  const candidates = historicalBidCandidates(input).map((value) => Math.round(value));
+function historicalBidRange(input: MetaRecommendationWindows, currency: string | null | undefined) {
+  const candidates = historicalBidCandidates(input, currency).map((value) => Math.round(value));
   if (candidates.length === 0) return null;
 
   if (candidates.length === 1) {
@@ -2718,13 +2720,13 @@ function maybeBidBandRecommendation(
     confidence: "medium",
     decisionState: "act",
     decision: "Use historical efficiency bands instead of single-point bid guesses",
-    title: "Historical bid bands define the safer operating zone",
+    title: "Historical CPA bands provide a bid review reference",
     why: "Bid decisions are more stable when they are anchored to independent historical AOV and ROAS segments rather than repeated cumulative snapshots.",
     summary: defensiveBand
       ? `Defensive bid band is ${defensiveBand}${scaleBand ? ` and scale bid band is ${scaleBand}` : ""}.`
       : `Suggested Target ROAS operating band is ${roasBand}.`,
     recommendedAction: defensiveBand
-      ? `Use ${defensiveBand} as the profitability-protecting band and ${scaleBand ?? defensiveBand} as the more aggressive scale band when demand and efficiency justify it.`
+      ? `Use ${defensiveBand} as a historical CPA reference, not a profitability guarantee, and ${scaleBand ?? defensiveBand} as the more aggressive scale band when demand and efficiency justify it.`
       : `Use ${roasBand} as the working ROAS target band, then tighten or loosen based on whether actual ROAS holds above it.`,
     expectedImpact: "More consistent bidding changes and fewer overreactions to short-term volatility.",
     evidence: [
@@ -3641,7 +3643,7 @@ function buildMetaRecommendationsInternal(
   const accountLevelContextSafe =
     new Set(selectedRows.map(accountCurrencyScopeKey)).size === 1;
   const suggestedBidRange = accountLevelContextSafe
-    ? historicalBidRange(purchaseWindows)
+    ? historicalBidRange(purchaseWindows, selectedRows[0]?.currency)
     : null;
   const suggestedRoasRange = accountLevelContextSafe
     ? historicalRoasRange(purchaseWindows)
@@ -3744,7 +3746,7 @@ function buildMetaRecommendationsInternal(
       purchaseWindows,
       campaignWindow.selected,
     );
-    const peerSuggestedBidRange = historicalBidRange(peerWindowSet);
+    const peerSuggestedBidRange = historicalBidRange(peerWindowSet, campaignWindow.selected.currency);
     const peerSuggestedRoasRange = historicalRoasRange(peerWindowSet);
     const calibrationContext =
       input.calibrationContextByCampaignId?.[campaignWindow.selected.id] ??

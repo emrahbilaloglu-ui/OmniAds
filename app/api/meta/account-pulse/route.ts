@@ -356,14 +356,15 @@ async function readTrackingHealth(
   if (rowCount <= 0) {
     return { status: "unknown" as const, detail: "Recent creative lifecycle tracking data is unavailable." };
   }
-  const score = toNumber(row?.tracking_anomaly_score);
+  if (row?.tracking_anomaly_score == null) return { status: "unknown" as const, detail: "Tracking health was not assessed by the lifecycle source. Reconcile store events and provider measurements before judging tracking." };
+  const score = toNumber(row.tracking_anomaly_score);
   if (score >= 0.7) {
     return { status: "blocked" as const, detail: "Tracking anomaly score is elevated." };
   }
   if (score >= 0.35) {
     return { status: "degraded" as const, detail: "Tracking signal is watchlisted." };
   }
-  return { status: "healthy" as const, detail: "Tracking signal is stable." };
+  return { status: "unknown" as const, detail: "No elevated lifecycle anomaly was recorded; this narrow source does not establish tracking health." };
 }
 
 async function readRoasHistory(input: {

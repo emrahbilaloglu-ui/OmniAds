@@ -285,6 +285,7 @@ export function computeFunnelDiagnosis(input: {
 
   const insufficientEvidence: string[] = [];
   const upperEvidence: string[] = [];
+  const auctionEvidence: string[] = [];
   const upperChecks = [
     checkStageWeak({
       label: "CTR",
@@ -317,8 +318,8 @@ export function computeFunnelDiagnosis(input: {
     creative.cpm > baseline.cpmP75 &&
     upperConfidence >= 0.5
   ) {
-    upperEvidence.push(
-      `CPM ${creative.cpm.toFixed(2)} above account P75 ${baseline.cpmP75.toFixed(
+    auctionEvidence.push(
+      `Auction pressure: CPM ${creative.cpm.toFixed(2)} above account P75 ${baseline.cpmP75.toFixed(
         2,
       )}`,
     );
@@ -330,18 +331,6 @@ export function computeFunnelDiagnosis(input: {
     upperEvidence.push("engagement rate ranking below average");
   }
 
-  if (upperEvidence.length > 0) {
-    return {
-      primaryWeakStage: "upper_funnel",
-      creativeResponsible: true,
-      confidence: confidence({
-        denominatorConfidence: upperConfidence,
-        evidenceCount: upperEvidence.length,
-      }),
-      evidence: upperEvidence,
-      rates,
-    };
-  }
 
   const landingEvidence: string[] = [];
   const landingChecks = [
@@ -377,18 +366,6 @@ export function computeFunnelDiagnosis(input: {
     }
   }
 
-  if (landingEvidence.length > 0) {
-    return {
-      primaryWeakStage: "landing_page",
-      creativeResponsible: false,
-      confidence: confidence({
-        denominatorConfidence: Math.max(clickConfidence, lpvConfidence),
-        evidenceCount: landingEvidence.length,
-      }),
-      evidence: landingEvidence,
-      rates,
-    };
-  }
 
   const checkoutEvidence: string[] = [];
   const checkoutChecks = [
@@ -416,6 +393,34 @@ export function computeFunnelDiagnosis(input: {
     }
   }
 
+  // Preserve established primary-stage precedence, but evaluate all stages first.
+  // Auction price alone never grants creative responsibility.
+  if (upperEvidence.length > 0) {
+    return {
+      primaryWeakStage: "upper_funnel",
+      creativeResponsible: true,
+      confidence: confidence({
+        denominatorConfidence: upperConfidence,
+        evidenceCount: upperEvidence.length,
+      }),
+      evidence: [...upperEvidence, ...landingEvidence.map(e => `Parallel landing signal: ${e}`), ...checkoutEvidence.map(e => `Parallel checkout signal: ${e}`), ...auctionEvidence],
+      rates,
+    };
+  }
+
+  if (landingEvidence.length > 0) {
+    return {
+      primaryWeakStage: "landing_page",
+      creativeResponsible: false,
+      confidence: confidence({
+        denominatorConfidence: Math.max(clickConfidence, lpvConfidence),
+        evidenceCount: landingEvidence.length,
+      }),
+      evidence: [...landingEvidence, ...checkoutEvidence.map(e => `Parallel checkout signal: ${e}`), ...auctionEvidence],
+      rates,
+    };
+  }
+
   if (checkoutEvidence.length > 0) {
     return {
       primaryWeakStage: "checkout",
@@ -424,7 +429,7 @@ export function computeFunnelDiagnosis(input: {
         denominatorConfidence: Math.max(atcConfidence, icConfidence),
         evidenceCount: checkoutEvidence.length,
       }),
-      evidence: checkoutEvidence,
+      evidence: [...checkoutEvidence, ...landingEvidence.map(e => `Parallel landing signal: ${e}`), ...upperEvidence.map(e => `Parallel upper-funnel signal: ${e}`), ...auctionEvidence],
       rates,
     };
   }
@@ -446,7 +451,7 @@ export function computeFunnelDiagnosis(input: {
     primaryWeakStage: "none",
     creativeResponsible: false,
     confidence: 1,
-    evidence: ["funnel rates are not below account weak thresholds"],
+    evidence: ["funnel rates are not below account weak thresholds", ...auctionEvidence],
     rates,
   };
 }

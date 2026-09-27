@@ -2765,7 +2765,7 @@ function normalizeSiteOwnedAdDecision(
     label: siteOwnedIssue ? "keep" : decision.label,
     preAuthorityLabel: siteOwnedIssue ? "keep" : decision.preAuthorityLabel,
     reason: siteOwnedIssue
-      ? `[Keep Ad; fix ${siteOwnedIssue.type === "landing_page_issue" ? "landing page" : "checkout"}] ${decision.reason}`
+      ? `[Keep Ad; investigate ${siteOwnedIssue.type === "landing_page_issue" ? "landing page" : "checkout"}] ${decision.reason}`
       : decision.reason,
   };
 }

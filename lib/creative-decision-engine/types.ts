@@ -77,10 +77,10 @@ import type {
   difference does — and window-true period labels in the reason text.
 */
 /** D109 creative purchase evidence and D111 proved Cut floor share this epoch. */
-export const ENGINE_VERSION = "v3-2026-09-24-creative-purchase-cut-proof";
+export const ENGINE_VERSION = "v3-2026-09-27-buyer-evidence-repair";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-09-24-cut-proof-floor-story-shadow";
+  "v3-ad-2026-09-27-buyer-evidence-repair-shadow";
 
 /**
  * Whether a HELD hard verdict stands on its own economics, or whether it needs

@@ -3299,6 +3299,35 @@ describe("Meta Decisions workspace canonical read model", () => {
     };
   }
 
+  it("retains complete historical evidence when the latest successful job lacks this account manifest, without authority", async () => {
+    const rows = [nativeSnapshot("120000000000000901")];
+    const latest = failedLatestNativeJob({ job_status: "success" });
+    const query = workspaceReadQuery({
+      generationRows: [latest, nativeGenerationForRows(rows, { selection: "last_success" })],
+      nativeRows: rows, campaignContextRows: [campaignContextDbRow()],
+      entityRoleDeclarationRows: [adsetDeclarationDbRow()],
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+    const input = { businessId: "biz_1", providerAccountId: "act_1", generatedAt: "2026-07-13T12:00:00Z" };
+    const strict = await readValidatedMetaNativeDecisionGenerationBundle(input);
+    expect(strict).toMatchObject({ status: "unavailable", unavailableReason: "native_account_manifest_incomplete" });
+    const model = await readMetaDecisionsWorkspaceReadModel(input);
+    expect(model.source).toMatchObject({ authority: "native_ad", status: "unavailable",
+      degraded: { reason: "native_latest_account_manifest_incomplete_serving_last_successful_generation",
+        latestTerminalRun: { jobRunId: latest.job_run_id, status: "success" } } });
+    const items = model.queue.adCandidates?.items ?? [];
+    expect(items).toHaveLength(1);
+    expect(items[0]?.sourceAuthority).toMatchObject({ actionEligible: false, authorizedAction: null,
+      executionReadiness: "decision_not_authorized" });
+    expect(items[0]?.manualCutAdvisory ?? null).toBeNull();
+    // The same exception cannot launder duplicate latest receipts.
+    vi.mocked(db.getDb).mockReturnValue({ query: workspaceReadQuery({
+      generationRows: [latest, latest, nativeGenerationForRows(rows, { selection: "last_success" })], nativeRows: rows,
+    }) } as never);
+    expect((await readMetaDecisionsWorkspaceReadModel(input)).source).toMatchObject({
+      fallbackReason: "native_account_receipt_cardinality_invalid" });
+  });
+
   it("serves the last successful exact-Ad generation, marked and read-only, when the latest native job failed", async () => {
     const rows = [
       nativeSnapshot("120000000000000901"),

@@ -12,6 +12,7 @@ import {
 
 import { CreativeStudioExact } from "./CreativeStudioExact";
 import studioStyles from "./CreativeStudioExact.module.css";
+import { retainedDecisionGenerationFromInventory } from "./creative-studio-exact-types";
 import type {
   CreativeAssetMetricId,
   CreativeStudioAssetRow,
@@ -188,6 +189,21 @@ afterEach(() => {
 });
 
 describe("CreativeStudioExact canonical shared anatomy", () => {
+  it.each([
+    ["native_latest_account_manifest_incomplete_serving_last_successful_generation", "did not verify a complete generation"],
+    ["native_engine_update_reconfirmation_pending", "prior-engine"],
+  ] as const)("renders %s as historical review without inventing a failed run", (reason, text) => {
+    const inventory = { status: "degraded", generation: { jobRunId: "old", asOfDate: "2026-09-26" },
+      degradation: { reason, servedGeneration: { jobRunId: "old", asOfDate: "2026-09-26" },
+        latestTerminalRun: { status: "success", asOfDate: "2026-09-27" } } };
+    const retained = retainedDecisionGenerationFromInventory(inventory);
+    expect(retained?.reason).toBe(reason);
+    renderStudio("assets", { assets: assetsModel({ decisionReadState: "degraded", decisionRetainedGeneration: retained }) });
+    expect(screen.getByText((_, element) => element?.getAttribute("data-creative-decision-availability") === "degraded")?.textContent).toContain(text);
+    expect(document.body.textContent).not.toContain("run (as of 2026-09-27) failed");
+    expect(retainedDecisionGenerationFromInventory({ ...inventory, generation: { jobRunId: "other", asOfDate: "2026-09-26" } })).toBeNull();
+  });
+
   it("shows the served decision segment and never leaves a legacy status blank", () => {
     const served = {
       ...asset("asset-served", "Served decision", 100, 2),

@@ -110,6 +110,7 @@ function renderPage(
         start,
         end,
         "creative",
+        ...(new URLSearchParams(navigation.search).get("creativeId") ? [new URLSearchParams(navigation.search).get("creativeId")] : []),
       ],
       { ...(input.creativeEnvelope ?? {}), rows: input.creativeApiRows },
     );
@@ -932,5 +933,22 @@ describe("Creative Studio Assets: what a row shows about its image and its verdi
       "Broad · Main · Ad ad_1",
       "Broad · Main · Ad ad_2",
     ]);
+  });
+});
+
+
+describe("Creative Studio exact creative URL scope", () => {
+  it("shows only the requested creative in the authorized account and keeps a clear-filter link", () => {
+    navigation.search = "providerAccountId=act_1&creativeId=creative_1&start=2026-09-01&end=2026-09-07";
+    const html = renderPage({ businessId: "biz_1", providerAccounts: [{ id: "act_1", timezone: "UTC" }],
+      creativeApiRows: [
+        { id: "creative_1", creative_id: "creative_1", account_id: "act_1", name: "Requested creative" },
+        { id: "creative_2", creative_id: "creative_2", account_id: "act_1", name: "Other creative" },
+        { id: "foreign", creative_id: "creative_1", account_id: "act_other", name: "Foreign creative" },
+      ] });
+    expect(html).toContain("Requested creative");
+    expect(html).not.toContain("Other creative");
+    expect(html).not.toContain("Foreign creative");
+    expect(html).toContain('href="/platforms/meta/creatives?providerAccountId=act_1&amp;start=2026-09-01&amp;end=2026-09-07"');
   });
 });

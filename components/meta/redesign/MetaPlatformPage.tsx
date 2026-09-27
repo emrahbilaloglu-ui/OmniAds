@@ -3113,6 +3113,7 @@ export function creativeEvidenceStudioHref(input: {
   businessId: string;
   canonical: MetaCanonicalDecision | null;
   decision: MetaOsAdDecision | null;
+  window?: { start: string; end: string };
 }): string | null {
   const businessId = input.businessId.trim();
   const providerAccountId =
@@ -3126,6 +3127,10 @@ export function creativeEvidenceStudioHref(input: {
     input.decision?.creativeId?.trim() ||
     null;
   if (creativeId) params.set("creativeId", creativeId);
+  if (input.window) {
+    params.set("start", input.window.start);
+    params.set("end", input.window.end);
+  }
   return `/c/${encodeURIComponent(businessId)}/creative/performance?${params.toString()}`;
 }
 
@@ -5640,7 +5645,11 @@ export function MetaPlatformPage({
     if (!canLoadMoreCreatives) return;
     changeCreativePage(nextPage ? adCandidateOffset + adCandidateLimit : adCandidateOffset, nextAdCandidateLimit);
   };
-  const creativePageLabel = `Showing ${servedCreativeCount ? adCandidateOffset + 1 : 0}–${adCandidateOffset + servedCreativeCount} of ${eligibleCreativeCount} eligible ads`;
+  // During pagination React Query retains the preceding page. Its rows must
+  // keep that page's offset until the next response actually arrives.
+  const servedCreativeOffset = workspaceQuery.isPlaceholderData && pendingAdCandidateRaise
+    ? pendingAdCandidateRaise.fromOffset : pageReceipt?.offset ?? adCandidateOffset;
+  const creativePageLabel = `Showing ${servedCreativeCount ? servedCreativeOffset + 1 : 0}–${servedCreativeOffset + servedCreativeCount} of ${eligibleCreativeCount} eligible ads${workspaceQuery.isPlaceholderData && pendingAdCandidateRaise ? " · Loading requested page…" : ""}`;
   const nextCreativePageLabel = nextPage ? "Next decision page" : `Show more decisions · up to ${nextAdCandidateLimit}`;
   const previousCreativePage = adCandidateOffset > 0
     ? () => changeCreativePage(Math.max(0, adCandidateOffset - META_DECISIONS_AD_CANDIDATE_MAX_LIMIT), META_DECISIONS_AD_CANDIDATE_MAX_LIMIT)
@@ -6875,6 +6884,7 @@ export function MetaPlatformPage({
                   businessId,
                   canonical: creativeDrill.canonical,
                   decision: creativeDrill.decision,
+                  window: selectedDateRange,
                 }),
                 adsManager: buildMetaAdsManagerHref({
                   providerAccountId:

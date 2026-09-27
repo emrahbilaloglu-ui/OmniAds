@@ -1214,24 +1214,13 @@ WITH calibration_scope AS MATERIALIZED (
     AND d.updated_at <= $5::timestamptz
 ),
   ${CALIBRATION_CAMPAIGN_CONFIG.withSql},
-  ${CALIBRATION_ADSET_CONFIG.withSql}
-SELECT
-  d.id::text AS source_row_id,
-  d.business_ref_id::text AS business_id,
-  d.provider_account_ref_id::text AS provider_account_ref_id,
-  d.provider_account_id,
-  d.date::text AS date,
-  d.campaign_id,
-  d.adset_id,
-  d.ad_id,
-  NULLIF(BTRIM(d.account_timezone), '') AS account_timezone,
-  COALESCE(
-    NULLIF(BTRIM(d.account_currency), ''),
-    NULLIF(BTRIM(account.currency), '')
-  ) AS account_currency,
-  NULLIF(BTRIM(d.account_timezone), '') AS source_account_timezone,
-  NULLIF(BTRIM(d.account_currency), '') AS source_account_currency,
-  d.metric_schema_version,
+  ${CALIBRATION_ADSET_CONFIG.withSql},
+calibration_context AS MATERIALIZED (
+  -- Config receipts depend on account/campaign/adset/day/timezone, never on
+  -- Ad identity or metrics. Resolve their coherence and digest once at that
+  -- exact grain instead of repeating the same JSON proof for every Ad-day.
+  SELECT d.provider_account_id, d.campaign_id, d.adset_id, d.date,
+    d.account_timezone,
   /* Source-qualified, as-of the computation cutoff. A field with no admissible
      receipt is NULL here rather than a derived warehouse value. */
   ${CALIBRATION_CAMPAIGN_CONFIG.valueSql("objective")} AS objective,
@@ -1262,7 +1251,43 @@ SELECT
   encode(sha256(convert_to(${configReceiptManifestLineSql({
     dateSql: "d.date",
     refSql: CALIBRATION_CONFIG_EVIDENCE_REF,
-  })}, 'UTF8')), 'hex') AS config_receipt_digest,
+  })}, 'UTF8')), 'hex') AS config_receipt_digest
+  FROM calibration_scope d
+  ${CALIBRATION_CAMPAIGN_CONFIG.lateralSql}${CALIBRATION_ADSET_CONFIG.lateralSql}${CALIBRATION_CONFIG_EVIDENCE_LATERAL_SQL}
+)
+SELECT
+  d.id::text AS source_row_id,
+  d.business_ref_id::text AS business_id,
+  d.provider_account_ref_id::text AS provider_account_ref_id,
+  d.provider_account_id,
+  d.date::text AS date,
+  d.campaign_id,
+  d.adset_id,
+  d.ad_id,
+  NULLIF(BTRIM(d.account_timezone), '') AS account_timezone,
+  COALESCE(
+    NULLIF(BTRIM(d.account_currency), ''),
+    NULLIF(BTRIM(account.currency), '')
+  ) AS account_currency,
+  NULLIF(BTRIM(d.account_timezone), '') AS source_account_timezone,
+  NULLIF(BTRIM(d.account_currency), '') AS source_account_currency,
+  d.metric_schema_version,
+  context.objective,
+  context.optimization_goal,
+  context.custom_event_type,
+  context.objective_tier,
+  context.objective_readiness,
+  context.objective_source_class,
+  context.objective_pit_class,
+  context.objective_restated,
+  context.optimization_goal_tier,
+  context.optimization_goal_readiness,
+  context.optimization_goal_source_class,
+  context.custom_event_type_tier,
+  context.custom_event_type_readiness,
+  context.custom_conversion_id,
+  context.custom_conversion_id_readiness,
+  context.config_receipt_digest,
   d.spend,
   d.impressions,
   d.clicks,
@@ -1345,8 +1370,14 @@ LEFT JOIN meta_adset_daily adset
  AND adset.date = d.date
  AND adset.created_at <= $5::timestamptz
  AND adset.updated_at <= $5::timestamptz
-${CALIBRATION_CAMPAIGN_CONFIG.lateralSql}${CALIBRATION_ADSET_CONFIG.lateralSql}${CALIBRATION_CONFIG_EVIDENCE_LATERAL_SQL}
+LEFT JOIN calibration_context context
+  ON context.provider_account_id = d.provider_account_id
+ AND context.campaign_id IS NOT DISTINCT FROM d.campaign_id
+ AND context.adset_id IS NOT DISTINCT FROM d.adset_id
+ AND context.date = d.date
+ AND context.account_timezone IS NOT DISTINCT FROM NULLIF(BTRIM(d.account_timezone), '')
 WHERE d.business_ref_id = $1::uuid
+  AND d.business_id = $1::text
   AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
   AND d.provider_account_ref_id = $3::uuid
   AND d.provider_account_id = $4

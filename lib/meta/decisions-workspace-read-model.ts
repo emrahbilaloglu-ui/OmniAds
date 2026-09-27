@@ -100,6 +100,9 @@ const NATIVE_DECISION_READ_TIMEOUT_MS = 20_000;
 export const NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION = "v3-ad-2026-09-24-cut-proof-floor-story-shadow";
 export const NATIVE_ENGINE_UPDATE_REASON = "native_engine_update_reconfirmation_pending" as const;
 
+export const NATIVE_DECISION_INCOMPLETE_FALLBACK_REASON =
+  "native_latest_account_manifest_incomplete_serving_last_successful_generation" as const;
+
 export const NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON =
   META_DECISION_SOURCE_DEGRADED_REASON;
 
@@ -3712,8 +3715,8 @@ function stripNativeSourceDegradedDecisionAuthority(
     authority.actionEligible = false;
     authority.authorizedAction = null;
     if (!authority.reviewOnlyReason) {
-      authority.reviewOnlyReason =
-        NATIVE_DECISION_LAST_SUCCESS_REVIEW_ONLY_REASON;
+      authority.reviewOnlyReason = degradation.reason === NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON
+        ? NATIVE_DECISION_LAST_SUCCESS_REVIEW_ONLY_REASON : degradation.reason;
     }
     // Matches what the builder and the request-time governance hydrator both
     // produce for an ineligible decision, so the served value does not change
@@ -4099,7 +4102,8 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
        facts must come from one MVCC snapshot: a success landing between two
        separate reads would let the reader serve last-success rows while the
        marker already said the latest run was fine, or the reverse. Here the
-       CTE is empty the instant the latest run is a success, so the SQL's
+       CTE is empty the instant the latest run is a success with a complete
+       receipt for this account, so the SQL's
        return to latest-native is atomic. (The SERVED SURFACE can still lag it
        by the route's cache window -- see the read model's cache note.)
 
@@ -4129,7 +4133,24 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
       SELECT candidate.*
       FROM effective_runs candidate
       CROSS JOIN latest_effective_terminal_job latest
-      WHERE (latest.effective_status <> 'success' OR ($8::boolean AND latest.engine_version <> $5))
+      WHERE (latest.effective_status <> 'success' OR ($8::boolean AND (
+        latest.engine_version <> $5 OR NOT EXISTS (
+          -- Keep in sync with resolveNativeGenerationReceipt below. Numeric
+          -- spelling guards intentionally fail closed; the real-PG reader
+          -- continuity seam covers this predicate and the strict TS path.
+          SELECT 1 FROM jsonb_array_elements(
+            COALESCE(latest.error_json->'metadata'->'hydration_receipts', '[]'::jsonb)
+          ) current_receipt
+          WHERE current_receipt->>'provider_account_id' = $2
+            AND COALESCE(current_receipt->>'provider_account_ref_id', '') <> ''
+            AND current_receipt->>'expected_ad_count' ~ '^[0-9]+$'
+            AND current_receipt->>'hydrated_ad_count' ~ '^[0-9]+$'
+            AND current_receipt->>'hydrated_ad_count' = current_receipt->>'expected_ad_count'
+            AND current_receipt->>'expected_manifest_hash' ~ '^[0-9a-f]{64}$'
+            AND current_receipt->>'hydrated_manifest_hash' = current_receipt->>'expected_manifest_hash'
+            AND current_receipt->>'authoritative_for_prune' = 'true'
+        )
+      )))
         AND candidate.effective_status = 'success'
         AND (candidate.engine_version = $5 OR ($8::boolean AND candidate.engine_version = $9))
         AND (candidate.as_of_date, candidate.started_at, candidate.id)
@@ -4205,7 +4226,7 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
  * business/account/scope. It is evidence, never authority: the caller must mark
  * it and strip every action from it.
  *
- * The `latestTerminal*` fields identify the run that FAILED, so the newest fact
+ * The `latestTerminal*` fields identify the run that cannot serve this account, so the newest fact
  * is never lost on the way through the reader. They are not internal any more:
  * `markNativeReadModelSourceDegraded` copies them, together with the served
  * generation's own id and as-of day, into the served `source.degraded` block
@@ -4213,7 +4234,7 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
  * consumer can name both halves of a degraded window without inferring either.
  */
 export interface MetaNativeDecisionSourceDegradation {
-  reason: typeof NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON | typeof NATIVE_ENGINE_UPDATE_REASON;
+  reason: typeof NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON | typeof NATIVE_ENGINE_UPDATE_REASON | typeof NATIVE_DECISION_INCOMPLETE_FALLBACK_REASON;
   generation: MetaNativeDecisionGeneration;
   latestTerminalJobRunId: string;
   latestTerminalJobStatus: string;
@@ -4230,7 +4251,8 @@ type NativeGenerationReceiptResolution =
  * candidate so the fallback can never clear a bar the authoritative path would
  * not clear: same epoch test, same account-scope test, same complete-manifest
  * test. The ONLY difference between the two is what the caller may do with the
- * result.
+ * result. @see READ_NATIVE_DECISION_GENERATION_QUERY current_receipt and
+ * candidate receipt predicates; SQL may withhold candidates, never authority.
  */
 function resolveNativeGenerationReceipt(
   row: MetaNativeDecisionGenerationSourceRow,
@@ -4366,13 +4388,14 @@ async function readNativeGeneration(input: {
       degradation: null,
     };
   }
-  // Serving the last good decision is offered ONLY for a failed latest run.
-  // A skipped run, a foreign epoch, or an incomplete manifest on the latest run
-  // are different faults with different repairs, and none of them is the outage
-  // this fallback exists for.
+  // A business-level success can still lack this account's complete receipt.
+  // Explicit review-only consumers may show an independently validated older
+  // generation; the incomplete latest run never gains authority. Ambiguous
+  // latest receipts, skipped runs and arbitrary foreign epochs stay refused.
   const degradation =
     input.allowLastSuccessfulGenerationFallback === true &&
-    (row.job_status === "failed" || row.engine_version === NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION)
+    (row.job_status === "failed" || row.engine_version === NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION ||
+      (row.job_status === "success" && latest.reason === "native_account_manifest_incomplete"))
       ? lastSuccessfulGenerationDegradation({
           row,
           allowPriorEpoch: true,
@@ -4479,7 +4502,10 @@ function lastSuccessfulGenerationDegradation(input: {
       continue;
     }
     return {
-      reason: resolved.generation.reviewOnlyEngineVersion ? NATIVE_ENGINE_UPDATE_REASON : NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON,
+      reason: input.row.job_status === "success" && input.row.engine_version === NATIVE_AD_ENGINE_VERSION
+        ? NATIVE_DECISION_INCOMPLETE_FALLBACK_REASON
+        : resolved.generation.reviewOnlyEngineVersion ? NATIVE_ENGINE_UPDATE_REASON
+          : NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON,
       generation: resolved.generation,
       latestTerminalJobRunId: input.row.job_run_id,
       latestTerminalJobStatus: input.row.job_status,

@@ -26,6 +26,7 @@ import { toISODate } from "@/lib/meta/creatives-row-mappers";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import {
   applyMetaExecutionGovernanceToCanonicalDecisions,
+  NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION,
   readMetaNativeCanonicalDecisionInventory,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { readEffectiveMetaWriteGovernance } from "@/lib/meta/automation-control-plane";
@@ -498,7 +499,11 @@ function canonicalNativeDecisionCreativeScopeId(
  * reader's own authoritative reason for that run, so a consumer that ignores
  * the retained rows still hears exactly what an unavailable read would say.
  */
-const RETAINED_GENERATION_LATEST_FAULT = "native_latest_job_failed";
+function retainedGenerationLatestFault(degradation: MetaDecisionSourceDegradation): string {
+  if (degradation.latestTerminalRun.status === "failed") return "native_latest_job_failed";
+  return degradation.reason === "native_latest_account_manifest_incomplete_serving_last_successful_generation"
+    ? "native_account_manifest_incomplete" : "native_latest_job_engine_mismatch";
+}
 
 /**
  * D102. A retained generation is served only when the reader already stripped
@@ -508,21 +513,27 @@ const RETAINED_GENERATION_LATEST_FAULT = "native_latest_job_failed";
  * served partly executable.
  */
 function retainedGenerationIsReadOnly(input: {
-  generation: { jobRunId: string; asOfDate: string };
+  generation: { jobRunId: string; asOfDate: string; reviewOnlyEngineVersion?: string };
   items: readonly MetaCanonicalDecision[];
   degradation: MetaDecisionSourceDegradation;
 }): boolean {
+  const latest = input.degradation.latestTerminalRun;
+  const distinctRun = latest.jobRunId !== input.generation.jobRunId;
+  const allowedCause =
+    (input.degradation.reason === META_DECISION_SOURCE_DEGRADED_REASON && latest.status === "failed" && distinctRun) ||
+    (input.degradation.reason === "native_latest_account_manifest_incomplete_serving_last_successful_generation" && latest.status === "success" && distinctRun) ||
+    (input.degradation.reason === "native_engine_update_reconfirmation_pending" &&
+      ["success", "failed"].includes(latest.status) &&
+      input.generation.reviewOnlyEngineVersion === NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION);
   return (
-    input.degradation.reason === META_DECISION_SOURCE_DEGRADED_REASON &&
-    input.degradation.latestTerminalRun.status === "failed" &&
-    input.degradation.latestTerminalRun.jobRunId !==
-      input.generation.jobRunId &&
+    allowedCause &&
     input.degradation.servedGeneration.jobRunId === input.generation.jobRunId &&
     input.degradation.servedGeneration.asOfDate === input.generation.asOfDate &&
     input.items.every(
       (decision) =>
         decision.sourceAuthority?.actionEligible === false &&
-        decision.sourceAuthority.authorizedAction === null,
+        decision.sourceAuthority.authorizedAction === null &&
+        decision.manualCutAdvisory == null,
     )
   );
 }
@@ -869,8 +880,8 @@ export async function GET(request: NextRequest) {
   if (canonicalInventory.status === "unavailable") {
     return unavailableResponse(canonicalInventory.unavailableReason);
   }
-  // D102: the latest native run failed and this is the retained same-epoch
-  // generation. It is shown read-only, or not at all.
+  // Retained decisions are shown only after both their typed cause and
+  // stripped authority are verified at this API boundary.
   const sourceDegradation = canonicalInventory.sourceDegradation ?? null;
   if (
     sourceDegradation &&
@@ -884,8 +895,12 @@ export async function GET(request: NextRequest) {
     return unavailableResponse("native_retained_generation_not_read_only");
   }
   const retainedGenerationDetail = sourceDegradation
-    ? `The latest native decision run (as of ${sourceDegradation.latestTerminalRun.asOfDate}) failed. ` +
-      `Showing the last successful generation (as of ${sourceDegradation.servedGeneration.asOfDate}) read-only; none of these decisions can be executed.`
+    ? (sourceDegradation.latestTerminalRun.status === "failed"
+        ? `The latest native decision run (as of ${sourceDegradation.latestTerminalRun.asOfDate}) failed. `
+        : sourceDegradation.reason === "native_latest_account_manifest_incomplete_serving_last_successful_generation"
+          ? `The latest run (${sourceDegradation.latestTerminalRun.asOfDate}) did not verify a complete generation for this account. `
+          : "Fresh confirmation under the current engine is pending. ") +
+      `Showing the ${canonicalInventory.generation.reviewOnlyEngineVersion ? "prior-engine " : ""}last successful generation (as of ${sourceDegradation.servedGeneration.asOfDate}) read-only; none of these decisions can be executed.`
     : null;
 
   const creativeRowsByAdId = buildExactAdRowMap(creativeRows);
@@ -1033,7 +1048,7 @@ export async function GET(request: NextRequest) {
         ...(demoBusiness
           ? ["demo_synthetic_review_only_authority"]
           : sourceDegradation
-            ? [sourceDegradation.reason, RETAINED_GENERATION_LATEST_FAULT]
+            ? [sourceDegradation.reason, retainedGenerationLatestFault(sourceDegradation)]
             : ["native_ad_generation_authority"]),
         "request_time_profile_and_data_health_not_serving_authority",
         ...(pendingDecisionInputCount > 0
@@ -1105,7 +1120,7 @@ export async function GET(request: NextRequest) {
         contractVersion: BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
         status: sourceDegradation ? "degraded" : "available",
         unavailableReason: sourceDegradation
-          ? RETAINED_GENERATION_LATEST_FAULT
+          ? retainedGenerationLatestFault(sourceDegradation)
           : null,
         generation: {
           jobRunId: canonicalInventory.generation.jobRunId,
@@ -1114,6 +1129,7 @@ export async function GET(request: NextRequest) {
             canonicalInventory.generation.providerAccountRefId,
           manifestHash: canonicalInventory.generation.manifestHash,
           expectedAdCount: canonicalInventory.generation.expectedAdCount,
+          ...(canonicalInventory.generation.reviewOnlyEngineVersion ? { reviewOnlyEngineVersion: canonicalInventory.generation.reviewOnlyEngineVersion } : {}),
           authorityStatus: demoBusiness
             ? "demo_synthetic_review_only"
             : "native_exact",

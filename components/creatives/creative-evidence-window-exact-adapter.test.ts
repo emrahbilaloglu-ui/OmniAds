@@ -1158,6 +1158,18 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     );
   });
 
+  it.each([
+    ["native_latest_account_manifest_incomplete_serving_last_successful_generation", "did not verify a complete generation"],
+    ["native_engine_update_reconfirmation_pending", "prior-engine decisions are for review only"],
+  ])("explains retained review reason %s in buyer language", (reason, copy) => {
+    const model = buildCreativeEvidenceWindowExactViewModel({
+      decision: decisionFixture(),
+      canonical: { ...canonical, sourceAuthority: { ...canonical.sourceAuthority!, reviewOnlyReason: reason } },
+    });
+    expect(value(model.authority, "review-only-reason")).toContain(copy);
+    expect(value(model.authority, "review-only-reason")).not.toContain("native_");
+  });
+
   it("names an independently confirmed Test ad set as the source of the served role", () => {
     const model = buildCreativeEvidenceWindowExactViewModel({
       decision: decisionFixture({

@@ -1,3 +1,5 @@
+import type { MetaDecisionSourceDegradedReason } from "@/lib/meta/decisions-workspace-contract";
+
 export const CREATIVE_STUDIO_TABS = [
   "assets",
   "copies",
@@ -239,6 +241,9 @@ export interface CreativeStudioRetainedDecisionGeneration {
   servedAsOfDate: string;
   /** The day of the latest run, which failed and produced nothing shown. */
   failedRunAsOfDate: string;
+  /** Absent on older failed-run payloads. The legacy date key names the latest run. */
+  reason?: MetaDecisionSourceDegradedReason;
+  priorEngineVersion?: string;
 }
 
 /**
@@ -255,10 +260,12 @@ export function retainedDecisionGenerationFromInventory(
     | {
         status?: string | null;
         generation?: {
+          reviewOnlyEngineVersion?: string;
           jobRunId?: string | null;
           asOfDate?: string | null;
         } | null;
         degradation?: {
+          reason?: MetaDecisionSourceDegradedReason;
           servedGeneration?: {
             jobRunId?: string | null;
             asOfDate?: string | null;
@@ -278,17 +285,22 @@ export function retainedDecisionGenerationFromInventory(
   const servedAsOfDate = served?.asOfDate?.trim() ?? "";
   const failedRunAsOfDate = latest?.asOfDate?.trim() ?? "";
   const servedJobRunId = served?.jobRunId?.trim() ?? "";
+  const reason = inventory.degradation?.reason;
+  const latestStatusValid = latest?.status === "failed" || (latest?.status === "success" &&
+    (reason === "native_engine_update_reconfirmation_pending" ||
+     reason === "native_latest_account_manifest_incomplete_serving_last_successful_generation"));
   if (
     !servedAsOfDate ||
     !failedRunAsOfDate ||
     !servedJobRunId ||
-    latest?.status !== "failed" ||
+    !latestStatusValid ||
     servedJobRunId !== inventory.generation?.jobRunId?.trim() ||
     servedAsOfDate !== inventory.generation?.asOfDate?.trim()
   ) {
     return null;
   }
-  return { servedAsOfDate, failedRunAsOfDate };
+  return { servedAsOfDate, failedRunAsOfDate, ...(reason ? { reason } : {}),
+    ...(inventory.generation?.reviewOnlyEngineVersion ? { priorEngineVersion: inventory.generation.reviewOnlyEngineVersion } : {}) };
 }
 
 /**

@@ -330,12 +330,12 @@ function failedRun(): MetaNativeDecisionGenerationSourceRow {
 
 function mockNativeDb(
   generationRows: MetaNativeDecisionGenerationSourceRow[],
-  options: { adsetRoleDeclared?: boolean } = {},
+  options: { adsetRoleDeclared?: boolean; engineVersion?: string } = {},
 ) {
   const query = vi.fn(async (sql: string, params?: unknown[]) => {
     if (sql.includes("WITH candidate_runs AS")) return generationRows;
     if (sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot")) {
-      return RETAINED_ROWS;
+      return options.engineVersion ? RETAINED_ROWS.map((row) => ({ ...row, engine_version: options.engineVersion })) : RETAINED_ROWS;
     }
     if (sql.includes("to_regclass('meta_entity_role_declarations')")) {
       return [{ table_name: "meta_entity_role_declarations" }];
@@ -457,7 +457,7 @@ function renderStudio() {
 async function readThroughStudio(
   generationRows: MetaNativeDecisionGenerationSourceRow[],
   tamper?: (payload: CreativesBriefingResponse) => void,
-  options?: { adsetRoleDeclared?: boolean },
+  options?: { adsetRoleDeclared?: boolean; engineVersion?: string },
 ) {
   mockNativeDb(generationRows, options);
   queryState.creatives = {
@@ -628,6 +628,23 @@ afterEach(() => {
 });
 
 describe("Creative Studio — retained generation after a failed latest run (D3/D102)", () => {
+  it.each(["incomplete", "prior_engine", "incomplete_prior_engine"] as const)("serves %s through the real briefing API into the rendered Studio without authority", async (cause) => {
+    const prior = "v3-ad-2026-09-24-cut-proof-floor-story-shadow";
+    const usesPrior = cause !== "incomplete";
+    const retained = successfulRun({ engine_version: usesPrior ? prior : NATIVE_AD_ENGINE_VERSION,
+      selection: cause === "prior_engine" ? "latest" : "last_success" });
+    const generations = cause === "prior_engine" ? [retained] : [{ ...failedRun(), job_status: "success" }, retained];
+    const { served } = await readThroughStudio(generations, undefined, usesPrior ? { engineVersion: prior } : undefined);
+    expect(served.source?.canonicalDecisionInventory?.status).toBe("degraded");
+    expect(served.actionNow).toHaveLength(0);
+    const notice = document.querySelector("[data-creative-decision-availability='degraded']")?.textContent;
+    expect(notice).toContain(cause === "prior_engine" ? "fresh confirmation" : "did not verify a complete generation");
+    if (usesPrior) expect(notice).toContain("prior-engine");
+    expect(notice).not.toContain("failed");
+    expect(served.source?.canonicalDecisionInventory?.unavailableReason).toBe(cause === "prior_engine" ? "native_latest_job_engine_mismatch" : "native_account_manifest_incomplete");
+    expect(statusByName()[CUT_NAME]).toBeDefined();
+  });
+
   it("CONTROL: the same generation as the latest success is current and named as of its own day", async () => {
     const { served } = await readThroughStudio([successfulRun()]);
 

@@ -239,6 +239,7 @@ export interface BriefingCanonicalInventorySource {
     providerAccountRefId: string;
     manifestHash: string;
     expectedAdCount: number;
+    reviewOnlyEngineVersion?: string;
     authorityStatus?: "native_exact" | "demo_synthetic_review_only";
   } | null;
   itemCount: number;

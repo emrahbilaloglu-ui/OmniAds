@@ -472,7 +472,7 @@ function readRetainedDecisionGeneration(
   const servedAsOfDate = value?.servedAsOfDate?.trim() ?? "";
   const failedRunAsOfDate = value?.failedRunAsOfDate?.trim() ?? "";
   return servedAsOfDate && failedRunAsOfDate
-    ? { servedAsOfDate, failedRunAsOfDate }
+    ? { servedAsOfDate, failedRunAsOfDate, ...(value?.reason ? { reason: value.reason } : {}), ...(value?.priorEngineVersion ? { priorEngineVersion: value.priorEngineVersion } : {}) }
     : null;
 }
 
@@ -485,6 +485,8 @@ function retainedDecisionGenerationSentence(
   generation: CreativeStudioRetainedDecisionGeneration,
   noun: "recommendation" | "decision",
 ): string {
+  if (generation.reason === "native_engine_update_reconfirmation_pending") return `Showing the prior-engine ${noun}s from ${generation.servedAsOfDate} for review. Hard actions and manual advice require fresh confirmation under the new engine.`;
+  if (generation.reason === "native_latest_account_manifest_incomplete_serving_last_successful_generation") return `The latest ${noun} run (${generation.failedRunAsOfDate}) did not verify a complete generation for this account. Showing ${generation.priorEngineVersion ? "prior-engine decisions from " : ""}${generation.servedAsOfDate} for review only; hard actions and manual advice remain unavailable.`;
   return (
     `The latest ${noun} run (as of ${generation.failedRunAsOfDate}) failed. ` +
     `These ${noun}s are from the last successful run (as of ` +

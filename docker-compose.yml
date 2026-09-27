@@ -97,8 +97,7 @@ services:
       test:
         - CMD-SHELL
         - >
-          node --import tsx scripts/sync-worker-healthcheck.ts --provider-scope meta --online-window-minutes 5 --min-online-workers 1 &&
-          node --import tsx scripts/sync-worker-healthcheck.ts --provider-scope google_ads --online-window-minutes 5 --min-online-workers 1
+          node --import tsx scripts/sync-worker-healthcheck.ts --provider-scope all --online-window-minutes 5 --min-online-workers 1 --compact
       interval: 30s
       timeout: 10s
       retries: 5
@@ -123,6 +122,9 @@ services:
   # Restarts any container that Docker reports as "unhealthy". The worker's own
   # restart policy (unless-stopped) only fires when the process EXITS, so a hung
   # worker that never exits is invisible to it — this sidecar closes that gap.
+  # Container liveness uses the process heartbeat. Provider-specific progress
+  # stays separately visible: sequential long Meta work must not restart the
+  # process merely because the next Google batch has not run yet.
   # The worker healthcheck has retries: 5 at a 30s interval, so Docker only marks
   # it unhealthy after ~150s of failures, which debounces transient blips.
   autoheal:

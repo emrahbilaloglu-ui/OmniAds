@@ -608,6 +608,11 @@ export async function runDurableWorkerRuntime(
     "WORKER_CYCLE_KEEPALIVE_INTERVAL_MS",
     150_000,
   );
+  // A timer proves event-loop liveness, not useful work. Keepalive can bridge
+  // a long cycle, but never hide a stuck await indefinitely. This bound is
+  // independent of heartbeats from other concurrent business cycles.
+  const cycleMaxMs = envNumber("WORKER_CYCLE_MAX_MS", 15 * 60_000);
+  const activeCycles = new Map<symbol, { startedAt: number; providerScope: string; businessId: string }>();
   const globalDbConcurrency = envNumber("WORKER_GLOBAL_DB_CONCURRENCY", 4);
   const partitionTickLimit = envNumber("WORKER_PARTITION_TICK_LIMIT", 1);
   const pruneIntervalMs = envNumber(
@@ -667,6 +672,8 @@ export async function runDurableWorkerRuntime(
   const lastConsumeBusinessFallbackAtByKey = new Map<string, number>();
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
+  const pendingHeartbeats = new Set<Promise<unknown>>();
+  let shutdownInFlight: Promise<void> | null = null;
   // Staged-idle lifecycle. Declared with the rest of the runtime state because
   // the ONE shutdown handler below has to be able to stop the refresh before it
   // writes `stopping`; a second handler registered later cannot, and that is
@@ -695,11 +702,12 @@ export async function runDurableWorkerRuntime(
     metaJson?: Record<string, unknown>;
     force?: boolean;
   }) {
+    // A late cycle/timer must not resurrect an outgoing worker after SIGTERM.
+    if (shuttingDown && input.status !== "stopping" && input.status !== "stopped") return;
     const now = Date.now();
     if (!input.force && now - lastHeartbeatAt < heartbeatIntervalMs) return;
-    lastHeartbeatAt = now;
     registeredScopes.add(input.providerScope);
-    await heartbeatSyncWorker({
+    const write = heartbeatSyncWorker({
       workerId: buildProviderHeartbeatWorkerId(workerId, input.providerScope),
       instanceType: "durable_sync_worker",
       providerScope: input.providerScope,
@@ -711,56 +719,56 @@ export async function runDurableWorkerRuntime(
         dbRuntime: getDbRuntimeDiagnostics(),
       },
     });
+    pendingHeartbeats.add(write);
+    try {
+      await write;
+      // Failed writes are not liveness evidence for the stall watchdog.
+      lastHeartbeatAt = Date.now();
+    } finally {
+      pendingHeartbeats.delete(write);
+    }
   }
 
   /**
-   * Keeps a scope's heartbeat fresh WHILE one business cycle is running.
-   *
-   * The health gate asks whether each provider scope has heartbeat inside a
-   * five-minute window, and the cycle only heartbeats at its boundaries. A cycle
-   * that legitimately runs longer than the window therefore looks dead while it
-   * is working, and autoheal restarts a worker that was never unwell - killing
-   * the in-flight work and starting the same cycle again.
-   *
-   * Measured across 2026-08-08T11:01Z..2026-08-09T20:08Z: 50 autoheal restarts,
-   * roughly one every 40 minutes, with no crash and no error in the worker log -
-   * fence admissions ran normally right up to each one. The probe itself was not
-   * the problem either: it completes in 0.5s against a 10s timeout at host load
-   * 0.83. The scope ages told the real story - meta 49s and shopify 54s, but
-   * google_ads 207s and `all` 250s against a 300s limit, so any longer Google
-   * cycle crossed it.
-   *
-   * Meta already solved this INSIDE its fetch loop (startMetaFetchHeartbeat).
-   * This is the same idea one level up, so it covers every provider scope rather
-   * than only the one that happened to be measured.
-   *
-   * `force` is required: the ordinary throttle would suppress exactly the ticks
-   * that matter here. The interval is half the online window, so a scope stays
-   * fresh even if one write is lost, and the timer is unref'd and always cleared
-   * in a finally so it can neither hold the process open nor outlive its cycle.
+   * A long provider cycle proves that THIS process is alive, not that another
+   * provider has progressed. Refresh the process row and the active scope;
+   * preserve the other scopes' real clocks for readiness/lag diagnostics.
+   * Container autoheal uses process liveness; deployment capability gates
+   * continue to inspect each provider separately.
    */
   function withCycleKeepalive<T>(
     providerScope: string,
     businessId: string,
     run: () => Promise<T>,
   ): Promise<T> {
+    const cycleKey = Symbol("worker-cycle");
+    const startedAt = Date.now();
+    activeCycles.set(cycleKey, { startedAt, providerScope, businessId });
+    let refreshing = false;
     const timer = setInterval(() => {
-      void heartbeat({
-        providerScope,
-        status: "running",
-        lastBusinessId: businessId,
-        metaJson: {
-          workerBuildId,
-          workerStartedAt,
-          providerScope,
-          currentBusinessId: businessId,
-          cycleKeepalive: true,
-        },
-        force: true,
-      }).catch(() => null);
+      if (shuttingDown || refreshing || Date.now() - startedAt >= cycleMaxMs) return;
+      refreshing = true;
+      const metaJson = {
+        workerBuildId,
+        workerStartedAt,
+        activeProviderScope: providerScope,
+        currentBusinessId: businessId,
+        cycleKeepalive: true,
+        cycleStartedAt: new Date(startedAt).toISOString(),
+        cycleMaxMs,
+      };
+      void Promise.all([
+        heartbeat({ providerScope, status: "running", lastBusinessId: businessId,
+          metaJson: { ...metaJson, providerScope }, force: true }),
+        heartbeat({ providerScope: "all", status: "running", lastBusinessId: businessId,
+          metaJson, force: true }),
+      ]).catch(() => null).finally(() => { refreshing = false; });
     }, WORKER_CYCLE_KEEPALIVE_INTERVAL_MS);
     timer.unref?.();
-    return run().finally(() => clearInterval(timer));
+    return Promise.resolve().then(run).finally(() => {
+      clearInterval(timer);
+      activeCycles.delete(cycleKey);
+    });
   }
 
   // ONE shutdown, and it runs at most once.
@@ -801,6 +809,7 @@ export async function runDurableWorkerRuntime(
     if (stagingRefreshInFlight) {
       await stagingRefreshInFlight.catch(() => null);
     }
+    await Promise.allSettled([...pendingHeartbeats]);
     // `all` last: it is the canonical row the deploy gate reads, so it is the
     // one whose write should be the final word on this worker.
     const retiring = [
@@ -817,8 +826,9 @@ export async function runDurableWorkerRuntime(
     resolveStagingIdle?.();
   };
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  const handleShutdown = () => { shutdownInFlight ??= shutdown(); };
+  process.on("SIGINT", handleShutdown);
+  process.on("SIGTERM", handleShutdown);
 
   // Admission BEFORE the first heartbeat DB write.
   //
@@ -1024,7 +1034,19 @@ export async function runDurableWorkerRuntime(
   // container restart policy. Per-request fetch timeouts should make this rarely
   // fire — it is the catch-all backstop for any future unguarded await.
   const stallWatchdog = setInterval(() => {
-    if (shuttingDown || lastHeartbeatAt === 0) return;
+    if (shuttingDown) return;
+    const expiredCycle = [...activeCycles.values()].find(
+      (cycle) => Date.now() - cycle.startedAt >= cycleMaxMs,
+    );
+    if (expiredCycle) {
+      console.error("[durable-worker] cycle_deadline_self_exit", {
+        workerId, ...expiredCycle, cycleMaxMs,
+        elapsedMs: Date.now() - expiredCycle.startedAt,
+      });
+      process.exit(1);
+      return;
+    }
+    if (lastHeartbeatAt === 0) return;
     const sinceHeartbeatMs = Date.now() - lastHeartbeatAt;
     if (sinceHeartbeatMs > stallExitMs) {
       console.error("[durable-worker] tick_stalled_self_exit", {
@@ -1096,19 +1118,6 @@ export async function runDurableWorkerRuntime(
         });
     }
 
-    await heartbeat({
-      providerScope: "all",
-      status: "idle",
-      metaJson: {
-        workerBuildId,
-        workerStartedAt,
-        tickStartedAt: new Date().toISOString(),
-        adapters: options.adapters.map((adapter) => adapter.providerScope),
-        globalDbConcurrency,
-      },
-      force: true,
-    }).catch(() => null);
-
     const prioritizedBusinessIds = Array.from(
       new Set(
         options.adapters.flatMap((adapter) =>
@@ -1139,6 +1148,19 @@ export async function runDurableWorkerRuntime(
       continue;
     }
     const businesses = businessRead.businesses;
+    await heartbeat({
+      providerScope: "all",
+      status: "idle",
+      metaJson: {
+        workerBuildId,
+        workerStartedAt,
+        tickStartedAt: new Date().toISOString(),
+        adapters: options.adapters.map((adapter) => adapter.providerScope),
+        globalDbConcurrency,
+      },
+      force: true,
+    }).catch(() => null);
+
     for (const business of businesses) {
       discoveredBusinesses.add(business.id);
     }
@@ -1188,8 +1210,10 @@ export async function runDurableWorkerRuntime(
       adapter,
       businesses: businessBatch,
     } of buildProviderRoundRobinBusinessBatches(providerBusinessPlans)) {
+      if (shuttingDown) break;
       await Promise.all(
         businessBatch.map(async (business) => {
+          if (shuttingDown) return;
           const batchBusinessIds = businessBatch.map((entry) => entry.id);
           const consumeStartedAt = new Date().toISOString();
           await heartbeat({
@@ -1440,6 +1464,7 @@ export async function runDurableWorkerRuntime(
                   leaseGuard,
                 }),
             );
+            if (shuttingDown) return;
             let result: unknown = null;
             let executionMode: "lifecycle_tick" | "consume_business_fallback" =
               "lifecycle_tick";
@@ -1685,6 +1710,9 @@ export async function runDurableWorkerRuntime(
   }
 
   clearInterval(stallWatchdog);
+  if (shutdownInFlight) await shutdownInFlight;
+  process.removeListener("SIGINT", handleShutdown);
+  process.removeListener("SIGTERM", handleShutdown);
   await heartbeat({
     providerScope: "all",
     status: "stopped",

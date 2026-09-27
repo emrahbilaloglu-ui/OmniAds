@@ -400,6 +400,24 @@ describe("MetaCreativeInboxPage exact integration", () => {
     expect(card).not.toContain('data-inbox-fact="Action"');
   });
 
+  it.each([
+    ["native_latest_account_manifest_incomplete_serving_last_successful_generation", "latest run did not verify a complete generation"],
+    ["native_engine_update_reconfirmation_pending", "prior-engine decisions require fresh confirmation"],
+  ])("keeps a card-level explanation for %s", (reviewOnlyReason, text) => {
+    queryState.inbox = inboxData([scopedCard("watching", {
+      id: "retained-cut", creativeId: "retained-cut", rawLabel: "cut", decisionCenterRow: null,
+      canonicalDecision: {
+        classification: { decisionState: "blocked", buyerAction: "cut", buyerLabel: "Cut", heldAction: null },
+        sourceDecision: { label: "cut", reason: "Retained evidence." },
+        sourceAuthority: { actionEligible: false, authorizedAction: null, executionReadiness: "decision_not_authorized", reviewOnlyReason },
+      },
+      primary: { kind: "review", label: "Review retained decision" },
+    })]);
+    const html = renderToStaticMarkup(<MetaCreativeInboxPage businessId="biz_1" providerAccountId="act_1" />);
+    expect(html).toContain(text);
+    expect(html).not.toContain("latest decision run failed");
+  });
+
   it("puts canonical held Cuts first inside Watching without moving or reclassifying them", () => {
     const heldCut = (id: string, rawLabel = "cut") =>
       scopedCard("watching", {

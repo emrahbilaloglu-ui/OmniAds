@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { currentHierarchyStatuses } from "@/lib/meta/current-ad-delivery-status";
-import { readManualCutAdvisory, type MetaManualCutAdvisory } from "./manual-cut-advisory";
+import { readManualCutAdvisory, readManualCutRefusal, type MetaManualCutRefusal, type MetaManualCutAdvisory } from "./manual-cut-advisory";
 import { CREATIVE_DECISION_CENTER_ADAPTER_VERSION } from "@/lib/creative-decision-center/adapter";
 import { CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION } from "@/lib/creative-decision-center/v3-bridge";
 import { HARD_ACTION_HOLD_CONFIDENCE_CAP, STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
@@ -20,7 +20,7 @@ import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/d
 import {
   evaluateDecisionOriginAdDecisionFreshness,
 } from "@/lib/creative-decision-engine/execution-safety";
-import { getDb, getDbWithTimeout } from "@/lib/db";
+import { getDb, getDbWithTimeout, type DbClient } from "@/lib/db";
 import {
   CAMPAIGN_CONTEXT_MAX_AGE_DAYS,
   isCampaignContextResolverAuthorityValidated,
@@ -249,6 +249,7 @@ export interface MetaDecisionSnapshotSourceRow {
    */
   config_authority_verified?: boolean | null;
   manual_cut_advisory?: MetaManualCutAdvisory | null;
+  manual_cut_refusal?: MetaManualCutRefusal | null;
 }
 
 export interface MetaNativeDecisionSnapshotSourceRow {
@@ -329,6 +330,7 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   config_evidence_lineage?: Record<string, unknown> | null;
   /** Structured, hash-bound manual recommendation; never inferred from a badge. */
   manual_cut_advisory?: unknown;
+  manual_cut_refusal?: unknown;
   purchase_intent_window?: unknown;
   /** Native evaluation's hashed creativeInput.decisionWindow; display only. */
   decision_window?: unknown;
@@ -1943,6 +1945,7 @@ function buildCanonicalDecision(input: {
       identityGrain: "creative",
       sourceSnapshotId: input.snapshot.snapshot_id,
       manualCutAdvisory: input.snapshot.manual_cut_advisory ?? null,
+      manualCutRefusal: input.snapshot.manual_cut_refusal ?? null,
       sourceAuthority: {
         status: "legacy_review_only",
         actionEligible: false,
@@ -3037,6 +3040,8 @@ function nativeSnapshotToInternalSnapshot(
     predicate_blockers: row.predicate_blockers,
     config_authority_verified: verifiedForPresentation,
     manual_cut_advisory: manualCutAdvisory,
+    manual_cut_refusal: !manualCutAdvisory && row.blocked_action_type === "cut" && row.authority_blocker === "config_source_authority"
+      ? readManualCutRefusal(row.manual_cut_refusal, Boolean(row.manual_cut_advisory)) : null,
   };
 }
 
@@ -3630,6 +3635,22 @@ function stripNativeSourceDegradedDecisionAuthority(
   degradation: MetaNativeDecisionSourceDegradation,
 ): MetaDecisionSourceDegradation {
   for (const decision of decisions) {
+    // The proof remains in its immutable evaluation; a retained generation
+    // cannot offer a fresh manual invitation on any surface.
+    if (decision.manualCutAdvisory) {
+      decision.manualCutAdvisory = null;
+      decision.manualCutRefusal = {
+        code: "proof_unverified",
+        detail: "The latest decision run failed. This retained recommendation is historical evidence; wait for a fresh verified decision before acting.",
+      };
+      if (decision.classification.resolution?.code === "apply_purchase_cut_manually") {
+        decision.classification.resolution = {
+          code: "refresh_decision_data", category: "data", owner: "integration",
+          label: "Refresh Decision", nextStep: decision.manualCutRefusal.detail,
+        };
+      }
+    }
+
     decision.sourceDecision.confidence = Math.min(
       decision.sourceDecision.confidence,
       STALE_CONFIDENCE_CAP,
@@ -4399,13 +4420,13 @@ function lastSuccessfulGenerationDegradation(input: {
   return null;
 }
 
-async function readNativeSnapshotRows(input: {
+export async function readNativeSnapshotRows(input: {
   businessId: string;
   providerAccountId: string;
   generation: BuildNativeMetaDecisionsWorkspaceReadModelInput["generation"];
   creativeIds?: readonly string[];
   adIds?: readonly string[];
-}) {
+}, db: Pick<DbClient, "query"> = getDbWithTimeout(NATIVE_DECISION_READ_TIMEOUT_MS)) {
   const creativeIds = [...new Set(input.creativeIds ?? [])]
     .map((value) => value.trim())
     .filter(Boolean)
@@ -4414,9 +4435,7 @@ async function readNativeSnapshotRows(input: {
     .map((value) => value.trim())
     .filter(Boolean)
     .sort();
-  return getDbWithTimeout(
-    NATIVE_DECISION_READ_TIMEOUT_MS,
-  ).query<MetaNativeDecisionSnapshotSourceRow>(
+  return db.query<MetaNativeDecisionSnapshotSourceRow>(
     `
     /* ACCOUNT CURRENCY -- ONE PASS OVER THE ACCOUNT, NOT ONE SEEK PER AD.
 
@@ -4598,6 +4617,7 @@ async function readNativeSnapshotRows(input: {
         )
       END AS config_authority_verified,
       input_evidence.input_evidence_json #> '{configEvidence,manualCutAdvisory}' AS manual_cut_advisory,
+      input_evidence.input_evidence_json #>> '{configEvidence,manualCutAdvisoryRefusal}' AS manual_cut_refusal,
       input_evidence.input_evidence_json #> '{configEvidence,purchaseIntentWindow}' AS purchase_intent_window,
       /* The receipts the verdict rests on, served READ-ONLY for the inspector:
          current-day ConfigFieldEvidenceRef per field and the economic window's

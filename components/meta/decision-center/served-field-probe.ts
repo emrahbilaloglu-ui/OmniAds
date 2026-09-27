@@ -434,6 +434,8 @@ const UNION_REPRESENTATIVE: Record<string, string> = {
 };
 
 const OVERRIDES: Record<string, { base: unknown; alt: unknown }> = {
+
+  "MetaManualCutRefusal.code": { base: "stressed_cut_not_confirmed", alt: "peer_free_cut_not_confirmed" },
   // The page now validates the workspace envelope against its read-model scope
   // before rendering decisions. Keep the probe's baseline business identity
   // coherent; mutating either leaf alone still proves the fail-closed gate.

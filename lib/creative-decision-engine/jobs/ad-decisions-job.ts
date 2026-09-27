@@ -893,6 +893,7 @@ export async function runAdDecisionsJob(
             const advisory = buildNativeManualCutAdvisory(computation, input.asOf, evaluatedAt);
             return buildAdCanonicalEvaluationProvenance({
               manualCutAdvisory: advisory.status === "advised" ? advisory.proof : null,
+              manualCutAdvisoryRefusal: advisory.status === "refused" ? advisory.refusal : null,
               identity: {
                 providerAccountRefId: computation.input.providerAccountRefId,
                 providerAccountId: computation.input.providerAccountId,

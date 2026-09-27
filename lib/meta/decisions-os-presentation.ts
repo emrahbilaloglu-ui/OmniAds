@@ -1,3 +1,4 @@
+import { manualCutAdviceForReview } from "./manual-cut-advisory";
 import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import {
   META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
@@ -360,6 +361,14 @@ function guardStructureRecommendationForCurrentTargets(
   const blocker = targetAuthorityBlocker(rec, eligibility);
   if (!blocker) return { rec, blocked: false as const };
   const presentation = targetAuthorityPresentation(blocker);
+  const readinessBlocker = blocker.code === "commercial_anchor_missing" &&
+    blocker.missingInputs.includes("meta_attributed_purchase_sample") &&
+    !blocker.missingInputs.includes("target_roas")
+    ? "meta_purchase_evidence_missing" as const
+    : blocker.code === "scale_calibration_below_floor" ||
+      blocker.code === "commercial_anchor_sample_insufficient" ||
+      blocker.code === "commercial_anchor_provenance_unverified"
+      ? blocker.code : "missing_commercial_anchor" as const;
   const automationReadiness = rec.automationReadiness
     ? {
         ...rec.automationReadiness,
@@ -368,8 +377,9 @@ function guardStructureRecommendationForCurrentTargets(
         operatorReviewRequired: true,
         blockers: Array.from(
           new Set([
-            ...rec.automationReadiness.blockers,
-            "missing_commercial_anchor" as const,
+            ...rec.automationReadiness.blockers.filter((code) =>
+              code !== "missing_commercial_anchor" || readinessBlocker === "missing_commercial_anchor"),
+            readinessBlocker,
           ]),
         ),
         missingEvidence: Array.from(
@@ -1299,7 +1309,7 @@ export function adAction(
       decision.classification.heldAction === "cut" &&
       (resolution?.code === "apply_cut_manually" ||
         (resolution?.code === "apply_purchase_cut_manually" &&
-          decision.manualCutAdvisory?.advised === true));
+          manualCutAdviceForReview(decision) !== null));
 
     return {
       lane: isRoleHeldCut ? "act" : "blocked",
@@ -1796,7 +1806,10 @@ function adDecision(
       spend: decision.metrics.spend,
       purchases: decision.metrics.purchases,
       roas: decision.metrics.roas,
-      cpa: null,
+      cpa: typeof decision.metrics.spend === "number" && Number.isFinite(decision.metrics.spend) &&
+        typeof decision.metrics.purchases === "number" && Number.isFinite(decision.metrics.purchases) &&
+        decision.metrics.purchases > 0
+        ? decision.metrics.spend / decision.metrics.purchases : null,
       // Native Ad rows carry the evaluation's admitted-window metrics; legacy
       // creative rows retain their lifecycle figures. The read model keeps the
       // populations separate before this presentation pass-through.

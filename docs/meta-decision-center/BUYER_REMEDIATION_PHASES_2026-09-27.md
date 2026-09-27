@@ -55,5 +55,6 @@ readback and rollback to be ready; no piecemeal release.
   Review SHA256: 98b22563bb75b54112848348e87226a3bffd65111215e3f04f0a53685fde9ed6.
   Open release concerns: safe repeat-write reduction, fresh capacity evidence,
   actual production business-switch readback, integrated checks.
-- Phase 2: in progress.
+- Phase 2: code reviewed APPROVE by Claude (r3). Recorded refusals round-trip through real PostgreSQL; v19 missing reasons stay unknown. Focused 579, compatibility 151, held-copy 147 passed; served-field census 36 passed before final narrow copy correction. Typecheck and changed-file lint passed. Final full gate remains phase 5.
+  Review SHA256: 4687e69d1cdcf31f42db5a0e70872608a4a14d5d2840c6576250e3fc35ab30dc.
 - Phases 3–5: pending.

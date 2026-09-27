@@ -150,6 +150,33 @@ describe("GET /api/meta/account-pulse", () => {
     mockSql({ targetRoas: 2.4, calibrationP50: 3.1 });
   });
 
+  it.each(["28d", "custom", "7d"])(
+    "compares an explicit seven-day %s range with exactly the preceding seven days", async (window) => {
+      const response = await GET(new NextRequest(
+        `http://localhost/api/meta/account-pulse?businessId=biz_1&window=${window}&startDate=2026-09-18&endDate=2026-09-24`,
+      ));
+      expect(response.status).toBe(200);
+      expect(campaigns.getMetaCampaignsForRange).toHaveBeenCalledWith(expect.objectContaining({
+        startDate: "2026-09-11", endDate: "2026-09-17",
+      }));
+      expect(campaigns.getMetaCampaignsForRange).not.toHaveBeenCalledWith(expect.objectContaining({
+        startDate: "2026-08-21", endDate: "2026-09-17",
+      }));
+    },
+  );
+
+  it.each([
+    ["2026-02-30", "2026-03-03"],
+    ["2026-09-24", "2026-09-18"],
+    ["2026-09-18", "invalid"],
+  ])("refuses invalid reporting period %s to %s before reading metrics", async (start, end) => {
+    const response = await GET(new NextRequest(
+      `http://localhost/api/meta/account-pulse?businessId=biz_1&startDate=${start}&endDate=${end}`,
+    ));
+    expect(response.status).toBe(400);
+    expect(campaigns.getMetaCampaignsForRange).not.toHaveBeenCalled();
+  });
+
   it("does not sum an unobserved day to zero", async () => {
     /**
      * D8. `totals()` reduces an empty row set to `spend: 0, purchases: 0`, and

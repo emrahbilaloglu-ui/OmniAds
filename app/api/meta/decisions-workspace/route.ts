@@ -1250,7 +1250,7 @@ function pipelineHealthBanner(
       : admissionBlocked
       ? ["database_budget_exceeded", "table_budget_exceeded", "physical_free_space_low", "physical_projected_free_space_low"].includes(health.admission.reason)
         ? "A measured storage safety limit blocks new Meta sync work."
-        : "New Meta sync work is refused because storage safety telemetry is missing, stale, or invalid. Available capacity is unknown; restore the safety measurement before retrying."
+        : "New Meta sync work is refused because storage safety telemetry or its configuration is missing, stale, or invalid. Available capacity is unknown; verify the safety configuration and measurement before retrying."
       : null,
     health.decisionGeneration.status !== "fresh"
       ? (health.decisionGeneration.reason ??

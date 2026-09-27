@@ -214,6 +214,9 @@ export interface BriefingCanonicalNativeAdDecision {
       maxAgeHours: number;
     };
   };
+  /** A server-validated manual recommendation; never provider authority. */
+  manualCutReview?: { label: string; nextStep: string } | null;
+  manualCutRefusal?: MetaCanonicalDecision["manualCutRefusal"];
   /** Optional so payloads serialized before this field stay renderable. */
   decisionEvidence?: BriefingCanonicalDecisionEvidence;
 }

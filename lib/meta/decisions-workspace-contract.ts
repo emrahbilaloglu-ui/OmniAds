@@ -1,4 +1,4 @@
-import type { MetaManualCutAdvisory } from "./manual-cut-advisory";
+import type { MetaManualCutAdvisory, MetaManualCutRefusal } from "./manual-cut-advisory";
 
 export const META_DECISIONS_WORKSPACE_CONTRACT_VERSION =
   "meta-decisions-workspace.read.v4" as const;
@@ -406,6 +406,7 @@ export interface MetaCanonicalDecision {
   configEvidence?: MetaDecisionConfigEvidence | null;
   /** Hash-bound, medium-confidence manual recommendation. Never write authority. */
   manualCutAdvisory?: MetaManualCutAdvisory | null;
+  manualCutRefusal?: MetaManualCutRefusal | null;
   /** The admitted native Ad economic period, read from its hashed evaluation.
    * Older creative and Ad snapshots omit it; absence is never a full 28 days. */
   decisionWindow?: MetaDecisionAdmittedWindow | null;

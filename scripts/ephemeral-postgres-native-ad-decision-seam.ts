@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { verifyManualCutRefusalRoundTrip } from "./manual-cut-refusal-seam";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -3866,6 +3867,9 @@ async function runSeam(client: Client) {
     capability.ready,
     `Exact native schema capability failed: ${capability.missing.join(", ")}`,
   );
+  await verifyManualCutRefusalRoundTrip({ client, db, businessId: BUSINESS_ID,
+    accountId: ACCOUNT_ID, accountRefId: ACCOUNT_REF_ID, asOf: AS_OF, cutoff: CUTOFF,
+    snapshotFactory: snapshotPayload });
   await verifyHydrationReceiptCaptureAxis(client);
   const largeManifestFixture =
     await verifyGenerationBoundLargeManifestHydration(client);

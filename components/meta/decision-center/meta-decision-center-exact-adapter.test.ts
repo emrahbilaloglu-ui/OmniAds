@@ -937,7 +937,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
         },
       }),
     ).toBe(
-      "The evidence this change needs is still being completed. No action is needed from you; this ad is re-checked on each decision run.",
+      "The evidence this change needs is still being completed. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
     );
     expect(
       buyerFacingCreativeResolution({
@@ -1265,6 +1265,17 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     });
   });
 
+  it("uses explicit dates for the ROAS label even when the preset is stale", () => {
+    const workspace = workspaceFixture({});
+    workspace.window = "28d";
+    workspace.startDate = "2026-09-18";
+    workspace.endDate = "2026-09-24";
+    const beforeDecisions = JSON.stringify(workspace);
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.kpis?.roas).toMatchObject({ label: "ROAS · 7d", period: "2026-09-18 – 2026-09-24" });
+    expect(JSON.stringify(workspace)).toBe(beforeDecisions);
+  });
+
   it("binds custom-range ROAS and target freshness without relabeling a mid-funnel row", () => {
     const workspace = workspaceFixture({
       nonSales: [
@@ -1290,7 +1301,8 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
 
     expect(viewModel.activeWindow).toBeNull();
     expect(viewModel.kpis?.roas).toMatchObject({
-      label: "ROAS · selected range",
+      label: "ROAS · 28d",
+      period: "2026-07-21 – 2026-08-17",
       value: "4.20",
       target: "target 3.80 · stale",
     });
@@ -1317,7 +1329,7 @@ describe("the ROAS reference states the source the server declared", () => {
   function referenceFor(
     roas: Partial<MetaDecisionsWorkspacePayload["pulse"]["roas"]>,
   ): string | number | null | undefined {
-    const workspace = workspaceFixture();
+    const workspace = workspaceFixture({});
     workspace.pulse.pacing.windowSpend = 8600;
     workspace.pulse.roas = { ...workspace.pulse.roas, ...roas };
     return buildMetaDecisionCenterExactViewModel({ workspace }).kpis?.roas
@@ -1846,7 +1858,7 @@ describe("the creative queue is the served set, split by the served state", () =
     expect(rows.get("os_ad_pending")).toMatchObject({
       stateLabel: "Blocked",
       stateTone: "warning",
-      note: "Wait for the next completed ad-level decision. No action is needed from you; this ad is re-checked on each decision run.",
+      note: "Wait for the next completed ad-level decision. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
     });
     expect(rows.get("os_ad_pending")?.chips).not.toContain("Decision pending");
     expect(rows.get("os_ad_pending")?.blockedNote).toBeUndefined();
@@ -1973,7 +1985,7 @@ describe("the creative queue is the served set, split by the served state", () =
       .creativeDecisions?.[0];
 
     expect(row).toMatchObject({
-      note: "The evidence this decision needs is still being completed. No action is needed from you; this ad is re-checked on each decision run.",
+      note: "The evidence this decision needs is still being completed. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
     });
     expect(row?.blockedNote).toBeUndefined();
     const serialized = JSON.stringify(row);
@@ -4037,7 +4049,7 @@ describe("served structure inventory", () => {
   });
 
   it("carries locale-neutral spend and campaign-role facts", () => {
-    const workspace = workspaceFixture();
+    const workspace = workspaceFixture({});
     workspace.pulse.campaignRoleCoverage = {
       activeCampaigns: 5,
       classifiedCampaigns: 4,
@@ -4726,8 +4738,9 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     const row = model.creativeDecisions?.[0];
     expect(row?.note).toMatch(/^The account does not yet have enough mature creatives for the Scale calibration floor\./);
     expect(row?.note).toContain("The campaign configuration is not verified for every day used by this recommendation.");
-    expect(row?.note).toContain("No action is needed from you");
+    expect(row?.note).toContain("These evidence requirements must be met before Adsecute can authorize a change");
     expect(row?.note).not.toMatch(/\b(Verify|Restore|Wait for)\b/);
+    expect(row?.note).not.toMatch(/manual budget increase|before replacing|whether to pause manually/);
     expect(row?.heldVerdictNextStep).toBe(row?.note);
     expect(JSON.stringify(row)).not.toContain("Internal producer");
   });
@@ -4859,7 +4872,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(row?.note).toContain("The campaign configuration is not verified for every day used by this recommendation.");
     expect(row?.note).toContain("Fresh, completed Meta source data is still arriving.");
     expect(row?.note).toContain("The next decision run still has to confirm it.");
-    expect(row?.note).toContain("No action is needed from you");
+    expect(row?.note).toContain("These evidence requirements must be met before Adsecute can authorize a change");
     expect(row?.note).not.toMatch(/\b(Verify|Restore)\b/);
     expect(row?.note).not.toContain("Pause this ad");
     expect(row?.note).not.toContain("Internal producer copy");
@@ -4947,7 +4960,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(row?.heldVerdictLabel).toBe("Recommendation on hold: Pause ad");
     // A system-owned code with no sentence still states a wait, never a chore.
     expect(row?.note).toBe(
-      "The evidence this decision needs is still being completed. No action is needed from you; this Pause ad recommendation is re-checked on each decision run.",
+      "The evidence this decision needs is still being completed. Review the stated evidence gap before judging this signal. These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation is re-checked on each decision run.",
     );
     expect(JSON.stringify(row)).not.toContain(
       "a_code_this_surface_has_no_sentence_for",
@@ -5120,7 +5133,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
 
     expect(inspector?.heldVerdictLabel).toBe("Recommendation on hold: Pause ad");
     expect(inspector?.heldVerdictNextStep).toBe(
-      "The evidence this decision needs is still being completed. No action is needed from you; this Pause ad recommendation is re-checked on each decision run.",
+      "The evidence this decision needs is still being completed. Review the stated evidence gap before judging this signal. These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation is re-checked on each decision run.",
     );
     expect(JSON.stringify(inspector)).not.toContain(
       "a_code_this_surface_has_no_sentence_for",

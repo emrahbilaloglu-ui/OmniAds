@@ -231,9 +231,9 @@ describe("held and blocked creative steps follow the served resolution owner", (
     const verdict = heldCreativeVerdict(held, configGap);
 
     expect(verdict?.nextStep).toContain("Review spend, purchases, and recent ROAS in Meta");
-    expect(verdict?.nextStep).toContain("Adsecute will not change the budget");
+    expect(verdict?.nextStep).toContain("Adsecute will not change delivery");
     expect(heldCreativeVerdict({ ...held, campaignRoleTrustedForAction: false }, configGap)?.nextStep)
-      .toContain("No action is needed from you");
+      .toContain("These evidence requirements must be met before Adsecute can authorize a change");
   });
 
   it("states a system-owned config hold as a condition, never a chore", () => {
@@ -279,6 +279,40 @@ describe("held and blocked creative steps follow the served resolution owner", (
     }
   });
 
+  it.each([
+    ["W9", "scale", "scale", "profile_hard_action_ineligible", "await_scale_calibration_sample"],
+    ["Test-43", "refresh", "refresh", "native_metrics_unavailable", "complete_hard_action_evidence"],
+    ["unconfirmed Cut", "cut", "test_more", "source_freshness", "complete_hard_action_evidence"],
+  ] as const)("does not invite manual media changes for %s with insufficient economic evidence", (_name, heldAction, rawLabel, blocker, code) => {
+    const held = decision({ heldAction, rawLabel, heldResolution: resolution(code, "system", "system"), authorityProvenance: configProvenance(blocker) });
+    const verdict = heldCreativeVerdict(held, configGap);
+    expect(verdict?.nextStep).not.toMatch(/budget increase|before replacing|whether to pause manually/);
+    expect(verdict?.nextStep).toContain("evidence requirements");
+    if (_name === "W9") expect(verdict?.nextStep).toContain("Scale calibration floor");
+  });
+
+  it("keeps Bathroom's economic review and the recorded refusal distinct", () => {
+    const held = decision({ rawLabel: "cut", campaignRoleTrustedForAction: false, authorityProvenance: configProvenance("config_source_authority"), blockers: [{ code: "campaign_context_resolver_unvalidated", label: "Unvalidated role" }, { code: "config_source_authority", label: "Config gap" }] });
+    const verdict = heldCreativeVerdict(held, { ...configGap, manualCutRefusal: { code: "stressed_cut_not_confirmed", detail: "The Cut did not survive the uncertain-day sensitivity check." } });
+    expect(verdict?.nextStep).toContain("Cut did not survive");
+    expect(verdict?.nextStep).toContain("Review current delivery, spend, and purchase actions in Meta");
+    expect(verdict?.nextStep).not.toContain("judging this signal");
+    expect(verdict?.label).not.toContain("manual recommendation");
+  });
+
+  it.each(["campaign_context_low_confidence", "adset_role_unresolved", "role_authority_absent"])("keeps confirmed Scale economics reviewable under %s without prescribing a lever", (code) => {
+    const held = decision({ heldAction: "scale", rawLabel: "scale", campaignRoleTrustedForAction: false,
+      authorityProvenance: configProvenance("config_source_authority"),
+      blockers: [{ code, label: "Role unverified" }, { code: "config_source_authority", label: "Config gap" }] });
+    const verdict = heldCreativeVerdict(held, configGap);
+    expect(verdict?.nextStep).toContain("ad set or campaign delivery");
+    expect(verdict?.nextStep).not.toMatch(/budget|judging this signal/);
+    for (const evidenceGap of ["profile_hard_action_ineligible", "scale_calibration", "native_metrics_unavailable", "source_coverage_unverified", "unknown_blocker"]) {
+      const insufficient = heldCreativeVerdict({ ...held, blockers: [...held.blockers, { code: evidenceGap, label: "Insufficient evidence" }] }, configGap);
+      expect(insufficient?.nextStep).not.toContain("ad set or campaign delivery");
+    }
+  });
+
   it("states a system-owned D101 gap on a cut signal without asking the buyer to restore data", () => {
     const held = decision({
       rawLabel: "test_more",
@@ -290,7 +324,7 @@ describe("held and blocked creative steps follow the served resolution owner", (
     expect(verdict?.label).toBe("Pause signal awaiting verification");
     expect(verdict?.nextStep).toContain("Fresh, completed Meta source data is still arriving.");
     expect(verdict?.nextStep).toContain(
-      "No action is needed from you; the pause signal is re-checked on each decision run.",
+      "These evidence requirements must be met before Adsecute can authorize a change; the pause signal is re-checked on each decision run.",
     );
     for (const chore of CHORES) expect(verdict?.nextStep).not.toMatch(chore);
   });
@@ -305,7 +339,7 @@ describe("held and blocked creative steps follow the served resolution owner", (
     });
 
     expect(buyerFacingCreativeResolution(blocked)).toBe(
-      "Decision data for this ad is waiting for the next Meta sync. No action is needed from you; this ad is re-checked on each decision run.",
+      "Decision data for this ad is waiting for the next Meta sync. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
     );
   });
 
@@ -325,7 +359,7 @@ describe("held and blocked creative steps follow the served resolution owner", (
         "The campaign configuration is not verified for every day used by this recommendation. " +
         "Then review this Refresh creative recommendation again.",
     );
-    expect(verdict?.nextStep).not.toContain("No action is needed from you");
+    expect(verdict?.nextStep).not.toContain("These evidence requirements must be met before Adsecute can authorize a change");
   });
 
   it("keeps tracking and delivery tasks imperative: the buyer can act on them", () => {
@@ -373,11 +407,11 @@ describe("held and blocked creative steps follow the served resolution owner", (
     expect(system?.heldVerdictLabel).toBe("Recommendation on hold: Pause ad");
     // Desktop and mobile read the same sentence from the one producer.
     expect(system?.heldVerdictNextStep).toBe(system?.note);
-    expect(system?.note).toContain("No action is needed from you");
+    expect(system?.note).toContain("These evidence requirements must be met before Adsecute can authorize a change");
 
     expect(operator?.stateLabel).toBe("Blocked");
     expect(operator?.decisionLabel).toBe("Keep monitoring");
     expect(operator?.note).toContain("Confirm the commercial target before acting.");
-    expect(operator?.note).not.toContain("No action is needed from you");
+    expect(operator?.note).not.toContain("These evidence requirements must be met before Adsecute can authorize a change");
   });
 });

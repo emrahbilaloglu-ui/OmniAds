@@ -66,6 +66,7 @@ export interface MetaDecisionCenterExactKpisViewModel {
     detail?: MetaDecisionCenterExactDisplayValue;
   };
   roas?: {
+    period?: MetaDecisionCenterExactDisplayValue;
     label?: MetaDecisionCenterExactDisplayValue;
     value?: MetaDecisionCenterExactDisplayValue;
     /**
@@ -366,6 +367,7 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   observedSparkPath?: string | null;
   money?: MetaDecisionCenterExactDisplayValue;
   /** Server-served admitted Ad economic dates, formatted in the viewer's language. */
+  metricDetails?: readonly string[];
   moneyWindow?: {
     startDate: string;
     endDate: string;
@@ -1256,6 +1258,9 @@ function ExactKpiBand({
         <p className={styles.kpiLabel}>
           {display(kpis?.roas?.label ?? `ROAS · ${activeWindow}`)}
         </p>
+        {nonBlankDisplay(kpis?.roas?.period) ? (
+          <p className={styles.kpiDetail}>{display(kpis?.roas?.period)}</p>
+        ) : null}
         <p className={styles.kpiValue}>
           {display(kpis?.roas?.value)}{" "}
           {/*
@@ -2092,6 +2097,9 @@ function CreativeCard({
           </p>
           <p className={styles.moneyValue}>{display(row.money)}</p>
           <p className={styles.moneySub}>{display(row.moneySub)}</p>
+          {(row.metricDetails ?? []).map((detail) => (
+            <p className={styles.moneySub} key={detail}>{detail}</p>
+          ))}
         </div>
       </div>
       {/* The served action label is DECISION INFORMATION and stays on the row

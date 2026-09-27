@@ -451,6 +451,33 @@ describe("buildMetaOsDecisionsPresentation", () => {
     expect(JSON.stringify({ lanes, cutNode })).not.toMatch(/break-even ROAS/i);
   });
 
+  it.each([[100, 4, 25], [0, 2, 0], [100, 0, null], [100, null, null], [null, 4, null]] as const)("preserves CPA observation semantics for spend %s and purchases %s", (spend, purchases, cpa) => {
+    const decision = canonicalDecision({ id: "cpa", adId: "120000000000000041", buyerAction: "cut" });
+    decision.metrics.spend = spend;
+    decision.metrics.purchases = purchases;
+    const output = buildMetaOsDecisionsPresentation({ actionNow: [], watching: [], nonSales: [], decisionReadModel: readModel([decision]), currency: "EUR", targetHardActionEligibility: { scale: true, cut: true, refresh: true } });
+    expect(output.ads.items[0]?.metrics.cpa).toBe(cpa);
+  });
+
+  it("keeps a Scale quality-floor blocker distinct from a missing configured target", () => {
+    const scale = recommendation({
+      id: "rtg_scale", level: "adset", decisionLabel: "scale", actionKind: "execute_bid",
+      proposedAction: { kind: "apply_bid", bidAmountMinor: 120 },
+      automationReadiness: { contractVersion: "meta-automation-readiness.v1", tier: "manual_review", autoExecuteEligible: false,
+        operatorReviewRequired: true, decisionLabel: "scale", blockers: ["missing_commercial_anchor"], missingEvidence: [], requiredEvidence: [], reason: "Old generic blocker" },
+    });
+    const lanes = revalidateMetaStructureLanesForCurrentTargets(metaLanePayload({ actionNow: [scale], watching: [] }), {
+      scale: false, cut: true, refresh: true,
+      codes: { scale: "scale_calibration_below_floor", cut: null, refresh: null }, missingInputs: [],
+    });
+    expect(lanes.watching[0]).toMatchObject({
+      primaryActionLabel: "Review Scale Evidence", watchSegment: "insufficient_signal",
+      automationReadiness: { blockers: ["scale_calibration_below_floor"], autoExecuteEligible: false },
+    });
+    expect(lanes.watching[0]!.proposedAction).toBeUndefined();
+    expect(JSON.stringify(lanes.watching[0])).not.toContain("Confirm commercial target");
+  });
+
   it.each([
     {
       name: "missing Meta AOV",

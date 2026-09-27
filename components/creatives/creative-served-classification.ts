@@ -278,7 +278,11 @@ function canonicalClassificationForCard(
     : null;
   const label = buyerLabel ?? sourceDisplayLabel ?? "Decision unavailable";
   const details: string[] = [];
-  if (decision.classification.heldAction) {
+  if (decision.manualCutReview) {
+    details.push(decision.manualCutReview.nextStep);
+  } else if (decision.manualCutRefusal) {
+    details.push(`Manual recommendation withheld: ${decision.manualCutRefusal.detail}`);
+  } else if (decision.classification.heldAction) {
     const heldLabel = buyerActionLabel(decision.classification.heldAction);
     details.push(
       heldLabel
@@ -296,7 +300,7 @@ function canonicalClassificationForCard(
       decision.classification.decisionState,
       decision.classification.buyerAction,
     ),
-    segment: (decisionState && DECISION_STATE_DISPLAY[decisionState]) ?? null,
+    segment: decision.manualCutReview ? "Manual review · automation blocked" : (decisionState && DECISION_STATE_DISPLAY[decisionState]) ?? null,
     detail: details.length > 0 ? details.join(" · ") : null,
     source: "canonical_decision" as const,
   };

@@ -11372,3 +11372,25 @@ itself and changes neither provider writes nor the native-Ad run binding.
 state; unstamped and future-stamped rows read no declarations. All rows in a
 served generation must agree on the stamp. Reverting the reader restores the
 old unbounded guard; removing the additive stamp does not alter old rows.
+
+## D124 — Buyer review explains advisory refusal separately from execution (2026-09-27)
+
+Record the deterministic D123 manual-advice refusal in the exact evaluation
+input alongside its proof (one or the other). Native evaluation encoding moves
+to `.v20`; the decision engine epoch, original labels, thresholds, confirmation,
+and provider authority do not change. `.v19` proofs remain readable under their
+original contract. Earlier rows without a refusal report that it was not
+recorded; readers never recompute a sensitivity result from displayed metrics.
+
+The server's validated manual recommendation and its next step travel to both
+Decisions and Studio. Manual review may appear in an action-review lane while
+`decisionState=blocked`, `buyerAction=null`, and provider mutation stays null.
+A stale, inactive, retained, demo, or invalid proof cannot gain a fresh manual
+invitation. Review wording names economic concern, missing evidence and the
+next check; a system-owned prerequisite does not imply no buyer review is needed.
+Reported CPA uses spend and purchases from the same admitted economic window.
+Explicit reporting dates control labels and equal-length comparison only;
+none of these display fields enters decision/action identity.
+
+Rollback reverts producer encoding and consumers together; all previous
+records remain readable, and execution gates stay closed throughout.

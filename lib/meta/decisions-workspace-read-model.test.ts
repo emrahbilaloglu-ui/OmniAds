@@ -113,6 +113,51 @@ describe("structured purchase Cut advice remains separate from action authority"
     });
   });
 
+  it("projects the same manual recommendation to Studio without an executable Cut", () => {
+    const item = serve()!;
+    const projection = projectCanonicalNativeAdDecisionToBriefing({ decision: item })!;
+    expect(projection).toMatchObject({ lane: "action", card: {
+      primary: { kind: "review", label: "Pause ad · manual recommendation" },
+      canonicalDecision: {
+        manualCutReview: { label: "Pause ad · manual recommendation" },
+        classification: { buyerAction: null, decisionState: "blocked" },
+        sourceAuthority: { actionEligible: false, authorizedAction: null },
+      },
+    } });
+    item.sourceAuthority!.decisionFreshness!.status = "stale";
+    const stale = projectCanonicalNativeAdDecisionToBriefing({ decision: item })!;
+    expect(stale.lane).toBe("watching");
+    expect(stale.card.canonicalDecision?.manualCutReview).toBeNull();
+  });
+
+  it("exposes only recorded refusals and keeps older missing reasons unknown", () => {
+    const refused = serve({ manual_cut_advisory: null, manual_cut_refusal: "stressed_cut_not_confirmed" })!;
+    expect(refused.manualCutRefusal?.code).toBe("stressed_cut_not_confirmed");
+    expect(refused.sourceAuthority).toMatchObject({ actionEligible: false, authorizedAction: null });
+    expect(projectCanonicalNativeAdDecisionToBriefing({ decision: refused })?.card.canonicalDecision?.manualCutRefusal?.code).toBe("stressed_cut_not_confirmed");
+    expect(serve({ manual_cut_advisory: null })?.manualCutRefusal?.code).toBe("not_recorded");
+    expect(serve({ manual_cut_advisory: { ...proof(), adId: "wrong" } })?.manualCutRefusal?.code).toBe("proof_unverified");
+    expect(serve({ config_evidence_lineage: { ...manualLineage(), contractVersion: "engine-v3-canonical-ad-evaluation.v20" } })?.manualCutAdvisory?.advised).toBe(true);
+  });
+
+  it("withdraws a retained generation's manual invitation even while its clock is fresh", () => {
+    const rows = [row()];
+    const model = buildNativeMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1", providerAccountId: "act_1", generation: nativeBuildGeneration(rows),
+      snapshotRows: rows, campaignContextRows: [context()], generatedAt: "2026-07-12T12:00:00.000Z",
+      sourceDegradation: {
+        reason: "native_latest_job_failed_serving_last_successful_generation", generation: nativeBuildGeneration(rows),
+        latestTerminalJobRunId: "20000000-0000-4000-8000-000000000902", latestTerminalJobStatus: "failed", latestTerminalAsOfDate: "2026-07-12",
+      },
+    });
+    const item = model.queue.adCandidates!.items[0]!;
+    expect(item.manualCutAdvisory).toBeNull();
+    expect(item.manualCutRefusal?.detail).toContain("latest decision run failed");
+    expect(adAction(item, { scale: true, cut: true, refresh: true }).lane).toBe("blocked");
+    expect(projectCanonicalNativeAdDecisionToBriefing({ decision: item })?.lane).toBe("watching");
+    expect(rows[0]!.manual_cut_advisory).toEqual(proof());
+  });
+
   it("does not demote stronger purchase-intent evidence when only the historical objective is missing", () => {
     const item = serve({ manual_cut_advisory: { ...proof(), bracketedDays: 3, pointObservedDays: [], stress: null }, purchase_intent_window: { ...intentWindow(), bracketedDays: 3, pointObservedDays: 0, pointObserved: [] } });
     expect(item?.classification.resolution?.code).toBe("apply_purchase_cut_manually");

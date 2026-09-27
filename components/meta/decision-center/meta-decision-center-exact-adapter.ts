@@ -1,3 +1,5 @@
+import { isNonEconomicAuthorityHold } from "@/lib/meta/decision-authority-hold";
+import { reportingDayCount } from "@/lib/meta/reporting-period";
 import type {
   MetaDecisionCenterExactActionRowViewModel,
   MetaDecisionCenterExactArchiveRowViewModel,
@@ -288,8 +290,9 @@ function formatRoasAgainstSpend(
   return formatRoas(roas);
 }
 
-function roasLabel(window: MetaDecisionsWorkspacePayload["window"]): string {
-  return window === "custom" ? "ROAS · selected range" : `ROAS · ${window}`;
+function roasLabel(workspace: MetaDecisionsWorkspacePayload): string {
+  const days = reportingDayCount(workspace.startDate, workspace.endDate);
+  return days === null ? "ROAS · period unavailable" : `ROAS · ${days}d`;
 }
 
 /**
@@ -954,6 +957,10 @@ const BUYER_READINESS_BLOCKER_COPY = {
   campaign_context_unresolved: "Campaign context needs review.",
   campaign_context_resolver_unvalidated: "Campaign role could not be confirmed.",
   missing_commercial_anchor: "A valid performance target is required.",
+  meta_purchase_evidence_missing: "Verified Meta purchase value evidence is required; keep the configured ROAS target.",
+  scale_calibration_below_floor: "The Scale calibration sample is below its quality floor.",
+  commercial_anchor_sample_insufficient: "Meta's attributed purchase sample is too small to establish account AOV.",
+  commercial_anchor_provenance_unverified: "The commercial target's source is not verified.",
   missing_controlled_causal_evidence:
     "More verified outcome evidence is required.",
   missing_valid_treatment_receipt:
@@ -993,6 +1000,10 @@ const BUYER_READINESS_RESOLUTION_COPY = {
   // Meta platform AOV divided by it — so this no longer asks for a break-even
   // the engine does not require. @see D091 in DECISION_LOG.md
   missing_commercial_anchor: "Confirm the ROAS target before acting.",
+  meta_purchase_evidence_missing: "Verified Meta purchase value evidence is required; keep the configured ROAS target.",
+  scale_calibration_below_floor: "Review the missing Scale sample; the configured ROAS target does not need re-entry.",
+  commercial_anchor_sample_insufficient: "Wait for enough verified Meta purchases to establish account AOV before acting.",
+  commercial_anchor_provenance_unverified: "Verify the recorded target's source and date before acting.",
   missing_controlled_causal_evidence:
     "Keep this in manual review until outcome evidence is verified.",
   missing_valid_treatment_receipt:
@@ -1030,6 +1041,10 @@ const BUYER_READINESS_ACTION_COPY = {
   campaign_context_unresolved: "Review campaign context",
   campaign_context_resolver_unvalidated: "Review campaign context",
   missing_commercial_anchor: "Confirm commercial target",
+  meta_purchase_evidence_missing: "Review purchase evidence",
+  scale_calibration_below_floor: "Review Scale evidence",
+  commercial_anchor_sample_insufficient: "Review purchase evidence",
+  commercial_anchor_provenance_unverified: "Verify target source",
   missing_controlled_causal_evidence: "Review outcome evidence",
   missing_valid_treatment_receipt: "Review outcome evidence",
   missing_valid_random_assignment: "Review outcome evidence",
@@ -1057,6 +1072,10 @@ const BUYER_READINESS_ISSUE_PRIORITY: Readonly<
   Record<BuyerReadinessIssue, number>
 > = {
   missing_commercial_anchor: 0,
+  meta_purchase_evidence_missing: 0,
+  scale_calibration_below_floor: 0,
+  commercial_anchor_sample_insufficient: 0,
+  commercial_anchor_provenance_unverified: 0,
   campaign_context_unresolved: 1,
   missing_campaign_label: 2,
   campaign_context_resolver_unvalidated: 3,
@@ -2375,7 +2394,7 @@ export function buyerFacingCreativeResolution(
       ? "The role is now confirmed. A new decision run will replace this older blocked result."
       : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel; the next decision run will reassess it.`
     : resolutionWaitsOnSystem(resolution)
-      ? `${systemResolutionStatus(resolution)} ${NO_BUYER_ACTION_NEEDED}; this ad is re-checked on each decision run.`
+      ? `${systemResolutionStatus(resolution)} ${EVIDENCE_REQUIRED_BEFORE_AUTHORIZATION}; this ad is re-checked on each decision run.`
       : knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
   // Metric availability is supplementary evidence for an already blocked row
   // with a server-produced resolution. It never creates a blocked resolution.
@@ -2666,7 +2685,7 @@ const SYSTEM_RESOLUTION_STATUS_FALLBACK =
   "The evidence this decision needs is still being completed.";
 
 /** The closing clause every system-owned wait ends with. */
-const NO_BUYER_ACTION_NEEDED = "No action is needed from you";
+const EVIDENCE_REQUIRED_BEFORE_AUTHORIZATION = "These evidence requirements must be met before Adsecute can authorize a change";
 
 function systemResolutionStatus(
   resolution: NonNullable<MetaOsAdDecision["resolution"]>,
@@ -2764,7 +2783,7 @@ const HELD_PREREQUISITE_STATUS = {
 /** A held economic signal is still useful to review, without implying approval to apply it. */
 const HELD_VERDICT_MANUAL_REVIEW_COPY: Readonly<Record<CreativeHeldVerdict["action"], string>> = {
   scale:
-    "Review spend, purchases, and recent ROAS in Meta before considering a manual budget increase. Adsecute will not change the budget from this recommendation.",
+    "Review spend, purchases, and recent ROAS in Meta alongside this ad's ad set or campaign delivery. Adsecute will not change delivery from this recommendation.",
   cut:
     "Review current delivery, spend, and purchase actions in Meta before deciding whether to pause manually. Adsecute will not pause the ad from this recommendation.",
   refresh:
@@ -2797,7 +2816,7 @@ function heldPrimaryStep(
  * blocker. Producer labels and prose cannot refine the buyer copy. When no safe mapping exists,
  * the fallback still names the held verdict.
  */
-export function heldCreativeVerdict(
+function heldCreativeVerdictWithoutRefusal(
   decision: MetaOsAdDecision,
   canonical: MetaCanonicalDecision | null = null,
 ): CreativeHeldVerdict | null {
@@ -2915,7 +2934,7 @@ export function heldCreativeVerdict(
     the verdict or its authority gate. The D097 manual Cut is operator-owned.
   */
   if (resolutionWaitsOnSystem(decision.heldResolution) && !manualCutCandidate) {
-    if (action === "cut" && needsConfig && !needsFreshSource && !needsConfirmation && !needsCampaignContext &&
+    if (action === "cut" && authorityBlocker === "config_source_authority" && decision.rawLabel === "cut" && needsConfig && !needsFreshSource && !needsConfirmation && !needsCampaignContext &&
       decision.campaignRoleTrustedForAction === true && !canonicalHasOtherHold &&
       !heldPrimaryReason(decision, authorityBlocker)) {
       return {
@@ -2941,13 +2960,17 @@ export function heldCreativeVerdict(
         ? "A new decision run will replace this older role-held verdict."
         : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel; the next decision run will reassess it.`
       : null;
-    const manualEvidenceReview = needsConfig && !needsFreshSource &&
+    const manualEvidenceReview = authorityBlocker === "config_source_authority" && decision.rawLabel === action && needsConfig && !needsFreshSource &&
       !needsConfirmation && !needsCampaignContext && !canonicalHasOtherHold &&
       !primaryReason && decision.campaignRoleTrustedForAction === true;
     const hasBuyerReview = roleReviewStep !== null || manualEvidenceReview;
+    const authorityOnlyHold = !needsFreshSource && !cutSignalAwaitingEvidence &&
+      decision.rawLabel === action &&
+      (authorityBlocker === "config_source_authority" || authorityBlocker === "campaign_context") &&
+      [...blockerCodes, ...(canonical?.classification?.blockers ?? []).map((blocker) => blocker.code)].every(isNonEconomicAuthorityHold);
     const nextStep = roleReviewStep ?? (manualEvidenceReview
       ? HELD_VERDICT_MANUAL_REVIEW_COPY[action]
-      : `${NO_BUYER_ACTION_NEEDED};`);
+      : `${authorityOnlyHold ? HELD_VERDICT_MANUAL_REVIEW_COPY[action] + " " : "Review the stated evidence gap before judging this signal. "}${EVIDENCE_REQUIRED_BEFORE_AUTHORIZATION};`);
     const recheckSubject = cutSignalAwaitingEvidence
       ? hasBuyerReview ? "The pause signal" : "the pause signal"
       : `${hasBuyerReview ? "This" : "this"} ${verdict} recommendation`;
@@ -2999,6 +3022,16 @@ export function heldCreativeVerdict(
         ? `${step} Then review this ${verdict} recommendation again.`
         : `Confirm the missing information, then review this ${verdict} recommendation again.`,
   };
+}
+
+export function heldCreativeVerdict(
+  decision: MetaOsAdDecision,
+  canonical: MetaCanonicalDecision | null = null,
+): CreativeHeldVerdict | null {
+  const verdict = heldCreativeVerdictWithoutRefusal(decision, canonical);
+  return verdict?.action === "cut" && canonical?.manualCutRefusal
+    ? { ...verdict, nextStep: `Manual recommendation withheld: ${canonical.manualCutRefusal.detail} ${verdict.nextStep}` }
+    : verdict;
 }
 
 /**
@@ -3289,6 +3322,12 @@ function creativeRows(input: {
         economicDayCount: decision.decisionWindow.economicDayCount,
       } : null,
       moneySub: creativeMoneySub(decision, canonicalDecision, adPerformanceMissing),
+      metricDetails: adPerformanceMissing ? [] : [
+        `${decision.metrics.purchases === null ? EM_DASH : formatNumber(decision.metrics.purchases)} purchases · CPA ${formatMoney(decision.metrics.cpa, decision.metrics.currency)}`,
+        canonicalDecision?.decisionWindow?.recentStartDate && canonicalDecision.decisionWindow.recentEndDate
+          ? `Recent ROAS ${formatRoas(canonicalDecision.metrics.recent7dRoas)} · ${canonicalDecision.decisionWindow.recentStartDate} – ${canonicalDecision.decisionWindow.recentEndDate}`
+          : "Recent ROAS period unavailable",
+      ],
       actionLabel: buyerFacingCreativeActionLabel(decision),
       actionTone: actionTone(decision.action),
       ...(review ? { onPrimary: review, onOpen: review } : {}),
@@ -3529,6 +3568,10 @@ const READINESS_FACT_LABELS: Readonly<Record<string, string>> = {
     "Campaign role could not be confirmed",
   missing_commercial_anchor:
     "Commercial target or break-even evidence is missing",
+  meta_purchase_evidence_missing: "Verified Meta purchase value evidence is required; keep the configured ROAS target.",
+  scale_calibration_below_floor: "The Scale calibration sample is below its quality floor",
+  commercial_anchor_sample_insufficient: "The Meta purchase sample is too small for account AOV",
+  commercial_anchor_provenance_unverified: "Commercial target provenance is not verified",
   missing_controlled_causal_evidence: "Controlled causal evidence is missing",
   missing_valid_treatment_receipt: "A valid treatment receipt is missing",
   missing_valid_random_assignment: "A valid randomized assignment is missing",
@@ -4954,7 +4997,7 @@ function sourceProvenance(input: {
       fact("health", "Health", health, tone),
       ...decisionPipelineFacts(workspace),
       fact("ads-source", "Ads source", osSource?.adsSource),
-      fact("fallback-reason", "Fallback reason", fallbackReason),
+      fact("fallback-reason", "Fallback reason", fallbackReason === "sync_admission_unavailable" ? "Sync safety checks could not be verified" : fallbackReason),
       fact("table", "Table", readSource?.table),
       ...snapshotFacts(readSource),
       fact("generation-job-run", "Generation job run", generation?.jobRunId),
@@ -5740,7 +5783,8 @@ export function buildMetaDecisionCenterExactViewModel(
               }`,
       },
       roas: {
-        label: roasLabel(workspace.window),
+        label: roasLabel(workspace),
+        period: `${workspace.startDate} – ${workspace.endDate}`,
         value: formatRoasAgainstSpend(
           workspace.pulse.roas.selected,
           pacing.windowSpend,

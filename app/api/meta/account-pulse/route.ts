@@ -3,6 +3,7 @@ import {
   readCampaignContextMap,
   resolveCampaignContextMode,
 } from "@/lib/creative-decision-engine/campaign-context/source";
+import { reportingDayCount } from "@/lib/meta/reporting-period";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
@@ -530,19 +531,25 @@ export async function GET(request: NextRequest) {
     searchParams.get("providerAccountId")?.trim() || null;
   const window = parseWindow(searchParams.get("window"));
   const statusFilter = parseBriefingStatusFilter(searchParams.get("status_filter"));
-  const endDate = searchParams.get("endDate")?.trim() || todayISO();
-  const startDate =
-    searchParams.get("startDate")?.trim() ||
-    addDaysToISO(endDate, -(windowDays(window) - 1));
-  const previousEnd = addDaysToISO(startDate, -1);
-  const previousStart = addDaysToISO(previousEnd, -(windowDays(window) - 1));
-
   const access = await requireBusinessAccess({
     request,
     businessId,
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+  const endDate = searchParams.get("endDate")?.trim() || todayISO();
+  const statedStart = searchParams.get("startDate")?.trim();
+  if (reportingDayCount(endDate, endDate) === null) {
+    return NextResponse.json({ error: "invalid_reporting_period" }, { status: 400 });
+  }
+  const startDate = statedStart || addDaysToISO(endDate, -(windowDays(window) - 1));
+  const selectedSpanDays = reportingDayCount(startDate, endDate);
+  if (selectedSpanDays === null) {
+    return NextResponse.json({ error: "invalid_reporting_period" }, { status: 400 });
+  }
+  const previousEnd = addDaysToISO(startDate, -1);
+  const previousStart = addDaysToISO(previousEnd, -(selectedSpanDays - 1));
+
   if (!businessId) {
     return NextResponse.json(
       { error: "missing_business_id", message: "businessId is required." },

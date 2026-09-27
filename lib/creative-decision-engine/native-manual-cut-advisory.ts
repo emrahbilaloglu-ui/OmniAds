@@ -345,27 +345,29 @@ export interface ManualCutSensitivity {
 
 /* ── the advisory ─────────────────────────────────────────────────────── */
 
-export type NativeManualCutAdvisoryRefusal =
-  | "not_a_published_cut"
-  | "hysteresis_pending"
-  | "refresh_transform_not_eligible"
-  | "config_not_held"
-  | "engine_validity_hold"
-  | "source_coverage_gap"
-  | "purchase_observation_incomplete"
-  | "current_config_unobserved"
-  | "current_receipt_lineage_unverified"
-  | "receipt_manifest_incoherent"
-  | "commercial_truth_absent"
-  | "purchase_intent_window_invalid"
-  | "purchase_intent_unnamed"
-  | "goal_receipt_conflict"
-  | "objective_receipt_conflict"
-  | "sensitivity_not_computed"
-  | "peer_free_cut_not_confirmed"
-  | "sensitivity_unconstructible"
-  | "stressed_cut_not_confirmed"
-  | "stressed_original_cut_not_confirmed";
+export const NATIVE_MANUAL_CUT_ADVISORY_REFUSALS = [
+  "not_a_published_cut",
+  "hysteresis_pending",
+  "refresh_transform_not_eligible",
+  "config_not_held",
+  "engine_validity_hold",
+  "source_coverage_gap",
+  "purchase_observation_incomplete",
+  "current_config_unobserved",
+  "current_receipt_lineage_unverified",
+  "receipt_manifest_incoherent",
+  "commercial_truth_absent",
+  "purchase_intent_window_invalid",
+  "purchase_intent_unnamed",
+  "goal_receipt_conflict",
+  "objective_receipt_conflict",
+  "sensitivity_not_computed",
+  "peer_free_cut_not_confirmed",
+  "sensitivity_unconstructible",
+  "stressed_cut_not_confirmed",
+  "stressed_original_cut_not_confirmed",
+] as const;
+export type NativeManualCutAdvisoryRefusal = typeof NATIVE_MANUAL_CUT_ADVISORY_REFUSALS[number];
 
 export interface NativeManualCutAdvisoryProof {
   contractVersion: typeof META_NATIVE_MANUAL_CUT_ADVISORY_CONTRACT;

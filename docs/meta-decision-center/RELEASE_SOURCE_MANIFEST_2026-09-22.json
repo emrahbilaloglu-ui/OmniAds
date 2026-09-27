@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d56cfe84fe573ddd41bcbc418024960d7eb8634a805ed2069c1a8cf48bf63aac",
+  "manifestHash": "f68b2db49b037b3c402ab097d20d3a860a155feb889586e468c86b199d5916b1",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -724,7 +724,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "d90fd05f5fdd4eec447062fe0022293599b6db02ef902b1704ccfafd544f68a9"
+      "sha256": "64a9b7efa5cdc2c77b041ac89f012e6c067719d010a9eba88db9f664f797eaaf"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -2156,11 +2156,11 @@
     },
     {
       "path": "lib/sync/worker-runtime-runtime.test.ts",
-      "sha256": "5e2e181b45d78144d0bb69168e5d6683183d95044d5ed1468aadb88ef272fe08"
+      "sha256": "f7e0e73e5dbbdef6495baf1f8302accf09e7c53dd34fdb5172c87c3aefb023e8"
     },
     {
       "path": "lib/sync/worker-runtime.ts",
-      "sha256": "a3526311ced7415fc6a6bfbc1576124ea70419e78207dea60b77e2c712d496c3"
+      "sha256": "f3343a9963e3756d2199688ff9d4a2ffa654907e2d88535512c33664076b86bc"
     },
     {
       "path": "lib/zero-base/copy.ts",

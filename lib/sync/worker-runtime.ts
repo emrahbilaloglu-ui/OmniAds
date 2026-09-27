@@ -672,6 +672,8 @@ export async function runDurableWorkerRuntime(
   const lastConsumeBusinessFallbackAtByKey = new Map<string, number>();
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
+  let lastProcessHeartbeatAt = 0;
+  let processProgressHeartbeat: Promise<void> | null = null;
   const pendingHeartbeats = new Set<Promise<unknown>>();
   let shutdownInFlight: Promise<void> | null = null;
   // Staged-idle lifecycle. Declared with the rest of the runtime state because
@@ -724,8 +726,41 @@ export async function runDurableWorkerRuntime(
       await write;
       // Failed writes are not liveness evidence for the stall watchdog.
       lastHeartbeatAt = Date.now();
+      if (input.providerScope === "all") lastProcessHeartbeatAt = lastHeartbeatAt;
     } finally {
       pendingHeartbeats.delete(write);
+    }
+    // A batch can exceed the health window even when each individual cycle
+    // finishes before its keepalive timer fires. Successful provider progress
+    // also proves process liveness; it says nothing about any OTHER provider.
+    // Use the process row's own clock so frequent provider writes cannot
+    // starve it. Coalesce concurrent writers and never mirror a failed write,
+    // discovery failure, staged registration, or shutdown status.
+    if (
+      !shuttingDown && input.providerScope !== "all" &&
+      (input.status === "running" || input.status === "idle") &&
+      Date.now() - lastProcessHeartbeatAt >= heartbeatIntervalMs &&
+      !processProgressHeartbeat
+    ) {
+      processProgressHeartbeat = heartbeat({
+        providerScope: "all",
+        status: input.status,
+        lastBusinessId: input.lastBusinessId,
+        lastPartitionId: input.lastPartitionId,
+        metaJson: {
+          workerBuildId,
+          workerStartedAt,
+          activeProviderScope: input.providerScope,
+          currentBusinessId: input.lastBusinessId ?? null,
+          processHeartbeatFromProvider: true,
+        },
+        force: true,
+      });
+      try {
+        await processProgressHeartbeat;
+      } finally {
+        processProgressHeartbeat = null;
+      }
     }
   }
 

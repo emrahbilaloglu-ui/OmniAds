@@ -526,6 +526,10 @@ export default function MetaCreativeStudioPage({
 }: MetaCreativeStudioPageProps = {}) {
   const searchParams = useSearchParams();
   const pathname = usePathname();
+  const requestedCreativeId = searchParams?.get("creativeId")?.trim() || null;
+  const clearCreativeParams = new URLSearchParams(searchParams?.toString() ?? "");
+  clearCreativeParams.delete("creativeId");
+  const clearCreativeHref = `${pathname}?${clearCreativeParams.toString()}`;
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const hasServerAuthorizedScope = authorizedBusinessId !== undefined;
   const businessId = hasServerAuthorizedScope
@@ -685,6 +689,7 @@ export default function MetaCreativeStudioPage({
       drStart,
       drEnd,
       "creative",
+      ...(requestedCreativeId ? [requestedCreativeId] : []),
     ],
     enabled: hasExplicitAccountScope,
     queryFn: () =>
@@ -694,6 +699,7 @@ export default function MetaCreativeStudioPage({
         start: drStart,
         end: drEnd,
         groupBy: "creative",
+        ...(requestedCreativeId ? { creativeId: requestedCreativeId } : {}),
         format: "all",
         sort: "spend",
         mediaMode: "full",
@@ -860,8 +866,9 @@ export default function MetaCreativeStudioPage({
     () =>
       (creativesQuery.data?.rows ?? [])
         .map(mapApiRowToUiRow)
-        .filter((row) => row.accountId === providerAccountId),
-    [creativesQuery.data?.rows, providerAccountId],
+        .filter((row) => row.accountId === providerAccountId &&
+          (!requestedCreativeId || row.creativeId === requestedCreativeId)),
+    [creativesQuery.data?.rows, providerAccountId, requestedCreativeId],
   );
 
   useEffect(() => {
@@ -1237,7 +1244,9 @@ export default function MetaCreativeStudioPage({
               ? sourceHealth.message
               : sourceHealth.partialReason
             : assetsState === "empty"
-              ? "No creatives found for this date range."
+              ? requestedCreativeId
+                ? "This creative was not found in the selected account and date range."
+                : "No creatives found for this date range."
               : null;
   /**
    * The engine's own classification per creative, from the briefing this page
@@ -1479,6 +1488,9 @@ export default function MetaCreativeStudioPage({
         data-responsive-studio="true"
         data-provider-writes="none"
       >
+        {requestedCreativeId ? (
+          <p role="status">Creative filter: {requestedCreativeId}. <a href={clearCreativeHref}>Show all creatives</a></p>
+        ) : null}
         <CreativeStudioExact
           activeTab="assets"
           tabHrefs={tabHrefs}

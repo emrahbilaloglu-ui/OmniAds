@@ -6115,6 +6115,15 @@ describe.runIf(postgresAvailable)(
           before.raw.map((row) => row.config_receipt_digest),
         );
 
+        // A warehouse row with a foreign TEXT business identity must never
+        // borrow the valid rows' context, even when account/campaign/day match.
+        await pool.query("UPDATE meta_ad_daily SET business_id='foreign-business' WHERE ad_id='lineage-ad-b'");
+        const divergent = await readWorld();
+        expect(divergent.raw.map((row) => row.ad_id)).toEqual(["lineage-ad-a"]);
+        const repeated = await readWorld();
+        expect(repeated.batch.sourceManifestHash).toBe(divergent.batch.sourceManifestHash);
+        await pool.query("UPDATE meta_ad_daily SET business_id=$1 WHERE ad_id='lineage-ad-b'", [BUSINESS_ID]);
+
         /*
           THE ONLY MUTATION: every receipt gets a new observation id. Same
           snapshots, same clocks, same scope, same values — so the same tiers
@@ -6154,3 +6163,39 @@ describe.runIf(postgresAvailable)(
     }, 120_000);
   },
 );
+
+// Exercise the emitted generation SQL against PostgreSQL, using the existing
+// isolated native-job harness; mocks alone cannot prove the candidate CTE.
+describe.runIf(postgresAvailable)("native generation review continuity SQL", () => {
+  it("selects an older complete account receipt only on opt-in, then returns atomically to a complete latest run", async () => {
+    const { READ_NATIVE_DECISION_GENERATION_QUERY, NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION } =
+      await import("@/lib/meta/decisions-workspace-read-model");
+    await withEphemeralPostgres(async (pool) => {
+      await createEphemeralSchema(pool);
+      await pool.query("ALTER TABLE engine_v3_job_runs ADD COLUMN started_at timestamptz");
+      const receipt = { provider_account_id: PROVIDER_ACCOUNT_ID, provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
+        expected_ad_count: 1, hydrated_ad_count: 1, expected_manifest_hash: "a".repeat(64),
+        hydrated_manifest_hash: "a".repeat(64), authoritative_for_prune: true };
+      const oldId = "00000000-0000-4000-8000-000000000781";
+      const newId = "00000000-0000-4000-8000-000000000782";
+      const metadata = (entries: unknown[]) => JSON.stringify({ metadata: { hydration_receipts: entries } });
+      for (const [id, day, receipts] of [[oldId, "2026-09-25", [receipt]], [newId, "2026-09-26", []]] as const) {
+        await pool.query(`INSERT INTO engine_v3_job_runs(id, job_name, business_id, business_ref_id,
+          as_of_date, engine_version, status, started_at, finished_at, error_json)
+          VALUES ($1, 'reader-test', $2::text, $2::uuid, $3::date, $4, 'success', $3::date, $3::date + interval '1 hour', $5)`,
+          [id, BUSINESS_ID, day, NATIVE_AD_ENGINE_VERSION, metadata([...receipts])]);
+      }
+      const read = async (allow: boolean) => (await pool.query(READ_NATIVE_DECISION_GENERATION_QUERY,
+        [BUSINESS_ID, PROVIDER_ACCOUNT_ID, "reader-test", "2026-09-26", NATIVE_AD_ENGINE_VERSION,
+          "2026-09-26", 7, allow, NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION])).rows;
+      expect((await read(false)).map((row) => row.selection)).toEqual(["latest"]);
+      expect((await read(true)).map((row) => [row.selection, row.job_run_id])).toEqual([["last_success", oldId], ["latest", newId]]);
+      await pool.query("UPDATE engine_v3_job_runs SET error_json=$1 WHERE id=$2", [metadata([receipt]), newId]);
+      expect((await read(true)).map((row) => [row.selection, row.job_run_id])).toEqual([["latest", newId]]);
+      await pool.query("UPDATE engine_v3_job_runs SET error_json=$1 WHERE id=$2", [metadata([{ ...receipt, provider_account_id: "act_other" }]), newId]);
+      expect((await read(true)).filter((row) => row.selection === "last_success")).toHaveLength(1);
+      await pool.query("UPDATE engine_v3_job_runs SET error_json=$1 WHERE id=$2", [metadata([{ ...receipt, authoritative_for_prune: false }]), oldId]);
+      expect((await read(true)).filter((row) => row.selection === "last_success")).toHaveLength(0);
+    });
+  }, 120_000);
+});

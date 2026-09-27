@@ -1706,6 +1706,8 @@ function authorityRows(input: {
 function humanizeCode(value: string | null | undefined): string {
   const normalized = nonBlank(value);
   if (!normalized) return "";
+  if (normalized === "native_latest_account_manifest_incomplete_serving_last_successful_generation") return "The latest run did not verify a complete generation for this account; these earlier decisions are for review only.";
+  if (normalized === "native_engine_update_reconfirmation_pending") return "These prior-engine decisions are for review only; fresh confirmation under the new engine is required.";
   const spaced = normalized.replace(/_/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }

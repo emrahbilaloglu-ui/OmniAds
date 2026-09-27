@@ -148,7 +148,8 @@ describe("creativeEvidenceStudioHref", () => {
       businessId: "biz_theswaf",
       canonical: null,
       decision: exactNativeAdDecision({ providerAccountId: "act_theswaf", creativeId: "cr_1" }),
-    })).toBe("/c/biz_theswaf/creative/performance?providerAccountId=act_theswaf&creativeId=cr_1");
+      window: { start: "2026-09-01", end: "2026-09-07" },
+    })).toBe("/c/biz_theswaf/creative/performance?providerAccountId=act_theswaf&creativeId=cr_1&start=2026-09-01&end=2026-09-07");
   });
 
   it("does not mint a Studio link without served business and account identity", () => {

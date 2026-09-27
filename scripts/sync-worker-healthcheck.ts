@@ -11,6 +11,7 @@ import {
 
 type ParsedArgs = {
   help: boolean;
+  compact: boolean;
   providerScopes: string[];
   onlineWindowMinutes: number;
   minOnlineWorkers: number;
@@ -24,6 +25,7 @@ type ParsedArgs = {
 function parseArgs(argv: string[]): ParsedArgs {
   const parsed: ParsedArgs = {
     help: false,
+    compact: false,
     providerScopes: [],
     onlineWindowMinutes: 5,
     minOnlineWorkers: 1,
@@ -35,6 +37,10 @@ function parseArgs(argv: string[]): ParsedArgs {
   };
 
   for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--compact") {
+      parsed.compact = true;
+      continue;
+    }
     if (argv[index] === "--expect-staged-idle") {
       parsed.expectStagedIdle = true;
       continue;
@@ -114,7 +120,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 function printUsage() {
   console.log(
-    "usage: node --import tsx scripts/sync-worker-healthcheck.ts [--provider-scope <scope>] [--online-window-minutes <minutes>] [--min-online-workers <count>] [--min-heartbeat-after <iso>] [--expect-staged-idle] [--require-sync-capable] [--expect-build-id <sha>] [--summary-out <file>]",
+    "usage: node --import tsx scripts/sync-worker-healthcheck.ts [--compact] [--provider-scope <scope>] [--online-window-minutes <minutes>] [--min-online-workers <count>] [--min-heartbeat-after <iso>] [--expect-staged-idle] [--require-sync-capable] [--expect-build-id <sha>] [--summary-out <file>]",
   );
 }
 
@@ -184,6 +190,13 @@ async function main() {
     console.log(
       `summary_out=${args.summaryOut} summary_bytes=${Buffer.byteLength(payload)} summary_sha256=${createHash("sha256").update(payload).digest("hex")}`,
     );
+  }
+
+  if (args.compact) {
+    console.log(JSON.stringify({ providerScopes: args.providerScopes, pass, reason,
+      capacityRefused: evaluation.capacityRefused, onlineWorkers: summary.onlineWorkers,
+      lastHeartbeatAt: summary.lastHeartbeatAt }));
+    process.exit(pass ? 0 : 1);
   }
 
   console.log(

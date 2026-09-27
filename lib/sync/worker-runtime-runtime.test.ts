@@ -279,4 +279,91 @@ describe("worker runtime heartbeat repair metadata", () => {
 
     expect(consumedBusinesses).toEqual(["biz-priority"]);
   });
+
+  it("keeps process liveness during one long provider cycle without inventing other-provider progress", async () => {
+    process.env.WORKER_CYCLE_KEEPALIVE_INTERVAL_MS = "10";
+    let finishCycle!: () => void;
+    let entered = false;
+    const held = new Promise<void>((resolve) => { finishCycle = resolve; });
+    const adapter = (providerScope: string) => ({
+      providerScope,
+      planPartitions: async () => ({ partitions: [] }),
+      leasePartitions: async () => [],
+      getCheckpoint: async () => null,
+      fetchChunk: async () => ({}),
+      persistChunk: async () => {}, transformChunk: async () => {},
+      writeFacts: async () => {}, advanceCheckpoint: async () => {},
+      completePartition: async () => {}, classifyFailure: () => "test",
+      getReadiness: async () => ({ readinessLevel: "usable", checkpointHealth: null, domainReadiness: null }),
+      consumeBusiness: async () => { entered = true; await held; return { outcome: "consume_succeeded" }; },
+    });
+    const { runDurableWorkerRuntime } = await import("@/lib/sync/worker-runtime");
+    const runtime = runDurableWorkerRuntime({ adapters: [adapter("meta"), adapter("google_ads")] as never });
+    try {
+      await vi.waitFor(() => expect(entered).toBe(true));
+      const before = heartbeatSyncWorker.mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 45));
+      const during = heartbeatSyncWorker.mock.calls.slice(before).map(([x]) => x);
+      expect(during.some((x) => x.providerScope === "all" && x.metaJson?.activeProviderScope === "meta")).toBe(true);
+      expect(during.some((x) => x.providerScope === "meta")).toBe(true);
+      expect(during.some((x) => x.providerScope === "google_ads")).toBe(false);
+    } finally {
+      process.emit("SIGTERM");
+      finishCycle();
+      await runtime;
+      delete process.env.WORKER_CYCLE_KEEPALIVE_INTERVAL_MS;
+    }
+    // A completed cycle must not resurrect the process or start the next
+    // provider after SIGTERM. This occurred in the retained production rows.
+    const calls = heartbeatSyncWorker.mock.calls.map(([x]) => x);
+    const firstStop = calls.findIndex((x) => x.status === "stopping");
+    expect(firstStop).toBeGreaterThan(-1);
+    expect(calls.slice(firstStop).every((x) => ["stopping", "stopped"].includes(x.status))).toBe(true);
+  });
+
+  it("exits a stuck cycle despite successful keepalives instead of reporting healthy forever", async () => {
+    vi.stubEnv("WORKER_CYCLE_KEEPALIVE_INTERVAL_MS", "15");
+    vi.stubEnv("WORKER_CYCLE_MAX_MS", "200");
+    vi.stubEnv("WORKER_STALL_EXIT_MS", "50");
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    let finish!: () => void;
+    let entered = false;
+    const held = new Promise<void>((resolve) => { finish = resolve; });
+    const adapter = {
+      providerScope: "meta", planPartitions: async () => ({ partitions: [] }),
+      leasePartitions: async () => [], getCheckpoint: async () => null,
+      fetchChunk: async () => ({}), persistChunk: async () => {}, transformChunk: async () => {},
+      writeFacts: async () => {}, advanceCheckpoint: async () => {}, completePartition: async () => {},
+      classifyFailure: () => "test",
+      getReadiness: async () => ({ readinessLevel: "usable", checkpointHealth: null, domainReadiness: null }),
+      consumeBusiness: async () => { entered = true; await held; return {}; },
+    };
+    const { runDurableWorkerRuntime } = await import("@/lib/sync/worker-runtime");
+    const runtime = runDurableWorkerRuntime({ adapters: [adapter] as never });
+    try {
+      await vi.waitFor(() => expect(entered).toBe(true));
+      await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
+      expect(heartbeatSyncWorker.mock.calls.some(([x]) => x.providerScope === "all" && x.metaJson?.cycleKeepalive)).toBe(true);
+      const count = heartbeatSyncWorker.mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 70));
+      expect(heartbeatSyncWorker.mock.calls.length).toBe(count);
+    } finally {
+      process.emit("SIGTERM"); finish(); await runtime;
+      exit.mockRestore(); vi.unstubAllEnvs();
+    }
+  });
+
+  it("does not renew process liveness while repeated work discovery fails", async () => {
+    readActiveBusinesses.mockResolvedValue({ ok: false, reason: "read_failed", message: "test unavailable" });
+    const { runDurableWorkerRuntime } = await import("@/lib/sync/worker-runtime");
+    const runtime = runDurableWorkerRuntime({ adapters: [] });
+    try {
+      await vi.waitFor(() => expect(readActiveBusinesses.mock.calls.length).toBeGreaterThan(2));
+      expect(heartbeatSyncWorker.mock.calls.some(([x]) => x.providerScope === "all" && x.status === "idle")).toBe(false);
+    } finally {
+      process.emit("SIGTERM");
+      await runtime;
+    }
+  });
+
 });

@@ -817,8 +817,10 @@ describe("Show more decisions", () => {
     const next = workspaceResponse({ ads: [secondOsDecision()], eligiblePreCapCount: 301 });
     next.decisionReadModel.queue.adCandidates = { ...next.decisionReadModel.queue.adCandidates, selectionKey: "selection-a", offset: 300 } as never;
     let pageError: Error | null = null;
+    let pageLoading = true;
     state.workspaceRead = (key) => key.at(-3) === 300
-      ? pageError ? { status: "error", error: pageError, errorUpdatedAt: Date.now() } : { data: next, status: "success" }
+      ? pageLoading ? { data: first, status: "success", isFetching: true, isPlaceholderData: true }
+        : pageError ? { status: "error", error: pageError, errorUpdatedAt: Date.now() } : { data: next, status: "success" }
       : { data: first, status: "success" };
     const dom = render();
     for (let i = 0; i < 4; i += 1) clickShowMore(dom);
@@ -826,6 +828,11 @@ describe("Show more decisions", () => {
     expect(dom.querySelector("[data-mobile-load-more-creatives]")?.textContent).toContain("Next decision page");
     clickShowMore(dom);
     expect(workspaceKeys().at(-1)?.slice(-3)).toEqual([300, "selection-a", 300]);
+    expect(mobileRowIds(dom)).toEqual(["os_pending_ad"]);
+    expect(dom.querySelector("[data-meta-decision-page]")?.textContent).toContain("1–1 of 530");
+    expect(dom.querySelector("[data-meta-decision-page]")?.textContent).toContain("Loading requested page");
+    pageLoading = false;
+    rerender();
     expect(mobileRowIds(dom)).toEqual(["os_pending_ad_2"]);
     expect(dom.querySelector("[data-meta-decision-page]")?.textContent).toContain("301–301");
     act(() => dom.querySelector<HTMLButtonElement>("[data-meta-decision-page] button")!.click());

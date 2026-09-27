@@ -1268,7 +1268,7 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.selectionVersion": N(
     "The version of the candidate selection algorithm; the panel states what the selection DID - how many identities were eligible, selected and omitted, and for which reason - which is the part that changes what the operator sees.",
   ),
-  "MetaDecisionsWorkspaceReadModel.queue.adCandidates.offset": N("Rendered by the page-level pagination control outside these adapters; real page navigation is pinned in MetaPlatformPage.refetch-resilience.test.tsx."),
+  "MetaDecisionsWorkspaceReadModel.queue.adCandidates.offset": R(S.MOBILE, "the page's served pagination range; retained rows keep their original offset during the next page request"),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.selectionKey": N("Opaque source-bound pagination token; forwarded to the server, never a buyer-facing value. Route and page tests cover invalidation."),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.limit": N(
     "The cap's configured size; the panel states the two numbers the cap produced against TWO eligible pre-cap counts - the read model's own and the OS presentation's own served count, each under a label naming which one it is - and that pair is what tells an operator the list is partial.",
@@ -4060,7 +4060,7 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   ACTION: [0, 6],
   ARCHIVE: [0, 10],
   BANNERS: [0, 9],
-  MOBILE: [0, 1],
+  MOBILE: [0, 2],
   // 10 -> 11: D091 / Codex item 5 — the row's held-verdict badge, which the
   // queue emits as a row element without a stable id to key on.
   // 11 -> 10: `MetaOsAdDecision.decisionAvailability` moved to INSPECTOR when
@@ -4159,7 +4159,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // own right, so a zero here says "not this component" and not "not on
   // screen".
   BANNERS: [0, 9],
-  MOBILE: [0, 1],
+  MOBILE: [0, 2],
   // 107 -> 106: `firstBlocker.explanation` is no longer rendered, so it leaves
   // the behind-a-control half of the evidence window (Round 8 item 7).
   // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
@@ -4197,7 +4197,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // contract-identity leaves. D109 removes one cross-period purchase claim;
 // the remaining evidence claims are behind the window control. The pre-cap
 // counts move into the resting DOM as the lane-tab and scope-pill counts.
-const DOM_PROOF_TOTALS: [number, number] = [34, 359];
+const DOM_PROOF_TOTALS: [number, number] = [34, 360];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4234,7 +4234,8 @@ const DOM_PROOF_PINNED_LEAVES = 6;
 // role-review control, outside the decision-card probe: 382 -> 384.
 // D123: `currentObserved` and the four manual-advice counts move no surface;
 // each is classified with its own reason above: 384 -> 389.
-const NOWHERE_LEAVES = 388;
+// D128: served pagination offset now changes the page-level range (388 -> 387).
+const NOWHERE_LEAVES = 387;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -5327,9 +5328,10 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // served observation fact on the evidence surface without a stable row id.
     // The Meta-derived creative type adds one badge claim behind the scope tab.
     // D109 removes one canonical purchase claim from a different period.
-    expect(rendered.length).toBe(399);
+    // D128 adds the served pagination offset to the visible claims.
+    expect(rendered.length).toBe(400);
     expect(withElement.length).toBe(237);
-    expect(withoutElement.length).toBe(162);
+    expect(withoutElement.length).toBe(163);
 
     /*
      * AND WHICH ENTRIES, not merely how many.

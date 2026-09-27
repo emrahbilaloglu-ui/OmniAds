@@ -247,6 +247,10 @@ function readinessCopy(
  * printed raw.
  */
 const REVIEW_ONLY_REASON_COPY: Readonly<Record<string, string>> = {
+  native_latest_account_manifest_incomplete_serving_last_successful_generation:
+    "Not in Action now because the latest run did not verify a complete generation for this account; these earlier decisions are for review only.",
+  native_engine_update_reconfirmation_pending:
+    "Not in Action now because these prior-engine decisions require fresh confirmation under the new engine.",
   current_hierarchy_status_is_unknown:
     "Not in Action now because this ad's current status could not be confirmed.",
   current_hierarchy_is_not_active:

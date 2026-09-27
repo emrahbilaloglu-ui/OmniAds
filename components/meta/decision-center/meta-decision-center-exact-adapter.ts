@@ -1,3 +1,4 @@
+import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { isNonEconomicAuthorityHold } from "@/lib/meta/decision-authority-hold";
 import { reportingDayCount } from "@/lib/meta/reporting-period";
 import type {
@@ -4104,6 +4105,7 @@ function retainedGenerationNotice(
   const degraded = workspace.decisionReadModel?.source?.degraded;
   if (!degraded) return null;
   if (degraded.reason === "native_engine_update_reconfirmation_pending") return `Engine update: showing the ${degraded.servedGeneration.asOfDate} prior-engine decisions for review. Hard actions and manual advice require fresh confirmation under the new engine; a same-day retry does not count as another observation.`;
+  if (degraded.reason === "native_latest_account_manifest_incomplete_serving_last_successful_generation") return `Showing ${workspace.decisionReadModel?.source.engineVersion && workspace.decisionReadModel.source.engineVersion !== NATIVE_AD_ENGINE_VERSION ? "prior-engine " : ""}decisions from the ${degraded.servedGeneration.asOfDate} run for review. The latest run (${degraded.latestTerminalRun.asOfDate}) did not verify a complete generation for this account. Hard actions and manual advice remain unavailable until a current complete generation is verified.`;
   const served = nonBlank(degraded.servedGeneration?.asOfDate);
   const failed = nonBlank(degraded.latestTerminalRun?.asOfDate);
   if (!served) return null;

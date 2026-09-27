@@ -11539,3 +11539,66 @@ Pure positive/negative cases and real PostgreSQL lineage seams complement it.
 Release: full pre-push gate, build and actual Claude review are required. Production
 capacity and account-isolated live readback remain deployment acceptance gates;
 no capacity-fence change, historical backfill or provider action is implied.
+
+## D128 — Process liveness, retained review continuity and Studio scope (2026-09-27)
+
+This completes the shared-system scope of the D127 buyer review. Account-specific
+missing configuration, targets or source observations are not release defects by
+themselves. No account override, provider write, capacity increase or retention
+deletion is introduced.
+
+- Container autoheal observes the process (`all`) heartbeat. Provider heartbeat
+  clocks remain separate and visible in operations health and release readiness.
+  Sequential Meta work must not restart the process merely because Google has
+  not run its next batch. Discovery failure cannot refresh process liveness;
+  unsuccessful heartbeat writes cannot advance its stall clock. Shutdown waits
+  for pending heartbeat writes and forbids late work from resurrecting an
+  outgoing worker.
+- A timer is not proof of useful progress. A provider cycle has an independent
+  15-minute default bound (`WORKER_CYCLE_MAX_MS`); its keepalive stops at that
+  bound and the watchdog exits even if another concurrent cycle is heartbeating.
+  The bound exceeds retained completed-cycle samples, not a proven maximum over
+  every historical backfill. Deadline exits require inspection, not a blind
+  increase. Existing lease, admission, fetch and DB safeguards remain intact.
+- Native calibration resolves receipt coherence and digests once per distinct
+  account/campaign/adset/day/timezone instead of once per Ad-day. Source and
+  context queries enforce the same business TEXT/ref identity. A divergent
+  identity cannot borrow another row's valid receipts. Cutoffs, source proof,
+  thresholds and runtime query timeouts are unchanged. A retained live snapshot
+  comparison returned byte-identical 3,172 rows, 60.9s before / 38.4s after;
+  this is one bounded performance sample, not proof that all timeouts are gone.
+- An opt-in review surface may serve an independently validated older complete
+  generation when the latest successful business job lacks a complete account
+  manifest. Its typed reason is
+  `native_latest_account_manifest_incomplete_serving_last_successful_generation`.
+  The latest job identity/status and served generation identity/day remain
+  together. Strict evidence readers, ambiguous latest receipts, arbitrary
+  foreign epochs, invalid lineage and the seven-day age ceiling remain closed.
+  All retained decisions lose execution and manual advice authority. A complete
+  current generation replaces the retained one in the same SQL selection.
+  The Briefing API independently validates each allowed cause/status/identity
+  combination and the absence of both provider and manual authority; it cannot
+  retain its older failed-run-only guard or report every retained cause as a
+  failure. Studio carries the prior-engine marker when that is the served source.
+- Studio accepts the exact creative filter already supported by the account-
+  scoped API. Decision detail links carry the helper metric window, account and
+  creative; the filter is visible and removable. This metric range does not
+  alter the decision snapshot's own as-of date. During a page transition, retained
+  rows keep their served page offset until the requested page actually arrives.
+- `complete_source_run_missing` with a NULL source run / expected source count
+  is unmeasured source absence, even when the derived identity list is empty.
+  Same-day complete-source selection is distinct from hydration failure. The
+  existing typed receipt and operations source-publication/failure observations
+  remain the diagnosis boundary; missing account inputs do not merit a fabricated
+  technical-error alarm or forced account repair.
+
+Validation includes negative-before/positive-after worker behavior, a stuck-cycle
+watchdog, real PostgreSQL identity exclusion and retained-reader selection,
+strict-reader refusal, authority stripping, exact Studio filtering and copy.
+Full release gates and actual Claude phase reviews still apply. Positive live
+cross-day confirmation requires naturally occurring distinct as-of days under
+the same epoch; same-day refusal and local seams never substitute for it.
+
+Rollback: revert this release's code/image through the controlled release path.
+No schema or advertising mutation is required. Preserve retained generation
+evidence and distinguish operational capacity refusal from a release regression.

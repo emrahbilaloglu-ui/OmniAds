@@ -113,6 +113,51 @@ describe("structured purchase Cut advice remains separate from action authority"
     });
   });
 
+  it("projects the same manual recommendation to Studio without an executable Cut", () => {
+    const item = serve()!;
+    const projection = projectCanonicalNativeAdDecisionToBriefing({ decision: item })!;
+    expect(projection).toMatchObject({ lane: "action", card: {
+      primary: { kind: "review", label: "Pause ad · manual recommendation" },
+      canonicalDecision: {
+        manualCutReview: { label: "Pause ad · manual recommendation" },
+        classification: { buyerAction: null, decisionState: "blocked" },
+        sourceAuthority: { actionEligible: false, authorizedAction: null },
+      },
+    } });
+    item.sourceAuthority!.decisionFreshness!.status = "stale";
+    const stale = projectCanonicalNativeAdDecisionToBriefing({ decision: item })!;
+    expect(stale.lane).toBe("watching");
+    expect(stale.card.canonicalDecision?.manualCutReview).toBeNull();
+  });
+
+  it("exposes only recorded refusals and keeps older missing reasons unknown", () => {
+    const refused = serve({ manual_cut_advisory: null, manual_cut_refusal: "stressed_cut_not_confirmed" })!;
+    expect(refused.manualCutRefusal?.code).toBe("stressed_cut_not_confirmed");
+    expect(refused.sourceAuthority).toMatchObject({ actionEligible: false, authorizedAction: null });
+    expect(projectCanonicalNativeAdDecisionToBriefing({ decision: refused })?.card.canonicalDecision?.manualCutRefusal?.code).toBe("stressed_cut_not_confirmed");
+    expect(serve({ manual_cut_advisory: null })?.manualCutRefusal?.code).toBe("not_recorded");
+    expect(serve({ manual_cut_advisory: { ...proof(), adId: "wrong" } })?.manualCutRefusal?.code).toBe("proof_unverified");
+    expect(serve({ config_evidence_lineage: { ...manualLineage(), contractVersion: "engine-v3-canonical-ad-evaluation.v20" } })?.manualCutAdvisory?.advised).toBe(true);
+  });
+
+  it("withdraws a retained generation's manual invitation even while its clock is fresh", () => {
+    const rows = [row()];
+    const model = buildNativeMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1", providerAccountId: "act_1", generation: nativeBuildGeneration(rows),
+      snapshotRows: rows, campaignContextRows: [context()], generatedAt: "2026-07-12T12:00:00.000Z",
+      sourceDegradation: {
+        reason: "native_latest_job_failed_serving_last_successful_generation", generation: nativeBuildGeneration(rows),
+        latestTerminalJobRunId: "20000000-0000-4000-8000-000000000902", latestTerminalJobStatus: "failed", latestTerminalAsOfDate: "2026-07-12",
+      },
+    });
+    const item = model.queue.adCandidates!.items[0]!;
+    expect(item.manualCutAdvisory).toBeNull();
+    expect(item.manualCutRefusal?.detail).toContain("current verified generation is unavailable");
+    expect(adAction(item, { scale: true, cut: true, refresh: true }).lane).toBe("blocked");
+    expect(projectCanonicalNativeAdDecisionToBriefing({ decision: item })?.lane).toBe("watching");
+    expect(rows[0]!.manual_cut_advisory).toEqual(proof());
+  });
+
   it("does not demote stronger purchase-intent evidence when only the historical objective is missing", () => {
     const item = serve({ manual_cut_advisory: { ...proof(), bracketedDays: 3, pointObservedDays: [], stress: null }, purchase_intent_window: { ...intentWindow(), bracketedDays: 3, pointObservedDays: 0, pointObserved: [] } });
     expect(item?.classification.resolution?.code).toBe("apply_purchase_cut_manually");
@@ -693,6 +738,7 @@ function nativeModel(
   rows: MetaNativeDecisionSnapshotSourceRow[],
   options: {
     adCandidateLimit?: number;
+    adCandidateOffset?: number;
     generatedAt?: string;
     campaignContextRows?: MetaDecisionCampaignContextSourceRow[];
     adsetRoleRows?: MetaDecisionCampaignContextSourceRow[];
@@ -729,6 +775,7 @@ function nativeModel(
     responseSourceAvailable: false,
     generatedAt: options.generatedAt ?? "2026-07-12T12:00:00.000Z",
     adCandidateLimit: options.adCandidateLimit,
+    adCandidateOffset: options.adCandidateOffset,
   });
 }
 
@@ -2338,6 +2385,29 @@ describe("Meta Decisions workspace canonical read model", () => {
         .slice(0, 60)
         .map((item) => item.decisionId),
     ).toEqual(first.queue.adCandidates?.items.map((item) => item.decisionId));
+  });
+
+  it("makes all 485 blocked and 45 watching ads reachable without duplicates beyond the 300-row cap", () => {
+    const rows = Array.from({ length: 530 }, (_, index) => nativeSnapshot(`120000${String(index + 1).padStart(12, "0")}`, index < 485 ? {
+      label: "test_more", raw_label: "test_more", pre_authority_label: "cut", authority_blocker: "profile_hard_action_ineligible",
+      blocked_action_type: "cut", authorized_action: null,
+    } : { label: "keep", raw_label: "keep", pre_authority_label: "keep", authorized_action: null }));
+    const first = nativeModel(rows, { adCandidateLimit: 300 }).queue.adCandidates!;
+    const next = nativeModel(rows, { adCandidateLimit: 300, adCandidateOffset: 300 }).queue.adCandidates!;
+    expect(first.items).toHaveLength(300);
+    expect(next.items).toHaveLength(230);
+    expect(next.selectionKey).toBe(first.selectionKey);
+    const all = [...first.items, ...next.items];
+    expect(new Set(all.map((item) => item.parentChain.ad!.id)).size).toBe(530);
+    expect(all.filter((item) => item.classification.decisionState === "monitor")).toHaveLength(45);
+    expect(nativeModel(rows.slice(1), { adCandidateLimit: 300 }).queue.adCandidates!.selectionKey).not.toBe(first.selectionKey);
+  });
+
+  it("serves recent sample only for its recorded window, preserving measured zero and legacy absence", () => {
+    const row = nativeSnapshot("120000000000000993", { decision_recent_spend: 0, decision_recent_purchases: 0,
+      decision_window: { startDate: "2026-07-06", endDate: "2026-07-12", calendarDaySpan: 7, observedDayCount: 7, economicDayCount: 7, bridgedUnresolvedDayCount: 0, recentStartDate: "2026-07-06", recentEndDate: "2026-07-12" } });
+    expect(nativeModel([row]).queue.adCandidates!.items[0]!.metrics).toMatchObject({ recent7dSpend: 0, recent7dPurchases: 0 });
+    expect(nativeModel([{ ...row, decision_window: null }]).queue.adCandidates!.items[0]!.metrics).toMatchObject({ recent7dSpend: null, recent7dPurchases: null });
   });
 
   it("keeps mixed-lane 60 and 120 responses as prefixes of the 300-row response", () => {
@@ -4471,6 +4541,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       // The serving day the age ceiling is measured against, and the ceiling.
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+      false, "v3-ad-2026-09-24-cut-proof-floor-story-shadow",
     ]);
     expect(
       query.mock.calls.some(([sql]) =>
@@ -4578,6 +4649,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       // considered at all, $6 measures how old the retained one is right now.
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+      true, "v3-ad-2026-09-24-cut-proof-floor-story-shadow",
     ]);
     expect(String(legacyCall?.[0])).toContain(
       "snapshot.as_of_date <= COALESCE(\n          $3::date",
@@ -6035,6 +6107,17 @@ describe("served role-held Cut resolution reads the recorded config evidence", (
       expect(evidence?.metricContract).toContain("meta-funnel-stage.v1");
     });
 
+    it("reports dated history gaps without inferring missing old dates from the current receipt", () => {
+      const stored = { ...lineage(receipt()), decisionEconomics: { economicDayCount: 2, unverifiedEconomicDayCount: 1,
+        economicDays: [{ date: "2026-07-11", dayClass: "none", spend: 19 }, { date: "2026-07-12", dayClass: "decision_authority", spend: 23 }] },
+        counts: { reviewOnlyPendingSpend: 0, reviewOnlySettledSpend: 0, noneSpend: 19 } };
+      const read = (config: Record<string, unknown>) => nativeModel([nativeSnapshot("120000000000000994", { config_evidence_lineage: config })]).queue.adCandidates!.items[0]!.configEvidence!.historyCoverage;
+      expect(read(stored)).toEqual({ economicDayCount: 2, unverifiedEconomicDayCount: 1, unverifiedSpend: 19, unverifiedDates: ["2026-07-11"] });
+      expect(read({ ...stored, decisionEconomics: { economicDayCount: 2, unverifiedEconomicDayCount: 1 } })?.unverifiedDates).toBeNull();
+      expect(read({ ...stored, counts: null })?.unverifiedSpend).toBeNull();
+      expect(read({ ...stored, decisionEconomics: { ...stored.decisionEconomics, economicDays: [stored.decisionEconomics.economicDays[0], stored.decisionEconomics.economicDays[0]] } })?.unverifiedDates).toBeNull();
+    });
+
     it("NEGATIVE: a malformed stored reference is listed as refused, never printed as evidence", () => {
       const model = nativeModel([
         nativeSnapshot("120000000000000932", {
@@ -6601,5 +6684,34 @@ describe("D118 — declarations are bound to the knowledge of the publishing run
     for (const [, params] of declarationCalls) {
       expect((params as unknown[])[6]).toBe(row.job_run_id);
     }
+  });
+});
+
+
+describe("known prior engine epoch remains review-only", () => {
+  const prior = "v3-ad-2026-09-24-cut-proof-floor-story-shadow";
+  it("serves complete retained decisions but removes provider and manual authority", async () => {
+    const row = nativeSnapshot("120000000009901", {engine_version: prior});
+    const query = workspaceReadQuery({generationRows:[nativeGeneration(row, {engine_version: prior})], nativeRows:[row]});
+    vi.mocked(db.getDb).mockReturnValue({query} as never);
+    const strict = await readValidatedMetaNativeDecisionGenerationBundle({businessId:"biz_1", providerAccountId:"act_1", generatedAt:"2026-07-13T12:00:00Z"});
+    expect(strict.status).toBe("unavailable");
+    const model = await readMetaDecisionsWorkspaceReadModel({businessId:"biz_1",providerAccountId:"act_1",generatedAt:"2026-07-13T12:00:00Z"});
+    expect(model.source).toMatchObject({authority:"native_ad",status:"unavailable",engineVersion:prior,
+      degraded:{reason:"native_engine_update_reconfirmation_pending"}});
+    expect(model.queue.adCandidates?.items).toHaveLength(1);
+    for (const item of model.queue.adCandidates?.items ?? []) {
+      expect(item.sourceAuthority).toMatchObject({actionEligible:false,authorizedAction:null,executionReadiness:"decision_not_authorized"});
+      expect(item.manualCutAdvisory ?? null).toBeNull();
+    }
+  });
+  it.each([
+    ["future", "2026-07-11T12:00:00Z"], ["expired", "2026-07-21T12:00:00Z"],
+  ])("does not retain a %s generation", async (_label, generatedAt) => {
+    const row = nativeSnapshot("120000000009902", {engine_version:prior});
+    vi.mocked(db.getDb).mockReturnValue({query:workspaceReadQuery({generationRows:[nativeGeneration(row,{engine_version:prior})],nativeRows:[row]})} as never);
+    const model = await readMetaDecisionsWorkspaceReadModel({businessId:"biz_1",providerAccountId:"act_1",generatedAt});
+    expect(model.source.degraded).toBeUndefined();
+    expect(model.source.authority).not.toBe("native_ad");
   });
 });

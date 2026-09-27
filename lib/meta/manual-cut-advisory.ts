@@ -1,7 +1,8 @@
-import type { MetaDecisionConfigEvidence } from "./decisions-workspace-contract";
+import type { MetaCanonicalDecision, MetaDecisionConfigEvidence } from "./decisions-workspace-contract";
 import {
   META_NATIVE_MANUAL_CUT_ADVISORY_CONTRACT,
   parseNativeManualCutAdvisoryProof,
+  type NativeManualCutAdvisoryRefusal,
 } from "@/lib/creative-decision-engine/native-manual-cut-advisory";
 import { META_PURCHASE_INTENT_WINDOW_CONTRACT } from "@/lib/creative-decision-engine/native-ad-hydration-authority";
 
@@ -76,7 +77,7 @@ export function readManualCutAdvisory(input: {
   });
   const identity = input.identity;
   if (
-    !proof || config.evaluationContractVersion !== "engine-v3-canonical-ad-evaluation.v19" ||
+    !proof || !["engine-v3-canonical-ad-evaluation.v19", "engine-v3-canonical-ad-evaluation.v20"].includes(config.evaluationContractVersion) ||
     proof.adId !== identity.adId || proof.providerAccountId !== identity.providerAccountId ||
     proof.asOfDate !== identity.asOfDate || proof.engineVersion !== identity.engineVersion ||
     proof.commercialTargetRoas !== identity.targetRoas ||
@@ -122,4 +123,57 @@ export function manualCutAdvisoryNextStep(advice: MetaManualCutAdvisory): string
     ? `The pause recommendation still holds when the ${advice.pointObservedDays} uncertain day(s) out of ${advice.economicDayCount} are treated as meeting your target.`
     : `The purchase goal is verified on all ${advice.economicDayCount} economic days.`;
   return `Manual pause recommended from this ad's spend and purchases. ${observation} Confidence is capped at medium because historical campaign settings remain incomplete. If you accept that uncertainty, pause the ad in Ads Manager; no automated change is available.`;
+}
+
+/** Recorded reasons only; never infer a failed sensitivity test from ROAS. */
+const REFUSAL_COPY: Record<NativeManualCutAdvisoryRefusal, string> = {
+  not_a_published_cut: "The original decision did not confirm a Cut; a pause signal alone does not establish a manual recommendation.",
+  hysteresis_pending: "The Cut has not completed the required consecutive decision confirmation.",
+  refresh_transform_not_eligible: "This Cut came from a Refresh transformation, not an independently confirmed purchase stop-loss.",
+  config_not_held: "This decision does not meet the configuration-held scope of the manual recommendation contract.",
+  engine_validity_hold: "An independent decision validity requirement is still unmet.",
+  source_coverage_gap: "The required source window is incomplete.",
+  purchase_observation_incomplete: "Purchase actions are not verified for every economic day.",
+  current_config_unobserved: "The current campaign configuration was not observed.",
+  current_receipt_lineage_unverified: "Current configuration receipts could not be verified.",
+  receipt_manifest_incoherent: "The configuration receipt manifest does not consistently describe the decision window.",
+  commercial_truth_absent: "The required commercial target evidence is unavailable.",
+  purchase_intent_window_invalid: "The recorded purchase-goal window could not be verified.",
+  purchase_intent_unnamed: "Some economic days have no verified purchase-goal receipt.",
+  goal_receipt_conflict: "The purchase-goal receipts conflict within the decision window.",
+  objective_receipt_conflict: "The campaign-objective receipts conflict within the decision window.",
+  sensitivity_not_computed: "The manual recommendation sensitivity check was not recorded.",
+  peer_free_cut_not_confirmed: "The Cut does not hold when the peer comparison is removed.",
+  sensitivity_unconstructible: "The uncertain-day sensitivity check could not be constructed from the recorded evidence.",
+  stressed_cut_not_confirmed: "The peer-free Cut does not hold when uncertain days are treated as meeting the target.",
+  stressed_original_cut_not_confirmed: "The original-profile Cut does not hold when uncertain days are treated as meeting the target.",
+};
+
+export interface MetaManualCutRefusal {
+  code: NativeManualCutAdvisoryRefusal | "not_recorded" | "proof_unverified";
+  detail: string;
+}
+
+export function readManualCutRefusal(value: unknown, proofPresent: boolean): MetaManualCutRefusal {
+  if (typeof value === "string" && Object.hasOwn(REFUSAL_COPY, value)) {
+    const code = value as NativeManualCutAdvisoryRefusal;
+    return { code, detail: REFUSAL_COPY[code] };
+  }
+  return proofPresent
+    ? { code: "proof_unverified", detail: "A manual recommendation was recorded, but its current identity or evidence could not be verified." }
+    : { code: "not_recorded", detail: "This decision did not record a verifiable manual recommendation refusal reason. Review its evidence; the reason cannot be reconstructed from displayed metrics." };
+}
+
+/** Shared server presentation, not an execution gate or a new buyer action. */
+export function manualCutAdviceForReview(decision: MetaCanonicalDecision): { label: string; nextStep: string } | null {
+  const advice = decision.manualCutAdvisory;
+  if (!advice?.advised || decision.identityGrain !== "ad" ||
+    decision.deliveryScope?.state !== "active" ||
+    decision.sourceAuthority?.status !== "native_exact" ||
+    decision.sourceAuthority.decisionFreshness?.status !== "fresh" ||
+    decision.sourceAuthority.actionEligible || decision.sourceAuthority.authorizedAction !== null ||
+    decision.classification.decisionState !== "blocked" || decision.classification.buyerAction !== null ||
+    decision.classification.heldAction !== "cut" ||
+    decision.classification.resolution?.code !== "apply_purchase_cut_manually") return null;
+  return { label: "Pause ad · manual recommendation", nextStep: manualCutAdvisoryNextStep(advice) };
 }

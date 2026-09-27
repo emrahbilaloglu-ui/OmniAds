@@ -773,6 +773,9 @@ describe("high priority Meta scenario emitters", () => {
       }),
     });
     expect(rec?.type).toBe("scenario_e1_frequency_fatigue");
+    expect(rec?.title).toContain("review frequency pressure");
+    expect(rec?.summary).toContain("do not establish temporal creative fatigue");
+    expect(rec?.recommendedAction).toContain("only if decay is confirmed");
     expect(rec?.cohort).toBe(purchaseCohort);
     expect(
       rec?.targetValue === undefined ||
@@ -1812,4 +1815,12 @@ describe("I4 is emitted only from a trusted canonical test kind", () => {
     expect(emitted).not.toBeNull();
     expect(emitted?.type).toBe("scenario_i4_test_should_use_abo");
   });
+});
+
+
+it("F4 describes a relative decline without unproved winner status", () => {
+  const rec = maybeF4StableWinnerFade({ window: windowFor(campaign({ ctr: 0.5 }), { last30: campaign({ roas: 0.4 }), last90: campaign({ roas: 0.8, ctr: 1 }) }), context, cohort: purchaseCohort, signals: signal({}) });
+  expect(rec?.title).toContain("decline versus baseline");
+  expect(rec?.title).not.toContain("winner");
+  expect(rec?.expectedImpact).not.toContain("previously strong");
 });

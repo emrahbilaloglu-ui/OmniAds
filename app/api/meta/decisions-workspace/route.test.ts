@@ -620,6 +620,24 @@ describe("GET /api/meta/decisions-workspace", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it.each(["-1", "1.2", "1000001", "NaN", "300"])("refuses an invalid or unbound page %s before source reads", async (offset) => {
+    const response = await GET(new NextRequest(`http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&adOffset=${offset}`));
+    expect(response.status).toBe(400);
+    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).not.toHaveBeenCalled();
+  });
+
+  it.each([["selection-a", 200], ["old-or-other-account-key", 409]])("binds later pages to the current scoped population: %s", async (key, expected) => {
+    assignmentsMock.getProviderAccountAssignments.mockResolvedValue({ account_ids: ["act_1"] });
+    readModelMock.readMetaDecisionsWorkspaceReadModel.mockResolvedValue({
+      contractVersion: "meta-decisions-workspace.read.v1", status: "available", scope: { businessId: "biz_1", providerAccountId: "act_1" },
+      queue: { sections: {}, adCandidates: { items: [], selectionKey: "selection-a", offset: 300 } },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => new URL(String(url)).pathname === "/api/meta/account-pulse" ? jsonResponse(metaPulse()) : jsonResponse(metaLanePayload())));
+    const response = await GET(new NextRequest(`http://localhost/api/meta/decisions-workspace?businessId=biz_1&providerAccountId=act_1&adLimit=300&adOffset=300&adSelectionKey=${key}`));
+    expect(response.status).toBe(expected);
+    expect(readModelMock.readMetaDecisionsWorkspaceReadModel).toHaveBeenCalledWith(expect.objectContaining({ adCandidateOffset: 300, adCandidateLimit: 300, providerAccountId: "act_1" }));
+  });
+
   it("validates and forwards providerAccountId before reading the account-scoped model", async () => {
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       id: "assignment_1",
@@ -660,6 +678,7 @@ describe("GET /api/meta/decisions-workspace", () => {
       businessId: "biz_1",
       providerAccountId: "act_1",
       adCandidateLimit: 120,
+      adCandidateOffset: 0,
       asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       generatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
       currentAds: [],
@@ -1802,6 +1821,58 @@ describe("GET /api/meta/decisions-workspace", () => {
       health: "degraded",
       fallbackReason: "sync_admission_blocked",
     });
+  });
+
+  it.each(["physical_snapshot_stale", "measurement_invalid"])(
+    "names a completed %s safety refusal without asserting storage is full", async (reason) => {
+      const healthy = healthyPipelineHealth();
+      pipelineHealthMock.buildMetaDecisionPipelineHealth.mockReturnValue({
+        ...healthy, overall: "blocked", executionReady: false,
+        blockers: ["sync_admission_blocked"],
+        admission: { ...healthy.admission, status: "blocked", allowed: false, reason, offender: null },
+      });
+      stubWorkspaceHttpUpstreams();
+      const response = await GET(new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1",
+      ));
+      const payload = await response.json();
+      const banner = payload.banners.find((item: { id: string }) => item.id === "meta_decision_pipeline_health");
+      expect(banner.title).toContain("New Meta sync work is blocked");
+      expect(banner.detail).toContain("Available capacity is unknown");
+      expect(banner.detail).not.toContain("does not establish");
+      expect(banner.detail).not.toContain("measured storage safety limit");
+      expect(payload.system.pipelineHealth.executionReady).toBe(false);
+    },
+  );
+
+  it("does not call sync stopped when operational health could not be read", async () => {
+    const healthy = healthyPipelineHealth();
+    pipelineHealthMock.buildMetaDecisionPipelineHealth.mockReturnValue({
+      ...healthy,
+      overall: "unavailable",
+      executionReady: false,
+      blockers: ["pipeline_read_failed"],
+      syncActivity: { ...healthy.syncActivity, status: "unavailable", reason: "Read failed" },
+      warehouse: { ...healthy.warehouse, status: "unavailable" },
+      admission: { ...healthy.admission, status: "unavailable", allowed: false },
+    });
+    stubWorkspaceHttpUpstreams();
+    const response = await GET(new NextRequest(
+      "http://localhost/api/meta/decisions-workspace?businessId=biz_1",
+    ));
+    const payload = await response.json();
+    const banner = payload.banners.find((item: { id: string }) =>
+      item.id === "meta_decision_pipeline_health",
+    );
+    expect(response.status).toBe(200);
+    expect(banner).toMatchObject({
+      title: "Meta pipeline health could not be verified — decisions are review-only.",
+      blocking: true,
+    });
+    expect(banner.title).not.toContain("sync is stopped");
+    expect(banner.detail).not.toContain("gate is closed");
+    expect(banner.detail).toContain("could not be verified");
+    expect(payload.system.pipelineHealth.executionReady).toBe(false);
   });
 
   it("names a decision-generation failure without misdirecting the operator to sync recovery", async () => {

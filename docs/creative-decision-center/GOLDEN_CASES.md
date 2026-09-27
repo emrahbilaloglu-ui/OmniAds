@@ -946,3 +946,20 @@ deployment claim. See `native-manual-cut-advisory-serving-replay.ts` and
 > listed once in
 > [`CONTRACTS.md` → *Current authority vs historical record — the tables*](./CONTRACTS.md#current-authority-vs-historical-record--the-tables).
 > A value from the retained list may EXPLAIN a decision and may never GRANT one.
+
+## D126 buyer evidence regression cases
+
+| Case | Evidence | Required result |
+|---|---|---|
+| B126-01 | recorded recent/cumulative windows identical; ratio 0.9999999999999999 | no Refresh decay |
+| B126-02 | missing, zero,1 or49 recent spend; existing floor50; mature cumulative winner | Keep with recent sample blocker |
+| B126-03 | recent spend50; holding ROAS; otherwise ready | Scale positive control |
+| B126-04 | confirmed fatigue plus sampled decay, still above target | Keep/review before Scale |
+| B126-05 | fatigue without sampled decay | fatigue alone does not refuse Scale |
+| B126-06 | checkout evidence, CPM10 vs50; upper rates healthy | same checkout diagnosis; CPM only adds auction context |
+| B126-07 | simultaneous upper and checkout weakness | established primary order; both evidence sets retained |
+| B126-08 | no break-even supplied | below-target copy, no profitability claim |
+| B126-09 | unassessed lifecycle tracking score, including rows present | NULL/unknown, not healthy |
+| B126-10 | historical CPA50 USD/JPY/HUF | major-unit band45–55; unknown currency has no money band |
+| B126-11 | unsorted geo rows, top spender has poor purchase economics | stable order; no loss leader in mature split; disjoint clusters |
+| B126-12 | F4 baseline itself poor; E1 lacks temporal decay | relative decline/frequency review, no winner/fatigue assertion |

@@ -78,7 +78,7 @@ export async function readWorkflowRecords(input: {
 }): Promise<Map<string, WorkflowRecord>> {
   const result = new Map<string, WorkflowRecord>();
   if (input.decisionKeys.length === 0) return result;
-  if (!(await overlayReady())) return result;
+  if (!(await overlayReady())) throw new Error("decision_workflow_source_unavailable");
   const rows = (await getDb().query<StateRow>(
     `
       SELECT business_id, decision_key, state, assignee_user_id,

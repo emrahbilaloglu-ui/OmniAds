@@ -47,6 +47,9 @@ import {
   readWalBytes,
 } from "@/lib/db-growth-census";
 
+import { evaluateDbGrowthFence } from "@/lib/sync/db-growth-fence";
+import { describeDbGrowthFenceCapacity } from "@/lib/sync/db-growth-capacity-report";
+
 const LABEL = "[db-growth-census]";
 
 function arg(name: string): string | null {
@@ -55,7 +58,8 @@ function arg(name: string): string | null {
 }
 
 function bytes(value: string | number | null): string {
-  const numeric = Number(value ?? 0);
+  if (value === null) return "unknown";
+  const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "unknown";
   const units = ["B", "KB", "MB", "GB", "TB"];
   let scaled = numeric;
@@ -84,6 +88,12 @@ async function main() {
     databaseBytes: size?.databaseBytes ?? null,
     databasePretty: bytes(size?.databaseBytes ?? null),
   });
+
+  // Use the same runtime evaluation as sync admission, including table env
+  // overrides and D077's proven reusable-heap deduction. A source default or a
+  // physical disk number alone does not describe the effective sync limit.
+  const fence = await evaluateDbGrowthFence();
+  console.log(`${LABEL} sync-capacity`, describeDbGrowthFenceCapacity(fence));
 
   // Privileged, and isolated. Never reported as zero when it could not be read.
   const wal = await readWalBytes();

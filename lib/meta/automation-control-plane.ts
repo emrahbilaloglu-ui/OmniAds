@@ -1915,10 +1915,10 @@ export async function ensureBusinessControlRow(input: {
  * What this workspace may do to Meta right now — one server reading.
  *
  * Before this existed the same question was answered by three independent
- * environment flags (`ZERO_BASE_MUTATION_UI_ENABLED`, `META_DECISION_WORKFLOW_UI`
- * and `META_AUTOMATION_LIVE_WRITES`) read in different places, which is why one
+ * environment flags read in different places, which is why one
  * route family offered controls the other did not. Both families now take this
- * object as props.
+ * object as props. Internal operator feedback now has a separate workflow gate;
+ * it does not permit provider execution.
  *
  * It is deliberately fail-closed: an unreadable control row yields
  * `verified: false` and `writeBlocked: true`. "Not read_only" is never by

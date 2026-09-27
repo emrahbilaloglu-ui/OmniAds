@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultBusinessConfig } from "../../config";
 import { HARD_ACTION_HOLD_CONFIDENCE_CAP } from "../../config-values";
-import { ratioZonesGate, resolveCutBoundary } from "../../gates/ratio-zones";
+import { ratioZonesGate, resolveCutBoundary, hasRefreshDecayEvidence } from "../../gates/ratio-zones";
 import type { GateContext } from "../../gates/types";
 import type {
   AccountCalibration,
@@ -103,7 +103,7 @@ describe("ratioZonesGate - scale zone", () => {
 
     expect(output.label).toBe("scale");
     expect(output.reason).toBe(
-      "ROAS 3.00 (28d) = 150% of commercial target 2.00 with 15 purchases (28d) and recent 7d holding at 2.20 — scale the ad set budget.",
+      "ROAS 3.00 (28d) = 150% of commercial target 2.00 with 15 purchases (28d) and recent 7d holding at 2.20 — review a delivery increase at the owning ad set or campaign.",
     );
   });
 
@@ -286,7 +286,7 @@ describe("ratioZonesGate - scale zone", () => {
     );
   });
 
-  it("keeps scale label unchanged and adds fatigued badge", () => {
+  it("withholds Scale when fatigue and sampled decay are confirmed", () => {
     const output = terminalOutput(
       ratioZonesGate(
         ratioContext(1.5, {
@@ -299,13 +299,15 @@ describe("ratioZonesGate - scale zone", () => {
       ),
     );
 
-    expect(output.label).toBe("scale");
+    expect(output.label).toBe("keep");
+    expect(output.reason).toContain("confirmed fatigue and sampled ROAS decay");
     expect(output.badges).toEqual([
       {
         type: "fatigue_fatigued",
         label: "Fatigued",
         severity: "warning",
       },
+      { type: "scale_readiness_blocked", label: "Scale readiness blocked", severity: "info" },
     ]);
   });
 });
@@ -315,7 +317,7 @@ describe("ratioZonesGate - target band", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[weak target] ROAS 1.80 (28d) just above breakeven (90% of commercial target) — keep observing; consider tightening if recent 7d weakens.",
+      "[weak target] ROAS 1.80 (28d) below target (90% of commercial target) — keep observing; consider tightening if recent 7d weakens.",
     );
     expect(output.reason.startsWith("[weak target]")).toBe(true);
   });
@@ -1722,7 +1724,7 @@ describe("ratioZonesGate - lifecycle reason hints", () => {
 
     expect(output.label).toBe("scale");
     expect(output.reason).toBe(
-      "ROAS 3.00 (28d) = 150% of commercial target 2.00 with 15 purchases (28d) and recent 7d holding at 2.20 — scale the ad set budget.",
+      "ROAS 3.00 (28d) = 150% of commercial target 2.00 with 15 purchases (28d) and recent 7d holding at 2.20 — review a delivery increase at the owning ad set or campaign.",
     );
   });
 
@@ -1831,5 +1833,29 @@ describe("ratioZonesGate - paused-delivery advisory badges", () => {
     expect(output.badges.map((badge) => badge.type)).not.toContain(
       "confirm_kill",
     );
+  });
+});
+
+
+describe("D126 buyer evidence regressions", () => {
+  it.each([null, 0, 1, 49])("does not scale from recent spend %s below the existing 50 floor", (recent7dSpend) => {
+    const output = terminalOutput(ratioZonesGate(ratioContext(2, { input: { purchases: 40, recent7dSpend, recent7dRoas: 100 } })));
+    expect(output.label).toBe("keep");
+    expect(output.reason).toContain("sample floor 50");
+  });
+  it("keeps the measured boundary and non-decaying fatigue positive controls", () => {
+    const output = terminalOutput(ratioZonesGate(ratioContext(1.5, { input: { purchases: 40, recent7dSpend: 50, recent7dRoas: 3, fatigueStatus: "fatigued" } })));
+    expect(output.label).toBe("scale");
+  });
+  it("refuses same-window Refresh even if rounded or inconsistent ratios appear lower", () => {
+    const window = { startDate: "2026-09-22", endDate: "2026-09-25", calendarDaySpan: 4, observedDayCount: 4, economicDayCount: 4, bridgedUnresolvedDayCount: 0, lookbackStartDate: "2026-08-29", lookbackEndDate: "2026-09-25", recentStartDate: "2026-09-22", recentEndDate: "2026-09-25" };
+    for (const recent7dRoas of [3.8080385507174626, 2]) {
+      expect(hasRefreshDecayEvidence(makeCreativeInput({ roas: 3.808038550717463, recent7dRoas, recent7dSpend: 100, decisionWindow: window }), makeAccountDecisionProfile({ accountBaselines: makeAccountCalibration({ refreshRatioP10: 1 }) }))).toBe(false);
+    }
+  });
+  it("distinguishes numerical noise from sampled decay without requiring new history", () => {
+    const profile = makeAccountDecisionProfile({ accountBaselines: makeAccountCalibration({ refreshRatioP10: 1 }) });
+    expect(hasRefreshDecayEvidence(makeCreativeInput({ roas: 3, recent7dRoas: 3 - 1e-12, recent7dSpend: 100 }), profile)).toBe(false);
+    expect(hasRefreshDecayEvidence(makeCreativeInput({ roas: 3, recent7dRoas: 2.8, recent7dSpend: 100 }), profile)).toBe(true);
   });
 });

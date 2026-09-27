@@ -3,6 +3,8 @@ import { chunkDecisionRows } from "./batching";
 import {
   parseNativeManualCutAdvisoryProof,
   type NativeManualCutAdvisoryProof,
+  type NativeManualCutAdvisoryRefusal,
+  NATIVE_MANUAL_CUT_ADVISORY_REFUSALS,
 } from "./native-manual-cut-advisory";
 import {
   canonicalConfigFieldEvidenceRef,
@@ -58,6 +60,9 @@ export type { DecisionAuthorityBlocker };
  */
 export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   /*
+  `.v20` — ADR D124. Also bind the deterministic manual-advice refusal.
+  Original verdict and provider authority retain their epoch.
+
   `.v19` — ADR D123. Hash the purchase-intent window and the separately
   recorded manual Cut proof. Core verdicts, D036 hysteresis and provider-write
   authority keep their existing epoch; older evaluations cannot acquire proof.
@@ -119,7 +124,7 @@ export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
   readable under their own key and are never recomputed under current
   semantics.
 */
-  "engine-v3-canonical-ad-evaluation.v19" as const;
+  "engine-v3-canonical-ad-evaluation.v20" as const;
 
 /**
  * The source interpretation rules a `.v14` ad evaluation's inputs use.
@@ -952,7 +957,12 @@ export function buildAdCanonicalEvaluationProvenance(input: {
   base: CanonicalEvaluationProvenance;
   adEvidence: Pick<AdDecisionInput, "customConversionId" | "configAuthority">;
   manualCutAdvisory?: NativeManualCutAdvisoryProof | null;
+  manualCutAdvisoryRefusal?: NativeManualCutAdvisoryRefusal | null;
 }): AdCanonicalEvaluationProvenance {
+  if (input.manualCutAdvisoryRefusal !== undefined && input.manualCutAdvisoryRefusal !== null &&
+    (!NATIVE_MANUAL_CUT_ADVISORY_REFUSALS.includes(input.manualCutAdvisoryRefusal) || input.manualCutAdvisory)) {
+    throw new Error("Invalid or contradictory native manual Cut advisory refusal");
+  }
   const identity = normalizeAdDecisionEvaluationIdentity(input.identity);
   const intent = input.adEvidence.configAuthority.purchaseIntentWindow;
   const manualCutAdvisory = parseNativeManualCutAdvisoryProof(input.manualCutAdvisory);
@@ -979,6 +989,7 @@ export function buildAdCanonicalEvaluationProvenance(input: {
     configEvidence: {
           // Observation receipts are hash-bound above/below; the invocation
           // clock is the evaluation/snapshot computed_at, never input identity.
+          manualCutAdvisoryRefusal: input.manualCutAdvisoryRefusal ?? null,
           manualCutAdvisory: manualCutAdvisory
             ? withoutKeys({ ...manualCutAdvisory }, ["computedAt"]) : null,
           purchaseIntentWindow: intent ? {
@@ -1037,6 +1048,7 @@ export function buildAdCanonicalEvaluationProvenance(input: {
             ),
           },
           decisionEconomics: {
+            economicDays: input.adEvidence.configAuthority.decisionEconomics.economicDays ?? null,
             fullyVerified:
               input.adEvidence.configAuthority.decisionEconomics.fullyVerified,
             economicDayCount:

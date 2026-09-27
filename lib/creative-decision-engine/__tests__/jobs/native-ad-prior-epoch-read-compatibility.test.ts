@@ -51,6 +51,7 @@ import {
 } from "../../evaluation-store";
 import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "../../execution-safety";
 import { ENGINE_VERSION, NATIVE_AD_ENGINE_VERSION } from "../../types";
+import buyerRepairPriorFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-24-cut-proof-floor-prior-epoch.v1.json";
 import currentEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.v1.json";
 import latestPriorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-24-config-gap-window-prior-epoch.v1.json";
 import immediatePriorEpochRawFixture from "../fixtures/native-ad-frozen-exact-replay.2026-09-24-prior-epoch.v1.json";
@@ -159,6 +160,13 @@ function readPriorEpochFixture(
 }
 
 describe("prior-epoch frozen evidence is distinguishable from the current epoch", () => {
+  it("keeps the immediate buyer-repair predecessor readable but not current authority", () => {
+    const prior = buyerRepairPriorFixture as unknown as FrozenEpochFixture;
+    expect(prior.engineVersion).toBe("v3-ad-2026-09-24-cut-proof-floor-story-shadow");
+    expect(prior.archetypes).toEqual(currentFixture.archetypes);
+    expect(() => admitAsCurrentEpochAcceptanceFixture(prior)).toThrow("not " + NATIVE_AD_ENGINE_VERSION);
+    expect(READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY).toContain("snapshot.engine_version = $2");
+  });
   it("keeps prior persisted input bodies readable under their own epochs while refusing them as current", () => {
     expect(latestPriorFixture.engineVersion).toBe(
       LATEST_PRIOR_NATIVE_AD_ENGINE_VERSION,

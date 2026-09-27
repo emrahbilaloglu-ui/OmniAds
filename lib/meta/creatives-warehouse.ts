@@ -1,3 +1,4 @@
+import { buildCreativeMembershipCoverage } from "@/lib/meta/creative-membership-coverage";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
@@ -2272,6 +2273,13 @@ export async function getMetaCreativesWarehousePayload(input: {
           includeDebugFields: false,
         })
   );
+  const membershipCoverage = buildCreativeMembershipCoverage({
+    businessId: input.businessId, providerAccountId: accountScope.providerAccountId,
+    startDate: input.start, endDate: input.end,
+    verified: sourceRows.filter((row) => !useCreativeWarehouse || !presentableProvisional(row as MetaCreativeDailyRow)),
+    provisional: provisionalCreativeDays,
+    withheld: [...unverifiedCreativeDays, ...unverifiedAdDays],
+  });
   const previewCoverage = buildPreviewCoverage(responseRows);
   const previewMissingCount = previewCoverage.previewMissingCount;
   const previewHydrating = input.mediaMode === "full" && previewMissingCount > 0;
@@ -2279,10 +2287,11 @@ export async function getMetaCreativesWarehousePayload(input: {
   return {
     status: "ok",
     rows: responseRows,
+    membershipCoverage,
     isPartial: unverifiedCreativeDays.length > 0 || unverifiedAdDays.length > 0 ||
       provisionalCreativeDays.length > 0,
     notReadyReason: unverifiedCreativeDays.length > 0
-      ? `${unverifiedCreativeDays.length} historical creative-day rows have unverified provider membership; their metrics are withheld until source-backed repair.`
+      ? `${unverifiedCreativeDays.length} historical creative-day rows have unverified provider membership; their metrics are withheld until source-backed repair. Displayed creative totals cover verified rows only; missing membership is not zero activity. See the daily source coverage below.`
       : unverifiedAdDays.length > 0
         ? `${unverifiedAdDays.length} active Ad-day rows have unverified historical creative identity; their metrics cannot be attributed to the requested creative.`
       : provisionalCreativeDays.length > 0

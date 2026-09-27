@@ -331,3 +331,21 @@ test.describe("the rollback grants nothing and discloses nothing", () => {
     }
   });
 });
+
+// Audit regression: the first authenticated entry after changing businesses
+// must settle through the real POST completion route without a React crash.
+test("Meta Decisions survives first entry and repeated business switches in rollback mode", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  for (const businessId of [UNLISTED, LISTED, UNLISTED]) {
+    const result = await landing(
+      page,
+      handle.rolledBackBaseUrl,
+      `/c/${businessId}/meta/decisions?window=7d&startDate=2026-09-18&endDate=2026-09-24`,
+      "/platforms/meta",
+    );
+    expect(result.pathname).toBe("/platforms/meta");
+    await expect(page.locator("body")).not.toContainText("Application error");
+  }
+  expect(pageErrors).toEqual([]);
+});

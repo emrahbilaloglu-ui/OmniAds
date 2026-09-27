@@ -18,7 +18,7 @@ const GATE_KEYS = [
 
 const ENV_BY_GATE: Record<keyof MetaReleaseGates, string> = {
   launchpadExecution: "META_LAUNCHPAD_EXECUTION",
-  decisionWorkflowUi: "META_AUTOMATION_LIVE_WRITES",
+  decisionWorkflowUi: "META_DECISION_WORKFLOW_UI",
   automationStopUi: "META_AUTOMATION_STOP_UI",
   automationLiveWrites: "META_AUTOMATION_LIVE_WRITES",
   publicShareMint: "META_PUBLIC_SHARE_MINT",
@@ -47,7 +47,7 @@ describe("Meta release gates", () => {
     const gates = readMetaReleaseGates({});
     for (const key of GATE_KEYS) {
       // STOP is always reachable; it is the one entry that is not a capability.
-      expect(gates[key]).toBe(key === "automationStopUi");
+      expect(gates[key]).toBe(key === "automationStopUi" || key === "decisionWorkflowUi");
     }
   });
 
@@ -59,16 +59,14 @@ describe("Meta release gates", () => {
     }
   });
 
-  it("the decision workflow follows the one live-write capability", () => {
-    expect(readMetaReleaseGates({}).decisionWorkflowUi).toBe(false);
-    // Its own former variable no longer opens anything on its own.
-    expect(
-      readMetaReleaseGates({ META_DECISION_WORKFLOW_UI: "true" })
-        .decisionWorkflowUi,
-    ).toBe(false);
-    const open = readMetaReleaseGates({ META_AUTOMATION_LIVE_WRITES: "true" });
-    expect(open.decisionWorkflowUi).toBe(true);
-    expect(open.automationLiveWrites).toBe(true);
+  it("internal feedback is independent from provider write authority", () => {
+    expect(readMetaReleaseGates({}).decisionWorkflowUi).toBe(true);
+    expect(readMetaReleaseGates({}).automationLiveWrites).toBe(false);
+    for (const value of ["false", "", "nonsense"]) {
+      expect(readMetaReleaseGates({META_DECISION_WORKFLOW_UI:value,
+        META_AUTOMATION_LIVE_WRITES:"true"}).decisionWorkflowUi).toBe(false);
+    }
+    expect(readMetaReleaseGates({META_DECISION_WORKFLOW_UI:"true"}).decisionWorkflowUi).toBe(true);
   });
 
   it.each(INDEPENDENT_GATE_KEYS)("%s opens only on an exact true", (key) => {
@@ -94,7 +92,7 @@ describe("Meta release gates", () => {
       }
       // The workflow half of the live-write capability moves with it, and only
       // with it. Nothing else does.
-      expect(gates.decisionWorkflowUi).toBe(key === "automationLiveWrites");
+      expect(gates.decisionWorkflowUi).toBe(true);
     }
   });
 

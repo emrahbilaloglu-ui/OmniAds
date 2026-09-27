@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -422,9 +422,7 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsWorkspacePayload.statusFilter": N(
     "The request's own status filter echoed back; what the screen states is the lane counts that filter produced, not the filter.",
   ),
-  "MetaDecisionsWorkspacePayload.startDate": N(
-    "A range echo of the request: the date-window control renders the URL's own range (resolveDateWindowFromParams), so a second copy could disagree with the control the operator set.",
-  ),
+  "MetaDecisionsWorkspacePayload.startDate": R(S.KPI, "the exact start of the ROAS reporting period"),
   "MetaDecisionsWorkspacePayload.endDate": W(
     S.KPI,
     "the Spend tile's exact as-of date, so a stale or historical range is never mislabeled as today",
@@ -1270,6 +1268,8 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.selectionVersion": N(
     "The version of the candidate selection algorithm; the panel states what the selection DID - how many identities were eligible, selected and omitted, and for which reason - which is the part that changes what the operator sees.",
   ),
+  "MetaDecisionsWorkspaceReadModel.queue.adCandidates.offset": N("Rendered by the page-level pagination control outside these adapters; real page navigation is pinned in MetaPlatformPage.refetch-resilience.test.tsx."),
+  "MetaDecisionsWorkspaceReadModel.queue.adCandidates.selectionKey": N("Opaque source-bound pagination token; forwarded to the server, never a buyer-facing value. Route and page tests cover invalidation."),
   "MetaDecisionsWorkspaceReadModel.queue.adCandidates.limit": N(
     "The cap's configured size; the panel states the two numbers the cap produced against TWO eligible pre-cap counts - the read model's own and the OS presentation's own served count, each under a label naming which one it is - and that pair is what tells an operator the list is partial.",
   ),
@@ -1922,9 +1922,9 @@ const COVERAGE: Record<string, Coverage> = {
     S.EVIDENCE,
     "the window's money line",
   ),
-  "MetaCanonicalDecision.metrics.recent7dRoas": N(
-    "A second window's return on the same card as the decision window's; the engine decides against the decision window, and two ROAS figures with no stated windows beside them read as a disagreement.",
-  ),
+  "MetaCanonicalDecision.metrics.recent7dSpend": R(S.CREATIVES, "the recent sample spend beside ROAS and its recorded period"),
+  "MetaCanonicalDecision.metrics.recent7dPurchases": R(S.CREATIVES, "the recent purchase count beside ROAS and its recorded period"),
+  "MetaCanonicalDecision.metrics.recent7dRoas": R(S.CREATIVES, "the recent ROAS alongside its exact period on the Ad card"),
   "MetaCanonicalDecision.metrics.ctr": N(
     "The native Ad row draws this evaluation's admitted-window all-click CTR; the selected-date warehouse trail is separate and cannot substitute for the decision metric.",
   ),
@@ -1984,12 +1984,8 @@ const COVERAGE: Record<string, Coverage> = {
     "the native Ad inspector's context-bridged evidence row",
     "bridged-context-days",
   ),
-  "MetaDecisionAdmittedWindow.recentStartDate": N(
-    "The recent band labels a recent ROAS, and this surface prints no recent ROAS. Creative Studio shows it through the briefing's decisionEvidence.recent.",
-  ),
-  "MetaDecisionAdmittedWindow.recentEndDate": N(
-    "The recent band labels a recent ROAS, and this surface prints no recent ROAS. Creative Studio shows it through the briefing's decisionEvidence.recent.",
-  ),
+  "MetaDecisionAdmittedWindow.recentStartDate": R(S.CREATIVES, "the start of the Ad card recent ROAS period"),
+  "MetaDecisionAdmittedWindow.recentEndDate": R(S.CREATIVES, "the end of the Ad card recent ROAS period"),
   "MetaDecisionSuppressionReason.code": R(
     S.PROVENANCE,
     "one labelled row per reason in the 'Withheld from queue' group",
@@ -2416,6 +2412,10 @@ const COVERAGE: Record<string, Coverage> = {
     "the diagnostics' refused config receipts",
     "config-refused",
   ),
+  "MetaDecisionConfigEvidence.historyCoverage.economicDayCount": R(S.EVIDENCE, "the recorded historical configuration sample", "config-history-coverage"),
+  "MetaDecisionConfigEvidence.historyCoverage.unverifiedEconomicDayCount": R(S.EVIDENCE, "the historical economic days still lacking authority", "config-history-coverage"),
+  "MetaDecisionConfigEvidence.historyCoverage.unverifiedSpend": R(S.EVIDENCE, "the spend excluded from config authority, not from measured ad spend", "config-history-coverage"),
+  "MetaDecisionConfigEvidence.historyCoverage.unverifiedDates": R(S.EVIDENCE, "the recorded dates lacking authority, never inferred from today's config", "config-history-coverage"),
   "MetaDecisionConfigEvidence.economicWindow.manifestHash": R(
     S.EVIDENCE,
     "the economic window's receipt manifest hash",
@@ -2467,6 +2467,8 @@ const COVERAGE: Record<string, Coverage> = {
   // resolution's next step, and the non-executability is stated by the served
   // action and authority envelope. Measured: none of the four varying counts
   // moves any surface, and neither distinctive literal is printed anywhere.
+  "MetaManualCutRefusal.code": N("The stable refusal key is rendered through the server's detail sentence, not as a second raw token."),
+  "MetaManualCutRefusal.detail": R(S.CREATIVES, "the held Cut manual-recommendation refusal sentence"),
   "MetaManualCutAdvisory.advised": N(
     "Pinned to `true` by the type and never printed. The exact adapter reads it only as the presence gate that lets an already-served `apply_purchase_cut_manually` resolution print its manual next step and held verdict; the object's presence, not a value, is what the surface branches on.",
   ),
@@ -2816,6 +2818,10 @@ const COVERAGE: Record<string, Coverage> = {
   "MetaOsStructureNode.confidence": R(
     S.ACTION,
     "the row's confidence chip and its tone, and the inspector's confidence line",
+  ),
+  "MetaOsStructureNode.economicConcern": R(
+    S.INSPECTOR,
+    "The server-qualified period/spend/ROAS break-even observation leads the structure card and inspector, ahead of readiness guidance; it grants no action.",
   ),
   "MetaOsStructureNode.assessment": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsStructureNode.whyNow": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
@@ -3377,6 +3383,7 @@ const EXTERNAL_BOUNDARY: ReadonlySet<string> = new Set([
   // Every lane row. Its own presentation is pinned by the adapter tests and by
   // `meta-card-utils`; the matrix classifies the ARRAYS that carry them.
   "MetaRecommendation",
+  "NativeManualCutAdvisoryRefusal",
   // The served status filter's value type.
   "BriefingStatusFilter",
   // The campaign role token on lane and inventory rows.
@@ -3497,11 +3504,14 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // contract version cannot vary, while dates and counts can. The window's
     // recent band adds two more varying dates (808 -> 810). D118 adds four
     // campaign/ad set identity and role-basis leaves.
+    // D124 adds two refusal fields (826 leaves, 771 varying); the new held-refusal scenario verifies the rendered sentence.
     // D123 adds ten: `MetaDecisionConfigEvidence.currentObserved` and the nine
     // leaves of the new `MetaManualCutAdvisory` interface (814 -> 824).
-    expect(fields.length).toBe(824);
+    // D125 adds two page controls, two recent-sample metrics and four config-history fields.
+    // D127 adds economicConcern; the second degraded reason also becomes varying.
+    expect(fields.length).toBe(835);
     // The manual-advice DTO contributes one new reachable interface.
-    expect(new Set(fields.map((field) => field.iface)).size).toBe(69);
+    expect(new Set(fields.map((field) => field.iface)).size).toBe(70);
     // Candidate selection v3 retains v2 payload compatibility. Its version
     // leaf now has two values instead of one pinned literal.
     // The new observation leaf and three v5/v6 compatibility version leaves vary.
@@ -3509,7 +3519,7 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // provenance leaf now varies while remaining intentionally unrendered.
     // D123: `currentObserved` and the four manual-advice counts vary; the five
     // pinned manual-advice markers do not (764 -> 769).
-    expect(fields.filter((field) => field.varies).length).toBe(769);
+    expect(fields.filter((field) => field.varies).length).toBe(781);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3716,6 +3726,15 @@ const SCENARIOS: readonly ProbeScenario[] = [
     // evidence drawer suppress historical resolution fields as if it were
     // degraded, so the probe could no longer prove their healthy-path rendering.
     omit: ["decisionReadModel.source.degraded"],
+    // Healthy structure rows have no loss concern. The full optional payload
+    // otherwise masks the target comparison with the economic-warning copy.
+    // Mutating this field still wins over the erasure and proves its rendering.
+    erase: ["MetaOsStructureNode.economicConcern"],
+  },
+  {
+    name: "recordedManualRefusal",
+    omit: ["decisionReadModel.source.degraded"],
+    force: { "MetaOsAdDecision.heldAction": "cut", "MetaOsAdDecision.lane": "blocked" },
   },
   {
     // Grandmix: sixty served ads, not one of which joins a decision snapshot.
@@ -4050,13 +4069,13 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // creative badge, with surface-level proof and no stable badge element id.
   // D107's three admitted-window caption leaves reach this surface; the
   // unpublished observed-day count and protocol tag stay out of its model.
-  CREATIVES: [0, 15],
+  CREATIVES: [0, 21],
   // 94 -> 93: `firstBlocker.explanation` is no longer rendered (Round 8 item 7).
   // 93 -> 114: the original twenty-one receipt-lineage leaves; -> 120 when
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
   // six labelled config rows the diagnostics now print. The Ad id keys the
   // exact-Ad evidence window; D109 removes a cross-period purchase claim.
-  EVIDENCE: [120, 19],
+  EVIDENCE: [124, 19],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
@@ -4064,9 +4083,9 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 12 -> 13: it arrived here. @see decisionAvailability above.
   // D107 adds two labelled inspector rows for economic and bridged days.
   // Native decision CTR moved to the admitted-window creative card.
-  INSPECTOR: [4, 12],
+  INSPECTOR: [4, 13],
   INVENTORY: [0, 14],
-  KPI: [0, 22],
+  KPI: [0, 23],
   NONSALES: [0, 1],
   PILLS: [0, 8],
   POSTURE: [2, 0],
@@ -4100,22 +4119,22 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // evidence window's 'Served action' row, not the queue button's tone.
   ACTION: [6, 0],
   HEADER: [2, 7],
-  KPI: [12, 10],
-  PILLS: [6, 2],
+  KPI: [13, 10],
+  PILLS: [5, 3],
   // Partly: the inspector's own facts render, the ones it only shows for a
   // selected creative do not; the Creatives queue and the source panel sit
   // behind the scope tabs and show only what the resting scope draws.
   // The creative scope is behind a tab in the default desktop render.
   // D107's start/end and economic-day denominator reach the creative card.
   // Pre-cap counts now also drive the lane tabs and scope pill in the resting DOM.
-  CREATIVES: [2, 13],
+  CREATIVES: [2, 19],
   // The provenance band put five payload leaves in this panel's DOM that had
   // never reached a screen: the evidence window's two dates, the engine write
   // time, and the two metrics whose ABSENCE the gap line now names.
   // 10 -> 11: the held verdict `heldAction`, behind the Creatives scope tab
   // rather than in the resting desktop DOM.
   // D107's economic and bridged-day counts reach named inspector rows.
-  INSPECTOR: [4, 12],
+  INSPECTOR: [5, 12],
   // 100 -> 101: `ads.pendingInventoryCount`, the coverage fact that separates
   // ACTIVE inventory awaiting a decision from the decision lanes it used to be
   // counted inside. Like every PROVENANCE claim it sits behind the panel's own
@@ -4125,7 +4144,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // lane totals and read from the provenance panel's own control.
   // 109 -> 108: `limitations[].message` is no longer rendered, so it leaves
   // the behind-a-control half of the provenance panel (Round 8 item 7).
-  PROVENANCE: [0, 108],
+  PROVENANCE: [0, 109],
   WATCHING: [1, 2],
   // Behind a lane tab the default render never presses. This is the whole
   // demonstration: ARCHIVE's claims are real and none of them is in the DOM
@@ -4146,7 +4165,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
   // contract-identity leaves. D109 removes the cross-period purchase claim;
   // the remaining claims sit behind the evidence-window control.
-  EVIDENCE: [0, 135],
+  EVIDENCE: [0, 139],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including
@@ -4178,7 +4197,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // contract-identity leaves. D109 removes one cross-period purchase claim;
 // the remaining evidence claims are behind the window control. The pre-cap
 // counts move into the resting DOM as the lane-tab and scope-pill counts.
-const DOM_PROOF_TOTALS: [number, number] = [33, 347];
+const DOM_PROOF_TOTALS: [number, number] = [34, 359];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4188,7 +4207,8 @@ const DOM_PROOF_TOTALS: [number, number] = [33, 347];
 // the contract to a single value, so the probe cannot vary it and it has no DOM
 // answer either way. Counted here so the three totals still add up to the whole
 // table rather than to an unstated subset.
-const DOM_PROOF_PINNED_LEAVES = 7;
+// D127 makes the degradation reason a varying union rather than one literal.
+const DOM_PROOF_PINNED_LEAVES = 6;
 
 /**
  * Leaves the probe varies that move NO surface, in any scenario.
@@ -4214,7 +4234,7 @@ const DOM_PROOF_PINNED_LEAVES = 7;
 // role-review control, outside the decision-card probe: 382 -> 384.
 // D123: `currentObserved` and the four manual-advice counts move no surface;
 // each is classified with its own reason above: 384 -> 389.
-const NOWHERE_LEAVES = 389;
+const NOWHERE_LEAVES = 388;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4238,7 +4258,7 @@ const NOWHERE_LEAVES = 389;
 // +2: the admitted window's recent band travels inside the decision handed
 // to the drawer callback and is printed nowhere on this surface: 71 -> 73.
 // D123's five varying audit leaves travel in that same callback tuple.
-const NOWHERE_BUT_AT_THE_BOUNDARY = 78;
+const NOWHERE_BUT_AT_THE_BOUNDARY = 76;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -4706,12 +4726,12 @@ function observeSurfaces(
 const NEGATIVE_CLAIM_PINS: Record<string, { observed: string[]; why: string }> =
   {
     "MetaOsAdDecision.decisionId": {
-      observed: ["EVIDENCE", "callback"],
-      why: "the note says the queue and buyer-facing inspector print no decision id; CREATIVES and INSPECTOR must stay out of this set",
+      observed: ["CREATIVES", "EVIDENCE", "INSPECTOR", "callback"],
+      why: "The identifier itself is printed only in audit evidence; its join selects the recent-window metrics and recorded refusal shown by the creative card and inspector.",
     },
     "MetaOsAdDecision.sourceSnapshotId": {
-      observed: ["EVIDENCE", "callback"],
-      why: "the note says the queue and buyer-facing inspector print no snapshot id; CREATIVES and INSPECTOR must stay out of this set",
+      observed: ["CREATIVES", "EVIDENCE", "INSPECTOR", "callback"],
+      why: "The identifier itself is printed only in audit evidence; its join selects the recent-window metrics and recorded refusal shown by the creative card and inspector.",
     },
     "MetaOsDecisionActionBase.code": {
       observed: ["EVIDENCE", "callback"],
@@ -5007,6 +5027,14 @@ describe("Meta Decision payload · every claim, proven against the running code"
         dom,
       });
     }
+    // Opt-in diagnostics make contract additions reviewable without repeatedly
+    // running the exhaustive census just to discover the next changed count.
+    if (process.env.SERVED_FIELD_PROBE_DIAGNOSTICS === "1") {
+      writeFileSync("/tmp/adsecute-served-field-probe.json", JSON.stringify({
+        outcomes: Object.fromEntries(outcomes), coverage: COVERAGE,
+        surfaceKeys: PROBE_SURFACE,
+      }, null, 2));
+    }
     // This hook probes 707 varying leaves across every served scenario and
     // renders the real adapters/page for each mutation. The clean two-core CI
     // runner first measured the completed hook at 358,465ms, then a loaded
@@ -5044,7 +5072,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // Current creative taxonomy adds two varying display/provenance leaves.
     // The admitted window's recent band adds two varying dates -> 760.
     // D123's five varying leaves -> 769.
-    expect(outcomes.size).toBe(769);
+    expect(outcomes.size).toBe(781);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -5299,9 +5327,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // served observation fact on the evidence surface without a stable row id.
     // The Meta-derived creative type adds one badge claim behind the scope tab.
     // D109 removes one canonical purchase claim from a different period.
-    expect(rendered.length).toBe(387);
-    expect(withElement.length).toBe(233);
-    expect(withoutElement.length).toBe(154);
+    expect(rendered.length).toBe(399);
+    expect(withElement.length).toBe(237);
+    expect(withoutElement.length).toBe(162);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -5520,10 +5548,15 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // The leaves the contract pins to one value cannot be varied at all, so
     // they have no DOM answer either way; counted here so the three numbers
     // add up to the whole table rather than to an unstated subset.
-    expect(rendered.length - varying.length).toBe(DOM_PROOF_PINNED_LEAVES);
-    expect(inDom.length).toBe(DOM_PROOF_TOTALS[0]);
-    expect(behindAControl.length).toBe(DOM_PROOF_TOTALS[1]);
-    expect(perSurface).toEqual(DOM_PROOF_BY_SURFACE);
+    expect({
+      pinned: rendered.length - varying.length,
+      totals: [inDom.length, behindAControl.length],
+      perSurface,
+    }).toEqual({
+      pinned: DOM_PROOF_PINNED_LEAVES,
+      totals: DOM_PROOF_TOTALS,
+      perSurface: DOM_PROOF_BY_SURFACE,
+    });
 
     /*
      * THE DEMONSTRATION, NAMED. The Archive lane's row name is the case that

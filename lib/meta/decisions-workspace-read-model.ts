@@ -1,6 +1,7 @@
+import { reportingDayCount } from "@/lib/meta/reporting-period";
 import { createHash } from "node:crypto";
 import { currentHierarchyStatuses } from "@/lib/meta/current-ad-delivery-status";
-import { readManualCutAdvisory, type MetaManualCutAdvisory } from "./manual-cut-advisory";
+import { readManualCutAdvisory, readManualCutRefusal, type MetaManualCutRefusal, type MetaManualCutAdvisory } from "./manual-cut-advisory";
 import { CREATIVE_DECISION_CENTER_ADAPTER_VERSION } from "@/lib/creative-decision-center/adapter";
 import { CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION } from "@/lib/creative-decision-center/v3-bridge";
 import { HARD_ACTION_HOLD_CONFIDENCE_CAP, STALE_CONFIDENCE_CAP } from "@/lib/creative-decision-engine/config-values";
@@ -20,7 +21,7 @@ import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/d
 import {
   evaluateDecisionOriginAdDecisionFreshness,
 } from "@/lib/creative-decision-engine/execution-safety";
-import { getDb, getDbWithTimeout } from "@/lib/db";
+import { getDb, getDbWithTimeout, type DbClient } from "@/lib/db";
 import {
   CAMPAIGN_CONTEXT_MAX_AGE_DAYS,
   isCampaignContextResolverAuthorityValidated,
@@ -96,6 +97,9 @@ const NATIVE_DECISION_READ_TIMEOUT_MS = 20_000;
  * this exact code (and on the stripped per-decision authority below), never on
  * prose: INVARIANTS forbids inferring staleness from free-form text.
  */
+export const NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION = "v3-ad-2026-09-24-cut-proof-floor-story-shadow";
+export const NATIVE_ENGINE_UPDATE_REASON = "native_engine_update_reconfirmation_pending" as const;
+
 export const NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON =
   META_DECISION_SOURCE_DEGRADED_REASON;
 
@@ -249,6 +253,7 @@ export interface MetaDecisionSnapshotSourceRow {
    */
   config_authority_verified?: boolean | null;
   manual_cut_advisory?: MetaManualCutAdvisory | null;
+  manual_cut_refusal?: MetaManualCutRefusal | null;
 }
 
 export interface MetaNativeDecisionSnapshotSourceRow {
@@ -329,12 +334,15 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   config_evidence_lineage?: Record<string, unknown> | null;
   /** Structured, hash-bound manual recommendation; never inferred from a badge. */
   manual_cut_advisory?: unknown;
+  manual_cut_refusal?: unknown;
   purchase_intent_window?: unknown;
   /** Native evaluation's hashed creativeInput.decisionWindow; display only. */
   decision_window?: unknown;
   /** Native evaluation's hashed, admitted Ad-window metrics; never lifecycle fallbacks. */
   decision_ctr?: unknown;
   decision_frequency?: unknown;
+  decision_recent_spend?: unknown;
+  decision_recent_purchases?: unknown;
 }
 
 function parseNativeDecisionWindow(
@@ -566,6 +574,7 @@ export interface BuildMetaDecisionsWorkspaceReadModelInput {
   generatedAt?: string;
   sectionLimit?: number;
   adCandidateLimit?: number;
+  adCandidateOffset?: number;
   requireActiveHierarchy?: boolean;
   authorityMode?: "legacy_review_only" | "native_exact";
   /** Native-only read safety; absent on retained creative-grain rows. */
@@ -1127,6 +1136,7 @@ export function buildUnavailableMetaDecisionsWorkspaceReadModel(input: {
   generatedAt?: string;
   sectionLimit?: number;
   adCandidateLimit?: number;
+  adCandidateOffset?: number;
 }): MetaDecisionsWorkspaceReadModel {
   const topN = Math.max(
     1,
@@ -1943,6 +1953,7 @@ function buildCanonicalDecision(input: {
       identityGrain: "creative",
       sourceSnapshotId: input.snapshot.snapshot_id,
       manualCutAdvisory: input.snapshot.manual_cut_advisory ?? null,
+      manualCutRefusal: input.snapshot.manual_cut_refusal ?? null,
       sourceAuthority: {
         status: "legacy_review_only",
         actionEligible: false,
@@ -2204,7 +2215,7 @@ function carryCanonicalAdUniverse(
   attachCanonicalAdUniverse(to, adIds);
 }
 
-function selectAdCandidates(items: MetaCanonicalDecision[], limit: number) {
+function selectAdCandidates(items: MetaCanonicalDecision[], limit: number, offset = 0) {
   const states: SelectableAdState[] = ["act", "blocked", "monitor"];
   const buckets = Object.fromEntries(
     states.map((state) => [
@@ -2222,16 +2233,17 @@ function selectAdCandidates(items: MetaCanonicalDecision[], limit: number) {
           META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
           Math.floor(limit / nonEmptyStates.length),
         );
-  const selected = nonEmptyStates.flatMap((state) =>
+  const reserved = nonEmptyStates.flatMap((state) =>
     buckets[state].slice(0, reserve),
   );
-  const selectedIds = new Set(selected.map((item) => item.decisionId));
-  selected.push(
+  const selectedIds = new Set(reserved.map((item) => item.decisionId));
+  const ordered = [...reserved,
     ...items
       .filter((item) => !selectedIds.has(item.decisionId))
-      .sort(compareAdCandidates)
-      .slice(0, Math.max(0, limit - selected.length)),
-  );
+      .sort(compareAdCandidates),
+  ];
+  const selected = ordered.slice(offset, offset + limit);
+  const selectionKey = stableId("madp", ordered.flatMap((item) => [item.providerAccountId, item.decisionId, item.sourceSnapshotId, item.classification.decisionState]));
   /*
    * The lane reserves are the beginning of the canonical ordering, not a
    * temporary set that may be re-sorted away.
@@ -2250,6 +2262,7 @@ function selectAdCandidates(items: MetaCanonicalDecision[], limit: number) {
    */
   return {
     selected,
+    selectionKey,
     stateCounts: Object.fromEntries(
       states.map((state) => [
         state,
@@ -2389,6 +2402,7 @@ export function buildMetaDecisionsWorkspaceReadModel(
       generatedAt: input.generatedAt,
       sectionLimit: input.sectionLimit,
       adCandidateLimit: input.adCandidateLimit,
+      adCandidateOffset: input.adCandidateOffset,
     });
   }
   const topN = Math.max(
@@ -2553,6 +2567,7 @@ export function buildMetaDecisionsWorkspaceReadModel(
   const adCandidateSelection = selectAdCandidates(
     exactAdCandidates,
     adCandidateLimit,
+    Math.max(0, Math.trunc(input.adCandidateOffset ?? 0)),
   );
   const readModel: MetaDecisionsWorkspaceReadModel = {
     contractVersion: META_DECISIONS_WORKSPACE_CONTRACT_VERSION,
@@ -2586,6 +2601,8 @@ export function buildMetaDecisionsWorkspaceReadModel(
       adCandidates: {
         selectionVersion: META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION,
         limit: adCandidateLimit,
+        offset: Math.max(0, Math.trunc(input.adCandidateOffset ?? 0)),
+        selectionKey: adCandidateSelection.selectionKey,
         preCapCount: canonicalDecisions.length,
         eligiblePreCapCount: exactAdCandidates.length,
         selectedCount: adCandidateSelection.selected.length,
@@ -2640,6 +2657,8 @@ export function buildMetaDecisionsWorkspaceReadModel(
 }
 
 export interface MetaNativeDecisionGeneration {
+  /** Only the known preceding epoch may be retained, always review-only. */
+  reviewOnlyEngineVersion?: typeof NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION;
   jobRunId: string;
   asOfDate: string;
   providerAccountRefId: string;
@@ -2818,6 +2837,7 @@ export interface BuildNativeMetaDecisionsWorkspaceReadModelInput {
   generatedAt?: string;
   sectionLimit?: number;
   adCandidateLimit?: number;
+  adCandidateOffset?: number;
 }
 
 function unavailableNativeGenerationBundle(input: {
@@ -2874,7 +2894,8 @@ export function validateMetaNativeDecisionGenerationBundle(input: {
     ) {
       return fail("provider_scope_mismatch");
     }
-    if (row.engine_version !== NATIVE_AD_ENGINE_VERSION) {
+    if (row.engine_version !== (input.generation.reviewOnlyEngineVersion ?? NATIVE_AD_ENGINE_VERSION) ||
+      (input.generation.reviewOnlyEngineVersion !== undefined && input.generation.reviewOnlyEngineVersion !== NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION)) {
       return fail("engine_epoch_mismatch");
     }
     if (row.as_of_date !== input.generation.asOfDate) {
@@ -3037,6 +3058,8 @@ function nativeSnapshotToInternalSnapshot(
     predicate_blockers: row.predicate_blockers,
     config_authority_verified: verifiedForPresentation,
     manual_cut_advisory: manualCutAdvisory,
+    manual_cut_refusal: !manualCutAdvisory && row.blocked_action_type === "cut" && row.authority_blocker === "config_source_authority"
+      ? readManualCutRefusal(row.manual_cut_refusal, Boolean(row.manual_cut_advisory)) : null,
   };
 }
 
@@ -3154,8 +3177,29 @@ function servedConfigEvidence(input: {
           incoherentDayCount: manifest.incoherentDayCount,
         }
       : null,
+    historyCoverage: readConfigHistoryCoverage(lineage),
     metricContract,
   };
+}
+
+function readConfigHistoryCoverage(lineage: Record<string, unknown>): NonNullable<MetaDecisionConfigEvidence["historyCoverage"]> {
+  const economics = lineage.decisionEconomics as Record<string, unknown> | null;
+  const counts = lineage.counts as Record<string, unknown> | null;
+  const nonnegative = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+  const count = (value: unknown) => { const n = nonnegative(value); return n !== null && Number.isInteger(n) ? n : null; };
+  const economicDayCount = count(economics?.economicDayCount);
+  const unverifiedCount = count(economics?.unverifiedEconomicDayCount);
+  const unverifiedEconomicDayCount = economicDayCount !== null && unverifiedCount !== null && unverifiedCount <= economicDayCount ? unverifiedCount : null;
+  const spendParts = [counts?.reviewOnlyPendingSpend, counts?.reviewOnlySettledSpend, counts?.noneSpend].map(nonnegative);
+  const days = economics?.economicDays;
+  const validDays = Array.isArray(days) && days.length === economicDayCount && days.every((day) =>
+    day && typeof day.date === "string" && reportingDayCount(day.date, day.date) === 1 &&
+    ["decision_authority", "review_only_pending", "review_only_settled", "none"].includes(day.dayClass) && nonnegative(day.spend) !== null) &&
+    new Set(days.map((day) => day.date)).size === days.length;
+  const unverifiedDates = validDays ? days.filter((day) => day.dayClass !== "decision_authority").map((day) => day.date).sort() : null;
+  return { economicDayCount, unverifiedEconomicDayCount,
+    unverifiedSpend: spendParts.every((part) => part !== null) ? spendParts.reduce<number>((sum, part) => sum + part!, 0) : null,
+    unverifiedDates: unverifiedDates?.length === unverifiedEconomicDayCount ? unverifiedDates : null };
 }
 
 function hasExplicitProviderImageMedia(
@@ -3250,6 +3294,9 @@ function applyNativeCanonicalDecisionAuthority(input: {
   decision.metrics.frequency = decision.decisionWindow
     ? admittedMetric(row.decision_frequency)
     : null;
+  const recentWindowKnown = Boolean(decision.decisionWindow?.recentStartDate && decision.decisionWindow.recentEndDate);
+  decision.metrics.recent7dSpend = recentWindowKnown ? admittedMetric(row.decision_recent_spend) : null;
+  decision.metrics.recent7dPurchases = recentWindowKnown ? admittedMetric(row.decision_recent_purchases) : null;
   decision.metrics.provenance = provenance({
     source: "engine_v3_ad_decision_snapshots_daily+engine_v3_decision_evaluations",
     field: "spend,purchases,roas,recent7d_roas,effective_target_roas,ratio_to_target,creative_input_json.ctr,creative_input_json.frequency,creative_input_json.decisionWindow",
@@ -3509,6 +3556,13 @@ export function buildNativeMetaCanonicalDecisionInventory(
       unavailableReason: "native_canonical_projection_incomplete",
     };
   }
+  if (input.generation.reviewOnlyEngineVersion) {
+    stripNativeSourceDegradedDecisionAuthority(items, {
+      reason: NATIVE_ENGINE_UPDATE_REASON, generation: input.generation,
+      latestTerminalJobRunId: input.generation.jobRunId,
+      latestTerminalJobStatus: "success", latestTerminalAsOfDate: input.generation.asOfDate,
+    });
+  }
   return {
     status: "available",
     generation: input.generation,
@@ -3608,7 +3662,7 @@ function markNativeReadModelSourceDegraded(
   degradation: MetaNativeDecisionSourceDegradation,
 ): MetaDecisionsWorkspaceReadModel {
   model.source.status = "unavailable";
-  model.source.fallbackReason = NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON;
+  model.source.fallbackReason = degradation.reason;
   model.source.degraded = stripNativeSourceDegradedDecisionAuthority(
     collectMetaCanonicalDecisions(model),
     degradation,
@@ -3630,6 +3684,22 @@ function stripNativeSourceDegradedDecisionAuthority(
   degradation: MetaNativeDecisionSourceDegradation,
 ): MetaDecisionSourceDegradation {
   for (const decision of decisions) {
+    // The proof remains in its immutable evaluation; a retained generation
+    // cannot offer a fresh manual invitation on any surface.
+    if (decision.manualCutAdvisory) {
+      decision.manualCutAdvisory = null;
+      decision.manualCutRefusal = {
+        code: "proof_unverified",
+        detail: "A current verified generation is unavailable. This retained recommendation is historical evidence; wait for a fresh verified decision before acting.",
+      };
+      if (decision.classification.resolution?.code === "apply_purchase_cut_manually") {
+        decision.classification.resolution = {
+          code: "refresh_decision_data", category: "data", owner: "integration",
+          label: "Refresh Decision", nextStep: decision.manualCutRefusal.detail,
+        };
+      }
+    }
+
     decision.sourceDecision.confidence = Math.min(
       decision.sourceDecision.confidence,
       STALE_CONFIDENCE_CAP,
@@ -3681,6 +3751,16 @@ function collectMetaCanonicalDecisions(
 export function buildNativeMetaDecisionsWorkspaceReadModel(
   input: BuildNativeMetaDecisionsWorkspaceReadModelInput,
 ): MetaDecisionsWorkspaceReadModel {
+  // An explicitly validated prior epoch can never be promoted by a caller
+  // forgetting to carry the degradation envelope.
+  const sourceDegradation = input.sourceDegradation ??
+    (input.generation.reviewOnlyEngineVersion ? {
+      reason: NATIVE_ENGINE_UPDATE_REASON,
+      generation: input.generation,
+      latestTerminalJobRunId: input.generation.jobRunId,
+      latestTerminalJobStatus: "success",
+      latestTerminalAsOfDate: input.generation.asOfDate,
+    } : null);
   const validatedBundle = validateMetaNativeDecisionGenerationBundle({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -3711,6 +3791,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
       generatedAt: input.generatedAt,
       sectionLimit: input.sectionLimit,
       adCandidateLimit: input.adCandidateLimit,
+      adCandidateOffset: input.adCandidateOffset,
     });
     empty.status = "available";
     empty.unavailable = null;
@@ -3720,7 +3801,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
       table: "engine_v3_ad_decision_snapshots_daily",
       snapshotAsOf: input.generation.asOfDate,
       computedAt: null,
-      engineVersion: NATIVE_AD_ENGINE_VERSION,
+      engineVersion: input.generation.reviewOnlyEngineVersion ?? NATIVE_AD_ENGINE_VERSION,
       fallbackReason: null,
       generation: {
         jobRunId: input.generation.jobRunId,
@@ -3734,8 +3815,8 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
       providerScopeAvailable: true,
       snapshotAvailable: true,
     });
-    return input.sourceDegradation
-      ? markNativeReadModelSourceDegraded(empty, input.sourceDegradation)
+    return sourceDegradation
+      ? markNativeReadModelSourceDegraded(empty, sourceDegradation)
       : empty;
   }
 
@@ -3757,6 +3838,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
     generatedAt: input.generatedAt,
     sectionLimit: input.sectionLimit,
     adCandidateLimit: input.adCandidateLimit,
+    adCandidateOffset: input.adCandidateOffset,
     requireActiveHierarchy: true,
     authorityMode: "native_exact",
     nativeConfigSafetyBySnapshot,
@@ -3783,7 +3865,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
         .map((row) => row.computed_at)
         .sort()
         .at(-1) ?? null,
-    engineVersion: NATIVE_AD_ENGINE_VERSION,
+    engineVersion: input.generation.reviewOnlyEngineVersion ?? NATIVE_AD_ENGINE_VERSION,
     fallbackReason: null,
     generation: {
       jobRunId: input.generation.jobRunId,
@@ -3809,8 +3891,8 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
   )
     ? { status: "available", reason: "native_immutable_action_receipt" }
     : { status: "unavailable", reason: "native_action_receipt_not_observed" };
-  return input.sourceDegradation
-    ? markNativeReadModelSourceDegraded(model, input.sourceDegradation)
+  return sourceDegradation
+    ? markNativeReadModelSourceDegraded(model, sourceDegradation)
     : model;
 }
 
@@ -4047,9 +4129,9 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
       SELECT candidate.*
       FROM effective_runs candidate
       CROSS JOIN latest_effective_terminal_job latest
-      WHERE latest.effective_status <> 'success'
+      WHERE (latest.effective_status <> 'success' OR ($8::boolean AND latest.engine_version <> $5))
         AND candidate.effective_status = 'success'
-        AND candidate.engine_version = $5
+        AND (candidate.engine_version = $5 OR ($8::boolean AND candidate.engine_version = $9))
         AND (candidate.as_of_date, candidate.started_at, candidate.id)
             < (latest.as_of_date, latest.started_at, latest.id)
         AND (
@@ -4131,7 +4213,7 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
  * consumer can name both halves of a degraded window without inferring either.
  */
 export interface MetaNativeDecisionSourceDegradation {
-  reason: typeof NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON;
+  reason: typeof NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON | typeof NATIVE_ENGINE_UPDATE_REASON;
   generation: MetaNativeDecisionGeneration;
   latestTerminalJobRunId: string;
   latestTerminalJobStatus: string;
@@ -4153,6 +4235,7 @@ type NativeGenerationReceiptResolution =
 function resolveNativeGenerationReceipt(
   row: MetaNativeDecisionGenerationSourceRow,
   providerAccountId: string,
+  allowPriorEpoch = false,
 ): NativeGenerationReceiptResolution {
   if (row.job_status !== "success") {
     return {
@@ -4165,7 +4248,8 @@ function resolveNativeGenerationReceipt(
             : "native_job_unavailable",
     };
   }
-  if (row.engine_version !== NATIVE_AD_ENGINE_VERSION) {
+  const priorEpoch = allowPriorEpoch && row.engine_version === NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION;
+  if (row.engine_version !== NATIVE_AD_ENGINE_VERSION && !priorEpoch) {
     return { generation: null, reason: "native_latest_job_engine_mismatch" };
   }
   const expectedAdCount = exactNonNegativeInteger(row.expected_ad_count);
@@ -4186,6 +4270,7 @@ function resolveNativeGenerationReceipt(
   }
   return {
     generation: {
+      ...(priorEpoch ? { reviewOnlyEngineVersion: NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION } : {}),
       jobRunId: row.job_run_id,
       asOfDate: row.as_of_date,
       providerAccountRefId: row.provider_account_ref_id,
@@ -4235,6 +4320,8 @@ async function readNativeGeneration(input: {
       NATIVE_AD_ENGINE_VERSION,
       servingDay,
       NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+      input.allowLastSuccessfulGenerationFallback === true,
+      NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION,
     ],
   );
   // The receipt lateral join is per account, so more than one row for ONE RUN
@@ -4285,10 +4372,11 @@ async function readNativeGeneration(input: {
   // this fallback exists for.
   const degradation =
     input.allowLastSuccessfulGenerationFallback === true &&
-    row.job_status === "failed"
+    (row.job_status === "failed" || row.engine_version === NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION)
       ? lastSuccessfulGenerationDegradation({
           row,
-          candidateRows: lastSuccessRows,
+          allowPriorEpoch: true,
+          candidateRows: row.job_status === "success" && row.engine_version === NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION ? [row, ...lastSuccessRows] : lastSuccessRows,
           providerAccountId: input.providerAccountId,
           now,
         })
@@ -4358,6 +4446,7 @@ function asOfDateAgeInDays(asOfDate: string, now: Date): number | null {
 function lastSuccessfulGenerationDegradation(input: {
   row: MetaNativeDecisionGenerationSourceRow;
   candidateRows: readonly MetaNativeDecisionGenerationSourceRow[];
+  allowPriorEpoch?: boolean;
   providerAccountId: string;
   now: Date;
 }): MetaNativeDecisionSourceDegradation | null {
@@ -4372,6 +4461,7 @@ function lastSuccessfulGenerationDegradation(input: {
     const resolved = resolveNativeGenerationReceipt(
       group[0]!,
       input.providerAccountId,
+      input.allowPriorEpoch === true,
     );
     if (!resolved.generation) continue;
     // @see NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS. A day the reader cannot
@@ -4389,7 +4479,7 @@ function lastSuccessfulGenerationDegradation(input: {
       continue;
     }
     return {
-      reason: NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON,
+      reason: resolved.generation.reviewOnlyEngineVersion ? NATIVE_ENGINE_UPDATE_REASON : NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON,
       generation: resolved.generation,
       latestTerminalJobRunId: input.row.job_run_id,
       latestTerminalJobStatus: input.row.job_status,
@@ -4399,13 +4489,13 @@ function lastSuccessfulGenerationDegradation(input: {
   return null;
 }
 
-async function readNativeSnapshotRows(input: {
+export async function readNativeSnapshotRows(input: {
   businessId: string;
   providerAccountId: string;
   generation: BuildNativeMetaDecisionsWorkspaceReadModelInput["generation"];
   creativeIds?: readonly string[];
   adIds?: readonly string[];
-}) {
+}, db: Pick<DbClient, "query"> = getDbWithTimeout(NATIVE_DECISION_READ_TIMEOUT_MS)) {
   const creativeIds = [...new Set(input.creativeIds ?? [])]
     .map((value) => value.trim())
     .filter(Boolean)
@@ -4414,9 +4504,7 @@ async function readNativeSnapshotRows(input: {
     .map((value) => value.trim())
     .filter(Boolean)
     .sort();
-  return getDbWithTimeout(
-    NATIVE_DECISION_READ_TIMEOUT_MS,
-  ).query<MetaNativeDecisionSnapshotSourceRow>(
+  return db.query<MetaNativeDecisionSnapshotSourceRow>(
     `
     /* ACCOUNT CURRENCY -- ONE PASS OVER THE ACCOUNT, NOT ONE SEEK PER AD.
 
@@ -4576,6 +4664,8 @@ async function readNativeSnapshotRows(input: {
       evaluation.creative_input_json -> 'decisionWindow' AS decision_window,
       evaluation.creative_input_json -> 'ctr' AS decision_ctr,
       evaluation.creative_input_json -> 'frequency' AS decision_frequency,
+      evaluation.creative_input_json -> 'recent7dSpend' AS decision_recent_spend,
+      evaluation.creative_input_json -> 'recent7dPurchases' AS decision_recent_purchases,
       /* ADR D098 config authority, as the ENGINE recorded it in the
          evaluation's own hashed input (configEvidence), which is persisted in
          the hash-keyed input-evidence table. NULL when the mapping is absent;
@@ -4598,6 +4688,7 @@ async function readNativeSnapshotRows(input: {
         )
       END AS config_authority_verified,
       input_evidence.input_evidence_json #> '{configEvidence,manualCutAdvisory}' AS manual_cut_advisory,
+      input_evidence.input_evidence_json #>> '{configEvidence,manualCutAdvisoryRefusal}' AS manual_cut_refusal,
       input_evidence.input_evidence_json #> '{configEvidence,purchaseIntentWindow}' AS purchase_intent_window,
       /* The receipts the verdict rests on, served READ-ONLY for the inspector:
          current-day ConfigFieldEvidenceRef per field and the economic window's
@@ -4612,6 +4703,8 @@ async function readNativeSnapshotRows(input: {
             'lineageSupplied', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,lineageSupplied}',
             'currentObserved', input_evidence.input_evidence_json #> '{configEvidence,currentValueEvidence,observed}',
             'receiptManifest', input_evidence.input_evidence_json #> '{configEvidence,decisionEconomics,receiptManifest}',
+            'decisionEconomics', input_evidence.input_evidence_json #> '{configEvidence,decisionEconomics}',
+            'counts', input_evidence.input_evidence_json #> '{configEvidence,counts}',
             'currentConfigDay', input_evidence.input_evidence_json #> '{configEvidence,currentConfigDay}',
             'metricContract', input_evidence.input_evidence_json -> 'metricContract'
           )
@@ -4831,7 +4924,7 @@ async function readNativeSnapshotRows(input: {
       input.generation.jobRunId,
       input.generation.asOfDate,
       input.generation.providerAccountRefId,
-      NATIVE_AD_ENGINE_VERSION,
+      input.generation.reviewOnlyEngineVersion ?? NATIVE_AD_ENGINE_VERSION,
       input.creativeIds !== undefined,
       creativeIds,
       input.adIds !== undefined,
@@ -4871,7 +4964,7 @@ async function readNativeSnapshotManifestAdIds(input: {
       input.generation.jobRunId,
       input.generation.asOfDate,
       input.generation.providerAccountRefId,
-      NATIVE_AD_ENGINE_VERSION,
+      input.generation.reviewOnlyEngineVersion ?? NATIVE_AD_ENGINE_VERSION,
     ],
   );
 }
@@ -6229,6 +6322,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
   generatedAt?: string;
   sectionLimit?: number;
   adCandidateLimit?: number;
+  adCandidateOffset?: number;
 }): Promise<MetaDecisionsWorkspaceReadModel> {
   // AREA 3 is opted into this workspace envelope. Creative Briefing also opts
   // in with its own source-degraded marker and stripped execution authority.
@@ -6250,6 +6344,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
         generatedAt: input.generatedAt,
         sectionLimit: input.sectionLimit,
         adCandidateLimit: input.adCandidateLimit,
+        adCandidateOffset: input.adCandidateOffset,
       });
       unavailable.source.fallbackReason = subsetRead.unavailableReason;
       return unavailable;
@@ -6269,6 +6364,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
       generatedAt: input.generatedAt,
       sectionLimit: input.sectionLimit,
       adCandidateLimit: input.adCandidateLimit,
+      adCandidateOffset: input.adCandidateOffset,
     });
     if (model.source.generation) {
       model.source.generation = {
@@ -6299,6 +6395,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
         generatedAt: input.generatedAt,
         sectionLimit: input.sectionLimit,
         adCandidateLimit: input.adCandidateLimit,
+        adCandidateOffset: input.adCandidateOffset,
       });
     } catch {
       // Fall through to legacy. The reason is named below, once.
@@ -6334,6 +6431,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
       generatedAt: input.generatedAt,
       sectionLimit: input.sectionLimit,
       adCandidateLimit: input.adCandidateLimit,
+      adCandidateOffset: input.adCandidateOffset,
     });
     unavailable.source.fallbackReason = nativeFallbackReason;
     return unavailable;
@@ -6398,6 +6496,7 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
     generatedAt: input.generatedAt,
     sectionLimit: input.sectionLimit,
     adCandidateLimit: input.adCandidateLimit,
+    adCandidateOffset: input.adCandidateOffset,
     requireActiveHierarchy: true,
   });
   legacyModel.source.fallbackReason = nativeFallbackReason;

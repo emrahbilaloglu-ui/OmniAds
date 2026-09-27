@@ -4,6 +4,8 @@ import { getSessionFromCookies } from "@/lib/auth";
 import { requireBusinessPageContext } from "@/lib/access/require-business-page-context";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { publicRedirectBaseUrl } from "@/lib/public-redirect-url";
+import { resolveCanonicalFallback } from "@/lib/zero-base/canonical-fallback";
+import { readZeroBaseRolloutConfig } from "@/lib/zero-base/rollout";
 import {
   AGENCY_RETURN_PARAM,
   parseAgencyReturn,
@@ -47,10 +49,25 @@ export async function GET(
     });
   }
 
-  if (session.activeBusinessId === businessId) {
-    return switchRedirect(request, destination);
+  // Resolve the audited Meta rollback hop before mounting /app's React tree.
+  // The /c -> switch -> /app -> legacy chain otherwise streams a second
+  // redirect during hydration (the observed React #310 entry failure). This
+  // uses the existing rollout rule after authorization, never a second flag.
+  let resolvedDestination = destination;
+  const target = new URL(destination, request.url);
+  if (target.pathname === "/app/meta/decisions") {
+    const fallback = resolveCanonicalFallback({
+      appPath: "meta/decisions",
+      config: readZeroBaseRolloutConfig(),
+      businessId,
+      search: target.search,
+    });
+    if (fallback.kind === "legacy") resolvedDestination = fallback.destination;
   }
-  const completion = `/switch-business/${encodeURIComponent(businessId)}/finish?next=${encodeURIComponent(destination)}`;
+  if (session.activeBusinessId === businessId) {
+    return switchRedirect(request, resolvedDestination);
+  }
+  const completion = `/switch-business/${encodeURIComponent(businessId)}/finish?next=${encodeURIComponent(resolvedDestination)}`;
   return switchRedirect(request, completion);
 }
 

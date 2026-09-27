@@ -1,3 +1,4 @@
+import { manualCutAdviceForReview } from "@/lib/meta/manual-cut-advisory";
 import type {
   BriefingCanonicalDecisionEvidence,
   BriefingCanonicalNativeAdDecision,
@@ -214,6 +215,8 @@ function withExactActiveHierarchyAuthority(
 function canonicalPrimaryAction(
   decision: MetaCanonicalDecision,
 ): BriefingPrimaryAction {
+  const manual = manualCutAdviceForReview(decision);
+  if (manual) return { kind: "review", label: manual.label };
   const authority = decision.sourceAuthority!;
   if (
     !authority.actionEligible ||
@@ -266,6 +269,7 @@ function canonicalLane(
   ) {
     return "watching";
   }
+  if (manualCutAdviceForReview(decision)) return "action";
   // The exact-Ad Cut route is currently the only canonical briefing action
   // with a provider-validated execution handoff. Scale/Refresh remain exact
   // persisted decisions, but presenting them as Action Now would overstate
@@ -545,7 +549,7 @@ export function projectCanonicalNativeAdDecisionToBriefing(input: {
     classification: {
       decisionState: decision.classification.decisionState,
       buyerAction: decision.classification.buyerAction,
-      buyerLabel: decision.classification.buyerLabel,
+      buyerLabel: manualCutAdviceForReview(decision)?.label ?? decision.classification.buyerLabel,
       executionAction: decision.classification.executionAction,
       heldAction: decision.classification.heldAction,
     },
@@ -559,6 +563,8 @@ export function projectCanonicalNativeAdDecisionToBriefing(input: {
     },
     sourceAuthority,
     decisionEvidence: canonicalDecisionEvidence(decision),
+    manualCutReview: manualCutAdviceForReview(decision),
+    manualCutRefusal: decision.manualCutRefusal ?? null,
   };
   const missingMeasurement =
     present.metrics.spend === null || present.metrics.purchases === null;

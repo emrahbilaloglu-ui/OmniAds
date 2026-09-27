@@ -1688,6 +1688,7 @@ describe("ad-grain creative identity recovery", () => {
     expect(payload.rows).toHaveLength(0);
     if (payload.status !== "ok") throw new Error("expected scoped warehouse payload");
     expect(payload).toMatchObject({ status: "ok", isPartial: true });
+    expect(payload.membershipCoverage.days).toEqual(expect.arrayContaining([expect.objectContaining({ date: "2026-04-03", verifiedSpend: null, withheldRows: 1 })]));
     expect(payload.notReadyReason).toContain("unverified historical creative identity");
   });
 

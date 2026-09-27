@@ -893,6 +893,7 @@ export async function runAdDecisionsJob(
             const advisory = buildNativeManualCutAdvisory(computation, input.asOf, evaluatedAt);
             return buildAdCanonicalEvaluationProvenance({
               manualCutAdvisory: advisory.status === "advised" ? advisory.proof : null,
+              manualCutAdvisoryRefusal: advisory.status === "refused" ? advisory.refusal : null,
               identity: {
                 providerAccountRefId: computation.input.providerAccountRefId,
                 providerAccountId: computation.input.providerAccountId,
@@ -2764,7 +2765,7 @@ function normalizeSiteOwnedAdDecision(
     label: siteOwnedIssue ? "keep" : decision.label,
     preAuthorityLabel: siteOwnedIssue ? "keep" : decision.preAuthorityLabel,
     reason: siteOwnedIssue
-      ? `[Keep Ad; fix ${siteOwnedIssue.type === "landing_page_issue" ? "landing page" : "checkout"}] ${decision.reason}`
+      ? `[Keep Ad; investigate ${siteOwnedIssue.type === "landing_page_issue" ? "landing page" : "checkout"}] ${decision.reason}`
       : decision.reason,
   };
 }

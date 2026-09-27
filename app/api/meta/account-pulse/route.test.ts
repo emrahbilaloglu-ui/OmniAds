@@ -150,6 +150,34 @@ describe("GET /api/meta/account-pulse", () => {
     mockSql({ targetRoas: 2.4, calibrationP50: 3.1 });
   });
 
+  it.each(["28d", "custom", "7d"])(
+    "compares an explicit seven-day %s range with exactly the preceding seven days", async (window) => {
+      const response = await GET(new NextRequest(
+        `http://localhost/api/meta/account-pulse?businessId=biz_1&window=${window}&startDate=2026-09-18&endDate=2026-09-24`,
+      ));
+      expect(response.status).toBe(200);
+      expect(campaigns.getMetaCampaignsForRange).toHaveBeenCalledWith(expect.objectContaining({
+        startDate: "2026-09-11", endDate: "2026-09-17",
+      }));
+      expect(campaigns.getMetaCampaignsForRange).not.toHaveBeenCalledWith(expect.objectContaining({
+        startDate: "2026-08-21", endDate: "2026-09-17",
+      }));
+    },
+  );
+
+  it.each([
+    ["2026-02-30", "2026-03-03"],
+    ["2025-01-01", "2026-09-24"],
+    ["2026-09-24", "2026-09-18"],
+    ["2026-09-18", "invalid"],
+  ])("refuses invalid reporting period %s to %s before reading metrics", async (start, end) => {
+    const response = await GET(new NextRequest(
+      `http://localhost/api/meta/account-pulse?businessId=biz_1&startDate=${start}&endDate=${end}`,
+    ));
+    expect(response.status).toBe(400);
+    expect(campaigns.getMetaCampaignsForRange).not.toHaveBeenCalled();
+  });
+
   it("does not sum an unobserved day to zero", async () => {
     /**
      * D8. `totals()` reduces an empty row set to `spend: 0, purchases: 0`, and
@@ -227,7 +255,8 @@ describe("GET /api/meta/account-pulse", () => {
     });
     expect(payload).not.toHaveProperty("labelCoverage");
     expect(payload.targetAnchor.configured).toBe(true);
-    expect(payload.trackingHealth.status).toBe("healthy");
+    expect(payload.trackingHealth.status).toBe("unknown");
+    expect(payload.trackingHealth.detail).toContain("does not establish tracking health");
     // Freshness is never fabricated: with no warehouse ingest metadata the
     // payload says unknown (null) instead of "now".
     expect(payload.lastSyncAt).toBeNull();
@@ -533,6 +562,29 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.trackingHealth).toMatchObject({
       status: "unknown",
       detail: "Recent creative lifecycle tracking data is unavailable.",
+    });
+  });
+  it("reports unassessed tracking health when rows exist but no detector measured a score", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const text = strings.join(" ");
+      if (text.includes("FROM business_target_packs")) return [{ target_roas: 2.4 }];
+      if (text.includes("FROM meta_decision_calibration_daily")) return [{ p50: 3.1 }];
+      if (text.includes("meta_decision_snapshots_daily")) {
+        return [{ latest_snapshot_date: "2026-05-07", engine_last_run: new Date().toISOString(), engine_version: "v1.0.0" }];
+      }
+      if (text.includes("engine_v3_creative_lifecycle_daily")) {
+        return [{ row_count: 12, tracking_anomaly_score: null }];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const response = await GET(new NextRequest("http://localhost/api/meta/account-pulse?businessId=biz_1&window=28d"));
+    const payload = await response.json();
+
+    expect(payload.trackingHealth).toMatchObject({
+      status: "unknown",
+      detail: "Tracking health was not assessed by the lifecycle source. Reconcile store events and provider measurements before judging tracking.",
     });
   });
 });

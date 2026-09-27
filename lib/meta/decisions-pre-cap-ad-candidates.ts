@@ -43,6 +43,8 @@ export function preCapLaneProjection(
   const resolution = decision.classification.resolution;
   return {
     decisionId: decision.decisionId,
+    identityGrain: decision.identityGrain,
+    deliveryScope: decision.deliveryScope,
     sourceSnapshotId: decision.sourceSnapshotId,
     parentChain: {
       ad: decision.parentChain.ad ? { id: decision.parentChain.ad.id } : null,

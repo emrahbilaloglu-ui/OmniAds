@@ -191,6 +191,7 @@ interface CurrentHydrationReceiptRow extends Record<string, unknown> {
 
 interface CalibrationReuseReceiptRow extends Record<string, unknown> {
   reusable: unknown;
+  reason: unknown;
 }
 
 interface MetaEligibleBusinessRow extends Record<string, unknown> {
@@ -300,11 +301,12 @@ WITH latest_target_history AS (
     -- Current selection: the scheduled job compares against the accounts it is
     -- supposed to be calibrating NOW, not every account ever bound.
     AND binding.is_selected
-)
+), reuse_decision AS (
 SELECT CASE
-  WHEN calibration_receipt.batch_count <> calibration_batches.batch_count THEN FALSE
-  WHEN calibration_batches.account_identities IS DISTINCT FROM assigned_accounts.account_identities THEN FALSE
-  WHEN calibration_batches.earliest_batch_cutoff IS NULL THEN FALSE
+  WHEN NOT EXISTS (SELECT 1 FROM latest_successful_calibration) THEN 'no_successful_calibration'
+  WHEN calibration_receipt.batch_count <> calibration_batches.batch_count THEN 'receipt_batch_mismatch'
+  WHEN calibration_batches.account_identities IS DISTINCT FROM assigned_accounts.account_identities THEN 'selected_accounts_changed'
+  WHEN calibration_batches.earliest_batch_cutoff IS NULL THEN 'complete_batch_missing'
   WHEN EXISTS (
     SELECT 1
     FROM meta_authoritative_publication_pointers pointer
@@ -344,18 +346,23 @@ SELECT CASE
             AND previous_slice.superseded_at <= $3::timestamptz
         )
       )
-  ) THEN FALSE
-  WHEN NOT EXISTS (SELECT 1 FROM latest_target_history) THEN TRUE
-  ELSE (
+  ) THEN 'source_publication_changed'
+  WHEN NOT EXISTS (SELECT 1 FROM latest_target_history) THEN 'reusable'
+  WHEN (
     SELECT GREATEST(target.recorded_at, target.effective_at)
              <= run.started_at - INTERVAL '1 minute'
     FROM latest_target_history target
     CROSS JOIN latest_successful_calibration run
   )
-END AS reusable
+  THEN 'reusable'
+  ELSE 'target_history_changed'
+END AS reason
 FROM calibration_batches
 CROSS JOIN calibration_receipt
 CROSS JOIN assigned_accounts
+)
+SELECT reason = 'reusable' AS reusable, reason
+FROM reuse_decision
 `;
 
 export interface NativeAdShadowScheduleOptions {
@@ -1171,7 +1178,7 @@ export function hasAuthoritativeDecisionHydrationReceipts(
   });
 }
 
-export async function hasReusableNativeCalibration(
+export async function readNativeCalibrationReuseReceipt(
   input: { businessId: string; asOf: string; decisionCutoff: string },
   db = getDb(),
 ) {
@@ -1185,7 +1192,26 @@ export async function hasReusableNativeCalibration(
       AD_CALIBRATION_JOB_NAME,
     ],
   );
-  return row?.reusable === true;
+  return {
+    reusable: row?.reusable === true,
+    reason: typeof row?.reason === "string" ? row.reason : "receipt_unavailable",
+  };
+}
+
+export async function hasReusableNativeCalibration(
+  input: { businessId: string; asOf: string; decisionCutoff: string },
+  db = getDb(),
+) {
+  const receipt = await readNativeCalibrationReuseReceipt(input, db);
+  if (!receipt.reusable) {
+    // Diagnostic only. Invalidation still follows the exact source/target
+    // receipt predicate; never equate new publication with duplicate data.
+    console.info("[native-ad-schedule] calibration reuse refused", {
+      ...input,
+      reason: receipt.reason,
+    });
+  }
+  return receipt.reusable;
 }
 
 async function hasSuccessfulNativeJob(input: {

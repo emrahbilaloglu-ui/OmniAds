@@ -282,3 +282,25 @@ describe("assessQualityOnly", () => {
     );
   });
 });
+
+
+describe("D126 independent funnel evidence", () => {
+  it.each([10, 50])("retains checkout diagnosis with CPM %s", (cpm) => {
+    const result = diagnose({ creative: { spend: 2500, impressions: 50000, ctr: 2, thumbstop: 30, cpm, linkClicks: 500, landingPageViews: 400, addToCart: 80, initiateCheckout: 50, purchases: 1 } });
+    expect(result.primaryWeakStage).toBe("checkout");
+    expect(result.creativeResponsible).toBe(false);
+    if (cpm === 50) expect(result.evidence.join(" ")).toContain("Auction pressure");
+  });
+  it("retains simultaneous upper-funnel and checkout clues without declaring a single creative cause", () => {
+    const result = diagnose({ creative: { impressions: 50000, ctr: 0.2, thumbstop: 2, linkClicks: 500, landingPageViews: 400, addToCart: 80, initiateCheckout: 50, purchases: 1 } });
+    expect(result.primaryWeakStage).toBe("upper_funnel");
+    expect(result.evidence.join(" ")).toContain("Parallel checkout signal");
+    expect(result.creativeResponsible).toBe(true);
+  });
+  it("does not make creative responsible for auction pressure alone", () => {
+    const result = diagnose({ creative: { cpm: 100, purchases: 16, initiateCheckout: 40 } });
+    expect(result.primaryWeakStage).toBe("none");
+    expect(result.creativeResponsible).toBe(false);
+    expect(result.evidence.join(" ")).toContain("Auction pressure");
+  });
+});

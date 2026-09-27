@@ -182,7 +182,7 @@ describe("Meta Decisions canonical route authority", () => {
       // off (§18: the design draws no ownership controls, so they wait for the
       // owner's separately approved round), and a route forwarding `undefined`
       // would leave the body guessing at a fact the server just read.
-      decisionWorkflowUiEnabled: false,
+      decisionWorkflowUiEnabled: true,
       // The second, independent gate. Both default off, and opening one does
       // not open the other.
       mutationUiEnabled: false,
@@ -236,7 +236,7 @@ describe("Meta Decisions canonical route authority", () => {
       businessTimezone: "Europe/Istanbul",
       serverProviderAccountId: null,
       accountSelection: "local",
-      decisionWorkflowUiEnabled: false,
+      decisionWorkflowUiEnabled: true,
       // The second, independent gate. Both default off, and opening one does
       // not open the other.
       mutationUiEnabled: false,

@@ -3,6 +3,7 @@ import {
   readCampaignContextMap,
   resolveCampaignContextMode,
 } from "@/lib/creative-decision-engine/campaign-context/source";
+import { reportingDayCount } from "@/lib/meta/reporting-period";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
@@ -355,14 +356,15 @@ async function readTrackingHealth(
   if (rowCount <= 0) {
     return { status: "unknown" as const, detail: "Recent creative lifecycle tracking data is unavailable." };
   }
-  const score = toNumber(row?.tracking_anomaly_score);
+  if (row?.tracking_anomaly_score == null) return { status: "unknown" as const, detail: "Tracking health was not assessed by the lifecycle source. Reconcile store events and provider measurements before judging tracking." };
+  const score = toNumber(row.tracking_anomaly_score);
   if (score >= 0.7) {
     return { status: "blocked" as const, detail: "Tracking anomaly score is elevated." };
   }
   if (score >= 0.35) {
     return { status: "degraded" as const, detail: "Tracking signal is watchlisted." };
   }
-  return { status: "healthy" as const, detail: "Tracking signal is stable." };
+  return { status: "unknown" as const, detail: "No elevated lifecycle anomaly was recorded; this narrow source does not establish tracking health." };
 }
 
 async function readRoasHistory(input: {
@@ -530,19 +532,25 @@ export async function GET(request: NextRequest) {
     searchParams.get("providerAccountId")?.trim() || null;
   const window = parseWindow(searchParams.get("window"));
   const statusFilter = parseBriefingStatusFilter(searchParams.get("status_filter"));
-  const endDate = searchParams.get("endDate")?.trim() || todayISO();
-  const startDate =
-    searchParams.get("startDate")?.trim() ||
-    addDaysToISO(endDate, -(windowDays(window) - 1));
-  const previousEnd = addDaysToISO(startDate, -1);
-  const previousStart = addDaysToISO(previousEnd, -(windowDays(window) - 1));
-
   const access = await requireBusinessAccess({
     request,
     businessId,
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+  const endDate = searchParams.get("endDate")?.trim() || todayISO();
+  const statedStart = searchParams.get("startDate")?.trim();
+  if (reportingDayCount(endDate, endDate) === null) {
+    return NextResponse.json({ error: "invalid_reporting_period" }, { status: 400 });
+  }
+  const startDate = statedStart || addDaysToISO(endDate, -(windowDays(window) - 1));
+  const selectedSpanDays = reportingDayCount(startDate, endDate);
+  if (selectedSpanDays === null || selectedSpanDays > 366) {
+    return NextResponse.json({ error: "invalid_reporting_period" }, { status: 400 });
+  }
+  const previousEnd = addDaysToISO(startDate, -1);
+  const previousStart = addDaysToISO(previousEnd, -(selectedSpanDays - 1));
+
   if (!businessId) {
     return NextResponse.json(
       { error: "missing_business_id", message: "businessId is required." },

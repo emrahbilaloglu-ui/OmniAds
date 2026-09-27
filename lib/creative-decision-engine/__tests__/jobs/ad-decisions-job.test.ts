@@ -1165,7 +1165,7 @@ describe("native ad decision computation", () => {
       preAuthorityLabel: "keep",
       authorityBlocker: null,
       reason:
-        "[Keep Ad; fix landing page] Landing page issue: Link-to-LPV collapsed.",
+        "[Keep Ad; investigate landing page] Landing page issue: Link-to-LPV collapsed.",
     });
     const softDecisions = computeSoftOnlyNativeAdDecisions({
       businessId: BUSINESS_ID,

@@ -183,7 +183,7 @@ const KPI_CATALOG: ReadonlyArray<KpiCatalogEntry> = [
   { key: "roas", label: "ROAS", group: "Performance", description: "Return on ad spend. Compared against account anchor." },
   { key: "cpa", label: "CPA", group: "Performance", description: "Cost per acquisition." },
   { key: "purchases", label: "Purchases", group: "Performance", description: "Total purchases in the window." },
-  { key: "frequency", label: "Frequency", group: "Delivery", description: "Average impressions per reached user." },
+  { key: "frequency", label: "Frequency proxy", group: "Delivery", description: "Impressions divided by recorded reach. Summed daily or ad reach is not unique reach for the whole period; cross-day exposure cannot be inferred." },
   { key: "ctr", label: "CTR", group: "Engagement", description: "Click-through rate." },
   { key: "cpm", label: "CPM", group: "Delivery", description: "Cost per thousand impressions." },
   { key: "leads", label: "Leads", group: "Performance", description: "Lead conversions for SaaS accounts." },

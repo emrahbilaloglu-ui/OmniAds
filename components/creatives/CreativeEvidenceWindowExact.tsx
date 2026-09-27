@@ -174,6 +174,7 @@ export interface CreativeEvidenceWindowExactViewModel {
 }
 
 export interface CreativeEvidenceWindowExactProps {
+  reviewPanel?: ReactNode;
   viewModel: CreativeEvidenceWindowExactViewModel;
   onClose: () => void;
   onRetryMetrics?: () => void;
@@ -275,6 +276,7 @@ function BodyCard({
 
 export function CreativeEvidenceWindowExact({
   viewModel,
+  reviewPanel,
   onClose,
   onRetryMetrics,
   retryMetricsPending = false,
@@ -389,6 +391,7 @@ export function CreativeEvidenceWindowExact({
         </div>
 
         <div className={styles.body}>
+          {reviewPanel}
           {viewModel.readNotice ? (
             <div
               className={`${styles.readNotice} ${toneClass(viewModel.readNotice.tone)}`}

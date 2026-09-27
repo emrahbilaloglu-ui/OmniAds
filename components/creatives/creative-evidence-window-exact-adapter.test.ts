@@ -1,3 +1,6 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CreativeEvidenceWindowExact } from "./CreativeEvidenceWindowExact";
 import { describe, expect, it, vi } from "vitest";
 import { INTERNAL_VOCABULARY } from "@/lib/meta/buyer-copy";
 
@@ -715,7 +718,7 @@ describe("buildCreativeEvidenceWindowExactViewModel evidence body", () => {
       adRows: [adRow({ thumbstopObserved: true })],
     });
     expect(model.facts?.map((fact) => fact.label)).toEqual([
-      "Frequency",
+      "Daily reach frequency (proxy)",
       "First-time reach",
       "Thumbstop",
       "Hold 15s",
@@ -1352,18 +1355,18 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
       source,
     });
 
-    expect(model.verdictSub).toContain("current run before acting");
+    expect(model.verdictSub).toContain("current verified decision before acting");
     expect(model.reasons).toEqual([
-      "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+      "Retained decision evidence is shown for review while a current generation is unavailable. Wait for a current verified decision before acting.",
     ]);
     // Why already states it; the held row keeps its label without repeating it.
     expect(model.heldVerdictLabel).toBeTruthy();
     expect(model.heldVerdictNextStep).toBeNull();
     expect(value(model.authority, "held-reason")).toContain(
-      "current run before acting",
+      "current verified decision before acting",
     );
     expect(value(model.authority, "served-resolution")).toContain(
-      "current run before acting",
+      "current verified decision before acting",
     );
     expect(JSON.stringify(model)).not.toMatch(/pause this ad yourself/i);
   });
@@ -2814,5 +2817,27 @@ describe("a measured absence never renders as an unknown", () => {
       }
     }
     expect(model.primaryAction?.onClick).toBeUndefined();
+  });
+});
+
+
+describe("rendered historical configuration coverage", () => {
+  it.each([
+    { dates: ["2026-09-18"], missing: 1, expected: "Dates: 2026-09-18" },
+    { dates: null, missing: 1, expected: "Dates: not recorded" },
+    { dates: [], missing: 0, expected: "Dates: none" },
+  ])("renders counts, spend, dates and ownership for $expected", ({ dates, missing, expected }) => {
+    const canonical = canonicalFixture({ configEvidence: { historyCoverage: {
+      economicDayCount: 2, unverifiedEconomicDayCount: missing,
+      unverifiedSpend: missing ? 19 : 0, unverifiedDates: dates,
+    }, refs: [], refusedFields: [] } });
+    const model = buildCreativeEvidenceWindowExactViewModel({ decision: decisionFixture(), canonical });
+    const html = renderToStaticMarkup(createElement(CreativeEvidenceWindowExact, { viewModel: model, onClose: () => {} }));
+    expect(html).toContain(`${missing} of 2 economic days lack authority`);
+    expect(html).toContain(missing ? "$19" : "$0");
+    expect(html).toContain("not from reported ad spend");
+    expect(html).toContain(expected);
+    expect(html).toContain("Owner: data integration");
+    expect(html).toContain("Re-evaluate after dated provider evidence is verified and a new decision runs");
   });
 });

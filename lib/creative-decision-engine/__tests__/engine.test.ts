@@ -436,7 +436,7 @@ describe("creative-decision-engine v3", () => {
     );
 
     expect(baseline.label).toBe("scale");
-    expect(baseline.reason).toContain("scale the ad set budget");
+    expect(baseline.reason).toContain("review a delivery increase at the owning ad set or campaign");
     expect(kindSegmented.label).toBe("keep");
     expect(kindSegmented.decisionKindSource).toBe("kind_main");
     expect(kindSegmented.reason).toContain("below scale floor");
@@ -468,7 +468,7 @@ describe("creative-decision-engine v3", () => {
     expect(baseline.decisionKindSource).toBe("all_fallback");
     expect(testDecision.label).toBe("scale");
     expect(testDecision.decisionKindSource).toBe("kind_test");
-    expect(testDecision.reason).toContain("scale the ad set budget");
+    expect(testDecision.reason).toContain("review a delivery increase at the owning ad set or campaign");
   });
 
   it("GC-040 falls back when the Main kind row has insufficient required fields", async () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { NativeDecisionReviewPanel, nativeDecisionReviewKey } from "./NativeDecisionReviewPanel";
 import {
   Fragment,
   useEffect,
@@ -902,8 +903,11 @@ function fetchDecisionsWorkspace(
   window: MetaWindowKey,
   statusFilter: BriefingStatusFilter,
   adCandidateLimit: number,
+  adCandidateOffset: number,
+  adSelectionKey: string | null,
   range?: Pick<DateWindowValue, "start" | "end">,
   signal?: AbortSignal,
+  freshAdPage = false,
 ) {
   const params = new URLSearchParams({
     businessId,
@@ -911,6 +915,9 @@ function fetchDecisionsWorkspace(
     window,
     status_filter: statusFilter,
     adLimit: String(adCandidateLimit),
+    adOffset: String(adCandidateOffset),
+    ...(freshAdPage ? { freshAdPage: "1" } : {}),
+    ...(adSelectionKey ? { adSelectionKey } : {}),
     activeAdDecisions: "1",
   });
   // The dates travel for EVERY window, not just `custom`. Sending a bare
@@ -1762,11 +1769,13 @@ function mobileQueueRowsForLane(
  */
 function MetaMobileCreativeEvidenceScreen({
   viewModel,
+  reviewPanel,
   onBack,
   onRetryMetrics,
   retryMetricsPending = false,
 }: {
   viewModel: CreativeEvidenceWindowExactViewModel;
+  reviewPanel?: ReactNode;
   onBack: () => void;
   onRetryMetrics?: () => void;
   retryMetricsPending?: boolean;
@@ -1852,6 +1861,7 @@ function MetaMobileCreativeEvidenceScreen({
               ) : null}
             </div>
           ) : null}
+          {reviewPanel}
           {viewModel.actionNotice ? (
             <p className="ad-mobile-copy" data-mobile-creative-action-notice>
               {viewModel.actionNotice.text}
@@ -1975,6 +1985,7 @@ function MetaMobileQueueRow({
   money,
   moneyWindow,
   moneySub,
+  metricDetails,
   chips,
   actionLabel,
   onOpen,
@@ -2003,6 +2014,7 @@ function MetaMobileQueueRow({
   money?: MetaDecisionCenterExactDisplayValue;
   moneyWindow?: MetaDecisionCenterExactCreativeDecisionViewModel["moneyWindow"];
   moneySub?: MetaDecisionCenterExactDisplayValue;
+  metricDetails?: readonly string[];
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
   actionLabel?: MetaDecisionCenterExactDisplayValue;
   onOpen?: () => void;
@@ -2056,6 +2068,7 @@ function MetaMobileQueueRow({
             : mobileDisplay(decisionLabel)}
           {moneyLine ? ` · ${moneyLine}` : ""}
         </p>
+        {(metricDetails ?? []).map(detail => <p key={detail} data-mobile-creative-metric-detail>{detail}</p>)}
         {chips && chips.length > 0 ? (
           <p data-tone="caution">
             {chips.map((chip) => mobileDisplay(chip)).join(" · ")}
@@ -2226,7 +2239,10 @@ function MetaMobileDecisionsScreen({
   canLoadMoreCreatives,
   loadingMoreCreatives,
   loadMoreCreativesFailed,
-  nextCreativeLimit,
+  nextCreativePageLabel,
+  creativePageLabel,
+  previousCreativePage,
+  populationChanged,
   onLoadMoreCreatives,
   manualActionFor,
   ceremonyRowId,
@@ -2266,7 +2282,10 @@ function MetaMobileDecisionsScreen({
   loadingMoreCreatives: boolean;
   /** The last "Show more decisions" failed and the earlier rows came back. */
   loadMoreCreativesFailed: boolean;
-  nextCreativeLimit: number;
+  nextCreativePageLabel: string;
+  creativePageLabel: string;
+  previousCreativePage?: () => void;
+  populationChanged: boolean;
   onLoadMoreCreatives: () => void;
   /**
    * The operator's manual write for one row id, resolved by the page.
@@ -2679,6 +2698,11 @@ function MetaMobileDecisionsScreen({
             </article>
           ) : null}
 
+          {scope === "creatives" ? <div data-mobile-decision-page>
+            <p>{creativePageLabel}</p>
+            {populationChanged ? <p role="status">Decision population changed; pagination restarted.</p> : null}
+            {previousCreativePage ? <button type="button" disabled={loadingMoreCreatives} onClick={previousCreativePage}>Previous decision page</button> : null}
+          </div> : null}
           {scope === "creatives" && canLoadMoreCreatives ? (
             <button
               type="button"
@@ -2689,7 +2713,7 @@ function MetaMobileDecisionsScreen({
             >
               {loadingMoreCreatives
                 ? "Loading more decisions…"
-                : `Show more decisions · up to ${nextCreativeLimit}`}
+                : nextCreativePageLabel}
             </button>
           ) : null}
 
@@ -4002,7 +4026,10 @@ export function MetaPlatformPage({
   const [adCandidateExpansion, setAdCandidateExpansion] = useState<{
     scopeKey: string;
     limit: number;
-    pending: { from: number; requestedAt: number } | null;
+    offset: number;
+    selectionKey: string | null;
+    populationChanged?: boolean;
+    pending: { from: number; fromOffset: number; fromSelectionKey: string | null; requestedAt: number } | null;
     raiseFailed: boolean;
   } | null>(null);
   // `q` is restored, not dropped: the retired contract's search parameter names
@@ -4182,6 +4209,8 @@ export function MetaPlatformPage({
       : null;
   const adCandidateLimit =
     scopedAdCandidateExpansion?.limit ?? META_DECISIONS_AD_CANDIDATE_LIMIT;
+  const adCandidateOffset = scopedAdCandidateExpansion?.offset ?? 0;
+  const adSelectionKey = scopedAdCandidateExpansion?.selectionKey ?? null;
   useEffect(() => {
     if (adCandidateExpansion && !scopedAdCandidateExpansion) {
       setAdCandidateExpansion(null);
@@ -4263,6 +4292,9 @@ export function MetaPlatformPage({
       selectedStatusFilter,
       selectedDateRange.start,
       selectedDateRange.end,
+      scopedAdCandidateExpansion?.populationChanged ?? false,
+      adCandidateOffset,
+      adSelectionKey,
       adCandidateLimit,
     ],
     enabled: Boolean(businessId && providerAccountId),
@@ -4273,8 +4305,11 @@ export function MetaPlatformPage({
         selectedWindow,
         selectedStatusFilter,
         adCandidateLimit,
+        adCandidateOffset,
+        adSelectionKey,
         selectedDateRange,
         signal,
+        scopedAdCandidateExpansion?.populationChanged ?? false,
       ),
     // A failed workspace fan-out is expensive and may already be holding a DB
     // connection. Repeating it automatically turned one outage into minutes of
@@ -4342,10 +4377,18 @@ export function MetaPlatformPage({
       rawWorkspaceQuery.status === "error" &&
       rawWorkspaceQuery.errorUpdatedAt >= pendingAdCandidateRaise.requestedAt
     ) {
+      if (rawWorkspaceQuery.error instanceof MetaRequestFailure && rawWorkspaceQuery.error.status === 409) {
+        setAdCandidateExpansion({ scopeKey: creativeDrillScopeKey, limit: META_DECISIONS_AD_CANDIDATE_LIMIT,
+          offset: 0, selectionKey: null, pending: null, raiseFailed: false, populationChanged: true });
+        void queryClient.invalidateQueries({ queryKey: ["meta-decisions-workspace", businessId, providerAccountId] });
+        return;
+      }
       setAdCandidateExpansion((current) =>
         current?.pending
           ? {
               ...current,
+              offset: current.pending.fromOffset,
+              selectionKey: current.pending.fromSelectionKey,
               limit: current.pending.from,
               pending: null,
               raiseFailed: true,
@@ -4364,6 +4407,7 @@ export function MetaPlatformPage({
     }
   }, [
     pendingAdCandidateRaise,
+    rawWorkspaceQuery.error, creativeDrillScopeKey, queryClient, businessId, providerAccountId,
     rawWorkspaceQuery.isFetching,
     rawWorkspaceQuery.status,
     rawWorkspaceQuery.errorUpdatedAt,
@@ -5579,18 +5623,28 @@ export function MetaPlatformPage({
     adCandidateLimit + META_DECISIONS_AD_CANDIDATE_LIMIT,
     META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
   );
-  const canLoadMoreCreatives =
-    adCandidateLimit < META_DECISIONS_AD_CANDIDATE_MAX_LIMIT &&
-    eligibleCreativeCount > servedCreativeCount;
-  const loadMoreCreatives = () => {
-    if (!canLoadMoreCreatives || workspaceQuery.isFetching) return;
+  const pageReceipt = workspaceQuery.data?.decisionReadModel?.queue.adCandidates;
+  const nextPage = adCandidateLimit >= META_DECISIONS_AD_CANDIDATE_MAX_LIMIT;
+  const canLoadMoreCreatives = eligibleCreativeCount > adCandidateOffset + servedCreativeCount &&
+    (!nextPage || Boolean(pageReceipt?.selectionKey));
+  const changeCreativePage = (offset: number, limit: number) => {
+    if (workspaceQuery.isFetching) return;
     setAdCandidateExpansion({
-      scopeKey: creativeDrillScopeKey,
-      limit: nextAdCandidateLimit,
-      pending: { from: adCandidateLimit, requestedAt: Date.now() },
+      scopeKey: creativeDrillScopeKey, limit, offset,
+      selectionKey: offset > 0 ? pageReceipt?.selectionKey ?? null : null,
+      pending: { from: adCandidateLimit, fromOffset: adCandidateOffset, fromSelectionKey: adSelectionKey, requestedAt: Date.now() },
       raiseFailed: false,
     });
   };
+  const loadMoreCreatives = () => {
+    if (!canLoadMoreCreatives) return;
+    changeCreativePage(nextPage ? adCandidateOffset + adCandidateLimit : adCandidateOffset, nextAdCandidateLimit);
+  };
+  const creativePageLabel = `Showing ${servedCreativeCount ? adCandidateOffset + 1 : 0}–${adCandidateOffset + servedCreativeCount} of ${eligibleCreativeCount} eligible ads`;
+  const nextCreativePageLabel = nextPage ? "Next decision page" : `Show more decisions · up to ${nextAdCandidateLimit}`;
+  const previousCreativePage = adCandidateOffset > 0
+    ? () => changeCreativePage(Math.max(0, adCandidateOffset - META_DECISIONS_AD_CANDIDATE_MAX_LIMIT), META_DECISIONS_AD_CANDIDATE_MAX_LIMIT)
+    : undefined;
   // The raise that could not load, in this scope, until the next attempt.
   const loadMoreCreativesFailed =
     scopedAdCandidateExpansion?.raiseFailed === true;
@@ -5688,20 +5742,8 @@ export function MetaPlatformPage({
   );
   const selectedDecisionKey =
     drillItem && drillItem.mode !== "anomaly" ? drillItem.rec.id : null;
-  /**
-   * The actions ship refused.
-   *
-   * The design draws the workflow's OUTPUT — a "Deferred" watch segment and a
-   * "Let cook until …" row note — but draws no assign / acknowledge / snooze /
-   * resolve controls. §18 of the plan says a write control the design does not
-   * carry is not added on this pass: it ships absent-with-reason, or in a
-   * separately approved round. So the state is shown (which the design already
-   * implies) and the controls are present and refusing, behind
-   * the single `META_AUTOMATION_LIVE_WRITES` capability, which defaults off.
-   *
-   * A reviewer or a read-only viewer is refused first, because that is the more
-   * specific fact and the one they can act on.
-   */
+  // User-authorized operator learning loop. Internal feedback and provider
+  // mutations retain independent gates; reviewer/demo/role refusals still apply.
   const workflowActionsRefusedReason = isViewerReadOnly
     ? viewerReadOnlyReason
     : !decisionWorkflowUiEnabled
@@ -5713,6 +5755,18 @@ export function MetaPlatformPage({
     selectedDecisionKey,
     enabled: decisionWorkflowUiEnabled,
   });
+
+  const nativeReviewDecision = creativeDrill?.canonical ?? null;
+  const nativeReviewKey = nativeDecisionReviewKey(nativeReviewDecision);
+  const nativeReviewWorkflow = useDecisionWorkflow({
+    businessId, servedDecisionKeys: nativeReviewKey ? [nativeReviewKey] : [],
+    selectedDecisionKey: nativeReviewKey, enabled: decisionWorkflowUiEnabled,
+  });
+  const nativeReviewPanel = nativeReviewDecision && nativeReviewKey ? (
+    <NativeDecisionReviewPanel key={nativeReviewKey} decision={nativeReviewDecision}
+      workflow={nativeReviewWorkflow} refusedReason={workflowActionsRefusedReason}
+      onRefreshEvidence={() => { void rawWorkspaceQuery.refetch(); }} />
+  ) : null;
 
   const exactViewModel: MetaDecisionCenterExactViewModel = workspaceQuery.data
     ? buildMetaDecisionCenterExactViewModel({
@@ -6326,6 +6380,7 @@ export function MetaPlatformPage({
       */}
       {creativeDrill ? (
         <MetaMobileCreativeEvidenceScreen
+          reviewPanel={nativeReviewPanel}
           viewModel={creativeEvidenceViewModel}
           onBack={() => setCreativeDrill(null)}
           onRetryMetrics={
@@ -6381,7 +6436,10 @@ export function MetaPlatformPage({
           canLoadMoreCreatives={canLoadMoreCreatives}
           loadingMoreCreatives={workspaceQuery.isFetching}
           loadMoreCreativesFailed={loadMoreCreativesFailed}
-          nextCreativeLimit={nextAdCandidateLimit}
+          nextCreativePageLabel={nextCreativePageLabel}
+          creativePageLabel={creativePageLabel}
+          previousCreativePage={previousCreativePage}
+          populationChanged={scopedAdCandidateExpansion?.populationChanged === true}
           onLoadMoreCreatives={loadMoreCreatives}
           onOpenAnomaly={(anomaly) =>
             setDrillItem({ mode: "anomaly", anomaly })
@@ -6714,6 +6772,11 @@ export function MetaPlatformPage({
           </div>
         ) : null}
 
+        {activeScope === "creatives" ? <div data-meta-decision-page>
+          <p>{creativePageLabel}</p>
+          {scopedAdCandidateExpansion?.populationChanged ? <p role="status">Decision population changed; pagination restarted.</p> : null}
+          {previousCreativePage ? <button type="button" className="btn btn--sm" disabled={workspaceQuery.isFetching} onClick={previousCreativePage}>Previous decision page</button> : null}
+        </div> : null}
         {activeScope === "creatives" && canLoadMoreCreatives ? (
           <div data-meta-load-more-creatives>
             <button
@@ -6724,7 +6787,7 @@ export function MetaPlatformPage({
             >
               {workspaceQuery.isFetching
                 ? "Loading more decisions…"
-                : `Show more decisions · up to ${nextAdCandidateLimit}`}
+                : nextCreativePageLabel}
             </button>
           </div>
         ) : null}
@@ -6732,6 +6795,7 @@ export function MetaPlatformPage({
 
       {creativeDrill && creativeEvidenceSharedInput ? (
         <CreativeEvidenceWindowExact
+          reviewPanel={nativeReviewPanel}
           onRetryMetrics={
             creativeEvidenceMetricsFailed ? retryCreativeEvidenceMetrics : undefined
           }

@@ -1,4 +1,4 @@
-import type { MetaManualCutAdvisory } from "./manual-cut-advisory";
+import type { MetaManualCutAdvisory, MetaManualCutRefusal } from "./manual-cut-advisory";
 
 export const META_DECISIONS_WORKSPACE_CONTRACT_VERSION =
   "meta-decisions-workspace.read.v4" as const;
@@ -390,6 +390,13 @@ export interface MetaDecisionConfigEvidence {
     nullObservationIdCount: number;
     incoherentDayCount: number;
   } | null;
+  /** Recorded sample only. No current configuration is backfilled into history. */
+  historyCoverage?: {
+    economicDayCount: number | null;
+    unverifiedEconomicDayCount: number | null;
+    unverifiedSpend: number | null;
+    unverifiedDates: string[] | null;
+  };
   /** The metric parsing rules the inputs were read under, joined for display. */
   metricContract: string | null;
 }
@@ -406,6 +413,7 @@ export interface MetaCanonicalDecision {
   configEvidence?: MetaDecisionConfigEvidence | null;
   /** Hash-bound, medium-confidence manual recommendation. Never write authority. */
   manualCutAdvisory?: MetaManualCutAdvisory | null;
+  manualCutRefusal?: MetaManualCutRefusal | null;
   /** The admitted native Ad economic period, read from its hashed evaluation.
    * Older creative and Ad snapshots omit it; absence is never a full 28 days. */
   decisionWindow?: MetaDecisionAdmittedWindow | null;
@@ -486,6 +494,8 @@ export interface MetaCanonicalDecision {
     purchases: number | null;
     roas: number | null;
     recent7dRoas: number | null;
+    recent7dSpend?: number | null;
+    recent7dPurchases?: number | null;
     /**
      * 28-day CTR and frequency read back from the lifecycle row the engine
      * decided from. Optional because payloads serialized before the lineage
@@ -590,7 +600,7 @@ export interface MetaDecisionCapabilityState {
  * so this is a value to switch on, never a sentence to parse.
  */
 export type MetaDecisionSourceDegradedReason =
-  "native_latest_job_failed_serving_last_successful_generation";
+  "native_latest_job_failed_serving_last_successful_generation" | "native_engine_update_reconfirmation_pending";
 
 /**
  * The literal is written twice -- once as the type above, once as the value
@@ -696,6 +706,9 @@ export interface MetaDecisionsWorkspaceReadModel {
         | typeof META_DECISIONS_AD_CANDIDATE_SELECTION_VERSION
         | "meta-decisions-ad-candidate-selection.v2";
       limit: number;
+      /** Page position within the same source-bound ordered population. */
+      offset?: number;
+      selectionKey?: string;
       preCapCount: number;
       eligiblePreCapCount: number;
       selectedCount: number;

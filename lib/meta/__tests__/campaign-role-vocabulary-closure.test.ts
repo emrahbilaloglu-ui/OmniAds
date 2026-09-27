@@ -202,6 +202,12 @@ const LEGACY_TOKEN_LEDGER: ReadonlyArray<{
     tokens: { campaign_label_missing: 1, unlabeled_campaign_context: 1 },
   },
   {
+    file:"lib/meta/decision-authority-hold.ts",
+    category:"compat-boundary",
+    why:"Recognizes old withheld-authority codes for explanatory copy only; never resolves a role or grants an action",
+    tokens:{campaign_label_missing:1,unlabeled_campaign_context:1},
+  },
+  {
     file: "lib/meta/decisions-workspace-read-model.ts",
     category: "compat-boundary",
     why: "legacy copy-map key recognition",
@@ -574,6 +580,7 @@ describe("D074b vocabulary closure", () => {
       "components/creatives/briefing/types.ts": {
         buyerAction: 4,
         buyerLabel: 1,
+        nextStep: 1, // manualCutReview is the server-projected, separately gated review explanation.
       },
       "app/api/creatives/briefing/canonical-projection.ts": {
         buyerAction: 17,

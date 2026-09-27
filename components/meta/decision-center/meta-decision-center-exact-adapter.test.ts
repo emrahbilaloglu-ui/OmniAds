@@ -1,3 +1,8 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MetaDecisionCenterExact } from "./MetaDecisionCenterExact";
+import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
+import { normalizeMetaCommercialTargets } from "@/lib/meta/commercial-targets";
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it, vi } from "vitest";
@@ -937,7 +942,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
         },
       }),
     ).toBe(
-      "The evidence this change needs is still being completed. No action is needed from you; this ad is re-checked on each decision run.",
+      "The evidence this change needs is still being completed. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
     );
     expect(
       buyerFacingCreativeResolution({
@@ -1265,6 +1270,17 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     });
   });
 
+  it("uses explicit dates for the ROAS label even when the preset is stale", () => {
+    const workspace = workspaceFixture({});
+    workspace.window = "28d";
+    workspace.startDate = "2026-09-18";
+    workspace.endDate = "2026-09-24";
+    const beforeDecisions = JSON.stringify(workspace);
+    const view = buildMetaDecisionCenterExactViewModel({ workspace });
+    expect(view.kpis?.roas).toMatchObject({ label: "ROAS · 7d", period: "2026-09-18 – 2026-09-24" });
+    expect(JSON.stringify(workspace)).toBe(beforeDecisions);
+  });
+
   it("binds custom-range ROAS and target freshness without relabeling a mid-funnel row", () => {
     const workspace = workspaceFixture({
       nonSales: [
@@ -1290,7 +1306,8 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
 
     expect(viewModel.activeWindow).toBeNull();
     expect(viewModel.kpis?.roas).toMatchObject({
-      label: "ROAS · selected range",
+      label: "ROAS · 28d",
+      period: "2026-07-21 – 2026-08-17",
       value: "4.20",
       target: "target 3.80 · stale",
     });
@@ -1317,7 +1334,7 @@ describe("the ROAS reference states the source the server declared", () => {
   function referenceFor(
     roas: Partial<MetaDecisionsWorkspacePayload["pulse"]["roas"]>,
   ): string | number | null | undefined {
-    const workspace = workspaceFixture();
+    const workspace = workspaceFixture({});
     workspace.pulse.pacing.windowSpend = 8600;
     workspace.pulse.roas = { ...workspace.pulse.roas, ...roas };
     return buildMetaDecisionCenterExactViewModel({ workspace }).kpis?.roas
@@ -1686,7 +1703,7 @@ describe("the creative queue is the served set, split by the served state", () =
     });
     expect(model.creativeDecisions?.[0]).toMatchObject({
       actionLabel: "Review pause",
-      note: "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+      note: "Retained decision evidence is shown for review while a current generation is unavailable. Wait for a current verified decision before acting.",
     });
   });
 
@@ -1761,10 +1778,10 @@ describe("the creative queue is the served set, split by the served state", () =
     });
     const row = model.creativeDecisions?.[0];
     expect(row?.moneySub).toContain("No Meta change can be applied");
-    expect(row?.heldVerdictNextStep).toContain("current run before acting");
-    expect(model.inspector?.contractDetail).toContain("current run before acting");
+    expect(row?.heldVerdictNextStep).toContain("current verified decision before acting");
+    expect(model.inspector?.contractDetail).toContain("current verified decision before acting");
     expect(model.inspector?.reasons).toEqual([
-      "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+      "Retained decision evidence is shown for review while a current generation is unavailable. Wait for a current verified decision before acting.",
     ]);
     expect(model.inspector?.moneyDetail).toContain("No Meta change can be applied");
     expect(JSON.stringify({ row, inspector: model.inspector })).not.toMatch(
@@ -1846,7 +1863,7 @@ describe("the creative queue is the served set, split by the served state", () =
     expect(rows.get("os_ad_pending")).toMatchObject({
       stateLabel: "Blocked",
       stateTone: "warning",
-      note: "Wait for the next completed ad-level decision. No action is needed from you; this ad is re-checked on each decision run.",
+      note: "Wait for the next completed ad-level decision. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
     });
     expect(rows.get("os_ad_pending")?.chips).not.toContain("Decision pending");
     expect(rows.get("os_ad_pending")?.blockedNote).toBeUndefined();
@@ -1973,7 +1990,7 @@ describe("the creative queue is the served set, split by the served state", () =
       .creativeDecisions?.[0];
 
     expect(row).toMatchObject({
-      note: "The evidence this decision needs is still being completed. No action is needed from you; this ad is re-checked on each decision run.",
+      note: "The evidence this decision needs is still being completed. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
     });
     expect(row?.blockedNote).toBeUndefined();
     const serialized = JSON.stringify(row);
@@ -4037,7 +4054,7 @@ describe("served structure inventory", () => {
   });
 
   it("carries locale-neutral spend and campaign-role facts", () => {
-    const workspace = workspaceFixture();
+    const workspace = workspaceFixture({});
     workspace.pulse.campaignRoleCoverage = {
       activeCampaigns: 5,
       classifiedCampaigns: 4,
@@ -4726,8 +4743,9 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     const row = model.creativeDecisions?.[0];
     expect(row?.note).toMatch(/^The account does not yet have enough mature creatives for the Scale calibration floor\./);
     expect(row?.note).toContain("The campaign configuration is not verified for every day used by this recommendation.");
-    expect(row?.note).toContain("No action is needed from you");
+    expect(row?.note).toContain("These evidence requirements must be met before Adsecute can authorize a change");
     expect(row?.note).not.toMatch(/\b(Verify|Restore|Wait for)\b/);
+    expect(row?.note).not.toMatch(/manual budget increase|before replacing|whether to pause manually/);
     expect(row?.heldVerdictNextStep).toBe(row?.note);
     expect(JSON.stringify(row)).not.toContain("Internal producer");
   });
@@ -4859,7 +4877,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(row?.note).toContain("The campaign configuration is not verified for every day used by this recommendation.");
     expect(row?.note).toContain("Fresh, completed Meta source data is still arriving.");
     expect(row?.note).toContain("The next decision run still has to confirm it.");
-    expect(row?.note).toContain("No action is needed from you");
+    expect(row?.note).toContain("These evidence requirements must be met before Adsecute can authorize a change");
     expect(row?.note).not.toMatch(/\b(Verify|Restore)\b/);
     expect(row?.note).not.toContain("Pause this ad");
     expect(row?.note).not.toContain("Internal producer copy");
@@ -4947,7 +4965,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(row?.heldVerdictLabel).toBe("Recommendation on hold: Pause ad");
     // A system-owned code with no sentence still states a wait, never a chore.
     expect(row?.note).toBe(
-      "The evidence this decision needs is still being completed. No action is needed from you; this Pause ad recommendation is re-checked on each decision run.",
+      "The evidence this decision needs is still being completed. Review the stated evidence gap before judging this signal. These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation is re-checked on each decision run.",
     );
     expect(JSON.stringify(row)).not.toContain(
       "a_code_this_surface_has_no_sentence_for",
@@ -5120,7 +5138,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
 
     expect(inspector?.heldVerdictLabel).toBe("Recommendation on hold: Pause ad");
     expect(inspector?.heldVerdictNextStep).toBe(
-      "The evidence this decision needs is still being completed. No action is needed from you; this Pause ad recommendation is re-checked on each decision run.",
+      "The evidence this decision needs is still being completed. Review the stated evidence gap before judging this signal. These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation is re-checked on each decision run.",
     );
     expect(JSON.stringify(inspector)).not.toContain(
       "a_code_this_surface_has_no_sentence_for",
@@ -5599,5 +5617,38 @@ describe("creative lane counts come from the pre-cap lane population", () => {
       "The active ad list could not be fully read, so ads still waiting for a decision may not be listed here.",
     );
     expect(view.creativesNotice).not.toMatch(/\b0 active ads\b/);
+  });
+});
+
+
+describe("buyer loss concern reaches the actual structure surface", () => {
+  it.each([["OtherCountries-DPA",2496.55,1,1.8],["TS_TEST_BIDCAP",7239.27,0.73,1.71]] as const)("renders %s concern before low-confidence guidance", (name, spend, roas, breakEvenRoas) => {
+    const readiness: NonNullable<MetaRecommendation["automationReadiness"]> = {contractVersion:"meta-automation-readiness.v1" as const,tier:"manual_review" as const,
+      autoExecuteEligible:false,operatorReviewRequired:true,decisionLabel:"tune" as const,
+      blockers:["low_confidence"],missingEvidence:[],requiredEvidence:[],reason:"Low confidence"};
+    const profit = metaRec({id:"profit-case",campaignId:"campaign-case",campaignName:name,
+      type:"scale_for_profitability",decisionLabel:"tune",confidence:"low",priority:"medium",
+      decisionState:"watch",automationReadiness:readiness,metrics:{spend,roas},
+      entityConfiguration:{source:"account_scoped_campaign_row",status:"ACTIVE",budgetOwner:"campaign",
+        budgetMode:"campaign_budget",controlOwner:"campaign",optimizationGoal:"PURCHASE",bidStrategyType:"lowest_cost"}});
+    const f4 = {...profit,id:"f4-primary",type:"scenario_f4_stable_winner_drop_context" as const,decisionLabel:"diagnose" as const,priority:"high" as const};
+    const workspace = workspaceFixture({watching:[f4,profit],currency:"USD"});
+    workspace.startDate="2026-09-19"; workspace.endDate="2026-09-25";
+    workspace.os=buildMetaOsDecisionsPresentation({actionNow:[],watching:[f4,profit],nonSales:[],
+      decisionReadModel:workspace.decisionReadModel,currency:"USD",commercialTargets:normalizeMetaCommercialTargets({breakEvenRoas}),
+      reportingPeriod:{startDate:workspace.startDate,endDate:workspace.endDate}});
+    const node=workspace.os.structure.groups[0]!.campaign;
+    expect(node.sourceRecommendationId).toBe("profit-case");
+    expect(node.confidence).toBe("low");
+    expect(node.action.providerMutation).toBeNull();
+    const model=buildMetaDecisionCenterExactViewModel({workspace,defaultSelectionLane:"watching"});
+    expect(model.watchingRows?.[0]?.note).toContain("below configured break-even");
+    expect(model.watchingRows?.[0]?.note).toContain("2026-09-19–2026-09-25 (7d)");
+    expect(model.watchingRows?.[0]?.note).toContain("Confidence is too low to act");
+    const html=renderToStaticMarkup(createElement(MetaDecisionCenterExact,{viewModel:model,scope:"structure",lane:"watching"}));
+    expect(html).toContain(`${spend.toFixed(2)} USD`);
+    expect(html).toContain("below configured break-even");
+    expect(html.indexOf("below configured break-even")).toBeLessThan(html.indexOf("Confidence is too low to act"));
+    expect(profit.automationReadiness?.autoExecuteEligible).toBe(false);
   });
 });

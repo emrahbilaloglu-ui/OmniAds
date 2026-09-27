@@ -52,6 +52,7 @@ import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/execution-safety";
 import {
   NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+  NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION,
   READ_NATIVE_DECISION_GENERATION_QUERY,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { createControlledExperimentRegistryStore } from "@/lib/meta/controlled-experiment-registry";
@@ -2983,7 +2984,7 @@ async function assertNativeDecisionAttemptDurability(
         AD_DECISIONS_JOB_NAME,
         asOf,
         /*
-          THE LAST THREE ARE THE LAST-GOOD FALLBACK'S OWN BOUNDS, and the seam
+          THE NEXT THREE ARE THE LAST-GOOD FALLBACK'S OWN BOUNDS, and the seam
           must pass them or it tests a different statement than production runs.
           $5 pins the engine epoch a retained generation may come from, $6 is
           the serving day the age ceiling is measured against, and $7 is that
@@ -3001,6 +3002,10 @@ async function assertNativeDecisionAttemptDurability(
         NATIVE_AD_ENGINE_VERSION,
         asOf,
         NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+        // This seam proves current-epoch latest/retained selection. The
+        // separate native seam exercises the explicit prior-epoch opt-in.
+        false,
+        NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION,
       ]);
 
     /*

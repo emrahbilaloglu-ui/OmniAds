@@ -16,6 +16,7 @@
  * background refetch failed over loaded rows" exactly.
  */
 import React from "react";
+import { MetaRequestFailure } from "@/lib/meta/workspace-failure";
 import { act } from "react";
 
 // React needs to be told this is an act() environment before anything renders.
@@ -439,6 +440,7 @@ function decisionReadModel(creatives: any[], providerAccountId: string) {
       deduplicationGrain: "creative",
       sourcePreCapCount: creatives.length,
       queuedPreCapCount: creatives.length,
+      adCandidates: undefined as { selectionKey?: string; offset?: number } | undefined,
       sections: {
         integrity_fires: canonicalSection("integrity_fires"),
         money_moves: canonicalSection("money_moves"),
@@ -809,6 +811,35 @@ describe("Show more decisions", () => {
     );
   }
 
+  it("pages beyond 300 on desktop and mobile, returns on failure, and restarts when the population changes", () => {
+    const first = workspaceResponse({ ads: [pendingOsDecision()], eligiblePreCapCount: 530 });
+    first.decisionReadModel.queue.adCandidates = { ...first.decisionReadModel.queue.adCandidates, selectionKey: "selection-a" } as never;
+    const next = workspaceResponse({ ads: [secondOsDecision()], eligiblePreCapCount: 301 });
+    next.decisionReadModel.queue.adCandidates = { ...next.decisionReadModel.queue.adCandidates, selectionKey: "selection-a", offset: 300 } as never;
+    let pageError: Error | null = null;
+    state.workspaceRead = (key) => key.at(-3) === 300
+      ? pageError ? { status: "error", error: pageError, errorUpdatedAt: Date.now() } : { data: next, status: "success" }
+      : { data: first, status: "success" };
+    const dom = render();
+    for (let i = 0; i < 4; i += 1) clickShowMore(dom);
+    expect(workspaceKeys().at(-1)?.at(-1)).toBe(300);
+    expect(dom.querySelector("[data-mobile-load-more-creatives]")?.textContent).toContain("Next decision page");
+    clickShowMore(dom);
+    expect(workspaceKeys().at(-1)?.slice(-3)).toEqual([300, "selection-a", 300]);
+    expect(mobileRowIds(dom)).toEqual(["os_pending_ad_2"]);
+    expect(dom.querySelector("[data-meta-decision-page]")?.textContent).toContain("301–301");
+    act(() => dom.querySelector<HTMLButtonElement>("[data-meta-decision-page] button")!.click());
+    expect(workspaceKeys().at(-1)?.at(-3)).toBe(0);
+    pageError = new Error("read failed");
+    clickShowMore(dom);
+    expect(workspaceKeys().at(-1)?.at(-3)).toBe(0);
+    expect(mobileRowIds(dom)).toEqual(["os_pending_ad"]);
+    pageError = new MetaRequestFailure({ message: "population changed", status: 409, hasServerReason: true });
+    clickShowMore(dom);
+    expect(workspaceKeys().at(-1)?.slice(-3)).toEqual([0, null, 60]);
+    expect(dom.querySelector("[data-mobile-decision-page]")?.textContent).toContain("population changed");
+  });
+
   it("returns to the previous cap when the raised read fails, keeps the rows and says so", () => {
     const initial = workspaceResponse({
       ads: [pendingOsDecision()],
@@ -963,6 +994,9 @@ describe("the Show more cap belongs to one account and window", () => {
       "active",
       expect.any(String),
       expect.any(String),
+      false,
+      0,
+      null,
       120,
     ]);
 
@@ -1163,7 +1197,7 @@ describe("the evidence drawer states a held reason once and recovers its image b
     expect(heldBox.textContent).toContain("Recommendation on hold: Pause ad");
     // The reason itself is stated once, below, not inside the held box too.
     expect(heldBox.querySelector("[data-mobile-evidence-held-next-step]")).toBeNull();
-    const sentence = "No action is needed from you; this Pause ad recommendation is re-checked on each decision run.";
+    const sentence = "These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation is re-checked on each decision run.";
     expect(screen.textContent!.split(sentence).length - 1).toBe(1);
   });
 

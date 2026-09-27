@@ -56,7 +56,6 @@ export const GATE_FAILURE_CODE: Record<keyof MetaReleaseGates, MetaFailureCode> 
  */
 const GATE_WRITE_FAMILY: Partial<Record<keyof MetaReleaseGates, WriteFamilyId>> = {
   launchpadExecution: "launchpad_create",
-  decisionWorkflowUi: "decisions_manual_action",
   automationLiveWrites: "automation_proposal_approval",
 };
 

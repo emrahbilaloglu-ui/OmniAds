@@ -149,6 +149,9 @@ function buildNearScaleReadiness(input: {
   comparisonLabel: string;
   scaleBenchmarkBlockers?: readonly ScaleBenchmarkBlocker[];
   scaleFreshnessBlockers?: readonly string[];
+  recentSpend: number | null;
+  recentSpendThreshold: number | null;
+  confirmedFatigueDecay: boolean;
 }): NearScaleReadiness {
   const reasons: string[] = [];
   const blockers: DecisionPredicateBlocker[] = [];
@@ -193,6 +196,18 @@ function buildNearScaleReadiness(input: {
         }),
       );
     }
+  }
+
+  if (input.recentSpend === null || input.recentSpendThreshold === null || input.recentSpend < input.recentSpendThreshold) {
+    const reason = `recent ${input.recentPeriodLabel} spend ${input.recentSpend ?? "unknown"} below or missing sample floor ${input.recentSpendThreshold ?? "unknown"}`;
+    reasons.push(reason);
+    blockers.push(blocker({ predicate: "scale_recent_sample_depth", observed: input.recentSpend, threshold: input.recentSpendThreshold,
+      status: input.recentSpend === null || input.recentSpendThreshold === null ? "missing" : "failed", reason }));
+  }
+  if (input.confirmedFatigueDecay) {
+    const reason = "confirmed fatigue and sampled ROAS decay require review before scaling";
+    reasons.push(reason);
+    blockers.push(blocker({ predicate: "scale_no_confirmed_fatigue_decay", observed: "fatigue_with_decay", threshold: "no_confirmed_fatigue_decay", reason }));
   }
 
   if (input.recent7dRoas === null) {
@@ -526,9 +541,13 @@ export function hasRefreshDecayEvidence(
     return false;
   }
 
-  const threshold =
-    profile.accountBaselines.refreshRatioP10 ?? REFRESH_RATIO_FALLBACK;
-  return input.recent7dRoas / input.roas < threshold;
+  const window = input.decisionWindow;
+  if (window && window.startDate === window.recentStartDate && window.endDate === window.recentEndDate) return false;
+  // D126: equal economics and floating-point noise are not temporal decay.
+  const threshold = Math.min(profile.accountBaselines.refreshRatioP10 ?? REFRESH_RATIO_FALLBACK, 1);
+  const ratio = input.recent7dRoas / input.roas;
+  const tolerance = 1e-9;
+  return Number.isFinite(ratio) && ratio < threshold - tolerance;
 }
 
 /**
@@ -713,12 +732,16 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     const hasScaleSpendDepth =
       scaleSpendThreshold !== null && input.spend >= scaleSpendThreshold;
     const hasScalePurchaseDepth = purchases >= scalePurchasesThreshold;
+    const recentSpendThreshold = recentSampleMinSpendFloor(profile);
+    const hasRecentSampleDepth = input.recent7dSpend !== null && recentSpendThreshold !== null && input.recent7dSpend >= recentSpendThreshold;
+    const confirmedFatigueDecay = input.fatigueStatus === "fatigued" && hasRefreshDecayEvidence(input, profile);
     const fatigueBadges =
       input.fatigueStatus === "fatigued" ? [FATIGUE_FATIGUED_BADGE] : [];
 
     if (
       hasScaleSpendDepth &&
       hasScalePurchaseDepth &&
+      hasRecentSampleDepth && !confirmedFatigueDecay &&
       benchmarkBlockers.length === 0 &&
       freshnessBlockers.length === 0 &&
       recent7dRoas !== null &&
@@ -733,7 +756,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
           ctx.effectiveTargetRoas,
         )} with ${purchases} purchases (${cumulativePeriodLabel(ctx.input)}) and recent ${recentPeriodLabel(ctx.input)} holding at ${formatRoas(
           recent7dRoas,
-        )} — scale the ad set budget.`,
+        )} — review a delivery increase at the owning ad set or campaign.`,
         fatigueBadges,
       );
     }
@@ -749,6 +772,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       comparisonLabel: comparison,
       scaleBenchmarkBlockers: benchmarkBlockers,
       scaleFreshnessBlockers: freshnessBlockers,
+      recentSpend: input.recent7dSpend, recentSpendThreshold, confirmedFatigueDecay,
     });
 
     /*
@@ -778,6 +802,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       freshnessBlockers.length === 0 &&
       hasScaleSpendDepth &&
       hasScalePurchaseDepth &&
+      hasRecentSampleDepth && !confirmedFatigueDecay &&
       recent7dRoas !== null &&
       recent7dRoas >= ctx.effectiveTargetRoas;
 
@@ -791,7 +816,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
           ctx.effectiveTargetRoas,
         )} with ${purchases} purchases (${cumulativePeriodLabel(ctx.input)}) and recent ${recentPeriodLabel(ctx.input)} holding at ${formatRoas(
           recent7dRoas,
-        )} — scale the ad set budget; execution withheld: ${benchmarkBlockers
+        )} — review a delivery increase at the owning ad set or campaign; execution withheld: ${benchmarkBlockers
           .map((benchmark) => benchmark.reason)
           .join("; ")}.`,
         [...fatigueBadges, ...scaleReadinessBadges(benchmarkBlockers)],
@@ -1011,7 +1036,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         ratio < WEAK_TARGET_MAX_RATIO
           ? `[weak target] ROAS ${formatRoas(
               roas,
-            )} (${cumulativePeriodLabel(ctx.input)}) just above breakeven (${formatRatioPercent(
+            )} (${cumulativePeriodLabel(ctx.input)}) below target (${formatRatioPercent(
               ratio,
             )}% of ${comparison}) — keep observing; consider tightening if recent ${recentPeriodLabel(ctx.input)} weakens`
           : ratio < AT_TARGET_MAX_RATIO

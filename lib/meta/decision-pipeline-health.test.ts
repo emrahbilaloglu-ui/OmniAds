@@ -166,6 +166,47 @@ describe("Meta decision pipeline health", () => {
     });
   });
 
+  it.each([
+    "fence_read_failed",
+  ])("keeps successful sync visible while %s withholds admission verification", async (reason) => {
+    fenceMock.evaluateDbGrowthFence.mockResolvedValue(admittedFence({
+      allowed: false, reason,
+    }));
+    const operational = await readMetaDecisionPipelineOperationalHealth({
+      businessId: "biz_1", providerAccountId: "act_1", now: NOW,
+    });
+    expect(operational).toMatchObject({
+      overall: "unavailable", executionReady: false,
+      admission: { status: "unavailable", allowed: false, reason },
+      syncActivity: { status: "fresh", latestAt: "2026-08-29T16:01:00.000Z" },
+      warehouse: { status: "fresh" },
+    });
+    expect(operational.blockers).toContain("sync_admission_unavailable");
+    expect(operational.blockers).not.toContain("sync_admission_blocked");
+    const health = buildMetaDecisionPipelineHealth({
+      operational, decisionReadModel: readModel(), now: NOW,
+    });
+    expect(health.overall).toBe("unavailable");
+    expect(health.executionReady).toBe(false);
+  });
+
+  it.each([
+    "measurement_missing", "measurement_invalid", "physical_telemetry_unavailable",
+    "physical_snapshot_missing", "physical_snapshot_malformed", "physical_snapshot_future_dated",
+    "physical_snapshot_stale", "physical_data_path_missing", "physical_database_identity_mismatch",
+  ])("reports evaluated %s as a closed safety gate, not measured full storage", async (reason) => {
+    fenceMock.evaluateDbGrowthFence.mockResolvedValue(admittedFence({ allowed: false, reason }));
+    const result = await readMetaDecisionPipelineOperationalHealth({
+      businessId: "biz_1", providerAccountId: "act_1", now: NOW,
+    });
+    expect(result).toMatchObject({
+      overall: "blocked", executionReady: false,
+      admission: { status: "blocked", allowed: false, reason, offender: null },
+      warehouse: { status: "fresh" },
+    });
+    expect(result.blockers).toContain("sync_admission_blocked");
+  });
+
   it("keeps sync activity and warehouse cutoff as separate stale dimensions", async () => {
     dbMock.query.mockResolvedValue([
       {

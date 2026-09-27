@@ -200,7 +200,7 @@ function evidenceRows(
 }
 
 describe("ad decision evaluation identity", () => {
-  it("v19 binds the purchase-intent days and the separately stored manual recommendation", () => {
+  it("v20 binds the purchase-intent days and the separately stored manual recommendation", () => {
     const configAuthority = purchaseIntentConfigAuthority();
     const proof: NativeManualCutAdvisoryProof = {
       contractVersion: "meta-native-manual-cut-advisory.v1", recommendation: "cut",
@@ -221,7 +221,7 @@ describe("ad decision evaluation identity", () => {
         manualCutAdvisory: advice,
       });
     const original = build();
-    expect(original.contractVersion).toBe("engine-v3-canonical-ad-evaluation.v19");
+    expect(original.contractVersion).toBe("engine-v3-canonical-ad-evaluation.v20");
     const { computedAt: _computedAt, ...storedProof } = proof;
     expect(original.inputPayload.configEvidence).toMatchObject({ manualCutAdvisory: storedProof, purchaseIntentWindow: configAuthority.purchaseIntentWindow });
     const repeated = build({ ...proof, computedAt: "2026-07-12T04:00:00.000Z" });
@@ -238,6 +238,21 @@ describe("ad decision evaluation identity", () => {
       expect(changed.contextHash).toBe(original.contextHash);
     }
     expect(build(null).inputPayload.configEvidence).toMatchObject({ manualCutAdvisory: null });
+  });
+  it("binds recorded manual refusals without changing authority or allowing contradictory proof", () => {
+    const input = {
+      base: buildCanonicalEvaluationProvenance(baseEvaluation()),
+      identity: adEvaluation().identity,
+      adEvidence: { customConversionId: null, configAuthority: observedConfigAuthority() },
+    };
+    const first = buildAdCanonicalEvaluationProvenance({ ...input, manualCutAdvisoryRefusal: "peer_free_cut_not_confirmed" });
+    const second = buildAdCanonicalEvaluationProvenance({ ...input, manualCutAdvisoryRefusal: "stressed_cut_not_confirmed" });
+    expect(first.inputPayload.configEvidence).toMatchObject({ manualCutAdvisory: null, manualCutAdvisoryRefusal: "peer_free_cut_not_confirmed" });
+    expect(first.inputHash).not.toBe(second.inputHash);
+    expect(first.contextHash).toBe(second.contextHash);
+    expect(first.inputHash).toBe(buildAdCanonicalEvaluationProvenance({ ...input, manualCutAdvisoryRefusal: "peer_free_cut_not_confirmed" }).inputHash);
+    expect(() => buildAdCanonicalEvaluationProvenance({ ...input, manualCutAdvisoryRefusal: "invented" as never })).toThrow();
+    expect(() => buildAdCanonicalEvaluationProvenance({ ...input, manualCutAdvisory: {} as never, manualCutAdvisoryRefusal: "peer_free_cut_not_confirmed" })).toThrow();
   });
   it("binds config observation and custom-conversion identity to the native input hash", () => {
     const base = buildCanonicalEvaluationProvenance(baseEvaluation());

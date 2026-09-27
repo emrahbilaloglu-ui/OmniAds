@@ -11372,3 +11372,170 @@ itself and changes neither provider writes nor the native-Ad run binding.
 state; unstamped and future-stamped rows read no declarations. All rows in a
 served generation must agree on the stamp. Reverting the reader restores the
 old unbounded guard; removing the additive stamp does not alter old rows.
+
+## D124 — Buyer review explains advisory refusal separately from execution (2026-09-27)
+
+Record the deterministic D123 manual-advice refusal in the exact evaluation
+input alongside its proof (one or the other). Native evaluation encoding moves
+to `.v20`; the decision engine epoch, original labels, thresholds, confirmation,
+and provider authority do not change. `.v19` proofs remain readable under their
+original contract. Earlier rows without a refusal report that it was not
+recorded; readers never recompute a sensitivity result from displayed metrics.
+
+The server's validated manual recommendation and its next step travel to both
+Decisions and Studio. Manual review may appear in an action-review lane while
+`decisionState=blocked`, `buyerAction=null`, and provider mutation stays null.
+A stale, inactive, retained, demo, or invalid proof cannot gain a fresh manual
+invitation. Review wording names economic concern, missing evidence and the
+next check; a system-owned prerequisite does not imply no buyer review is needed.
+Reported CPA uses spend and purchases from the same admitted economic window.
+Explicit reporting dates control labels and equal-length comparison only;
+none of these display fields enters decision/action identity.
+
+Rollback reverts producer encoding and consumers together; all previous
+records remain readable, and execution gates stay closed throughout.
+
+
+## D125 — Source-bound decision pages and dated evidence presentation (2026-09-27)
+
+The 300-Ad response bound stays in place. An offset page requires the opaque
+selection key of the same account-scoped, ordered snapshot population; a changed
+population returns 409 and the client restarts at the first page. Lane reserves
+remain at the start of one stable sequence. All eligible rows, including a
+530-row population with 485 blocked and 45 monitoring, remain reachable. Search
+and lane controls still filter the served page, whose position is explicit.
+Old envelopes without a selection key remain readable; they cannot claim a
+verified continuation page.
+
+The unreleased v20 additive input encoding also records each classified economic
+config day (date, authority class and spend). It changes no admission, calibration
+or provider authority. Older evaluations retain counts but cannot acquire dates
+from today's configuration. The reader shows unverified dates only when they
+are valid, unique and reconcile to the recorded counts. Reported Ad spend and
+spend excluded from configuration authority are named separately. Integration
+owns dated source repair; new dated proof and a new decision run are the recheck
+conditions, never a promised calendar date. The campaign config endpoint fix
+already on the base release is preserved; missing historical observations are
+not fabricated.
+
+Recent ROAS is accompanied by the spend and purchases from the same hash-bound
+admitted recent window. A missing old field remains unknown. Native admitted
+frequency is labelled as a daily-reach proxy, not period-unique exposure. Studio
+serves daily verified/provisional/withheld source-row totals before format filters;
+withheld candidate economics cannot be attributed to the creative. The table is
+bound to business, account and reporting dates. Provider data is unchanged.
+
+Validation: account isolation, stale population rejection, failed page recovery,
+530-row exhaustive reachability, observed zero versus missing sample, old-history
+absence, and source membership coverage. The Q037 read-only production day
+reconciliation is retained with the implementation evidence, not promoted to a
+production repair. Remaining data-restatement gaps stay disclosed.
+
+## D126 — Buyer evidence correctness without unvalidated policy thresholds (2026-09-27)
+
+Status: candidate implementation; not deployed. Shared and native producer epochs
+move to `v3-2026-09-27-buyer-evidence-repair` and
+`v3-ad-2026-09-27-buyer-evidence-repair-shadow`. The preceding native acceptance
+fixture is retained unchanged as `native-ad-frozen-exact-replay.2026-09-24-cut-proof-floor-prior-epoch.v1.json`;
+old epochs remain readable and do not acquire current authority.
+
+- Refresh requires distinct recorded windows when dates exist and a ratio below
+  both the calibrated boundary and 1, with 1e-9 numerical tolerance. Missing old
+  window metadata is not reconstructed. The recorded four-day Bilsem case can
+  no longer say ROAS declined to 100% because of floating-point division.
+- Scale recent holding must clear the existing account recent-sample spend
+  floor. Missing/thin evidence or confirmed fatigue plus sampled economic decay
+  produces Keep with explicit predicate evidence. No new purchase count, age,
+  uplift percentage or calibration floor is introduced. Confirmed fatigue
+  without decay alone does not refuse Scale. Calibration-only held verdicts
+  require these same economic prerequisites.
+- All funnel stages are evaluated before choosing the existing primary-stage
+  order (upper, landing, checkout). Parallel evidence is retained. CPM above
+  account P75 is auction pressure, not proof of creative responsibility, and
+  cannot hide a downstream bottleneck. A diagnostic signal is not proof of a
+  site defect; the native copy says investigate rather than fix.
+- The lifecycle writer records unassessed tracking score as NULL, not zero.
+  The existing column is nullable. Account pulse reports unknown for no score
+  or a low score from this narrow source; absence of a detected anomaly does
+  not establish working tracking. Elevated recorded scores retain warnings.
+- Break-even and historical winner/profit guarantees are removed where no
+  evidence establishes them. E1 is a frequency-pressure review. F4 is a decline
+  versus baseline. Historical bid bands use the provider currency offset and
+  describe historical CPA, including Turkish text. Unknown currencies refuse
+  a money band. Geo input order no longer defines the leaders, and spend alone
+  cannot promote a loss leader into the mature split.
+
+Policy disposition: the proposed universal three-purchase / 14-day / 15–20%
+scale rules and blanket recent-ROAS-above-break-even Cut veto are NOT adopted.
+Counterexamples establish inconsistency or uncertainty, not superior delayed
+outcomes. C5 still demonstrates the old canonical/expanded recovery boundary;
+changing it needs point-in-time, basket-value and delayed-outcome evidence.
+This residual policy question is explicit, not declared repaired. Existing
+stop-loss, 20/30 calibration, purchase-proof and execution safeguards remain.
+
+Validation: bounded before/after pure-core replay has nine selected cases
+(eight synthetic/control, one retained live input). Three primary labels change;
+C7 separately loses its false held Refresh. This is not a live population or
+performance estimate. Current golden decisions remain unchanged. Prior-epoch
+fixtures and current frozen acceptance pass independently. Rollback is this
+phase's code revert; retained rows keep their producer keys.
+
+
+D126 rollout acceptance (Claude phase4 R1): the new epoch intentionally does not
+reuse old-epoch hysteresis memory. The first new run starts confirmation again;
+manual advice can be withheld as `hysteresis_pending` until confirmed. Old rows
+must remain visible as prior-epoch review evidence during this transition, never
+as current execution authority. Phase5 must verify the real confirmation timing,
+continuity, and explicit re-confirmation copy before release.
+
+## D127 — Buyer acceptance, epoch continuity and operator responses (2026-09-27)
+
+User authorization: the five-phase implementation of the jointly reviewed buyer audit.
+This ADR supplements D124–D126; it does not expand provider write authority.
+
+- The exact preceding native epoch (`v3-ad-2026-09-24-cut-proof-floor-story-shadow`)
+  may be served only through the existing opt-in retained-generation reader, with
+  the same business/account manifest, evaluation hashes, lineage and seven-day
+  age ceiling. Arbitrary epochs, future dates and incomplete receipts remain
+  refused. Every such model and inventory strips hard-action and manual-Cut
+  authority, even if a builder caller omits the degradation envelope. The served
+  source explicitly says engine-update reconfirmation is pending. New-epoch
+  successful generations replace it under the existing cache lifetime.
+- Hysteresis does not import prior-epoch labels. The first hard signal is pending;
+  production previous-label SQL reads strictly earlier **as-of dates**, so a
+  same-day rerun cannot confirm it. A subsequent eligible day with the same raw
+  signal can confirm it only if the other proof gates also pass. Missed runs,
+  changing evidence or refusals mean there is no promised confirmation time.
+- Structure recommendations below a configured break-even estimate show the
+  observed spend/ROAS and the estimate despite low action confidence. Within one
+  entity, an explicit loss-reduction recommendation precedes a generic recovery
+  recommendation. This changes presentation selection, not the authority,
+  confidence, target provenance or underlying recommendation calculation.
+- Internal decision workflow is independent of `META_AUTOMATION_LIVE_WRITES`.
+  `META_DECISION_WORKFLOW_UI` is enabled by default; explicitly false or malformed
+  values close it. Role, reviewer and fail-closed demo checks stay on the server.
+  Launchpad, provider dispatch and automation gates are unchanged.
+- Native feedback keys bind **snapshot id and immutable evaluation id**. A
+  snapshot can be overwritten by another same-day evaluation; that newer result
+  never silently inherits the earlier response. The POST verifies the currently
+  selected account, business, Ad and snapshot/evaluation join. Stale or foreign
+  bindings refuse, unreadable sources refuse. The existing transactional journal
+  retains actor, time, reason and optimistic version. Unavailable workflow schema
+  is unknown, never an invented open state.
+- Acknowledge, disagreement, deferral and reported manual application are human
+  responses. A reported application is not provider proof. Linked action-receipt
+  availability, source timestamps and 3/7/14-day observational outcomes remain
+  separate; no before/after causal-lift or profitability guarantee is asserted.
+  The same native review panel is reachable in desktop and mobile details.
+- Policy questions around two-order AOV, lag and recovery thresholds remain
+  hypotheses; no new purchase-count, age or uplift threshold is introduced.
+
+Evidence: retained-input census across 13 accounts; 10,448 paired purchase-profile
+core replays, nine changed label/held-label outputs; 5,790 soft-only rows counted
+separately with byte-identical producer and all hard actions disabled. This is
+not a production run, full orchestration replay or proof of performance gains.
+Pure positive/negative cases and real PostgreSQL lineage seams complement it.
+
+Release: full pre-push gate, build and actual Claude review are required. Production
+capacity and account-isolated live readback remain deployment acceptance gates;
+no capacity-fence change, historical backfill or provider action is implied.

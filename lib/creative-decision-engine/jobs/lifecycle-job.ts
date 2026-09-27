@@ -259,7 +259,7 @@ interface LifecycleUpsertRow {
   creative_responsibility_score: number;
   site_responsibility_score: number;
   checkout_responsibility_score: number;
-  tracking_anomaly_score: number;
+  tracking_anomaly_score: number | null;
   data_freshness_hours: number | null;
   source_max_date: string | null;
   source_max_updated_at: string | null;
@@ -1913,7 +1913,7 @@ function mapLifecycleComputationRow(input: {
     checkout_responsibility_score:
       funnelDiagnosis.primaryWeakStage === "checkout" ? 1 : 0,
     tracking_anomaly_score:
-      funnelDiagnosis.primaryWeakStage === "tracking" ? 1 : 0,
+      funnelDiagnosis.primaryWeakStage === "tracking" ? 1 : null,
     data_freshness_hours: freshnessHours(sourceMaxUpdatedAt, input.evaluationCutoffAt),
     source_max_date: toIsoDateOrNull(input.row.source_max_date),
     source_max_updated_at: sourceMaxUpdatedAt,

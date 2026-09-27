@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { verifyManualCutRefusalRoundTrip } from "./manual-cut-refusal-seam";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -41,6 +42,7 @@ import { AD_OPERATOR_RESPONSE_JOB_NAME } from "@/lib/creative-decision-engine/jo
 import {
   AD_PROPOSAL_PROJECTION_JOB_NAME,
   hasReusableNativeCalibration,
+  readNativeCalibrationReuseReceipt,
   readNativeAdDecisionRetryBackoffs,
   readSuccessfulNativeJobs,
   runNativeAdShadowChainForActiveBusinessesIfDue,
@@ -331,6 +333,11 @@ async function verifyCalibrationReuseAccountIdentity(
      ) VALUES ($1::text, 'meta', $2, 'act_deselected', FALSE)`,
     [businessId, deselectedAccountRefId],
   );
+  const firstRun = await readNativeCalibrationReuseReceipt({
+    businessId, asOf: AS_OF, decisionCutoff: CUTOFF,
+  }, db);
+  assert(!firstRun.reusable && firstRun.reason === "no_successful_calibration",
+    "First calibration run was misdiagnosed as a changed account selection.");
   const batchId = "00000000-0000-4000-8000-000000000983";
   await client.query(
     `INSERT INTO engine_v3_ad_account_calibration_batches (
@@ -455,6 +462,10 @@ async function verifyCalibrationReuseAccountIdentity(
   assert(
     !(await hasReusableNativeCalibration(input, db)),
     "A target recorded inside the calibration snapshot safety window was reused.",
+  );
+  assert(
+    (await readNativeCalibrationReuseReceipt(input, db)).reason === "target_history_changed",
+    "Calibration reuse did not identify the changed target evidence.",
   );
   await client.query(
     `UPDATE business_target_pack_history
@@ -3856,6 +3867,9 @@ async function runSeam(client: Client) {
     capability.ready,
     `Exact native schema capability failed: ${capability.missing.join(", ")}`,
   );
+  await verifyManualCutRefusalRoundTrip({ client, db, businessId: BUSINESS_ID,
+    accountId: ACCOUNT_ID, accountRefId: ACCOUNT_REF_ID, asOf: AS_OF, cutoff: CUTOFF,
+    snapshotFactory: snapshotPayload });
   await verifyHydrationReceiptCaptureAxis(client);
   const largeManifestFixture =
     await verifyGenerationBoundLargeManifestHydration(client);

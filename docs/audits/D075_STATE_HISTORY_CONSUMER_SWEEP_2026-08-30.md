@@ -863,3 +863,9 @@ state-history query and grants no status authority by itself.
 | --- | ---: | --- |
 | `lib/creative-decision-engine/campaign-context/entity-role.ts` | 1 | Admission. A role declaration is written only when the campaign or ad set was observed under that exact provider account; the read keeps `presence = 'present'` rows only, so a scope-exit row never binds an entity, and an ad set's parent campaign must be unique across those observations. No entity value becomes decision input and the read grants no authority by itself. |
 | `lib/creative-decision-engine/campaign-context/entity-role.write.test.ts` | 1 | Test. Its mocked database routes the binding read by the table name; no query reaches a database. |
+
+## 2026-09-27 capacity report addition
+
+`lib/sync/db-growth-capacity-report.ts`: one size-only table-name reference.
+Describes the already evaluated D077 effective size; no entity content read,
+configuration inference, retention change, or authority change.

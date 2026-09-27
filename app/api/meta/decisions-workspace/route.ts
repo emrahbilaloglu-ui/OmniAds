@@ -1,3 +1,4 @@
+import { reportingDayCount } from "@/lib/meta/reporting-period";
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import type {
@@ -213,10 +214,11 @@ async function loadCurrentMetaAds(input: {
 }
 
 async function readCurrentMetaAds(input: {
+  fresh?: boolean;
   businessId: string;
   providerAccountId: string | null;
 }): Promise<CurrentMetaAdsResult> {
-  if (process.env.VITEST === "true" || process.env.NODE_ENV === "test") {
+  if (input.fresh || process.env.VITEST === "true" || process.env.NODE_ENV === "test") {
     return loadCurrentMetaAds(input);
   }
   return (
@@ -517,6 +519,7 @@ async function canonicalDecisionReadModel(input: {
   businessId: string;
   providerAccountId: string | null;
   adCandidateLimit: number;
+  adCandidateOffset: number;
   asOfDate: string;
   currentAds: CurrentMetaAdsResult;
   activeOnly: boolean;
@@ -535,6 +538,7 @@ async function canonicalDecisionReadModel(input: {
         message:
           "providerAccountId is required for the canonical Meta Decisions read model.",
         adCandidateLimit: input.adCandidateLimit,
+        adCandidateOffset: input.adCandidateOffset,
         generatedAt: input.generatedAt,
       }),
     };
@@ -553,6 +557,7 @@ async function canonicalDecisionReadModel(input: {
         message:
           "The provider-account assignment source is unavailable; no canonical decisions were read.",
         adCandidateLimit: input.adCandidateLimit,
+        adCandidateOffset: input.adCandidateOffset,
         generatedAt: input.generatedAt,
       }),
     };
@@ -577,6 +582,7 @@ async function canonicalDecisionReadModel(input: {
       message:
         "The current active-Ad inventory could not be verified, so stale or closed Ads were not substituted into Act now.",
       adCandidateLimit: input.adCandidateLimit,
+      adCandidateOffset: input.adCandidateOffset,
       generatedAt: input.generatedAt,
     });
     if (model.source) {
@@ -594,6 +600,7 @@ async function canonicalDecisionReadModel(input: {
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         adCandidateLimit: input.adCandidateLimit,
+        adCandidateOffset: input.adCandidateOffset,
         generatedAt: input.generatedAt,
         asOfDate: input.asOfDate,
         currentAds: input.currentAds.rows,
@@ -614,6 +621,7 @@ async function canonicalDecisionReadModel(input: {
         message:
           "The account-scoped decision sources could not be read; no decision values were fabricated.",
         adCandidateLimit: input.adCandidateLimit,
+        adCandidateOffset: input.adCandidateOffset,
         generatedAt: input.generatedAt,
       }),
     };
@@ -1218,6 +1226,10 @@ async function readDecisionDigest(input: {
 function pipelineHealthBanner(
   health: MetaDecisionPipelineHealth,
 ): MetaOsWorkspaceBanner {
+  const healthUnavailable = health.overall === "unavailable" ||
+    health.admission.status === "unavailable";
+  const admissionBlocked = health.admission.status === "blocked" &&
+    !health.admission.allowed;
   const dataThrough = health.warehouse.latestFinalizedDate;
   const syncHealthy =
     health.syncActivity.status === "fresh" &&
@@ -1241,10 +1253,12 @@ function pipelineHealthBanner(
       ? (health.warehouse.reason ??
         "The finalized Meta warehouse cutoff is not current.")
       : null,
-    !health.admission.allowed
-      ? health.admission.offender
-        ? "A storage safety limit stopped new Meta observations."
-        : "The sync admission gate is closed."
+    health.admission.status === "unavailable"
+      ? "The sync safety checks could not be verified. This does not establish that sync has stopped."
+      : admissionBlocked
+      ? ["database_budget_exceeded", "table_budget_exceeded", "physical_free_space_low", "physical_projected_free_space_low"].includes(health.admission.reason)
+        ? "A measured storage safety limit blocks new Meta sync work."
+        : "New Meta sync work is refused because storage safety telemetry or its configuration is missing, stale, or invalid. Available capacity is unknown; verify the safety configuration and measurement before retrying."
       : null,
     health.decisionGeneration.status !== "fresh"
       ? (health.decisionGeneration.reason ??
@@ -1260,10 +1274,12 @@ function pipelineHealthBanner(
   return {
     id: "meta_decision_pipeline_health",
     tone: health.overall === "blocked" ? "danger" : "warning",
-    title: !syncHealthy
-      ? health.admission.allowed
-        ? "Meta data is not current — decisions are review-only."
-        : "Meta data sync is stopped — current decisions are unavailable."
+    title: healthUnavailable
+      ? "Meta pipeline health could not be verified — decisions are review-only."
+      : !syncHealthy
+        ? admissionBlocked
+          ? "New Meta sync work is blocked — decisions are review-only."
+          : "Meta data is not current — decisions are review-only."
       : !generationHealthy && health.manifest.status !== "fresh"
         ? "The latest decision run is incomplete — decisions are review-only."
         : "Decision generation is not current — decisions are review-only.",
@@ -1510,6 +1526,18 @@ export async function GET(request: NextRequest) {
   const adCandidateLimit = requestedAdCandidateLimit(
     request.nextUrl.searchParams,
   );
+  const statedStart = request.nextUrl.searchParams.get("startDate");
+  const statedEnd = request.nextUrl.searchParams.get("endDate");
+  const statedDays = statedStart && statedEnd ? reportingDayCount(statedStart, statedEnd) : 1;
+  if ((statedStart && reportingDayCount(statedStart, statedStart) === null) || (statedEnd && reportingDayCount(statedEnd, statedEnd) === null) || statedDays === null || statedDays > 366) {
+    return NextResponse.json({ error: "invalid_reporting_period", message: "Choose a valid reporting period of up to 366 days." }, { status: 400 });
+  }
+  const freshAdPage = request.nextUrl.searchParams.get("freshAdPage") === "1";
+  const adCandidateOffset = Number(request.nextUrl.searchParams.get("adOffset") ?? "0");
+  const adSelectionKey = request.nextUrl.searchParams.get("adSelectionKey")?.trim() || null;
+  if (!Number.isSafeInteger(adCandidateOffset) || adCandidateOffset < 0 || adCandidateOffset > 1_000_000 || (adCandidateOffset > 0 && !adSelectionKey)) {
+    return NextResponse.json({ error: "invalid_ad_page", message: "A valid source-bound decision page is required." }, { status: 400 });
+  }
   const compactOsSurface = request.nextUrl.searchParams.get("surface") === "os";
   // The full Decision Center payload also needs only the verified current-Ad
   // projection. `surface=os` controls response shape, not decision authority.
@@ -1856,6 +1884,7 @@ export async function GET(request: NextRequest) {
         }).then((cached) => cached.value);
   let currentAdsCompletedAt = endDateResolvedAt;
   const currentAdsPromise = readCurrentMetaAds({
+    fresh: freshAdPage || adCandidateOffset > 0,
     businessId,
     providerAccountId,
   }).then((result) => {
@@ -1869,6 +1898,7 @@ export async function GET(request: NextRequest) {
         businessId,
         providerAccountId,
         adCandidateLimit,
+        adCandidateOffset,
         asOfDate: decisionAsOfDate,
         currentAds,
         activeOnly: activeAdDecisions,
@@ -1877,11 +1907,11 @@ export async function GET(request: NextRequest) {
     const decisionRead =
       process.env.VITEST === "true" ||
       process.env.NODE_ENV === "test" ||
-      nativeDecisionMarkerReadFailed
+      nativeDecisionMarkerReadFailed || freshAdPage || adCandidateOffset > 0
         ? await loadDecisionRead()
         : (
             await getCachedValue({
-              key: `meta-decisions-read-v10:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${nativeDecisionCacheIdentity}:${adCandidateLimit}:${activeAdDecisions ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
+              key: `meta-decisions-read-v10:${businessId}:${providerAccountId ?? "none"}:${decisionAsOfDate}:${nativeDecisionCacheIdentity}:${adCandidateOffset}:${adCandidateLimit}:${activeAdDecisions ? "active" : "full"}:${inputAdScopeKey(currentAds)}`,
               ttlMs: 60_000,
               staleWhileRevalidateMs: 240_000,
               loader: loadDecisionRead,
@@ -2037,12 +2067,21 @@ export async function GET(request: NextRequest) {
       operationalPipelineHealthPromise,
       commercialAnchorProfilePromise,
     ]);
-    const decisionBundleCompletedAt = performance.now();
     if (!decisionRead.ok) {
       return NextResponse.json(decisionRead.payload, {
         status: decisionRead.status,
       });
     }
+    if (adCandidateOffset > 0) {
+      if (decisionRead.model.status !== "available") {
+        return NextResponse.json({ error: "ad_page_unavailable", message: "The decision page could not be verified. Previously loaded decisions remain available." }, { status: 503 });
+      }
+      if (decisionRead.model.queue.adCandidates?.selectionKey !== adSelectionKey) {
+        return NextResponse.json({ error: "ad_population_changed", message: "Decision population changed. Return to the first page to read the new population." }, { status: 409 });
+      }
+    }
+
+    const decisionBundleCompletedAt = performance.now();
     const pipelineHealth = buildMetaDecisionPipelineHealth({
       operational: operationalPipelineHealth,
       decisionReadModel: decisionRead.model,
@@ -2574,6 +2613,8 @@ export async function GET(request: NextRequest) {
         },
       }),
       os: buildMetaOsDecisionsPresentation({
+        reportingPeriod: {startDate:pulse.startDate,endDate:pulse.endDate},
+        commercialTargets: commercialTargetRead.readFailed ? null : commercialTargetRead.targets,
         actionNow: servedLanes.actionNow,
         watching: servedLanes.watching,
         nonSales: servedLanes.nonSales,

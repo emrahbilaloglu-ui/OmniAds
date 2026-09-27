@@ -2613,6 +2613,8 @@ export async function GET(request: NextRequest) {
         },
       }),
       os: buildMetaOsDecisionsPresentation({
+        reportingPeriod: {startDate:pulse.startDate,endDate:pulse.endDate},
+        commercialTargets: commercialTargetRead.readFailed ? null : commercialTargetRead.targets,
         actionNow: servedLanes.actionNow,
         watching: servedLanes.watching,
         nonSales: servedLanes.nonSales,

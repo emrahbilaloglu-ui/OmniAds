@@ -40,6 +40,12 @@ export type CanonicalWorkflowAction =
   | "reopen";
 
 export interface WorkflowSubmitRequest {
+  comment?: string;
+  sourceEvaluationId?: string;
+  sourceSnapshotId?: string;
+  entityType?: "ad";
+  entityId?: string;
+  providerAccountId?: string;
   action: CanonicalWorkflowAction;
   /** The version the operator was looking at when they decided. */
   expectedVersion: number;

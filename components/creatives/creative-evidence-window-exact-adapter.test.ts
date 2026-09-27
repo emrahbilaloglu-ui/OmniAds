@@ -1355,18 +1355,18 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
       source,
     });
 
-    expect(model.verdictSub).toContain("current run before acting");
+    expect(model.verdictSub).toContain("current verified decision before acting");
     expect(model.reasons).toEqual([
-      "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+      "Retained decision evidence is shown for review while a current generation is unavailable. Wait for a current verified decision before acting.",
     ]);
     // Why already states it; the held row keeps its label without repeating it.
     expect(model.heldVerdictLabel).toBeTruthy();
     expect(model.heldVerdictNextStep).toBeNull();
     expect(value(model.authority, "held-reason")).toContain(
-      "current run before acting",
+      "current verified decision before acting",
     );
     expect(value(model.authority, "served-resolution")).toContain(
-      "current run before acting",
+      "current verified decision before acting",
     );
     expect(JSON.stringify(model)).not.toMatch(/pause this ad yourself/i);
   });

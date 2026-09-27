@@ -368,6 +368,8 @@ export interface MetaOsCampaignRoleExplanation {
 }
 
 export interface MetaOsStructureNode {
+  /** Server-qualified economic observation; never action authority. */
+  economicConcern?: string | null;
   id: string;
   sourceRecommendationId: string | null;
   level: "campaign" | "adset";

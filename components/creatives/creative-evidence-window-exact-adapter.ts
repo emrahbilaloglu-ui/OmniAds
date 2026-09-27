@@ -25,7 +25,6 @@ import {
   RETAINED_GENERATION_REVIEW_COPY,
 } from "@/components/meta/decision-center/meta-decision-center-exact-adapter";
 import {
-  META_DECISION_SOURCE_DEGRADED_REASON,
   type MetaCanonicalDecision,
   type MetaDecisionConfigEvidenceRef,
   type MetaDecisionsWorkspaceReadModel,
@@ -43,7 +42,7 @@ function retainedGenerationIsDegraded(
   decision: MetaOsAdDecision | null,
 ): boolean {
   return (
-    source?.degraded?.reason === META_DECISION_SOURCE_DEGRADED_REASON ||
+    Boolean(source?.degraded) ||
     decision?.action.code === "review_retained_decision"
   );
 }

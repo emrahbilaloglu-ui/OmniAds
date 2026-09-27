@@ -86,17 +86,10 @@ export function readMetaReleaseGates(
   const automationLiveWrites = parseGate(env.META_AUTOMATION_LIVE_WRITES);
   return {
     launchpadExecution: parseGate(env.META_LAUNCHPAD_EXECUTION),
-    /*
-      One capability, one reading.
-
-      The decision workflow and the mutation ceremony are two halves of the same
-      write path, and they were gated by two further variables that no
-      environment ever set. Three independent spellings of one capability is how
-      `/platforms/meta` came to offer controls `/c/:id/meta/decisions` did not.
-      They now follow the single environment capability, and what a viewer may
-      actually do is decided by `resolveMetaWriteCapability` on the server.
-    */
-    decisionWorkflowUi: automationLiveWrites,
+    // Operator feedback is internal workflow, never provider execution.
+    // Available by default; an explicit emergency gate still refuses writes.
+    decisionWorkflowUi: env.META_DECISION_WORKFLOW_UI === undefined ||
+      parseGate(env.META_DECISION_WORKFLOW_UI),
     /*
       STOP is deliberately NOT a capability.
 

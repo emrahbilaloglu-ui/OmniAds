@@ -1,3 +1,4 @@
+import { normalizeMetaCommercialTargets } from "@/lib/meta/commercial-targets";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   MetaCanonicalDecision,
@@ -3132,5 +3133,23 @@ describe("structure actions are decided by typed fields, not by their copy", () 
         },
       }).intent,
     ).toBe("launchpad");
+  });
+});
+
+
+describe("economic concern stays visible without expanding authority", () => {
+  it.each([[2496.55,1,1.8], [7239.27,0.73,1.71]])("retains below-break-even concern on low-confidence spend %s", (spend, roas, breakEvenRoas) => {
+    const cut = recommendation({id:"loss",level:"campaign",campaignId:"loss-campaign",decisionLabel:"below_breakeven",confidence:"low",decisionState:"watch",priority:"low",metrics:{spend,roas}});
+    const recovery = recommendation({id:"recovery",level:"campaign",campaignId:"loss-campaign",decisionLabel:"keep",priority:"high",metrics:{spend,roas}});
+    const common = {actionNow:[],watching:[recovery,cut],nonSales:[],decisionReadModel:readModel([]),currency:"USD"};
+    const baseline = buildMetaOsDecisionsPresentation(common);
+    const output = buildMetaOsDecisionsPresentation({...common,commercialTargets:normalizeMetaCommercialTargets({breakEvenRoas})});
+    const node = output.structure.groups[0]!.campaign;
+    expect(node.sourceRecommendationId).toBe("loss");
+    expect(node.assessment).toBe("Below configured break-even");
+    expect(node.whyNow).toContain(`${spend.toFixed(2)} USD`);
+    expect(node.whyNow).toContain("does not authorize a Cut");
+    expect(node.confidence).toBe("low");
+    expect(baseline.structure.groups[0]!.campaign.assessment).not.toBe("Below configured break-even");
   });
 });

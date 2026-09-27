@@ -1,8 +1,9 @@
+import { reportingDayCount } from "@/lib/meta/reporting-period";
+import type { MetaCommercialTargets } from "@/lib/meta/commercial-targets";
 import { manualCutAdviceForReview } from "./manual-cut-advisory";
 import { metaMinorUnitsToMajor } from "@/lib/currency/meta-currency-offsets";
 import {
   META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
-  META_DECISION_SOURCE_DEGRADED_REASON,
   type MetaCanonicalDecision,
   type MetaDecisionAuthorityBlocker,
   type MetaDecisionsWorkspaceReadModel,
@@ -161,6 +162,7 @@ type InactiveStructureInput = {
 };
 
 type StructureInput = {
+  lossConcern?: string | null;
   rec: MetaRecommendation;
   lane: MetaOsDecisionLane;
   targetAuthorityBlocker: MetaTargetAuthorityBlocker | null;
@@ -641,6 +643,11 @@ function noUrgency(): MetaOsDecisionUrgency {
 }
 
 function compareStructureInputs(a: StructureInput, b: StructureInput) {
+  // An explicit reduction candidate must remain inspectable beside a loss
+  // concern; a generic decline scenario cannot erase it through confidence.
+  const lossReduction = (x: StructureInput) => Boolean(x.lossConcern && (metaStructureTargetHardAction(x.rec) === "cut" || x.rec.type === "scale_for_profitability"));
+  const concernDelta = Number(lossReduction(b)) - Number(lossReduction(a));
+  if (concernDelta) return concernDelta;
   const aPriority = priorityForRecommendation(a.rec).rank ?? 0;
   const bPriority = priorityForRecommendation(b.rec).rank ?? 0;
   if (aPriority !== bPriority) return bPriority - aPriority;
@@ -1000,12 +1007,13 @@ function structureNode(
     priority: priorityForRecommendation(rec),
     urgency: structureUrgency(input),
     confidence: rec.confidence,
-    assessment: input.targetAuthorityBlocker
+    economicConcern: input.lossConcern ?? null,
+    assessment: input.lossConcern ? "Below configured break-even" : input.targetAuthorityBlocker
       ? "Decision Blocked"
       : assessmentForRecommendation(rec),
-    whyNow: input.targetAuthorityBlocker
+    whyNow: [input.lossConcern, input.targetAuthorityBlocker
       ? `${targetAuthorityPresentation(input.targetAuthorityBlocker).blockerLabel}. The persisted verdict remains visible but cannot authorize an action.`
-      : rec.why || rec.summary || "Evidence unavailable.",
+      : rec.why || rec.summary || "Evidence unavailable."].filter(Boolean).join(" "),
     expectedImpact: input.targetAuthorityBlocker
       ? targetAuthorityPresentation(input.targetAuthorityBlocker).expectedImpact
       : rec.expectedImpact || "Cannot calculate",
@@ -1711,7 +1719,7 @@ function adDecision(
           intent: "review" as const,
           providerMutation: null,
           scopeNote:
-            "The latest decision run failed. Wait for a current successful run before acting on this earlier verdict.",
+            "A current verified generation is unavailable. Wait for a current successful run before acting on this earlier verdict.",
         },
       }
     : original;
@@ -2100,6 +2108,9 @@ function selectOsAdDecisions(
 }
 
 export function buildMetaOsDecisionsPresentation(input: {
+  /** Current configured comparison, presentation only; never action authority. */
+  commercialTargets?: MetaCommercialTargets | null;
+  reportingPeriod?: {startDate:string;endDate:string} | null;
   actionNow: MetaRecommendation[];
   watching: MetaRecommendation[];
   nonSales: MetaRecommendation[];
@@ -2186,6 +2197,18 @@ export function buildMetaOsDecisionsPresentation(input: {
           ? ("blocked" as const)
           : item.lane,
     }));
+
+  const breakEven = input.commercialTargets?.source !== "none" ? input.commercialTargets?.breakEvenRoas : null;
+  const periodDays = input.reportingPeriod ? reportingDayCount(input.reportingPeriod.startDate,input.reportingPeriod.endDate) : null;
+  const periodLabel = periodDays && input.reportingPeriod
+    ? `Selected period ${input.reportingPeriod.startDate}–${input.reportingPeriod.endDate} (${periodDays}d)`
+    : "Reporting period unavailable";
+  for (const item of structureInputs) {
+    const roas = finite(item.rec.metrics?.roas), spend = finite(item.rec.metrics?.spend);
+    if (breakEven && breakEven > 0 && roas !== null && spend !== null && spend > 0 && roas < breakEven) {
+      item.lossConcern = `Observed ROAS ${roas.toFixed(2)} is below configured break-even ${breakEven.toFixed(2)} on ${spend.toFixed(2)} ${input.currency ?? "currency unknown"} spend (${periodLabel}). This economic concern requires review even when action confidence is low; it does not authorize a Cut or prove realized profit.`;
+    }
+  }
 
   const entityBuckets = new Map<string, StructureInput[]>();
   for (const item of structureInputs) {
@@ -2305,8 +2328,7 @@ export function buildMetaOsDecisionsPresentation(input: {
     input.decisionReadModel.queue?.adCandidates,
   );
   const sourceDegraded =
-    input.decisionReadModel.source?.degraded?.reason ===
-    META_DECISION_SOURCE_DEGRADED_REASON;
+    Boolean(input.decisionReadModel.source?.degraded);
   const adBuckets = new Map<string, MetaOsAdDecision[]>();
   for (const decision of canonical) {
     const item = adDecision(

@@ -2819,6 +2819,10 @@ const COVERAGE: Record<string, Coverage> = {
     S.ACTION,
     "the row's confidence chip and its tone, and the inspector's confidence line",
   ),
+  "MetaOsStructureNode.economicConcern": R(
+    S.INSPECTOR,
+    "The server-qualified period/spend/ROAS break-even observation leads the structure card and inspector, ahead of readiness guidance; it grants no action.",
+  ),
   "MetaOsStructureNode.assessment": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsStructureNode.whyNow": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
   "MetaOsStructureNode.expectedImpact": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
@@ -3504,7 +3508,8 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // D123 adds ten: `MetaDecisionConfigEvidence.currentObserved` and the nine
     // leaves of the new `MetaManualCutAdvisory` interface (814 -> 824).
     // D125 adds two page controls, two recent-sample metrics and four config-history fields.
-    expect(fields.length).toBe(834);
+    // D127 adds economicConcern; the second degraded reason also becomes varying.
+    expect(fields.length).toBe(835);
     // The manual-advice DTO contributes one new reachable interface.
     expect(new Set(fields.map((field) => field.iface)).size).toBe(70);
     // Candidate selection v3 retains v2 payload compatibility. Its version
@@ -3514,7 +3519,7 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // provenance leaf now varies while remaining intentionally unrendered.
     // D123: `currentObserved` and the four manual-advice counts vary; the five
     // pinned manual-advice markers do not (764 -> 769).
-    expect(fields.filter((field) => field.varies).length).toBe(779);
+    expect(fields.filter((field) => field.varies).length).toBe(781);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3721,6 +3726,10 @@ const SCENARIOS: readonly ProbeScenario[] = [
     // evidence drawer suppress historical resolution fields as if it were
     // degraded, so the probe could no longer prove their healthy-path rendering.
     omit: ["decisionReadModel.source.degraded"],
+    // Healthy structure rows have no loss concern. The full optional payload
+    // otherwise masks the target comparison with the economic-warning copy.
+    // Mutating this field still wins over the erasure and proves its rendering.
+    erase: ["MetaOsStructureNode.economicConcern"],
   },
   {
     name: "recordedManualRefusal",
@@ -4074,7 +4083,7 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 12 -> 13: it arrived here. @see decisionAvailability above.
   // D107 adds two labelled inspector rows for economic and bridged days.
   // Native decision CTR moved to the admitted-window creative card.
-  INSPECTOR: [4, 12],
+  INSPECTOR: [4, 13],
   INVENTORY: [0, 14],
   KPI: [0, 23],
   NONSALES: [0, 1],
@@ -4125,7 +4134,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 10 -> 11: the held verdict `heldAction`, behind the Creatives scope tab
   // rather than in the resting desktop DOM.
   // D107's economic and bridged-day counts reach named inspector rows.
-  INSPECTOR: [4, 12],
+  INSPECTOR: [5, 12],
   // 100 -> 101: `ads.pendingInventoryCount`, the coverage fact that separates
   // ACTIVE inventory awaiting a decision from the decision lanes it used to be
   // counted inside. Like every PROVENANCE claim it sits behind the panel's own
@@ -4135,7 +4144,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // lane totals and read from the provenance panel's own control.
   // 109 -> 108: `limitations[].message` is no longer rendered, so it leaves
   // the behind-a-control half of the provenance panel (Round 8 item 7).
-  PROVENANCE: [0, 108],
+  PROVENANCE: [0, 109],
   WATCHING: [1, 2],
   // Behind a lane tab the default render never presses. This is the whole
   // demonstration: ARCHIVE's claims are real and none of them is in the DOM
@@ -4188,7 +4197,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // contract-identity leaves. D109 removes one cross-period purchase claim;
 // the remaining evidence claims are behind the window control. The pre-cap
 // counts move into the resting DOM as the lane-tab and scope-pill counts.
-const DOM_PROOF_TOTALS: [number, number] = [33, 358];
+const DOM_PROOF_TOTALS: [number, number] = [34, 359];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4198,7 +4207,8 @@ const DOM_PROOF_TOTALS: [number, number] = [33, 358];
 // the contract to a single value, so the probe cannot vary it and it has no DOM
 // answer either way. Counted here so the three totals still add up to the whole
 // table rather than to an unstated subset.
-const DOM_PROOF_PINNED_LEAVES = 7;
+// D127 makes the degradation reason a varying union rather than one literal.
+const DOM_PROOF_PINNED_LEAVES = 6;
 
 /**
  * Leaves the probe varies that move NO surface, in any scenario.
@@ -5062,7 +5072,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // Current creative taxonomy adds two varying display/provenance leaves.
     // The admitted window's recent band adds two varying dates -> 760.
     // D123's five varying leaves -> 769.
-    expect(outcomes.size).toBe(779);
+    expect(outcomes.size).toBe(781);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -5317,9 +5327,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // served observation fact on the evidence surface without a stable row id.
     // The Meta-derived creative type adds one badge claim behind the scope tab.
     // D109 removes one canonical purchase claim from a different period.
-    expect(rendered.length).toBe(398);
+    expect(rendered.length).toBe(399);
     expect(withElement.length).toBe(237);
-    expect(withoutElement.length).toBe(161);
+    expect(withoutElement.length).toBe(162);
 
     /*
      * AND WHICH ENTRIES, not merely how many.
@@ -5538,10 +5548,15 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // The leaves the contract pins to one value cannot be varied at all, so
     // they have no DOM answer either way; counted here so the three numbers
     // add up to the whole table rather than to an unstated subset.
-    expect(rendered.length - varying.length).toBe(DOM_PROOF_PINNED_LEAVES);
-    expect(inDom.length).toBe(DOM_PROOF_TOTALS[0]);
-    expect(behindAControl.length).toBe(DOM_PROOF_TOTALS[1]);
-    expect(perSurface).toEqual(DOM_PROOF_BY_SURFACE);
+    expect({
+      pinned: rendered.length - varying.length,
+      totals: [inDom.length, behindAControl.length],
+      perSurface,
+    }).toEqual({
+      pinned: DOM_PROOF_PINNED_LEAVES,
+      totals: DOM_PROOF_TOTALS,
+      perSurface: DOM_PROOF_BY_SURFACE,
+    });
 
     /*
      * THE DEMONSTRATION, NAMED. The Archive lane's row name is the case that

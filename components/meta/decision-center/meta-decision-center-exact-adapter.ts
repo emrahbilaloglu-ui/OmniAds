@@ -37,7 +37,6 @@ import {
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaAutomationReadinessBlocker } from "@/lib/meta/automation-readiness";
 import {
-  META_DECISION_SOURCE_DEGRADED_REASON,
   type MetaCanonicalDecision,
   type MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
@@ -786,13 +785,13 @@ function actionRows(input: {
       ...(relation
         ? { lineage: relation.label, lineageRole: relation.role }
         : {}),
-      decisionLabel: buyerFacingStructureDecisionLabel(
+      decisionLabel: node?.economicConcern ? "Below configured break-even" : buyerFacingStructureDecisionLabel(
         recommendation.decisionLabel,
       ),
       decisionTone: tone,
       edgeTone: tone,
       money: recommendationMoney(recommendation, node, input.fallbackCurrency),
-      moneySub: recommendationMoneySub(recommendation, node),
+      moneySub: node?.economicConcern ?? recommendationMoneySub(recommendation, node),
       confidence: titleToken(node?.confidence ?? recommendation.confidence),
       confidenceTone: confidenceTone(
         node?.confidence ?? recommendation.confidence,
@@ -1287,6 +1286,10 @@ function buyerFacingStructureReason(
   recommendation: MetaRecommendation,
   node: MetaOsStructureNode | null,
 ): string {
+  if (node?.economicConcern) return [node.economicConcern,
+    (recommendation.automationReadiness?.blockers.length ?? 0) > 0
+      ? buyerFacingReadinessBlocker(recommendation.automationReadiness) : null,
+  ].filter(Boolean).join(" ");
   if ((recommendation.automationReadiness?.blockers.length ?? 0) > 0) {
     return buyerFacingReadinessBlocker(recommendation.automationReadiness);
   }
@@ -1360,11 +1363,11 @@ function needsResolutionRows(input: {
       // blocked lane preserves the server's verdict, but must not expose the
       // producer token (for example `cut`) beside an inspector that calls the
       // same verdict "Reduce spend".
-      decisionLabel: buyerFacingStructureDecisionLabel(
+      decisionLabel: node?.economicConcern ? "Below configured break-even" : buyerFacingStructureDecisionLabel(
         recommendation.decisionLabel,
       ),
       decisionTone: decisionTone(recommendation.decisionLabel),
-      blocker: buyerFacingReadinessBlocker(readiness),
+      blocker: node?.economicConcern ? buyerFacingStructureReason(recommendation,node) : buyerFacingReadinessBlocker(readiness),
       blockerBuyerFacing: true,
       blockerCount: blockerParts.length,
       blockerTone: "warning",
@@ -1418,7 +1421,7 @@ function watchingRows(input: {
       ...(relation
         ? { lineage: relation.label, lineageRole: relation.role }
         : {}),
-      note: buyerFacingWatchingNote(recommendation),
+      note: node?.economicConcern ? buyerFacingStructureReason(recommendation,node) : buyerFacingWatchingNote(recommendation),
       money: recommendationMoney(recommendation, node, input.fallbackCurrency),
       ...(input.callbacks.onWatchingReview
         ? {
@@ -2273,7 +2276,7 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
 };
 
 export const RETAINED_GENERATION_REVIEW_COPY =
-  "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.";
+  "Retained decision evidence is shown for review while a current generation is unavailable. Wait for a current verified decision before acting.";
 
 const BUYER_CREATIVE_ACTION_CONTEXT_COPY: Readonly<Record<string, string>> = {
   apply_purchase_cut_manually:
@@ -3738,7 +3741,7 @@ function structureInspector(input: {
     entityMeta: `${structureLevel(recommendation.level).toLowerCase()} · ${
       nonBlank(recommendation.campaignName) ?? EM_DASH
     }`,
-    decisionLabel: buyerFacingStructureDecisionLabel(
+    decisionLabel: node?.economicConcern ? "Below configured break-even" : buyerFacingStructureDecisionLabel(
       recommendation.decisionLabel,
     ),
     tone: decisionTone(recommendation.decisionLabel),
@@ -4099,7 +4102,8 @@ function retainedGenerationNotice(
   workspace: MetaDecisionsWorkspacePayload,
 ): string | null {
   const degraded = workspace.decisionReadModel?.source?.degraded;
-  if (degraded?.reason !== META_DECISION_SOURCE_DEGRADED_REASON) return null;
+  if (!degraded) return null;
+  if (degraded.reason === "native_engine_update_reconfirmation_pending") return `Engine update: showing the ${degraded.servedGeneration.asOfDate} prior-engine decisions for review. Hard actions and manual advice require fresh confirmation under the new engine; a same-day retry does not count as another observation.`;
   const served = nonBlank(degraded.servedGeneration?.asOfDate);
   const failed = nonBlank(degraded.latestTerminalRun?.asOfDate);
   if (!served) return null;
@@ -5633,8 +5637,7 @@ export function buildMetaDecisionCenterExactViewModel(
     decisions: creativeDecisions,
     canonical,
     sourceDegraded:
-      workspace.decisionReadModel.source?.degraded?.reason ===
-      META_DECISION_SOURCE_DEGRADED_REASON,
+      Boolean(workspace.decisionReadModel.source?.degraded),
     fallbackCurrency,
     ctrSeriesByAdId: overrides.creativeCtrSeriesByAdId ?? new Map(),
     ctrObservationByAdId: overrides.creativeCtrObservationByAdId ?? new Map(),
@@ -5943,8 +5946,7 @@ export function buildMetaDecisionCenterExactViewModel(
       nodes,
       canonical,
       sourceDegraded:
-        workspace.decisionReadModel.source?.degraded?.reason ===
-        META_DECISION_SOURCE_DEGRADED_REASON,
+        Boolean(workspace.decisionReadModel.source?.degraded),
       fallbackCurrency,
       callbacks,
     }),

@@ -11487,3 +11487,55 @@ manual advice can be withheld as `hysteresis_pending` until confirmed. Old rows
 must remain visible as prior-epoch review evidence during this transition, never
 as current execution authority. Phase5 must verify the real confirmation timing,
 continuity, and explicit re-confirmation copy before release.
+
+## D127 — Buyer acceptance, epoch continuity and operator responses (2026-09-27)
+
+User authorization: the five-phase implementation of the jointly reviewed buyer audit.
+This ADR supplements D124–D126; it does not expand provider write authority.
+
+- The exact preceding native epoch (`v3-ad-2026-09-24-cut-proof-floor-story-shadow`)
+  may be served only through the existing opt-in retained-generation reader, with
+  the same business/account manifest, evaluation hashes, lineage and seven-day
+  age ceiling. Arbitrary epochs, future dates and incomplete receipts remain
+  refused. Every such model and inventory strips hard-action and manual-Cut
+  authority, even if a builder caller omits the degradation envelope. The served
+  source explicitly says engine-update reconfirmation is pending. New-epoch
+  successful generations replace it under the existing cache lifetime.
+- Hysteresis does not import prior-epoch labels. The first hard signal is pending;
+  production previous-label SQL reads strictly earlier **as-of dates**, so a
+  same-day rerun cannot confirm it. A subsequent eligible day with the same raw
+  signal can confirm it only if the other proof gates also pass. Missed runs,
+  changing evidence or refusals mean there is no promised confirmation time.
+- Structure recommendations below a configured break-even estimate show the
+  observed spend/ROAS and the estimate despite low action confidence. Within one
+  entity, an explicit loss-reduction recommendation precedes a generic recovery
+  recommendation. This changes presentation selection, not the authority,
+  confidence, target provenance or underlying recommendation calculation.
+- Internal decision workflow is independent of `META_AUTOMATION_LIVE_WRITES`.
+  `META_DECISION_WORKFLOW_UI` is enabled by default; explicitly false or malformed
+  values close it. Role, reviewer and fail-closed demo checks stay on the server.
+  Launchpad, provider dispatch and automation gates are unchanged.
+- Native feedback keys bind **snapshot id and immutable evaluation id**. A
+  snapshot can be overwritten by another same-day evaluation; that newer result
+  never silently inherits the earlier response. The POST verifies the currently
+  selected account, business, Ad and snapshot/evaluation join. Stale or foreign
+  bindings refuse, unreadable sources refuse. The existing transactional journal
+  retains actor, time, reason and optimistic version. Unavailable workflow schema
+  is unknown, never an invented open state.
+- Acknowledge, disagreement, deferral and reported manual application are human
+  responses. A reported application is not provider proof. Linked action-receipt
+  availability, source timestamps and 3/7/14-day observational outcomes remain
+  separate; no before/after causal-lift or profitability guarantee is asserted.
+  The same native review panel is reachable in desktop and mobile details.
+- Policy questions around two-order AOV, lag and recovery thresholds remain
+  hypotheses; no new purchase-count, age or uplift threshold is introduced.
+
+Evidence: retained-input census across 13 accounts; 10,448 paired purchase-profile
+core replays, nine changed label/held-label outputs; 5,790 soft-only rows counted
+separately with byte-identical producer and all hard actions disabled. This is
+not a production run, full orchestration replay or proof of performance gains.
+Pure positive/negative cases and real PostgreSQL lineage seams complement it.
+
+Release: full pre-push gate, build and actual Claude review are required. Production
+capacity and account-isolated live readback remain deployment acceptance gates;
+no capacity-fence change, historical backfill or provider action is implied.

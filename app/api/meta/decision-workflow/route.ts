@@ -1,3 +1,4 @@
+import { verifyNativeDecisionWorkflowSource } from "@/lib/meta/native-decision-workflow-source";
 import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { DECISION_WORKFLOW_KEY_CAP } from "@/lib/meta/decision-workflow-limits";
@@ -78,7 +79,8 @@ export async function GET(request: NextRequest) {
     const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
     if ("error" in access) return access.error;
 
-    const records = await readWorkflowRecords({ businessId, decisionKeys });
+    const records = await readWorkflowRecords({ businessId, decisionKeys }).catch(() => null);
+    if (records === null) return NextResponse.json({error:"workflow_unavailable",message:"Operator review state is unavailable."}, {status:503});
     // A decision with no row is open, not missing — the same rule the single
     // read already applies, stated once for the whole batch.
     const workflows = decisionKeys.map(
@@ -133,6 +135,8 @@ export async function POST(request: NextRequest) {
     decisionKey?: string;
     action?: string;
     expectedVersion?: number;
+    sourceEvaluationId?: string;
+  sourceSnapshotId?: string;
     entityType?: string;
     entityId?: string;
     providerAccountId?: string | null;
@@ -228,6 +232,18 @@ export async function POST(request: NextRequest) {
   const gated = rejectIfMetaGateClosed("decisionWorkflowUi", `decision_workflow_${action}`);
   if (gated) return gated;
 
+  if (decisionKey.startsWith("native-ad:") || body.entityType === "ad" || body.sourceSnapshotId !== undefined) {
+    const source = await verifyNativeDecisionWorkflowSource({
+      businessId: access.membership.businessId, decisionKey,
+      sourceEvaluationId: body.sourceEvaluationId, sourceSnapshotId: body.sourceSnapshotId, entityType: body.entityType,
+      entityId: body.entityId, providerAccountId: body.providerAccountId,
+    });
+    if (source !== "verified") return NextResponse.json({
+      error: source === "mismatch" ? "native_feedback_source_mismatch" : "native_feedback_source_unavailable",
+      message: "The exact Ad decision and selected account could not be verified. Refresh before recording feedback.",
+    }, { status: source === "mismatch" ? 409 : 503 });
+  }
+
   // An assignee must be an active member of THIS business. Without the check
   // work can be assigned to somebody who cannot open it — or to a user id
   // belonging to another tenant, which also confirms that id exists.
@@ -300,7 +316,8 @@ export async function POST(request: NextRequest) {
           persisted.reason === "version_conflict"
             ? "This decision changed while you were looking at it. Reload to see the current state."
             : "The workflow overlay is unavailable, so nothing was recorded.",
-        current,
+        current: persisted.reason === "version_conflict"
+          ? (await readWorkflowRecord({businessId,decisionKey})) ?? current : current,
       },
       { status },
     );

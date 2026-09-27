@@ -137,6 +137,7 @@ import {
 } from "@/lib/meta/decisions-os-presentation";
 import {
   NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+  NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION,
   READ_NATIVE_DECISION_GENERATION_QUERY,
   applyMetaExecutionGovernanceToCanonicalDecisions,
   applyMetaExecutionGovernanceToReadModel,
@@ -2131,6 +2132,8 @@ async function runPersistedServedLane(input: { businessId: string }): Promise<Pe
         NATIVE_AD_ENGINE_VERSION,
         servingDay,
         NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+        true,
+        NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION,
       ]);
       const latest = generationRows.find((row) => row.selection === "latest") ?? null;
       let latestGenerationCounts: Record<string, unknown> | null = null;

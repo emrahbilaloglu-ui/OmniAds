@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 
+const verifyNativeSource = vi.hoisted(() => vi.fn(async () => "verified"));
+vi.mock("@/lib/meta/native-decision-workflow-source",()=>({verifyNativeDecisionWorkflowSource:verifyNativeSource}));
 const requireBusinessAccess = vi.hoisted(() => vi.fn());
 const readWorkflowRecords = vi.hoisted(() =>
   vi.fn(async (_input: { businessId: string; decisionKeys: string[] }) => new Map<string, unknown>()),
@@ -77,6 +79,12 @@ describe("GET decision workflow", () => {
     readWorkflowRecord.mockResolvedValue(openRecord);
   });
 
+  it("reports unavailable instead of inventing an open review state",async () => {
+    readWorkflowRecords.mockRejectedValueOnce(new Error("unavailable"));
+    const response=await GET(getRequest("businessId=biz-1&contract=zero-base.v1&decisionKeys=ad1"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).not.toHaveProperty("workflows");
+  });
   it("requires both identifiers", async () => {
     expect((await GET(getRequest("businessId=biz-1"))).status).toBe(400);
   });
@@ -207,8 +215,26 @@ describe("POST decision workflow", () => {
     expect(demoAuthority.readLaunchpadWriteAuthority).toHaveBeenCalledWith("biz-1");
   });
 
+  it.each(["mismatch","unavailable"])("refuses native feedback on source %s before persistence",async state => {
+    verifyNativeSource.mockResolvedValueOnce(state);
+    const response=await POST(postRequest({businessId:"biz-1",decisionKey:"native-ad:snapshot:evaluation",
+      sourceSnapshotId:"snapshot",sourceEvaluationId:"evaluation",entityType:"ad",entityId:"ad1",providerAccountId:"act_1",action:"acknowledge",expectedVersion:1}));
+    expect(response.status).toBe(state === "mismatch" ? 409 : 503);
+    expect(persistWorkflowTransition).not.toHaveBeenCalled();
+  });
+
+  it("records internal native feedback while provider writes stay off", async () => {
+    vi.stubEnv("META_AUTOMATION_LIVE_WRITES","false");
+    vi.stubEnv("META_DECISION_WORKFLOW_UI","true");
+    const response=await POST(postRequest({businessId:"biz-1",decisionKey:"native-ad:snapshot:evaluation",
+      sourceSnapshotId:"snapshot",sourceEvaluationId:"evaluation",entityType:"ad",entityId:"ad1",providerAccountId:"act_1",action:"acknowledge",expectedVersion:1}));
+    expect(response.status).toBe(200);
+    expect(verifyNativeSource).toHaveBeenCalledWith(expect.objectContaining({businessId:"biz-1",sourceEvaluationId:"evaluation"}));
+    expect(persistWorkflowTransition).toHaveBeenCalledWith(expect.objectContaining({entityType:"ad",entityId:"ad1",providerAccountId:"act_1"}));
+  });
+
   it("refuses every transition while the workflow gate is shut", async () => {
-    vi.stubEnv("META_AUTOMATION_LIVE_WRITES", "");
+    vi.stubEnv("META_DECISION_WORKFLOW_UI", "false");
 
     const response = await POST(
       postRequest({
@@ -231,7 +257,7 @@ describe("POST decision workflow", () => {
   it("refuses a shut gate before it looks up an assignee", async () => {
     // Otherwise a shut gate is a membership oracle: a 422 and a 503 would tell
     // a caller whether a given user id belongs to this business.
-    vi.stubEnv("META_AUTOMATION_LIVE_WRITES", "");
+    vi.stubEnv("META_DECISION_WORKFLOW_UI", "false");
 
     const response = await POST(
       postRequest({

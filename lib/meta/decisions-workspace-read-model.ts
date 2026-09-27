@@ -97,6 +97,9 @@ const NATIVE_DECISION_READ_TIMEOUT_MS = 20_000;
  * this exact code (and on the stripped per-decision authority below), never on
  * prose: INVARIANTS forbids inferring staleness from free-form text.
  */
+export const NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION = "v3-ad-2026-09-24-cut-proof-floor-story-shadow";
+export const NATIVE_ENGINE_UPDATE_REASON = "native_engine_update_reconfirmation_pending" as const;
+
 export const NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON =
   META_DECISION_SOURCE_DEGRADED_REASON;
 
@@ -2654,6 +2657,8 @@ export function buildMetaDecisionsWorkspaceReadModel(
 }
 
 export interface MetaNativeDecisionGeneration {
+  /** Only the known preceding epoch may be retained, always review-only. */
+  reviewOnlyEngineVersion?: typeof NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION;
   jobRunId: string;
   asOfDate: string;
   providerAccountRefId: string;
@@ -2889,7 +2894,8 @@ export function validateMetaNativeDecisionGenerationBundle(input: {
     ) {
       return fail("provider_scope_mismatch");
     }
-    if (row.engine_version !== NATIVE_AD_ENGINE_VERSION) {
+    if (row.engine_version !== (input.generation.reviewOnlyEngineVersion ?? NATIVE_AD_ENGINE_VERSION) ||
+      (input.generation.reviewOnlyEngineVersion !== undefined && input.generation.reviewOnlyEngineVersion !== NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION)) {
       return fail("engine_epoch_mismatch");
     }
     if (row.as_of_date !== input.generation.asOfDate) {
@@ -3550,6 +3556,13 @@ export function buildNativeMetaCanonicalDecisionInventory(
       unavailableReason: "native_canonical_projection_incomplete",
     };
   }
+  if (input.generation.reviewOnlyEngineVersion) {
+    stripNativeSourceDegradedDecisionAuthority(items, {
+      reason: NATIVE_ENGINE_UPDATE_REASON, generation: input.generation,
+      latestTerminalJobRunId: input.generation.jobRunId,
+      latestTerminalJobStatus: "success", latestTerminalAsOfDate: input.generation.asOfDate,
+    });
+  }
   return {
     status: "available",
     generation: input.generation,
@@ -3649,7 +3662,7 @@ function markNativeReadModelSourceDegraded(
   degradation: MetaNativeDecisionSourceDegradation,
 ): MetaDecisionsWorkspaceReadModel {
   model.source.status = "unavailable";
-  model.source.fallbackReason = NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON;
+  model.source.fallbackReason = degradation.reason;
   model.source.degraded = stripNativeSourceDegradedDecisionAuthority(
     collectMetaCanonicalDecisions(model),
     degradation,
@@ -3677,7 +3690,7 @@ function stripNativeSourceDegradedDecisionAuthority(
       decision.manualCutAdvisory = null;
       decision.manualCutRefusal = {
         code: "proof_unverified",
-        detail: "The latest decision run failed. This retained recommendation is historical evidence; wait for a fresh verified decision before acting.",
+        detail: "A current verified generation is unavailable. This retained recommendation is historical evidence; wait for a fresh verified decision before acting.",
       };
       if (decision.classification.resolution?.code === "apply_purchase_cut_manually") {
         decision.classification.resolution = {
@@ -3738,6 +3751,16 @@ function collectMetaCanonicalDecisions(
 export function buildNativeMetaDecisionsWorkspaceReadModel(
   input: BuildNativeMetaDecisionsWorkspaceReadModelInput,
 ): MetaDecisionsWorkspaceReadModel {
+  // An explicitly validated prior epoch can never be promoted by a caller
+  // forgetting to carry the degradation envelope.
+  const sourceDegradation = input.sourceDegradation ??
+    (input.generation.reviewOnlyEngineVersion ? {
+      reason: NATIVE_ENGINE_UPDATE_REASON,
+      generation: input.generation,
+      latestTerminalJobRunId: input.generation.jobRunId,
+      latestTerminalJobStatus: "success",
+      latestTerminalAsOfDate: input.generation.asOfDate,
+    } : null);
   const validatedBundle = validateMetaNativeDecisionGenerationBundle({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -3778,7 +3801,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
       table: "engine_v3_ad_decision_snapshots_daily",
       snapshotAsOf: input.generation.asOfDate,
       computedAt: null,
-      engineVersion: NATIVE_AD_ENGINE_VERSION,
+      engineVersion: input.generation.reviewOnlyEngineVersion ?? NATIVE_AD_ENGINE_VERSION,
       fallbackReason: null,
       generation: {
         jobRunId: input.generation.jobRunId,
@@ -3792,8 +3815,8 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
       providerScopeAvailable: true,
       snapshotAvailable: true,
     });
-    return input.sourceDegradation
-      ? markNativeReadModelSourceDegraded(empty, input.sourceDegradation)
+    return sourceDegradation
+      ? markNativeReadModelSourceDegraded(empty, sourceDegradation)
       : empty;
   }
 
@@ -3842,7 +3865,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
         .map((row) => row.computed_at)
         .sort()
         .at(-1) ?? null,
-    engineVersion: NATIVE_AD_ENGINE_VERSION,
+    engineVersion: input.generation.reviewOnlyEngineVersion ?? NATIVE_AD_ENGINE_VERSION,
     fallbackReason: null,
     generation: {
       jobRunId: input.generation.jobRunId,
@@ -3868,8 +3891,8 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
   )
     ? { status: "available", reason: "native_immutable_action_receipt" }
     : { status: "unavailable", reason: "native_action_receipt_not_observed" };
-  return input.sourceDegradation
-    ? markNativeReadModelSourceDegraded(model, input.sourceDegradation)
+  return sourceDegradation
+    ? markNativeReadModelSourceDegraded(model, sourceDegradation)
     : model;
 }
 
@@ -4106,9 +4129,9 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
       SELECT candidate.*
       FROM effective_runs candidate
       CROSS JOIN latest_effective_terminal_job latest
-      WHERE latest.effective_status <> 'success'
+      WHERE (latest.effective_status <> 'success' OR ($8::boolean AND latest.engine_version <> $5))
         AND candidate.effective_status = 'success'
-        AND candidate.engine_version = $5
+        AND (candidate.engine_version = $5 OR ($8::boolean AND candidate.engine_version = $9))
         AND (candidate.as_of_date, candidate.started_at, candidate.id)
             < (latest.as_of_date, latest.started_at, latest.id)
         AND (
@@ -4190,7 +4213,7 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
  * consumer can name both halves of a degraded window without inferring either.
  */
 export interface MetaNativeDecisionSourceDegradation {
-  reason: typeof NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON;
+  reason: typeof NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON | typeof NATIVE_ENGINE_UPDATE_REASON;
   generation: MetaNativeDecisionGeneration;
   latestTerminalJobRunId: string;
   latestTerminalJobStatus: string;
@@ -4212,6 +4235,7 @@ type NativeGenerationReceiptResolution =
 function resolveNativeGenerationReceipt(
   row: MetaNativeDecisionGenerationSourceRow,
   providerAccountId: string,
+  allowPriorEpoch = false,
 ): NativeGenerationReceiptResolution {
   if (row.job_status !== "success") {
     return {
@@ -4224,7 +4248,8 @@ function resolveNativeGenerationReceipt(
             : "native_job_unavailable",
     };
   }
-  if (row.engine_version !== NATIVE_AD_ENGINE_VERSION) {
+  const priorEpoch = allowPriorEpoch && row.engine_version === NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION;
+  if (row.engine_version !== NATIVE_AD_ENGINE_VERSION && !priorEpoch) {
     return { generation: null, reason: "native_latest_job_engine_mismatch" };
   }
   const expectedAdCount = exactNonNegativeInteger(row.expected_ad_count);
@@ -4245,6 +4270,7 @@ function resolveNativeGenerationReceipt(
   }
   return {
     generation: {
+      ...(priorEpoch ? { reviewOnlyEngineVersion: NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION } : {}),
       jobRunId: row.job_run_id,
       asOfDate: row.as_of_date,
       providerAccountRefId: row.provider_account_ref_id,
@@ -4294,6 +4320,8 @@ async function readNativeGeneration(input: {
       NATIVE_AD_ENGINE_VERSION,
       servingDay,
       NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+      input.allowLastSuccessfulGenerationFallback === true,
+      NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION,
     ],
   );
   // The receipt lateral join is per account, so more than one row for ONE RUN
@@ -4344,10 +4372,11 @@ async function readNativeGeneration(input: {
   // this fallback exists for.
   const degradation =
     input.allowLastSuccessfulGenerationFallback === true &&
-    row.job_status === "failed"
+    (row.job_status === "failed" || row.engine_version === NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION)
       ? lastSuccessfulGenerationDegradation({
           row,
-          candidateRows: lastSuccessRows,
+          allowPriorEpoch: true,
+          candidateRows: row.job_status === "success" && row.engine_version === NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION ? [row, ...lastSuccessRows] : lastSuccessRows,
           providerAccountId: input.providerAccountId,
           now,
         })
@@ -4417,6 +4446,7 @@ function asOfDateAgeInDays(asOfDate: string, now: Date): number | null {
 function lastSuccessfulGenerationDegradation(input: {
   row: MetaNativeDecisionGenerationSourceRow;
   candidateRows: readonly MetaNativeDecisionGenerationSourceRow[];
+  allowPriorEpoch?: boolean;
   providerAccountId: string;
   now: Date;
 }): MetaNativeDecisionSourceDegradation | null {
@@ -4431,6 +4461,7 @@ function lastSuccessfulGenerationDegradation(input: {
     const resolved = resolveNativeGenerationReceipt(
       group[0]!,
       input.providerAccountId,
+      input.allowPriorEpoch === true,
     );
     if (!resolved.generation) continue;
     // @see NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS. A day the reader cannot
@@ -4448,7 +4479,7 @@ function lastSuccessfulGenerationDegradation(input: {
       continue;
     }
     return {
-      reason: NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON,
+      reason: resolved.generation.reviewOnlyEngineVersion ? NATIVE_ENGINE_UPDATE_REASON : NATIVE_DECISION_LAST_SUCCESS_FALLBACK_REASON,
       generation: resolved.generation,
       latestTerminalJobRunId: input.row.job_run_id,
       latestTerminalJobStatus: input.row.job_status,
@@ -4893,7 +4924,7 @@ export async function readNativeSnapshotRows(input: {
       input.generation.jobRunId,
       input.generation.asOfDate,
       input.generation.providerAccountRefId,
-      NATIVE_AD_ENGINE_VERSION,
+      input.generation.reviewOnlyEngineVersion ?? NATIVE_AD_ENGINE_VERSION,
       input.creativeIds !== undefined,
       creativeIds,
       input.adIds !== undefined,
@@ -4933,7 +4964,7 @@ async function readNativeSnapshotManifestAdIds(input: {
       input.generation.jobRunId,
       input.generation.asOfDate,
       input.generation.providerAccountRefId,
-      NATIVE_AD_ENGINE_VERSION,
+      input.generation.reviewOnlyEngineVersion ?? NATIVE_AD_ENGINE_VERSION,
     ],
   );
 }

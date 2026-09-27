@@ -1,5 +1,6 @@
 "use client";
 
+import { NativeDecisionReviewPanel, nativeDecisionReviewKey } from "./NativeDecisionReviewPanel";
 import {
   Fragment,
   useEffect,
@@ -1768,11 +1769,13 @@ function mobileQueueRowsForLane(
  */
 function MetaMobileCreativeEvidenceScreen({
   viewModel,
+  reviewPanel,
   onBack,
   onRetryMetrics,
   retryMetricsPending = false,
 }: {
   viewModel: CreativeEvidenceWindowExactViewModel;
+  reviewPanel?: ReactNode;
   onBack: () => void;
   onRetryMetrics?: () => void;
   retryMetricsPending?: boolean;
@@ -1858,6 +1861,7 @@ function MetaMobileCreativeEvidenceScreen({
               ) : null}
             </div>
           ) : null}
+          {reviewPanel}
           {viewModel.actionNotice ? (
             <p className="ad-mobile-copy" data-mobile-creative-action-notice>
               {viewModel.actionNotice.text}
@@ -1981,6 +1985,7 @@ function MetaMobileQueueRow({
   money,
   moneyWindow,
   moneySub,
+  metricDetails,
   chips,
   actionLabel,
   onOpen,
@@ -2009,6 +2014,7 @@ function MetaMobileQueueRow({
   money?: MetaDecisionCenterExactDisplayValue;
   moneyWindow?: MetaDecisionCenterExactCreativeDecisionViewModel["moneyWindow"];
   moneySub?: MetaDecisionCenterExactDisplayValue;
+  metricDetails?: readonly string[];
   chips?: readonly MetaDecisionCenterExactDisplayValue[];
   actionLabel?: MetaDecisionCenterExactDisplayValue;
   onOpen?: () => void;
@@ -2062,6 +2068,7 @@ function MetaMobileQueueRow({
             : mobileDisplay(decisionLabel)}
           {moneyLine ? ` · ${moneyLine}` : ""}
         </p>
+        {(metricDetails ?? []).map(detail => <p key={detail} data-mobile-creative-metric-detail>{detail}</p>)}
         {chips && chips.length > 0 ? (
           <p data-tone="caution">
             {chips.map((chip) => mobileDisplay(chip)).join(" · ")}
@@ -5735,20 +5742,8 @@ export function MetaPlatformPage({
   );
   const selectedDecisionKey =
     drillItem && drillItem.mode !== "anomaly" ? drillItem.rec.id : null;
-  /**
-   * The actions ship refused.
-   *
-   * The design draws the workflow's OUTPUT — a "Deferred" watch segment and a
-   * "Let cook until …" row note — but draws no assign / acknowledge / snooze /
-   * resolve controls. §18 of the plan says a write control the design does not
-   * carry is not added on this pass: it ships absent-with-reason, or in a
-   * separately approved round. So the state is shown (which the design already
-   * implies) and the controls are present and refusing, behind
-   * the single `META_AUTOMATION_LIVE_WRITES` capability, which defaults off.
-   *
-   * A reviewer or a read-only viewer is refused first, because that is the more
-   * specific fact and the one they can act on.
-   */
+  // User-authorized operator learning loop. Internal feedback and provider
+  // mutations retain independent gates; reviewer/demo/role refusals still apply.
   const workflowActionsRefusedReason = isViewerReadOnly
     ? viewerReadOnlyReason
     : !decisionWorkflowUiEnabled
@@ -5760,6 +5755,18 @@ export function MetaPlatformPage({
     selectedDecisionKey,
     enabled: decisionWorkflowUiEnabled,
   });
+
+  const nativeReviewDecision = creativeDrill?.canonical ?? null;
+  const nativeReviewKey = nativeDecisionReviewKey(nativeReviewDecision);
+  const nativeReviewWorkflow = useDecisionWorkflow({
+    businessId, servedDecisionKeys: nativeReviewKey ? [nativeReviewKey] : [],
+    selectedDecisionKey: nativeReviewKey, enabled: decisionWorkflowUiEnabled,
+  });
+  const nativeReviewPanel = nativeReviewDecision && nativeReviewKey ? (
+    <NativeDecisionReviewPanel key={nativeReviewKey} decision={nativeReviewDecision}
+      workflow={nativeReviewWorkflow} refusedReason={workflowActionsRefusedReason}
+      onRefreshEvidence={() => { void rawWorkspaceQuery.refetch(); }} />
+  ) : null;
 
   const exactViewModel: MetaDecisionCenterExactViewModel = workspaceQuery.data
     ? buildMetaDecisionCenterExactViewModel({
@@ -6373,6 +6380,7 @@ export function MetaPlatformPage({
       */}
       {creativeDrill ? (
         <MetaMobileCreativeEvidenceScreen
+          reviewPanel={nativeReviewPanel}
           viewModel={creativeEvidenceViewModel}
           onBack={() => setCreativeDrill(null)}
           onRetryMetrics={
@@ -6787,6 +6795,7 @@ export function MetaPlatformPage({
 
       {creativeDrill && creativeEvidenceSharedInput ? (
         <CreativeEvidenceWindowExact
+          reviewPanel={nativeReviewPanel}
           onRetryMetrics={
             creativeEvidenceMetricsFailed ? retryCreativeEvidenceMetrics : undefined
           }

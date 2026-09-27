@@ -1,3 +1,8 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MetaDecisionCenterExact } from "./MetaDecisionCenterExact";
+import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
+import { normalizeMetaCommercialTargets } from "@/lib/meta/commercial-targets";
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it, vi } from "vitest";
@@ -1698,7 +1703,7 @@ describe("the creative queue is the served set, split by the served state", () =
     });
     expect(model.creativeDecisions?.[0]).toMatchObject({
       actionLabel: "Review pause",
-      note: "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+      note: "Retained decision evidence is shown for review while a current generation is unavailable. Wait for a current verified decision before acting.",
     });
   });
 
@@ -1773,10 +1778,10 @@ describe("the creative queue is the served set, split by the served state", () =
     });
     const row = model.creativeDecisions?.[0];
     expect(row?.moneySub).toContain("No Meta change can be applied");
-    expect(row?.heldVerdictNextStep).toContain("current run before acting");
-    expect(model.inspector?.contractDetail).toContain("current run before acting");
+    expect(row?.heldVerdictNextStep).toContain("current verified decision before acting");
+    expect(model.inspector?.contractDetail).toContain("current verified decision before acting");
     expect(model.inspector?.reasons).toEqual([
-      "The latest decision run failed. Review this earlier verdict; wait for a current run before acting.",
+      "Retained decision evidence is shown for review while a current generation is unavailable. Wait for a current verified decision before acting.",
     ]);
     expect(model.inspector?.moneyDetail).toContain("No Meta change can be applied");
     expect(JSON.stringify({ row, inspector: model.inspector })).not.toMatch(
@@ -5612,5 +5617,38 @@ describe("creative lane counts come from the pre-cap lane population", () => {
       "The active ad list could not be fully read, so ads still waiting for a decision may not be listed here.",
     );
     expect(view.creativesNotice).not.toMatch(/\b0 active ads\b/);
+  });
+});
+
+
+describe("buyer loss concern reaches the actual structure surface", () => {
+  it.each([["OtherCountries-DPA",2496.55,1,1.8],["TS_TEST_BIDCAP",7239.27,0.73,1.71]] as const)("renders %s concern before low-confidence guidance", (name, spend, roas, breakEvenRoas) => {
+    const readiness: NonNullable<MetaRecommendation["automationReadiness"]> = {contractVersion:"meta-automation-readiness.v1" as const,tier:"manual_review" as const,
+      autoExecuteEligible:false,operatorReviewRequired:true,decisionLabel:"tune" as const,
+      blockers:["low_confidence"],missingEvidence:[],requiredEvidence:[],reason:"Low confidence"};
+    const profit = metaRec({id:"profit-case",campaignId:"campaign-case",campaignName:name,
+      type:"scale_for_profitability",decisionLabel:"tune",confidence:"low",priority:"medium",
+      decisionState:"watch",automationReadiness:readiness,metrics:{spend,roas},
+      entityConfiguration:{source:"account_scoped_campaign_row",status:"ACTIVE",budgetOwner:"campaign",
+        budgetMode:"campaign_budget",controlOwner:"campaign",optimizationGoal:"PURCHASE",bidStrategyType:"lowest_cost"}});
+    const f4 = {...profit,id:"f4-primary",type:"scenario_f4_stable_winner_drop_context" as const,decisionLabel:"diagnose" as const,priority:"high" as const};
+    const workspace = workspaceFixture({watching:[f4,profit],currency:"USD"});
+    workspace.startDate="2026-09-19"; workspace.endDate="2026-09-25";
+    workspace.os=buildMetaOsDecisionsPresentation({actionNow:[],watching:[f4,profit],nonSales:[],
+      decisionReadModel:workspace.decisionReadModel,currency:"USD",commercialTargets:normalizeMetaCommercialTargets({breakEvenRoas}),
+      reportingPeriod:{startDate:workspace.startDate,endDate:workspace.endDate}});
+    const node=workspace.os.structure.groups[0]!.campaign;
+    expect(node.sourceRecommendationId).toBe("profit-case");
+    expect(node.confidence).toBe("low");
+    expect(node.action.providerMutation).toBeNull();
+    const model=buildMetaDecisionCenterExactViewModel({workspace,defaultSelectionLane:"watching"});
+    expect(model.watchingRows?.[0]?.note).toContain("below configured break-even");
+    expect(model.watchingRows?.[0]?.note).toContain("2026-09-19–2026-09-25 (7d)");
+    expect(model.watchingRows?.[0]?.note).toContain("Confidence is too low to act");
+    const html=renderToStaticMarkup(createElement(MetaDecisionCenterExact,{viewModel:model,scope:"structure",lane:"watching"}));
+    expect(html).toContain(`${spend.toFixed(2)} USD`);
+    expect(html).toContain("below configured break-even");
+    expect(html.indexOf("below configured break-even")).toBeLessThan(html.indexOf("Confidence is too low to act"));
+    expect(profit.automationReadiness?.autoExecuteEligible).toBe(false);
   });
 });

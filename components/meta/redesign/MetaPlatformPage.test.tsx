@@ -901,6 +901,7 @@ describe("MetaPlatformPage", () => {
       "active",
       expect.any(String),
       expect.any(String),
+      false, 0, null,
       60,
     ]);
     expect(state.queryKeys.map((key) => key[0])).not.toContain(
@@ -1524,6 +1525,7 @@ describe("MetaPlatformPage", () => {
       "active",
       expect.any(String),
       expect.any(String),
+      false, 0, null,
       60,
     ]);
   });
@@ -1970,6 +1972,7 @@ describe("MetaPlatformPage", () => {
       "active",
       expect.any(String),
       expect.any(String),
+      false, 0, null,
       60,
     ]);
   });
@@ -1999,7 +2002,7 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain("ROAS · selected range");
+    expect(html).toContain("ROAS · 7d");
     expect(html).toContain(">4.20 ");
     expect(html).not.toContain(">1.10 ");
     expect(state.queryKeys).toContainEqual([
@@ -2010,6 +2013,7 @@ describe("MetaPlatformPage", () => {
       "active",
       "2026-05-01",
       "2026-05-07",
+      false, 0, null,
       60,
     ]);
   });

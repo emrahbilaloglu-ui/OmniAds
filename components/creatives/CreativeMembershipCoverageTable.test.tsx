@@ -7,7 +7,7 @@ const coverage = buildCreativeMembershipCoverage({ ...scope, verified: [], provi
 it("renders withheld economics separately with a missing observation instead of zero", () => {
   const html = renderToStaticMarkup(<CreativeMembershipCoverageTable {...scope} coverage={coverage} />);
   expect(html).toContain("19 / 2");
-  expect(html).toContain("cannot be assigned to this creative");
+  expect(html).toContain("cannot yet be assigned to verified creative totals");
   expect(html).toContain("0 · — / —");
   expect(html).toContain("2026-09-19");
 });

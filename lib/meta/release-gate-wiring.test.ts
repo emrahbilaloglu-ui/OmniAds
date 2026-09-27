@@ -64,10 +64,9 @@ const WIRED_GATES: Record<
     offer: [
       "app/c/[businessId]/meta/decisions/page.tsx",
       "app/(dashboard)/platforms/meta/page.tsx",
-      "lib/zero-base/meta/mutation-ceremony.ts",
     ],
     governs:
-      "the decision workflow write controls and the manual action sheet — one capability, no longer spelled three ways",
+      "internal ownership and feedback only; provider mutation ceremony has its own authority",
   },
   automationStopUi: {
     server: ["app/api/meta/automation/route.ts"],
@@ -113,6 +112,7 @@ const WIRED_GATES: Record<
       "lib/meta/automation-control-plane.ts",
     ],
     offer: [
+      "lib/zero-base/meta/mutation-ceremony.ts",
       "app/c/[businessId]/meta/automation/page.tsx",
       "app/(dashboard)/platforms/meta/automation/legacy-page.tsx",
     ],
@@ -279,8 +279,8 @@ describe("every capability gate is still off by default", () => {
     // reachable when provider writes are closed, which is exactly when an
     // operator reaches for it. Its role, reviewer and demo guards are unchanged.
     for (const [name, value] of Object.entries(readMetaReleaseGates({}))) {
-      if (name === "automationStopUi") {
-        expect(value, "STOP management must never default off").toBe(true);
+      if (name === "automationStopUi" || name === "decisionWorkflowUi") {
+        expect(value, "Internal feedback and STOP are independent of provider writes").toBe(true);
         continue;
       }
       expect(value, `${name} defaulted on`).toBe(false);

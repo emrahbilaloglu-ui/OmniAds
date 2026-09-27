@@ -600,7 +600,7 @@ export interface MetaDecisionCapabilityState {
  * so this is a value to switch on, never a sentence to parse.
  */
 export type MetaDecisionSourceDegradedReason =
-  "native_latest_job_failed_serving_last_successful_generation";
+  "native_latest_job_failed_serving_last_successful_generation" | "native_engine_update_reconfirmation_pending";
 
 /**
  * The literal is written twice -- once as the type above, once as the value

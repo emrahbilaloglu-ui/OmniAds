@@ -152,7 +152,7 @@ describe("structured purchase Cut advice remains separate from action authority"
     });
     const item = model.queue.adCandidates!.items[0]!;
     expect(item.manualCutAdvisory).toBeNull();
-    expect(item.manualCutRefusal?.detail).toContain("latest decision run failed");
+    expect(item.manualCutRefusal?.detail).toContain("current verified generation is unavailable");
     expect(adAction(item, { scale: true, cut: true, refresh: true }).lane).toBe("blocked");
     expect(projectCanonicalNativeAdDecisionToBriefing({ decision: item })?.lane).toBe("watching");
     expect(rows[0]!.manual_cut_advisory).toEqual(proof());
@@ -4541,6 +4541,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       // The serving day the age ceiling is measured against, and the ceiling.
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+      false, "v3-ad-2026-09-24-cut-proof-floor-story-shadow",
     ]);
     expect(
       query.mock.calls.some(([sql]) =>
@@ -4648,6 +4649,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       // considered at all, $6 measures how old the retained one is right now.
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS,
+      true, "v3-ad-2026-09-24-cut-proof-floor-story-shadow",
     ]);
     expect(String(legacyCall?.[0])).toContain(
       "snapshot.as_of_date <= COALESCE(\n          $3::date",
@@ -6682,5 +6684,34 @@ describe("D118 — declarations are bound to the knowledge of the publishing run
     for (const [, params] of declarationCalls) {
       expect((params as unknown[])[6]).toBe(row.job_run_id);
     }
+  });
+});
+
+
+describe("known prior engine epoch remains review-only", () => {
+  const prior = "v3-ad-2026-09-24-cut-proof-floor-story-shadow";
+  it("serves complete retained decisions but removes provider and manual authority", async () => {
+    const row = nativeSnapshot("120000000009901", {engine_version: prior});
+    const query = workspaceReadQuery({generationRows:[nativeGeneration(row, {engine_version: prior})], nativeRows:[row]});
+    vi.mocked(db.getDb).mockReturnValue({query} as never);
+    const strict = await readValidatedMetaNativeDecisionGenerationBundle({businessId:"biz_1", providerAccountId:"act_1", generatedAt:"2026-07-13T12:00:00Z"});
+    expect(strict.status).toBe("unavailable");
+    const model = await readMetaDecisionsWorkspaceReadModel({businessId:"biz_1",providerAccountId:"act_1",generatedAt:"2026-07-13T12:00:00Z"});
+    expect(model.source).toMatchObject({authority:"native_ad",status:"unavailable",engineVersion:prior,
+      degraded:{reason:"native_engine_update_reconfirmation_pending"}});
+    expect(model.queue.adCandidates?.items).toHaveLength(1);
+    for (const item of model.queue.adCandidates?.items ?? []) {
+      expect(item.sourceAuthority).toMatchObject({actionEligible:false,authorizedAction:null,executionReadiness:"decision_not_authorized"});
+      expect(item.manualCutAdvisory ?? null).toBeNull();
+    }
+  });
+  it.each([
+    ["future", "2026-07-11T12:00:00Z"], ["expired", "2026-07-21T12:00:00Z"],
+  ])("does not retain a %s generation", async (_label, generatedAt) => {
+    const row = nativeSnapshot("120000000009902", {engine_version:prior});
+    vi.mocked(db.getDb).mockReturnValue({query:workspaceReadQuery({generationRows:[nativeGeneration(row,{engine_version:prior})],nativeRows:[row]})} as never);
+    const model = await readMetaDecisionsWorkspaceReadModel({businessId:"biz_1",providerAccountId:"act_1",generatedAt});
+    expect(model.source.degraded).toBeUndefined();
+    expect(model.source.authority).not.toBe("native_ad");
   });
 });

@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import type { WorkflowEvent } from "@/lib/decision-workflow-store";
 import type { WorkflowRecord, WorkflowState } from "@/lib/decision-workflow";
 import {
   readDecisionWorkflow,
@@ -27,6 +28,12 @@ export type DecisionWorkflowReadState = "idle" | "loading" | "ready" | "unavaila
 
 /** Fields a transition cannot be sent without. */
 export interface WorkflowSubmitValues {
+  comment?: string;
+  sourceEvaluationId?: string;
+  sourceSnapshotId?: string;
+  entityType?: "ad";
+  entityId?: string;
+  providerAccountId?: string;
   assigneeUserId?: string | null;
   snoozeUntil?: string | null;
   reasonCode?: string | null;
@@ -50,6 +57,7 @@ export interface DecisionWorkflowConflict {
 }
 
 export interface DecisionWorkflowOverlay {
+  events?: readonly WorkflowEvent[];
   readState: DecisionWorkflowReadState;
   unavailableReason: string | null;
   recordFor: (decisionKey: string) => WorkflowRecord | null;
@@ -112,6 +120,7 @@ export function useDecisionWorkflow(input: {
   /** Off by default; the actions are refused while it is closed. */
   enabled: boolean;
 }): DecisionWorkflowOverlay {
+  const [events, setEvents] = useState<WorkflowEvent[]>([]);
   const [records, setRecords] = useState<WorkflowRecord[]>([]);
   const [readState, setReadState] = useState<DecisionWorkflowReadState>("idle");
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
@@ -147,6 +156,7 @@ export function useDecisionWorkflow(input: {
      * Nothing the design draws is lost by this: its "Deferred N" watch segment
      * comes from the workspace payload's own `deferredCount`, not from here.
      */
+    setEvents([]);
     if (!input.enabled || !input.businessId || !servedKey) {
       setReadState("idle");
       setRecords([]);
@@ -168,6 +178,7 @@ export function useDecisionWorkflow(input: {
         return;
       }
       setRecords(outcome.workflows);
+      setEvents(outcome.events);
       setUnavailableReason(null);
       setReadState("ready");
     });
@@ -223,7 +234,12 @@ export function useDecisionWorkflow(input: {
             ? { assigneeUserId: values.assigneeUserId }
             : {}),
           ...(values.snoozeUntil ? { snoozeUntil: values.snoozeUntil } : {}),
+          ...(values.comment ? {comment:values.comment} : {}),
           ...(values.reasonCode ? { reasonCode: values.reasonCode } : {}),
+          ...(values.sourceSnapshotId ? {
+            sourceEvaluationId: values.sourceEvaluationId, sourceSnapshotId: values.sourceSnapshotId, entityType: values.entityType,
+            entityId: values.entityId, providerAccountId: values.providerAccountId,
+          } : {}),
         },
       });
       setPendingKey(null);
@@ -237,6 +253,7 @@ export function useDecisionWorkflow(input: {
             item.decisionKey === decisionKey ? outcome.workflow : item,
           ),
         );
+        setNonce(value => value + 1);
         return outcome;
       }
 
@@ -269,6 +286,7 @@ export function useDecisionWorkflow(input: {
   const dismissConflict = useCallback(() => setConflict(null), []);
 
   return {
+    events,
     readState,
     unavailableReason,
     recordFor,

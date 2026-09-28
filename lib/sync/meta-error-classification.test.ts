@@ -6,6 +6,11 @@ import {
 } from "@/lib/sync/meta-error-classification";
 
 describe("Meta sync error classification", () => {
+  it("separates our totals reconciliation refusal from provider/account failures", () => {
+    expect(classifyMetaSyncFailure({ message: "meta_authoritative_totals_mismatch:repair_required" }))
+      .toMatchObject({ errorClass: "source_reconciliation", terminal: false,
+        retryDelayMinutes: 10, actionRequired: false, recoveryKind: "unknown" });
+  });
   it("classifies Meta checkpoint/login failures as terminal account action", () => {
     const classified = classifyMetaSyncFailure({
       message:

@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { NATIVE_DECISION_LAST_SUCCESS_MAX_AGE_DAYS } from "@/lib/meta/decisions-workspace-contract";
+import { NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME } from "@/lib/creative-decision-engine/jobs/native-decision-reuse";
 
 export type NativeDecisionJobMarker = {
   asOfDate: string;
@@ -31,7 +32,7 @@ export async function readLatestNativeDecisionJobMarker(
          SELECT run.id, run.as_of_date, run.status, run.started_at,
                 run.finished_at, run.updated_at
            FROM engine_v3_job_runs run
-          WHERE run.job_name = 'engine_v3_native_ad_decisions_shadow_job'
+          WHERE run.job_name IN ('engine_v3_native_ad_decisions_shadow_job','${NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME}')
             AND run.business_ref_id = $1::uuid
             AND run.business_id = $1::text
             AND run.status <> 'running'

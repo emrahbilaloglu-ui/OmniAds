@@ -6,7 +6,11 @@ import {
   READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
 } from "../data-source";
 import { inspectEvaluationStoreSchemaCapability } from "../evaluation-store";
-import { listEnabledBusinessIds } from "../feature-flags";
+import { listEnabledBusinessIds, resolveEngineV3Flags } from "../feature-flags";
+import { resolveCampaignContextMode } from "../campaign-context/source";
+import { authoritativeHydrationReceipts, nativeAdShadowSlotStart,
+  nativeGenerationReuseSlotStart, readCompletedNativeReuse, NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME } from "./native-decision-reuse";
+export { nativeAdShadowSlotStart, NATIVE_AD_SHADOW_SLOT_HOURS } from "./native-decision-reuse";
 import { NATIVE_AD_ENGINE_VERSION } from "../types";
 import {
   AD_CALIBRATION_JOB_NAME,
@@ -46,20 +50,6 @@ export const NATIVE_AD_SHADOW_DAILY_UTC_START_HOUR = 3;
  * for "has this job succeeded" to be answerable per slot rather than per day,
  * which is what the `since` window below does.
  */
-export const NATIVE_AD_SHADOW_SLOT_HOURS = [3, 15] as const;
-
-/** The start of the slot window `now` falls in, or null before the first. */
-export function nativeAdShadowSlotStart(now: Date): Date | null {
-  const hour = now.getUTCHours();
-  let slot: number | null = null;
-  for (const candidate of NATIVE_AD_SHADOW_SLOT_HOURS) {
-    if (hour >= candidate) slot = candidate;
-  }
-  if (slot === null) return null;
-  const start = new Date(now);
-  start.setUTCHours(slot, 0, 0, 0);
-  return start;
-}
 export const NATIVE_AD_OPERATOR_RESPONSE_RETRY_COOLDOWN_MS = 60 * 60 * 1_000;
 /** A real terminal failure gets one bounded skipped tick, then retries. */
 export const NATIVE_AD_DECISION_FAILURE_RETRY_COOLDOWN_MS = 15 * 60 * 1_000;
@@ -94,6 +84,11 @@ const NATIVE_AD_SHADOW_JOB_NAMES = [
 ] as const;
 
 type NativeAdShadowJobName = (typeof NATIVE_AD_SHADOW_JOB_NAMES)[number];
+
+export type NativeAdSuccessfulJobs = Map<string, Set<NativeAdShadowJobName>> & {
+  /** Physical generation IDs; an attempt is not a new generation. */
+  decisionGenerationIds?: ReadonlyMap<string, string>;
+};
 
 export interface NativeAdShadowSchemaReadiness {
   ready: boolean;
@@ -398,7 +393,7 @@ export interface NativeAdShadowScheduleOptions {
     decisionCutoff: string;
     /** The slot window's start; the caller has always passed it. */
     since?: string | null;
-  }) => Promise<Map<string, Set<NativeAdShadowJobName>>>;
+  }) => Promise<NativeAdSuccessfulJobs>;
   readOperatorResponseRetryBackoffs?: (input: {
     businessIds: readonly string[];
     asOf: string;
@@ -533,7 +528,7 @@ WITH latest_terminal AS (
     run.status,
     run.finished_at
   FROM engine_v3_job_runs run
-  WHERE run.business_ref_id::text = ANY($1::text[])
+  WHERE run.business_ref_id = ANY($1::uuid[])
     AND run.as_of_date = $2::date
     AND run.engine_version = $3
     AND run.job_name = $4
@@ -603,7 +598,7 @@ WITH latest_terminal AS (
     run.finished_at,
     run.error_json
   FROM engine_v3_job_runs run
-  WHERE run.business_ref_id::text = ANY($1::text[])
+  WHERE run.business_ref_id = ANY($1::uuid[])
     AND run.as_of_date = $2::date
     AND run.engine_version = $3
     AND run.job_name = $4
@@ -991,9 +986,10 @@ export async function readSuccessfulNativeJobs(
   const rows = await db.query<SuccessfulJobRow>(
     `
     WITH candidate_runs AS (
-      SELECT *
+      SELECT *, CASE WHEN job_name='${NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME}'
+        THEN '${AD_DECISIONS_JOB_NAME}' ELSE job_name END AS logical_job_name
       FROM engine_v3_job_runs
-      WHERE business_ref_id::text = ANY($1::text[])
+      WHERE business_ref_id = ANY($1::uuid[])
         AND as_of_date = $2::date
         AND engine_version = $3
         AND job_name = ANY($4::text[])
@@ -1025,10 +1021,10 @@ export async function readSuccessfulNativeJobs(
         )
       )
     )
-    SELECT DISTINCT ON (business_ref_id, job_name)
+    SELECT DISTINCT ON (business_ref_id, logical_job_name)
       id::text AS id,
       business_ref_id::text AS business_ref_id,
-      job_name,
+      logical_job_name AS job_name,
       effective_status AS status,
       dependency_run_id::text AS dependency_run_id,
       started_at,
@@ -1036,18 +1032,20 @@ export async function readSuccessfulNativeJobs(
       row_count,
       error_json
     FROM effective_runs
-    ORDER BY business_ref_id, job_name, started_at DESC, id DESC
+    ORDER BY business_ref_id, logical_job_name, started_at DESC, id DESC
     `,
     [
       input.businessIds,
       input.asOf,
       NATIVE_AD_ENGINE_VERSION,
-      NATIVE_AD_SHADOW_JOB_NAMES,
+      [...NATIVE_AD_SHADOW_JOB_NAMES,NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME],
       input.decisionCutoff,
       input.since ?? null,
     ],
   );
-  const result = new Map<string, Set<NativeAdShadowJobName>>();
+  const result: NativeAdSuccessfulJobs = new Map();
+  const decisionGenerationIds = new Map<string, string>();
+  Object.defineProperty(result, "decisionGenerationIds", { value: decisionGenerationIds });
   const rowsByBusiness = new Map<
     string,
     Map<NativeAdShadowJobName, SuccessfulJobRow>
@@ -1083,17 +1081,25 @@ export async function readSuccessfulNativeJobs(
     jobs.add(AD_CALIBRATION_JOB_NAME);
 
     const decisions = businessRows.get(AD_DECISIONS_JOB_NAME);
+    let generation = decisions;
+    const reusableAttempt = decisions?.status === "skipped"
+      ? await readCompletedNativeReuse({ attempt: decisions, businessId,
+          calibrationRunId: calibrationId, cutoff: input.decisionCutoff,
+          slotStart: input.since ?? nativeGenerationReuseSlotStart(input.decisionCutoff) }, db)
+      : null;
+    if (reusableAttempt) generation = { ...decisions!, ...reusableAttempt,
+      status: "success", dependency_run_id: calibrationId };
     if (
-      decisions?.status !== "success" ||
-      jobRunId(decisions) === null ||
-      String(decisions.dependency_run_id ?? "") !== calibrationId ||
-      !hasAuthoritativeDecisionHydrationReceipts(decisions.error_json)
+      generation?.status !== "success" ||
+      jobRunId(generation) === null ||
+      String(generation.dependency_run_id ?? "") !== calibrationId ||
+      !hasAuthoritativeDecisionHydrationReceipts(generation.error_json)
     ) {
       result.set(businessId, jobs);
       continue;
     }
     if (
-      isZeroRowNativeDecisionSuccess(decisions.row_count) &&
+      isZeroRowNativeDecisionSuccess(generation.row_count) &&
       (await hasCurrentNonEmptyAdManifest(
         {
           businessId,
@@ -1107,6 +1113,7 @@ export async function readSuccessfulNativeJobs(
       continue;
     }
     jobs.add(AD_DECISIONS_JOB_NAME);
+    decisionGenerationIds.set(businessId, jobRunId(generation)!);
 
     /*
       The operator response and the queue projection are SIBLINGS of the
@@ -1122,7 +1129,7 @@ export async function readSuccessfulNativeJobs(
     if (
       operatorResponse?.status === "success" &&
       jobRunId(operatorResponse) !== null &&
-      ranAfterDependency(operatorResponse, decisions)
+      ranAfterDependency(operatorResponse, generation)
     ) {
       jobs.add(AD_OPERATOR_RESPONSE_JOB_NAME);
     }
@@ -1131,7 +1138,7 @@ export async function readSuccessfulNativeJobs(
     if (
       projection?.status === "success" &&
       jobRunId(projection) !== null &&
-      ranAfterDependency(projection, decisions)
+      ranAfterDependency(projection, generation)
     ) {
       jobs.add(AD_PROPOSAL_PROJECTION_JOB_NAME);
     }
@@ -1150,33 +1157,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * hydration receipt. Otherwise a pre-sync 03:00 run can permanently suppress
  * the later same-day rerun that finally has the complete Ad manifest.
  */
-export function hasAuthoritativeDecisionHydrationReceipts(
-  errorJson: unknown,
-): boolean {
-  if (!isRecord(errorJson) || !isRecord(errorJson.metadata)) return false;
-  const receipts = errorJson.metadata.hydration_receipts;
-  if (!Array.isArray(receipts) || receipts.length === 0) return false;
-  return receipts.every((receipt) => {
-    if (!isRecord(receipt)) return false;
-    const expected = exactNonNegativeInteger(receipt.expected_ad_count);
-    const hydrated = exactNonNegativeInteger(receipt.hydrated_ad_count);
-    const expectedHash = String(receipt.expected_manifest_hash ?? "");
-    const hydratedHash = String(receipt.hydrated_manifest_hash ?? "");
-    return Boolean(
-      String(receipt.provider_account_ref_id ?? "").trim() &&
-        String(receipt.provider_account_id ?? "").trim() &&
-        expected !== null &&
-        hydrated === expected &&
-        /^[a-f0-9]{64}$/.test(expectedHash) &&
-        hydratedHash === expectedHash &&
-        (receipt.source_complete === true || receipt.source_complete === "true") &&
-        (receipt.hydration_complete === true || receipt.hydration_complete === "true") &&
-        (receipt.authoritative_for_prune === true ||
-          receipt.authoritative_for_prune === "true") &&
-        (receipt.reason === null || receipt.reason === undefined)
-    );
-  });
-}
+export const hasAuthoritativeDecisionHydrationReceipts = authoritativeHydrationReceipts;
 
 export async function readNativeCalibrationReuseReceipt(
   input: { businessId: string; asOf: string; decisionCutoff: string },
@@ -1287,9 +1268,10 @@ function ranAfterDependency(
 }
 
 function closeNativeJobDependencies(
-  source: Map<string, Set<NativeAdShadowJobName>>,
+  source: NativeAdSuccessfulJobs,
 ) {
-  const result = new Map<string, Set<NativeAdShadowJobName>>();
+  const result: NativeAdSuccessfulJobs = new Map();
+  if (source.decisionGenerationIds) Object.defineProperty(result, "decisionGenerationIds", { value: source.decisionGenerationIds });
   for (const [businessId, sourceJobs] of source) {
     const jobs = new Set(sourceJobs);
     if (!jobs.has(AD_CALIBRATION_JOB_NAME)) {
@@ -1584,6 +1566,7 @@ async function runBusinessChain(input: {
   operatorResponseCutoff: string;
   slotStart: string;
   previousSuccesses: Set<NativeAdShadowJobName>;
+  previousDecisionGenerationId?: string | null;
   decisionRetryBackoff: boolean;
   operatorResponseRetryBackoff: boolean;
   options: NativeAdShadowScheduleOptions;
@@ -1615,7 +1598,8 @@ async function runBusinessChain(input: {
   // a metrics/config change that correctly invalidated calibration could still
   // be hidden for the old decision attempt's cooldown window.
   const calibrationRefreshed =
-    calibration.status === "success" && calibration.source === "ran";
+    calibration.status === "success" && calibration.source === "ran" &&
+    calibration.result?.idempotentReplay !== true;
   const decisions = !calibrationSatisfied
     ? dependencyBlockedStep<AdDecisionsJobResult>(
         "upstream_native_calibration_not_success",
@@ -1628,7 +1612,11 @@ async function runBusinessChain(input: {
             businessId: input.business.id,
             asOf: input.asOf,
           }).then(
-            ranStep<AdDecisionsJobResult>,
+            (result) => result.status === "skipped" &&
+              result.reason === "unchanged_canonical_generation" &&
+              result.reusedJobRunId && /^[a-f0-9]{64}$/.test(result.reuseProofHash ?? "")
+                ? { ...ranStep(result),status:"previous_success" as const }
+                : ranStep<AdDecisionsJobResult>(result),
             failedStep<AdDecisionsJobResult>,
           );
 
@@ -1685,7 +1673,7 @@ async function runBusinessChain(input: {
       : await runProposalProjection({
           business: input.business,
           asOf: input.asOf,
-          dependencyRunId: decisions.result?.jobRunId ?? null,
+          dependencyRunId: decisions.result?.reusedJobRunId ?? decisions.result?.jobRunId ?? input.previousDecisionGenerationId ?? null,
           options: input.options,
         });
 
@@ -1838,6 +1826,7 @@ export async function runNativeAdShadowChainForActiveBusinessesIfDue(
           slotStart: slotStart.toISOString(),
           previousSuccesses:
             freshSuccesses.get(business.id) ?? new Set<NativeAdShadowJobName>(),
+          previousDecisionGenerationId: freshSuccesses.decisionGenerationIds?.get(business.id),
           decisionRetryBackoff: decisionRetryBackoffs.has(business.id),
           operatorResponseRetryBackoff: operatorResponseRetryBackoffs.has(
             business.id,

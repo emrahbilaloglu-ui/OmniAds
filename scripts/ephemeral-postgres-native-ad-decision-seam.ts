@@ -8,6 +8,8 @@ import { spawnSync } from "node:child_process";
 import { Client } from "pg";
 
 import { resetDbClientCache, type DbClient } from "@/lib/db";
+import { reapAbandonedNativeDecisionRuns } from "@/lib/creative-decision-engine/jobs/abandoned-native-runs";
+import { hashAdvisoryLock } from "@/lib/creative-decision-engine/jobs/advisory-lock";
 import {
   ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
   NATIVE_AD_DECISION_SCHEMA_SQL,
@@ -55,6 +57,12 @@ import {
 } from "@/lib/creative-decision-engine/types";
 import { upsertMetaAdDailyRows } from "@/lib/meta/warehouse";
 import type { MetaAdDailyRow } from "@/lib/meta/warehouse-types";
+import { ASSIGNED_ACCOUNT_STATES_SQL } from "@/lib/meta/assigned-account-states";
+import { NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME, nativeGenerationReuseSlotStart, readCompletedNativeReuse,
+  READ_NATIVE_GENERATION_REUSE_HEADER_SQL } from "@/lib/creative-decision-engine/jobs/native-decision-reuse";
+import { READ_NATIVE_DECISION_GENERATION_QUERY, readNativeSnapshotRows,
+  buildNativeMetaCanonicalDecisionInventory, NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION } from "@/lib/meta/decisions-workspace-read-model";
+import { readLatestNativeDecisionJobMarker } from "@/lib/meta/decision-job-marker";
 
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
 const BUSINESS_ID = "00000000-0000-4000-8000-000000000901";
@@ -2746,6 +2754,223 @@ async function verifyRunAdDecisionsJobSecondEventBatchRollback(
     "Rollback baseline did not persist 501 diagnose snapshots.",
   );
 
+  const priorEvaluationCount = (await client.query(`SELECT count(*)::int n FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1`,[fixture.businessId])).rows[0].n;
+  const repeated = await runAdDecisionsJob({businessId:fixture.businessId,asOf:baselineAsOf},options);
+  assert(repeated.status === "skipped" && repeated.reason === "unchanged_canonical_generation" &&
+    repeated.reusedJobRunId === baseline.jobRunId && repeated.snapshotsWritten === 0,
+    `Canonical repeated producer did not retain immutable generation: ${JSON.stringify(repeated)}`);
+  const repeatedCount = (await client.query(`SELECT count(*)::int n FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1`,[fixture.businessId])).rows[0].n;
+  assert(repeatedCount === priorEvaluationCount,"Unchanged current producer minted duplicate evaluation rows.");
+  const [attempt] = (await client.query(`SELECT job_name,status,row_count,error_json FROM engine_v3_job_runs WHERE id=$1`,[repeated.jobRunId])).rows;
+  assert(attempt.job_name === NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME && attempt.status === "skipped" && attempt.row_count === 0 && attempt.error_json.metadata.authority_granted === false,
+    "Reuse attempt misrepresented new generation publication or authority.");
+  const originalSpend=baselineInputs[0]!.spend;
+  baselineInputs[0]!.spend=originalSpend+1;
+  const changed = await runAdDecisionsJob({businessId:fixture.businessId,asOf:baselineAsOf},options);
+  baselineInputs[0]!.spend=originalSpend;
+  assert(changed.status === "success" && changed.snapshotsWritten === 501 && !changed.reusedJobRunId,
+    "A changed current canonical metric was silently reused.");
+  const originalFatigue=baselineInputs[0]!.creativeEvidence.fatigueStatus;
+  baselineInputs[0]!.creativeEvidence.fatigueStatus="fatigued";
+  const fatigueChanged=await runAdDecisionsJob({businessId:fixture.businessId,asOf:baselineAsOf},options);
+  baselineInputs[0]!.creativeEvidence.fatigueStatus=originalFatigue;
+  assert(fatigueChanged.status === "success" && fatigueChanged.snapshotsWritten === 501 && !fatigueChanged.reusedJobRunId,
+    "Changed lifecycle evidence was silently reused.");
+  let baselineRetained=await runAdDecisionsJob({businessId:fixture.businessId,asOf:baselineAsOf},options);
+  assert(baselineRetained.status === "success" && baselineRetained.snapshotsWritten === 501,
+    "Restored baseline did not republish after changed current evidence.");
+  console.log("[native-ad-decision-seam] D129 PASS:501-row real producer retains exact canonical generation without duplicate evaluations, distinct skipped attempt and authority; changed metric and lifecycle evidence republish.");
+
+  // Move only this isolated fixture's old ledgers outside the current slot.
+  // The production clock stays real; this proves new-slot publication at any
+  // CI hour without mutating computed_at or injecting a decision clock.
+  const slotStart=nativeGenerationReuseSlotStart(new Date().toISOString());
+  const oldComputedAt=(await client.query(`SELECT computed_at FROM engine_v3_ad_decision_snapshots_daily
+    WHERE job_run_id=$1 LIMIT 1`,[baselineRetained.jobRunId])).rows[0].computed_at;
+  await client.query(`UPDATE engine_v3_job_runs SET started_at=$3::timestamptz-interval '2 seconds',
+    finished_at=$3::timestamptz-interval '1 second'
+    WHERE business_ref_id=$1 AND as_of_date=$2::date AND job_name=$4 AND status='success'`,
+    [fixture.businessId,baselineAsOf,slotStart,AD_DECISIONS_JOB_NAME]);
+  const freshSlot=await runAdDecisionsJob({businessId:fixture.businessId,asOf:baselineAsOf},options);
+  assert(freshSlot.status === "success" && freshSlot.snapshotsWritten === 501 && !freshSlot.reusedJobRunId,
+    "Identical evidence from an earlier slot prevented a fresh generation.");
+  const newComputedAt=(await client.query(`SELECT computed_at FROM engine_v3_ad_decision_snapshots_daily
+    WHERE job_run_id=$1 LIMIT 1`,[freshSlot.jobRunId])).rows[0].computed_at;
+  assert(new Date(newComputedAt).getTime()>new Date(oldComputedAt).getTime(),
+    "New-slot publication did not create a fresh computation timestamp.");
+  baselineRetained=freshSlot;
+  const sameSlot=await runAdDecisionsJob({businessId:fixture.businessId,asOf:baselineAsOf},options);
+  assert(sameSlot.status === "skipped" && sameSlot.reusedJobRunId === freshSlot.jobRunId,
+    "A repeat inside the fresh slot did not deduplicate the canonical generation.");
+  const slotRows=await client.query(`SELECT computed_at FROM engine_v3_ad_decision_snapshots_daily WHERE job_run_id=$1 LIMIT 1`,[freshSlot.jobRunId]);
+  assert(new Date(slotRows.rows[0].computed_at).getTime()===new Date(newComputedAt).getTime(),
+    "Same-slot reuse falsely advanced the original computation timestamp.");
+  const ledger=(await client.query(`SELECT * FROM engine_v3_job_runs WHERE id=$1`,[sameSlot.jobRunId])).rows[0];
+  const calibration=(await client.query(`INSERT INTO engine_v3_job_runs
+    (business_ref_id,business_id,as_of_date,job_name,engine_version,status,started_at,finished_at,row_count)
+    VALUES ($1::uuid,$1::text,$2::date,$3,$4,'success',$5::timestamptz,$5::timestamptz,1) RETURNING id`,
+    [fixture.businessId,baselineAsOf,AD_CALIBRATION_JOB_NAME,NATIVE_AD_ENGINE_VERSION,slotStart])).rows[0].id;
+  await client.query(`UPDATE engine_v3_job_runs SET dependency_run_id=$2 WHERE id=$1`,[sameSlot.jobRunId,calibration]);
+  ledger.dependency_run_id=calibration;
+  const completion={attempt:ledger,businessId:fixture.businessId,calibrationRunId:calibration,
+    cutoff:new Date().toISOString(),slotStart};
+  assert((await readCompletedNativeReuse(completion,db))?.id === freshSlot.jobRunId,
+    "A valid local SQL reuse completion could not resolve the immutable generation.");
+  const generationParameters=[fixture.businessId,fixture.providerAccountId,AD_DECISIONS_JOB_NAME,baselineAsOf,NATIVE_AD_ENGINE_VERSION,
+    new Date().toISOString().slice(0,10),7,false,NATIVE_AD_REVIEW_ONLY_PRIOR_ENGINE_VERSION];
+  const readServedGeneration=async()=> (await client.query(READ_NATIVE_DECISION_GENERATION_QUERY,generationParameters)).rows;
+  // Real cardinality makes a full-table generation scan materially different
+  // from the original UUID lookup. This is an isolated plan guard, not a
+  // production latency claim, and planner switches stay at their defaults.
+  await client.query(`INSERT INTO engine_v3_job_runs
+    (business_ref_id,business_id,as_of_date,job_name,engine_version,status,started_at,finished_at,row_count)
+    SELECT $1::uuid,$1::text,$2::date,'d129_plan_unrelated',$3,'success',now(),now(),0
+    FROM generate_series(1,25000)`,[fixture.businessId,baselineAsOf,NATIVE_AD_ENGINE_VERSION]);
+  await client.query("ANALYZE engine_v3_job_runs");
+  const plan=(await client.query(`EXPLAIN (FORMAT JSON) ${READ_NATIVE_DECISION_GENERATION_QUERY}`,generationParameters)).rows[0]["QUERY PLAN"];
+  const generationScans:Record<string,unknown>[]=[];
+  const walkPlan=(node:Record<string,unknown>)=> {
+    if(node["Relation Name"] === "engine_v3_job_runs" && node.Alias === "generation") generationScans.push(node);
+    for(const child of (node.Plans ?? []) as Record<string,unknown>[]) walkPlan(child);
+  };
+  walkPlan(plan[0].Plan);
+  assert(generationScans.length > 0 && generationScans.every(node=>
+    ["Index Scan","Index Only Scan","Bitmap Heap Scan"].includes(String(node["Node Type"]))),
+    `Reuse serving scanned the whole original generation ledger: ${JSON.stringify(generationScans)}`);
+  console.log(`[native-ad-decision-seam] D129 PASS: actual latest-reuse full serving plan uses indexed original-generation lookup at25000unrelated ledger rows: ${JSON.stringify(generationScans.map(node=>({type:node["Node Type"],index:node["Index Name"],condition:node["Index Cond"]})))}`);
+  const served=(await readServedGeneration()).find(row=>row.selection === "latest");
+  assert(served?.job_status === "success" && served.job_run_id === freshSlot.jobRunId,
+    "Verified reuse hid the original complete generation from the actual serving query.");
+  const reuseMarker=await readLatestNativeDecisionJobMarker(fixture.businessId);
+  assert(reuseMarker && reuseMarker !== "read_failed" &&
+    reuseMarker.cacheIdentity.startsWith(`${sameSlot.jobRunId}:skipped:`),
+    "The additive reuse attempt did not invalidate the native serving cache marker.");
+  const generation={jobRunId:served.job_run_id,asOfDate:served.as_of_date,
+    providerAccountRefId:served.provider_account_ref_id,manifestHash:served.expected_manifest_hash,
+    expectedAdCount:Number(served.expected_ad_count)};
+  const servedSnapshots=await readNativeSnapshotRows({businessId:fixture.businessId,
+    providerAccountId:fixture.providerAccountId,generation},db);
+  const inventory=buildNativeMetaCanonicalDecisionInventory({businessId:fixture.businessId,
+    providerAccountId:fixture.providerAccountId,generation,snapshotRows:servedSnapshots,
+    generatedAt:new Date().toISOString()});
+  assert(inventory.status === "available" && inventory.items.length === 501 &&
+    inventory.items.every(item=>item.sourceAuthority?.authorizedAction === null),
+    "Valid reuse did not preserve the full original inventory with independent authority holds.");
+  if (process.env.D129_REFERENCE_GENERATION_SQL) {
+    const oldSql=fs.readFileSync(process.env.D129_REFERENCE_GENERATION_SQL,"utf8");
+    const oldServed=(await client.query(oldSql,generationParameters)).rows.find(row=>row.selection === "latest");
+    assert(oldServed?.job_status === "success" && oldServed.job_run_id === freshSlot.jobRunId,
+      "Rollback reader did not retain the original generation after the additive reuse attempt.");
+    console.log("[native-ad-decision-seam] D129 PASS: exact deployed-image generation query retains original success after new additive reuse job kind.");
+  }
+  // Historical native-named receipts remain readable under the strict proof.
+  // New attempts use their additive kind so old binaries ignore them on rollback.
+  await client.query(`UPDATE engine_v3_job_runs SET job_name=$2 WHERE id=$1`,[sameSlot.jobRunId,AD_DECISIONS_JOB_NAME]);
+  assert((await readServedGeneration()).find(row=>row.selection === "latest")?.job_run_id === freshSlot.jobRunId,
+    "A historically native-named canonical receipt lost strict serving compatibility.");
+  await client.query(`UPDATE engine_v3_job_runs SET job_name=$2 WHERE id=$1`,[sameSlot.jobRunId,NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME]);
+  await client.query(`UPDATE engine_v3_job_runs SET error_json=jsonb_set(error_json,
+    '{metadata,reused_job_run_id}','"not-a-uuid"'::jsonb) WHERE id=$1`,[sameSlot.jobRunId]);
+  assert((await readServedGeneration()).find(row=>row.selection === "latest")?.job_status === "skipped",
+    "A malformed original UUID caused a cast failure or upgraded reuse.");
+  await client.query(`UPDATE engine_v3_job_runs SET error_json=jsonb_set(error_json,
+    '{metadata,reused_job_run_id}',$2::jsonb) WHERE id=$1`,
+    [sameSlot.jobRunId,JSON.stringify(freshSlot.jobRunId)]);
+  await client.query(`UPDATE engine_v3_job_runs SET error_json=jsonb_set(error_json,
+    '{metadata,reuse_proof_hash}','"broken"'::jsonb) WHERE id=$1`,[sameSlot.jobRunId]);
+  assert((await readServedGeneration()).find(row=>row.selection === "latest")?.job_status === "skipped",
+    "A malformed reuse proof upgraded the served generation.");
+  await client.query(`UPDATE engine_v3_job_runs SET error_json=jsonb_set(error_json,
+    '{metadata,reuse_proof_hash}',$2::jsonb) WHERE id=$1`,
+    [sameSlot.jobRunId,JSON.stringify(ledger.error_json.metadata.reuse_proof_hash)]);
+  const futureSlot=new Date(slotStart);futureSlot.setUTCHours(15,0,0,0);
+  // Controlled SQL boundary: a morning fixture cannot be selected by the
+  // afternoon floor. This complements the clock-independent producer test.
+  const priorSlot=futureSlot.toISOString();
+  await client.query(`UPDATE engine_v3_job_runs SET started_at=$2::timestamptz-interval '1 second'
+    WHERE id=$1`,[freshSlot.jobRunId,priorSlot]);
+  const afternoonHeader=await client.query(READ_NATIVE_GENERATION_REUSE_HEADER_SQL,
+    [fixture.businessId,baselineAsOf,NATIVE_AD_ENGINE_VERSION,new Date(Date.now()+86400000).toISOString(),
+      sameSlot.jobRunId,ledger.error_json.metadata.reuse_policy_hash,priorSlot]);
+  assert(afternoonHeader.rows.length===0,"15:00 header accepted a prior-slot generation.");
+  await client.query(`UPDATE engine_v3_job_runs SET started_at=$2::timestamptz WHERE id=$1`,[freshSlot.jobRunId,slotStart]);
+  const replaced=await client.query(`UPDATE engine_v3_ad_decision_snapshots_daily s
+    SET job_run_id=e.job_run_id,evaluation_id=e.id,input_hash=e.input_hash,decision_hash=e.decision_hash
+    FROM engine_v3_ad_decision_evaluations e
+    WHERE s.business_ref_id=$1 AND s.as_of_date=$2::date AND s.decision_entity_id=$3
+      AND e.job_run_id=$4 AND e.decision_entity_id=s.decision_entity_id
+      AND e.provider_account_ref_id=s.provider_account_ref_id AND e.scope_id=s.scope_id`,
+    [fixture.businessId,baselineAsOf,baselineInputs[0]!.adId,baseline.jobRunId]);
+  assert(replaced.rowCount===1,"Ownership mutation did not replace exactly one valid lineage cell.");
+  assert(await readCompletedNativeReuse(completion,db) === null,
+    "A replaced current cell still completed the reuse receipt.");
+  assert((await readServedGeneration()).find(row=>row.selection === "latest")?.job_status === "skipped",
+    "Changed generation ownership was upgraded by the serving query.");
+  await client.query(`UPDATE engine_v3_ad_decision_snapshots_daily s
+    SET job_run_id=e.job_run_id,evaluation_id=e.id,input_hash=e.input_hash,decision_hash=e.decision_hash
+    FROM engine_v3_ad_decision_evaluations e
+    WHERE s.business_ref_id=$1 AND s.as_of_date=$2::date AND s.decision_entity_id=$3
+      AND e.job_run_id=$4 AND e.decision_entity_id=s.decision_entity_id
+      AND e.provider_account_ref_id=s.provider_account_ref_id AND e.scope_id=s.scope_id`,
+    [fixture.businessId,baselineAsOf,baselineInputs[0]!.adId,freshSlot.jobRunId]);
+  const laterFailure=(await client.query(`INSERT INTO engine_v3_job_runs
+    (business_ref_id,business_id,as_of_date,job_name,engine_version,status,started_at,finished_at,row_count,error_message)
+    VALUES ($1::uuid,$1::text,$2::date,$3,$4,'failed',statement_timestamp(),statement_timestamp(),0,'D129 serving fault fixture')
+    RETURNING id`,[fixture.businessId,baselineAsOf,AD_DECISIONS_JOB_NAME,NATIVE_AD_ENGINE_VERSION])).rows[0].id;
+  const failedServed=(await readServedGeneration()).find(row=>row.selection === "latest");
+  assert(failedServed?.job_status === "failed" && failedServed.job_run_id === laterFailure,
+    "An older valid reuse hid a later terminal failure.");
+  await client.query(`DELETE FROM engine_v3_job_runs WHERE id=$1`,[laterFailure]);
+  console.log("[native-ad-decision-seam] D129 PASS: new-slot fresh501 publication, same-slot immutable reuse, actual SQL completion and replaced-cell refusal; 15:00 header excludes morning generation. Local evidence only.");
+  console.log("[native-ad-decision-seam] D129 PASS: verified reuse serves the actual original501 inventory with null authority; malformed proof, replaced ownership and later failure remain refused/visible.");
+
+  // Execute the old aggregate reference and the production per-account seek
+  // over the same real 501-row generation, including deselected scope. These
+  // minimal native-seam tables only need the consumer's physical columns;
+  // the canonical migrations child separately proves the deployed schema.
+  await client.query(`
+    ALTER TABLE business_provider_accounts ADD COLUMN IF NOT EXISTS position INT DEFAULT 0;
+    CREATE TABLE IF NOT EXISTS meta_account_daily (id UUID PRIMARY KEY DEFAULT gen_random_uuid());
+    ALTER TABLE meta_account_daily
+      ADD COLUMN IF NOT EXISTS business_id TEXT,
+      ADD COLUMN IF NOT EXISTS provider_account_id TEXT,
+      ADD COLUMN IF NOT EXISTS date DATE,
+      ADD COLUMN IF NOT EXISTS account_name TEXT,
+      ADD COLUMN IF NOT EXISTS account_currency TEXT,
+      ADD COLUMN IF NOT EXISTS account_timezone TEXT,
+      ADD COLUMN IF NOT EXISTS spend NUMERIC,
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+  `);
+  await client.query(`INSERT INTO meta_account_daily
+    (business_id,provider_account_id,date,account_name,account_currency,account_timezone,spend)
+    VALUES ($1,$2,$3::date,'Assigned seam','USD','UTC',31)`,
+    [fixture.businessId,fixture.providerAccountId,baselineAsOf]);
+  const originalGenerationAggregate = `latest_generation AS (
+    SELECT provider_account_id, MAX(as_of_date) AS latest_as_of
+    FROM engine_v3_ad_decision_snapshots_daily WHERE business_id=$1
+    GROUP BY provider_account_id
+  ), generation_counts AS (
+    SELECT s.provider_account_id, COUNT(*)::int AS generation_rows,
+      COUNT(*) FILTER (WHERE s.authorized_action IS NOT NULL)::int AS authorized_rows
+    FROM engine_v3_ad_decision_snapshots_daily s JOIN latest_generation g
+      ON g.provider_account_id=s.provider_account_id AND g.latest_as_of=s.as_of_date
+    WHERE s.business_id=$1 GROUP BY s.provider_account_id
+  )\nSELECT`;
+  const assignedReference = ASSIGNED_ACCOUNT_STATES_SQL.replace(
+    /latest_generation AS \([\s\S]*?\n\)\nSELECT/, originalGenerationAggregate);
+  assert(assignedReference !== ASSIGNED_ACCOUNT_STATES_SQL,"Assigned reference failed to replace aggregate.");
+  for (const selected of [true,false]) {
+    await client.query("UPDATE business_provider_accounts SET is_selected=$1 WHERE business_id=$2",[selected,fixture.businessId]);
+    const reference=(await client.query(assignedReference,[fixture.businessId])).rows;
+    const actual=(await client.query(ASSIGNED_ACCOUNT_STATES_SQL,[fixture.businessId])).rows;
+    assert(JSON.stringify(actual) === JSON.stringify(reference),"Assigned account seek changed full ordered rows.");
+    assert(actual.length === 1 && actual[0].is_selected === selected && actual[0].generation_rows === 501 &&
+      actual[0].authorized_rows === 0 && actual[0].spend_14d === 31,
+      "Assigned account seek lost selection, generation count, spend or authority evidence.");
+  }
+  await client.query("UPDATE business_provider_accounts SET is_selected=TRUE WHERE business_id=$1",[fixture.businessId]);
+  console.log("[native-ad-decision-seam] D129 PASS:assigned latest-day seek preserves full ordered aggregate-reference rows,501-row counts,spend,currency and selected/deselected authority separation.");
+
   await client.query(`
     CREATE SEQUENCE native_ad_rollback_event_attempt_seq;
     CREATE SEQUENCE native_ad_rollback_event_statement_seq;
@@ -2892,7 +3117,7 @@ async function verifyRunAdDecisionsJobSecondEventBatchRollback(
        (SELECT COUNT(*)::text
         FROM engine_v3_ad_decision_snapshots_daily
         WHERE job_run_id = $3::uuid) AS retained_baseline_count`,
-    [fixture.businessId, currentAsOf, baseline.jobRunId],
+    [fixture.businessId, currentAsOf, baselineRetained.jobRunId],
   );
   assert(
     dayAndBaselineCounts.rows[0]?.failed_day_snapshot_count === "0" &&
@@ -3855,6 +4080,56 @@ async function verifyPruneRetryAndConstraints(client: Client, db: DbClient) {
   );
 }
 
+async function verifyAbandonedNativeRunOwnership(client: Client, db: DbClient) {
+  const holder = new Client({ connectionString: process.env.DATABASE_URL });
+  await holder.connect();
+  const ids: string[] = [];
+  try {
+    for (let n = 0; n < 5; n++) {
+      const day = `2026-07-${20 + n}`;
+      const row = await client.query<{ id: string }>(`
+        INSERT INTO engine_v3_job_runs
+          (job_name,business_ref_id,business_id,as_of_date,engine_version,status,started_at,updated_at,row_count)
+        VALUES ($1,$2::uuid,($2::uuid)::text,$3::date,$4,'running',
+          clock_timestamp() - make_interval(mins => $5),clock_timestamp() - make_interval(mins => $5),12)
+        RETURNING id::text`, [AD_DECISIONS_JOB_NAME,BUSINESS_ID,day,NATIVE_AD_ENGINE_VERSION,n === 3 ? 5 : 45]);
+      ids.push(row.rows[0]!.id);
+    }
+    await client.query("UPDATE engine_v3_job_runs SET error_json=$2 WHERE id=$1",
+      [ids[0], { original: "source-read-evidence", metadata: { stage_timings: { hydrate_inputs: 123 } } }]);
+    await holder.query("BEGIN");
+    for (const key of [
+      `${AD_DECISIONS_JOB_NAME}:${BUSINESS_ID}:2026-07-21`,
+      `engine_v3_native_ad_shadow_business_chain:${BUSINESS_ID}:2026-07-22`,
+    ]) await holder.query("SELECT pg_advisory_lock($1::bigint)", [hashAdvisoryLock(key).toString()]);
+    await holder.query("SELECT id FROM engine_v3_job_runs WHERE id=$1 FOR UPDATE", [ids[4]]);
+    const transaction = async <T>(fn: () => Promise<T>) => {
+      await client.query("BEGIN");
+      try { const result = await fn(); await client.query("COMMIT"); return result; }
+      catch (error) { await client.query("ROLLBACK"); throw error; }
+    };
+    const first = await reapAbandonedNativeDecisionRuns({ db, transaction });
+    assert(first.closed.includes(ids[0]!) && !ids.slice(1).some(id => first.closed.includes(id)),
+      "Reaper must close only stale unowned execution; job lock, chain lock, row lock and fresh row survive.");
+    const [retained] = (await client.query<{ status: string; row_count: number; code: string }>(
+      "SELECT status,row_count,error_code AS code FROM engine_v3_job_runs WHERE id=$1", [ids[0]])).rows;
+    assert(retained?.status === "failed" && retained.row_count === 12 && retained.code === "native_execution_abandoned",
+      "Reaper must retain bookkeeping evidence and write an explicit abandoned status.");
+    const evidence = (await client.query("SELECT error_json FROM engine_v3_job_runs WHERE id=$1", [ids[0]])).rows[0]?.error_json;
+    assert(evidence?.original === "source-read-evidence" && evidence?.metadata?.stage_timings?.hydrate_inputs === 123,
+      "Reaper lost original source/stage metadata.");
+    await holder.query("ROLLBACK");
+    await holder.query("SELECT pg_advisory_unlock_all()");
+    const next = await reapAbandonedNativeDecisionRuns({ db, transaction });
+    assert([ids[1],ids[2],ids[4]].every(id => next.closed.includes(id!)) && !next.closed.includes(ids[3]!),
+      "Released stale owners close on the next natural pass; fresh execution remains running.");
+  } finally {
+    await holder.query("ROLLBACK").catch(() => undefined);
+    await holder.query("SELECT pg_advisory_unlock_all()").catch(() => undefined);
+    await holder.end();
+  }
+}
+
 async function runSeam(client: Client) {
   await createBaseSchema(client);
   await createHydrationSourceSchema(client);
@@ -3888,7 +4163,9 @@ async function runSeam(client: Client) {
     largeManifestFixture,
   );
   await verifyMetaAdDailyWriteOwnershipAuthority(client);
+  await verifyAbandonedNativeRunOwnership(client, db);
 }
+
 
 async function main() {
   const pgBinDir = resolvePgBinDir();

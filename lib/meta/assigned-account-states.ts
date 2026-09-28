@@ -80,22 +80,30 @@ WITH assigned AS (
     AND d.date <= lf.latest_fact_date
   GROUP BY d.provider_account_id
 ), latest_generation AS (
-  SELECT provider_account_id,
-         MAX(as_of_date) AS latest_as_of
-  FROM engine_v3_ad_decision_snapshots_daily
-  WHERE business_id = $1
-  GROUP BY provider_account_id
+  -- Seek each assigned identity's latest day before counting that day. The
+  -- previous two business-wide aggregates scanned all retained generations.
+  -- DISTINCT keeps duplicate assignments from multiplying generation counts.
+  SELECT assigned_scope.provider_account_id, latest.as_of_date AS latest_as_of
+  FROM (SELECT DISTINCT provider_account_id FROM assigned) assigned_scope
+  LEFT JOIN LATERAL (
+    SELECT s.as_of_date
+    FROM engine_v3_ad_decision_snapshots_daily s
+    WHERE s.business_ref_id = $1::uuid AND s.business_id = $1::text
+      AND s.provider_account_id = assigned_scope.provider_account_id
+    ORDER BY s.as_of_date DESC
+    LIMIT 1
+  ) latest ON TRUE
 ), generation_counts AS (
-  SELECT s.provider_account_id,
+  SELECT g.provider_account_id,
          COUNT(*)::int AS generation_rows,
          COUNT(*) FILTER (WHERE s.authorized_action IS NOT NULL)::int
            AS authorized_rows
-  FROM engine_v3_ad_decision_snapshots_daily s
-  INNER JOIN latest_generation g
-    ON g.provider_account_id = s.provider_account_id
-   AND g.latest_as_of = s.as_of_date
-  WHERE s.business_id = $1
-  GROUP BY s.provider_account_id
+  FROM latest_generation g
+  INNER JOIN engine_v3_ad_decision_snapshots_daily s
+    ON s.business_ref_id = $1::uuid AND s.business_id = $1::text
+   AND s.provider_account_id = g.provider_account_id
+   AND s.as_of_date = g.latest_as_of
+  GROUP BY g.provider_account_id
 )
 SELECT
   assigned.provider_account_id,

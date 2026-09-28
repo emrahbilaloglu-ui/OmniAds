@@ -22,27 +22,23 @@ interface GaqlSearchResult {
   fieldMask?: string;
 }
 
+interface GoogleAdsApiDetailError {
+  errorCode?: Record<string, string>;
+  message?: string;
+  location?: { fieldPathElements?: Array<{ fieldName?: string; index?: number }> };
+}
+
 interface GoogleAdsApiError {
   error?: {
     code?: number;
     message?: string;
     status?: string;
     details?: Array<{
+      "@type"?: string;
+      errors?: GoogleAdsApiDetailError[];
       errorCode?: {
         googleAdsFailure?: {
-          errors?: Array<{
-            errorCode?: string;
-            message?: string;
-            // Google puts the actionable part of an INVALID_ARGUMENT here: the
-            // top-level message is only ever "Request contains an invalid
-            // argument.", while the rejected field is named in this location.
-            location?: {
-              fieldPathElements?: Array<{
-                fieldName?: string;
-                index?: number;
-              }>;
-            };
-          }>;
+          errors?: GoogleAdsApiDetailError[];
         };
       };
     }>;
@@ -283,6 +279,9 @@ function shouldStopRetryingAcrossLoginContexts(error: {
   if (error.status === 429 || text.includes("RESOURCE_EXHAUSTED")) return true;
   if (error.status === 401 || text.includes("UNAUTHENTICATED")) return true;
   if (text.includes("DEVELOPER_TOKEN")) return true;
+  // Switching manager accounts cannot repair a rejected query.
+  if (error.apiStatus === "INVALID_ARGUMENT" &&
+      !/CUSTOMER|LOGIN|AUTHENTICATION|AUTHORIZATION/.test(error.apiErrorCode ?? "")) return true;
   return false;
 }
 
@@ -509,8 +508,11 @@ export async function executeGaqlQuery(params: {
 
         const error = data as GoogleAdsApiError;
         const message = error.error?.message || `Google Ads API error: ${response.status}`;
-        const firstDetailError =
-          error.error?.details?.[0]?.errorCode?.googleAdsFailure?.errors?.[0];
+        // REST packs GoogleAdsFailure directly in details[].errors. Keep the
+        // legacy nested shape readable, but do not lose the real provider enum.
+        const firstDetailError = error.error?.details?.flatMap((detail) =>
+          detail.errors ?? detail.errorCode?.googleAdsFailure?.errors ?? [],
+        )[0];
         let apiErrorCode: string | undefined;
         if (
           firstDetailError?.errorCode &&
@@ -552,7 +554,14 @@ export async function executeGaqlQuery(params: {
           message,
         });
 
-        markFailedLoginContext(params.businessId, params.customerId, loginCustomerId);
+        // A query/schema error or quota/server failure says nothing about this
+        // login context. Caching it here used to suppress unrelated surfaces.
+        if (response.status === 401 || response.status === 403 ||
+            error.error?.status === "UNAUTHENTICATED" ||
+            error.error?.status === "PERMISSION_DENIED" ||
+            /^(USER_PERMISSION_DENIED|CUSTOMER_NOT_FOUND|INVALID_LOGIN_CUSTOMER_ID)$/.test(apiErrorCode ?? "")) {
+          markFailedLoginContext(params.businessId, params.customerId, loginCustomerId);
+        }
 
         if (
           shouldStopRetryingAcrossLoginContexts({

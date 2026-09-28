@@ -186,7 +186,7 @@ async function findBusinessesPendingDecisions(input: {
         bool_or(job_name = 'engine_v3_lifecycle_job' AND status = 'success') AS lifecycle_success,
         bool_or(job_name = $1 AND status = 'success') AS decisions_success
       FROM engine_v3_job_runs runs
-      JOIN requested ON requested.business_id = runs.business_ref_id::text
+      JOIN requested ON requested.business_id::uuid = runs.business_ref_id
         AND requested.as_of_date = runs.as_of_date
       WHERE job_name IN (
           'engine_v3_calibration_job',
@@ -206,7 +206,7 @@ async function findBusinessesPendingDecisions(input: {
           ELSE NULL
         END AS evaluation_cutoff_at
       FROM engine_v3_job_runs runs
-      JOIN requested ON requested.business_id = runs.business_ref_id::text
+      JOIN requested ON requested.business_id::uuid = runs.business_ref_id
         AND requested.as_of_date = runs.as_of_date
       WHERE runs.job_name = $1 AND runs.status = 'success' AND runs.engine_version = $4
       ORDER BY runs.business_ref_id, runs.as_of_date, runs.finished_at DESC NULLS LAST, runs.id DESC

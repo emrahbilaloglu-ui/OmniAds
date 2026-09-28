@@ -197,23 +197,43 @@ function contracts(): Contracts {
   return contractCache;
 }
 
-function referencedTypes(node: ts.TypeNode): Set<string> {
+// The contract AST is immutable for this module's lifetime. Cache its shape,
+// never a payload: each mutation/scenario still gets a complete fresh walk.
+const referenceCache = new WeakMap<ts.TypeNode, ReadonlySet<string>>();
+const inlineObjectCache = new WeakMap<ts.TypeNode, boolean>();
+const textCache = new WeakMap<ts.Node, string>();
+
+function nodeText(node: ts.Node): string {
+  const cached = textCache.get(node);
+  if (cached !== undefined) return cached;
+  const value = node.getText();
+  textCache.set(node, value);
+  return value;
+}
+
+function referencedTypes(node: ts.TypeNode): ReadonlySet<string> {
+  const cached = referenceCache.get(node);
+  if (cached) return cached;
   const found = new Set<string>();
   const walk = (child: ts.Node) => {
-    if (ts.isTypeReferenceNode(child)) found.add(child.typeName.getText());
+    if (ts.isTypeReferenceNode(child)) found.add(nodeText(child.typeName));
     ts.forEachChild(child, walk);
   };
   walk(node);
+  referenceCache.set(node, found);
   return found;
 }
 
 function hasInlineObject(node: ts.TypeNode): boolean {
+  const cached = inlineObjectCache.get(node);
+  if (cached !== undefined) return cached;
   let found = false;
   const walk = (child: ts.Node) => {
     if (ts.isTypeLiteralNode(child)) found = true;
     ts.forEachChild(child, walk);
   };
   walk(node);
+  inlineObjectCache.set(node, found);
   return found;
 }
 
@@ -883,7 +903,7 @@ function interfaceValue(name: string, state: WalkState): unknown {
     Record<string, unknown>
   >((value, clause) => {
     for (const type of clause.types) {
-      const parent = type.expression.getText();
+      const parent = nodeText(type.expression);
       if (!declarations.has(parent)) continue;
       Object.assign(value, interfaceValue(parent, state));
     }
@@ -907,7 +927,7 @@ function memberValues(
   const output: Record<string, unknown> = {};
   for (const member of members) {
     if (!ts.isPropertySignature(member) || !member.name || !member.type) continue;
-    const name = member.name.getText();
+    const name = nodeText(member.name);
     const path = prefix ? `${prefix}.${name}` : name;
     const key = `${iface}.${path}`;
     let container = hasInlineObject(member.type);
@@ -982,16 +1002,16 @@ function containerValue(
       ts.isStringLiteral(index.literal)
     ) {
       const member = index.literal.text;
-      const declaration = declarations.get(object.typeName.getText());
+      const declaration = declarations.get(nodeText(object.typeName));
       const target = declaration?.members.find(
         (candidate) =>
           ts.isPropertySignature(candidate) &&
-          candidate.name?.getText() === member,
+          candidate.name && nodeText(candidate.name) === member,
       );
       if (target && ts.isPropertySignature(target) && target.type) {
         // The referenced interface owns the classification of these leaves, so
         // the value is built under THAT interface's key space.
-        const owner = object.typeName.getText();
+        const owner = nodeText(object.typeName);
         const key = `${owner}.${member}`;
         const reachesContract = [...referencedTypes(target.type)].some(
           (reference) => declarations.has(reference)
@@ -1006,7 +1026,7 @@ function containerValue(
     return null;
   }
   if (ts.isTypeReferenceNode(type)) {
-    const name = type.typeName.getText();
+    const name = nodeText(type.typeName);
     const [first, second] = type.typeArguments ?? [];
     if ((name === "Array" || name === "ReadonlyArray") && first) {
       return [containerValue(iface, first, `${path}[]`, state)];

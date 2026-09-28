@@ -333,6 +333,14 @@ describe("pool client cleanup around statement-timeout setup", () => {
 });
 
 describe("runDbTransaction setup cleanup", () => {
+  it("rejects a COMMIT that PostgreSQL reports as ROLLBACK", async () => {
+    const client = fakeClient(async (text) => ({ rows: [], command: text === "COMMIT" ? "ROLLBACK" : text }));
+    installFakePool([client]);
+    await expect(runDbTransaction(async () => "uncommitted-success"))
+      .rejects.toMatchObject({ code: "25P02" });
+    expect(client.release).toHaveBeenCalledWith(expect.any(Error));
+  });
+
   it("resets a deadline-bound session before returning its client to the pool", async () => {
     const client = fakeClient(async () => ({ rows: [] }));
     installFakePool([client]);

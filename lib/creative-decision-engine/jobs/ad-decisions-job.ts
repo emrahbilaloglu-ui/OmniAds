@@ -13,6 +13,7 @@ import {
   inspectNativeAdProfileSchemaCapability,
 } from "../ad-account-decision-profile-store";
 import { chunkDecisionRows } from "../batching";
+import { NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME, nativeDecisionReusePolicyHash, nativeGenerationReuseSlotStart, readEquivalentNativeGeneration } from "./native-decision-reuse";
 import {
   applyCreativeCampaignLabelGuard,
   withCreativeCampaignLabelContext,
@@ -132,6 +133,7 @@ export type NativeAdDecisionStage =
   | "read_campaign_context"
   | "read_previous_labels"
   | "compute_decisions"
+  | "check_generation_reuse"
   | "persist";
 
 export type NativeAdDecisionStageTimings = Partial<
@@ -182,8 +184,14 @@ export interface AdDecisionsJobResult {
     | "engine_v3_disabled"
     | "business_not_found"
     | "invalid_business_id"
-    | "schema_not_ready";
+    | "schema_not_ready"
+    | "unchanged_canonical_generation";
+  /** Original immutable generation retained after full current computation. */
+  reusedJobRunId?: string;
+  reuseProofHash?: string;
   errorMessage?: string;
+  /** True only when a terminal ledger row was read or persisted after cleanup. */
+  terminalStatusPersisted?: boolean;
 }
 
 export interface AdDecisionComputation {
@@ -665,6 +673,7 @@ export async function runAdDecisionsJob(
   }
   const dbClient = options.db ?? getDb();
 
+  let failureDetails: { error: unknown; message: string; stageTimings?: NativeAdDecisionStageTimings } | undefined;
   const jobRunId = await insertAdJobRun(
     {
       ...input,
@@ -704,7 +713,7 @@ export async function runAdDecisionsJob(
         runDbTransaction(fn, {
           timeoutMs: ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS,
         }));
-    return await transaction(async () => {
+    const result = await transaction(async () => {
       const db = options.db ?? getDb();
       await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
       const [lock] = await db.query<AdvisoryLockRow>(
@@ -726,6 +735,20 @@ export async function runAdDecisionsJob(
         };
       }
 
+      // A run can age while waiting for a pool connection before taking its
+      // execution lock. A reaper may already have closed it in that interval.
+      // Re-check ownership under the job lock before any evaluation writes.
+      const ownedRun = await db.query<IdRow>(`
+        SELECT id FROM engine_v3_job_runs
+        WHERE id = $1::uuid AND status = 'running'
+        FOR UPDATE
+      `, [jobRunId]);
+      if (ownedRun.length !== 1) {
+        return { jobRunId, status: "skipped" as const, snapshotsWritten: 0,
+          changeEventsWritten: 0, durationMs: Date.now() - startedAt,
+          errorMessage: "Native decision run was finalized before execution acquired ownership." };
+      }
+
       const capability = await inspectEvaluationStoreSchemaCapability(db);
       const profileCapability = await (
         options.inspectProfileSchema ?? inspectNativeAdProfileSchemaCapability
@@ -737,8 +760,9 @@ export async function runAdDecisionsJob(
       if (missingSchema.length > 0) {
         const durationMs = Date.now() - startedAt;
         const message = `Native ad decision schema is not ready: ${missingSchema.join(", ")}`;
+        failureDetails = { error: new Error(message), message };
         await markAdJobFailed(
-          { jobRunId, durationMs, error: new Error(message), message },
+          { jobRunId, durationMs, ...failureDetails },
           db,
         );
         return {
@@ -887,8 +911,7 @@ export async function runAdDecisionsJob(
             decisions,
           };
         });
-        const storedEvaluations = new Map<string, StoredAdDecisionEvaluation>();
-        for (const group of decisionGroups) {
+        const preparedGroups = decisionGroups.map((group) => {
           const canonicalEvaluations = group.decisions.map((computation) => {
             const advisory = buildNativeManualCutAdvisory(computation, input.asOf, evaluatedAt);
             return buildAdCanonicalEvaluationProvenance({
@@ -923,6 +946,69 @@ export async function runAdDecisionsJob(
               }),
             });
           });
+          return { ...group, canonicalEvaluations };
+        });
+        const reusePolicyHash = nativeDecisionReusePolicyHash(flags, campaignContextMode);
+        // Recompute ALL production inputs/verdicts before considering reuse.
+        // This naturally covers metrics, lifecycle, configuration, role,
+        // target, profile, prior hysteresis and their source/authority proof.
+        const reuseCandidates = preparedGroups.flatMap((group) =>
+          group.decisions.map((computation, index) => {
+            const evaluation = group.canonicalEvaluations[index]!;
+            return {
+              contextHash: evaluation.contextHash,
+              snapshot: toNativeSnapshotPayload({
+                businessId: input.businessId, asOf: input.asOf, jobRunId,
+                scope: group.profile.scope, computation,
+                stored: { evaluationId: jobRunId,
+                  providerAccountRefId: computation.input.providerAccountRefId,
+                  providerAccountId: computation.input.providerAccountId,
+                  decisionEntityId: computation.input.decisionEntityId,
+                  inputHash: evaluation.inputHash, decisionHash: evaluation.decisionHash },
+                calibrationRowId: group.calibrationRowId,
+                hardActionEligibility: group.profile.hardActionEligibility,
+                computedAt: evaluatedAt,
+              }) as unknown as Record<string, unknown>,
+            };
+          }),
+        );
+        let reuseRefusalReason: string | null = null;
+        const reused = await stageTimer.measure("check_generation_reuse", () =>
+          readEquivalentNativeGeneration({
+            businessId: input.businessId, asOf: input.asOf, currentJobRunId: jobRunId,
+            cutoff: evaluatedAt, policyHash: reusePolicyHash, candidates: reuseCandidates,
+            slotStart: nativeGenerationReuseSlotStart(evaluatedAt),
+            hydrationReceiptJson: { metadata: { hydration_receipts:
+              hydration.receipts.map(persistedAdDecisionHydrationReceipt) } },
+            onRefusal: (reason) => { reuseRefusalReason = reason; },
+          }, db),
+        );
+        if (reused) {
+          const durationMs = Date.now() - startedAt;
+          await db.query(`
+            UPDATE engine_v3_job_runs SET status='skipped',finished_at=clock_timestamp(),
+              job_name=$4,
+              duration_ms=$1,row_count=0,error_message='unchanged_canonical_generation',
+              error_json=$2::jsonb,updated_at=clock_timestamp()
+            WHERE id=$3::uuid AND status='running'
+          `,[durationMs,JSON.stringify({metadata:{native_ad_grain:true,shadow_only:true,
+            reused_job_run_id:reused.jobRunId,reuse_proof_hash:reused.proofHash,
+            reuse_policy_hash:reusePolicyHash,reused_generation_rows:reused.rowCount,
+            stage_timings:stageTimer.timings,authority_granted:false,
+            reuse_basis:"complete_current_canonical_input_decision_and_snapshot_equality"}}),jobRunId,NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME]);
+          console.info("[native-ad-job] unchanged canonical generation reused", {
+            businessId: input.businessId,asOf:input.asOf,attemptJobRunId:jobRunId,
+            reusedJobRunId:reused.jobRunId,rowCount:reused.rowCount,
+            reuseProofHash:reused.proofHash,authorityGranted:false,
+          });
+          return { jobRunId,status:"skipped" as const,snapshotsWritten:0,changeEventsWritten:0,
+            durationMs,reason:"unchanged_canonical_generation" as const,
+            reusedJobRunId:reused.jobRunId,reuseProofHash:reused.proofHash,
+            stageTimings:{...stageTimer.timings} };
+        }
+        const storedEvaluations = new Map<string, StoredAdDecisionEvaluation>();
+        for (const group of preparedGroups) {
+          const canonicalEvaluations = group.canonicalEvaluations;
           if (canonicalEvaluations.length === 0) continue;
           const storedGroup = await persistAdDecisionEvaluations(
             {
@@ -1045,6 +1131,9 @@ export async function runAdDecisionsJob(
             changeEventsWritten,
             pruneResult,
             hydrationReceipts: hydration.receipts,
+            reusePolicyHash,
+            reuseRefusalReason,
+            stageTimings: stageTimer.timings,
           },
           db,
         );
@@ -1069,8 +1158,9 @@ export async function runAdDecisionsJob(
         */
         const failedStageTimings = { ...stageTimer.timings };
         const message = error instanceof Error ? error.message : String(error);
+        failureDetails = { error, message, stageTimings: failedStageTimings };
         await markAdJobFailed(
-          { jobRunId, durationMs, error, message },
+          { jobRunId, durationMs, ...failureDetails },
           db,
         ).catch(() => undefined);
         return {
@@ -1084,20 +1174,36 @@ export async function runAdDecisionsJob(
         };
       }
     });
+    // A failed in-transaction update can be discarded by connection loss or
+    // rollback. Perform one independent finalization after transaction cleanup.
+    if (result.status === "failed") {
+      const failure = failureDetails ?? {
+        error: new Error(result.errorMessage ?? "Native decision generation failed."),
+        message: result.errorMessage ?? "Native decision generation failed.",
+        stageTimings: result.stageTimings,
+      };
+      const terminalStatusPersisted = await finalizeNativeFailure(
+        { jobRunId, durationMs: result.durationMs, ...failure }, dbClient,
+      );
+      return { ...result, terminalStatusPersisted };
+    }
+    return result;
   } catch (error) {
     const durationMs = Date.now() - startedAt;
     const message = error instanceof Error ? error.message : String(error);
-    await markAdJobFailed(
-      { jobRunId, durationMs, error, message },
-      dbClient,
-    ).catch(() => undefined);
+    const failure = failureDetails ?? { error, message };
+    const terminalStatusPersisted = await finalizeNativeFailure(
+      { jobRunId, durationMs, ...failure }, dbClient,
+    );
     return {
       jobRunId,
       status: "failed",
       snapshotsWritten: 0,
       changeEventsWritten: 0,
       durationMs,
-      errorMessage: message,
+      errorMessage: failure.message,
+      stageTimings: failure.stageTimings,
+      terminalStatusPersisted,
     };
   }
 }
@@ -3852,6 +3958,9 @@ async function markAdJobSuccess(
     changeEventsWritten: number;
     pruneResult: NativeSnapshotPruneResult;
     hydrationReceipts: AdDecisionHydrationReceipt[];
+    reusePolicyHash: string;
+    reuseRefusalReason: string | null;
+    stageTimings: NativeAdDecisionStageTimings;
   },
   db: DbClient,
 ) {
@@ -3871,6 +3980,9 @@ async function markAdJobSuccess(
         metadata: {
           native_ad_grain: true,
           shadow_only: true,
+          reuse_policy_hash: input.reusePolicyHash,
+          reuse_refusal_reason: input.reuseRefusalReason,
+          stage_timings: input.stageTimings,
           change_event_count: input.changeEventsWritten,
           pruned_snapshot_count: input.pruneResult.prunedSnapshots,
           pruned_event_count: input.pruneResult.prunedEvents,
@@ -3897,6 +4009,7 @@ async function markAdJobFailed(
     durationMs: number;
     error: unknown;
     message: string;
+    stageTimings?: NativeAdDecisionStageTimings;
   },
   db: DbClient,
 ) {
@@ -3905,6 +4018,7 @@ async function markAdJobFailed(
     UPDATE engine_v3_job_runs
     SET status = 'failed', finished_at = clock_timestamp(), duration_ms = $1::integer,
       row_count = 0, error_message = $2, error_json = $3::jsonb,
+      error_code = NULLIF($3::jsonb ->> 'code', ''),
       updated_at = clock_timestamp()
     WHERE id = $4::uuid
       AND status = 'running'
@@ -3912,10 +4026,29 @@ async function markAdJobFailed(
     [
       input.durationMs,
       input.message,
-      JSON.stringify(errorToJson(input.error)),
+      JSON.stringify({ ...errorToJson(input.error),
+        metadata: { stage_timings: input.stageTimings ?? {} } }),
       input.jobRunId,
     ],
   );
+}
+
+async function finalizeNativeFailure(
+  input: Parameters<typeof markAdJobFailed>[0], db: DbClient,
+): Promise<boolean> {
+  try {
+    await markAdJobFailed(input, db);
+    const [row] = await db.query<{ status: string } & Record<string, unknown>>(
+      "SELECT status FROM engine_v3_job_runs WHERE id = $1::uuid", [input.jobRunId],
+    );
+    return row != null && row.status !== "running";
+  } catch (error) {
+    console.error("[native-ad-decisions] terminal_status_write_failed", {
+      jobRunId: input.jobRunId, code: "native_run_finalization_failed",
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return false;
+  }
 }
 
 function failedWithoutRun(

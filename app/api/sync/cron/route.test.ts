@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { NativeAdShadowBusinessResult } from "@/lib/creative-decision-engine/jobs/native-ad-scheduled";
 
+vi.mock("@/lib/creative-decision-engine/jobs/abandoned-native-runs", () => ({
+  reapAbandonedNativeDecisionRuns: vi.fn(async () => ({ examined: 0, owned: 0, closed: [] })),
+}));
+
 vi.mock("@/lib/sync/active-businesses", () => ({
   getActiveBusinesses: vi.fn(),
   readActiveBusinesses: vi.fn(),

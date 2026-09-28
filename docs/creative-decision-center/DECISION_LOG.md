@@ -11625,3 +11625,89 @@ mirror-write failure/retry and a stuck cycle alongside concurrent progress
 supplement the existing long-cycle, discovery and retirement tests. This source
 repair requires a new reviewed candidate and live stability window; the earlier
 deployment's successful UI and authority reads do not establish worker stability.
+
+## D129 — Bounded source reads, terminal ownership and content-equivalent reuse (2026-09-28)
+
+**Problem.** Native calibration and creative hydration can exceed the statement
+deadline at their existing full scope. A failed native transaction can also leave
+its separately inserted run marked `running`. A fresh calibration run ID may
+unnecessarily invalidate a complete decision whose input batch was replayed.
+Google query failures can poison unrelated queries through a login-context TTL.
+
+**Contract.** Read all 90 native calibration days in six consecutive 15-day
+chunks, preserving account, as-of, cutoff and source predicates. Resolve the
+creative membership once, then hydrate every selected ID in groups of 50 with
+the same parameters and full population benchmarks. Creative producers now
+use repeatable-read isolation on their pinned transaction; native calibration
+already requires it. Unpinned display reads retain the original single query.
+A chunk failure aborts publication; no timeout,
+decision formula, version, source-authority gate or historical compatibility is
+relaxed. Scheduler predicates compare typed UUID keys without casting the
+indexed run column to text.
+
+Native failures are finalized independently after transaction cleanup, preserving
+the original SQLSTATE and stage evidence. An aborted transaction's COMMIT tag
+`ROLLBACK` is an error. A bounded reaper only closes current-native decision
+runs older than 30 minutes after acquiring the row, job and chain locks; it runs
+after the natural cron's lane and growth admission. A producer rechecks terminal
+ownership after acquiring its execution lock. `running` alone is not ownership.
+
+A new decision carries a policy receipt binding the existing engine/evaluation
+contracts, resolved flags and campaign-context mode. The proposed early reuse
+based on calibration content and a manually enumerated source-clock checklist
+was withdrawn before release: it did not cover every hydration dependency.
+Its three proposed BRIN indexes were never applied and are not in this release.
+
+The existing producer must hydrate and compute every current input, profile,
+role, campaign context, prior hysteresis and manual advisory in one repeatable-read
+transaction before considering reuse. Reuse requires a complete authoritative
+account manifest, equal canonical context/input/decision hashes and equality of
+every current snapshot-writer field except invocation timestamp, job ID and
+evaluation ID. All current cells must belong to one original complete successful
+generation under the same policy and evaluation contract; an extra, missing,
+duplicate or replaced cell refuses reuse. Legacy receipts refuse it. An optional
+comparison SQL error rolls back its own savepoint before normal publication.
+
+When equality is proved, the producer atomically finalizes only a distinct skipped
+`engine_v3_native_ad_decisions_reuse_attempt` with the proof and original
+generation ID. The additive job kind lets the preceding deployed reader retain
+the original success on rollback. Current scheduler and cache-marker readers
+include it; the scheduler maps it to the existing logical decision step. It does not duplicate immutable
+evaluations, contexts, snapshots or events, change their original cutoff, or
+grant provider authority. Reuse is restricted to the current UTC slot (03:00 or
+15:00); an earlier slot must publish a fresh generation even for identical inputs.
+The original computation timestamp is never advanced by reuse. The scheduler
+resolves a skipped attempt as completed only with a valid proof, the current
+calibration dependency and complete current snapshot ownership by the original
+generation. The next tick then avoids repeating hydration within that slot and
+uses the original successful generation as the downstream dependency. A changed
+calibration, replaced cell or invalid receipt requires the full producer again.
+An idempotent calibration replay is not
+fresh evidence that bypasses a failed/non-authoritative retry cooldown.
+
+The serving reader resolves only its latest terminal canonical reuse attempt
+through the same strict SQL proof and whole-generation ownership check, in the
+same MVCC statement as generation selection. It serves the actual original
+success, keeping its job ID, account receipt, role-knowledge instant and decision
+clock; it does not relabel the skipped attempt or grant/refresh authority.
+Malformed proof, changed membership, a foreign epoch or a later terminal failure
+retains the existing refusal/degraded behavior. Otherwise treating every skipped
+attempt as unavailable would hide a successfully revalidated generation.
+
+Required Meta reads retain safe structured Graph failure identity. Google REST
+failure details use the actual GoogleAdsFailure shape; query/schema errors do
+not cache a login failure or retry each manager. Only identified query enums
+classify a payload error; unknown INVALID_ARGUMENT stays retryable. Reaching a
+transient attempt cap makes a dead letter visible but does not remove the
+existing bounded repair replay. Optional presentation reads retain their fallback.
+Immutable AST caching stores no payload, scenario, render or negative verdict.
+
+**Capacity and release.** A single concurrent nonconstraint timeline-index
+rebuild reclaimed 785,481,728 bytes without logical deletion, schema change or
+budget increase. This is physical relief, not a permanent growth guarantee.
+Full canonical equality reduces only demonstrated redundant writes; genuine
+input changes still publish. Preserve capacity refusal and distinguish global query reliability
+from firm-specific missing evidence. Canonical QA, exact-source review, exact-SHA
+CI/images, controlled release and natural readback remain required. Rollback
+the candidate web/worker pair to the pre-release production SHA via the canonical
+workflow; no provider writes or forced production jobs are part of this work.

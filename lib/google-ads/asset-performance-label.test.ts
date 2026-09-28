@@ -13,16 +13,15 @@ import { analyzeAssets } from "@/lib/google-ads/tab-analysis";
 
 /**
  * The design's Text assets card says "ratings are Google-served", so the chip
- * above that caption has to be Google's `asset_group_asset.performance_label`
- * and not this product's derived ROAS/CTR verdict. These assertions pin the
- * whole path — GAQL select, normaliser, warehouse projection, serving
- * classifier, view — so the served field cannot be dropped again and the
- * derived one cannot quietly take its place.
+ * above that caption can only use a genuine provider label, including retained
+ * legacy evidence. API v23 exposes no performance_label on asset_group_asset;
+ * absence must remain absence, never the product's derived ROAS/CTR verdict.
+ * Normaliser, warehouse projection, classifier and view retain compatibility.
  */
 describe("Google-served asset performance label", () => {
-  it("selects Google's own performance_label on the asset performance query", () => {
+  it("does not request the unsupported v23 label or replace it with a derived field", () => {
     const query = buildAssetPerformanceCoreQuery("2026-03-11", "2026-04-07");
-    expect(query.query).toContain("asset_group_asset.performance_label");
+    expect(query.query).not.toContain("asset_group_asset.performance_label");
     expect(query.resource).toBe("asset_group_asset");
   });
 

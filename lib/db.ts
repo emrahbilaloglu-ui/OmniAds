@@ -782,6 +782,13 @@ function createWrappedDbExecutor(
                 queryTimeoutMs,
                 "Database query",
               );
+        // PostgreSQL answers COMMIT with ROLLBACK after an earlier statement
+        // aborted the transaction. A swallowed statement error must never turn
+        // that command tag into a successful application result.
+        if (queryText.trim().toUpperCase() === "COMMIT" && result.command === "ROLLBACK") {
+          throw Object.assign(new Error("Database transaction was rolled back instead of committed."),
+            { code: "25P02" });
+        }
         metrics.successCount += 1;
         metrics.lastSuccessfulQueryAt = nowIso();
         observePoolSnapshot(pool, metrics, settings.poolMax);

@@ -33,6 +33,18 @@ export function classifyGoogleAdsSyncFailure(input: {
   const upper = rawMessage.toUpperCase();
   const providedClass = input.errorClass?.trim().toLowerCase() ?? "";
 
+  // This tag is written by getGoogleAdsWarehouseFetchFailureReason from the
+  // provider's enums. INVALID_ARGUMENT alone also covers customer/access
+  // failures. Only an identified query error may park an application payload.
+  // Unknown detail remains retryable; human prose cannot create this verdict.
+  const apiErrorCode = rawMessage.match(/\bapiErrorCode=([A-Z_]+)\b/)?.[1];
+  if (/\bapiStatus=INVALID_ARGUMENT\b/.test(rawMessage) && apiErrorCode &&
+      /^(UNRECOGNIZED_FIELD|INVALID_FIELD_NAME|PROHIBITED_.*_CLAUSE|MISALIGNED_DATE_FOR_FILTER|DATE_RANGE_TOO_WIDE)$/.test(apiErrorCode)) {
+    return { errorClass: "payload", terminal: true, retryDelayMinutes: 0,
+      recoveryKind: "unknown", actionRequired: false,
+      reasonCode: "google_ads_invalid_query_payload" };
+  }
+
   // A surface that was paused stays paused, but it is NOT an account verdict.
   //
   // The pause message says it outright — "a terminal access failure for the
@@ -121,6 +133,8 @@ export function classifyGoogleAdsSyncFailure(input: {
   }
 
   if (
+    apiErrorCode === "INVALID_CUSTOMER_ID" ||
+    apiErrorCode === "CLIENT_CUSTOMER_ID_INVALID" ||
     providedClass === "customer_not_enabled" ||
     providedClass === "customer_not_found" ||
     hasAny(lower, [
@@ -303,12 +317,13 @@ export function shouldDeadLetterGoogleAdsFailure(input: {
   const retryableClasses = new Set([
     "quota",
     "daily_request_budget_exhausted",
-    "transient",
     "database_timeout",
     "database_disk_pressure",
     "duplicate_upsert_batch",
     "lease_conflict",
   ]);
   if (retryableClasses.has(input.errorClass)) return false;
+  // The default class is also used for unknown application failures. Bound
+  // repeated attempts instead of exempting every unclassified error forever.
   return input.attemptCount + 1 >= input.maxAttempts;
 }

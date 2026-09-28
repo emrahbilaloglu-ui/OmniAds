@@ -25,7 +25,8 @@ import type {
 async function metaGet<T>(
   url: URL,
   warnLabel?: string,
-  warnCtx?: Record<string, unknown>
+  warnCtx?: Record<string, unknown>,
+  strictFailure?: boolean,
 ): Promise<T | null> {
   try {
     const res = await fetch(url.toString(), {
@@ -34,6 +35,17 @@ async function metaGet<T>(
       cache: "no-store",
     });
     if (!res.ok) {
+      if (strictFailure) {
+        const body = await res.json().catch(() => null) as { error?: {
+          code?: unknown; error_subcode?: unknown; is_transient?: unknown;
+        } } | null;
+        const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
+        throw Object.assign(new Error(`meta_creative_insights_page_unavailable:${warnLabel}`), {
+          name: "MetaGraphRequestError", httpStatus: res.status,
+          errorCode: number(body?.error?.code), errorSubcode: number(body?.error?.error_subcode),
+          isTransient: typeof body?.error?.is_transient === "boolean" ? body.error.is_transient : null,
+        });
+      }
       if (warnLabel) {
         const raw = await res.text().catch(() => "");
         console.warn(`[meta-creatives] ${warnLabel} non-ok`, {
@@ -46,6 +58,9 @@ async function metaGet<T>(
     }
     return (await res.json().catch(() => null)) as T | null;
   } catch (e: unknown) {
+    // Strict source reads retain the provider's structured identity. Optional
+    // presentation fetches keep their existing null fallback.
+    if (strictFailure) throw e;
     if (warnLabel) {
       console.warn(`[meta-creatives] ${warnLabel} threw`, {
         message: e instanceof Error ? e.message : String(e),
@@ -247,7 +262,8 @@ export async function fetchAccountInsights(
       const payload: {
         data?: MetaInsightRecord[];
         paging?: { next?: string };
-      } | null = await metaGet(pageUrl, input.warnLabel, { accountId, page: pageCount });
+      } | null = await metaGet(pageUrl, input.warnLabel, { accountId, page: pageCount },
+        options.strictComplete === true && input.required !== false);
       if (!payload) {
         if (options.strictComplete && input.required !== false) {
           throw new Error(`meta_creative_insights_page_unavailable:${input.warnLabel}:${accountId}:${pageCount}`);

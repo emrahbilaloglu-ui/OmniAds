@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { classifyMetaSyncFailure } from "@/lib/sync/meta-error-classification";
 import {
   batchFetchAdsByIds,
   fetchAdImageUrlMap,
@@ -14,6 +15,16 @@ import {
 } from "@/lib/meta/creatives-fetchers";
 
 describe("fetchAccountInsights", () => {
+  it("preserves structured Graph code from a failed strict page without provider prose or tokens", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: {
+      code: 190, error_subcode: 463, is_transient: false, message: "private provider prose token-secret",
+    } }), { status: 400 })));
+    const error = await fetchAccountInsights("act_identity", "secret-token", "2026-09-21", "2026-09-21",
+      { strictComplete: true }).catch(value => value);
+    expect(error).toMatchObject({ name: "MetaGraphRequestError", errorCode: 190, errorSubcode: 463 });
+    expect(String(error)).not.toMatch(/private provider|secret-token|token-secret/);
+    expect(classifyMetaSyncFailure({ error })).toMatchObject({ errorClass: "invalid_token", terminal: true });
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();

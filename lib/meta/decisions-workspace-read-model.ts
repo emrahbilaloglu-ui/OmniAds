@@ -18,6 +18,9 @@ import {
   type TruthSource,
 } from "@/lib/creative-decision-engine/types";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
+import { AD_DECISION_EVALUATION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/evaluation-store";
+import { nativeReuseCompletionReadSql, nativeGenerationReuseSlotStartSql,
+  NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME } from "@/lib/creative-decision-engine/jobs/native-decision-reuse";
 import {
   evaluateDecisionOriginAdDecisionFreshness,
 } from "@/lib/creative-decision-engine/execution-safety";
@@ -4040,7 +4043,8 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
           ELSE run.status
         END AS effective_status
       FROM engine_v3_job_runs run
-      WHERE run.job_name = $3
+      WHERE (run.job_name = $3 OR ($3='${NATIVE_AD_DECISIONS_JOB_NAME}'
+        AND run.job_name='${NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME}'))
         AND run.business_ref_id = $1::uuid
         AND run.business_id = $1::text
         AND run.as_of_date <= COALESCE(
@@ -4067,12 +4071,37 @@ export const READ_NATIVE_DECISION_GENERATION_QUERY = `
             AND holder.finished_at <= statement_timestamp()
         )
       )
-    ), latest_effective_terminal_job AS (
+    ), latest_raw_terminal_job AS (
       SELECT run.*
       FROM effective_runs run
       WHERE run.effective_status <> 'running'
       ORDER BY run.as_of_date DESC, run.started_at DESC, run.id DESC
       LIMIT 1
+    ), verified_latest_canonical_reuse AS (
+      /* A verified skipped attempt revalidates its actual original success.
+         Resolve only the latest terminal attempt in this same MVCC statement;
+         keep the original id, clocks, account receipts and all authority gates.
+         Invalid proof/ownership or a later failure keeps the existing refusal. */
+      SELECT generation.*, 'success'::text AS effective_status
+      FROM latest_raw_terminal_job latest
+      JOIN engine_v3_job_runs generation
+        ON generation.id=CASE
+          WHEN latest.error_json#>>'{metadata,reused_job_run_id}'
+            ~ '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'
+          THEN (latest.error_json#>>'{metadata,reused_job_run_id}')::uuid END
+        AND generation.business_ref_id=$1::uuid AND generation.business_id=$1::text
+        AND generation.job_name='${NATIVE_AD_DECISIONS_JOB_NAME}'
+        AND generation.as_of_date=latest.as_of_date AND generation.engine_version=$5
+      JOIN LATERAL (${nativeReuseCompletionReadSql([
+        "generation.id", "latest.id", "$1", "$5",
+        nativeGenerationReuseSlotStartSql("latest.started_at"),
+        "statement_timestamp()", `'${AD_DECISION_EVALUATION_CONTRACT_VERSION}'`, "latest.dependency_run_id",
+      ])}) proof ON TRUE
+    ), latest_effective_terminal_job AS (
+      SELECT * FROM verified_latest_canonical_reuse
+      UNION ALL
+      SELECT * FROM latest_raw_terminal_job
+      WHERE NOT EXISTS (SELECT 1 FROM verified_latest_canonical_reuse)
     ),
     /* AREA 3 -- the last good generation FOR THIS ACCOUNT, selected in the
        SAME statement. When the latest terminal run did not succeed, Grandmix,

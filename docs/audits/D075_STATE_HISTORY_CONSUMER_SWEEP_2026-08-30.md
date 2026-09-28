@@ -869,3 +869,12 @@ state-history query and grants no status authority by itself.
 `lib/sync/db-growth-capacity-report.ts`: one size-only table-name reference.
 Describes the already evaluated D077 effective size; no entity content read,
 configuration inference, retention change, or authority change.
+
+## D129 withdrawn clock-guard proposal (2026-09-28)
+
+The proposed `native-decision-reuse.ts` direct state-history clock guard was
+withdrawn before publication. The current helper has zero direct state-history
+references. Reuse follows the full existing producer and hydration, then compares
+complete canonical context/input/decision and snapshot-writer evidence. Original
+proposal and review evidence are preserved outside the source tree. The existing
+hydration readers retain their classified content-read and authority contracts.

@@ -1386,6 +1386,42 @@ WHERE d.business_ref_id = $1::uuid
 ORDER BY d.ad_id, d.date, d.id
 `;
 
+// Keep the full reference read for replay/parity seams. The producer reads the
+// exact same 90 days in bounded statements inside ONE repeatable-read snapshot;
+// neither the original as-of nor the knowledge cutoff advances between chunks.
+export const READ_NATIVE_AD_CALIBRATION_SOURCE_BATCH_SQL =
+  READ_NATIVE_AD_CALIBRATION_SOURCE_SQL.replaceAll(
+    "AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date",
+    "AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date\n    AND d.date BETWEEN $6::date AND $7::date",
+  );
+
+export async function readNativeAdCalibrationSourceRows(
+  db: DbClient,
+  input: { businessId: string; asOf: string; providerAccountRefId: string;
+    providerAccountId: string; computationCutoff: string },
+): Promise<Record<string, unknown>[]> {
+  const window = resolveNativeAdCalibrationCutoff(input.asOf, input.computationCutoff);
+  const rows: Record<string, unknown>[] = [];
+  for (let offset = 0; offset < SAMPLE_WINDOW_DAYS; offset += 15) {
+    const start = addUtcDays(window.sampleWindowStart, offset);
+    const end = addUtcDays(window.sampleWindowStart, Math.min(offset + 14, SAMPLE_WINDOW_DAYS - 1));
+    rows.push(...await db.query<Record<string, unknown>>(
+      READ_NATIVE_AD_CALIBRATION_SOURCE_BATCH_SQL,
+      [input.businessId, window.asOfDate, input.providerAccountRefId,
+        input.providerAccountId, window.asOfCutoff, start, end],
+    ));
+  }
+  // The reference query orders by these identities. Meta IDs and source UUIDs
+  // are ASCII; restore its order before the unchanged mapper/batch builder.
+  return rows.sort((a, b) => {
+    for (const key of ["ad_id", "date", "source_row_id"]) {
+      const left = String(a[key]), right = String(b[key]);
+      if (left !== right) return left < right ? -1 : 1;
+    }
+    return 0;
+  });
+}
+
 export const READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL = `
 /* native-ad-calibration-target-account: exact tenant/account binding plus bitemporal authority */
 SELECT
@@ -5255,16 +5291,11 @@ export async function runAdCalibrationJob(
       // 5.1s respectively. No server-wide setting changes.
       await db.query("SET LOCAL work_mem = '16MB'");
       for (const binding of bindings) {
-        const sourceRows = await db.query<Record<string, unknown>>(
-          READ_NATIVE_AD_CALIBRATION_SOURCE_SQL,
-          [
-            input.businessId,
-            requestedDate.asOfDate,
-            binding.providerAccountRefId,
-            binding.providerAccountId,
-            computationCutoff,
-          ],
-        );
+        const sourceRows = await readNativeAdCalibrationSourceRows(db, {
+          businessId: input.businessId, asOf: requestedDate.asOfDate,
+          providerAccountRefId: binding.providerAccountRefId,
+          providerAccountId: binding.providerAccountId, computationCutoff,
+        });
         const [targetRow] = await db.query<Record<string, unknown>>(
           READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL,
           [

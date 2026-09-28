@@ -1,4 +1,5 @@
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
+import { readCompletedCreativeProducerScopes } from "./creative-producer-completion";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { listEnabledBusinessIds } from "../feature-flags";
 import { ENGINE_VERSION } from "../types";
@@ -174,96 +175,12 @@ async function findBusinessesPendingDecisions(input: {
 }) {
   if (input.businesses.length === 0) return [];
 
-  const rows = await getDb().query<{ business_ref_id: unknown; as_of_date: unknown }>(
-    `
-    WITH requested AS (
-      SELECT business_id, as_of_date
-      FROM unnest($2::text[], $3::date[]) AS scope(business_id, as_of_date)
-    ), completed AS (
-      SELECT
-        runs.business_ref_id, runs.as_of_date,
-        bool_or(job_name = 'engine_v3_calibration_job' AND status = 'success') AS calibration_success,
-        bool_or(job_name = 'engine_v3_lifecycle_job' AND status = 'success') AS lifecycle_success,
-        bool_or(job_name = $1 AND status = 'success') AS decisions_success
-      FROM engine_v3_job_runs runs
-      JOIN requested ON requested.business_id::uuid = runs.business_ref_id
-        AND requested.as_of_date = runs.as_of_date
-      WHERE job_name IN (
-          'engine_v3_calibration_job',
-          'engine_v3_lifecycle_job',
-          $1
-        )
-        AND engine_version = $4
-      GROUP BY runs.business_ref_id, runs.as_of_date
-    ), latest_decision AS (
-      SELECT DISTINCT ON (runs.business_ref_id, runs.as_of_date)
-        runs.business_ref_id, runs.as_of_date,
-        CASE WHEN
-          runs.error_json#>>'{metadata,evaluation_cutoff_at}' ~
-            '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$'
-          AND pg_input_is_valid(runs.error_json#>>'{metadata,evaluation_cutoff_at}', 'timestamptz')
-          THEN (runs.error_json#>>'{metadata,evaluation_cutoff_at}')::timestamptz
-          ELSE NULL
-        END AS evaluation_cutoff_at
-      FROM engine_v3_job_runs runs
-      JOIN requested ON requested.business_id::uuid = runs.business_ref_id
-        AND requested.as_of_date = runs.as_of_date
-      WHERE runs.job_name = $1 AND runs.status = 'success' AND runs.engine_version = $4
-      ORDER BY runs.business_ref_id, runs.as_of_date, runs.finished_at DESC NULLS LAST, runs.id DESC
-    )
-    SELECT completed.business_ref_id, completed.as_of_date::text
-    FROM completed
-    JOIN latest_decision ON latest_decision.business_ref_id = completed.business_ref_id
-      AND latest_decision.as_of_date = completed.as_of_date
-    WHERE calibration_success = TRUE
-      AND lifecycle_success = TRUE
-      AND decisions_success = TRUE
-      AND latest_decision.evaluation_cutoff_at IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1 FROM meta_creative_daily creative
-        WHERE creative.business_ref_id = completed.business_ref_id
-          AND creative.date BETWEEN (completed.as_of_date - INTERVAL '89 days')
-            AND completed.as_of_date
-          AND creative.payload_json->>'historical_config_provenance' IN
-            ('provider_receipt_day_bracketed', 'provider_receipt_legacy_bracketed')
-          AND CASE WHEN
-            creative.payload_json#>>'{historical_config_proof,certified_at}' ~
-              '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$'
-            AND pg_input_is_valid(creative.payload_json#>>'{historical_config_proof,certified_at}', 'timestamptz')
-            THEN (creative.payload_json#>>'{historical_config_proof,certified_at}')::timestamptz
-              > latest_decision.evaluation_cutoff_at
-            ELSE FALSE END
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM meta_creative_daily creative
-        WHERE creative.business_ref_id = completed.business_ref_id
-          AND creative.date BETWEEN (completed.as_of_date - INTERVAL '89 days')
-            AND completed.as_of_date
-          -- The writer stamps this only when a previously certified creative
-          -- day loses authority. Ordinary same-content upserts advance
-          -- updated_at, so that clock would rerun the chain on every sync.
-          AND CASE WHEN
-            creative.payload_json->>'historical_config_authority_changed_at' ~
-              '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$'
-            AND pg_input_is_valid(
-              creative.payload_json->>'historical_config_authority_changed_at',
-              'timestamptz')
-            THEN (creative.payload_json->>'historical_config_authority_changed_at')::timestamptz
-              > latest_decision.evaluation_cutoff_at
-            ELSE FALSE END
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM meta_authoritative_publication_pointers pointer
-        WHERE pointer.business_id = completed.business_ref_id::text
-          AND pointer.day BETWEEN (completed.as_of_date - INTERVAL '89 days')
-            AND completed.as_of_date
-          AND pointer.surface = 'ad_daily'
-          AND pointer.updated_at > latest_decision.evaluation_cutoff_at
-      )
-    `,
-    [DECISIONS_JOB_NAME, input.businesses.map((business) => business.id),
-      input.businesses.map((business) => business.asOf), ENGINE_VERSION],
-  );
+  // All per-business proofs share the original statement's MVCC view. A late
+  // certificate/publication visible after this snapshot is retried next tick.
+  const rows = await runDbTransaction(async () => {
+    await getDb().query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    return readCompletedCreativeProducerScopes(getDb(), input.businesses, ENGINE_VERSION);
+  });
   const completed = new Set(
     rows
       .map((row) =>

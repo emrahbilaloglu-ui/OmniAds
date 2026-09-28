@@ -1412,7 +1412,10 @@ SELECT
 FROM payload
 LEFT JOIN engine_v3_ad_decision_input_evidence stored
   ON stored.contract_version = payload.contract_version
- AND stored.input_hash = payload.input_hash
+ -- Match the indexed CHAR hash without casting its stored column to text.
+ -- The exact text residual also preserves refusal for malformed/space-padded input.
+ AND stored.input_hash = payload.input_hash::bpchar
+ AND stored.input_hash::text = payload.input_hash
 ORDER BY payload.contract_version, payload.input_hash
 `;
 

@@ -975,3 +975,14 @@ deployment claim. See `native-manual-cut-advisory-serving-replay.ts` and
 | R129-S4 | New additive reuse job kind followed by the exact preceding deployed generation query | Old binary retains original successful generation; no virtual clock or authority; current reader also accepts historical native-named proof receipts |
 | R129-S5 | Malformed original UUID in latest canonical reuse metadata | Safe refusal without cast error; no original generation or authority is fabricated |
 | R129-S6 | Full serving query has latest reuse with 25000 unrelated job ledger rows, default planner | Original-generation join uses UUID primary-key index; tenant/day/job/epoch scope remains explicit |
+
+
+## D130 evidence and completion access parity
+
+| Case | Required result |
+|---|---|
+| Q130-1 | Native missing/colliding, padded or longer hash remains false; duplicate valid identities and JSONB equality retain reference behavior |
+| Q130-2 | Default planner over 25,000 evidence identities uses both PK columns for each real batch cell |
+| Q130-3 | Complete/failed-step/foreign-epoch/malformed-latest-cutoff, ninety-day boundary, microsecond late certification, demotion and pointer changes match the original whole-scope query |
+| Q130-4 | A second backend publishes between scope reads: one repeatable-read view, next invocation sees the new source |
+| Q130-5 | Later-scope real 57014 propagates; partial completion never escapes |

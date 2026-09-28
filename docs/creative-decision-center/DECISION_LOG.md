@@ -11711,3 +11711,39 @@ from firm-specific missing evidence. Canonical QA, exact-source review, exact-SH
 CI/images, controlled release and natural readback remain required. Rollback
 the candidate web/worker pair to the pre-release production SHA via the canonical
 workflow; no provider writes or forced production jobs are part of this work.
+
+
+## D130 — Indexed evidence equality and bounded creative completion proofs (2026-09-28)
+
+**Observed failure.** The first natural PR325 acceptance matched SQLSTATE 57014
+to two inherited readers. The native evidence mapping join compared indexed
+`CHAR(64)` to JSON payload `text`, producing a whole evidence-table scan.
+A read-only default-planner probe over 100 actual cells timed out at eight
+seconds; the typed lookup completed in 130.807 ms. The creative completion
+proof query also timed out over eleven scopes; per-scope equivalent reads
+completed within 1.027 seconds in the paired read-only snapshot (all eleven
+results were negative completion proofs, not positive natural completion).
+
+**Change.** Add the indexed `bpchar` comparison and retain the exact text
+residual: malformed, longer or padded input identities still refuse, and full
+JSONB equality still detects collisions. Evidence insertion, atomic mapping
+checks and batch size are unchanged.
+
+Read each unique creative business/day scope inside one pinned repeatable-read
+read-only transaction. The certification and authority-demotion checks share
+one scan through an OR; `NOT EXISTS(A) AND NOT EXISTS(B)` retains its original
+meaning as `NOT EXISTS(A OR B)`. Preserve the full ninety days, UUID ownership
+(including differently named legacy business IDs), latest successful run
+ordering, guarded microsecond cutoff parsing, all three successful steps,
+epoch and publication-pointer invalidation. A later statement error aborts
+the complete completion check; no partial completed set escapes. A source
+publication after the snapshot remains a reason to retry on the next tick.
+
+No formula, epoch, authority, timeout, index, schema or budget is changed.
+Real PostgreSQL guards cover original-query parity, hash collisions and malformed
+identities, a 100-row indexed batch over 25,000 identities, seventeen creative
+source cases, a concurrent second-backend publication and original 57014
+propagation. Read-only performance and synthetic guards are not natural live
+acceptance. Release requires current canonical QA, actual same-session review,
+exact-SHA images, fresh growth admission and a single canonical deployment.
+Rollback restores the preceding web/worker pair with no data migration.

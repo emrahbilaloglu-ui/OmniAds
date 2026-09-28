@@ -7,15 +7,15 @@
 // must round-trip through the production reader. Here: snapshots written via
 // UPSERT_DECISION_SNAPSHOTS_QUERY -> readPreviousPublishedLabels.
 import { randomUUID } from "node:crypto";
-import { getDb, resetDbClientCache } from "@/lib/db";
-import { UPSERT_DECISION_SNAPSHOTS_QUERY } from "@/lib/creative-decision-engine/jobs/decisions-job";
+import { getDb, resetDbClientCache, runDbTransaction } from "@/lib/db";
+import { UPSERT_DECISION_SNAPSHOTS_QUERY, runDecisionsJob } from "@/lib/creative-decision-engine/jobs/decisions-job";
 import {
   applyDailyHysteresis,
   parseHysteresisState,
   UPSERT_CONTEXT_QUERY,
 } from "@/lib/creative-decision-engine/jobs/campaign-context-job";
 import { readPreviousPublishedLabels } from "@/lib/creative-decision-engine/decision-stability";
-import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source";
+import { WarehouseDataSource, HYDRATE_CREATIVE_INPUTS_QUERY } from "@/lib/creative-decision-engine/data-source";
 import { seedCanonicalMetaAdDailyFacts } from "@/lib/creative-decision-engine/meta-aov-calculator.test-helpers";
 import { ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { getMetaCreativeDailyRange, upsertMetaAdDailyRows } from "@/lib/meta/warehouse";
@@ -269,7 +269,7 @@ async function main() {
        '{"custom_event_type":"PURCHASE","format":"video"}'::jsonb,
        '2026-06-08T00:00:00Z', '2026-06-08T00:00:00Z'
      FROM generate_series('2026-06-08'::date, '2026-07-05'::date, '1 day') day
-     CROSS JOIN generate_series(1, 8) creative_no`,
+     CROSS JOIN generate_series(1, 64) creative_no`,
     [businessRefId],
   );
 
@@ -347,6 +347,70 @@ async function main() {
   console.log(
     "[seam-check] PASS: bitemporal target cutoff, disjoint prior14 hydration, account-relative frequency pressure, and pure context grain execute against real PostgreSQL.",
   );
+  await runDbTransaction(async () => {
+    const pinned = getDb();
+    await pinned.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+    await pinned.query("SET LOCAL jit = off");
+    const [clock] = await pinned.query("SELECT clock_timestamp() AS stamp");
+    const cutoff = new Date(String(clock?.stamp)).toISOString();
+    const source = new WarehouseDataSource(cutoff);
+    const target = await source.getBusinessTargetPack({ businessId: businessRefId, asOf: "2026-07-05" });
+    const reference = await pinned.query(HYDRATE_CREATIVE_INPUTS_QUERY,
+      [businessRefId,"2026-07-05",[],false,target?.targetRoas ?? null,
+        target?.breakEvenRoas ?? null,target?.updatedAt ?? null,cutoff]);
+    const captured: Array<Record<string, unknown>> = [];
+    let chunks = 0;
+    const original = pinned.query;
+    pinned.query = (async (sql: string, params?: unknown[]) => {
+      const rows = await original(sql, params);
+      if (sql === HYDRATE_CREATIVE_INPUTS_QUERY) { chunks += 1; captured.push(...rows); }
+      return rows;
+    }) as typeof pinned.query;
+    try {
+      const actual = await source.listCreativeInputs({ businessId: businessRefId, asOf: "2026-07-05" });
+      const byId = new Map(captured.map(row => [String(row.creative_id),row]));
+      const emittedRows = actual.map(row => byId.get(row.creativeId));
+      if (reference.length !== 64 || chunks !== 2 || JSON.stringify(emittedRows) !== JSON.stringify(reference)) {
+        throw new Error(`Creative hydration ordered full-row parity failed: reference=${reference.length},actual=${actual.length},chunks=${chunks}`);
+      }
+      console.log("[seam-check] PASS D129: 64-creative full benchmark population, two producer hydration chunks, ordered full-row reference equality in one RR snapshot.");
+    } finally { pinned.query = original; }
+  });
+  // This executes in the canonical migrated-cluster child, not an ordinarily
+  // skipped DB test. Inject one real PostgreSQL serialization error into the
+  // producer's transaction, then let its next ordinary invocation read storage.
+  const originalCalibration = WarehouseDataSource.prototype.getAccountCalibration;
+  let failedRun;
+  WarehouseDataSource.prototype.getAccountCalibration = async function () {
+    await getDb().query("DO $$ BEGIN RAISE EXCEPTION USING ERRCODE='40001', MESSAGE='D129 serialization seam'; END $$");
+    throw new Error("unreachable after PostgreSQL 40001");
+  };
+  try {
+    failedRun = await runDecisionsJob({ businessId: businessRefId, asOf: "2026-07-05", evaluationCutoffAt: new Date().toISOString() });
+  } finally {
+    WarehouseDataSource.prototype.getAccountCalibration = originalCalibration;
+  }
+  const [failedRow] = await db.query("SELECT status,row_count FROM engine_v3_job_runs WHERE id=$1::uuid", [failedRun.jobRunId]);
+  const [partialRows] = await db.query("SELECT COUNT(*)::int AS count FROM engine_v3_decision_snapshots_daily WHERE job_run_id=$1::uuid", [failedRun.jobRunId]);
+  if (failedRun.status !== "failed" || failedRow?.status !== "failed" || Number(failedRow?.row_count) !== 0 || Number(partialRows?.count) !== 0) {
+    throw new Error(`Creative RR serialization failure did not close atomically: ${JSON.stringify({failedRun,failedRow,partialRows})}`);
+  }
+  const retryRun = await runDecisionsJob({ businessId: businessRefId, asOf: "2026-07-05", evaluationCutoffAt: new Date().toISOString() });
+  if (retryRun.status !== "success" || retryRun.jobRunId === failedRun.jobRunId) {
+    throw new Error(`Creative RR next ordinary attempt did not recover: ${JSON.stringify(retryRun)}`);
+  }
+  console.log("[seam-check] PASS D129: real PostgreSQL40001 rolls back producer writes, persists a failed ledger, and the next ordinary invocation succeeds.");
+  let commitGuardObserved = false;
+  try {
+    await runDbTransaction(async () => {
+      await getDb().query("SELECT 1 / 0").catch(() => undefined);
+      return "this aborted transaction must not report success";
+    });
+  } catch (error) {
+    commitGuardObserved = (error as { code?: unknown }).code === "25P02";
+  }
+  if (!commitGuardObserved) throw new Error("Aborted real PostgreSQL COMMIT was reported as success.");
+  console.log("[seam-check] PASS D129: swallowed real SQL error returns PostgreSQL COMMIT/ROLLBACK and the shared wrapper rejects it as25P02.");
   await resetDbClientCache();
 }
 

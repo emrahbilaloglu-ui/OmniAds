@@ -3924,7 +3924,7 @@ const CREATIVE_RUNTIME_PURCHASE_WINDOW = buildMetaCreativePurchaseWindowSql({
   activitySql: "purchase_decision_bearing_activity",
 });
 
-const HYDRATE_CREATIVE_INPUTS_QUERY = `
+export const HYDRATE_CREATIVE_INPUTS_QUERY = `
 WITH input_creatives AS (
   SELECT DISTINCT input.creative_id
   FROM unnest($3::text[]) AS input(creative_id)
@@ -4502,6 +4502,14 @@ LEFT JOIN target_pack tp ON true
 LEFT JOIN historical h USING (creative_id)
 ORDER BY c.spend DESC, c.creative_id ASC
 `;
+
+// Derive selection from the same CTEs as the reference hydration. Population
+// frequency benchmarks in the full query still read the entire business;
+// restricting the expensive per-creative joins does not redefine its peers.
+export const LIST_RUNTIME_CREATIVE_INPUT_IDS_QUERY =
+  HYDRATE_CREATIVE_INPUTS_QUERY.slice(0, HYDRATE_CREATIVE_INPUTS_QUERY.indexOf("config_authority AS ("))
+    .replace(/,\s*$/, "\n").replaceAll("$8", "$5") +
+  "SELECT DISTINCT creative_id FROM selected_creatives ORDER BY creative_id";
 
 /*
   `$4` is the OPTIONAL provider account this calibration speaks for.
@@ -7440,9 +7448,7 @@ export class WarehouseDataSource
       asOf: input.asOf,
     });
 
-    const rows = await getDb().query<CreativeHydrationRow>(
-      HYDRATE_CREATIVE_INPUTS_QUERY,
-      [
+    const params = [
         input.businessId,
         input.asOf,
         creativeIds,
@@ -7451,8 +7457,31 @@ export class WarehouseDataSource
         targetPack?.breakEvenRoas ?? null,
         targetPack?.updatedAt ?? null,
         this.creativeDayEvaluationCutoffAt,
-      ],
-    );
+      ];
+    const db = getDb();
+    // Unpinned display reads retain their single-statement snapshot. Producer
+    // reads carry an explicit knowledge stamp and use a repeatable-read job.
+    if (this.creativeDayEvaluationCutoffAt === null) {
+      const rows = await db.query<CreativeHydrationRow>(HYDRATE_CREATIVE_INPUTS_QUERY, params);
+      return rows.map((row) => mapCreativeHydrationRow({ row,
+        businessId: input.businessId, asOf: input.asOf }))
+        .filter((creative): creative is CreativeInput => creative !== null);
+    }
+    let ids = input.creativeIds;
+    if (ids === undefined) {
+      const selected = await db.query<Record<string, unknown>>(LIST_RUNTIME_CREATIVE_INPUT_IDS_QUERY,
+        [input.businessId,input.asOf,[],false,this.creativeDayEvaluationCutoffAt]);
+      ids = selected.flatMap((row) => {
+        const id = toStringOrNull(row.creative_id); return id ? [id] : [];
+      });
+    }
+    const rows: CreativeHydrationRow[] = [];
+    for (const batch of chunkDecisionRows(Array.from(new Set(ids)), 50)) {
+      rows.push(...await db.query<CreativeHydrationRow>(HYDRATE_CREATIVE_INPUTS_QUERY,
+        [...params.slice(0,2),batch,true,...params.slice(4)]));
+    }
+    rows.sort((a,b) => (Number(b.spend ?? 0)-Number(a.spend ?? 0)) ||
+      String(a.creative_id).localeCompare(String(b.creative_id)));
 
     return rows
       .map((row) =>

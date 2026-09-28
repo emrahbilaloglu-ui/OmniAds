@@ -493,6 +493,8 @@ export async function runDecisionsJob(
   return runDbTransaction(
     async () => {
       const db = getDb();
+      // Preserve one source snapshot across membership and hydration chunks.
+      await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
       const [lockRow] = await db.query<AdvisoryLockRow>(
         "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
         [lockKey.toString()],

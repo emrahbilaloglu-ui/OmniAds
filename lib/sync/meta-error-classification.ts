@@ -236,6 +236,12 @@ export function classifyMetaSyncFailure(input: {
   );
   if (structured) return structured;
 
+  if (lower.startsWith("meta_authoritative_totals_mismatch:")) {
+    return { errorClass: "source_reconciliation", terminal: false,
+      retryDelayMinutes: 10, recoveryKind: "unknown", actionRequired: false,
+      reasonCode: "meta_source_totals_reconciliation_required" };
+  }
+
   /*
     EVERYTHING BELOW IS A COMPATIBILITY FALLBACK, and only for failures that
     carry no structured code.

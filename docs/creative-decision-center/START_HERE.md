@@ -2,6 +2,11 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
+It preserves decision formulas, epochs and provider authority. Its local or
+read-only query receipts do not establish a production release or positive
+provider authority.
+
 The H5 release also includes [D096](DECISION_LOG.md#d096--additive-receipt-attempts-preserve-deployed-image-rollback-2026-09-09)
 and the [receipt rollback and index-maintenance contract](../architecture/meta-receipt-additive-rollback.md).
 Read them before changing receipt storage or executing this release's migrations.

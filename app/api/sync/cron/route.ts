@@ -47,6 +47,7 @@ import {
 import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
 import { addDaysToIsoDateUtc } from "@/lib/provider-platform-date";
 import { runMetaAdDuplicateReconciliationSweep } from "@/lib/meta/duplicate-ad-reconciliation";
+import { reapAbandonedNativeDecisionRuns } from "@/lib/creative-decision-engine/jobs/abandoned-native-runs";
 
 /**
  * POST /api/sync/cron
@@ -327,6 +328,14 @@ export async function POST(request: NextRequest) {
       { status: 503 },
     );
   }
+
+  // Metadata-only closure is admitted by the same gates as every other writer.
+  // The bounded reaper preserves any row/job/chain lock owner.
+  await reapAbandonedNativeDecisionRuns().then((result) => {
+    if (result.closed.length > 0) console.info("[sync-cron] native_abandoned_runs_closed", result);
+  }).catch((error) => console.error("[sync-cron] native_abandoned_runs_reap_failed", {
+    errorName: error instanceof Error ? error.name : "UnknownError",
+  }));
 
   // Safety-branch (e41691f33) bounded GET-only duplicate-ad sweep. It starts
   // only after the global admission gate above, because it writes.

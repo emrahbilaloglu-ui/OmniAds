@@ -33,6 +33,9 @@ import {
 } from "../../jobs/native-ad-scheduled";
 import { NATIVE_AD_ENGINE_VERSION } from "../../types";
 import { AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION } from "../../data-source";
+import { resolveEngineV3Flags } from "../../feature-flags";
+import { resolveCampaignContextMode } from "../../campaign-context/source";
+import { READ_NATIVE_REUSE_COMPLETION_SQL, NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME } from "../../jobs/native-decision-reuse";
 
 const NOW = new Date("2026-07-13T03:30:00.000Z");
 const BUSINESSES = [
@@ -124,15 +127,17 @@ function options(
   };
 }
 
-function nativeJobHistoryDb(rows: Record<string, unknown>[]) {
+function nativeJobHistoryDb(rows: Record<string, unknown>[], ownership = { totalRows: 1, linkedRows: 1 }) {
   return {
     query: vi.fn(async (query: string, params?: unknown[]) => {
-      if (query.includes("SELECT DISTINCT ON (business_ref_id, job_name)")) {
+      if (query.includes("SELECT DISTINCT ON (business_ref_id, logical_job_name)")) {
         const cutoff = new Date(
           String(params?.[4] ?? NOW.toISOString()),
         ).getTime();
-        const candidates = rows.filter(
-          (row) => new Date(String(row.started_at)).getTime() <= cutoff,
+        const candidates = rows.map(row => row.job_name === NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME
+          ? {...row,job_name:AD_DECISIONS_JOB_NAME} : row).filter(
+          (row) => new Date(String(row.started_at)).getTime() <= cutoff &&
+            (!params?.[5] || new Date(String(row.started_at)).getTime() >= new Date(String(params[5])).getTime()),
         );
         const effective = candidates
           .filter((row) => {
@@ -196,6 +201,14 @@ function nativeJobHistoryDb(rows: Record<string, unknown>[]) {
       }
       if (query === READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL) {
         return [{ reusable: true }];
+      }
+      if (query === READ_NATIVE_REUSE_COMPLETION_SQL) {
+        const original = rows.find(row => row.id === params?.[0]);
+        const attempt = rows.find(row => row.id === params?.[1]);
+        if (!original || !attempt || original.status !== "success" ||
+          new Date(String(original.started_at)).getTime() < new Date(String(params?.[4])).getTime() ||
+          attempt.dependency_run_id !== params?.[7]) return [];
+        return [{...original,total_rows:ownership.totalRows,linked_rows:ownership.linkedRows}];
       }
       throw new Error(`Unexpected SQL: ${query}`);
     }),
@@ -1250,6 +1263,16 @@ describe("native ad shadow scheduled chain", () => {
     expect(runDecisions).toHaveBeenCalledTimes(1);
   });
 
+  it("does not call an idempotent calibration replay new evidence to bypass decision backoff", async () => {
+    const runDecisions = vi.fn(async () => decisionsResult());
+    const result = await runNativeAdShadowChainForActiveBusinessesIfDue(NOW, [BUSINESSES[0]], options({
+      runCalibration: async () => ({ ...calibrationResult(), idempotentReplay: true }),
+      readDecisionRetryBackoffs: async () => new Set([BUSINESSES[0].id]), runDecisions,
+    }));
+    expect(result.results?.[0]?.decisions).toMatchObject({ status: "skipped", source: "retry_backoff" });
+    expect(runDecisions).not.toHaveBeenCalled();
+  });
+
   it("runs every business and reports degradation when a retry reader fails", async () => {
     const runDecisions = vi.fn(async () => decisionsResult());
     const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
@@ -1963,6 +1986,66 @@ describe("native ad shadow scheduled chain", () => {
     await expect(simulateDay("target_update")).resolves.toBe(3);
     await expect(simulateDay("partial_lane")).resolves.toBe(2);
   });
+
+  it.each([true, false])("requires a complete producer reuse proof for downstream work (%s)", async (valid) => {
+    const retainedJobId = "00000000-0000-4000-8000-000000000990";
+    const runDecisions = vi.fn(async () => ({
+      ...decisionsResult(),
+      jobRunId: "00000000-0000-4000-8000-000000000991",
+      status: "skipped" as const,
+      snapshotsWritten: 0,
+      reason: "unchanged_canonical_generation" as const,
+      reusedJobRunId: retainedJobId,
+      reuseProofHash: valid ? "a".repeat(64) : "missing-proof",
+    }));
+    const runOperatorResponse = vi.fn(async () => operatorResult());
+    const recordProjectionRun = vi.fn(async () => undefined);
+    const opts = options({ runDecisions, runOperatorResponse, recordProjectionRun });
+    const result = await runNativeAdShadowChainForActiveBusinessesIfDue(NOW, [BUSINESSES[0]], opts);
+    expect(result.results?.[0]?.decisions).toMatchObject({
+      status: valid ? "previous_success" : "skipped",
+      source: "ran",
+    });
+    if (valid) {
+      expect(runOperatorResponse).toHaveBeenCalledOnce();
+      expect(recordProjectionRun).toHaveBeenCalledWith(expect.objectContaining({ dependencyRunId: retainedJobId }));
+    } else {
+      expect(runOperatorResponse).not.toHaveBeenCalled();
+      expect(recordProjectionRun).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(["unchanged", "new_calibration", "replaced_generation", "invalid_proof"] as const)(
+    "resolves a recorded same-slot reuse only with current dependencies (%s)", async mode => {
+      const calibrationId="00000000-0000-4000-8000-000000000980";
+      const generationId="00000000-0000-4000-8000-000000000990";
+      const attemptId="00000000-0000-4000-8000-000000000991";
+      const generation=nativeJobRow({id:generationId,jobName:AD_DECISIONS_JOB_NAME,status:"success",
+        dependencyRunId:calibrationId,startedAt:"2026-07-13T03:02:00Z",finishedAt:"2026-07-13T03:04:00Z"});
+      const rows: Record<string, unknown>[]=[
+        nativeJobRow({id:calibrationId,jobName:AD_CALIBRATION_JOB_NAME,status:"success",
+          startedAt:"2026-07-13T03:00:00Z",finishedAt:"2026-07-13T03:01:00Z"}),generation,
+        {...nativeJobRow({id:attemptId,jobName:AD_DECISIONS_JOB_NAME,status:"skipped",
+          rowCount:0,
+          dependencyRunId:calibrationId,startedAt:"2026-07-13T03:06:00Z",finishedAt:"2026-07-13T03:07:00Z",
+          errorMessage:"unchanged_canonical_generation"}),job_name:NATIVE_AD_DECISION_REUSE_ATTEMPT_JOB_NAME,error_json:{metadata:{
+            reused_job_run_id:generationId,reuse_proof_hash:mode==="invalid_proof"?"missing":"a".repeat(64),
+            reuse_policy_hash:"b".repeat(64),authority_granted:false,
+            reuse_basis:"complete_current_canonical_input_decision_and_snapshot_equality"}}}
+      ];
+      if(mode==="new_calibration") rows.push(nativeJobRow({id:"00000000-0000-4000-8000-000000000982",
+        jobName:AD_CALIBRATION_JOB_NAME,status:"success",startedAt:"2026-07-13T03:08:00Z",finishedAt:"2026-07-13T03:09:00Z"}));
+      const db=nativeJobHistoryDb(rows,{totalRows:1,linkedRows:mode==="replaced_generation"?0:1});
+      const runDecisions=vi.fn(async()=>decisionsResult());
+      const recordProjectionRun=vi.fn(async()=>undefined);
+      const result=await runNativeAdShadowChainForActiveBusinessesIfDue(NOW,[BUSINESSES[0]],options({
+        readSuccessfulJobs:async input=>readSuccessfulNativeJobs(input,db as never),runDecisions,recordProjectionRun}));
+      if(mode==="unchanged"){
+        expect(runDecisions).not.toHaveBeenCalled();
+        expect(result.results?.[0]?.decisions).toMatchObject({status:"previous_success",source:"previous_success"});
+        expect(recordProjectionRun).toHaveBeenCalledWith(expect.objectContaining({dependencyRunId:generationId}));
+      }else expect(runDecisions).toHaveBeenCalledOnce();
+    });
 
   it("reports already_ran only when every native step succeeded for every business", async () => {
     /*

@@ -963,3 +963,15 @@ deployment claim. See `native-manual-cut-advisory-serving-replay.ts` and
 | B126-10 | historical CPA50 USD/JPY/HUF | major-unit band45–55; unknown currency has no money band |
 | B126-11 | unsorted geo rows, top spender has poor purchase economics | stable order; no loss leader in mature split; disjoint clusters |
 | B126-12 | F4 baseline itself poor; E1 lacks temporal decay | relative decline/frequency review, no winner/fatigue assertion |
+
+## D129 canonical reuse serving
+
+| Case | Evidence | Required result |
+|---|---|---|
+| R129-S1 | Latest terminal is a zero-row canonical reuse skip; complete original same-slot generation still owns every current snapshot/evaluation; proof, policy and receipts valid | Actual original generation and all its decisions remain visible; original clocks and role knowledge unchanged; reuse grants no authority |
+| R129-S2 | Broken proof, replaced current cell, incomplete receipt or prior-slot original | Skip cannot resolve a generation; existing refusal remains |
+| R129-S3 | A later failed or foreign-epoch terminal attempt follows a valid reuse | New fault remains visible; old reuse never hides it or grants fallback authority |
+
+| R129-S4 | New additive reuse job kind followed by the exact preceding deployed generation query | Old binary retains original successful generation; no virtual clock or authority; current reader also accepts historical native-named proof receipts |
+| R129-S5 | Malformed original UUID in latest canonical reuse metadata | Safe refusal without cast error; no original generation or authority is fabricated |
+| R129-S6 | Full serving query has latest reuse with 25000 unrelated job ledger rows, default planner | Original-generation join uses UUID primary-key index; tenant/day/job/epoch scope remains explicit |

@@ -5,6 +5,30 @@ import {
 } from "@/lib/sync/google-ads-error-classification";
 
 describe("classifyGoogleAdsSyncFailure", () => {
+  it("keeps a structured invalid query payload separate from account permission and retries", () => {
+    const result = classifyGoogleAdsSyncFailure({ errorClass: "transient",
+      message: "google_ads_asset_daily_fetch_failed: apiStatus=INVALID_ARGUMENT: apiErrorCode=UNRECOGNIZED_FIELD: message=Request contains an invalid argument." });
+    expect(result).toMatchObject({ errorClass: "payload", terminal: true, actionRequired: false });
+    expect(classifyGoogleAdsSyncFailure({ message: "Request contains an invalid argument." }).terminal).toBe(false);
+  });
+
+  it("does not park customer errors or unidentified INVALID_ARGUMENT as payloads", () => {
+    for (const code of ["INVALID_CUSTOMER_ID", "CLIENT_CUSTOMER_ID_INVALID", "CUSTOMER_NOT_FOUND"]) {
+      expect(classifyGoogleAdsSyncFailure({ errorClass: "transient",
+        message: `apiStatus=INVALID_ARGUMENT: apiErrorCode=${code}` }))
+        .toMatchObject({ errorClass: "account_action_required", actionRequired: true });
+    }
+    expect(classifyGoogleAdsSyncFailure({ errorClass: "transient", message: "apiStatus=INVALID_ARGUMENT" }))
+      .toMatchObject({ terminal: false, actionRequired: false });
+    expect(classifyGoogleAdsSyncFailure({ errorClass: "transient", message: "apiStatus=INVALID_ARGUMENT: apiErrorCode=INVALID_VALUE" }))
+      .toMatchObject({ terminal: false, actionRequired: false });
+  });
+
+  it("bounds unclassified repeated failure while retaining infrastructure retries", () => {
+    expect(shouldDeadLetterGoogleAdsFailure({ errorClass: "transient", terminal: false, attemptCount: 2, maxAttempts: 3 })).toBe(true);
+    expect(shouldDeadLetterGoogleAdsFailure({ errorClass: "transient", terminal: false, attemptCount: 0, maxAttempts: 3 })).toBe(false);
+    expect(shouldDeadLetterGoogleAdsFailure({ errorClass: "database_timeout", terminal: false, attemptCount: 30, maxAttempts: 3 })).toBe(false);
+  });
   it("classifies quota pressure as retryable", () => {
     const classification = classifyGoogleAdsSyncFailure({
       message: "RESOURCE_EXHAUSTED: quota exceeded with HTTP 429",

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { LIST_RUNTIME_CREATIVE_INPUT_IDS_QUERY } from "../data-source";
 
 const query = vi.fn();
 
@@ -368,6 +369,9 @@ describe("WarehouseDataSource lifecycle hydration", () => {
 
   it("keeps a config-unverified creative visible when a partial lifecycle table has other rows", async () => {
     query.mockImplementation(async (queryText: string) => {
+      if (queryText.includes("SELECT DISTINCT creative_id FROM selected_creatives ORDER BY creative_id")) {
+        return ["verified", "unverified", "after_cutoff"].map((creative_id) => ({ creative_id }));
+      }
       if (queryText.includes("FROM business_target_pack_history")) {
         return [targetPackRow()];
       }
@@ -406,6 +410,29 @@ describe("WarehouseDataSource lifecycle hydration", () => {
     ]);
     expect(inputs.find((input) => input.creativeId === "after_cutoff")?.sourceCoverageStatus)
       .toBe("after_cutoff");
+  });
+
+  it("bounds runtime hydration while preserving full creative membership and cutoff", async () => {
+    expect([...new Set(LIST_RUNTIME_CREATIVE_INPUT_IDS_QUERY.match(/\$\d+\b/g))].sort())
+      .toEqual(["$1","$2","$3","$4","$5"]);
+    const ids = Array.from({length: 121},(_,i) => `creative-${String(i).padStart(3,"0")}`);
+    const batches: string[][] = [];
+    query.mockImplementation(async (text: string, params?: unknown[]) => {
+      if (text.includes("FROM business_target_pack_history")) return [targetPackRow()];
+      if (text.includes("FROM engine_v3_creative_lifecycle_daily l")) return [];
+      if (text.includes("SELECT DISTINCT creative_id FROM selected_creatives ORDER BY creative_id")) return ids.map(creative_id => ({creative_id}));
+      if (text.includes("config_authority AS (")) {
+        const batch=params?.[2] as string[]; batches.push(batch);
+        expect(params?.[3]).toBe(true);
+        expect(params?.[7]).toBe("2026-08-12T12:00:00.000Z");
+        return batch.map(id => runtimeRow(id,1));
+      }
+      return [];
+    });
+    const result=await new WarehouseDataSource("2026-08-12T12:00:00.000Z")
+      .listCreativeInputs({businessId:BUSINESS_ID,asOf:"2026-08-12"});
+    expect(batches.map(x=>x.length)).toEqual([50,50,21]);
+    expect(result.map(x=>x.creativeId).sort()).toEqual(ids);
   });
 
   it("hydrates unknown effective cohort for a 95/5 purchase and traffic mix", async () => {

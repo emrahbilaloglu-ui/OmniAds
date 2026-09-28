@@ -305,7 +305,7 @@ describe("a failed queue projection keeps the slot outstanding", () => {
 function projectionHistoryDb(rows: Record<string, unknown>[]) {
   return {
     query: vi.fn(async (query: string) => {
-      if (query.includes("SELECT DISTINCT ON (business_ref_id, job_name)")) {
+      if (query.includes("SELECT DISTINCT ON (business_ref_id, logical_job_name)")) {
         return rows;
       }
       if (query === READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL) {

@@ -34,6 +34,8 @@ import {
   READ_NATIVE_AD_CALIBRATION_BATCH_AT_CUTOFF_SQL,
   READ_NATIVE_AD_CALIBRATION_CELL_SET_PROOF_SQL,
   READ_NATIVE_AD_CALIBRATION_SOURCE_SQL,
+  READ_NATIVE_AD_CALIBRATION_SOURCE_BATCH_SQL,
+  readNativeAdCalibrationSourceRows,
   READ_NATIVE_AD_CALIBRATION_TRANSACTION_RECEIPT_SQL,
   READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL,
   adCalibrationJobAdvisoryLockKey,
@@ -277,9 +279,14 @@ function proofRows(batch: NativeAdCalibrationBatch) {
 function fakeDb(
   handler: (query: string, params?: unknown[]) => Record<string, unknown>[],
 ): DbClient {
-  const query = vi.fn(async (sql: string, params?: unknown[]) =>
-    sql === "SET LOCAL work_mem = '16MB'" ? [] : handler(sql, params),
-  );
+  const query = vi.fn(async (sql: string, params?: unknown[]) => {
+    if (sql === "SET LOCAL work_mem = '16MB'") return [];
+    if (sql === READ_NATIVE_AD_CALIBRATION_SOURCE_BATCH_SQL) {
+      return handler(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL, params?.slice(0, 5))
+        .filter((row) => String(row.date) >= String(params?.[5]) && String(row.date) <= String(params?.[6]));
+    }
+    return handler(sql, params);
+  });
   return Object.assign(vi.fn(), { query }) as unknown as DbClient;
 }
 
@@ -3896,6 +3903,16 @@ async function proveLateSourceRowIsolation(pool: Pool) {
         ],
       );
       expect(visible.rowCount).toBe(1);
+      const chunked = await readNativeAdCalibrationSourceRows({
+        query: async (query: string, params?: unknown[]) => (await client.query(query, params)).rows,
+      } as unknown as DbClient, {
+        businessId: BUSINESS_ID, asOf: nextReceipt.slice(0, 10),
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: PROVIDER_ACCOUNT_ID, computationCutoff: nextReceipt,
+      });
+      expect(chunked).toEqual(visible.rows);
+      expect(computeForReceipt(chunked.map(mapNativeAdCalibrationSourceRow), nextReceipt, null))
+        .toEqual(computeForReceipt(visible.rows.map(mapNativeAdCalibrationSourceRow), nextReceipt, null));
       expect(visible.rows[0]).toMatchObject({
         account_timezone: "UTC",
         source_account_timezone: "UTC",
@@ -6173,6 +6190,18 @@ describe.runIf(postgresAvailable)("native generation review continuity SQL", () 
     await withEphemeralPostgres(async (pool) => {
       await createEphemeralSchema(pool);
       await pool.query("ALTER TABLE engine_v3_job_runs ADD COLUMN started_at timestamptz");
+      // The generation reader's strict reuse branch references the already
+      // deployed native lineage schema even when this fixture has no reuse.
+      await pool.query(`
+        ALTER TABLE engine_v3_job_runs ADD COLUMN dependency_run_id UUID;
+        CREATE TABLE engine_v3_ad_decision_evaluations (
+          id UUID PRIMARY KEY, job_run_id UUID, contract_version TEXT
+        );
+        CREATE TABLE engine_v3_ad_decision_snapshots_daily (
+          business_ref_id UUID, business_id TEXT, as_of_date DATE,
+          engine_version TEXT, evaluation_id UUID, job_run_id UUID
+        );
+      `);
       const receipt = { provider_account_id: PROVIDER_ACCOUNT_ID, provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
         expected_ad_count: 1, hydrated_ad_count: 1, expected_manifest_hash: "a".repeat(64),
         hydrated_manifest_hash: "a".repeat(64), authoritative_for_prune: true };

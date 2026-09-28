@@ -1242,6 +1242,9 @@ export async function runLifecycleJob(
   return runDbTransaction(
     async () => {
       const db = getDb();
+      // A batched source read must see the same membership and history in
+      // every statement, including a late commit with an older capture stamp.
+      await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
       // No LLVM JIT for this job's very large lifecycle statement, the same
       // measured reason as the calibration job (316 ms vs 7.3 s per statement
       // on the production PostgreSQL build). SET LOCAL ends with the

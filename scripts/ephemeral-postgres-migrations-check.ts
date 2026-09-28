@@ -3589,6 +3589,12 @@ async function main() {
       gated tests report as skipped.
     */
     await runChildVitest(
+      repoRoot, databaseUrl,
+      path.join("lib", "creative-decision-engine", "__tests__", "jobs", "query-completion.db.test.ts"),
+      "Default planner native evidence and creative completion parity", 5,
+    );
+
+    await runChildVitest(
       repoRoot,
       databaseUrl,
       path.join(

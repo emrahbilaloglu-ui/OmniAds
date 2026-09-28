@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
+  runDbTransaction: vi.fn(async (fn: () => Promise<unknown>) => fn()),
 }));
 
 vi.mock("@/lib/db-schema-readiness", () => ({
@@ -52,7 +53,8 @@ const providerDays = ["biz_1", "biz_2"].map((business_id) => ({
 function makeDbRows(rows: Array<{ business_ref_id: string; as_of_date: string }>) {
   return {
     query: vi.fn().mockImplementation(async (sql: string) =>
-      sql.includes("FROM business_provider_accounts bpa") ? providerDays : rows),
+      sql.includes("FROM business_provider_accounts bpa") ? providerDays :
+        sql.includes("SET TRANSACTION") ? [] : rows),
   };
 }
 
@@ -214,11 +216,11 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
       new Date("2026-05-08T03:10:00.000Z"), [{ id: "biz_1", name: null }],
     );
     expect(result).toMatchObject({ skipped: true, reason: "already_ran", asOf: "2026-05-07" });
-    expect(query.mock.calls[1]?.[0]).toContain("historical_config_proof,certified_at");
-    expect(query.mock.calls[1]?.[0]).toContain("> latest_decision.evaluation_cutoff_at");
-    expect(query.mock.calls[1]?.[0]).not.toContain("decisions_finished_at");
-    expect(query.mock.calls[1]?.[0]).toContain("historical_config_authority_changed_at");
-    expect(query.mock.calls[1]?.[0]).not.toContain("creative.updated_at >");
+    expect(query.mock.calls.find(([sql]) => String(sql).includes("WITH requested"))?.[0]).toContain("historical_config_proof,certified_at");
+    expect(query.mock.calls.find(([sql]) => String(sql).includes("WITH requested"))?.[0]).toContain("> latest_decision.evaluation_cutoff_at");
+    expect(query.mock.calls.find(([sql]) => String(sql).includes("WITH requested"))?.[0]).not.toContain("decisions_finished_at");
+    expect(query.mock.calls.find(([sql]) => String(sql).includes("WITH requested"))?.[0]).toContain("historical_config_authority_changed_at");
+    expect(query.mock.calls.find(([sql]) => String(sql).includes("WITH requested"))?.[0]).not.toContain("creative.updated_at >");
     expect(calibrationJob.runCalibrationJob).not.toHaveBeenCalled();
   });
 
@@ -254,12 +256,12 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
       asOf: "2026-05-07",
       evaluationCutoffAt: "2026-05-08T05:10:00.000Z",
     });
-    expect(query.mock.calls[1]?.[0]).toContain("engine_v3_calibration_job");
-    expect(query.mock.calls[1]?.[0]).toContain("engine_v3_lifecycle_job");
-    expect(query.mock.calls[1]?.[1]).toEqual([
+    expect(query.mock.calls.find(([sql]) => String(sql).includes("WITH requested"))?.[0]).toContain("engine_v3_calibration_job");
+    expect(query.mock.calls.find(([sql]) => String(sql).includes("WITH requested"))?.[0]).toContain("engine_v3_lifecycle_job");
+    expect(query.mock.calls.find(([sql]) => String(sql).includes("WITH requested"))?.[1]).toEqual([
       "engine_v3_decisions_job",
-      ["biz_1", "biz_2"],
-      ["2026-05-07", "2026-05-07"],
+      ["biz_1"],
+      ["2026-05-07"],
       expect.any(String),
     ]);
   });
@@ -329,6 +331,7 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce(providerDays)
+      .mockResolvedValueOnce([]) // transaction isolation
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ exists: true }]);
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
@@ -360,21 +363,22 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
       asOf: "2026-05-07",
       evaluationCutoffAt: "2026-05-08T03:10:00.000Z",
     });
-    expect(query).toHaveBeenCalledTimes(3);
-    expect(query.mock.calls[2]?.[1]).toEqual([
+    expect(query).toHaveBeenCalledTimes(4);
+    expect(query.mock.calls[3]?.[1]).toEqual([
       "biz_1",
       "2026-05-07",
       expect.any(String),
       "engine_v3_calibration_job",
       "2026-05-08T03:10:00.000Z",
     ]);
-    expect(query.mock.calls[2]?.[0]).toContain(
+    expect(query.mock.calls[3]?.[0]).toContain(
       "error_json#>>'{metadata,evaluation_cutoff_at}' = $5::text",
     );
   });
 
   it("does not borrow a prior-cutoff calibration success for a repaired source retry", async () => {
     const query = vi.fn().mockResolvedValueOnce(providerDays)
+      .mockResolvedValueOnce([]) // transaction isolation
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ exists: false }]);
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
@@ -392,7 +396,7 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     );
     expect(lifecycleJob.runLifecycleJob).not.toHaveBeenCalled();
     expect(decisionsJob.runDecisionsJob).not.toHaveBeenCalled();
-    expect(query.mock.calls[2]?.[1]?.[4]).toBe("2026-05-08T03:10:00.000Z");
+    expect(query.mock.calls[3]?.[1]?.[4]).toBe("2026-05-08T03:10:00.000Z");
   });
 
   it("skips decisions for a business when lifecycle fails but continues the batch", async () => {
@@ -431,6 +435,7 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce(providerDays)
+      .mockResolvedValueOnce([]) // transaction isolation
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ exists: true }]);
     vi.mocked(db.getDb).mockReturnValue({ query } as never);
@@ -456,8 +461,8 @@ describe("runEngineV3ProducerChainForActiveBusinessesIfDue", () => {
       asOf: "2026-05-07",
       evaluationCutoffAt: "2026-05-08T03:10:00.000Z",
     });
-    expect(query).toHaveBeenCalledTimes(3);
-    expect(query.mock.calls[2]?.[1]).toEqual([
+    expect(query).toHaveBeenCalledTimes(4);
+    expect(query.mock.calls[3]?.[1]).toEqual([
       "biz_1",
       "2026-05-07",
       expect.any(String),

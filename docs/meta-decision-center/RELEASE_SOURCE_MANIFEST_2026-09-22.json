@@ -1,5 +1,5 @@
 {
-  "manifestHash": "c8c9aeaa145dba81953874c3cc1f79bd6238045ff7658b15c277f7d219386ee9",
+  "manifestHash": "d711155e3de0599d6b0eae06961943468f1551758ffd23166d3872e8c488c072",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -728,11 +728,11 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "53e6cf8333c9cea031b83f64d7e7f959d59e565e9ab02b54704ed89dd7bd6507"
+      "sha256": "bfcfca36459791107486f521a8758c6883da4b4514cbd39d931fd4ae3e6fbe14"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
-      "sha256": "0a33e9fe67ed4b0e93fee4c2c8a97bce2de1b1e656efd6db9e6f7067bd555dfa"
+      "sha256": "b4744d0e7b2ac161efc6f7ae5467d7a4d26b1f519ddd82c74483070bb21d2987"
     },
     {
       "path": "docs/creative-decision-center/INVARIANTS.md",
@@ -740,7 +740,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "5d0bc33c6a34c6c26bbff4460f808c02e21e1d24699c48cf5cdf5009b65ff42e"
+      "sha256": "886902737e46a2f380bdadeb62eae8405128d678c2cf697f0b08f35c24762b76"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -1071,8 +1071,12 @@
       "sha256": "64e725ebfa1ff772ebe7029950d89ab5a55ec913e1e2835417c383e01e4af6c6"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/jobs/query-completion.db.test.ts",
+      "sha256": "82b813fc86413b60fc8c84d462d3a6afb4adde0c7a9aac01022e8fd9ee5db31e"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/jobs/scheduled-producer-chain.test.ts",
-      "sha256": "7ad8537470eba56537f9008c12775ea2186f07f5d04523592442e34907ee825f"
+      "sha256": "21b1d22e04d89c1d0e728a65085eb3ff3ea21e4c9b0c290330d16335d2004130"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/jobs/verdict-execution-separation.test.ts",
@@ -1176,7 +1180,7 @@
     },
     {
       "path": "lib/creative-decision-engine/evaluation-store.ts",
-      "sha256": "088750f9c536179ae7655ea548b0dc6281b019657f4f1ee3a8b7f858b84304ee"
+      "sha256": "adfab3cbfcf9a93f36a43cf5e50089026b3f0a0270aaca8ec9edff2f37bf12a4"
     },
     {
       "path": "lib/creative-decision-engine/execution-safety.ts",
@@ -1255,6 +1259,10 @@
       "sha256": "93e2b4d64f110cb4782ae7c54e2387e5b34f82f9d4a3a6ff9639aaeca2f8e2ce"
     },
     {
+      "path": "lib/creative-decision-engine/jobs/creative-producer-completion.ts",
+      "sha256": "8f3559adcee46a73357652c6fbd7ca5fa5158b46a011fedc5fdd1c10f16e87f4"
+    },
+    {
       "path": "lib/creative-decision-engine/jobs/decision-outcomes-job.ts",
       "sha256": "9dbc34df4ae71af2ee47319950c77f123030abc402ffcf1bee195b6efd7fd8f5"
     },
@@ -1280,7 +1288,7 @@
     },
     {
       "path": "lib/creative-decision-engine/jobs/scheduled.ts",
-      "sha256": "699f03bd2a3683366a46651d19a2c35bca63aa37996f0517339cd640ff3f91d6"
+      "sha256": "7636d03e8023e4e28a03278e9b8eb3a781339719355db75fdc9d3abedff25038"
     },
     {
       "path": "lib/creative-decision-engine/lifecycle-materialization.ts",
@@ -2428,7 +2436,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "a98a1acedaaf94fa65db822ed3531ea5a7a52541a94b969fa834b8fa17eaa151"
+      "sha256": "c385de3150394c09815f561f57135093e1c56d3960c35bec79e8f1e1293777f8"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

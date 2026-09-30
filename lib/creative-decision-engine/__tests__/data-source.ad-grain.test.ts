@@ -209,9 +209,22 @@ function warehouseWithRows(input: {
   hydration: Array<Record<string, unknown>>;
   states?: Array<Record<string, unknown>>;
 }) {
-  mocks.query.mockImplementation(async (query: string) => {
+  mocks.query.mockImplementation(async (query: string, params?: unknown[]) => {
     if (query.includes("ad-decision-present-state-seeds")) return [];
     if (query.includes("ad-decision-hydration-receipts")) return [];
+    if (query.includes("native-ad-candidate-identities")) {
+      const requestedAccounts = params?.[2] as string[];
+      return input.hydration
+        .filter(
+          (row) =>
+            params?.[3] !== true ||
+            requestedAccounts.includes(String(row.provider_account_id)),
+        )
+        .map((row) => ({
+          provider_account_id: row.provider_account_id,
+          ad_id: row.ad_id,
+        }));
+    }
     if (query.includes("ad-decision-hydration")) return input.hydration;
     if (query.includes("ad-decision-state-asof")) return input.states ?? [];
     throw new Error(
@@ -341,6 +354,9 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
       async (query: string, params?: unknown[]) => {
         if (query.includes("ad-decision-present-state-seeds")) return [];
         if (query.includes("ad-decision-hydration-receipts")) return [];
+        if (query.includes("native-ad-candidate-identities")) {
+          return [{ provider_account_id: "act_account_1", ad_id: "ad-1" }];
+        }
         if (query.includes("ad-decision-hydration")) {
           return [
             hydrationRow({ provider_account_ref_id: firstRef }),
@@ -830,6 +846,9 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
           }),
         ];
       }
+      if (query.includes("native-ad-candidate-identities")) {
+        return [{ provider_account_id: "act_account_1", ad_id: "ad-1" }];
+      }
       if (query.includes("ad-decision-hydration")) return [hydrationRow()];
       if (query.includes("ad-decision-state-asof")) return [];
       return [];
@@ -851,12 +870,118 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
     });
   });
 
+  it("bounds incomplete-receipt fallback without losing its diagnostic ad identities", async () => {
+    const adIds = Array.from({ length: 224 }, (_, index) =>
+      `ad-${String(index + 1).padStart(3, "0")}`,
+    );
+    const hydrationBatches: string[][] = [];
+    mocks.query.mockImplementation(async (query: string, params?: unknown[]) => {
+      if (query.includes("ad-decision-hydration-receipts")) {
+        return [receiptRow([], { source_run_id: null })];
+      }
+      if (query.includes("native-ad-candidate-identities")) {
+        return adIds.map((adId) => ({
+          provider_account_id: "act_account_1",
+          ad_id: adId,
+        }));
+      }
+      if (query.includes("ad-decision-hydration")) {
+        const batch = params?.[4] as string[];
+        if (!params?.[5] || batch.length > NATIVE_AD_DB_BATCH_SIZE) {
+          throw new Error("unbounded hydration query refused by regression seam");
+        }
+        hydrationBatches.push(batch);
+        return batch.map((adId) => hydrationRow({ ad_id: adId }));
+      }
+      if (query.includes("ad-decision-state-asof")) return [];
+      throw new Error(`Unexpected query: ${query.slice(0, 80)}`);
+    });
+    const warehouse = new WarehouseDataSource();
+    vi.spyOn(warehouse, "getBusinessTargetPack").mockResolvedValue(null);
+
+    const result = await warehouse.hydrateAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: HISTORICAL_AS_OF,
+      decisionCutoff: HISTORICAL_CUTOFF,
+    });
+
+    expect(hydrationBatches.map((batch) => batch.length)).toEqual([
+      50, 50, 50, 50, 24,
+    ]);
+    expect(result.inputs.map((ad) => ad.adId).sort()).toEqual(adIds);
+    expect(result.accountCoverageComplete).toBe(false);
+    expect(result.receipts[0]).toMatchObject({
+      sourceComplete: false,
+      authoritativeForPrune: false,
+    });
+  });
+
+  it("bounds no-receipt fallback by account even when external ad IDs overlap", async () => {
+    const firstIds = Array.from({ length: 51 }, (_, index) =>
+      `ad-${String(index + 1).padStart(3, "0")}`,
+    );
+    const batches: Array<{ account: string; length: number }> = [];
+    mocks.query.mockImplementation(async (query: string, params?: unknown[]) => {
+      if (query.includes("ad-decision-hydration-receipts")) return [];
+      if (query.includes("native-ad-candidate-identities")) {
+        return [
+          ...firstIds.map((adId) => ({
+            provider_account_id: "act_account_1",
+            ad_id: adId,
+          })),
+          { provider_account_id: "act_account_2", ad_id: firstIds[0] },
+        ];
+      }
+      if (query.includes("ad-decision-hydration")) {
+        const account = (params?.[2] as string[])?.[0];
+        const ids = params?.[4] as string[];
+        if (params?.[5] !== true || ids.length > 50 || !account) {
+          throw new Error("no-receipt hydration escaped its account/identity bound");
+        }
+        batches.push({ account, length: ids.length });
+        return ids.map((adId) =>
+          hydrationRow({
+            provider_account_id: account,
+            provider_account_ref_id:
+              account === "act_account_1"
+                ? "00000000-0000-4000-8000-000000000711"
+                : "00000000-0000-4000-8000-000000000712",
+            ad_id: adId,
+          }),
+        );
+      }
+      if (query.includes("ad-decision-state-asof")) return [];
+      throw new Error(`Unexpected query: ${query.slice(0, 80)}`);
+    });
+    const warehouse = new WarehouseDataSource();
+    vi.spyOn(warehouse, "getBusinessTargetPack").mockResolvedValue(null);
+
+    const result = await warehouse.hydrateAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: HISTORICAL_AS_OF,
+      decisionCutoff: HISTORICAL_CUTOFF,
+    });
+
+    expect(batches).toEqual([
+      { account: "act_account_1", length: 50 },
+      { account: "act_account_1", length: 1 },
+      { account: "act_account_2", length: 1 },
+    ]);
+    expect(result.inputs).toHaveLength(52);
+    expect(result.inputs.filter((row) => row.providerAccountId === "act_account_2"))
+      .toHaveLength(1);
+    expect(result.accountCoverageComplete).toBe(false);
+  });
+
   it.each(["source_observed_at", "source_captured_at"])(
     "fails source completeness closed when %s is missing",
     async (missingTimestamp) => {
       mocks.query.mockImplementation(async (query: string) => {
         if (query.includes("ad-decision-hydration-receipts")) {
           return [receiptRow(["ad-1"], { [missingTimestamp]: null })];
+        }
+        if (query.includes("native-ad-candidate-identities")) {
+          return [{ provider_account_id: "act_account_1", ad_id: "ad-1" }];
         }
         if (query.includes("ad-decision-present-state-seeds")) return [];
         if (query.includes("ad-decision-hydration")) return [hydrationRow()];
@@ -910,6 +1035,11 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
       async (query: string, params?: unknown[]) => {
         if (query.includes("ad-decision-present-state-seeds")) return [];
         if (query.includes("ad-decision-hydration-receipts")) return [];
+        if (query.includes("native-ad-candidate-identities")) {
+          return params?.[5] === true
+            ? [{ provider_account_id: "act_account_1", ad_id: "ad-dimension-only" }]
+            : [];
+        }
         if (query.includes("ad-decision-hydration")) {
           if (params?.[11] !== true) return [];
           return [
@@ -970,6 +1100,11 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
     mocks.query.mockImplementation(
       async (query: string, params?: unknown[]) => {
         if (query.includes("ad-decision-hydration-receipts")) return [];
+        if (query.includes("native-ad-candidate-identities")) {
+          return params?.[5] === true
+            ? [{ provider_account_id: "act_account_1", ad_id: "ad-dimension-only" }]
+            : [];
+        }
         if (query.includes("ad-decision-hydration: native")) {
           return params?.[11] === true
             ? [hydrationRow({ ad_id: "ad-dimension-only" })]
@@ -990,10 +1125,15 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
         decisionCutoff: HISTORICAL_CUTOFF,
       }),
     ).resolves.toEqual([]);
-    const hydrationCall = mocks.query.mock.calls.find(([query]) =>
-      String(query).includes("ad-decision-hydration: native"),
+    const candidateCall = mocks.query.mock.calls.find(([query]) =>
+      String(query).includes("native-ad-candidate-identities"),
     );
-    expect(hydrationCall?.[1]?.[11]).toBe(false);
+    expect(candidateCall?.[1]?.[5]).toBe(false);
+    expect(
+      mocks.query.mock.calls.some(([query]) =>
+        String(query).includes("ad-decision-hydration: native"),
+      ),
+    ).toBe(false);
   });
 
   it("rejects duplicate final business/account/ad identities", async () => {

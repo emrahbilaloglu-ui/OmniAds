@@ -18,6 +18,7 @@ import { NATIVE_AD_DB_BATCH_SIZE } from "@/lib/creative-decision-engine/batching
 import {
   AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
   HYDRATE_AD_DECISION_INPUTS_QUERY,
+  READ_AD_HYDRATION_CANDIDATE_IDENTITIES_QUERY,
   READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
   READ_AD_ENTITY_STATE_AS_OF_QUERY,
   WarehouseDataSource,
@@ -3193,6 +3194,96 @@ async function verifyTombstoneAndHistoricalCutoff(client: Client) {
      ) VALUES ($1, $2, 'creative-current', 'Current creative', 'video',
        '2026-06-01', '2026-07-10T02:00:00Z')`,
     [BUSINESS_ID, ACCOUNT_ID],
+  );
+  const candidateSeeds = JSON.stringify([{
+    business_id: BUSINESS_ID,
+    provider_account_ref_id: ACCOUNT_REF_ID,
+    provider_account_id: ACCOUNT_ID,
+    ad_id: "ad-state-only",
+    campaign_id: "campaign-current",
+    adset_id: "adset-current",
+    creative_id: "creative-current",
+    captured_at: "2026-07-10T02:00:00.000Z",
+  }]);
+  const candidateRows = await client.query<{
+    provider_account_id: string;
+    ad_id: string;
+  }>(READ_AD_HYDRATION_CANDIDATE_IDENTITIES_QUERY, [
+    BUSINESS_ID,
+    "2026-07-10",
+    [ACCOUNT_ID],
+    true,
+    CUTOFF,
+    false,
+    candidateSeeds,
+  ]);
+  assert(
+    candidateRows.rows.some((row) => row.provider_account_id === ACCOUNT_ID && row.ad_id === "ad-historical") &&
+      candidateRows.rows.some((row) => row.provider_account_id === ACCOUNT_ID && row.ad_id === "ad-state-only"),
+    "Bounded hydration candidate read lost metric or present-state identities.",
+  );
+  const unrelatedAccountCandidates = await client.query(
+    READ_AD_HYDRATION_CANDIDATE_IDENTITIES_QUERY,
+    [BUSINESS_ID, "2026-07-10", ["act_unassigned"], true, CUTOFF, false, "[]"],
+  );
+  assert(
+    unrelatedAccountCandidates.rows.length === 0,
+    "Bounded hydration candidate read crossed the selected account scope.",
+  );
+  const hydrationBaseParams = [
+    BUSINESS_ID, "2026-07-10", [ACCOUNT_ID], true,
+    [] as string[], false, 2, 1.5,
+    "2026-07-10T02:00:00.000Z", "legacy-creative-engine",
+    CUTOFF, false, candidateSeeds,
+  ];
+  const unboundedHydration = await client.query<{
+    provider_account_id: string;
+    ad_id: string;
+    metric_row_count: number;
+    spend: number | null;
+  }>(HYDRATE_AD_DECISION_INPUTS_QUERY, hydrationBaseParams);
+  const boundedHydration = await client.query<{
+    provider_account_id: string;
+    ad_id: string;
+    metric_row_count: number;
+    spend: number | null;
+  }>(HYDRATE_AD_DECISION_INPUTS_QUERY, [
+    ...hydrationBaseParams.slice(0, 4),
+    candidateRows.rows.map((row) => row.ad_id), true,
+    ...hydrationBaseParams.slice(6),
+  ]);
+  const comparable = (rows: typeof unboundedHydration.rows) =>
+    rows.map((row) => ({
+      account: row.provider_account_id,
+      adId: row.ad_id,
+      metricRows: row.metric_row_count,
+      spend: row.spend,
+    })).sort((left, right) => left.adId.localeCompare(right.adId));
+  assert(
+    JSON.stringify(comparable(unboundedHydration.rows)) ===
+      JSON.stringify(comparable(boundedHydration.rows)),
+    "Candidate discovery plus bounded hydration changed PostgreSQL evidence rows.",
+  );
+  await client.query(
+    `INSERT INTO meta_ad_daily (
+       business_id, business_ref_id, provider_account_id,
+       provider_account_ref_id, date, ad_id, ad_name_current,
+       account_timezone, account_currency, truth_state, validation_status,
+       spend, conversions, revenue, impressions, link_clicks, clicks, reach,
+       created_at, updated_at
+     ) VALUES ($1::text, $1::uuid, $2, $3::uuid,
+       '2026-07-10', 'ad-after-cutoff', 'Late fact',
+       'Europe/Istanbul', 'USD', 'finalized', 'passed', 1, 0, 0,
+       10, 1, 1, 10, '2026-07-12T04:00:00Z', '2026-07-12T04:00:00Z')`,
+    [BUSINESS_ID, ACCOUNT_ID, ACCOUNT_REF_ID],
+  );
+  const cutoffCandidates = await client.query<{ ad_id: string }>(
+    READ_AD_HYDRATION_CANDIDATE_IDENTITIES_QUERY,
+    [BUSINESS_ID, "2026-07-10", [ACCOUNT_ID], true, CUTOFF, false, "[]"],
+  );
+  assert(
+    !cutoffCandidates.rows.some((row) => row.ad_id === "ad-after-cutoff"),
+    "Candidate discovery admitted a fact first known after the decision cutoff.",
   );
   const historical = await client.query<{
     creative_id: string | null;

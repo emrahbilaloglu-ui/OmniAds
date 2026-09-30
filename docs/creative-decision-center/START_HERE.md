@@ -8,6 +8,9 @@ for the two SQL access-plan corrections found during natural acceptance.
 They preserve decision formulas, epochs and provider authority. Its local or
 read-only query receipts do not establish a production release or positive
 provider authority.
+For strict reuse acceptance and offline archive preparation, also read
+[D132](DECISION_LOG.md#d132--strict-reuse-acceptance-and-offline-native-archive-preparation-2026-09-30).
+This preparation does not switch production readers or authorize eviction.
 
 The H5 release also includes [D096](DECISION_LOG.md#d096--additive-receipt-attempts-preserve-deployed-image-rollback-2026-09-09)
 and the [receipt rollback and index-maintenance contract](../architecture/meta-receipt-additive-rollback.md).

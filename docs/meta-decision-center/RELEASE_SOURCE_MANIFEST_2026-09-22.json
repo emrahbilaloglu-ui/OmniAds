@@ -1,5 +1,5 @@
 {
-  "manifestHash": "8e0c5b2741c09216076ccc667de3844094fd9fa884f18152ae8cbb9350632fc0",
+  "manifestHash": "eaa9fb5cf70b2161fc705a01c6ce7a3558486a7d9dacb29b6381230959dedf74",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -703,6 +703,10 @@
       "sha256": "4887ab18ce8225ca900e45aa908a58523e82c82f6bfbafbb8d462190e121bceb"
     },
     {
+      "path": "docs/architecture/native-evidence-archive-contract.md",
+      "sha256": "243153e79bd6bdce4e513595bf62b3210fcee8e0b97bfff5eb002efd6dd4dcdc"
+    },
+    {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
       "sha256": "8582986fd5e931243c379b53f0eb7d24387c67ce940303477c4fb711b933b09a"
     },
@@ -728,7 +732,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "371e14584fd092119c590fb96ca647c93441c484cd75c9f716aba731ec09db8c"
+      "sha256": "21fe1c9afbabfb07cb6e00fab6cbc078b99b483281990b2cf56b350757c9f65b"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -740,7 +744,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "886902737e46a2f380bdadeb62eae8405128d678c2cf697f0b08f35c24762b76"
+      "sha256": "2941053ce0cf0326630e7f9562fdd886bbd5ea25be1b05e7109ccb2d95938bdc"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -856,7 +860,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/canonical-evaluation.test.ts",
-      "sha256": "4fdee2d409dac5fe3c1e2384ccaca1e60eda00d74a46cd67ccc465a3d53e32c6"
+      "sha256": "34ce689cf02d9899f5f82bb74f5612758632e979bcee7a63972db905736d028f"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/commercial-stop-loss-cut-isolation.test.ts",
@@ -1091,6 +1095,10 @@
       "sha256": "e46beb9942b84b453ae1f1460dae74d7ebb3a2ef3fc6005e068177e34a63be4a"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-evidence-archive.test.ts",
+      "sha256": "b0c31a6012bfc25a0787f58060b6b8a70c60b69bc986c544dde696423de86432"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/native-manual-cut-advisory.test.ts",
       "sha256": "eb6ee86481b0cdfbe624efdba5d8a4056c4653e4c1731199248b7a701b81a874"
     },
@@ -1321,6 +1329,10 @@
     {
       "path": "lib/creative-decision-engine/native-ad-hydration-authority.ts",
       "sha256": "dc56014f2a61774ed6c66ffc1812dfbb818b9082f23861a0c38af3e4e403ff1d"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-evidence-archive.ts",
+      "sha256": "a17733fc9bbb08cad6047fb7fc2924c782b210b6347fe411aee9c3c9e9a475a2"
     },
     {
       "path": "lib/creative-decision-engine/native-manual-cut-advisory.ts",
@@ -2448,7 +2460,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
-      "sha256": "1b16e0a9eb95f214106ef19bbd8233df58ae84a68207740918b99170a54c8566"
+      "sha256": "3543d021f9bbcef78938b517dd551854daaa34759b51bc218b961a2a7face959"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
@@ -2541,6 +2553,10 @@
     {
       "path": "scripts/meta/runtime-evidence/seed.ts",
       "sha256": "ae0c4710a7fbf7d393952649ecfbce4f66832072fa8b2cec6a40e560c9c42d0b"
+    },
+    {
+      "path": "scripts/native-evidence-archive-seam.ts",
+      "sha256": "4212a0b6e5d3186526e59a6988863f03fd6a001cc64fa9167f903ca899929dc4"
     },
     {
       "path": "scripts/native-proposal-lifecycle-fixtures.ts",

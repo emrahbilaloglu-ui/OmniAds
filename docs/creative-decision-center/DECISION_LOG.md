@@ -11844,3 +11844,63 @@ reclaim or sustainable-capacity claim follows from this preparation.
 See [the archive/restore and content-addressed payload contract](../architecture/native-evidence-archive-contract.md)
 for the remaining physical and permission gates. Rollback of this local phase is
 reverting the offline module/tests/docs; live tables and readers are untouched.
+
+## D133 — Superseded native history, scoped pin census and reclaim preparation (2026-09-30)
+
+**Review finding.** D132's complete last-served core cannot represent superseded
+same-day generations because mutable daily cells now point to a later job.
+Completing its source gates did not complete all authorized safe local storage
+preparation. Add the separate historical transport, bounded pin diagnostics and
+concrete physical planning before asking for a new live mutation scope.
+
+**Contract.** Preserve the original v1 complete-serving format. A separate
+`native-superseded-generation-core-archive.v1` requires successful original
+job/evaluation count equality, exact contexts/shared input evidence, ZERO current
+daily snapshots, trusted schema/manifest digests and the same captured pin census.
+It preserves original IDs, bytes, clocks and hashes. Known pins may remain in a
+historical COPY but independently veto any supported-scope removal candidate.
+Unknown references refuse that transport. No old mutable snapshot is fabricated.
+Both historical readers and the pin assessment always return reclaimEligible=false;
+the historical view grants no provider authority.
+
+**Pin reader.** An offline SELECT-only helper requires a read-only repeatable-read
+transaction and positive per-statement SQL timeout at most7500ms. It binds one
+original generation, exact decimal counts, age and catalog digest; separate
+statements count nine declared FK/non-FK classes without correlated per-evaluation
+CTEs. Every non-internal incoming catalog FK has an exact composite-key count,
+including unclassified/cross-schema ZERO edges. Positive unclassified edges,
+missing required schema and declared unknown non-FK readers refuse. All four
+operator/controlled action evaluation/snapshot lineage columns are counted. An empty declared fixture
+registry is not proof of all production JSON or transitive readers. Counts are
+reference memberships, not unique reclaimable rows/bytes. Per-statement cancellation
+is not a total transaction, acquisition or production throughput guarantee.
+
+**Local proof and limits.** The actual isolated native producer publishes same-day
+generations; a superseded501-evaluation original has no current snapshots. Its
+serialized/trusted-read restore preserves all five core tables and twelve outgoing
+FK DDL/key bytes with copied sandbox parents. Real retained reuse/shared-evidence
+pins veto removal. Separate sensitivity fixtures insert each of nine pin classes,
+unknown references and a7500ms57014 cancellation. A separate owned database
+runs the actual production migration entrypoint, then schema fixtures exercise
+measured calibration/outcome-run ZERO FKs, all nine positive pin classes, both
+action lineage families, and actual episode/assignment foreign-evaluation INSERT
+rejection. Pin-free and known-pin zero-snapshot copies retain trusted bytes;
+known pins independently veto removal. Snapshot-dependent classes require their
+snapshot prerequisite. These are local guards, not a
+production census, independent parent closure, incoming migration, reader switch,
+full DR or natural positive reuse witness. D129 canonical clocks/epochs/formulas
+and provider execution authority are unchanged.
+
+**Physical scope.** The retained161GiB refusal is preserved. The planning document
+compares partition migration/detach, pg_repack, VACUUM FULL, a separately justified
+concurrent index rebuild and resource expansion with copy/scratch/locks/readback
+and recovery gates. Physical free minus its floor is not a logical budget ceiling;
+standard VACUUM's possible tail truncation is not promised relief. Prior measured
+index shrink is not new maintenance permission or sustained growth proof. No live
+archive/upload/eviction/reclaim, production reader import, maintenance, extra
+budget, resource or deployment is enabled. External target, complete parent/pin
+closure and compatible production readers remain OPEN. Revert these offline
+helpers/tests/docs to roll back this phase; live data and paths remain unchanged.
+
+See [the pin and reclaim preparation](../architecture/native-archive-pin-reclaim-preparation.md)
+for the explicit next source, operational and permission gates.

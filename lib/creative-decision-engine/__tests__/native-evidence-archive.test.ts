@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { stableCanonicalJson } from "../canonical-evaluation";
 import { buildNativeEvidenceArchive, openNativeEvidenceArchive, NATIVE_ARCHIVE_TABLES,
+  buildNativeSupersededEvidenceArchive, openNativeSupersededEvidenceArchive,
   type NativeArchiveBundle, type NativeArchiveTableInput } from "../native-evidence-archive";
+import { assessNativeArchivePins, NATIVE_PIN_CLASSES, type NativeArchivePinCensus } from "../native-archive-pin-census";
 
 const businessId = "00000000-0000-4000-8000-000000000001";
 const jobRunId = "00000000-0000-4000-8000-000000000002";
@@ -15,7 +17,8 @@ const evaluation = { ...common, id: "evaluation", context_id: "context", contrac
   input_hash: "a".repeat(64), decision_hash: "b".repeat(64), decision_entity_type: "ad", decision_entity_id: "ad_1", ad_id: "ad_1" };
 function fixture() {
   const rowByTable = [
-    { ...common, id: jobRunId, job_name: "engine_v3_native_ad_decisions_shadow_job", status: "success", row_count: 1 },
+    { ...common, id: jobRunId, job_name: "engine_v3_native_ad_decisions_shadow_job", status: "success", row_count: 1,
+      finished_at: "2026-09-30T03:00:00Z" },
     context, evaluation,
     { contract_version: "fixture-v1", input_hash: evaluation.input_hash, input_evidence_json: { purchase: "verified" } },
     { ...common, id: "snapshot", evaluation_id: evaluation.id,
@@ -104,5 +107,58 @@ describe("offline native core archive", () => {
       expect(() => buildNativeEvidenceArchive({ generation, capturedAt: f.bundle.manifest.capturedAt,
         sourceRevision: f.bundle.manifest.sourceRevision, sourceWorkspaceDirty: f.bundle.manifest.sourceWorkspaceDirty, schema: f.bundle.manifest.schema, tables })).toThrow(/foreign generation row/);
     }
+  });
+});
+
+function supersededInput() {
+  const f = fixture();
+  const pinCensus: NativeArchivePinCensus = {
+    contract: "bounded-native-pin-census.v1", coverage: "catalog_incoming_and_declared_non_fk",
+    generation, observedAt: f.bundle.manifest.capturedAt, jobFinishedAt: "2026-09-30T03:00:00Z",
+    jobRowCount: "1", evaluationCount: "1", catalogHash: "c".repeat(64), reclaimEligible: false,
+    counts: NATIVE_PIN_CLASSES.map(pinClass => ({ pinClass, count: "0" })), foreignKeyReferences: [], unknownReferences: [],
+  };
+  return { generation, capturedAt: f.bundle.manifest.capturedAt, sourceRevision: f.bundle.manifest.sourceRevision,
+    sourceWorkspaceDirty: false, schema: f.bundle.manifest.schema, pinCensus,
+    tables: NATIVE_ARCHIVE_TABLES.map(table => ({ table, rowJson: table === "engine_v3_ad_decision_snapshots_daily" ? [] :
+      f.bundle.manifest.tables.find(t => t.table === table)!.rows.map(r => f.bundle.objects[r.objectHash]!) })) };
+}
+describe("superseded historical archive boundary", () => {
+  it("preserves a complete original generation without fabricating old serving snapshots", () => {
+    const input = supersededInput(), f = buildNativeSupersededEvidenceArchive(input);
+    const reader = openNativeSupersededEvidenceArchive(f.bundle, trusted(f));
+    expect(reader.readTable("engine_v3_ad_decision_snapshots_daily")).toEqual([]);
+    expect(reader.readTable("engine_v3_ad_decision_evaluations")).toHaveLength(1);
+    expect(reader).toMatchObject({ providerAuthority: false, reclaimEligible: false, originalJobRunId: jobRunId });
+    expect(() => openNativeEvidenceArchive(f.bundle, trusted(f))).toThrow(/contract mismatch/);
+  });
+  it("refuses still-serving, unknown-inventory and changed-clock copies", () => {
+    for (const change of ["snapshot_pin", "unknown", "clock", "finish_clock", "precision_clock", "count"]) {
+      const input = supersededInput();
+      if (change === "snapshot_pin") input.pinCensus.counts[0]!.count = "1";
+      else if (change === "unknown") input.pinCensus.unknownReferences = ["new_proposal_reader"];
+      else if (change === "clock") input.pinCensus.observedAt = "2026-09-30T04:01:00Z";
+      else if (change === "finish_clock") input.pinCensus.jobFinishedAt = "2026-09-30T03:01:00Z";
+      else if (change === "precision_clock") input.pinCensus.jobFinishedAt = "2026-09-30T03:00:00.000001Z";
+      else input.pinCensus.evaluationCount = "2";
+      expect(() => buildNativeSupersededEvidenceArchive(input)).toThrow(/refused/);
+    }
+  });
+  it("historical copying retains pins; each pin independently vetoes a removal candidate", () => {
+    for (const pinClass of NATIVE_PIN_CLASSES.filter(c => c !== "snapshots")) {
+      const input = supersededInput();
+      input.pinCensus.counts.find(c => c.pinClass === pinClass)!.count = "1";
+      expect(assessNativeArchivePins(input.pinCensus, generation)).toMatchObject({ candidateWithinSupportedScope: false, reason: "live_pins", reclaimEligible: false });
+      const f = buildNativeSupersededEvidenceArchive(input);
+      expect(openNativeSupersededEvidenceArchive(f.bundle, trusted(f)).reclaimEligible).toBe(false);
+    }
+  });
+  it("refuses corrupt content and cross-contract authority even with a resigned manifest", () => {
+    const input = supersededInput(), f = buildNativeSupersededEvidenceArchive(input);
+    f.bundle.objects[Object.keys(f.bundle.objects)[0]!] += " ";
+    expect(() => openNativeSupersededEvidenceArchive(f.bundle, trusted(f))).toThrow(/corrupt/);
+    const valid = buildNativeSupersededEvidenceArchive(supersededInput());
+    Object.assign(valid.bundle.manifest, { reclaimEligible: true });
+    expect(() => openNativeSupersededEvidenceArchive(valid.bundle, resign(valid.bundle))).toThrow(/authority/);
   });
 });

@@ -132,6 +132,21 @@ async function main() {
     await admin.query(`GRANT CONNECT ON DATABASE ${DB} TO ${APP_ROLE}`);
     await admin.query(`GRANT USAGE ON SCHEMA public TO ${APP_ROLE}`);
     await admin.query(`CREATE TABLE public.census_probe (id int PRIMARY KEY, payload text)`);
+    await admin.query(`CREATE TABLE public.system_capacity_snapshots (
+      id bigserial PRIMARY KEY,
+      source text NOT NULL,
+      hostname text,
+      payload jsonb NOT NULL,
+      sampled_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`);
+    await admin.query(`INSERT INTO public.system_capacity_snapshots
+      (source, hostname, sampled_at, payload)
+      VALUES ('db_host_healthcheck','db-host', now() - interval '1 minute',
+        jsonb_build_object('disks', jsonb_build_array(jsonb_build_object(
+          'path','/var/lib/postgresql','mountedOn','/var/lib/postgresql',
+          'filesystem','/dev/db-test','totalBytes',1000,
+          'usedBytes',400,'availableBytes',600))))`);
     await admin.query(
       `INSERT INTO public.census_probe SELECT g, repeat('x', 200) FROM generate_series(1, 500) g`,
     );
@@ -167,6 +182,7 @@ async function main() {
       readRelationCensus,
       readBloatSignals,
       readExactCount,
+      readVolumeSample,
       parseTop,
       parseExactTable,
     } = await import("@/lib/db-growth-census");
@@ -258,7 +274,30 @@ async function main() {
     assert(!missing.available, "P7: a nonexistent relation reported a count");
     console.log(`${LABEL} P7 OK — --table refuses unsafe names and is pinned to public, not search_path`);
 
-    console.log(`${LABEL} PASS — P1-P7`);
+    // ---- P8: the actual sampled_at schema remains readable ----------------
+    // A decoy schema precedes public after P7. Physical capacity evidence
+    // must still come from the public table and its real timestamp column.
+    await admin.query(`CREATE TABLE decoy.system_capacity_snapshots (
+      id bigserial PRIMARY KEY, source text, sampled_at timestamptz, payload jsonb
+    )`);
+    await admin.query(`INSERT INTO decoy.system_capacity_snapshots
+      (source, sampled_at, payload)
+      VALUES ('db_host_healthcheck', now(),
+        jsonb_build_object('disks', jsonb_build_array(jsonb_build_object(
+          'path','/var/lib/postgresql','mountedOn','/var/lib/postgresql',
+          'filesystem','/dev/decoy','totalBytes',10,
+          'usedBytes',1,'availableBytes',9))))`);
+    await admin.query(`GRANT SELECT ON decoy.system_capacity_snapshots TO ${APP_ROLE}`);
+    resetDbClientCache();
+    const volume = await readVolumeSample();
+    assert(volume.available, `P8: volume unavailable: ${volume.available ? '' : volume.reason}`);
+    assert(volume.value.length === 1, `P8: expected one public sample, got ${volume.value.length}`);
+    assert(volume.value[0].filesystem === '/dev/db-test', 'P8: decoy or malformed disk read');
+    assert(volume.value[0].available_bytes === '600', 'P8: wrong available bytes');
+    assert(Number(volume.value[0].age_seconds) >= 0, 'P8: negative sample age');
+    console.log(`${LABEL} P8 OK — real sampled_at physical sample readable under least privilege and public schema`);
+
+    console.log(`${LABEL} PASS — P1-P8`);
   } catch (error) {
     if (fs.existsSync(logFile)) {
       console.error(

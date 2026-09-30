@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d711155e3de0599d6b0eae06961943468f1551758ffd23166d3872e8c488c072",
+  "manifestHash": "afd51bedd59df1d091d4a5c5dd2a1cd80b93e6ba6c50ddcb8ae9b41ca57e552a",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1367,6 +1367,10 @@
       "sha256": "c5b9bc012ba58611f914a2793c002ac1ca2d96a80ec942f499c39da8dab9e773"
     },
     {
+      "path": "lib/db-growth-census.ts",
+      "sha256": "eea6f4413403a6ae7c4ac0f1ade043d34d09a34306a0e7cdaa528365c82f15b9"
+    },
+    {
       "path": "lib/db-jit-scope.ts",
       "sha256": "b732956e0c3eb53c078852b8079b8f6d45bb4fc65af81e7a6428e100cde05788"
     },
@@ -2405,6 +2409,10 @@
     {
       "path": "scripts/engine-v3-decision-outcomes.ts",
       "sha256": "ae9f64d1d74ad0c51d4fedb9cc249190dc269af98349184b87c13d57df6ab4db"
+    },
+    {
+      "path": "scripts/ephemeral-postgres-census-least-privilege-seam.ts",
+      "sha256": "c6d5f7e63e57c588079c5e129f0b8462a56d8361ddb349577214082015448b79"
     },
     {
       "path": "scripts/ephemeral-postgres-creative-null-presence-seam-child.ts",

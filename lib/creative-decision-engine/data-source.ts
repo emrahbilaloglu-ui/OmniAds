@@ -4054,7 +4054,11 @@ config_authority AS (
     AND d.date BETWEEN ($2::date - INTERVAL '89 days') AND $2::date
   GROUP BY d.creative_id
 ),
-source_authority AS (
+-- Keep source checks on the selected-creative spine. Inlining this projection
+-- into the final nested-loop joins can execute its correlated evidence reads
+-- once per join pair rather than once per creative (50 inputs -> 2,500 reads
+-- in the retained production plan). Materialization changes execution only.
+source_authority AS MATERIALIZED (
   SELECT s.creative_id,
     COALESCE((
       SELECT ${creativeDaySourceCoverageSql("d", "$2", "$8", 90, undefined, "$1")}

@@ -1,6 +1,7 @@
 /** Real PostgreSQL D101 seam. Never run against the configured production DB. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
+import { HYDRATE_CREATIVE_INPUTS_QUERY } from "@/lib/creative-decision-engine/data-source";
 import { READ_OUTCOME_SOURCE_ROWS_QUERY } from "@/lib/creative-decision-engine/jobs/decision-outcomes-job";
 import { CREATIVE_OUTCOME_CLASSIFIER_VERSION } from "@/lib/creative-decision-engine/outcome-classifier";
 import { ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
@@ -376,6 +377,117 @@ describe.skipIf(!SEAM)("creative-day D101 complete source coverage (real Postgre
     finally {
       await getDb().query(`UPDATE meta_authoritative_slice_versions SET staged_row_count=1
         WHERE business_id=$1 AND day=$2::date AND surface='ad_daily'`, [BUSINESS, DAYS[0]]);
+    }
+  });
+
+  it("evaluates hydration source authority once on the input spine and preserves every returned field", async () => {
+    const db = getDb();
+    const extraIds = ["cre_source_probe_1", "cre_source_probe_2", "cre_source_probe_3"];
+    await db.query(`INSERT INTO meta_creative_daily (
+      business_id,business_ref_id,provider_account_id,date,campaign_id,
+      adset_id,ad_id,creative_id,account_timezone,account_currency,
+      objective,optimization_goal,spend,conversions,revenue,impressions,
+      clicks,payload_json,created_at,updated_at
+    ) SELECT d.business_id,d.business_ref_id,d.provider_account_id,d.date,
+      d.campaign_id,d.adset_id,d.ad_id,input.creative_id,d.account_timezone,
+      d.account_currency,d.objective,d.optimization_goal,d.spend,d.conversions,
+      d.revenue,d.impressions,d.clicks,
+      jsonb_set(d.payload_json,'{source_creative_ids}',jsonb_build_array(input.creative_id)),
+      d.created_at,d.updated_at
+      FROM meta_creative_daily d CROSS JOIN unnest($2::text[]) input(creative_id)
+      WHERE d.business_id=$1 AND d.creative_id='cre_d101'`, [BUSINESS, extraIds]);
+    try {
+      await runDbTransaction(async () => {
+        const tx = getDb();
+        await tx.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+        await tx.query("SET LOCAL jit=off");
+        const ids = ["cre_d101", ...extraIds, "cre_missing"];
+        const params = [BUSINESS, AS_OF, ids, true, null, null, null, EVALUATION_CUTOFF_AT];
+        // Exact prior SQL differs only by the execution directive. Both reads
+        // use one snapshot; compare full rows, including all authority fields.
+        const priorSql = HYDRATE_CREATIVE_INPUTS_QUERY.replace(
+          "source_authority AS MATERIALIZED (", "source_authority AS (",
+        );
+        const prior = await tx.query(priorSql, params);
+        const current = await tx.query(HYDRATE_CREATIVE_INPUTS_QUERY, params);
+        expect(current).toEqual(prior);
+        expect(current).toHaveLength(4);
+        expect(current.every(row => row.source_coverage_verified === false)).toBe(true);
+        const [explained] = await tx.query(`EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) ${HYDRATE_CREATIVE_INPUTS_QUERY}`, params);
+        const nodes: Record<string, unknown>[] = [];
+        const visit = (value: unknown) => {
+          if (Array.isArray(value)) value.forEach(visit);
+          else if (value && typeof value === "object") {
+            const node = value as Record<string, unknown>;
+            if (node["Subplan Name"] === "CTE source_authority") nodes.push(node);
+            Object.values(node).forEach(visit);
+          }
+        };
+        visit(explained?.["QUERY PLAN"]);
+        expect(nodes).toHaveLength(1);
+        expect(nodes[0]?.["Actual Loops"]).toBe(1);
+        expect(nodes[0]?.["Actual Rows"]).toBe(ids.length);
+        for (const cutoff of [null, "2026-09-20T00:00:00.000Z"]) {
+          const replayParams = [...params.slice(0, 7), cutoff];
+          expect(await tx.query(HYDRATE_CREATIVE_INPUTS_QUERY, replayParams))
+            .toEqual(await tx.query(priorSql, replayParams));
+        }
+      });
+    } finally {
+      await db.query(`DELETE FROM meta_creative_daily WHERE business_id=$1 AND creative_id=ANY($2::text[])`, [BUSINESS, extraIds]);
+    }
+  });
+
+  it("preserves positive full-window source authority through the materialized hydration projection", async () => {
+    const db = getDb();
+    await db.query(`WITH empty_days AS (
+      SELECT day::date AS day FROM generate_series(
+        ($3::date-INTERVAL '89 days')::date,($3::date-INTERVAL '2 days')::date,
+        INTERVAL '1 day') expected(day)
+    ), manifests AS (
+      INSERT INTO meta_authoritative_source_manifests (
+        business_id,provider_account_id,day,surface,account_timezone,
+        source_kind,source_window_kind,run_id,fetch_status,
+        started_at,completed_at,created_at,updated_at
+      ) SELECT $1,$2,day,'account_daily','UTC','meta_insights','complete_day',
+        'source_projection_zero_'||day,'completed',day::timestamp AT TIME ZONE 'UTC',
+        (day+1)::timestamp AT TIME ZONE 'UTC',(day+1)::timestamp AT TIME ZONE 'UTC',
+        (day+1)::timestamp AT TIME ZONE 'UTC'
+        FROM empty_days RETURNING id,business_id,provider_account_id,day,run_id,completed_at
+    ), slices AS (
+      INSERT INTO meta_authoritative_slice_versions (
+        business_id,provider_account_id,day,surface,manifest_id,candidate_version,
+        state,truth_state,validation_status,status,source_run_id,staged_row_count,
+        published_at,created_at,updated_at
+      ) SELECT business_id,provider_account_id,day,'ad_daily',id,1,
+        'finalized_verified','finalized','passed','published',run_id,0,
+        completed_at,completed_at,completed_at FROM manifests
+        RETURNING id,business_id,provider_account_id,day,source_run_id,published_at
+    ) INSERT INTO meta_authoritative_publication_pointers (
+      business_id,provider_account_id,day,surface,active_slice_version_id,
+      published_by_run_id,publication_reason,published_at,created_at,updated_at
+    ) SELECT business_id,provider_account_id,day,'ad_daily',id,source_run_id,
+      'source_projection_seam',published_at,published_at,published_at FROM slices`,
+    [BUSINESS, ACCOUNT, AS_OF]);
+    try {
+      await runDbTransaction(async () => {
+        const tx = getDb();
+        await tx.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+        await tx.query("SET LOCAL jit=off");
+        const priorSql = HYDRATE_CREATIVE_INPUTS_QUERY.replace(
+          "source_authority AS MATERIALIZED (", "source_authority AS (",
+        );
+        const params = [BUSINESS, AS_OF, ["cre_d101"], true, null, null, null, EVALUATION_CUTOFF_AT];
+        const current = await tx.query(HYDRATE_CREATIVE_INPUTS_QUERY, params);
+        expect(current).toEqual(await tx.query(priorSql, params));
+        expect(current).toHaveLength(1);
+        expect(current[0]?.source_coverage_verified).toBe(true);
+        expect(current[0]?.source_coverage_after_cutoff).toBe(false);
+      });
+    } finally {
+      for (const table of ["meta_authoritative_publication_pointers", "meta_authoritative_slice_versions", "meta_authoritative_source_manifests"]) {
+        await db.query(`DELETE FROM ${table} WHERE business_id=$1 AND day < $2::date`, [BUSINESS, DAYS[0]]);
+      }
     }
   });
 });

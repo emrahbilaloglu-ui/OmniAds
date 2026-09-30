@@ -11747,3 +11747,29 @@ propagation. Read-only performance and synthetic guards are not natural live
 acceptance. Release requires current canonical QA, actual same-session review,
 exact-SHA images, fresh growth admission and a single canonical deployment.
 Rollback restores the preceding web/worker pair with no data migration.
+
+## D131 — Materialize the creative hydration source-authority spine (2026-09-30)
+
+**Observed failure.** Natural creative hydration timed out at thirty seconds
+both before and after PR328's unrelated native batching release. A retained
+read-only actual PostgreSQL plan over fifty selected identities executed the
+inlined source-authority projection's correlated evidence reads 2,500 times.
+The nested `bad_accounts` CTE already executed once; its repeated execution
+was an estimated-plan hypothesis that the actual plan disproved.
+
+**Change.** Mark only `source_authority AS MATERIALIZED` so its values are
+evaluated on the selected-creative spine before the final joins. The paired
+actual plan evaluated the fifty-row spine once and its correlated reads fifty
+times. All SQL predicates, ninety-day source coverage, missing-row FALSE,
+post-cutoff checks, metrics, formulas, provider authority and engine epochs
+remain identical. No timeout, batch, index, schema or budget change.
+
+**Evidence and release boundary.** A single pinned repeatable-read production
+probe returned fifty exact-equal full rows for the prior and candidate SQL.
+Its ordered/warmed timings are not an SLA or natural producer proof. A real
+migrated-PostgreSQL guard is RED on the prior source and GREEN on the candidate;
+it checks executor-once behavior, full-row parity, missing/cutoff controls and
+positive ninety-day source authority. Canonical QA, same-session independent
+review, exact-SHA images, fresh capacity admission and one controlled release
+are still required. Capacity refusal stops deployment. Rollback restores the
+preceding web/worker pair; stored evidence is unchanged.

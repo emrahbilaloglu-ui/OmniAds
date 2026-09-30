@@ -185,18 +185,18 @@ export async function readVolumeSample(): Promise<Probe<Array<Record<string, str
   const sql = getDb();
   try {
     const rows = (await sql.query(
-      `SELECT s.captured_at::text AS captured_at,
-              EXTRACT(EPOCH FROM (now() - s.captured_at))::bigint::text AS age_seconds,
+      `SELECT s.sampled_at::text AS sampled_at,
+              EXTRACT(EPOCH FROM (now() - s.sampled_at))::bigint::text AS age_seconds,
               d->>'path'                   AS path,
               d->>'mountedOn'              AS mounted_on,
               d->>'filesystem'             AS filesystem,
               (d->>'totalBytes')::text     AS total_bytes,
               (d->>'usedBytes')::text      AS used_bytes,
               (d->>'availableBytes')::text AS available_bytes
-       FROM system_capacity_snapshots s
+       FROM public.system_capacity_snapshots s
        CROSS JOIN LATERAL jsonb_array_elements(s.payload->'disks') AS d
        WHERE s.source = 'db_host_healthcheck'
-       ORDER BY s.captured_at DESC
+       ORDER BY s.sampled_at DESC, s.id DESC
        LIMIT 6`,
     )) as Array<Record<string, string>>;
     return { available: true, value: rows };

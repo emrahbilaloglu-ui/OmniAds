@@ -3860,7 +3860,7 @@ async function main() {
       databaseUrl,
       path.join("lib", "meta", "creative-day-source-coverage.db.test.ts"),
       "Creative-day D101 full source coverage DB seam check",
-      15,
+      17,
     );
 
     await runChildVitest(

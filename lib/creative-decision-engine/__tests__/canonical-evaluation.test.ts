@@ -2,6 +2,8 @@ import { EMPTY_HYDRATED_CONFIG_AUTHORITY } from "@/lib/creative-decision-engine/
 import { describe, expect, it } from "vitest";
 
 import type { EngineV3Flags } from "../feature-flags";
+import { buildDataLayerHealth } from "../data-health";
+import { buildAdCanonicalEvaluationProvenance } from "../evaluation-store";
 import {
   buildCanonicalEvaluationProvenance,
   CANONICAL_EVALUATION_CONTRACT_VERSION,
@@ -448,6 +450,39 @@ describe("buildCanonicalEvaluationProvenance", () => {
       decisionEntityType: "ad",
       decisionEntityId: "ad-1",
       creativeId: null,
+    });
+
+    // D132: same-cell values do not mean identical calibration provenance.
+    // Exercise the actual native envelope, not hand-picked context digests.
+    const nativeTick = (now: string, computedAt: string) => {
+      const health = makeDataHealth({ calibration: buildDataLayerHealth({
+        asOfDate: "2026-07-12", computedAt,
+        sourceMaxUpdatedAt: "2026-07-12T03:00:00.000Z", now: new Date(now),
+        fallbackMode: "precomputed",
+      }) });
+      return buildAdCanonicalEvaluationProvenance({
+        identity: { decisionEntityType: "ad", decisionEntityId: ad.adId,
+          adId: ad.adId, providerAccountRefId: ad.providerAccountRefId,
+          providerAccountId: ad.providerAccountId, creativeId: ad.creativeId },
+        base: buildCanonicalEvaluationProvenance(makeEvaluation({
+          engineVersion: "v3-ad-test", creativeInput: ad, accountProfile: profile,
+          scope: profile.scope, dataHealth: health, decision: adDecision,
+          evaluatedAt: now,
+        })),
+        adEvidence: ad,
+      });
+    };
+    const first = nativeTick("2026-07-12T03:05:00.000Z", "2026-07-12T03:01:00.000Z");
+    const quietReplay = nativeTick("2026-07-12T03:15:00.000Z", "2026-07-12T03:01:00.000Z");
+    expect([quietReplay.contextHash, quietReplay.inputHash, quietReplay.decisionHash])
+      .toEqual([first.contextHash, first.inputHash, first.decisionHash]);
+    const reminted = nativeTick("2026-07-12T03:15:00.000Z", "2026-07-12T03:11:00.000Z");
+    expect(reminted.contextHash).not.toBe(first.contextHash);
+    expect(reminted.inputHash).not.toBe(first.inputHash);
+    const nextAgeBucket = nativeTick("2026-07-12T04:00:00.000Z", "2026-07-12T03:01:00.000Z");
+    expect(nextAgeBucket.contextHash).not.toBe(first.contextHash);
+    expect(nextAgeBucket.contextPayload.dataHealth).toMatchObject({
+      calibration: { sourceFreshnessHours: 1, staleTier: "none" },
     });
   });
 

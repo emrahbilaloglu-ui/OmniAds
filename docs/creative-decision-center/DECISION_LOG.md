@@ -11773,3 +11773,74 @@ positive ninety-day source authority. Canonical QA, same-session independent
 review, exact-SHA images, fresh capacity admission and one controlled release
 are still required. Capacity refusal stops deployment. Rollback restores the
 preceding web/worker pair; stored evidence is unchanged.
+
+## D132 — Strict reuse acceptance and offline native archive preparation (2026-09-30)
+
+**Review finding.** Eleven retained natural native runs passed the same-slot
+generation/manifest header but refused canonical equality (ten context changes,
+one snapshot evidence change). Three pairs retained the same hydration run/hash.
+The calibration computation clock is part of canonical data health; reminting a
+calibration can change context identity with unchanged percentile values. Source
+freshness is floored to hours and also hashed. This is a sufficient refusal
+mechanism, not proof of its sole causation in each run. Six visible calibration
+runs did not replay; retained records do not pair their business identities.
+
+**Reuse decision.** Keep D129's strict full-canonical-equality optimization for
+quiet windows. A fresh invocation cutoff alone may reuse; a new calibration
+computation or freshness bucket must refuse even with identical thresholds.
+No canonical clock is dropped, no producer or encoding version is changed, and
+no inference from source-run equality replaces full current hydration. A native
+envelope fixture covers all three cases. Existing real-PostgreSQL producer tests
+continue to prove original identity, zero duplicate evaluation writes, subsequent
+slot completion and separate provider authority. These are local tests. The
+natural positive reuse receipt is still unobserved; an unchanged active-sync tick
+is not a repair/acceptance plan. A future less strict identity would require a
+separate versioned ADR and old-row compatibility.
+
+Calibration and decisions have independent hourly freshness buckets; both must
+remain stable. A natural positive witness must link calibration idempotent replay
+to an actually running decision and reused_job_run_id, then immutable original
+identity, zero attempt writes, the next natural tick and separate provider
+authority. No prior calibration marker establishes that chain. Active sync can
+keep producing new canonical context; storage growth planning cannot assume
+quiet-window reuse reduces writes.
+
+**Storage decision.** The one approved 161 GiB bridge reached refusal. Process
+health during refusal is not business progress or ownership/reaper acceptance;
+outer admission precedes lease acquisition and autoheal. No extra budget step,
+archive deletion, disk maintenance or physical rewrite is implied.
+
+Add an OFFLINE core archive format and integrity reader, with no production
+imports or executor. It preserves PostgreSQL JSONB row text verbatim (including
+numeric precision), original generation identity, engine/schema/source revision,
+row counts, full hashes and a trusted manifest digest. Core tables are job runs,
+contexts, evaluations, input evidence and daily snapshots. Broken membership or
+cross-generation lineage refuses reading. The envelope always reports historical
+read-only authority and reclaimEligible=false. Its captured timestamp never
+advances evidence or grants execution, even if an original row describes an
+authorized verdict.
+
+The daily snapshot upsert replaces original generation pointers. V1 therefore
+covers only still-complete last-served daily generations; partly/fully superseded
+same-day generations refuse. A separate superseded-generation contract is
+specified as next local storage work: job/evaluation/context/evidence completeness
+plus explicit incoming/non-FK/reuse pins, without inventing old daily snapshots.
+It is not implemented or proof that superseded rows have no pins.
+
+A real isolated PostgreSQL fixture serializes and restores a still-served producer
+sample, rebinds/validates outgoing actual FK DDL with all synthetic parent rows
+copied, and compares every core row/clock/hash. It separately probes single-child
+lineage rejection and parent-delete RESTRICT. This is DDL/key-byte parity, not an
+independently complete parent bundle or full DR proof. Tenant/credential roots
+must not be exported. Calibration rows/batches/jobs are decision-lineage parents
+that require explicit live pins or inclusion before any production archive.
+Source HEAD carries an explicit dirty-workspace flag; no exact built revision
+is claimed for uncommitted candidate bytes. Incoming pins are
+catalogued but NOT migrated. Outcomes, episodes, experiments, events, replay/action
+readers and all transitive dependencies require a separate complete bundle/read
+implementation before eviction. No production reader switch, migration, upload,
+reclaim or sustainable-capacity claim follows from this preparation.
+
+See [the archive/restore and content-addressed payload contract](../architecture/native-evidence-archive-contract.md)
+for the remaining physical and permission gates. Rollback of this local phase is
+reverting the offline module/tests/docs; live tables and readers are untouched.

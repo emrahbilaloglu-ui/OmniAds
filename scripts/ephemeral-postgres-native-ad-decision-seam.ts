@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { verifyNativeArchiveRoundTrip } from "./native-evidence-archive-seam";
 import { verifyManualCutRefusalRoundTrip } from "./manual-cut-refusal-seam";
 import net from "node:net";
 import os from "node:os";
@@ -4253,6 +4254,7 @@ async function runSeam(client: Client) {
     client,
     largeManifestFixture,
   );
+  await verifyNativeArchiveRoundTrip(client, largeManifestFixture.businessId);
   await verifyMetaAdDailyWriteOwnershipAuthority(client);
   await verifyAbandonedNativeRunOwnership(client, db);
 }

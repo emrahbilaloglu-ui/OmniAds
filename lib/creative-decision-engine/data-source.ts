@@ -1723,6 +1723,74 @@ const HYDRATION_TODAY_ADSET_CONFIG = buildMetaAdsetConfigFieldSourceSql({
   aliasPrefix: "hydr_today_adset_cfg",
 });
 
+// An incomplete or unavailable source manifest still permits hydration but cannot prove
+// authoritative pruning. Discover the same cutoff-safe ad identity union
+// first so each expensive hydration read is bounded instead of scanning an
+// entire account at once. Downstream decision authority is unchanged.
+export const READ_AD_HYDRATION_CANDIDATE_IDENTITIES_QUERY = `
+/* native-ad-candidate-identities: diagnostic fallback before bounded hydration */
+WITH assigned_accounts AS (
+  SELECT binding.business_id, binding.provider_account_id
+  FROM business_provider_accounts binding
+  JOIN provider_accounts account
+    ON account.id = binding.provider_account_ref_id
+   AND account.provider = binding.provider
+   AND account.external_account_id = binding.provider_account_id
+  WHERE binding.business_id = $1::text
+    AND binding.provider = 'meta'
+    AND binding.is_selected
+    AND (NOT $4::boolean OR binding.provider_account_id = ANY($3::text[]))
+),
+metric_ads AS (
+  SELECT d.business_id, d.provider_account_id, d.ad_id
+  FROM meta_ad_daily d
+  JOIN assigned_accounts assignment
+    ON assignment.business_id = d.business_id
+   AND assignment.provider_account_id = d.provider_account_id
+  WHERE d.business_id = $1::text
+    AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
+    AND (NOT $4::boolean OR d.provider_account_id = ANY($3::text[]))
+    AND d.truth_state = 'finalized'
+    AND d.validation_status = 'passed'
+    AND d.created_at <= $5::timestamptz
+    AND d.updated_at <= $5::timestamptz
+),
+present_dimension_ads AS (
+  SELECT d.business_id, d.provider_account_id, d.ad_id
+  FROM meta_ad_dimensions d
+  JOIN assigned_accounts assignment
+    ON assignment.business_id = d.business_id
+   AND assignment.provider_account_id = d.provider_account_id
+  WHERE $6::boolean
+    AND d.business_id = $1::text
+    AND (NOT $4::boolean OR d.provider_account_id = ANY($3::text[]))
+    AND (
+      UPPER(COALESCE(NULLIF(BTRIM(d.ad_status), ''), '')) = 'ACTIVE'
+      OR (
+        NULLIF(BTRIM(d.ad_status), '') IS NULL
+        AND d.last_seen_at::date = $2::date
+      )
+    )
+    AND d.created_at <= $5::timestamptz
+    AND d.updated_at <= $5::timestamptz
+),
+present_state_ads AS (
+  SELECT row.business_id, row.provider_account_id, row.ad_id
+  FROM jsonb_to_recordset($7::jsonb) AS row(
+    business_id text, provider_account_id text, ad_id text
+  )
+),
+selected_ads AS (
+  SELECT business_id, provider_account_id, ad_id FROM metric_ads
+  UNION
+  SELECT business_id, provider_account_id, ad_id FROM present_dimension_ads
+  UNION
+  SELECT business_id, provider_account_id, ad_id FROM present_state_ads
+)
+SELECT provider_account_id, ad_id
+FROM selected_ads
+ORDER BY provider_account_id, ad_id`;
+
 export const HYDRATE_AD_DECISION_INPUTS_QUERY = `
 /* ad-decision-hydration: native business/account/ad grain */
 WITH assigned_accounts AS (
@@ -7364,11 +7432,86 @@ async function readAdHydrationRowsInBatches(input: {
       );
     }
   };
+  const discoverAndHydrate = async (scope: {
+    providerAccountIds: string[] | undefined;
+    providerAccountRefId?: string;
+    requestedAdIds?: Set<string>;
+  }): Promise<AdDecisionHydrationRow[]> => {
+    const scopeSeeds = input.presentAdStateSeeds.filter(
+      (seed) =>
+        (scope.providerAccountIds === undefined ||
+          scope.providerAccountIds.includes(
+            toStringOrNull(seed.provider_account_id) ?? "",
+          )) &&
+        (scope.providerAccountRefId === undefined ||
+          toStringOrNull(seed.provider_account_ref_id) ===
+            scope.providerAccountRefId),
+    );
+    let candidates: Array<{ provider_account_id: string; ad_id: string }>;
+    try {
+      candidates = await getDb().query<{
+        provider_account_id: string;
+        ad_id: string;
+      }>(READ_AD_HYDRATION_CANDIDATE_IDENTITIES_QUERY, [
+        input.businessId,
+        input.asOf,
+        scope.providerAccountIds ?? [],
+        scope.providerAccountIds !== undefined,
+        input.decisionCutoff,
+        input.allowCurrentDimensionFallback,
+        JSON.stringify(scopeSeeds),
+      ]);
+    } catch (error) {
+      throw new Error(
+        `Native ad candidate identity read failed: ${errorMessage(error)}`,
+      );
+    }
+    const idsByAccount = new Map<string, Set<string>>();
+    for (const candidate of candidates) {
+      const accountId = toStringOrNull(candidate.provider_account_id);
+      const adId = toStringOrNull(candidate.ad_id);
+      if (
+        accountId === null ||
+        adId === null ||
+        (scope.providerAccountIds !== undefined &&
+          !scope.providerAccountIds.includes(accountId))
+      ) {
+        throw new Error("Native ad candidate identity scope is invalid.");
+      }
+      if (scope.requestedAdIds && !scope.requestedAdIds.has(adId)) {
+        continue;
+      }
+      const ids = idsByAccount.get(accountId) ?? new Set<string>();
+      ids.add(adId);
+      idsByAccount.set(accountId, ids);
+    }
+    const hydrated: AdDecisionHydrationRow[] = [];
+    for (const [accountId, adIds] of idsByAccount) {
+      // The 100-ID complete-manifest batch is already bounded; the live
+      // incomplete-receipt fallback still had a near-budget 100-ID read.
+      // Split only this diagnostic path further without changing authority.
+      for (const adIdBatch of chunkDecisionRows(Array.from(adIds).sort(), 50)) {
+        const batchIds = new Set(adIdBatch);
+        hydrated.push(
+          ...(await queryRows({
+            providerAccountIds: [accountId],
+            adIds: adIdBatch,
+            presentAdStateSeeds: scopeSeeds.filter(
+              (seed) =>
+                toStringOrNull(seed.provider_account_id) === accountId &&
+                batchIds.has(toStringOrNull(seed.ad_id) ?? ""),
+            ),
+          })),
+        );
+      }
+    }
+    return hydrated;
+  };
   if (!input.receiptQueryAvailable || input.sourceReceipts.length === 0) {
-    return queryRows({
+    return discoverAndHydrate({
       providerAccountIds: input.providerAccountIds,
-      adIds: input.adIds,
-      presentAdStateSeeds: input.presentAdStateSeeds,
+      requestedAdIds:
+        input.adIds === undefined ? undefined : new Set(input.adIds),
     });
   }
   const requestedAdIds =
@@ -7377,16 +7520,9 @@ async function readAdHydrationRowsInBatches(input: {
   for (const receipt of input.sourceReceipts) {
     if (!receipt.sourceComplete && requestedAdIds === null) {
       rows.push(
-        ...(await queryRows({
+        ...(await discoverAndHydrate({
           providerAccountIds: [receipt.providerAccountId],
-          adIds: undefined,
-          presentAdStateSeeds: input.presentAdStateSeeds.filter(
-            (seed) =>
-              toStringOrNull(seed.provider_account_ref_id) ===
-                receipt.providerAccountRefId &&
-              toStringOrNull(seed.provider_account_id) ===
-                receipt.providerAccountId,
-          ),
+          providerAccountRefId: receipt.providerAccountRefId,
         })),
       );
       continue;

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "afd51bedd59df1d091d4a5c5dd2a1cd80b93e6ba6c50ddcb8ae9b41ca57e552a",
+  "manifestHash": "0d278c963ef86be555fddfe07f38c958db090d5b23cfb624a8317f8e0647b3ff",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -880,7 +880,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/data-source.ad-grain.test.ts",
-      "sha256": "115b9f25ae6dd40dc1e44b4fc90952c468d46f2b4520f5c29d4a3f43af207b95"
+      "sha256": "423716a7021685a375db453e53827683bfa179f33debc37b4c9d1758678db10e"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/data-source.lifecycle.test.ts",
@@ -1164,7 +1164,7 @@
     },
     {
       "path": "lib/creative-decision-engine/data-source.ts",
-      "sha256": "69a07c47d5d9903579f309f5aeae04fe387f623582eaa98af6d27b0b9207bfa5"
+      "sha256": "0216e5c75b0f6d13fd4edd19a0a4ee97d56473beb1f0ccd5c5ec036b05613aa7"
     },
     {
       "path": "lib/creative-decision-engine/decision-stability.db.test.ts",
@@ -2448,7 +2448,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
-      "sha256": "5fcec39a2b288cab22ce77b71aa27eeff58483ceb0f85a0864bcbbc9f96c9848"
+      "sha256": "1b16e0a9eb95f214106ef19bbd8233df58ae84a68207740918b99170a54c8566"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",

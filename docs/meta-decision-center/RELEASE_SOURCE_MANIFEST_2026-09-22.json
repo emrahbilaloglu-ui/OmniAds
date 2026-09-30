@@ -1,5 +1,5 @@
 {
-  "manifestHash": "eaa9fb5cf70b2161fc705a01c6ce7a3558486a7d9dacb29b6381230959dedf74",
+  "manifestHash": "762060878fe6c4622492d910572fc12f48493adf40b4a3080aa69118e6a40380",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -703,8 +703,12 @@
       "sha256": "4887ab18ce8225ca900e45aa908a58523e82c82f6bfbafbb8d462190e121bceb"
     },
     {
+      "path": "docs/architecture/native-archive-pin-reclaim-preparation.md",
+      "sha256": "7f1e2c8c13fa35c3cc3f69e02ba190602f7c4b62a13a4cdc2ee0025ac81c7a5f"
+    },
+    {
       "path": "docs/architecture/native-evidence-archive-contract.md",
-      "sha256": "243153e79bd6bdce4e513595bf62b3210fcee8e0b97bfff5eb002efd6dd4dcdc"
+      "sha256": "81556cf4f125c0b9b6ecb93fd5e8019935717b0f1595e323925e8239f24a32e9"
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
@@ -732,7 +736,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "21fe1c9afbabfb07cb6e00fab6cbc078b99b483281990b2cf56b350757c9f65b"
+      "sha256": "63fee3952518c1f5dfda1a9a592a6b04b2aeaa18df359c182ef701e12cb6a97b"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -744,7 +748,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "2941053ce0cf0326630e7f9562fdd886bbd5ea25be1b05e7109ccb2d95938bdc"
+      "sha256": "c8b679959bda0fb8c7d0c19236e1a1a1914f7be8dc6f5910a30d33785271160c"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -1095,8 +1099,12 @@
       "sha256": "e46beb9942b84b453ae1f1460dae74d7ebb3a2ef3fc6005e068177e34a63be4a"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-archive-pin-census.test.ts",
+      "sha256": "54eb1041e8c4e2d0fcf3a09dfa1f41ab1adc57c2e3b576dc86782144bcd46183"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/native-evidence-archive.test.ts",
-      "sha256": "b0c31a6012bfc25a0787f58060b6b8a70c60b69bc986c544dde696423de86432"
+      "sha256": "48c6fe3b34b5fae6bae30c5cdf28e0e32a53325ca6f50ae55022ffcff349291a"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/native-manual-cut-advisory.test.ts",
@@ -1331,8 +1339,12 @@
       "sha256": "dc56014f2a61774ed6c66ffc1812dfbb818b9082f23861a0c38af3e4e403ff1d"
     },
     {
+      "path": "lib/creative-decision-engine/native-archive-pin-census.ts",
+      "sha256": "3c81bc7b53620128421dbc7ea139b0a6da1787cc661e8911193b7a79216bec98"
+    },
+    {
       "path": "lib/creative-decision-engine/native-evidence-archive.ts",
-      "sha256": "a17733fc9bbb08cad6047fb7fc2924c782b210b6347fe411aee9c3c9e9a475a2"
+      "sha256": "8ede9192a793e9eebb57a5b3046ca70b6424118ef19707acf5b623c6d915284b"
     },
     {
       "path": "lib/creative-decision-engine/native-manual-cut-advisory.ts",
@@ -2460,7 +2472,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
-      "sha256": "3543d021f9bbcef78938b517dd551854daaa34759b51bc218b961a2a7face959"
+      "sha256": "5161b210b374cd329b024809d6afb28cfcf668f8b53c449d5f926d1db57c6332"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
@@ -2555,8 +2567,16 @@
       "sha256": "ae0c4710a7fbf7d393952649ecfbce4f66832072fa8b2cec6a40e560c9c42d0b"
     },
     {
+      "path": "scripts/native-archive-pin-census-seam.ts",
+      "sha256": "832d3631403fc3714b7523ade55dfb5f80d0b3e96043e870f7f3fe4ce631b120"
+    },
+    {
+      "path": "scripts/native-archive-production-schema-seam.ts",
+      "sha256": "b3d2a17f1e75672d4225c7ccb00682e86782286923740414a735bd42ec79dc2c"
+    },
+    {
       "path": "scripts/native-evidence-archive-seam.ts",
-      "sha256": "4212a0b6e5d3186526e59a6988863f03fd6a001cc64fa9167f903ca899929dc4"
+      "sha256": "b323108208246ee02bfcd55d859b0e18bf3a59a51a248791b92fa6e3bccfcb1d"
     },
     {
       "path": "scripts/native-proposal-lifecycle-fixtures.ts",

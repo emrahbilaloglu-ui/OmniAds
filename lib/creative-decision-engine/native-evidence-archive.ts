@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { stableCanonicalJson } from "./canonical-evaluation";
+import { assessNativeArchivePins, type NativeArchivePinCensus } from "./native-archive-pin-census";
 
 /** Offline preparation only. No runtime reader, uploader, writer or evictor imports this module. */
 export const NATIVE_ARCHIVE_CONTRACT = "native-generation-core-archive.v1" as const;
+export const NATIVE_SUPERSEDED_ARCHIVE_CONTRACT = "native-superseded-generation-core-archive.v1" as const;
 export const NATIVE_ARCHIVE_TABLES = [
   "engine_v3_job_runs",
   "engine_v3_ad_decision_evaluation_contexts",
@@ -29,8 +31,8 @@ export interface NativeArchiveTableInput {
 }
 export interface NativeArchiveBundle {
   manifest: {
-    contract: typeof NATIVE_ARCHIVE_CONTRACT;
-    coverage: "sampled_native_generation_core";
+    contract: typeof NATIVE_ARCHIVE_CONTRACT | typeof NATIVE_SUPERSEDED_ARCHIVE_CONTRACT;
+    coverage: "sampled_native_generation_core" | "superseded_native_generation_core";
     reclaimEligible: false;
     providerAuthority: false;
     capturedAt: string;
@@ -41,6 +43,8 @@ export interface NativeArchiveBundle {
     schema: NativeArchiveSchema;
     schemaHash: string;
     tables: { table: NativeArchiveTable; rowCount: number; rows: { key: string; objectHash: string }[] }[];
+    /** Superseded historical-copy census; even pin-free copies never authorize eviction. */
+    pinCensus?: NativeArchivePinCensus;
   };
   /** Content-addressed exact PostgreSQL JSON bytes, with a separate trusted manifest digest. */
   objects: Record<string, string>;
@@ -70,8 +74,17 @@ function rowKey(table: NativeArchiveTable, row: Record<string, unknown>): string
 }
 function verifyRows(bundle: NativeArchiveBundle): Map<NativeArchiveTable, { key: string; rowJson: string }[]> {
   const m = bundle.manifest;
-  if (m.contract !== NATIVE_ARCHIVE_CONTRACT || m.coverage !== "sampled_native_generation_core" ||
+  const superseded = m.contract === NATIVE_SUPERSEDED_ARCHIVE_CONTRACT;
+  if ((!superseded && m.contract !== NATIVE_ARCHIVE_CONTRACT) ||
+      m.coverage !== (superseded ? "superseded_native_generation_core" : "sampled_native_generation_core") ||
       m.reclaimEligible !== false || m.providerAuthority !== false) fail("unsupported scope or authority");
+  if (superseded) {
+    if (!m.pinCensus) fail("superseded pin census missing");
+    const pins = assessNativeArchivePins(m.pinCensus, m.generation);
+    if (pins.reason === "unsupported_reference_inventory" ||
+        m.pinCensus.observedAt !== m.capturedAt) fail("unknown or inconsistent reference census");
+    if (m.pinCensus.counts.find(c => c.pinClass === "snapshots")?.count !== "0") fail("generation still serves snapshots");
+  } else if (m.pinCensus !== undefined) fail("last-served contract cannot carry superseded census");
   if (!/^[0-9a-f]{40}$/.test(m.sourceRevision) || typeof m.sourceWorkspaceDirty !== "boolean" ||
       !Number.isFinite(Date.parse(m.capturedAt))) fail("source clock/revision missing");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(m.generation.asOfDate) || !m.generation.engineVersion.trim()) fail("generation date/epoch missing");
@@ -121,7 +134,11 @@ function verifyRows(bundle: NativeArchiveBundle): Map<NativeArchiveTable, { key:
     stableCanonicalJson([r.contract_version, r.input_hash])));
   if (jobs.length !== 1 || jobs[0]!.status !== "success" ||
       jobs[0]!.job_name !== "engine_v3_native_ad_decisions_shadow_job" ||
-      !evaluations.length || Number(jobs[0]!.row_count) !== evaluations.length || snapshots.length !== evaluations.length) fail("incomplete original generation");
+      !evaluations.length || Number(jobs[0]!.row_count) !== evaluations.length ||
+      snapshots.length !== (superseded ? 0 : evaluations.length)) fail("incomplete original generation");
+  if (superseded && m.pinCensus!.evaluationCount !== String(evaluations.length)) fail("census/evaluation count differs");
+  if (superseded && (typeof jobs[0]!.finished_at !== "string" ||
+      jobs[0]!.finished_at !== m.pinCensus!.jobFinishedAt)) fail("census/original finish clock differs");
   const evalById = new Map(evaluations.map(r => [r.id, r]));
   const shared = ["business_ref_id", "business_id", "provider_account_ref_id", "provider_account_id",
     "as_of_date", "engine_version", "scope_type", "scope_id", "job_run_id"];
@@ -144,13 +161,16 @@ function verifyRows(bundle: NativeArchiveBundle): Map<NativeArchiveTable, { key:
   return verified;
 }
 
-export function buildNativeEvidenceArchive(input: {
+interface NativeArchiveInput {
   generation: NativeArchiveGeneration; capturedAt: string; sourceRevision: string; sourceWorkspaceDirty: boolean;
   schema: NativeArchiveSchema; tables: NativeArchiveTableInput[];
-}): { bundle: NativeArchiveBundle; manifestHash: string } {
+}
+function buildArchive(input: NativeArchiveInput, pinCensus?: NativeArchivePinCensus): { bundle: NativeArchiveBundle; manifestHash: string } {
   const objects: Record<string, string> = {};
   const bundle: NativeArchiveBundle = {
-    manifest: { contract: NATIVE_ARCHIVE_CONTRACT, coverage: "sampled_native_generation_core",
+    manifest: { contract: pinCensus ? NATIVE_SUPERSEDED_ARCHIVE_CONTRACT : NATIVE_ARCHIVE_CONTRACT,
+      coverage: pinCensus ? "superseded_native_generation_core" : "sampled_native_generation_core",
+      ...(pinCensus ? { pinCensus } : {}),
       reclaimEligible: false, providerAuthority: false, capturedAt: input.capturedAt,
       sourceRevision: input.sourceRevision, sourceWorkspaceDirty: input.sourceWorkspaceDirty,
       generation: input.generation, schema: input.schema,
@@ -166,8 +186,31 @@ export function buildNativeEvidenceArchive(input: {
   return { bundle, manifestHash: sha(stableCanonicalJson(bundle.manifest)) };
 }
 
+export function buildNativeEvidenceArchive(input: NativeArchiveInput) { return buildArchive(input); }
+
+/** Historical copying can preserve a pinned generation. Pin census still vetoes a
+ * removal candidate; unknown classes refuse transport. Current snapshots cannot
+ * be relabeled as superseded. No parent closure/production reader switch is implied. */
+export function buildNativeSupersededEvidenceArchive(input: NativeArchiveInput & {
+  pinCensus: NativeArchivePinCensus;
+}) { return buildArchive(input, input.pinCensus); }
+
 /** Digest must come from a trusted index, never from the downloaded bundle itself. */
 export function openNativeEvidenceArchive(bundle: NativeArchiveBundle, expected: {
+  manifestHash: string; schemaHash: string; generation: NativeArchiveGeneration;
+}) {
+  if (bundle.manifest.contract !== NATIVE_ARCHIVE_CONTRACT) fail("last-served reader contract mismatch");
+  return openArchive(bundle, expected);
+}
+
+export function openNativeSupersededEvidenceArchive(bundle: NativeArchiveBundle, expected: {
+  manifestHash: string; schemaHash: string; generation: NativeArchiveGeneration;
+}) {
+  if (bundle.manifest.contract !== NATIVE_SUPERSEDED_ARCHIVE_CONTRACT) fail("superseded reader contract mismatch");
+  return openArchive(bundle, expected);
+}
+
+function openArchive(bundle: NativeArchiveBundle, expected: {
   manifestHash: string; schemaHash: string; generation: NativeArchiveGeneration;
 }) {
   if (sha(stableCanonicalJson(bundle.manifest)) !== expected.manifestHash ||

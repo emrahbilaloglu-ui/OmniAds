@@ -11,6 +11,10 @@ provider authority.
 For strict reuse acceptance and offline archive preparation, also read
 [D132](DECISION_LOG.md#d132--strict-reuse-acceptance-and-offline-native-archive-preparation-2026-09-30).
 This preparation does not switch production readers or authorize eviction.
+For the separate superseded-generation transport, scoped pin reader and physical
+reclaim preparation, read
+[D133](DECISION_LOG.md#d133--superseded-native-history-scoped-pin-census-and-reclaim-preparation-2026-09-30).
+Its historical copy and zero-pin fixture also grant no removal authority.
 
 The H5 release also includes [D096](DECISION_LOG.md#d096--additive-receipt-attempts-preserve-deployed-image-rollback-2026-09-09)
 and the [receipt rollback and index-maintenance contract](../architecture/meta-receipt-additive-rollback.md).

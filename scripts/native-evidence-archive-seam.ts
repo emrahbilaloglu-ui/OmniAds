@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { buildNativeEvidenceArchive, openNativeEvidenceArchive, NATIVE_ARCHIVE_TABLES,
+  buildNativeSupersededEvidenceArchive, openNativeSupersededEvidenceArchive,
   type NativeArchiveBundle, type NativeArchiveSchema, type NativeArchiveTable } from "@/lib/creative-decision-engine/native-evidence-archive";
+import { prepareNativeArchivePinFixtureLeaves, readSupersededFixturePinCensus } from "./native-archive-pin-census-seam";
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(`native archive seam FAILED: ${message}`);
@@ -14,17 +16,27 @@ function identifier(value: string): string {
   return `"${value}"`;
 }
 /** Called only from the owned ephemeral native producer seam. Never uses DATABASE_URL. */
-export async function verifyNativeArchiveRoundTrip(client: Client, businessId: string) {
+export async function verifyNativeArchiveRoundTrip(client: Client, businessId: string, superseded = false) {
   const connection = (client as Client & { connectionParameters: { database: string; host: string; port: number } }).connectionParameters;
   assert(connection.database === "native_ad_seam" && connection.host === "127.0.0.1" &&
     ![5432, 15432].includes(connection.port), "not the isolated native seam server");
   const core = [...NATIVE_ARCHIVE_TABLES];
+  if (superseded) await prepareNativeArchivePinFixtureLeaves(client, "public");
   await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  await client.query("SET LOCAL statement_timeout='7500ms'");
   let built: ReturnType<typeof buildNativeEvidenceArchive>;
   let allParents: { name: string; rowJson: string[] }[];
   let foreignKeys: { name: string; childTable: string; parentTable: string; definition: string }[];
   try {
-    const [generation] = (await client.query(`SELECT j.id, j.as_of_date::text, j.engine_version
+    const [generation] = (await client.query(superseded ? `SELECT j.id,j.as_of_date::text,j.engine_version
+      FROM engine_v3_job_runs j WHERE j.business_ref_id=$1::uuid AND j.status='success'
+        AND j.job_name='engine_v3_native_ad_decisions_shadow_job' AND j.row_count>0
+        AND j.row_count=(SELECT count(*) FROM engine_v3_ad_decision_evaluations e WHERE e.job_run_id=j.id)
+        AND NOT EXISTS (SELECT 1 FROM engine_v3_ad_decision_snapshots_daily s WHERE s.job_run_id=j.id)
+        AND EXISTS (SELECT 1 FROM engine_v3_job_runs later WHERE later.business_ref_id=j.business_ref_id
+          AND later.as_of_date=j.as_of_date AND later.engine_version=j.engine_version
+          AND later.job_name=j.job_name AND later.status='success' AND later.finished_at>j.finished_at)
+      ORDER BY j.finished_at LIMIT 1` : `SELECT j.id, j.as_of_date::text, j.engine_version
       FROM engine_v3_job_runs j JOIN engine_v3_ad_decision_snapshots_daily s ON s.job_run_id=j.id
       WHERE j.business_ref_id=$1::uuid AND j.status='success'
         AND j.job_name='engine_v3_native_ad_decisions_shadow_job'
@@ -70,26 +82,35 @@ export async function verifyNativeArchiveRoundTrip(client: Client, businessId: s
       const rows = (await client.query(`SELECT to_jsonb(t)::text AS bytes FROM public.${identifier(name)} t`)).rows;
       allParents.push({ name, rowJson: rows.map(r => r.bytes as string) });
     }
-    built = buildNativeEvidenceArchive({ generation: { businessId, jobRunId: generation.id,
+    const input = { generation: { businessId, jobRunId: generation.id,
       asOfDate: generation.as_of_date, engineVersion: generation.engine_version },
       capturedAt: (await client.query("SELECT transaction_timestamp()::text AS captured")).rows[0].captured,
       sourceRevision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
       sourceWorkspaceDirty: execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim().length > 0,
-      schema, tables });
+      schema, tables };
+    if (superseded) {
+      // This local core copy is not a candidate for removal: shared evidence may
+      // still be live. The separate census seam proves every pin veto. Real
+      // same-day producer jobs and exact core bytes are retained here.
+      const pinCensus = await readSupersededFixturePinCensus(client, input.generation);
+      assert(pinCensus, "superseded historical census absent");
+      input.capturedAt = pinCensus.observedAt;
+      built = buildNativeSupersededEvidenceArchive({ ...input, pinCensus });
+    } else built = buildNativeEvidenceArchive(input);
     await client.query("ROLLBACK");
   } catch (error) {
     await client.query("ROLLBACK"); throw error;
   }
 
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "adsecute-native-core-archive-"));
-  const schemaName = "native_archive_restore_fixture";
+  const schemaName = superseded ? "native_superseded_restore_fixture" : "native_archive_restore_fixture";
   try {
     const file = path.join(temp, "bundle.json");
     fs.writeFileSync(file, JSON.stringify(built.bundle), { mode: 0o600 });
     const downloaded = JSON.parse(fs.readFileSync(file, "utf8")) as NativeArchiveBundle;
     const expected = { manifestHash: built.manifestHash, schemaHash: built.bundle.manifest.schemaHash,
       generation: built.bundle.manifest.generation };
-    const reader = openNativeEvidenceArchive(downloaded, expected);
+    const reader = superseded ? openNativeSupersededEvidenceArchive(downloaded, expected) : openNativeEvidenceArchive(downloaded, expected);
     assert(reader.providerAuthority === false && reader.reclaimEligible === false, "archive granted authority/reclaim");
     await client.query("BEGIN");
     try {
@@ -123,6 +144,7 @@ export async function verifyNativeArchiveRoundTrip(client: Client, businessId: s
       // its first failure can be a uniqueness check, not the intended FK check.
       const snapshots = `${identifier(schemaName)}.engine_v3_ad_decision_snapshots_daily`;
       const evaluations = `${identifier(schemaName)}.engine_v3_ad_decision_evaluations`;
+      if (!superseded) {
       const snapshot = JSON.parse(reader.readTable("engine_v3_ad_decision_snapshots_daily")[0]!.rowJson);
       const foreignId = "00000000-0000-4000-8000-999999999999";
       assert((await client.query(`SELECT count(*)::int AS count FROM ${snapshots} WHERE id=$1::uuid`, [snapshot.id])).rows[0].count === 1,
@@ -149,11 +171,12 @@ export async function verifyNativeArchiveRoundTrip(client: Client, businessId: s
       await probe("single_child_foreign_evaluation", `UPDATE ${snapshots} SET evaluation_id=$1::uuid WHERE id=$2::uuid`,
         [foreignId, snapshot.id], "23503");
       await probe("parent_delete_restrict", `DELETE FROM ${evaluations} WHERE id=$1::uuid`, [snapshot.evaluation_id], "23503");
+      }
       await client.query("ROLLBACK");
     } catch (error) {
       await client.query("ROLLBACK"); throw error;
     }
-    console.log(`[native-archive-seam] PASS: serialized last-served core bundle/trusted digest, ${reader.readTable("engine_v3_ad_decision_evaluations").length} real producer evaluations, five-table exact JSONB/clock/hash parity, ${foreignKeys.length} outgoing actual FKs rebound/validated with copied sandbox parents, child-lineage SQLSTATE23503 and parent-delete RESTRICT23503. Incoming pins/independent parent completeness/eviction/reader-switch/physical reclaim NOT proven. manifest=${built.manifestHash}`);
+    console.log(`[native-archive-seam] PASS: serialized ${superseded ? "superseded zero-serving-snapshot" : "last-served"} core bundle/trusted digest, ${reader.readTable("engine_v3_ad_decision_evaluations").length} real producer evaluations, five-table exact JSONB/clock/hash parity, ${foreignKeys.length} outgoing actual FKs rebound/validated with copied sandbox parents. Incoming migration/independent parent completeness/eviction/reader-switch/physical reclaim NOT proven. manifest=${built.manifestHash}`);
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

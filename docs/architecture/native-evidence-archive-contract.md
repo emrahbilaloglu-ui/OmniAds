@@ -24,7 +24,12 @@ Zero remaining snapshots does not prove zero outcome/episode/assignment/action
 pins. The retained 11 jobs and 17,300 evaluations are a small observation, not a
 population census or evidence that most rows are reclaimable.
 
-### Separate superseded-generation contract: required next storage implementation
+### Separate superseded-generation contract
+
+D133 now implements the OFFLINE superseded core transport and a scoped read-only
+pin census described in [the pin/reclaim preparation](native-archive-pin-reclaim-preparation.md).
+The production parent/reader closure, external destination and reclaim executor
+remain unimplemented. The following requirements still govern that live work.
 
 A separate versioned bundle must represent superseded history without claiming
 daily-serving snapshot completeness. Its immutable job row_count must equal the
@@ -35,9 +40,11 @@ reuse-attempt reused_job_run_id links. A missing/unsupported reference census
 refuses eligibility; absence of one FK class is insufficient. Any retained
 parent evidence must either remain explicitly pinned in the live store or be
 included under a tested lineage contract. Current-serving generations remain
-live. No superseded format, live pin evaluator or reclaim executor is implemented
-by v1; defining this boundary does not approve eviction or restore a missing
-historical snapshot.
+live. The superseded contract is separate from v1, carries no current snapshots
+and never approves eviction or restores a missing historical daily snapshot.
+Its historical copy can retain known pins; its independent candidate assessment
+refuses every such pin. Unknown references refuse both the scoped assessment and
+superseded transport. No production pin inventory or reclaim executor is enabled.
 
 Objects store exact `to_jsonb(row)::text` bytes, rather than JSON.parse followed
 by JSON.stringify: the latter can round PostgreSQL numeric/bigint evidence.

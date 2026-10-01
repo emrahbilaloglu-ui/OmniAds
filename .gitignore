@@ -18,6 +18,7 @@
 
 # next.js
 /.next/
+/.native-historical-worker/
 /out/
 
 # production

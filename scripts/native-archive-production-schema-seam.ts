@@ -7,6 +7,10 @@ import { buildNativeSupersededEvidenceArchive, openNativeSupersededEvidenceArchi
   NATIVE_ARCHIVE_TABLES, type NativeArchiveGeneration, type NativeArchiveSchema } from "@/lib/creative-decision-engine/native-evidence-archive";
 import { NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION } from "@/lib/creative-decision-engine/ad-operator-response-detection";
 import { verifyIndependentNativeCalibrationParents } from "./native-calibration-parent-archive-seam";
+import { readNativeEvaluationContextUnit, assessNativeEvaluationContextUnit } from "@/lib/creative-decision-engine/native-evaluation-context-unit";
+import { READ_NATIVE_DECISION_GENERATION_QUERY } from "@/lib/meta/decisions-workspace-read-model";
+import { READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY } from "@/lib/creative-decision-engine/decision-stability";
+import { READ_NATIVE_GENERATION_REUSE_HEADER_SQL, READ_NATIVE_GENERATION_REUSE_ROWS_SQL } from "@/lib/creative-decision-engine/jobs/native-decision-reuse";
 
 const DB = "native_archive_schema_seam";
 const AS_OF = "2026-09-24", EPOCH = "native-archive-schema-fixture", CONTRACT = "schema-fixture.v1";
@@ -150,6 +154,7 @@ export async function verifyNativeArchiveProductionSchema(client: Client) {
           reader.readTable("engine_v3_ad_decision_snapshots_daily").length === 0, "copy granted authority/fabricated snapshots");
         for (const table of tables) assert(JSON.stringify(reader.readTable(table.table).map(r => r.rowJson).sort()) ===
           JSON.stringify(table.rowJson.sort()), "production-schema core copy full-byte parity");
+        return { bundle: built.bundle, manifestHash: built.manifestHash };
       } finally { await db.query("ROLLBACK"); }
     };
     const pinFree = await seed("full_ddl_pin_free"), initial = await read(pinFree);
@@ -258,6 +263,95 @@ export async function verifyNativeArchiveProductionSchema(client: Client) {
     assert(crossLive.foreignKeyReferences.some(e => e.childSchema === "archive_cross_pin_fixture" && e.count === "1") &&
       assessNativeArchivePins(crossLive,pinFree.generation).reason === "unsupported_reference_inventory", "cross-schema live edge not refused");
     console.log(`[native-archive-production-schema] PASS actual run-migrations/all production DDL: measured calibration/outcome-run ZERO FKs; pin-free superseded full-byte copy; nine positive pin classes and FOUR action lineage columns; known-pin copy/removal veto; unclassified live/outcome-run and non-FK veto. Snapshot-dependent classes include existing snapshot pins. Schema fixtures are not natural producer/production census/independent parent closure/eviction or reclaim proof.`);
+    // Narrower unit sensitivity on this owned actual-DDL database only. Preserve
+    // roots and byte-complete original archive; roll back the fixture deletion.
+    // A one-row SQL fixture does not establish a production removal population,
+    // transitive consumer closure, natural reuse or physical reclamation.
+    const originalUnit = await seed("narrow_unit_same_ad");
+    const currentUnit = await seed("narrow_unit_same_ad"); await snapshot(currentUnit);
+    await db.query(`UPDATE engine_v3_job_runs SET started_at='2026-09-24T08:30:00Z', finished_at='2026-09-24T09:00:00Z',
+      error_json=$2::jsonb WHERE id=$1`, [currentUnit.generation.jobRunId, JSON.stringify({ metadata: { reuse_policy_hash: HASH } })]);
+    const unitArchive = await copy(originalUnit, await read(originalUnit));
+    const history = openNativeSupersededEvidenceArchive(unitArchive.bundle, { manifestHash: unitArchive.manifestHash,
+      schemaHash: unitArchive.bundle.manifest.schemaHash, generation: originalUnit.generation });
+    const originalEvaluationBytes = history.readTable("engine_v3_ad_decision_evaluations").map(row => row.rowJson);
+    const unitRead = async (unmodeledConsumers: string[] = [], generation = originalUnit.generation,
+      missingActionColumn?: string) => {
+      await db.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      await db.query("SET LOCAL statement_timeout='7500ms'");
+      // Catalog fault injection only; production DDL/constraints stay intact.
+      const reader = { query: async (sql: string, values?: unknown[]) => {
+        const result = await db.query(sql, values);
+        return { rows: missingActionColumn && sql.includes("a.attname AS column")
+          ? result.rows.filter(row => !(row.table === "meta_ads_action_log" && row.column === missingActionColumn))
+          : result.rows };
+      } };
+      try { return await readNativeEvaluationContextUnit(reader, { schema: "public", generation,
+        consumerInventorySha256: HASH, unmodeledConsumers }); }
+      finally { await db.query("ROLLBACK"); }
+    };
+    const unit = await unitRead(), measured = assessNativeEvaluationContextUnit(unit, originalUnit.generation);
+    assert(measured.pinFreeWithinMeasuredScope && !measured.reclaimEligible && !measured.productionConsumerClosureProved,
+      "narrow unit did not preserve measured-scope/permission distinction");
+    assert(!assessNativeEvaluationContextUnit(await unitRead(["unclosed_production_reader"]), originalUnit.generation).pinFreeWithinMeasuredScope,
+      "narrow unknown consumer ignored");
+    // These typed action columns are not direct evaluation FKs. Each column
+    // independently preserves audit lineage, including a UI-manual action with
+    // no episode or controlled assignment that could indirectly protect it.
+    for (const column of ["decision_evaluation_id", "source_evaluation_id", "decision_snapshot_id", "source_snapshot_id"]) {
+      const actionUnit = await seed(`narrow_action_${column}`);
+      if (column.endsWith("snapshot_id")) await snapshot(actionUnit);
+      await insert("meta_ads_action_log", { business_id: business, ad_id: actionUnit.common.ad_id,
+        action: "pause", source: "ui_manual", [column]: column.endsWith("snapshot_id") ? actionUnit.snapshot : actionUnit.evaluation });
+      const actionMeasurement = await unitRead([], actionUnit.generation);
+      const actionAssessment = assessNativeEvaluationContextUnit(actionMeasurement, actionUnit.generation);
+      assert(actionMeasurement.nonFkCounts.some(pin => pin.pinClass === "action_lineage" && pin.count === "1") &&
+        !actionAssessment.pinFreeWithinMeasuredScope && !actionAssessment.reclaimEligible,
+        `narrow action lineage ${column} not independently counted/vetoed`);
+      console.log(`[native-evaluation-context-unit] PASS exact action_lineage=1 for ${column}; no episode/assignment dependency`);
+      const missing = await unitRead([], originalUnit.generation, column);
+      assert(missing.unknownReferences.includes(`missing_column:meta_ads_action_log.${column}`) &&
+        assessNativeEvaluationContextUnit(missing, originalUnit.generation).reason === "unsupported_reference_inventory",
+        `missing action lineage catalog column ${column} was treated as measured ZERO`);
+    }
+    const multiAction = await seed("narrow_action_multiple_columns"); await snapshot(multiAction);
+    await insert("meta_ads_action_log", { business_id: business, ad_id: multiAction.common.ad_id,
+      action: "pause", source: "ui_manual", decision_evaluation_id: multiAction.evaluation,
+      source_evaluation_id: multiAction.evaluation, decision_snapshot_id: multiAction.snapshot, source_snapshot_id: multiAction.snapshot });
+    assert((await unitRead([], multiAction.generation)).nonFkCounts.some(pin => pin.pinClass === "action_lineage" && pin.count === "1"),
+      "one action naming the same unit through four columns was double-counted");
+    const stableRows = (rows: unknown[]) => JSON.stringify(rows.map(row => JSON.stringify(row)).sort());
+    const captureReaders = async () => ({
+      current: stableRows((await db.query(READ_NATIVE_DECISION_GENERATION_QUERY,
+        [business, account, "engine_v3_native_ad_decisions_shadow_job", AS_OF, EPOCH, AS_OF, 7, false, "prior-fixture"])).rows),
+      hysteresis: stableRows((await db.query(READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY, [business, EPOCH,
+        JSON.stringify([{ provider_account_ref_id: accountRef, provider_account_id: account,
+          decision_entity_type: "ad", decision_entity_id: "narrow_unit_same_ad" }]), "2026-09-25", "account", account, null])).rows),
+      reuseHeader: stableRows((await db.query(READ_NATIVE_GENERATION_REUSE_HEADER_SQL,
+        [business, AS_OF, EPOCH, "2026-09-24T10:00:00Z", randomUUID(), HASH, "2026-09-24T00:00:00Z"])).rows),
+      reuseRows: stableRows((await db.query(READ_NATIVE_GENERATION_REUSE_ROWS_SQL, [business, AS_OF, EPOCH])).rows),
+    });
+    const beforeUnit = await captureReaders();
+    assert(beforeUnit.current.includes(currentUnit.generation.jobRunId) && beforeUnit.hysteresis.includes(currentUnit.evaluation) &&
+      beforeUnit.reuseHeader.includes(currentUnit.generation.jobRunId) && beforeUnit.reuseRows.includes(currentUnit.evaluation),
+      `reader parity would be vacuous without current generation/lineage/reuse rows: ${JSON.stringify({expectedJob:currentUnit.generation.jobRunId, expectedEvaluation:currentUnit.evaluation, beforeUnit})}`);
+    await db.query("BEGIN");
+    try {
+      assert((await db.query("DELETE FROM engine_v3_ad_decision_evaluations WHERE job_run_id=$1", [originalUnit.generation.jobRunId])).rowCount === 1,
+        "owned unit evaluation fixture delete count differs");
+      assert((await db.query("DELETE FROM engine_v3_ad_decision_evaluation_contexts WHERE job_run_id=$1", [originalUnit.generation.jobRunId])).rowCount === 1,
+        "owned unit context fixture delete count differs");
+      assert(JSON.stringify(await captureReaders()) === JSON.stringify(beforeUnit), "current/hysteresis/reuse SQL changed after owned unit sensitivity probe");
+      assert((await db.query("SELECT row_count FROM engine_v3_job_runs WHERE id=$1", [originalUnit.generation.jobRunId])).rows[0]?.row_count === 1,
+        "original job row_count/root rewritten");
+      assert((await db.query("SELECT count(*)::int AS n FROM engine_v3_ad_decision_input_evidence WHERE input_hash=$1", [originalUnit.inputHash])).rows[0]?.n === 1,
+        "shared input root removed");
+      assert(JSON.stringify(history.readTable("engine_v3_ad_decision_evaluations").map(row => row.rowJson)) === JSON.stringify(originalEvaluationBytes) &&
+        !history.providerAuthority && !history.reclaimEligible, "original historical bytes or false authority changed");
+    } finally { await db.query("ROLLBACK"); }
+    assert((await db.query("SELECT count(*)::int AS n FROM engine_v3_ad_decision_evaluations WHERE job_run_id=$1", [originalUnit.generation.jobRunId])).rows[0]?.n === 1,
+      "owned unit sensitivity did not roll back");
+    console.log("[native-evaluation-context-unit] PASS actual-DDL one-row superseded copy, exact current/hysteresis/reuse SQL parity across rolled-back fixture-only evaluation/context removal; original/shared roots and history kept; production closure/reclaim/natural proof false.");
     await verifyIndependentNativeCalibrationParents(db, client);
   } finally {
     if (connected) await db.end();

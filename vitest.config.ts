@@ -6,6 +6,7 @@ export default defineConfig({
     environment: "node",
     globals: true,
     setupFiles: ["./vitest.setup.dom.ts"],
+    globalSetup: ["./scripts/native-historical-worker-test-setup.ts"],
     // Vitest 4.1.0 in the committed lock does not read this env itself. Bind
     // the documented local release cap explicitly; tests and timeouts stay identical.
     maxWorkers: process.env.VITEST_MAX_WORKERS === "4" ? 4 : undefined,

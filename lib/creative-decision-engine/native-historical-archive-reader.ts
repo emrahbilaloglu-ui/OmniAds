@@ -1,12 +1,14 @@
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { NativeHistoricalReadControls, NativeHistoricalReadLimit } from "./native-historical-read-controls";
+import { readPackagedNativeHistoricalWorker, verifyNativeHistoricalEvidenceInWorker } from "./native-historical-archive-worker-client";
 import {
   NATIVE_HISTORICAL_MAX_CATALOG_BYTES,
   NATIVE_HISTORICAL_MAX_PLAINTEXT_BYTES,
   openNativeHistoricalArchiveCatalog,
-  openNativeHistoricalArchiveEvidence,
   resolveNativeHistoricalArchiveEntry,
   type NativeHistoricalArchiveCatalogEntry,
   type NativeHistoricalEvidence,
@@ -17,19 +19,29 @@ const READ_TIMEOUT_MS = 5000;
 export const NATIVE_HISTORICAL_READER_GATE = "ENGINE_V3_NATIVE_ARCHIVE_HISTORICAL_READER_ENABLED";
 export type NativeHistoricalEvidenceReadResult = NativeHistoricalEvidence |
   { status: "disabled"; reason: "native_historical_reader_disabled" } |
+  { status: "limited"; reason: "native_historical_reader_limit_reached" } |
   { status: "unavailable"; reason: "native_historical_archive_unavailable" };
+const controls = new NativeHistoricalReadControls(undefined, (event, cost) => {
+  console.info("[native-historical-reader]", { event, durationMs: Math.round(cost.durationMs), bytes: cost.bytes });
+});
 
 /** One versioned GET, no List/Head/write commands, no fallback to a newer version.
  * Caller configures maxAttempts=1 and explicit archive-only credentials. */
-export async function downloadNativeArchiveVersion(client: Pick<S3Client, "send">, entry: NativeHistoricalArchiveCatalogEntry): Promise<Buffer> {
+export async function downloadNativeArchiveVersion(client: Pick<S3Client, "send">, entry: NativeHistoricalArchiveCatalogEntry,
+  externalSignal?: AbortSignal): Promise<Buffer> {
+  if (externalSignal?.aborted) throw new Error("Historical object aborted");
   if (!Number.isSafeInteger(entry.ciphertextBytes) || entry.ciphertextBytes <= 0 ||
     entry.ciphertextBytes > NATIVE_HISTORICAL_MAX_PLAINTEXT_BYTES + 128 || !entry.object.versionId || entry.object.versionId === "null")
     throw new Error("Historical object bound/version missing");
   const controller = new AbortController();
   let stream: Readable | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let externalAbort: (() => void) | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => { controller.abort(); stream?.destroy(); reject(new Error("Historical object deadline exceeded")); }, READ_TIMEOUT_MS);
+    externalAbort = () => { controller.abort(); stream?.destroy(); reject(new Error("Historical object aborted")); };
+    externalSignal?.addEventListener("abort", externalAbort, { once: true });
+    if (externalSignal?.aborted) externalAbort();
   });
   const download = async () => {
     const response = await client.send(new GetObjectCommand({ Bucket: entry.object.bucket,
@@ -54,7 +66,8 @@ export async function downloadNativeArchiveVersion(client: Pick<S3Client, "send"
     return Buffer.concat(chunks, count);
   };
   try { return await Promise.race([download(), deadline]); }
-  finally { if (timer) clearTimeout(timer); controller.abort(); stream?.destroy(); }
+  finally { if (timer) clearTimeout(timer); if (externalAbort) externalSignal?.removeEventListener("abort", externalAbort);
+    controller.abort(); stream?.destroy(); }
 }
 
 async function readTrustedLocalCatalog(filename: string): Promise<Buffer> {
@@ -77,26 +90,39 @@ async function readTrustedLocalCatalog(filename: string): Promise<Buffer> {
  * unavailable; they never fall back to current evidence or advance any pointer. */
 export async function readNativeHistoricalAdEvidence(request: NativeHistoricalEvidenceRequest): Promise<NativeHistoricalEvidenceReadResult> {
   if (process.env[NATIVE_HISTORICAL_READER_GATE] !== "true") return { status: "disabled", reason: "native_historical_reader_disabled" };
-  let client: S3Client | undefined;
   try {
-    const filename = process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_PATH;
-    const catalogDigest = process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_SHA256;
-    const keyId = process.env.ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_ID;
-    const keyHex = process.env.ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_HEX;
-    const accessKeyId = process.env.ENGINE_V3_NATIVE_ARCHIVE_S3_ACCESS_KEY_ID;
-    const secretAccessKey = process.env.ENGINE_V3_NATIVE_ARCHIVE_S3_SECRET_ACCESS_KEY;
-    if (!filename || !catalogDigest || !keyId || !keyHex || !/^[0-9a-f]{64}$/.test(keyHex) || !accessKeyId || !secretAccessKey)
-      throw new Error("Explicit archive configuration absent");
-    const catalog = openNativeHistoricalArchiveCatalog(await readTrustedLocalCatalog(filename), catalogDigest);
-    const entry = resolveNativeHistoricalArchiveEntry(catalog, request);
-    if (entry.encryptionKeyId !== keyId) throw new Error("Archive encryption key unavailable");
-    // No implicit AWS credential chain, public URL, arbitrary endpoint or admin-key fallback.
-    client = new S3Client({ region: "fsn1", endpoint: "https://fsn1.your-objectstorage.com", forcePathStyle: true,
-      credentials: { accessKeyId, secretAccessKey }, maxAttempts: 1 });
-    const bytes = await downloadNativeArchiveVersion(client, entry);
-    return openNativeHistoricalArchiveEvidence(bytes, entry, Buffer.from(keyHex, "hex"), request);
-  } catch {
+    return await controls.read(request, async () => {
+      const filename = process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_PATH;
+      const catalogDigest = process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_SHA256;
+      const keyId = process.env.ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_ID;
+      const keyHex = process.env.ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_HEX;
+      const accessKeyId = process.env.ENGINE_V3_NATIVE_ARCHIVE_S3_ACCESS_KEY_ID;
+      const secretAccessKey = process.env.ENGINE_V3_NATIVE_ARCHIVE_S3_SECRET_ACCESS_KEY;
+      if (!filename || !catalogDigest || !keyId || !keyHex || !/^[0-9a-f]{64}$/.test(keyHex) || !accessKeyId || !secretAccessKey)
+        throw new Error("Explicit archive configuration absent");
+      const catalog = openNativeHistoricalArchiveCatalog(await readTrustedLocalCatalog(filename), catalogDigest);
+      const entry = resolveNativeHistoricalArchiveEntry(catalog, request);
+      if (entry.encryptionKeyId !== keyId) throw new Error("Archive encryption key unavailable");
+      const packaged = await readPackagedNativeHistoricalWorker();
+      // A changed catalog, key, credential policy or compiled validator cannot inherit a cache.
+      const configurationFingerprint = createHash("sha256").update(JSON.stringify([
+        catalogDigest, keyId, keyHex, accessKeyId, secretAccessKey, packaged.sha256,
+      ])).digest("hex");
+      return { configurationFingerprint, entry, work: {
+        download: async (object, signal) => {
+          // Lazy allocation after admission; no implicit credential chain or write commands.
+          const client = new S3Client({ region: "fsn1", endpoint: "https://fsn1.your-objectstorage.com", forcePathStyle: true,
+            credentials: { accessKeyId, secretAccessKey }, maxAttempts: 1 });
+          try { return await downloadNativeArchiveVersion(client, object, signal); }
+          finally { client.destroy(); }
+        },
+        validate: (bytes, object, original, signal) =>
+          verifyNativeHistoricalEvidenceInWorker(bytes, Buffer.from(keyHex, "hex"), object, original, signal),
+      } };
+    });
+  } catch (error) {
+    if (error instanceof NativeHistoricalReadLimit) return { status: "limited", reason: "native_historical_reader_limit_reached" };
     // Do not expose provider URLs, key IDs, file paths, credentials or row bytes in error responses.
     return { status: "unavailable", reason: "native_historical_archive_unavailable" };
-  } finally { client?.destroy(); }
+  }
 }

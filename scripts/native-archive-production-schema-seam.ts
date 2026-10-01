@@ -6,6 +6,7 @@ import { readNativeArchivePinCensus, assessNativeArchivePins,
 import { buildNativeSupersededEvidenceArchive, openNativeSupersededEvidenceArchive,
   NATIVE_ARCHIVE_TABLES, type NativeArchiveGeneration, type NativeArchiveSchema } from "@/lib/creative-decision-engine/native-evidence-archive";
 import { NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION } from "@/lib/creative-decision-engine/ad-operator-response-detection";
+import { verifyIndependentNativeCalibrationParents } from "./native-calibration-parent-archive-seam";
 
 const DB = "native_archive_schema_seam";
 const AS_OF = "2026-09-24", EPOCH = "native-archive-schema-fixture", CONTRACT = "schema-fixture.v1";
@@ -257,6 +258,7 @@ export async function verifyNativeArchiveProductionSchema(client: Client) {
     assert(crossLive.foreignKeyReferences.some(e => e.childSchema === "archive_cross_pin_fixture" && e.count === "1") &&
       assessNativeArchivePins(crossLive,pinFree.generation).reason === "unsupported_reference_inventory", "cross-schema live edge not refused");
     console.log(`[native-archive-production-schema] PASS actual run-migrations/all production DDL: measured calibration/outcome-run ZERO FKs; pin-free superseded full-byte copy; nine positive pin classes and FOUR action lineage columns; known-pin copy/removal veto; unclassified live/outcome-run and non-FK veto. Snapshot-dependent classes include existing snapshot pins. Schema fixtures are not natural producer/production census/independent parent closure/eviction or reclaim proof.`);
+    await verifyIndependentNativeCalibrationParents(db, client);
   } finally {
     if (connected) await db.end();
     // Only the new DB we created, on the guarded owned cluster. No FORCE or

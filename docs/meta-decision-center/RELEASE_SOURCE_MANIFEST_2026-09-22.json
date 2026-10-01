@@ -1,5 +1,5 @@
 {
-  "manifestHash": "762060878fe6c4622492d910572fc12f48493adf40b4a3080aa69118e6a40380",
+  "manifestHash": "af77a95e38cf8979a3a9d319736e52649706d018912bf93f28e8d73a756a5c18",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -707,8 +707,12 @@
       "sha256": "7f1e2c8c13fa35c3cc3f69e02ba190602f7c4b62a13a4cdc2ee0025ac81c7a5f"
     },
     {
+      "path": "docs/architecture/native-calibration-parent-archive.md",
+      "sha256": "3adde63783eca09678fa709dc652ad5e5c27beb5b6d9e91a7b5761c5478c4379"
+    },
+    {
       "path": "docs/architecture/native-evidence-archive-contract.md",
-      "sha256": "81556cf4f125c0b9b6ecb93fd5e8019935717b0f1595e323925e8239f24a32e9"
+      "sha256": "570628b3df42bddd0c42a794ecb8c0de4be3a6018ca9eed1114e600660b35a13"
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
@@ -736,7 +740,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "63fee3952518c1f5dfda1a9a592a6b04b2aeaa18df359c182ef701e12cb6a97b"
+      "sha256": "5aa1d8782d024dd6dad1a42d1fdf4d5e8563a8c11117355fdcad2cfd4abc15ec"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1103,6 +1107,10 @@
       "sha256": "54eb1041e8c4e2d0fcf3a09dfa1f41ab1adc57c2e3b576dc86782144bcd46183"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-calibration-parent-archive.test.ts",
+      "sha256": "390da8180f650b838183046afaacf23bdfcfaa5890aa1dfa4c6eeae6a3b420eb"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/native-evidence-archive.test.ts",
       "sha256": "48c6fe3b34b5fae6bae30c5cdf28e0e32a53325ca6f50ae55022ffcff349291a"
     },
@@ -1341,6 +1349,10 @@
     {
       "path": "lib/creative-decision-engine/native-archive-pin-census.ts",
       "sha256": "3c81bc7b53620128421dbc7ea139b0a6da1787cc661e8911193b7a79216bec98"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-calibration-parent-archive.ts",
+      "sha256": "28b8c1858d759764359192ccf9d35ddfbbd8d7527fb3e88170edc85fffdb1cfa"
     },
     {
       "path": "lib/creative-decision-engine/native-evidence-archive.ts",
@@ -2572,7 +2584,11 @@
     },
     {
       "path": "scripts/native-archive-production-schema-seam.ts",
-      "sha256": "b3d2a17f1e75672d4225c7ccb00682e86782286923740414a735bd42ec79dc2c"
+      "sha256": "12d3cc27dd98040337b7cbd14bf12bcde6726d11e1eabe7005227b2931391865"
+    },
+    {
+      "path": "scripts/native-calibration-parent-archive-seam.ts",
+      "sha256": "108b35f1f91b3dc034ed4cdb2c46807d8f7793a8969e46f79af4f793905f9518"
     },
     {
       "path": "scripts/native-evidence-archive-seam.ts",

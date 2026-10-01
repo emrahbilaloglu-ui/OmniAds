@@ -164,6 +164,12 @@ requirements, durable archive confirmation and separate deletion authority.
 
 ## Reclaim, capacity and approval gates
 
+The separate D134 calibration-parent transport and independent real-DDL restore
+preparation is described in `native-calibration-parent-archive.md`. It preserves
+the original complete batches/cells and producer/replay receipts instead of
+borrowing source sandbox parent tables. Its declared scope is not complete
+upstream/transitive reader closure or production sustainable-storage approval.
+
 The archive destination, concrete generation/date horizon, external cost and
 access/restore policy are not approved. Delegating strategy did not approve
 deletion, external resources, a second161GiB budget lift or volume changes.

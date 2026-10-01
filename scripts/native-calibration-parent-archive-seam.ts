@@ -4,11 +4,15 @@ import { Client } from "pg";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
+import { S3Client } from "@aws-sdk/client-s3";
 import { buildNativeEvidenceArchive, buildNativeSupersededEvidenceArchive, NATIVE_ARCHIVE_TABLES,
   type NativeArchiveSchema, type NativeArchiveTableInput } from "@/lib/creative-decision-engine/native-evidence-archive";
-import { buildNativeCalibrationParentArchive, openNativeCalibrationParentArchive, NATIVE_CALIBRATION_PARENT_TABLES,
+import { buildNativeCalibrationParentArchive, NATIVE_CALIBRATION_PARENT_TABLES,
   type NativeCalibrationParentBundle, type NativeCalibrationParentSchema } from "@/lib/creative-decision-engine/native-calibration-parent-archive";
 import { readNativeArchivePinCensus } from "@/lib/creative-decision-engine/native-archive-pin-census";
+import { sealNativeHistoricalArchive, openNativeHistoricalArchiveEnvelope, openNativeHistoricalArchiveEvidence } from "@/lib/creative-decision-engine/native-historical-archive";
+import { downloadNativeArchiveVersion } from "@/lib/creative-decision-engine/native-historical-archive-reader";
 import { AD_CALIBRATION_JOB_NAME, NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
   computeNativeAdCalibrationCellSetHash } from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
 
@@ -152,9 +156,36 @@ export async function verifyIndependentNativeCalibrationParents(source: Client, 
         const exit=await new Promise<number>((resolve,reject)=>{child.once("error",reject);child.once("exit",n=>resolve(n??1));});
         assert(exit===0,`restore real migrations EXIT${exit}`);await target.connect();connected=true;
         const filename=join(temp,`${name}.json`);writeFileSync(filename,JSON.stringify(exports[i]!.bundle),{mode:0o600});
-        const bundle=JSON.parse(readFileSync(filename,"utf8")) as NativeCalibrationParentBundle;
-        const reader=openNativeCalibrationParentArchive(bundle,{manifestHash:exports[i]!.manifestHash,schemaHash:bundle.manifest.schemaHash,
-          generation:bundle.manifest.generation});
+        const serialized=JSON.parse(readFileSync(filename,"utf8")) as NativeCalibrationParentBundle;
+        const trust={manifestHash:exports[i]!.manifestHash,schemaHash:serialized.manifest.schemaHash,generation:serialized.manifest.generation};
+        const fixtureKey=Buffer.alloc(32,0x73), sealed=sealNativeHistoricalArchive(serialized,trust,"isolated-fixture",fixtureKey);
+        let getCount=0;
+        const objectKey=`native/v1/${sealed.trust.ciphertextSha256}.bin`, versionId="isolated-original-version";
+        const server=createServer((req,res)=>{
+          const url=new URL(req.url!,"http://127.0.0.1");
+          assert(req.method==="GET" && url.pathname===`/isolated-parent-fixture/${objectKey}` &&
+            url.searchParams.get("versionId")===versionId && req.headers.authorization?.startsWith("AWS4-HMAC-SHA256 "),"not an exact signed fixture GET");
+          getCount++;res.writeHead(200,{"Content-Length":sealed.bytes.length,"x-amz-version-id":versionId});res.end(sealed.bytes);
+        });
+        await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
+        const address=server.address();assert(address && typeof address!=="string","loopback object fixture absent");
+        const objectClient=new S3Client({region:"fsn1",endpoint:`http://127.0.0.1:${address.port}`,forcePathStyle:true,maxAttempts:1,
+          credentials:{accessKeyId:"isolated-fixture-only",secretAccessKey:"isolated-fixture-only"}});
+        let downloaded:Buffer;
+        try {downloaded=await downloadNativeArchiveVersion(objectClient,{...sealed.trust,object:{bucket:"isolated-parent-fixture",key:objectKey,versionId}});}
+        finally {objectClient.destroy();server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+        assert(getCount===1,"archive transport did not use one exact GET");
+        const {bundle,view:reader}=openNativeHistoricalArchiveEnvelope(downloaded,sealed.trust,fixtureKey,trust.generation);
+        assert(JSON.stringify(bundle)===JSON.stringify(serialized),"encrypted complete original package bytes changed");
+        assert(bundle.manifest.sourceWorkspaceDirty===serialized.manifest.sourceWorkspaceDirty,"encryption hid dirty source metadata");
+        const corrupt=Buffer.from(sealed.bytes);corrupt[corrupt.length-1]^=1;
+        let corruptRefused=false;try {openNativeHistoricalArchiveEnvelope(corrupt,sealed.trust,fixtureKey,trust.generation);}catch {corruptRefused=true;}
+        assert(corruptRefused,"corrupt encrypted archive accepted");
+        if(serialized.manifest.sourceWorkspaceDirty) {
+          let dirtyRefused=false;try {openNativeHistoricalArchiveEvidence(sealed.bytes,sealed.trust,fixtureKey,
+            {generation:trust.generation,providerAccountId:accountId,adId:"fixture_ad",evaluationId:evaluation});}catch(e) {dirtyRefused=(e as Error).message.includes("dirty published archive source");}
+          assert(dirtyRefused,"dirty local package entered runtime historical publication");
+        }
         const targetOwner=await roots(target);assert(targetOwner!==sourceOwner,"root owner borrowed from source credential table");
         await target.query("BEGIN");
         const priorTimezone=(await target.query("SELECT current_setting('TimeZone') AS timezone")).rows[0].timezone;
@@ -190,6 +221,7 @@ export async function verifyIndependentNativeCalibrationParents(source: Client, 
         if(i===0) await expectSqlState(target,"UPDATE engine_v3_ad_decision_snapshots_daily SET calibration_row_id=$2 WHERE id=$1",[snapshot,randomUUID()],"23503");
         assert(reader.providerAuthority===false && reader.reclaimEligible===false,"historical transport granted authority");
         await target.query("COMMIT");
+        console.log(`[native-historical-archive] PASS ${name}: AES-256-GCM local package, ONE signed exact-VersionId loopback GET, independent manifest trust, complete byte/decimal/microsecond restore, corruption refused, source dirty metadata retained. Loopback is not external durable S3 or published-catalog/live-reader acceptance.`);
         console.log(`[native-calibration-parent-archive] PASS ${name}: separate NEW DB/actual migrations; independently provisioned credential-free identity roots; transported original complete2-cell batch + original2-row producer and distinct0-row replay receipts; seven-table full JSONB byte/microsecond/ID/hash parity; production immutable cell/batch triggers P0001${i===0?"; served calibration FK23503":"; original serving snapshot count ZERO"}. No source parent-table copies or credentials, source clocks or runtime authority changed. This is declared calibration-parent restore, not all transitive parents/readers/full DR or production archive/reclaim.`);
       } finally {if(connected) await target.end();await cluster.query(`DROP DATABASE ${q(name)}`);}
     }

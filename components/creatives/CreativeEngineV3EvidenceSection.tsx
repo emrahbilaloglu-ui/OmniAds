@@ -17,6 +17,8 @@ interface CreativeEngineV3EvidenceSectionProps {
   adId: string | null;
   creativeId?: string | null;
   open: boolean;
+  /** Explicit history selection; never inferred from an unavailable current decision. */
+  historical?: { jobRunId: string; evaluationId: string; asOfDate: string; engineVersion: string };
 }
 
 export function CreativeEngineV3EvidenceSection({
@@ -25,6 +27,7 @@ export function CreativeEngineV3EvidenceSection({
   adId,
   creativeId,
   open,
+  historical,
 }: CreativeEngineV3EvidenceSectionProps) {
   const exactIdentityReady = Boolean(
     businessId.trim() && providerAccountId?.trim() && adId?.trim(),
@@ -35,6 +38,7 @@ export function CreativeEngineV3EvidenceSection({
       businessId,
       providerAccountId,
       adId,
+      ...(historical ? ["historical", historical.jobRunId, historical.evaluationId, historical.asOfDate, historical.engineVersion] : []),
     ],
     enabled: open && exactIdentityReady,
     staleTime: 60_000,
@@ -46,6 +50,7 @@ export function CreativeEngineV3EvidenceSection({
         businessId,
         providerAccountId: providerAccountId!,
         adId: adId!,
+        historical,
       }),
   });
 
@@ -90,10 +95,26 @@ export function CreativeEngineV3EvidenceSection({
     return (
       <EvidenceShell>
         <p className="text-sm text-neutral-500">
-          Engine v3 not enabled for this business
+          {payload.reason === "native_historical_reader_disabled" ? "Historical archive reading is not enabled" : "Engine v3 not enabled for this business"}
         </p>
       </EvidenceShell>
     );
+  }
+
+  if (payload.status === "historical_available") {
+    const historicalSections: EvidenceAccordionSection[] = [
+      { key: "original-evaluation", title: "Original evaluation", content: <pre className="whitespace-pre-wrap break-all text-xs">{payload.rowJson.evaluation}</pre> },
+      { key: "original-context", title: "Original context", content: <pre className="whitespace-pre-wrap break-all text-xs">{payload.rowJson.context}</pre> },
+      { key: "original-input", title: "Original input evidence", content: <pre className="whitespace-pre-wrap break-all text-xs">{payload.rowJson.inputEvidence}</pre> },
+      { key: "original-snapshot", title: "Original snapshot", content: payload.rowJson.snapshot ?
+        <pre className="whitespace-pre-wrap break-all text-xs">{payload.rowJson.snapshot}</pre> :
+        <p className="text-sm text-neutral-500">This superseded generation has no original daily snapshot in its archive.</p> },
+    ];
+    return <EvidenceShell>
+      <p className="mb-3 text-sm text-neutral-500">Historical record · review only. It does not authorize advertising changes.</p>
+      <p className="mb-3 text-xs text-neutral-500">{payload.generation.asOfDate} · {payload.generation.engineVersion} · {payload.generation.jobRunId}</p>
+      <SharedEvidenceAccordion sections={historicalSections} variant="legacy" />
+    </EvidenceShell>;
   }
 
   const sections: EvidenceAccordionSection[] = [
@@ -147,7 +168,8 @@ async function fetchEngineV3Evidence(input: {
   businessId: string;
   providerAccountId: string;
   adId: string;
-}): Promise<DecisionEngineV3EvidenceResponse> {
+  historical?: CreativeEngineV3EvidenceSectionProps["historical"];
+}): Promise<Exclude<DecisionEngineV3EvidenceResponse, { status: "unavailable" }>> {
   const url = new URL(
     "/api/creatives/decision-engine-v3/evidence",
     window.location.origin,
@@ -155,6 +177,13 @@ async function fetchEngineV3Evidence(input: {
   url.searchParams.set("businessId", input.businessId);
   url.searchParams.set("providerAccountId", input.providerAccountId);
   url.searchParams.set("adId", input.adId);
+  if (input.historical) {
+    url.searchParams.set("view", "historical");
+    url.searchParams.set("archiveJobRunId", input.historical.jobRunId);
+    url.searchParams.set("evaluationId", input.historical.evaluationId);
+    url.searchParams.set("asOf", input.historical.asOfDate);
+    url.searchParams.set("engineVersion", input.historical.engineVersion);
+  }
 
   const response = await fetch(url.toString());
   if (!response.ok) {
@@ -163,7 +192,16 @@ async function fetchEngineV3Evidence(input: {
       `engine v3 native evidence fetch failed: ${response.status} ${text}`,
     );
   }
-  return (await response.json()) as DecisionEngineV3EvidenceResponse;
+  const payload = (await response.json()) as DecisionEngineV3EvidenceResponse;
+  if (payload.status === "unavailable") throw new Error("Historical evidence is unavailable or failed integrity validation");
+  if (input.historical && payload.status === "available") throw new Error("Current evidence cannot replace the requested historical generation");
+  if (payload.status === "historical_available" && (!input.historical || payload.providerAuthority !== false ||
+    payload.currentDecisionEligible !== false || payload.reclaimEligible !== false ||
+    payload.generation.businessId !== input.businessId || payload.generation.jobRunId !== input.historical.jobRunId ||
+    payload.generation.asOfDate !== input.historical.asOfDate || payload.generation.engineVersion !== input.historical.engineVersion ||
+    payload.identity.providerAccountId !== input.providerAccountId || payload.identity.adId !== input.adId ||
+    payload.identity.evaluationId !== input.historical.evaluationId)) throw new Error("Historical evidence identity/authority differs");
+  return payload;
 }
 
 function EvidenceShell({ children }: { children: ReactNode }) {

@@ -1,4 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable } from "node:stream";
+import { S3Client } from "@aws-sdk/client-s3";
+import { readNativeHistoricalAdEvidence, NATIVE_HISTORICAL_READER_GATE } from "../native-historical-archive-reader";
 import { createHash } from "node:crypto";
 import { stableCanonicalJson } from "../canonical-evaluation";
 import { buildNativeEvidenceArchive, buildNativeSupersededEvidenceArchive, NATIVE_ARCHIVE_TABLES,
@@ -8,6 +14,9 @@ import { buildNativeCalibrationParentArchive, openNativeCalibrationParentArchive
   NATIVE_CALIBRATION_PARENT_TABLES, type NativeCalibrationParentInput } from "../native-calibration-parent-archive";
 import { AD_CALIBRATION_JOB_NAME, NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
   computeNativeAdCalibrationCellSetHash } from "../jobs/ad-calibration-job";
+import { NATIVE_HISTORICAL_CATALOG_CONTRACT, nativeArchiveByteDigest, sealNativeHistoricalArchive,
+  openNativeHistoricalArchiveCatalog, openNativeHistoricalArchiveEvidence, openNativeHistoricalArchiveEnvelope,
+  resolveNativeHistoricalArchiveEntry } from "../native-historical-archive";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
 const business = id(1), job = id(2), account = id(3), batch = id(4), calJob = id(5);
@@ -160,4 +169,103 @@ describe("independent immutable native calibration parent transport", () => {
     expect(reader.readParentTable("engine_v3_ad_account_calibration_daily")).toHaveLength(known?2:0);
     expect(JSON.parse(reader.readCoreTable("engine_v3_ad_decision_snapshots_daily")[0]!.rowJson).calibration_row_id).toBeNull();
   });
+});
+
+
+describe("encrypted historical evidence integrity and authority", () => {
+  const key=Buffer.alloc(32,0x41);
+  const request={generation,providerAccountId:"act_1",adId:"ad",evaluationId:"eval"};
+  function sealed(superseded=false,dirty=false) {
+    const data=input(superseded);
+    data.core.manifest.sourceWorkspaceDirty=dirty;
+    data.coreManifestHash=nativeArchiveByteDigest(stableCanonicalJson(data.core.manifest));
+    const built=buildNativeCalibrationParentArchive(data);
+    return sealNativeHistoricalArchive(built.bundle,trusted(built),"fixture-key",key);
+  }
+  function catalog(pack:ReturnType<typeof sealed>) {
+    const entry={...pack.trust,object:{bucket:"archive-fixture",key:`native/v1/${pack.trust.ciphertextSha256}.bin`,versionId:"immutable-v1"}};
+    const bytes=Buffer.from(JSON.stringify({contract:NATIVE_HISTORICAL_CATALOG_CONTRACT,entries:[entry]}));
+    return {entry,bytes,sha256:nativeArchiveByteDigest(bytes)};
+  }
+  it.each([false,true])("opens exact current/superseded original rows as historical only (%s)", superseded=>{
+    const pack=sealed(superseded),index=catalog(pack);
+    const pointer=resolveNativeHistoricalArchiveEntry(openNativeHistoricalArchiveCatalog(index.bytes,index.sha256),request);
+    const result=openNativeHistoricalArchiveEvidence(pack.bytes,pointer,key,request);
+    expect(result).toMatchObject({status:"historical_available",providerAuthority:false,currentDecisionEligible:false,reclaimEligible:false,generation});
+    expect(JSON.parse(result.rowJson.evaluation).id).toBe("eval");
+    expect(JSON.parse(result.rowJson.context).evaluated_at).toBe("2026-09-30T03:00:00Z");
+    expect(result.rowJson.snapshot===null).toBe(superseded);
+  });
+  it("preserves large exact JSONB decimal text and microsecond clocks through encrypted packaging",()=>{
+    const data=input();data.core.manifest.sourceWorkspaceDirty=false;
+    data.tables[0]!.rowJson[0]=data.tables[0]!.rowJson[0]!.slice(0,-1)+',"source_provenance_json":{"decimal":9007199254740993.123456789}}';
+    data.schema.tables[0]!.columns.push({name:"source_provenance_json",type:"jsonb",nullable:false});
+    data.coreManifestHash=nativeArchiveByteDigest(stableCanonicalJson(data.core.manifest));
+    const built=buildNativeCalibrationParentArchive(data),pack=sealNativeHistoricalArchive(built.bundle,trusted(built),"fixture-key",key);
+    const {view}=openNativeHistoricalArchiveEnvelope(pack.bytes,pack.trust,key,generation);
+    expect(view.readParentTable("engine_v3_ad_account_calibration_batches")[0]).toContain("9007199254740993.123456789");
+    expect(view.readParentTable("engine_v3_ad_account_calibration_batches")[0]).toContain(clock);
+  });
+  it("retains dirty local fixture metadata but refuses runtime publication",()=>{
+    const pack=sealed(false,true);
+    expect(openNativeHistoricalArchiveEnvelope(pack.bytes,pack.trust,key,generation).bundle.manifest.sourceWorkspaceDirty).toBe(true);
+    expect(()=>openNativeHistoricalArchiveEvidence(pack.bytes,pack.trust,key,request)).toThrow(/dirty published archive/);
+  });
+  it("uses a fresh random nonce for identical plaintext",()=>{
+    const a=sealed(),b=sealed();expect(a.trust.plaintextSha256).toBe(b.trust.plaintextSha256);
+    expect(a.trust.ciphertextSha256).not.toBe(b.trust.ciphertextSha256);
+  });
+  it.each(["key","nonce","tag","ciphertext","catalog-manifest","plaintext-hash"])("refuses encrypted integrity fault %s",fault=>{
+    const pack=sealed(),body=Buffer.from(pack.bytes),trust={...pack.trust};let wrongKey=key;
+    if(fault==="key") wrongKey=Buffer.alloc(32,0x42);
+    // MAGIC is21 bytes, followed by12 nonce bytes and16 authentication-tag bytes.
+    if(fault==="nonce" || fault==="tag" || fault==="ciphertext") {body[fault==="nonce"?32:fault==="tag"?33:body.length-1]^=1;trust.ciphertextSha256=nativeArchiveByteDigest(body);}
+    if(fault==="catalog-manifest") trust.parentManifestHash="c".repeat(64);
+    if(fault==="plaintext-hash") trust.plaintextSha256="d".repeat(64);
+    expect(()=>openNativeHistoricalArchiveEvidence(body,trust,wrongKey,request)).toThrow();
+  });
+  it.each(["business","job","date","epoch","account","ad","evaluation"])("refuses foreign %s without current fallback",fault=>{
+    const pack=sealed(),r={...request,generation:{...generation}};
+    if(fault==="business") r.generation.businessId=id(99);
+    if(fault==="job") r.generation.jobRunId=id(99);
+    if(fault==="date") r.generation.asOfDate="2026-09-29";
+    if(fault==="epoch") r.generation.engineVersion="foreign";
+    if(fault==="account") r.providerAccountId="act_foreign";
+    if(fault==="ad") r.adId="foreign";
+    if(fault==="evaluation") r.evaluationId="foreign";
+    expect(()=>openNativeHistoricalArchiveEvidence(pack.bytes,pack.trust,key,r)).toThrow(/refused/);
+  });
+  it("does not trust a downloaded catalog's own digest",()=>{
+    const pack=sealed(),index=catalog(pack);
+    expect(()=>openNativeHistoricalArchiveCatalog(index.bytes,"b".repeat(64))).toThrow(/catalog trust/);
+  });
+  it.each(["duplicate","null-version","key","size","encoding"])("refuses malformed trusted catalog %s",fault=>{
+    const index=catalog(sealed()),raw=JSON.parse(index.bytes.toString());
+    if(fault==="duplicate") raw.entries.push(raw.entries[0]);
+    if(fault==="null-version") raw.entries[0].object.versionId="null";
+    if(fault==="key") raw.entries[0].object.key="../../foreign";
+    if(fault==="size") raw.entries[0].plaintextBytes=65*1024*1024;
+    if(fault==="encoding") raw.contract="unknown";
+    const bytes=Buffer.from(JSON.stringify(raw));
+    expect(()=>openNativeHistoricalArchiveCatalog(bytes,nativeArchiveByteDigest(bytes))).toThrow(/refused/);
+  });
+  it.each([false,true])("runs the configured actual adapter through catalog, exact GET and decrypt (%s)",superseded=>{
+    return runConfigured(superseded,false);
+  });
+  it("rejects a changed local trust file before any S3 GET",()=>runConfigured(false,true));
+  async function runConfigured(superseded:boolean,corruptCatalog:boolean) {
+    const pack=sealed(superseded),index=catalog(pack),temp=mkdtempSync(join(tmpdir(),"historical-reader-fixture-"));
+    const file=join(temp,"trusted-index.json");writeFileSync(file,index.bytes,{mode:0o600});
+    vi.stubEnv(NATIVE_HISTORICAL_READER_GATE,"true");vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_CATALOG_PATH",file);
+    vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_CATALOG_SHA256",corruptCatalog?"f".repeat(64):index.sha256);
+    vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_ID","fixture-key");vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_HEX",key.toString("hex"));
+    vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_S3_ACCESS_KEY_ID","isolated-fixture-only");vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_S3_SECRET_ACCESS_KEY","isolated-fixture-only");
+    const send=vi.spyOn(S3Client.prototype,"send").mockResolvedValue({Body:Readable.from([pack.bytes]),ContentLength:pack.bytes.length,VersionId:index.entry.object.versionId} as never);
+    try {
+      const result=await readNativeHistoricalAdEvidence(request);
+      if(corruptCatalog) {expect(result.status).toBe("unavailable");expect(send).not.toHaveBeenCalled();}
+      else {expect(result.status).toBe("historical_available");expect(result).toMatchObject({providerAuthority:false,currentDecisionEligible:false,reclaimEligible:false});
+        expect(send).toHaveBeenCalledTimes(1);expect(send.mock.calls[0]![0].input).toEqual({Bucket:index.entry.object.bucket,Key:index.entry.object.key,VersionId:index.entry.object.versionId});}
+    } finally {send.mockRestore();vi.unstubAllEnvs();rmSync(temp,{recursive:true,force:true});}
+  }
 });

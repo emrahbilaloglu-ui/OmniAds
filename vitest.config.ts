@@ -6,6 +6,9 @@ export default defineConfig({
     environment: "node",
     globals: true,
     setupFiles: ["./vitest.setup.dom.ts"],
+    // Vitest 4.1.0 in the committed lock does not read this env itself. Bind
+    // the documented local release cap explicitly; tests and timeouts stay identical.
+    maxWorkers: process.env.VITEST_MAX_WORKERS === "4" ? 4 : undefined,
     // Vitest's 5s default was never a deliberate bound for this suite. Several
     // tests legitimately take seconds — hashing the whole repository, walking
     // every module for import guards, driving multi-page UI flows through

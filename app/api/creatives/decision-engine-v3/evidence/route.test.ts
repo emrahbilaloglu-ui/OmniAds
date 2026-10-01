@@ -10,6 +10,7 @@ import { canonicalSha256 } from "@/lib/creative-decision-engine/canonical-evalua
 import { getDb } from "@/lib/db";
 import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import { readMetaNativeCanonicalDecisionInventory } from "@/lib/meta/decisions-workspace-read-model";
+import { readNativeHistoricalAdEvidence } from "@/lib/creative-decision-engine/native-historical-archive-reader";
 import { GET } from "./route";
 
 vi.mock("@/lib/access", () => ({ requireBusinessAccess: vi.fn() }));
@@ -20,6 +21,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
 vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
   readMetaNativeCanonicalDecisionInventory: vi.fn(),
 }));
+vi.mock("@/lib/creative-decision-engine/native-historical-archive-reader", () => ({ readNativeHistoricalAdEvidence: vi.fn() }));
 
 const BUSINESS_ID = "00000000-0000-4000-8000-000000000001";
 const PROVIDER_REF_ID = "00000000-0000-4000-8000-000000000002";
@@ -649,5 +651,41 @@ describe("GET /api/creatives/decision-engine-v3/evidence", () => {
     expect(source).not.toMatch(/\bdecideCreative\b/);
     expect(source).not.toMatch(/\bresolveAccountDecisionProfile\b/);
     expect(source).not.toMatch(/\bresolveDataSource\b/);
+  });
+});
+
+
+describe("explicit historical archive evidence route",()=>{
+  const base=`http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`;
+  const history=`${base}&view=historical&archiveJobRunId=${JOB_RUN_ID}&evaluationId=${EVALUATION_ID}&asOf=2026-07-16&engineVersion=native-old`;
+  it.each(["&archiveJobRunId=job","&view=unknown","&view=historical"])("refuses ambiguous/incomplete history selection %s",suffix=>{
+    return GET(new NextRequest(base+suffix)).then(response=>{
+      expect(response.status).toBe(400);expect(readNativeHistoricalAdEvidence).not.toHaveBeenCalled();
+      expect(readMetaNativeCanonicalDecisionInventory).not.toHaveBeenCalled();
+    });
+  });
+  it("preserves tenant membership authorization before any archive access",async()=>{
+    vi.mocked(requireBusinessAccess).mockResolvedValue({error:NextResponse.json({error:"denied"},{status:403})});
+    expect((await GET(new NextRequest(history))).status).toBe(403);
+    expect(readNativeHistoricalAdEvidence).not.toHaveBeenCalled();
+  });
+  it("passes the exact explicit historical identity and returns a separate authority-free contract",async()=>{
+    const result={status:"historical_available" as const,contractVersion:"decision-engine-v3-native-ad-historical-evidence.v1" as const,
+      authority:"historical_read_only" as const,providerAuthority:false as const,currentDecisionEligible:false as const,reclaimEligible:false as const,
+      generation:{businessId:BUSINESS_ID,jobRunId:JOB_RUN_ID,asOfDate:"2026-07-16",engineVersion:"native-old"},
+      sourceRevision:"a".repeat(40),capturedAt:"2026-07-17T00:00:00Z",
+      identity:{providerAccountId:"act_1",providerAccountRefId:PROVIDER_REF_ID,adId:"ad-1",evaluationId:EVALUATION_ID,contextId:CONTEXT_ID,inputHash:"a".repeat(64),decisionHash:"b".repeat(64)},
+      rowJson:{evaluation:'{"original":true}',context:'{}',inputEvidence:'{}',snapshot:null}};
+    vi.mocked(readNativeHistoricalAdEvidence).mockResolvedValue(result);
+    const response=await GET(new NextRequest(history));expect(response.status).toBe(200);expect(await response.json()).toEqual(result);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(readNativeHistoricalAdEvidence).toHaveBeenCalledWith({generation:result.generation,providerAccountId:"act_1",adId:"ad-1",evaluationId:EVALUATION_ID});
+    expect(readMetaNativeCanonicalDecisionInventory).not.toHaveBeenCalled();expect(query).not.toHaveBeenCalled();
+  });
+  it.each(["disabled","unavailable"] as const)("does not replace %s historical evidence with current data",async status=>{
+    vi.mocked(readNativeHistoricalAdEvidence).mockResolvedValue(status==="disabled"?
+      {status,reason:"native_historical_reader_disabled"}:{status,reason:"native_historical_archive_unavailable"});
+    const response=await GET(new NextRequest(history));expect(response.status).toBe(status==="unavailable"?409:200);
+    expect((await response.json()).status).toBe(status);expect(readMetaNativeCanonicalDecisionInventory).not.toHaveBeenCalled();expect(query).not.toHaveBeenCalled();
   });
 });

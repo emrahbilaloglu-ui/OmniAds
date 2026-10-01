@@ -6,6 +6,7 @@ import type { NativeAdDecisionEvidenceResponse } from "@/app/api/creatives/decis
 let queryState: Record<string, unknown>;
 let invokeQueryFn = false;
 let observedQuery: { queryKey?: unknown[]; enabled?: boolean } = {};
+let observedQueryFn: (() => Promise<unknown>) | undefined;
 
 vi.mock("@tanstack/react-query", () => ({
   /**
@@ -24,6 +25,7 @@ vi.mock("@tanstack/react-query", () => ({
         queryKey: input.queryKey,
         enabled: input.enabled,
       };
+      observedQueryFn = input.queryFn;
       if (invokeQueryFn && input.enabled) void input.queryFn();
       return queryState;
     },
@@ -193,6 +195,7 @@ beforeEach(() => {
   };
   invokeQueryFn = false;
   observedQuery = {};
+  observedQueryFn = undefined;
   vi.unstubAllGlobals();
 });
 
@@ -291,5 +294,38 @@ describe("CreativeEngineV3EvidenceSection", () => {
     expect(renderEvidence()).toContain(
       "failed lineage validation",
     );
+  });
+});
+
+
+describe("explicit historical evidence presentation",()=>{
+  const historical={jobRunId:"old-job",evaluationId:"old-evaluation",asOfDate:"2026-09-24",engineVersion:"native-old"};
+  it("keys and fetches an exact historical identity separately from current evidence",()=>{
+    const fetchMock=vi.fn().mockResolvedValue({ok:true,json:async()=>({status:"disabled",reason:"native_historical_reader_disabled"})});
+    vi.stubGlobal("fetch",fetchMock);vi.stubGlobal("window",{location:{origin:"http://localhost"}});invokeQueryFn=true;
+    renderEvidence({historical});
+    expect(observedQuery.queryKey).toEqual(["engine-v3-native-ad-evidence","biz-1","act_1","ad-1","historical","old-job","old-evaluation","2026-09-24","native-old"]);
+    const url=new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("view")).toBe("historical");expect(url.searchParams.get("archiveJobRunId")).toBe("old-job");
+    expect(url.searchParams.get("evaluationId")).toBe("old-evaluation");expect(url.searchParams.get("asOf")).toBe("2026-09-24");
+    expect(url.searchParams.get("engineVersion")).toBe("native-old");
+  });
+  it("renders a historical-only banner and does not turn original authorized fields into an action",()=>{
+    queryState.data={status:"historical_available",authority:"historical_read_only",providerAuthority:false,currentDecisionEligible:false,reclaimEligible:false,
+      generation:{businessId:"biz-1",jobRunId:"old-job",asOfDate:"2026-09-24",engineVersion:"native-old"},
+      rowJson:{evaluation:'{"authorized_action":"cut","decimal":9007199254740993.123456789}',context:'{}',inputEvidence:'{}',snapshot:null}};
+    const html=renderEvidence({historical});
+    expect(html).toContain("Historical record");expect(html).toContain("review only");expect(html).toContain("does not authorize advertising changes");
+    expect(html).not.toContain("Operator response");expect(html).not.toContain("Apply Cut");expect(html).not.toContain("Launchpad");
+  });
+  it("distinguishes the default-off archive gate from business engine disablement",()=>{
+    queryState.data={status:"disabled",reason:"native_historical_reader_disabled"};
+    expect(renderEvidence({historical})).toContain("Historical archive reading is not enabled");
+  });
+  it("rejects a current response for an explicitly requested historical generation",async()=>{
+    vi.stubGlobal("fetch",vi.fn().mockResolvedValue({ok:true,json:async()=>payload()}));
+    vi.stubGlobal("window",{location:{origin:"http://localhost"}});
+    renderEvidence({historical});
+    await expect(observedQueryFn!()).rejects.toThrow(/Current evidence cannot replace/);
   });
 });

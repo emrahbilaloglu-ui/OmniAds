@@ -11946,3 +11946,44 @@ no production storage or migration is switched. The previously authorized163GiB
 release and its own live worker baseline remain separate acceptance evidence.
 
 See [the parent transport contract](../architecture/native-calibration-parent-archive.md).
+
+
+## D135 — Explicit encrypted historical evidence reader, default-off (2026-10-01)
+
+**Problem:** Offline byte/parent integrity and restore helpers do not provide a
+production historical reader once an original generation is copied to durable
+storage. A newer current snapshot cannot stand in for a superseded original.
+
+**Decision:** Add a separate explicit historical view to the existing exact-Ad
+evidence route, using original job/evaluation/account/Ad/date/epoch identity and
+business membership. Its independent locally pinned catalog selects an exact
+versioned content-addressed ciphertext. AES-256-GCM plus independent ciphertext,
+plaintext and parent/core manifest/schema trust must verify before original raw
+PostgreSQL JSONB text is served. No fallback selects current/newer evidence.
+
+The response and UI remain historical_read_only, providerAuthority=false,
+currentDecisionEligible=false and reclaimEligible=false. No formula, epoch,
+canonical identity/freshness clock, hysteresis or provider action path changes.
+The archive reader has its own OFF-by-default gate and explicit archive-only key
+configuration. It cannot create/upload/list/delete, publish a catalog, discover
+admin credentials or reclaim source rows. Runtime publication requires clean
+source metadata; local dirty-fixture restore stays distinct.
+
+**Activation cost gate:** Environment/key configuration alone cannot enable a
+safe live rollout. Before activation, implement single-flight and bounded
+verified-result caching by exact `(versionId, ciphertextSha256)`, global/business
+concurrency bounds, sanitized secret-free operational logs, and an explicit role
+and egress-budget decision. Decrypt/parse/full validation must run off the web
+event loop or use a measured smaller package cap. These safeguards are not yet
+implemented; the default-off source path and its64MiB maximum are preparation,
+not a throughput or cost acceptance.
+
+**Limits:** Real S3 resource/policy/retention/key-recovery and durable readback
+acceptance have not occurred. Historical viewing is separate from all live
+consumer/non-FK/transitive closure and measured removal/rewrite permission. Bigger
+than64MiB original packages refuse; no automatic chunk/version adapter is created.
+This does not close sustainable storage or natural strict positive reuse. Default
+current readers/data stay pinned. Reverting this source phase or leaving its gate
+disabled rolls back without changing existing source data or live authority.
+
+See [the reader contract](../architecture/native-historical-archive-reader.md).

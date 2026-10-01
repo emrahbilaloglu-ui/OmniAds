@@ -14,6 +14,7 @@ import {
   readMetaNativeCanonicalDecisionInventory,
   type MetaNativeDecisionGeneration,
 } from "@/lib/meta/decisions-workspace-read-model";
+import { readNativeHistoricalAdEvidence, type NativeHistoricalEvidenceReadResult } from "@/lib/creative-decision-engine/native-historical-archive-reader";
 
 export const dynamic = "force-dynamic";
 
@@ -120,7 +121,8 @@ export interface NativeAdDecisionEvidenceDisabledResponse {
 
 export type DecisionEngineV3EvidenceResponse =
   | NativeAdDecisionEvidenceResponse
-  | NativeAdDecisionEvidenceDisabledResponse;
+  | NativeAdDecisionEvidenceDisabledResponse
+  | NativeHistoricalEvidenceReadResult;
 
 function nonEmpty(value: string | null | undefined): string | null {
   const normalized = value?.trim();
@@ -511,6 +513,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   );
   const adId = nonEmpty(url.searchParams.get("adId"));
   const asOf = nonEmpty(url.searchParams.get("asOf")) ?? undefined;
+  const view = url.searchParams.get("view");
+  const historical = view === "historical";
+  const archiveJobRunId = nonEmpty(url.searchParams.get("archiveJobRunId"));
+  const evaluationId = nonEmpty(url.searchParams.get("evaluationId"));
+  const historicalEngineVersion = nonEmpty(url.searchParams.get("engineVersion"));
+
+  if (view !== null && !historical || !historical && url.searchParams.has("archiveJobRunId")) {
+    return NextResponse.json({ error: "explicit historical view required" }, { status: 400 });
+  }
+  if (historical && (!archiveJobRunId || !evaluationId || !historicalEngineVersion || !asOf)) {
+    return NextResponse.json({ error: "historical job, evaluation, engineVersion and asOf required" }, { status: 400 });
+  }
 
   if (!businessId) {
     return NextResponse.json({ error: "businessId required" }, { status: 400 });
@@ -543,6 +557,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       } satisfies NativeAdDecisionEvidenceDisabledResponse,
       { status: 200 },
     );
+  }
+
+  if (historical) {
+    const result = await readNativeHistoricalAdEvidence({ generation: { businessId: resolvedBusinessId,
+      jobRunId: archiveJobRunId!, asOfDate: asOf!, engineVersion: historicalEngineVersion! },
+      providerAccountId, adId, evaluationId: evaluationId! });
+    return NextResponse.json(result, { status: result.status === "unavailable" ? 409 : 200,
+      headers: { "Cache-Control": "private, no-store" } });
   }
 
   const inventory = await readMetaNativeCanonicalDecisionInventory({

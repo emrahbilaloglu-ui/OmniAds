@@ -1,6 +1,7 @@
 # Superseded native history, scoped pin census and physical reclaim preparation
 
-Status: LOCAL preparation under D133. No production reader imports, migrations,
+Status: LOCAL preparation under D133. D135 adds a separate default-OFF historical
+integrity reader adapter, without current-reader activation, migrations,
 uploader, eviction executor, maintenance command or budget change. It does not
 close sustainable storage, admit PR329 or establish a natural reuse receipt.
 

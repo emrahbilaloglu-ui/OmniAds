@@ -7,7 +7,9 @@ capacity refusal. This is neither a production archive nor a retention policy.
 
 `lib/creative-decision-engine/native-evidence-archive.ts` builds/verifies a
 `native-generation-core-archive.v1` bundle. It has no DB access, filesystem
-access, uploader or eviction executor, and production readers do not import it.
+access, uploader or eviction executor. D135 now imports its integrity checks into
+a separate default-OFF historical evidence adapter; normal current/action readers
+remain pinned to live source. See [the explicit reader](native-historical-archive-reader.md).
 The manifest binds one business/job/as-of/epoch, workspace HEAD and dirty marker, captured clock,
 actual column/type/nullability and FK definitions, counts and each object digest.
 The five core tables are native job runs, contexts, evaluations, input evidence

@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { stableCanonicalJson } from "./canonical-evaluation";
 import { assessNativeArchivePins, type NativeArchivePinCensus } from "./native-archive-pin-census";
 
-/** Offline preparation only. No runtime reader, uploader, writer or evictor imports this module. */
+/** Original-byte archive integrity. The D135 explicit historical reader may use
+ * it; no current decision, uploader, writer or evictor is granted authority. */
 export const NATIVE_ARCHIVE_CONTRACT = "native-generation-core-archive.v1" as const;
 export const NATIVE_SUPERSEDED_ARCHIVE_CONTRACT = "native-superseded-generation-core-archive.v1" as const;
 export const NATIVE_ARCHIVE_TABLES = [

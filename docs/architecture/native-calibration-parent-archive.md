@@ -5,6 +5,9 @@ D134. It wraps a separately trusted complete or superseded five-table native
 core and original calibration batches, their entire cell sets, and successful
 original calibration producer/dependency job receipts. It does not activate a
 production reader, migration, upload, archive destination, eviction or reclaim.
+The subsequent D135 adapter reuses this declared-parent integrity under a separate
+default-OFF historical reader gate; adding the code does not activate it or change
+current/action authority. See [the reader contract](native-historical-archive-reader.md).
 
 The parent manifest binds the trusted core digest, schema, generation, capture
 clock and explicit dirty-source flag. Each object preserves exact PostgreSQL

@@ -82,6 +82,7 @@ COPY --from=builder /build/app /app/app
 COPY --from=builder /build/lib /app/lib
 COPY --from=builder /build/providers /app/providers
 COPY --from=builder /build/scripts /app/scripts
+COPY --from=builder /build/.native-historical-worker /app/.native-historical-worker
 # The recovery tier policy travels with the cutover wrapper.
 COPY --from=builder /build/deploy /app/deploy
 COPY --from=builder /build/src /app/src

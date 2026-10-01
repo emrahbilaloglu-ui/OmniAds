@@ -668,6 +668,7 @@ describe("explicit historical archive evidence route",()=>{
     vi.mocked(requireBusinessAccess).mockResolvedValue({error:NextResponse.json({error:"denied"},{status:403})});
     expect((await GET(new NextRequest(history))).status).toBe(403);
     expect(readNativeHistoricalAdEvidence).not.toHaveBeenCalled();
+    expect(requireBusinessAccess).toHaveBeenCalledWith(expect.objectContaining({ minRole: "collaborator" }));
   });
   it("passes the exact explicit historical identity and returns a separate authority-free contract",async()=>{
     const result={status:"historical_available" as const,contractVersion:"decision-engine-v3-native-ad-historical-evidence.v1" as const,
@@ -687,5 +688,12 @@ describe("explicit historical archive evidence route",()=>{
       {status,reason:"native_historical_reader_disabled"}:{status,reason:"native_historical_archive_unavailable"});
     const response=await GET(new NextRequest(history));expect(response.status).toBe(status==="unavailable"?409:200);
     expect((await response.json()).status).toBe(status);expect(readMetaNativeCanonicalDecisionInventory).not.toHaveBeenCalled();expect(query).not.toHaveBeenCalled();
+  });
+  it("returns bounded retryable overload with private cache and an explicit delay", async () => {
+    vi.mocked(readNativeHistoricalAdEvidence).mockResolvedValue({ status: "limited", reason: "native_historical_reader_limit_reached" });
+    const response = await GET(new NextRequest(history));
+    expect(response.status).toBe(429); expect(response.headers.get("Retry-After")).toBe("60");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(readMetaNativeCanonicalDecisionInventory).not.toHaveBeenCalled(); expect(query).not.toHaveBeenCalled();
   });
 });

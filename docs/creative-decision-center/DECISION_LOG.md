@@ -11987,3 +11987,46 @@ current readers/data stay pinned. Reverting this source phase or leaving its gat
 disabled rolls back without changing existing source data or live authority.
 
 See [the reader contract](../architecture/native-historical-archive-reader.md).
+
+## D136 — Bounded separate-worker historical verification (2026-10-01)
+
+**Decision:** Implement D135's required cost gates before any future activation.
+Keep the reader default off. Admission precedes loading trusted catalog/key/artifact;
+use fixed process/business concurrency, monotonic rate/download/response budgets,
+exact immutable verified caches and duplicate coalescing. Run decrypt/parse/full
+validation in an exact bundled worker with no inherited provider/DB credentials.
+Runtime plaintext is capped at2MiB and evidence at256KiB; no automatic chunking.
+Historical membership is collaborator, current membership remains guest. Temporary
+overload is429/Retry-After60, permanent package/integrity refusal remains409. No
+current-data fallback or provider authority is added.
+
+**Proof boundary:** Actual bundled-worker crypto/identity/maximum-size guards and
+standalone build-asset execution under the production Node20 Linux runtime are
+required before merge; record exact runtime/artifact identity. The adjacent digest
+manifest proves integrity, while reviewed source/image pins establish authenticity.
+Fixed heap limits and process-local
+caches/budgets are not total RSS/distributed limits or production throughput/cost
+acceptance. Provider target/policy/retention/key recovery/durable proof remains open.
+
+## D137 — Evaluation/exclusive-context measurement with retained roots (2026-10-01)
+
+**Decision:** Prepare a smaller SELECT-only measurement separately from the
+five-table archive copy and whole-core removal veto. Keep original jobs/dependencies/
+reuse attempts/shared inputs/calibration/provider roots live. Bind exact original
+generation completeness, every incoming FK/composite lineage, context sharing and
+declared non-FK source semantics, including all four typed action evaluation/
+snapshot columns independently of optional episode/assignment links. Unknown
+consumers/contracts fail closed. A
+Launchpad entity hash is conservatively possible identity, not an evaluation UUID.
+All assessments remain authority/reclaim/production-closure false; no remover exists.
+
+**Proof boundary:** A new owned actual-DDL sensitivity test copies the complete
+original history first, then temporarily removes only one fixture evaluation/context
+inside a rolled-back transaction. The actual nonempty current/hysteresis/reuse SQL,
+original job count/shared input and archived bytes must remain exact. The separate
+501-row producer/archive tests remain required. This cannot establish full consumer
+closure, population/bytes/horizon, a natural reuse witness or physical reclamation.
+
+Both decisions preserve formulas, source epochs and canonical clocks. Reverting
+this additive phase or leaving the historical gate disabled changes no current
+source rows or provider authority. See [the cost and measurement contract](../architecture/native-historical-resource-and-unit-guards.md).

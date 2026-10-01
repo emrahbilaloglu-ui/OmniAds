@@ -169,7 +169,7 @@ async function fetchEngineV3Evidence(input: {
   providerAccountId: string;
   adId: string;
   historical?: CreativeEngineV3EvidenceSectionProps["historical"];
-}): Promise<Exclude<DecisionEngineV3EvidenceResponse, { status: "unavailable" }>> {
+}): Promise<Exclude<DecisionEngineV3EvidenceResponse, { status: "unavailable" | "limited" }>> {
   const url = new URL(
     "/api/creatives/decision-engine-v3/evidence",
     window.location.origin,
@@ -194,6 +194,7 @@ async function fetchEngineV3Evidence(input: {
   }
   const payload = (await response.json()) as DecisionEngineV3EvidenceResponse;
   if (payload.status === "unavailable") throw new Error("Historical evidence is unavailable or failed integrity validation");
+  if (payload.status === "limited") throw new Error("Historical archive request limit reached");
   if (input.historical && payload.status === "available") throw new Error("Current evidence cannot replace the requested historical generation");
   if (payload.status === "historical_available" && (!input.historical || payload.providerAuthority !== false ||
     payload.currentDecisionEligible !== false || payload.reclaimEligible !== false ||

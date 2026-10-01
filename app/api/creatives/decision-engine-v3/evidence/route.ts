@@ -542,7 +542,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const access = await requireBusinessAccess({
     request,
     businessId,
-    minRole: "guest",
+    minRole: historical ? "collaborator" : "guest",
   });
   if ("error" in access) return access.error;
   const resolvedBusinessId = access.membership.businessId;
@@ -563,8 +563,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const result = await readNativeHistoricalAdEvidence({ generation: { businessId: resolvedBusinessId,
       jobRunId: archiveJobRunId!, asOfDate: asOf!, engineVersion: historicalEngineVersion! },
       providerAccountId, adId, evaluationId: evaluationId! });
-    return NextResponse.json(result, { status: result.status === "unavailable" ? 409 : 200,
-      headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json(result, { status: result.status === "limited" ? 429 : result.status === "unavailable" ? 409 : 200,
+      headers: { "Cache-Control": "private, no-store", ...(result.status === "limited" ? { "Retry-After": "60" } : {}) } });
   }
 
   const inventory = await readMetaNativeCanonicalDecisionInventory({

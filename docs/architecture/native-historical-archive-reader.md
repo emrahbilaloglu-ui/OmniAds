@@ -85,9 +85,12 @@ exact `(versionId, ciphertextSha256)`; enforce global and business concurrency
 bounds; move decrypt/parse/full validation off the web event loop or establish a
 smaller package cap from measured CPU/memory latency. Add sanitized operational
 logs without keys, paths, row bytes or credentials, and decide the permitted role
-and egress budget. These safeguards are NOT implemented in this source phase.
-The current `guest` membership check and64MiB cap do not establish affordable
-throughput; setting the env configuration alone is insufficient for activation.
+and egress budget. These safeguards were NOT implemented in the original D135 source phase.
+That D135 source phase did not establish affordable throughput. D136 now implements
+the separate worker, verified bounded caches, collaborator role and fixed cost
+gates in [the resource/unit contract](native-historical-resource-and-unit-guards.md).
+Its runtime pilot cap is2MiB; the separate transport format retains64MiB. Setting
+environment configuration alone remains insufficient for production activation.
 
 Official contracts checked for this adapter:
 [GetObject SDK examples](https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/javascript_s3_code_examples.html),

@@ -11904,3 +11904,45 @@ helpers/tests/docs to roll back this phase; live data and paths remain unchanged
 
 See [the pin and reclaim preparation](../architecture/native-archive-pin-reclaim-preparation.md)
 for the explicit next source, operational and permission gates.
+
+
+## D134 — Offline original calibration-parent transport and independent restore
+
+**Status:** LOCAL preparation only; follows D132/D133. No runtime decision core,
+formula, resolver, canonical clock, epoch, production reader or authority change.
+
+**Problem:** The five-table native archive protects original generation bytes,
+but its earlier restore copied unrelated parent tables from the source sandbox.
+That is not independent original calibration-parent recovery. Native completed
+calibration batches/cells are immutable, so the original parent evidence can be
+transported separately without changing decision identity.
+
+**Decision:** Add `native-calibration-parent-archive.v1`, binding a separately
+trusted complete/superseded core to complete original calibration batches/cells
+and original successful calibration producer/dependency receipts. Context
+account/day/epoch/computation instants must bind exactly one batch; original
+serving snapshot calibration IDs add selected-cell lineage when present.
+Missing, foreign or ambiguous lineage refuses; no current-data backfill. Retain
+complete batch cardinality and the stored-version cell-set hash. A successful
+replay dependency is distinct from the immutable original batch producer and
+must not replace it. UTC comparison retains microseconds without rewriting
+transported JSONB or canonical identity. Credential/root tables are not exported.
+
+**Restore gate:** NEW isolated source and two independent target databases run
+actual production migrations. Provision fresh identity roots independently,
+then restore only the transported parent/core payload. Preserve production
+immutability triggers through a new target writing→complete transition and
+validate final seven-table byte/ID/clock/hash parity, including large decimals.
+PostgreSQL JSONB operations change only lifecycle fields during restore; do not
+parse/reserialize numeric evidence through Javascript. This is a local real-DDL
+schema fixture, separate from the earlier actual501-evaluation producer proof.
+
+**Limits and rollback:** Both historical views and assessments remain
+providerAuthority=false/reclaimEligible=false. This declared calibration-parent
+closure is not every upstream parent, non-FK/transitive consumer, full DR,
+production census/reader compatibility, durable storage/upload/eviction/reclaim
+or another admission step. Revert these offline helpers/tests/docs to roll back;
+no production storage or migration is switched. The previously authorized163GiB
+release and its own live worker baseline remain separate acceptance evidence.
+
+See [the parent transport contract](../architecture/native-calibration-parent-archive.md).

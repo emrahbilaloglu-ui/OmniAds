@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { stableCanonicalJson } from "./canonical-evaluation";
 import type { NativeArchiveGeneration } from "./native-evidence-archive";
 import { readNativeJobEvaluationSelection } from "./native-job-evaluation-selection";
+import { readNativeJobSnapshotSelection } from "./native-job-snapshot-selection";
 
 /** Offline/read-only preparation. No production caller or eviction executor. */
 export const NATIVE_PIN_CENSUS_CONTRACT = "bounded-native-pin-census.v1" as const;
@@ -113,6 +114,7 @@ export async function readNativeArchivePinCensus(db: QueryReader, input: {
   [g.jobRunId, g.businessId, g.asOfDate, g.engineVersion])).rows;
   if (jobs.length !== 1 || !jobs[0]?.finished_at) fail("original successful job absent");
   const selected = (await readNativeJobEvaluationSelection(db, input.schema)).sql;
+  const snapshots = (await readNativeJobSnapshotSelection(db, input.schema)).sql;
   const evaluations = (await db.query(`SELECT count(*)::text AS n FROM (${selected}) selected`, [g.jobRunId])).rows[0];
   const columns = (await db.query(`SELECT c.relname AS table, a.attname AS column FROM pg_class c
     JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid
@@ -146,12 +148,20 @@ export async function readNativeArchivePinCensus(db: QueryReader, input: {
     const childColumns = fk.child_columns as string[], parentColumns = fk.parent_columns as string[];
     if (!childColumns.length || childColumns.length !== parentColumns.length) fail("invalid composite FK catalog");
     const join = childColumns.map((c, i) => `c.${quote(c)}=p.${quote(parentColumns[i]!)}`).join(" AND ");
-    const parentRows = parent === "engine_v3_ad_decision_evaluations" ? `(${selected})` : `${schema}.${quote(parent)}`;
+    const parentRows = parent === "engine_v3_ad_decision_evaluations" ? `(${selected})` :
+      parent === "engine_v3_ad_decision_snapshots_daily" ? `(${snapshots})` : `${schema}.${quote(parent)}`;
     const predicate = parent === "engine_v3_job_runs" ? "p.id=$1::uuid" :
       parent === "engine_v3_ad_decision_input_evidence" ? `EXISTS (SELECT 1
         FROM (${selected}) selected WHERE selected.job_run_id=$1::uuid
         AND selected.contract_version=p.contract_version AND selected.input_hash=p.input_hash)` : "p.job_run_id=$1::uuid";
-    const n = count((await db.query(`SELECT count(*)::text AS n FROM ${quote(String(fk.child_schema))}.${quote(child)} c
+    // Only the exact same-schema snapshot.job -> job.id edge is restricted by
+    // snapshot job membership. Other/foreign edges retain their full child table;
+    // a child from another job may still pin a selected parent through a new FK.
+    const snapshotJobEdge = fk.child_schema === input.schema && child === "engine_v3_ad_decision_snapshots_daily" &&
+      parent === "engine_v3_job_runs" && JSON.stringify(childColumns) === '["job_run_id"]' &&
+      JSON.stringify(parentColumns) === '["id"]';
+    const childRows = snapshotJobEdge ? `(${snapshots})` : `${quote(String(fk.child_schema))}.${quote(child)}`;
+    const n = count((await db.query(`SELECT count(*)::text AS n FROM ${childRows} c
       JOIN ${parentRows} p ON ${join} WHERE ${predicate}`, [g.jobRunId])).rows[0]?.n);
     foreignKeyReferences.push({ childSchema: String(fk.child_schema), childTable: child, constraint: String(fk.name),
       parentSchema: String(fk.parent_schema), parentTable: parent, pinClass, count: n });
@@ -184,7 +194,7 @@ export async function readNativeArchivePinCensus(db: QueryReader, input: {
     if (!columns.some(c => c.table === "meta_ads_action_log" && c.column === column))
       unknown.push(`missing_action_lineage_column:${column}`);
     else {
-      const parentRows = parent === "engine_v3_ad_decision_evaluations" ? `(${selected})` : `${schema}.${quote(parent!)}`;
+      const parentRows = parent === "engine_v3_ad_decision_evaluations" ? `(${selected})` : `(${snapshots})`;
       await add("action_lineage", `SELECT count(*)::text AS n FROM ${schema}.meta_ads_action_log a
         JOIN ${parentRows} p ON p.id=a.${quote(column!)} WHERE p.job_run_id=$1::uuid`, [g.jobRunId]);
     }

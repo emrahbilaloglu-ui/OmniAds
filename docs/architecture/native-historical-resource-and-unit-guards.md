@@ -101,6 +101,18 @@ ROLLBACK. There is no production caller, removal executor or physical-byte query
 Every assessment keeps `providerAuthority=false`, `reclaimEligible=false`,
 `productionConsumerClosureProved=false` and `physicalBytesReclaimed="0"`.
 
+Original-job evaluation reads may expose existing context-leading indexes through
+the complete eleven-column evaluation/context join. This redundant route requires
+a same-schema validated, nondeferrable FK, every child key NOT NULL, all four
+internal RI triggers enabled, and an origin replication session in the same pinned
+read-only snapshot. Missing, ambiguous or unsafe catalog metadata preserves the
+original global job scan. No business/date/epoch subset is added to conceal foreign
+rows. Completeness, foreign membership, every incoming/typed/JSON pin count and the
+global cross-generation shared-input count remain required. Normal PostgreSQL
+constraint integrity is assumed; catalog flags are not an audit of historical
+superuser/replication bypass. Existing-index EXPLAIN costs are not measured latency,
+and global retained-input scans may still exceed the unchanged7.5s bound.
+
 The owned actual-migrations PostgreSQL guard first copies a byte-complete original
 superseded archive. It observes a nonempty newer current generation, hysteresis
 lineage and reuse header/rows through the real production SQL. A fixture-only,

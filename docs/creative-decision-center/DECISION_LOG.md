@@ -12020,6 +12020,15 @@ consumers/contracts fail closed. A
 Launchpad entity hash is conservatively possible identity, not an evaluation UUID.
 All assessments remain authority/reclaim/production-closure false; no remover exists.
 
+The2026-10-02 bounded source failure identified the unindexed global original-job
+membership count. A SELECT-only equivalent route may join through the existing
+context-job/context-leading indexes only after exact validated nonnullable
+eleven-column FK and enabled internal-trigger checks in an origin session.
+Unsafe/missing metadata keeps the original scan, never a tenant/day subset.
+All original membership and incoming/non-FK/shared-input checks remain; no index,
+DDL, clock, limit, authority or deletion change follows. Planner costs are not
+live throughput, and remaining global reference counts may independently refuse.
+
 **Proof boundary:** A new owned actual-DDL sensitivity test copies the complete
 original history first, then temporarily removes only one fixture evaluation/context
 inside a rolled-back transaction. The actual nonempty current/hysteresis/reuse SQL,

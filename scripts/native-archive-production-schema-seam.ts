@@ -8,6 +8,7 @@ import { buildNativeSupersededEvidenceArchive, openNativeSupersededEvidenceArchi
 import { NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION } from "@/lib/creative-decision-engine/ad-operator-response-detection";
 import { verifyIndependentNativeCalibrationParents } from "./native-calibration-parent-archive-seam";
 import { readNativeEvaluationContextUnit, assessNativeEvaluationContextUnit } from "@/lib/creative-decision-engine/native-evaluation-context-unit";
+import { readNativeJobEvaluationSelection } from "@/lib/creative-decision-engine/native-job-evaluation-selection";
 import { READ_NATIVE_DECISION_GENERATION_QUERY } from "@/lib/meta/decisions-workspace-read-model";
 import { READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY } from "@/lib/creative-decision-engine/decision-stability";
 import { READ_NATIVE_GENERATION_REUSE_HEADER_SQL, READ_NATIVE_GENERATION_REUSE_ROWS_SQL } from "@/lib/creative-decision-engine/jobs/native-decision-reuse";
@@ -290,6 +291,60 @@ export async function verifyNativeArchiveProductionSchema(client: Client) {
         consumerInventorySha256: HASH, unmodeledConsumers }); }
       finally { await db.query("ROLLBACK"); }
     };
+    // Real production DDL in this NEW owned fixture DB. Compare every serialized
+    // row to the original global-job oracle, including clocks and all JSON fields.
+    const selectionRead = async (generation = originalUnit.generation) => {
+      await db.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      await db.query("SET LOCAL statement_timeout='7500ms'");
+      try {
+        const selection = await readNativeJobEvaluationSelection(db, "public");
+        const actual = (await db.query(`SELECT to_jsonb(e)::text AS bytes FROM (${selection.sql}) e ORDER BY e.id`,
+          [generation.jobRunId])).rows;
+        const oracle = (await db.query(`SELECT to_jsonb(e)::text AS bytes FROM engine_v3_ad_decision_evaluations e
+          WHERE e.job_run_id=$1::uuid ORDER BY e.id`, [generation.jobRunId])).rows;
+        assert(JSON.stringify(actual) === JSON.stringify(oracle), "context index route differs from the complete direct-job row oracle");
+        return { route: selection.route, rows: actual.length };
+      } finally { await db.query("ROLLBACK"); }
+    };
+    assert((await selectionRead()).route === "validated_context_lineage" &&
+      (await selectionRead(currentUnit.generation)).route === "validated_context_lineage",
+      "actual-DDL validated lineage did not use the existing-index route");
+    await db.query("ALTER TABLE engine_v3_ad_decision_evaluations DISABLE TRIGGER ALL");
+    try { assert((await selectionRead()).route === "direct_job_scan", "disabled actual FK triggers concealed a direct-job row"); }
+    finally { await db.query("ALTER TABLE engine_v3_ad_decision_evaluations ENABLE TRIGGER ALL"); }
+    await db.query("ALTER TABLE engine_v3_ad_decision_evaluations ALTER COLUMN scope_id DROP NOT NULL");
+    try { assert((await selectionRead()).route === "direct_job_scan", "nullable actual lineage did not retain direct scan"); }
+    finally { await db.query("ALTER TABLE engine_v3_ad_decision_evaluations ALTER COLUMN scope_id SET NOT NULL"); }
+    const lineageName = "engine_v3_ad_evaluations_context_lineage_fk";
+    const lineageDefinition = (await db.query(`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+      WHERE conrelid='engine_v3_ad_decision_evaluations'::regclass AND conname=$1`, [lineageName])).rows[0]?.definition;
+    assert(typeof lineageDefinition === "string" && !lineageDefinition.includes("NOT VALID"), "actual validated fixture FK missing");
+    await db.query(`ALTER TABLE engine_v3_ad_decision_evaluations DROP CONSTRAINT ${quote(lineageName)},
+      ADD CONSTRAINT ${quote(lineageName)} ${lineageDefinition} NOT VALID`);
+    const foreignId = randomUUID();
+    try {
+      assert((await selectionRead()).route === "direct_job_scan", "NOT VALID actual FK concealed rows");
+      // Only this owned fixture bypasses triggers to model a pre-validation
+      // foreign row. A job/business/date filter would wrongly hide it.
+      await db.query("ALTER TABLE engine_v3_ad_decision_evaluations DISABLE TRIGGER ALL");
+      try {
+        await db.query(`INSERT INTO engine_v3_ad_decision_evaluations
+          SELECT (jsonb_populate_record(NULL::engine_v3_ad_decision_evaluations,to_jsonb(e)||
+            jsonb_build_object('id',$1::uuid,'job_run_id',$2::uuid,'decision_entity_id','foreign-index-fixture','ad_id','foreign-index-fixture'))).*
+          FROM engine_v3_ad_decision_evaluations e WHERE e.id=$3::uuid`,
+        [foreignId, originalUnit.generation.jobRunId, currentUnit.evaluation]);
+      } finally { await db.query("ALTER TABLE engine_v3_ad_decision_evaluations ENABLE TRIGGER ALL"); }
+      const foreign = await selectionRead();
+      assert(foreign.route === "direct_job_scan" && foreign.rows === 2, "unsafe metadata hid the extra foreign evaluation");
+      let refused = false;
+      try { await unitRead(); } catch (error) { refused = String(error).includes("foreign/incomplete membership"); }
+      assert(refused, "D137 accepted the receipt-sized valid subset while a foreign original-job row existed");
+    } finally {
+      await db.query("DELETE FROM engine_v3_ad_decision_evaluations WHERE id=$1", [foreignId]);
+      await db.query(`ALTER TABLE engine_v3_ad_decision_evaluations VALIDATE CONSTRAINT ${quote(lineageName)}`);
+    }
+    assert((await selectionRead()).route === "validated_context_lineage", "restored actual FK did not retain the equivalent indexed selection");
+    console.log("[native-job-evaluation-selection] PASS actual-DDL full JSONB row/clock parity for two jobs; disabled triggers/nullable/NOT VALID keep global scan; extra foreign row refuses before any pin-free result; owned changes restored.");
     const unit = await unitRead(), measured = assessNativeEvaluationContextUnit(unit, originalUnit.generation);
     assert(measured.pinFreeWithinMeasuredScope && !measured.reclaimEligible && !measured.productionConsumerClosureProved,
       "narrow unit did not preserve measured-scope/permission distinction");

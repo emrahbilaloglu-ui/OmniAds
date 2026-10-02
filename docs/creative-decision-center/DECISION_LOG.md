@@ -12026,7 +12026,20 @@ context-job/context-leading indexes only after exact validated nonnullable
 eleven-column FK and enabled internal-trigger checks in an origin session.
 Unsafe/missing metadata keeps the original scan, never a tenant/day subset.
 All original membership and incoming/non-FK/shared-input checks remain; no index,
-DDL, clock, limit, authority or deletion change follows. Planner costs are not
+DDL, clock, limit, authority or deletion change follows.
+
+The next exact-digest failure was the snapshot child job-FK count, not evaluation
+membership: the changed membership completed in25ms, then snapshot census canceled
+at7501ms and rolled back. Materializing only the job parent did not improve the
+NO-ANALYZE plan. A separate guarded SELECT may expose the existing snapshot
+`evaluation_id` index through the exact validated nonnullable fifteen-column
+snapshot/evaluation FK, including original job identity. Require nondeferrable,
+four enabled internal RI triggers and an origin read-only repeatable-read session.
+Unsafe metadata keeps every original-job snapshot via the direct scan. Only the
+exact snapshot.job_run_id -> job.id child edge can use that job selection; other
+incoming edges keep their entire child table because another-job row may pin this
+generation. No global count is skipped, no timeout is raised, and no source
+archive/reclaim/admission success follows from local parity or planner evidence. Planner costs are not
 live throughput, and remaining global reference counts may independently refuse.
 
 **Proof boundary:** A new owned actual-DDL sensitivity test copies the complete

@@ -9,6 +9,7 @@ import { NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION } from "@/lib/creative-dec
 import { verifyIndependentNativeCalibrationParents } from "./native-calibration-parent-archive-seam";
 import { readNativeEvaluationContextUnit, assessNativeEvaluationContextUnit } from "@/lib/creative-decision-engine/native-evaluation-context-unit";
 import { readNativeJobEvaluationSelection } from "@/lib/creative-decision-engine/native-job-evaluation-selection";
+import { readNativeJobSnapshotSelection } from "@/lib/creative-decision-engine/native-job-snapshot-selection";
 import { READ_NATIVE_DECISION_GENERATION_QUERY } from "@/lib/meta/decisions-workspace-read-model";
 import { READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY } from "@/lib/creative-decision-engine/decision-stability";
 import { READ_NATIVE_GENERATION_REUSE_HEADER_SQL, READ_NATIVE_GENERATION_REUSE_ROWS_SQL } from "@/lib/creative-decision-engine/jobs/native-decision-reuse";
@@ -345,6 +346,64 @@ export async function verifyNativeArchiveProductionSchema(client: Client) {
     }
     assert((await selectionRead()).route === "validated_context_lineage", "restored actual FK did not retain the equivalent indexed selection");
     console.log("[native-job-evaluation-selection] PASS actual-DDL full JSONB row/clock parity for two jobs; disabled triggers/nullable/NOT VALID keep global scan; extra foreign row refuses before any pin-free result; owned changes restored.");
+    const snapshotSelectionRead = async (generation = originalUnit.generation) => {
+      await db.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      await db.query("SET LOCAL statement_timeout='7500ms'");
+      try {
+        const selection = await readNativeJobSnapshotSelection(db, "public");
+        const actual = (await db.query(`SELECT to_jsonb(s)::text AS bytes FROM (${selection.sql}) s ORDER BY s.id`,
+          [generation.jobRunId])).rows;
+        const oracle = (await db.query(`SELECT to_jsonb(s)::text AS bytes FROM engine_v3_ad_decision_snapshots_daily s
+          WHERE s.job_run_id=$1::uuid ORDER BY s.id`, [generation.jobRunId])).rows;
+        assert(JSON.stringify(actual) === JSON.stringify(oracle), "snapshot index route differs from the complete direct-job row oracle");
+        return { route: selection.route, rows: actual.length };
+      } finally { await db.query("ROLLBACK"); }
+    };
+    assert((await snapshotSelectionRead()).route === "validated_evaluation_lineage" &&
+      (await snapshotSelectionRead(currentUnit.generation)).rows === 1,
+      "actual-DDL complete snapshot lineage did not retain original zero/nonzero membership");
+    await db.query("ALTER TABLE engine_v3_ad_decision_snapshots_daily DISABLE TRIGGER ALL");
+    try { assert((await snapshotSelectionRead()).route === "direct_job_scan", "disabled snapshot triggers concealed direct-job rows"); }
+    finally { await db.query("ALTER TABLE engine_v3_ad_decision_snapshots_daily ENABLE TRIGGER ALL"); }
+    await db.query("ALTER TABLE engine_v3_ad_decision_snapshots_daily ALTER COLUMN scope_id DROP NOT NULL");
+    try { assert((await snapshotSelectionRead()).route === "direct_job_scan", "nullable snapshot lineage hid original rows"); }
+    finally { await db.query("ALTER TABLE engine_v3_ad_decision_snapshots_daily ALTER COLUMN scope_id SET NOT NULL"); }
+    const snapshotLineage = "engine_v3_ad_snapshots_evaluation_lineage_fk";
+    const snapshotDefinition = (await db.query(`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+      WHERE conrelid='engine_v3_ad_decision_snapshots_daily'::regclass AND conname=$1`, [snapshotLineage])).rows[0]?.definition;
+    assert(typeof snapshotDefinition === "string" && !snapshotDefinition.includes("NOT VALID"), "actual snapshot FK absent");
+    const foreignSnapshot = await seed("snapshot_index_foreign_job"); await snapshot(foreignSnapshot);
+    await db.query(`ALTER TABLE engine_v3_ad_decision_snapshots_daily DROP CONSTRAINT ${quote(snapshotLineage)},
+      ADD CONSTRAINT ${quote(snapshotLineage)} ${snapshotDefinition} NOT VALID`);
+    try {
+      await db.query("ALTER TABLE engine_v3_ad_decision_snapshots_daily DISABLE TRIGGER ALL");
+      try { await db.query("UPDATE engine_v3_ad_decision_snapshots_daily SET job_run_id=$1 WHERE id=$2",
+        [originalUnit.generation.jobRunId, foreignSnapshot.snapshot]); }
+      finally { await db.query("ALTER TABLE engine_v3_ad_decision_snapshots_daily ENABLE TRIGGER ALL"); }
+      const foreign = await snapshotSelectionRead();
+      assert(foreign.route === "direct_job_scan" && foreign.rows === 1, "NOT VALID snapshot FK hid an unmatched original-job row");
+      const pinned = assessNativeArchivePins(await read(originalUnit), originalUnit.generation);
+      assert(!pinned.candidateWithinSupportedScope && pinned.pinClasses.includes("snapshots"),
+        "snapshot job count silently omitted the foreign original-job pin");
+    } finally {
+      await db.query("DELETE FROM engine_v3_ad_decision_snapshots_daily WHERE id=$1", [foreignSnapshot.snapshot]);
+      await db.query(`ALTER TABLE engine_v3_ad_decision_snapshots_daily VALIDATE CONSTRAINT ${quote(snapshotLineage)}`);
+    }
+    // A new incoming job FK from a snapshot of ANOTHER job must keep the full
+    // child table. Filtering all snapshot FK children by their own job loses it.
+    await db.query(`ALTER TABLE engine_v3_ad_decision_snapshots_daily ADD COLUMN fixture_other_job UUID
+      REFERENCES engine_v3_job_runs(id)`);
+    try {
+      await db.query("UPDATE engine_v3_ad_decision_snapshots_daily SET fixture_other_job=$1 WHERE id=$2",
+        [originalUnit.generation.jobRunId, currentUnit.snapshot]);
+      const census = await read(originalUnit);
+      assert(census.foreignKeyReferences.some(edge => edge.childTable === "engine_v3_ad_decision_snapshots_daily" &&
+        edge.constraint.includes("fixture_other_job") && edge.count === "1"), "new cross-job snapshot FK was truncated");
+      assert(!assessNativeArchivePins(census, originalUnit.generation).candidateWithinSupportedScope,
+        "new cross-job snapshot pin granted pin-free eligibility");
+    } finally { await db.query("ALTER TABLE engine_v3_ad_decision_snapshots_daily DROP COLUMN fixture_other_job"); }
+    assert((await snapshotSelectionRead()).route === "validated_evaluation_lineage", "restored snapshot FK lost the indexed route");
+    console.log("[native-job-snapshot-selection] PASS actual-DDL full JSONB/clock parity, zero/nonzero original jobs; disabled/nullable/NOT VALID preserve direct-job pins; another-job snapshot incoming FK remains counted. No production archive/reclaim proof.");
     const unit = await unitRead(), measured = assessNativeEvaluationContextUnit(unit, originalUnit.generation);
     assert(measured.pinFreeWithinMeasuredScope && !measured.reclaimEligible && !measured.productionConsumerClosureProved,
       "narrow unit did not preserve measured-scope/permission distinction");

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "8dec73e34d4ca1403b7c46651ab26f3265aaca55ab8d98c81fb16339d68ef7e8",
+  "manifestHash": "3cd6d2ddfa4b5bfe7803871a7e5473a72db5713a09e324a0659724a276b28434",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -740,7 +740,7 @@
     },
     {
       "path": "docs/architecture/native-historical-resource-and-unit-guards.md",
-      "sha256": "614671fc5ec546ecbf729cb9e166c2a87e29c54c941770b1eb9d6a41c6b01939"
+      "sha256": "576592376256ded48c505087aafcd426071b370b2aa7b47a950ed5f79dcbc381"
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
@@ -768,7 +768,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "db7306133fd860124fc0ef4cd0fa42848c7bed663483e817d49533b838b18b87"
+      "sha256": "817e025d1d43e1ef52c4d69800253d3768fcc86f43203a1f72869de87368878d"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1167,6 +1167,10 @@
       "sha256": "abfac9b45eb6c73835e9b8c933cd2b3455485becb0d5678d425f7c775e05df12"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-job-snapshot-selection.test.ts",
+      "sha256": "2a5d9ad287f79e599ad26581d8f1280031d9c07c4848503973989b7e21d1c174"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/native-manual-cut-advisory.test.ts",
       "sha256": "eb6ee86481b0cdfbe624efdba5d8a4056c4653e4c1731199248b7a701b81a874"
     },
@@ -1400,7 +1404,7 @@
     },
     {
       "path": "lib/creative-decision-engine/native-archive-pin-census.ts",
-      "sha256": "d9773a73e869336e3b1faec9f8b8dc10406c0c4a8ad17115bccb277ff4993e2f"
+      "sha256": "cc7506a6989245cd8159a37292e9385426e7679d6a15eed9013cafd92f533e97"
     },
     {
       "path": "lib/creative-decision-engine/native-calibration-parent-archive.ts",
@@ -1441,6 +1445,10 @@
     {
       "path": "lib/creative-decision-engine/native-job-evaluation-selection.ts",
       "sha256": "cf3efd3e9d053dbdd1c04cd3c4423fe1d0dd365a9be75efcdf954f10ef513d31"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-job-snapshot-selection.ts",
+      "sha256": "10c176341cf3c04bb7c730f30ded75de46378e5251b5da2dbdb646c63d384a20"
     },
     {
       "path": "lib/creative-decision-engine/native-manual-cut-advisory.ts",
@@ -2688,7 +2696,7 @@
     },
     {
       "path": "scripts/native-archive-production-schema-seam.ts",
-      "sha256": "4b062f4cfcecd9160b531c841765e3b9c74e773122ce499fe6b43c71234bc840"
+      "sha256": "a9a20b42940af1c7992e4e25dc5e6a02a6f74820afd8ce8e68b54661118fb063"
     },
     {
       "path": "scripts/native-calibration-parent-archive-seam.ts",

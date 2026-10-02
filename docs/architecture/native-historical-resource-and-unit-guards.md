@@ -132,3 +132,26 @@ with fresh scratch/WAL/lock/restore evidence remain separate. No resource, uploa
 reader activation, eviction, disk/index maintenance or additional budget authority
 follows from this code or source/image gates. Roll back by disabling the historical
 gate or reverting this additive phase; existing current data/readers remain live.
+
+
+### Complete snapshot membership through existing evaluation lineage
+
+A separate SELECT-only snapshot selector requires the exact validated, nondeferrable,
+fully nonnullable fifteen-key snapshot/evaluation FK, including job_run_id, with
+all four RI triggers enforced in an origin session. The full evaluation selector
+retains its own eleven-key guard/fallback. The resulting join returns all original
+snapshot bytes; unsafe snapshot metadata retains the complete direct job scan.
+Only the exact same-schema snapshot.job_run_id -> job.id incoming edge restricts
+its child through this selector. Other/unknown/cross-schema child edges retain
+all rows, including a snapshot owned by another job that independently references
+the selected job. Parent snapshot/action counts also retain complete membership.
+
+The actual third source read completed evaluation membership in25ms but failed
+snapshot census at7501ms/57014 and completed ROLLBACK; no encrypted archive formed.
+The exact failed SQL digest matches the snapshot child job-FK query. A parent-only
+materialized proposal still scans snapshots and has a worse estimated cost, so it
+is not an accepted fix. The twenty-index metadata inventory is capped, not a full
+production index census. Local original-row parity/unsafe-FK/cross-job sensitivity
+tests do not prove production speed, physical reclaim, admission or reader closure.
+Normal historical constraint integrity is assumed; prior superuser/replication
+bypass and every transitive consumer are outside this guard's proof.

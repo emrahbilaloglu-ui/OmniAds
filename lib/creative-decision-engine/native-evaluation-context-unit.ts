@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { NativeArchiveGeneration } from "./native-evidence-archive";
+import { readNativeJobEvaluationSelection } from "./native-job-evaluation-selection";
 
 /** SELECT-only preparation; the original ledger, shared evidence and parents stay live.
  * This narrower unit is distinct from the five-table archival copy and its whole-core pin veto.
@@ -108,7 +109,7 @@ export async function readNativeEvaluationContextUnit(db: Reader, input: {
   [g.jobRunId, g.businessId, g.asOfDate, g.engineVersion])).rows;
   if (jobs.length !== 1 || BigInt(exact(jobs[0]?.n)) === BigInt(0) || BigInt(exact(jobs[0]?.n)) > BigInt(10000))
     refuse("successful bounded original job absent");
-  const selected = `SELECT * FROM ${s}.${EVAL} WHERE job_run_id=$1::uuid`;
+  const selected = (await readNativeJobEvaluationSelection(db, input.schema)).sql;
   const membership = (await db.query(`SELECT count(*)::text AS n,
     count(*) FILTER (WHERE context_id IS NULL OR business_ref_id IS DISTINCT FROM $2::uuid OR business_id IS DISTINCT FROM $2::text OR as_of_date IS DISTINCT FROM $3::date
       OR engine_version IS DISTINCT FROM $4)::text AS foreign_rows,

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { stableCanonicalJson } from "./canonical-evaluation";
 import type { NativeArchiveGeneration } from "./native-evidence-archive";
+import { readNativeJobEvaluationSelection } from "./native-job-evaluation-selection";
 
 /** Offline/read-only preparation. No production caller or eviction executor. */
 export const NATIVE_PIN_CENSUS_CONTRACT = "bounded-native-pin-census.v1" as const;
@@ -111,8 +112,8 @@ export async function readNativeArchivePinCensus(db: QueryReader, input: {
       AND job_name='engine_v3_native_ad_decisions_shadow_job'`,
   [g.jobRunId, g.businessId, g.asOfDate, g.engineVersion])).rows;
   if (jobs.length !== 1 || !jobs[0]?.finished_at) fail("original successful job absent");
-  const evaluations = (await db.query(`SELECT count(*)::text AS n FROM ${schema}.engine_v3_ad_decision_evaluations
-    WHERE job_run_id=$1::uuid`, [g.jobRunId])).rows[0];
+  const selected = (await readNativeJobEvaluationSelection(db, input.schema)).sql;
+  const evaluations = (await db.query(`SELECT count(*)::text AS n FROM (${selected}) selected`, [g.jobRunId])).rows[0];
   const columns = (await db.query(`SELECT c.relname AS table, a.attname AS column FROM pg_class c
     JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid
     WHERE n.nspname=$1 AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum`, [input.schema])).rows;
@@ -145,12 +146,13 @@ export async function readNativeArchivePinCensus(db: QueryReader, input: {
     const childColumns = fk.child_columns as string[], parentColumns = fk.parent_columns as string[];
     if (!childColumns.length || childColumns.length !== parentColumns.length) fail("invalid composite FK catalog");
     const join = childColumns.map((c, i) => `c.${quote(c)}=p.${quote(parentColumns[i]!)}`).join(" AND ");
+    const parentRows = parent === "engine_v3_ad_decision_evaluations" ? `(${selected})` : `${schema}.${quote(parent)}`;
     const predicate = parent === "engine_v3_job_runs" ? "p.id=$1::uuid" :
       parent === "engine_v3_ad_decision_input_evidence" ? `EXISTS (SELECT 1
-        FROM ${schema}.engine_v3_ad_decision_evaluations selected WHERE selected.job_run_id=$1::uuid
+        FROM (${selected}) selected WHERE selected.job_run_id=$1::uuid
         AND selected.contract_version=p.contract_version AND selected.input_hash=p.input_hash)` : "p.job_run_id=$1::uuid";
     const n = count((await db.query(`SELECT count(*)::text AS n FROM ${quote(String(fk.child_schema))}.${quote(child)} c
-      JOIN ${schema}.${quote(parent)} p ON ${join} WHERE ${predicate}`, [g.jobRunId])).rows[0]?.n);
+      JOIN ${parentRows} p ON ${join} WHERE ${predicate}`, [g.jobRunId])).rows[0]?.n);
     foreignKeyReferences.push({ childSchema: String(fk.child_schema), childTable: child, constraint: String(fk.name),
       parentSchema: String(fk.parent_schema), parentTable: parent, pinClass, count: n });
     if (pinClass) counts[pinClass] += BigInt(n);
@@ -170,8 +172,7 @@ export async function readNativeArchivePinCensus(db: QueryReader, input: {
   else await add("reuse_attempts", `SELECT count(*)::text AS n FROM ${schema}.engine_v3_job_runs
     WHERE error_json#>>'{metadata,reused_job_run_id}'=$1 AND id<>$1::uuid`, [g.jobRunId]);
   await add("shared_input_evidence", `SELECT count(*)::text AS n FROM ${schema}.engine_v3_ad_decision_evaluations retained
-    JOIN (SELECT DISTINCT contract_version,input_hash FROM ${schema}.engine_v3_ad_decision_evaluations
-      WHERE job_run_id=$1::uuid) selected USING (contract_version,input_hash)
+    JOIN (SELECT DISTINCT contract_version,input_hash FROM (${selected}) selected_rows) selected USING (contract_version,input_hash)
     WHERE retained.job_run_id<>$1::uuid`, [g.jobRunId]);
   // Operator-response and controlled registry have distinct typed lineage columns.
   for (const [column, parent] of [
@@ -182,8 +183,11 @@ export async function readNativeArchivePinCensus(db: QueryReader, input: {
   ]) {
     if (!columns.some(c => c.table === "meta_ads_action_log" && c.column === column))
       unknown.push(`missing_action_lineage_column:${column}`);
-    else await add("action_lineage", `SELECT count(*)::text AS n FROM ${schema}.meta_ads_action_log a
-      JOIN ${schema}.${quote(parent!)} p ON p.id=a.${quote(column!)} WHERE p.job_run_id=$1::uuid`, [g.jobRunId]);
+    else {
+      const parentRows = parent === "engine_v3_ad_decision_evaluations" ? `(${selected})` : `${schema}.${quote(parent!)}`;
+      await add("action_lineage", `SELECT count(*)::text AS n FROM ${schema}.meta_ads_action_log a
+        JOIN ${parentRows} p ON p.id=a.${quote(column!)} WHERE p.job_run_id=$1::uuid`, [g.jobRunId]);
+    }
   }
   const census: NativeArchivePinCensus = {
     contract: NATIVE_PIN_CENSUS_CONTRACT, coverage: "catalog_incoming_and_declared_non_fk",

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "65519b594b8fe497e46990d3e9483aeea9253a206487e99b5e036287bc520115",
+  "manifestHash": "8dec73e34d4ca1403b7c46651ab26f3265aaca55ab8d98c81fb16339d68ef7e8",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -740,7 +740,7 @@
     },
     {
       "path": "docs/architecture/native-historical-resource-and-unit-guards.md",
-      "sha256": "a9e8afd683ee9810cdd2c705bb35586d9e1a4f1639638d1284c7e2df523ada7b"
+      "sha256": "614671fc5ec546ecbf729cb9e166c2a87e29c54c941770b1eb9d6a41c6b01939"
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
@@ -768,7 +768,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "c98face816b351bbb12ad0bc29cacbf3ba322a8ed40d63f15acb6662847be627"
+      "sha256": "db7306133fd860124fc0ef4cd0fa42848c7bed663483e817d49533b838b18b87"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1163,6 +1163,10 @@
       "sha256": "b4a78aa8f0308e90db4fddf1fbf117bc2ce31d1a5752e02880681fff835adae6"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-job-evaluation-selection.test.ts",
+      "sha256": "abfac9b45eb6c73835e9b8c933cd2b3455485becb0d5678d425f7c775e05df12"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/native-manual-cut-advisory.test.ts",
       "sha256": "eb6ee86481b0cdfbe624efdba5d8a4056c4653e4c1731199248b7a701b81a874"
     },
@@ -1396,7 +1400,7 @@
     },
     {
       "path": "lib/creative-decision-engine/native-archive-pin-census.ts",
-      "sha256": "3c81bc7b53620128421dbc7ea139b0a6da1787cc661e8911193b7a79216bec98"
+      "sha256": "d9773a73e869336e3b1faec9f8b8dc10406c0c4a8ad17115bccb277ff4993e2f"
     },
     {
       "path": "lib/creative-decision-engine/native-calibration-parent-archive.ts",
@@ -1404,7 +1408,7 @@
     },
     {
       "path": "lib/creative-decision-engine/native-evaluation-context-unit.ts",
-      "sha256": "59cc84ff8f3b0290e0f8c8ac19211e1316cde545f8170fa4d8ea3281252729ed"
+      "sha256": "7af44fbce02aa32a860addb4f614a5cd6cb57576659a8a58c1a7c42e440615da"
     },
     {
       "path": "lib/creative-decision-engine/native-evidence-archive.ts",
@@ -1433,6 +1437,10 @@
     {
       "path": "lib/creative-decision-engine/native-historical-read-controls.ts",
       "sha256": "4abb5a0e3228ccb580ee65a4d6a54d6bfd7141852d6490a85c40f034b4edf288"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-job-evaluation-selection.ts",
+      "sha256": "cf3efd3e9d053dbdd1c04cd3c4423fe1d0dd365a9be75efcdf954f10ef513d31"
     },
     {
       "path": "lib/creative-decision-engine/native-manual-cut-advisory.ts",
@@ -2680,7 +2688,7 @@
     },
     {
       "path": "scripts/native-archive-production-schema-seam.ts",
-      "sha256": "feda980dddb33406f60ad0bd7960da913371d95a312c6dc3db23c87aa6549283"
+      "sha256": "4b062f4cfcecd9160b531c841765e3b9c74e773122ce499fe6b43c71234bc840"
     },
     {
       "path": "scripts/native-calibration-parent-archive-seam.ts",

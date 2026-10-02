@@ -1,5 +1,5 @@
 {
-  "manifestHash": "0edee260a41ad2ce57e92012142b06928dc2f2acc2757e32dd6638c91c8588f0",
+  "manifestHash": "65519b594b8fe497e46990d3e9483aeea9253a206487e99b5e036287bc520115",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -735,6 +735,10 @@
       "sha256": "5ddcbca564ee43bcc374762bbd5696e2f3de3e730f088105864287fb72af9331"
     },
     {
+      "path": "docs/architecture/native-historical-existing-storage.md",
+      "sha256": "390d140eae2a5e83e70f29a300cf4e93fc16919dee27f8fbff8d4a225c99aef6"
+    },
+    {
       "path": "docs/architecture/native-historical-resource-and-unit-guards.md",
       "sha256": "a9e8afd683ee9810cdd2c705bb35586d9e1a4f1639638d1284c7e2df523ada7b"
     },
@@ -764,7 +768,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "80de9785ab16dd2f3ed5c7e1bf7e0fe29d8da55fdea65082b88f36a70471628e"
+      "sha256": "c98face816b351bbb12ad0bc29cacbf3ba322a8ed40d63f15acb6662847be627"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1151,6 +1155,10 @@
       "sha256": "1aa2953b800da811777b347968785bc330e75be100637b2b9189320cdc2cae55"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-historical-local-store.test.ts",
+      "sha256": "abcd3b6e009cb9bbb60f0d0357f294551efebd922896ab56e1ae4f2a64b83f76"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/native-historical-read-controls.test.ts",
       "sha256": "b4a78aa8f0308e90db4fddf1fbf117bc2ce31d1a5752e02880681fff835adae6"
     },
@@ -1404,7 +1412,7 @@
     },
     {
       "path": "lib/creative-decision-engine/native-historical-archive-reader.ts",
-      "sha256": "28f34688678d2d26fb1895ac6fb6df8bf7dff2a4596a9e5ee18d7fd722a2fc72"
+      "sha256": "1820f6ab638047d6c8f167540ca17a31781ce0533ce20d0fba3297347c3ca350"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-archive-worker-client.ts",
@@ -1417,6 +1425,10 @@
     {
       "path": "lib/creative-decision-engine/native-historical-archive.ts",
       "sha256": "c49fd1e085e8609648e86e2c9ba96b9f9093bfee956c82dff1394af655a5d1ee"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-local-store.ts",
+      "sha256": "86b539bab3856abf5554d593e934a5a71c1a159d8c1e1ef26f2859f5d812ed41"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-read-controls.ts",

@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { NativeHistoricalReadControls, NativeHistoricalReadLimit } from "./native-historical-read-controls";
 import { readPackagedNativeHistoricalWorker, verifyNativeHistoricalEvidenceInWorker } from "./native-historical-archive-worker-client";
+import { readLocalNativeArchiveVersion, withLocalNativeArchiveRead } from "./native-historical-local-store";
 import {
   NATIVE_HISTORICAL_MAX_CATALOG_BYTES,
   NATIVE_HISTORICAL_MAX_PLAINTEXT_BYTES,
@@ -70,18 +71,21 @@ export async function downloadNativeArchiveVersion(client: Pick<S3Client, "send"
     controller.abort(); stream?.destroy(); }
 }
 
-async function readTrustedLocalCatalog(filename: string): Promise<Buffer> {
+async function readTrustedLocalCatalog(filename: string, signal: AbortSignal): Promise<Buffer> {
   // The path is deployment configuration, never a request parameter. Final symlinks
   // and writable-by-group/other catalogs are refused; the independent digest also binds bytes.
   if (!filename.startsWith("/")) throw new Error("Catalog path must be absolute");
-  const file = await open(filename, constants.O_RDONLY | constants.O_NOFOLLOW);
+  if (signal.aborted) throw new Error("Catalog read aborted");
+  const file = await open(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
+    if (signal.aborted) throw new Error("Catalog read aborted");
     const stat = await file.stat();
     if (!stat.isFile() || (stat.mode & 0o022) !== 0 || stat.size <= 0 || stat.size > NATIVE_HISTORICAL_MAX_CATALOG_BYTES)
       throw new Error("Invalid catalog file");
     const bytes = Buffer.alloc(NATIVE_HISTORICAL_MAX_CATALOG_BYTES + 1);
+    if (signal.aborted) throw new Error("Catalog read aborted");
     const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
-    if (bytesRead !== stat.size || bytesRead > NATIVE_HISTORICAL_MAX_CATALOG_BYTES) throw new Error("Catalog changed or exceeds bound");
+    if (signal.aborted || bytesRead !== stat.size || bytesRead > NATIVE_HISTORICAL_MAX_CATALOG_BYTES) throw new Error("Catalog changed or exceeds bound");
     return bytes.subarray(0, bytesRead);
   } finally { await file.close(); }
 }
@@ -98,21 +102,26 @@ export async function readNativeHistoricalAdEvidence(request: NativeHistoricalEv
       const keyHex = process.env.ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_HEX;
       const accessKeyId = process.env.ENGINE_V3_NATIVE_ARCHIVE_S3_ACCESS_KEY_ID;
       const secretAccessKey = process.env.ENGINE_V3_NATIVE_ARCHIVE_S3_SECRET_ACCESS_KEY;
-      if (!filename || !catalogDigest || !keyId || !keyHex || !/^[0-9a-f]{64}$/.test(keyHex) || !accessKeyId || !secretAccessKey)
+      const transport = process.env.ENGINE_V3_NATIVE_ARCHIVE_TRANSPORT ?? "s3";
+      const localRoot = process.env.ENGINE_V3_NATIVE_ARCHIVE_LOCAL_ROOT;
+      if (!filename || !catalogDigest || !keyId || !keyHex || !/^[0-9a-f]{64}$/.test(keyHex) ||
+          transport !== "s3" && transport !== "filesystem" ||
+          transport === "s3" && (!accessKeyId || !secretAccessKey) || transport === "filesystem" && !localRoot)
         throw new Error("Explicit archive configuration absent");
-      const catalog = openNativeHistoricalArchiveCatalog(await readTrustedLocalCatalog(filename), catalogDigest);
+      const catalog = openNativeHistoricalArchiveCatalog(await withLocalNativeArchiveRead(signal => readTrustedLocalCatalog(filename, signal)), catalogDigest);
       const entry = resolveNativeHistoricalArchiveEntry(catalog, request);
       if (entry.encryptionKeyId !== keyId) throw new Error("Archive encryption key unavailable");
       const packaged = await readPackagedNativeHistoricalWorker();
       // A changed catalog, key, credential policy or compiled validator cannot inherit a cache.
       const configurationFingerprint = createHash("sha256").update(JSON.stringify([
-        catalogDigest, keyId, keyHex, accessKeyId, secretAccessKey, packaged.sha256,
+        catalogDigest, keyId, keyHex, transport, localRoot, accessKeyId, secretAccessKey, packaged.sha256,
       ])).digest("hex");
       return { configurationFingerprint, entry, work: {
         download: async (object, signal) => {
+          if (transport === "filesystem") return readLocalNativeArchiveVersion(localRoot!, object, signal);
           // Lazy allocation after admission; no implicit credential chain or write commands.
           const client = new S3Client({ region: "fsn1", endpoint: "https://fsn1.your-objectstorage.com", forcePathStyle: true,
-            credentials: { accessKeyId, secretAccessKey }, maxAttempts: 1 });
+            credentials: { accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey! }, maxAttempts: 1 });
           try { return await downloadNativeArchiveVersion(client, object, signal); }
           finally { client.destroy(); }
         },

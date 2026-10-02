@@ -12030,3 +12030,21 @@ closure, population/bytes/horizon, a natural reuse witness or physical reclamati
 Both decisions preserve formulas, source epochs and canonical clocks. Reverting
 this additive phase or leaving the historical gate disabled changes no current
 source rows or provider authority. See [the cost and measurement contract](../architecture/native-historical-resource-and-unit-guards.md).
+
+## D138 — Historical transport on existing application storage (2026-10-02)
+
+**Decision:** Respect the owner's no-new-paid-storage choice with an explicit
+filesystem adapter for the existing encrypted, independently trusted historical
+catalog. Preserve default-OFF, exact tenant/generation/version identity, compiled
+worker validation and all D136 limits. Use hash-addressed files, a read-only
+application mount and separate operator publication; refuse unsafe paths, mutable
+objects and fallback transports. Publication never overwrites a named object or
+publishes a catalog/DB pointer. No formula, epoch, clock or authority changes.
+
+**Proof boundary:** Local filesystem and actual compiled-worker validation are
+transport guards, not a live mount, durable disaster recovery, production consumer
+closure, measured reclaim population, storage eviction permission or sustainable
+growth. Existing recovery points stay intact. The backup-file cleanup freed APP
+root, not PostgreSQL; the capacity gate must independently admit any later release.
+Full backup automation, production reader parity, new-row growth and exact physical
+reclaim remain separately necessary. See [the existing-storage contract](../architecture/native-historical-existing-storage.md).

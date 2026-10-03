@@ -1239,6 +1239,22 @@ async function verifyConfigHistoryTransitions(context: {
   providerAccountId: string;
 }) {
   const { sql, businessId, providerAccountId } = context;
+  // H18 measures the actual trailing day. Fixed October 1 clocks silently
+  // aged out and made its non-vacuity assertion fail on later dates. Keep
+  // every relative transition/replay clock, but place this isolated fixture
+  // 20..12 hours before the same PostgreSQL clock used by the measurement.
+  const [fixtureNow] = await sql<{ epoch_seconds: number }>`
+    SELECT EXTRACT(EPOCH FROM now())::float8 AS epoch_seconds
+  `;
+  const anchorMs = Math.trunc(Number(fixtureNow?.epoch_seconds)) * 1000;
+  assert(Number.isSafeInteger(anchorMs) && anchorMs > 0, "H14-H18 fixture PostgreSQL clock invalid");
+  const firstFixtureMs = Date.parse("2026-10-01T08:00:00Z");
+  const fixtureClock = (original: string): string => {
+    const deltaMs = Date.parse(original) - firstFixtureMs;
+    assert(Number.isSafeInteger(deltaMs) && deltaMs >= 0 && deltaMs < 8 * 60 * 60 * 1000,
+      "H14-H18 fixture clock outside its declared relative window");
+    return new Date(anchorMs - 20 * 60 * 60 * 1000 + deltaMs).toISOString().replace(".000Z", "Z");
+  };
   const { appendMetaCurrentConfigHistory } = await import("@/lib/meta/warehouse");
   const CAMPAIGN_ID = "campaign_transition_probe";
 
@@ -1354,11 +1370,11 @@ async function verifyConfigHistoryTransitions(context: {
       adsetRows: [],
       campaignReceipt: {
         complete: true,
-        observedAt: "2026-10-01T08:00:00Z",
+        observedAt: fixtureClock("2026-10-01T08:00:00Z"),
         sourceSnapshotId: insightsSource!.id,
         partitionId: null,
       },
-      adsetReceipt: { complete: true, observedAt: "2026-10-01T08:00:00Z", partitionId: null },
+      adsetReceipt: { complete: true, observedAt: fixtureClock("2026-10-01T08:00:00Z"), partitionId: null },
     });
   } catch (error) {
     wrongSourceRejected = String(error).includes("invalid_raw_source:campaign_configs");
@@ -1387,9 +1403,9 @@ async function verifyConfigHistoryTransitions(context: {
     await appendMetaCurrentConfigHistory({
       campaignRows: [campaignRow(1000) as never],
       adsetRows: [],
-      campaignReceipt: { complete: true, observedAt: "2026-10-01T08:15:00Z",
+      campaignReceipt: { complete: true, observedAt: fixtureClock("2026-10-01T08:15:00Z"),
         sourceSnapshotId: contentWithoutReceipt!.id, partitionId: null },
-      adsetReceipt: { complete: true, observedAt: "2026-10-01T08:15:00Z", partitionId: null },
+      adsetReceipt: { complete: true, observedAt: fixtureClock("2026-10-01T08:15:00Z"), partitionId: null },
     });
   } catch (error) {
     missingObservationRejected = String(error).includes("invalid_raw_source:campaign_configs");
@@ -1402,10 +1418,10 @@ async function verifyConfigHistoryTransitions(context: {
     await appendMetaCurrentConfigHistory({
       campaignRows: [campaignRow(1000) as never],
       adsetRows: [],
-      campaignReceipt: { complete: true, observedAt: "2026-10-01T08:16:00Z",
+      campaignReceipt: { complete: true, observedAt: fixtureClock("2026-10-01T08:16:00Z"),
         sourceSnapshotId: contentWithoutReceipt!.id,
         partitionId: "00000000-0000-0000-0000-000000000001" },
-      adsetReceipt: { complete: true, observedAt: "2026-10-01T08:16:00Z", partitionId: null },
+      adsetReceipt: { complete: true, observedAt: fixtureClock("2026-10-01T08:16:00Z"), partitionId: null },
     });
   } catch (error) {
     missingRunRejected = String(error).includes("missing_run_id:campaign_configs");
@@ -1434,7 +1450,7 @@ async function verifyConfigHistoryTransitions(context: {
       ${mismatchedSource!.id}::uuid, ${businessId}, ${providerAccountId},
       'campaign_configs', 'campaign', 'fetched', 200,
       ${JSON.stringify({ pagination: { complete: true, termination: "natural_end" } })}::jsonb,
-      '2026-10-01T08:30:00Z'::timestamptz
+      ${fixtureClock("2026-10-01T08:30:00Z")}::timestamptz
     )
   `;
   let fieldMismatchRejected = false;
@@ -1442,9 +1458,9 @@ async function verifyConfigHistoryTransitions(context: {
     await appendMetaCurrentConfigHistory({
       campaignRows: [campaignRow(1000) as never],
       adsetRows: [],
-      campaignReceipt: { complete: true, observedAt: "2026-10-01T08:30:00Z",
+      campaignReceipt: { complete: true, observedAt: fixtureClock("2026-10-01T08:30:00Z"),
         sourceSnapshotId: mismatchedSource!.id, partitionId: null },
-      adsetReceipt: { complete: true, observedAt: "2026-10-01T08:30:00Z", partitionId: null },
+      adsetReceipt: { complete: true, observedAt: fixtureClock("2026-10-01T08:30:00Z"), partitionId: null },
     });
   } catch (error) {
     fieldMismatchRejected = String(error).includes("objective_source_mismatch");
@@ -1473,7 +1489,7 @@ async function verifyConfigHistoryTransitions(context: {
       ${wrongBudgetSource!.id}::uuid, ${businessId}, ${providerAccountId},
       'campaign_configs', 'campaign', 'fetched', 200,
       ${JSON.stringify({ fields: "id,objective,daily_budget", pagination: { complete: true, termination: "natural_end" } })}::jsonb,
-      '2026-10-01T08:35:00Z'::timestamptz
+      ${fixtureClock("2026-10-01T08:35:00Z")}::timestamptz
     )
   `;
   let wrongBudgetRejected = false;
@@ -1481,9 +1497,9 @@ async function verifyConfigHistoryTransitions(context: {
     await appendMetaCurrentConfigHistory({
       campaignRows: [campaignRow(1000) as never],
       adsetRows: [],
-      campaignReceipt: { complete: true, observedAt: "2026-10-01T08:35:00Z",
+      campaignReceipt: { complete: true, observedAt: fixtureClock("2026-10-01T08:35:00Z"),
         sourceSnapshotId: wrongBudgetSource!.id, partitionId: null },
-      adsetReceipt: { complete: true, observedAt: "2026-10-01T08:35:00Z", partitionId: null },
+      adsetReceipt: { complete: true, observedAt: fixtureClock("2026-10-01T08:35:00Z"), partitionId: null },
     });
   } catch (error) {
     wrongBudgetRejected = String(error).includes("daily_budget_source_mismatch:campaign_configs");
@@ -1493,7 +1509,7 @@ async function verifyConfigHistoryTransitions(context: {
 
   // H14: an INCOMPLETE receipt records nothing. A partial page set is missing
   // entities, and absence is indistinguishable from deletion downstream.
-  const incomplete = await write(1000, "2026-10-01T09:00:00Z", false);
+  const incomplete = await write(1000, fixtureClock("2026-10-01T09:00:00Z"), false);
   assert(
     incomplete.campaignRowsWritten === 0 &&
       incomplete.campaignSkippedIncompleteReceipt === true &&
@@ -1503,29 +1519,29 @@ async function verifyConfigHistoryTransitions(context: {
 
   // H15: exact counts. The writer used to report the ATTEMPTED chunk length, so
   // a chunk the arbiter rejected entirely still reported progress.
-  const firstWrite = await write(1000, "2026-10-01T10:00:00Z");
+  const firstWrite = await write(1000, fixtureClock("2026-10-01T10:00:00Z"));
   assert(
     firstWrite.campaignRowsWritten === 1,
     `H15: the first transition reported ${firstWrite.campaignRowsWritten} rows written, expected 1.`,
   );
-  const repeatWrite = await write(1000, "2026-10-01T10:00:00Z");
+  const repeatWrite = await write(1000, fixtureClock("2026-10-01T10:00:00Z"));
   assert(
     repeatWrite.campaignRowsWritten === 0,
     `H15: an identical repeat reported ${repeatWrite.campaignRowsWritten} rows written; the arbiter rejected it, so the count must be 0.`,
   );
   let missingFieldRejected = false;
   try {
-    await write(1000, "2026-10-01T10:05:00Z", true, "id,daily_budget");
+    await write(1000, fixtureClock("2026-10-01T10:05:00Z"), true, "id,daily_budget");
   } catch (error) {
     missingFieldRejected = String(error).includes("field_not_observed:campaign_configs:objective");
   }
   assert(missingFieldRejected && (await history()).length === 1,
     "H15: a receipt that never requested objective authorized an objective transition");
-  const sameRun = await write(1000, "2026-10-01T10:06:00Z", true,
+  const sameRun = await write(1000, fixtureClock("2026-10-01T10:06:00Z"), true,
     "id,objective,daily_budget", "run-source", "run-source");
   let wrongRunRejected = false;
   try {
-    await write(1000, "2026-10-01T10:07:00Z", true,
+    await write(1000, fixtureClock("2026-10-01T10:07:00Z"), true,
       "id,objective,daily_budget", "run-source", "run-other");
   } catch (error) {
     wrongRunRejected = String(error).includes("invalid_raw_source:campaign_configs");
@@ -1541,7 +1557,7 @@ async function verifyConfigHistoryTransitions(context: {
   const beforeBurst = (await history()).length;
   await Promise.all(
     Array.from({ length: 8 }, (_, index) =>
-      write(1000, `2026-10-01T10:${String(10 + index).padStart(2, "0")}:00Z`),
+      write(1000, fixtureClock(`2026-10-01T10:${String(10 + index).padStart(2, "0")}:00Z`)),
     ),
   );
   const afterBurst = await history();
@@ -1552,8 +1568,8 @@ async function verifyConfigHistoryTransitions(context: {
 
   // H16b: SEQUENTIAL A -> B -> A. The revert is itself a transition and must be
   // recorded; the trigger's stale read is what could drop it.
-  await write(2000, "2026-10-01T11:00:00Z");
-  await write(1000, "2026-10-01T12:00:00Z");
+  await write(2000, fixtureClock("2026-10-01T11:00:00Z"));
+  await write(1000, fixtureClock("2026-10-01T12:00:00Z"));
   const afterRevert = await history();
   assert(
     afterRevert.length === beforeBurst + 2 &&
@@ -1567,9 +1583,9 @@ async function verifyConfigHistoryTransitions(context: {
   // reading the same "latest" is how one of them is lost.
   const beforeDistinct = (await history()).length;
   await Promise.all([
-    write(4000, "2026-10-01T13:00:00Z"),
-    write(5000, "2026-10-01T13:01:00Z"),
-    write(6000, "2026-10-01T13:02:00Z"),
+    write(4000, fixtureClock("2026-10-01T13:00:00Z")),
+    write(5000, fixtureClock("2026-10-01T13:01:00Z")),
+    write(6000, fixtureClock("2026-10-01T13:02:00Z")),
   ]);
   const afterDistinct = await history();
   assert(
@@ -1584,7 +1600,7 @@ async function verifyConfigHistoryTransitions(context: {
   // H17: OUT-OF-ORDER arrival. An observation from 09:30 arriving after the
   // 12:00 one must still be recorded at its own instant rather than compared
   // against a later row and discarded.
-  const outOfOrder = await write(3000, "2026-10-01T09:30:00Z");
+  const outOfOrder = await write(3000, fixtureClock("2026-10-01T09:30:00Z"));
   assert(
     outOfOrder.campaignRowsWritten === 1,
     `H17: an out-of-order observation was dropped: ${JSON.stringify(outOfOrder)}`,
@@ -1603,7 +1619,7 @@ async function verifyConfigHistoryTransitions(context: {
     LIMIT 1
   `;
   assert(
-    afterOutOfOrder[0]?.captured_at === "2026-10-01T09:30:00Z",
+    afterOutOfOrder[0]?.captured_at === fixtureClock("2026-10-01T09:30:00Z"),
     `H17: the out-of-order row was not filed at its own observation instant: ${JSON.stringify(afterOutOfOrder[0])}`,
   );
 
@@ -1621,8 +1637,8 @@ async function verifyConfigHistoryTransitions(context: {
       ORDER BY captured_at DESC, id DESC LIMIT 1
     )
   `;
-  const firstVerifiedReceipt = await write(6000, "2026-10-01T14:00:00Z");
-  const repeatedVerifiedReceipt = await write(6000, "2026-10-01T14:01:00Z");
+  const firstVerifiedReceipt = await write(6000, fixtureClock("2026-10-01T14:00:00Z"));
+  const repeatedVerifiedReceipt = await write(6000, fixtureClock("2026-10-01T14:01:00Z"));
   const [verifiedLatest] = await sql<{
     source_kind: string;
     endpoint_name: string | null;
@@ -1697,8 +1713,8 @@ async function verifyConfigHistoryTransitions(context: {
         sourceSnapshotId: adsetSource.id, partitionId: null },
     });
   };
-  const firstAdset = await writeAdset("2026-10-01T15:00:00Z");
-  const repeatedAdset = await writeAdset("2026-10-01T15:01:00Z");
+  const firstAdset = await writeAdset(fixtureClock("2026-10-01T15:00:00Z"));
+  const repeatedAdset = await writeAdset(fixtureClock("2026-10-01T15:01:00Z"));
   assert(
     firstAdset.adsetRowsWritten === 1 && repeatedAdset.adsetRowsWritten === 0,
     `H17c: unchanged promoted object appended a new adset transition: ${JSON.stringify({ firstAdset, repeatedAdset })}`,

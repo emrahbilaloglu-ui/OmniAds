@@ -12070,3 +12070,24 @@ growth. Existing recovery points stay intact. The backup-file cleanup freed APP
 root, not PostgreSQL; the capacity gate must independently admit any later release.
 Full backup automation, production reader parity, new-row growth and exact physical
 reclaim remain separately necessary. See [the existing-storage contract](../architecture/native-historical-existing-storage.md).
+
+## D139 — Lossless bounded compressed historical envelopes (2026-10-03)
+
+**Decision:** Add explicit gzip-before-AES-GCM v2 envelopes and catalogs for
+complete original evidence on existing storage. Preserve the exact original
+plaintext/hash/clock/ID/parent contracts, legacy v1 ciphertext/AAD/catalog and
+default-OFF reader. Authenticate both encoded and decoded sizes/digests. Keep
+stored payload at2MiB, permit decoded v2 at8MiB only in the existing separately
+compiled bounded worker, and refuse expansion past the trusted original length.
+V1's2MiB runtime plaintext limit is unchanged. No decision formula, epoch,
+provider authority, current evidence, reuse rule or data removal changes.
+
+**Evidence/limits:** One actual original351-row package was independently
+restored locally but its2,271,447 plaintext bytes exceeded the v1 runtime cap;
+exact local gzip roundtrip used166,387 bytes. This is one sample, not live reader
+acceptance or a global compression/performance forecast. Keep standalone Node20
+worker/size/corruption/tenant/legacy guards and all D136 concurrency/response/rate
+limits. V2 rollback disables the historical gate or restores the pinned v1
+catalog; current data remain inline. Durable mount/readback/key recovery,
+production consumers/pins, growth lifecycle and measured physical reclaim still
+require real outcomes. See [the compressed envelope contract](../architecture/native-historical-compressed-envelope.md).

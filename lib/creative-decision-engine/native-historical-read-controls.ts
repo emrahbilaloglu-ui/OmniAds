@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import type { NativeHistoricalArchiveCatalogEntry, NativeHistoricalEvidence,
-  NativeHistoricalEvidenceRequest } from "@/lib/creative-decision-engine/native-historical-archive";
+import { NATIVE_HISTORICAL_COMPRESSED_ENCODING, NATIVE_HISTORICAL_MAX_DECODED_BYTES,
+  type NativeHistoricalArchiveCatalogEntry, type NativeHistoricalEvidence,
+  type NativeHistoricalEvidenceRequest } from "@/lib/creative-decision-engine/native-historical-archive";
 
 export const NATIVE_HISTORICAL_READ_BOUNDS = Object.freeze({
   maxPlaintextBytes: 2 * 1024 * 1024, maxResponseBytes: 256 * 1024,
+  maxCompressedDecodedBytes: NATIVE_HISTORICAL_MAX_DECODED_BYTES,
   ciphertextCacheBytes: 8 * 1024 * 1024, evidenceCacheBytes: 4 * 1024 * 1024,
   cacheEntries: 32, cacheTtlMs: 300_000, deadlineMs: 10_000,
   activeRequests: 8, businessRequests: 2, activeValidations: 2, businessValidations: 1,
@@ -18,6 +20,19 @@ export class NativeHistoricalReadLimit extends Error {
 }
 export class NativeHistoricalObjectBound extends Error {
   constructor() { super("native_historical_object_outside_pilot_bound"); }
+}
+/** Preserve the v1 pilot cap. Only explicit authenticated gzip v2 may expand to
+ * eight MiB; its stored/download/cached ciphertext has the same two-MiB bound. */
+export function assertNativeHistoricalRuntimeObjectBound(entry: NativeHistoricalArchiveCatalogEntry) {
+  const b = NATIVE_HISTORICAL_READ_BOUNDS;
+  if (entry.encoding !== undefined && entry.encoding !== NATIVE_HISTORICAL_COMPRESSED_ENCODING)
+    throw new NativeHistoricalObjectBound();
+  const limit = entry.encoding === NATIVE_HISTORICAL_COMPRESSED_ENCODING ? b.maxCompressedDecodedBytes : b.maxPlaintextBytes;
+  if (!Number.isSafeInteger(entry.plaintextBytes) || entry.plaintextBytes <= 0 || entry.plaintextBytes > limit ||
+      !Number.isSafeInteger(entry.ciphertextBytes) || entry.ciphertextBytes <= 0 || entry.ciphertextBytes > b.maxPlaintextBytes + 128 ||
+      entry.encoding === NATIVE_HISTORICAL_COMPRESSED_ENCODING && (!Number.isSafeInteger(entry.payloadBytes) ||
+        entry.payloadBytes <= 0 || entry.payloadBytes > b.maxPlaintextBytes || !/^[a-f0-9]{64}$/.test(entry.payloadSha256)))
+    throw new NativeHistoricalObjectBound();
 }
 type Event = "cache_hit" | "verified" | "refused";
 type Budget = { requests: number; download: number; response: number };
@@ -125,9 +140,7 @@ export class NativeHistoricalReadControls {
           entry.generation.businessId !== request.generation.businessId || entry.generation.jobRunId !== request.generation.jobRunId ||
           entry.generation.asOfDate !== request.generation.asOfDate || entry.generation.engineVersion !== request.generation.engineVersion)
         throw new Error("historical trust identity refused");
-      if (!Number.isSafeInteger(entry.plaintextBytes) || entry.plaintextBytes <= 0 || entry.plaintextBytes > b.maxPlaintextBytes ||
-          !Number.isSafeInteger(entry.ciphertextBytes) || entry.ciphertextBytes <= 0 || entry.ciphertextBytes > b.maxPlaintextBytes + 128)
-        throw new NativeHistoricalObjectBound();
+      assertNativeHistoricalRuntimeObjectBound(entry);
       const objectKey = fingerprint([configurationFingerprint, entry]);
       const resultKey = fingerprint([objectKey, request]);
       const cached = this.evidence.get(resultKey);

@@ -13,8 +13,14 @@ const source = await readFile(filename), manifest = JSON.parse(await readFile(
 const original = JSON.parse(await readFile(join(root, ".native-historical-worker/manifest.json"), "utf8"));
 assert.equal(createHash("sha256").update(source).digest("hex"), manifest.sha256);
 assert.equal(source.length, manifest.bytes); assert.deepEqual(manifest, original);
-const fixture = JSON.parse(await readFile(join(root, "scripts/fixtures/native-historical-worker.json"), "utf8"));
+for (const fixtureName of ["native-historical-worker.json", "native-historical-worker-compressed.json"]) {
+const fixture = JSON.parse(await readFile(join(root, "scripts/fixtures", fixtureName), "utf8"));
 assert.equal(fixture.syntheticFixtureOnly, true);
+if (fixtureName.endsWith("-compressed.json")) {
+  assert.equal(fixture.entry.encoding, "native-historical-aes-256-gcm-gzip.v2");
+  assert(fixture.entry.plaintextBytes > 2 * 1024 * 1024 && fixture.entry.plaintextBytes <= 8 * 1024 * 1024);
+  assert(fixture.entry.ciphertextBytes <= 2 * 1024 * 1024 + 128);
+}
 const payload = Uint8Array.from(Buffer.from(fixture.ciphertextBase64, "base64"));
 const key = Uint8Array.from(Buffer.from(fixture.fixtureEncryptionKeyHex, "hex"));
 const worker = new Worker(source.toString("utf8"), { eval: true,
@@ -35,7 +41,9 @@ try {
   assert.equal(response.value.reclaimEligible, false);
   console.log("[native-historical-worker-package] PASS exact standalone asset/digest, secret-free separate worker, original bytes and authority separation");
   console.log(JSON.stringify({ contract: "native-historical-worker-package-proof.v1", nodeVersion: process.version,
-    platform: process.platform, architecture: process.arch, artifactSha256: manifest.sha256,
+    platform: process.platform, architecture: process.arch, artifactSha256: manifest.sha256, fixtureName,
+    originalPlaintextBytes: fixture.entry.plaintextBytes, ciphertextBytes: fixture.entry.ciphertextBytes,
     artifactBytes: source.length, originalEvidenceMatched: true, providerAuthority: false,
     currentDecisionEligible: false, reclaimEligible: false }));
 } finally { await worker.terminate(); }
+}

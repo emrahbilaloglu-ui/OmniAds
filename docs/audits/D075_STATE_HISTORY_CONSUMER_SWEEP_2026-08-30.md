@@ -878,3 +878,16 @@ references. Reuse follows the full existing producer and hydration, then compare
 complete canonical context/input/decision and snapshot-writer evidence. Original
 proposal and review evidence are preserved outside the source tree. The existing
 hydration readers retain their classified content-read and authority contracts.
+
+
+## 2026-10-03 — D141 exact completed-index migration replay
+
+| File | Previous count | Current count | Classification |
+| --- | --- | --- | --- |
+| `lib/migrations.ts` | 50 | 54 | DDL/catalog. The four added literals name the manifest-delta index, its exact public table and complete index definition, plus the unchanged fallback relation guard. The single index-catalog SELECT reads no entity content or row counts; missing/mismatched evidence retains the original physical build/WAL reservation. |
+| `lib/migrations.test.ts` | 2 | 7 | Test-only SQL mocks and assertions. The five added literals bind the already-complete replay to the observed failed-release relation/free-space shape and verify no repeated build reservation. No production connection, entity-content read or new authority. |
+
+The literal scan and all D075 content-reader safety predicates remain enabled
+without a skip or allow-all rule. This classification corrects an omitted ledger
+update found by the required canonical gate; it does not change runtime source,
+DDL, provider authority, clocks, epochs, test limits or decision semantics.

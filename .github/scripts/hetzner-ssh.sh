@@ -180,14 +180,40 @@ run_for_each_deploy_host() {
 # before pausing it, pauses all hosts before the first migration, and resumes
 # every attempted host even when a later pause or migration fails.
 run_migrations_with_all_schedulers_paused() {
+  # One identity for this whole cross-host window, including its recovery calls.
+  # A later independently authorized run of the same target must not consume
+  # this run's durable start marker. Manual callers can pass a recorded ID.
+  local DEPLOY_WORKER_RECOVERY_ID="${DEPLOY_WORKER_RECOVERY_ID:-}"
+  if [ -z "${DEPLOY_WORKER_RECOVERY_ID}" ]; then
+    if [[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]] && [[ "${GITHUB_RUN_ATTEMPT:-1}" =~ ^[0-9]+$ ]]; then
+      DEPLOY_WORKER_RECOVERY_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}"
+    else
+      DEPLOY_WORKER_RECOVERY_ID="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')" || return 1
+    fi
+  fi
+  [[ "${DEPLOY_WORKER_RECOVERY_ID}" =~ ^([0-9]+-[0-9]+|[0-9a-f]{32})$ ]] || return 1
   local -a hosts=("${PRIMARY_DEPLOY_HOST}")
   local -a labels=("primary")
   local -a attempted_hosts=()
   local -a attempted_labels=()
+  local -a migration_attempted_hosts=()
+  local -a migration_attempted_labels=()
   local status=0
   local restore_status=0
   local primary_identity="${PRIMARY_DEPLOY_HOST_IP:-${PRIMARY_DEPLOY_HOST}}"
   local i
+
+  _recover_attempted_deploy_workers() {
+    local recover_i
+    for ((recover_i = ${#migration_attempted_hosts[@]} - 1; recover_i >= 0; recover_i--)); do
+      if run_remote_phase_on_host "${migration_attempted_hosts[$recover_i]}" "${migration_attempted_labels[$recover_i]}" recover_migration_worker; then
+        :
+      else
+        restore_status=75
+        echo "migration_worker_restore_failed target=${migration_attempted_labels[$recover_i]} (${migration_attempted_hosts[$recover_i]})" >&2
+      fi
+    done
+  }
 
   _resume_attempted_deploy_schedulers() {
     local restore_i
@@ -206,6 +232,7 @@ run_migrations_with_all_schedulers_paused() {
   _migration_window_signal() {
     local signal_status="$1"
     trap - INT TERM
+    _recover_attempted_deploy_workers
     _resume_attempted_deploy_schedulers
     exit "${signal_status}"
   }
@@ -232,6 +259,8 @@ run_migrations_with_all_schedulers_paused() {
 
   if [ "${status}" -eq 0 ]; then
     for ((i = 0; i < ${#hosts[@]}; i++)); do
+      migration_attempted_hosts+=("${hosts[$i]}")
+      migration_attempted_labels+=("${labels[$i]}")
       if run_remote_phase_on_host "${hosts[$i]}" "${labels[$i]}" run_migrations; then
         :
       else
@@ -242,7 +271,13 @@ run_migrations_with_all_schedulers_paused() {
     done
   fi
 
+  if [ "${status}" -ne 0 ]; then
+    _recover_attempted_deploy_workers
+  fi
   _resume_attempted_deploy_schedulers
+  if [ "${status}" -eq 0 ] && [ "${restore_status}" -ne 0 ]; then
+    _recover_attempted_deploy_workers
+  fi
   trap - INT TERM
 
   if [ "${status}" -ne 0 ]; then
@@ -276,6 +311,7 @@ run_remote_phase_on_host() {
   local override_reason_q
   local deploy_migration_timeout_ms_q
   local deploy_migration_timeout_seconds_q
+  local deploy_worker_recovery_id_q
   local remote_app_dir_q
   local phase_q
   local web_image_repo_q
@@ -286,6 +322,7 @@ run_remote_phase_on_host() {
   override_reason_q="$(printf '%q' "${OVERRIDE_REASON}")"
   deploy_migration_timeout_ms_q="$(printf '%q' "${DEPLOY_MIGRATION_TIMEOUT_MS:-}")"
   deploy_migration_timeout_seconds_q="$(printf '%q' "${DEPLOY_MIGRATION_TIMEOUT_SECONDS:-}")"
+  deploy_worker_recovery_id_q="$(printf '%q' "${DEPLOY_WORKER_RECOVERY_ID:-}")"
   remote_app_dir_q="$(printf '%q' "${REMOTE_APP_DIR}")"
   phase_q="$(printf '%q' "${phase}")"
 
@@ -361,7 +398,7 @@ run_remote_phase_on_host() {
     cat scripts/lib/rootcron.sh
     cat .github/scripts/hetzner-remote.sh
   } | ssh_with_stdin_retry "${target_host}" \
-    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && GHCR_USER=${ghcr_user_q} PHASE=${phase_q} DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} WEB_IMAGE_REPO=${web_image_repo_q} WORKER_IMAGE_REPO=${worker_image_repo_q} CUTOVER_RESUME_SHA=${cutover_resume_sha_q} CUTOVER_DB_SSH=${cutover_db_ssh_q} CUTOVER_SCHEDULER=${cutover_scheduler_q} CUTOVER_EPOCH_PHASE=${cutover_phase_q} CUTOVER_CONTINUES_FROM=${cutover_continues_q} CUTOVER_RUNNER_IMAGE_DIGEST=${runner_digest_q} CUTOVER_RUNNER_WRAPPER_SHA256=${runner_wrapper_sha_q} CUTOVER_RUNNER_IMAGE_REPO=${runner_repo_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -c '
+    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && GHCR_USER=${ghcr_user_q} PHASE=${phase_q} DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} DEPLOY_WORKER_RECOVERY_ID=${deploy_worker_recovery_id_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} WEB_IMAGE_REPO=${web_image_repo_q} WORKER_IMAGE_REPO=${worker_image_repo_q} CUTOVER_RESUME_SHA=${cutover_resume_sha_q} CUTOVER_DB_SSH=${cutover_db_ssh_q} CUTOVER_SCHEDULER=${cutover_scheduler_q} CUTOVER_EPOCH_PHASE=${cutover_phase_q} CUTOVER_CONTINUES_FROM=${cutover_continues_q} CUTOVER_RUNNER_IMAGE_DIGEST=${runner_digest_q} CUTOVER_RUNNER_WRAPPER_SHA256=${runner_wrapper_sha_q} CUTOVER_RUNNER_IMAGE_REPO=${runner_repo_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -c '
 IFS= read -r __ghcr_tok || true
 __dcfg=\"\$(mktemp -d)\"
 cleanup_registry_auth() {

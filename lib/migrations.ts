@@ -2111,6 +2111,54 @@ const RECEIPT_FRESHNESS_KEY =
 const RECEIPT_COHORT_KEY =
   "business_id, provider_account_id, partition_id, entity_type, endpoint, captured_at DESC, created_at DESC, id DESC";
 
+/** Exact catalog contracts, not name-only evidence that IF NOT EXISTS can reuse. */
+export const RECEIPT_IDENTITY_INDEX_CONTRACTS = [
+  { index_name: "idx_meta_entity_state_history_manifest_delta", table_name: "meta_entity_state_history",
+    index_definition: `CREATE INDEX idx_meta_entity_state_history_manifest_delta ON public.meta_entity_state_history USING btree (${DELTA_INDEX_KEY})` },
+  { index_name: "meta_entity_observation_receipts_attempt_occurrence", table_name: "meta_entity_observation_receipts_v2",
+    index_definition: "CREATE UNIQUE INDEX meta_entity_observation_receipts_attempt_occurrence ON public.meta_entity_observation_receipts_v2 USING btree (partition_id, entity_type, endpoint, captured_at, COALESCE(sync_run_id, '00000000-0000-0000-0000-000000000000'::uuid))" },
+  { index_name: "meta_entity_observation_receipts_occurrence", table_name: "meta_entity_observation_receipts",
+    index_definition: "CREATE UNIQUE INDEX meta_entity_observation_receipts_occurrence ON public.meta_entity_observation_receipts USING btree (partition_id, entity_type, endpoint, captured_at)" },
+  { index_name: "idx_meta_entity_observation_receipts_freshness_v2", table_name: "meta_entity_observation_receipts_v2",
+    index_definition: `CREATE INDEX idx_meta_entity_observation_receipts_freshness_v2 ON public.meta_entity_observation_receipts_v2 USING btree (${RECEIPT_FRESHNESS_KEY})` },
+  { index_name: "idx_meta_entity_observation_receipts_cohort_v2", table_name: "meta_entity_observation_receipts_v2",
+    index_definition: `CREATE INDEX idx_meta_entity_observation_receipts_cohort_v2 ON public.meta_entity_observation_receipts_v2 USING btree (${RECEIPT_COHORT_KEY})` },
+] as const;
+
+export const RECEIPT_IDENTITY_INDEX_STATUS_SQL = `
+  SELECT expected.index_name,
+         COALESCE(i.indisvalid AND i.indisready AND i.indislive
+           AND i.indrelid = to_regclass(format('%I.%I', 'public', expected.table_name))
+           AND pg_get_indexdef(i.indexrelid) = expected.index_definition,
+           false) AS receipt_index_satisfied
+    FROM jsonb_to_recordset($1::jsonb)
+         AS expected(index_name text, table_name text, index_definition text)
+    LEFT JOIN pg_index i
+      ON i.indexrelid = to_regclass(format('%I.%I', 'public', expected.index_name))
+   ORDER BY expected.index_name
+`;
+
+/** An already complete replay has no build/WAL peak to reserve a second time. */
+export async function assertReceiptIdentityMigrationCapacity(sql: Pick<DbClientLike, "query">) {
+  const rows = await sql.query(RECEIPT_IDENTITY_INDEX_STATUS_SQL,
+    [JSON.stringify(RECEIPT_IDENTITY_INDEX_CONTRACTS)]) as Array<{
+      index_name: string; receipt_index_satisfied: boolean;
+    }>;
+  const expected = new Set<string>(RECEIPT_IDENTITY_INDEX_CONTRACTS.map((x) => x.index_name));
+  const complete = Array.isArray(rows) && rows.length === expected.size
+    && new Set(rows.map((row) => row.index_name)).size === expected.size
+    && rows.every((row) => expected.has(row.index_name) && row.receipt_index_satisfied === true);
+  if (complete) {
+    return { engaged: false, detail: "all five public receipt/state-history index contracts are valid/ready/live and exact; no index build is required" };
+  }
+  // Unknown, missing, invalid or mismatched catalog evidence still takes the
+  // unchanged physical guard BEFORE any repair/schema/index statement.
+  return assertMigrationCapacityForHeavyStep(sql, {
+    label: "meta_entity_observation_receipt_identity",
+    relation: "meta_entity_state_history",
+  });
+}
+
 function orderedMigrationSteps(
   steps: Array<() => Promise<unknown>>,
 ): MigrationBatchQuery {
@@ -8653,10 +8701,7 @@ export async function runMigrations(options?: {
             let deltaIndexBuildRequired = true;
             return orderedMigrationSteps([
             async () => {
-              const decision = await assertMigrationCapacityForHeavyStep(sql, {
-                label: "meta_entity_observation_receipt_identity",
-                relation: "meta_entity_state_history",
-              });
+              const decision = await assertReceiptIdentityMigrationCapacity(sql);
               logStartupEvent("migration_capacity_checked", {
                 step: "meta_entity_observation_receipt_identity",
                 ...decision,

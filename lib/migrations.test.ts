@@ -275,6 +275,42 @@ describe("runMigrations", () => {
       .toBe(false);
   });
 
+  it("replays the completed receipt indexes without requiring another heavy build's disk reserve", async () => {
+    const indexes = [
+      "idx_meta_entity_state_history_manifest_delta",
+      "meta_entity_observation_receipts_attempt_occurrence",
+      "meta_entity_observation_receipts_occurrence",
+      "idx_meta_entity_observation_receipts_freshness_v2",
+      "idx_meta_entity_observation_receipts_cohort_v2",
+    ];
+    const sql = Object.assign(vi.fn(async () => []), {
+      query: vi.fn(async (text: string, params?: unknown[]) => {
+        if (text.includes("AS receipt_index_satisfied")) {
+          return indexes.map((index_name) => ({ index_name, receipt_index_satisfied: true }));
+        }
+        if (text.includes("COALESCE(pg_total_relation_size(to_regclass($1))") && params?.[0] === "meta_entity_state_history") {
+          return [{ relation_bytes: "6243614720", database_bytes: "173740203031" }];
+        }
+        if (text.includes("s.payload") && params?.[0] === "db_host_healthcheck") {
+          return [{ payload: { disks: [{ path: "/var/lib/postgresql", availableBytes: 58262749184 }] }, age_seconds: "1" }];
+        }
+        if (text.includes("AS index_valid") && text.includes("pg_total_relation_size('meta_entity_state_history'::regclass)")) {
+          return [{ relation_bytes: "6243614720", index_bytes: "635904000", index_valid: true }];
+        }
+        return [];
+      }),
+    });
+    wirePinnedDb(sql, { catalog: "small" });
+    const migrations = await import("@/lib/migrations");
+    await expect(migrations.runMigrations({ force: true, verifyNativeSchemaCapabilities: false }))
+      .resolves.toBeUndefined();
+    expect(sql.query.mock.calls.some(([text, params]) =>
+      text.includes("COALESCE(pg_total_relation_size(to_regclass($1))") && params?.[0] === "meta_entity_state_history",
+    )).toBe(false);
+    expect(sql.query.mock.calls.some(([text]) => text.includes("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_entity_state_history_manifest_delta")))
+      .toBe(true);
+  });
+
   it("settles at one absolute deadline and does not overlap a delayed prior run", async () => {
     const sql = Object.assign(
       vi.fn(async () => []),

@@ -213,7 +213,9 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   // D096 38 -> 50: the migration-only index budget guard adds relation/index
   // size measurements, index catalog validation, budget lookups and diagnostic
   // labels. It reads no entity content and changes no D075 winner predicate.
-  { file: "lib/migrations.ts", category: "ddl", count: 50 },
+  // D141 50 -> 54: exact index name/table/definition contracts and the
+  // unchanged fallback physical guard. Catalog/DDL only; no entity row read.
+  { file: "lib/migrations.ts", category: "ddl", count: 54 },
   {
     file: "lib/meta/__tests__/migration-relation-budget.test.ts",
     category: "test",
@@ -226,7 +228,9 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     category: "test",
     count: 9,
   },
-  { file: "lib/migrations.test.ts", category: "test", count: 2 },
+  // D141 2 -> 7: completed-index replay SQL mocks and the no-reservation
+  // assertion at the actual failed release size/free-space shape.
+  { file: "lib/migrations.test.ts", category: "test", count: 7 },
   /*
     D086 correction 7. Readiness stopped reading transition-only config history
     and reads the observation state history the real capture path writes. Its

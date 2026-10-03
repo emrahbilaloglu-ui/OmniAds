@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_evaluations (
   contract_version TEXT NOT NULL,
   creative_input_json JSONB NOT NULL CHECK (jsonb_typeof(creative_input_json) = 'object'),
   campaign_context_json JSONB NOT NULL CHECK (jsonb_typeof(campaign_context_json) = 'object'),
+  campaign_context_ref BYTEA,
   prior_hysteresis_json JSONB NOT NULL CHECK (jsonb_typeof(prior_hysteresis_json) = 'object'),
   decision_output_json JSONB NOT NULL CHECK (jsonb_typeof(decision_output_json) = 'object'),
   raw_label TEXT NOT NULL CHECK (raw_label IN (

@@ -232,6 +232,13 @@ async function runProbeAndRollback(
 
 /** Columns this change adds. */
 export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
+  { table: "engine_v3_ad_campaign_context_objects", column: "business_ref_id", dataType: "uuid", isNullable: false },
+  { table: "engine_v3_ad_campaign_context_objects", column: "payload_sha256", dataType: "bytea", isNullable: false },
+  { table: "engine_v3_ad_campaign_context_objects", column: "storage_encoding_version", dataType: "text", isNullable: false },
+  { table: "engine_v3_ad_campaign_context_objects", column: "payload_json", dataType: "jsonb", isNullable: false },
+  { table: "engine_v3_ad_campaign_context_objects", column: "byte_length", dataType: "integer", isNullable: false },
+  { table: "engine_v3_ad_campaign_context_objects", column: "created_at", dataType: "timestamp with time zone", isNullable: false, columnDefault: "now()" },
+  { table: "engine_v3_ad_decision_evaluations", column: "campaign_context_ref", dataType: "bytea", isNullable: true },
   // Native decision input evidence is keyed outside the high-volume evaluation
   // table. The native schema capability gate also verifies its PK/object check;
   // these catalog assertions keep the global migration completion proof honest.
@@ -350,6 +357,7 @@ export const FORBIDDEN_TRIGGERS: readonly string[] = [
 
 /** Tables this change adds. */
 export const VERIFIED_TABLES: readonly string[] = [
+  "engine_v3_ad_campaign_context_objects",
   "engine_v3_ad_decision_input_evidence",
   "meta_config_repair_audits",
   "meta_raw_snapshot_observations",

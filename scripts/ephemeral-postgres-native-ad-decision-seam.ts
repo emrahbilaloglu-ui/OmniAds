@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { verifyNativeArchiveRoundTrip } from "./native-evidence-archive-seam";
 import { verifyNativeArchivePinCensusSeam } from "./native-archive-pin-census-seam";
 import { verifyNativeArchiveProductionSchema } from "./native-archive-production-schema-seam";
+import { NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL } from "@/lib/creative-decision-engine/native-campaign-context-storage";
 import { verifyManualCutRefusalRoundTrip } from "./manual-cut-refusal-seam";
 import net from "node:net";
 import os from "node:os";
@@ -4230,6 +4231,7 @@ async function runSeam(client: Client) {
   for (const statement of NATIVE_AD_DECISION_SCHEMA_SQL) {
     await client.query(statement);
   }
+  await client.query(NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL);
   const db = dbClient(client);
   const capability = await inspectEvaluationStoreSchemaCapability(db);
   assert(

@@ -11,6 +11,10 @@ provider authority.
 For strict reuse acceptance and offline archive preparation, also read
 [D132](DECISION_LOG.md#d132--strict-reuse-acceptance-and-offline-native-archive-preparation-2026-09-30).
 This preparation does not switch production readers or authorize eviction.
+For campaign-context shared-object read compatibility, read
+[D140](DECISION_LOG.md#d140--campaign-context-shared-object-read-compatibility-2026-10-03).
+R1 retains the inline writer and saves no storage; later writer/eviction gates are separate.
+
 For the separate superseded-generation transport, scoped pin reader and physical
 reclaim preparation, read
 [D133](DECISION_LOG.md#d133--superseded-native-history-scoped-pin-census-and-reclaim-preparation-2026-09-30).

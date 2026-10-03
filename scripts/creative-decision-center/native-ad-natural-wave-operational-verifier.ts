@@ -1,3 +1,4 @@
+import { nativeCampaignContextSql } from "@/lib/creative-decision-engine/native-campaign-context-storage";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
@@ -588,7 +589,7 @@ SELECT
   evaluation.decision_entity_id, evaluation.ad_id, evaluation.creative_id,
   evaluation.as_of_date::text AS as_of_date, evaluation.engine_version,
   evaluation.scope_type, evaluation.scope_id, evaluation.contract_version,
-  evaluation.creative_input_json, evaluation.campaign_context_json,
+  evaluation.creative_input_json, ${nativeCampaignContextSql("evaluation")} AS campaign_context_json,
   evaluation.prior_hysteresis_json, input_evidence.input_evidence_json,
   evaluation.decision_output_json, evaluation.raw_label,
   evaluation.hysteresis_suppressed, evaluation.input_hash,
@@ -753,7 +754,7 @@ SELECT DISTINCT
     AS parent_input_campaign_id,
   NULLIF(evaluation.creative_input_json->>'adsetId', '')
     AS parent_input_adset_id,
-  NULLIF(evaluation.campaign_context_json->>'campaignId', '')
+  NULLIF(${nativeCampaignContextSql("evaluation")}->>'campaignId', '')
     AS parent_context_campaign_id,
   episode.recommended_at::text AS recommended_at,
   episode.job_run_id::text AS job_run_id,
@@ -766,7 +767,7 @@ SELECT DISTINCT
     AND episode.source_campaign_id IS NOT DISTINCT FROM
       NULLIF(evaluation.creative_input_json->>'campaignId', '')
     AND episode.source_campaign_id IS NOT DISTINCT FROM
-      NULLIF(evaluation.campaign_context_json->>'campaignId', '')
+      NULLIF(${nativeCampaignContextSql("evaluation")}->>'campaignId', '')
     AND episode.source_adset_id IS NOT DISTINCT FROM
       NULLIF(evaluation.creative_input_json->>'adsetId', '')
   ) AS lineage_valid

@@ -1,3 +1,4 @@
+import { NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE, NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL } from "../native-campaign-context-storage";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -25,6 +26,7 @@ import {
 describe("D047 native ad parallel schema SQL", () => {
   it("contains every capability column in its owning CREATE TABLE", () => {
     const sqlByTable = new Map([
+      [NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE, NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL],
       [AD_EVALUATION_CONTEXTS_TABLE, CREATE_NATIVE_AD_EVALUATION_CONTEXTS_SQL],
       [AD_DECISION_INPUT_EVIDENCE_TABLE, CREATE_NATIVE_AD_INPUT_EVIDENCE_SQL],
       [AD_EVALUATIONS_TABLE, CREATE_NATIVE_AD_EVALUATIONS_SQL],

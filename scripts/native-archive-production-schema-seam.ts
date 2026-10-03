@@ -1,3 +1,4 @@
+import { verifyNativeCampaignContextStorage } from "./native-campaign-context-storage-seam";
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { Client } from "pg";
@@ -165,6 +166,7 @@ export async function verifyNativeArchiveProductionSchema(client: Client) {
     for (const table of ["engine_v3_ad_account_calibration_batches", "engine_v3_ad_account_calibration_daily", "engine_v3_ad_decision_outcome_runs"])
       assert(initial.foreignKeyReferences.some(e => e.childTable === table && e.count === "0"), `${table} unclassified ZERO edge absent`);
     await copy(pinFree,initial);
+    await verifyNativeCampaignContextStorage(db, pinFree.evaluation);
     const check = async (f: Fixture, pinClass: NativePinClass, canCopy = false) => {
       const census = await read(f), a = assessNativeArchivePins(census,f.generation);
       assert(a.reason === "live_pins" && a.pinClasses.includes(pinClass) && !a.candidateWithinSupportedScope && !a.reclaimEligible,

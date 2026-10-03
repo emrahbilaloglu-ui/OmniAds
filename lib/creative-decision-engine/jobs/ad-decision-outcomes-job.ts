@@ -1,3 +1,4 @@
+import { nativeCampaignContextSql, requireNativeCampaignContext } from "../native-campaign-context-storage";
 import { getDb, runDbTransaction, type DbClient } from "@/lib/db";
 import * as controlledExperimentRegistry from "@/lib/meta/controlled-experiment-registry";
 import {
@@ -1376,7 +1377,7 @@ WITH windows AS (
       AS decision_recommended_at,
     evaluation.contract_version AS evaluation_contract_version,
     evaluation.creative_input_json,
-    evaluation.campaign_context_json
+    ${nativeCampaignContextSql("evaluation")} AS campaign_context_json
   FROM engine_v3_ad_decision_snapshots_daily snapshot
   INNER JOIN engine_v3_ad_decision_evaluations evaluation
     ON evaluation.id = snapshot.evaluation_id
@@ -3945,7 +3946,7 @@ function buildAdDecisionOutcomeDraft(
     optimizationGoal: textOrNull(row.optimization_goal),
     customEventType: textOrNull(row.custom_event_type),
     commercialTargetFreshness: jsonValue(row.commercial_target_freshness_json),
-    campaignContext: record(row.campaign_context_json) ?? {},
+    campaignContext: requireNativeCampaignContext(row.campaign_context_json),
     evaluationContractVersion: requiredText(
       row.evaluation_contract_version,
       "evaluation_contract_version",

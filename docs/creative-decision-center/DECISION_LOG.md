@@ -12091,3 +12091,24 @@ limits. V2 rollback disables the historical gate or restores the pinned v1
 catalog; current data remain inline. Durable mount/readback/key recovery,
 production consumers/pins, growth lifecycle and measured physical reclaim still
 require real outcomes. See [the compressed envelope contract](../architecture/native-historical-compressed-envelope.md).
+
+
+## D140 — Campaign-context shared-object read compatibility (2026-10-03)
+
+**Decision:** Add tenant-bound immutable original-JSONB campaign objects, a
+nullable no-default reference and NOT VALID new-row XOR/composite FK checks.
+R1 retains the old inline NOT NULL and inline writer for rollback compatibility.
+All four literal native readers, including operator scripts omitted from the
+older table ledger, use the central strict accessor. Missing content refuses;
+outcomes never manufacture `{}`. Preserve input/decision/context hashes and all
+source epochs/clocks/provider authority. No new decision core.
+
+**Boundary:** R1 saves/reclaims zero bytes. A subsequent reference-only writer
+requires a separate controlled release and natural/storage-cost acceptance;
+R1 is that writer's readable rollback. Legacy archives preserve original inline
+bytes and refuse references until shared-object membership/restore has its own
+versioned contract. Measurement v2 retains shared campaign objects; original v1
+measurement remains interpretable under its original roots. The column CI ledger
+and owned real migration fixture are not production/transitive pin closure,
+archive eviction or sustainable physical storage. See
+[the storage contract](../architecture/native-campaign-context-storage.md).

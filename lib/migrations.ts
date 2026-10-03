@@ -1,3 +1,4 @@
+import { NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL } from "@/lib/creative-decision-engine/native-campaign-context-storage";
 import { META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL } from "@/lib/meta/observation-receipt-schema";
 import { DEFAULT_TABLE_BUDGET_BYTES, evaluateDbGrowthFence } from "@/lib/sync/db-growth-fence";
 import { DECISION_AUTHORITY_BLOCKERS } from "@/lib/creative-decision-engine/types";
@@ -1895,6 +1896,7 @@ async function runNativeAdSchemaMigrations(input: {
         for (const statement of NATIVE_AD_DECISION_SCHEMA_SQL) {
           await db.query(statement);
         }
+        await db.query(NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL);
         await db.query(AD_OPERATOR_RESPONSE_ACTION_LOG_SCHEMA_SQL);
         await db.query(AD_OPERATOR_RESPONSE_SCHEMA_SQL);
         await db.query(AD_OPERATOR_RESPONSE_EPOCH_COMPATIBILITY_SQL);
@@ -1907,9 +1909,10 @@ async function runNativeAdSchemaMigrations(input: {
       await runNativeAdCalibrationSchemaGate({ db, inspectorDb });
 
       await db.query(ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL);
-      // Additive and narrow: existing native-decision schemas receive the
-      // hash-keyed evidence table without widening the large evaluations table.
+      // Hash-keyed evidence and D140 campaign read compatibility are additive:
+      // one no-default reference column, without rewriting existing evaluations.
       await db.query(CREATE_NATIVE_AD_INPUT_EVIDENCE_SQL);
+      await db.query(NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL);
       await db.query(ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL);
       let decisions = await inspectEvaluationStoreSchemaCapability(inspectorDb);
       if (!decisions.ready) {
@@ -1929,6 +1932,7 @@ async function runNativeAdSchemaMigrations(input: {
         for (const statement of NATIVE_AD_DECISION_SCHEMA_SQL) {
           await db.query(statement);
         }
+        await db.query(NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL);
         decisions = await inspectEvaluationStoreSchemaCapability(inspectorDb);
       }
       assertNativeSchemaCapability("native decision migration", decisions);

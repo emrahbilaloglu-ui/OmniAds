@@ -5,7 +5,10 @@ import { readNativeJobEvaluationSelection } from "./native-job-evaluation-select
 /** SELECT-only preparation; the original ledger, shared evidence and parents stay live.
  * This narrower unit is distinct from the five-table archival copy and its whole-core pin veto.
  * No production caller, exporter, delete executor or physical-maintenance permission. */
-export const NATIVE_EVALUATION_UNIT_CONTRACT = "native-evaluation-context-measurement.v1" as const;
+export const NATIVE_EVALUATION_UNIT_CONTRACT = "native-evaluation-context-measurement.v2" as const;
+const LEGACY_UNIT_CONTRACT = "native-evaluation-context-measurement.v1" as const;
+const LEGACY_ROOTS = ["original_jobs", "calibration_parents", "shared_input_evidence", "provider_roots"] as const;
+export const NATIVE_EVALUATION_RETAINED_ROOTS = [...LEGACY_ROOTS, "shared_campaign_context_objects"] as const;
 const EVAL = "engine_v3_ad_decision_evaluations";
 const CONTEXT = "engine_v3_ad_decision_evaluation_contexts";
 const INTERNAL_CHILD_COLUMNS = ["context_id","business_ref_id","business_id","provider_account_ref_id",
@@ -19,13 +22,13 @@ interface Edge {
   childColumns: string[]; parentColumns: string[]; count: string; internalSelectedMembership: boolean;
 }
 export interface NativeEvaluationContextMeasurement {
-  contract: typeof NATIVE_EVALUATION_UNIT_CONTRACT;
+  contract: typeof NATIVE_EVALUATION_UNIT_CONTRACT | typeof LEGACY_UNIT_CONTRACT;
   generation: NativeArchiveGeneration; observedAt: string; jobFinishedAt: string;
   originalJobRowCount: string; evaluationCount: string; selectedContextCount: string;
   contextSharingCount: string; incomingReferences: Edge[];
   nonFkCounts: { pinClass: NonFkClass; count: string }[];
   unknownReferences: string[]; schemaHash: string; consumerInventorySha256: string;
-  retainedRoots: readonly ["original_jobs", "calibration_parents", "shared_input_evidence", "provider_roots"];
+  retainedRoots: typeof NATIVE_EVALUATION_RETAINED_ROOTS | typeof LEGACY_ROOTS;
   providerAuthority: false; reclaimEligible: false;
 }
 function refuse(reason: string): never { throw new Error(`Native evaluation unit refused: ${reason}`); }
@@ -47,14 +50,13 @@ function sameGeneration(a: NativeArchiveGeneration, b: NativeArchiveGeneration):
 }
 export function assessNativeEvaluationContextUnit(value: NativeEvaluationContextMeasurement,
   generation: NativeArchiveGeneration) {
-  if (value.contract !== NATIVE_EVALUATION_UNIT_CONTRACT || !sameGeneration(value.generation, generation) ||
+  if (![NATIVE_EVALUATION_UNIT_CONTRACT, LEGACY_UNIT_CONTRACT].includes(value.contract) || !sameGeneration(value.generation, generation) ||
       value.providerAuthority !== false || value.reclaimEligible !== false ||
       !Number.isFinite(Date.parse(value.observedAt)) || !Number.isFinite(Date.parse(value.jobFinishedAt)) ||
       Date.parse(value.jobFinishedAt) > Date.parse(value.observedAt)) refuse("contract/identity/clock mismatch");
   sha(value.schemaHash); sha(value.consumerInventorySha256);
-  if (JSON.stringify(value.retainedRoots) !== JSON.stringify([
-    "original_jobs", "calibration_parents", "shared_input_evidence", "provider_roots",
-  ])) refuse("retained root contract mismatch");
+  const roots = value.contract === LEGACY_UNIT_CONTRACT ? LEGACY_ROOTS : NATIVE_EVALUATION_RETAINED_ROOTS;
+  if (JSON.stringify(value.retainedRoots) !== JSON.stringify(roots)) refuse("retained root contract mismatch");
   if (exact(value.originalJobRowCount) !== exact(value.evaluationCount) || value.evaluationCount === "0" ||
       BigInt(value.evaluationCount) > BigInt(10000) || exact(value.selectedContextCount) === "0")
     refuse("incomplete or unsupported generation");
@@ -249,7 +251,7 @@ export async function readNativeEvaluationContextUnit(db: Reader, input: {
     unknownReferences: [...new Set(unknown)].sort(),
     schemaHash: createHash("sha256").update(JSON.stringify({ columns, fks })).digest("hex"),
     consumerInventorySha256: input.consumerInventorySha256,
-    retainedRoots: ["original_jobs", "calibration_parents", "shared_input_evidence", "provider_roots"],
+    retainedRoots: NATIVE_EVALUATION_RETAINED_ROOTS,
     providerAuthority: false, reclaimEligible: false,
   };
   assessNativeEvaluationContextUnit(result, g);

@@ -1,3 +1,4 @@
+import { NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE, inspectNativeCampaignContextImmutability } from "./native-campaign-context-storage";
 import { getDb, type DbClient } from "@/lib/db";
 import { chunkDecisionRows } from "./batching";
 import {
@@ -267,6 +268,9 @@ export const AD_DECISION_SCHEMA_REQUIRED_COLUMNS: Readonly<
     "created_at",
     "updated_at",
   ],
+  [NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE]: [
+    "business_ref_id", "payload_sha256", "storage_encoding_version", "payload_json", "byte_length", "created_at",
+  ],
   [AD_EVALUATIONS_TABLE]: [
     "id",
     "context_id",
@@ -285,6 +289,7 @@ export const AD_DECISION_SCHEMA_REQUIRED_COLUMNS: Readonly<
     "contract_version",
     "creative_input_json",
     "campaign_context_json",
+    "campaign_context_ref",
     "prior_hysteresis_json",
     "decision_output_json",
     "raw_label",
@@ -411,6 +416,7 @@ const TIMESTAMPTZ_COLUMNS = new Set([
   "updated_at",
 ]);
 const JSONB_COLUMNS = new Set([
+  "payload_json",
   "context_json",
   "account_profile_json",
   "data_health_json",
@@ -424,6 +430,7 @@ const JSONB_COLUMNS = new Set([
   "operator_evidence",
 ]);
 const INTEGER_COLUMNS = new Set([
+  "byte_length",
   "confidence",
   "previous_confidence",
   "current_confidence",
@@ -449,6 +456,9 @@ export function expectedAdDecisionColumnContract(
   column: string,
 ): AdDecisionColumnContract {
   const identity = `${table}.${column}`;
+  if (column === "payload_sha256" || column === "campaign_context_ref") {
+    return { udtName: "bytea", nullable: column === "campaign_context_ref", characterMaximumLength: null };
+  }
   if (HASH_COLUMNS.has(column)) {
     return {
       udtName: "bpchar",
@@ -483,9 +493,35 @@ export interface RequiredConstraintContract {
   name: string;
   type: "c" | "f" | "p" | "u";
   allOf: readonly string[];
+  /** New metadata-only constraints enforce all new writes before old-row validation. */
+  allowNotValidated?: boolean;
 }
 
 export const AD_DECISION_REQUIRED_CONSTRAINTS: readonly RequiredConstraintContract[] = [
+  {
+    table: NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE, name: "engine_v3_ad_campaign_objects_pkey", type: "p",
+    allOf: ["primary key (business_ref_id, payload_sha256)"],
+  },
+  {
+    table: NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE, name: "engine_v3_ad_campaign_objects_digest_check", type: "c",
+    allOf: ["octet_length(payload_sha256) = 32", "sha256", "convert_to", "payload_json", "utf8"],
+  },
+  {
+    table: NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE, name: "engine_v3_ad_campaign_objects_payload_check", type: "c",
+    allOf: ["jsonb_typeof(payload_json) = 'object'::text", "byte_length", "octet_length", "1048576"],
+  },
+  {
+    table: NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE, name: "engine_v3_ad_campaign_objects_version_check", type: "c",
+    allOf: ["storage_encoding_version", "native-campaign-context-jsonb.v1"],
+  },
+  {
+    table: AD_EVALUATIONS_TABLE, name: "engine_v3_ad_evaluations_campaign_storage_check", type: "c",
+    allOf: ["campaign_context_json is null", "campaign_context_ref is null", "<>"], allowNotValidated: true,
+  },
+  {
+    table: AD_EVALUATIONS_TABLE, name: "engine_v3_ad_evaluations_campaign_object_fk", type: "f",
+    allOf: ["foreign key (business_ref_id, campaign_context_ref)", "references engine_v3_ad_campaign_context_objects(business_ref_id, payload_sha256)", "on delete restrict"], allowNotValidated: true,
+  },
   {
     table: AD_DECISION_INPUT_EVIDENCE_TABLE,
     name: "engine_v3_ad_input_evidence_pkey",
@@ -1205,6 +1241,7 @@ export async function inspectEvaluationStoreSchemaCapability(
       [
         AD_EVALUATION_CONTEXTS_TABLE,
         AD_DECISION_INPUT_EVIDENCE_TABLE,
+        NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE,
         AD_EVALUATIONS_TABLE,
         AD_SNAPSHOTS_TABLE,
         AD_EVENTS_TABLE,
@@ -1222,6 +1259,7 @@ export async function inspectEvaluationStoreSchemaCapability(
       [
         AD_EVALUATION_CONTEXTS_TABLE,
         AD_DECISION_INPUT_EVIDENCE_TABLE,
+        NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE,
         AD_EVALUATIONS_TABLE,
         AD_SNAPSHOTS_TABLE,
         AD_EVENTS_TABLE,
@@ -1246,6 +1284,7 @@ export async function inspectEvaluationStoreSchemaCapability(
       [
         AD_EVALUATION_CONTEXTS_TABLE,
         AD_DECISION_INPUT_EVIDENCE_TABLE,
+        NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE,
         AD_EVALUATIONS_TABLE,
         AD_SNAPSHOTS_TABLE,
         AD_EVENTS_TABLE,
@@ -1275,7 +1314,11 @@ export async function inspectEvaluationStoreSchemaCapability(
       if (String(row.udt_name) !== expected.udtName) {
         missing.push(`${identity}.type:${expected.udtName}`);
       }
-      if ((String(row.is_nullable) === "YES") !== expected.nullable) {
+      // R1 keeps NOT NULL for rollback to the inline-only old image; after the
+      // later writer release, the same reader also accepts the XOR/FK-guarded
+      // nullable inline column. All storage constraints below remain mandatory.
+      const futureReferenceInline = table === AD_EVALUATIONS_TABLE && column === "campaign_context_json";
+      if (!futureReferenceInline && (String(row.is_nullable) === "YES") !== expected.nullable) {
         missing.push(
           `${identity}.${expected.nullable ? "nullable" : "not_null"}`,
         );
@@ -1321,13 +1364,16 @@ export async function inspectEvaluationStoreSchemaCapability(
     if (
       !row ||
       String(row.constraint_type) !== contract.type ||
-      row.validated !== true ||
+      (row.validated !== true && !contract.allowNotValidated) ||
       !contract.allOf.every((token) =>
         definition.includes(normalizeSqlDefinition(token)),
       )
     ) {
       missing.push(`${contract.table}.${contract.name}.definition`);
     }
+  }
+  if (!await inspectNativeCampaignContextImmutability(db)) {
+    missing.push(`${NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE}.immutable_trigger`);
   }
   return {
     ready: missing.length === 0,

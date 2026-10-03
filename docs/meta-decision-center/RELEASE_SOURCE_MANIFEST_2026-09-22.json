@@ -1,5 +1,5 @@
 {
-  "manifestHash": "3cd6d2ddfa4b5bfe7803871a7e5473a72db5713a09e324a0659724a276b28434",
+  "manifestHash": "3df7a095cb3de0b36e8d0a1ca6dc002031184f2534d0d779ec3d7720116a4ec4",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -735,12 +735,16 @@
       "sha256": "5ddcbca564ee43bcc374762bbd5696e2f3de3e730f088105864287fb72af9331"
     },
     {
+      "path": "docs/architecture/native-historical-compressed-envelope.md",
+      "sha256": "47609e33fc1519f317300d702c392f1a12dbae7f0f3a6cc0a8687e18c1f452f9"
+    },
+    {
       "path": "docs/architecture/native-historical-existing-storage.md",
-      "sha256": "390d140eae2a5e83e70f29a300cf4e93fc16919dee27f8fbff8d4a225c99aef6"
+      "sha256": "feadd4627cd398f2de4ae61240f37f8d6be34152629ba35954493c5be0b0ab44"
     },
     {
       "path": "docs/architecture/native-historical-resource-and-unit-guards.md",
-      "sha256": "576592376256ded48c505087aafcd426071b370b2aa7b47a950ed5f79dcbc381"
+      "sha256": "b15942a60ee0a29ff8384c4aeb009d71ae4c082f63c56c3f460d53c308be8dd7"
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
@@ -768,7 +772,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "817e025d1d43e1ef52c4d69800253d3768fcc86f43203a1f72869de87368878d"
+      "sha256": "d2da1886514f356232c9486f2963e1e76d9f81bebfd8a4ef33f0c86d5ee4ff34"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1155,6 +1159,10 @@
       "sha256": "1aa2953b800da811777b347968785bc330e75be100637b2b9189320cdc2cae55"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-historical-compressed-archive.test.ts",
+      "sha256": "d98ebec8362f415ca5f42446572ed96836a70be9d6393880ce1b83461d8ab976"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/native-historical-local-store.test.ts",
       "sha256": "abcd3b6e009cb9bbb60f0d0357f294551efebd922896ab56e1ae4f2a64b83f76"
     },
@@ -1424,23 +1432,23 @@
     },
     {
       "path": "lib/creative-decision-engine/native-historical-archive-worker-client.ts",
-      "sha256": "1d028fe66f8a42d1c39497c3540740f37edeb2ea0cd32387714091816b6bad8a"
+      "sha256": "ce5190af3e3476a8862194bb5ea5a72096186db694e994d66fad2c53e3f70371"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-archive-worker.ts",
-      "sha256": "f1a8312f2764f7989fa39fd3e58e7aec55fd859a53defab950b0a0cd1ba37d33"
+      "sha256": "1670f1f19c44a964177e3e3d31c09cd8a5564942279f7390bf860f92afc48348"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-archive.ts",
-      "sha256": "c49fd1e085e8609648e86e2c9ba96b9f9093bfee956c82dff1394af655a5d1ee"
+      "sha256": "b459eebcd3013f5dd77c90c74d4b853a10acd40e48a9a3e05c59766c3836c47b"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-local-store.ts",
-      "sha256": "86b539bab3856abf5554d593e934a5a71c1a159d8c1e1ef26f2859f5d812ed41"
+      "sha256": "b4edad4ab7b2804157e487bfc3d40b0737aa8b698203ca481b8edcfe58ae6143"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-read-controls.ts",
-      "sha256": "4abb5a0e3228ccb580ee65a4d6a54d6bfd7141852d6490a85c40f034b4edf288"
+      "sha256": "897a811e07670153d4ed556c089fa02c06dd0536d4fccb1b8ecb267856be4b5f"
     },
     {
       "path": "lib/creative-decision-engine/native-job-evaluation-selection.ts",
@@ -2611,6 +2619,10 @@
       "sha256": "8a93539313f8b515b7180fd224f4f1ff29c28163dbb2f0e4d30a28b7c684d977"
     },
     {
+      "path": "scripts/fixtures/native-historical-worker-compressed.json",
+      "sha256": "9537462082f01767e3d75b6159ee460c8906e59785f0bec26f9c246d0efb639c"
+    },
+    {
       "path": "scripts/fixtures/native-historical-worker.json",
       "sha256": "011cc10d02fafe65e5b3d17b8f51d0280da8cd3d1d0b944d4caeff7de03993ce"
     },
@@ -2724,7 +2736,7 @@
     },
     {
       "path": "scripts/verify-native-historical-worker-package.mjs",
-      "sha256": "848c711bc4b086be8712269f507ac0a0f13c7da31600b4b4e25af62dc0d61321"
+      "sha256": "fb81ab1c6bd12b27bd6a1e2b83f455f3390264f5668e0388b270390f62548672"
     },
     {
       "path": "src/types/models.ts",

@@ -2,6 +2,10 @@
 
 ## D138: explicit local transport
 
+[D139](native-historical-compressed-envelope.md) adds a separate bounded gzip v2
+encoding and object directory. V1 format, caps and pointers remain compatible;
+an old runtime must use its pinned v1 catalog or keep the reader disabled.
+
 The owner chose no additional paid storage. The completed full-database recovery
 and removal of exactly three old application-host dump copies freed application
 root space; they did not shrink PostgreSQL. Use that existing host as a candidate
@@ -30,7 +34,7 @@ writable files, unsafe object directories, different owners, size/digest changes
 and alternate versions. It checks original exact ciphertext before the existing
 separate compiled worker decrypts and validates full original row/clock/identity
 and tenant lineage. Provider authority, current-decision eligibility and reclaim
-eligibility remain false. Existing 2MiB runtime plaintext, 256KiB response,
+eligibility remain false. Legacy 2MiB runtime plaintext, 256KiB response,
 concurrency, rate, cache and worker limits are unchanged. Filesystem reads receive
 the same five-second transport and outer ten-second request bounds; cancellation
 closes late descriptors but cannot promise to cancel kernel disk I/O.

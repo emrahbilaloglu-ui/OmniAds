@@ -7,6 +7,11 @@ authority. Neither activates production storage or authorizes data removal.
 
 ## D136 runtime limits
 
+[D139](native-historical-compressed-envelope.md) explicitly permits gzip v2 to
+decode at most8MiB inside this same worker while preserving the2MiB stored
+payload cap. The table below continues to describe legacy v1. V2 changes no
+response, concurrency, deadline, cache, request-rate or download-budget limit.
+
 Business authorization occurs before archive access. Historical evidence requires
 `collaborator` membership; ordinary current evidence retains its existing `guest`
 minimum. No user-selected path, key, bucket, version fallback or credential chain

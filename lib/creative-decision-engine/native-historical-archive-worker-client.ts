@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import type { NativeHistoricalArchiveCatalogEntry, NativeHistoricalEvidence,
   NativeHistoricalEvidenceRequest } from "./native-historical-archive";
-import { NATIVE_HISTORICAL_READ_BOUNDS } from "./native-historical-read-controls";
+import { assertNativeHistoricalRuntimeObjectBound } from "./native-historical-read-controls";
 
 type Artifact = { source: string; sha256: string };
 let artifact: Promise<Artifact> | undefined;
@@ -33,8 +33,9 @@ export async function readPackagedNativeHistoricalWorker() {
 export async function verifyNativeHistoricalEvidenceInWorker(bytes: Buffer, key: Buffer,
   entry: NativeHistoricalArchiveCatalogEntry, request: NativeHistoricalEvidenceRequest,
   signal: AbortSignal): Promise<NativeHistoricalEvidence> {
-  if (bytes.length !== entry.ciphertextBytes || bytes.length > NATIVE_HISTORICAL_READ_BOUNDS.maxPlaintextBytes + 128 ||
-      entry.plaintextBytes > NATIVE_HISTORICAL_READ_BOUNDS.maxPlaintextBytes || key.length !== 32)
+  try { assertNativeHistoricalRuntimeObjectBound(entry); }
+  catch { throw new Error("historical worker input bound"); }
+  if (bytes.length !== entry.ciphertextBytes || key.length !== 32)
     throw new Error("historical worker input bound");
   const compiled = await readPackagedNativeHistoricalWorker();
   if (signal.aborted) throw new Error("historical worker aborted");

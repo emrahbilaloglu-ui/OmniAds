@@ -12126,3 +12126,51 @@ measurement remains interpretable under its original roots. The column CI ledger
 and owned real migration fixture are not production/transitive pin closure,
 archive eviction or sustainable physical storage. See
 [the storage contract](../architecture/native-campaign-context-storage.md).
+
+
+## D142 — Opt-in original campaign-context reference writer (2026-10-03)
+
+**Decision:** After an actual D140/R1 release, permit new native evaluation
+storage to reference an immutable tenant-bound original campaign JSONB object.
+`ENGINE_V3_NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITES_ENABLED` is exact-`true`
+opt-in and defaults off. The published inline INSERT remains byte-for-byte the
+default; a separate reference INSERT preserves its identity joins and conflict
+no-op. Existing inline generations are never converted on replay.
+
+The pinned migration may drop only the inline NOT NULL metadata under the R1
+XOR/composite-FK/catalog checks and its own 500ms lock bound. It restores the
+caller's bound and a repeat issues no hot ALTER. No historical row rewrite or
+existing-table constraint-validation scan is introduced. R1 can read the new
+representation and remains the compatible rollback writer. From the R2 metadata
+migration commit, even with the flag off and zero references, the inline-only
+a89 image is native-capability incompatible: it requires the original NOT NULL.
+Only the compatible actual R1 image is a native recovery target. Keep the additive
+nullable schema on recovery; never restore NOT NULL after references.
+
+Object storage binds the tenant UUID and SHA256 of the original PostgreSQL JSONB
+text, exact bytes and existing encoding. Insert-conflict is followed by strict
+per-input ordinal/content verification. Any object, equality or linkage fault
+propagates to the producer's caller transaction: no ambiguous inline fallback.
+Input, context and decision hashes, calibration clocks, both freshness buckets,
+engine epochs and provider execution authority are unchanged. This is storage,
+not a new decision core, reuse normalization or a natural positive reuse claim.
+
+**Local proof limits:** Two separate owned databases with actual full migrations
+run the real producer on the same public 501-input/four-context fixture. Original
+persisted-column/context bytes, original hashes/clocks/input and repeated IDs
+are equal; an actual object-read fault rolls all caller writes back. Net four-
+relation heap/TOAST/index cost includes shared objects, and WAL observations are
+cluster bounds. Page-quantized fresh fixtures yielded 160–208 KiB difference;
+this is not a fixed per-row, production saving or growth forecast. Final source
+review, canonical QA/build and exact-SHA CI/images are separate required gates.
+
+**Release boundary:** R1 must actually be live and capability/authority accepted.
+Release R2 with writes off and fresh capacity/physical gates; only then activate
+its flag under the same bounded readback/recovery scope. Capture the new worker
+baseline, natural new reference generations, original materialized identity,
+reuse/refusal and independent provider authority. Measure actual net storage
+cost before claiming saving. Historical roots remain live: no reverse-reference
+index/GC, archive/removal authorization or physical reclaim is implied. Existing
+inline archive formats refuse references until explicit shared-root membership,
+reader/restore and pin closure are proven. Sustainable item3 and strict natural
+positive reuse item7 remain open. See [the storage contract](../architecture/native-campaign-context-storage.md).

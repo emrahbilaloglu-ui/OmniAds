@@ -1,3 +1,4 @@
+import { assertNativeCampaignContextReferenceWriterReady, nativeCampaignContextReferenceWritesEnabled, persistNativeCampaignContextReferences } from "./native-campaign-context-writer";
 import { NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE, inspectNativeCampaignContextImmutability } from "./native-campaign-context-storage";
 import { getDb, type DbClient } from "@/lib/db";
 import { chunkDecisionRows } from "./batching";
@@ -1550,6 +1551,94 @@ WHERE NOT EXISTS (
 )
 `;
 
+/** R2 has a separate INSERT; the exact published inline query above remains
+ * the default and the readable R1 rollback writer. Identity joins are unchanged. */
+export const INSERT_REFERENCE_AD_DECISION_EVALUATIONS_QUERY = `
+WITH payload AS (
+  SELECT *
+  FROM jsonb_to_recordset($1::jsonb) AS row(
+    context_id uuid,
+    business_ref_id uuid,
+    business_id text,
+    provider_account_ref_id uuid,
+    provider_account_id text,
+    decision_entity_type text,
+    decision_entity_id text,
+    ad_id text,
+    creative_id text,
+    as_of_date date,
+    engine_version text,
+    scope_type text,
+    scope_id text,
+    contract_version text,
+    creative_input_json jsonb,
+    campaign_context_json jsonb,
+    campaign_context_ref bytea,
+    prior_hysteresis_json jsonb,
+    decision_output_json jsonb,
+    raw_label text,
+    hysteresis_suppressed boolean,
+    input_hash text,
+    decision_hash text,
+    job_run_id uuid,
+    evaluated_at timestamptz
+  )
+), inserted AS (
+  INSERT INTO engine_v3_ad_decision_evaluations (
+    context_id, business_ref_id, business_id, provider_account_ref_id, provider_account_id, decision_entity_type,
+    decision_entity_id, ad_id, creative_id, as_of_date, engine_version,
+    scope_type, scope_id, contract_version, creative_input_json,
+    campaign_context_json, campaign_context_ref, prior_hysteresis_json, decision_output_json,
+    raw_label, hysteresis_suppressed, input_hash, decision_hash, job_run_id,
+    evaluated_at
+  )
+  SELECT
+    context_id, business_ref_id, business_id, provider_account_ref_id, provider_account_id, decision_entity_type,
+    decision_entity_id, ad_id, creative_id, as_of_date, engine_version,
+    scope_type, scope_id, contract_version, creative_input_json,
+    campaign_context_json, campaign_context_ref, prior_hysteresis_json, decision_output_json,
+    raw_label, hysteresis_suppressed, input_hash, decision_hash, job_run_id,
+    evaluated_at
+  FROM payload
+  ON CONFLICT DO NOTHING
+  RETURNING
+    id,
+    provider_account_ref_id,
+    provider_account_id,
+    decision_entity_id,
+    input_hash,
+    decision_hash
+)
+SELECT
+  inserted.id,
+  inserted.provider_account_ref_id,
+  inserted.provider_account_id,
+  inserted.decision_entity_id,
+  inserted.input_hash::text AS input_hash,
+  inserted.decision_hash::text AS decision_hash
+FROM inserted
+UNION ALL
+SELECT
+  evaluation.id,
+  evaluation.provider_account_ref_id,
+  evaluation.provider_account_id,
+  evaluation.decision_entity_id,
+  evaluation.input_hash::text AS input_hash,
+  evaluation.decision_hash::text AS decision_hash
+FROM engine_v3_ad_decision_evaluations evaluation
+JOIN payload
+  ON evaluation.context_id = payload.context_id
+ AND evaluation.provider_account_id = payload.provider_account_id
+ AND evaluation.provider_account_ref_id = payload.provider_account_ref_id
+ AND evaluation.decision_entity_type = payload.decision_entity_type
+ AND evaluation.decision_entity_id = payload.decision_entity_id
+ AND evaluation.input_hash = payload.input_hash
+ AND evaluation.decision_hash = payload.decision_hash
+WHERE NOT EXISTS (
+  SELECT 1 FROM inserted WHERE inserted.id = evaluation.id
+)
+`;
+
 export interface PersistAdDecisionEvaluationBatchInput {
   businessId: string;
   businessDisplayId?: string | null;
@@ -1800,6 +1889,8 @@ export async function persistAdDecisionEvaluations(
 ): Promise<Map<string, StoredAdDecisionEvaluation>> {
   const first = validateBatch(input);
   await assertEvaluationStoreSchemaReady(db);
+  const referenceWrites = nativeCampaignContextReferenceWritesEnabled();
+  if (referenceWrites) await assertNativeCampaignContextReferenceWriterReady(db);
 
   const contextPayload = first.contextPayload;
   const contextRows = await db.query<IdRow>(
@@ -1917,18 +2008,21 @@ export async function persistAdDecisionEvaluations(
   }));
   const storedRows: StoredEvaluationRow[] = [];
   for (const batch of chunkDecisionRows(rows)) {
-    let storedBatch = await db.query<StoredEvaluationRow>(
-      INSERT_AD_DECISION_EVALUATIONS_QUERY,
-      [JSON.stringify(batch)],
-    );
+    // Resolve immutable tenant-bound original objects in the caller's same
+    // transaction. Any equality/insert/linkage error propagates for rollback;
+    // never fall back to inline after an ambiguous reference write.
+    const references = referenceWrites ? await persistNativeCampaignContextReferences(db,
+      batch.map(row => ({ business_ref_id: row.business_ref_id,
+        campaign_context_json: row.campaign_context_json }))) : null;
+    const payload = references ? batch.map((row, index) => ({ ...row,
+      campaign_context_json: null, campaign_context_ref: `\\x${references[index]}` })) : batch;
+    const query = referenceWrites ? INSERT_REFERENCE_AD_DECISION_EVALUATIONS_QUERY : INSERT_AD_DECISION_EVALUATIONS_QUERY;
+    let storedBatch = await db.query<StoredEvaluationRow>(query, [JSON.stringify(payload)]);
     if (storedBatch.length !== batch.length) {
       // Preserve one compatibility retry for direct READ COMMITTED callers.
       // The native job's REPEATABLE READ snapshot and advisory lock make this
       // neither its concurrency-control path nor a whole-transaction retry.
-      storedBatch = await db.query<StoredEvaluationRow>(
-        INSERT_AD_DECISION_EVALUATIONS_QUERY,
-        [JSON.stringify(batch)],
-      );
+      storedBatch = await db.query<StoredEvaluationRow>(query, [JSON.stringify(payload)]);
     }
     storedRows.push(...storedBatch);
   }

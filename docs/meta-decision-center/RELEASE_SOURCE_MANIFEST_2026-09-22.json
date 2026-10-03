@@ -1,5 +1,5 @@
 {
-  "manifestHash": "87ea2b3777b708bd4f4b5b208abe42f9d8d02e1bbfcd88a0f582c2b6d113bc15",
+  "manifestHash": "8de41e8ddaecd5af1ff69ce9bc642d0438413079a961c61220d86600b7d77ce9",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -744,7 +744,7 @@
     },
     {
       "path": "docs/architecture/native-campaign-context-storage.md",
-      "sha256": "8bd52580ac842460d7a62ea0055b2b9b79927f797096b29f83d9a26338985093"
+      "sha256": "52fc689e7afb713c2789c6af58adc9cea507a2a1493e9517c12a4b9080d1465d"
     },
     {
       "path": "docs/architecture/native-evidence-archive-contract.md",
@@ -792,7 +792,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "8e551dd2839aed453956cc47f5e689ff9924c7ba9a1c1f900e0113ebdbd2268a"
+      "sha256": "f5733b3faa351ddc4725319cfbeae459a0bd15a7912b899f082f7d27fbdf079f"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -804,7 +804,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "cf61978fcfe73a8b33f7fb0bfaa982484656f128ff613d087a8d8b757a0a1bdd"
+      "sha256": "409ee01ec6ba5960f5e405ab5068e9c26aa6402279e5e4d514b5d98bddd36b40"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -972,7 +972,7 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/evaluation-store.test.ts",
-      "sha256": "bbd62d8beed42f86a7093231fcedc25fb665908378f08652d0bf9f2e029e30e2"
+      "sha256": "69b284949087fad5d4aabb191fba667d6d9af942eed1b3cac63129579012f9ea"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/execution-safety.test.ts",
@@ -1164,11 +1164,15 @@
     },
     {
       "path": "lib/creative-decision-engine/__tests__/native-campaign-context-consumer-closure.test.ts",
-      "sha256": "0e711dbf05090288409da415e6b90a9bb7898c23a0bdd9febfbf8bd2dd816d41"
+      "sha256": "f25789081afd7b4adee4890e3ce31f947186915a5b427eb55c1eec3a61261804"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/native-campaign-context-storage.test.ts",
       "sha256": "fe478f46eb1deda1393d9fa485b8a9b21923a0e2a5f71bfd1271ce21deea965f"
+    },
+    {
+      "path": "lib/creative-decision-engine/__tests__/native-campaign-context-writer.test.ts",
+      "sha256": "3c7b21012c56faa20ee3f53fb92b4560e32dd17690163fb2aa0a24087f028796"
     },
     {
       "path": "lib/creative-decision-engine/__tests__/native-evaluation-context-unit.test.ts",
@@ -1296,7 +1300,7 @@
     },
     {
       "path": "lib/creative-decision-engine/evaluation-store.ts",
-      "sha256": "05bcd941ba877fe02b1f5354bcae3c263fa55b7c2913bee6ad206843c376ad41"
+      "sha256": "4ccbf66efc034fe8de397319b6905886a53cd7759694c7f6317fbae6e36027d8"
     },
     {
       "path": "lib/creative-decision-engine/execution-safety.ts",
@@ -1449,6 +1453,10 @@
     {
       "path": "lib/creative-decision-engine/native-campaign-context-storage.ts",
       "sha256": "1792d9aea3a50bfc2cacbf8340a77605ff33fa56e743d6e984e1496331042e34"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-campaign-context-writer.ts",
+      "sha256": "8495f650d9aa94f0eeeae743ad99c7e8653ff5c5287fc7c43a6c6d2528c1d536"
     },
     {
       "path": "lib/creative-decision-engine/native-evaluation-context-unit.ts",
@@ -2340,7 +2348,7 @@
     },
     {
       "path": "lib/migrations.ts",
-      "sha256": "29e58626a0374a2ca35859ee082802517f1cb77335b97a427b7170edd27b8f4c"
+      "sha256": "4db32585f8ab4c8e1db00379a4590d0e7809fca4f8ebad8033b66a7dd6e52029"
     },
     {
       "path": "lib/overview-summary-support.test.ts",
@@ -2640,7 +2648,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
-      "sha256": "2054c5c312791a1276bc2f5061444e4d51b9331cbb011fd7f7622ed043c2c9c2"
+      "sha256": "c64827efccf7c37e379e6c646178e4160296b9f95a1cf70a0fabbe149554e195"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
@@ -2764,7 +2772,11 @@
     },
     {
       "path": "scripts/native-campaign-context-storage-seam.ts",
-      "sha256": "c22b13f2f01d5003a8c545e3f7842ae7ac32cb4e97d3e0e55ccd129730be391d"
+      "sha256": "b18f25aaded8db601fcb17ac1074e05cac4359c663863414c9069a3f338d5847"
+    },
+    {
+      "path": "scripts/native-campaign-context-writer-seam.ts",
+      "sha256": "db02295af36eb47435b7f90ab0a64a57f03a6eb8ee1142f6615a72590916945a"
     },
     {
       "path": "scripts/native-evidence-archive-seam.ts",

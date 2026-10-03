@@ -1,3 +1,4 @@
+import { NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL } from "./creative-decision-engine/native-campaign-context-writer";
 import { NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL } from "@/lib/creative-decision-engine/native-campaign-context-storage";
 import { META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL } from "@/lib/meta/observation-receipt-schema";
 import { DEFAULT_TABLE_BUDGET_BYTES, evaluateDbGrowthFence } from "@/lib/sync/db-growth-fence";
@@ -1897,6 +1898,7 @@ async function runNativeAdSchemaMigrations(input: {
           await db.query(statement);
         }
         await db.query(NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL);
+        await db.query(NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL);
         await db.query(AD_OPERATOR_RESPONSE_ACTION_LOG_SCHEMA_SQL);
         await db.query(AD_OPERATOR_RESPONSE_SCHEMA_SQL);
         await db.query(AD_OPERATOR_RESPONSE_EPOCH_COMPATIBILITY_SQL);
@@ -1913,6 +1915,7 @@ async function runNativeAdSchemaMigrations(input: {
       // one no-default reference column, without rewriting existing evaluations.
       await db.query(CREATE_NATIVE_AD_INPUT_EVIDENCE_SQL);
       await db.query(NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL);
+      await db.query(NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL);
       await db.query(ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL);
       let decisions = await inspectEvaluationStoreSchemaCapability(inspectorDb);
       if (!decisions.ready) {
@@ -1933,6 +1936,7 @@ async function runNativeAdSchemaMigrations(input: {
           await db.query(statement);
         }
         await db.query(NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL);
+        await db.query(NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL);
         decisions = await inspectEvaluationStoreSchemaCapability(inspectorDb);
       }
       assertNativeSchemaCapability("native decision migration", decisions);

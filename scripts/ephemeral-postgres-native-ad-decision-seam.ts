@@ -1,3 +1,4 @@
+import { verifyNativeCampaignContextReferenceProducer } from "./native-campaign-context-writer-seam";
 import fs from "node:fs";
 import { verifyNativeArchiveRoundTrip } from "./native-evidence-archive-seam";
 import { verifyNativeArchivePinCensusSeam } from "./native-archive-pin-census-seam";
@@ -4264,6 +4265,7 @@ async function runSeam(client: Client) {
   await verifyMetaAdDailyWriteOwnershipAuthority(client);
   await verifyAbandonedNativeRunOwnership(client, db);
   await verifyNativeArchiveProductionSchema(client);
+  await verifyNativeCampaignContextReferenceProducer(client);
 }
 
 
@@ -4316,9 +4318,13 @@ async function main() {
     resetDbClientCache();
     const client = new Client({ connectionString });
     await client.connect();
+    const previousEphemeralScope = process.env.ADSECUTE_EPHEMERAL_DB_SEAM;
     try {
+      process.env.ADSECUTE_EPHEMERAL_DB_SEAM = "1";
       await runSeam(client);
     } finally {
+      if (previousEphemeralScope === undefined) delete process.env.ADSECUTE_EPHEMERAL_DB_SEAM;
+      else process.env.ADSECUTE_EPHEMERAL_DB_SEAM = previousEphemeralScope;
       await client.end();
       resetDbClientCache();
     }

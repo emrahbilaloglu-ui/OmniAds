@@ -1,5 +1,7 @@
 import { NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL } from "../native-campaign-context-storage";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { READ_NATIVE_CAMPAIGN_CONTEXT_WRITER_READY_QUERY, INSERT_NATIVE_CAMPAIGN_CONTEXT_OBJECTS_QUERY, READ_NATIVE_CAMPAIGN_CONTEXT_OBJECTS_QUERY } from "../native-campaign-context-writer";
 import { readFileSync } from "node:fs";
 
 import type { DbClient } from "@/lib/db";
@@ -17,6 +19,7 @@ import {
   DECISION_AUTHORITY_BLOCKERS,
   EvaluationStoreSchemaNotReadyError,
   INSERT_AD_DECISION_EVALUATIONS_QUERY,
+  INSERT_REFERENCE_AD_DECISION_EVALUATIONS_QUERY,
   INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY,
   READ_AD_DECISION_INPUT_EVIDENCE_QUERY,
   adDecisionEvaluationIdentityKey,
@@ -1016,5 +1019,77 @@ describe("evaluation store SQL contract", () => {
     expect(nativeProducer).not.toContain(
       "INSERT INTO engine_v3_decision_snapshots_daily",
     );
+  });
+});
+
+
+describe("opt-in native campaign context reference producer", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const input = () => ({ businessId: "biz-1", asOf: "2026-07-12", engineVersion: "v3-test",
+    scope: { type: "account" as const, id: "act-1" }, jobRunId: "00000000-0000-4000-8000-000000000101",
+    evaluatedAt: "2026-07-12T03:00:01.000Z", evaluations: [adEvaluation("ad-1"), adEvaluation("ad-2")] });
+  function harness(ready: unknown = true, matches = true, failWrite = false) {
+    const calls: string[] = [], payloads: Array<Record<string, unknown>> = [];
+    const db = fakeDb(async (query, params) => {
+      calls.push(query);
+      if (query.includes("information_schema.columns")) return readyColumns();
+      if (query.includes("FROM pg_indexes")) return readyIndexes();
+      if (query.includes("pg_constraint")) return readyConstraints();
+      if (query === READ_NATIVE_CAMPAIGN_CONTEXT_WRITER_READY_QUERY) return ready === undefined ? [] : [{ reference_writer_ready: ready }];
+      if (query.includes("engine_v3_ad_decision_evaluation_contexts")) return [{ id: "00000000-0000-4000-8000-000000000201" }];
+      if (query === INSERT_AD_DECISION_INPUT_EVIDENCE_QUERY) return [];
+      if (query === READ_AD_DECISION_INPUT_EVIDENCE_QUERY) return evidenceRows(params);
+      if (query === INSERT_NATIVE_CAMPAIGN_CONTEXT_OBJECTS_QUERY) {
+        if (failWrite) throw new Error("original object write failed");
+        return [];
+      }
+      const rows = JSON.parse(String(params?.[0])) as Array<Record<string, unknown>>;
+      if (query === READ_NATIVE_CAMPAIGN_CONTEXT_OBJECTS_QUERY) return rows.map((_, index) => ({
+        ordinal: index + 1, reference_hex: "a".repeat(64), original_payload_matches: matches }));
+      if (query !== INSERT_AD_DECISION_EVALUATIONS_QUERY && query !== INSERT_REFERENCE_AD_DECISION_EVALUATIONS_QUERY) throw new Error("Unexpected writer query");
+      payloads.push(...rows);
+      return rows.map((row,index) => ({ id: `00000000-0000-4000-8000-${String(index+301).padStart(12,"0")}`,
+        provider_account_ref_id: row.provider_account_ref_id, provider_account_id: row.provider_account_id,
+        decision_entity_id: row.decision_entity_id, input_hash: row.input_hash, decision_hash: row.decision_hash }));
+    });
+    return { db, calls, payloads };
+  }
+  it("retains the exact published inline query and disabled flag performs no object write", async () => {
+    vi.stubEnv("ENGINE_V3_NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITES_ENABLED", "false");
+    expect(createHash("sha256").update(INSERT_AD_DECISION_EVALUATIONS_QUERY).digest("hex"))
+      .toBe("2c52bbfd5f2c4c191d81c375c4db2e67483a5567024931ac394b6c30a1f04314");
+    const h = harness(); await persistAdDecisionEvaluations(input(),h.db);
+    expect(h.calls).not.toContain(READ_NATIVE_CAMPAIGN_CONTEXT_WRITER_READY_QUERY);
+    expect(h.calls).not.toContain(INSERT_NATIVE_CAMPAIGN_CONTEXT_OBJECTS_QUERY);
+    expect(h.payloads.every(row => row.campaign_context_json && !("campaign_context_ref" in row))).toBe(true);
+  });
+  it("reference writer preserves original provenance and only changes storage columns", async () => {
+    vi.stubEnv("ENGINE_V3_NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITES_ENABLED", "true");
+    const value = input(), before = JSON.stringify(value), h = harness();
+    const result = await persistAdDecisionEvaluations(value,h.db);
+    expect(result.size).toBe(2); expect(JSON.stringify(value)).toBe(before);
+    expect(h.calls.indexOf(READ_NATIVE_CAMPAIGN_CONTEXT_OBJECTS_QUERY)).toBeLessThan(h.calls.indexOf(INSERT_REFERENCE_AD_DECISION_EVALUATIONS_QUERY));
+    expect(h.calls).not.toContain(INSERT_AD_DECISION_EVALUATIONS_QUERY);
+    for (const [index,row] of h.payloads.entries()) {
+      expect(row.campaign_context_json).toBeNull(); expect(row.campaign_context_ref).toBe(`\\x${"a".repeat(64)}`);
+      expect(row.input_hash).toBe(value.evaluations[index].inputHash);
+      expect(row.decision_hash).toBe(value.evaluations[index].decisionHash);
+      expect(row.evaluated_at).toBe(value.evaluatedAt);
+      expect(row.creative_input_json).toEqual(value.evaluations[index].inputPayload.creativeInput);
+    }
+  });
+  it.each([false, null, "true", 1])("rejects old/unknown R2 schema before any INSERT: %j", async ready => {
+    vi.stubEnv("ENGINE_V3_NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITES_ENABLED", "true");
+    const h = harness(ready);
+    await expect(persistAdDecisionEvaluations(input(),h.db)).rejects.toThrow(/schema not ready/);
+    expect(h.calls.some(sql => /INSERT INTO/.test(sql))).toBe(false);
+  });
+  it.each(["collision", "write-error"])("propagates %s without inline fallback or evaluation INSERT", async cause => {
+    vi.stubEnv("ENGINE_V3_NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITES_ENABLED", "true");
+    const h = harness(true,cause !== "collision",cause === "write-error");
+    await expect(persistAdDecisionEvaluations(input(),h.db)).rejects.toThrow();
+    expect(h.payloads).toHaveLength(0);
+    expect(h.calls).not.toContain(INSERT_AD_DECISION_EVALUATIONS_QUERY);
+    expect(h.calls).not.toContain(INSERT_REFERENCE_AD_DECISION_EVALUATIONS_QUERY);
   });
 });

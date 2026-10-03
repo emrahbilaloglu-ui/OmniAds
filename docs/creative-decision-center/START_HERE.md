@@ -14,6 +14,10 @@ This preparation does not switch production readers or authorize eviction.
 For campaign-context shared-object read compatibility, read
 [D140](DECISION_LOG.md#d140--campaign-context-shared-object-read-compatibility-2026-10-03).
 R1 retains the inline writer and saves no storage; later writer/eviction gates are separate.
+For the separately gated new-row reference writer, read
+[D142](DECISION_LOG.md#d142--opt-in-original-campaign-context-reference-writer-2026-10-03).
+It defaults off, preserves original identity and needs actual R1/new-row acceptance;
+local byte parity is not sustainable storage or physical reclaim.
 For completed receipt-index migration replay and previous-worker recovery, read
 [D141](DECISION_LOG.md#d141--completed-index-replay-and-failed-migration-worker-recovery-2026-10-03).
 It preserves physical/source fences and does not close sustainable storage.

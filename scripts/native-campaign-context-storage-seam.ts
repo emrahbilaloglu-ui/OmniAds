@@ -1,3 +1,4 @@
+import { NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL } from "@/lib/creative-decision-engine/native-campaign-context-writer";
 import { createHash, randomUUID } from "node:crypto";
 import { Client } from "pg";
 import type { DbClient } from "@/lib/db";
@@ -20,6 +21,7 @@ export async function verifyNativeCampaignContextStorage(db: Client, baseEvaluat
   // The owned full-migration fixture starts with R1 installed. Restore only the
   // old inline column shape, then exercise the actual first ADD path on data.
   // No other table/constraint is removed; this database is deleted by its owner.
+  await db.query("ALTER TABLE engine_v3_ad_decision_evaluations ALTER COLUMN campaign_context_json SET NOT NULL");
   await db.query("ALTER TABLE engine_v3_ad_decision_evaluations DROP COLUMN campaign_context_ref");
   const beforeUpgrade = (await db.query("SELECT to_jsonb(e)::text AS bytes FROM engine_v3_ad_decision_evaluations e WHERE id=$1::uuid", [baseEvaluationId])).rows[0];
   check(beforeUpgrade, "pre-upgrade fixture absent");
@@ -82,6 +84,7 @@ export async function verifyNativeCampaignContextStorage(db: Client, baseEvaluat
       await repeatBlocker.query("BEGIN; LOCK TABLE engine_v3_ad_decision_evaluations IN ACCESS SHARE MODE");
       // Exact former no-op ALTER shape is RED while this read lock is held.
       await fails("SET LOCAL lock_timeout='500ms'; ALTER TABLE engine_v3_ad_decision_evaluations ADD COLUMN IF NOT EXISTS campaign_context_ref BYTEA", [], "55P03");
+      await fails(NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL, [], "55P03");
       await db.query(NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL);
       check((await db.query("SELECT current_setting('lock_timeout') AS bound")).rows[0].bound === "5s", "repeat did not restore caller bound");
       check((await db.query("SELECT pg_relation_filenode('engine_v3_ad_decision_evaluations') AS file")).rows[0].file === fileBeforeUpgrade,
@@ -106,7 +109,7 @@ export async function verifyNativeCampaignContextStorage(db: Client, baseEvaluat
     const reference = `\\x${object.hash}`;
     await fails(insertEvaluation, [JSON.stringify(make(null, reference))], "23502");
     // Only this owned transaction simulates R2. R1 production keeps NOT NULL.
-    await db.query("ALTER TABLE engine_v3_ad_decision_evaluations ALTER COLUMN campaign_context_json DROP NOT NULL");
+    await db.query(NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL);
     const inline = make(JSON.parse(context), null), referred = make(null, reference);
     await db.query(insertEvaluation, [JSON.stringify(inline)]);
     // Preserve PG's numeric display scale; JS parsing is for canonical hashing only.

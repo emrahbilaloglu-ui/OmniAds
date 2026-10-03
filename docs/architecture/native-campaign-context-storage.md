@@ -62,3 +62,58 @@ hosts, exact reader/restore parity, bounded source removal and actual free-space
 reuse/reclaim. Metadata, copying, SQL fixtures and R1 do not close that outcome.
 Regular VACUUM can reuse space without shrinking the logical size used by the
 capacity fence; no FULL/repack or future capacity admission is promised.
+
+
+## R2 opt-in reference writer (D142)
+
+The feature flag is `ENGINE_V3_NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITES_ENABLED`.
+Only exact `true` selects references; unset, `false` or other values keep the
+original inline INSERT. Its original query and conflict/identity contract are
+unchanged. R2 uses a separate INSERT with inline NULL and one BYTEA reference,
+never an inline shadow. Before any producer write, full R1 capability and the
+nullable JSONB/BYTEA writer metadata must be ready. The caller owns the same
+transaction for context, input evidence, shared object and evaluation writes;
+any insert/content/ordinal/linkage failure must roll it back. No fallback or
+object update/delete occurs after an ambiguous reference write.
+
+The migration's NOT NULL relaxation is metadata-only under the existing R1
+XOR/FK contract. It has its own 500ms lock bound, restores the caller's bound,
+and a completed repeat avoids ALTER under concurrent ACCESS SHARE. It is not a
+whole-transaction SLA. It never changes existing evaluation JSON, IDs or clocks.
+A replay selecting an existing inline row leaves that row inline, although it
+may create unused immutable objects; no garbage-collection claim is made.
+
+The actual two-lane local producer fixture uses 501 public inputs and four
+original campaign contexts in two newly migrated databases. Cross-database
+comparison excludes only random storage IDs and storage creation times; canonical
+and source clocks/hashes/context bytes remain compared. Same-database repeat
+checks all original evaluation IDs, fields and clocks and immutable object
+creation times. Actual equality fault injection verifies caller ROLLBACK.
+Four-relation allocation includes evaluation/context/input-evidence/shared-
+object heap, TOAST and indexes. Fresh public runs differ by page allocation
+(160–208 KiB); no constant bytes-per-row or global/live cost is claimed. WAL
+measurements are bounded cluster deltas, not exclusive producer attribution.
+
+Keep deployment and activation distinct. Actual R1 reader/schema compatibility
+must precede R2 release. Require exact reviewed source, full canonical QA/build,
+CI/exact images and fresh admitted capacity/physical gates; first deploy the
+writer disabled. Its later bounded flag activation requires its own fresh
+scope/readback and new worker start. Verify natural new references/materialized
+original identity, net new allocation and independent provider authority. A
+healthy host or fixture is not natural writer, reuse or storage acceptance.
+The compatible recovery image is the actual R1 target, even with references
+present; keep shared roots and nullable additive schema, write future rows
+inline, and never reverse NOT NULL on reference data. From the R2 migration
+commit, even when writes remain off and no references exist, old a89 is native-
+capability incompatible because it requires the original inline NOT NULL. Only
+the compatible actual R1 image is a native recovery target. An R2 recovery
+readback must accept the additive nullable schema; the D141 first-R1 postdeploy
+reader's NOT NULL precondition cannot be reused after R2.
+
+All shared roots remain live. There is no reverse reference index or object GC.
+The existing five/seven-table inline archives deliberately refuse non-null
+references; a later transport must explicitly carry shared roots and their
+independent restore/pin/reader closure before removal. No historical rewrite,
+backup deletion, paid capacity, provider mutation, epoch/formula change or
+natural-case manufacturing follows from this preparation. This new-row cost
+change does not alone close sustainable archive/removal/physical reclaim.

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 const ledger = [
   ["app/api/creatives/decision-engine-v3/evidence/route.ts", "reader", 5],
   ["lib/creative-decision-engine/ad-evaluation-schema.ts", "ddl", 2],
-  ["lib/creative-decision-engine/evaluation-store.ts", "inline-writer-schema", 8],
+  ["lib/creative-decision-engine/evaluation-store.ts", "inline-reference-writer-schema", 14],
   ["lib/creative-decision-engine/jobs/ad-decision-outcomes-job.ts", "reader", 4],
   ["lib/creative-decision-engine/native-campaign-context-storage.ts", "central-accessor-ddl", 4],
   ["lib/migrations.ts", "ddl", 2],
@@ -22,6 +22,8 @@ const ledger = [
   ["scripts/native-archive-production-schema-seam.ts", "fixture", 1],
   ["scripts/native-calibration-parent-archive-seam.ts", "fixture", 1],
   ["scripts/native-campaign-context-storage-seam.ts", "fixture", 5],
+  ["lib/creative-decision-engine/native-campaign-context-writer.ts", "immutable-object-writer-ddl", 16],
+  ["scripts/native-campaign-context-writer-seam.ts", "fixture", 3],
 ] as const;
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {

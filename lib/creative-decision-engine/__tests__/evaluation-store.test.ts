@@ -1,3 +1,4 @@
+import { NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL } from "../native-campaign-context-storage";
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
@@ -144,7 +145,12 @@ function fakeDb(
     params?: unknown[],
   ) => Promise<Record<string, unknown>[]>,
 ): DbClient {
-  const query = vi.fn(handler);
+  const query = vi.fn(async (sql: string, params?: unknown[]) => {
+    if (sql.includes("FROM pg_trigger trigger_row")) return [{ enabled: "O", trigger_type: 27,
+      function_name: "refuse_native_campaign_context_object_mutation", security_definer: false,
+      function_result: "trigger", function_source: NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL.match(/LANGUAGE plpgsql AS \$\$([\s\S]*?)\$\$/)![1] }];
+    return handler(sql, params);
+  });
   return Object.assign(vi.fn(), { query }) as unknown as DbClient;
 }
 

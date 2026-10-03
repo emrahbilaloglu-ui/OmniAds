@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { assertInlineCampaignContextArchiveRow } from "./native-campaign-context-storage";
 import { stableCanonicalJson } from "./canonical-evaluation";
 import { assessNativeArchivePins, type NativeArchivePinCensus } from "./native-archive-pin-census";
 
@@ -113,6 +114,7 @@ function verifyRows(bundle: NativeArchiveBundle): Map<NativeArchiveTable, { key:
       const bytes = bundle.objects[ref.objectHash];
       if (typeof bytes !== "string" || sha(bytes) !== ref.objectHash) fail("missing/corrupt object");
       const row = jsonRow(bytes);
+      if (name === "engine_v3_ad_decision_evaluations") assertInlineCampaignContextArchiveRow(row);
       if (stableCanonicalJson(Object.keys(row).sort()) !== stableCanonicalJson(columns)) fail("row/schema columns differ");
       if (rowKey(name, row) !== ref.key || keys.has(ref.key)) fail("changed/duplicate row identity");
       keys.add(ref.key); used.add(ref.objectHash);

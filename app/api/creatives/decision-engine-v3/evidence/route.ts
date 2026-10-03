@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { nativeCampaignContextSql } from "@/lib/creative-decision-engine/native-campaign-context-storage";
 import { requireBusinessAccess } from "@/lib/access";
 import {
   resolveEngineV3Flags,
@@ -232,7 +233,7 @@ async function readPersistedNativeEvidence(input: {
       context.context_hash::text AS context_hash,
       context.evaluated_at::text AS context_evaluated_at,
       evaluation.creative_input_json,
-      evaluation.campaign_context_json,
+      ${nativeCampaignContextSql("evaluation")} AS campaign_context_json,
       evaluation.prior_hysteresis_json,
       input_evidence.input_evidence_json,
       evaluation.decision_output_json,

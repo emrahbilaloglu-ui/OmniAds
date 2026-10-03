@@ -29,3 +29,10 @@ it.each([{readonly:'off',isolation:'repeatable read',timeout_ms:'7500'},
 });
 it('missing internal composite lineage cannot report pin-free',()=>{ const v=value(); v.incomingReferences=[]; assert.throws(()=>assessNativeEvaluationContextUnit(v,generation)); });
 it('retained root declaration must preserve original/shared/parent/provider roots',()=>{ const v=value(); v.retainedRoots=[] as never; assert.throws(()=>assessNativeEvaluationContextUnit(v,generation)); });
+
+it('measurement v2 additionally retains shared campaign objects; legacy v1 remains original',()=>{
+ const original=value();assert(assessNativeEvaluationContextUnit(original,generation).pinFreeWithinMeasuredScope);
+ const current={...original,contract:'native-evaluation-context-measurement.v2' as const,retainedRoots:[...original.retainedRoots,'shared_campaign_context_objects'] as const};
+ assert(assessNativeEvaluationContextUnit(current,generation).pinFreeWithinMeasuredScope);
+ assert.throws(()=>assessNativeEvaluationContextUnit({...current,retainedRoots:original.retainedRoots},generation));
+});

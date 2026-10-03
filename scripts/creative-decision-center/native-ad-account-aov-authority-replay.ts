@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { nativeCampaignContextSql } from "@/lib/creative-decision-engine/native-campaign-context-storage";
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -841,7 +842,7 @@ SELECT
   evaluation.contract_version AS evaluation_contract_version,
   context.context_json,
   evaluation.creative_input_json,
-  evaluation.campaign_context_json,
+  ${nativeCampaignContextSql("evaluation")} AS campaign_context_json,
   evaluation.prior_hysteresis_json,
   input_evidence.input_evidence_json,
   evaluation.decision_output_json,

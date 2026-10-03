@@ -860,6 +860,106 @@ deploy_scheduler_resume_on_signal() {
   exit "${__signal_status}"
 }
 
+# Private inspect data stays in the pipe. Only an immutable identity hash and
+# running state are emitted; recovery never pulls/recreates or edits settings.
+migration_worker_identity() {
+  docker inspect "$1" --format '{{json .}}' | python3 -c '
+import hashlib,json,re,sys
+c=json.load(sys.stdin)
+if not re.fullmatch(r"[0-9a-f]{64}", c.get("Id", "")) or c.get("Config",{}).get("Labels",{}).get("com.docker.compose.service") != "worker":
+    raise SystemExit(1)
+identity={k:c[k] for k in ("Id","Image","Config","Mounts")}
+fingerprint=hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
+print(c["Id"],fingerprint,"true" if c["State"]["Running"] else "false")
+'
+}
+
+migration_worker_state_file() {
+  [[ "${DEPLOY_SHA}" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ "${DEPLOY_WORKER_RECOVERY_ID:-}" =~ ^([0-9]+-[0-9]+|[0-9a-f]{32})$ ]] || return 1
+  printf '%s/worker-%s-%s.state\n' "${DEPLOY_SCHEDULER_STATE_DIR}" "${DEPLOY_SHA}" "${DEPLOY_WORKER_RECOVERY_ID}"
+}
+
+persist_previous_migration_worker() {
+  migration_recovery_state_file="$(migration_worker_state_file)" || return 1
+  # The file contains only the exact ID and configuration fingerprint, no env.
+  (umask 077; mkdir -p "${DEPLOY_SCHEDULER_STATE_DIR}"; set -o noclobber;
+    printf '%s %s\n' "${migration_previous_worker_id}" "${migration_previous_worker_hash}" > "${migration_recovery_state_file}") || return 1
+  log "Previous worker recovery state=${migration_recovery_state_file}"
+}
+
+restore_previous_migration_worker() {
+  local observed previous_id previous_hash running health attempt
+  assert_not_cutover_required || return 1
+  assert_no_cutover_in_progress || return 1
+  [ "$(docker compose ps -a -q worker)" = "${migration_previous_worker_id}" ] || return 1
+  # A lost SSH connection or caught signal is not proof the migrator stopped.
+  [ -z "$(docker compose ps --status running -q migrate)" ] || { log "Worker recovery refused while a migration container is running"; return 1; }
+  observed="$(migration_worker_identity "${migration_previous_worker_id}")" || return 1
+  read -r previous_id previous_hash running <<< "${observed}"
+  if [ "${previous_id}" != "${migration_previous_worker_id}" ] || [ "${previous_hash}" != "${migration_previous_worker_hash}" ]; then
+    log "Migration recovery refused: the previous worker's identity/configuration changed"
+    return 1
+  fi
+  if [ "${running}" != "true" ]; then
+    log "Restoring the previous existing worker after failed migrations"
+    # Exactly one start. An ambiguous/nonzero result is not retried.
+    (umask 077; mkdir "${migration_recovery_state_file}.start-attempted") || return 1
+    docker start "${migration_previous_worker_id}" || return 1
+  fi
+  for attempt in $(seq 1 30); do
+    health="$(docker inspect "${migration_previous_worker_id}" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')" || return 1
+    if [ "${health}" = "healthy" ] || [ "${health}" = "none" ]; then
+      observed="$(migration_worker_identity "${migration_previous_worker_id}")" || return 1
+      read -r previous_id previous_hash running <<< "${observed}"
+      [ "${previous_id}" = "${migration_previous_worker_id}" ] && [ "${previous_hash}" = "${migration_previous_worker_hash}" ] && [ "${running}" = "true" ] || return 1
+      log "Previous existing worker restored; the migration failure remains a failure"
+      return 0
+    fi
+    sleep 2
+  done
+  log "Previous worker recovery health did not become ready within the bound"
+  return 1
+}
+
+recover_stored_migration_worker() {
+  local migration_previous_worker_id migration_previous_worker_hash migration_recovery_state_file
+  migration_recovery_state_file="$(migration_worker_state_file)" || return 1
+  [ -e "${migration_recovery_state_file}" ] || return 0
+  [ -f "${migration_recovery_state_file}" ] && [ ! -L "${migration_recovery_state_file}" ] || return 1
+  read -r migration_previous_worker_id migration_previous_worker_hash < "${migration_recovery_state_file}" || return 1
+  [[ "${migration_previous_worker_id}" =~ ^[0-9a-f]{64}$ ]] && [[ "${migration_previous_worker_hash}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  restore_previous_migration_worker
+}
+
+# Subshell traps cannot replace the enclosing phase/workflow's cron restoration.
+# Success leaves the worker stopped for recreate_services. Failure/TERM/INT/HUP
+# restores only the exact container that this phase found running and stopped.
+run_migrations_with_worker_recovery() (
+  migration_previous_worker_id="$(docker compose ps -a -q worker)"
+  migration_previous_worker_hash=""
+  migration_recovery_state_file=""
+  migration_restore_armed=false
+  if [ -n "${migration_previous_worker_id}" ]; then
+    observed="$(migration_worker_identity "${migration_previous_worker_id}")"
+    read -r previous_id migration_previous_worker_hash running <<< "${observed}"
+    [ "${previous_id}" = "${migration_previous_worker_id}" ]
+    if [ "${running}" = "true" ]; then
+      persist_previous_migration_worker
+      trap 'migration_exit=$?; trap - EXIT INT TERM HUP; if [ "${migration_exit}" -ne 0 ] && [ "${migration_restore_armed}" = true ]; then restore_previous_migration_worker || log "FAILED to restore the previous worker; retaining original migration exit ${migration_exit}"; fi; exit "${migration_exit}"' EXIT
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
+      trap 'exit 129' HUP
+      migration_restore_armed=true
+      log "Stopping the existing worker before migrations to reduce DB contention"
+      docker stop "${migration_previous_worker_id}"
+    fi
+  fi
+  log "Running migrations for ${DEPLOY_SHA}"
+  run_migrations_service_with_contention_retry
+  migration_restore_armed=false
+)
+
 run_migrations_service_with_contention_retry() {
   attempts="${DEPLOY_MIGRATION_CONTENTION_ATTEMPTS:-4}"
   is_positive_integer "${attempts}" || attempts=4
@@ -2003,16 +2103,18 @@ case "${phase}" in
     # fails closed before the worker or database is touched.
     rootcron_assert_quiesced
 
-    log "Stopping worker before migrations to reduce DB contention"
-    docker compose stop worker || true
-
-    log "Running migrations for ${DEPLOY_SHA}"
-    run_migrations_service_with_contention_retry
+    run_migrations_with_worker_recovery
     ;;
 
   resume_scheduler)
     deploy_scheduler_resume_persistent
     log "Scheduler restoration completed on this host"
+    ;;
+
+  recover_migration_worker)
+    assert_not_cutover_required
+    assert_no_cutover_in_progress
+    recover_stored_migration_worker
     ;;
 
   recreate_services)

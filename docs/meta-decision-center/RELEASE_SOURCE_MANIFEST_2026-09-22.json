@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d5d4fceb707b49d66ebfad9065073e6a273d62efca35c0550e8a1afbdeb27100",
+  "manifestHash": "87ea2b3777b708bd4f4b5b208abe42f9d8d02e1bbfcd88a0f582c2b6d113bc15",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -21,6 +21,18 @@
     {
       "path": "_analysis/_run_operator_response_job.ts",
       "sha256": "c5f5c151d0ac53284d7c7db331520acfc0da65b459def744dc0ff6008b0b0550"
+    },
+    {
+      "path": ".github/scripts/hetzner-remote.sh",
+      "sha256": "cbcea3e8b18cb4c0a496fed062126d46bfe930b0276d79f1d8fbd64bb5949d79"
+    },
+    {
+      "path": ".github/scripts/hetzner-ssh.sh",
+      "sha256": "dad0d6e07c7e712a94cffd7058fc84161b1842d23f176eba4875d86f4a81148c"
+    },
+    {
+      "path": ".github/scripts/migration-worker-recovery.test.ts",
+      "sha256": "b8e64c848fcece23f3e49c6a7078507d785d8eb19d67de58dfa394c5d76509b8"
     },
     {
       "path": ".github/workflows/automation-capability-toggle-integration.test.ts",
@@ -719,6 +731,10 @@
       "sha256": "3a80b2edff19b3c923427c66dd44b3734735357da8cddd10dd5a1a791a5e689a"
     },
     {
+      "path": "docs/architecture/migration-replay-worker-recovery.md",
+      "sha256": "cecfefacc1f45d791cf898f4d6a08a43bbb29c4c439d8cb975d15db159c30287"
+    },
+    {
       "path": "docs/architecture/native-archive-pin-reclaim-preparation.md",
       "sha256": "a3d37fd75dd63d5b66b6c270e11ca559442a502b4f1928926d14843a9ac1b7d4"
     },
@@ -752,7 +768,7 @@
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
-      "sha256": "8582986fd5e931243c379b53f0eb7d24387c67ce940303477c4fb711b933b09a"
+      "sha256": "0b2101229382bf45dc61843f0ca8cd96d04ef0b7b7a8e0e3b7be67c119970621"
     },
     {
       "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r17.json",
@@ -776,7 +792,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "dbf5842ebcf9286d4629056af820738f68ce4538e1d7b42cfc017a16567ef9e0"
+      "sha256": "8e551dd2839aed453956cc47f5e689ff9924c7ba9a1c1f900e0113ebdbd2268a"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -788,7 +804,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "0e06a363aed45cb0032e30c7c7cd5511b65ec05db994b9ce5e17004b433f9a6f"
+      "sha256": "cf61978fcfe73a8b33f7fb0bfaa982484656f128ff613d087a8d8b757a0a1bdd"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -1599,12 +1615,16 @@
       "sha256": "4caf1a14f4ae0c6d67aa1861a33e99938c210abdc3d473a6dc0b5b158ccff125"
     },
     {
+      "path": "lib/meta/__tests__/migration-receipt-noop.test.ts",
+      "sha256": "5856e31ca0ffe7f8ffeec74eceab9759bffe00550fb067b845fd8d78f43739af"
+    },
+    {
       "path": "lib/meta/__tests__/role-held-cut-visible-behaviour.test.ts",
       "sha256": "1388b7ecf9c21fa4b3f0415dfb881e03f9ff5e9277680e30ecc332e844859603"
     },
     {
       "path": "lib/meta/__tests__/state-history-consumer-closure.test.ts",
-      "sha256": "c26c49510cf165034afb30bc99730863f51964c3d6baf72dbec1e84972aedb11"
+      "sha256": "05f4f7bdd7e647e83b66e1468020321d712fcf9466fa1ee8f4fd670b468364de"
     },
     {
       "path": "lib/meta/action-count-parse.test.ts",
@@ -2315,8 +2335,12 @@
       "sha256": "f4bf802a79cdb3e32d82e74b0e0928e613fcf92af4f85c8c150c07099214ffb3"
     },
     {
+      "path": "lib/migrations.test.ts",
+      "sha256": "7b3d3bff872bacc413a0ff4b28cb91e54ba5af41090470a42fd8c3181e0e5dab"
+    },
+    {
       "path": "lib/migrations.ts",
-      "sha256": "8b7cf24202a97890c6e3172f8b5a1e462e25c396e9b2f8633ecfba47e7daad20"
+      "sha256": "29e58626a0374a2ca35859ee082802517f1cb77335b97a427b7170edd27b8f4c"
     },
     {
       "path": "lib/overview-summary-support.test.ts",
@@ -2612,7 +2636,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "038ce829ac35895640f9ba773bfd641406c95eb77b870cebd59baba5a1c40fdf"
+      "sha256": "b3dc429177b2a0ff0d19d3397161de10ede626248910bfbcd20c3e72ef075a8c"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -2625,6 +2649,10 @@
     {
       "path": "scripts/ephemeral-postgres-provider-fixture-seam.ts",
       "sha256": "d99612cb0c7ba506a6e84ae5a1f10f350c3bb4bd30af069fc04c93585296ad67"
+    },
+    {
+      "path": "scripts/ephemeral-postgres-receipt-noop-seam-child.ts",
+      "sha256": "6231caba0e1491f5eafcdf01ea2115df9ce233dfe66c013a3f3a28d8ae820f36"
     },
     {
       "path": "scripts/ephemeral-postgres-seam-child.ts",
@@ -2717,6 +2745,10 @@
     {
       "path": "scripts/meta/runtime-evidence/seed.ts",
       "sha256": "ae0c4710a7fbf7d393952649ecfbce4f66832072fa8b2cec6a40e560c9c42d0b"
+    },
+    {
+      "path": "scripts/multi-host-migration-quiesce-harness.sh",
+      "sha256": "75d3d6f68a48768fc2116fbbbed1ab3c4b82daaeabcdd31d090dd0aa973597d5"
     },
     {
       "path": "scripts/native-archive-pin-census-seam.ts",

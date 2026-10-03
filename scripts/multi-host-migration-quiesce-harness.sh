@@ -66,12 +66,17 @@ run_case \
 run_case \
   "a migration failure preserves its status and restores both hosts" \
   "run_migrations:primary:10.0.0.1" 41 41 \
-  $'pause_scheduler:primary:10.0.0.1\npause_scheduler:public:10.0.0.2\nrun_migrations:primary:10.0.0.1\nresume_scheduler:public:10.0.0.2\nresume_scheduler:primary:10.0.0.1'
+  $'pause_scheduler:primary:10.0.0.1\npause_scheduler:public:10.0.0.2\nrun_migrations:primary:10.0.0.1\nrecover_migration_worker:primary:10.0.0.1\nresume_scheduler:public:10.0.0.2\nresume_scheduler:primary:10.0.0.1'
+
+run_case \
+  "a later-host migration failure recovers every previously stopped worker" \
+  "run_migrations:public:10.0.0.2" 42 42 \
+  $'pause_scheduler:primary:10.0.0.1\npause_scheduler:public:10.0.0.2\nrun_migrations:primary:10.0.0.1\nrun_migrations:public:10.0.0.2\nrecover_migration_worker:public:10.0.0.2\nrecover_migration_worker:primary:10.0.0.1\nresume_scheduler:public:10.0.0.2\nresume_scheduler:primary:10.0.0.1'
 
 run_case \
   "a restore failure fails an otherwise successful window and does not skip the other host" \
   "resume_scheduler:public:10.0.0.2" 9 75 \
-  $'pause_scheduler:primary:10.0.0.1\npause_scheduler:public:10.0.0.2\nrun_migrations:primary:10.0.0.1\nrun_migrations:public:10.0.0.2\nresume_scheduler:public:10.0.0.2\nresume_scheduler:primary:10.0.0.1'
+  $'pause_scheduler:primary:10.0.0.1\npause_scheduler:public:10.0.0.2\nrun_migrations:primary:10.0.0.1\nrun_migrations:public:10.0.0.2\nresume_scheduler:public:10.0.0.2\nresume_scheduler:primary:10.0.0.1\nrecover_migration_worker:public:10.0.0.2\nrecover_migration_worker:primary:10.0.0.1'
 
 if [ "${failures}" -ne 0 ]; then
   echo "FAILED: ${failures} case(s)"

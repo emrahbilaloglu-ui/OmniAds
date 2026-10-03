@@ -12093,6 +12093,20 @@ production consumers/pins, growth lifecycle and measured physical reclaim still
 require real outcomes. See [the compressed envelope contract](../architecture/native-historical-compressed-envelope.md).
 
 
+## D141 — Completed index replay and failed migration worker recovery (2026-10-03)
+
+The observed PR339 migration failed at an unconditional heavy reserve for five
+already completed receipt/state-history indexes; the workflow restored cron but
+left its stopped previous worker down. Only exact public catalog contracts for
+all five valid/ready/live indexes now omit that no-op build reserve. Required
+work still takes the unchanged physical guard, repair and postconditions, with
+no budget/override change. The migration phase recovers only its own unchanged
+previous running container on failure or caught signals, at most one start and
+with the original migration failure preserved. Successful migrations keep the
+worker stopped for canonical recreation. The failed target is not redeployed
+as a new correction. See [the recovery contract](../architecture/migration-replay-worker-recovery.md)
+for local proof limits, recovery exclusions and separate release gates.
+
 ## D140 — Campaign-context shared-object read compatibility (2026-10-03)
 
 **Decision:** Add tenant-bound immutable original-JSONB campaign objects, a

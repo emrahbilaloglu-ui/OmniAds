@@ -4343,6 +4343,13 @@ async function main() {
       11,
     );
 
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-receipt-noop-seam-child.ts"),
+      "Receipt index completed replay and exact catalog negative controls",
+    );
+
     /*
       ROUND 20, ITEM 3. The pinned-session check above proves the LEASE HELPER
       keeps one backend; it cannot see the defect this file closes, because the

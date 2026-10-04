@@ -28,6 +28,11 @@ For larger original reference generations, read
 and [the segmented transport contract](../architecture/native-segmented-reference-archive.md).
 Explicit fragments preserve original totals and require complete coverage;
 they keep existing limits and do not authorize source retirement or physical reuse.
+For separately gated multi-generation catalog routing, read
+[D145](DECISION_LOG.md#d145--finite-digest-pinned-generation-catalog-routing-2026-10-04)
+and [the routing contract](../architecture/native-generation-catalog-routing.md).
+It defaults off, keeps strict legacy routing and fixed caps, and is not archive
+capture, live activation, removal or sustainable physical reuse.
 For completed receipt-index migration replay and previous-worker recovery, read
 [D141](DECISION_LOG.md#d141--completed-index-replay-and-failed-migration-worker-recovery-2026-10-03).
 It preserves physical/source fences and does not close sustainable storage.

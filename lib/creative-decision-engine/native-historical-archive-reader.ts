@@ -6,6 +6,8 @@ import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { NativeHistoricalReadControls, NativeHistoricalReadLimit } from "./native-historical-read-controls";
 import { readPackagedNativeHistoricalWorker, verifyNativeHistoricalEvidenceInWorker } from "./native-historical-archive-worker-client";
 import { readLocalNativeArchiveVersion, withLocalNativeArchiveRead } from "./native-historical-local-store";
+import { NativeHistoricalCatalogRouter, NATIVE_HISTORICAL_ROUTING_GATE } from "./native-historical-catalog-routing";
+import { readLocalNativeHistoricalMetadata } from "./native-historical-catalog-routing-store";
 import {
   NATIVE_HISTORICAL_MAX_CATALOG_BYTES,
   NATIVE_HISTORICAL_MAX_PLAINTEXT_BYTES,
@@ -25,6 +27,7 @@ export type NativeHistoricalEvidenceReadResult = NativeHistoricalEvidence |
 const controls = new NativeHistoricalReadControls(undefined, (event, cost) => {
   console.info("[native-historical-reader]", { event, durationMs: Math.round(cost.durationMs), bytes: cost.bytes });
 });
+const metadataRouter = new NativeHistoricalCatalogRouter();
 
 /** One versioned GET, no List/Head/write commands, no fallback to a newer version.
  * Caller configures maxAttempts=1 and explicit archive-only credentials. */
@@ -95,7 +98,7 @@ async function readTrustedLocalCatalog(filename: string, signal: AbortSignal): P
 export async function readNativeHistoricalAdEvidence(request: NativeHistoricalEvidenceRequest): Promise<NativeHistoricalEvidenceReadResult> {
   if (process.env[NATIVE_HISTORICAL_READER_GATE] !== "true") return { status: "disabled", reason: "native_historical_reader_disabled" };
   try {
-    return await controls.read(request, async () => {
+    return await controls.read(request, async signal => {
       const filename = process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_PATH;
       const catalogDigest = process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_SHA256;
       const keyId = process.env.ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_ID;
@@ -108,13 +111,28 @@ export async function readNativeHistoricalAdEvidence(request: NativeHistoricalEv
           transport !== "s3" && transport !== "filesystem" ||
           transport === "s3" && (!accessKeyId || !secretAccessKey) || transport === "filesystem" && !localRoot)
         throw new Error("Explicit archive configuration absent");
-      const catalog = openNativeHistoricalArchiveCatalog(await withLocalNativeArchiveRead(signal => readTrustedLocalCatalog(filename, signal)), catalogDigest);
-      const entry = resolveNativeHistoricalArchiveEntry(catalog, request);
+      let entry: NativeHistoricalArchiveCatalogEntry;
+      let metadataIdentity: string[] | undefined;
+      let packaged: Awaited<ReturnType<typeof readPackagedNativeHistoricalWorker>>;
+      if (process.env[NATIVE_HISTORICAL_ROUTING_GATE] === "true") {
+        const directory = process.env.ENGINE_V3_NATIVE_ARCHIVE_ROUTING_ROOT;
+        const rootSha256 = process.env.ENGINE_V3_NATIVE_ARCHIVE_ROUTING_ROOT_SHA256;
+        if (transport !== "filesystem" || !directory || !rootSha256) throw new Error("Explicit filesystem routing configuration absent");
+        packaged = await readPackagedNativeHistoricalWorker();
+        const resolved = await metadataRouter.resolve(request, { directory, rootSha256, legacySha256: catalogDigest,
+          readerAssetSha256: packaged.sha256 }, (ref, abort) => readLocalNativeHistoricalMetadata(directory, ref, abort), signal);
+        entry = resolved.entry; metadataIdentity = resolved.metadataIdentity;
+      } else {
+        metadataRouter.clearVerifiedMetadata();
+        const catalog = openNativeHistoricalArchiveCatalog(await withLocalNativeArchiveRead(abort => readTrustedLocalCatalog(filename, abort), signal), catalogDigest);
+        entry = resolveNativeHistoricalArchiveEntry(catalog, request);
+        packaged = await readPackagedNativeHistoricalWorker();
+      }
       if (entry.encryptionKeyId !== keyId) throw new Error("Archive encryption key unavailable");
-      const packaged = await readPackagedNativeHistoricalWorker();
       // A changed catalog, key, credential policy or compiled validator cannot inherit a cache.
       const configurationFingerprint = createHash("sha256").update(JSON.stringify([
         catalogDigest, keyId, keyHex, transport, localRoot, accessKeyId, secretAccessKey, packaged.sha256,
+        ...(metadataIdentity ? [NATIVE_HISTORICAL_ROUTING_GATE, process.env.ENGINE_V3_NATIVE_ARCHIVE_ROUTING_ROOT, metadataIdentity] : []),
       ])).digest("hex");
       return { configurationFingerprint, entry, work: {
         download: async (object, signal) => {

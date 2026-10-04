@@ -52,6 +52,13 @@ export interface NativeHistoricalArchiveCatalog {
   entries: NativeHistoricalArchiveCatalogEntry[];
   groups?: { coverageRoot: NativeReferenceArchiveCoverageRoot; coverageRootSha256: string }[];
 }
+// Only entries obtained by the complete verifier below and recursively frozen
+// may skip repeated serialization of a large coverage root. A generic mutable
+// entry, or a shallow-frozen caller object, cannot register its own fingerprint.
+const immutableCatalogEntryFingerprints = new WeakMap<NativeHistoricalArchiveCatalogEntry, string>();
+export function nativeHistoricalImmutableEntryFingerprint(entry: NativeHistoricalArchiveCatalogEntry) {
+  return immutableCatalogEntryFingerprints.get(entry);
+}
 export interface NativeHistoricalEvidenceRequest {
   generation: NativeArchiveGeneration;
   providerAccountId: string;
@@ -250,6 +257,21 @@ export function openNativeHistoricalArchiveCatalog(bytes: Uint8Array, expectedDi
     if(new Set(selected).size!==selected.length||stableCanonicalJson(selected.sort())!==stableCanonicalJson(original)) refuse("fragment catalog coverage incomplete/overlapping");
   }
   return { contract: catalog.contract as NativeHistoricalArchiveCatalog["contract"], entries,...(segmented?{groups}:{}) };
+}
+/** Verified metadata only; does not open/cache plaintext archive evidence. */
+export function openImmutableNativeHistoricalArchiveCatalog(bytes: Uint8Array, expectedDigest: string) {
+  const catalog = openNativeHistoricalArchiveCatalog(bytes, expectedDigest);
+  const seen = new WeakSet<object>();
+  const freeze = (value: unknown) => {
+    if (!value || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    for (const child of Object.values(value)) freeze(child);
+    Object.freeze(value);
+  };
+  freeze(catalog);
+  for (const entry of catalog.entries)
+    immutableCatalogEntryFingerprints.set(entry, nativeArchiveByteDigest(JSON.stringify(entry)));
+  return catalog;
 }
 function stableGenerationEqual(a:NativeArchiveGeneration,b:NativeArchiveGeneration) {return stableCanonicalJson(a)===stableCanonicalJson(b);}
 

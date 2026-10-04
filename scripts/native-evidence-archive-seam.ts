@@ -5,7 +5,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { buildNativeEvidenceArchive, openNativeEvidenceArchive, NATIVE_ARCHIVE_TABLES,
   buildNativeSupersededEvidenceArchive, openNativeSupersededEvidenceArchive,
-  type NativeArchiveBundle, type NativeArchiveSchema, type NativeArchiveTable } from "@/lib/creative-decision-engine/native-evidence-archive";
+  type NativeArchiveBundle, type NativeArchiveSchema } from "@/lib/creative-decision-engine/native-evidence-archive";
 import { prepareNativeArchivePinFixtureLeaves, readSupersededFixturePinCensus } from "./native-archive-pin-census-seam";
 
 function assert(value: unknown, message: string): asserts value {
@@ -66,7 +66,7 @@ export async function verifyNativeArchiveRoundTrip(client: Client, businessId: s
       tables: core.map(table => ({ table, columns: columns.filter(c => c.table === table)
         .map(c => ({ name: c.name as string, type: c.type as string, nullable: c.nullable as boolean })) })),
       // Include incoming catalog pins too. They are not migrated by a core-only bundle.
-      foreignKeys: catalogFks.filter(fk => core.includes(fk.childTable as NativeArchiveTable) || core.includes(fk.parentTable as NativeArchiveTable))
+      foreignKeys: catalogFks.filter(fk => core.includes(fk.childTable as typeof core[number]) || core.includes(fk.parentTable as typeof core[number]))
         .map(({ childTable, parentTable, definition }) => ({ childTable, parentTable, definition })),
     };
     const tables = [];
@@ -78,7 +78,7 @@ export async function verifyNativeArchiveRoundTrip(client: Client, businessId: s
       tables.push({ table, rowJson: rows.map(r => r.bytes as string) });
     }
     allParents = [];
-    for (const name of [...closure].filter(n => !core.includes(n as NativeArchiveTable))) {
+    for (const name of [...closure].filter(n => !core.includes(n as typeof core[number]))) {
       const rows = (await client.query(`SELECT to_jsonb(t)::text AS bytes FROM public.${identifier(name)} t`)).rows;
       allParents.push({ name, rowJson: rows.map(r => r.bytes as string) });
     }

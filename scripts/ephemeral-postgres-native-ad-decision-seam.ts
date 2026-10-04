@@ -1,4 +1,5 @@
 import { verifyNativeCampaignContextReferenceProducer } from "./native-campaign-context-writer-seam";
+import { verifyNativeReferenceArchiveRoundTrip } from "./native-reference-archive-seam";
 import fs from "node:fs";
 import { verifyNativeArchiveRoundTrip } from "./native-evidence-archive-seam";
 import { verifyNativeArchivePinCensusSeam } from "./native-archive-pin-census-seam";
@@ -4266,6 +4267,7 @@ async function runSeam(client: Client) {
   await verifyAbandonedNativeRunOwnership(client, db);
   await verifyNativeArchiveProductionSchema(client);
   await verifyNativeCampaignContextReferenceProducer(client);
+  await verifyNativeReferenceArchiveRoundTrip(client);
 }
 
 

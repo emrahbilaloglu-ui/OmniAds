@@ -13,13 +13,20 @@ const source = await readFile(filename), manifest = JSON.parse(await readFile(
 const original = JSON.parse(await readFile(join(root, ".native-historical-worker/manifest.json"), "utf8"));
 assert.equal(createHash("sha256").update(source).digest("hex"), manifest.sha256);
 assert.equal(source.length, manifest.bytes); assert.deepEqual(manifest, original);
-for (const fixtureName of ["native-historical-worker.json", "native-historical-worker-compressed.json"]) {
+for (const fixtureName of ["native-historical-worker.json", "native-historical-worker-compressed.json", "native-historical-worker-reference.json"]) {
 const fixture = JSON.parse(await readFile(join(root, "scripts/fixtures", fixtureName), "utf8"));
 assert.equal(fixture.syntheticFixtureOnly, true);
 if (fixtureName.endsWith("-compressed.json")) {
   assert.equal(fixture.entry.encoding, "native-historical-aes-256-gcm-gzip.v2");
   assert(fixture.entry.plaintextBytes > 2 * 1024 * 1024 && fixture.entry.plaintextBytes <= 8 * 1024 * 1024);
   assert(fixture.entry.ciphertextBytes <= 2 * 1024 * 1024 + 128);
+}
+if (fixtureName.endsWith("-reference.json")) {
+  assert.equal(fixture.canonicalProducerProof, false);
+  assert.equal(fixture.entry.encoding, "native-historical-aes-256-gcm-gzip.v2");
+  assert.equal(fixture.expectedEvidence.contractVersion, "decision-engine-v3-native-ad-historical-evidence.v2");
+  assert(fixture.expectedEvidence.rowJson.campaignContextObject.includes("9007199254740993.123456789"));
+  assert(fixture.expectedEvidence.rowJson.campaignContextObject.includes("İstanbul şğı 🚀"));
 }
 const payload = Uint8Array.from(Buffer.from(fixture.ciphertextBase64, "base64"));
 const key = Uint8Array.from(Buffer.from(fixture.fixtureEncryptionKeyHex, "hex"));

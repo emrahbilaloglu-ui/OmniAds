@@ -117,3 +117,14 @@ independent restore/pin/reader closure before removal. No historical rewrite,
 backup deletion, paid capacity, provider mutation, epoch/formula change or
 natural-case manufacturing follows from this preparation. This new-row cost
 change does not alone close sustainable archive/removal/physical reclaim.
+
+## Explicit reference archive compatibility (D143)
+
+The original five/seven-table formats still refuse references. D143 adds
+separate six/eight-table formats carrying exact tenant-bound shared roots, with
+the original evaluation/reference bytes retained. The historical response adds
+the original object only under its explicit v2 contract; inline responses stay
+unchanged. See [the reference archive contract](native-campaign-context-reference-archive.md)
+for identity, current-schema restore, existing package caps and reader/catalog
+recovery gates. This source compatibility does not remove live roots or grant
+shared-object GC, production capture, physical reclaim or positive native reuse.

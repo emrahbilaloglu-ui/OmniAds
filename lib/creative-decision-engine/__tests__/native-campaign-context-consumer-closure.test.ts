@@ -24,6 +24,9 @@ const ledger = [
   ["scripts/native-campaign-context-storage-seam.ts", "fixture", 5],
   ["lib/creative-decision-engine/native-campaign-context-writer.ts", "immutable-object-writer-ddl", 16],
   ["scripts/native-campaign-context-writer-seam.ts", "fixture", 3],
+  ["lib/creative-decision-engine/native-campaign-context-archive.ts", "historical-original-storage-validator", 2],
+  ["scripts/generate-native-reference-worker-fixture.ts", "fixture", 2],
+  ["scripts/native-reference-archive-seam.ts", "fixture", 2],
 ] as const;
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
@@ -42,6 +45,9 @@ function validate(actual: Map<string, string>): string[] {
     if (!declared || count !== declared.count) issues.push(`${path}: unclassified/changed column references`);
     if (declared?.role === "reader" && (!content.includes('nativeCampaignContextSql("evaluation")') ||
       /\b(?:evaluation|ev|e)\.campaign_context_json\b/.test(content))) issues.push(`${path}: raw native SQL read`);
+    if (declared?.role === "historical-original-storage-validator" &&
+        (!content.includes('originalJsonbMemberText(raw, "campaign_context_json")') ||
+         /\bSELECT\b/.test(content))) issues.push(`${path}: archive must validate copied original bytes without live SQL`);
   }
   for (const [path] of ledger) if (!actual.has(path)) issues.push(`${path}: declared source missing`);
   return issues;
@@ -63,5 +69,10 @@ describe("campaign context column consumers", () => {
     const content = actual.get("lib/creative-decision-engine/jobs/ad-decision-outcomes-job.ts")!;
     expect(content).toContain("campaignContext: requireNativeCampaignContext(row.campaign_context_json)");
     expect(content).not.toContain("record(row.campaign_context_json) ?? {}");
+  });
+  it("the historical original-byte validator cannot introduce a live fallback", () => {
+    const changed = new Map(actual), path = "lib/creative-decision-engine/native-campaign-context-archive.ts";
+    changed.set(path, changed.get(path)! + "\nSELECT payload_json FROM engine_v3_ad_campaign_context_objects;");
+    expect(validate(changed)).toContain(`${path}: archive must validate copied original bytes without live SQL`);
   });
 });

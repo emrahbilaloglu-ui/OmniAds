@@ -18,6 +18,11 @@ For the separately gated new-row reference writer, read
 [D142](DECISION_LOG.md#d142--opt-in-original-campaign-context-reference-writer-2026-10-03).
 It defaults off, preserves original identity and needs actual R1/new-row acceptance;
 local byte parity is not sustainable storage or physical reclaim.
+For historical copying of the new reference representation, read
+[D143](DECISION_LOG.md#d143--shared-campaign-context-reference-archive-compatibility-2026-10-04)
+and [the reference archive contract](../architecture/native-campaign-context-reference-archive.md).
+Its explicit six/eight-table formats retain original bytes and historical-only
+authority; they do not authorize shared-object GC, removal or larger packages.
 For completed receipt-index migration replay and previous-worker recovery, read
 [D141](DECISION_LOG.md#d141--completed-index-replay-and-failed-migration-worker-recovery-2026-10-03).
 It preserves physical/source fences and does not close sustainable storage.

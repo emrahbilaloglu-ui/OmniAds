@@ -322,6 +322,19 @@ describe("explicit historical evidence presentation",()=>{
     queryState.data={status:"disabled",reason:"native_historical_reader_disabled"};
     expect(renderEvidence({historical})).toContain("Historical archive reading is not enabled");
   });
+  it("shows the original shared campaign row without granting an action or losing numeric bytes",()=>{
+    queryState.data={status:"historical_available",contractVersion:"decision-engine-v3-native-ad-historical-evidence.v2",
+      authority:"historical_read_only",providerAuthority:false,currentDecisionEligible:false,reclaimEligible:false,
+      generation:{businessId:"biz-1",jobRunId:"old-job",asOfDate:"2026-09-24",engineVersion:"native-old"},
+      rowJson:{evaluation:'{"campaign_context_json":null,"campaign_context_ref":"original"}',context:'{}',inputEvidence:'{}',
+        snapshot:null,campaignContextObject:'{"payload_json":{"decimal":9007199254740993.123456789},"created_at":"2026-09-24T01:00:00.000001+00:00"}'}};
+    const html=renderEvidence({historical});
+    expect(html).toContain("Original campaign context");
+    expect(html).toContain("9007199254740993.123456789");
+    expect(html).toContain("review only");
+    expect(html).not.toContain("Apply Cut");
+    expect(html).not.toContain("Operator response");
+  });
   it("rejects a current response for an explicitly requested historical generation",async()=>{
     vi.stubGlobal("fetch",vi.fn().mockResolvedValue({ok:true,json:async()=>payload()}));
     vi.stubGlobal("window",{location:{origin:"http://localhost"}});

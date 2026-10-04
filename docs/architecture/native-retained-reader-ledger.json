@@ -1,0 +1,373 @@
+{
+  "contract": "native-retained-reader-source-ledger.v1",
+  "baselineRevision": "d60ed58e0f8c512af5bb391c693e99279aaf1840",
+  "entries": [
+    {
+      "path": "app/api/admin/engine-v3/readiness/route.ts",
+      "role": "serving-and-history",
+      "sha256": "bf587874112016087f546053b599becab55520d2fba0450e41411b1ff104764c",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
+    },
+    {
+      "path": "app/api/creatives/decision-engine-v3/evidence/route.ts",
+      "role": "serving-and-history",
+      "sha256": "db02cc6d0bd11ecf008f6628e76eac71bc19a0a6cddc91f486f8567a8147486d",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
+    },
+    {
+      "path": "app/api/meta/creative-thumbnail/route.ts",
+      "role": "serving-and-history",
+      "sha256": "994d337ed8c00c667dbb4fb49b3e81f9312a1a7c8ba8f21888736c39e629e5bb",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
+    },
+    {
+      "path": "app/api/meta/decisions-workspace/route.ts",
+      "role": "serving-and-history",
+      "sha256": "9f782fce16d32194cf4df80eea282ae2edb7720b81f1b7e84b06c937808e4705",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
+    },
+    {
+      "path": "lib/creative-decision-engine/ad-backtest-store.ts",
+      "role": "outcomes-and-stability",
+      "sha256": "1c14c631de03e2f69ce04215dc03327f2666a0ae718a99f77be183b71fcbe59f",
+      "retention": "Keep every retained snapshot, original evaluation/context and outcome/hysteresis lineage; no age-only snapshot pruning."
+    },
+    {
+      "path": "lib/creative-decision-engine/ad-evaluation-schema.ts",
+      "role": "schema",
+      "sha256": "34bf1e1e39949854af4b5822ec7b64462d15046ab5d1bd088b7a154d227bbbde",
+      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission."
+    },
+    {
+      "path": "lib/creative-decision-engine/decision-stability.ts",
+      "role": "outcomes-and-stability",
+      "sha256": "88ba0cd351abd56f2e0aebfc3913e1a38273b3d42bf7fe182293a0a77d15f65d",
+      "retention": "Keep every retained snapshot, original evaluation/context and outcome/hysteresis lineage; no age-only snapshot pruning."
+    },
+    {
+      "path": "lib/creative-decision-engine/evaluation-store.ts",
+      "role": "immutable-writer",
+      "sha256": "4ccbf66efc034fe8de397319b6905886a53cd7759694c7f6317fbae6e36027d8",
+      "retention": "Write original immutable generation identity; do not normalize clocks/epoch, mutate old rows, or grant provider authority."
+    },
+    {
+      "path": "lib/creative-decision-engine/gates/diagnose.ts",
+      "role": "comment-only",
+      "sha256": "0a1ad40ed06f4bb9d976657f9ad4f5510e4c031c35995a8dae30d673f576bc1c",
+      "retention": "Current literal is explanatory only; any source change needs review before repinning."
+    },
+    {
+      "path": "lib/creative-decision-engine/jobs/ad-decision-outcomes-job.ts",
+      "role": "outcomes-and-stability",
+      "sha256": "50b569567473057c316afe84926ff001fb2dabab3410694e7c8d1bfb8619a865",
+      "retention": "Keep every retained snapshot, original evaluation/context and outcome/hysteresis lineage; no age-only snapshot pruning."
+    },
+    {
+      "path": "lib/creative-decision-engine/jobs/ad-decisions-job.ts",
+      "role": "immutable-writer",
+      "sha256": "3d57f556719baf8b928ec6399c6315774bfce787bbcd95158e470e85524864d0",
+      "retention": "Write original immutable generation identity; do not normalize clocks/epoch, mutate old rows, or grant provider authority."
+    },
+    {
+      "path": "lib/creative-decision-engine/jobs/ad-operator-response-job.ts",
+      "role": "outcomes-and-stability",
+      "sha256": "a14bd8b1f88e9f203bdfd11d091e1e7c7401714323962d606e0fd93a91010d0a",
+      "retention": "Keep every retained snapshot, original evaluation/context and outcome/hysteresis lineage; no age-only snapshot pruning."
+    },
+    {
+      "path": "lib/creative-decision-engine/jobs/native-decision-reuse.ts",
+      "role": "original-generation-and-reuse",
+      "sha256": "1261dc1adcc888063cd31e13cca75ad040358f2a1f1ff3ae6c6816766dd106ef",
+      "retention": "Keep original immutable successful generation and all referencing receipts/ticks; never substitute a reuse-attempt job for original members."
+    },
+    {
+      "path": "lib/creative-decision-engine/native-archive-pin-census.ts",
+      "role": "storage-and-pin-reader",
+      "sha256": "cc7506a6989245cd8159a37292e9385426e7679d6a15eed9013cafd92f533e97",
+      "retention": "Original job/member/parent/shared-root and FK/non-FK pin identity stays live; no source removal from this declaration."
+    },
+    {
+      "path": "lib/creative-decision-engine/native-calibration-parent-archive.ts",
+      "role": "storage-and-pin-reader",
+      "sha256": "d6cc15cc78cb9a8d70a5a7f7d76bc43c0ae2ca37258909f98c95fa97e52a259c",
+      "retention": "Original job/member/parent/shared-root and FK/non-FK pin identity stays live; no source removal from this declaration."
+    },
+    {
+      "path": "lib/creative-decision-engine/native-campaign-context-storage.ts",
+      "role": "storage-and-pin-reader",
+      "sha256": "1792d9aea3a50bfc2cacbf8340a77605ff33fa56e743d6e984e1496331042e34",
+      "retention": "Original job/member/parent/shared-root and FK/non-FK pin identity stays live; no source removal from this declaration."
+    },
+    {
+      "path": "lib/creative-decision-engine/native-campaign-context-writer.ts",
+      "role": "immutable-writer",
+      "sha256": "8495f650d9aa94f0eeeae743ad99c7e8653ff5c5287fc7c43a6c6d2528c1d536",
+      "retention": "Write original immutable generation identity; do not normalize clocks/epoch, mutate old rows, or grant provider authority."
+    },
+    {
+      "path": "lib/creative-decision-engine/native-evaluation-context-unit.ts",
+      "role": "storage-and-pin-reader",
+      "sha256": "ac91f312ac9b24c8135713f54dfcdffbc88ab0b1bed164614b220d150246894a",
+      "retention": "Original job/member/parent/shared-root and FK/non-FK pin identity stays live; no source removal from this declaration."
+    },
+    {
+      "path": "lib/creative-decision-engine/native-evidence-archive.ts",
+      "role": "storage-and-pin-reader",
+      "sha256": "8d27f0f16342c1cfb88c11f15cd56ceb4c9d81fb881358c23d536c730092f34a",
+      "retention": "Original job/member/parent/shared-root and FK/non-FK pin identity stays live; no source removal from this declaration."
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-archive.ts",
+      "role": "storage-and-pin-reader",
+      "sha256": "9412ab4bcc8611e78a4d8668018328f969298916e09b7162192cd3311199786b",
+      "retention": "Original job/member/parent/shared-root and FK/non-FK pin identity stays live; no source removal from this declaration."
+    },
+    {
+      "path": "lib/creative-decision-engine/native-job-evaluation-selection.ts",
+      "role": "original-generation-and-reuse",
+      "sha256": "cf3efd3e9d053dbdd1c04cd3c4423fe1d0dd365a9be75efcdf954f10ef513d31",
+      "retention": "Keep original immutable successful generation and all referencing receipts/ticks; never substitute a reuse-attempt job for original members."
+    },
+    {
+      "path": "lib/creative-decision-engine/native-job-snapshot-selection.ts",
+      "role": "original-generation-and-reuse",
+      "sha256": "10c176341cf3c04bb7c730f30ded75de46378e5251b5da2dbdb646c63d384a20",
+      "retention": "Keep original immutable successful generation and all referencing receipts/ticks; never substitute a reuse-attempt job for original members."
+    },
+    {
+      "path": "lib/creative-decision-engine/native-reference-archive-segments.ts",
+      "role": "storage-and-pin-reader",
+      "sha256": "7713a27e13bdd4f58cf15588c92a2f40e7df1b5c1936da00f417d12e0a89ca3f",
+      "retention": "Original job/member/parent/shared-root and FK/non-FK pin identity stays live; no source removal from this declaration."
+    },
+    {
+      "path": "lib/meta/ads-action-log.ts",
+      "role": "operator-lineage",
+      "sha256": "1ba6c4c9cf955f2dbadd4282d8005551d10a830454c16b26b299f14c7bfa7006",
+      "retention": "Keep typed action/snapshot/evaluation and workflow/proposal/launch identity including terminal audits; unknown non-FK identity refuses."
+    },
+    {
+      "path": "lib/meta/assigned-account-states.ts",
+      "role": "serving-and-history",
+      "sha256": "d2a66e55c68b2468c610097b38b7362b42644a190b30454ab90e81026ee1bfd1",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
+    },
+    {
+      "path": "lib/meta/automation-proposals.ts",
+      "role": "operator-lineage",
+      "sha256": "d4b86ed7f8a443b7a009e40f3c8b08affae269df85948433caba9f4cba0b63d2",
+      "retention": "Keep typed action/snapshot/evaluation and workflow/proposal/launch identity including terminal audits; unknown non-FK identity refuses."
+    },
+    {
+      "path": "lib/meta/campaign-label-guard.ts",
+      "role": "comment-only",
+      "sha256": "9f3282e093c25daa0bd6489ffc8c91d21df1cf8db5b4c3d47c053e02f69a1117",
+      "retention": "Current literal is explanatory only; any source change needs review before repinning."
+    },
+    {
+      "path": "lib/meta/controlled-experiment-registry.ts",
+      "role": "operator-lineage",
+      "sha256": "a4767ac7b9acbc8203cd59ae3d407f175144f45d91452d867349e901bcd49040",
+      "retention": "Keep typed action/snapshot/evaluation and workflow/proposal/launch identity including terminal audits; unknown non-FK identity refuses."
+    },
+    {
+      "path": "lib/meta/decisions-workspace-contract.ts",
+      "role": "provenance-only",
+      "sha256": "f8337f913dec946ebc068b5b81643e0f595aee45b1c60b1864cbf6a9891c5a14",
+      "retention": "Source provenance declaration, not a production SQL closure proof; changes require selection/retention review."
+    },
+    {
+      "path": "lib/meta/decisions-workspace-read-model.ts",
+      "role": "serving-and-history",
+      "sha256": "2a20043c17d5b72328be7f37585631d2c67b959d24ac3b7c3bca9225091489f6",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
+    },
+    {
+      "path": "lib/meta/native-config-action-authority.ts",
+      "role": "operator-lineage",
+      "sha256": "c2007b19a66275ca9982d918eeec680d17642c6a71fae4590374bd8d11f38057",
+      "retention": "Keep typed action/snapshot/evaluation and workflow/proposal/launch identity including terminal audits; unknown non-FK identity refuses."
+    },
+    {
+      "path": "lib/meta/native-decision-workflow-source.ts",
+      "role": "operator-lineage",
+      "sha256": "bf990c68da2ebc4fee5580741ca18470d551b2b12184ad84219bcfee0bfc6e9c",
+      "retention": "Keep typed action/snapshot/evaluation and workflow/proposal/launch identity including terminal audits; unknown non-FK identity refuses."
+    },
+    {
+      "path": "lib/migration-verification.ts",
+      "role": "schema",
+      "sha256": "f4bf802a79cdb3e32d82e74b0e0928e613fcf92af4f85c8c150c07099214ffb3",
+      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission."
+    },
+    {
+      "path": "lib/migrations.ts",
+      "role": "schema",
+      "sha256": "4db32585f8ab4c8e1db00379a4590d0e7809fca4f8ebad8033b66a7dd6e52029",
+      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission."
+    },
+    {
+      "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
+      "role": "offline-operator",
+      "sha256": "d6295aec4b16c86a2e3e0f11c02450203874d7f4fe628d9878188c088f99d7dc",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    },
+    {
+      "path": "scripts/audits/d078-hard-action-recompute.ts",
+      "role": "offline-operator",
+      "sha256": "ecbd3d738ff400cc28b014d3ff80c9222f8940c16dae3971fc272d515c1027d5",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    },
+    {
+      "path": "scripts/audits/d078-lattice-seed.ts",
+      "role": "owned-fixture",
+      "sha256": "2bc7fc236274a65c3a6317c587756cfcb456c94da6493d3dbc18d21477903b63",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/audits/d078-six-business-evidence-bundle.ts",
+      "role": "offline-operator",
+      "sha256": "a6d28cbafe659e799ca5d72ab26bff5b10f40f04da924544076bffa422c2fd57",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    },
+    {
+      "path": "scripts/audits/d080-meta-budget-edit-evidence.ts",
+      "role": "offline-operator",
+      "sha256": "4fb1398412384b5e08dcac4e79336c4ee3db19bdd9e07f7bf451a89ce26230f9",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    },
+    {
+      "path": "scripts/audits/d080b-meta-budget-policy-simulation.ts",
+      "role": "offline-operator",
+      "sha256": "52b11d96e1fa8e596f84d04a07feb922b3113d082c0963ed65db4e33b323ecc9",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    },
+    {
+      "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts",
+      "role": "offline-operator",
+      "sha256": "5cf3d7d4d8e66dfdc9990deaf823a3bcd4395741a10065700b14bab3e7c6c812",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    },
+    {
+      "path": "scripts/creative-decision-center/native-ad-account-aov-authority-replay.ts",
+      "role": "offline-operator",
+      "sha256": "18da970b6961e6ea4cd7da4e911bed979b5880e2bd146e7a3f09c84b3f29de63",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    },
+    {
+      "path": "scripts/creative-decision-center/native-ad-canary-recompute.ts",
+      "role": "offline-operator",
+      "sha256": "4c5a8acc28ec9f29fa26a8226df789095f76e987c3a5efd6414b2e827d38f57b",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    },
+    {
+      "path": "scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts",
+      "role": "offline-operator",
+      "sha256": "da8a6ad61584d3920b1d9197961b32008b2b872d82c3a5e672f9782b7b3d4f3e",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    },
+    {
+      "path": "scripts/creative-decision-center/native-ad-repair-differential-replay.ts",
+      "role": "offline-operator",
+      "sha256": "86d84610986da4986d98b4bdaa863a97801bad3c7e4a64507fb6d76e2bf0ca3b",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    },
+    {
+      "path": "scripts/ephemeral-postgres-controlled-experiment-registry-seam-child.ts",
+      "role": "owned-fixture",
+      "sha256": "db0c9c72ae017e99ff5fbb8b73729970d79b9221fa2a501fc38ba27f3d7cb9b5",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/ephemeral-postgres-migrations-check.ts",
+      "role": "owned-fixture",
+      "sha256": "b3dc429177b2a0ff0d19d3397161de10ede626248910bfbcd20c3e72ef075a8c",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
+      "role": "owned-fixture",
+      "sha256": "f1d687dbe9096821c8a9e7e2650fa946a4eb20bd61fef69ddb0ec1676c1beca9",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
+      "role": "owned-fixture",
+      "sha256": "ca12482aa4d33de9d3f1615cacdb7cc2effee1baf049503fad4ba13101e44934",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/ephemeral-postgres-state-history-compaction-seam-child.ts",
+      "role": "owned-fixture",
+      "sha256": "4d1cdf4f947d95c1aaedb81d7377b601cd437b1c84ff050eec1d93d05a1057ac",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/generate-native-reference-worker-fixture.ts",
+      "role": "owned-fixture",
+      "sha256": "2d8c22e628f3263a5375f5a1696e11f359474a5a79537867d23b3db915d41ce9",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/generate-native-segmented-reference-worker-fixture.ts",
+      "role": "owned-fixture",
+      "sha256": "29511a39e1e0068be1e05fe11e4bdfe8498182b39ee5541b4889e11b8af6b4ca",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/native-archive-pin-census-seam.ts",
+      "role": "owned-fixture",
+      "sha256": "832d3631403fc3714b7523ade55dfb5f80d0b3e96043e870f7f3fe4ce631b120",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/native-archive-production-schema-seam.ts",
+      "role": "owned-fixture",
+      "sha256": "97e7b70741041e65602bf323bc8e964e6abf311eb9dfc6a6e8334c1c11e9a727",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/native-calibration-parent-archive-seam.ts",
+      "role": "owned-fixture",
+      "sha256": "b8fb77a25eb1f45c5626781929782fe1aeec36973dc010860dc19fbb5a23da50",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/native-campaign-context-storage-seam.ts",
+      "role": "owned-fixture",
+      "sha256": "b18f25aaded8db601fcb17ac1074e05cac4359c663863414c9069a3f338d5847",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/native-campaign-context-writer-seam.ts",
+      "role": "owned-fixture",
+      "sha256": "db02295af36eb47435b7f90ab0a64a57f03a6eb8ee1142f6615a72590916945a",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/native-evidence-archive-seam.ts",
+      "role": "owned-fixture",
+      "sha256": "19988cc76c5528a084794bdabbb09646be8b5897015068cece4ee78c3546f2f2",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/native-proposal-lifecycle-fixtures.ts",
+      "role": "owned-fixture",
+      "sha256": "e2ab6c375e45cf41b88212ecc446df8b7f0a47e45c216514a237182cee5437d2",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/native-reference-archive-seam.ts",
+      "role": "owned-fixture",
+      "sha256": "6cce86a9587ad5e6f6796ab933da82e89da597ece531cebaa3213351c99c2ae3",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+    },
+    {
+      "path": "scripts/verify-native-historical-worker-package.mjs",
+      "role": "offline-operator",
+      "sha256": "4a4c75ad52a903d944580f0762c865d804c7aacabe8e19cb3b49361e99f004cf",
+      "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
+    }
+  ],
+  "sourceInventorySha256": "6797b4c87e4857b46cb1fea074e7a97d20e907d5adf71cc57c2f4c535e3881f7"
+}

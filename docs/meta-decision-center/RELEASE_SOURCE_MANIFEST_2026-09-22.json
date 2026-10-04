@@ -1,5 +1,5 @@
 {
-  "manifestHash": "fdda7e82c9c88f155060fb122664147e4ef62002fb782737d78a58cf6c78f0ab",
+  "manifestHash": "c9e1eebdb66a73a4e0267bf39afc04f61a77a1aa862c301a98b6ef92aa5a0b60",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -775,6 +775,14 @@
       "sha256": "b15942a60ee0a29ff8384c4aeb009d71ae4c082f63c56c3f460d53c308be8dd7"
     },
     {
+      "path": "docs/architecture/native-retained-reader-ledger.json",
+      "sha256": "4c1e36ee472e50ab3c27691dcc0792186a120157b6f4121abfc2b89729b11ecc"
+    },
+    {
+      "path": "docs/architecture/native-retained-reader-lifecycle.md",
+      "sha256": "dda92113ad5f2afaa137c3255ba2a19a3f5bcceece7d741163a5b579b51791eb"
+    },
+    {
       "path": "docs/architecture/native-segmented-reference-archive.md",
       "sha256": "d0bf746ded601e03da9dd02a2e43132750a4c324c870a2c87ecf671be43627f6"
     },
@@ -804,7 +812,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "34911c513ad275fb3be397b9c09db19015014ffb4daffc9c796604e10c9edfeb"
+      "sha256": "debed908958fd5747dccb8d902921dcbf2d168cc813daf6e5663b0b929852e89"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -816,7 +824,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "467b14a824e38b749104e71f50b6391480ce424a11ce8b660609f3bac89bd66c"
+      "sha256": "7c84ceb74243d658c7d2b96f87c6fc7411643b1cb3c3f44dfaabdaeb83ba438d"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -1243,6 +1251,10 @@
       "sha256": "760bda459f3cdaacd1f1407227ae7b6301bbe9f4a025b8d757ceefbb18f26133"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-retained-reader-lifecycle.test.ts",
+      "sha256": "226d0e6907e71dc056270a717d7b481d29b76c58a0433be2abd394c889557a91"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/role-held-verdict-preservation.test.ts",
       "sha256": "597d0ab16a22ef309f23697645308863f673daa11278504705a48bd332d3b8d1"
     },
@@ -1549,6 +1561,10 @@
     {
       "path": "lib/creative-decision-engine/native-reference-archive-segments.ts",
       "sha256": "7713a27e13bdd4f58cf15588c92a2f40e7df1b5c1936da00f417d12e0a89ca3f"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-retained-reader-lifecycle.ts",
+      "sha256": "96aaf5ed8ea0ccdb39a977dbec432fec0dc611f0552222c28bf402034705e43a"
     },
     {
       "path": "lib/creative-decision-engine/profile-scope-callers-account-scope.db.test.ts",
@@ -2824,7 +2840,7 @@
     },
     {
       "path": "scripts/native-archive-production-schema-seam.ts",
-      "sha256": "1638affd8cfed187da2114a7e46dd34dbdd9502c07b4fd685f2c1ee459b8c2e0"
+      "sha256": "97e7b70741041e65602bf323bc8e964e6abf311eb9dfc6a6e8334c1c11e9a727"
     },
     {
       "path": "scripts/native-calibration-parent-archive-seam.ts",
@@ -2853,6 +2869,10 @@
     {
       "path": "scripts/native-reference-archive-seam.ts",
       "sha256": "6cce86a9587ad5e6f6796ab933da82e89da597ece531cebaa3213351c99c2ae3"
+    },
+    {
+      "path": "scripts/native-retained-reader-lifecycle-guard.ts",
+      "sha256": "eec0c96791c52c9f17bff7a00e8a4ea4d27f4790cd04436034799157b4110cec"
     },
     {
       "path": "scripts/sync-worker-healthcheck.ts",

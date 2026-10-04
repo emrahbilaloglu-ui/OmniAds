@@ -12175,6 +12175,31 @@ inline archive formats refuse references until explicit shared-root membership,
 reader/restore and pin closure are proven. Sustainable item3 and strict natural
 positive reuse item7 remain open. See [the storage contract](../architecture/native-campaign-context-storage.md).
 
+## D146 — Retained reader source and closed-day lifecycle gate (2026-10-05)
+
+**Problem:** The exact selected198-evaluation/3-context pilot does not prove a
+general retained-table lifecycle. The existing campaign-context column token
+ledger can miss a whole-table reader or changed date/selection predicate with
+the same token count. Older snapshots still feed stability, outcomes, backtests,
+episode history, assigned-account freshness, proposals and thumbnails.
+
+**Decision:** Pin the complete source bytes and explicit role/retention semantics
+of retained-table consumers across app/components/lib/scripts, including
+JS/CJS/SQL/Python operator sources. Unknown, missing or changed literal/table
+alias/split-prefix consumers refuse in CI. A new closed-day preparation assessor
+binds the exact current v2 measurement to this ledger and keeps every historical
+snapshot/FK/non-FK/shared-context/unknown pin and all original job/parent/shared
+roots. No source age, current winner or epoch makes a snapshot disposable.
+
+**Boundary:** This local source gate and pure assessor have no production caller,
+archive publisher, delete executor, scheduler, epoch/clock/formula change or
+provider authority. They grant only bounded preparation eligibility and keep
+removal/reclaim/live-consumer-closure false. Actual deployed/transitive scope,
+independent original parent/restore/HTTP parity, exact source retirement and
+physical reuse/growth lifecycle remain separate live acceptance gates. Empty
+unknown registries or repinned source hashes never manufacture that proof.
+See [the retained lifecycle contract](../architecture/native-retained-reader-lifecycle.md).
+
 ## D145 — Finite digest-pinned generation catalog routing (2026-10-04)
 
 **Problem:** Two independently different owned original CURRENT1134/1800

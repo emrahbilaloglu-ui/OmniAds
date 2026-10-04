@@ -36,6 +36,11 @@ capture, live activation, removal or sustainable physical reuse.
 For completed receipt-index migration replay and previous-worker recovery, read
 [D141](DECISION_LOG.md#d141--completed-index-replay-and-failed-migration-worker-recovery-2026-10-03).
 It preserves physical/source fences and does not close sustainable storage.
+For the retained whole-table reader source gate before broader lifecycle work,
+read [D146](DECISION_LOG.md#d146--retained-reader-source-and-closed-day-lifecycle-gate-2026-10-05)
+and [the retained lifecycle contract](../architecture/native-retained-reader-lifecycle.md).
+All retained snapshots remain pinned; source hashes and preparation eligibility
+do not grant removal, live reader closure or sustainable-storage acceptance.
 
 For the separate superseded-generation transport, scoped pin reader and physical
 reclaim preparation, read

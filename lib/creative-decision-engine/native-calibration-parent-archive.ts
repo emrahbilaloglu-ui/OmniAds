@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { stableCanonicalJson } from "./canonical-evaluation";
-import { openNativeArchiveByContract, isReferenceNativeArchiveContract,
+import { openNativeArchiveByContract, isReferenceNativeArchiveContract, isNativeArchiveSegmentContract,
   type NativeArchiveBundle, type NativeArchiveGeneration } from "./native-evidence-archive";
 import { AD_CALIBRATION_JOB_NAME, computeNativeAdCalibrationCellSetHash,
   isNativeAdCalibrationReadableContract } from "./jobs/ad-calibration-job";
@@ -9,6 +9,7 @@ import { AD_CALIBRATION_JOB_NAME, computeNativeAdCalibrationCellSetHash,
  * production reader, schema deployment, credential export or removal authority. */
 export const NATIVE_CALIBRATION_PARENT_ARCHIVE_CONTRACT = "native-calibration-parent-archive.v1" as const;
 export const NATIVE_REFERENCE_CALIBRATION_PARENT_ARCHIVE_CONTRACT = "native-calibration-reference-parent-archive.v1" as const;
+export const NATIVE_SEGMENT_CALIBRATION_PARENT_ARCHIVE_CONTRACT = "native-calibration-reference-segment-parent-archive.v1" as const;
 export const NATIVE_CALIBRATION_PARENT_TABLES = [
   "engine_v3_ad_account_calibration_batches", "engine_v3_ad_account_calibration_daily", "engine_v3_job_runs",
 ] as const;
@@ -28,8 +29,9 @@ export interface NativeCalibrationParentInput {
 export interface NativeCalibrationParentBundle {
   core: NativeArchiveBundle;
   manifest: {
-    contract: typeof NATIVE_CALIBRATION_PARENT_ARCHIVE_CONTRACT | typeof NATIVE_REFERENCE_CALIBRATION_PARENT_ARCHIVE_CONTRACT;
-    coverage: "core_referenced_complete_calibration_batches";
+    contract: typeof NATIVE_CALIBRATION_PARENT_ARCHIVE_CONTRACT | typeof NATIVE_REFERENCE_CALIBRATION_PARENT_ARCHIVE_CONTRACT |
+      typeof NATIVE_SEGMENT_CALIBRATION_PARENT_ARCHIVE_CONTRACT;
+    coverage: "core_referenced_complete_calibration_batches" | "segment_referenced_complete_calibration_batches";
     providerAuthority: false; reclaimEligible: false;
     generation: NativeArchiveGeneration; capturedAt: string;
     sourceRevision: string; sourceWorkspaceDirty: boolean;
@@ -77,9 +79,10 @@ function noCredentials(value: unknown): void {
 }
 function verify(bundle: NativeCalibrationParentBundle) {
   const m = bundle.manifest, core = bundle.core.manifest;
-  const expectedContract = isReferenceNativeArchiveContract(core.contract) ?
+  const segmented = isNativeArchiveSegmentContract(core.contract);
+  const expectedContract = segmented ? NATIVE_SEGMENT_CALIBRATION_PARENT_ARCHIVE_CONTRACT : isReferenceNativeArchiveContract(core.contract) ?
     NATIVE_REFERENCE_CALIBRATION_PARENT_ARCHIVE_CONTRACT : NATIVE_CALIBRATION_PARENT_ARCHIVE_CONTRACT;
-  if (m.contract !== expectedContract || m.coverage !== "core_referenced_complete_calibration_batches" ||
+  if (m.contract !== expectedContract || m.coverage !== (segmented ? "segment_referenced_complete_calibration_batches" : "core_referenced_complete_calibration_batches") ||
     m.providerAuthority !== false || m.reclaimEligible !== false || digest(m.generation) !== digest(core.generation) ||
     m.capturedAt !== core.capturedAt || m.sourceRevision !== core.sourceRevision || m.sourceWorkspaceDirty !== core.sourceWorkspaceDirty ||
     m.coreSchemaHash !== core.schemaHash || digest(m.schema) !== m.schemaHash) refused("scope/source/schema differs");
@@ -203,8 +206,10 @@ export function buildNativeCalibrationParentArchive(input: NativeCalibrationPare
       providerAccountRefId: uuid(c.provider_account_ref_id), providerAccountId: text(c.provider_account_id) });
   }
   const bundle: NativeCalibrationParentBundle = { core: input.core, objects, manifest: {
-    contract: isReferenceNativeArchiveContract(cm.contract) ? NATIVE_REFERENCE_CALIBRATION_PARENT_ARCHIVE_CONTRACT :
-      NATIVE_CALIBRATION_PARENT_ARCHIVE_CONTRACT, coverage: "core_referenced_complete_calibration_batches",
+    contract: isNativeArchiveSegmentContract(cm.contract) ? NATIVE_SEGMENT_CALIBRATION_PARENT_ARCHIVE_CONTRACT :
+      isReferenceNativeArchiveContract(cm.contract) ? NATIVE_REFERENCE_CALIBRATION_PARENT_ARCHIVE_CONTRACT :
+      NATIVE_CALIBRATION_PARENT_ARCHIVE_CONTRACT,
+    coverage: isNativeArchiveSegmentContract(cm.contract) ? "segment_referenced_complete_calibration_batches" : "core_referenced_complete_calibration_batches",
     providerAuthority: false, reclaimEligible: false, generation: cm.generation, capturedAt: cm.capturedAt,
     sourceRevision: cm.sourceRevision, sourceWorkspaceDirty: cm.sourceWorkspaceDirty,
     coreManifestHash: input.coreManifestHash, coreSchemaHash: cm.schemaHash, schema: input.schema, schemaHash: digest(input.schema),
@@ -228,4 +233,42 @@ export function openNativeCalibrationParentArchive(bundle: NativeCalibrationPare
     originalJobRunId: bundle.manifest.generation.jobRunId, readCoreTable: coreReader.readTable,
     readCampaignContext: coreReader.readCampaignContext,
     readParentTable(table: ParentTable) { return [...(verified.get(table) ?? refused("unsupported parent table"))]; } };
+}
+
+/** Offline projection from a COMPLETE independently verified original bundle.
+ * Retains each referenced batch's ALL cells and the original dependency receipt.
+ * It does not trim/recompute a batch or change any original row/clock. */
+export function projectNativeCalibrationParentsToSegment(original: NativeCalibrationParentBundle, expected: {
+  manifestHash: string; schemaHash: string; generation: NativeArchiveGeneration;
+}, core: NativeArchiveBundle) {
+  if (isNativeArchiveSegmentContract(original.core.manifest.contract) || !isNativeArchiveSegmentContract(core.manifest.contract))
+    refused("complete original and explicit segment required");
+  const view = openNativeCalibrationParentArchive(original, expected);
+  const selected = openNativeArchiveByContract(core, { manifestHash: digest(core.manifest),
+    schemaHash: core.manifest.schemaHash, generation: core.manifest.generation });
+  if (core.manifest.segment!.originalParentManifestHash !== expected.manifestHash ||
+      core.manifest.segment!.originalCoreManifestHash !== original.manifest.coreManifestHash ||
+      digest(core.manifest.generation) !== digest(original.manifest.generation)) refused("segment original root differs");
+  const batches = view.readParentTable("engine_v3_ad_account_calibration_batches").map(raw => ({ raw, row: object(JSON.parse(raw)) }));
+  const batchIds = new Set<unknown>();
+  for (const copy of selected.readTable("engine_v3_ad_decision_evaluation_contexts")) {
+    const c = object(JSON.parse(copy.rowJson)), calibration = object(object(object(c.context_json).dataHealth).calibration);
+    if (calibration.computedAt === null) continue;
+    const matches = batches.filter(({row}) => row.provider_account_ref_id === c.provider_account_ref_id &&
+      row.provider_account_id === c.provider_account_id && row.as_of_date === calibration.asOfDate &&
+      instant(row.computed_at) === instant(calibration.computedAt));
+    if (matches.length !== 1) refused("selected original calibration batch differs");
+    batchIds.add(matches[0]!.row.id);
+  }
+  const neededBatches = batches.filter(({row}) => batchIds.has(row.id));
+  const jobIds = new Set(neededBatches.map(({row}) => row.job_run_id));
+  const nativeJob = object(JSON.parse(selected.readTable("engine_v3_job_runs")[0]!.rowJson));
+  if (nativeJob.dependency_run_id !== null && nativeJob.dependency_run_id !== undefined) jobIds.add(nativeJob.dependency_run_id);
+  return buildNativeCalibrationParentArchive({ core, coreManifestHash: digest(core.manifest), schema: original.manifest.schema,
+    tables: [
+      { table: "engine_v3_ad_account_calibration_batches", rowJson: neededBatches.map(({raw}) => raw) },
+      { table: "engine_v3_ad_account_calibration_daily", rowJson: view.readParentTable("engine_v3_ad_account_calibration_daily")
+        .filter(raw => batchIds.has(object(JSON.parse(raw)).batch_id)) },
+      { table: "engine_v3_job_runs", rowJson: view.readParentTable("engine_v3_job_runs").filter(raw => jobIds.has(object(JSON.parse(raw)).id)) },
+    ] });
 }

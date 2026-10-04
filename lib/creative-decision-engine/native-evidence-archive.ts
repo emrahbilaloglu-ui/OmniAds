@@ -11,6 +11,8 @@ export const NATIVE_ARCHIVE_CONTRACT = "native-generation-core-archive.v1" as co
 export const NATIVE_SUPERSEDED_ARCHIVE_CONTRACT = "native-superseded-generation-core-archive.v1" as const;
 export const NATIVE_REFERENCE_ARCHIVE_CONTRACT = "native-generation-reference-core-archive.v1" as const;
 export const NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT = "native-superseded-generation-reference-core-archive.v1" as const;
+export const NATIVE_REFERENCE_SEGMENT_CONTRACT = "native-generation-reference-segment.v1" as const;
+export const NATIVE_SUPERSEDED_REFERENCE_SEGMENT_CONTRACT = "native-superseded-generation-reference-segment.v1" as const;
 export const NATIVE_ARCHIVE_TABLES = [
   "engine_v3_job_runs",
   "engine_v3_ad_decision_evaluation_contexts",
@@ -36,12 +38,22 @@ export interface NativeArchiveTableInput {
   /** PostgreSQL to_jsonb(row)::text. Never parse and reserialize decimal/bigint evidence. */
   rowJson: string[];
 }
+/** A selection is explicitly partial transport. The original receipt is NEVER
+ * rewritten to its length, and independent whole-generation trust is required. */
+export interface NativeArchiveSegmentIdentity {
+  originalCoreManifestHash: string;
+  originalParentManifestHash: string;
+  originalEvaluationCount: number;
+  evaluationIds: string[];
+}
 export interface NativeArchiveBundle {
   manifest: {
     contract: typeof NATIVE_ARCHIVE_CONTRACT | typeof NATIVE_SUPERSEDED_ARCHIVE_CONTRACT |
-      typeof NATIVE_REFERENCE_ARCHIVE_CONTRACT | typeof NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT;
+      typeof NATIVE_REFERENCE_ARCHIVE_CONTRACT | typeof NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT |
+      typeof NATIVE_REFERENCE_SEGMENT_CONTRACT | typeof NATIVE_SUPERSEDED_REFERENCE_SEGMENT_CONTRACT;
     coverage: "sampled_native_generation_core" | "superseded_native_generation_core" |
-      "sampled_native_reference_generation_core" | "superseded_native_reference_generation_core";
+      "sampled_native_reference_generation_core" | "superseded_native_reference_generation_core" |
+      "selected_native_reference_segment" | "selected_superseded_native_reference_segment";
     reclaimEligible: false;
     providerAuthority: false;
     capturedAt: string;
@@ -54,6 +66,7 @@ export interface NativeArchiveBundle {
     tables: { table: NativeArchiveTable; rowCount: number; rows: { key: string; objectHash: string }[] }[];
     /** Superseded historical-copy census; even pin-free copies never authorize eviction. */
     pinCensus?: NativeArchivePinCensus;
+    segment?: NativeArchiveSegmentIdentity;
   };
   /** Content-addressed exact PostgreSQL JSON bytes, with a separate trusted manifest digest. */
   objects: Record<string, string>;
@@ -83,7 +96,11 @@ function rowKey(table: NativeArchiveTable, row: Record<string, unknown>): string
   return stableCanonicalJson(parts);
 }
 export function isReferenceNativeArchiveContract(contract: string): boolean {
-  return contract === NATIVE_REFERENCE_ARCHIVE_CONTRACT || contract === NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT;
+  return contract === NATIVE_REFERENCE_ARCHIVE_CONTRACT || contract === NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT ||
+    isNativeArchiveSegmentContract(contract);
+}
+export function isNativeArchiveSegmentContract(contract: string): boolean {
+  return contract === NATIVE_REFERENCE_SEGMENT_CONTRACT || contract === NATIVE_SUPERSEDED_REFERENCE_SEGMENT_CONTRACT;
 }
 function verifyRows(bundle: NativeArchiveBundle): {
   verified: Map<NativeArchiveTable, { key: string; rowJson: string }[]>;
@@ -91,13 +108,25 @@ function verifyRows(bundle: NativeArchiveBundle): {
 } {
   const m = bundle.manifest;
   const reference = isReferenceNativeArchiveContract(m.contract);
+  const segmented = isNativeArchiveSegmentContract(m.contract);
   const superseded = m.contract === NATIVE_SUPERSEDED_ARCHIVE_CONTRACT ||
-    m.contract === NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT;
+    m.contract === NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT || m.contract === NATIVE_SUPERSEDED_REFERENCE_SEGMENT_CONTRACT;
   const expectedTables = reference ? NATIVE_REFERENCE_ARCHIVE_TABLES : NATIVE_ARCHIVE_TABLES;
-  const coverage = reference ? (superseded ? "superseded_native_reference_generation_core" : "sampled_native_reference_generation_core") :
+  const coverage = segmented ? (superseded ? "selected_superseded_native_reference_segment" : "selected_native_reference_segment") :
+    reference ? (superseded ? "superseded_native_reference_generation_core" : "sampled_native_reference_generation_core") :
     (superseded ? "superseded_native_generation_core" : "sampled_native_generation_core");
   if ((!reference && !superseded && m.contract !== NATIVE_ARCHIVE_CONTRACT) || m.coverage !== coverage ||
       m.reclaimEligible !== false || m.providerAuthority !== false) fail("unsupported scope or authority");
+  if (segmented) {
+    const s = m.segment;
+    if (!s || !/^[0-9a-f]{64}$/.test(s.originalCoreManifestHash) || !/^[0-9a-f]{64}$/.test(s.originalParentManifestHash) ||
+      !Number.isSafeInteger(s.originalEvaluationCount) || s.originalEvaluationCount <= 0 || !Array.isArray(s.evaluationIds) ||
+      !s.evaluationIds.length || s.evaluationIds.length > s.originalEvaluationCount ||
+      s.evaluationIds.some(id => typeof id !== "string" || !id.length || id.length > 128) ||
+      new Set(s.evaluationIds).size !== s.evaluationIds.length ||
+      stableCanonicalJson([...s.evaluationIds].sort(compareCodeUnits)) !== stableCanonicalJson(s.evaluationIds))
+      fail("invalid explicit segment identity");
+  } else if (m.segment !== undefined) fail("complete contract cannot carry segment identity");
   if (superseded) {
     if (!m.pinCensus) fail("superseded pin census missing");
     const pins = assessNativeArchivePins(m.pinCensus, m.generation);
@@ -155,9 +184,11 @@ function verifyRows(bundle: NativeArchiveBundle): {
     stableCanonicalJson([r.contract_version, r.input_hash])));
   if (jobs.length !== 1 || jobs[0]!.status !== "success" ||
       jobs[0]!.job_name !== "engine_v3_native_ad_decisions_shadow_job" ||
-      !evaluations.length || Number(jobs[0]!.row_count) !== evaluations.length ||
+      !evaluations.length || Number(jobs[0]!.row_count) !== (segmented ? m.segment!.originalEvaluationCount : evaluations.length) ||
       snapshots.length !== (superseded ? 0 : evaluations.length)) fail("incomplete original generation");
-  if (superseded && m.pinCensus!.evaluationCount !== String(evaluations.length)) fail("census/evaluation count differs");
+  if (segmented && stableCanonicalJson(evaluations.map(r => r.id).sort((a,b) => compareCodeUnits(String(a),String(b)))) !==
+      stableCanonicalJson(m.segment!.evaluationIds)) fail("segment selected evaluation identity differs");
+  if (superseded && m.pinCensus!.evaluationCount !== String(segmented ? m.segment!.originalEvaluationCount : evaluations.length)) fail("census/evaluation count differs");
   if (superseded && (typeof jobs[0]!.finished_at !== "string" ||
       jobs[0]!.finished_at !== m.pinCensus!.jobFinishedAt)) fail("census/original finish clock differs");
   const evalById = new Map(evaluations.map(r => [r.id, r]));
@@ -189,14 +220,18 @@ interface NativeArchiveInput {
   generation: NativeArchiveGeneration; capturedAt: string; sourceRevision: string; sourceWorkspaceDirty: boolean;
   schema: NativeArchiveSchema; tables: NativeArchiveTableInput[];
 }
-function buildArchive(input: NativeArchiveInput, pinCensus?: NativeArchivePinCensus, reference = false): { bundle: NativeArchiveBundle; manifestHash: string } {
+function buildArchive(input: NativeArchiveInput, pinCensus?: NativeArchivePinCensus, reference = false,
+  segment?: NativeArchiveSegmentIdentity): { bundle: NativeArchiveBundle; manifestHash: string } {
   const objects: Record<string, string> = {};
   const bundle: NativeArchiveBundle = {
-    manifest: { contract: reference ? (pinCensus ? NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT : NATIVE_REFERENCE_ARCHIVE_CONTRACT) :
+    manifest: { contract: segment ? (pinCensus ? NATIVE_SUPERSEDED_REFERENCE_SEGMENT_CONTRACT : NATIVE_REFERENCE_SEGMENT_CONTRACT) :
+      reference ? (pinCensus ? NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT : NATIVE_REFERENCE_ARCHIVE_CONTRACT) :
       (pinCensus ? NATIVE_SUPERSEDED_ARCHIVE_CONTRACT : NATIVE_ARCHIVE_CONTRACT),
-      coverage: reference ? (pinCensus ? "superseded_native_reference_generation_core" : "sampled_native_reference_generation_core") :
+      coverage: segment ? (pinCensus ? "selected_superseded_native_reference_segment" : "selected_native_reference_segment") :
+        reference ? (pinCensus ? "superseded_native_reference_generation_core" : "sampled_native_reference_generation_core") :
         (pinCensus ? "superseded_native_generation_core" : "sampled_native_generation_core"),
       ...(pinCensus ? { pinCensus } : {}),
+      ...(segment ? { segment } : {}),
       reclaimEligible: false, providerAuthority: false, capturedAt: input.capturedAt,
       sourceRevision: input.sourceRevision, sourceWorkspaceDirty: input.sourceWorkspaceDirty,
       generation: input.generation, schema: input.schema,
@@ -214,6 +249,9 @@ function buildArchive(input: NativeArchiveInput, pinCensus?: NativeArchivePinCen
 
 export function buildNativeEvidenceArchive(input: NativeArchiveInput) { return buildArchive(input); }
 export function buildNativeReferenceEvidenceArchive(input: NativeArchiveInput) { return buildArchive(input, undefined, true); }
+export function buildNativeReferenceArchiveSegment(input: NativeArchiveInput & {
+  segment: NativeArchiveSegmentIdentity; pinCensus?: NativeArchivePinCensus;
+}) { return buildArchive(input, input.pinCensus, true, input.segment); }
 
 /** Historical copying can preserve a pinned generation. Pin census still vetoes a
  * removal candidate; unknown classes refuse transport. Current snapshots cannot
@@ -262,6 +300,8 @@ export function openNativeArchiveByContract(bundle: NativeArchiveBundle, expecte
     case NATIVE_SUPERSEDED_ARCHIVE_CONTRACT: return openNativeSupersededEvidenceArchive(bundle, expected);
     case NATIVE_REFERENCE_ARCHIVE_CONTRACT: return openNativeReferenceEvidenceArchive(bundle, expected);
     case NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT: return openNativeSupersededReferenceEvidenceArchive(bundle, expected);
+    case NATIVE_REFERENCE_SEGMENT_CONTRACT:
+    case NATIVE_SUPERSEDED_REFERENCE_SEGMENT_CONTRACT: return openArchive(bundle, expected);
     default: return fail("unsupported core reader contract");
   }
 }

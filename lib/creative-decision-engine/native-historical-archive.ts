@@ -2,10 +2,13 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import { gzipSync, gunzipSync } from "node:zlib";
 import { stableCanonicalJson } from "./canonical-evaluation";
 import { openNativeCalibrationParentArchive, type NativeCalibrationParentBundle } from "./native-calibration-parent-archive";
-import type { NativeArchiveGeneration } from "./native-evidence-archive";
+import { isNativeArchiveSegmentContract, type NativeArchiveGeneration } from "./native-evidence-archive";
+import { verifyNativeReferenceArchiveCoverageRoot, assertNativeReferenceSegmentMatchesRoot,
+  type NativeReferenceArchiveCoverageRoot } from "./native-reference-archive-segments";
 
 export const NATIVE_HISTORICAL_CATALOG_CONTRACT = "native-historical-archive-catalog.v1" as const;
 export const NATIVE_HISTORICAL_COMPRESSED_CATALOG_CONTRACT = "native-historical-archive-catalog.v2" as const;
+export const NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT = "native-historical-archive-catalog.v3" as const;
 export const NATIVE_HISTORICAL_COMPRESSED_ENCODING = "native-historical-aes-256-gcm-gzip.v2" as const;
 export const NATIVE_HISTORICAL_EVIDENCE_CONTRACT = "decision-engine-v3-native-ad-historical-evidence.v1" as const;
 export const NATIVE_REFERENCE_HISTORICAL_EVIDENCE_CONTRACT = "decision-engine-v3-native-ad-historical-evidence.v2" as const;
@@ -30,16 +33,24 @@ interface NativeHistoricalArchivePlaintextTrust {
 }
 type NativeHistoricalArchiveEncoding = { encoding?: undefined; payloadBytes?: never; payloadSha256?: never } |
   { encoding: typeof NATIVE_HISTORICAL_COMPRESSED_ENCODING; payloadBytes: number; payloadSha256: string };
+export interface NativeHistoricalArchiveSegmentTrust {
+  coverageRoot: NativeReferenceArchiveCoverageRoot;
+  coverageRootSha256: string;
+  evaluationIds: string[];
+}
 export type NativeHistoricalArchiveContentTrust = NativeHistoricalArchivePlaintextTrust & NativeHistoricalArchiveEncoding & {
   ciphertextSha256: string;
   ciphertextBytes: number;
+  segment?: NativeHistoricalArchiveSegmentTrust;
 };
 export type NativeHistoricalArchiveCatalogEntry = NativeHistoricalArchiveContentTrust & {
   object: { bucket: string; key: string; versionId: string };
 }
 export interface NativeHistoricalArchiveCatalog {
-  contract: typeof NATIVE_HISTORICAL_CATALOG_CONTRACT | typeof NATIVE_HISTORICAL_COMPRESSED_CATALOG_CONTRACT;
+  contract: typeof NATIVE_HISTORICAL_CATALOG_CONTRACT | typeof NATIVE_HISTORICAL_COMPRESSED_CATALOG_CONTRACT |
+    typeof NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT;
   entries: NativeHistoricalArchiveCatalogEntry[];
+  groups?: { coverageRoot: NativeReferenceArchiveCoverageRoot; coverageRootSha256: string }[];
 }
 export interface NativeHistoricalEvidenceRequest {
   generation: NativeArchiveGeneration;
@@ -93,17 +104,31 @@ function byteCount(value: unknown, limit: number): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0 || value > limit) refuse("payload size outside bound");
   return value;
 }
+function segmentTrust(value: unknown): NativeHistoricalArchiveSegmentTrust {
+  const s=record(value),coverageRoot=s.coverageRoot as NativeReferenceArchiveCoverageRoot;
+  const coverageRootSha256=digest(s.coverageRootSha256);
+  byteCount(Buffer.byteLength(JSON.stringify(s),"utf8"),NATIVE_HISTORICAL_MAX_CATALOG_BYTES);
+  const originalIds=verifyNativeReferenceArchiveCoverageRoot(coverageRoot,coverageRootSha256);
+  if(!Array.isArray(s.evaluationIds)||!s.evaluationIds.length||s.evaluationIds.length>originalIds.length ||
+    s.evaluationIds.some(id=>typeof id!=="string"||!originalIds.includes(id)) || new Set(s.evaluationIds).size!==s.evaluationIds.length)
+    refuse("fragment selection differs");
+  const evaluationIds=s.evaluationIds as string[];
+  if(stableCanonicalJson([...evaluationIds].sort())!==stableCanonicalJson(evaluationIds)) refuse("fragment ordering differs");
+  return {coverageRoot,coverageRootSha256,evaluationIds:[...evaluationIds]};
+}
 function contentTrust(value: unknown): NativeHistoricalArchiveContentTrust {
   const v = record(value);
   const encryptionKeyId = exactString(v.encryptionKeyId, 80);
   if (!/^[a-zA-Z0-9._-]+$/.test(encryptionKeyId)) refuse("invalid encryption key ID");
   const compressed = v.encoding === NATIVE_HISTORICAL_COMPRESSED_ENCODING;
+  const segment=v.segment===undefined?undefined:segmentTrust(v.segment);
+  if(segment&&!compressed) refuse("fragment requires explicit compressed encoding");
   if (v.encoding !== undefined && !compressed) refuse("unsupported encrypted encoding");
   const plaintextBytes = byteCount(v.plaintextBytes, compressed ? NATIVE_HISTORICAL_MAX_DECODED_BYTES : NATIVE_HISTORICAL_MAX_PLAINTEXT_BYTES);
   const ciphertextBytes = byteCount(v.ciphertextBytes, compressed ? NATIVE_HISTORICAL_MAX_COMPRESSED_BYTES + COMPRESSED_OVERHEAD : NATIVE_HISTORICAL_MAX_PLAINTEXT_BYTES + OVERHEAD);
   const base = { generation: generation(v.generation), parentManifestHash: digest(v.parentManifestHash),
     parentSchemaHash: digest(v.parentSchemaHash), encryptionKeyId, plaintextSha256: digest(v.plaintextSha256),
-    plaintextBytes, ciphertextSha256: digest(v.ciphertextSha256), ciphertextBytes };
+    plaintextBytes, ciphertextSha256: digest(v.ciphertextSha256), ciphertextBytes,...(segment?{segment}:{}) };
   if (compressed) {
     const payloadBytes = byteCount(v.payloadBytes, NATIVE_HISTORICAL_MAX_COMPRESSED_BYTES);
     if (ciphertextBytes !== payloadBytes + COMPRESSED_OVERHEAD) refuse("compressed encrypted length mismatch");
@@ -113,10 +138,12 @@ function contentTrust(value: unknown): NativeHistoricalArchiveContentTrust {
     refuse("encrypted length or legacy metadata mismatch");
   return base;
 }
-function aad(v: NativeHistoricalArchivePlaintextTrust & NativeHistoricalArchiveEncoding): Buffer {
+function aad(v: NativeHistoricalArchivePlaintextTrust & NativeHistoricalArchiveEncoding & {segment?:NativeHistoricalArchiveSegmentTrust}): Buffer {
   const common = { generation: v.generation,
     parentManifestHash: v.parentManifestHash, parentSchemaHash: v.parentSchemaHash,
-    encryptionKeyId: v.encryptionKeyId, plaintextSha256: v.plaintextSha256, plaintextBytes: v.plaintextBytes };
+    encryptionKeyId: v.encryptionKeyId, plaintextSha256: v.plaintextSha256, plaintextBytes: v.plaintextBytes,
+    ...(v.segment?{segmentCoverageRootSha256:v.segment.coverageRootSha256,
+      segmentEvaluationIdsSha256:nativeArchiveByteDigest(stableCanonicalJson(v.segment.evaluationIds))}:{}) };
   return Buffer.from(stableCanonicalJson(v.encoding === NATIVE_HISTORICAL_COMPRESSED_ENCODING ?
     { contract: v.encoding, ...common, payloadBytes: v.payloadBytes, payloadSha256: v.payloadSha256 } :
     { contract: "native-historical-aes-256-gcm.v1", ...common }), "utf8");
@@ -131,6 +158,7 @@ export function sealNativeHistoricalArchive(bundle: NativeCalibrationParentBundl
   manifestHash: string; schemaHash: string; generation: NativeArchiveGeneration;
 }, encryptionKeyId: string, encryptionKey: Uint8Array) {
   openNativeCalibrationParentArchive(bundle, expected);
+  if(isNativeArchiveSegmentContract(bundle.core.manifest.contract)) refuse("fragment requires explicit compressed transport");
   if (!/^[a-zA-Z0-9._-]{1,80}$/.test(encryptionKeyId)) refuse("invalid encryption key ID");
   const plaintext = Buffer.from(JSON.stringify(bundle), "utf8");
   byteCount(plaintext.length, NATIVE_HISTORICAL_MAX_PLAINTEXT_BYTES);
@@ -148,8 +176,14 @@ export function sealNativeHistoricalArchive(bundle: NativeCalibrationParentBundl
  * Runtime decompression is permitted only in the existing bounded worker. */
 export function sealCompressedNativeHistoricalArchive(bundle: NativeCalibrationParentBundle, expected: {
   manifestHash: string; schemaHash: string; generation: NativeArchiveGeneration;
-}, encryptionKeyId: string, encryptionKey: Uint8Array) {
+}, encryptionKeyId: string, encryptionKey: Uint8Array, segmentInput?:NativeHistoricalArchiveSegmentTrust) {
   openNativeCalibrationParentArchive(bundle, expected);
+  const segment=segmentInput===undefined?undefined:segmentTrust(segmentInput);
+  if(isNativeArchiveSegmentContract(bundle.core.manifest.contract)!==Boolean(segment)) refuse("explicit fragment trust required");
+  if(segment) {
+    assertNativeReferenceSegmentMatchesRoot(bundle,segment.coverageRoot,segment.coverageRootSha256);
+    if(stableCanonicalJson(bundle.core.manifest.segment!.evaluationIds)!==stableCanonicalJson(segment.evaluationIds)) refuse("fragment selected IDs differ");
+  }
   if (!/^[a-zA-Z0-9._-]{1,80}$/.test(encryptionKeyId)) refuse("invalid encryption key ID");
   const plaintext = Buffer.from(JSON.stringify(bundle), "utf8");
   byteCount(plaintext.length, NATIVE_HISTORICAL_MAX_DECODED_BYTES);
@@ -158,7 +192,7 @@ export function sealCompressedNativeHistoricalArchive(bundle: NativeCalibrationP
   const base = { generation: { ...expected.generation }, parentManifestHash: digest(expected.manifestHash),
     parentSchemaHash: digest(expected.schemaHash), encryptionKeyId, plaintextSha256: nativeArchiveByteDigest(plaintext),
     plaintextBytes: plaintext.length, encoding: NATIVE_HISTORICAL_COMPRESSED_ENCODING,
-    payloadBytes: payload.length, payloadSha256: nativeArchiveByteDigest(payload) };
+    payloadBytes: payload.length, payloadSha256: nativeArchiveByteDigest(payload),...(segment?{segment}:{}) };
   const nonce = randomBytes(12), cipher = createCipheriv("aes-256-gcm", key(encryptionKey), nonce, { authTagLength: 16 });
   cipher.setAAD(aad(base));
   const ciphertext = Buffer.concat([cipher.update(payload), cipher.final()]);
@@ -175,27 +209,55 @@ export function openNativeHistoricalArchiveCatalog(bytes: Uint8Array, expectedDi
   byteCount(bytes.byteLength, NATIVE_HISTORICAL_MAX_CATALOG_BYTES);
   if (nativeArchiveByteDigest(bytes) !== digest(expectedDigest)) refuse("catalog trust mismatch");
   const catalog = record(JSON.parse(Buffer.from(bytes).toString("utf8")));
-  if ((catalog.contract !== NATIVE_HISTORICAL_CATALOG_CONTRACT && catalog.contract !== NATIVE_HISTORICAL_COMPRESSED_CATALOG_CONTRACT) || !Array.isArray(catalog.entries) ||
+  const segmented=catalog.contract===NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT;
+  if ((catalog.contract !== NATIVE_HISTORICAL_CATALOG_CONTRACT && catalog.contract !== NATIVE_HISTORICAL_COMPRESSED_CATALOG_CONTRACT && !segmented) || !Array.isArray(catalog.entries) ||
     catalog.entries.length > 128) refuse("unsupported catalog contract/count");
-  const seen = new Set<string>();
+  if(!segmented&&catalog.groups!==undefined) refuse("fragment groups require v3 catalog");
+  if(segmented&&(!Array.isArray(catalog.groups)||catalog.groups.length>128)) refuse("fragment groups outside bound");
+  const groups=(segmented?catalog.groups as unknown[]:[]).map(raw=>{
+    const g=record(raw),coverageRoot=g.coverageRoot as NativeReferenceArchiveCoverageRoot,coverageRootSha256=digest(g.coverageRootSha256);
+    verifyNativeReferenceArchiveCoverageRoot(coverageRoot,coverageRootSha256);
+    return {coverageRoot,coverageRootSha256};
+  });
+  if(new Set(groups.map(g=>g.coverageRootSha256)).size!==groups.length ||
+    new Set(groups.map(g=>g.coverageRoot.core.generation.jobRunId)).size!==groups.length) refuse("ambiguous fragment root");
+  const roots=new Map(groups.map(g=>[g.coverageRootSha256,g]));
+  const seen = new Map<string,string>();
   const entries = catalog.entries.map(raw => {
-    const r = record(raw), trust = contentTrust(r), object = record(r.object);
+    const r=record(raw);
+    let normalized=r;
+    if(r.segment!==undefined) {
+      if(!segmented) refuse("fragment entry requires v3 catalog");
+      const s=record(r.segment),root=roots.get(digest(s.coverageRootSha256));
+      if(!root||s.coverageRoot!==undefined) refuse("fragment root must be declared once in catalog");
+      normalized={...r,segment:{...s,coverageRoot:root.coverageRoot}};
+    }
+    const trust = contentTrust(normalized), object = record(r.object);
     const bucket = exactString(object.bucket, 63), objectKey = exactString(object.key), versionId = exactString(object.versionId);
     if (catalog.contract === NATIVE_HISTORICAL_CATALOG_CONTRACT && trust.encoding !== undefined) refuse("compressed entry requires v2 catalog");
     const version = nativeHistoricalArchiveStorageVersion(trust);
     if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket) ||
       objectKey !== `native/${version}/${trust.ciphertextSha256}.bin` || versionId === "null") refuse("invalid immutable object pointer");
-    if (seen.has(trust.generation.jobRunId)) refuse("ambiguous generation index");
-    seen.add(trust.generation.jobRunId);
+    const kind=trust.segment?.coverageRootSha256??"whole";
+    if(seen.has(trust.generation.jobRunId)&&(kind==="whole"||seen.get(trust.generation.jobRunId)!==kind)) refuse("ambiguous generation index");
+    seen.set(trust.generation.jobRunId,kind);
+    if(trust.segment&&!stableGenerationEqual(trust.generation,trust.segment.coverageRoot.core.generation)) refuse("foreign fragment generation");
     return { ...trust, object: { bucket, key: objectKey, versionId } };
   });
-  return { contract: catalog.contract, entries };
+  for(const group of groups) {
+    const selected=entries.filter(e=>e.segment?.coverageRootSha256===group.coverageRootSha256).flatMap(e=>e.segment!.evaluationIds);
+    const original=verifyNativeReferenceArchiveCoverageRoot(group.coverageRoot,group.coverageRootSha256);
+    if(new Set(selected).size!==selected.length||stableCanonicalJson(selected.sort())!==stableCanonicalJson(original)) refuse("fragment catalog coverage incomplete/overlapping");
+  }
+  return { contract: catalog.contract as NativeHistoricalArchiveCatalog["contract"], entries,...(segmented?{groups}:{}) };
 }
+function stableGenerationEqual(a:NativeArchiveGeneration,b:NativeArchiveGeneration) {return stableCanonicalJson(a)===stableCanonicalJson(b);}
 
 export function resolveNativeHistoricalArchiveEntry(catalog: NativeHistoricalArchiveCatalog, request: NativeHistoricalEvidenceRequest) {
   const g = generation(request.generation);
   exactString(request.providerAccountId); exactString(request.adId); exactString(request.evaluationId);
-  const matches = catalog.entries.filter(e => stableCanonicalJson(e.generation) === stableCanonicalJson(g));
+  const matches = catalog.entries.filter(e => stableCanonicalJson(e.generation) === stableCanonicalJson(g) &&
+    (!e.segment||e.segment.evaluationIds.includes(request.evaluationId)));
   if (matches.length !== 1) refuse("exact historical generation absent");
   return matches[0]!;
 }
@@ -223,6 +285,11 @@ export function openNativeHistoricalArchiveEnvelope(bytes: Uint8Array, trustInpu
   const bundle = JSON.parse(plaintext.toString("utf8")) as NativeCalibrationParentBundle;
   const view = openNativeCalibrationParentArchive(bundle, { manifestHash: trust.parentManifestHash,
     schemaHash: trust.parentSchemaHash, generation: trust.generation });
+  if(isNativeArchiveSegmentContract(bundle.core.manifest.contract)!==Boolean(trust.segment)) refuse("fragment transport trust absent/foreign");
+  if(trust.segment) {
+    assertNativeReferenceSegmentMatchesRoot(bundle,trust.segment.coverageRoot,trust.segment.coverageRootSha256);
+    if(stableCanonicalJson(bundle.core.manifest.segment!.evaluationIds)!==stableCanonicalJson(trust.segment.evaluationIds)) refuse("fragment requested selection differs");
+  }
   return { bundle, view };
 }
 

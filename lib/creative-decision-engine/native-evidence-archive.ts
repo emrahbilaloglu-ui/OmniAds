@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { assertInlineCampaignContextArchiveRow } from "./native-campaign-context-storage";
+import { NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE } from "./native-campaign-context-storage";
+import { verifyNativeCampaignContextArchive, type ArchivedCampaignContext } from "./native-campaign-context-archive";
 import { stableCanonicalJson } from "./canonical-evaluation";
 import { assessNativeArchivePins, type NativeArchivePinCensus } from "./native-archive-pin-census";
 
@@ -7,6 +9,8 @@ import { assessNativeArchivePins, type NativeArchivePinCensus } from "./native-a
  * it; no current decision, uploader, writer or evictor is granted authority. */
 export const NATIVE_ARCHIVE_CONTRACT = "native-generation-core-archive.v1" as const;
 export const NATIVE_SUPERSEDED_ARCHIVE_CONTRACT = "native-superseded-generation-core-archive.v1" as const;
+export const NATIVE_REFERENCE_ARCHIVE_CONTRACT = "native-generation-reference-core-archive.v1" as const;
+export const NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT = "native-superseded-generation-reference-core-archive.v1" as const;
 export const NATIVE_ARCHIVE_TABLES = [
   "engine_v3_job_runs",
   "engine_v3_ad_decision_evaluation_contexts",
@@ -14,7 +18,8 @@ export const NATIVE_ARCHIVE_TABLES = [
   "engine_v3_ad_decision_input_evidence",
   "engine_v3_ad_decision_snapshots_daily",
 ] as const;
-export type NativeArchiveTable = typeof NATIVE_ARCHIVE_TABLES[number];
+export const NATIVE_REFERENCE_ARCHIVE_TABLES = [...NATIVE_ARCHIVE_TABLES, NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE] as const;
+export type NativeArchiveTable = typeof NATIVE_REFERENCE_ARCHIVE_TABLES[number];
 export interface NativeArchiveGeneration {
   businessId: string;
   jobRunId: string;
@@ -33,8 +38,10 @@ export interface NativeArchiveTableInput {
 }
 export interface NativeArchiveBundle {
   manifest: {
-    contract: typeof NATIVE_ARCHIVE_CONTRACT | typeof NATIVE_SUPERSEDED_ARCHIVE_CONTRACT;
-    coverage: "sampled_native_generation_core" | "superseded_native_generation_core";
+    contract: typeof NATIVE_ARCHIVE_CONTRACT | typeof NATIVE_SUPERSEDED_ARCHIVE_CONTRACT |
+      typeof NATIVE_REFERENCE_ARCHIVE_CONTRACT | typeof NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT;
+    coverage: "sampled_native_generation_core" | "superseded_native_generation_core" |
+      "sampled_native_reference_generation_core" | "superseded_native_reference_generation_core";
     reclaimEligible: false;
     providerAuthority: false;
     capturedAt: string;
@@ -57,6 +64,7 @@ const KEY_COLUMNS: Record<NativeArchiveTable, string[]> = {
   engine_v3_ad_decision_evaluations: ["id"],
   engine_v3_ad_decision_input_evidence: ["contract_version", "input_hash"],
   engine_v3_ad_decision_snapshots_daily: ["id"],
+  engine_v3_ad_campaign_context_objects: ["business_ref_id", "payload_sha256"],
 };
 function fail(message: string): never { throw new Error(`Native archive refused: ${message}`); }
 function sha(bytes: string): string { return createHash("sha256").update(bytes, "utf8").digest("hex"); }
@@ -74,11 +82,21 @@ function rowKey(table: NativeArchiveTable, row: Record<string, unknown>): string
   });
   return stableCanonicalJson(parts);
 }
-function verifyRows(bundle: NativeArchiveBundle): Map<NativeArchiveTable, { key: string; rowJson: string }[]> {
+export function isReferenceNativeArchiveContract(contract: string): boolean {
+  return contract === NATIVE_REFERENCE_ARCHIVE_CONTRACT || contract === NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT;
+}
+function verifyRows(bundle: NativeArchiveBundle): {
+  verified: Map<NativeArchiveTable, { key: string; rowJson: string }[]>;
+  campaignContexts: ReadonlyMap<string, ArchivedCampaignContext> | null;
+} {
   const m = bundle.manifest;
-  const superseded = m.contract === NATIVE_SUPERSEDED_ARCHIVE_CONTRACT;
-  if ((!superseded && m.contract !== NATIVE_ARCHIVE_CONTRACT) ||
-      m.coverage !== (superseded ? "superseded_native_generation_core" : "sampled_native_generation_core") ||
+  const reference = isReferenceNativeArchiveContract(m.contract);
+  const superseded = m.contract === NATIVE_SUPERSEDED_ARCHIVE_CONTRACT ||
+    m.contract === NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT;
+  const expectedTables = reference ? NATIVE_REFERENCE_ARCHIVE_TABLES : NATIVE_ARCHIVE_TABLES;
+  const coverage = reference ? (superseded ? "superseded_native_reference_generation_core" : "sampled_native_reference_generation_core") :
+    (superseded ? "superseded_native_generation_core" : "sampled_native_generation_core");
+  if ((!reference && !superseded && m.contract !== NATIVE_ARCHIVE_CONTRACT) || m.coverage !== coverage ||
       m.reclaimEligible !== false || m.providerAuthority !== false) fail("unsupported scope or authority");
   if (superseded) {
     if (!m.pinCensus) fail("superseded pin census missing");
@@ -95,13 +113,13 @@ function verifyRows(bundle: NativeArchiveBundle): Map<NativeArchiveTable, { key:
   if (sha(stableCanonicalJson(m.schema)) !== m.schemaHash) fail("schema digest mismatch");
   const schemas = new Map(m.schema.tables.map(t => [t.table, t]));
   const tables = new Map(m.tables.map(t => [t.table, t]));
-  if (m.tables.length !== NATIVE_ARCHIVE_TABLES.length || tables.size !== NATIVE_ARCHIVE_TABLES.length ||
-      m.schema.tables.length !== NATIVE_ARCHIVE_TABLES.length || schemas.size !== NATIVE_ARCHIVE_TABLES.length ||
-      NATIVE_ARCHIVE_TABLES.some(t => !tables.has(t) || !schemas.has(t))) fail("missing/extra/duplicate core table");
+  if (m.tables.length !== expectedTables.length || tables.size !== expectedTables.length ||
+      m.schema.tables.length !== expectedTables.length || schemas.size !== expectedTables.length ||
+      expectedTables.some(t => !tables.has(t) || !schemas.has(t))) fail("missing/extra/duplicate core table");
   const used = new Set<string>();
   const parsed = new Map<NativeArchiveTable, Record<string, unknown>[]>();
   const verified = new Map<NativeArchiveTable, { key: string; rowJson: string }[]>();
-  for (const name of NATIVE_ARCHIVE_TABLES) {
+  for (const name of expectedTables) {
     const table = tables.get(name)!;
     const columns = schemas.get(name)!.columns.map(c => c.name).sort();
     if (!columns.length || new Set(columns).size !== columns.length) fail("invalid schema columns");
@@ -114,11 +132,11 @@ function verifyRows(bundle: NativeArchiveBundle): Map<NativeArchiveTable, { key:
       const bytes = bundle.objects[ref.objectHash];
       if (typeof bytes !== "string" || sha(bytes) !== ref.objectHash) fail("missing/corrupt object");
       const row = jsonRow(bytes);
-      if (name === "engine_v3_ad_decision_evaluations") assertInlineCampaignContextArchiveRow(row);
+      if (name === "engine_v3_ad_decision_evaluations" && !reference) assertInlineCampaignContextArchiveRow(row);
       if (stableCanonicalJson(Object.keys(row).sort()) !== stableCanonicalJson(columns)) fail("row/schema columns differ");
       if (rowKey(name, row) !== ref.key || keys.has(ref.key)) fail("changed/duplicate row identity");
       keys.add(ref.key); used.add(ref.objectHash);
-      if (name !== "engine_v3_ad_decision_input_evidence") {
+      if (name !== "engine_v3_ad_decision_input_evidence" && name !== NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE) {
         const g = m.generation;
         if (row.business_ref_id !== g.businessId || row.business_id !== g.businessId ||
             row.as_of_date !== g.asOfDate || row.engine_version !== g.engineVersion ||
@@ -161,18 +179,23 @@ function verifyRows(bundle: NativeArchiveBundle): Map<NativeArchiveTable, { key:
     usedEvaluations.add(snapshot.evaluation_id);
   }
   if (usedContexts.size !== contexts.size || usedEvidence.size !== evidence.size) fail("extra context/evidence");
-  return verified;
+  const campaignContexts = reference ? verifyNativeCampaignContextArchive(
+    verified.get("engine_v3_ad_decision_evaluations")!.map(r => r.rowJson),
+    verified.get(NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE)!.map(r => r.rowJson), m.generation.businessId) : null;
+  return { verified, campaignContexts };
 }
 
 interface NativeArchiveInput {
   generation: NativeArchiveGeneration; capturedAt: string; sourceRevision: string; sourceWorkspaceDirty: boolean;
   schema: NativeArchiveSchema; tables: NativeArchiveTableInput[];
 }
-function buildArchive(input: NativeArchiveInput, pinCensus?: NativeArchivePinCensus): { bundle: NativeArchiveBundle; manifestHash: string } {
+function buildArchive(input: NativeArchiveInput, pinCensus?: NativeArchivePinCensus, reference = false): { bundle: NativeArchiveBundle; manifestHash: string } {
   const objects: Record<string, string> = {};
   const bundle: NativeArchiveBundle = {
-    manifest: { contract: pinCensus ? NATIVE_SUPERSEDED_ARCHIVE_CONTRACT : NATIVE_ARCHIVE_CONTRACT,
-      coverage: pinCensus ? "superseded_native_generation_core" : "sampled_native_generation_core",
+    manifest: { contract: reference ? (pinCensus ? NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT : NATIVE_REFERENCE_ARCHIVE_CONTRACT) :
+      (pinCensus ? NATIVE_SUPERSEDED_ARCHIVE_CONTRACT : NATIVE_ARCHIVE_CONTRACT),
+      coverage: reference ? (pinCensus ? "superseded_native_reference_generation_core" : "sampled_native_reference_generation_core") :
+        (pinCensus ? "superseded_native_generation_core" : "sampled_native_generation_core"),
       ...(pinCensus ? { pinCensus } : {}),
       reclaimEligible: false, providerAuthority: false, capturedAt: input.capturedAt,
       sourceRevision: input.sourceRevision, sourceWorkspaceDirty: input.sourceWorkspaceDirty,
@@ -190,6 +213,7 @@ function buildArchive(input: NativeArchiveInput, pinCensus?: NativeArchivePinCen
 }
 
 export function buildNativeEvidenceArchive(input: NativeArchiveInput) { return buildArchive(input); }
+export function buildNativeReferenceEvidenceArchive(input: NativeArchiveInput) { return buildArchive(input, undefined, true); }
 
 /** Historical copying can preserve a pinned generation. Pin census still vetoes a
  * removal candidate; unknown classes refuse transport. Current snapshots cannot
@@ -197,6 +221,9 @@ export function buildNativeEvidenceArchive(input: NativeArchiveInput) { return b
 export function buildNativeSupersededEvidenceArchive(input: NativeArchiveInput & {
   pinCensus: NativeArchivePinCensus;
 }) { return buildArchive(input, input.pinCensus); }
+export function buildNativeSupersededReferenceEvidenceArchive(input: NativeArchiveInput & {
+  pinCensus: NativeArchivePinCensus;
+}) { return buildArchive(input, input.pinCensus, true); }
 
 /** Digest must come from a trusted index, never from the downloaded bundle itself. */
 export function openNativeEvidenceArchive(bundle: NativeArchiveBundle, expected: {
@@ -213,13 +240,39 @@ export function openNativeSupersededEvidenceArchive(bundle: NativeArchiveBundle,
   return openArchive(bundle, expected);
 }
 
+export function openNativeReferenceEvidenceArchive(bundle: NativeArchiveBundle, expected: {
+  manifestHash: string; schemaHash: string; generation: NativeArchiveGeneration;
+}) {
+  if (bundle.manifest.contract !== NATIVE_REFERENCE_ARCHIVE_CONTRACT) fail("last-served reference reader contract mismatch");
+  return openArchive(bundle, expected);
+}
+export function openNativeSupersededReferenceEvidenceArchive(bundle: NativeArchiveBundle, expected: {
+  manifestHash: string; schemaHash: string; generation: NativeArchiveGeneration;
+}) {
+  if (bundle.manifest.contract !== NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT) fail("superseded reference reader contract mismatch");
+  return openArchive(bundle, expected);
+}
+
+/** Explicit transport dispatch. Unknown formats never inherit current authority. */
+export function openNativeArchiveByContract(bundle: NativeArchiveBundle, expected: {
+  manifestHash: string; schemaHash: string; generation: NativeArchiveGeneration;
+}) {
+  switch (bundle.manifest.contract) {
+    case NATIVE_ARCHIVE_CONTRACT: return openNativeEvidenceArchive(bundle, expected);
+    case NATIVE_SUPERSEDED_ARCHIVE_CONTRACT: return openNativeSupersededEvidenceArchive(bundle, expected);
+    case NATIVE_REFERENCE_ARCHIVE_CONTRACT: return openNativeReferenceEvidenceArchive(bundle, expected);
+    case NATIVE_SUPERSEDED_REFERENCE_ARCHIVE_CONTRACT: return openNativeSupersededReferenceEvidenceArchive(bundle, expected);
+    default: return fail("unsupported core reader contract");
+  }
+}
+
 function openArchive(bundle: NativeArchiveBundle, expected: {
   manifestHash: string; schemaHash: string; generation: NativeArchiveGeneration;
 }) {
   if (sha(stableCanonicalJson(bundle.manifest)) !== expected.manifestHash ||
       bundle.manifest.schemaHash !== expected.schemaHash ||
       stableCanonicalJson(bundle.manifest.generation) !== stableCanonicalJson(expected.generation)) fail("trusted manifest/schema/generation mismatch");
-  const verified = verifyRows(bundle);
+  const { verified, campaignContexts } = verifyRows(bundle);
   return {
     // Historical record bytes may describe an original authorized verdict.
     // Their archive availability never authorizes execution now.
@@ -228,6 +281,13 @@ function openArchive(bundle: NativeArchiveBundle, expected: {
     reclaimEligible: false as const,
     originalJobRunId: bundle.manifest.generation.jobRunId,
     capturedAt: bundle.manifest.capturedAt,
+    /** Original evaluation bytes retain their NULL/reference representation. */
+    readCampaignContext(evaluationId: string): ArchivedCampaignContext | null {
+      if (!campaignContexts) return null;
+      const value = campaignContexts.get(evaluationId);
+      if (!value) fail("archived campaign evaluation absent");
+      return { ...value };
+    },
     readTable(table: NativeArchiveTable): readonly { key: string; rowJson: string }[] {
       return verified.get(table)!.map(row => ({ ...row }));
     },

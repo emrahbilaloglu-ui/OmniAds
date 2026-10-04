@@ -110,6 +110,10 @@ export function CreativeEngineV3EvidenceSection({
         <pre className="whitespace-pre-wrap break-all text-xs">{payload.rowJson.snapshot}</pre> :
         <p className="text-sm text-neutral-500">This superseded generation has no original daily snapshot in its archive.</p> },
     ];
+    if (payload.rowJson.campaignContextObject) {
+      historicalSections.push({ key: "original-campaign-context", title: "Original campaign context",
+        content: <pre className="whitespace-pre-wrap break-all text-xs">{payload.rowJson.campaignContextObject}</pre> });
+    }
     return <EvidenceShell>
       <p className="mb-3 text-sm text-neutral-500">Historical record · review only. It does not authorize advertising changes.</p>
       <p className="mb-3 text-xs text-neutral-500">{payload.generation.asOfDate} · {payload.generation.engineVersion} · {payload.generation.jobRunId}</p>

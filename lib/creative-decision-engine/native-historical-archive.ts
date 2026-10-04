@@ -8,6 +8,7 @@ export const NATIVE_HISTORICAL_CATALOG_CONTRACT = "native-historical-archive-cat
 export const NATIVE_HISTORICAL_COMPRESSED_CATALOG_CONTRACT = "native-historical-archive-catalog.v2" as const;
 export const NATIVE_HISTORICAL_COMPRESSED_ENCODING = "native-historical-aes-256-gcm-gzip.v2" as const;
 export const NATIVE_HISTORICAL_EVIDENCE_CONTRACT = "decision-engine-v3-native-ad-historical-evidence.v1" as const;
+export const NATIVE_REFERENCE_HISTORICAL_EVIDENCE_CONTRACT = "decision-engine-v3-native-ad-historical-evidence.v2" as const;
 export const NATIVE_HISTORICAL_MAX_PLAINTEXT_BYTES = 64 * 1024 * 1024;
 export const NATIVE_HISTORICAL_MAX_COMPRESSED_BYTES = 2 * 1024 * 1024;
 export const NATIVE_HISTORICAL_MAX_DECODED_BYTES = 8 * 1024 * 1024;
@@ -48,7 +49,7 @@ export interface NativeHistoricalEvidenceRequest {
 }
 export interface NativeHistoricalEvidence {
   status: "historical_available";
-  contractVersion: typeof NATIVE_HISTORICAL_EVIDENCE_CONTRACT;
+  contractVersion: typeof NATIVE_HISTORICAL_EVIDENCE_CONTRACT | typeof NATIVE_REFERENCE_HISTORICAL_EVIDENCE_CONTRACT;
   authority: "historical_read_only";
   providerAuthority: false;
   currentDecisionEligible: false;
@@ -59,7 +60,9 @@ export interface NativeHistoricalEvidence {
   identity: { providerAccountId: string; providerAccountRefId: string; adId: string;
     evaluationId: string; contextId: string; inputHash: string; decisionHash: string };
   /** Exact PostgreSQL JSONB text. Parsing these for display must not rewrite storage hashes. */
-  rowJson: { evaluation: string; context: string; inputEvidence: string; snapshot: string | null };
+  rowJson: { evaluation: string; context: string; inputEvidence: string; snapshot: string | null;
+    /** Present only for reference v2; preserves the original full shared row. */
+    campaignContextObject?: string };
 }
 
 function refuse(reason: string): never { throw new Error(`Native historical archive refused: ${reason}`); }
@@ -241,12 +244,17 @@ export function openNativeHistoricalArchiveEvidence(bytes: Uint8Array, trustInpu
   const inputs = find("engine_v3_ad_decision_input_evidence", row => row.contract_version === evaluation.contract_version && row.input_hash === evaluation.input_hash);
   const snapshots = find("engine_v3_ad_decision_snapshots_daily", row => row.evaluation_id === evaluation.id);
   if (contexts.length !== 1 || inputs.length !== 1 || snapshots.length > 1) refuse("historical row lineage differs");
-  return { status: "historical_available", contractVersion: NATIVE_HISTORICAL_EVIDENCE_CONTRACT,
+  const campaign = view.readCampaignContext(request.evaluationId);
+  const sharedRow = campaign?.objectRowJson;
+  if (evaluation.campaign_context_ref !== null && evaluation.campaign_context_ref !== undefined && !sharedRow)
+    refuse("historical shared campaign root absent");
+  return { status: "historical_available", contractVersion: sharedRow ?
+    NATIVE_REFERENCE_HISTORICAL_EVIDENCE_CONTRACT : NATIVE_HISTORICAL_EVIDENCE_CONTRACT,
     authority: "historical_read_only", providerAuthority: false, currentDecisionEligible: false, reclaimEligible: false,
     generation: { ...trust.generation }, sourceRevision: bundle.manifest.sourceRevision, capturedAt: bundle.manifest.capturedAt,
     identity: { providerAccountId: request.providerAccountId, providerAccountRefId: exactString(evaluation.provider_account_ref_id),
       adId: request.adId, evaluationId: request.evaluationId, contextId: exactString(evaluation.context_id),
       inputHash: digest(evaluation.input_hash), decisionHash: digest(evaluation.decision_hash) },
     rowJson: { evaluation: evaluations[0]!.rowJson, context: contexts[0]!.rowJson, inputEvidence: inputs[0]!.rowJson,
-      snapshot: snapshots[0]?.rowJson ?? null } };
+      snapshot: snapshots[0]?.rowJson ?? null, ...(sharedRow ? { campaignContextObject: sharedRow } : {}) } };
 }

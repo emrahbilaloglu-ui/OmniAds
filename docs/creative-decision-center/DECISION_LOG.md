@@ -12174,3 +12174,36 @@ index/GC, archive/removal authorization or physical reclaim is implied. Existing
 inline archive formats refuse references until explicit shared-root membership,
 reader/restore and pin closure are proven. Sustainable item3 and strict natural
 positive reuse item7 remain open. See [the storage contract](../architecture/native-campaign-context-storage.md).
+
+## D143 — Shared campaign context reference archive compatibility (2026-10-04)
+
+**Problem:** D142 naturally writes tenant-bound campaign references, while the
+original five/seven-table inline archives deliberately refuse them. A historical
+copy must carry the original shared object without normalizing its JSONB text or
+materializing a rewritten evaluation row.
+
+**Decision:** Keep both original contracts unchanged. Add explicit last-served
+and superseded six-table reference cores and a separate eight-unique-table
+calibration-parent transport. Exact selected shared membership binds tenant,
+BYTEA digest, original JSONB text, UTF8 length and encoding. The original member
+slicer preserves arbitrary-precision bytes; missing/foreign/duplicate/unused
+roots or invalid XOR refuse without a live fallback. Original row IDs, hashes
+and clocks remain unchanged. Historical v2 evidence adds the original shared
+row; inline v1 evidence stays byte-compatible. The UI keeps review-only authority.
+
+**Verification:** Public real-producer 501-row/four-object owned fixtures install
+actual full migrations in separate source/current/superseded databases. Original
+complete calibration parents and independent credential-free roots restore with
+eight-table exact JSONB/ID/hash/clock parity; real SQL accessor and immutable
+object/calibration and FK negatives remain enforced. Synthetic state, copied
+history, local tests and a packaged worker are separate from natural/live proof.
+
+**Boundary:** No engine/formula/clock/epoch/provider-authority change, production
+capture, catalog switch, retention deletion, reverse-reference index or object
+GC. Existing decoded/stored caps remain unchanged; larger generations refuse.
+Shared objects and unknown/transitive readers still require separate closure.
+Source, QA/build, exact-SHA release, authenticated original bodies, removal and
+physical reuse remain distinct gates. Older readers refuse the new contract;
+retain/restore their compatible catalog on code recovery. Item3 sustainable
+storage and item7 strict natural positive reuse stay open. See
+[the reference archive contract](../architecture/native-campaign-context-reference-archive.md).

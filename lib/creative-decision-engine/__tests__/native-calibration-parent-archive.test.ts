@@ -8,15 +8,20 @@ import { readNativeHistoricalAdEvidence, NATIVE_HISTORICAL_READER_GATE } from ".
 import { createHash } from "node:crypto";
 import { stableCanonicalJson } from "../canonical-evaluation";
 import { buildNativeEvidenceArchive, buildNativeSupersededEvidenceArchive, NATIVE_ARCHIVE_TABLES,
+  buildNativeReferenceEvidenceArchive, buildNativeSupersededReferenceEvidenceArchive,
   type NativeArchiveTableInput } from "../native-evidence-archive";
+import { NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE, NATIVE_CAMPAIGN_CONTEXT_STORAGE_VERSION } from "../native-campaign-context-storage";
 import { NATIVE_PIN_CLASSES } from "../native-archive-pin-census";
 import { buildNativeCalibrationParentArchive, openNativeCalibrationParentArchive,
-  NATIVE_CALIBRATION_PARENT_TABLES, type NativeCalibrationParentInput } from "../native-calibration-parent-archive";
+  NATIVE_CALIBRATION_PARENT_TABLES, NATIVE_REFERENCE_CALIBRATION_PARENT_ARCHIVE_CONTRACT,
+  type NativeCalibrationParentInput } from "../native-calibration-parent-archive";
 import { AD_CALIBRATION_JOB_NAME, NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
   computeNativeAdCalibrationCellSetHash } from "../jobs/ad-calibration-job";
 import { NATIVE_HISTORICAL_CATALOG_CONTRACT, nativeArchiveByteDigest, sealNativeHistoricalArchive,
   openNativeHistoricalArchiveCatalog, openNativeHistoricalArchiveEvidence, openNativeHistoricalArchiveEnvelope,
-  resolveNativeHistoricalArchiveEntry } from "../native-historical-archive";
+  resolveNativeHistoricalArchiveEntry, sealCompressedNativeHistoricalArchive,
+  NATIVE_REFERENCE_HISTORICAL_EVIDENCE_CONTRACT } from "../native-historical-archive";
+import { verifyNativeHistoricalEvidenceInWorker } from "../native-historical-archive-worker-client";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
 const business = id(1), job = id(2), account = id(3), batch = id(4), calJob = id(5);
@@ -84,7 +89,48 @@ function softOnly(data: NativeCalibrationParentInput, knownBatch: boolean) {
   if(!knownBatch) for(const t of data.tables) t.rowJson=[];
   return data;
 }
+function referencedInput(superseded = false) {
+  const data = input(superseded);
+  const payload = '{"decimal": 9007199254740993.123456789, "nested": {"values": [1, 2]}}';
+  const digest = createHash("sha256").update(payload).digest("hex");
+  const object = JSON.stringify({ business_ref_id: business, payload_sha256: "\\x" + digest,
+    payload_json: "__ORIGINAL__", storage_encoding_version: NATIVE_CAMPAIGN_CONTEXT_STORAGE_VERSION,
+    byte_length: Buffer.byteLength(payload), created_at: clock }).replace('"__ORIGINAL__"', payload);
+  const tables: NativeArchiveTableInput[] = data.core.manifest.tables.map(table => ({ table: table.table,
+    rowJson: table.rows.map(ref => {
+      const raw = data.core.objects[ref.objectHash]!;
+      return table.table === "engine_v3_ad_decision_evaluations" ? JSON.stringify({ ...JSON.parse(raw),
+        campaign_context_json: null, campaign_context_ref: "\\x" + digest }) : raw;
+    }) }));
+  tables.push({ table: NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE, rowJson: [object] });
+  const schema = structuredClone(data.core.manifest.schema);
+  schema.tables.find(table => table.table === "engine_v3_ad_decision_evaluations")!.columns.push(
+    { name: "campaign_context_json", type: "jsonb", nullable: true }, { name: "campaign_context_ref", type: "bytea", nullable: true });
+  schema.tables.push({ table: NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE,
+    columns: Object.keys(JSON.parse(object)).map(name => ({ name, type: "fixture", nullable: false })) });
+  const coreInput = { ...data.core.manifest, schema, tables, sourceWorkspaceDirty: false };
+  const core = superseded ? buildNativeSupersededReferenceEvidenceArchive({ ...coreInput,
+    pinCensus: data.core.manifest.pinCensus! }) : buildNativeReferenceEvidenceArchive(coreInput);
+  data.core = core.bundle; data.coreManifestHash = core.manifestHash;
+  return { data, payload, object };
+}
 describe("independent immutable native calibration parent transport", () => {
+  it.each([false, true])("keeps reference objects and original parents in a separate trusted eight-table transport (%s)", superseded => {
+    const source = referencedInput(superseded), built = buildNativeCalibrationParentArchive(source.data);
+    const reader = openNativeCalibrationParentArchive(built.bundle, trusted(built));
+    expect(built.bundle.manifest.contract).toBe(NATIVE_REFERENCE_CALIBRATION_PARENT_ARCHIVE_CONTRACT);
+    expect(new Set([...built.bundle.core.manifest.tables, ...built.bundle.manifest.tables].map(table => table.table)).size).toBe(8);
+    expect(reader.readCampaignContext("eval")).toEqual({ payloadJson: source.payload, objectRowJson: source.object });
+    expect(reader.readParentTable(NATIVE_CALIBRATION_PARENT_TABLES[1])).toEqual(source.data.tables[1]!.rowJson);
+    expect(reader.readCoreTable("engine_v3_ad_decision_snapshots_daily")).toHaveLength(superseded ? 0 : 1);
+    expect(reader).toMatchObject({ providerAuthority: false, reclaimEligible: false });
+  });
+  it("refuses a reference core declared as the legacy parent transport", () => {
+    const built = buildNativeCalibrationParentArchive(referencedInput().data);
+    built.bundle.manifest.contract = "native-calibration-parent-archive.v1";
+    const changedTrust = { ...trusted(built), manifestHash: nativeArchiveByteDigest(stableCanonicalJson(built.bundle.manifest)) };
+    expect(() => openNativeCalibrationParentArchive(built.bundle, changedTrust)).toThrow(/scope\/source\/schema differs/);
+  });
   it.each([false,true])("preserves complete original batch bytes and historical authority (superseded=%s)", superseded => {
     const data=input(superseded), built=buildNativeCalibrationParentArchive(data), reader=openNativeCalibrationParentArchive(built.bundle,trusted(built));
     expect(reader).toMatchObject({providerAuthority:false,reclaimEligible:false,authority:"historical_read_only",originalJobRunId:job});
@@ -187,6 +233,25 @@ describe("encrypted historical evidence integrity and authority", () => {
     const bytes=Buffer.from(JSON.stringify({contract:NATIVE_HISTORICAL_CATALOG_CONTRACT,entries:[entry]}));
     return {entry,bytes,sha256:nativeArchiveByteDigest(bytes)};
   }
+  it.each([false, true])("returns original shared row bytes through the actual compressed worker (%s)", async superseded => {
+    const source = referencedInput(superseded), built = buildNativeCalibrationParentArchive(source.data);
+    const pack = sealCompressedNativeHistoricalArchive(built.bundle, trusted(built), "fixture-key", key);
+    const entry = { ...pack.trust, object: { bucket: "archive-fixture",
+      key: `native/v2/${pack.trust.ciphertextSha256}.bin`, versionId: pack.trust.ciphertextSha256 } };
+    const direct = openNativeHistoricalArchiveEvidence(pack.bytes, entry, key, request);
+    const actualWorker = await verifyNativeHistoricalEvidenceInWorker(pack.bytes, key, entry, request, new AbortController().signal);
+    expect(actualWorker).toEqual(direct);
+    expect(direct).toMatchObject({ contractVersion: NATIVE_REFERENCE_HISTORICAL_EVIDENCE_CONTRACT,
+      providerAuthority: false, currentDecisionEligible: false, reclaimEligible: false });
+    expect(direct.rowJson.campaignContextObject).toBe(source.object);
+    expect(direct.rowJson.campaignContextObject).toContain("9007199254740993.123456789");
+    expect(direct.rowJson.evaluation).toContain('"campaign_context_json":null');
+    expect(direct.rowJson.snapshot === null).toBe(superseded);
+    expect(sealed().trust).not.toHaveProperty("encoding");
+    const legacy = sealed(), original = openNativeHistoricalArchiveEvidence(legacy.bytes, legacy.trust, key, request);
+    expect(original.contractVersion).toBe("decision-engine-v3-native-ad-historical-evidence.v1");
+    expect(Object.keys(original.rowJson)).toEqual(["evaluation", "context", "inputEvidence", "snapshot"]);
+  });
   it.each([false,true])("opens exact current/superseded original rows as historical only (%s)", superseded=>{
     const pack=sealed(superseded),index=catalog(pack);
     const pointer=resolveNativeHistoricalArchiveEntry(openNativeHistoricalArchiveCatalog(index.bytes,index.sha256),request);

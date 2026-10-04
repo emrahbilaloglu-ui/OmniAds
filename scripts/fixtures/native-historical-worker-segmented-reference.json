@@ -1,0 +1,974 @@
+{
+  "syntheticFixtureOnly": true,
+  "canonicalProducerProof": false,
+  "wholeGenerationRestoreProof": false,
+  "fixtureEncryptionKeyHex": "4141414141414141414141414141414141414141414141414141414141414141",
+  "ciphertextBase64": "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",
+  "entry": {
+    "generation": {
+      "businessId": "00000000-0000-4000-8000-000000000001",
+      "jobRunId": "00000000-0000-4000-8000-000000000002",
+      "asOfDate": "2026-09-30",
+      "engineVersion": "archive-parent-fixture"
+    },
+    "parentManifestHash": "00b5feb4c524817750d3b6e253b9568b072f613bc8fb686f5c179f7d02120930",
+    "parentSchemaHash": "82f9f722809ed817b356cf6af83df0e725ac5f8d0a8d63dfd5f8e69fe1c7b5cb",
+    "encryptionKeyId": "fixture-key",
+    "plaintextSha256": "e5e24079a609779bd6cbe1a4fc88162a5dfbc353f41d989ae9fc20750c53a30d",
+    "plaintextBytes": 21375,
+    "encoding": "native-historical-aes-256-gcm-gzip.v2",
+    "payloadBytes": 2784,
+    "payloadSha256": "9ff1e35aa354826068dc9d84d0659ae2ac182e628fd7c8b7c152b415dfc241b3",
+    "segment": {
+      "coverageRoot": {
+        "core": {
+          "contract": "native-generation-reference-core-archive.v1",
+          "coverage": "sampled_native_reference_generation_core",
+          "reclaimEligible": false,
+          "providerAuthority": false,
+          "capturedAt": "2026-09-30T04:00:00.000002Z",
+          "sourceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sourceWorkspaceDirty": false,
+          "generation": {
+            "businessId": "00000000-0000-4000-8000-000000000001",
+            "jobRunId": "00000000-0000-4000-8000-000000000002",
+            "asOfDate": "2026-09-30",
+            "engineVersion": "archive-parent-fixture"
+          },
+          "schema": {
+            "tables": [
+              {
+                "table": "engine_v3_job_runs",
+                "columns": [
+                  {
+                    "name": "business_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "business_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "as_of_date",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "engine_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "job_run_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_type",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "job_name",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "status",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "row_count",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "dependency_run_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "finished_at",
+                    "type": "fixture",
+                    "nullable": false
+                  }
+                ]
+              },
+              {
+                "table": "engine_v3_ad_decision_evaluation_contexts",
+                "columns": [
+                  {
+                    "name": "business_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "business_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "as_of_date",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "engine_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "job_run_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_type",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "contract_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "evaluated_at",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "context_json",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "data_health_json",
+                    "type": "fixture",
+                    "nullable": false
+                  }
+                ]
+              },
+              {
+                "table": "engine_v3_ad_decision_evaluations",
+                "columns": [
+                  {
+                    "name": "business_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "business_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "as_of_date",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "engine_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "job_run_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_type",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "context_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "contract_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "input_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "decision_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "decision_entity_type",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "decision_entity_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "ad_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "campaign_context_json",
+                    "type": "jsonb",
+                    "nullable": true
+                  },
+                  {
+                    "name": "campaign_context_ref",
+                    "type": "bytea",
+                    "nullable": true
+                  }
+                ]
+              },
+              {
+                "table": "engine_v3_ad_decision_input_evidence",
+                "columns": [
+                  {
+                    "name": "contract_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "input_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "input_evidence_json",
+                    "type": "fixture",
+                    "nullable": false
+                  }
+                ]
+              },
+              {
+                "table": "engine_v3_ad_decision_snapshots_daily",
+                "columns": [
+                  {
+                    "name": "business_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "business_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "as_of_date",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "engine_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "job_run_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_type",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "context_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "contract_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "input_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "decision_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "decision_entity_type",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "decision_entity_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "ad_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "evaluation_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "calibration_row_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "computed_at",
+                    "type": "fixture",
+                    "nullable": false
+                  }
+                ]
+              },
+              {
+                "table": "engine_v3_ad_campaign_context_objects",
+                "columns": [
+                  {
+                    "name": "business_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "payload_sha256",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "payload_json",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "storage_encoding_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "byte_length",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "created_at",
+                    "type": "fixture",
+                    "nullable": false
+                  }
+                ]
+              }
+            ],
+            "foreignKeys": []
+          },
+          "schemaHash": "d3edd55fe3244b1af45216f316b2df46b22e64d1f2a9d3c994c21b19dba6f946",
+          "tables": [
+            {
+              "table": "engine_v3_ad_campaign_context_objects",
+              "rowCount": 1,
+              "rows": [
+                {
+                  "key": "[\"00000000-0000-4000-8000-000000000001\",\"\\\\xbb7db88e9b3775ddbef12c4875b6c31ca056ed0131bb0be2cd25011fcc05ffa7\"]",
+                  "objectHash": "fdb07eb751dcce8070d07058e210ff40ef1dc21b870f2fb66d76a0e1d7f32793"
+                }
+              ]
+            },
+            {
+              "table": "engine_v3_ad_decision_evaluation_contexts",
+              "rowCount": 1,
+              "rows": [
+                {
+                  "key": "[\"context\"]",
+                  "objectHash": "6af6fc38642ce1bf716c2420179447c8df6bfff72a67ddb770b8ec8e3a38d3c6"
+                }
+              ]
+            },
+            {
+              "table": "engine_v3_ad_decision_evaluations",
+              "rowCount": 2,
+              "rows": [
+                {
+                  "key": "[\"00000000-0000-4000-8000-000000000101\"]",
+                  "objectHash": "d3576874726f10f1af439655a80026cc84d031af55077f6809854ea83c5091d7"
+                },
+                {
+                  "key": "[\"00000000-0000-4000-8000-000000000102\"]",
+                  "objectHash": "af79d271298972109cb6529fa0ec17caf9ef661111030cb3c6b51ba9e10a6659"
+                }
+              ]
+            },
+            {
+              "table": "engine_v3_ad_decision_input_evidence",
+              "rowCount": 1,
+              "rows": [
+                {
+                  "key": "[\"fixture.v1\",\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]",
+                  "objectHash": "8023484a3712e21bea75d071377f661ba5741ca2567d9d4a094be30fe6030374"
+                }
+              ]
+            },
+            {
+              "table": "engine_v3_ad_decision_snapshots_daily",
+              "rowCount": 2,
+              "rows": [
+                {
+                  "key": "[\"00000000-0000-4000-8000-000000000201\"]",
+                  "objectHash": "44bc383333b10bd44d7d83444460364d74b2ce5ba39d4b954685791986b5aa01"
+                },
+                {
+                  "key": "[\"00000000-0000-4000-8000-000000000202\"]",
+                  "objectHash": "8b07ff8ae7631756814d27da28771386147531e177a09c0f1718d028cc955668"
+                }
+              ]
+            },
+            {
+              "table": "engine_v3_job_runs",
+              "rowCount": 1,
+              "rows": [
+                {
+                  "key": "[\"00000000-0000-4000-8000-000000000002\"]",
+                  "objectHash": "44d9620a9318ccea18597cb31f94280e56f2034f9b044af274bb713d3bcde854"
+                }
+              ]
+            }
+          ]
+        },
+        "parent": {
+          "contract": "native-calibration-reference-parent-archive.v1",
+          "coverage": "core_referenced_complete_calibration_batches",
+          "providerAuthority": false,
+          "reclaimEligible": false,
+          "generation": {
+            "businessId": "00000000-0000-4000-8000-000000000001",
+            "jobRunId": "00000000-0000-4000-8000-000000000002",
+            "asOfDate": "2026-09-30",
+            "engineVersion": "archive-parent-fixture"
+          },
+          "capturedAt": "2026-09-30T04:00:00.000002Z",
+          "sourceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sourceWorkspaceDirty": false,
+          "coreManifestHash": "53d9ef76bc83a287ad8d8efdf1135779d2a2a9764240b2e8849e02219be2359a",
+          "coreSchemaHash": "d3edd55fe3244b1af45216f316b2df46b22e64d1f2a9d3c994c21b19dba6f946",
+          "schema": {
+            "tables": [
+              {
+                "table": "engine_v3_ad_account_calibration_batches",
+                "columns": [
+                  {
+                    "name": "business_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "business_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "as_of_date",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "engine_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "job_run_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_type",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "contract_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "policy_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "as_of_cutoff",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "computed_at",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "source_manifest_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "completeness_status",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "completed_at",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "expected_cell_count",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "cell_set_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "input_manifest_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  }
+                ]
+              },
+              {
+                "table": "engine_v3_ad_account_calibration_daily",
+                "columns": [
+                  {
+                    "name": "business_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "business_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "as_of_date",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "engine_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "job_run_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_type",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "contract_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "policy_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "as_of_cutoff",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "computed_at",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "source_manifest_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "batch_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "account_timezone",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "account_currency",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "cell_scope",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "objective",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "funnel_cohort",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "optimization_context",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "batch_input_manifest_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "input_manifest_hash",
+                    "type": "fixture",
+                    "nullable": false
+                  }
+                ]
+              },
+              {
+                "table": "engine_v3_job_runs",
+                "columns": [
+                  {
+                    "name": "business_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "business_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "as_of_date",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "engine_version",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_ref_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "provider_account_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "job_run_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_type",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "scope_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "job_name",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "status",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "row_count",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "dependency_run_id",
+                    "type": "fixture",
+                    "nullable": false
+                  },
+                  {
+                    "name": "finished_at",
+                    "type": "fixture",
+                    "nullable": false
+                  }
+                ]
+              }
+            ],
+            "foreignKeys": []
+          },
+          "schemaHash": "82f9f722809ed817b356cf6af83df0e725ac5f8d0a8d63dfd5f8e69fe1c7b5cb",
+          "externalIdentityRoots": [
+            {
+              "businessId": "00000000-0000-4000-8000-000000000001",
+              "provider": "meta",
+              "providerAccountRefId": "00000000-0000-4000-8000-000000000003",
+              "providerAccountId": "act_1"
+            }
+          ],
+          "tables": [
+            {
+              "table": "engine_v3_ad_account_calibration_batches",
+              "rowCount": 1,
+              "rows": [
+                {
+                  "id": "00000000-0000-4000-8000-000000000004",
+                  "objectHash": "1f9e7ac31193c0499541dde435b78e28867234c2a462edef56db049159c87073"
+                }
+              ]
+            },
+            {
+              "table": "engine_v3_ad_account_calibration_daily",
+              "rowCount": 2,
+              "rows": [
+                {
+                  "id": "00000000-0000-4000-8000-000000000006",
+                  "objectHash": "411f707985dd33748603a0056317db37ff3ab623bd195029d4edc469a2bf2a98"
+                },
+                {
+                  "id": "00000000-0000-4000-8000-000000000007",
+                  "objectHash": "2a58ee958ae4d73e400feacd391b328c2c1a50f3f3132055f6d30918d6b878b3"
+                }
+              ]
+            },
+            {
+              "table": "engine_v3_job_runs",
+              "rowCount": 1,
+              "rows": [
+                {
+                  "id": "00000000-0000-4000-8000-000000000005",
+                  "objectHash": "40dc45be80aa8c8738d16313e06ef4010b3f35942737af7da6a08b9a6eb29c42"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "coverageRootSha256": "68c137e04620a035090abe0ed8fab09b4403c6e221bd74282505a9667f47a947",
+      "evaluationIds": [
+        "00000000-0000-4000-8000-000000000101"
+      ]
+    },
+    "ciphertextSha256": "5f85df1ffb75807fe5cbd7bcada88ee31427335b0635c4307db74e439293fb69",
+    "ciphertextBytes": 2832,
+    "object": {
+      "bucket": "archive-fixture",
+      "key": "native/v2/5f85df1ffb75807fe5cbd7bcada88ee31427335b0635c4307db74e439293fb69.bin",
+      "versionId": "5f85df1ffb75807fe5cbd7bcada88ee31427335b0635c4307db74e439293fb69"
+    }
+  },
+  "request": {
+    "generation": {
+      "businessId": "00000000-0000-4000-8000-000000000001",
+      "jobRunId": "00000000-0000-4000-8000-000000000002",
+      "asOfDate": "2026-09-30",
+      "engineVersion": "archive-parent-fixture"
+    },
+    "providerAccountId": "act_1",
+    "adId": "ad",
+    "evaluationId": "00000000-0000-4000-8000-000000000101"
+  },
+  "expectedEvidence": {
+    "status": "historical_available",
+    "contractVersion": "decision-engine-v3-native-ad-historical-evidence.v2",
+    "authority": "historical_read_only",
+    "providerAuthority": false,
+    "currentDecisionEligible": false,
+    "reclaimEligible": false,
+    "generation": {
+      "businessId": "00000000-0000-4000-8000-000000000001",
+      "jobRunId": "00000000-0000-4000-8000-000000000002",
+      "asOfDate": "2026-09-30",
+      "engineVersion": "archive-parent-fixture"
+    },
+    "sourceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "capturedAt": "2026-09-30T04:00:00.000002Z",
+    "identity": {
+      "providerAccountId": "act_1",
+      "providerAccountRefId": "00000000-0000-4000-8000-000000000003",
+      "adId": "ad",
+      "evaluationId": "00000000-0000-4000-8000-000000000101",
+      "contextId": "context",
+      "inputHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decisionHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "rowJson": {
+      "evaluation": "{\"business_ref_id\": \"00000000-0000-4000-8000-000000000001\", \"business_id\": \"00000000-0000-4000-8000-000000000001\", \"as_of_date\": \"2026-09-30\", \"engine_version\": \"archive-parent-fixture\", \"provider_account_ref_id\": \"00000000-0000-4000-8000-000000000003\", \"provider_account_id\": \"act_1\", \"job_run_id\": \"00000000-0000-4000-8000-000000000002\", \"scope_type\": \"account\", \"scope_id\": \"act_1\", \"id\": \"00000000-0000-4000-8000-000000000101\", \"context_id\": \"context\", \"contract_version\": \"fixture.v1\", \"input_hash\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"decision_hash\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"decision_entity_type\": \"ad\", \"decision_entity_id\": \"ad\", \"ad_id\": \"ad\", \"campaign_context_json\": null, \"campaign_context_ref\": \"\\\\xbb7db88e9b3775ddbef12c4875b6c31ca056ed0131bb0be2cd25011fcc05ffa7\"}",
+      "context": "{\"business_ref_id\":\"00000000-0000-4000-8000-000000000001\",\"business_id\":\"00000000-0000-4000-8000-000000000001\",\"as_of_date\":\"2026-09-30\",\"engine_version\":\"archive-parent-fixture\",\"provider_account_ref_id\":\"00000000-0000-4000-8000-000000000003\",\"provider_account_id\":\"act_1\",\"job_run_id\":\"00000000-0000-4000-8000-000000000002\",\"scope_type\":\"account\",\"scope_id\":\"act_1\",\"id\":\"context\",\"contract_version\":\"fixture.v1\",\"evaluated_at\":\"2026-09-30T03:00:00Z\",\"context_json\":{\"accountProfile\":{\"businessId\":\"00000000-0000-4000-8000-000000000001\"},\"dataHealth\":{\"calibration\":{\"asOfDate\":\"2026-09-30\",\"computedAt\":\"2026-09-30T02:00:00.000001Z\"}}},\"data_health_json\":{\"calibration\":{\"asOfDate\":\"2026-09-30\",\"computedAt\":\"2026-09-30T02:00:00.000001Z\"}}}",
+      "inputEvidence": "{\"contract_version\":\"fixture.v1\",\"input_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"input_evidence_json\":{}}",
+      "snapshot": "{\"business_ref_id\": \"00000000-0000-4000-8000-000000000001\", \"business_id\": \"00000000-0000-4000-8000-000000000001\", \"as_of_date\": \"2026-09-30\", \"engine_version\": \"archive-parent-fixture\", \"provider_account_ref_id\": \"00000000-0000-4000-8000-000000000003\", \"provider_account_id\": \"act_1\", \"job_run_id\": \"00000000-0000-4000-8000-000000000002\", \"scope_type\": \"account\", \"scope_id\": \"act_1\", \"id\": \"00000000-0000-4000-8000-000000000201\", \"context_id\": \"context\", \"contract_version\": \"fixture.v1\", \"input_hash\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"decision_hash\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"decision_entity_type\": \"ad\", \"decision_entity_id\": \"ad\", \"ad_id\": \"ad\", \"evaluation_id\": \"00000000-0000-4000-8000-000000000101\", \"calibration_row_id\": \"00000000-0000-4000-8000-000000000006\", \"computed_at\": \"2026-09-30T03:00:00Z\"}",
+      "campaignContextObject": "{\"business_ref_id\":\"00000000-0000-4000-8000-000000000001\",\"payload_sha256\":\"\\\\xbb7db88e9b3775ddbef12c4875b6c31ca056ed0131bb0be2cd25011fcc05ffa7\",\"payload_json\":{\"decimal\": 9007199254740993.123456789, \"nested\": {\"text\": \"İstanbul şğı 🚀 public reference fixture\"}},\"storage_encoding_version\":\"native-campaign-context-jsonb.v1\",\"byte_length\":109,\"created_at\":\"2026-09-30T02:00:00.000001+00:00\"}"
+    }
+  }
+}

@@ -12,9 +12,12 @@ import { nativeCampaignContextSql, NATIVE_CAMPAIGN_CONTEXT_OBJECTS_TABLE } from 
 import { buildNativeReferenceEvidenceArchive, buildNativeSupersededReferenceEvidenceArchive,
   NATIVE_REFERENCE_ARCHIVE_TABLES, type NativeArchiveSchema, type NativeArchiveTableInput } from "@/lib/creative-decision-engine/native-evidence-archive";
 import { buildNativeCalibrationParentArchive, NATIVE_CALIBRATION_PARENT_TABLES,
-  type NativeCalibrationParentSchema } from "@/lib/creative-decision-engine/native-calibration-parent-archive";
+  type NativeCalibrationParentSchema,type NativeCalibrationParentBundle } from "@/lib/creative-decision-engine/native-calibration-parent-archive";
 import { readNativeArchivePinCensus } from "@/lib/creative-decision-engine/native-archive-pin-census";
-import { openNativeHistoricalArchiveEnvelope, sealCompressedNativeHistoricalArchive } from "@/lib/creative-decision-engine/native-historical-archive";
+import { openNativeHistoricalArchiveEnvelope, sealCompressedNativeHistoricalArchive,
+  openNativeHistoricalArchiveEvidence,openNativeHistoricalArchiveCatalog,resolveNativeHistoricalArchiveEntry,
+  nativeArchiveByteDigest,NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT } from "@/lib/creative-decision-engine/native-historical-archive";
+import { splitNativeReferenceArchive, reassembleNativeReferenceArchive } from "@/lib/creative-decision-engine/native-reference-archive-segments";
 import { AD_CALIBRATION_JOB_NAME, NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
   computeNativeAdCalibrationCellSetHash } from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
 
@@ -43,6 +46,16 @@ async function sqlState(db: Client, sql: string, values: unknown[], expected: st
  * copied. This does not grant production capture/removal/shared-object GC or
  * establish a natural successor, positive reuse, all readers or full DR. */
 export async function verifyNativeReferenceArchiveRoundTrip(cluster: Client) {
+  return verifyOwnedReferenceTransport(cluster,false);
+}
+
+/** NEW1134-row actual-producer path, deliberately larger than8MiB original
+ * content. No natural-production or parent-DR claim is inferred from a fixture. */
+export async function verifyNativeSegmentedReferenceArchiveRoundTrip(cluster: Client) {
+  return verifyOwnedReferenceTransport(cluster,true);
+}
+
+async function verifyOwnedReferenceTransport(cluster: Client, segmented: boolean) {
   const cp = (cluster as Client & { connectionParameters: { database: string; host: string; port: number } }).connectionParameters;
   assert(cp.database === "native_ad_seam" && cp.host === "127.0.0.1" && ![5432, 15432].includes(cp.port),
     "reference archive requires the owned native-ad server");
@@ -51,6 +64,7 @@ export async function verifyNativeReferenceArchiveRoundTrip(cluster: Client) {
   const business = randomUUID(), accountRef = randomUUID(), native = randomUUID(), producer = randomUUID(), batch = randomUUID();
   const cells = [randomUUID(), randomUUID()], account = "act_reference_archive_fixture", date = "2026-09-24";
   const epoch = NATIVE_AD_ENGINE_VERSION, hash = "a".repeat(64);
+  const evaluationCount = segmented ? 1134 : 501;
   const provisionIdentity = async (db: Client) => {
     const user = randomUUID();
     await insert(db, "users", { id: user, name: "Owned reference archive", email: `${user}@example.invalid`, password_hash: "owned-fixture-only" });
@@ -88,7 +102,7 @@ export async function verifyNativeReferenceArchiveRoundTrip(cluster: Client) {
         status: "success", started_at: CLOCK, finished_at: CLOCK, created_at: CLOCK };
       await insert(source, "engine_v3_job_runs", { ...jobCommon, id: producer, job_name: AD_CALIBRATION_JOB_NAME, row_count: 2 });
       await insert(source, "engine_v3_job_runs", { ...jobCommon, id: native, job_name: "engine_v3_native_ad_decisions_shadow_job",
-        row_count: 501, dependency_run_id: producer, finished_at: "2026-09-24T07:02:00.000001Z" });
+        row_count: evaluationCount, dependency_run_id: producer, finished_at: "2026-09-24T07:02:00.000001Z" });
       const parentCommon = { business_ref_id: business, business_id: business, provider: "meta", provider_account_ref_id: accountRef,
         provider_account_id: account, as_of_date: date, as_of_cutoff: CLOCK, computed_at: CLOCK, engine_version: epoch,
         policy_version: "reference-archive-fixture", contract_version: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
@@ -115,8 +129,9 @@ export async function verifyNativeReferenceArchiveRoundTrip(cluster: Client) {
       await source.query("COMMIT");
       const profile = makeAccountDecisionProfile({ businessId: business, asOfDate: date, scope: { type: "account", id: account } });
       const health = makeDataHealth({ calibration: makeDataLayerHealth({ asOfDate: date, computedAt: CLOCK }) });
-      const evaluations = Array.from({ length: 501 }, (_, index) => {
+      const evaluations = Array.from({ length: evaluationCount }, (_, index) => {
         const creative = makeCreativeInput({ businessId: business, creativeId: `reference_archive_creative_${index}`, campaignId: `campaign_${index % 4}` });
+        if(segmented) creative.creativeName = `Owned1134 UTF8 İstanbul şğı 🚀 ${index}: ${"Özgün metin 🚀 ".repeat(32)}`;
         const decision: DecisionOutput = { creativeId: creative.creativeId, creativeName: "Owned archive fixture", label: "keep",
           preAuthorityLabel: "keep", authorityBlocker: null, reason: "Public reference archive fixture", confidence: 40,
           truthSource: "commercial_truth", effectiveTargetRoas: 2, ratioToTarget: 1, badges: [], metrics: { spend: 10, purchases: 1, roas: 2, recent7dRoas: 2 },
@@ -137,7 +152,7 @@ export async function verifyNativeReferenceArchiveRoundTrip(cluster: Client) {
       await source.query("BEGIN; SET LOCAL statement_timeout='7500ms'");
       try {
         assert((await persistAdDecisionEvaluations({ businessId: business, asOf: date, engineVersion: epoch, scope: profile.scope,
-          jobRunId: native, evaluatedAt: CLOCK, evaluations }, adapter)).size === 501, "actual producer lost selected evaluations");
+          jobRunId: native, evaluatedAt: CLOCK, evaluations }, adapter)).size === evaluationCount, "actual producer lost selected evaluations");
         await source.query(`INSERT INTO engine_v3_ad_decision_snapshots_daily
           (business_ref_id,business_id,provider_account_ref_id,provider_account_id,decision_entity_type,decision_entity_id,ad_id,
           creative_id,as_of_date,engine_version,scope_type,scope_id,label,raw_label,confidence,truth_source,effective_target_roas,
@@ -212,8 +227,60 @@ export async function verifyNativeReferenceArchiveRoundTrip(cluster: Client) {
       for (const [index, built] of [original, superseded].entries()) await withDatabase(`restore_${index}`, async target => {
         assert(await provisionIdentity(target) !== sourceOwner, "restore borrowed source credential identity");
         const trust = { generation, manifestHash: built.manifestHash, schemaHash: built.bundle.manifest.schemaHash };
-        const sealed = sealCompressedNativeHistoricalArchive(built.bundle, trust, "public-fixture-key", Buffer.alloc(32, 0x5a));
-        const { view, bundle } = openNativeHistoricalArchiveEnvelope(sealed.bytes, sealed.trust, Buffer.alloc(32, 0x5a), generation);
+        let transportSummary:Record<string,unknown>;
+        let opened;
+        if(segmented) {
+          const originalBytes=Buffer.byteLength(JSON.stringify(built.bundle),"utf8");
+          assert(originalBytes>8*1024*1024,"1134 fixture failed to exercise the measured oversized shape");
+          assert.throws(()=>sealCompressedNativeHistoricalArchive(built.bundle,trust,"public-fixture-key",Buffer.alloc(32,0x5a)),/outside bound/);
+          const captured=splitNativeReferenceArchive(built.bundle,trust);
+          assert(captured.parts.length>1,"oversized complete original was not fragmented");
+          const sizes:{decodedBytes:number;compressedBytes:number|undefined;ciphertextBytes:number}[]=[];
+          const decrypted:NativeCalibrationParentBundle[]=[];
+          const encrypted=[];
+          for(const part of captured.parts) {
+            const sealed=sealCompressedNativeHistoricalArchive(part.bundle,{manifestHash:part.manifestHash,
+              schemaHash:part.bundle.manifest.schemaHash,generation},"public-fixture-key",Buffer.alloc(32,0x5a),{
+              coverageRoot:captured.root,coverageRootSha256:captured.rootDigest,evaluationIds:part.bundle.core.manifest.segment!.evaluationIds,
+            });
+            const partial=openNativeHistoricalArchiveEnvelope(sealed.bytes,sealed.trust,Buffer.alloc(32,0x5a),generation);
+            assert.deepEqual(partial.bundle,part.bundle,"fragment changed original byte strings");
+            const selected=partial.view.readCoreTable("engine_v3_ad_decision_evaluations")[0]!,r=JSON.parse(selected.rowJson);
+            const request={generation,evaluationId:r.id,providerAccountId:r.provider_account_id,adId:r.ad_id};
+            if(built.bundle.manifest.sourceWorkspaceDirty) {
+              assert.throws(()=>openNativeHistoricalArchiveEvidence(sealed.bytes,sealed.trust,Buffer.alloc(32,0x5a),request),/dirty published/);
+            } else {
+              const evidence=openNativeHistoricalArchiveEvidence(sealed.bytes,sealed.trust,Buffer.alloc(32,0x5a),request);
+              assert(evidence.rowJson.evaluation===selected.rowJson&&evidence.providerAuthority===false,"clean fragment evidence differs/grants authority");
+            }
+            sizes.push({decodedBytes:sealed.trust.plaintextBytes,compressedBytes:sealed.trust.payloadBytes,ciphertextBytes:sealed.trust.ciphertextBytes});
+            decrypted.push(partial.bundle);
+            encrypted.push(sealed);
+          }
+          const catalogBytes=Buffer.from(JSON.stringify({contract:NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT,
+            groups:[{coverageRoot:captured.root,coverageRootSha256:captured.rootDigest}],entries:encrypted.map((blob,index)=>({
+              ...blob.trust,segment:{coverageRootSha256:captured.rootDigest,evaluationIds:blob.trust.segment!.evaluationIds},
+              object:{bucket:"owned-fixture",key:`native/v2/${blob.trust.ciphertextSha256}.bin`,versionId:`owned-fixture-${index}`},
+            }))}),"utf8");
+          const catalog=openNativeHistoricalArchiveCatalog(catalogBytes,nativeArchiveByteDigest(catalogBytes));
+          for(let index=0;index<decrypted.length;index++) {
+            const r=JSON.parse(decrypted[index]!.core.objects[decrypted[index]!.core.manifest.tables.find(t=>t.table==="engine_v3_ad_decision_evaluations")!.rows[0]!.objectHash]!);
+            const selected=resolveNativeHistoricalArchiveEntry(catalog,{generation,evaluationId:r.id,providerAccountId:r.provider_account_id,adId:r.ad_id});
+            assert(selected.ciphertextSha256===encrypted[index]!.trust.ciphertextSha256,"v3 catalog selected a different original fragment");
+            assert.deepEqual(openNativeHistoricalArchiveEnvelope(encrypted[index]!.bytes,selected,Buffer.alloc(32,0x5a),generation).bundle,decrypted[index]);
+          }
+          opened=reassembleNativeReferenceArchive(decrypted,captured.root,captured.rootDigest);
+          assert.throws(()=>reassembleNativeReferenceArchive(decrypted.slice(1),captured.root,captured.rootDigest),/incomplete/);
+          assert.throws(()=>reassembleNativeReferenceArchive([...decrypted,decrypted[0]!],captured.root,captured.rootDigest),/overlapping/);
+          transportSummary={wholeOriginalDecodedBytes:originalBytes,segments:sizes,wholeReassemblyExact:true,
+            catalogBytes:catalogBytes.length,catalogOriginalSelectionMatched:true,
+            cleanHistoricalResponseObserved:!built.bundle.manifest.sourceWorkspaceDirty};
+        } else {
+          const sealed=sealCompressedNativeHistoricalArchive(built.bundle,trust,"public-fixture-key",Buffer.alloc(32,0x5a));
+          opened=openNativeHistoricalArchiveEnvelope(sealed.bytes,sealed.trust,Buffer.alloc(32,0x5a),generation);
+          transportSummary={plaintextBytes:sealed.trust.plaintextBytes,ciphertextBytes:sealed.trust.ciphertextBytes};
+        }
+        const {view,bundle}=opened;
         assert.deepEqual(bundle, built.bundle, "encrypted reference transport changed original bytes");
         await target.query("BEGIN; SET LOCAL statement_timeout='7500ms'; SET LOCAL timezone='UTC'");
         try {
@@ -239,7 +306,7 @@ export async function verifyNativeReferenceArchiveRoundTrip(cluster: Client) {
             assert.deepEqual(actual, expectedRows.sort(), `${table} full original JSONB/ID/hash/clock parity`);
           }
           assert((await target.query(`SELECT count(*)::int AS n FROM engine_v3_ad_decision_evaluations e
-            WHERE ${nativeCampaignContextSql("e")} IS NOT NULL AND e.campaign_context_json IS NULL`)).rows[0].n === 501,
+            WHERE ${nativeCampaignContextSql("e")} IS NOT NULL AND e.campaign_context_json IS NULL`)).rows[0].n === evaluationCount,
           "restored actual SQL accessor lost a shared original");
           const selected = view.readCoreTable("engine_v3_ad_decision_evaluations")[0]!;
           assert(view.readCampaignContext(String(JSON.parse(selected.rowJson).id))?.objectRowJson, "historical reader shared root absent");
@@ -250,12 +317,12 @@ export async function verifyNativeReferenceArchiveRoundTrip(cluster: Client) {
           assert(view.providerAuthority === false && view.reclaimEligible === false, "historical copy granted authority");
           await target.query("COMMIT");
         } catch (error) { await target.query("ROLLBACK"); throw error; }
-        console.log(JSON.stringify({ contract: "native-reference-archive-real-schema-fixture.v1", superseded: index === 1,
-          actualProducerEvaluations: 501, sharedObjects: 4, uniqueTransportTables: 8, fullMigrationSourceAndRestore: true,
+        console.log(JSON.stringify({ contract: segmented?"native-reference-segmented-archive-real-schema-fixture.v1":"native-reference-archive-real-schema-fixture.v1", superseded: index === 1,
+          actualProducerEvaluations: evaluationCount, sharedObjects: 4, uniqueTransportTables: 8, fullMigrationSourceAndRestore: true,
           originalFullRowIdClockHashParity: true, independentIdentityRoots: true, productionAccess: false,
           serverEncoding: "UTF8", multibyteOriginalProducerAndRestoreParity: true,
-          sourceWorkspaceDirty: built.bundle.manifest.sourceWorkspaceDirty, plaintextBytes: sealed.trust.plaintextBytes,
-          ciphertextBytes: sealed.trust.ciphertextBytes, sharedObjectGcEligible: false, naturalSuccessorProof: false,
+          sourceWorkspaceDirty: built.bundle.manifest.sourceWorkspaceDirty,...transportSummary,
+          sharedObjectGcEligible: false, naturalSuccessorProof: false,
           physicalReclaimProof: false, providerAuthority: false }));
       });
     });

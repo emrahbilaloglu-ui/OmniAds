@@ -14,6 +14,10 @@ import { readNativeJobSnapshotSelection } from "@/lib/creative-decision-engine/n
 import { READ_NATIVE_DECISION_GENERATION_QUERY } from "@/lib/meta/decisions-workspace-read-model";
 import { READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY } from "@/lib/creative-decision-engine/decision-stability";
 import { READ_NATIVE_GENERATION_REUSE_HEADER_SQL, READ_NATIVE_GENERATION_REUSE_ROWS_SQL } from "@/lib/creative-decision-engine/jobs/native-decision-reuse";
+import { readFileSync } from "node:fs";
+import { NATIVE_RETAINED_LEDGER_PATH, assessNativeRetainedGenerationLifecycle,
+  type NativeRetainedReaderLedger } from "@/lib/creative-decision-engine/native-retained-reader-lifecycle";
+import { nativeRetainedReaderSources } from "./native-retained-reader-lifecycle-guard";
 
 const DB = "native_archive_schema_seam";
 const AS_OF = "2026-09-24", EPOCH = "native-archive-schema-fixture", CONTRACT = "schema-fixture.v1";
@@ -411,6 +415,26 @@ export async function verifyNativeArchiveProductionSchema(client: Client) {
       "narrow unit did not preserve measured-scope/permission distinction");
     assert(!assessNativeEvaluationContextUnit(await unitRead(["unclosed_production_reader"]), originalUnit.generation).pinFreeWithinMeasuredScope,
       "narrow unknown consumer ignored");
+    const retainedLedger = JSON.parse(readFileSync(NATIVE_RETAINED_LEDGER_PATH, "utf8")) as NativeRetainedReaderLedger;
+    const lifecycle = async (generation = originalUnit.generation, unknownOperationalConsumers: string[] = []) => {
+      await db.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      await db.query("SET LOCAL statement_timeout='7500ms'");
+      try {
+        const measurement = await readNativeEvaluationContextUnit(db, { schema: "public", generation,
+          consumerInventorySha256: retainedLedger.sourceInventorySha256, unmodeledConsumers: [] });
+        return assessNativeRetainedGenerationLifecycle({ generation, measurement, ledger: retainedLedger,
+          actualSources: nativeRetainedReaderSources(), unknownOperationalConsumers });
+      } finally { await db.query("ROLLBACK"); }
+    };
+    const unpinnedClosedDay = await lifecycle();
+    assert(unpinnedClosedDay.eligibleForBoundedArchivePreparation && !unpinnedClosedDay.removalAuthorized &&
+      !unpinnedClosedDay.reclaimEligible && !unpinnedClosedDay.productionConsumerClosureProved,
+      "source-bound closed day manufactured removal authority");
+    assert(!(await lifecycle(currentUnit.generation)).eligibleForBoundedArchivePreparation,
+      "retained historical snapshot was pruned because it is an old day");
+    assert((await lifecycle(originalUnit.generation, ["unclassified_dynamic_reader"])).reason === "unknown_consumer",
+      "source ledger ignored an external/dynamic operational consumer");
+    console.log("[native-retained-reader-lifecycle] PASS actual-DDL/RO-RR-ROLLBACK source-bound closed-day preparation; retained historical snapshot and unknown operational reader veto; all removal/provider/reclaim authority false.");
     // These typed action columns are not direct evaluation FKs. Each column
     // independently preserves audit lineage, including a UI-manual action with
     // no episode or controlled assignment that could indirectly protect it.

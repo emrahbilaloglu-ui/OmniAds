@@ -1,5 +1,5 @@
 {
-  "manifestHash": "e35871ee9c81aa7a30f3266f9c8f7b00725fc0b2971831ca025785d33c3594d3",
+  "manifestHash": "fdda7e82c9c88f155060fb122664147e4ef62002fb782737d78a58cf6c78f0ab",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -755,6 +755,10 @@
       "sha256": "91b523397c4d6c029ed7a4a0f9551d46fc819192a600871e24d66262cc5b2f6f"
     },
     {
+      "path": "docs/architecture/native-generation-catalog-routing.md",
+      "sha256": "b23b1c3ec33a559a3bd740ec1c806019dd83d1dc014b3c82fd173d97dd5d7a87"
+    },
+    {
       "path": "docs/architecture/native-historical-archive-reader.md",
       "sha256": "5ddcbca564ee43bcc374762bbd5696e2f3de3e730f088105864287fb72af9331"
     },
@@ -800,7 +804,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "e9253ad79f5075459de4d12186dfbfbe830eb6ef1f1ba6b7f9eb95ff3f00c587"
+      "sha256": "34911c513ad275fb3be397b9c09db19015014ffb4daffc9c796604e10c9edfeb"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -812,7 +816,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "6c0dc5bbbe3303373a530091b70ac2783651e2240c94dd3693d457973ca78357"
+      "sha256": "467b14a824e38b749104e71f50b6391480ce424a11ce8b660609f3bac89bd66c"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -1203,6 +1207,14 @@
       "sha256": "1aa2953b800da811777b347968785bc330e75be100637b2b9189320cdc2cae55"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-historical-catalog-routing-store.test.ts",
+      "sha256": "03335186536cf6d96a5583c05187a80d1d477079c0c267cac44018910b01ccf2"
+    },
+    {
+      "path": "lib/creative-decision-engine/__tests__/native-historical-catalog-routing.test.ts",
+      "sha256": "709aab646c446299ad91a24c0ed0766cd962989cd91d9030ee76eba5e279214c"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/native-historical-compressed-archive.test.ts",
       "sha256": "d98ebec8362f415ca5f42446572ed96836a70be9d6393880ce1b83461d8ab976"
     },
@@ -1488,7 +1500,7 @@
     },
     {
       "path": "lib/creative-decision-engine/native-historical-archive-reader.ts",
-      "sha256": "1820f6ab638047d6c8f167540ca17a31781ce0533ce20d0fba3297347c3ca350"
+      "sha256": "35901b38996a857cb0fa2efe3f9c50626d919f3af4b43b191fa320cef98bb807"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-archive-worker-client.ts",
@@ -1500,7 +1512,15 @@
     },
     {
       "path": "lib/creative-decision-engine/native-historical-archive.ts",
-      "sha256": "f6c44c9482e0a056a72cf424a1a24f311332e84ff39c2f88b0d769fdf3406b80"
+      "sha256": "9412ab4bcc8611e78a4d8668018328f969298916e09b7162192cd3311199786b"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-catalog-routing-store.ts",
+      "sha256": "eea3ebbd83bb9b478936bdfc8669af12e1eefd4034717b6b106879b99d667593"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-catalog-routing.ts",
+      "sha256": "87b22dc920f8545a5c3bde0c29bedac07474eccccc8afe26f629e6f8b04437c4"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-local-store.ts",
@@ -1508,7 +1528,7 @@
     },
     {
       "path": "lib/creative-decision-engine/native-historical-read-controls.ts",
-      "sha256": "897a811e07670153d4ed556c089fa02c06dd0536d4fccb1b8ecb267856be4b5f"
+      "sha256": "33796ce5a7b405e50c8ebbc1ed93b1f1d1c50c521d6726181ed67c8d8b61dc6d"
     },
     {
       "path": "lib/creative-decision-engine/native-job-evaluation-selection.ts",

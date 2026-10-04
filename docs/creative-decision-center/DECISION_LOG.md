@@ -12175,6 +12175,55 @@ inline archive formats refuse references until explicit shared-root membership,
 reader/restore and pin closure are proven. Sustainable item3 and strict natural
 positive reuse item7 remain open. See [the storage contract](../architecture/native-campaign-context-storage.md).
 
+## D145 — Finite digest-pinned generation catalog routing (2026-10-04)
+
+**Problem:** Two independently different owned original CURRENT1134/1800
+generations produce1,561,530B of catalog metadata with only six entries. The
+existing global1MiB catalog therefore cannot scale. Node20 measurements also
+show74–239ms of synchronous catalog verification before each evidence-cache
+lookup. These are local measurements, not production CPU/concurrency claims.
+
+**Decision:** Add a separate default-OFF filesystem routing contract. Read its
+independently digest-pinned root FIRST. It pins the exact existing legacy digest,
+byte length and frozen sorted job set. A request uses legacy XOR routed reads;
+legacy jobs cannot occur in any routed shard. Fixed256 SHA256(jobRunId) prefixes
+select one32KiB shard, whose exact tenant/job/date/engine record selects one
+complete single-generation v3 leaf. Normal prefix sharing is allowed; duplicate
+full job keys, unknown records, mixed generation/coverage or overflow refuse.
+
+Caps are32KiB root,16KiB legacy,32KiB shard and944KiB leaf. Root plus the larger
+path is1,032,192B, below the unchanged1MiB aggregate metadata bound. Existing
+v1/v2/v3 direct reading while OFF, complete/fragment contracts, original clocks,
+IDs, receipts, envelope AAD and historical-only authority stay unchanged. A
+per-generation root that exceeds944KiB still refuses; a compact commitment/root
+upgrade is another contract. Shard byte overflow refuses publication, with no
+dynamic fan-out or re-bucketing. Capacity is measured in actual encoded bytes,
+never asserted from a guessed future generation rate.
+
+A process-local verified, deeply immutable metadata LRU retains at most2MiB of
+original source bytes, two leaves and32 total entries. Keys bind component kind,
+digest/length, routing contract, root/legacy/shard context, configured directory
+and exact compiled reader asset. Only the complete verifier can register a
+frozen entry's precomputed fingerprint. Mutable/shallow-frozen caller entries
+retain full-content cache identity; no arbitrary trust hash can bypass it.
+This is metadata, not a new plaintext evidence cache or peak-heap guarantee.
+
+Metadata files use configured canonical RO roots and fixed digest-derived names,
+O_NOFOLLOW/regular/nlink1/owner/mode/size/SHA and final inode checks. ONE genuine
+outstanding filesystem read fences metadata and evidence until late I/O closes,
+with5s per read sequentially inside the existing10s request deadline. Request
+authorization stays first; errors/logs do not expose other firms' identities.
+
+**Boundary:** Offline publication only creates verified immutable metadata in
+an explicitly owned staging directory; it changes no environment or DB row.
+Root activation requires its own reviewed operator, fresh host/capacity and new
+web baseline. Pinned de76 R4 legacy198 removal/original nine PRE+POST bodies run
+FIRST before later code deployments. No paid storage, provider/firm changes,
+forced jobs, clock/epoch changes, source eviction or physical-reuse claim.
+Source/local guards, actual compiled Node20 resource proof, code publication,
+live capture/read/restore/removal and physical reuse remain distinct. Items3
+and7 remain OPEN. See [the routing contract](../architecture/native-generation-catalog-routing.md).
+
 ## D144 — Bounded segmented original-reference history (2026-10-04)
 
 **Problem:** One READ ONLY measurement of natural1134-row job82e3e778 retained a

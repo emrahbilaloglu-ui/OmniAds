@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { NATIVE_HISTORICAL_COMPRESSED_ENCODING, NATIVE_HISTORICAL_MAX_DECODED_BYTES,
+import { NATIVE_HISTORICAL_COMPRESSED_ENCODING, NATIVE_HISTORICAL_MAX_DECODED_BYTES, nativeHistoricalImmutableEntryFingerprint,
   type NativeHistoricalArchiveCatalogEntry, type NativeHistoricalEvidence,
   type NativeHistoricalEvidenceRequest } from "@/lib/creative-decision-engine/native-historical-archive";
 
@@ -119,7 +119,7 @@ export class NativeHistoricalReadControls {
     if (this.total[dimension] + bytes > limits[0]! || value[dimension] + bytes > limits[1]!) throw new NativeHistoricalReadLimit();
     this.total[dimension] += bytes; value[dimension] += bytes;
   }
-  async read(request: NativeHistoricalEvidenceRequest, prepare: () => Promise<{
+  async read(request: NativeHistoricalEvidenceRequest, prepare: (signal: AbortSignal) => Promise<{
     configurationFingerprint: string; entry: NativeHistoricalArchiveCatalogEntry; work: Work;
   }>): Promise<NativeHistoricalEvidence> {
     const b = NATIVE_HISTORICAL_READ_BOUNDS, business = request.generation.businessId, started = this.now();
@@ -134,14 +134,18 @@ export class NativeHistoricalReadControls {
       timer = setTimeout(() => { controller.abort(); reject(new NativeHistoricalReadLimit()); }, b.deadlineMs);
     });
     const run = async () => {
-      const { configurationFingerprint, entry, work } = await prepare();
+      const { configurationFingerprint, entry, work } = await prepare(controller.signal);
       if (controller.signal.aborted) throw new NativeHistoricalReadLimit();
       if (!/^[a-f0-9]{64}$/.test(configurationFingerprint) ||
           entry.generation.businessId !== request.generation.businessId || entry.generation.jobRunId !== request.generation.jobRunId ||
           entry.generation.asOfDate !== request.generation.asOfDate || entry.generation.engineVersion !== request.generation.engineVersion)
         throw new Error("historical trust identity refused");
       assertNativeHistoricalRuntimeObjectBound(entry);
-      const objectKey = fingerprint([configurationFingerprint, entry]);
+      const immutableEntry = nativeHistoricalImmutableEntryFingerprint(entry);
+      // The private verifier registry is inaccessible to arbitrary caller trust.
+      // Mutable entries keep the original full-content fingerprint behavior.
+      const objectKey = immutableEntry ? fingerprint([configurationFingerprint, "verified-immutable-entry.v1", immutableEntry]) :
+        fingerprint([configurationFingerprint, entry]);
       const resultKey = fingerprint([objectKey, request]);
       const cached = this.evidence.get(resultKey);
       if (cached) {

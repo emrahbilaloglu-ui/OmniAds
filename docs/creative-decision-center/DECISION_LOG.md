@@ -12175,6 +12175,44 @@ inline archive formats refuse references until explicit shared-root membership,
 reader/restore and pin closure are proven. Sustainable item3 and strict natural
 positive reuse item7 remain open. See [the storage contract](../architecture/native-campaign-context-storage.md).
 
+## D144 — Bounded segmented original-reference history (2026-10-04)
+
+**Problem:** One READ ONLY measurement of natural1134-row job82e3e778 retained a
+four-table original-byte lower bound10,632,358B, already over the8MiB decoded
+transport cap. The later snapshot EXPLAIN refused a hot global scan and rolled
+back; this is not a complete six/eight-table size or compressed-package proof.
+The missing positive bytes cannot make that selected original fit one object.
+
+**Decision:** Add explicit current/superseded reference **segment** and complete
+referenced-calibration-parent contracts, with v3 catalog groups. Keep all four
+complete core contracts, original cardinality checks, v1/v2 catalogs, resource
+limits and historical-only authority unchanged. A segment preserves the original
+job row_count, all selected original JSONB/IDs/hashes/clocks and an explicit
+selection bound to the independent original complete manifests. Complete
+calibration batches are never split or recomputed. Actual encoded decoded and
+compressed sizes drive bounded subdivision, not a fixed evaluation-count guess.
+An individually oversized dependency closure or catalog overflow refuses.
+
+Each request selects exactly one bounded object by original evaluation identity.
+The catalog retains the1MiB/128 TOTAL entry limits, records a coverage root once,
+and rejects overlapping/omitted membership, root changes and whole/fragment
+mixing. GCM authenticates the selected-ID digest and root digest. The offline
+worker fetches nothing; it receives only its selected object and trusted metadata.
+Reassembly requires ALL fragments, exact original row-hash inventories and the
+unchanged complete core/parent validation. Partial availability cannot become a
+whole restore, current verdict or removal permission. Runtime dirty-source
+archives refuse; an owned local restore retains truthful dirty metadata.
+
+**Proof boundaries:** The new public1134 canonical-producer/full-migration owned
+fixture and compiled synthetic standalone fixture are separate from actual
+natural archive capture, independent storage, all-reader/pin closure, full DR,
+provider execution or measured physical reuse. No shared-object GC, production
+archive/removal/catalog activation, paid storage or formula/clock/epoch change.
+R4 legacy198 protocol/readback and nine authenticated pre/post original bodies
+remain FIRST on pinned de76 before any later code deployment; source publication
+alone changes no live service. Items3 and7 remain open until real acceptance.
+See [the segmented transport contract](../architecture/native-segmented-reference-archive.md).
+
 ## D143 — Shared campaign context reference archive compatibility (2026-10-04)
 
 **Problem:** D142 naturally writes tenant-bound campaign references, while the

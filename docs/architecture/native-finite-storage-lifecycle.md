@@ -3,7 +3,8 @@
 D147 separates archive maintenance from new business work. The global growth
 fence remains authoritative and its returned decision is never edited. A DB
 budget-only refusal can admit a reviewed read/copy/publish/same-image root,
-exact original retirement or ordinary main/TOAST maintenance operation. It
+exact original retirement or ordinary main maintenance operation. D148 v2
+observes TOAST metadata read-only instead of dispatching a TOAST VACUUM. It
 cannot admit a provider job, deploy, migration, retention sweep, index rebuild,
 paid resource, budget lift or emergency override. A caller's `growthBytes: 0`
 has no meaning. DELETE and ordinary VACUUM still write WAL/VM/FSM; physical,
@@ -39,9 +40,11 @@ web or worker baseline cannot be transferred to it.
 Each externally visible stage needs a durable intent before dispatch and an
 actual acknowledgement bound to its purpose, stage, exact original jobs and
 full-original evidence. Lost or malformed acknowledgements are status-only;
-the batch never repeats a dispatched stage. Main and TOAST VACUUM have separate
-receipts. A cancelled TOAST command is not concealed by a prior main-table
-acknowledgement. The whole batch and individual stages have finite deadlines;
+the batch never repeats a dispatched stage. Main VACUUM keeps its own command
+receipt. The v2 `toast-observation` stage acknowledges only a READ ONLY RR
+catalog/statistics observation; `vacuumCommandExecuted` and
+`toastVacuumAcknowledged` stay false, and reusable/OS-returned claims stay zero.
+A v1 cancelled TOAST command is not concealed or resumed as this observation. The whole batch and individual stages have finite deadlines;
 the concrete backend must terminate its own bounded child on cancellation.
 The fresh gate itself has a 60-second outer bound and abort signal. An explicit
 pause before the next intent may resume only the same digest-bound plan and an
@@ -170,3 +173,29 @@ Timer scheduling is not an elapsed-time SLA; the existing outer fresh-gate,
 stage and batch deadlines remain unchanged. This is
 operator acquisition latency only, not decision/calibration identity or provider
 authority. The business DB-budget refusal remains false/no override.
+
+## D148: post-retirement observation and child-terminal diagnosis
+
+`finite-native-storage-batch.v2` schedules main VACUUM, read-only TOAST
+observation and space readback separately. It never dispatches TOAST VACUUM
+and does not need a whole large-TOAST command to reach space readback.
+The observation reads the exact two target TOAST relation catalogs and
+`pg_stat_all_tables`, with 7.5-second statement/1-second lock limits, READ ONLY
+REPEATABLE READ UTC and ROLLBACK. A recorded historical (auto)vacuum timestamp
+is not a completed post-retirement vacuum, reusable-space proof or OS shrink.
+No bound, provider authority, epoch, formula or identity clock changes.
+
+V1 plans remain frozen historical evidence with their original source and
+receipts. This v2 executor explicitly refuses v1 execution/resume and the
+old `vacuum-toast` write stage; it never silently upgrades a consumed purpose
+or interprets a v1 command ACK as a v2 observation. Retained runtime/archive
+readers and snapshots are unchanged. Status of a v1 purpose uses its pinned
+read-only historical tooling/evidence, not a new executable v2 plan.
+
+A parsed child terminal is recorded before refusal as a bounded safe
+`{type, code, sqlState}`. It contains no error message, SQL, row value or key.
+Actual error 57014 can be preserved when it exists; a missing, unterminated
+or unparsed child still has unknown terminal/SQLSTATE. Nonzero results remain
+status-only, and retirement's COMMIT challenge/ack and child termination rules
+remain unchanged. This operator source change is not another production
+batch, application release or storage-acceptance receipt.

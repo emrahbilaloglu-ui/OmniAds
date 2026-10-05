@@ -12,6 +12,7 @@ import { computeSourcePack, REPO_ROOT, TSX_LOADER, verifySourceReview } from "./
 import { evidencePath, verifyHttpProof, type Sample } from "./http-proof";
 import { persistPrivateCopy, verifyPrivateCopies, type CaptureMetadata, type UnitConfig } from "./capture";
 import { databaseUrl, unitLockKey } from "./backend";
+import { toastObservationAcknowledged, toastObservationEvidence } from "./maintenance";
 
 /** PRODUCTION TRANSPORT. Fixed allowlist: two hosts, one reviewed actor, one
  * digest-bound stage bundle, the actor's closed op set. Every source-bound
@@ -157,7 +158,9 @@ const REQUIRED_REMOTE: Record<NativeStorageStage, (r: RemoteRef[]) => boolean> =
   retire: r => r.length === 1 && isRef(r[0], "app", "db", "retire"),
   "independent-readback": r => r.length === 1 && isRef(r[0], "app", "db", "readback"),
   "vacuum-main": r => r.length === 1 && isRef(r[0], "app", "db", "vacuum"),
-  "vacuum-toast": r => r.length === 1 && isRef(r[0], "app", "db", "vacuum"),
+  "toast-observation": r => r.length === 1 && isRef(r[0], "app", "db", "toast-observation"),
+  // History-only v1 name: never verified as an acknowledged stage by this operator.
+  "vacuum-toast": () => false,
   "space-readback": r => r.length === 1 && isRef(r[0], "app", "db", "space"),
 };
 const EVIDENCE_STAGE_OPS = ["evidence", "pins", "readback"];
@@ -507,11 +510,17 @@ export class ProductionHostBatchBackend implements NativeStorageBatchBackend {
         return this.receipt(stage, units, { exactUnitAbsent: back.exactUnitAbsent, retainedRootsFullBytesMatch: back.retainedRootsFullBytesMatch },
           back.exactUnitAbsent === true, back.retainedRootsFullBytesMatch === true && await this.allCopies(units));
       }
-      case "vacuum-main": case "vacuum-toast": {
-        const component = stage === "vacuum-main" ? "main" : "toast";
-        const v = (await this.db(stage, { op: "vacuum", component, jobRunIds: units.map(x => x.generation.jobRunId) }, 100_000, signal)).result;
-        return this.receipt(stage, units, { component, acknowledged: v.acknowledged, elapsedMs: v.elapsedMs }, v.acknowledged === true, await this.allCopies(units));
+      case "vacuum-main": {
+        const v = (await this.db(stage, { op: "vacuum", component: "main", jobRunIds: units.map(x => x.generation.jobRunId) }, 100_000, signal)).result;
+        return this.receipt(stage, units, { component: "main", acknowledged: v.acknowledged, elapsedMs: v.elapsedMs }, v.acknowledged === true, await this.allCopies(units));
       }
+      case "toast-observation": {
+        // READ ONLY metadata of the two target TOAST relations; no VACUUM is dispatched.
+        const o = (await this.db(stage, { op: "toast-observation" }, 45_000, signal, { unitJobRunIds: ids })).result;
+        return this.receipt(stage, units, toastObservationEvidence(o), toastObservationAcknowledged(o), await this.allCopies(units));
+      }
+      // History-only v1 stage name: a v2 plan never schedules it and this operator never runs it.
+      case "vacuum-toast": throw new BatchRefusal("VACUUM_TOAST_STAGE_RETIRED");
       case "space-readback": {
         const s = (await this.db(stage, { op: "space" }, 60_000, signal, { unitJobRunIds: ids })).result;
         // Measured outcome kept SEPARATELY; reclaimedBytes stays 0 (no shrink/reuse/growth claim).

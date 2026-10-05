@@ -6,7 +6,8 @@ import { collectWholeOriginal, readCaptureMetadata, sealAndPersist, sealWholeOri
   type UnitConfig } from "./capture";
 import { restoreIntoOwnedNewDatabase } from "./restore";
 import { acceptPrepared, prepareUnitRetirement, unitScope } from "./retire";
-import { databaseAdmissionFacts, independentReadback, readSelectedPinClosure, selectClosedDayCandidates, spaceReadback, vacuumComponent } from "./maintenance";
+import { databaseAdmissionFacts, independentReadback, observeTargetToast, readSelectedPinClosure, selectClosedDayCandidates, spaceReadback,
+  vacuumComponent } from "./maintenance";
 
 /** ONE finite stage per process. Reads one JSON request line on stdin, writes
  * JSON lines on stdout; every library log goes to stderr. Closed operation set;
@@ -52,7 +53,8 @@ async function main() {
   const runtimeRevision = MODE === "production" ? request.runtimeRevision : request.runtimeRevision ?? request.targetRevision;
   need(typeof runtimeRevision === "string" && /^[a-f0-9]{40}$/.test(runtimeRevision) && process.env.APP_BUILD_ID === runtimeRevision, "EXACT_IMAGE_REVISION");
   const url = process.env.DATABASE_URL ?? "";
-  const dbOps = ["healthcheck-sample", "evidence", "select", "freeze", "capture", "pins", "restore", "retire", "readback", "vacuum", "space"];
+  const dbOps = ["healthcheck-sample", "evidence", "select", "freeze", "capture", "pins", "restore", "retire", "readback", "vacuum",
+    "toast-observation", "space"];
   need(dbOps.includes(request.op) || ["fresh-read", "web-serve", "publish-routing"].includes(request.op), "CLOSED_OPERATION_SET");
   if (dbOps.includes(request.op) && MODE === "owned") ownedScope(url, request.op === "restore");
   need(MODE === "owned" || !["healthcheck-sample", "restore"].includes(request.op), "OWNED_ONLY_OPERATION");
@@ -255,13 +257,18 @@ async function main() {
       try { return emit({ type: "result", value: await independentReadback(db, c) }); } finally { await db.end(); }
     }
     case "vacuum": {
-      need(request.component === "main" || request.component === "toast", "VACUUM_COMPONENT");
+      // Only the main component remains: the TOAST step is a read-only observation (below).
+      need(request.component === "main", request.component === "toast" ? "VACUUM_TOAST_STAGE_RETIRED" : "VACUUM_COMPONENT");
       need(Array.isArray(request.jobRunIds) && request.jobRunIds.every((j: string) => UUID.test(j)), "EXACT_JOB_SET");
       const db = await client(url, `vacuum-${request.component}`, 62_000);
       const notices: string[] = [];
       db.on("notice", n => notices.push(typeof n.code === "string" ? n.code : "notice"));
       try { return emit({ type: "result", value: await vacuumComponent(db, request.component, request.jobRunIds, notices) }); }
       finally { await db.end(); }
+    }
+    case "toast-observation": {
+      const db = await client(url, "toast-observation", 8000);
+      try { return emit({ type: "result", value: await observeTargetToast(db) }); } finally { await db.end(); }
     }
     case "space": {
       const db = await client(url, "space", 8000);

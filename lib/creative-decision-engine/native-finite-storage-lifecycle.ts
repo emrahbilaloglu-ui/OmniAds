@@ -8,15 +8,22 @@ import type { DbGrowthFenceDecision } from "@/lib/sync/db-growth-fence";
  * root activation happen once for the complete batch, before any retirement.
  * A journal intent is durable before every externally visible action. A
  * missing acknowledgement is status-only; this runner never repeats it. */
-export const NATIVE_STORAGE_BATCH_CONTRACT = "finite-native-storage-batch.v1" as const;
+/** v2: the post-retirement TOAST step is a READ ONLY observation, never a
+ * TOAST VACUUM dispatch. v1 plans (whose schedule dispatched that VACUUM) stay
+ * readable as history but are refused for execution/resume, never reinterpreted. */
+export const NATIVE_STORAGE_BATCH_CONTRACT = "finite-native-storage-batch.v2" as const;
+export const RETIRED_NATIVE_STORAGE_BATCH_CONTRACTS = Object.freeze(["finite-native-storage-batch.v1"] as const);
 export const NATIVE_STORAGE_BATCH_LIMITS = Object.freeze({ generations: 8, evaluationsPerGeneration: 1134,
   contextsPerGeneration: 4, evaluations: 9072, wallMilliseconds: 30 * 60_000 });
 export type NativeStorageStage = "capture-restore" | "publish" | "activate" | "retire" |
-  "independent-readback" | "vacuum-main" | "vacuum-toast" | "space-readback";
+  "independent-readback" | "vacuum-main" | "toast-observation" | "space-readback"
+  /** History only: a v1 receipt name; never scheduled or executed by a v2 plan. */
+  | "vacuum-toast";
 const operation: Record<NativeStorageStage, NativeStorageOperation> = {
   "capture-restore": "read-original", publish: "publish-original", activate: "activate-root",
   retire: "retire-original", "independent-readback": "read-original",
-  "vacuum-main": "vacuum-main", "vacuum-toast": "vacuum-toast", "space-readback": "read-original",
+  "vacuum-main": "vacuum-main", "toast-observation": "read-original", "space-readback": "read-original",
+  "vacuum-toast": "vacuum-toast",
 };
 export interface NativeStorageBatchUnit {
   generation: NativeArchiveGeneration;
@@ -96,7 +103,7 @@ export function nativeStorageBatchSchedule(plan: NativeStorageBatchPlan): { stag
     { stage: "publish" as const, units: plan.units }, { stage: "activate" as const, units: plan.units },
     ...plan.units.flatMap(u => [{ stage: "retire" as const, units: [u] },
       { stage: "independent-readback" as const, units: [u] }]),
-    { stage: "vacuum-main" as const, units: plan.units }, { stage: "vacuum-toast" as const, units: plan.units },
+    { stage: "vacuum-main" as const, units: plan.units }, { stage: "toast-observation" as const, units: plan.units },
     { stage: "space-readback" as const, units: plan.units }];
 }
 function receiptMatches(receipt: NativeStorageStageReceipt, purpose: string, stage: NativeStorageStage, ids: string[]) {
@@ -107,6 +114,7 @@ function receiptMatches(receipt: NativeStorageStageReceipt, purpose: string, sta
 }
 
 export function validateNativeStorageBatchPlan(p: NativeStorageBatchPlan) {
+  need(!(RETIRED_NATIVE_STORAGE_BATCH_CONTRACTS as readonly string[]).includes(p?.contract), "RETIRED_V1_TOAST_VACUUM_SCHEDULE");
   need(p.contract === NATIVE_STORAGE_BATCH_CONTRACT && /^[a-f0-9]{12}$/.test(p.purpose) &&
     /^[a-f0-9]{40}$/.test(p.targetRevision) && digest(p.sourceManifestSha256) &&
     digest(p.actualSourceReviewSha256) && Number.isSafeInteger(p.expectedDatabaseBudgetBytes) &&

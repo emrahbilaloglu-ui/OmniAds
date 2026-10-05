@@ -1,6 +1,6 @@
 {
   "contract": "native-retained-reader-source-ledger.v1",
-  "baselineRevision": "d60ed58e0f8c512af5bb391c693e99279aaf1840",
+  "baselineRevision": "1e2da70f06cb443a2e4b171472d3104f37f109ed",
   "entries": [
     {
       "path": "app/api/admin/engine-v3/readiness/route.ts",
@@ -377,8 +377,8 @@
     {
       "path": "scripts/native-storage-batch/maintenance.ts",
       "role": "offline-operator",
-      "sha256": "60b7cd9068d89f48ce2765cb8218bd0f7680203cc9178073809dc002f2bea867",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Producer-idle distinguishes only bounded, explicit stale retired-epoch metadata with no matching canonical job/chain locks; current, recent, unknown or owned running work refuses. No ledger finalization or provider admission. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
+      "sha256": "28b5583b311045e8c7044b4f5197b71716a89817f0f22a463766d3bfaeafa578",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Producer-idle distinguishes only bounded, explicit stale retired-epoch metadata with no matching canonical job/chain locks; current, recent, unknown or owned running work refuses. No ledger finalization or provider admission. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse. D148: retain main VACUUM as separate maintenance; observe exactly two TOAST relations READ ONLY RR with explicit ROLLBACK and zero reuse/OS claims. Frozen v1 evidence cannot authorize or be reinterpreted as a v2 stage."
     },
     {
       "path": "scripts/native-storage-batch/owned-e2e.ts",
@@ -419,8 +419,8 @@
     {
       "path": "scripts/native-storage-batch/stage-entry.ts",
       "role": "offline-operator",
-      "sha256": "2c75467834e9df3f7340561845f5cbf59b9cf70f1c7544160a64b76dd054e162",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
+      "sha256": "f64647bcad946cd9315532f690ce337b1bf09f7a3512c3b1115c21372fb4abf3",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse. D148: retain main VACUUM as separate maintenance; observe exactly two TOAST relations READ ONLY RR with explicit ROLLBACK and zero reuse/OS claims. Frozen v1 evidence cannot authorize or be reinterpreted as a v2 stage."
     },
     {
       "path": "scripts/verify-native-historical-worker-package.mjs",
@@ -429,5 +429,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "10d4307e9269456a19b53ae1504456a28104d9bc497ec14fdfe489c982125283"
+  "sourceInventorySha256": "02436dbd4d30a3b81ab4b301b6a1090f3b273161142b485e385e988ce3d83dbc"
 }

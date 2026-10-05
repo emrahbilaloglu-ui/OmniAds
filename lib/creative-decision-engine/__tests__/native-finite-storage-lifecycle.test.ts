@@ -79,7 +79,7 @@ describe("finite native operator protocol (does not substitute for actual backen
     expect(JSON.stringify(f.business)).toBe(before);
     expect(r.newWebOwnObservationRequired).toBe(true); expect(r.sustainableStorageClosed).toBe(false);
     for (const stage of ["capture-restore", "publish", "activate", "retire", "independent-readback",
-      "vacuum-main", "vacuum-toast", "space-readback"]) expect(f.events.findIndex(s => s.startsWith(`intent:${stage}:`)))
+      "vacuum-main", "toast-observation", "space-readback"]) expect(f.events.findIndex(s => s.startsWith(`intent:${stage}:`)))
       .toBeLessThan(f.events.findIndex(s => s.startsWith(`execute:${stage}:`)));
   });
   it("refuses missing fresh pins before retirement dispatch and durable intent", async () => {
@@ -120,13 +120,13 @@ describe("finite native operator protocol (does not substitute for actual backen
     const count = f.events.length, r = await runFiniteNativeStorageBatch(f.p, f.journal, f.backend, clock);
     expect(r.actualExitCode).toBe(1); expect(f.events).toHaveLength(count);
   });
-  it("main vacuum acknowledgement cannot conceal a cancelled TOAST command", async () => {
+  it("main vacuum acknowledgement cannot conceal a failed read-only TOAST observation", async () => {
     const f = fixture(), execute = f.backend.execute;
-    f.backend.execute = async (stage, units, signal) => stage === "vacuum-toast"
+    f.backend.execute = async (stage, units, signal) => stage === "toast-observation"
       ? { ...await execute(stage, units, signal), actionAcknowledged: false, actualExitCode: 1 }
       : execute(stage, units, signal);
     const r = await runFiniteNativeStorageBatch(f.p, f.journal, f.backend, clock);
-    expect(r.actualExitCode).toBe(1); expect(r.stage).toBe("vacuum-toast");
+    expect(r.actualExitCode).toBe(1); expect(r.stage).toBe("toast-observation");
     expect(f.events).not.toContain("intent:space-readback:2");
   });
   it("ends a hung stage with its abort signal and records status-only", async () => {
@@ -197,5 +197,44 @@ describe("finite native operator protocol (does not substitute for actual backen
       expect(aborted).toBe(true); expect(result.actualExitCode).toBe(1); expect(result.statusReadOnlyRequired).toBe(false);
       expect(f.events.some(e => e.startsWith("intent:") || e.startsWith("execute:"))).toBe(false);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe("post-retirement TOAST observation replaces the bounded TOAST VACUUM dispatch", () => {
+  it("schedules a read-only observation between main VACUUM and space readback, never a TOAST VACUUM", () => {
+    const stages = nativeStorageBatchSchedule(plan()).map(s => s.stage);
+    expect(stages.slice(-3)).toEqual(["vacuum-main", "toast-observation", "space-readback"]);
+    expect(stages).not.toContain("vacuum-toast");
+  });
+  it("admits the observation under the read-only class and lets space readback run", async () => {
+    const f = fixture();
+    const r = await runFiniteNativeStorageBatch(f.p, f.journal, f.backend, clock);
+    expect(r.actualExitCode).toBe(0);
+    const observe = f.events.indexOf("intent:toast-observation:2");
+    expect(f.events[observe - 1]).toBe("fresh:read-original:2");
+    expect(f.events.some(s => s.includes("vacuum-toast"))).toBe(false);
+    expect(f.events.indexOf("execute:toast-observation:2")).toBeLessThan(f.events.indexOf("intent:space-readback:2"));
+  });
+  it("refuses a v1 plan explicitly instead of reinterpreting its TOAST VACUUM schedule", async () => {
+    const f = fixture(), v1 = { ...plan(), contract: "finite-native-storage-batch.v1" } as unknown as NativeStorageBatchPlan;
+    expect(() => validateNativeStorageBatchPlan(v1)).toThrow("RETIRED_V1_TOAST_VACUUM_SCHEDULE");
+    await expect(runFiniteNativeStorageBatch(v1, f.journal, f.backend, clock)).rejects.toThrow("RETIRED_V1_TOAST_VACUUM_SCHEDULE");
+    expect(f.events).toEqual([]);
+  });
+  it("never accepts an old TOAST VACUUM acknowledgement as an observation", async () => {
+    const f = fixture(), schedule = nativeStorageBatchSchedule(f.p);
+    const ack = (stage: NativeStorageStage, ids: string[]): NativeStorageStageReceipt => ({ purpose: f.p.purpose, stage, jobRunIds: ids,
+      actualExitCode: 0, actionAcknowledged: true, independentFullOriginalBytesMatch: true, providerAuthority: false, reclaimedBytes: 0,
+      evidenceSha256: "e".repeat(64) });
+    const observe = schedule.findIndex(s => s.stage === "toast-observation");
+    const acknowledgedReceipts = [...schedule.slice(0, observe).map(s => ack(s.stage, s.units.map(u => u.generation.jobRunId))),
+      ack("vacuum-toast", f.p.units.map(u => u.generation.jobRunId))];
+    f.journal.begin = async () => ({ contract: "finite-native-storage-resume.v1", purpose: f.p.purpose,
+      planSha256: nativeStoragePlanDigest(f.p), startedAt: at, acknowledgedReceipts, unacknowledgedIntent: null });
+    f.backend.verifyAcknowledged = async () => { f.events.push("verify"); return true; };
+    const r = await runFiniteNativeStorageBatch(f.p, f.journal, f.backend, clock);
+    expect(r.actualExitCode).toBe(1); expect(r.reason).toBe("RESUME_ACKNOWLEDGED_PREFIX_REQUIRED");
+    expect(r.statusReadOnlyRequired).toBe(true);
+    expect(f.events.filter(s => s.startsWith("intent:") || s.startsWith("execute:") || s === "verify")).toEqual([]);
   });
 });

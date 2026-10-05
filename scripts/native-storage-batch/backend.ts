@@ -10,6 +10,7 @@ import { buildNativeHistoricalCatalogRouting, NativeHistoricalCatalogRouter, NAT
 import { persistLocalNativeHistoricalRouting, readLocalNativeHistoricalMetadata } from "../../lib/creative-decision-engine/native-historical-catalog-routing-store";
 import { openImmutableNativeHistoricalArchiveCatalog } from "../../lib/creative-decision-engine/native-historical-archive";
 import { BatchRefusal, canonicalSha, need, pad, privateDirectory, readExact, same, sha256, sortedEntries, writeExclusive } from "./common";
+import { toastObservationAcknowledged, toastObservationEvidence } from "./maintenance";
 import type { UnitConfig } from "./capture";
 import { computeSourcePack, REPO_ROOT, TSX_LOADER, verifySourceReview } from "./source-pack";
 import type { FileBatchJournal } from "./journal";
@@ -41,7 +42,8 @@ export const databaseUrl = (role: string, socketDirectory: string, port: number,
   `postgresql://${encodeURIComponent(role)}@localhost/${database}?host=${encodeURIComponent(socketDirectory)}&port=${port}`;
 const GiB = 1024 ** 3, MiB = 1024 ** 2;
 const LIMITS: Record<string, number> = { "healthcheck-sample": 15_000, evidence: 30_000, select: 30_000, freeze: 120_000,
-  capture: 120_000, pins: 30_000, restore: 120_000, retire: 75_000, readback: 60_000, vacuum: 75_000, space: 30_000, "fresh-read": 45_000,
+  capture: 120_000, pins: 30_000, restore: 120_000, retire: 75_000, readback: 60_000, vacuum: 75_000, "toast-observation": 30_000, space: 30_000,
+  "fresh-read": 45_000,
   "web-serve": 60_000 };
 
 export async function readActivation(stateRoot: string) {
@@ -438,11 +440,16 @@ export class OwnedHostBatchBackend implements NativeStorageBatchBackend {
           archivedOriginalServedAfterRetirement: reads.matches, servingCheck: "reader_function_in_fresh_process_not_http" }, back.exactUnitAbsent === true,
           back.retainedRootsFullBytesMatch === true && reads.matches && await this.allCopies(units));
       }
-      case "vacuum-main": case "vacuum-toast": {
-        const component = stage === "vacuum-main" ? "main" : "toast";
-        const v = await this.child({ op: "vacuum", component, jobRunIds: units.map(u => u.generation.jobRunId) }, { database: "source", signal });
-        return this.receipt(stage, units, { component, acknowledged: v.acknowledged, elapsedMs: v.elapsedMs }, v.acknowledged === true, await this.allCopies(units));
+      case "vacuum-main": {
+        const v = await this.child({ op: "vacuum", component: "main", jobRunIds: units.map(u => u.generation.jobRunId) }, { database: "source", signal });
+        return this.receipt(stage, units, { component: "main", acknowledged: v.acknowledged, elapsedMs: v.elapsedMs }, v.acknowledged === true, await this.allCopies(units));
       }
+      case "toast-observation": {
+        const o = await this.child({ op: "toast-observation" }, { database: "source", signal });
+        return this.receipt(stage, units, toastObservationEvidence(o), toastObservationAcknowledged(o), await this.allCopies(units));
+      }
+      // History-only v1 stage name: a v2 plan never schedules it and this operator never runs it.
+      case "vacuum-toast": throw new BatchRefusal("VACUUM_TOAST_STAGE_RETIRED");
       case "space-readback": {
         const s = await this.child({ op: "space" }, { database: "source", signal });
         return this.receipt(stage, units, { relations: s.relations, reclaimedBytes: 0 }, true, await this.allCopies(units));

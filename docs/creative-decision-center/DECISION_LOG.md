@@ -12404,3 +12404,25 @@ elapsed-time SLA. No sample relabelling, clock
 change, decision identity, provider admission, budget increase, or deadline
 extension is introduced. A consumed refused purpose stays consumed; a new
 reviewed operator/new-purpose pre-state is required before another finite batch.
+
+
+## D148 — post-retirement TOAST observation and preserved child SQLSTATE (2026-10-05)
+
+The real finite batch retired eight complete archived originals and acknowledged
+main VACUUM, then ended status-only at its separate large TOAST command. Its
+child error SQLSTATE was not retained. That consumed purpose remains immutable
+and cannot be retried or reinterpreted.
+
+The new v2 operator schedules a bounded READ ONLY RR TOAST metadata observation
+between main VACUUM and space readback. It sends no TOAST VACUUM, preserves
+all zero reusable/OS-returned/authority claims and original read limits, and
+explicitly refuses v1 execution/resume while keeping its historical evidence.
+Production actors retain only safe bounded child terminal type/code/SQLSTATE
+before refusing, and never synthesize 57014 for a lost or unterminated child.
+The COMMIT challenge, guards, batch limits, physical floors, budgets, provider
+permissions, epochs, formulas and identity clocks are unchanged.
+
+Focused guards/owned PG seams, exact source review, canonical QA, build and
+source publication remain distinct from production mutation and final live
+acceptance. No new finite batch or app release is needed to publish these
+operator fixes. See [the execution contract](../architecture/native-finite-storage-lifecycle.md).

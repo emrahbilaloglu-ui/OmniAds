@@ -127,17 +127,17 @@ export async function productionExecute(o: Record<string, string>, transport: Ac
 export async function prepareProduction(o: Record<string, string>) {
   const host = await loadProductionHost(o.host!), purpose = purposeOf(o.purpose), value = await loadPlan(host, purpose);
   need(/^[a-z-]{3,40}$/.test(o.stage ?? "") && /^(db|stage-cipher|publish-root|activate-root)$/.test(o.op ?? "") &&
-    /^(evidence|pins|readback|space|vacuum|capture|retire|)$/.test(o["stage-op"] ?? ""), "STAGE_AND_OP_REQUIRED");
+    /^(evidence|pins|readback|space|toast-observation|vacuum|capture|retire|)$/.test(o["stage-op"] ?? ""), "STAGE_AND_OP_REQUIRED");
   // An UNARMED SSH transport refuses any send; payload() never sends.
   const backend = new ProductionHostBatchBackend(host, value, "", new ProductionSshTransport(null));
   const unit = value.units.find(u => u.generation.jobRunId === o.unit);
   const config = unit ? JSON.parse((await readExact(join(batchDir(host, purpose), "units", `${unit.generation.jobRunId}.config.json`), 4 * 1024 * 1024)).toString("utf8")) : null;
   const so = o["stage-op"];
   const request = so === "evidence" ? { op: so, databaseBudgetBytes: host.databaseBudgetBytes, expectedRole: host.role, knownApplicationNames: host.knownApplicationNames,
-    jobRunIds: value.units.map(u => u.generation.jobRunId) } : so === "space" ? { op: so } : so === "vacuum" ? { op: so, component: "main", jobRunIds: value.units.map(u => u.generation.jobRunId) }
+    jobRunIds: value.units.map(u => u.generation.jobRunId) } : so === "space" || so === "toast-observation" ? { op: so } : so === "vacuum" ? { op: so, component: "main", jobRunIds: value.units.map(u => u.generation.jobRunId) }
     : unit && config ? { op: so, config, proofSha256: unit.originalProofSha256, ...(so === "retire" ? { unitLockKey: unitLockKey(unit.generation.jobRunId) } : {}) } : null;
   const all = value.units.map(u => u.generation.jobRunId);
-  const payload = await backend.payload("app", o.op!, o.stage as never, o.op === "db" ? { request, ...(so === "space" ? { unitJobRunIds: all } : {}) } : { unitJobRunIds: all });
+  const payload = await backend.payload("app", o.op!, o.stage as never, o.op === "db" ? { request, ...(so === "space" || so === "toast-observation" ? { unitJobRunIds: all } : {}) } : { unitJobRunIds: all });
   const raw = JSON.stringify(payload), out = join(batchDir(host, purpose), "prepared-payloads");
   await mkdir(out, { recursive: true, mode: 0o700 });
   const name = `${o.stage}-${o.op}-${so || "na"}-${Date.now()}`;

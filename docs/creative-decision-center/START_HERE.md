@@ -39,6 +39,9 @@ It preserves physical/source fences and does not close sustainable storage.
 For the retained whole-table reader source gate before broader lifecycle work,
 read [D146](DECISION_LOG.md#d146--retained-reader-source-and-closed-day-lifecycle-gate-2026-10-05)
 and [the retained lifecycle contract](../architecture/native-retained-reader-lifecycle.md).
+For the finite operator and separate maintenance admission, read
+[D147](DECISION_LOG.md#d147--finite-native-storage-operator-and-maintenance-admission-2026-10-05)
+and [the execution contract](../architecture/native-finite-storage-lifecycle.md).
 All retained snapshots remain pinned; source hashes and preparation eligibility
 do not grant removal, live reader closure or sustainable-storage acceptance.
 

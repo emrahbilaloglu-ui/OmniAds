@@ -1,5 +1,5 @@
 {
-  "manifestHash": "c9e1eebdb66a73a4e0267bf39afc04f61a77a1aa862c301a98b6ef92aa5a0b60",
+  "manifestHash": "35cddd0d76d487c8d4ce054a9790d2f056fcb2b30aed4e485134051457dc343c",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -755,6 +755,10 @@
       "sha256": "91b523397c4d6c029ed7a4a0f9551d46fc819192a600871e24d66262cc5b2f6f"
     },
     {
+      "path": "docs/architecture/native-finite-storage-lifecycle.md",
+      "sha256": "160fd270da1e3213d52187d59bf41538c6ed4f875ad8fe2aa88270bdfe5ee8ed"
+    },
+    {
       "path": "docs/architecture/native-generation-catalog-routing.md",
       "sha256": "b23b1c3ec33a559a3bd740ec1c806019dd83d1dc014b3c82fd173d97dd5d7a87"
     },
@@ -776,7 +780,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "4c1e36ee472e50ab3c27691dcc0792186a120157b6f4121abfc2b89729b11ecc"
+      "sha256": "1c280a0cee8fae2cc545d77328e4471dacd27bc00b61a33ebe68f3e529789c62"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -812,7 +816,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "debed908958fd5747dccb8d902921dcbf2d168cc813daf6e5663b0b929852e89"
+      "sha256": "f48227bc3556f196091763607368143f98080dcb26980854d1ec1075c7550abe"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -824,7 +828,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "7c84ceb74243d658c7d2b96f87c6fc7411643b1cb3c3f44dfaabdaeb83ba438d"
+      "sha256": "5011f0b5779e5e137e67b69e8357fc8fe8baf6ac88a2383a01f90501b7ea522a"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -1207,6 +1211,10 @@
       "sha256": "48c6fe3b34b5fae6bae30c5cdf28e0e32a53325ca6f50ae55022ffcff349291a"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-finite-storage-lifecycle.test.ts",
+      "sha256": "888978588d3df3a6bf8254e95f7f930142090ad3ecfd1feb01f7591ab14a3283"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/native-historical-archive-reader.test.ts",
       "sha256": "c417d26034d2751432ff22251ff1f1dd9a2b819ac6ca9ad635d10481adc11c5b"
     },
@@ -1509,6 +1517,10 @@
     {
       "path": "lib/creative-decision-engine/native-evidence-archive.ts",
       "sha256": "8d27f0f16342c1cfb88c11f15cd56ceb4c9d81fb881358c23d536c730092f34a"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-finite-storage-lifecycle.ts",
+      "sha256": "24222f0e543d20cad6876042c98b0cc19fab0c3e3262988f51076d67f23760f5"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-archive-reader.ts",
@@ -2431,6 +2443,10 @@
       "sha256": "4e459e663df35cf090aad70d0b0e6c96ff8b2561adbb372f1d88dff558fb1263"
     },
     {
+      "path": "lib/sync/__tests__/native-storage-maintenance-admission.test.ts",
+      "sha256": "0de60a1e5e9cd911e5c3ab5770c028aef29f4fa83c4053320909cc3586130ab3"
+    },
+    {
       "path": "lib/sync/db-growth-capacity-report.test.ts",
       "sha256": "a1d391d53beac4314fe6ac90354e352eeef9d26c2389f96e70deb917c3306b10"
     },
@@ -2469,6 +2485,10 @@
     {
       "path": "lib/sync/meta-sync.ts",
       "sha256": "c3cefabff1262070a3b28b2c8075b34ff225f3e04883f69cf575b5770fa887eb"
+    },
+    {
+      "path": "lib/sync/native-storage-maintenance-admission.ts",
+      "sha256": "b86a21bcdf2bfe2dc1ef73604481add51ce613f11fccf2add10e3ab022175c1a"
     },
     {
       "path": "lib/sync/storage-containment.ts",
@@ -2873,6 +2893,86 @@
     {
       "path": "scripts/native-retained-reader-lifecycle-guard.ts",
       "sha256": "eec0c96791c52c9f17bff7a00e8a4ea4d27f4790cd04436034799157b4110cec"
+    },
+    {
+      "path": "scripts/native-storage-batch/backend.ts",
+      "sha256": "9a05315abcbf78b59ef9d37f3cffc963e1375442bb974a4f1f6066cc60596317"
+    },
+    {
+      "path": "scripts/native-storage-batch/capture.ts",
+      "sha256": "1d1c356bbedb37f15d51865e04157aa212fcd90d67859fc18fef5186d80fe0e3"
+    },
+    {
+      "path": "scripts/native-storage-batch/cli.ts",
+      "sha256": "59c4c4aa27d8306e055fc2b6f1c9a64c7fa6aa975a171828d860b271b193f873"
+    },
+    {
+      "path": "scripts/native-storage-batch/common.ts",
+      "sha256": "1ea6e20664974159ef1f10e4bd6cc13bb9c13dcfb554d4f9e9ef9b95de6cecf6"
+    },
+    {
+      "path": "scripts/native-storage-batch/http-proof.ts",
+      "sha256": "a35f4735d97c250d53509985b278ee68f97c123cba5a24232a14848a848910d2"
+    },
+    {
+      "path": "scripts/native-storage-batch/journal.ts",
+      "sha256": "99aa674aa7a0c5a09addd16fd599219209cee4b9b706fe314a171f2c95ea8438"
+    },
+    {
+      "path": "scripts/native-storage-batch/maintenance.ts",
+      "sha256": "cbcc6b9224c5b51466facd14ff02b8a1def070eb478fd6fe8c8e9f944d62d5e3"
+    },
+    {
+      "path": "scripts/native-storage-batch/owned-e2e.ts",
+      "sha256": "9d21fb02f1caea71d4893ba416095d10f1e43e655cae59cc88c789bfe1917691"
+    },
+    {
+      "path": "scripts/native-storage-batch/owned-fixture.ts",
+      "sha256": "6e5fbde6cda0fe63383d767d335b02fc144f66effc45810ee7669f623270b079"
+    },
+    {
+      "path": "scripts/native-storage-batch/production-actor.py",
+      "sha256": "23a059a45f4419a0e488d1261ee151070d086ccf877848ac6f60f3bbf2cc2ca2"
+    },
+    {
+      "path": "scripts/native-storage-batch/production-cli.ts",
+      "sha256": "990044fd0b752263fdce3467f04bc74a75182e32bd68c0d5348f9d6a69a27c9d"
+    },
+    {
+      "path": "scripts/native-storage-batch/production-fixture-e2e.ts",
+      "sha256": "0fd9813a0dd56197ef8fa7f9fe5f803cac81155b7ddd751dfdb70f4ffdaf153f"
+    },
+    {
+      "path": "scripts/native-storage-batch/production-fixture.ts",
+      "sha256": "c3466ff9c154c8f8585b2b346a9b089debea08fff74d04474b87193b35e9bc8c"
+    },
+    {
+      "path": "scripts/native-storage-batch/production-transport.ts",
+      "sha256": "c03d6d8ad01909af106cab9a415c326579e127590a94bc6a60e90f6064e002ea"
+    },
+    {
+      "path": "scripts/native-storage-batch/restore.ts",
+      "sha256": "9c02e55701a1c6143f141391ce55bf789928b587e2c8abcef15feeeff6ecf095"
+    },
+    {
+      "path": "scripts/native-storage-batch/retire.ts",
+      "sha256": "e0ce887637af62bb5f27fa7cc3127816caa365e51f663e09eeeb31d56cb2851f"
+    },
+    {
+      "path": "scripts/native-storage-batch/rw-unit-inventory.ts",
+      "sha256": "9827a3633884b1b4d59f3902c8b9bcd79973ebb6c12b1820764a2806c4b4be03"
+    },
+    {
+      "path": "scripts/native-storage-batch/source-pack.ts",
+      "sha256": "97ac83b72db68345c39a9f31ca0382658020e95c7cdab1041650e6bc1298d1af"
+    },
+    {
+      "path": "scripts/native-storage-batch/stage-entry.ts",
+      "sha256": "09ad63dc34c3117a547344c71f44ed823c1b625026dc3de6c73c5b1e52d5aaea"
+    },
+    {
+      "path": "scripts/native-storage-batch/tsconfig.json",
+      "sha256": "53b13275ed89afc0fac80b21773ac698aad999f67c7d503699e8e91747949084"
     },
     {
       "path": "scripts/sync-worker-healthcheck.ts",

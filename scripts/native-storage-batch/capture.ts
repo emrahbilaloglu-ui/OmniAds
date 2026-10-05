@@ -14,7 +14,7 @@ import { sealCompressedNativeHistoricalArchive, openNativeHistoricalArchiveEnvel
   type NativeHistoricalArchiveContentTrust } from "../../lib/creative-decision-engine/native-historical-archive";
 import { persistLocalNativeArchive, NATIVE_LOCAL_ARCHIVE_BUCKET } from "../../lib/creative-decision-engine/native-historical-local-store";
 import { CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, EXPECTED_INCOMING_FKS, NATIVE_JOB, NON_FK_CLASSES,
-  UNIT_TABLES, type UnitTable, canonical, canonicalSha, need, rowSetHash, same, sha256, writeExclusive, BatchRefusal,
+  UNIT_TABLES, UUID, type UnitTable, canonical, canonicalSha, need, rowSetHash, same, sha256, writeExclusive, BatchRefusal,
   privateDirectory, readExact } from "./common";
 
 /** Generic whole-original collector. Same mechanics as the reviewed known1134
@@ -103,6 +103,8 @@ export interface UnitConfig {
   tableHashes: Record<UnitTable, { rows: number; rowByteSetSha256: string }>;
   evaluationRowSha256: Record<string, string>;
   jobFinishedAt: string; schemaHash: string; catalogFingerprint: string; consumerInventorySha256: string;
+  /** Exact terminal NO-OP dependents kept live with the retained original job row (full row bytes). */
+  retainedDependents: RetainedDependents;
 }
 export interface CaptureInput {
   generation: NativeArchiveGeneration; expectedEvaluations: number; expectedContexts: number;
@@ -124,7 +126,72 @@ function unitVeto(unit: Awaited<ReturnType<typeof readNativeEvaluationContextUni
   need(same(unit.nonFkCounts.map(x => x.pinClass).sort(), NON_FK_CLASSES), "NON_FK_INVENTORY_INCOMPLETE");
   for (const pin of unit.nonFkCounts) need(pin.count === "0", pin.pinClass === "action_lineage" ? "RETAINED_ACTION_VETO" : `RETAINED_NON_FK_VETO:${pin.pinClass}`);
 }
-function censusVeto(census: Awaited<ReturnType<typeof readNativeArchivePinCensus>>) {
+type PinCensus = Awaited<ReturnType<typeof readNativeArchivePinCensus>>;
+/** The ONLY job_dependencies an original may keep: the native chain's own
+ * proposal-projection record of a MANUAL-mode slot (recordNativeProposalProjectionRun:
+ * status skipped, zero rows, error standing_mode_manual, nothing else written).
+ * The scheduler projects only the current UTC day's slot, so on a closed day
+ * that record is terminal. It stays live beside its retained parent job row (the
+ * self-FK keeps pointing at a row that is never deleted) and its FULL row bytes
+ * are frozen. Every other dependency class, count or shape vetoes. */
+export const TERMINAL_NOOP_DEPENDENT = Object.freeze({ jobName: "engine_v3_native_ad_proposal_projection_shadow_job",
+  status: "skipped", errorMessage: "standing_mode_manual", maxPerOriginal: 8, minAgeMs: 30 * 60_000 });
+export const RETAINED_DEPENDENTS_CONTRACT = "native-terminal-noop-dependents.v1" as const;
+export interface RetainedDependents { contract: typeof RETAINED_DEPENDENTS_CONTRACT; jobIds: string[]; rows: number;
+  rowByteSetSha256: string; dependencyForeignKey: string | null }
+/** Every job row naming the original as its dependency, bounded one past the cap. */
+export const DEPENDENT_ROWS_SQL = `SELECT j.id::text id,to_jsonb(j)::text bytes FROM public.engine_v3_job_runs j
+  WHERE j.dependency_run_id=$1::uuid AND j.id<>$1::uuid ORDER BY j.id LIMIT ${TERMINAL_NOOP_DEPENDENT.maxPerOriginal + 1}`;
+const JOB_SELF_FK_SQL = `SELECT con.conname::text "name",array_agg(ca.attname::text ORDER BY k.ord) "childColumns",
+  array_agg(pa.attname::text ORDER BY k.ord) "parentColumns" FROM pg_constraint con
+  JOIN pg_class child ON child.oid=con.conrelid JOIN pg_namespace cn ON cn.oid=child.relnamespace
+  JOIN pg_class parent ON parent.oid=con.confrelid JOIN pg_namespace pn ON pn.oid=parent.relnamespace
+  CROSS JOIN LATERAL unnest(con.conkey,con.confkey) WITH ORDINALITY k(child_key,parent_key,ord)
+  JOIN pg_attribute ca ON ca.attrelid=child.oid AND ca.attnum=k.child_key JOIN pg_attribute pa ON pa.attrelid=parent.oid AND pa.attnum=k.parent_key
+  WHERE con.contype='f' AND cn.nspname='public' AND pn.nspname='public' AND child.relname='engine_v3_job_runs' AND parent.relname='engine_v3_job_runs'
+  GROUP BY con.oid,con.conname ORDER BY con.conname`;
+
+/** Pure classification of the census job_dependencies class. The census sums
+ * every job_dependencies FK edge (job_runs self-FK, lifecycle_daily) AND a
+ * separate explicit dependency_run_id count, so with the self-FK each dependent
+ * is counted twice. Exactly that arithmetic must hold; any other nonzero edge,
+ * count, bound, or a row that is not the typed terminal NO-OP record vetoes. */
+export function classifyTerminalNoopDependents(input: { census: PinCensus; generation: NativeArchiveGeneration; observedAt: string;
+  selfForeignKeys: { name: string; childColumns: string[]; parentColumns: string[] }[]; dependents: { id: string; bytes: string }[] }): RetainedDependents {
+  const fail = (ok: unknown, reason: string) => { if (!ok) throw new BatchRefusal(`RETAINED_PIN_VETO:job_dependencies:${reason}`); };
+  const g = input.generation, observed = Date.parse(input.observedAt), n = BigInt(input.dependents.length);
+  fail(Number.isFinite(observed), "clock");
+  fail(input.dependents.length <= TERMINAL_NOOP_DEPENDENT.maxPerOriginal, "bound");
+  const dependencyFks = input.selfForeignKeys.filter(f => same(f.childColumns, ["dependency_run_id"]) && same(f.parentColumns, ["id"]));
+  fail(dependencyFks.length <= 1, "catalog");
+  const fk = dependencyFks[0]?.name ?? null;
+  const edges = input.census.foreignKeyReferences.filter(e => e.pinClass === "job_dependencies");
+  const dependencyEdge = (e: (typeof edges)[number]) => fk !== null && e.constraint === fk && e.childSchema === "public" &&
+    e.parentSchema === "public" && e.childTable === "engine_v3_job_runs" && e.parentTable === "engine_v3_job_runs";
+  fail(edges.every(e => e.count === "0" || dependencyEdge(e)), "foreign_edge");
+  const total = input.census.counts.find(c => c.pinClass === "job_dependencies")?.count;
+  fail(typeof total === "string" && /^(0|[1-9][0-9]*)$/.test(total), "unexplained_count");
+  const fkCounted = edges.reduce((sum, e) => sum + BigInt(e.count), BigInt(0)), own = edges.filter(dependencyEdge);
+  fail(BigInt(total!) - fkCounted === n && (fk === null ? own.length === 0 : own.length === 1 && BigInt(own[0]!.count) === n), "unexplained_count");
+  const settled = observed - TERMINAL_NOOP_DEPENDENT.minAgeMs, ids = input.dependents.map(d => d.id);
+  for (const d of input.dependents) {
+    const r = parse(d.bytes), at = (v: unknown) => typeof v === "string" ? Date.parse(v) : NaN;
+    const clocks = [r.started_at, r.finished_at, r.created_at, r.updated_at].map(at);
+    fail(UUID.test(d.id) && r.id === d.id && r.job_name === TERMINAL_NOOP_DEPENDENT.jobName && r.status === TERMINAL_NOOP_DEPENDENT.status &&
+      r.row_count === 0 && r.error_message === TERMINAL_NOOP_DEPENDENT.errorMessage && r.error_code === null && r.error_json === null &&
+      r.retry_count === 0 && r.input_hash === null && r.source_min_date === null && r.source_max_date === null && r.source_max_updated_at === null &&
+      r.business_ref_id === g.businessId && r.business_id === g.businessId && r.as_of_date === g.asOfDate &&
+      r.engine_version === g.engineVersion && r.dependency_run_id === g.jobRunId &&
+      clocks.every(c => Number.isFinite(c) && c <= settled) && clocks[0]! <= clocks[1]!, "unqualified_dependent");
+  }
+  fail(same(ids, [...new Set(ids)].sort()), "unqualified_dependent");
+  return { contract: RETAINED_DEPENDENTS_CONTRACT, jobIds: ids, rows: ids.length,
+    rowByteSetSha256: rowSetHash(input.dependents.map(d => d.bytes)), dependencyForeignKey: fk };
+}
+/** Census veto in the caller's READ ONLY snapshot. job_dependencies is never a
+ * blanket pass: it is exactly the classified terminal NO-OP dependents, or a veto. */
+export async function censusVeto(read: (sql: string, values?: unknown[]) => Promise<{ rows: any[] }>, census: PinCensus,
+  generation: NativeArchiveGeneration, observedAt: string) {
   need(census.unknownReferences.length === 0, "UNKNOWN_CONSUMER_VETO");
   const assessment = assessNativeArchivePins(census, census.generation);
   need(assessment.unclassifiedLiveReferences.length === 0, "UNKNOWN_CONSUMER_VETO");
@@ -133,8 +200,10 @@ function censusVeto(census: Awaited<ReturnType<typeof readNativeArchivePinCensus
   need(count("action_lineage") === "0", "RETAINED_ACTION_VETO");
   need(count("reuse_attempts") === "0", "RETAINED_REUSE_VETO");
   // Retained parents (job row, shared input evidence) stay; every other live class vetoes.
-  for (const c of ["outcomes", "episodes", "assignments", "events", "job_dependencies"]) need(count(c) === "0", `RETAINED_PIN_VETO:${c}`);
-  return assessment;
+  for (const c of ["outcomes", "episodes", "assignments", "events"]) need(count(c) === "0", `RETAINED_PIN_VETO:${c}`);
+  const selfForeignKeys = (await read(JOB_SELF_FK_SQL)).rows;
+  const dependents = (await read(DEPENDENT_ROWS_SQL, [generation.jobRunId])).rows;
+  return { assessment, dependents: classifyTerminalNoopDependents({ census, generation, observedAt, selfForeignKeys, dependents }) };
 }
 
 /** One complete RO measurement + bundle. Throws a stable veto code. */
@@ -176,7 +245,7 @@ export async function collectWholeOriginal(db: Q, input: CaptureInput) {
       consumerInventorySha256: input.consumerInventorySha256, unmodeledConsumers: [DECLARED_CLOSURE_GAP] });
     unitVeto(unit, input.expectedEvaluations); assessNativeEvaluationContextUnit(unit, g);
     const census = await readNativeArchivePinCensus(source, { schema: "public", generation: g, unmodeledReferences: [] });
-    censusVeto(census);
+    const { dependents: retainedDependents } = await censusVeto(q, census, g, mode.observed);
     const evalSelection = await readNativeJobEvaluationSelection(source, "public");
     need(evalSelection.route === "validated_context_lineage", "ENFORCED_EVALUATION_LINEAGE_REQUIRED");
     const evaluationRows = await rows(`SELECT to_jsonb(e)::text bytes FROM (${evalSelection.sql}) e
@@ -253,7 +322,7 @@ export async function collectWholeOriginal(db: Q, input: CaptureInput) {
       tableHashes: Object.fromEntries(UNIT_TABLES.map(t => [t, { rows: tableRows[t].length, rowByteSetSha256: rowSetHash(tableRows[t]) }])) as UnitConfig["tableHashes"],
       evaluationRowSha256: Object.fromEntries(evaluationRows.map(raw => [parse(raw).id, sha256(raw)]).sort()),
       jobFinishedAt: job.finished_at, schemaHash: parents.bundle.manifest.schemaHash, catalogFingerprint: fingerprint,
-      consumerInventorySha256: input.consumerInventorySha256 };
+      consumerInventorySha256: input.consumerInventorySha256, retainedDependents };
     need(config.inputKeys.length > 0 && config.evaluationIds.length === new Set(config.evaluationIds).size, "EXACT_ORIGINAL_UUID_SET");
     const identities = evaluations.map(x => ({ evaluationId: x.id as string, providerAccountId: x.provider_account_id as string, adId: x.ad_id as string }));
     await q("ROLLBACK"); began = false;

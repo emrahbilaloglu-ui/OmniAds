@@ -365,8 +365,8 @@
     {
       "path": "scripts/native-storage-batch/capture.ts",
       "role": "offline-operator",
-      "sha256": "1d1c356bbedb37f15d51865e04157aa212fcd90d67859fc18fef5186d80fe0e3",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+      "sha256": "35c393cfb4fd120d564fe5149a759621b60db11b62e632752480e15e36ae632f",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
     },
     {
       "path": "scripts/native-storage-batch/common.ts",
@@ -377,8 +377,8 @@
     {
       "path": "scripts/native-storage-batch/maintenance.ts",
       "role": "offline-operator",
-      "sha256": "46a9d38db706c7a4754822ba17779c611b89d9b5262433a09b113db3dfe53435",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Producer-idle distinguishes only bounded, explicit stale retired-epoch metadata with no matching canonical job/chain locks; current, recent, unknown or owned running work refuses. No ledger finalization or provider admission."
+      "sha256": "60b7cd9068d89f48ce2765cb8218bd0f7680203cc9178073809dc002f2bea867",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Producer-idle distinguishes only bounded, explicit stale retired-epoch metadata with no matching canonical job/chain locks; current, recent, unknown or owned running work refuses. No ledger finalization or provider admission. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
     },
     {
       "path": "scripts/native-storage-batch/owned-e2e.ts",
@@ -407,8 +407,8 @@
     {
       "path": "scripts/native-storage-batch/retire.ts",
       "role": "offline-operator",
-      "sha256": "e0ce887637af62bb5f27fa7cc3127816caa365e51f663e09eeeb31d56cb2851f",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+      "sha256": "09ca94dcd7ee05129ceda70ecb359c705b510d6e087fa18dbb63be7316672b78",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
     },
     {
       "path": "scripts/native-storage-batch/rw-unit-inventory.ts",
@@ -419,8 +419,8 @@
     {
       "path": "scripts/native-storage-batch/stage-entry.ts",
       "role": "offline-operator",
-      "sha256": "09ad63dc34c3117a547344c71f44ed823c1b625026dc3de6c73c5b1e52d5aaea",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+      "sha256": "2c75467834e9df3f7340561845f5cbf59b9cf70f1c7544160a64b76dd054e162",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
     },
     {
       "path": "scripts/verify-native-historical-worker-package.mjs",
@@ -429,5 +429,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "519718dedced24a493bc232bece1db7d8703faa53136c26807016ff1f7ba4e9c"
+  "sourceInventorySha256": "10d4307e9269456a19b53ae1504456a28104d9bc497ec14fdfe489c982125283"
 }

@@ -130,3 +130,27 @@ zero unknown catalog/session consumers. Full source, exact per-role images and
 every other maintenance gate still apply. The helper performs SELECT only;
 it never rewrites a receipt, invokes the reaper or grants provider work. Its
 lock observation is a bounded pre-state, not a claim of perpetual idleness.
+
+
+## Retained terminal manual-projection receipts
+
+A job dependency is not automatically a reference to evaluations being removed.
+The finite operator keeps original job rows. It distinguishes only their exact
+terminal manual-mode proposal-projection children: same tenant/day/engine and
+parent, skipped, zero rows, `standing_mode_manual`, null error/source/input/reuse
+fields, zero retry and four settled clocks. It reads at most nine children to
+refuse a set over eight. All other dependency shapes/classes and catalog/count
+mismatches veto. The self-FK and explicit dependency query are separately
+measured; their complete count must match the typed set, never an assumed total
+halved to invent eligibility.
+
+The original frozen config includes sorted IDs and the full JSONB-text byte-set
+hash of these retained children. A fresh full read-only census must reproduce
+it. The retirement transaction retains/locks the original roots and children,
+requires exact child IDs/bytes before and after its evaluation/context DELETE,
+and the independent readback checks the same full bytes. Original job and child
+rows remain live; no reader, clock, status or provider authority is rewritten.
+Any added, changed, fresh, real projection or otherwise unsupported child
+refuses. Actual snapshot/action/reuse and other source-removal pins still veto.
+This narrows a proved unnecessary retained-parent veto; it does not enlarge the
+archive population, query timeout, budget, mutation scope or lifecycle claim.

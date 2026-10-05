@@ -1,5 +1,6 @@
 import { readTargetCatalog, type Q, type UnitConfig } from "./capture";
 import { CLOSED_DAY_BUFFER_MS, CONTEXT, EVAL, NATIVE_JOB, RETAINED_TABLES, UUID, need, rowSetHash, same } from "./common";
+import { readNativeProducerIdle } from "./native-producer-idle";
 
 /** Metadata-only bounded closed-day candidate selection. Reads job receipts and
  * the job-leading context index only; never an evaluation row. A candidate is
@@ -134,7 +135,8 @@ export async function spaceReadback(db: Q) {
 
 /** Fresh DB-side admission measurements. Unknown consumers = concrete catalog
  * consumers on the targets plus any client session whose application_name is
- * not in the exact allowlist. Producer idle = no running native/calibration job. */
+ * not in the exact allowlist. Current/fresh/owned/unknown running producers veto;
+ * only explicitly reviewed stale retired-epoch metadata may be distinguished. */
 export async function databaseAdmissionFacts(db: Q, input: { expectedRole: string; knownApplicationNames: string[]; jobRunIds: string[] }) {
   const who = (await db.query(`SELECT current_user u,session_user s,(SELECT rolsuper FROM pg_roles WHERE rolname=current_user) su,current_database() d`)).rows[0];
   let catalogConsumers = 0;
@@ -142,8 +144,10 @@ export async function databaseAdmissionFacts(db: Q, input: { expectedRole: strin
   catch { catalogConsumers = 1; }
   const sessions = (await db.query(`SELECT coalesce(application_name,'') app FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend'`)).rows;
   const unknownSessions = sessions.filter(s => !input.knownApplicationNames.includes(s.app)).length;
-  const running = (await db.query(`SELECT count(*)::int n FROM public.engine_v3_job_runs WHERE status='running' AND job_name IN ($1,'engine_v3_native_ad_calibration_shadow_job')`, [NATIVE_JOB])).rows[0];
+  const roleMatches = who.u === input.expectedRole && who.s === input.expectedRole;
+  const producerLedger = await readNativeProducerIdle(db, roleMatches && catalogConsumers + unknownSessions === 0);
   const lineage = await enforcedLineageAbsence(db, input.jobRunIds);
   return { role: who.u as string, roleMatches: who.u === input.expectedRole && who.s === input.expectedRole, database: who.d as string,
-    unknownDatabaseConsumers: catalogConsumers + unknownSessions, nativeProducerIdle: running.n === 0, lineage };
+    unknownDatabaseConsumers: catalogConsumers + unknownSessions, nativeProducerIdle: producerLedger.nativeProducerIdle,
+    producerLedger, lineage };
 }

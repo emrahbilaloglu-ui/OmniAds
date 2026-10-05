@@ -12354,3 +12354,18 @@ unit tests. One pilot, reusable-space estimate or temporary index shrink is
 not sustainable growth closure; a measured actual finite lifecycle/capacity
 outcome remains required. No unmeasured cadence or multiday waiting period is
 introduced. See [the execution contract](../architecture/native-finite-storage-lifecycle.md).
+
+**Retired running-ledger correction:** The first bounded production pre-state
+found eleven unchanged `running` receipts from three retired epochs, eight to
+fifty days old, with no matching canonical job/chain locks. Counting these as
+current producers prevented maintenance indefinitely. The maintenance assessor
+may distinguish only those three explicitly reviewed epochs, with both clocks
+older than thirty minutes, exact tenant/job/day identity, no finished stamp,
+and no matching job or chain lock owner or waiter in this database. The
+calibration job key includes its original engine version; the unversioned key
+and chain key stay as additional conservative vetoes for older schedulers. The
+current native epoch always vetoes while running, regardless of age. Unknown,
+fresh, malformed or more than sixty-four running receipts refuse. Exact source,
+per-role runtime and unknown-consumer gates remain independent requirements.
+This is pure SELECT metadata assessment: no reaper, row finalization, forced
+job, lock acquisition, epoch normalization or provider admission is introduced.

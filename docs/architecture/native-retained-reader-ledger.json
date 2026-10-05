@@ -377,8 +377,8 @@
     {
       "path": "scripts/native-storage-batch/maintenance.ts",
       "role": "offline-operator",
-      "sha256": "cbcc6b9224c5b51466facd14ff02b8a1def070eb478fd6fe8c8e9f944d62d5e3",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+      "sha256": "46a9d38db706c7a4754822ba17779c611b89d9b5262433a09b113db3dfe53435",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Producer-idle distinguishes only bounded, explicit stale retired-epoch metadata with no matching canonical job/chain locks; current, recent, unknown or owned running work refuses. No ledger finalization or provider admission."
     },
     {
       "path": "scripts/native-storage-batch/owned-e2e.ts",
@@ -429,5 +429,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "f11657f496e30db334fa4c89cd8e6001c9541d5097f16e625e8f5e88243b13dc"
+  "sourceInventorySha256": "519718dedced24a493bc232bece1db7d8703faa53136c26807016ff1f7ba4e9c"
 }

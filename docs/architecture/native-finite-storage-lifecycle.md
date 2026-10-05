@@ -113,3 +113,20 @@ The existing DB-host sampler records its own actual sample clock immediately
 before a maintenance gate. Read-only status, stored receipts, allocated bytes,
 statistics and estimated reusable space have different meanings. No successful
 stage receipt sets global storage acceptance or an OS-returned byte claim.
+
+The producer-idle measurement separates active work from eleven historical
+running-ledger receipts observed in the bounded 2026-10-05 read. It allows
+only the three explicitly reviewed retired epochs with both clocks older than
+thirty minutes, exact unfinished tenant/job/day identities and no matching
+canonical job or business-chain advisory lock, including waiters, in this DB.
+Current-epoch running receipts, fresh or unknown retired epochs, malformed
+identity and a result exceeding sixty-four rows always veto. The signed lock
+keys and current epoch come from byte-pinned existing runtime libraries.
+Calibration ownership uses its actual versioned job key; the unversioned key
+and chain key remain additional conservative vetoes, including older epochs
+whose scheduler did not yet hold a chain lock.
+Distinguishing old metadata also requires the independently checked role and
+zero unknown catalog/session consumers. Full source, exact per-role images and
+every other maintenance gate still apply. The helper performs SELECT only;
+it never rewrites a receipt, invokes the reaper or grants provider work. Its
+lock observation is a bounded pre-state, not a claim of perpetual idleness.

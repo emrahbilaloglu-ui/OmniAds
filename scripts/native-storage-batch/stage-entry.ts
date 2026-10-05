@@ -1,13 +1,12 @@
 import { statfs } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { Client } from "pg";
-import { BatchRefusal, DECLARED_CLOSURE_GAP, need, readExact, safeError, sha256, UUID } from "./common";
-import { collectWholeOriginal, readCaptureMetadata, readTargetCatalog, sealAndPersist, sealWholeOriginal, verifyCopies, verifyPrivateCopies,
+import { BatchRefusal, need, readExact, safeError, sha256, UUID } from "./common";
+import { collectWholeOriginal, readCaptureMetadata, sealAndPersist, sealWholeOriginal, verifyCopies, verifyPrivateCopies,
   type UnitConfig } from "./capture";
 import { restoreIntoOwnedNewDatabase } from "./restore";
 import { acceptPrepared, prepareUnitRetirement, unitScope } from "./retire";
-import { databaseAdmissionFacts, independentReadback, selectClosedDayCandidates, spaceReadback, vacuumComponent } from "./maintenance";
-import { readNativeEvaluationContextUnit } from "../../lib/creative-decision-engine/native-evaluation-context-unit";
+import { databaseAdmissionFacts, independentReadback, readSelectedPinClosure, selectClosedDayCandidates, spaceReadback, vacuumComponent } from "./maintenance";
 
 /** ONE finite stage per process. Reads one JSON request line on stdin, writes
  * JSON lines on stdout; every library log goes to stderr. Closed operation set;
@@ -198,17 +197,7 @@ async function main() {
     }
     case "pins": {
       const c = config(), db = await client(url, "pins", 8500);
-      try {
-        await db.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY"); await db.query("SET LOCAL statement_timeout='7500ms'");
-        const catalog = await readTargetCatalog(async (s, v) => (await db.query(s, v)).rows);
-        const unit = await readNativeEvaluationContextUnit(db, { schema: "public", generation: c.generation,
-          consumerInventorySha256: c.consumerInventorySha256, unmodeledConsumers: [DECLARED_CLOSURE_GAP] });
-        const fkZero = unit.incomingReferences.filter(e => !e.internalSelectedMembership).every(e => e.count === "0");
-        const nonFkZero = unit.nonFkCounts.every(p => p.count === "0");
-        return emit({ type: "result", value: { selectedPinClosureMatches: catalog.fingerprint === c.catalogFingerprint && fkZero &&
-          nonFkZero && unit.contextSharingCount === "0" && unit.evaluationCount === String(c.evaluations) &&
-          JSON.stringify(unit.unknownReferences) === JSON.stringify([DECLARED_CLOSURE_GAP]) } });
-      } finally { await db.query("ROLLBACK").catch(() => undefined); await db.end(); }
+      try { return emit({ type: "result", value: await readSelectedPinClosure(db, c) }); } finally { await db.end(); }
     }
     case "restore": {
       const c = config(), k = await key();

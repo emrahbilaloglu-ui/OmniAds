@@ -1,7 +1,7 @@
-import { readTargetCatalog, type Q, type UnitConfig } from "./capture";
+import { DEPENDENT_ROWS_SQL, RETAINED_DEPENDENTS_CONTRACT, TERMINAL_NOOP_DEPENDENT, readTargetCatalog, type Q, type UnitConfig } from "./capture";
 import { readUnitTransactionInventory } from "./rw-unit-inventory";
 import { CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, EXPECTED_INCOMING_FKS, NATIVE_JOB, NON_FK_CLASSES,
-  NON_FK_TABLES, RETAINED_TABLES, canonicalSha, exactIds, need, rowSetHash, same, sha256 } from "./common";
+  NON_FK_TABLES, RETAINED_TABLES, SHA, UUID, canonicalSha, exactIds, need, rowSetHash, same, sha256 } from "./common";
 
 /** Generic port of the reviewed C3 one-unit retirement: one short own
  * REPEATABLE READ READ WRITE transaction, both target tables ACCESS EXCLUSIVE,
@@ -13,6 +13,10 @@ import { CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, EXPECTED_INC
 export function unitScope(config: UnitConfig, proofSha256: string) {
   need(config?.contract === "finite-native-storage-unit-config.v1" && canonicalSha(config) === proofSha256, "EXACT_FROZEN_UNIT_CONFIG");
   need(config.evaluations >= 1 && config.evaluations <= 1134 && config.contexts >= 1 && config.contexts <= 4, "FINITE_ORIGINAL_POPULATION");
+  const d = config.retainedDependents;
+  need(d?.contract === RETAINED_DEPENDENTS_CONTRACT && Array.isArray(d.jobIds) && d.jobIds.length === d.rows &&
+    d.rows <= TERMINAL_NOOP_DEPENDENT.maxPerOriginal && d.jobIds.every(x => UUID.test(x)) && same(d.jobIds, [...new Set(d.jobIds)].sort()) &&
+    SHA.test(d.rowByteSetSha256), "EXACT_FROZEN_UNIT_CONFIG");
   return { evalIds: exactIds(config.evaluationIds, config.evaluations, "EXACT_ORIGINAL_UUID_SET"),
     contextIds: exactIds(config.contextIds, config.contexts, "EXACT_ORIGINAL_CONTEXT_SET") };
 }
@@ -94,6 +98,16 @@ export async function prepareUnitRetirement(db: Q, config: UnitConfig, proofSha2
     };
     const before = await retained(true);
     need(same(Object.keys(before).sort(), [...RETAINED_TABLES].sort()), "ALL_RETAINED_ROOT_CLASSES");
+    // Terminal NO-OP dependents of the retained original job: exactly the frozen set
+    // (no new or vanished dependent since freeze), FOR SHARE, full bytes unchanged.
+    const dependents = async (lock: boolean) => {
+      const rows = (await q(`${DEPENDENT_ROWS_SQL}${lock ? " FOR SHARE" : ""}`, [g.jobRunId])).rows as { id: string; bytes: string }[];
+      need(same(rows.map(r => r.id), config.retainedDependents.jobIds), "EXACT_RETAINED_TERMINAL_NOOP_DEPENDENTS");
+      const rowByteSetSha256 = rowSetHash(rows.map(r => r.bytes));
+      need(rowByteSetSha256 === config.retainedDependents.rowByteSetSha256, "RETAINED_TERMINAL_NOOP_DEPENDENT_BYTES");
+      return { jobIds: rows.map(r => r.id), rows: rows.length, rowByteSetSha256 };
+    };
+    const dependentsBefore = await dependents(true);
     const deleted: string[] = [];
     for (let i = 0; i < selected.evalIds.length; i += 400) deleted.push(...(await q(`DELETE FROM public.${EVAL} WHERE id=ANY($1::uuid[]) AND business_ref_id=$2::uuid AND business_id=$2::text AND job_run_id=$3::uuid AND as_of_date=$4::date AND engine_version=$5 RETURNING id::text`,
       [selected.evalIds.slice(i, i + 400), g.businessId, g.jobRunId, g.asOfDate, g.engineVersion])).rows.map((x: { id: string }) => x.id));
@@ -102,13 +116,13 @@ export async function prepareUnitRetirement(db: Q, config: UnitConfig, proofSha2
       [selected.contextIds, g.businessId, g.jobRunId, g.asOfDate, g.engineVersion])).rows.map((x: { id: string }) => x.id).sort();
     need(same(deletedContexts, selected.contextIds), "EXACT_CONTEXT_DELETE_IDS");
     const after = await retained(false);
-    need(same(before, after), "RETAINED_ROOT_BYTES_CHANGED");
+    need(same(before, after) && same(await dependents(false), dependentsBefore), "RETAINED_ROOT_BYTES_CHANGED");
     const absent = (await q(`SELECT (SELECT count(*) FROM public.${EVAL} WHERE id=ANY($1::uuid[]))::text evaluations,(SELECT count(*) FROM public.${CONTEXT} WHERE id=ANY($2::uuid[]))::text contexts,(SELECT count(*) FROM public.${CONTEXT} WHERE job_run_id=$3::uuid)::text job_contexts`,
       [selected.evalIds, selected.contextIds, g.jobRunId])).rows[0];
     need(absent.evaluations === "0" && absent.contexts === "0" && absent.job_contexts === "0", "IN_TX_EXACT_UNIT_ABSENT");
     return { preparedUncommitted: true as const, committed: false as const, observedAt: meta.observed_at as string,
       catalogFingerprint: catalog.fingerprint, pins, subsequentDistinctDay: later[0].id as string, originalHashes,
-      retainedRoots: before, deletedEvaluationIdsSha256: sha256(JSON.stringify(selected.evalIds)),
+      retainedRoots: before, retainedDependents: dependentsBefore, deletedEvaluationIdsSha256: sha256(JSON.stringify(selected.evalIds)),
       deletedContextIdsSha256: sha256(JSON.stringify(selected.contextIds)), events,
       providerWrites: false as const, providerAuthority: false as const, physicalReclaimedBytes: 0 as const };
   } catch (error) {
@@ -123,5 +137,7 @@ export function acceptPrepared(prepared: Awaited<ReturnType<typeof prepareUnitRe
     prepared.deletedContextIdsSha256 === sha256(JSON.stringify(config.contextIds)), "PREPARED_EXACT_IDS");
   for (const table of RETAINED_TABLES) need(same(prepared.retainedRoots[table], config.tableHashes[table]), "PREPARED_RETAINED_ROOTS");
   need(same(prepared.originalHashes.evaluations, config.tableHashes[EVAL]) && same(prepared.originalHashes.contexts, config.tableHashes[CONTEXT]), "PREPARED_ORIGINAL_BYTES");
+  const d = config.retainedDependents;
+  need(same(prepared.retainedDependents, { jobIds: d.jobIds, rows: d.rows, rowByteSetSha256: d.rowByteSetSha256 }), "PREPARED_RETAINED_DEPENDENTS");
   return true;
 }

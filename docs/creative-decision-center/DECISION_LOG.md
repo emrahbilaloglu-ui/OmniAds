@@ -12369,3 +12369,26 @@ fresh, malformed or more than sixty-four running receipts refuse. Exact source,
 per-role runtime and unknown-consumer gates remain independent requirements.
 This is pure SELECT metadata assessment: no reaper, row finalization, forced
 job, lock acquisition, epoch normalization or provider admission is introduced.
+
+
+**Terminal manual projection dependencies:** Two bounded closed-day selection
+windows found originals whose only job dependency pins were finished manual-mode
+projection receipts. Those receipts refer to an original job row that retirement
+retains. The finite operator may distinguish only the scheduler's exact typed
+`skipped`/zero-row/`standing_mode_manual` record for the same tenant, closed day,
+engine and dependency, with all four clocks settled, no retry, source window,
+input or reuse metadata and at most eight children. The catalog-verified self-FK
+and separate explicit count must exactly explain the complete child set; other
+nonzero edges, unexplained counts and unknown references refuse. This is not a
+general division or subtraction of dependency counts.
+
+Freeze binds the sorted child IDs and complete original JSONB-text byte-set hash.
+Fresh pre-retirement census must reproduce that exact proof. The guarded
+retirement locks and checks the child rows before and after source removal, and
+independent readback checks their complete bytes and retained parent roots. No
+job or child row is deleted or finalized. Every actual evaluation/context,
+snapshot, reuse, outcome, action and unknown-consumer pin keeps its veto. Caps,
+clock identity, source/runtime separation and global admission are unchanged.
+Owned full-schema tests are distinct from exact live shape, archive, HTTP,
+removal and physical-space acceptance; no sustainable-storage closure follows
+from this source distinction alone.

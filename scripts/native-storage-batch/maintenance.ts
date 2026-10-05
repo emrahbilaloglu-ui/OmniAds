@@ -1,5 +1,7 @@
-import { readTargetCatalog, type Q, type UnitConfig } from "./capture";
-import { CLOSED_DAY_BUFFER_MS, CONTEXT, EVAL, NATIVE_JOB, RETAINED_TABLES, UUID, need, rowSetHash, same } from "./common";
+import { readNativeEvaluationContextUnit } from "../../lib/creative-decision-engine/native-evaluation-context-unit";
+import { readNativeArchivePinCensus } from "../../lib/creative-decision-engine/native-archive-pin-census";
+import { DEPENDENT_ROWS_SQL, censusVeto, readOnlyAdapter, readTargetCatalog, type Q, type UnitConfig } from "./capture";
+import { CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, NATIVE_JOB, RETAINED_TABLES, UUID, need, rowSetHash, safeError, same } from "./common";
 import { readNativeProducerIdle } from "./native-producer-idle";
 
 /** Metadata-only bounded closed-day candidate selection. Reads job receipts and
@@ -74,9 +76,42 @@ export async function independentReadback(db: Q, config: UnitConfig) {
       [config.contextIds, config.generation.jobRunId])).rows[0];
     const roots = await readRetainedRoots(db, config);
     const rootsMatch = RETAINED_TABLES.every(t => same(roots[t], config.tableHashes[t]));
+    // The retained original job's terminal NO-OP dependents: exact frozen set and full bytes.
+    const dependents = (await db.query(DEPENDENT_ROWS_SQL, [config.generation.jobRunId])).rows as { id: string; bytes: string }[];
+    const dependentsMatch = same(dependents.map(r => r.id), config.retainedDependents.jobIds) &&
+      rowSetHash(dependents.map(r => r.bytes)) === config.retainedDependents.rowByteSetSha256;
     return { exactUnitAbsent: present === 0 && ctx.ids === 0 && ctx.job === 0, evaluationsPresent: present,
-      contextsPresent: ctx.ids, jobContexts: ctx.job, retainedRootsFullBytesMatch: rootsMatch, roots };
+      contextsPresent: ctx.ids, jobContexts: ctx.job, retainedRootsFullBytesMatch: rootsMatch && dependentsMatch,
+      retainedTerminalNoopDependentsMatch: dependentsMatch, roots };
   } finally { await db.query("ROLLBACK"); }
+}
+
+/** Fresh pre-retirement pin closure in its own READ ONLY RR snapshot (same
+ * EXPLAIN-vetoed adapter as the freeze): the selected unit's FK/non-FK pins,
+ * plus a FRESH whole census whose job_dependencies must classify to exactly the
+ * frozen terminal NO-OP dependents (ids and full bytes); anything else is false. */
+export async function readSelectedPinClosure(db: Q, c: UnitConfig) {
+  const source = readOnlyAdapter(db);
+  await source.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  try {
+    await source.query("SET LOCAL statement_timeout='7500ms'"); await source.query("SET LOCAL timezone='UTC'");
+    const observed = (await source.query("SELECT transaction_timestamp()::text observed")).rows[0].observed as string;
+    const catalog = await readTargetCatalog(async (s, v) => (await source.query(s, v)).rows);
+    const unit = await readNativeEvaluationContextUnit(source, { schema: "public", generation: c.generation,
+      consumerInventorySha256: c.consumerInventorySha256, unmodeledConsumers: [DECLARED_CLOSURE_GAP] });
+    const fkZero = unit.incomingReferences.filter(e => !e.internalSelectedMembership).every(e => e.count === "0");
+    const nonFkZero = unit.nonFkCounts.every(p => p.count === "0");
+    let retainedDependentsMatch = false, recensusRefusal: string | null = null;
+    try {
+      const census = await readNativeArchivePinCensus(source, { schema: "public", generation: c.generation, unmodeledReferences: [] });
+      retainedDependentsMatch = same((await censusVeto(source.query, census, c.generation, observed)).dependents, c.retainedDependents);
+      if (!retainedDependentsMatch) recensusRefusal = "RETAINED_TERMINAL_NOOP_DEPENDENTS_CHANGED";
+    } catch (error) { recensusRefusal = safeError(error).code; }
+    return { selectedPinClosureMatches: catalog.fingerprint === c.catalogFingerprint && fkZero && nonFkZero &&
+      unit.contextSharingCount === "0" && unit.evaluationCount === String(c.evaluations) &&
+      JSON.stringify(unit.unknownReferences) === JSON.stringify([DECLARED_CLOSURE_GAP]) && retainedDependentsMatch,
+    retainedDependentsMatch, recensusRefusal };
+  } finally { await source.query("ROLLBACK").catch(() => undefined); }
 }
 
 /** Index-backed absence + enforced lineage (vacuum-core r2 semantics): zero

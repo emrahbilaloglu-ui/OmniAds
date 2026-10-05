@@ -12319,3 +12319,38 @@ physical reuse remain distinct gates. Older readers refuse the new contract;
 retain/restore their compatible catalog on code recovery. Item3 sustainable
 storage and item7 strict natural positive reuse stay open. See
 [the reference archive contract](../architecture/native-campaign-context-reference-archive.md).
+
+
+## D147 — Finite native storage operator and maintenance admission (2026-10-05)
+
+**Problem:** Original archive/restore/serving and exact selected retirement were
+proved for bounded pilots, but their operator gates demanded global `ready`.
+An aggregate DB-budget refusal therefore prevented the very maintenance needed
+at capacity. A pure lifecycle assessor was not an executable repeated caller.
+DELETE and ordinary VACUUM do not promise lower allocated database bytes.
+
+**Decision:** Preserve the global business fence, budget, table budgets,
+physical floor and provider authority. Add a separate allowlisted maintenance
+class with fresh exact source/role/root/capacity, independent app/WAL reserves,
+and the original restore/copies/HTTP/pin/absence gates. Only an actual
+DB-budget-only refusal can be distinguished from a readiness result; all other
+refusals stay refusals. No generic zero-growth declaration or override exists.
+
+Bind one finite eight-generation operator batch to complete original selection,
+source/review identity and durable single-purpose stages. Keep the proven
+1134-evaluation/four-context collector bounds and per-component deadlines;
+publish and recreate the exact same-image web once per complete batch. Every
+retirement has its own short guarded transaction and independent full-byte
+readback. Ambiguous dispatch or COMMIT is read-only status, never automatic
+retry. Main and TOAST ordinary maintenance have separate acknowledgements.
+
+**Boundary:** No provider work, app deployment, migration, index rebuild,
+retention sweep, paid storage, budget raise, parent GC or decision identity
+change is authorized by the admission value. Every retained snapshot and
+original lineage stays pinned. Unknown consumers, incomplete source scope,
+capacity/root caps and unproved original restore refuse. Concrete backend,
+real PG/source guards and actual reviewed execution are separate from protocol
+unit tests. One pilot, reusable-space estimate or temporary index shrink is
+not sustainable growth closure; a measured actual finite lifecycle/capacity
+outcome remains required. No unmeasured cadence or multiday waiting period is
+introduced. See [the execution contract](../architecture/native-finite-storage-lifecycle.md).

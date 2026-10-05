@@ -363,11 +363,71 @@
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
+      "path": "scripts/native-storage-batch/capture.ts",
+      "role": "offline-operator",
+      "sha256": "1d1c356bbedb37f15d51865e04157aa212fcd90d67859fc18fef5186d80fe0e3",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+    },
+    {
+      "path": "scripts/native-storage-batch/common.ts",
+      "role": "offline-operator",
+      "sha256": "1ea6e20664974159ef1f10e4bd6cc13bb9c13dcfb554d4f9e9ef9b95de6cecf6",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+    },
+    {
+      "path": "scripts/native-storage-batch/maintenance.ts",
+      "role": "offline-operator",
+      "sha256": "cbcc6b9224c5b51466facd14ff02b8a1def070eb478fd6fe8c8e9f944d62d5e3",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+    },
+    {
+      "path": "scripts/native-storage-batch/owned-e2e.ts",
+      "role": "owned-fixture",
+      "sha256": "9d21fb02f1caea71d4893ba416095d10f1e43e655cae59cc88c789bfe1917691",
+      "retention": "Only owned socket-only PostgreSQL/fake-host or owned HTTP fixtures; preserve their declared seam boundary. This is not live production census, provider authority or reclamation permission."
+    },
+    {
+      "path": "scripts/native-storage-batch/owned-fixture.ts",
+      "role": "owned-fixture",
+      "sha256": "6e5fbde6cda0fe63383d767d335b02fc144f66effc45810ee7669f623270b079",
+      "retention": "Only owned socket-only PostgreSQL/fake-host or owned HTTP fixtures; preserve their declared seam boundary. This is not live production census, provider authority or reclamation permission."
+    },
+    {
+      "path": "scripts/native-storage-batch/production-fixture-e2e.ts",
+      "role": "owned-fixture",
+      "sha256": "0fd9813a0dd56197ef8fa7f9fe5f803cac81155b7ddd751dfdb70f4ffdaf153f",
+      "retention": "Only owned socket-only PostgreSQL/fake-host or owned HTTP fixtures; preserve their declared seam boundary. This is not live production census, provider authority or reclamation permission."
+    },
+    {
+      "path": "scripts/native-storage-batch/restore.ts",
+      "role": "offline-operator",
+      "sha256": "9c02e55701a1c6143f141391ce55bf789928b587e2c8abcef15feeeff6ecf095",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+    },
+    {
+      "path": "scripts/native-storage-batch/retire.ts",
+      "role": "offline-operator",
+      "sha256": "e0ce887637af62bb5f27fa7cc3127816caa365e51f663e09eeeb31d56cb2851f",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+    },
+    {
+      "path": "scripts/native-storage-batch/rw-unit-inventory.ts",
+      "role": "offline-operator",
+      "sha256": "9827a3633884b1b4d59f3902c8b9bcd79973ebb6c12b1820764a2806c4b4be03",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+    },
+    {
+      "path": "scripts/native-storage-batch/stage-entry.ts",
+      "role": "offline-operator",
+      "sha256": "09ad63dc34c3117a547344c71f44ed823c1b625026dc3de6c73c5b1e52d5aaea",
+      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority."
+    },
+    {
       "path": "scripts/verify-native-historical-worker-package.mjs",
       "role": "offline-operator",
       "sha256": "4a4c75ad52a903d944580f0762c865d804c7aacabe8e19cb3b49361e99f004cf",
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "6797b4c87e4857b46cb1fea074e7a97d20e907d5adf71cc57c2f4c535e3881f7"
+  "sourceInventorySha256": "f11657f496e30db334fa4c89cd8e6001c9541d5097f16e625e8f5e88243b13dc"
 }

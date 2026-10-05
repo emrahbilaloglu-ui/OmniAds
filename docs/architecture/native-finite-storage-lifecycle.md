@@ -1,0 +1,115 @@
+# Finite native storage execution
+
+D147 separates archive maintenance from new business work. The global growth
+fence remains authoritative and its returned decision is never edited. A DB
+budget-only refusal can admit a reviewed read/copy/publish/same-image root,
+exact original retirement or ordinary main/TOAST maintenance operation. It
+cannot admit a provider job, deploy, migration, retention sweep, index rebuild,
+paid resource, budget lift or emergency override. A caller's `growthBytes: 0`
+has no meaning. DELETE and ordinary VACUUM still write WAL/VM/FSM; physical,
+application-volume and WAL reserves are independently necessary.
+
+Admission preserves every measured table fence, the actual unchanged budget,
+at least the existing 40 GiB database floor, and a 512 MiB maintenance reserve.
+Application/WAL volumes need their own measured floor of at least 2 GiB plus
+the reserve; publication also reserves its already-serialized exact bytes.
+All samples must be actual and at most 60 seconds old. Exact reviewed source,
+role/image/root identity, finite whole-original population and the relevant
+restore/copies/HTTP/pins/enforced-absence evidence remain mandatory. This is an
+operator admission result, not a replacement business decision or reclamation
+claim. Missing, malformed, stale, unknown or overridden measurements refuse.
+
+The finite caller binds an exclusive purpose, original selection/config digest,
+reviewed source and actual source-review digest. One batch is bounded to eight
+complete original generations, each no more than the existing collector's 1134
+evaluations/four contexts, with 9072 evaluations in total. These are transport
+and operator safety bounds, not a proved sustainable cadence or future storage
+rate. A genuinely closed UTC date keeps the existing 14-hour offset buffer.
+Current/future days, duplicates, incomplete or larger generations refuse.
+
+The order is capture plus independent original restore for each generation,
+one complete immutable publication, one same-image web root activation, then
+short separate original-ID retirement transactions and independent readback.
+Every target snapshot, outcome, action, workflow, hysteresis, reuse/dependency,
+shared/calibration/input/job/provider root remains pinned. Unknown consumers
+refuse. This adds no parent GC, clock/epoch/formula normalization or provider
+execution authority. The new web must complete its own observation; an old
+web or worker baseline cannot be transferred to it.
+
+Each externally visible stage needs a durable intent before dispatch and an
+actual acknowledgement bound to its purpose, stage, exact original jobs and
+full-original evidence. Lost or malformed acknowledgements are status-only;
+the batch never repeats a dispatched stage. Main and TOAST VACUUM have separate
+receipts. A cancelled TOAST command is not concealed by a prior main-table
+acknowledgement. The whole batch and individual stages have finite deadlines;
+the concrete backend must terminate its own bounded child on cancellation.
+The fresh gate itself has a 60-second outer bound and abort signal. An explicit
+pause before the next intent may resume only the same digest-bound plan and an
+exact acknowledged prefix. The backend must first re-check those records and
+their current source/copies/root/original state read-only. The journal preserves
+the original start and 30-minute batch deadline. Complete purposes, missing or
+reordered acknowledgements, unknown intents and lost replies cannot resume or
+re-run an earlier step. A paused HTTP gate is therefore not a new publication
+or a second activation.
+
+Source gates and protocol fixtures do not establish live execution. A concrete
+prepared backend must bind only allowlisted reviewed assets, actual capture,
+encrypted copies, private full-DDL restore, original serving and transaction
+proofs; an injected fake backend is a protocol test only. Source/manifest,
+actual review, necessary QA/build, execution, independent readback, physical
+reuse/allocation and bounded natural observation remain distinct gates.
+
+The October 5 baseline measures 58 relations of at least 64 MiB, with SELECT-only
+catalog/statistics reads. Statistics are concurrent estimates. A later bounded
+comparison must separate main, TOAST and indexes, and include exact allocation,
+insert/update/delete statistics and reset identity. No steady growth rate,
+time-to-full, weekly schedule, multiday minimum or universal parent closure is
+inferred from one interval. A pilot retirement or temporary index shrink cannot
+close sustainable storage. Item3 remains open until actual finite execution,
+original reader/restore parity and an honest measured capacity/growth outcome.
+
+The actual October 5 04:05–04:37 comparison measured 13,017,088 bytes of database
+allocation increase: evaluations 9,216,000 bytes and input evidence 2,236,416
+bytes were the largest contributors in this interval. The separate bounded
+job-metadata read found two native successes of 2860 and 945 declared rows;
+both started before the first sample. The later 04:48 allocation was unchanged.
+This does not establish a capacity-fence bypass, a steady future growth rate or
+exclusive writer attribution. A 2860-row generation exceeds this operator's
+current whole-generation bound and must be recorded as a refusal, not silently
+exported as a 1134-row subset. Captured input/shared/calibration/job roots remain
+retained; this observation adds no garbage collection permission for them.
+
+## Concrete operator transport
+
+The fixed production transport is separate from the owned PostgreSQL/HTTP
+fixtures. It must keep operator revision and live runtime revision distinct,
+verify each role's own image/ID/start/digest, preserve the worker's identity and
+archive-free environment, and compare the actual reviewed runtime source set.
+The worker may receive only the closed source-bound stage bundle. Held keys
+pass through stdin only; production capture exports ciphertext and integrity
+metadata. The two complete operator-private copies are byte-verified and
+independently decrypted into a new socket-only PostgreSQL16 full-DDL database.
+Synthetic credential-free identity parents are a restore prerequisite, not a
+full-system disaster recovery claim. That plaintext database is dropped after
+parity; source rows and keys must not be logged or exported as plaintext.
+
+An immutable root is a complete superset of the exact previous legacy and leaf
+records. Activation changes only the web's routing fields using its same pinned
+image, keeps every other configuration byte and the worker unchanged, and
+records the actual new web baseline. Retirement waits for fresh authenticated
+Chrome full-response/Network completion evidence matching captured original
+rows. A real owned HTTP fixture proves only its declared local route seam.
+
+Remote status must retain the purpose, operator/runtime/source/review/plan,
+typed request/unit and sequence/result identities of each durable receipt.
+The local evidence must name that exact stage, unit set and remote receipt set;
+a matching filename hash or any success with a matching operation name is
+insufficient. The read-only selection/freeze prelude has an explicitly separate
+immutable selection digest. It cannot stand in for the finalized execution
+plan. Resume verifies the exact acknowledged prefix and current artifacts
+without repeating any acknowledged action or resetting the original deadline.
+
+The existing DB-host sampler records its own actual sample clock immediately
+before a maintenance gate. Read-only status, stored receipts, allocated bytes,
+statistics and estimated reusable space have different meanings. No successful
+stage receipt sets global storage acceptance or an OS-returned byte claim.

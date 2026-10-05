@@ -187,6 +187,18 @@ export async function loadSelection(stateRoot: string, plan: NativeStorageBatchP
   return { declaration: d, sha256: sha256(bytes) };
 }
 
+/** Preserve the host's sample UTC and every admission threshold. A small host
+ * clock lead may settle by waiting once; larger/invalid/stale samples still go
+ * unchanged to the existing fail-closed assessor. No clock offset is applied. */
+export async function settleAppSampleClock(observedAt: string, hooks: {
+  now?: () => number; sleep?: (milliseconds: number) => Promise<void>;
+} = {}): Promise<void> {
+  const now = hooks.now ?? Date.now, lead = Date.parse(observedAt) - now();
+  if (!Number.isFinite(lead) || lead <= 0 || lead > 1000) return;
+  const sleep = hooks.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
+  await sleep(Math.min(1000, Math.ceil(lead) + 1));
+}
+
 export class ProductionHostBatchBackend implements NativeStorageBatchBackend {
   private bundle: Awaited<ReturnType<typeof buildStageBundle>> | null = null;
   private sequences: Record<ActorHost, number | null> = { app: null, db: null };
@@ -379,6 +391,7 @@ export class ProductionHostBatchBackend implements NativeStorageBatchBackend {
       for (const u of units) p.push((await this.db("evidence", { op: "pins", config: await this.frozenConfig(u), proofSha256: u.originalProofSha256 }, 45_000, signal)).result.selectedPinClosureMatches === true);
       pins = p.every(Boolean);
     }
+    await settleAppSampleClock(String(st.appVolume.observedAt));
     const business = ev.business as DbGrowthFenceDecision, physical = business.physical, observedAt = new Date().toISOString();
     const rootMatch = same(st.route, ["true", `${ARCHIVE_MOUNT}/${expect.activeRoot.name}`, expect.activeRoot.sha256]);
     return { business, evidence: { operation, observedAt, sourceManifestSha256: pack.sourceManifestSha256,

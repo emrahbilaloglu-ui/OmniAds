@@ -1,5 +1,5 @@
 {
-  "manifestHash": "b2d09e69ee4aeaa892e4a82f99866e37495ce07b6a70152f61b463eaf7fbf404",
+  "manifestHash": "12a4186febf58a9ceee9dc465b6bb38fb8eefd25165f67d35a123d909a302111",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -756,7 +756,7 @@
     },
     {
       "path": "docs/architecture/native-finite-storage-lifecycle.md",
-      "sha256": "5ce2f7ab074799c925697b3bcde841f02016a5220e00a399b454848dbc997df6"
+      "sha256": "699cacab4325b644fe988de835e567bbc7bc76ceb681b63e345a46bd145fa4ad"
     },
     {
       "path": "docs/architecture/native-generation-catalog-routing.md",
@@ -816,7 +816,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "c0bd6a347b09e129a06a30b9a8230d7908210a16a48449b37cdcbb50f7492ce0"
+      "sha256": "d744c5db8ac19a43e34610b3ebc7b4b861d4bd48df443961b54f366233fc0ea6"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -2895,6 +2895,10 @@
       "sha256": "eec0c96791c52c9f17bff7a00e8a4ea4d27f4790cd04436034799157b4110cec"
     },
     {
+      "path": "scripts/native-storage-batch/__tests__/capacity-sample-clock.test.ts",
+      "sha256": "5c5dd0847a937b6d2d4e85ae0d32824015bc1dfc339146fd2c67c707fcdbac49"
+    },
+    {
       "path": "scripts/native-storage-batch/__tests__/native-producer-idle.test.ts",
       "sha256": "967667a739da514527919cd103a3443be4fdc2cb3c8376267014149f8a15e425"
     },
@@ -2960,7 +2964,7 @@
     },
     {
       "path": "scripts/native-storage-batch/production-transport.ts",
-      "sha256": "c03d6d8ad01909af106cab9a415c326579e127590a94bc6a60e90f6064e002ea"
+      "sha256": "444fde4ff1143472c084ea41873029054a790842f03fc60c7d4b9b2cc374468b"
     },
     {
       "path": "scripts/native-storage-batch/restore.ts",

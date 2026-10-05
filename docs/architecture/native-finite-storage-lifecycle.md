@@ -154,3 +154,19 @@ Any added, changed, fresh, real projection or otherwise unsupported child
 refuses. Actual snapshot/action/reuse and other source-removal pins still veto.
 This narrows a proved unnecessary retained-parent veto; it does not enlarge the
 archive population, query timeout, budget, mutation scope or lifecycle claim.
+
+
+## Bounded cross-host capacity sample settlement
+
+The app volume sampler preserves its actual host UTC. A verified production
+read-only gate refused an otherwise sufficient 94.3 GB app reserve because its
+sample was 19 ms ahead of the coordinator. The operator may request one timer of at most
+1000 ms for a strictly positive sample lead of at most 1000 ms before returning
+the evidence to the unchanged maintenance assessor. It never rewrites a sample
+or business timestamp, broadens the assessor freshness bound, changes a clock,
+raises a reserve/budget, or relabels evidence. Invalid, stale, or larger future
+samples still refuse; a wait whose clock has not caught up still refuses.
+Timer scheduling is not an elapsed-time SLA; the existing outer fresh-gate,
+stage and batch deadlines remain unchanged. This is
+operator acquisition latency only, not decision/calibration identity or provider
+authority. The business DB-budget refusal remains false/no override.

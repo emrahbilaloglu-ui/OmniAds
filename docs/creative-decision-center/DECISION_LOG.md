@@ -12392,3 +12392,15 @@ clock identity, source/runtime separation and global admission are unchanged.
 Owned full-schema tests are distinct from exact live shape, archive, HTTP,
 removal and physical-space acceptance; no sustainable-storage closure follows
 from this source distinction alone.
+
+
+**Cross-host physical sample correction:** Actual finite execution stopped
+before capture/restore dispatch because the app's sufficient physical-reserve
+sample was 19 ms in the coordinator's future. Preserve the original host sample
+and all assessor thresholds; request one timer up to 1000 ms only for a positive lead
+of at most 1000 ms, then use the original assessor. Invalid/stale/larger leads
+or a clock that fails to catch up remain refused. Timer scheduling is not an
+elapsed-time SLA. No sample relabelling, clock
+change, decision identity, provider admission, budget increase, or deadline
+extension is introduced. A consumed refused purpose stays consumed; a new
+reviewed operator/new-purpose pre-state is required before another finite batch.

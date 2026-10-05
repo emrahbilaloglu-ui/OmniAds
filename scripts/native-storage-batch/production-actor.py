@@ -26,16 +26,20 @@ APP_OPS = {'status': 30, 'db': 160, 'stage-cipher': 60, 'publish-root': 150, 'ac
 DB_OPS = {'db-status': 20, 'sample-capacity': 90}
 # stage-bundle op -> (mutating, child seconds)
 DB_STAGE_OPS = {'evidence': (False, 30), 'select': (False, 30), 'freeze': (False, 120), 'pins': (False, 30), 'readback': (False, 60),
-                'space': (False, 30), 'capture': (False, 150), 'retire': (True, 75), 'vacuum': (True, 75)}
+                'space': (False, 30), 'capture': (False, 150), 'retire': (True, 75), 'vacuum': (True, 75),
+                # READ ONLY catalog/pg_stat metadata of the two target TOAST relations (never a VACUUM).
+                'toast-observation': (False, 30)}
 STAGE_LABELS = {'plan', 'evidence', 'capture-restore', 'publish', 'activate', 'retire', 'independent-readback', 'vacuum-main',
-                'vacuum-toast', 'space-readback', 'status'}
+                'toast-observation', 'space-readback', 'status'}
 # The only (stage, op) transitions; for 'db' the closed stage-bundle ops. The
 # selection/freeze prelude is its own phase; every other stage is execution.
 TRANSITIONS = {('status', 'status'): None, ('status', 'db-status'): None, ('plan', 'db'): {'select', 'freeze'},
                ('evidence', 'db'): {'evidence', 'pins', 'readback'}, ('evidence', 'sample-capacity'): None,
                ('capture-restore', 'db'): {'capture'}, ('publish', 'stage-cipher'): None, ('publish', 'publish-root'): None,
                ('activate', 'activate-root'): None, ('retire', 'db'): {'retire'}, ('independent-readback', 'db'): {'readback'},
-               ('vacuum-main', 'db'): {'vacuum'}, ('vacuum-toast', 'db'): {'vacuum'}, ('space-readback', 'db'): {'space'}}
+               ('vacuum-main', 'db'): {'vacuum'}, ('toast-observation', 'db'): {'toast-observation'}, ('space-readback', 'db'): {'space'}}
+# A child's terminal protocol line is persisted only as this bounded shape.
+CHILD_TERMINAL_TYPES = ('result', 'error')
 UUID = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'
 # Bound in the durable intent AND the receipt of every remote entry; status lists them.
 IDENTITY = ('contract', 'purpose', 'stage', 'op', 'stageOp', 'sequence', 'phase', 'planSha256', 'selectionSha256', 'sourceManifestSha256',
@@ -191,7 +195,8 @@ def payload_gate(p):
     stage_op = (p.get('request') or {}).get('op') if p['op'] == 'db' else None
     allowed = TRANSITIONS.get((p['stage'], p['op']), 'none')
     need(allowed != 'none' and (allowed is None or stage_op in allowed), 'TYPED_STAGE_TRANSITION')
-    need(p['stage'] not in ('vacuum-main', 'vacuum-toast') or p['request'].get('component') == p['stage'][7:], 'TYPED_STAGE_TRANSITION')
+    # Only the main VACUUM component remains; the TOAST step is the read-only observation.
+    need(p['stage'] != 'vacuum-main' or p['request'].get('component') == 'main', 'TYPED_STAGE_TRANSITION')
     need(p['op'] in ('status', 'db-status') or (p['phase'] == 'selection-prelude') == (p['stage'] == 'plan'), 'PRELUDE_SELECT_FREEZE_ONLY')
     if p['op'] not in ('status', 'db-status'):
         unit_ids(p)
@@ -466,7 +471,7 @@ def once_key(e):
         return (i['stage'], i['stageOp'], tuple(i['unitJobRunIds'] or ()))
     if i['op'] == 'stage-cipher':
         return (i['stage'], i['op'], tuple(i['subjectSha256s'] or ()))
-    if i['stage'] in ('publish', 'activate', 'vacuum-main', 'vacuum-toast', 'space-readback'):
+    if i['stage'] in ('publish', 'activate', 'vacuum-main', 'space-readback'):
         return (i['stage'], i['op'])
     return None
 
@@ -567,6 +572,16 @@ def prepared_gate(line, p):
 
 
 # ---------------- operations ----------------
+def child_terminal(line):
+    """Bounded, value-free shape of a child's terminal protocol line: a known
+    type, an UPPERCASE code token and a SQLSTATE. Never a message, row value or
+    path; anything else is null or 'unknown'."""
+    t, code, state = (line.get('type'), line.get('code'), line.get('sqlState')) if isinstance(line, dict) else (None, None, None)
+    return {'type': t if t in CHILD_TERMINAL_TYPES else 'unknown',
+            'code': code if isinstance(code, str) and len(code) <= 160 and re.fullmatch('[A-Z0-9_]+(:[A-Z0-9_]+)*', code) else None,
+            'sqlState': state if isinstance(state, str) and re.fullmatch('[0-9A-Z]{5}', state) else None}
+
+
 def op_db(p, r, before):
     request = dict(p['request'], targetRevision=p['operatorRevision'], runtimeRevision=p['runtimeRevision'])
     mutating, seconds = DB_STAGE_OPS[request['op']]
@@ -577,12 +592,16 @@ def op_db(p, r, before):
             need(int(mem['MemAvailable'].strip().split()[0]) * 1024 >= 2 * 1024 ** 3, 'MINIMUM_EXISTING_MEMORY_2GIB')
         request['heldKeyHex'] = held_key(p)
         request['heldKeySha256'], request['keyId'] = p['heldKeySha256'], p['heldKeyId']
+    # Unknown until an actual terminal line is parsed: a missing/unterminated child never gets an invented SQLSTATE.
+    r['childTerminal'] = None
     r['childDispatched'] = True
     child = bundle_child(p, [BIN['docker'], 'exec', '-i', '-e', 'NSB_HOST_MODE=production', ROLES['worker'], 'node'], request)
     request = {}
     lines = Lines(child, seconds)
     try:
         line = lines.next()
+        if not (isinstance(line, dict) and line.get('type') == 'prepared'):
+            r['childTerminal'] = child_terminal(line)
         if p['request']['op'] == 'retire':
             need(line.get('type') == 'prepared', 'ACTUAL_PREPARATION_NOT_COMPLETED_STATUS_ONLY')
             challenge = prepared_gate(line, p)
@@ -591,6 +610,7 @@ def op_db(p, r, before):
             child.stdin.write(json.dumps(challenge).encode() + b'\n')
             child.stdin.flush()
             line = lines.next()
+            r['childTerminal'] = child_terminal(line)
             r['commitAcknowledged'] = line.get('type') == 'result' and line.get('value', {}).get('committed') is True
         need(line.get('type') == 'result', 'ACTUAL_TERMINAL_RESULT_REQUIRED:' + str(line.get('code', ''))[:120])
         child.stdin.close()

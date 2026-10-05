@@ -156,6 +156,62 @@ export async function vacuumComponent(db: Q, component: "main" | "toast", jobRun
   return { component, acknowledged: true, elapsedMs, lineage };
 }
 
+/** Post-retirement TOAST OBSERVATION (replaces the bounded TOAST VACUUM). One
+ * READ ONLY REPEATABLE READ snapshot, the original 7.5 s statement / 1 s lock
+ * read limits, ROLLBACK. Catalog + pg_stat metadata of EXACTLY the two target
+ * relations' TOAST relations: no heap/tuple scan, no VACUUM, no DDL/DML. It
+ * records whether any (auto)vacuum has run; it never claims a TOAST VACUUM ACK,
+ * reusable bytes or OS shrink. */
+export const TOAST_OBSERVATION_CONTRACT = "native-post-retirement-toast-observation.v1" as const;
+export async function observeTargetToast(db: Q) {
+  const source = readOnlyAdapter(db);
+  await source.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  try {
+    await source.query("SET LOCAL statement_timeout='7500ms'"); await source.query("SET LOCAL lock_timeout='1000ms'");
+    await source.query("SET LOCAL timezone='UTC'");
+    const rows = (await source.query(`SELECT c.relname::text relation,t.oid::text toast_oid,t.relpages::text relpages,t.reltuples::text reltuples,
+        t.relallvisible::text relallvisible,pg_relation_size(t.oid)::text toast_bytes,pg_indexes_size(t.oid)::text toast_index_bytes,
+        s.n_live_tup::text live,s.n_dead_tup::text dead,s.n_tup_ins::text inserted,s.n_tup_del::text deleted,
+        to_jsonb(s.last_vacuum)#>>'{}' last_vacuum,to_jsonb(s.last_autovacuum)#>>'{}' last_autovacuum,
+        s.vacuum_count::text vacuum_count,s.autovacuum_count::text autovacuum_count,
+        CASE WHEN pg_has_role(current_user,'pg_read_all_stats','USAGE')
+          THEN EXISTS(SELECT 1 FROM pg_stat_progress_vacuum v WHERE v.relid=t.oid) END vacuum_in_progress,
+        current_setting('transaction_read_only') read_only,transaction_timestamp()::text observed_at
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_class t ON t.oid=c.reltoastrelid
+      JOIN pg_namespace tn ON tn.oid=t.relnamespace JOIN pg_stat_all_tables s ON s.relid=t.oid
+      WHERE n.nspname='public' AND c.relkind='r' AND c.relname=ANY($1::text[]) AND t.relkind='t' AND tn.nspname='pg_toast'
+      ORDER BY c.relname`, [[CONTEXT, EVAL]])).rows;
+    const count = (v: unknown) => typeof v === "string" && /^(0|[1-9][0-9]*)$/.test(v);
+    need(rows.length === 2 && same(rows.map(r => r.relation), [CONTEXT, EVAL].sort()) && rows.every(r => r.read_only === "on" &&
+      [r.toast_oid, r.relpages, r.relallvisible, r.toast_bytes, r.toast_index_bytes, r.live, r.dead, r.inserted, r.deleted,
+        r.vacuum_count, r.autovacuum_count].every(count) && (r.vacuum_in_progress === null || typeof r.vacuum_in_progress === "boolean")), "EXACT_TWO_TARGET_TOAST_RELATIONS");
+    return { contract: TOAST_OBSERVATION_CONTRACT, observedAt: rows[0].observed_at as string, readOnly: true as const,
+      vacuumCommandExecuted: false as const, toastVacuumAcknowledged: false as const, reusableBytesClaimed: 0 as const,
+      osReturnedBytesClaimed: 0 as const,
+      relations: rows.map(r => ({ relation: r.relation as string, toastOid: r.toast_oid as string, toastBytes: r.toast_bytes as string,
+        toastIndexBytes: r.toast_index_bytes as string, relpages: r.relpages as string, reltuples: r.reltuples as string,
+        relallvisible: r.relallvisible as string, liveTuples: r.live as string, deadTuples: r.dead as string, inserted: r.inserted as string,
+        deleted: r.deleted as string, lastVacuum: (r.last_vacuum ?? null) as string | null, lastAutovacuum: (r.last_autovacuum ?? null) as string | null,
+        vacuumCount: r.vacuum_count as string, autovacuumCount: r.autovacuum_count as string, vacuumInProgress: r.vacuum_in_progress as boolean | null })) };
+    // A failed explicit ROLLBACK propagates: the observation is never acknowledged without it.
+  } finally { await source.query("ROLLBACK"); }
+}
+
+type ToastObservation = Partial<Awaited<ReturnType<typeof observeTargetToast>>> | null | undefined;
+/** Stage evidence: the observation's own fields verbatim (never re-asserted here). */
+export function toastObservationEvidence(o: ToastObservation) {
+  return { observationContract: o?.contract ?? null, readOnly: o?.readOnly ?? null, vacuumCommandExecuted: o?.vacuumCommandExecuted ?? null,
+    toastVacuumAcknowledged: o?.toastVacuumAcknowledged ?? null, reusableBytesClaimed: o?.reusableBytesClaimed ?? null,
+    osReturnedBytesClaimed: o?.osReturnedBytesClaimed ?? null, observedAt: o?.observedAt ?? null, relations: o?.relations ?? null };
+}
+/** Acknowledged ONLY as a completed read-only observation of exactly two TOAST
+ * relations with every non-claim intact; it is never a TOAST VACUUM ACK. */
+export function toastObservationAcknowledged(o: ToastObservation) {
+  return o?.contract === TOAST_OBSERVATION_CONTRACT && o.readOnly === true && o.vacuumCommandExecuted === false &&
+    o.toastVacuumAcknowledged === false && o.reusableBytesClaimed === 0 && o.osReturnedBytesClaimed === 0 &&
+    Array.isArray(o.relations) && o.relations.length === 2;
+}
+
 /** Catalog/statistics only. Never claims reclaimed or OS-returned bytes. */
 export async function spaceReadback(db: Q) {
   const rows = (await db.query(`SELECT c.relname relation,pg_relation_size(c.oid)::text main_bytes,

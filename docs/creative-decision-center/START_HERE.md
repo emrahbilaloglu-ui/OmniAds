@@ -39,6 +39,10 @@ It preserves physical/source fences and does not close sustainable storage.
 For the retained whole-table reader source gate before broader lifecycle work,
 read [D146](DECISION_LOG.md#d146--retained-reader-source-and-closed-day-lifecycle-gate-2026-10-05)
 and [the retained lifecycle contract](../architecture/native-retained-reader-lifecycle.md).
+For honest post-retirement TOAST observation and bounded child SQLSTATE receipts,
+read [D148](DECISION_LOG.md#d148--post-retirement-toast-observation-and-preserved-child-sqlstate-2026-10-05).
+Its v2 operator refuses execution/resume of v1 plans; retained historical runtime
+readers stay unchanged, and source publication is not a new live batch.
 For the finite operator and separate maintenance admission, read
 [D147](DECISION_LOG.md#d147--finite-native-storage-operator-and-maintenance-admission-2026-10-05)
 and [the execution contract](../architecture/native-finite-storage-lifecycle.md).

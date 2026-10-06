@@ -10,10 +10,10 @@ import { sealCompressedNativeHistoricalArchive, NATIVE_HISTORICAL_COMPRESSED_CAT
 import { persistLocalNativeArchive } from "../../lib/creative-decision-engine/native-historical-local-store";
 import { assessNativeStorageMaintenanceAdmission } from "../../lib/sync/native-storage-maintenance-admission";
 import { collectWholeOriginal } from "./capture";
-import { safeError, same, sha256, writeExclusive } from "./common";
+import { EVAL, safeError, same, sha256, writeExclusive } from "./common";
 import { computeSourcePack, PINNED_LIBRARY_FILES, REPO_ROOT, TSX_LOADER } from "./source-pack";
 import { databaseUrl } from "./backend";
-import { readJournal } from "./journal";
+import { FileBatchJournal, readJournal } from "./journal";
 import { evidencePath, httpGet, verifyHttpProof, HTTP_PROOF_CONTRACT } from "./http-proof";
 import { ARCHIVE_MOUNT, ProductionHostBatchBackend, runActor, STAGE_ENTRY_FILE, type ActorHost, type ActorTransport,
   type ProductionHostConfig } from "./production-transport";
@@ -42,6 +42,13 @@ const today = new Date().toISOString().slice(0, 10);
 const day = (n: number) => new Date(Date.parse(`${today}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
 const purpose = () => randomBytes(6).toString("hex");
 const refusal = async (fn: () => Promise<unknown>) => { try { await fn(); return "NO_REFUSAL"; } catch (e) { return safeError(e).code; } };
+// D149 cadence ownership observations through the REAL productionPlan/productionExecute entrypoints.
+type Cursor = { asOfDate: string; jobRunId: string };
+const cmpCursor = (a: Cursor, b: Cursor) => a.asOfDate < b.asOfDate ? -1 : a.asOfDate > b.asOfDate ? 1 : a.jobRunId < b.jobRunId ? -1 : a.jobRunId > b.jobRunId ? 1 : 0;
+const cadence: Record<string, unknown> = {};
+checks.cadence = cadence;   // bound up front: the receipt keeps every observation even if a later step fails
+const examinedRecord = (root: string, p: string) => readFile(join(root, "batches", p, "examined.json"), "utf8").then(JSON.parse, () => null);
+const releaseRecord = (root: string, p: string) => readFile(join(root, "control", "released", `${p}.json`), "utf8").then(JSON.parse, () => null);
 
 async function cluster(name: string, base: string, port: number) {
   const data = join(base, "pg", name), sock = join(base, "pg", `${name}-sock`);
@@ -215,6 +222,22 @@ async function main() {
   const plan1 = await productionPlan({ host: hostFile, purpose: p1, cutoff, review, limit: "32", "max-units": "2" }, transport) as any;
   checks.p1Plan = { units: plan1.units?.map((u: any) => u.evaluations), vetoes: plan1.vetoes?.map((v: any) => v.code).sort() };
 
+  step = "cadence-prefix-record";
+  // RCW1: the real plan must record its settled, dated candidate prefix; E3 broke the maxUnits loop unsettled.
+  const p1Units = (JSON.parse(await readFile(join(OP, "batches", p1, "plan.json"), "utf8")).units as any[])
+    .map(u => ({ asOfDate: u.generation.asOfDate as string, jobRunId: u.generation.jobRunId as string })).sort(cmpCursor);
+  const p1Last = p1Units.at(-1)!, chainCursor = `${p1Last.asOfDate}:${p1Last.jobRunId}`;
+  const ex1 = await examinedRecord(OP, p1);
+  cadence.prefixRecord = ex1 === null ? "NO_EXAMINED_PREFIX_RECORD" : {
+    throughIsLastSettledUnit: same(ex1.examinedThrough, p1Last), planReportsThrough: same(plan1.examinedThrough, ex1.examinedThrough),
+    breakCandidateIsUnsettledE3: same(ex1.breakCandidate, { asOfDate: day(5), jobRunId: E3.jobRunId }),
+    orderedDatedPrefix: (ex1.dispositions as any[]).every((d, i, a) => /^\d{4}-\d{2}-\d{2}$/.test(d.candidate.asOfDate) && (i === 0 || cmpCursor(a[i - 1].candidate, d.candidate) < 0)),
+    outcomes: (ex1.dispositions as any[]).map(d => d.outcome === "unit" ? "unit" : `${d.code}:${d.permanence}`).sort() };
+
+  step = "cadence-second-owner-while-planned";
+  // RCW2: a second real plan while P1 is planned (not executed) on the same private operator root.
+  cadence.secondPlanWhileOwnerPlanned = (await refusal(() => productionPlan({ host: hostFile, purpose: purpose(), cutoff, review, limit: "32", "max-units": "1" }, transport))).replace(p1, "P1");
+
   step = "p1-execute";
   const exec1 = await productionExecute({ host: hostFile, purpose: p1, review }, transport);
   const j1 = await readJournal(join(OP, "batches", p1, "journal"));
@@ -231,6 +254,14 @@ async function main() {
   // Stale global .env + pins: ONE apply recreated web from the SAME runtime image with the new root; worker untouched.
   assert.deepEqual([fakeState.containers.web.Id !== state.containers.web.Id, fakeState.containers.web.Image === webImage,
     fakeState.containers.worker.Id === state.containers.worker.Id, fakeState.composeUpCalls], [true, true, true, 1]);
+
+  step = "cadence-second-owner-while-paused";
+  // RCW2: P1 is paused at the authenticated HTTP gate after activation; a second real plan must not start. The probe
+  // uses a FRESH prestate (P1 recreated web), so a refusal can only come from ownership, not from a stale role pin.
+  const freshHost = async (name: string) => { const pre = await productionPrestate(hostFile, purpose(), runtimeManifest, transport);
+    const f = join(OP, `production-host-cadence-${name}.json`); await writeExclusive(f, JSON.stringify(hostConfig({ path: pre.file, sha256: pre.sha256 })), 0o400); return f; };
+  const hostPaused = await freshHost("paused");
+  cadence.secondPlanWhileOwnerPaused = (await refusal(() => productionPlan({ host: hostPaused, purpose: purpose(), cutoff, review, limit: "32", "max-units": "1" }, transport))).replace(p1, "P1");
   const restoreReceipts = await Promise.all(p1Plan.units.map((u: any) => readFile(join(OP, "batches", p1, "units", u.generation.jobRunId, "restore.json"), "utf8").then(JSON.parse)));
   checks.p1PrivateRestore = restoreReceipts.map((r: any) => ({ parity: r.frozenProofParity, plaintextDropped: r.plaintextRestoreDropped }));
   checks.p1PrivateCopies = await Promise.all(p1Plan.units.map(async (u: any) => (await readdir(join(OP, "copies", p1, u.generation.jobRunId))).sort()));
@@ -274,6 +305,14 @@ async function main() {
     measuredOutcomeFiles: (await readdir(join(OP, "batches", p1))).filter(n => n.startsWith("measured-outcome-")).length };
   // Positive source-identical paused HTTP resume, with the exact-identity verifier: must finish.
   assert.equal(resume1.actualExitCode, 0); assert.equal(j1b.finished, true); assert.equal(resume1.retiredOriginalJobs.length, p1Plan.units.length);
+
+  step = "cadence-cursor-chain";
+  // RCW1 chain: after P1's terminal progress, cursor=null (rescan) and a cursor beyond the unsettled E3 (silent skip) refuse.
+  cadence.p1ReleaseOutcome = (await releaseRecord(OP, p1))?.outcome ?? "NO_RELEASE_RECORD";
+  const hostChain = await freshHost("chain");
+  cadence.nullCursorAfterTerminalProgress = await refusal(() => productionPlan({ host: hostChain, purpose: purpose(), cutoff, review, limit: "32", "max-units": "1" }, transport));
+  cadence.aheadCursorSkippingUnexamined = await refusal(() => productionPlan({ host: hostChain, purpose: purpose(), cutoff, review, limit: "32", "max-units": "1",
+    cursor: `${day(5)}:${E3.jobRunId}` }, transport));
 
   step = "fresh-capacity";
   const capBackend = new ProductionHostBatchBackend(host, p1Plan, review, transport);
@@ -341,7 +380,7 @@ async function main() {
   const hostFile2 = join(OP, "production-host-p2.json");
   await writeExclusive(hostFile2, JSON.stringify(hostConfig({ path: pre2.file, sha256: pre2.sha256 })), 0o400);
   const p2 = purpose();
-  const plan2 = await productionPlan({ host: hostFile2, purpose: p2, cutoff, review, limit: "32", "max-units": "1" }, transport) as any;
+  const plan2 = await productionPlan({ host: hostFile2, purpose: p2, cutoff, review, limit: "32", "max-units": "1", cursor: chainCursor }, transport) as any;
   await fake(st => { st.faults = { composeUp: "kill-after-recreate" }; });
   const exec2 = await productionExecute({ host: hostFile2, purpose: p2, review }, transport);
   await fake(st => { st.faults = {}; });
@@ -357,27 +396,137 @@ async function main() {
   const p2Blocked = await refusal(() => new ProductionHostBatchBackend(host2, p2Plan, review, transport).freshEvidence("publish-original", [u2]));
   checks.p2AmbiguousBlocksFurtherRemoteOps = p2Blocked;
 
+  step = "cadence-second-owner-while-ambiguous";
+  // RCW2: P2's activation is unacknowledged (routing unknown): no second owner on this operator root.
+  const hostAmbiguous = await freshHost("ambiguous");
+  cadence.secondPlanWhileOwnerAmbiguous = (await refusal(() => productionPlan({ host: hostAmbiguous, purpose: purpose(), cutoff, review, limit: "32", "max-units": "1",
+    cursor: chainCursor }, transport))).replace(p2, "P2");
+
   step = "post-apply-drift-no-recovery";
   // The gate passed, then the apply produced a foreign web image / touched the worker: ONE apply, no recovery recreate, status-only.
-  const driftRun = async (fault: string) => {
+  // Each drift purpose ends ambiguous (status-only), so each gets its OWN operator root. Every root must contain the
+  // private restore socket (OPERATOR_PRIVATE_RESTORE_SCOPE is never relaxed): the ancestors STATE and OP/pg are used.
+  const driftRun = async (fault: string, root: string, cursor?: string) => {
     const preX = await productionPrestate(hostFile, purpose(), runtimeManifest, transport), hostX = join(OP, `production-host-${fault}.json`);
-    await writeExclusive(hostX, JSON.stringify(hostConfig({ path: preX.file, sha256: preX.sha256 })), 0o400);
-    const pX = purpose(), planX = await productionPlan({ host: hostX, purpose: pX, cutoff, review, limit: "32", "max-units": "1" }, transport) as any;
+    await writeExclusive(hostX, JSON.stringify({ ...hostConfig({ path: preX.file, sha256: preX.sha256 }), stateRoot: root }), 0o400);
+    const pX = purpose(), planX = await productionPlan({ host: hostX, purpose: pX, cutoff, review, limit: "32", "max-units": "1", ...(cursor ? { cursor } : {}) }, transport) as any;
     assert.equal(planX.units?.length, 1, `DRIFT_RUN_PLAN:${JSON.stringify(planX.vetoes ?? planX.reason)}`);
     const calls0 = (await fake(st => { st.faults = { composeUp: fault }; })).composeUpCalls;
     const execX = await productionExecute({ host: hostX, purpose: pX, review }, transport);
     const afterX = await fake(st => { st.faults = {}; });
-    const kept = (await readdir(join(OP, "batches", pX, "remote"))).filter(n => n.endsWith("-activate-activate-root.json"));
-    const receipt = JSON.parse(await readFile(join(OP, "batches", pX, "remote", kept[0]!), "utf8"));
+    const kept = (await readdir(join(root, "batches", pX, "remote"))).filter(n => n.endsWith("-activate-activate-root.json"));
+    const receipt = JSON.parse(await readFile(join(root, "batches", pX, "remote", kept[0]!), "utf8"));
     return { planUnits: planX.units?.length, exit: execX.actualExitCode, reason: execX.reason, stage: execX.stage, statusReadOnlyRequired: execX.statusReadOnlyRequired,
       composeUpCalls: afterX.composeUpCalls - calls0, recoveryApply: receipt.recoveryApply ?? null, recoveryRefused: receipt.recoveryRefused ?? null };
   };
-  const imageDrift = await driftRun("foreign-web-image");
+  const imageDrift = await driftRun("foreign-web-image", STATE);
   // Operator puts the live web back on the runtime image with the env the archive file now names (P3's own root).
   const archiveNow = Object.fromEntries((await readFile(join(APP, ".env.native-archive"), "utf8")).trim().split("\n").map(kv));
   await fake(st => { const w = st.containers.web; w.Image = webImage; w.Config.Env = merged(images.web, { ...composeBase.web, APP_BUILD_ID: RUNTIME, ...archiveNow });
     w.Config.Labels["org.opencontainers.image.revision"] = RUNTIME; w.Id = hex64(); w.State.StartedAt = new Date().toISOString(); });
-  const workerDriftRun = await driftRun("recreate-worker");
+
+  step = "cadence-terminal-scan-and-abandon";
+  // Root OP/pg (free): empty window and all-veto window are read-only terminal scans; an unexecuted plan is
+  // abandoned race-free (consumed marker) and never advances the chain. Commands are resolved dynamically so the
+  // baseline run records their absence instead of failing to import.
+  const cli: any = await import("./production-cli");
+  const rootT = join(OP, "pg"), hostT = join(OP, "production-host-terminal-scan.json");
+  const preT = await productionPrestate(hostFile, purpose(), runtimeManifest, transport);
+  await writeExclusive(hostT, JSON.stringify({ ...hostConfig({ path: preT.file, sha256: preT.sha256 }), stateRoot: rootT }), 0o400);
+  const planT = (p: string, extra: Record<string, string>) => productionPlan({ host: hostT, purpose: p, cutoff, review, limit: "32", "max-units": "1", ...extra }, transport) as Promise<any>;
+  const tEmpty = purpose(), emptyScan = await planT(tEmpty, { cutoff: `${day(10)}T00:00:00.000Z` });
+  const tVeto = purpose(), vetoScan = await planT(tVeto, { limit: "2" });
+  const exVeto = await examinedRecord(rootT, tVeto);
+  const frontierT = exVeto?.examinedThrough ? `${exVeto.examinedThrough.asOfDate}:${exVeto.examinedThrough.jobRunId}` : undefined;
+  const tUnit = purpose(), unitPlan = await planT(tUnit, frontierT ? { cursor: frontierT } : {}).catch(e => ({ refused: safeError(e).code }));
+  const abandon = typeof cli.abandonPurpose === "function"
+    ? await refusal(() => cli.abandonPurpose({ host: hostT, purpose: tUnit })) : "ABANDON_COMMAND_ABSENT";
+  cadence.terminalScanAndAbandon = {
+    emptyWindow: { units: emptyScan.units?.length ?? null, terminalScan: emptyScan.terminalScan ?? null, release: (await releaseRecord(rootT, tEmpty))?.outcome ?? null,
+      advancesChain: (await releaseRecord(rootT, tEmpty))?.advancesChain ?? null },
+    allVetoWindow: { units: vetoScan.units?.length ?? null, terminalScan: vetoScan.terminalScan ?? null, release: (await releaseRecord(rootT, tVeto))?.outcome ?? null,
+      advancesChain: (await releaseRecord(rootT, tVeto))?.advancesChain ?? null, examinedSettled: exVeto?.dispositions?.length ?? null },
+    nullCursorAfterTerminalScan: await refusal(() => planT(purpose(), {})),
+    unitPlanned: unitPlan.units?.length ?? unitPlan.refused ?? null, abandon,
+    abandonRelease: (await releaseRecord(rootT, tUnit))?.outcome ?? null, abandonAdvancesChain: (await releaseRecord(rootT, tUnit))?.advancesChain ?? null,
+    // Only probed when the abandon actually happened: an un-abandoned plan is never executed here.
+    executeAfterAbandon: abandon === "NO_REFUSAL" ? await refusal(() => productionExecute({ host: hostT, purpose: tUnit, review }, transport)) : "NOT_ABANDONED_NOT_EXECUTED",
+  };
+  step = "cadence-legacy-dispositions";
+  // Never-leased legacy purposes in rootT (no owner active): an fb9-shaped lost maintenance ACK over P1's REAL retired units
+  // (their frozen configs, the owned source DB), and a 5aa1-shaped pre-dispatch refusal. Dispositions run through the REAL
+  // CLI exports; the settlement is a live SELECT-only collection on owned PostgreSQL.
+  const lX = purpose(), lY = purpose(), ids1: string[] = p1Plan.units.map((u: any) => u.generation.jobRunId);
+  const v1 = (p: string, units: any[]) => ({ ...p1Plan, contract: "finite-native-storage-batch.v1", purpose: p, units });
+  const v1Result = (p: string, o: Record<string, unknown>) => ({ contract: "finite-native-storage-batch.v1", purpose: p, actualExitCode: 1, statusReadOnlyRequired: false,
+    retiredOriginalJobs: [], providerAuthority: false, physicalBytesReclaimed: 0, sustainableStorageClosed: false, newWebOwnObservationRequired: false, ...o }) as any;
+  const xDir = join(rootT, "batches", lX), yDir = join(rootT, "batches", lY);
+  await mkdir(join(xDir, "units"), { recursive: true, mode: 0o700 }); await mkdir(yDir, { mode: 0o700 });
+  for (const j of ids1) await writeExclusive(join(xDir, "units", `${j}.config.json`), await readFile(join(OP, "batches", p1, "units", `${j}.config.json`)));
+  await writeExclusive(join(xDir, "plan.json"), JSON.stringify(v1(lX, p1Plan.units)));
+  const jX = new FileBatchJournal(join(xDir, "journal"), join(rootT, "purposes"));
+  await jX.begin(v1(lX, p1Plan.units) as any);
+  for (const [stage, jobs] of [...ids1.map(j => ["capture-restore", [j]]), ["publish", ids1], ["activate", ids1],
+    ...ids1.flatMap(j => [["retire", [j]], ["independent-readback", [j]]]), ["vacuum-main", ids1]] as [any, string[]][]) {
+    await jX.intent(stage, jobs);
+    await jX.receipt({ purpose: lX, stage, jobRunIds: jobs, actualExitCode: 0, actionAcknowledged: true, independentFullOriginalBytesMatch: true,
+      providerAuthority: false, reclaimedBytes: 0, evidenceSha256: sha256(`${lX}:${stage}:${jobs.join(",")}`) });
+  }
+  await jX.intent("vacuum-toast", ids1);
+  await jX.finish(v1Result(lX, { stage: "vacuum-toast", reason: "UNKNOWN_ACK", statusReadOnlyRequired: true, retiredOriginalJobs: ids1 }));
+  await writeExclusive(join(yDir, "plan.json"), JSON.stringify(v1(lY, [p1Plan.units[0]])));
+  const jY = new FileBatchJournal(join(yDir, "journal"), join(rootT, "purposes"));
+  await jY.begin(v1(lY, [p1Plan.units[0]]) as any);
+  await jY.finish(v1Result(lY, { stage: "capture-restore", reason: "MAINTENANCE_REFUSED:app_physical_reserve" }));
+  const tree = async (dir: string): Promise<string> => sha256(JSON.stringify(await Promise.all((await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name < b.name ? -1 : 1)
+    .map(async e => [e.name, e.isDirectory() ? await tree(join(dir, e.name)) : sha256(await readFile(join(dir, e.name)))]))));
+  const history = async (p: string) => [await tree(join(rootT, "batches", p, "journal")), sha256(await readFile(join(rootT, "purposes", `${p}.json`))),
+    sha256(await readFile(join(rootT, "batches", p, "plan.json")))].join(":");
+  const historyX = await history(lX), historyY = await history(lY);
+  const blocked = await refusal(() => planT(purpose(), frontierT ? { cursor: frontierT } : {}));
+  const settle = (pg: { sock: string; port: number }, database: string, user = "nsb_owner") => refusal(() => cli.disposeMaintenanceUnknown({ host: hostT,
+    purpose: lX, "pg-host": pg.sock, "pg-port": String(pg.port), "pg-database": database, "pg-user": user }));
+  const holder = async (app: string) => { const c = new Client({ host: source.sock, port: source.port, user: "nsb_owner", database: srcDb, application_name: app });
+    c.on("error", () => undefined); await c.connect(); await c.query("BEGIN"); await c.query(`LOCK TABLE public.${EVAL} IN SHARE UPDATE EXCLUSIVE MODE`); return c; };
+  let hold = await holder("nsb-vacuum-toast");
+  const ownedBackend = await settle(source, srcDb);
+  await hold.query("ROLLBACK"); await hold.end();
+  hold = await holder("fixture-foreign-session");
+  const foreignMaintenanceLock = await settle(source, srcDb);
+  await hold.query("ROLLBACK"); await hold.end();
+  const sleeper = new Client({ host: source.sock, port: source.port, user: "nsb_owner", database: srcDb, application_name: "fixture-foreign-session" });
+  sleeper.on("error", () => undefined); await sleeper.connect();
+  const sleeping = sleeper.query("SELECT pg_sleep(30) /* VACUUM probe */").then(() => "FINISHED", e => safeError(e).sqlState);
+  await new Promise(r => setTimeout(r, 500));
+  const activeMaintenanceQuery = await settle(source, srcDb);
+  const canceller = await connect(source, srcDb);
+  await canceller.query("SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE application_name='fixture-foreign-session' AND pid<>pg_backend_pid()");
+  await canceller.end(); const sleeperOutcome = await sleeping; await sleeper.end();
+  psql(source, srcDb, "CREATE ROLE nsb_settle_novis LOGIN; GRANT pg_read_all_data TO nsb_settle_novis");
+  const noBackendVisibility = await settle(source, srcDb, "nsb_settle_novis");
+  const wrongDatabase = await settle(restore, tplDb);
+  const crossPreDispatchOnMaintenance = await refusal(() => cli.disposePreDispatch({ host: hostT, purpose: lX }));
+  const crossMaintenanceOnPreDispatch = await refusal(() => cli.disposeMaintenanceUnknown({ host: hostT, purpose: lY, "pg-host": source.sock,
+    "pg-port": String(source.port), "pg-database": srcDb, "pg-user": "nsb_owner" }));
+  const settled = await cli.disposeMaintenanceUnknown({ host: hostT, purpose: lX, "pg-host": source.sock, "pg-port": String(source.port), "pg-database": srcDb,
+    "pg-user": "nsb_owner" }).catch((e: unknown) => ({ refused: safeError(e).code }));
+  const proof = settled.release ? JSON.parse(await readFile(join(xDir, `maintenance-settlement-${settled.release.detail.settlementProofSha256}.json`), "utf8")) : null;
+  const preDisposed = await cli.disposePreDispatch({ host: hostT, purpose: lY }).catch((e: unknown) => ({ refused: safeError(e).code }));
+  cadence.legacyDispositions = {
+    blockedBeforeDisposition: blocked.replace(lX, "LX").replace(lY, "LY").replace(/^(OTHER_PURPOSE_OPEN:)(LX:maintenance-ack-unknown|LY:resumable)$/, "$1LEGACY"),
+    ownedBackend, foreignMaintenanceLock, activeMaintenanceQuery, sleeperCancelled: sleeperOutcome === "57014", noBackendVisibility, wrongDatabase,
+    crossPreDispatchOnMaintenance, crossMaintenanceOnPreDispatch,
+    settled: settled.release ? { outcome: settled.release.outcome, advancesChain: settled.release.advancesChain, successClaimed: settled.release.detail.successClaimed,
+      retryPermitted: settled.release.detail.retryPermitted, unacknowledgedStage: settled.release.detail.unacknowledgedStage,
+      proofDatabaseIsSource: proof.database.name === srcDb, readOnly: proof.transaction.readOnly, isolation: proof.transaction.isolation,
+      rollbackAcknowledged: proof.transaction.rollbackAcknowledged, fullBackendVisibility: proof.visibility.fullBackendVisibility,
+      backends: proof.backends, unitsRetiredAndRootsByteEqual: proof.units.map((u: any) => u.exactUnitAbsent && u.retainedRootsFullBytesMatch),
+      historyUnchanged: await history(lX) === historyX } : settled,
+    preDispatch: preDisposed.release ? { outcome: preDisposed.release.outcome, advancesChain: preDisposed.release.advancesChain,
+      originalReason: preDisposed.release.detail.originalReason, successClaimed: preDisposed.release.detail.successClaimed,
+      retryPermitted: preDisposed.release.detail.retryPermitted, historyUnchanged: await history(lY) === historyY } : preDisposed,
+  };
+  const workerDriftRun = await driftRun("recreate-worker", rootT, frontierT);
   checks.postApplyDrift = { imageDrift, workerDrift: workerDriftRun };
   const noRecovery = (reason: string) => ({ planUnits: 1, exit: 1, reason: `PRODUCTION_ACTOR_REFUSED:${reason}`, stage: "activate", statusReadOnlyRequired: true,
     composeUpCalls: 1, recoveryApply: null, recoveryRefused: "IDENTITY_DRIFT_NO_RECOVERY_STATUS_ONLY" });
@@ -386,6 +535,29 @@ async function main() {
   step = "prepare-production";
   const prep = await prepareProduction({ host: hostFile, purpose: p1, stage: "retire", op: "db", "stage-op": "retire", unit: u0.generation.jobRunId });
   checks.prepareProduction = prep;
+
+  step = "cadence-final";
+  assert.deepEqual(cadence, {
+    prefixRecord: { throughIsLastSettledUnit: true, planReportsThrough: true, breakCandidateIsUnsettledE3: true, orderedDatedPrefix: true,
+      outcomes: ["ALREADY_ARCHIVED_ROUTE:permanent", "RETAINED_SNAPSHOT_VETO:permanent", "unit", "unit"] },
+    secondPlanWhileOwnerPlanned: "OWNER_LEASE_HELD:P1", secondPlanWhileOwnerPaused: "OWNER_LEASE_HELD:P1",
+    p1ReleaseOutcome: "finished", nullCursorAfterTerminalProgress: "CURSOR_BEHIND_CHAIN_FRONTIER_WOULD_RESCAN",
+    aheadCursorSkippingUnexamined: "CURSOR_AHEAD_OF_FRONTIER_WOULD_SKIP_UNEXAMINED", secondPlanWhileOwnerAmbiguous: "OWNER_LEASE_HELD:P2",
+    terminalScanAndAbandon: {
+      emptyWindow: { units: 0, terminalScan: true, release: "terminal-scan", advancesChain: false },
+      allVetoWindow: { units: 0, terminalScan: true, release: "terminal-scan", advancesChain: true, examinedSettled: 2 },
+      nullCursorAfterTerminalScan: "CURSOR_BEHIND_CHAIN_FRONTIER_WOULD_RESCAN", unitPlanned: 1, abandon: "NO_REFUSAL",
+      abandonRelease: "abandoned", abandonAdvancesChain: false, executeAfterAbandon: "PURPOSE_ALREADY_CONSUMED" },
+    legacyDispositions: { blockedBeforeDisposition: "OTHER_PURPOSE_OPEN:LEGACY", ownedBackend: "OWNED_OPERATOR_BACKEND_PRESENT",
+      foreignMaintenanceLock: "TARGET_MAINTENANCE_LOCK_PRESENT", activeMaintenanceQuery: "MAINTENANCE_BACKEND_ACTIVE", sleeperCancelled: true,
+      noBackendVisibility: "BACKEND_VISIBILITY_UNAVAILABLE", wrongDatabase: "RETAINED_ROOTS_NOT_BYTE_EQUAL",
+      crossPreDispatchOnMaintenance: "NOT_A_PRE_DISPATCH_REFUSAL_STATE", crossMaintenanceOnPreDispatch: "ONLY_UNACKNOWLEDGED_POST_RETIREMENT_MAINTENANCE_IS_DISPOSABLE",
+      settled: { outcome: "terminal-maintenance-outcome-unknown", advancesChain: false, successClaimed: false, retryPermitted: false, unacknowledgedStage: "vacuum-toast",
+        proofDatabaseIsSource: true, readOnly: "on", isolation: "repeatable read", rollbackAcknowledged: true, fullBackendVisibility: true,
+        backends: { ownedOperatorBackends: 0, maintenanceQueryBackends: 0, maintenanceProgressRows: 0, maintenanceModeTargetLocks: 0 },
+        unitsRetiredAndRootsByteEqual: [true, true], historyUnchanged: true },
+      preDispatch: { outcome: "terminal-pre-dispatch-refused", advancesChain: false, originalReason: "MAINTENANCE_REFUSED:app_physical_reserve", successClaimed: false,
+        retryPermitted: false, historyUnchanged: true } } });
   return { source, restore };
 }
 

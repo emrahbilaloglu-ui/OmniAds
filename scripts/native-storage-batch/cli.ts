@@ -8,7 +8,8 @@ import { computeSourcePack, REPO_ROOT, verifySourceReview } from "./source-pack"
 import { FileBatchJournal, readJournal } from "./journal";
 import { hostPaths, OwnedHostBatchBackend, readActivation, type OwnedHostConfig } from "./backend";
 import { ProductionSshTransport } from "./production-transport";
-import { prepareProduction, productionExecute, productionPlan, productionPrestate } from "./production-cli";
+import { abandonPurpose, disposeMaintenanceUnknown, disposePreDispatch, ownerStatus, prepareProduction, productionExecute, productionPlan,
+  productionPrestate } from "./production-cli";
 import type { UnitConfig } from "./capture";
 
 /** Finite native storage batch CLI. Default command is `prepare`: local source
@@ -25,8 +26,14 @@ const USAGE = `usage:
   cli.ts status  --host <host.json> --purpose <12hex>
   production (nothing is sent unless --arm-production-transport <the same 12hex purpose> is given):
   cli.ts production-prestate --host <production-host.json> --purpose <12hex> --runtime-source-manifest <json> --arm-production-transport <12hex>
-  cli.ts plan    --host <production-host.json> --purpose <12hex> --cutoff <iso> --review <review> [--max-units n] --arm-production-transport <12hex>
+  cli.ts plan    --host <production-host.json> --purpose <12hex> --cutoff <iso> --review <review> [--max-units n] [--cursor <recorded frontier>] [--revisit true] --arm-production-transport <12hex>
   cli.ts execute|resume --host <production-host.json> --purpose <12hex> --review <review> --arm-production-transport <12hex>
+  local operator state root only (no host, no transport; D149):
+  cli.ts owner-status --host <production-host.json>
+  cli.ts abandon --host <production-host.json> --purpose <12hex>   (owned purpose whose execution never began)
+  cli.ts dispose-maintenance-unknown --host <production-host.json> --purpose <12hex> --pg-host <socket dir|loopback> --pg-port <n> --pg-database <db> --pg-user <role>
+      (live SELECT-only settlement proof over that one READ ONLY connection; records an UNKNOWN outcome, never success or retry)
+  cli.ts dispose-pre-dispatch-refused --host <production-host.json> --purpose <12hex>   (journal EXACTLY begin+finish, zero actions)
   cli.ts prepare-production --host <production-host.json> --purpose <12hex> --stage <stage> --op db|stage-cipher|publish-root|activate-root [--stage-op <op>] [--unit <uuid>]`;
 function args(argv: string[]) {
   const command = argv[0] && !argv[0].startsWith("--") ? argv[0] : "prepare";
@@ -179,6 +186,10 @@ const isProductionHost = async (path: string | undefined) => {
   return JSON.parse((await readExact(path, 256 * 1024)).toString("utf8"))?.mode === "production";
 };
 
+const productionOnly = (fn: (o: Record<string, string>) => Promise<unknown>) => async (o: Record<string, string>) => {
+  need(await isProductionHost(o.host), "PRODUCTION_HOST_REQUIRED"); return fn(o);
+};
+
 async function execute(o: Record<string, string>) {
   need(o.host && isAbsolute(o.host), "HOST_CONFIG_REQUIRED");
   const raw = JSON.parse((await readExact(o.host, 256 * 1024)).toString("utf8"));
@@ -226,6 +237,8 @@ async function main() {
   if (command === "prepare") return prepare(options);
   const handlers: Record<string, (o: Record<string, string>) => Promise<unknown>> = { select, plan, execute, status,
     resume: resumeCommand, "http-proof": httpProofCommand, "prepare-production": prepareProduction,
+    "owner-status": productionOnly(ownerStatus), abandon: productionOnly(abandonPurpose), "dispose-maintenance-unknown": productionOnly(disposeMaintenanceUnknown),
+    "dispose-pre-dispatch-refused": productionOnly(disposePreDispatch),
     "production-prestate": (x: Record<string, string>) => productionPrestate(x.host!, purposeOf(x.purpose), x["runtime-source-manifest"]!, armedTransport(x)) };
   need(handlers[command], "USAGE");
   const value = await handlers[command]!(options) as { actualExitCode?: number };

@@ -1,10 +1,14 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { NATIVE_STORAGE_BATCH_CONTRACT, NATIVE_STORAGE_BATCH_LIMITS, nativeStoragePlanDigest, runFiniteNativeStorageBatch,
   validateNativeStorageBatchPlan, type NativeStorageBatchPlan, type NativeStorageBatchUnit } from "../../lib/creative-decision-engine/native-finite-storage-lifecycle";
 import { canonicalSha, need, readExact, safeError, sha256, writeExclusive } from "./common";
 import { computeSourcePack, REPO_ROOT, verifySourceReview } from "./source-pack";
 import { FileBatchJournal } from "./journal";
+import { abandonOwnedPurpose, acquireOwner, disposePreDispatchRefused, disposeUnacknowledgedMaintenance, ownershipStatus, parseCursor, recordExamined,
+  releaseOwner, requireOwner, settledPrefix, vetoPermanence, type Cursor, type Disposition } from "./operator-ownership";
+import { collectMaintenanceSettlement, SETTLEMENT_APPLICATION } from "./maintenance-settlement";
+import { Client } from "pg";
 import { ACTOR_FILE, BOOTSTRAP_SOURCE, loadPrestate, loadProductionHost, loadSelection, ProductionHostBatchBackend, ProductionSshTransport,
   type ActorTransport, type ProductionHostConfig, type ProductionPrestate, type SelectionPrelude } from "./production-transport";
 import { unitLockKey } from "./backend";
@@ -69,9 +73,16 @@ export async function productionPlan(o: Record<string, string>, transport: Actor
   const base: NativeStorageBatchPlan = { contract: NATIVE_STORAGE_BATCH_CONTRACT, purpose, targetRevision: host.operatorRevision,
     sourceManifestSha256: pack.sourceManifestSha256, actualSourceReviewSha256: reviewSha, expectedDatabaseBudgetBytes: host.databaseBudgetBytes,
     cutoffObservedAt: o.cutoff!, units: [] };
-  const cursor = o.cursor ? { asOfDate: o.cursor.split(":")[0]!, jobRunId: o.cursor.split(":")[1]! } : null;
+  const cursor = parseCursor(o.cursor), revisit = o.revisit === "true";
+  need(o.revisit === undefined || o.revisit === "true", "EXACT_REVISIT_FLAG");
   const limit = Number(o.limit ?? 32), maxUnits = Number(o["max-units"] ?? NATIVE_STORAGE_BATCH_LIMITS.generations);
   need(Number.isInteger(maxUnits) && maxUnits >= 1 && maxUnits <= NATIVE_STORAGE_BATCH_LIMITS.generations, "FINITE_GENERATION_COUNT");
+  // The selection's own bounds, checked before the lease so a malformed request never strands an owner.
+  need(Number.isInteger(limit) && limit >= 1 && limit <= 64, "FINITE_SELECTION_LIMIT");
+  need(Number.isFinite(Date.parse(o.cutoff ?? "")), "EXACT_CUTOFF");
+  // D149: ONE owner per private operator state root, taken before anything is written; the cursor must continue the
+  // recorded chain exactly (behind = rescan only as an explicit revisit; ahead = refused silent skip).
+  await acquireOwner(host.stateRoot, purpose, { cursor, revisit });
   const declaration: SelectionPrelude = { contract: "native-storage-selection-prelude.v1", purpose, operatorRevision: host.operatorRevision,
     runtimeRevision: host.runtimeRevision, sourceManifestSha256: pack.sourceManifestSha256, actualSourceReviewSha256: reviewSha,
     expectedDatabaseBudgetBytes: host.databaseBudgetBytes, cutoffObservedAt: o.cutoff!, cursor, limit, maxUnits };
@@ -84,12 +95,17 @@ export async function productionPlan(o: Record<string, string>, transport: Actor
   const routed = new Set<string>((await backend.status()).routedJobs);
   const selection = await backend.planOp({ op: "select", selection: { cursor, limit, cutoffObservedAt: o.cutoff } });
   const units: NativeStorageBatchUnit[] = [], vetoes: { jobRunId: string; code: string }[] = [];
-  let total = 0;
-  for (const c of selection.candidates) {
-    if (units.length >= maxUnits) break;
-    if (c.metadataVeto) { vetoes.push({ jobRunId: c.generation.jobRunId, code: c.metadataVeto }); continue; }
-    if (routed.has(c.generation.jobRunId)) { vetoes.push({ jobRunId: c.generation.jobRunId, code: "ALREADY_ARCHIVED_ROUTE" }); continue; }
-    if (total + c.evaluations > NATIVE_STORAGE_BATCH_LIMITS.evaluations) break;
+  // Every candidate of the ordered window is either dispositioned (unit/veto, dated) or is the ONE that stopped the loop.
+  const ordered: Cursor[] = selection.candidates.map((c: { generation: Cursor }) => ({ asOfDate: c.generation.asOfDate, jobRunId: c.generation.jobRunId }));
+  const dispositions: Disposition[] = [];
+  const veto = (at: Cursor, code: string) => { vetoes.push({ jobRunId: at.jobRunId, code }); dispositions.push({ candidate: at, outcome: "veto", code, permanence: vetoPermanence(code) }); };
+  let total = 0, brokeAt: number | null = null;
+  for (const [i, c] of selection.candidates.entries()) {
+    const at = ordered[i]!;
+    if (units.length >= maxUnits) { brokeAt = i; break; }
+    if (c.metadataVeto) { veto(at, c.metadataVeto); continue; }
+    if (routed.has(c.generation.jobRunId)) { veto(at, "ALREADY_ARCHIVED_ROUTE"); continue; }
+    if (total + c.evaluations > NATIVE_STORAGE_BATCH_LIMITS.evaluations) { brokeAt = i; break; }
     try {
       const frozen = await backend.planOp({ op: "freeze", capture: { generation: c.generation, expectedEvaluations: c.evaluations,
         expectedContexts: c.contexts, sourceRevision: host.runtimeRevision, consumerInventorySha256: pack.sourceManifestSha256 } });
@@ -97,16 +113,26 @@ export async function productionPlan(o: Record<string, string>, transport: Actor
       need(canonicalSha(config) === frozen.proofSha256, "FROZEN_PROOF_SELF_CHECK");
       await writeExclusive(join(unitsDir, `${c.generation.jobRunId}.config.json`), JSON.stringify(config));
       units.push({ generation: config.generation, evaluations: config.evaluations, contexts: config.contexts, originalProofSha256: frozen.proofSha256 });
+      dispositions.push({ candidate: at, outcome: "unit" });
       total += config.evaluations;
-    } catch (e) { vetoes.push({ jobRunId: c.generation.jobRunId, code: safeError(e).code.replace(/^PRODUCTION_ACTOR_REFUSED:ACTUAL_TERMINAL_RESULT_REQUIRED:/, "") }); }
+    } catch (e) { veto(at, safeError(e).code.replace(/^PRODUCTION_ACTOR_REFUSED:ACTUAL_TERMINAL_RESULT_REQUIRED:/, "")); }
   }
-  if (!units.length) return { command: "plan", purpose, actualExitCode: 1, reason: "NO_ELIGIBLE_ORIGINAL_IN_CURSOR_WINDOW", selectionSha256, units: [], vetoes };
+  const prefix = settledPrefix(cursor, ordered, dispositions, brokeAt);
+  await recordExamined(host.stateRoot, purpose, { startCursor: cursor, revisit, selectionSha256, cutoffObservedAt: o.cutoff!, limit, maxUnits,
+    windowSize: ordered.length, dispositions, ...prefix });
+  const examined = { examinedThrough: prefix.examinedThrough, breakCandidate: prefix.breakCandidate, transientVetoes: prefix.transientVetoes };
+  if (!units.length) {
+    // Read-only terminal scan (empty or all-veto window): released now; only a non-empty settled prefix advances the chain.
+    const release = await releaseOwner(host.stateRoot, purpose, "terminal-scan");
+    return { command: "plan", purpose, actualExitCode: 1, reason: "NO_ELIGIBLE_ORIGINAL_IN_CURSOR_WINDOW", terminalScan: true, selectionSha256, units: [], vetoes,
+      ...examined, chainAdvanced: release.advancesChain };
+  }
   const value = { ...base, units };
   validateNativeStorageBatchPlan(value);
   await loadSelection(host.stateRoot, value, host.runtimeRevision);
   await writeExclusive(join(dir, "plan.json"), JSON.stringify(value));
   return { command: "plan", purpose, selectionSha256, planDigest: nativeStoragePlanDigest(value), units: units.map(u => ({ jobRunId: u.generation.jobRunId,
-    evaluations: u.evaluations, contexts: u.contexts, originalProofSha256: u.originalProofSha256 })), vetoes, evaluationRowsReadBySelection: 0 };
+    evaluations: u.evaluations, contexts: u.contexts, originalProofSha256: u.originalProofSha256 })), vetoes, ...examined, evaluationRowsReadBySelection: 0 };
 }
 
 export async function productionExecute(o: Record<string, string>, transport: ActorTransport, resume = false) {
@@ -115,12 +141,45 @@ export async function productionExecute(o: Record<string, string>, transport: Ac
   await loadSelection(host.stateRoot, value, host.runtimeRevision);
   const consumed = await readFile(join(host.stateRoot, "purposes", `${purpose}.json`)).then(() => true, () => false);
   need(resume || !consumed, "PURPOSE_ALREADY_CONSUMED");
+  // D149: only the current owner executes or resumes (same plan, original journal start); released purposes never run again.
+  await requireOwner(host.stateRoot, purpose);
   await mkdir(join(host.stateRoot, "purposes"), { recursive: true, mode: 0o700 });
   const journal = new FileBatchJournal(join(batchDir(host, purpose), "journal"), join(host.stateRoot, "purposes"), resume ? "resume" : "fresh");
   const backend = new ProductionHostBatchBackend(host, value, o.review!, transport);
   const result = await runFiniteNativeStorageBatch(value, journal, backend);
   await writeExclusive(join(batchDir(host, purpose), `result-${resume ? "resume-" : ""}${Date.now()}.json`), JSON.stringify(result));
+  if (result.actualExitCode === 0) await releaseOwner(host.stateRoot, purpose, "finished");
   return result;
+}
+
+/** D149 operator commands on the private operator state root. None reaches a host; none changes a journal. */
+export async function abandonPurpose(o: Record<string, string>) {
+  const host = await loadProductionHost(o.host!);
+  return abandonOwnedPurpose(host.stateRoot, purposeOf(o.purpose));
+}
+/** Collects the live SELECT-only settlement proof over ONE explicitly declared read-only connection (no password
+ * argument: libpq environment/.pgpass only), every transaction READ ONLY by session default as well. */
+export async function disposeMaintenanceUnknown(o: Record<string, string>) {
+  const host = await loadProductionHost(o.host!), purpose = purposeOf(o.purpose);
+  const pgHost = o["pg-host"] ?? "", database = o["pg-database"] ?? "", user = o["pg-user"] ?? "", port = Number(o["pg-port"] ?? "");
+  need((isAbsolute(pgHost) || ["127.0.0.1", "::1", "localhost"].includes(pgHost)) && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(database) &&
+    /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(user) && Number.isInteger(port) && port > 0 && port < 65536, "EXACT_READ_ONLY_SETTLEMENT_CONNECTION");
+  const pack = await computeSourcePack(host.operatorRevision, REPO_ROOT, host.runtimeRevision);
+  return disposeUnacknowledgedMaintenance(host.stateRoot, purpose, { expectedDatabase: database, operatorRevision: host.operatorRevision,
+    runtimeRevision: host.runtimeRevision, sourceManifestSha256: pack.sourceManifestSha256 }, async (binding, configs) => {
+    const db = new Client({ host: pgHost, port, user, database, application_name: SETTLEMENT_APPLICATION, connectionTimeoutMillis: 4000,
+      query_timeout: 8500, options: "-c default_transaction_read_only=on" });
+    db.on("error", () => undefined);
+    await db.connect();
+    try { return await collectMaintenanceSettlement(db, binding, configs); } finally { await db.end(); }
+  });
+}
+export async function disposePreDispatch(o: Record<string, string>) {
+  const host = await loadProductionHost(o.host!);
+  return disposePreDispatchRefused(host.stateRoot, purposeOf(o.purpose));
+}
+export async function ownerStatus(o: Record<string, string>) {
+  return ownershipStatus((await loadProductionHost(o.host!)).stateRoot);
 }
 
 /** Builds (never sends) the exact payload for review; no transport exists here. */

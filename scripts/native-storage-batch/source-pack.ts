@@ -12,7 +12,7 @@ export const REPO_ROOT = resolve(__dirname, "../..");
 /** The repo's own tsx loader by absolute path (children run in owned cwd without node_modules). */
 export const TSX_LOADER = join(REPO_ROOT, "node_modules/tsx/dist/loader.mjs");
 export const BATCH_FILES = ["common.ts", "rw-unit-inventory.ts", "capture.ts", "restore.ts", "retire.ts", "maintenance.ts",
-  "source-pack.ts", "journal.ts", "backend.ts", "stage-entry.ts", "cli.ts", "http-proof.ts", "production-transport.ts", "production-actor.py", "production-cli.ts", "native-producer-idle.ts"].map(f => `scripts/native-storage-batch/${f}`);
+  "source-pack.ts", "journal.ts", "backend.ts", "stage-entry.ts", "cli.ts", "http-proof.ts", "production-transport.ts", "production-actor.py", "production-cli.ts", "native-producer-idle.ts", "operator-ownership.ts", "maintenance-settlement.ts"].map(f => `scripts/native-storage-batch/${f}`);
 /** Codex-owned, reviewed separately; uncommitted at the target revision. */
 export const ADMISSION_FILES = ["lib/creative-decision-engine/native-finite-storage-lifecycle.ts",
   "lib/sync/native-storage-maintenance-admission.ts"];

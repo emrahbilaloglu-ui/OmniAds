@@ -1,5 +1,5 @@
 {
-  "manifestHash": "511ed264c8f3f3ec949f24927a7c03a0eb902f43bbe909e40be08963040dd0ad",
+  "manifestHash": "d804e2bbc39d2e6fd5e46b0843b58e54950fcce208043427f7a0f720e840535f",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -756,7 +756,11 @@
     },
     {
       "path": "docs/architecture/native-finite-storage-lifecycle.md",
-      "sha256": "997c4b47a9ab2c53400aad2342bee1383751020808da84576725cd2055486832"
+      "sha256": "6d5f342c7c518bfbc436c3f6d8777cdce5edb6d76925aa5278e7d34b45c08bfd"
+    },
+    {
+      "path": "docs/architecture/native-finite-storage-operator-runbook.md",
+      "sha256": "44d6ed133a4c11f500c8893981f830defd30ba75ddfc2242670005bb6c584a98"
     },
     {
       "path": "docs/architecture/native-generation-catalog-routing.md",
@@ -780,7 +784,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "3b829f0c99ca2fc125686bea87604380aef67911aa172dc3bd44c2a15dc8a01e"
+      "sha256": "9147e01570aa862a57e3b1e33322e4dc7bd7b67f69ff82f76e1073ce709661d5"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -816,7 +820,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "15877ce6595366bc8a82e485633d2ea89684e4034ae58dbc3c63c086b1270ed1"
+      "sha256": "62f0f43003ff6bceba392ae4e8bdcafa84a95811a98497ad04ebdf685e35331c"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -2911,6 +2915,10 @@
       "sha256": "967667a739da514527919cd103a3443be4fdc2cb3c8376267014149f8a15e425"
     },
     {
+      "path": "scripts/native-storage-batch/__tests__/operator-ownership.test.ts",
+      "sha256": "0f3ab8344e3034648ccc0075e2136f0ca59943c6d0743f6160207f7984f6ced3"
+    },
+    {
       "path": "scripts/native-storage-batch/__tests__/terminal-noop-dependents.test.ts",
       "sha256": "c771467953baf8bc7909a9bcc8986aca1284cfb73cc30696dedfcfa9892a2944"
     },
@@ -2928,7 +2936,7 @@
     },
     {
       "path": "scripts/native-storage-batch/cli.ts",
-      "sha256": "59c4c4aa27d8306e055fc2b6f1c9a64c7fa6aa975a171828d860b271b193f873"
+      "sha256": "dc2db24431faae5477d805e5d407db6b7e91a778596adafe79dda741cda3db75"
     },
     {
       "path": "scripts/native-storage-batch/common.ts",
@@ -2943,12 +2951,20 @@
       "sha256": "99aa674aa7a0c5a09addd16fd599219209cee4b9b706fe314a171f2c95ea8438"
     },
     {
+      "path": "scripts/native-storage-batch/maintenance-settlement.ts",
+      "sha256": "c7a6735a51076e39a6f5e1d7c7c4b92a74245ae8a5d72fc641abad35c659c26a"
+    },
+    {
       "path": "scripts/native-storage-batch/maintenance.ts",
       "sha256": "28b5583b311045e8c7044b4f5197b71716a89817f0f22a463766d3bfaeafa578"
     },
     {
       "path": "scripts/native-storage-batch/native-producer-idle.ts",
       "sha256": "fd1b2a2f60c01a002873bd4563bef80b7582ee8518ed0e0d9e842c5297d654d0"
+    },
+    {
+      "path": "scripts/native-storage-batch/operator-ownership.ts",
+      "sha256": "5c5013c3ccab6f8e507c2af52110be57b025de3b61a59b367d5fe1b3cbf86eda"
     },
     {
       "path": "scripts/native-storage-batch/owned-e2e.ts",
@@ -2964,11 +2980,11 @@
     },
     {
       "path": "scripts/native-storage-batch/production-cli.ts",
-      "sha256": "7a2c9d4f25d5b51e7498ae6600fc22c2b67cfde83868e6fd511a73225aa10f86"
+      "sha256": "dca3fd4698304c00357f0a88d4c87e7e0750dade983d47f3f3920063aaec2c25"
     },
     {
       "path": "scripts/native-storage-batch/production-fixture-e2e.ts",
-      "sha256": "0fd9813a0dd56197ef8fa7f9fe5f803cac81155b7ddd751dfdb70f4ffdaf153f"
+      "sha256": "8d9b437c76ade80808a008284b97448945bcd8aa6262a39c879474c2cfbbcbbc"
     },
     {
       "path": "scripts/native-storage-batch/production-fixture.ts",
@@ -2992,7 +3008,7 @@
     },
     {
       "path": "scripts/native-storage-batch/source-pack.ts",
-      "sha256": "0b86c2c208b1e4347283e49d9ba553e3b883738dd03b97e4422fe5d8caab93c2"
+      "sha256": "32d942bc95901fdabfe4a47a4340b562c5f7666af9c215724aa3451481132a86"
     },
     {
       "path": "scripts/native-storage-batch/stage-entry.ts",

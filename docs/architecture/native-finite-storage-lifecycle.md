@@ -199,3 +199,138 @@ or unparsed child still has unknown terminal/SQLSTATE. Nonzero results remain
 status-only, and retirement's COMMIT challenge/ack and child termination rules
 remain unchanged. This operator source change is not another production
 batch, application release or storage-acceptance receipt.
+
+## D149: single operator owner and examined-prefix chain
+
+`scripts/native-storage-batch/operator-ownership.ts` and
+`maintenance-settlement.ts` are in the reviewed source pack. They are called
+only by `productionPlan`/`productionExecute` and by four local commands:
+- `owner-status` (read-only);
+- `abandon`;
+- `dispose-pre-dispatch-refused`;
+- `dispose-maintenance-unknown`, whose only network use is one declared READ
+  ONLY database connection (below).
+
+None of these reaches a host through the actor or changes a journal, marker
+or plan. The modules have no import-time effects.
+
+- **Owner.** Under the declared private state root, `control/lease-NNNNNN.json`
+  files form a gap-free sequence. The newest lease is the owner until its
+  purpose has `control/released/<purpose>.json`. Acquisition happens before any
+  plan file is written. Every other declared purpose must already be released;
+  a never-owned legacy purpose whose journal actually finished is released as
+  `finished` without a chain claim. The next lease number is then created with
+  O_EXCL.
+- **Fail closed.** Symlinked, half-written, group/other-writable, foreign,
+  out-of-sequence or unknown-shape metadata refuses. So does a broken journal
+  chain.
+- **Semantic validation (r2).** Every read re-proves each record's semantics:
+  - **Leases:** exact sequence; unique purpose; scope; canonical,
+    non-future millisecond UTC `acquiredAt`; boolean `revisit`; a chain
+    combination acquisition can produce. Every lease but the newest must be
+    released.
+  - **Releases:** outcome enum; canonical non-future `at`; boolean
+    `advancesChain` equal to the derived chain claim; `examinedSha256` and
+    `examinedThrough` bound to the actual examined record; per-outcome
+    `detail`.
+  - **Release facts:** each outcome is checked against real files —
+    - `finished`: an actually finished journal;
+    - `abandoned`: an exact abandon marker and an empty journal;
+    - `terminal-scan`: a unit-free examined record with no plan, journal or
+      marker;
+    - maintenance unknown: the stored settlement proof re-verified;
+    - pre-dispatch refused: the zero-action facts re-proved.
+  - **Examined records:** exact keys, bound to their selection declaration
+    digest and fields, plan units and lease, with strictly ordered
+    dispositions and derived through, break and transient lists.
+  - **Consumed markers:** must be the exact begin marker of this
+    purpose/journal/plan digest, or an exact abandon marker.
+
+  Any contradiction refuses with `LEASE_RECORD_INVALID`,
+  `RELEASE_RECORD_INVALID`, `EXAMINED_RECORD_INVALID` or
+  `PURPOSE_MARKER_INVALID`. A release is self-validated before it is written.
+- **Scope.** The lease scope is this local operator state root only. It is not
+  a database or cross-host lock, and operating a second state root against the
+  same production host is outside this guarantee (runbook rule).
+- **Execute and resume.** Both require the lease. Resume keeps the same plan
+  and the journal's original 30-minute start. An actual exit 0 writes the
+  `finished` release.
+- **Examined prefix.** `batches/<purpose>/examined.json` is O_EXCL, mode 0400.
+  It records the start cursor, revisit flag, selection digest, cutoff, limit,
+  maxUnits, and every dispositioned candidate in selection order
+  (`asOfDate`, `jobRunId`, unit or veto `code`/`permanence`). It also records
+  `examinedThrough`, the unsettled `breakCandidate` (maxUnits or 9,072), and the
+  transient vetoes. Permanent veto heads are `FINITE_ORIGINAL_POPULATION_EXCEEDED`,
+  `CONTEXT_COUNT_OUTSIDE_1_4`, `ALREADY_ARCHIVED_ROUTE` and
+  `RETAINED_SNAPSHOT_VETO`; every other code is transient.
+- **Terminal scan.** A window with no unit is released immediately as a
+  read-only `terminal-scan`. It advances the chain only when it settled at
+  least one candidate.
+- **Chain.** The frontier is the maximum `examinedThrough` over chain-advancing
+  releases whose examined record still hashes as released. `cursor=null` after
+  progress is refused, as is a cursor ahead of the frontier. A cursor behind
+  the frontier needs `--revisit true`, which is recorded in the lease and the
+  examined record.
+  - **Revisit is strictly behind.** A revisit cursor must be strictly behind
+    the frontier. A cursor equal to the frontier is the exact continuation and
+    must use `revisit=false`. `REVISIT_CURSOR_MUST_BE_BEHIND_FRONTIER` refuses
+    an equal-frontier revisit.
+  - **Malformed requests write nothing.** A non-boolean revisit or a
+    non-exact cursor refuses before anything is read or written.
+  - **The lease is self-validated.** Acquisition checks the exact lease bytes
+    with the reader's own lease validation before the O_EXCL write, so an
+    accepted request can never leave an unreadable lease.
+- **Abandon.** Only before execution began. Abandon and `FileBatchJournal.begin`
+  both claim `purposes/<purpose>.json` with O_EXCL, so exactly one wins. A
+  pre-D149 purpose that no lease ever named can be abandoned only while no
+  owner is active: under D149 it could never execute or resume anyway.
+- **Lost maintenance ACK.** States are planned, running, resumable,
+  ambiguous-routing (unacknowledged capture, publish, activate, retire or
+  readback), ambiguous, maintenance-ack-unknown, finished and abandoned.
+  `dispose-maintenance-unknown` accepts only maintenance-ack-unknown with every
+  retirement and readback acknowledged, exactly one unacknowledged intent, and
+  that intent a post-retirement maintenance stage.
+  - **Connection.** The command opens one connection declared by
+    `--pg-host` (socket directory or loopback), `--pg-port`, `--pg-database`
+    and `--pg-user`. There is no password argument; the session default is
+    `default_transaction_read_only=on`.
+  - **Collection.** It collects the settlement itself:
+    - each frozen unit config (byte-bound to the plan) goes through the
+      reviewed `independentReadback`, each in its own READ ONLY snapshot
+      ending in ROLLBACK;
+    - then one READ ONLY REPEATABLE READ snapshot with 7.5 s statement and
+      1 s lock limits that ends in an acknowledged ROLLBACK reads: database
+      identity, superuser or `pg_read_all_stats` visibility,
+      `<insufficient privilege>` rows, `nsb-*` backends, non-idle client
+      backends with a vacuum/analyze/cluster/reindex verb, progress rows, and
+      maintenance-mode locks on the two targets, their TOAST relations and
+      all their indexes.
+  - **Binding.** The proof binds the purpose, plan digest/contract, journal
+    head and length, journal finish instant, begin marker digest,
+    unacknowledged stage/jobs/sequence, units, declared database,
+    operator/runtime revision and source pack digest.
+  - **Verification** refuses, among others: wrong binding or database,
+    unavailable or ambiguous visibility, any operator or maintenance backend,
+    progress or lock, a non-read-only snapshot, a missing ROLLBACK
+    acknowledgement, a nonzero exit or errors, a unit not absent or with
+    unequal roots, a time before the journal end, future (>60 s), stale
+    (>10 min) or skewed (>60 s) evidence, and malformed or extra fields.
+  - **Recording.** The proof is stored write-once as
+    `maintenance-settlement-<sha256>.json` and bound into the
+    `terminal-maintenance-outcome-unknown` release (`successClaimed=false`,
+    `retryPermitted=false`).
+- **Pre-dispatch refusal.** `dispose-pre-dispatch-refused` accepts only a
+  consumed purpose that meets all of these:
+  - its verified journal is exactly `0001-begin`, `0002-finish`;
+  - zero intents, receipts, notes and resumes;
+  - the finish is an actual exit 1 that is not status-only, with stage
+    `capture-restore` or null, no retired job, no provider authority and no
+    reclaimed bytes;
+  - its plan, `plan.json` and begin marker digests agree;
+  - its batch holds only plan-phase files, `result-<ts>.json` copies equal to
+    the journal result, frozen unit configs and plan/evidence actor receipts,
+    and it has no copies.
+
+  It writes `terminal-pre-dispatch-refused`, which never advances the chain,
+  claims success or permits a retry. Any other legacy resumable, running or
+  ambiguous purpose has no adoption path and keeps blocking (fail closed).

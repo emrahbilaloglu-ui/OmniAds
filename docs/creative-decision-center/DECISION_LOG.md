@@ -12426,3 +12426,67 @@ Focused guards/owned PG seams, exact source review, canonical QA, build and
 source publication remain distinct from production mutation and final live
 acceptance. No new finite batch or app release is needed to publish these
 operator fixes. See [the execution contract](../architecture/native-finite-storage-lifecycle.md).
+
+## D149 — Finite operator single owner and examined-prefix chain (2026-10-07)
+
+Repeated finite native storage purposes on the existing operator entrypoints
+had no owner and no examined frontier. A second plan or execute succeeded while
+another purpose was planned, paused at the authenticated HTTP gate, or
+ambiguous. Vetoes carried no date, the loop-breaking candidate was not
+recorded, and `cursor=null` or a cursor ahead of unexamined candidates was
+accepted after real progress. The real production-mechanics fixture measured
+all of these before the change.
+
+One declared private operator state root now holds at most one active
+purpose. Ownership is a gap-free sequence of immutable O_EXCL lease files; the
+next number can be created once, and nothing is unlinked. A purpose ends only
+through an immutable release record: `finished` (actual exit 0), read-only
+`terminal-scan` (empty or all-veto window), `abandoned` (execution never
+began; the consumed marker is claimed with the same O_EXCL file the journal
+uses), `terminal-maintenance-outcome-unknown` or
+`terminal-pre-dispatch-refused`. Every lease, release, examined record and
+consumed marker is validated on every read, both against its schema and
+against the real journal, marker, examined prefix or settlement evidence it
+claims. A complete-key record with a corrupt outcome, instant, boolean, hash,
+cursor or detail refuses everything; it never releases an owner. The lease
+is local to that state root. It is not a remote or global database lock; the
+remote actor's sequence and acknowledgement gates are unchanged.
+
+Every plan records its ordered dated prefix (unit or veto, code, permanence)
+and the unsettled loop-breaking candidate. Only a non-empty settled prefix of
+a non-abandoned purpose advances the chain. A new purpose starts exactly at
+the newest frontier. Behind it is accepted only as an explicit, recorded,
+one-window revisit strictly behind the frontier; an equal cursor is the exact
+continuation (`revisit=false`). Ahead of it is refused. An acquisition
+validates its request and the exact lease bytes with the reader's own
+validation before the O_EXCL write. Planned, running, paused,
+ambiguous, routing/retirement-unknown and lost-maintenance-ACK purposes block
+a new owner. A finish record is not "no SQL in flight". A lost
+post-retirement maintenance acknowledgement (the legacy v1 TOAST VACUUM
+purpose) stays consumed, unknown and never successful. It is released only by
+a live, bounded, SELECT-only settlement collected by the disposition command
+itself, which proves all of the following:
+- it is bound to that purpose's plan digest, journal head, consumed marker,
+  unacknowledged stage, declared database, operator/runtime revision and
+  source pack;
+- every retired unit is absent again, with its retained roots byte-equal, by
+  the reviewed independent readback;
+- in one READ ONLY repeatable-read snapshot with an acknowledged ROLLBACK:
+  full backend visibility, no operator backend, no maintenance-verb client,
+  and no vacuum/analyze/cluster/index progress or maintenance-mode lock on the
+  targets, their TOAST relations or indexes.
+
+The evidence must be fresh and postdate the journal end. A consumed legacy
+purpose whose verified journal is exactly begin + finish is released as a
+terminal pre-dispatch refusal. Its finish must be an actual exit 1, not
+status-only, with no retirement, no receipt and no execution artifact.
+Neither disposition rewrites a journal, marker or plan, claims success,
+permits a retry or advances the chain.
+
+Batch limits, closed-day buffer, statement/lock/wall limits, source pack and
+review, pins, root, two copies, independent restore, Chrome-authenticated
+serving before retirement, COMMIT challenge/ACK, readback and the v2 no-TOAST
+VACUUM schedule are unchanged. No scheduler is installed. The runbook's
+cadence is operator-run and is not a throughput claim. See
+[the execution contract](../architecture/native-finite-storage-lifecycle.md)
+and [the operator runbook](../architecture/native-finite-storage-operator-runbook.md).

@@ -40,7 +40,9 @@ const MAINTENANCE = new Set(["vacuum-main", "toast-observation", "vacuum-toast",
 /** Cannot become eligible under the current reviewed bounds; everything else is transient (explicit revisit). */
 const PERMANENT_VETOES = new Set(["FINITE_ORIGINAL_POPULATION_EXCEEDED", "CONTEXT_COUNT_OUTSIDE_1_4", "ALREADY_ARCHIVED_ROUTE", "RETAINED_SNAPSHOT_VETO",
   "ARCHIVE_ENGINE_UNSUPPORTED"]);
-const PLAN_CONTRACTS = ["finite-native-storage-batch.v1", "finite-native-storage-batch.v2"];
+const PLAN_CONTRACTS = ["finite-native-storage-batch.v1", "finite-native-storage-batch.v2", "finite-native-storage-batch.v3"];
+/** Capture-only expiry proof applies to v2 and v3 purposes (capture/restore is unchanged by D150). */
+const CAPTURE_ONLY_PLAN_CONTRACTS = ["finite-native-storage-batch.v2", NATIVE_STORAGE_BATCH_CONTRACT];
 const OWNER_KEYS = ["contract", "sequence", "purpose", "acquiredAt", "scope", "startCursor", "revisit", "frontierAtAcquire"];
 const RELEASE_KEYS = ["contract", "purpose", "outcome", "at", "advancesChain", "examinedThrough", "examinedSha256", "detail"];
 const EXAMINED_KEYS = ["contract", "purpose", "startCursor", "revisit", "selectionSha256", "cutoffObservedAt", "limit", "maxUnits", "windowSize",
@@ -597,7 +599,7 @@ async function expiredCaptureOnlyFacts(root: string, purpose: string, nowMs: num
   const d = layout(root), batch = join(d.batches, purpose), journal = join(batch, "journal");
   need(await purposeState(root, purpose) === "resumable", "NOT_AN_EXPIRED_CAPTURE_ONLY_STATE");
   const j = await readJournal(journal), plan = j.plan as NativeStorageBatchPlan;
-  need(plan && plan.purpose === purpose && plan.contract === NATIVE_STORAGE_BATCH_CONTRACT && Array.isArray(plan.units) && plan.units.length >= 1 &&
+  need(plan && plan.purpose === purpose && CAPTURE_ONLY_PLAN_CONTRACTS.includes(plan.contract) && Array.isArray(plan.units) && plan.units.length >= 1 &&
     plan.units.length <= NATIVE_STORAGE_BATCH_LIMITS.generations, "CAPTURE_ONLY_PLAN_REQUIRED");
   const units = plan.units, ids = units.map(u => u.generation.jobRunId), names = await listOrEmpty(journal);
   need(eq(names, ["0001-begin.json", ...units.flatMap((_, i) => [`${pad(2 + 2 * i)}-intent.json`, `${pad(3 + 2 * i)}-receipt.json`]),

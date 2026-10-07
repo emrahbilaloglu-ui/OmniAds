@@ -12,7 +12,8 @@ import { restoreIntoOwnedNewDatabase } from "./restore";
 import { databaseUrl, unitLockKey } from "./backend";
 import { computeSourcePack, REPO_ROOT, TSX_LOADER } from "./source-pack";
 import { rowSetHash, safeError, writeExclusive } from "./common";
-import { seedCalibration, seedGeneration, seedTenant } from "./owned-fixture";
+import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, seedTenant } from "./owned-fixture";
+import { producerExclusionKey, releaseProducerExclusion } from "./input-evidence-lifecycle";
 
 /** OWNED REAL-PG GUARD (fixture only; never imported by the executor). Terminal
  * NO-OP proposal-projection dependents of an original decisions job on a full
@@ -67,6 +68,8 @@ async function main() {
     c.on("error", () => undefined); await c.connect(); return c; };
   const db = await connect();
   try {
+    // D150: the actual production (contract_version,input_hash) index, added to this owned sandbox only (not run-migrations).
+    checks.addedProductionIndexPrerequisite = await addObservedProductionReferenceIndex(db);
     step = "seed";
     const t = await seedTenant(db, 2), other = await seedTenant(db, 1);
     const producer: Record<number, string> = {};
@@ -150,7 +153,8 @@ async function main() {
     // P2 frozen, then its dependents change: fresh recensus and the retirement transaction both refuse.
     const frozen2 = await freeze(P2, 13);
     const pins2 = async () => { const c = await connect(); try { return await readSelectedPinClosure(c, frozen2.config); } finally { await c.end(); } };
-    const retire2 = async () => { const c = await connect(); try { return await refusal(() => prepareUnitRetirement(c, frozen2.config, frozen2.proofSha256, unitLockKey(P2.jobRunId))); } finally { await c.end(); } };
+    const retire2 = async () => { const c = await connect(); try { return await refusal(() => prepareUnitRetirement(c, frozen2.config, frozen2.proofSha256, unitLockKey(P2.jobRunId),
+      producerExclusionKey(frozen2.config.generation))); } finally { await c.end(); } };
     const extra = await child(P2, day(13), { started_at: clock(day(13), 20), finished_at: clock(day(13), 20, 1) });
     const added = { pins: await pins2(), retire: await retire2() };
     await db.query("DELETE FROM public.engine_v3_job_runs WHERE id=$1::uuid", [extra]);
@@ -179,9 +183,10 @@ async function main() {
     const w = await connect();
     let committed = false;
     try {
-      const prepared = await prepareUnitRetirement(w, frozen.config, frozen.proofSha256, unitLockKey(P.jobRunId));
+      const prepared = await prepareUnitRetirement(w, frozen.config, frozen.proofSha256, unitLockKey(P.jobRunId), producerExclusionKey(frozen.config.generation));
       acceptPrepared(prepared, frozen.config);
       committed = (await w.query("COMMIT")).command === "COMMIT";
+      await releaseProducerExclusion(w, prepared.producerExclusion);
       checks.positiveRetire = { committed, retainedDependents: prepared.retainedDependents };
     } finally { if (!committed) await w.query("ROLLBACK").catch(() => undefined); await w.end(); }
     assert.equal(committed, true);

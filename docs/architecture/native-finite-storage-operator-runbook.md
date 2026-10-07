@@ -1,4 +1,4 @@
-# Finite native storage operator runbook (D149)
+# Finite native storage operator runbook (D149, D150)
 
 This is a manual operator procedure for the existing finite entrypoints in
 `scripts/native-storage-batch/cli.ts`.
@@ -131,6 +131,21 @@ Do not change them.
    - (auto)vacuum timestamps.
 
    Retirement makes space reusable; it is not an OS shrink.
+
+**D150 (v3) retirement refusals.** These end the stage before any change.
+Read them as status only, and never retry, override, or add the missing piece
+on the host yourself:
+- `PRODUCER_EXCLUSION_BUSY`: the native producer for that business/day holds
+  its job lock. Do not pause or kill the producer. A later purpose examines the
+  unit again.
+- `INPUT_REFERENCE_INDEX_PRECONDITION_MISSING`, `INPUT_REFERENCE_PLAN_NOT_INDEXED`:
+  the verified (contract_version, input_hash) index probe is not available. No
+  DDL or new index is run from this runbook.
+- `INPUT_EVIDENCE_UNKNOWN_CONSUMER_VETO`, `SOURCE_DRIFT_INPUT_EVIDENCE_BYTES`,
+  `IN_TX_DANGLING_INPUT_REFERENCE`.
+
+A consumed v2 purpose is never executed or resumed as v3; its existing
+dispositions are unchanged.
 
 Archive-engine vetoes (`ARCHIVE_ENGINE_UNSUPPORTED`,
 `ARCHIVE_ENGINE_METADATA_UNKNOWN`) are settled header dispositions: the window

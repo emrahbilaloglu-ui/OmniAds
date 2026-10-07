@@ -16,7 +16,7 @@ import { databaseUrl, hostPaths, OwnedHostBatchBackend, type OwnedHostConfig } f
 import { FileBatchJournal, readJournal } from "./journal";
 import { verifyHttpProof } from "./http-proof";
 import { BOOTSTRAP_SOURCE, buildStageBundle } from "./production-transport";
-import { seedCalibration, seedGeneration, seedTenant } from "./owned-fixture";
+import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, seedTenant } from "./owned-fixture";
 
 /** OWNED end-to-end: two fresh PostgreSQL 16 clusters (unix socket only, no
  * TCP), real run-migrations full DDL, actual-producer generations for a NEW
@@ -102,6 +102,8 @@ async function main() {
   // ---- actual-producer seed: new random tenant, generic counts/contexts ----
   step = "seed";
   let db = await connect(source, srcDb);
+  // D150: the actual production (contract_version,input_hash) index, added to this owned sandbox only (not run-migrations).
+  checks.addedProductionIndexPrerequisite = await addObservedProductionReferenceIndex(db);
   const t = await seedTenant(db, 2), clock = (d: string, h: number) => `${d}T${String(h).padStart(2, "0")}:00:00.000001Z`;
   const prod: Record<string, string> = {};
   for (const n of [7, 6, 5, 4, 3, 0]) prod[n] = await seedCalibration(db, t, day(n), clock(day(n), 1));

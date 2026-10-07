@@ -1,11 +1,10 @@
 import { statfs } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
 import { Client } from "pg";
 import { BatchRefusal, need, readExact, safeError, sha256, UUID } from "./common";
 import { collectWholeOriginal, readCaptureMetadata, sealAndPersist, sealWholeOriginal, verifyCopies, verifyPrivateCopies,
   type UnitConfig } from "./capture";
 import { restoreIntoOwnedNewDatabase } from "./restore";
-import { acceptPrepared, prepareUnitRetirement, unitScope } from "./retire";
+import { retireOnceWithParentChallenge, unitScope } from "./retire";
 import { databaseAdmissionFacts, independentReadback, observeTargetToast, readSelectedPinClosure, selectClosedDayCandidates, spaceReadback,
   vacuumComponent } from "./maintenance";
 
@@ -235,22 +234,12 @@ async function main() {
     case "retire": {
       const c = config();
       need(Array.isArray(request.unitLockKey) && request.unitLockKey.length === 2, "UNIT_LOCK_KEY");
+      need(typeof request.producerLockKey === "string", "EXACT_PRODUCER_EXCLUSION_KEY");
+      // D150: one pinned client owns the session producer exclusion, the RR transaction, the COMMIT and the unlock/close.
       const db = await client(url, "retire", 8500);
-      let committed = false;
-      try {
-        const prepared = await prepareUnitRetirement(db, c, request.proofSha256, request.unitLockKey);
-        acceptPrepared(prepared, c);
-        const preparedSha256 = sha256(JSON.stringify(prepared)), challengeNonce = randomBytes(16).toString("hex");
-        const pendingChallenge = readLine();
-        await emit({ type: "prepared", preparedSha256, challengeNonce, prepared });
-        const challenge = JSON.parse(await pendingChallenge);
-        need(challenge?.action === "COMMIT_EXACT_UNIT_ONCE" && challenge.preparedSha256 === preparedSha256 &&
-          challenge.challengeNonce === challengeNonce && challenge.proofSha256 === request.proofSha256 &&
-          Object.keys(challenge).sort().join(",") === "action,challengeNonce,preparedSha256,proofSha256", "EXACT_SINGLE_PARENT_COMMIT_CHALLENGE");
-        const result = await db.query("COMMIT");
-        need(result.command === "COMMIT", "ACTUAL_COMMIT_ACK_REQUIRED"); committed = true;
-        return emit({ type: "result", value: { committed: true, preparedSha256 } });
-      } finally { if (!committed) await db.query("ROLLBACK").catch(() => undefined); await db.end(); }
+      const value = await retireOnceWithParentChallenge(db, { config: c, proofSha256: request.proofSha256, unitLockKey: request.unitLockKey,
+        producerLockKey: request.producerLockKey }, async line => { const pendingChallenge = readLine(); await emit(line); return JSON.parse(await pendingChallenge); });
+      return emit({ type: "result", value });
     }
     case "readback": {
       const c = config(), db = await client(url, "readback", 8500);

@@ -556,15 +556,134 @@ def held_key(p):
     return secret
 
 
+BYTE_PRESERVED_TABLES = ('engine_v3_job_runs', 'engine_v3_ad_decision_snapshots_daily', 'engine_v3_ad_campaign_context_objects',
+                         'engine_v3_ad_account_calibration_batches', 'engine_v3_ad_account_calibration_daily')
+INPUT_TABLE = 'engine_v3_ad_decision_input_evidence'
+NATIVE_PRODUCER_JOB = 'engine_v3_native_ad_decisions_shadow_job'
+INPUT_LIFECYCLE = 'zero-live-reference.v3'
+SHA64 = '[a-f0-9]{64}'
+
+
+# ---------------- D150 parent parity (independent of the child's TypeScript acceptPrepared) ----------------
+def js_text(value):
+    """Exactly JavaScript JSON.stringify text for the str/int/bool/null/list/dict values these digests use."""
+    return json.dumps(value, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
+
+
+def js_json(value):
+    """JSON.stringify UTF-8 bytes. A lone surrogate (never storable in a PostgreSQL text value) refuses."""
+    try:
+        return js_text(value).encode('utf-8')
+    except UnicodeEncodeError:
+        raise RuntimeError('JS_JSON_UTF8_PARITY')
+
+
+def js_order(value):
+    """JavaScript string order (UTF-16 code units) of JSON.stringify(value): compareKeys in input-evidence-lifecycle.ts."""
+    return js_text(value).encode('utf-16-be', 'surrogatepass')
+
+
+def js_same(a, b):
+    """same() in common.ts: JSON.stringify equality (key order, true vs 1 and 1 vs 1.0 all distinct)."""
+    return js_json(a) == js_json(b)
+
+
+def exact_int(value, expected):
+    return type(value) is int and type(expected) is int and value == expected
+
+
+def is_key(k):
+    return type(k) is list and len(k) == 2 and all(type(x) is str for x in k)
+
+
+def hash_advisory_lock(text):
+    """lib/creative-decision-engine/jobs/advisory-lock.ts: signed 64-bit FNV-1a over UTF-16 code units & 0xff."""
+    h, units = 14695981039346656037, text.encode('utf-16-le', 'surrogatepass')
+    for i in range(0, len(units), 2):
+        h = ((h ^ units[i]) * 1099511628211) % (1 << 64)
+    return h - (1 << 64) if h >= (1 << 63) else h
+
+
+def producer_exclusion_key(g):
+    """producerExclusionKey(g) = adDecisionsJobAdvisoryLockKey({businessId, asOf}) for the frozen generation."""
+    need(type(g) is dict and type(g.get('businessId')) is str and re.fullmatch(UUID, g['businessId']) and
+         type(g.get('asOfDate')) is str and re.fullmatch('[0-9]{4}-[0-9]{2}-[0-9]{2}', g['asOfDate']), 'EXACT_PRODUCER_EXCLUSION_IDENTITY')
+    return str(hash_advisory_lock(NATIVE_PRODUCER_JOB + ':' + g['businessId'] + ':' + g['asOfDate']))
+
+
+def frozen_row_sha(cfg):
+    """frozenRowSha(config): the frozen per-key full-row sha256, keys exact, unique and in compareKeys order."""
+    keys, e = cfg.get('inputKeys'), cfg.get('inputEvidence')
+    need(type(keys) is list and all(is_key(k) for k in keys) and type(e) is dict and e.get('lifecycle') == INPUT_LIFECYCLE and
+         type(e.get('rowSha256')) is list and len(e['rowSha256']) == len(keys) and
+         all(type(x) is str and re.fullmatch(SHA64, x) for x in e['rowSha256']) and
+         type(e.get('catalogFingerprint')) is str and re.fullmatch(SHA64, e['catalogFingerprint']), 'EXACT_FROZEN_INPUT_EVIDENCE_CONFIG')
+    ids = [js_text(k) for k in keys]
+    need(len(set(ids)) == len(ids) and keys == sorted(keys, key=js_order), 'EXACT_FROZEN_INPUT_EVIDENCE_CONFIG')
+    return dict(zip(ids, e['rowSha256']))
+
+
+def keyed_digest(keys, row_sha):
+    """keyedDigest(keys, rowSha): sha256(JSON.stringify(sorted [cv, ih, frozen row sha] triples))."""
+    return sha(js_json([[k[0], k[1], row_sha[js_text(k)]] for k in sorted(keys, key=js_order)]))
+
+
+def partition_part(part, keys, row_sha):
+    return (type(part) is dict and exact_int(part.get('keys'), len(keys)) and exact_int(part.get('rows'), len(keys)) and
+            part.get('keysSha256') == sha(js_json(keys)) and part.get('keyedSha256') == keyed_digest(keys, row_sha) and
+            type(part.get('rowByteSetSha256')) is str and re.fullmatch(SHA64, part['rowByteSetSha256']) is not None)
+
+
+def input_partition_gate(a, cfg, request):
+    """Every D150 condition of retire.ts acceptPrepared, recomputed here from the frozen config only."""
+    row_sha, keys = frozen_row_sha(cfg), cfg['inputKeys']
+    table = (cfg.get('tableHashes') or {}).get(INPUT_TABLE) or {}
+    e = a.get('inputEvidence')
+    need(type(e) is dict and e.get('lifecycle') == INPUT_LIFECYCLE and exact_int(e.get('frozenKeys'), len(keys)) and
+         e.get('catalogFingerprint') == cfg['inputEvidence']['catalogFingerprint'], 'PREPARED_INPUT_EVIDENCE')
+    before = e.get('before')
+    need(type(before) is dict and exact_int(before.get('rows'), table.get('rows')) and type(before.get('rowByteSetSha256')) is str and
+         re.fullmatch(SHA64, before['rowByteSetSha256']) and before['rowByteSetSha256'] == table.get('rowByteSetSha256') and
+         before.get('keyedSha256') == keyed_digest(keys, row_sha), 'PREPARED_INPUT_EVIDENCE_BEFORE')
+    deleted = e.get('deletedKeys')
+    need(type(deleted) is list and all(is_key(k) for k in deleted), 'PREPARED_INPUT_EVIDENCE_PARTITION')
+    deleted_ids = [js_text(k) for k in deleted]
+    shared = [k for k in keys if js_text(k) not in set(deleted_ids)]
+    need(len(set(deleted_ids)) == len(deleted) and all(i in row_sha for i in deleted_ids) and deleted == sorted(deleted, key=js_order) and
+         partition_part(e.get('deleted'), deleted, row_sha) and partition_part(e.get('retainedShared'), shared, row_sha),
+         'PREPARED_INPUT_EVIDENCE_PARTITION')
+    indexes, used = e.get('referenceIndexes'), e.get('indexesUsed')
+    names = [i.get('name') for i in indexes] if type(indexes) is list and all(type(i) is dict for i in indexes) else []
+    need(exact_int(e.get('danglingAfterDelete'), 0) and len(names) >= 1 and len(set(names)) == len(names) and
+         all(type(i.get('name')) is str and re.fullmatch('[a-z_][a-z0-9_]{0,62}', i['name']) and
+             type(i.get('oid')) is str and re.fullmatch('[1-9][0-9]{0,9}', i['oid']) and
+             type(i.get('bytes')) is str and re.fullmatch('0|[1-9][0-9]{0,18}', i['bytes']) for i in indexes) and
+         type(used) is list and len(used) >= 1 and all(type(n) is str for n in used) and used == sorted(set(used)) and
+         all(n in names for n in used), 'PREPARED_INPUT_REFERENCE_PROOF')
+    x = a.get('producerExclusion')
+    need(type(x) is dict and x.get('key') == producer_exclusion_key(cfg.get('generation')) and x.get('key') == request.get('producerLockKey') and
+         x.get('acquiredBeforeTransaction') is True and x.get('heldThroughPreparation') is True and type(x.get('pid')) is int and
+         0 < x['pid'] <= 9007199254740991, 'PREPARED_PRODUCER_EXCLUSION')
+
+
 def prepared_gate(line, p):
     a, cfg = line.get('prepared') or {}, p['request']['config']
     need(line.get('type') == 'prepared' and re.fullmatch('[a-f0-9]{64}', line.get('preparedSha256', '')) and
          re.fullmatch('[a-f0-9]{32}', line.get('challengeNonce', '')), 'ACTUAL_PREPARED_CHALLENGE')
     need(a.get('preparedUncommitted') is True and a.get('committed') is False, 'ACTUAL_UNCOMMITTED_PREPARATION')
-    need(a.get('deletedEvaluationIdsSha256') == sha(json.dumps(cfg['evaluationIds'], separators=(',', ':')).encode()) and
-         a.get('deletedContextIdsSha256') == sha(json.dumps(cfg['contextIds'], separators=(',', ':')).encode()), 'EXACT_FROZEN_IDS')
-    for table, value in a.get('retainedRoots', {}).items():
-        need(value == cfg['tableHashes'][table], 'RETAINED_ROOTS_FULL_BYTES')
+    need(a.get('deletedEvaluationIdsSha256') == sha(js_json(cfg['evaluationIds'])) and
+         a.get('deletedContextIdsSha256') == sha(js_json(cfg['contextIds'])), 'EXACT_FROZEN_IDS')
+    roots = a.get('retainedRoots')
+    need(type(roots) is dict and sorted(roots) == sorted(BYTE_PRESERVED_TABLES) and
+         all(js_same(roots[t], cfg['tableHashes'][t]) for t in BYTE_PRESERVED_TABLES), 'RETAINED_ROOTS_FULL_BYTES')
+    original = a.get('originalHashes')
+    need(type(original) is dict and js_same(original.get('evaluations'), cfg['tableHashes']['engine_v3_ad_decision_evaluations']) and
+         js_same(original.get('contexts'), cfg['tableHashes']['engine_v3_ad_decision_evaluation_contexts']), 'PREPARED_ORIGINAL_BYTES')
+    d = cfg['retainedDependents']
+    need(js_same(a.get('retainedDependents'), {'jobIds': d['jobIds'], 'rows': d['rows'], 'rowByteSetSha256': d['rowByteSetSha256']}),
+         'PREPARED_RETAINED_DEPENDENTS')
+    # D150: only frozen input keys with zero global live references are removed; the rest stay byte-identical.
+    input_partition_gate(a, cfg, p['request'])
     need(a.get('pins', {}).get('measuredKnownPinsZero') is True and a.get('providerAuthority') is False and a.get('physicalReclaimedBytes') == 0,
          'MEASURED_PINS_ZERO_NO_AUTHORITY')
     return {'action': 'COMMIT_EXACT_UNIT_ONCE', 'preparedSha256': line['preparedSha256'], 'challengeNonce': line['challengeNonce'],

@@ -11,6 +11,7 @@ import { persistLocalNativeHistoricalRouting, readLocalNativeHistoricalMetadata 
 import { openImmutableNativeHistoricalArchiveCatalog } from "../../lib/creative-decision-engine/native-historical-archive";
 import { BatchRefusal, canonicalSha, need, pad, privateDirectory, readExact, same, sha256, sortedEntries, writeExclusive } from "./common";
 import { toastObservationAcknowledged, toastObservationEvidence } from "./maintenance";
+import { producerExclusionKey } from "./input-evidence-lifecycle";
 import type { UnitConfig } from "./capture";
 import { computeSourcePack, REPO_ROOT, TSX_LOADER, verifySourceReview } from "./source-pack";
 import type { FileBatchJournal } from "./journal";
@@ -415,7 +416,8 @@ export class OwnedHostBatchBackend implements NativeStorageBatchBackend {
       case "retire": {
         const u = units[0]!, config = await this.frozenConfig(u);
         let challengeSent = false;
-        const result = await this.child({ op: "retire", config, proofSha256: u.originalProofSha256, unitLockKey: unitLockKey(u.generation.jobRunId) },
+        const result = await this.child({ op: "retire", config, proofSha256: u.originalProofSha256, unitLockKey: unitLockKey(u.generation.jobRunId),
+          producerLockKey: producerExclusionKey(u.generation) },
           { database: "source", signal, onLine: async (line, write, kill) => {
             need(line.type === "prepared" && !challengeSent, "UNEXPECTED_CHILD_PROTOCOL");
             const { acceptPrepared } = await import("./retire");

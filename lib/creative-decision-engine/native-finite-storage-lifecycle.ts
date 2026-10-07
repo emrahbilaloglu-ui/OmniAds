@@ -10,14 +10,20 @@ import type { DbGrowthFenceDecision } from "@/lib/sync/db-growth-fence";
  * missing acknowledgement is status-only; this runner never repeats it. */
 /** v2: the post-retirement TOAST step is a READ ONLY observation, never a
  * TOAST VACUUM dispatch. v1 plans (whose schedule dispatched that VACUUM) stay
- * readable as history but are refused for execution/resume, never reinterpreted. */
-export const NATIVE_STORAGE_BATCH_CONTRACT = "finite-native-storage-batch.v2" as const;
-export const RETIRED_NATIVE_STORAGE_BATCH_CONTRACTS = Object.freeze(["finite-native-storage-batch.v1"] as const);
+ * readable as history but are refused for execution/resume, never reinterpreted.
+ * v3 (D150): retirement also removes the frozen input-evidence keys that have
+ * zero global live evaluation references, under a producer session exclusion,
+ * and ordinary vacuum-main covers that third relation. v2 plans (byte-retained
+ * input evidence) are history only: never executed or resumed as v3. */
+export const NATIVE_STORAGE_BATCH_CONTRACT = "finite-native-storage-batch.v3" as const;
+export const RETIRED_NATIVE_STORAGE_BATCH_CONTRACTS = Object.freeze(["finite-native-storage-batch.v1", "finite-native-storage-batch.v2"] as const);
+const RETIRED_CONTRACT_REFUSAL: Record<string, string> = { "finite-native-storage-batch.v1": "RETIRED_V1_TOAST_VACUUM_SCHEDULE",
+  "finite-native-storage-batch.v2": "RETIRED_V2_BYTE_RETAINED_INPUT_SCHEDULE" };
 export const NATIVE_STORAGE_BATCH_LIMITS = Object.freeze({ generations: 8, evaluationsPerGeneration: 1134,
   contextsPerGeneration: 4, evaluations: 9072, wallMilliseconds: 30 * 60_000 });
 export type NativeStorageStage = "capture-restore" | "publish" | "activate" | "retire" |
   "independent-readback" | "vacuum-main" | "toast-observation" | "space-readback"
-  /** History only: a v1 receipt name; never scheduled or executed by a v2 plan. */
+  /** History only: a v1 receipt name; never scheduled or executed by a v2/v3 plan. */
   | "vacuum-toast";
 const operation: Record<NativeStorageStage, NativeStorageOperation> = {
   "capture-restore": "read-original", publish: "publish-original", activate: "activate-root",
@@ -114,7 +120,7 @@ function receiptMatches(receipt: NativeStorageStageReceipt, purpose: string, sta
 }
 
 export function validateNativeStorageBatchPlan(p: NativeStorageBatchPlan) {
-  need(!(RETIRED_NATIVE_STORAGE_BATCH_CONTRACTS as readonly string[]).includes(p?.contract), "RETIRED_V1_TOAST_VACUUM_SCHEDULE");
+  for (const retired of RETIRED_NATIVE_STORAGE_BATCH_CONTRACTS) need((p?.contract as string) !== retired, RETIRED_CONTRACT_REFUSAL[retired]!);
   need(p.contract === NATIVE_STORAGE_BATCH_CONTRACT && /^[a-f0-9]{12}$/.test(p.purpose) &&
     /^[a-f0-9]{40}$/.test(p.targetRevision) && digest(p.sourceManifestSha256) &&
     digest(p.actualSourceReviewSha256) && Number.isSafeInteger(p.expectedDatabaseBudgetBytes) &&

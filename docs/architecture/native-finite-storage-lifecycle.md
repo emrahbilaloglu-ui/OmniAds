@@ -419,3 +419,93 @@ or plan. The modules have no import-time effects.
 
 Any other legacy resumable, running or ambiguous purpose has no adoption path
 and keeps blocking (fail closed).
+
+## D150: v3 zero-live-reference input evidence
+
+`finite-native-storage-batch.v3` / unit config
+`finite-native-storage-unit-config.v2`. Module:
+`scripts/native-storage-batch/input-evidence-lifecycle.ts`.
+
+**Capture**
+- Every frozen `(contract_version, input_hash)` key has exactly one row.
+  `inputEvidence.rowSha256[i]` is the sha256 of that row's full
+  `to_jsonb(t)::text`.
+- `inputEvidence.catalogFingerprint` is the input table's consumer catalog.
+- Any incoming FK, trigger, view/rule, policy, publication, inheritance, row
+  security or function naming the table refuses with
+  `INPUT_EVIDENCE_UNKNOWN_CONSUMER_VETO`.
+
+**Retire** (one stage process, one pinned client)
+1. `pg_try_advisory_lock(<producer job key>)` runs as a simple-protocol single
+   statement outside any transaction.
+   - The key is `hashAdvisoryLock("engine_v3_native_ad_decisions_shadow_job:<businessId>:<asOfDate>")`,
+     exactly `adDecisionsJobAdvisoryLockKey`.
+   - Busy refuses with `PRODUCER_EXCLUSION_BUSY`; nothing changes.
+2. `BEGIN ISOLATION LEVEL REPEATABLE READ READ WRITE`, followed by the unchanged
+   locks, catalog, pins and frozen-row checks. In addition:
+   - the same `pg_backend_pid()`;
+   - `transaction_timestamp() > acquiredAt`;
+   - the exact `pg_locks` advisory row;
+   - the input catalog fingerprint;
+   - a verified reference index (`INPUT_REFERENCE_INDEX_PRECONDITION_MISSING`
+     otherwise).
+3. Every frozen input row is byte-verified (`SOURCE_DRIFT_INPUT_EVIDENCE_BYTES`).
+   Then the exact evaluations and contexts are deleted.
+4. The global `NOT EXISTS` over all live evaluations runs in pages of 400. Each
+   page is EXPLAIN-verified first; any non-probe plan refuses with
+   `INPUT_REFERENCE_PLAN_NOT_INDEXED`.
+5. Only zero-reference keys are deleted (`DELETE … RETURNING` re-verifies their
+   bytes).
+6. Before PREPARED is returned:
+   - shared keys are re-read byte-equal;
+   - the in-transaction live-reference count of the deleted keys must be 0
+     (`IN_TX_DANGLING_INPUT_REFERENCE`);
+   - the lock is still held.
+7. The parent and the production actor verify the partition. The challenge is
+   followed by one COMMIT, then `pg_advisory_unlock` must return true. Every
+   non-commit path ROLLBACKs, then unlocks; the owned client is always closed.
+   - **Two independent gates, same conditions.** The TypeScript
+     `acceptPrepared` (child) and the production actor's Python
+     `input_partition_gate` / `prepared_gate` (the COMMIT authority) recompute
+     the same conditions from the frozen config only:
+     - before, deleted and shared keyed digests from `inputEvidence.rowSha256`;
+     - an exact sorted, unique deleted subset of the frozen keys, its counts,
+       row counts and `keysSha256`;
+     - the catalog fingerprint;
+     - well-formed, unique `referenceIndexes`, and a sorted, unique,
+       non-empty `indexesUsed` that is a subset of them;
+     - zero dangling;
+     - the producer key derived from the generation, acquired before the
+       transaction, held, with a positive safe-integer PID;
+     - original, retained-root and dependent byte hashes with `same()`
+       semantics.
+   - **Python matches JavaScript bytes.** Python reproduces
+     `JSON.stringify` UTF-8 bytes and JavaScript UTF-16 key order exactly. A
+     lone surrogate (not storable in PostgreSQL text) refuses.
+
+**Readback** (v2 config)
+- The byte-preserved roots (job runs, snapshots, campaign objects, calibration
+  batches and cells) are equal to the frozen hashes.
+- Each present frozen key is byte-identical and still referenced.
+- Each absent key has zero live references.
+- v1 configs keep the original all-roots rule.
+
+**Maintenance**
+- `vacuum-main` and `space-readback` cover evaluations, contexts and input
+  evidence (`OWNED_EXACT_THREE_RELATIONS`).
+- A v3 settlement covers those three relations, v1/v2 the two targets.
+- TOAST observation is unchanged: the two targets only.
+
+**Index prerequisite.** Production has
+`CREATE INDEX idx_engine_v3_ad_evaluations_contract_input ON public.engine_v3_ad_decision_evaluations USING btree (contract_version, input_hash)`
+(observed read-only). run-migrations does not create it. Owned fixtures add it
+via `addObservedProductionReferenceIndex` and label it as such. No operator path
+executes DDL; without a verified index, retirement refuses.
+
+**History.** `validateNativeStorageBatchPlan` refuses v2 with
+`RETIRED_V2_BYTE_RETAINED_INPUT_SCHEDULE` and v1 with its existing code.
+`unitScope` refuses v1 unit configs with `RETIRED_UNIT_CONFIG_NOT_EXECUTABLE`.
+Ownership capture-only expiry and maintenance settlement keep accepting
+consumed v2 purposes.
+
+**Not claimed.** No production scale, performance, reclaim or closure.

@@ -13,6 +13,7 @@ import { evidencePath, verifyHttpProof, type Sample } from "./http-proof";
 import { persistPrivateCopy, verifyPrivateCopies, type CaptureMetadata, type UnitConfig } from "./capture";
 import { databaseUrl, unitLockKey } from "./backend";
 import { toastObservationAcknowledged, toastObservationEvidence } from "./maintenance";
+import { producerExclusionKey } from "./input-evidence-lifecycle";
 
 /** PRODUCTION TRANSPORT. Fixed allowlist: two hosts, one reviewed actor, one
  * digest-bound stage bundle, the actor's closed op set. Every source-bound
@@ -511,7 +512,8 @@ export class ProductionHostBatchBackend implements NativeStorageBatchBackend {
       }
       case "retire": {
         const config = await this.frozenConfig(u);
-        const rec = await this.db(stage, { op: "retire", config, proofSha256: u.originalProofSha256, unitLockKey: unitLockKey(u.generation.jobRunId) }, 100_000, signal);
+        const rec = await this.db(stage, { op: "retire", config, proofSha256: u.originalProofSha256, unitLockKey: unitLockKey(u.generation.jobRunId),
+          producerLockKey: producerExclusionKey(u.generation) }, 100_000, signal);
         return this.receipt(stage, units, { remoteSequence: rec.sequence, committed: rec.commitAcknowledged === true }, rec.commitAcknowledged === true && rec.result?.committed === true,
           await this.allCopies(units));
       }

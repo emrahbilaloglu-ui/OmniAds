@@ -15,6 +15,19 @@ import { NATIVE_JOB, ident } from "./common";
  * owned database migrated by the real run-migrations: a new random tenant,
  * different counts/contexts per generation, real calibration parents. */
 const FLAG = "ENGINE_V3_NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITES_ENABLED";
+/** ADDED REAL-PRODUCTION INDEX PREREQUISITE (owned sandbox databases only). The
+ * exact definition observed read-only in the actual PG16 production catalog
+ * (OID 94977158 on table 23020920, valid/ready/live, 1,024,851,968 B; metadata-once
+ * receipt sha256 15e1d5d408331da676cfc0e95234551890aead52a8f10936188d183cf69cb21a).
+ * run-migrations does NOT create it. D150's global NOT EXISTS refuses without a
+ * verified (contract_version,input_hash) index, so owned fixtures add exactly this
+ * DDL after run-migrations. No operator path ever executes it anywhere. */
+export const OBSERVED_PRODUCTION_REFERENCE_INDEX_DDL =
+  "CREATE INDEX idx_engine_v3_ad_evaluations_contract_input ON public.engine_v3_ad_decision_evaluations USING btree (contract_version, input_hash)";
+export async function addObservedProductionReferenceIndex(db: Client) {
+  await db.query(OBSERVED_PRODUCTION_REFERENCE_INDEX_DDL);
+  return { added: "idx_engine_v3_ad_evaluations_contract_input", source: "observed-production-catalog", createdByRunMigrations: false as const };
+}
 async function insert(db: Client, table: string, row: Record<string, unknown>) {
   const names = Object.keys(row);
   await db.query(`INSERT INTO public.${ident(table)} (${names.map(ident).join(",")}) VALUES (${names.map((_, i) => `$${i + 1}`).join(",")})`, Object.values(row));

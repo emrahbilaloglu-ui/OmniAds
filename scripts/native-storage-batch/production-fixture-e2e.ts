@@ -10,10 +10,11 @@ import { sealCompressedNativeHistoricalArchive, NATIVE_HISTORICAL_COMPRESSED_CAT
 import { persistLocalNativeArchive } from "../../lib/creative-decision-engine/native-historical-local-store";
 import { assessNativeStorageMaintenanceAdmission } from "../../lib/sync/native-storage-maintenance-admission";
 import { collectWholeOriginal } from "./capture";
-import { EVAL, NATIVE_JOB, safeError, same, sha256, writeExclusive } from "./common";
+import { EVAL, NATIVE_JOB, safeError, same, sha256, UNIT_TABLES, writeExclusive } from "./common";
 import { computeSourcePack, PINNED_LIBRARY_FILES, REPO_ROOT, TSX_LOADER } from "./source-pack";
 import { databaseUrl } from "./backend";
 import { FileBatchJournal, readJournal } from "./journal";
+import { chainFrontier, ownershipStatus } from "./operator-ownership";
 import { evidencePath, httpGet, verifyHttpProof, HTTP_PROOF_CONTRACT } from "./http-proof";
 import { ARCHIVE_MOUNT, ProductionHostBatchBackend, runActor, STAGE_ENTRY_FILE, type ActorHost, type ActorTransport,
   type ProductionHostConfig } from "./production-transport";
@@ -92,12 +93,14 @@ async function main() {
   let db = await connect(source, srcDb);
   const t = await seedTenant(db, 2), clock = (d: string, h: number) => `${d}T${String(h).padStart(2, "0")}:00:00.000001Z`;
   const prod: Record<number, string> = {};
-  for (const n of [7, 6, 5, 4, 3, 0]) prod[n] = await seedCalibration(db, t, day(n), clock(day(n), 1));
+  for (const n of [7, 6, 5, 4, 3, 2, 0]) prod[n] = await seedCalibration(db, t, day(n), clock(day(n), 1));
   const g = (n: number, h: number, per: number[], tag: string, snapshots = false) =>
     seedGeneration(db, t, { date: day(n), clock: clock(day(n), 1), finishedAt: clock(day(n), h), producer: prod[n]!, perAccount: per, snapshots, tag });
   const LG = await g(7, 2, [5, 0], "legacy"), E1 = await g(7, 3, [12, 9], "e1"), L7 = await g(7, 4, [6, 0], "l7", true);
   const E2 = await g(6, 2, [0, 15], "e2"), E3 = await g(5, 2, [11, 0], "e3");
   await g(4, 2, [3, 0], "later"); await g(3, 2, [4, 0], "e4"); await g(0, 2, [2, 0], "current");
+  // E5 = the second closed unit after rootT's frontier, so the expired capture-only purpose acknowledges TWO captures.
+  await g(2, 2, [3, 0], "e5");
   // Archive-engine eligibility headers on the OLDEST closed day, so every from-the-beginning window meets them first:
   // XU = a complete original of a non-current native engine (with its own later same-engine success receipt, row_count 0,
   // never a header) that the prior operator would freeze; XK = a successful receipt with unknown engine metadata;
@@ -579,7 +582,91 @@ async function main() {
       originalReason: preDisposed.release.detail.originalReason, successClaimed: preDisposed.release.detail.successClaimed,
       retryPermitted: preDisposed.release.detail.retryPermitted, historyUnchanged: await history(lY) === historyY } : preDisposed,
   };
+  step = "cadence-expired-capture-only";
+  // The 733c shape on owned state: a real canonical plan/execute in rootT acknowledges EVERY planned capture-restore, then
+  // the publish fresh gate is refused at the owned DB sampler BEFORE any publish intent. The purpose keeps its lease
+  // until the REAL original 30 min window from its journal begin has elapsed (no clock injection); only then the explicit
+  // LOCAL-ONLY disposition ends that lease, preserving every byte, claiming nothing and never advancing the chain.
+  const samplerFault = async (fault: string | undefined) => writeFile(join(DBFX, "sampler.json"),
+    JSON.stringify({ ...JSON.parse(await readFile(join(DBFX, "sampler.json"), "utf8")), fault }));
+  const unitTableRows = async () => { const c = await connect(source, srcDb), out: Record<string, unknown> = {};
+    try { for (const tb of UNIT_TABLES) out[tb] = (await c.query(
+      `SELECT count(*)::int n, md5(coalesce(string_agg(x::text, '|' ORDER BY x::text), '')) h FROM public.${tb} x`)).rows[0]; return out; }
+    finally { await c.end(); } };
+  const hostSide = async () => { const f = await fake(); return { env: sha256(await readFile(join(APP, ".env.native-archive"))), archive: await tree(ARCHIVE),
+    web: [f.containers.web.Id, f.containers.web.Image, f.containers.web.State.StartedAt], worker: [f.containers.worker.Id, f.containers.worker.State.StartedAt],
+    composeUpCalls: f.composeUpCalls }; };
+  const preC = await productionPrestate(hostFile, purpose(), runtimeManifest, transport), hostC = join(OP, "production-host-capture-only.json");
+  await writeExclusive(hostC, JSON.stringify({ ...hostConfig({ path: preC.file, sha256: preC.sha256 }), stateRoot: rootT }), 0o400);
+  const cX = purpose(), frontierBeforeC = await chainFrontier(rootT), dbBeforePlanC = await unitTableRows();
+  const planC = await productionPlan({ host: hostC, purpose: cX, cutoff, review, limit: "32", "max-units": "2", ...(frontierT ? { cursor: frontierT } : {}) },
+    transport) as any;
+  assert.equal(planC.units?.length, 2, `CAPTURE_ONLY_PLAN:${planC.units?.length}:${JSON.stringify((planC.vetoes ?? []).map((v: any) => v.code))}`);
+  const batchC = join(rootT, "batches", cX), copiesC = join(rootT, "copies", cX);
+  const idsC: string[] = JSON.parse(await readFile(join(batchC, "plan.json"), "utf8")).units.map((u: any) => u.generation.jobRunId);
+  const dbBeforeC = await unitTableRows(), hostBeforeC = await hostSide();
+  let captureAcks = 0;
+  const captureOnlyTransport: ActorTransport = { kind: "fixture", async send(h, payload, timeoutMs, signal) {
+    const r = await transport.send(h, payload, timeoutMs, signal);
+    // After the LAST planned capture-restore ACK the owned sampler fails: the publish fresh gate refuses before its intent.
+    if (h === "app" && payload.purpose === cX && payload.stage === "capture-restore" && payload.op === "db" && r.actualExitCode === 0 &&
+      ++captureAcks === idsC.length) await samplerFault("fail");
+    return r;
+  } };
+  const execC = await productionExecute({ host: hostC, purpose: cX, review }, captureOnlyTransport).finally(() => samplerFault(undefined));
+  const jC = await readJournal(join(batchC, "journal")), startedC = Date.parse(jC.startedAt!), deadlineC = startedC + 30 * 60_000;
+  const bytesC = async () => ({ batch: await tree(batchC), copies: await tree(copiesC), marker: sha256(await readFile(join(rootT, "purposes", `${cX}.json`))) });
+  const originalC = await bytesC();
+  // The app actor lists only the REQUESTING purpose's sequence: read it through cX's own plan and host.
+  const appC = ((await new ProductionHostBatchBackend(JSON.parse(await readFile(hostC, "utf8")) as ProductionHostConfig,
+    JSON.parse(await readFile(join(batchC, "plan.json"), "utf8")), review, transport).status()).sequence as any[]).map((e: any) => `${e.stage}:${e.op}`);
+  const keptCaptureC = (await readdir(join(batchC, "remote"))).filter(n => /^app-\d{4}-capture-restore-db\.json$/.test(n)).length;
+  const beforeExpiry = {
+    secondPlan: (await refusal(() => planT(purpose(), frontierT ? { cursor: frontierT } : {}))).replace(cX, "CX"),
+    abandon: await refusal(() => cli.abandonPurpose({ host: hostC, purpose: cX })),
+    preDispatch: await refusal(() => cli.disposePreDispatch({ host: hostC, purpose: cX })),
+    unexpired: await refusal(() => cli.disposeExpiredCaptureOnlyPurpose({ host: hostC, purpose: cX })),
+    wellBeforeDeadline: Date.now() < deadlineC - 60_000 };
+  await new Promise(r => setTimeout(r, Math.max(0, deadlineC - Date.now()) + 2_000));
+  const unchangedAtExpiry = same(await bytesC(), originalC);
+  const raced = await Promise.allSettled([cli.disposeExpiredCaptureOnlyPurpose({ host: hostC, purpose: cX }),
+    cli.disposeExpiredCaptureOnlyPurpose({ host: hostC, purpose: cX })]);
+  const wonC = raced.filter(o => o.status === "fulfilled") as PromiseFulfilledResult<any>[];
+  const lostC = raced.filter(o => o.status === "rejected").map(o => safeError((o as PromiseRejectedResult).reason).code);
+  const relC = await releaseRecord(rootT, cX), statusC = await ownershipStatus(rootT);
+  checks.expiredCaptureOnlyObservations = { concurrentLoserCodes: lostC, originalReason: execC.reason, dbUnchangedSincePlan: same(await unitTableRows(), dbBeforePlanC),
+    journalStartedAt: jC.startedAt, deadline: new Date(deadlineC).toISOString(), releasedAt: relC?.at ?? null, appRemote: appC };
+  cadence.expiredCaptureOnly = {
+    planUnits: idsC.length,
+    original: { exit: execC.actualExitCode, stage: execC.stage, statusReadOnlyRequired: execC.statusReadOnlyRequired, retired: execC.retiredOriginalJobs.length,
+      refusedAtSampler: /^PRODUCTION_ACTOR_REFUSED:/.test(execC.reason), acknowledged: jC.receipts.map(r => `${r.stage}:${r.actionAcknowledged}`),
+      unacknowledged: jC.unacknowledgedIntents.length, resumes: jC.resumes },
+    remote: { captureRestore: appC.filter(s => s === "capture-restore:db").length, keptCaptureReceipts: keptCaptureC,
+      beyondCapture: appC.filter(s => !["plan:db", "evidence:db", "capture-restore:db"].includes(s)) },
+    copiesAndRestores: await Promise.all(idsC.map(async id => { const r = JSON.parse(await readFile(join(batchC, "units", id, "restore.json"), "utf8"));
+      return { copies: (await readdir(join(copiesC, id))).sort(), parity: r.frozenProofParity, plaintextDropped: r.plaintextRestoreDropped }; })),
+    restoreDatabasesLeft: psql(restore, "postgres", `SELECT count(*) FROM pg_database WHERE datname LIKE 'nsb_restore_${cX}_%'`),
+    beforeExpiry, unchangedAtExpiry,
+    concurrent: { fulfilled: wonC.length, refused: lostC.length },
+    release: relC && { outcome: relC.outcome, advancesChain: relC.advancesChain, examinedThrough: relC.examinedThrough,
+      examinedBound: relC.examinedSha256 === sha256(await readFile(join(batchC, "examined.json"))), successClaimed: relC.detail.successClaimed,
+      retryPermitted: relC.detail.retryPermitted, reclaimClaimed: relC.detail.reclaimClaimed, units: relC.detail.units, journalRecords: relC.detail.journalRecords,
+      originalStage: relC.detail.originalStage, originalStart: relC.detail.originalStartedAt === jC.startedAt,
+      deadlineIsOriginalPlus30m: relC.detail.deadlineExpiredAt === new Date(deadlineC).toISOString(), releasedAfterDeadline: Date.parse(relC.at) >= deadlineC,
+      winnerReturnedRecord: same(wonC[0]?.value.release, relC) },
+    bytesUnchanged: same(await bytesC(), originalC), dbUnchanged: same(await unitTableRows(), dbBeforeC), hostUnchanged: same(await hostSide(), hostBeforeC),
+    owner: statusC.owner, frontierUnchanged: same(statusC.frontier, frontierBeforeC), purposeState: statusC.purposes[cX],
+    afterRelease: { again: await refusal(() => cli.disposeExpiredCaptureOnlyPurpose({ host: hostC, purpose: cX })),
+      resume: await refusal(() => productionExecute({ host: hostC, purpose: cX, review }, transport, true)),
+      execute: await refusal(() => productionExecute({ host: hostC, purpose: cX, review }, transport)) },
+  };
+  (cadence.expiredCaptureOnly as Record<string, unknown>).bytesUnchangedAfterRefusals = same(await bytesC(), originalC);
   const workerDriftRun = await driftRun("recreate-worker", rootT, frontierT);
+  // A NEW purpose acquires on the same root from the SAME frontier and re-plans the disposed purpose's first unit (no skip).
+  const driftOwner = (await ownershipStatus(rootT)).owner!, driftEx = await examinedRecord(rootT, driftOwner);
+  (cadence.expiredCaptureOnly as Record<string, unknown>).newPurposeFromSameFrontier = { planned: workerDriftRun.planUnits === 1,
+    startCursorIsFrontier: same(driftEx?.startCursor ?? null, frontierBeforeC),
+    sameFirstUnitReplanned: JSON.parse(await readFile(join(rootT, "batches", driftOwner, "plan.json"), "utf8")).units[0].generation.jobRunId === idsC[0] };
   checks.postApplyDrift = { imageDrift, workerDrift: workerDriftRun };
   const noRecovery = (reason: string) => ({ planUnits: 1, exit: 1, reason: `PRODUCTION_ACTOR_REFUSED:${reason}`, stage: "activate", statusReadOnlyRequired: true,
     composeUpCalls: 1, recoveryApply: null, recoveryRefused: "IDENTITY_DRIFT_NO_RECOVERY_STATUS_ONLY" });
@@ -618,7 +705,22 @@ async function main() {
         backends: { ownedOperatorBackends: 0, maintenanceQueryBackends: 0, maintenanceProgressRows: 0, maintenanceModeTargetLocks: 0 },
         unitsRetiredAndRootsByteEqual: [true, true], historyUnchanged: true },
       preDispatch: { outcome: "terminal-pre-dispatch-refused", advancesChain: false, originalReason: "MAINTENANCE_REFUSED:app_physical_reserve", successClaimed: false,
-        retryPermitted: false, historyUnchanged: true } } });
+        retryPermitted: false, historyUnchanged: true } },
+    expiredCaptureOnly: { planUnits: 2,
+      original: { exit: 1, stage: "publish", statusReadOnlyRequired: false, retired: 0, refusedAtSampler: true,
+        acknowledged: ["capture-restore:true", "capture-restore:true"], unacknowledged: 0, resumes: 0 },
+      remote: { captureRestore: 2, keptCaptureReceipts: 2, beyondCapture: [] },
+      copiesAndRestores: [0, 1].map(() => ({ copies: ["primary", "recovery"], parity: true, plaintextDropped: true })), restoreDatabasesLeft: "0",
+      beforeExpiry: { secondPlan: "OWNER_LEASE_HELD:CX", abandon: "PURPOSE_EXECUTION_STARTED_NOT_ABANDONABLE",
+        preDispatch: "PRE_DISPATCH_REQUIRES_EXACTLY_BEGIN_AND_FINISH", unexpired: "PURPOSE_DEADLINE_NOT_EXPIRED", wellBeforeDeadline: true },
+      unchangedAtExpiry: true, concurrent: { fulfilled: 1, refused: 1 },
+      release: { outcome: "terminal-expired-capture-only", advancesChain: false, examinedThrough: null, examinedBound: true, successClaimed: false,
+        retryPermitted: false, reclaimClaimed: false, units: 2, journalRecords: 6, originalStage: "publish", originalStart: true, deadlineIsOriginalPlus30m: true,
+        releasedAfterDeadline: true, winnerReturnedRecord: true },
+      bytesUnchanged: true, dbUnchanged: true, hostUnchanged: true, owner: null, frontierUnchanged: true, purposeState: "released:terminal-expired-capture-only",
+      afterRelease: { again: "PURPOSE_ALREADY_RELEASED", resume: "OWNER_LEASE_REQUIRED", execute: "PURPOSE_ALREADY_CONSUMED" },
+      bytesUnchangedAfterRefusals: true,
+      newPurposeFromSameFrontier: { planned: true, startCursorIsFrontier: true, sameFirstUnitReplanned: true } } });
   return { source, restore };
 }
 

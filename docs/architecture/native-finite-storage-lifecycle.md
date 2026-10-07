@@ -163,16 +163,40 @@ archive population, query timeout, budget, mutation scope or lifecycle claim.
 
 The app volume sampler preserves its actual host UTC. A verified production
 read-only gate refused an otherwise sufficient 94.3 GB app reserve because its
-sample was 19 ms ahead of the coordinator. The operator may request one timer of at most
-1000 ms for a strictly positive sample lead of at most 1000 ms before returning
-the evidence to the unchanged maintenance assessor. It never rewrites a sample
-or business timestamp, broadens the assessor freshness bound, changes a clock,
-raises a reserve/budget, or relabels evidence. Invalid, stale, or larger future
-samples still refuse; a wait whose clock has not caught up still refuses.
-Timer scheduling is not an elapsed-time SLA; the existing outer fresh-gate,
-stage and batch deadlines remain unchanged. This is
+sample was 19 ms ahead of the coordinator. Only inside
+`ProductionHostBatchBackend.freshEvidence`, after its remote sample and evidence
+reads, the operator may wait one real timer of at most 5000 ms for a strictly
+positive sample lead of at most 5000 ms before returning the evidence to the
+unchanged maintenance assessor. The wait is aborted by the fresh gate's own
+signal, so it never outlives the unchanged outer fresh-gate, stage or batch
+deadline, and it never resets the original batch start. It never rewrites a
+sample, host timestamp, receipt or business timestamp, applies a clock offset
+or `Date` override, normalizes or relabels evidence, broadens the assessor
+freshness bound, changes a clock, or raises a reserve/budget. A fresh sample
+that is not ahead of the coordinator (lead of zero or less) needs no wait and
+goes to the unchanged assessor, which may admit it. Invalid, stale or too-future
+(over 5000 ms ahead) samples go to the assessor unchanged and still refuse; a
+wait whose clock has not caught up still refuses.
+Timer scheduling is not an elapsed-time SLA. This is
 operator acquisition latency only, not decision/calibration identity or provider
-authority. The business DB-budget refusal remains false/no override.
+authority; identity clocks, formulas and epochs are unchanged. The business
+DB-budget refusal remains false/no override.
+
+**Amendment of the reviewed 1 s bound (D149, 2026-10-07).** The first reviewed
+bound was 1000 ms. Purpose `733c6cc3c9dd` was later refused at its publish
+fresh gate; the sample from that final publish gate was not retained. The 2209 ms
+measurement comes from a separate READ ONLY status taken after the publish
+refusal (received at 04:42Z): its APP sample was 2209 ms ahead of its receive
+instant. That lead is by itself a sufficient freshness-refusal cause for that
+status observation, but it is not sole proof of the earlier publish refusal. A
+local read-only Apple NTP query measured the coordinator clock +2.803 ± 0.192 s
+behind, and the APP and DB hosts reported NTP synchronised. The bound is raised
+to 5000 ms as a deliberately reviewed operator tolerance for coordinator skew.
+It is not a workaround for missing source, not an elapsed-time SLA, and not a
+claim that the skew was the sole proven cause of that purpose's refusal. Only
+new purposes planned and executed on the published source use it:
+an existing plan is bound to its old source pack and is refused at its first
+fresh gate, and an expired purpose cannot resume at all.
 
 ## D148: post-retirement observation and child-terminal diagnosis
 
@@ -204,10 +228,11 @@ batch, application release or storage-acceptance receipt.
 
 `scripts/native-storage-batch/operator-ownership.ts` and
 `maintenance-settlement.ts` are in the reviewed source pack. They are called
-only by `productionPlan`/`productionExecute` and by four local commands:
+only by `productionPlan`/`productionExecute` and by five local commands:
 - `owner-status` (read-only);
 - `abandon`;
 - `dispose-pre-dispatch-refused`;
+- `dispose-expired-capture-only`;
 - `dispose-maintenance-unknown`, whose only network use is one declared READ
   ONLY database connection (below).
 
@@ -239,7 +264,9 @@ or plan. The modules have no import-time effects.
     - `terminal-scan`: a unit-free examined record with no plan, journal or
       marker;
     - maintenance unknown: the stored settlement proof re-verified;
-    - pre-dispatch refused: the zero-action facts re-proved.
+    - pre-dispatch refused: the zero-action facts re-proved;
+    - expired capture-only: the capture-only facts and expiry re-proved,
+      re-hashing both private copies.
   - **Examined records:** exact keys, bound to their selection declaration
     digest and fields, plan units and lease, with strictly ordered
     dispositions and derived through, break and transient lists.
@@ -349,5 +376,46 @@ or plan. The modules have no import-time effects.
     and it has no copies.
 
   It writes `terminal-pre-dispatch-refused`, which never advances the chain,
-  claims success or permits a retry. Any other legacy resumable, running or
-  ambiguous purpose has no adoption path and keeps blocking (fail closed).
+  claims success or permits a retry.
+- **Expired capture-only.** `dispose-expired-capture-only` is a separate,
+  explicit, LOCAL-ONLY terminal disposition. It accepts only a purpose that
+  meets all of these:
+  - its verified journal is exactly `0001-begin`, then one `capture-restore`
+    intent/receipt pair per planned unit in plan order, then one `finish`; no
+    resume, note, stacked or unacknowledged intent;
+  - every receipt names this purpose and exactly its unit, with actual exit 0,
+    acknowledged, full original bytes matched, no provider authority, zero
+    reclaimed bytes and an evidence digest;
+  - the finish is an actual exit 1 at stage `publish` that is not status-only
+    (the publish fresh gate refused before its intent), with no retired job,
+    provider authority or reclaimed bytes;
+  - the ORIGINAL 30-minute window from the journal begin has elapsed; it is
+    never reset and is re-proved against the release instant;
+  - plan, `plan.json` and begin-marker digests agree;
+  - its batch holds only plan-phase files, `result-<ts>.json` copies equal to
+    the journal result, unit configs, each unit's `capture.json` and
+    `restore.json`, one capture-restore stage evidence per unit, and
+    plan/evidence/capture-restore actor receipts; each capture-restore receipt
+    is the app's exit-0 receipt for exactly one planned unit;
+  - each stage evidence hashes to its receipt and binds the purpose, sequence,
+    unit, plan digest, leaf and two private copies; each restore shows frozen
+    proof parity with the plaintext restore dropped; both private copies still
+    hold every sealed part (digest and length), trust record, leaf and capture
+    record.
+
+  Any publication, activation, retirement, maintenance, HTTP-proof or other
+  artifact or actor receipt refuses. It writes `terminal-expired-capture-only`
+  (`successClaimed=false`, `retryPermitted=false`, `reclaimClaimed=false`),
+  binding the journal head, marker, plan digest, each unit's stage evidence
+  digest, and the original stage, reason, start and expiry. It never advances
+  the chain, so the next purpose examines those units again. It never rewrites
+  a journal, marker, plan, copy or restore record, and it ends only that
+  purpose's own lease, or a never-leased one while no owner is active.
+  - **Fail-closed limits.** A resume attempted after expiry appends
+    `resume`/`finish` records, so that purpose is no longer this shape and keeps
+    blocking. The reason bound is the same 200 characters as the pre-dispatch
+    disposition. Every ownership read re-hashes the private copies, which costs
+    I/O proportional to their size.
+
+Any other legacy resumable, running or ambiguous purpose has no adoption path
+and keeps blocking (fail closed).

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "3484febd491825f80c340ef74950cdadd97e3e956002026807edb3d60d5dca0d",
+  "manifestHash": "7526485a33794da0e2dc2888a4382011e69c647544217cd7e1f450458ef2e5b5",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -756,11 +756,11 @@
     },
     {
       "path": "docs/architecture/native-finite-storage-lifecycle.md",
-      "sha256": "029e3ee694c62a0e199fc2a2de231f1846f291fbecc39ae31722fd72bd7287e2"
+      "sha256": "5c1cb0d62184c2e89e379298d288895e76beea1eedf27637cfe18df4e4579f88"
     },
     {
       "path": "docs/architecture/native-finite-storage-operator-runbook.md",
-      "sha256": "82f19f0d3c130a97615902906cf5c4d0e3ab0ee1588011532dd8b77873193764"
+      "sha256": "1d330ec2efe11baa2f95095bcfd9c2550c5c0274f6feaa91f9ee25ec0914789e"
     },
     {
       "path": "docs/architecture/native-generation-catalog-routing.md",
@@ -784,7 +784,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "e3619921f2499b5d6832548eb5e34b65fa3b5516925fe0af021d7ae2168c6d23"
+      "sha256": "4bdad358683bb3488f89d5b918d5f154af4f0a651b61b9ca203d49600a55fab4"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -820,7 +820,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "6838c3d19262d5a8e9fa00b98197eb535ae9865eb856d731cf72835e709b6201"
+      "sha256": "142112d32e5874f4f6680cf404012c6024c821515bd2ddfbaf173949e5f8dfaa"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -2912,7 +2912,11 @@
     },
     {
       "path": "scripts/native-storage-batch/__tests__/capacity-sample-clock.test.ts",
-      "sha256": "5c5dd0847a937b6d2d4e85ae0d32824015bc1dfc339146fd2c67c707fcdbac49"
+      "sha256": "8eef10d06dbb73492da936f0c3a53b74c59e58c0c8683218a6bac8ab05ce8f3c"
+    },
+    {
+      "path": "scripts/native-storage-batch/__tests__/expired-capture-only.test.ts",
+      "sha256": "08f6f3647dca497d1915ca412b3bc7cb7b989f1160f001f7bca38cca713c5115"
     },
     {
       "path": "scripts/native-storage-batch/__tests__/native-producer-idle.test.ts",
@@ -2944,7 +2948,7 @@
     },
     {
       "path": "scripts/native-storage-batch/cli.ts",
-      "sha256": "dc2db24431faae5477d805e5d407db6b7e91a778596adafe79dda741cda3db75"
+      "sha256": "1cdbafe61cf797626d78d29be4b420ab9b1122703ea2162e7e970e2ca5104271"
     },
     {
       "path": "scripts/native-storage-batch/common.ts",
@@ -2972,7 +2976,7 @@
     },
     {
       "path": "scripts/native-storage-batch/operator-ownership.ts",
-      "sha256": "0285bff2cf1a8ee510e84d523ff1fd1aa5c2c29f971db5f78b670cf81b30c72b"
+      "sha256": "a6b767f6642d58edabb59d6cc4fc6b86141700b72bdf29133dd665b80f392ca2"
     },
     {
       "path": "scripts/native-storage-batch/owned-e2e.ts",
@@ -2988,11 +2992,11 @@
     },
     {
       "path": "scripts/native-storage-batch/production-cli.ts",
-      "sha256": "dca3fd4698304c00357f0a88d4c87e7e0750dade983d47f3f3920063aaec2c25"
+      "sha256": "fa6e80b9cdc43497db665619569000071e3353fb4286931fc3a115750e777c91"
     },
     {
       "path": "scripts/native-storage-batch/production-fixture-e2e.ts",
-      "sha256": "8e29157f941d1d87f92d7426c067d4aee848a17aa35cd9d6eb22506bee752900"
+      "sha256": "28c59ca9e7a6caf6a83a23973674c26506ecbc9631ec4213946fae7df6a2df60"
     },
     {
       "path": "scripts/native-storage-batch/production-fixture.ts",
@@ -3000,7 +3004,7 @@
     },
     {
       "path": "scripts/native-storage-batch/production-transport.ts",
-      "sha256": "070bfe78ef9e29731ece89442ac56d9764dda6c98788242ae572f8670d67f327"
+      "sha256": "c3ce2d78cc32d4e0874f7422f2bdadd1c8ed6f5c1492f36eda40d424b5ed1a30"
     },
     {
       "path": "scripts/native-storage-batch/restore.ts",

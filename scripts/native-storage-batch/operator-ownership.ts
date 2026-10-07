@@ -1,7 +1,8 @@
 import { lstat, mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { nativeStorageBatchSchedule, nativeStoragePlanDigest, type NativeStorageBatchPlan } from "../../lib/creative-decision-engine/native-finite-storage-lifecycle";
-import { BatchRefusal, canonical, canonicalSha, need, privateDirectory, readExact, SHA, sha256, UUID, writeExclusive } from "./common";
+import { NATIVE_STORAGE_BATCH_CONTRACT, NATIVE_STORAGE_BATCH_LIMITS, nativeStorageBatchSchedule, nativeStoragePlanDigest,
+  type NativeStorageBatchPlan } from "../../lib/creative-decision-engine/native-finite-storage-lifecycle";
+import { BatchRefusal, canonical, canonicalSha, need, pad, privateDirectory, readExact, SHA, sha256, UUID, writeExclusive } from "./common";
 import { readJournal } from "./journal";
 import { checkSettlementBinding, CLOCK_SKEW_MS, isInstant, verifyMaintenanceSettlement, type SettlementBinding, type SettlementProof } from "./maintenance-settlement";
 import type { UnitConfig } from "./capture";
@@ -25,7 +26,8 @@ export type Disposition = { candidate: Cursor; outcome: "unit" }
   | { candidate: Cursor; outcome: "veto"; code: string; permanence: "permanent" | "transient" };
 export type PurposeState = "planned" | "running" | "resumable" | "ambiguous-routing" | "ambiguous" | "maintenance-ack-unknown"
   | "finished" | "abandoned" | "unknown";
-export const RELEASE_OUTCOMES = ["finished", "terminal-scan", "abandoned", "terminal-maintenance-outcome-unknown", "terminal-pre-dispatch-refused"] as const;
+export const RELEASE_OUTCOMES = ["finished", "terminal-scan", "abandoned", "terminal-maintenance-outcome-unknown", "terminal-pre-dispatch-refused",
+  "terminal-expired-capture-only"] as const;
 export type ReleaseOutcome = typeof RELEASE_OUTCOMES[number];
 /** Outcomes whose settled examined prefix may advance the chain (a pre-dispatch refusal never retired its units). */
 const ADVANCING = new Set<string>(["finished", "terminal-scan", "terminal-maintenance-outcome-unknown"]);
@@ -47,6 +49,10 @@ const MAINTENANCE_DETAIL_KEYS = ["settlementProofSha256", "unacknowledgedStage",
   "successClaimed", "retryPermitted"];
 const PRE_DISPATCH_DETAIL_KEYS = ["journalHeadSha256", "markerSha256", "planDigest", "journalRecords", "originalExitCode", "originalStage", "originalReason",
   "successClaimed", "retryPermitted"];
+const EXPIRED_CAPTURE_DETAIL_KEYS = ["journalHeadSha256", "markerSha256", "planDigest", "journalRecords", "units", "captureStageEvidenceSha256s",
+  "originalStage", "originalReason", "originalStartedAt", "deadlineExpiredAt", "successClaimed", "retryPermitted", "reclaimClaimed"];
+const RECEIPT_KEYS = ["purpose", "stage", "jobRunIds", "actualExitCode", "actionAcknowledged", "independentFullOriginalBytesMatch", "providerAuthority",
+  "reclaimedBytes", "evidenceSha256"];
 const RESULT_KEYS = ["contract", "purpose", "actualExitCode", "stage", "reason", "statusReadOnlyRequired", "retiredOriginalJobs", "providerAuthority",
   "physicalBytesReclaimed", "sustainableStorageClosed", "newWebOwnObservationRequired"];
 
@@ -340,6 +346,12 @@ async function validateRelease(root: string, purpose: string, r: Record<string, 
       need(r.detail !== null && typeof r.detail === "object" && eq(Object.keys(r.detail).sort(), [...PRE_DISPATCH_DETAIL_KEYS].sort()) &&
         eq(r.detail, { ...(await preDispatchFacts(root, purpose)), successClaimed: false, retryPermitted: false }), "RELEASE_DETAIL");
       return;
+    case "terminal-expired-capture-only":
+      // Expiry is re-proved against the release instant: once expired, always expired.
+      need(r.detail !== null && typeof r.detail === "object" && eq(Object.keys(r.detail).sort(), [...EXPIRED_CAPTURE_DETAIL_KEYS].sort()) &&
+        eq(r.detail, { ...(await expiredCaptureOnlyFacts(root, purpose, Date.parse(r.at))), successClaimed: false, retryPermitted: false,
+          reclaimClaimed: false }), "RELEASE_DETAIL");
+      return;
   }
 }
 
@@ -574,6 +586,111 @@ export async function disposePreDispatchRefused(root: string, purpose: string) {
   const facts = await preDispatchFacts(root, purpose);
   const release = await writeRelease(root, purpose, "terminal-pre-dispatch-refused", { ...facts, successClaimed: false, retryPermitted: false }, lease);
   return { command: "dispose-pre-dispatch-refused", purpose, release };
+}
+/** Strict proof that an EXPIRED purpose did nothing beyond capture: its verified journal is EXACTLY begin + one
+ * acknowledged capture-restore intent/receipt pair per planned unit (plan order) + finish; the finish is an actual exit 1
+ * at stage publish, not status-only, retiring nothing; the original 30 min batch window (journal begin) has elapsed by
+ * nowMs. Each unit's stage evidence hashes to its receipt, its capture/restore records show full parity, both private
+ * copies still hold every sealed part/trust/leaf, and only plan/evidence/capture-restore actor receipts exist. Any
+ * publish/activate/retire/maintenance/HTTP artifact or extra/foreign entry refuses. Local files only; no network. */
+async function expiredCaptureOnlyFacts(root: string, purpose: string, nowMs: number) {
+  const d = layout(root), batch = join(d.batches, purpose), journal = join(batch, "journal");
+  need(await purposeState(root, purpose) === "resumable", "NOT_AN_EXPIRED_CAPTURE_ONLY_STATE");
+  const j = await readJournal(journal), plan = j.plan as NativeStorageBatchPlan;
+  need(plan && plan.purpose === purpose && plan.contract === NATIVE_STORAGE_BATCH_CONTRACT && Array.isArray(plan.units) && plan.units.length >= 1 &&
+    plan.units.length <= NATIVE_STORAGE_BATCH_LIMITS.generations, "CAPTURE_ONLY_PLAN_REQUIRED");
+  const units = plan.units, ids = units.map(u => u.generation.jobRunId), names = await listOrEmpty(journal);
+  need(eq(names, ["0001-begin.json", ...units.flatMap((_, i) => [`${pad(2 + 2 * i)}-intent.json`, `${pad(3 + 2 * i)}-receipt.json`]),
+    `${pad(2 + 2 * units.length)}-finish.json`]), "CAPTURE_ONLY_REQUIRES_EXACT_CAPTURE_PREFIX_JOURNAL");
+  need(j.resumes === 0 && j.notes.length === 0 && !j.ambiguousHistory && j.unacknowledgedIntents.length === 0 && j.ended && !j.finished &&
+    j.intents.length === units.length && j.receipts.length === units.length, "CAPTURE_ONLY_ZERO_AMBIGUITY_JOURNAL_REQUIRED");
+  units.forEach((u, i) => {
+    const receipt = exactKeys(j.receipts[i], RECEIPT_KEYS, "CAPTURE_ONLY_ACKNOWLEDGED_RECEIPTS");
+    need(j.intents[i]!.stage === "capture-restore" && eq(j.intents[i]!.jobRunIds, [ids[i]]) && receipt.purpose === purpose &&
+      receipt.stage === "capture-restore" && eq(receipt.jobRunIds, [ids[i]]) && receipt.actualExitCode === 0 && receipt.actionAcknowledged === true &&
+      receipt.independentFullOriginalBytesMatch === true && receipt.providerAuthority === false && receipt.reclaimedBytes === 0 &&
+      SHA.test(receipt.evidenceSha256), "CAPTURE_ONLY_ACKNOWLEDGED_RECEIPTS");
+  });
+  const result = exactKeys(j.lastResult, RESULT_KEYS, "CAPTURE_ONLY_RESULT_SHAPE");
+  need(result.contract === plan.contract && result.purpose === purpose && result.actualExitCode === 1 && result.statusReadOnlyRequired === false &&
+    result.stage === "publish" && Array.isArray(result.retiredOriginalJobs) && result.retiredOriginalJobs.length === 0 && result.providerAuthority === false &&
+    result.physicalBytesReclaimed === 0 && result.sustainableStorageClosed === false && result.newWebOwnObservationRequired === false &&
+    typeof result.reason === "string" && result.reason.length >= 1 && result.reason.length <= 200, "CAPTURE_ONLY_PRE_PUBLISH_REFUSAL_REQUIRED");
+  const planDigest = nativeStoragePlanDigest(plan);
+  need(nativeStoragePlanDigest((await readJson(join(batch, "plan.json"), 1024 * 1024, "PLAN_JSON")).value as NativeStorageBatchPlan) === planDigest,
+    "CAPTURE_ONLY_PLAN_MISMATCH");
+  const marker = await markerOf(root, purpose);
+  need(marker?.kind === "begin" && marker.value.planDigest === planDigest, "BEGIN_MARKER_REQUIRED");
+  need(isInstant(j.startedAt), "CAPTURE_ONLY_ORIGINAL_START_REQUIRED");
+  const deadline = Date.parse(j.startedAt!) + NATIVE_STORAGE_BATCH_LIMITS.wallMilliseconds;
+  need(Number.isFinite(nowMs) && nowMs >= deadline, "PURPOSE_DEADLINE_NOT_EXPIRED");
+  // Allow-list of the batch: plan phase, journal, capture stages and their actor receipts only.
+  for (const n of await listOrEmpty(batch)) {
+    if (["selection.json", "plan.json", "examined.json", "journal", "bundle"].includes(n)) continue;
+    if (/^result-\d+\.json$/.test(n)) {
+      need(eq((await readJson(join(batch, n), 1024 * 1024, "RESULT_JSON")).value, j.lastResult), `CAPTURE_ONLY_RESULT_COPY_MISMATCH:${n}`); continue;
+    }
+    need(["units", "stages", "remote"].includes(n), `CAPTURE_ONLY_EXECUTION_ARTIFACT_PRESENT:${n}`);
+  }
+  need(eq(await listOrEmpty(join(batch, "stages")), ids.map((_, i) => `${pad(i + 1)}-capture-restore.json`)), "CAPTURE_ONLY_STAGE_EVIDENCE_SET");
+  need(eq(await listOrEmpty(join(batch, "units")), [...ids.map(id => `${id}.config.json`), ...ids].sort()), "CAPTURE_ONLY_UNIT_ARTIFACT_SET");
+  need(eq(await listOrEmpty(join(d.copies, purpose)), [...ids].sort()), "CAPTURE_ONLY_COPY_SET");
+  const captureRemote = new Set<string>();
+  for (const n of await listOrEmpty(join(batch, "remote"))) {
+    const m = /^(app|db)-\d{4}-(plan|evidence|capture-restore)-[a-z-]+\.json$/.exec(n);
+    need(m && (await lstat(join(batch, "remote", n))).isFile(), `CAPTURE_ONLY_EXECUTION_DISPATCH_RECORDED:${n}`);
+    if (m[2] !== "capture-restore") continue;
+    const r = (await readJson(join(batch, "remote", n), 1024 * 1024, "REMOTE_JSON")).value as Record<string, any>;
+    need(m[1] === "app" && r?.purpose === purpose && r.stage === "capture-restore" && r.op === "db" && r.actualExitCode === 0 &&
+      Array.isArray(r.unitJobRunIds) && r.unitJobRunIds.length === 1 && ids.includes(r.unitJobRunIds[0]) && !captureRemote.has(r.unitJobRunIds[0]),
+    `CAPTURE_ONLY_CAPTURE_DISPATCH:${n}`);
+    captureRemote.add(r.unitJobRunIds[0]);
+  }
+  need(captureRemote.size === ids.length, "CAPTURE_ONLY_CAPTURE_DISPATCH_SET");
+  for (const [i, u] of units.entries()) {
+    const id = ids[i]!, unitDir = join(batch, "units", id);
+    need(eq(await listOrEmpty(unitDir), ["capture.json", "restore.json"]), `CAPTURE_ONLY_UNIT_FILES:${id}`);
+    const capture = (await readJson(join(unitDir, "capture.json"), 4 * 1024 * 1024, "CAPTURE_JSON")).value as Record<string, any>;
+    const meta = capture?.metadata as { proofSha256: string; generation: unknown; leafSha256: string;
+      parts: { ciphertextSha256: string; ciphertextBytes: number; trustSha256: string }[] };
+    need(meta && meta.proofSha256 === u.originalProofSha256 && eq(meta.generation, u.generation) && SHA.test(meta.leafSha256) &&
+      Array.isArray(meta.parts) && meta.parts.length >= 1, `CAPTURE_ONLY_CAPTURE_RECORD:${id}`);
+    const restore = (await readJson(join(unitDir, "restore.json"), 4 * 1024 * 1024, "RESTORE_JSON")).value as Record<string, any>;
+    need(restore?.frozenProofParity === true && restore.plaintextRestoreDropped === true, `CAPTURE_ONLY_RESTORE_PARITY:${id}`);
+    const stageBytes = await readExact(join(batch, "stages", `${pad(i + 1)}-capture-restore.json`), 4 * 1024 * 1024);
+    need(sha256(stageBytes) === j.receipts[i]!.evidenceSha256, `CAPTURE_ONLY_STAGE_EVIDENCE_BINDING:${id}`);
+    const stage = JSON.parse(stageBytes.toString("utf8"));
+    need(stage?.contract === "finite-native-storage-stage-evidence.v2" && stage.purpose === purpose && stage.stage === "capture-restore" &&
+      stage.stageSequence === i + 1 && eq(stage.jobRunIds, [id]) && stage.planSha256 === planDigest && stage.leafSha256 === meta.leafSha256 &&
+      stage.privateCopies === 2 && stage.plaintextRestoreDropped === true, `CAPTURE_ONLY_STAGE_EVIDENCE:${id}`);
+    need(eq(await listOrEmpty(join(d.copies, purpose, id)), ["primary", "recovery"]), `CAPTURE_ONLY_COPY_PAIR:${id}`);
+    for (const copy of ["primary", "recovery"]) {
+      const dir = join(d.copies, purpose, id, copy);
+      for (const part of meta.parts) {
+        const bytes = await readExact(join(dir, `${part.ciphertextSha256}.bin`), 2 * 1024 * 1024 + 128);
+        need(sha256(bytes) === part.ciphertextSha256 && bytes.length === part.ciphertextBytes &&
+          sha256(await readExact(join(dir, `${part.ciphertextSha256}.trust.json`), 1024 * 1024)) === part.trustSha256, `CAPTURE_ONLY_COPY_PARITY:${id}:${copy}`);
+      }
+      need(sha256(await readExact(join(dir, `leaf-${meta.leafSha256}.json`), 16 * 1024 * 1024)) === meta.leafSha256 &&
+        eq((await readJson(join(dir, "capture.json"), 4 * 1024 * 1024, "COPY_CAPTURE_JSON")).value, meta), `CAPTURE_ONLY_COPY_PARITY:${id}:${copy}`);
+    }
+  }
+  const lastBytes = await readExact(join(journal, names.at(-1)!), 4 * 1024 * 1024);
+  return { journalHeadSha256: sha256(lastBytes), markerSha256: marker.sha256, planDigest, journalRecords: names.length, units: units.length,
+    captureStageEvidenceSha256s: j.receipts.map(r => r.evidenceSha256), originalStage: result.stage as string, originalReason: result.reason as string,
+    originalStartedAt: j.startedAt!, deadlineExpiredAt: new Date(deadline).toISOString() };
+}
+/** LOCAL-ONLY terminal disposition of an EXPIRED purpose that only captured (see expiredCaptureOnlyFacts). Its journal,
+ * consumed marker, plan, private copies and restores stay byte-identical. It claims no batch success, permits no retry or
+ * reclaim, never advances the examined chain and ends only this purpose's own lease. */
+export async function disposeExpiredCaptureOnly(root: string, purpose: string, clock: () => number = Date.now) {
+  await controlTree(root);
+  need(PURPOSE.test(purpose), "EXACT_PURPOSE");
+  const lease = disposer(await settledView(root), purpose);
+  const facts = await expiredCaptureOnlyFacts(root, purpose, clock());
+  const release = await writeRelease(root, purpose, "terminal-expired-capture-only",
+    { ...facts, successClaimed: false, retryPermitted: false, reclaimClaimed: false }, lease);
+  return { command: "dispose-expired-capture-only", purpose, release };
 }
 /** Read-only: the active owner, every declared purpose's state and the chain frontier. Creates nothing. */
 export async function ownershipStatus(root: string) {

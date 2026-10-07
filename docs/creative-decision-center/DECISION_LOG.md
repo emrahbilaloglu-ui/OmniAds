@@ -12404,6 +12404,7 @@ elapsed-time SLA. No sample relabelling, clock
 change, decision identity, provider admission, budget increase, or deadline
 extension is introduced. A consumed refused purpose stays consumed; a new
 reviewed operator/new-purpose pre-state is required before another finite batch.
+D149 (2026-10-07) amends this bound to 5000 ms; see below.
 
 
 ## D148 — post-retirement TOAST observation and preserved child SQLSTATE (2026-10-05)
@@ -12482,6 +12483,39 @@ terminal pre-dispatch refusal. Its finish must be an actual exit 1, not
 status-only, with no retirement, no receipt and no execution artifact.
 Neither disposition rewrites a journal, marker or plan, claims success,
 permits a retry or advances the chain.
+
+A purpose that expired after only capturing has its own release:
+`terminal-expired-capture-only`. It comes from a separate, explicit, local-only
+command, with these conditions:
+- **Journal.** Exactly begin, then one acknowledged capture-restore
+  intent/receipt pair per planned unit in plan order, then a finish whose
+  actual exit 1 was refused at publish before any intent.
+- **Expiry.** Its original 30-minute window has elapsed and is never reset.
+- **Batch contents.** Only plan, capture and restore records, per-unit stage
+  evidence bound to the receipts, and app capture actor receipts.
+- **Private copies.** Both still match every sealed part, trust record, leaf
+  and capture record.
+
+Any publication, activation, retirement, maintenance, HTTP-proof or ambiguous
+history refuses. The release claims no success, retry or reclaim and never
+advances the chain: the next purpose examines the captured units again. It
+preserves every byte and ends only its own lease. Every ownership read
+re-proves it, including the private copy bytes.
+
+**Capacity sample settlement amendment.** The reviewed 1000 ms bound of the
+cross-host sample settlement becomes one real, abortable timer of at most
+5000 ms. It applies only to a positive APP sample lead of at most 5000 ms, and
+still only inside `freshEvidence` before the unchanged assessor.
+- **Evidence.** An actual APP status sample was 2209 ms ahead of its receive
+  instant. A read-only Apple NTP query put the coordinator +2.803 ± 0.192 s
+  behind, while APP and DB were NTP-synchronised.
+- **What this is.** A deliberately reviewed operator tolerance. It is not a
+  workaround for missing source, not an elapsed-time SLA, and not the sole
+  proven refusal cause.
+- **Unchanged.** Host timestamps and receipts; freshness, budget and reserve
+  thresholds; identity clocks, formulas, epochs and provider authority.
+  Invalid, stale, larger or not-caught-up samples still refuse.
+- **Scope.** Only new purposes on the published source use it.
 
 Archive eligibility is explicit, using the successful job receipt's engine
 before any freeze. The operator supports exactly the authoritative current

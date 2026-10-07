@@ -1,7 +1,10 @@
 import { readNativeEvaluationContextUnit } from "../../lib/creative-decision-engine/native-evaluation-context-unit";
 import { readNativeArchivePinCensus } from "../../lib/creative-decision-engine/native-archive-pin-census";
 import { DEPENDENT_ROWS_SQL, censusVeto, readOnlyAdapter, readTargetCatalog, type Q, type UnitConfig } from "./capture";
-import { CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, NATIVE_JOB, RETAINED_TABLES, UUID, need, rowSetHash, safeError, same } from "./common";
+import { BYTE_PRESERVED_TABLES, CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, INPUT, NATIVE_JOB, RETAINED_TABLES, UNIT_CONFIG_CONTRACT, UUID,
+  need, rowSetHash, safeError, same, sha256 } from "./common";
+import { INPUT_EVIDENCE_LIFECYCLE, frozenRowSha, globalZeroReferenceKeys, liveReferenceCount, readInputRows, requireReferenceIndex,
+  type InputEvidenceConfig } from "./input-evidence-lifecycle";
 import { readNativeProducerIdle } from "./native-producer-idle";
 import { archiveEngineVeto } from "./archive-engine-eligibility";
 
@@ -66,8 +69,29 @@ export async function readRetainedRoots(db: Q, config: UnitConfig) {
   return out;
 }
 
+/** v3 (D150) input-evidence readback, independent of the retirement's own
+ * partition: every frozen key still present is byte-identical to its frozen
+ * bytes AND still has a live reference (no zero-reference key left behind);
+ * every absent frozen key has ZERO live evaluation references (no dangling).
+ * Both global checks are index-probed (catalog + EXPLAIN verified). */
+async function readInputEvidenceLifecycle(db: Q, config: UnitConfig & { inputEvidence: InputEvidenceConfig }) {
+  const rowSha = frozenRowSha(config), keys = config.inputKeys as [string, string][];
+  const indexNames = (await requireReferenceIndex((s, v) => db.query(s, v))).map(i => i.name);
+  const present = await readInputRows((s, v) => db.query(s, v), keys);
+  const presentIds = new Set(present.map(r => JSON.stringify([r.contract_version, r.input_hash])));
+  const presentKeys = keys.filter(k => presentIds.has(JSON.stringify(k))), absentKeys = keys.filter(k => !presentIds.has(JSON.stringify(k)));
+  const presentBytesMatch = presentIds.size === present.length && present.every(r => sha256(r.bytes) === rowSha([r.contract_version, r.input_hash]));
+  const presentUnreferenced = (await globalZeroReferenceKeys((s, v) => db.query(s, v), presentKeys, indexNames)).keys.length;
+  const danglingAbsent = await liveReferenceCount((s, v) => db.query(s, v), absentKeys, indexNames);
+  return { lifecycle: INPUT_EVIDENCE_LIFECYCLE, frozenKeys: keys.length, presentShared: presentKeys.length, absentRetired: absentKeys.length,
+    absentKeysSha256: sha256(JSON.stringify(absentKeys)), presentBytesMatch, presentUnreferenced, danglingAbsent,
+    match: presentBytesMatch && presentUnreferenced === 0 && danglingAbsent === 0 };
+}
+
 /** Independent READ ONLY readback on its own connection: exact IDs absent by
- * PK, job-leading context index empty, every retained root byte-equal. */
+ * PK, job-leading context index empty, every retained root byte-equal. A v2
+ * unit config (D150) checks the byte-preserved roots plus the input-evidence
+ * lifecycle invariants; a v1 config (history) keeps its original all-roots rule. */
 export async function independentReadback(db: Q, config: UnitConfig) {
   await db.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
   try {
@@ -78,14 +102,17 @@ export async function independentReadback(db: Q, config: UnitConfig) {
     const ctx = (await db.query(`SELECT (SELECT count(*) FROM public.${CONTEXT} WHERE id=ANY($1::uuid[]))::int ids,(SELECT count(*) FROM public.${CONTEXT} WHERE job_run_id=$2::uuid)::int job`,
       [config.contextIds, config.generation.jobRunId])).rows[0];
     const roots = await readRetainedRoots(db, config);
-    const rootsMatch = RETAINED_TABLES.every(t => same(roots[t], config.tableHashes[t]));
+    const v3 = config.contract === UNIT_CONFIG_CONTRACT;
+    const inputEvidence = v3 ? await readInputEvidenceLifecycle(db, config as UnitConfig & { inputEvidence: InputEvidenceConfig }) : null;
+    const rootsMatch = v3 ? BYTE_PRESERVED_TABLES.every(t => same(roots[t], config.tableHashes[t])) && inputEvidence!.match === true
+      : RETAINED_TABLES.every(t => same(roots[t], config.tableHashes[t]));
     // The retained original job's terminal NO-OP dependents: exact frozen set and full bytes.
     const dependents = (await db.query(DEPENDENT_ROWS_SQL, [config.generation.jobRunId])).rows as { id: string; bytes: string }[];
     const dependentsMatch = same(dependents.map(r => r.id), config.retainedDependents.jobIds) &&
       rowSetHash(dependents.map(r => r.bytes)) === config.retainedDependents.rowByteSetSha256;
     return { exactUnitAbsent: present === 0 && ctx.ids === 0 && ctx.job === 0, evaluationsPresent: present,
       contextsPresent: ctx.ids, jobContexts: ctx.job, retainedRootsFullBytesMatch: rootsMatch && dependentsMatch,
-      retainedTerminalNoopDependentsMatch: dependentsMatch, roots };
+      retainedTerminalNoopDependentsMatch: dependentsMatch, roots, ...(inputEvidence ? { inputEvidence } : {}) };
   } finally { await db.query("ROLLBACK"); }
 }
 
@@ -141,18 +168,20 @@ export async function enforcedLineageAbsence(db: Q, jobRunIds: string[]) {
     absent: counts.n === 0 && lineage.role === "origin" && lineage.fk === 1 && lineage.idx === 1 };
 }
 
-/** One ordinary VACUUM component (main OR toast) over both relations. Separate
+/** One ordinary VACUUM component (main OR toast) over the three relations a v3
+ * retirement deletes from (D150: the two targets + input evidence). Separate
  * ACK per component, finite 60 s statement, 1 s lock wait, no FULL/TRUNCATE. */
+export const VACUUM_RELATIONS = [EVAL, CONTEXT, INPUT] as const;
 export async function vacuumComponent(db: Q, component: "main" | "toast", jobRunIds: string[], notices: string[]) {
-  const own = (await db.query(`SELECT count(*)::int n FROM pg_class WHERE oid IN ('public.${EVAL}'::regclass,'public.${CONTEXT}'::regclass) AND relkind='r' AND pg_has_role(current_user,relowner,'USAGE')`)).rows[0];
-  need(own.n === 2, "OWNED_EXACT_TWO_RELATIONS");
+  const own = (await db.query(`SELECT count(*)::int n FROM pg_class WHERE oid IN (${VACUUM_RELATIONS.map(r => `'public.${r}'::regclass`).join(",")}) AND relkind='r' AND pg_has_role(current_user,relowner,'USAGE')`)).rows[0];
+  need(own.n === VACUUM_RELATIONS.length, "OWNED_EXACT_THREE_RELATIONS");
   const lineage = await enforcedLineageAbsence(db, jobRunIds);
   need(lineage.absent, lineage.enforced ? "UNIT_NOT_ABSENT" : "ENFORCED_CONTEXT_JOB_LINEAGE");
   await db.query("SET statement_timeout='60000ms'"); await db.query("SET lock_timeout='1000ms'");
   await db.query("SET vacuum_cost_delay='2ms'"); await db.query("SET vacuum_cost_limit=200");
   const option = component === "main" ? "PROCESS_TOAST FALSE" : "PROCESS_MAIN FALSE";
   const started = Date.now();
-  const result = await db.query(`VACUUM (${option}, INDEX_CLEANUP AUTO, TRUNCATE FALSE, PARALLEL 0, BUFFER_USAGE_LIMIT '8MB') public.${EVAL}, public.${CONTEXT}`);
+  const result = await db.query(`VACUUM (${option}, INDEX_CLEANUP AUTO, TRUNCATE FALSE, PARALLEL 0, BUFFER_USAGE_LIMIT '8MB') ${VACUUM_RELATIONS.map(r => `public.${r}`).join(", ")}`);
   const elapsedMs = Date.now() - started;
   need(result.command === "VACUUM", "VACUUM_ACK_REQUIRED");
   need(notices.length === 0, "VACUUM_NOTICE_STATUS_ONLY");
@@ -215,15 +244,15 @@ export function toastObservationAcknowledged(o: ToastObservation) {
     Array.isArray(o.relations) && o.relations.length === 2;
 }
 
-/** Catalog/statistics only. Never claims reclaimed or OS-returned bytes. */
+/** Catalog/statistics only, over the three vacuum relations. Never claims reclaimed or OS-returned bytes. */
 export async function spaceReadback(db: Q) {
   const rows = (await db.query(`SELECT c.relname relation,pg_relation_size(c.oid)::text main_bytes,
       coalesce(pg_relation_size(NULLIF(c.reltoastrelid,0)),0)::text toast_bytes,pg_indexes_size(c.oid)::text index_bytes,
       s.n_live_tup::text live,s.n_dead_tup::text dead,to_jsonb(s.last_vacuum)#>>'{}' last_vacuum,
       t.n_dead_tup::text toast_dead,to_jsonb(t.last_vacuum)#>>'{}' toast_last_vacuum
     FROM pg_class c LEFT JOIN pg_stat_all_tables s ON s.relid=c.oid LEFT JOIN pg_stat_all_tables t ON t.relid=c.reltoastrelid
-    WHERE c.oid IN ('public.${EVAL}'::regclass,'public.${CONTEXT}'::regclass) ORDER BY c.relname`)).rows;
-  need(rows.length === 2, "EXACT_TWO_RELATIONS");
+    WHERE c.oid IN (${VACUUM_RELATIONS.map(r => `'public.${r}'::regclass`).join(",")}) ORDER BY c.relname`)).rows;
+  need(rows.length === VACUUM_RELATIONS.length, "EXACT_THREE_RELATIONS");
   return { relations: rows, reclaimedBytes: 0 as const, osReturnedBytes: 0 as const };
 }
 

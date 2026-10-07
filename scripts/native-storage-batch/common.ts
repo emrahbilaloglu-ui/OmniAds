@@ -8,14 +8,22 @@ import { stableCanonicalJson } from "../../lib/creative-decision-engine/canonica
  * module in this directory connects, writes or spawns on import. */
 export const EVAL = "engine_v3_ad_decision_evaluations";
 export const CONTEXT = "engine_v3_ad_decision_evaluation_contexts";
+export const INPUT = "engine_v3_ad_decision_input_evidence";
 export const NATIVE_JOB = "engine_v3_native_ad_decisions_shadow_job";
 export const CLOSED_DAY_BUFFER_MS = 38 * 60 * 60_000;
-export const UNIT_TABLES = ["engine_v3_job_runs", CONTEXT, EVAL, "engine_v3_ad_decision_input_evidence",
+export const UNIT_TABLES = ["engine_v3_job_runs", CONTEXT, EVAL, INPUT,
   "engine_v3_ad_decision_snapshots_daily", "engine_v3_ad_campaign_context_objects",
   "engine_v3_ad_account_calibration_batches", "engine_v3_ad_account_calibration_daily"] as const;
 export type UnitTable = typeof UNIT_TABLES[number];
 /** Rows kept by retirement. Only the exact evaluation/context IDs are removed. */
 export const RETAINED_TABLES = UNIT_TABLES.filter(t => t !== EVAL && t !== CONTEXT);
+/** D150 (v3): the retained roots that stay byte-identical. Input evidence is the
+ * one conditionally retired class: only frozen keys with zero global live
+ * evaluation references are removed; every other frozen key stays byte-identical. */
+export const BYTE_PRESERVED_TABLES = RETAINED_TABLES.filter(t => t !== INPUT);
+/** Unit config v2 carries the per-key frozen input-evidence bytes; v1 configs are history only. */
+export const UNIT_CONFIG_CONTRACT = "finite-native-storage-unit-config.v2" as const;
+export const RETIRED_UNIT_CONFIG_CONTRACTS = Object.freeze(["finite-native-storage-unit-config.v1"] as const);
 export const NON_FK_TABLES = ["meta_ads_action_log", "decision_workflow_state", "decision_workflow_events",
   "meta_automation_proposals", "meta_launch_drafts"] as const;
 /** The complete measured incoming FK set. Any other FK to either table vetoes. */

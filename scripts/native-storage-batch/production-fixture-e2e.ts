@@ -21,7 +21,7 @@ import { ARCHIVE_MOUNT, ProductionHostBatchBackend, runActor, STAGE_ENTRY_FILE, 
 import type { NativeStorageBatchPlan, NativeStorageStageReceipt } from "../../lib/creative-decision-engine/native-finite-storage-lifecycle";
 import { prepareProduction, productionExecute, productionPlan, productionPrestate } from "./production-cli";
 import { FAKE_CURL, FAKE_DOCKER, FAKE_SYSTEMCTL, FixtureActorTransport, hex64, mkdirs, writeExecutable } from "./production-fixture";
-import { seedCalibration, seedGeneration, seedTenant } from "./owned-fixture";
+import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, seedTenant } from "./owned-fixture";
 
 /** PRODUCTION-MECHANICS FIXTURE. The real production-actor.py and the real
  * ProductionHostBatchBackend run through an explicit fixture transport (local
@@ -91,6 +91,8 @@ async function main() {
 
   step = "seed";
   let db = await connect(source, srcDb);
+  // D150: the actual production (contract_version,input_hash) index, added to this owned sandbox only (not run-migrations).
+  checks.addedProductionIndexPrerequisite = await addObservedProductionReferenceIndex(db);
   const t = await seedTenant(db, 2), clock = (d: string, h: number) => `${d}T${String(h).padStart(2, "0")}:00:00.000001Z`;
   const prod: Record<number, string> = {};
   for (const n of [7, 6, 5, 4, 3, 2, 0]) prod[n] = await seedCalibration(db, t, day(n), clock(day(n), 1));

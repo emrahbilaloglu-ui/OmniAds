@@ -1,4 +1,4 @@
-import { CONTEXT, EVAL, canonical, canonicalSha, need, same, SHA, UUID } from "./common";
+import { CONTEXT, EVAL, INPUT, canonical, canonicalSha, need, same, SHA, UUID } from "./common";
 import { independentReadback } from "./maintenance";
 import type { Q, UnitConfig } from "./capture";
 
@@ -9,15 +9,19 @@ import type { Q, UnitConfig } from "./capture";
  * - every unit again through the reviewed independent readback (its own READ ONLY snapshot, ROLLBACK);
  * - in ONE READ ONLY REPEATABLE READ snapshot with the original 7.5 s statement / 1 s lock limits: database
  *   identity, full backend visibility, no operator (`nsb-*`) backend, no maintenance verb in a client backend,
- *   no vacuum/analyze/cluster/index progress and no maintenance-mode lock on the two targets, their TOAST
- *   relations or indexes. That snapshot ends with an acknowledged ROLLBACK.
+ *   no vacuum/analyze/cluster/index progress and no maintenance-mode lock on the purpose's vacuum targets (the
+ *   two target tables; plus input evidence for a v3 purpose), their TOAST relations or indexes. That snapshot ends
+ *   with an acknowledged ROLLBACK.
  * The proof never claims the original SQL succeeded and never permits a retry. Nothing here runs at import. */
 export const SETTLEMENT_CONTRACT = "native-finite-maintenance-settlement.v1" as const;
 export const SETTLEMENT_APPLICATION = "nsb-maintenance-settlement" as const;
 export const SETTLEMENT_MAX_AGE_MS = 10 * 60_000;
 export const CLOCK_SKEW_MS = 60_000;
 const MAINTENANCE_STAGES = ["vacuum-main", "toast-observation", "vacuum-toast", "space-readback"];
-const PLAN_CONTRACTS = ["finite-native-storage-batch.v1", "finite-native-storage-batch.v2"];
+const PLAN_CONTRACTS = ["finite-native-storage-batch.v1", "finite-native-storage-batch.v2", "finite-native-storage-batch.v3"];
+/** The relations the purpose's own vacuum-main touched: v3 (D150) adds input evidence; v1/v2 exactly the two targets. */
+export const settlementRelations = (planContract: string) =>
+  planContract === "finite-native-storage-batch.v3" ? [EVAL, CONTEXT, INPUT] : [EVAL, CONTEXT];
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/, REVISION = /^[a-f0-9]{40}$/, PURPOSE = /^[a-f0-9]{12}$/;
 
 /** A canonical millisecond UTC instant (exactly what Date#toISOString emits). */
@@ -81,10 +85,10 @@ export async function collectMaintenanceSettlement(db: Q, binding: SettlementBin
     // Nothing else is read unless this is an actual read-only transaction.
     need(id.ro === "on", "READ_ONLY_TRANSACTION_REQUIRED");
     const systemIdentifier = id.ctl ? String((await db.query("SELECT system_identifier::text v FROM pg_control_system()")).rows[0].v) : null;
-    const rel = (await db.query(`WITH m AS (SELECT c.oid,c.reltoastrelid t FROM pg_class c WHERE c.oid IN (to_regclass('public.'||$1),to_regclass('public.'||$2))),
+    const rel = (await db.query(`WITH m AS (SELECT c.oid,c.reltoastrelid t FROM pg_class c WHERE c.oid=ANY(ARRAY(SELECT to_regclass('public.'||x) FROM unnest($1::text[]) x))),
         r AS (SELECT oid FROM m UNION SELECT t FROM m WHERE t<>0),
         x AS (SELECT oid FROM r UNION SELECT i.indexrelid FROM pg_index i WHERE i.indrelid IN (SELECT oid FROM r))
-      SELECT (SELECT count(*) FROM m)::int main,coalesce(array_agg(oid::bigint ORDER BY oid),'{}') oids FROM x`, [EVAL, CONTEXT])).rows[0];
+      SELECT (SELECT count(*) FROM m)::int main,coalesce(array_agg(oid::bigint ORDER BY oid),'{}') oids FROM x`, [settlementRelations(binding.planContract)])).rows[0];
     const oids = (rel.oids as (string | number)[]).map(Number);
     const backends = (await db.query(`SELECT count(*)::int visible,
         count(*) FILTER (WHERE query='<insufficient privilege>')::int insufficient,
@@ -152,7 +156,8 @@ export function verifyMaintenanceSettlement(value: unknown, expected: Settlement
   need(p.actualExitCode === 0 && p.errors.length === 0, "SETTLEMENT_COLLECTOR_NOT_EXIT_ZERO");
   need(v.fullBackendVisibility === true && v.fullBackendVisibility === (d.superuser || d.readAllStats), "BACKEND_VISIBILITY_UNAVAILABLE");
   need(v.insufficientPrivilegeBackends === 0, "BACKEND_VISIBILITY_AMBIGUOUS");
-  need(g.mainRelations === 2 && g.relationOids.length >= 2, "SETTLEMENT_TARGET_RELATIONS");
+  const targets = settlementRelations(expected.planContract).length;
+  need(g.mainRelations === targets && g.relationOids.length >= targets, "SETTLEMENT_TARGET_RELATIONS");
   need(b.ownedOperatorBackends === 0, "OWNED_OPERATOR_BACKEND_PRESENT");
   need(b.maintenanceQueryBackends === 0, "MAINTENANCE_BACKEND_ACTIVE");
   need(b.maintenanceProgressRows === 0, "MAINTENANCE_PROGRESS_ON_TARGET");

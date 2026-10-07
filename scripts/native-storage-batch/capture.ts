@@ -14,9 +14,10 @@ import { sealCompressedNativeHistoricalArchive, openNativeHistoricalArchiveEnvel
   type NativeHistoricalArchiveContentTrust } from "../../lib/creative-decision-engine/native-historical-archive";
 import { persistLocalNativeArchive, NATIVE_LOCAL_ARCHIVE_BUCKET } from "../../lib/creative-decision-engine/native-historical-local-store";
 import { CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, EXPECTED_INCOMING_FKS, NATIVE_JOB, NON_FK_CLASSES,
-  UNIT_TABLES, UUID, type UnitTable, canonical, canonicalSha, need, rowSetHash, same, sha256, writeExclusive, BatchRefusal,
+  UNIT_CONFIG_CONTRACT, UNIT_TABLES, UUID, type UnitTable, canonical, canonicalSha, need, rowSetHash, same, sha256, writeExclusive, BatchRefusal,
   privateDirectory, readExact } from "./common";
 import { archiveEngineVeto } from "./archive-engine-eligibility";
+import { INPUT_EVIDENCE_LIFECYCLE, readInputEvidenceCatalog, type InputEvidenceConfig } from "./input-evidence-lifecycle";
 
 /** Generic whole-original collector. Same mechanics as the reviewed known1134
  * collector, with its literal job/tenant/count/build replaced by the exact
@@ -94,7 +95,8 @@ export async function readTargetCatalog(read: (sql: string, values?: unknown[]) 
 }
 
 export interface UnitConfig {
-  contract: "finite-native-storage-unit-config.v1";
+  /** v2 (D150): executable. v1: history only (settlement/readback of consumed purposes). */
+  contract: typeof UNIT_CONFIG_CONTRACT | "finite-native-storage-unit-config.v1";
   generation: NativeArchiveGeneration;
   evaluations: number; contexts: number;
   evaluationIds: string[]; contextIds: string[];
@@ -106,6 +108,8 @@ export interface UnitConfig {
   jobFinishedAt: string; schemaHash: string; catalogFingerprint: string; consumerInventorySha256: string;
   /** Exact terminal NO-OP dependents kept live with the retained original job row (full row bytes). */
   retainedDependents: RetainedDependents;
+  /** v2 only: full-row sha256 per frozen input key (aligned with inputKeys) + the input table's consumer catalog. */
+  inputEvidence?: InputEvidenceConfig;
 }
 export interface CaptureInput {
   generation: NativeArchiveGeneration; expectedEvaluations: number; expectedContexts: number;
@@ -268,6 +272,12 @@ export async function collectWholeOriginal(db: Q, input: CaptureInput) {
     const inputRows = await rows(`SELECT DISTINCT to_jsonb(i)::text bytes FROM public.engine_v3_ad_decision_input_evidence i
       JOIN unnest($1::text[],$2::character(64)[]) keys(contract_version,input_hash)
       ON i.contract_version=keys.contract_version AND i.input_hash=keys.input_hash LIMIT 1135`, [contracts, hashes], cap.evaluations);
+    // D150: every frozen key has exactly its one full evidence row, frozen per key; the input table has no concrete consumer.
+    const inputKeys = distinct(evaluations.map(x => JSON.stringify([x.contract_version, x.input_hash]))).sort();
+    const inputByKey = new Map(inputRows.map(raw => { const r = parse(raw); return [JSON.stringify([r.contract_version, r.input_hash]), raw] as const; }));
+    need(inputByKey.size === inputRows.length && inputRows.length === inputKeys.length && inputKeys.every(k => inputByKey.has(k)),
+      "INCOMPLETE_ORIGINAL_INPUT_EVIDENCE");
+    const inputCatalog = await readInputEvidenceCatalog(q);
     const snapshotSelection = await readNativeJobSnapshotSelection(source, "public");
     need(snapshotSelection.route === "validated_evaluation_lineage", "ENFORCED_SNAPSHOT_LINEAGE_REQUIRED");
     const snapshotRows = await rows(`SELECT to_jsonb(s)::text bytes FROM (${snapshotSelection.sql}) s LIMIT 1135`, [g.jobRunId], cap.evaluations);
@@ -317,17 +327,19 @@ export async function collectWholeOriginal(db: Q, input: CaptureInput) {
       [EVAL]: evaluationRows, engine_v3_ad_decision_input_evidence: inputRows, engine_v3_ad_decision_snapshots_daily: snapshotRows,
       engine_v3_ad_campaign_context_objects: objectRows, engine_v3_ad_account_calibration_batches: batchRows,
       engine_v3_ad_account_calibration_daily: cells } as Record<UnitTable, string[]>;
-    const config: UnitConfig = { contract: "finite-native-storage-unit-config.v1", generation: { ...g },
+    const config: UnitConfig = { contract: UNIT_CONFIG_CONTRACT, generation: { ...g },
       evaluations: evaluations.length, contexts: contextIds.length,
       evaluationIds: evaluations.map(x => x.id as string).sort(), contextIds: [...contextIds].sort(),
-      inputKeys: distinct(evaluations.map(x => JSON.stringify([x.contract_version, x.input_hash]))).sort().map(x => JSON.parse(x)),
+      inputKeys: inputKeys.map(x => JSON.parse(x)),
       campaignObjectHashes: [...objectHashes].sort(),
       jobIds: [g.jobRunId, ...parentJobIds].sort(), batchIds: batches.map(x => x.id as string).sort(),
       cellIds: cells.map(raw => parse(raw).id as string).sort(),
       tableHashes: Object.fromEntries(UNIT_TABLES.map(t => [t, { rows: tableRows[t].length, rowByteSetSha256: rowSetHash(tableRows[t]) }])) as UnitConfig["tableHashes"],
       evaluationRowSha256: Object.fromEntries(evaluationRows.map(raw => [parse(raw).id, sha256(raw)]).sort()),
       jobFinishedAt: job.finished_at, schemaHash: parents.bundle.manifest.schemaHash, catalogFingerprint: fingerprint,
-      consumerInventorySha256: input.consumerInventorySha256, retainedDependents };
+      consumerInventorySha256: input.consumerInventorySha256, retainedDependents,
+      inputEvidence: { lifecycle: INPUT_EVIDENCE_LIFECYCLE, rowSha256: inputKeys.map(k => sha256(inputByKey.get(k)!)),
+        catalogFingerprint: inputCatalog.fingerprint } };
     need(config.inputKeys.length > 0 && config.evaluationIds.length === new Set(config.evaluationIds).size, "EXACT_ORIGINAL_UUID_SET");
     const identities = evaluations.map(x => ({ evaluationId: x.id as string, providerAccountId: x.provider_account_id as string, adId: x.ad_id as string }));
     await q("ROLLBACK"); began = false;

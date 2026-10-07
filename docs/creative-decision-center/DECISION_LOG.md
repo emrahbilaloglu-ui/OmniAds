@@ -12535,3 +12535,77 @@ VACUUM schedule are unchanged. No scheduler is installed. The runbook's
 cadence is operator-run and is not a throughput claim. See
 [the execution contract](../architecture/native-finite-storage-lifecycle.md)
 and [the operator runbook](../architecture/native-finite-storage-operator-runbook.md).
+
+## D150 — v3 zero-live-reference input evidence for closed archived originals (2026-10-07)
+
+A retired v2 original kept every input-evidence row it referenced, even when
+no live evaluation referenced the row any more. An owned real-PG baseline on the
+unchanged revision measured this: after a committed v2 retirement, both of the
+original's zero-reference keys were still present. The v2 retirement also
+committed while a second session held the actual producer job lock for the same
+business and day.
+
+**Decision.** A separate finite contract `finite-native-storage-batch.v3`, with
+unit config `finite-native-storage-unit-config.v2`.
+- **Capture.** Capture freezes one full-row sha256 per input key. It refuses
+  when an original lacks a key's row, or when the input table has any concrete
+  database consumer (incoming FK, trigger, view/rule, policy, publication,
+  inheritance, row security or a function naming it).
+- **Producer exclusion.** Before its REPEATABLE READ transaction, retirement
+  takes a NONBLOCKING SESSION lock on the same client. The key is the
+  producer's own unchanged job lock (`adDecisionsJobAdvisoryLockKey`). It
+  verifies inside the transaction that the backend and the lock are the same,
+  and that the snapshot was taken after the lock. It holds the lock through the
+  parent COMMIT/ROLLBACK and then unlocks. Every non-commit path ROLLBACKs
+  first; closing the owned client is the fallback. A busy lock refuses before
+  any transaction. A producer that arrives later skips on its own unchanged
+  try-lock.
+- **Deletion.** After the exact evaluations and contexts are deleted, retirement
+  deletes only frozen keys with zero GLOBAL live evaluation references, and
+  verifies their bytes. The global `NOT EXISTS` (all tenants, jobs and days)
+  runs only through a catalog-verified (contract_version, input_hash) btree and
+  an EXPLAIN that proves a parameterized index probe on every evaluation
+  access. A missing, partial or reversed index, or any other plan, refuses
+  before any change. There is no subset fallback and no limit increase.
+- **What stays.** Shared keys and every other job, calibration, snapshot and
+  campaign root stay byte-identical. The archived original keeps every key's
+  full bytes.
+- **Acceptance and readback.** The parent and the production actor both
+  re-verify the partition from the frozen per-key bytes. The independent
+  readback proves that every remaining frozen key is byte-identical and
+  referenced, and that every absent key has zero live references.
+- **Maintenance.** Ordinary vacuum-main and space readback cover the input
+  table as a third relation. A v3 lost-maintenance settlement checks those three
+  relations. TOAST observation stays on the two targets.
+
+**Parent parity amendment (same day).** An independent root/Grok probe showed
+that the first production actor gate still issued `COMMIT_EXACT_UNIT_ONCE` for
+three tampered prepared lines:
+- a wrong deleted keyed digest;
+- a wrong shared keyed digest;
+- an index that was not among the verified reference indexes.
+
+The child's own TypeScript acceptance already refused them, so this is not a
+live bypass or dangling evidence.
+
+The actor now enforces every `acceptPrepared` condition independently, using
+JavaScript-exact JSON bytes and key order. A 49-case single-field parity matrix
+(Turkish, astral and escaped keys included) and the owned real-PG prepared line
+pin both gates to the same outcomes.
+
+**Production index prerequisite.** The production index
+`idx_engine_v3_ad_evaluations_contract_input` was observed read-only in the PG16
+production catalog. run-migrations does not create it. Owned fixtures add
+exactly that DDL as a labeled sandbox prerequisite. No operator path runs DDL.
+
+**v1/v2 history.** v1/v2 plans and v1 unit configs stay readable. They are never
+executed or resumed as v3, and capture-only expiry and settlement still accept
+consumed v2 purposes. The producer source is pinned byte-identical at both
+revisions.
+
+**Unchanged.** Batch limits, two copies, restore, HTTP 1+32, the COMMIT
+challenge, budgets, epochs, formulas and identity clocks.
+
+**Not claimed.** No production scale, performance, reclaimed bytes, OS shrink
+or storage closure is claimed. See
+[the execution contract](../architecture/native-finite-storage-lifecycle.md).

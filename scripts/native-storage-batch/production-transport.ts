@@ -190,16 +190,27 @@ export async function loadSelection(stateRoot: string, plan: NativeStorageBatchP
   return { declaration: d, sha256: sha256(bytes) };
 }
 
-/** Preserve the host's sample UTC and every admission threshold. A small host
- * clock lead may settle by waiting once; larger/invalid/stale samples still go
- * unchanged to the existing fail-closed assessor. No clock offset is applied. */
+/** D149 amendment of the reviewed 1 s contract: the actual 2026-10-07 APP status receive lead was 2209 ms
+ * while the coordinator measured ~2.8 s behind Apple NTP (APP/DB hosts NTP-synchronised). */
+export const APP_SAMPLE_CLOCK_SETTLEMENT_MAX_MS = 5000;
+/** Preserve the host's sample UTC and every admission threshold. A strictly positive host clock lead of at most
+ * 5000 ms may settle by ONE real elapsed timer of at most 5000 ms, inside freshEvidence only, cancelled by the
+ * stage/batch abort signal. Larger, invalid or stale samples (and a timer the clock has not caught up with) still go
+ * unchanged to the existing fail-closed assessor. No clock offset, Date override or normalization is applied. */
 export async function settleAppSampleClock(observedAt: string, hooks: {
-  now?: () => number; sleep?: (milliseconds: number) => Promise<void>;
+  now?: () => number; sleep?: (milliseconds: number) => Promise<void>; signal?: AbortSignal;
 } = {}): Promise<void> {
   const now = hooks.now ?? Date.now, lead = Date.parse(observedAt) - now();
-  if (!Number.isFinite(lead) || lead <= 0 || lead > 1000) return;
-  const sleep = hooks.sleep ?? ((milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
-  await sleep(Math.min(1000, Math.ceil(lead) + 1));
+  if (!Number.isFinite(lead) || lead <= 0 || lead > APP_SAMPLE_CLOCK_SETTLEMENT_MAX_MS) return;
+  const signal = hooks.signal;
+  need(!signal?.aborted, "CLOCK_SETTLEMENT_ABORTED");
+  const sleep = hooks.sleep ?? ((milliseconds: number) => new Promise<void>((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); reject(new BatchRefusal("CLOCK_SETTLEMENT_ABORTED")); };
+    const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, milliseconds);
+    signal?.addEventListener("abort", abort, { once: true });
+  }));
+  await sleep(Math.min(APP_SAMPLE_CLOCK_SETTLEMENT_MAX_MS, Math.ceil(lead) + 1));
+  need(!signal?.aborted, "CLOCK_SETTLEMENT_ABORTED");
 }
 
 export class ProductionHostBatchBackend implements NativeStorageBatchBackend {
@@ -394,7 +405,7 @@ export class ProductionHostBatchBackend implements NativeStorageBatchBackend {
       for (const u of units) p.push((await this.db("evidence", { op: "pins", config: await this.frozenConfig(u), proofSha256: u.originalProofSha256 }, 45_000, signal)).result.selectedPinClosureMatches === true);
       pins = p.every(Boolean);
     }
-    await settleAppSampleClock(String(st.appVolume.observedAt));
+    await settleAppSampleClock(String(st.appVolume.observedAt), { signal });
     const business = ev.business as DbGrowthFenceDecision, physical = business.physical, observedAt = new Date().toISOString();
     const rootMatch = same(st.route, ["true", `${ARCHIVE_MOUNT}/${expect.activeRoot.name}`, expect.activeRoot.sha256]);
     return { business, evidence: { operation, observedAt, sourceManifestSha256: pack.sourceManifestSha256,

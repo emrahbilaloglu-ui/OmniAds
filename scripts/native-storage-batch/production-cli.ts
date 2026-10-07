@@ -5,7 +5,8 @@ import { NATIVE_STORAGE_BATCH_CONTRACT, NATIVE_STORAGE_BATCH_LIMITS, nativeStora
 import { canonicalSha, need, readExact, safeError, sha256, writeExclusive } from "./common";
 import { computeSourcePack, REPO_ROOT, verifySourceReview } from "./source-pack";
 import { FileBatchJournal } from "./journal";
-import { abandonOwnedPurpose, acquireOwner, disposePreDispatchRefused, disposeUnacknowledgedMaintenance, ownershipStatus, parseCursor, recordExamined,
+import { abandonOwnedPurpose, acquireOwner, disposeExpiredCaptureOnly, disposePreDispatchRefused, disposeUnacknowledgedMaintenance, ownershipStatus,
+  parseCursor, recordExamined,
   releaseOwner, requireOwner, settledPrefix, vetoPermanence, type Cursor, type Disposition } from "./operator-ownership";
 import { collectMaintenanceSettlement, SETTLEMENT_APPLICATION } from "./maintenance-settlement";
 import { Client } from "pg";
@@ -173,6 +174,10 @@ export async function disposeMaintenanceUnknown(o: Record<string, string>) {
     await db.connect();
     try { return await collectMaintenanceSettlement(db, binding, configs); } finally { await db.end(); }
   });
+}
+export async function disposeExpiredCaptureOnlyPurpose(o: Record<string, string>) {
+  const host = await loadProductionHost(o.host!);
+  return disposeExpiredCaptureOnly(host.stateRoot, purposeOf(o.purpose));
 }
 export async function disposePreDispatch(o: Record<string, string>) {
   const host = await loadProductionHost(o.host!);

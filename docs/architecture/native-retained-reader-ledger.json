@@ -395,7 +395,7 @@
     {
       "path": "scripts/native-storage-batch/production-fixture-e2e.ts",
       "role": "owned-fixture",
-      "sha256": "8e29157f941d1d87f92d7426c067d4aee848a17aa35cd9d6eb22506bee752900",
+      "sha256": "28c59ca9e7a6caf6a83a23973674c26506ecbc9631ec4213946fae7df6a2df60",
       "retention": "Only owned socket-only PostgreSQL/fake-host or owned HTTP fixtures; preserve their declared seam boundary. This is not live production census, provider authority or reclamation permission."
     },
     {
@@ -429,5 +429,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "98473f538f910a66cd060f64d9557a298a5e2dac6fcd29a778ec70baa2ebff77"
+  "sourceInventorySha256": "72a1e2be7512f4a37f3419ac48b1980fa9a6a377d70426ae74f9e0e503374600"
 }

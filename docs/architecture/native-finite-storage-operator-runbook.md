@@ -56,11 +56,27 @@ This is a manual operator procedure for the existing finite entrypoints in
      `cli.ts dispose-pre-dispatch-refused --host … --purpose <p>`. It records
      `terminal-pre-dispatch-refused` and preserves every original byte. The
      plan is never resumed or adopted.
+   - **Expired capture-only** (`resumable`; verified journal exactly begin,
+     one acknowledged `capture-restore` intent/receipt per planned unit, and a
+     finish refused at `publish` before its intent; no publish, activate,
+     retire, maintenance or HTTP artifact):
+     - **Wait.** Wait until the ORIGINAL 30-minute window from the journal
+       begin has passed. Never reset it.
+     - **Never resume it.** After expiry a resume only appends
+       `resume`/`finish` records. The purpose then no longer has this shape
+       and stays blocked.
+     - **Dispose.** Run
+       `cli.ts dispose-expired-capture-only --host … --purpose <p>`.
+     - **What it records.** `terminal-expired-capture-only`: no success, no
+       retry, no reclaim and no chain advance. The journal, marker, plan, both
+       private copies and the restore records stay byte-identical.
+     - **Captured units are not skipped.** The next purpose starts at the
+       unchanged frontier and examines them again.
    - **`planned` or `unknown` with no journal** (for example an older
      `NO_ELIGIBLE` plan directory): run `cli.ts abandon --host … --purpose <p>`.
      This is allowed only while no owner is active and no lease named the
      purpose.
-   - **Anything else** (`resumable` with any action, `running`, `ambiguous`,
+   - **Anything else** (`resumable` with any other action, `running`, `ambiguous`,
      `ambiguous-routing`), or any `*_RECORD_INVALID` / `PURPOSE_MARKER_INVALID`
      refusal: stop. Corrupt metadata is never repaired by hand into a release.
 
@@ -104,6 +120,9 @@ Do not change them.
 5. **Resume.** Run `cli.ts resume …` with the same purpose: same plan, same
    original 30-minute start. Exit 0 writes the `finished` release. Any other
    end is read-only status; follow the standing rules.
+   - **Never after expiry.** Never resume after the original 30-minute window.
+     An expired purpose that only captured is closed by
+     `dispose-expired-capture-only` (step 0.3).
 6. **Measure.** Take a matched-interval measurement with the existing
    read-only census over equal intervals before and after:
    - raw database bytes;

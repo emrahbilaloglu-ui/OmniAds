@@ -32,8 +32,8 @@ function fixture(lead: number | string = 19) {
   const before = JSON.stringify({ business, evidence });
   const assess = () => assessNativeStorageMaintenanceAdmission({ business, evidence,
     expectedDatabaseBudgetBytes: 175019917312, nowMs: now });
-  const settle = () => settleAppSampleClock(evidence.appVolume.observedAt, {
-    now: () => now, sleep: async ms => { now += ms; },
+  const settle = (signal?: AbortSignal) => settleAppSampleClock(evidence.appVolume.observedAt, {
+    now: () => now, sleep: async ms => { now += ms; }, signal,
   });
   return { business, evidence, before, assess, settle, now: () => now };
 }
@@ -46,15 +46,33 @@ describe("bounded app capacity sample clock settlement", () => {
     expect(f.assess().admitted).toBe(true);
     expect(f.assess().businessAllowed).toBe(false); expect(f.assess().overridden).toBe(false);
     expect(JSON.stringify({ business: f.business, evidence: f.evidence })).toBe(f.before);
-    expect(f.now() - NOW).toBeLessThanOrEqual(1000);
+    expect(f.now() - NOW).toBeLessThanOrEqual(5000);
   });
-  it.each([1, 999, 1000])("handles a bounded %dms lead without broadening the assessor", async lead => {
+  // 1, 999 and 1000 ms were the reviewed 1 s contract; 2209 ms is the actual 2026-10-07 APP status receive lead
+  // (local coordinator ~2.8 s behind Apple NTP; APP/DB hosts NTP-synchronised); 4999/5000 are the amended bound.
+  it.each([1, 999, 1000, 1001, 2209, 4999, 5000])("handles a bounded %dms lead without broadening the assessor", async lead => {
     const f = fixture(lead); expect(f.assess().admitted).toBe(false);
     await f.settle(); expect(f.assess().admitted).toBe(true);
-    expect(f.now() - NOW).toBeLessThanOrEqual(1000);
+    expect(f.now() - NOW).toBeLessThanOrEqual(5000);
     expect(JSON.stringify({ business: f.business, evidence: f.evidence })).toBe(f.before);
   });
-  it.each([1001, 60001, "invalid", -60001])("keeps unbounded/invalid/stale sample %s refused", async lead => {
+  it("one aborted settlement neither waits nor admits: the original stage/batch deadline still governs", async () => {
+    const f = fixture(2209), aborted = new AbortController(); aborted.abort();
+    await expect(f.settle(aborted.signal)).rejects.toThrow("CLOCK_SETTLEMENT_ABORTED");
+    expect(f.now()).toBe(NOW); expect(f.assess().admitted).toBe(false);
+    const g = fixture(2209), during = new AbortController();
+    const settled = settleAppSampleClock(g.evidence.appVolume.observedAt, { now: g.now, signal: during.signal });   // the real timer
+    during.abort();
+    await expect(settled).rejects.toThrow("CLOCK_SETTLEMENT_ABORTED");
+    expect(g.assess().admitted).toBe(false);
+  });
+  it("uses exactly one real timer of at most 5000 ms (no clock offset)", async () => {
+    const f = fixture(2209), waits: number[] = [];
+    await settleAppSampleClock(f.evidence.appVolume.observedAt, { now: f.now, sleep: async ms => { waits.push(ms); } });
+    expect(waits).toEqual([2210]);
+    expect(JSON.stringify({ business: f.business, evidence: f.evidence })).toBe(f.before);
+  });
+  it.each([5001, 60001, "invalid", -60001])("keeps unbounded/invalid/stale sample %s refused", async lead => {
     const f = fixture(lead); await f.settle(); expect(f.now()).toBe(NOW);
     expect(f.assess().admitted).toBe(false);
   });
@@ -63,7 +81,7 @@ describe("bounded app capacity sample clock settlement", () => {
     expect(f.assess().admitted).toBe(true);
   });
   it("does not fabricate a clock advance when the wait completes without the clock catching up", async () => {
-    const f = fixture();
+    const f = fixture(2209);
     await settleAppSampleClock(f.evidence.appVolume.observedAt, { now: () => NOW, sleep: async () => {} });
     expect(f.assess().admitted).toBe(false);
     expect(JSON.stringify({ business: f.business, evidence: f.evidence })).toBe(f.before);

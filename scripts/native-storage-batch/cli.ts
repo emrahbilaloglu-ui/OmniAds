@@ -8,8 +8,8 @@ import { computeSourcePack, REPO_ROOT, verifySourceReview } from "./source-pack"
 import { FileBatchJournal, readJournal } from "./journal";
 import { hostPaths, OwnedHostBatchBackend, readActivation, type OwnedHostConfig } from "./backend";
 import { ProductionSshTransport } from "./production-transport";
-import { abandonPurpose, disposeMaintenanceUnknown, disposePreDispatch, ownerStatus, prepareProduction, productionExecute, productionPlan,
-  productionPrestate } from "./production-cli";
+import { abandonPurpose, disposeExpiredCaptureOnlyPurpose, disposeMaintenanceUnknown, disposePreDispatch, ownerStatus, prepareProduction,
+  productionExecute, productionPlan, productionPrestate } from "./production-cli";
 import type { UnitConfig } from "./capture";
 
 /** Finite native storage batch CLI. Default command is `prepare`: local source
@@ -34,6 +34,7 @@ const USAGE = `usage:
   cli.ts dispose-maintenance-unknown --host <production-host.json> --purpose <12hex> --pg-host <socket dir|loopback> --pg-port <n> --pg-database <db> --pg-user <role>
       (live SELECT-only settlement proof over that one READ ONLY connection; records an UNKNOWN outcome, never success or retry)
   cli.ts dispose-pre-dispatch-refused --host <production-host.json> --purpose <12hex>   (journal EXACTLY begin+finish, zero actions)
+  cli.ts dispose-expired-capture-only --host <production-host.json> --purpose <12hex>   (original 30 min elapsed; ONLY acknowledged capture-restore per unit, refused before publish)
   cli.ts prepare-production --host <production-host.json> --purpose <12hex> --stage <stage> --op db|stage-cipher|publish-root|activate-root [--stage-op <op>] [--unit <uuid>]`;
 function args(argv: string[]) {
   const command = argv[0] && !argv[0].startsWith("--") ? argv[0] : "prepare";
@@ -238,7 +239,7 @@ async function main() {
   const handlers: Record<string, (o: Record<string, string>) => Promise<unknown>> = { select, plan, execute, status,
     resume: resumeCommand, "http-proof": httpProofCommand, "prepare-production": prepareProduction,
     "owner-status": productionOnly(ownerStatus), abandon: productionOnly(abandonPurpose), "dispose-maintenance-unknown": productionOnly(disposeMaintenanceUnknown),
-    "dispose-pre-dispatch-refused": productionOnly(disposePreDispatch),
+    "dispose-pre-dispatch-refused": productionOnly(disposePreDispatch), "dispose-expired-capture-only": productionOnly(disposeExpiredCaptureOnlyPurpose),
     "production-prestate": (x: Record<string, string>) => productionPrestate(x.host!, purposeOf(x.purpose), x["runtime-source-manifest"]!, armedTransport(x)) };
   need(handlers[command], "USAGE");
   const value = await handlers[command]!(options) as { actualExitCode?: number };

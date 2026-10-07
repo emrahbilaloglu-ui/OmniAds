@@ -57,7 +57,7 @@ describe("a growth-fence refusal at worker boot", () => {
     expect(isTableCeilingOnly(refusal())).toBe(true);
   });
 
-  it("still takes it down when the aggregate database budget is breached", () => {
+  it("does not treat aggregate refusal as a per-table ceiling exemption", () => {
     expect(
       isTableCeilingOnly(
         refusal({

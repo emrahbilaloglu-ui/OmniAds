@@ -12609,3 +12609,15 @@ challenge, budgets, epochs, formulas and identity clocks.
 **Not claimed.** No production scale, performance, reclaimed bytes, OS shrink
 or storage closure is claimed. See
 [the execution contract](../architecture/native-finite-storage-lifecycle.md).
+
+## D151 — Truthful worker process presence during aggregate capacity refusal (2026-10-07)
+
+An exact application publication exposed a pre-existing boot failure: the worker exits on aggregate DB-budget refusal, although an already-running worker reports per-business refusal. Restarting cannot restore headroom. The accepted fixed-budget storage risk does not authorize business work, override or storage mutation.
+
+For enabled lanes in non-staged mode only, a typed `DbGrowthFenceRefusal` with `database_budget_exceeded`, database offender, no override, valid exceeded aggregate measurement and admitted physical capacity may keep the process present. The only writes before fresh ordinary admission are existing heartbeat/runtime-instance upserts. Every provider and the canonical `all` row explicitly record idle, `consumeReason=capacity_refused`, `admission_refused`, the original safety refusal and `businessAdmitted=false`. Provider-to-process mirroring is suppressed for these writes; `all` is written last. The existing container predicate reports `sync_capacity_refused` while passing liveness; `--require-sync-capable` must fail.
+
+The sequential refresh waits at least 10 seconds and the configured heartbeat interval, never overlaps, and never swallows failed heartbeat writes. Shutdown drains pending writes, retires scopes once and cannot resurrect them. Every retry repeats lane admission and the fresh growth boundary before reaching the single unchanged ordinary starting/discovery path. Staged/lane-off aggregate, physical, unknown/malformed measurement and identity refusals remain fatal. Per-table ceiling behavior is unchanged.
+
+No discovery, provider call, lease, reaper, retention or other business/maintenance work runs in this wait. All existing operation-level fences remain in force. This is bounded control-plane liveness, not provider execution, sync capability, data freshness, sustained growth balance or storage remediation. Publication must also prove the actual block-mode control-plane persistence route; a blocked canonical deploy gate is not bypassed. A later capability refusal is reported honestly and does not alone warrant rollback to the identical fatal boot behavior.
+
+Validation: actual-runtime baseline RED; refusal/recovery/error/shutdown and health-contract guards; migrated PostgreSQL real child worker with unchanged business-table digests and zero HTTP, actual container/post-start health probes, and actual canonical control-plane route under `block` modes. The candidate requires its own canonical QA, exact source/image checks and controlled publication; earlier worker observation is not transferred to this source.

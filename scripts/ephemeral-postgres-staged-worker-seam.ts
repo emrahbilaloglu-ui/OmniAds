@@ -172,10 +172,9 @@ async function main() {
     await client.connect();
 
     // A capacity sample, as the database host's healthcheck timer supplies in
-    // production. The growth fence is deliberately fatal in EVERY mode
-    // including staging — being over budget is a reason not to write at all,
-    // and a heartbeat is a write — so without this the seam would only ever
-    // prove that the fence works, never that staging does.
+    // production. Physical admission remains mandatory in every mode; staged
+    // aggregate refusal is fatal. Enabled aggregate-capacity idle is tested
+    // separately below, with truthful process presence and no business work.
     const { PHYSICAL_TELEMETRY_SOURCE, PHYSICAL_DATA_PATH } = await import(
       "@/lib/sync/db-growth-fence"
     );
@@ -1347,6 +1346,104 @@ async function main() {
       "S6: an unstaged worker wrote a 'disabled' heartbeat before exiting; refusal must happen before any heartbeat write",
     );
     log(`S6 PASS default unchanged: without staging the worker still exits (${unstaged.exitCode}) and writes no heartbeat at all`);
+
+    // S24: the real enabled worker under aggregate refusal. Only two fixed-key
+    // control-plane upserts may change the migrated database. These are process
+    // liveness, not business admission or provider progress.
+    for (const worker of workers) worker.stop();
+    for (let i = 0; i < 40 && workers.some((w) => w.exitCode == null); i++) await sleep(250);
+    assert(workers.every((w) => w.exitCode != null), "S24: predecessor still running");
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+    await client.query(`DELETE FROM sync_runtime_instances`);
+    const capacityEnv = {
+      ...workerEnv, APP_BUILD_ID: "capacity-idle-seam", ADSECUTE_IMAGE_BUILD_ID: "capacity-idle-seam",
+      SYNC_WORKER_STAGING_IDLE: "0", SYNC_DEPLOY_GATE_MODE: "block", SYNC_RELEASE_GATE_MODE: "block",
+      ADSECUTE_SYNC_GLOBAL_ENABLED: "enabled", ADSECUTE_SYNC_LANE_META_SYNC_ENABLED: "enabled",
+      ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED: "enabled", ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED: "enabled",
+      SYNC_GROWTH_FENCE_DATABASE_BYTES: "1", WORKER_HEARTBEAT_INTERVAL_MS: "1000",
+    };
+    // Fail at the actual HTTP boundary if even an unexpected provider read is
+    // attempted. No provider credentials or external network are needed.
+    const fetchGuardPath = path.join(tmp, "forbid-worker-fetch.mjs");
+    const fetchMarker = path.join(tmp, "unexpected-fetch");
+    fs.writeFileSync(fetchGuardPath, `import fs from 'node:fs'; globalThis.fetch = async () => { fs.appendFileSync(${JSON.stringify(fetchMarker)}, 'called\\n'); throw new Error('S24 unexpected HTTP'); };`);
+    const businessDigest = async () => {
+      const tables = await db.query<{ name: string }>(`SELECT tablename AS name FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('sync_worker_heartbeats','sync_runtime_instances') ORDER BY tablename`);
+      const result: Record<string, string> = {};
+      for (const { name } of tables.rows) {
+        const ident = '"' + name.replaceAll('"', '""') + '"';
+        const r = await db.query(`SELECT md5(coalesce(string_agg(to_jsonb(t)::text, E'\\n' ORDER BY to_jsonb(t)::text),'')) AS digest FROM ${ident} t`);
+        result[name] = r.rows[0].digest;
+      }
+      return JSON.stringify(result);
+    };
+    const businessBefore = await businessDigest();
+    const refusedStart = new Date().toISOString();
+    const capacityWorker = startWorker({ ...capacityEnv, NODE_OPTIONS: `--import=${fetchGuardPath}` });
+    workers.push(capacityWorker);
+    let capacityRows: Array<{ provider_scope: string; status: string; meta_json: Record<string, unknown> }> = [];
+    for (let i = 0; i < 50 && capacityWorker.exitCode == null; i++) {
+      capacityRows = (await client.query(`SELECT provider_scope,status,meta_json FROM sync_worker_heartbeats WHERE meta_json->>'capacityRefusedIdle'='true'`)).rows;
+      if (capacityRows.length === 4) break;
+      await sleep(200);
+    }
+    assert(capacityWorker.exitCode == null && capacityRows.length === 4,
+      `S24: worker did not register all refusal scopes: ${capacityWorker.output.slice(-2000)}`);
+    assert(capacityRows.every((r) => r.status === "idle" && r.meta_json.consumeReason === "capacity_refused" && r.meta_json.businessAdmitted === false), "S24: misleading heartbeat");
+    const firstClock = (await client.query(`SELECT last_heartbeat_at FROM sync_worker_heartbeats WHERE provider_scope='all'`)).rows[0].last_heartbeat_at;
+    await sleep(10500); // Runtime's 10s minimum, not a rapid-write test override.
+    assert(capacityWorker.exitCode == null, `S24: worker exited: ${capacityWorker.output.slice(-2000)}`);
+    const secondClock = (await client.query(`SELECT last_heartbeat_at FROM sync_worker_heartbeats WHERE provider_scope='all'`)).rows[0].last_heartbeat_at;
+    assert(new Date(secondClock).getTime() > new Date(firstClock).getTime(), "S24: refusal heartbeat did not refresh");
+    assert(await businessDigest() === businessBefore, "S24: business/maintenance table changed under refusal");
+    assert(!fs.existsSync(fetchMarker), "S24: worker attempted provider HTTP");
+    for (const scope of ["all", "meta"]) {
+      for (const capability of [false, true]) {
+        const probe = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-healthcheck.ts", "--provider-scope", scope,
+          "--min-online-workers", "1", "--min-heartbeat-after", refusedStart, ...(capability ? ["--require-sync-capable"] : [])],
+          { cwd: REPO_ROOT, env: { ...process.env, ...capacityEnv }, encoding: "utf8" });
+        assert((capability ? probe.status !== 0 : probe.status === 0) && probe.stdout.includes("sync_capacity_refused"),
+          `S24: ${scope} capability=${capability} probe ${probe.status}: ${probe.stdout}${probe.stderr}`);
+      }
+    }
+    log("S24 PASS real enabled worker/fresh refusal clocks; ALL business-table bytes unchanged; provider HTTP zero; container and post-start probes PASS; capability probe correctly FAILS sync_capacity_refused");
+
+    // S25: canonical controlPlaneOnly route, with the LIVE block modes. These
+    // control-plane gate/repair-plan receipts are expected writes, separately
+    // from S24's strictly zero business/maintenance writes.
+    Object.assign(process.env, capacityEnv, { CRON_SECRET: "capacity-seam-only", SYNC_WORKER_MODE: "0" });
+    const { upsertRuntimeContractInstance } = await import("@/lib/sync/runtime-contract");
+    await upsertRuntimeContractInstance({ service: "web", instanceId: "web:capacity-seam" });
+    const { POST } = await import("@/app/api/sync/cron/route");
+    const { NextRequest } = await import("next/server");
+    const originalFetch = globalThis.fetch;
+    let unexpectedHttp = 0;
+    globalThis.fetch = async () => { unexpectedHttp++; throw new Error("S25 unexpected HTTP"); };
+    try {
+      for (const scope of ["meta", "google_ads"]) {
+        const response = await POST(new NextRequest(`http://localhost/api/sync/cron?controlPlaneOnly=1&enforceDeployGate=1&buildId=capacity-idle-seam&providerScope=${scope}`, {
+          method: "POST", headers: { authorization: "Bearer capacity-seam-only" },
+        }));
+        const body = await response.json();
+        assert(response.status === 200 && body.ok === true && body.gateVerdicts.deployGate.verdict === "pass",
+          `S25: block-mode canonical ${scope} route refused: ${response.status} ${JSON.stringify(body).slice(0,2500)}`);
+        log(`S25 PASS ${scope} actual controlPlaneOnly/enforceDeployGate HTTP200/deploy pass; release gate=${body.gateVerdicts.releaseGate.verdict}/${body.gateVerdicts.releaseGate.gateScope} (not a capability assertion)`);
+      }
+      assert(unexpectedHttp === 0, "S25: control-plane route attempted external HTTP");
+      const controlAfter = JSON.parse(await businessDigest()) as Record<string, string>;
+      const controlBefore = JSON.parse(businessBefore) as Record<string, string>;
+      for (const [table, digest] of Object.entries(controlBefore)) {
+        if (["sync_release_gates", "sync_repair_plans"].includes(table)) continue;
+        assert(controlAfter[table] === digest, `S25: business/maintenance table changed: ${table}`);
+      }
+    } finally { globalThis.fetch = originalFetch; }
+    capacityWorker.stop();
+    for (let i = 0; i < 40 && capacityWorker.exitCode == null; i++) await sleep(100);
+    assert(capacityWorker.exitCode === 0, `S25: shutdown failed: ${capacityWorker.output.slice(-1500)}`);
+    const stopped = (await client.query(`SELECT status FROM sync_worker_heartbeats WHERE meta_json->>'workerBuildId'='capacity-idle-seam' OR worker_id LIKE 'sync-worker:%'`)).rows;
+    assert(stopped.length === 4 && stopped.every((r) => r.status === "stopping"), "S25: refusal scope resurrected after shutdown");
+    assert(!fs.existsSync(fetchMarker), "S25: unexpected worker HTTP");
+    log("S25 PASS real refusal shutdown final/all scopes retired; live block modes preserved; no provider execution");
 
     console.log(`${LABEL} PASS`);
   } finally {

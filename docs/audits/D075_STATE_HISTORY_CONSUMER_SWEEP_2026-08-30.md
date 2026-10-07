@@ -891,3 +891,14 @@ The literal scan and all D075 content-reader safety predicates remain enabled
 without a skip or allow-all rule. This classification corrects an omitted ledger
 update found by the required canonical gate; it does not change runtime source,
 DDL, provider authority, clocks, epochs, test limits or decision semantics.
+
+## 2026-10-07 — D151 capacity-idle boot refusal fixture
+
+| File | References | Classification |
+| --- | ---: | --- |
+| `lib/sync/worker-capacity-boot-idle.test.ts` | 1 | Test-only wrong-offender fixture. It constructs a typed growth-fence refusal naming `meta_entity_state_history` and verifies that a per-table refusal remains fatal before any heartbeat or business write. It performs no state-history query, reads no entity content and grants no admission or provider authority. |
+
+The exact-count ledger now includes this literal. The canonical scan, all
+content-reader safety predicates and test limits remain unchanged; no reference
+was hidden or removed to pass the guard. The runtime and migrated-Postgres seam
+bytes from the completed D151 source review are unchanged.

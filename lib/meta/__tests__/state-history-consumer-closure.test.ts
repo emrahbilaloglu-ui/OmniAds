@@ -525,6 +525,11 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     category: "test",
     count: 3,
   },
+  {
+    file: "lib/sync/worker-capacity-boot-idle.test.ts",
+    category: "test",
+    count: 1,
+  },
   /*
     PRE-DEPLOY AUDIT 2026-09-03 — the D087/D088 budget slice, classified.
 

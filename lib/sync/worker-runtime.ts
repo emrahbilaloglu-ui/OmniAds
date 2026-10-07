@@ -684,6 +684,8 @@ export async function runDurableWorkerRuntime(
   let stagingRefreshInFlight: Promise<unknown> | null = null;
   let stagingRefreshBusy = false;
   let resolveStagingIdle: (() => void) | null = null;
+  let capacityWaitTimer: ReturnType<typeof setTimeout> | null = null;
+  let resolveCapacityWait: (() => void) | null = null;
   // Which scopes this process has actually written a heartbeat row for. The
   // shutdown below retires exactly these and invents none.
   const registeredScopes = new Set<string>();
@@ -738,6 +740,7 @@ export async function runDurableWorkerRuntime(
     // discovery failure, staged registration, or shutdown status.
     if (
       !shuttingDown && input.providerScope !== "all" &&
+      input.metaJson?.capacityRefusedIdle !== true &&
       (input.status === "running" || input.status === "idle") &&
       Date.now() - lastProcessHeartbeatAt >= heartbeatIntervalMs &&
       !processProgressHeartbeat
@@ -837,6 +840,10 @@ export async function runDurableWorkerRuntime(
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    if (capacityWaitTimer) clearTimeout(capacityWaitTimer);
+    capacityWaitTimer = null;
+    resolveCapacityWait?.();
+    resolveCapacityWait = null;
     if (stagingRefreshTimer) {
       clearInterval(stagingRefreshTimer);
       stagingRefreshTimer = null;
@@ -865,18 +872,14 @@ export async function runDurableWorkerRuntime(
   process.on("SIGINT", handleShutdown);
   process.on("SIGTERM", handleShutdown);
 
-  // Admission BEFORE the first heartbeat DB write.
-  //
-  // A heartbeat is a source-related write: it inserts and updates rows in
-  // `sync_worker_instances` on a timer, forever. Admitting only before the
-  // runner lease meant a worker started against a database over budget — or
-  // during a cutover quiesce — still wrote a starting heartbeat per provider
-  // scope, kept writing them every 15 seconds, and looked healthy to every
-  // operator surface while doing no work at all.
-  //
-  // A refusal here is fatal to the process rather than a skipped tick: a worker
-  // that may not write anything has nothing to do, and exiting lets the
-  // container restart policy retry it once conditions change.
+  // Business admission precedes every ordinary boot. An enabled, non-staged
+  // worker may report ONLY process presence while the aggregate DB budget
+  // refuses: heartbeat/runtime-instance upserts, with the existing explicit
+  // capacity-refusal contract. Container liveness passes; sync capability does
+  // not. Restarting cannot free storage. No discovery, lease, maintenance or
+  // provider callback is reached until the SAME boot checks freshly admit.
+  // Physical, unknown, malformed, lane-off and staged aggregate refusals stay
+  // fatal. This limited control-plane exception is recorded in D151.
   // STAGING IDLE, off unless explicitly asked for.
   //
   // A cutover brings the new build up with every lane off, proves it is the
@@ -885,70 +888,114 @@ export async function runDurableWorkerRuntime(
   // fatal refusal there is nothing to inspect: the container crash-loops, and
   // the release cannot be verified before it is enabled.
   //
-  // The refusal is still the DEFAULT, because the reason for it is real: a
+  // Lane refusal is still fatal by DEFAULT: a
   // worker that heartbeats `starting` every fifteen seconds while admitted to
   // nothing looks healthy on every operator surface while doing no work. So the
-  // idle path never claims to be running — it heartbeats `disabled`, carries the
+  // staged idle path never claims to be running — it heartbeats `disabled`, carries the
   // refusal in its metadata, and takes no lease, claims no partition and writes
   // nothing else. `--min-online-workers` counts online workers and will not
   // count this one. `stagingIdle` is read at the top of the runtime, with the
   // build identity it makes load-bearing.
   let laneRefusal: unknown = null;
-  try {
-    // Every lane this worker carries. If none of them may run, the worker has
-    // nothing to do and must not start writing heartbeats about it.
-    for (const scope of providerScopes) {
-      assertSyncLaneEnabled(
-        scope === "google_ads" ? "google_sync" : scope === "shopify" ? "shopify_sync" : "meta_sync",
-      );
+  while (!shuttingDown) {
+    laneRefusal = null;
+    try {
+      // Every lane this worker carries. If none of them may run, the worker has
+      // nothing to do and must not start writing heartbeats about it.
+      for (const scope of providerScopes) {
+        assertSyncLaneEnabled(
+          scope === "google_ads" ? "google_sync" : scope === "shopify" ? "shopify_sync" : "meta_sync",
+        );
+      }
+    } catch (error) {
+      laneRefusal = error;
     }
-  } catch (error) {
-    laneRefusal = error;
+
+    try {
+      // Aggregate refusal remains fatal for staging/lane-off. Only an enabled
+      // ordinary worker can register truthful capacity-idle process presence.
+      //
+      // A single table's ceiling is a different fact and must not take the
+      // process down. The ceilings exist, in the fence's own words, "to catch a
+      // single relation running away inside" the aggregate, and the fence already
+      // learned this once: 2026-08-08, meta_entity_state_history sat 0.005% over
+      // its ceiling and Google Ads and Shopify sync -- which cannot write a byte
+      // of it -- were stopped for 26 hours. That was fixed for per-operation
+      // admission (`collateralOnly`) and this boot path was never revisited.
+      //
+      // Refusing boot is strictly worse than refusing a write: the worker cannot
+      // run ANY provider's sync, cannot run scheduled work, and cannot report the
+      // condition -- it just exits and is restarted forever. Meta writes still
+      // refuse, one operation at a time, which is what the ceiling is for.
+      await assertSyncGrowthBoundary("durable_worker_boot", { fresh: true });
+    } catch (error) {
+      const fenceRefusal =
+        error instanceof DbGrowthFenceRefusal ? error : null;
+      const tableCeilingOnly =
+        fenceRefusal !== null &&
+        fenceRefusal.decision.reason === "table_budget_exceeded" &&
+        fenceRefusal.decision.offender != null &&
+        fenceRefusal.decision.offender.table !== "database";
+
+      const capacityIdle = !laneRefusal && !stagingIdle && fenceRefusal !== null &&
+        fenceRefusal.decision.allowed === false &&
+        fenceRefusal.decision.reason === "database_budget_exceeded" &&
+        fenceRefusal.decision.offender?.table === "database" &&
+        fenceRefusal.decision.overridden === false &&
+        fenceRefusal.decision.physical?.admitted === true &&
+        Number.isFinite(fenceRefusal.decision.databaseBudgetBytes) &&
+        fenceRefusal.decision.databaseBudgetBytes > 0 &&
+        typeof fenceRefusal.decision.databaseBytes === "number" &&
+        Number.isFinite(fenceRefusal.decision.databaseBytes) &&
+        fenceRefusal.decision.databaseBytes >= fenceRefusal.decision.databaseBudgetBytes;
+      if (capacityIdle) {
+        const safetyRefusal = describeSyncSafetyRefusal(error);
+        if (!safetyRefusal || safetyRefusal.kind !== "capacity_refused") throw error;
+        console.warn("[durable-worker] capacity_refused_idle", { workerId, workerBuildId, safetyRefusal });
+        // Sequential, awaited writes: no overlapping refresh and no swallowed
+        // heartbeat failure. Provider mirroring is disabled for these rows; all
+        // is explicitly last and can never lose its refusal identity.
+        for (const providerScope of [...providerScopes, "all"]) {
+          await heartbeat({ providerScope, status: "idle", force: true, metaJson: {
+            workerBuildId, workerStartedAt, providerScope, adapters: providerScopes,
+            capacityRefusedIdle: true, businessAdmitted: false,
+            consumeStage: "admission_refused", consumeOutcome: "admission_refused",
+            consumeReason: safetyRefusal.kind, safetyRefusal,
+          } });
+        }
+        if (!shuttingDown) await new Promise<void>((resolve) => {
+          resolveCapacityWait = resolve;
+          capacityWaitTimer = setTimeout(() => {
+            capacityWaitTimer = null;
+            resolveCapacityWait = null;
+            resolve();
+          }, Math.max(10_000, heartbeatIntervalMs));
+        });
+        continue; // Retry lane -> fresh fence -> the ONE ordinary boot path.
+      } else if (tableCeilingOnly) {
+        console.error("[durable-worker] boot_over_table_ceiling", {
+          workerId,
+          offender: fenceRefusal.decision.offender,
+          note:
+            "Booting anyway: a single relation's ceiling does not put the database at risk, " +
+            "and every write to that relation's provider still refuses at its own boundary.",
+        });
+      } else {
+        console.error("[durable-worker] boot_refused", {
+          workerId,
+          message: error instanceof Error ? error.message : String(error),
+          refusal: describeSyncSafetyRefusal(error),
+        });
+        throw error;
+      }
+    }
+    break;
   }
-
-  try {
-    // The growth boundary is NOT part of the staging concession. Being over
-    // budget is a reason not to write to the database at all, and a heartbeat
-    // is a write. This stays fatal in every mode -- for the AGGREGATE budget.
-    //
-    // A single table's ceiling is a different fact and must not take the
-    // process down. The ceilings exist, in the fence's own words, "to catch a
-    // single relation running away inside" the aggregate, and the fence already
-    // learned this once: 2026-08-08, meta_entity_state_history sat 0.005% over
-    // its ceiling and Google Ads and Shopify sync -- which cannot write a byte
-    // of it -- were stopped for 26 hours. That was fixed for per-operation
-    // admission (`collateralOnly`) and this boot path was never revisited.
-    //
-    // Refusing boot is strictly worse than refusing a write: the worker cannot
-    // run ANY provider's sync, cannot run scheduled work, and cannot report the
-    // condition -- it just exits and is restarted forever. Meta writes still
-    // refuse, one operation at a time, which is what the ceiling is for.
-    await assertSyncGrowthBoundary("durable_worker_boot", { fresh: true });
-  } catch (error) {
-    const fenceRefusal =
-      error instanceof DbGrowthFenceRefusal ? error : null;
-    const tableCeilingOnly =
-      fenceRefusal !== null &&
-      fenceRefusal.decision.reason === "table_budget_exceeded" &&
-      fenceRefusal.decision.offender != null &&
-      fenceRefusal.decision.offender.table !== "database";
-
-    if (tableCeilingOnly) {
-      console.error("[durable-worker] boot_over_table_ceiling", {
-        workerId,
-        offender: fenceRefusal.decision.offender,
-        note:
-          "Booting anyway: a single relation's ceiling does not put the database at risk, " +
-          "and every write to that relation's provider still refuses at its own boundary.",
-      });
-    } else {
-      console.error("[durable-worker] boot_refused", {
-        workerId,
-        message: error instanceof Error ? error.message : String(error),
-        refusal: describeSyncSafetyRefusal(error),
-      });
-      throw error;
-    }
+  if (shuttingDown) {
+    await shutdownInFlight;
+    process.off("SIGINT", handleShutdown);
+    process.off("SIGTERM", handleShutdown);
+    return;
   }
 
   if (laneRefusal && !stagingIdle) {

@@ -36,7 +36,8 @@ const ROUTING_OR_RETIREMENT = new Set(["capture-restore", "publish", "activate",
 /** Post-retirement maintenance only (all retirements acknowledged before it): disposable with a settlement proof. */
 const MAINTENANCE = new Set(["vacuum-main", "toast-observation", "vacuum-toast", "space-readback"]);
 /** Cannot become eligible under the current reviewed bounds; everything else is transient (explicit revisit). */
-const PERMANENT_VETOES = new Set(["FINITE_ORIGINAL_POPULATION_EXCEEDED", "CONTEXT_COUNT_OUTSIDE_1_4", "ALREADY_ARCHIVED_ROUTE", "RETAINED_SNAPSHOT_VETO"]);
+const PERMANENT_VETOES = new Set(["FINITE_ORIGINAL_POPULATION_EXCEEDED", "CONTEXT_COUNT_OUTSIDE_1_4", "ALREADY_ARCHIVED_ROUTE", "RETAINED_SNAPSHOT_VETO",
+  "ARCHIVE_ENGINE_UNSUPPORTED"]);
 const PLAN_CONTRACTS = ["finite-native-storage-batch.v1", "finite-native-storage-batch.v2"];
 const OWNER_KEYS = ["contract", "sequence", "purpose", "acquiredAt", "scope", "startCursor", "revisit", "frontierAtAcquire"];
 const RELEASE_KEYS = ["contract", "purpose", "outcome", "at", "advancesChain", "examinedThrough", "examinedSha256", "detail"];

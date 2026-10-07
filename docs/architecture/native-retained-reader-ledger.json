@@ -365,7 +365,7 @@
     {
       "path": "scripts/native-storage-batch/capture.ts",
       "role": "offline-operator",
-      "sha256": "35c393cfb4fd120d564fe5149a759621b60db11b62e632752480e15e36ae632f",
+      "sha256": "748d5cd35d8c4bf750cd801581431be162a2a111b429ce2ba7ab7d8c3c72ea75",
       "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
     },
     {
@@ -377,7 +377,7 @@
     {
       "path": "scripts/native-storage-batch/maintenance.ts",
       "role": "offline-operator",
-      "sha256": "28b5583b311045e8c7044b4f5197b71716a89817f0f22a463766d3bfaeafa578",
+      "sha256": "89d548242f886ca4af80ff53178b266996884f7e9f238a4991201d00523af272",
       "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/shared input/provider roots. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main/TOAST maintenance and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Producer-idle distinguishes only bounded, explicit stale retired-epoch metadata with no matching canonical job/chain locks; current, recent, unknown or owned running work refuses. No ledger finalization or provider admission. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse. D148: retain main VACUUM as separate maintenance; observe exactly two TOAST relations READ ONLY RR with explicit ROLLBACK and zero reuse/OS claims. Frozen v1 evidence cannot authorize or be reinterpreted as a v2 stage."
     },
     {
@@ -389,13 +389,13 @@
     {
       "path": "scripts/native-storage-batch/owned-fixture.ts",
       "role": "owned-fixture",
-      "sha256": "6e5fbde6cda0fe63383d767d335b02fc144f66effc45810ee7669f623270b079",
+      "sha256": "c8937165cb805fa83f6c86ef97a4ba3f0f9ccfd53fe07c13c035f32ee7a8a3ba",
       "retention": "Only owned socket-only PostgreSQL/fake-host or owned HTTP fixtures; preserve their declared seam boundary. This is not live production census, provider authority or reclamation permission."
     },
     {
       "path": "scripts/native-storage-batch/production-fixture-e2e.ts",
       "role": "owned-fixture",
-      "sha256": "8d9b437c76ade80808a008284b97448945bcd8aa6262a39c879474c2cfbbcbbc",
+      "sha256": "8e29157f941d1d87f92d7426c067d4aee848a17aa35cd9d6eb22506bee752900",
       "retention": "Only owned socket-only PostgreSQL/fake-host or owned HTTP fixtures; preserve their declared seam boundary. This is not live production census, provider authority or reclamation permission."
     },
     {
@@ -429,5 +429,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "bb986a8c4c014051931f777f0e317e9d29d92b8cc189d7fe03d2b96fd13ce4a9"
+  "sourceInventorySha256": "98473f538f910a66cd060f64d9557a298a5e2dac6fcd29a778ec70baa2ebff77"
 }

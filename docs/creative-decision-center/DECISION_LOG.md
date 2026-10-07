@@ -12483,6 +12483,17 @@ status-only, with no retirement, no receipt and no execution artifact.
 Neither disposition rewrites a journal, marker or plan, claims success,
 permits a retry or advances the chain.
 
+Archive eligibility is explicit, using the successful job receipt's engine
+before any freeze. The operator supports exactly the authoritative current
+native engine. Any other engine records the constant permanent veto
+`ARCHIVE_ENGINE_UNSUPPORTED`; missing or unsafe engine metadata records the
+transient `ARCHIVE_ENGINE_METADATA_UNKNOWN`. Both stay in the examined prefix,
+with no SQL filter or cursor jump, and are never frozen. A direct capture
+refuses them before any source statement. A matching engine is only a
+prerequisite: absent input evidence still fails closed in the unchanged archive
+validation. This is not a decision, formula, epoch or provider change and
+proves nothing about future engines.
+
 Batch limits, closed-day buffer, statement/lock/wall limits, source pack and
 review, pins, root, two copies, independent restore, Chrome-authenticated
 serving before retirement, COMMIT challenge/ACK, readback and the v2 no-TOAST

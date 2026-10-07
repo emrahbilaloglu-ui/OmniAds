@@ -261,8 +261,25 @@ or plan. The modules have no import-time effects.
   (`asOfDate`, `jobRunId`, unit or veto `code`/`permanence`). It also records
   `examinedThrough`, the unsettled `breakCandidate` (maxUnits or 9,072), and the
   transient vetoes. Permanent veto heads are `FINITE_ORIGINAL_POPULATION_EXCEEDED`,
-  `CONTEXT_COUNT_OUTSIDE_1_4`, `ALREADY_ARCHIVED_ROUTE` and
-  `RETAINED_SNAPSHOT_VETO`; every other code is transient.
+  `CONTEXT_COUNT_OUTSIDE_1_4`, `ALREADY_ARCHIVED_ROUTE`, `RETAINED_SNAPSHOT_VETO`
+  and `ARCHIVE_ENGINE_UNSUPPORTED`; every other code is transient.
+- **Archive-engine eligibility.** The supported set is exactly the authoritative
+  `NATIVE_AD_ENGINE_VERSION`. No current code declares another engine
+  archive-compatible, and this proves nothing about any future engine.
+  - **Where it is decided:** from the successful job receipt's `engine_version`
+    returned by the closed-day selection, before any freeze.
+  - **Veto codes (constant):** `ARCHIVE_ENGINE_UNSUPPORTED` (permanent) or
+    `ARCHIVE_ENGINE_METADATA_UNKNOWN` (missing, empty, unsafe or over-long text;
+    transient). Neither code carries the engine text; the actual engine stays in
+    the candidate's `generation.engineVersion`.
+  - **No skipping:** every header stays in the ordered window and the
+    examined prefix; there is no SQL engine filter or cursor jump.
+  - **No freeze, no evaluation reads:** a vetoed header never reaches a freeze.
+    `collectWholeOriginal` (freeze and capture) also refuses an unsupported or
+    unknown engine before its first source statement.
+  - **Prerequisite, not proof:** a supported engine still passes through the
+    unchanged whole-original validation. An original with absent input evidence
+    keeps failing closed (`SOURCE_CAPTURE_REFUSED`, transient).
 - **Terminal scan.** A window with no unit is released immediately as a
   read-only `terminal-scan`. It advances the chain only when it settled at
   least one candidate.

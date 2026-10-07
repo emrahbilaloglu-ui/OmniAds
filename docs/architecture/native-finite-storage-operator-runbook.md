@@ -113,6 +113,15 @@ Do not change them.
 
    Retirement makes space reusable; it is not an OS shrink.
 
+Archive-engine vetoes (`ARCHIVE_ENGINE_UNSUPPORTED`,
+`ARCHIVE_ENGINE_METADATA_UNKNOWN`) are settled header dispositions: the window
+records them and the frontier moves past them.
+- **No freeze.** Such a header is never frozen.
+- **Diagnosis.** Read its engine from the plan output's candidate generation,
+  never from the code.
+- **Not a failure verdict.** They are not product, data or firm failures, and
+  they never authorize an adapter, synthesized evidence or a SQL engine filter.
+
 ## 3. Transient-veto revisit (explicit and bounded)
 
 Transient vetoes (for example `SUBSEQUENT_DISTINCT_DAY_SUCCESS_REQUIRED`) and

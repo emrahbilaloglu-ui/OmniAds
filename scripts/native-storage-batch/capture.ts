@@ -16,6 +16,7 @@ import { persistLocalNativeArchive, NATIVE_LOCAL_ARCHIVE_BUCKET } from "../../li
 import { CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, EXPECTED_INCOMING_FKS, NATIVE_JOB, NON_FK_CLASSES,
   UNIT_TABLES, UUID, type UnitTable, canonical, canonicalSha, need, rowSetHash, same, sha256, writeExclusive, BatchRefusal,
   privateDirectory, readExact } from "./common";
+import { archiveEngineVeto } from "./archive-engine-eligibility";
 
 /** Generic whole-original collector. Same mechanics as the reviewed known1134
  * collector, with its literal job/tenant/count/build replaced by the exact
@@ -209,6 +210,10 @@ export async function censusVeto(read: (sql: string, values?: unknown[]) => Prom
 /** One complete RO measurement + bundle. Throws a stable veto code. */
 export async function collectWholeOriginal(db: Q, input: CaptureInput) {
   const g = input.generation;
+  // D149: archive-engine eligibility BEFORE any source statement (no evaluation/context materialization); the receipt
+  // check below then binds the actual successful job row to this exact supported engine.
+  const engineVeto = archiveEngineVeto(g?.engineVersion);
+  if (engineVeto) throw new BatchRefusal(engineVeto);
   need(/^[a-f0-9]{40}$/.test(input.sourceRevision) && /^[a-f0-9]{64}$/.test(input.consumerInventorySha256), "EXACT_SOURCE_IDENTITY");
   need(Number.isInteger(input.expectedEvaluations) && input.expectedEvaluations > 0 && input.expectedEvaluations <= cap.evaluations &&
     Number.isInteger(input.expectedContexts) && input.expectedContexts > 0 && input.expectedContexts <= cap.contexts, "FINITE_ORIGINAL_POPULATION");

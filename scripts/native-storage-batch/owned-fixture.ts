@@ -68,8 +68,9 @@ export async function seedCalibration(db: Client, t: OwnedTenant, date: string, 
 }
 /** One native generation through the actual producer, one context per account. */
 export async function seedGeneration(db: Client, t: OwnedTenant, input: { date: string; clock: string; finishedAt: string;
-  producer: string; perAccount: number[]; snapshots?: boolean; tag: string }) {
-  const job = randomUUID(), epoch = NATIVE_AD_ENGINE_VERSION;
+  producer: string; perAccount: number[]; snapshots?: boolean; tag: string; engineVersion?: string }) {
+  // A non-current engine is only for owned eligibility fixtures: the same actual producer writes its exact receipt epoch.
+  const job = randomUUID(), epoch = input.engineVersion ?? NATIVE_AD_ENGINE_VERSION;
   const total = input.perAccount.reduce((a, b) => a + b, 0);
   await insert(db, "engine_v3_job_runs", { id: job, job_name: NATIVE_JOB, business_ref_id: t.business, business_id: t.business,
     as_of_date: input.date, engine_version: epoch, status: "success", started_at: input.clock, finished_at: input.finishedAt,

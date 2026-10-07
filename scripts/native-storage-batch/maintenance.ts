@@ -3,6 +3,7 @@ import { readNativeArchivePinCensus } from "../../lib/creative-decision-engine/n
 import { DEPENDENT_ROWS_SQL, censusVeto, readOnlyAdapter, readTargetCatalog, type Q, type UnitConfig } from "./capture";
 import { CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, NATIVE_JOB, RETAINED_TABLES, UUID, need, rowSetHash, safeError, same } from "./common";
 import { readNativeProducerIdle } from "./native-producer-idle";
+import { archiveEngineVeto } from "./archive-engine-eligibility";
 
 /** Metadata-only bounded closed-day candidate selection. Reads job receipts and
  * the job-leading context index only; never an evaluation row. A candidate is
@@ -32,10 +33,12 @@ export async function selectClosedDayCandidates(db: Q, input: { cursor: { asOfDa
       input.cutoffObservedAt, input.limit])).rows;
     const candidates = rows.map(r => ({ generation: { businessId: r.business_id, jobRunId: r.job_run_id, asOfDate: r.as_of_date,
       engineVersion: r.engine_version }, evaluations: Number(r.row_count), contexts: Number(r.contexts), finishedAt: r.finished_at,
+      // D149: the receipt's engine decides archive eligibility FIRST (typed veto; the header stays, never a WHERE skip).
       // Over-cap originals are reported as a real refusal, never silently skipped or subset.
-      metadataVeto: Number(r.row_count) > (input.maxEvaluations ?? 1134) ? `FINITE_ORIGINAL_POPULATION_EXCEEDED:${Number(r.row_count)}>${input.maxEvaluations ?? 1134}` :
+      metadataVeto: archiveEngineVeto(r.engine_version) ??
+        (Number(r.row_count) > (input.maxEvaluations ?? 1134) ? `FINITE_ORIGINAL_POPULATION_EXCEEDED:${Number(r.row_count)}>${input.maxEvaluations ?? 1134}` :
         Number(r.contexts) < 1 || Number(r.contexts) > 4 ? "CONTEXT_COUNT_OUTSIDE_1_4" :
-        r.later_day !== true ? "SUBSEQUENT_DISTINCT_DAY_SUCCESS_REQUIRED" : null }));
+        r.later_day !== true ? "SUBSEQUENT_DISTINCT_DAY_SUCCESS_REQUIRED" : null) }));
     const last = rows.at(-1);
     return { observedAt: observed.t as string, candidates,
       nextCursor: last ? { asOfDate: last.as_of_date as string, jobRunId: last.job_run_id as string } : c,

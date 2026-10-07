@@ -10,7 +10,7 @@ import { sealCompressedNativeHistoricalArchive, NATIVE_HISTORICAL_COMPRESSED_CAT
 import { persistLocalNativeArchive } from "../../lib/creative-decision-engine/native-historical-local-store";
 import { assessNativeStorageMaintenanceAdmission } from "../../lib/sync/native-storage-maintenance-admission";
 import { collectWholeOriginal } from "./capture";
-import { EVAL, safeError, same, sha256, writeExclusive } from "./common";
+import { EVAL, NATIVE_JOB, safeError, same, sha256, writeExclusive } from "./common";
 import { computeSourcePack, PINNED_LIBRARY_FILES, REPO_ROOT, TSX_LOADER } from "./source-pack";
 import { databaseUrl } from "./backend";
 import { FileBatchJournal, readJournal } from "./journal";
@@ -98,6 +98,29 @@ async function main() {
   const LG = await g(7, 2, [5, 0], "legacy"), E1 = await g(7, 3, [12, 9], "e1"), L7 = await g(7, 4, [6, 0], "l7", true);
   const E2 = await g(6, 2, [0, 15], "e2"), E3 = await g(5, 2, [11, 0], "e3");
   await g(4, 2, [3, 0], "later"); await g(3, 2, [4, 0], "e4"); await g(0, 2, [2, 0], "current");
+  // Archive-engine eligibility headers on the OLDEST closed day, so every from-the-beginning window meets them first:
+  // XU = a complete original of a non-current native engine (with its own later same-engine success receipt, row_count 0,
+  // never a header) that the prior operator would freeze; XK = a successful receipt with unknown engine metadata;
+  // XM = a CURRENT-engine original whose input evidence is absent (must keep failing closed in the existing validation).
+  prod[9] = await seedCalibration(db, t, day(9), clock(day(9), 1));
+  const LEGACY_ENGINE = "v3-ad-2026-07-18-native-shadow";
+  const XU = await seedGeneration(db, t, { date: day(9), clock: clock(day(9), 1), finishedAt: clock(day(9), 2), producer: prod[9]!,
+    perAccount: [3, 0], tag: "xu", engineVersion: LEGACY_ENGINE });
+  await db.query(`INSERT INTO engine_v3_job_runs (job_name,business_ref_id,business_id,as_of_date,engine_version,status,started_at,finished_at,created_at,row_count)
+    VALUES ($1,$2::uuid,$2,$3::date,$4,'success',$5::timestamptz,$6::timestamptz,$5::timestamptz,0)`, [NATIVE_JOB, t.business, day(2), LEGACY_ENGINE, clock(day(2), 1), clock(day(2), 2)]);
+  const XK = { jobRunId: (await db.query(`INSERT INTO engine_v3_job_runs (job_name,business_ref_id,business_id,as_of_date,engine_version,status,started_at,finished_at,created_at,row_count)
+    VALUES ($1,$2::uuid,$2,$3::date,'','success',$4::timestamptz,$5::timestamptz,$4::timestamptz,2) RETURNING id::text id`, [NATIVE_JOB, t.business, day(9), clock(day(9), 1),
+    clock(day(9), 3)])).rows[0].id as string };
+  const XM = await g(9, 4, [2, 0], "xm");
+  // XL = a successful receipt whose engine text the job DDL accepts (TEXT, no length bound) but is far longer than any
+  // persisted veto code may be: it must still record a constant typed veto and never stall owner/frontier recording.
+  const XL = { jobRunId: (await db.query(`INSERT INTO engine_v3_job_runs (job_name,business_ref_id,business_id,as_of_date,engine_version,status,started_at,finished_at,created_at,row_count)
+    VALUES ($1,$2::uuid,$2,$3::date,$4,'success',$5::timestamptz,$6::timestamptz,$5::timestamptz,2) RETURNING id::text id`, [NATIVE_JOB, t.business, day(9),
+    `v3-ad-legacy-${"x".repeat(320)}`, clock(day(9), 1), clock(day(9), 5)])).rows[0].id as string };
+  const evidenceRemoved = (await db.query(`DELETE FROM engine_v3_ad_decision_input_evidence i USING (SELECT DISTINCT contract_version,input_hash FROM engine_v3_ad_decision_evaluations
+      WHERE job_run_id=$1::uuid) k WHERE i.contract_version=k.contract_version AND i.input_hash=k.input_hash AND NOT EXISTS (SELECT 1 FROM engine_v3_ad_decision_evaluations o
+      WHERE o.job_run_id<>$1::uuid AND o.contract_version=k.contract_version AND o.input_hash=k.input_hash)`, [XM.jobRunId])).rowCount;
+  assert.ok((evidenceRemoved ?? 0) > 0, "XM_EVIDENCE_NOT_REMOVED");
   await db.query("ANALYZE");
   // An OLD existing sampler row (well over 60 s before any admission).
   await db.query(`INSERT INTO system_capacity_snapshots (source,hostname,sampled_at,payload) VALUES ('db_host_healthcheck','adsecute-db-1',clock_timestamp()-interval '10 minutes',$1::jsonb)`,
@@ -220,7 +243,7 @@ async function main() {
   step = "plan";
   const p1 = purpose(), cutoff = new Date().toISOString();
   const plan1 = await productionPlan({ host: hostFile, purpose: p1, cutoff, review, limit: "32", "max-units": "2" }, transport) as any;
-  checks.p1Plan = { units: plan1.units?.map((u: any) => u.evaluations), vetoes: plan1.vetoes?.map((v: any) => v.code).sort() };
+  checks.p1Plan = { units: plan1.units?.map((u: any) => u.evaluations), contexts: plan1.units?.map((u: any) => u.contexts), vetoes: plan1.vetoes?.map((v: any) => v.code).sort() };
 
   step = "cadence-prefix-record";
   // RCW1: the real plan must record its settled, dated candidate prefix; E3 broke the maxUnits loop unsettled.
@@ -233,6 +256,29 @@ async function main() {
     breakCandidateIsUnsettledE3: same(ex1.breakCandidate, { asOfDate: day(5), jobRunId: E3.jobRunId }),
     orderedDatedPrefix: (ex1.dispositions as any[]).every((d, i, a) => /^\d{4}-\d{2}-\d{2}$/.test(d.candidate.asOfDate) && (i === 0 || cmpCursor(a[i - 1].candidate, d.candidate) < 0)),
     outcomes: (ex1.dispositions as any[]).map(d => d.outcome === "unit" ? "unit" : `${d.code}:${d.permanence}`).sort() };
+
+  step = "archive-engine-eligibility";
+  // Mixed headers stay fully dispositioned in the exact chronological prefix; only the current engine may reach a freeze.
+  const labelOf = new Map<string, string>([[XU.jobRunId, "unsupported"], [XK.jobRunId, "unknown"], [XM.jobRunId, "supportedMissingEvidence"],
+    [XL.jobRunId, "unknownLongEngine"]]);
+  const headerOrder = [...labelOf.keys()].sort();
+  const appSequence = async () => (await new ProductionHostBatchBackend(host, JSON.parse(await readFile(join(OP, "batches", p1, "plan.json"), "utf8")), review, transport).status()).sequence as any[];
+  const frozenFor = (seq: any[], p: string) => new Set(seq.filter(e => e.identity?.purpose === p && e.stage === "plan" && e.identity?.stageOp === "freeze")
+    .map(e => e.identity.unitJobRunIds?.[0]));
+  const p1Frozen = frozenFor(await appSequence(), p1);
+  const bypassDb = await connect(source, srcDb), bypassSql: string[] = [];
+  const bypass = await collectWholeOriginal({ query: (sql: string, values?: unknown[]) => { bypassSql.push(sql); return bypassDb.query(sql, values); } } as never,
+    { generation: { businessId: t.business, jobRunId: XU.jobRunId, asOfDate: day(9), engineVersion: LEGACY_ENGINE }, expectedEvaluations: 3, expectedContexts: 1,
+      sourceRevision: RUNTIME, consumerInventorySha256: pack.sourceManifestSha256 }).then(() => "NO_REFUSAL", e => safeError(e).code);
+  await bypassDb.end();
+  cadence.engineEligibility = {
+    p1: Object.fromEntries((ex1?.dispositions ?? []).filter((d: any) => labelOf.has(d.candidate.jobRunId))
+      .map((d: any) => [labelOf.get(d.candidate.jobRunId), d.outcome === "unit" ? "unit" : `${d.code}:${d.permanence}`])),
+    headersFirstInChronologicalPrefix: same((ex1?.dispositions ?? []).slice(0, 4).map((d: any) => d.candidate.jobRunId), headerOrder) &&
+      (ex1?.dispositions ?? []).slice(0, 4).every((d: any) => d.candidate.asOfDate === day(9)),
+    freezeDispatched: Object.fromEntries([...labelOf].map(([id, label]) => [label, p1Frozen.has(id)])),
+    directCaptureOfUnsupported: { refusal: bypass, sqlStatements: bypassSql.length, evaluationSqlIssued: bypassSql.some(x => x.includes(EVAL)) },
+  };
 
   step = "cadence-second-owner-while-planned";
   // RCW2: a second real plan while P1 is planned (not executed) on the same private operator root.
@@ -438,6 +484,13 @@ async function main() {
   const tVeto = purpose(), vetoScan = await planT(tVeto, { limit: "2" });
   const exVeto = await examinedRecord(rootT, tVeto);
   const frontierT = exVeto?.examinedThrough ? `${exVeto.examinedThrough.asOfDate}:${exVeto.examinedThrough.jobRunId}` : undefined;
+  const expectedHead: Record<string, string> = { unsupported: "ARCHIVE_ENGINE_UNSUPPORTED", unknown: "ARCHIVE_ENGINE_METADATA_UNKNOWN", supportedMissingEvidence: "SOURCE_CAPTURE_REFUSED",
+    unknownLongEngine: "ARCHIVE_ENGINE_METADATA_UNKNOWN" };
+  Object.assign(cadence.engineEligibility as Record<string, unknown>, {
+    allVetoWindowIsFirstTwoHeadersWithTypedCodes: same((exVeto?.dispositions ?? []).map((d: any) => d.candidate.jobRunId), headerOrder.slice(0, 2)) &&
+      (exVeto?.dispositions ?? []).every((d: any) => d.outcome === "veto" && d.code.split(":")[0] === expectedHead[labelOf.get(d.candidate.jobRunId)!]),
+    frontierAdvancedExactlyToSecondHeader: exVeto?.examinedThrough?.jobRunId === headerOrder[1],
+    tVetoFreezeOnlySupported: [...frozenFor(await appSequence(), tVeto)].every(id => labelOf.get(id) === "supportedMissingEvidence") });
   const tUnit = purpose(), unitPlan = await planT(tUnit, frontierT ? { cursor: frontierT } : {}).catch(e => ({ refused: safeError(e).code }));
   const abandon = typeof cli.abandonPurpose === "function"
     ? await refusal(() => cli.abandonPurpose({ host: hostT, purpose: tUnit })) : "ABANDON_COMMAND_ABSENT";
@@ -539,7 +592,15 @@ async function main() {
   step = "cadence-final";
   assert.deepEqual(cadence, {
     prefixRecord: { throughIsLastSettledUnit: true, planReportsThrough: true, breakCandidateIsUnsettledE3: true, orderedDatedPrefix: true,
-      outcomes: ["ALREADY_ARCHIVED_ROUTE:permanent", "RETAINED_SNAPSHOT_VETO:permanent", "unit", "unit"] },
+      outcomes: ["ALREADY_ARCHIVED_ROUTE:permanent", "RETAINED_SNAPSHOT_VETO:permanent", "unit", "unit", "ARCHIVE_ENGINE_UNSUPPORTED:permanent",
+        "ARCHIVE_ENGINE_METADATA_UNKNOWN:transient", "ARCHIVE_ENGINE_METADATA_UNKNOWN:transient", "SOURCE_CAPTURE_REFUSED:transient"].sort() },
+    engineEligibility: {
+      p1: { unsupported: "ARCHIVE_ENGINE_UNSUPPORTED:permanent", unknown: "ARCHIVE_ENGINE_METADATA_UNKNOWN:transient",
+        supportedMissingEvidence: "SOURCE_CAPTURE_REFUSED:transient", unknownLongEngine: "ARCHIVE_ENGINE_METADATA_UNKNOWN:transient" },
+      headersFirstInChronologicalPrefix: true,
+      freezeDispatched: { unsupported: false, unknown: false, supportedMissingEvidence: true, unknownLongEngine: false },
+      directCaptureOfUnsupported: { refusal: "ARCHIVE_ENGINE_UNSUPPORTED", sqlStatements: 0, evaluationSqlIssued: false },
+      allVetoWindowIsFirstTwoHeadersWithTypedCodes: true, frontierAdvancedExactlyToSecondHeader: true, tVetoFreezeOnlySupported: true },
     secondPlanWhileOwnerPlanned: "OWNER_LEASE_HELD:P1", secondPlanWhileOwnerPaused: "OWNER_LEASE_HELD:P1",
     p1ReleaseOutcome: "finished", nullCursorAfterTerminalProgress: "CURSOR_BEHIND_CHAIN_FRONTIER_WOULD_RESCAN",
     aheadCursorSkippingUnexamined: "CURSOR_AHEAD_OF_FRONTIER_WOULD_SKIP_UNEXAMINED", secondPlanWhileOwnerAmbiguous: "OWNER_LEASE_HELD:P2",

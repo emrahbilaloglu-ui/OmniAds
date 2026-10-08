@@ -1558,6 +1558,9 @@ interface MetaMobileManualAction {
 interface MetaMobileQueueRowModel {
   id: string;
   name: MetaDecisionCenterExactDisplayValue;
+  identityContext?: MetaDecisionCenterExactCreativeDecisionViewModel["identityContext"];
+  evidenceRequirements?: readonly string[];
+  confidenceExplanation?: string;
   meta?: MetaDecisionCenterExactDisplayValue;
   /** Server-provided creative preview; absent for structure rows. */
   thumbnailUrl?: string | null;
@@ -1636,6 +1639,9 @@ function mobileQueueRowsForLane(
     return creativeRows.map((row) => ({
       id: row.id,
       name: row.name,
+      identityContext: row.identityContext,
+      evidenceRequirements: row.evidenceRequirements,
+      confidenceExplanation: row.confidenceExplanation,
       meta: row.kindShort,
       thumbnailUrl: row.thumbnailUrl,
       thumbnailRecoveryUrl: row.thumbnailRecoveryUrl,
@@ -1843,6 +1849,9 @@ function MetaMobileCreativeEvidenceScreen({
               evidencePreview
             />
             <h2>{mobileDisplay(viewModel.name)}</h2>
+            {viewModel.identityContext ? (
+              <p data-mobile-creative-identity>{viewModel.identityContext}</p>
+            ) : null}
             {subtitle ? <p>{subtitle}</p> : null}
           </div>
           {viewModel.readNotice ? (
@@ -1909,6 +1918,15 @@ function MetaMobileCreativeEvidenceScreen({
               {reason}
             </p>
           ))}
+          {viewModel.requirements?.length || viewModel.confidenceExplanation || viewModel.commercialBasis ? (
+            <div className="ad-mobile-copy" data-mobile-creative-requirements>
+              <strong>Decision evidence and requirements</strong>
+              {(viewModel.requirements ?? []).map((requirement, index) => <p key={index}>{requirement}</p>)}
+              {viewModel.confidenceExplanation ? <p>{viewModel.confidenceExplanation}</p> : null}
+              {viewModel.commercialBasis ? <p>{viewModel.commercialBasis}</p> : null}
+              <p>Sample readiness alone does not authorize a change. Configuration, role, freshness and operational checks remain separate.</p>
+            </div>
+          ) : null}
           {additionalVerificationContext ? (
             <details
               className="ad-mobile-copy"
@@ -1972,6 +1990,9 @@ function MetaMobileCreativeEvidenceScreen({
 function MetaMobileQueueRow({
   id,
   name,
+  identityContext,
+  evidenceRequirements,
+  confidenceExplanation,
   meta,
   thumbnailUrl,
   thumbnailRecoveryUrl,
@@ -1993,6 +2014,9 @@ function MetaMobileQueueRow({
 }: {
   id: string;
   name: MetaDecisionCenterExactDisplayValue;
+  identityContext?: MetaDecisionCenterExactCreativeDecisionViewModel["identityContext"];
+  evidenceRequirements?: readonly string[];
+  confidenceExplanation?: string;
   meta?: MetaDecisionCenterExactDisplayValue;
   thumbnailUrl?: string | null;
   thumbnailRecoveryUrl?: string | null;
@@ -2040,6 +2064,11 @@ function MetaMobileQueueRow({
           mobile
         />
         <h3>{mobileDisplay(name)}</h3>
+        {identityContext ? (
+          <p data-mobile-creative-identity>
+            Campaign: {identityContext.campaignName ?? "unknown"} · Ad set: {identityContext.adsetName ?? "unknown"} · Ad: {identityContext.adId ?? "unknown"}
+          </p>
+        ) : null}
         {meta ? <p data-tone="caution">{mobileDisplay(meta)}</p> : null}
         {/* The served state, before the decision label. A row the engine
             blocked must not read here as an ordinary recommendation. */}
@@ -2090,6 +2119,10 @@ function MetaMobileQueueRow({
             {mobileDisplay(blockedNote)}
           </p>
         ) : null}
+        {(evidenceRequirements ?? []).map((requirement, index) => (
+          <p key={index} data-mobile-creative-requirement>{requirement}</p>
+        ))}
+        {confidenceExplanation ? <p data-mobile-creative-confidence>{confidenceExplanation}</p> : null}
       </div>
       <div className="ad-mobile-row-footer">
         {!isBlockedCreative &&

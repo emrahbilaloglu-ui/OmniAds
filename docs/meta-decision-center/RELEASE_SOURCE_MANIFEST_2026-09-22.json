@@ -1,5 +1,5 @@
 {
-  "manifestHash": "1e2f12cf82395ba509bf72248440b34b7f1ef0fbe708a8277c26dc4c35b541b1",
+  "manifestHash": "4cfa541b7726ba1544ed45a03dcf4e48c297ff6a357a3338a6ecc86d15b24828",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -680,11 +680,11 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.tsx",
-      "sha256": "25dc32e6c1db55a748c01b7d055089d25b21bfce1ee48a18abc6ebd1323b1aa9"
+      "sha256": "2df2244f3f9409c53ad361e5751821ae752258f4d48acd70ea3adf946db3a539"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.wiring.test.tsx",
-      "sha256": "5bb1b867cca23c2075926fbd71aa325e4690cfe88bd52805693bea80477476f6"
+      "sha256": "d54f10cfa5eec47d8d8a7552bb3c45df54791920b6f02452b34c22b7344e5109"
     },
     {
       "path": "components/meta/redesign/MetaUpperFunnelInformationalCard.test.tsx",
@@ -812,7 +812,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "e228f8d782263719542fa5ccc3c20e15082015cc55df4748d1587925000ba318"
+      "sha256": "2670961d4c79d94b07d50bc7536bd674f816c795c1281b055f1c6ebee0424489"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -848,7 +848,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "613873f8521e9a67b38de45552c6089c0bc0a5a799db587fffed1210b3d9d1d4"
+      "sha256": "4aae91a771c96274b9a9471c7fd22bf37e73808c945767d5bb352721520c7fd5"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -2132,15 +2132,15 @@
     },
     {
       "path": "lib/meta/decision-evidence-presentation.db.test.ts",
-      "sha256": "f02a055758785eafb106defd06e16ae303f5a3594e88cf0c57c515c32e67af5c"
+      "sha256": "7bc4ac8d77edc7a28728dd93c4734abea0f46dabdf050175b03b5d876764573d"
     },
     {
       "path": "lib/meta/decision-evidence-presentation.test.ts",
-      "sha256": "d999cb7d96fa1c7d9bd810d4265295f0f632f44f4d22b8d92327c2d5ef89559d"
+      "sha256": "517b0c86575c400b048692c060a5dc1a81787d31eba090bbfdef1e4fde831f01"
     },
     {
       "path": "lib/meta/decision-evidence-presentation.ts",
-      "sha256": "897b1ad966b04e9926656a8a3a8fff036df090cfa872f094970b1d7fa5fa5596"
+      "sha256": "f94fbe20ab238e9c9def08a4ce07c4b80cfe3890379884832e53585d9c610862"
     },
     {
       "path": "lib/meta/decision-job-marker.ts",
@@ -2800,7 +2800,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "f28daeeecd76deae11786fd6496471f82a6ce49b539f99a5dff79a67787edf76"
+      "sha256": "2893f841bcfa81f22c0cec681ebc1fe991a5a997d43fbe6afc24b8822666c29e"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

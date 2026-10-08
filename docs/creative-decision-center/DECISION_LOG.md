@@ -12680,3 +12680,22 @@ Creative grouping coverage uses all provider creative IDs contributing to the
 same totals. The native-ad seam mirrors optional read-side receipt columns;
 legacy fixture receipts remain unknown. Only fresh, measured capacity reasons
 are classified as capacity refusal; unavailable measurements remain unknown.
+
+D152 live acceptance correction (2026-10-08): exact-cell AOV is not the D091
+physical-account numerator. The first live presentation showed TheSwaf's cell
+AOV236.51/15 purchases beside the correct recorded account spend unit98.2345,
+whose original physical-account receipt is196.4691/1012 purchases and Target
+ROAS2. The explanation now projects only that original embedded account AOV
+receipt, checking its ready status, account/currency identity and cutoff against
+the referenced cell. Missing/mismatched receipts remain unknown; no cell,
+Shopify or current/latest fallback is permitted. Native evaluations, decisions,
+thresholds and hashes are unchanged. Distinct-grain unit and real-PG fixtures
+prevent equal-value fixtures from masking this error again.
+
+D152 responsive acceptance correction (2026-10-08): the mobile queue and
+creative evidence screen now carry the same original identity, quantitative
+requirements, confidence basis and commercial explanation already projected
+for desktop. These are display-only fields from the shared view models; no
+client action, sorting or authority calculation is introduced. A mounted
+mobile card-to-detail test checks exact Ad/parent identity and the original
+6/20 Ad ROAS-ratio requirement across the click-through.

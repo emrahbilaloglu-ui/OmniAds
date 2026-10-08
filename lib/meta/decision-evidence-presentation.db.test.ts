@@ -10,8 +10,14 @@ describe.runIf(process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1")("original calibra
   const cell = { ...common, id: id(3), batch_id: id(4), batch_input_manifest_hash: common.input_manifest_hash,
     cell_scope: "objective_cohort_context", objective: "sales", funnel_cohort: "purchase", optimization_context: "purchase",
     sample_window_start: "2026-09-08", sample_window_end: "2026-10-06", account_currency: "USD", target_roas: 2, break_even_roas: 1.7,
-    meta_attributed_aov_mean_90d: 196, meta_attributed_aov_purchase_count_90d: 1012,
-    action_readiness_json: { scale: { observedSampleCount: 5, requiredSampleCount: 30, ready: false } } };
+    meta_attributed_aov_mean_90d: 236.51, meta_attributed_aov_purchase_count_90d: 15,
+    action_readiness_json: { scale: { observedSampleCount: 5, requiredSampleCount: 30, ready: false },
+      spendUnitAuthority: { basis: "physical_account_purchase_aov_90d", baseSpendUnit: 98.23452569169956,
+        accountAovEvidence: { status: "ready", scope: "business_provider_account_currency",
+          businessId: common.business_id, providerAccountRefId: common.provider_account_ref_id,
+          providerAccountId: common.provider_account_id, accountCurrency: "USD", asOfCutoff: common.as_of_cutoff,
+          sampleWindowStart: "2026-07-10", sampleWindowEnd: "2026-10-07",
+          meanAov: 196.46905138339912, observedPurchaseCount: 1012 } } } };
   const query = `SELECT ${NATIVE_CALIBRATION_PRESENTATION_JSON_SQL} AS evidence FROM engine_v3_ad_decision_snapshots_daily snapshot ${NATIVE_CALIBRATION_PRESENTATION_JOIN_SQL}`;
   const insert = async (table: string, data: unknown) => client.query(`INSERT INTO ${table} SELECT * FROM jsonb_populate_record(NULL::${table}, $1::jsonb)`, [JSON.stringify(data)]);
   beforeAll(async () => {
@@ -43,6 +49,14 @@ describe.runIf(process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1")("original calibra
     await insert("engine_v3_ad_account_calibration_batches", { ...common, id: id(6), completeness_status: "complete", completed_at: "2026-10-07T16:00:00Z" });
     const value = readMetaDecisionCalibrationEvidence((await client.query(query)).rows[0].evidence);
     expect(value).toMatchObject({ rowId: id(3), batchId: id(4), readiness: { scale: { observed: 5, required: 30, ready: false } } });
+    expect(value).toMatchObject({ metaAov: 196.46905138339912, metaAovPurchases: 1012,
+      metaAovWindowStart: "2026-07-10", metaAovWindowEnd: "2026-10-07" });
+    expect(value!.metaAov! / value!.targetRoas!).toBeCloseTo(value!.baseSpendUnit!, 10);
+  });
+  it("keeps a missing physical-account receipt unknown while the calibration sample remains readable", async () => {
+    await client.query("UPDATE engine_v3_ad_account_calibration_daily SET action_readiness_json=action_readiness_json #- '{spendUnitAuthority,accountAovEvidence}'");
+    const value = readMetaDecisionCalibrationEvidence((await client.query(query)).rows[0].evidence);
+    expect(value).toMatchObject({ metaAov: null, metaAovPurchases: null, readiness: { scale: { observed: 5, required: 30 } } });
   });
   it("never borrows another account's referenced cell", async () => {
     await client.query("UPDATE engine_v3_ad_account_calibration_daily SET provider_account_id='act_foreign'");

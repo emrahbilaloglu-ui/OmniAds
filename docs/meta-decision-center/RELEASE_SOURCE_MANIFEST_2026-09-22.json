@@ -1,5 +1,5 @@
 {
-  "manifestHash": "acabf1fc46b36b15739c8b614d626fe7f5387bc4f2d4cfcfa52c9ee88ea92f41",
+  "manifestHash": "8c7decf41fcbbe280b694e595c73e052f42e72aa3ea6995b2a0f21952d6bcd45",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -672,7 +672,7 @@
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.refetch-resilience.test.tsx",
-      "sha256": "f8b5d5298262b8cc2785ea7ac2e498d579b9c6e64acd5a3b0e1bed7a4304d455"
+      "sha256": "ba4b0541f28293b07d121c7f23f9b77cd3ee4115c3034b0f1640c60f9f6c3093"
     },
     {
       "path": "components/meta/redesign/MetaPlatformPage.test.tsx",

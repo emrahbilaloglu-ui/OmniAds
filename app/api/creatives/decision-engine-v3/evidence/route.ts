@@ -275,7 +275,7 @@ async function readPersistedNativeEvidence(input: {
      AND context.contract_version = evaluation.contract_version
      AND context.job_run_id = evaluation.job_run_id
     WHERE snapshot.business_ref_id = $1::uuid
-      AND snapshot.business_id = $1
+      AND snapshot.business_id = $1::text
       AND snapshot.provider_account_id = $2
       AND snapshot.provider_account_ref_id = $3::uuid
       AND snapshot.ad_id = $4

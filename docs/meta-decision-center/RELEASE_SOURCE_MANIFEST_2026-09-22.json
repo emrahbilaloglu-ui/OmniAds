@@ -1,5 +1,5 @@
 {
-  "manifestHash": "5e90d75294ede58fe4c4260ba0a961ed2495c1e8ee3fa2a22a444a7070430b98",
+  "manifestHash": "859d311891e4ae3708f78b5fe72939854bb3a07120df8e4b63eca5c6c38c453a",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -152,11 +152,11 @@
     },
     {
       "path": "app/(dashboard)/select-business/page.tsx",
-      "sha256": "3ae52770108e6605b2b1c31d7867f47f1f88709d5a5e312e508cbf374916e8b2"
+      "sha256": "965d8438b3778db83e31bde369b97f49a035621cedc00f6ebe05f3b771f8df6d"
     },
     {
       "path": "app/api/admin/businesses/[businessId]/route.ts",
-      "sha256": "5a4e534911f61f6ad979abf1bbedb59c33b8253c426cc3c95d29385f45d5aa03"
+      "sha256": "4c91a87c26b9162614abc381d70f3bbfd1891a6726cc12e5a6ee796383adc2f9"
     },
     {
       "path": "app/api/business-commercial-settings/route.test.ts",
@@ -164,11 +164,11 @@
     },
     {
       "path": "app/api/businesses/[businessId]/route.test.ts",
-      "sha256": "6902950002009a9d3f0a3233e5f74a9120a715f0a7f134a2d3b576ca74304938"
+      "sha256": "ca8e492a58703bfbd80160e7fae1b47ec501bc035a55d7608f4e9c50aca6ffbc"
     },
     {
       "path": "app/api/businesses/[businessId]/route.ts",
-      "sha256": "eed6a13c9323035a94c04a0afb606ea6597c00d2fce4f34fbddad4fb51530c2a"
+      "sha256": "8612077e1037b9af019c36b575fa5cf996efa48bd89591709d0fe71018b472da"
     },
     {
       "path": "app/api/creatives/briefing/canonical-projection.test.ts",
@@ -784,7 +784,7 @@
     },
     {
       "path": "docs/architecture/business-deletion-repair.md",
-      "sha256": "b0827cdf58acd57388b49e1cee8f9cdf0e567766251ceadd46f0596921e82e1c"
+      "sha256": "4648a946871d4c5e921d9302a1c0e0e5027b9cb010b7bff3da640962c5be3de8"
     },
     {
       "path": "docs/architecture/migration-replay-worker-recovery.md",
@@ -840,7 +840,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "1211e6ca6ec340fe536eaed84959f20e821cbaede5954ee3c1fbecb12a321cb2"
+      "sha256": "c24c1ee57a05ca5be7e1163e702a413bc7fdd2fe68083081f220d7a9ca4f9c0b"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -876,7 +876,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "4aae91a771c96274b9a9471c7fd22bf37e73808c945767d5bb352721520c7fd5"
+      "sha256": "10317aca49cee1079c8639a50bd3f81e864356766b901a71acbed4795a0819cd"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -888,7 +888,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "4624e0558104fa2d03d1985698a200683eb7edad4d048f3537204c517963a538"
+      "sha256": "3202ed69823a2b4384de7f2999c7a7f2bc9911affc30e4caaba9a8b4b81fbc75"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -955,12 +955,20 @@
       "sha256": "10a8f0f90713e1038b9fd2d6eecf9ec78ce858aefa00a7266007cb030263239b"
     },
     {
+      "path": "lib/business-deletion-files.test.ts",
+      "sha256": "1cf7cd912136797647ac808df25c17aa0a277d48410cb53448e4b451bcb65006"
+    },
+    {
+      "path": "lib/business-deletion-files.ts",
+      "sha256": "f25697593c546a15ebd5e6424df328d5ad76397f8abac9c8d5517648812ae8ad"
+    },
+    {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "0e2a22263ac8cc1f3c08dac68da4870de2de1ac49fd7d8f9fc4650f33db62db5"
+      "sha256": "9def979f75042405b82204e0b9a7363a8ae70f851a2826dffdaf8134e326e0b6"
     },
     {
       "path": "lib/business-deletion.ts",
-      "sha256": "2987fdea8a4fa26dd8b341a33a90a994b764642ffb53eae6e339f672943d289b"
+      "sha256": "3f938f9a05e8a29f80d4984d2828ed105fd8b13a46c1fc99ee84f34f241c4396"
     },
     {
       "path": "lib/creative-decision-center/__tests__/v3-bridge.test.ts",
@@ -1740,7 +1748,7 @@
     },
     {
       "path": "lib/meta/__tests__/campaign-labels-isolation.test.ts",
-      "sha256": "5a53c8d87b67b8f9c540cf2af5f23665b218235cf605b9038a3f8dd11dd20564"
+      "sha256": "0848f28b95892801f8f3562a588aa48a6cc65034d99f2bb3871d65bacf743985"
     },
     {
       "path": "lib/meta/__tests__/campaign-role-vocabulary-closure.test.ts",
@@ -2840,7 +2848,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "8e7c0aa9f66e8c6e7f13faed2df79a7ffc6e74dbe4ae3a1feab2e7a8c8b639eb"
+      "sha256": "ab6ee3495b564dca3d4254eb7df3e57faef209c61769d1342a3c1b1d5b0a7651"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

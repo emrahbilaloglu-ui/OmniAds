@@ -12699,3 +12699,53 @@ for desktop. These are display-only fields from the shared view models; no
 client action, sorting or authority calculation is introduced. A mounted
 mobile card-to-detail test checks exact Ad/parent identity and the original
 6/20 Ad ROAS-ratio requirement across the click-through.
+
+## D153 — Explicit whole-business erasure including protected history (2026-10-08)
+
+The owner explicitly requires: when a business is deleted, all of its application
+records are deleted. This supersedes the earlier limited business teardown's
+protected-history refusal for authenticated whole-business offboarding only.
+Ordinary snapshot retention, original/archive authority, immutable producer
+writes and D146/D150 finite storage lifecycle remain unchanged.
+
+`deleteBusinessWithData` checks the reviewed ownership catalog across schemas,
+locks all scoped/indirect tables in a deterministic order, keeps FK enforcement,
+and removes child records before parents. It transactionally suspends only the
+twenty reviewed immutable DELETE triggers under SHARE ROW EXCLUSIVE locks,
+restores their original modes and verifies restoration before commit. Other
+writers cannot enter while the exception is in effect. Unknown ownership or
+guards, missing guard/index prerequisites, conflicting owners and active work
+refuse. Failure rolls database data and trigger modes back together; there is no
+persistent bypass flag, FK bypass, new engine or age-based pruning.
+
+Owned retained decisions, outcomes, frozen campaign labels, native calibrations,
+context objects, operator/controlled-action history and normalization archives
+are included. Native input-evidence keys are removed only after GLOBAL indexed
+zero-reference proof; shared user/provider identities and genuinely shared keys
+remain owned by other businesses. Reviewed indirect compaction metadata, report
+shares and identifying audit copies are included. Cross-business derived control
+receipts containing the exact UUID are invalidated rather than retained with
+removed-business identifiers; underlying other-business facts stay intact.
+No identifying deletion receipt is recreated after success.
+
+The request verifies exact pinned native archive metadata and a finite local
+census of inactive/staged copies and orphan ciphertext. A target archive or
+unsafe/incomplete external-file cleanup is a typed blocker: never return success
+while a served historical copy remains. The request does not invent a native
+archive destruction operator. Exact business media caches are evicted; derived
+cache eviction may survive DB rollback. Shared backups, WAL and system logs are
+outside application-row erasure; the UI states the backup boundary and lack of
+guaranteed physical DB shrinkage. Backup restoration must respect later erasure.
+
+Validation includes actual migrated PostgreSQL, protected target removal with
+unchanged other-tenant rows, late-FK rollback/guard restoration, a real concurrent
+writer blocked while guards are suspended, and real native-producer GLOBAL input
+reference fixtures including missing-index refusal. Exact release, sequential
+selected-business deletion and independent live absence are separate gates.
+
+The retained-reader ledger's business teardown entry is repinned only after this
+explicit source review. Its new retention wording is this narrowly authorized
+offboarding exception; all other retained roots and ordinary lifecycle roles are
+preserved. The canonical migrations harness adds the three meaningful erasure
+cases, not production DDL. This ADR itself grants no production mutation outside
+an explicitly authorized business deletion and no storage-closure claim.

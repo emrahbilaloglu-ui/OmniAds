@@ -1,78 +1,109 @@
-# Business deletion repair — 2026-10-08
+# Complete business data deletion — 2026-10-08
 
-The old teardown deleted `business_provider_accounts` before its Meta observation
-and native-decision children. A real migrated PostgreSQL reproduces SQLSTATE
-23503 on `meta_entity_observation_runs_binding_fk`. The enclosing transaction
-rolls back; this is not a database-growth admission refusal. The user-facing
-picker also offered deletion to collaborators whom the API refuses.
+Both authenticated DELETE routes use `deleteBusinessWithData`. A successful
+response means the business and its owned application records have been removed,
+including retained decisions, frozen labels, calibrations, protected action
+history, indirect report copies and the optional normalization archive. D153 is
+an explicit whole-business offboarding exception to ordinary retained-history
+policy. It grants no routine retention, age pruning or decision-writer authority.
 
-Both DELETE routes now use `deleteBusinessWithData`. Its reviewed ownership
-allowlist covers the migrated schema plus three optional legacy provider tables.
-Catalog foreign keys determine child-before-parent order. Every DELETE uses the
-one authenticated business ID, with bound values and quoted catalog identifiers.
-Shared users and provider accounts remain; connection credentials cascade from
-only the removed connections. Legacy share payload ownership is used only when
-its explicit ownership columns are null. Sessions lose the deleted active scope.
-The assignment kill switch, advisory lock, business row lock, foreign keys and
-immutable-record triggers stay enabled. Unexpected ownership tables, cycles,
-contradictory owners, live provider leases and active jobs refuse before writes.
-Any later SQL failure rolls the whole transaction back, preserving membership
-and the ability to retry. The API does not claim rollback when a connection or
-commit failure leaves the outcome unknown.
+## Transaction and isolation
 
-## Supported scope and intentional limit
+The assignment kill switch and existing selection advisory lock apply. Catalog
+ownership is checked against an explicit reviewed allowlist across non-system
+schemas; unknown tables, inconsistent owners, unknown DELETE guards, live runner
+leases and running jobs refuse the request. The known legacy compaction schema's
+lineage table is owned data; `keep_runs` and `run_semantics` are removed through
+the exact observation-run IDs before their parents disappear.
 
-This repair supports businesses with removable warehouse/observation history.
-It does **not** authorize deleting protected native calibrations, context objects,
-operator receipts or advertising/controlled-experiment journals. If any scoped
-table has an enabled user DELETE trigger and contains business rows, the route
-returns `409/protected_history` before mutation. This is deliberately conservative,
-including conditional DELETE triggers: no trigger is disabled or bypassed.
-Retained native evaluation/snapshot/context/event lineage and frozen campaign
-labels are also hard pins even where they have no DELETE trigger.
-An explicit controlled-offboarding design is still required for those businesses.
-Do not call this universal deletion support or storage closure.
+All scoped tables and indirect stores are locked in sorted order using SHARE ROW
+EXCLUSIVE. This permits reads and excludes competing writers. Lock acquisition
+waits at most 1.5 seconds. The business row is locked and the ownership catalog
+is reread after locks. Foreign keys stay active; their catalog dependencies set
+child-before-parent order. Only the twenty named, source-reviewed immutable
+DELETE guards are suspended, transactionally, while those locks are held. Their
+original O/A/R modes are restored and read back before commit. Unknown, missing
+or already disabled guards refuse rather than widening this exception. A failed
+statement or commit rolls back database mutations and trigger changes together.
+No `session_replication_role`, FK disabling, global bypass flag or schema change
+is used. Ordinary protected-history mutation remains forbidden.
 
-The optional `db_normalization_orphan_core_legacy` recovery archive is created by
-`scripts/db-normalization-archive-orphans.ts`, outside the migrations. It is a
-reviewed retained table, not a deletion target. Its presence must not prevent
-unrelated business removal. Matching business history still refuses the teardown
-before writes; the archive is preserved unchanged. Other unknown ownership tables
-continue to fail closed.
+Validated equality CHECKs plus a NOT NULL canonical UUID permit indexed native
+ownership reads. Legacy dual-owner rows retain both scope checks and reject
+contradictions. Every scoped table is checked for remaining target rows before
+root deletion. Shared users and provider-account identities are preserved;
+connection-owned credentials cascade and active sessions lose the deleted scope.
 
-Manage Business confirms the business is absent from a fresh authoritative list
-before clearing local state or announcing success. It selects the next workspace
-from that same list and distinguishes a completed deletion from a failed session
-switch. Its confirmation describes
-the permanent local-data effect, preserved provider accounts/backups, possible
-protected-history refusal, and the absence of a guaranteed disk-size reduction.
+Native input keys are captured before evaluations disappear. Only keys with no
+reference from ANY remaining evaluation are collected, in 400-key pages. This
+requires a valid, ready, live, nonpartial btree on `(contract_version,input_hash)`
+and a verified parameterized index-probe plan. The real observed production index
+is not created by this code or run-migrations. Missing prerequisites roll back.
+Genuinely shared input keys remain for the other business that still owns them.
 
-## Validation and live acceptance
+Indirect custom-report shares and identifying admin-audit entries are removed.
+Derived cross-business retention/release/repair receipts containing the exact
+UUID are invalidated as whole receipts; unrelated receipts and underlying other
+business facts remain. The admin route emits only an anonymous deletion count
+receipt, with no removed business ID or name.
 
-`lib/business-deletion.db.test.ts` has thirteen cases on a disposable PostgreSQL
-with the real migrations, registered in the canonical migrations harness. They
-cover the old failure, supported deletion, shared-account/tenant isolation,
-credential/session cleanup, immutable evidence, unknown schema, late-FK rollback,
-live lease refusal, growth-refused removal, conflicting owners, kill switch,
-absent businesses and frozen campaign labels.
-Two cases reproduce the optional legacy archive, checking unrelated deletion
-with the original archive unchanged and target-owned history refusal with no
-loss of access or facts.
-Route and mounted picker tests cover the contract, permissions and fresh readback.
+## External files and archives
 
-Before publication, complete `npm run verify:pre-push`, exact-head CI and image
-gates. No selected production business has been deleted to test this repair.
-After an authorized deployment, the user chooses the exact business and confirms
-its name in the product. Read back business-list absence and scoped cleanup;
-measure database size and capacity admission separately. Protected-history
-refusal must preserve both access and evidence. SQL DELETE frees reusable tuple
-space; it generally does not shrink PostgreSQL files immediately, so this alone
-does not prove that a `pg_database_size` admission gate will reopen.
+Business media files under the exact provider/business UUID cache directory are
+removed and absence checked. Unsafe paths, foreign storage keys and symlinks
+refuse. This derived cache eviction can survive a later database rollback; the
+business and database records remain transactionally protected.
+
+The exact digest-pinned active legacy and routed native archive metadata are
+fully checked within fixed bounds. Inactive/staged local metadata is also scanned
+within a 256-entry/16 MiB census; unowned orphan ciphertext refuses success.
+A remaining target generation, invalid pin,
+missing metadata or failed file cleanup returns `external_cleanup_required` and
+keeps the business. Native archive ciphertext/catalog destruction is deliberately
+not guessed by the web request. An archive-bearing business must first have its
+owned archive copies removed through a separately reviewed archive offboarding
+path; until then the product MUST NOT report successful deletion. Halıcızade and
+Vornom are checked independently against the actual configured catalog before
+any production attempt.
+
+Application deletion is not a claim of forensic erasure of PostgreSQL MVCC/WAL,
+shared system logs, or shared disaster-recovery backups. Shared backups contain
+other businesses and are not destroyed by deleting one business. Restoring an old
+backup must not silently reintroduce removed businesses. Backup-level erasure is
+a separate, currently unsupported boundary, explicitly shown in the confirmation.
+SQL DELETE may free reusable tuple space without reducing `pg_database_size` or
+opening the 163 GiB growth-admission gate.
+
+## Verification and rollout
+
+Sixteen destructive cases run only on a disposable localhost PostgreSQL migrated
+by the actual migrations and are registered in the canonical CI harness. They
+cover legacy FK failure, complete scoped removal, frozen/protected history,
+shared users/accounts, credentials/sessions, unknown tables/guards, late-FK
+rollback with trigger restoration, live leases, growth-refused removal, ownership
+conflicts, the kill switch, absent businesses, indirect compact/report/audit
+copies, native producer calibration/context/evaluation cleanup and GLOBAL shared
+input safety. A real second session proves another tenant's writer times out
+while the first deletion has suspended guards, then proves ordinary immutable
+DELETE still fails after commit. External-file tests cover exact scoped cache
+removal, absent files, unsafe paths and pinned archive blockers.
+
+Manage Business rereads the authoritative list and requires target absence
+before clearing local data or showing success. Active-workspace switching uses
+that fresh list and distinguishes switch failure from deletion failure.
+
+Release requires canonical local checks, exact-head CI, exact main CI/images and
+canonical deployment without break glass. Deployment alone deletes nothing.
+Live acceptance is sequential: Halıcızade, independent UI/API/catalog-indexed
+absence and other-business checks, then Vornom with active-workspace switching.
+Any failure stops the second target until repaired. Database size and fresh
+capacity admission are separate acceptance observations, never inferred from a
+delete response or host health.
 
 ## Rollback
 
-Revert this repair and redeploy the prior image using the canonical release
-workflow. There is no schema migration. A code rollback cannot restore data that
-the user has already permanently deleted; restoration requires the existing
-backup/recovery process. Backups, retention, growth budgets and provider state
-are not changed by this repair. No automatic data deletion runs on deployment.
+There is no migration. Revert the code and redeploy the previous image through
+the normal release workflow. Code rollback restores neither deleted records nor
+evicted files. Completed erasure is permanent in the application; any disaster
+recovery needs explicit scope and must account for deletions after the backup.
+No provider account, advertisement, budget, quota or growth override is changed.

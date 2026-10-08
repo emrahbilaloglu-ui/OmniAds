@@ -439,11 +439,11 @@ export default function SelectBusinessPage() {
           <div className="ad-auth-alert ad-auth-alert-caution">
             <p>
               Delete requires typing <span className="font-semibold">{confirmBusiness.name}</span>.
-              Permanently removes this business and its stored provider data from Adsecute. Your Meta, Google and Shopify accounts are unchanged.
+              Permanently removes this business and all its stored data from Adsecute, including decision history and report copies. Your Meta, Google and Shopify accounts are unchanged.
             </p>
             {hasLinkedData ? (
               <p className="mt-1">
-                Connections, assigned accounts, and share snapshots will also be removed. Protected decision or ad action history can prevent deletion.
+                Connections, assigned accounts, share snapshots, decision and ad action history will also be removed. If an archive or file cannot be removed, deletion is blocked.
               </p>
             ) : null}
             <p className="mt-1">

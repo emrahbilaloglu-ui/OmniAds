@@ -1,6 +1,7 @@
 import { getDb, runDbTransaction } from "@/lib/db";
 import { PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE } from "@/lib/provider-account-assignments";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { assertBusinessExternalDataRemoved, BusinessExternalCleanupError } from "@/lib/business-deletion-files";
 
 /** Explicit ownership allowlist. New tables must be reviewed, never auto-purged. */
 export const BUSINESS_DELETE_TABLES = [
@@ -215,33 +216,48 @@ export const BUSINESS_DELETE_TABLES = [
   "sync_runner_leases",
 ] as const;
 
-/** Retained native lineage, frozen labels and the optional normalization
- * recovery archive have no purge contract. Recognize these reviewed tables,
- * refuse scoped history before writes and never delete even an empty archive. */
-const RETAINED_HISTORY_TABLES = [
-  "engine_v3_ad_decision_evaluations",
-  "engine_v3_ad_decision_snapshots_daily",
-  "engine_v3_ad_decision_evaluation_contexts",
-  "engine_v3_ad_decision_input_evidence",
-  "engine_v3_ad_decision_events",
-  "meta_campaign_labels",
-  "meta_campaign_label_history",
-  "db_normalization_orphan_core_legacy",
-] as const;
+/** Whole-business erasure includes retained lineage and normalization recovery.
+ * These names grant no age-based pruning or ordinary decision writer authority. */
+const ADDITIONAL_DELETE_TABLES = ["db_normalization_orphan_core_legacy", "shopify_install_contexts"] as const;
+const ARCHIVE_SCHEMA = "adsecute_compact_20260726t0204z";
+
+/** Exact reviewed immutable guards. Only a locked whole-business transaction
+ * may suspend these; FKs and all other triggers remain active. */
+const ERASURE_DELETE_GUARDS: Record<string, readonly [string, string, number]> = {
+  "engine_v3_ad_account_calibration_batches": ["engine_v3_native_ad_calibration_batch_immutable_trigger", "engine_v3_native_ad_calibration_batch_immutable", 27],
+  "engine_v3_ad_account_calibration_daily": ["engine_v3_native_ad_calibration_cell_immutable_trigger", "engine_v3_native_ad_calibration_cell_immutable", 31],
+  "engine_v3_ad_campaign_context_objects": ["engine_v3_ad_campaign_objects_immutable", "refuse_native_campaign_context_object_mutation", 27],
+  "engine_v3_ad_decision_outcome_runs": ["trg_engine_v3_ad_outcome_runs_complete_immutable", "reject_complete_engine_v3_ad_outcome_run_mutation", 27],
+  "engine_v3_ad_decision_outcomes_daily": ["trg_engine_v3_ad_outcomes_immutable", "reject_engine_v3_ad_outcome_mutation", 27],
+  "engine_v3_ad_operator_action_receipts": ["engine_v3_ad_operator_action_receipts_immutable", "reject_engine_v3_ad_operator_action_receipt_mutation", 27],
+  "meta_ads_action_log": ["trg_meta_ads_action_log_controlled_verified_immutable", "meta_prevent_verified_controlled_action_mutation", 31],
+  "meta_ads_action_mutation_attempt_events": ["trg_meta_ads_action_mutation_attempt_immutable", "reject_meta_ads_action_mutation_attempt_mutation", 27],
+  "meta_ads_action_reconciliation_events": ["trg_meta_ads_action_reconciliation_immutable", "reject_meta_ads_action_reconciliation_mutation", 27],
+  "meta_ads_duplicate_action_attempt_events": ["trg_meta_ads_duplicate_attempt_immutable", "reject_meta_ads_duplicate_attempt_mutation", 27],
+  "meta_ads_duplicate_action_reconciliation_events": ["trg_meta_ads_duplicate_reconciliation_immutable", "reject_meta_ads_duplicate_reconciliation_mutation", 27],
+  "meta_ads_duplicate_reconciliation_observations": ["trg_meta_ads_duplicate_observation_immutable", "reject_meta_ads_duplicate_observation_mutation", 27],
+  "meta_controlled_assignment_batches": ["trg_meta_controlled_assignment_batches_immutable", "meta_reject_immutable_controlled_registry_write", 27],
+  "meta_controlled_control_estimates": ["trg_meta_controlled_control_estimates_immutable", "meta_reject_immutable_controlled_registry_write", 27],
+  "meta_controlled_control_outcome_observations": ["trg_meta_controlled_control_outcome_observations_immutable", "meta_reject_immutable_controlled_registry_write", 27],
+  "meta_controlled_experiment_arms": ["trg_meta_controlled_experiment_arms_immutable", "meta_reject_immutable_controlled_registry_write", 27],
+  "meta_controlled_experiments": ["trg_meta_controlled_experiments_immutable", "meta_reject_immutable_controlled_registry_write", 27],
+  "meta_controlled_random_assignments": ["trg_meta_controlled_random_assignments_immutable", "meta_reject_immutable_controlled_registry_write", 27],
+  "meta_controlled_seed_reveals": ["trg_meta_controlled_seed_reveals_immutable", "meta_reject_immutable_controlled_registry_write", 27],
+  "meta_decision_action_outcome_logs": ["trg_meta_decision_controlled_outcome_immutable", "meta_prevent_bound_controlled_outcome_mutation", 27],
+};
 
 export class BusinessDeletionError extends Error {
   constructor(
-    readonly code: "not_found" | "protected_history" | "schema_not_ready" | "scope_conflict" | "business_busy",
+    readonly code: "not_found" | "protected_history" | "schema_not_ready" | "scope_conflict" | "business_busy" | "external_cleanup_required",
     readonly tables: string[] = [],
-  ) {
-    super(code);
-    this.name = "BusinessDeletionError";
-  }
+  ) { super(code); this.name = "BusinessDeletionError"; }
 }
 
-type ScopeColumn = { table_name: string; column_name: string; type_name: string };
+type ScopeColumn = { schema_name: string; table_name: string; column_name: string; type_name: string; not_null: boolean; identity_checked: boolean };
 type Dependency = { child_table: string; parent_table: string };
+type DeleteGuard = { table_name: string; trigger_name: string; function_name: string; function_schema: string; enabled: string; trigger_type: number; arguments: number };
 const identifier = (value: string) => `"${value.replaceAll('"', '""')}"`;
+const qualified = (value: string) => value.split(".").map(identifier).join(".");
 
 /** Children first; every FK remains active throughout the transaction. */
 export function orderBusinessDeletionTables(tables: string[], dependencies: Dependency[]): string[] {
@@ -261,108 +277,191 @@ export function orderBusinessDeletionTables(tables: string[], dependencies: Depe
 }
 
 function scopeFor(columns: ScopeColumn[]): string {
-  return columns.map(({ column_name: name, type_name: type }) => {
+  // Validated equality + NOT NULL prove canonical ownership. Avoid an unindexed
+  // text OR forcing a full scan of the native history tables.
+  const canonical = columns.find(c => c.column_name === "business_ref_id" && c.not_null && c.identity_checked);
+  return (canonical ? [canonical] : columns).map(({ column_name: name, type_name: type }) => {
     if (type !== "uuid" && type !== "text") throw new BusinessDeletionError("schema_not_ready");
     return `${identifier(name)} = $1::${type}`;
   }).join(" OR ");
 }
 
+const SCOPE_CATALOG = `SELECT n.nspname AS schema_name, c.relname AS table_name, a.attname AS column_name,
+  t.typname AS type_name, a.attnotnull AS not_null,
+  EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid=c.oid AND k.contype='c' AND k.convalidated
+    AND regexp_replace(pg_get_constraintdef(k.oid), '[[:space:]()]', '', 'g')
+      IN ('CHECKbusiness_id=business_ref_id::text','CHECKbusiness_ref_id::text=business_id')) AS identity_checked
+  FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  JOIN pg_attribute a ON a.attrelid=c.oid JOIN pg_type t ON t.oid=a.atttypid
+  WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%'
+    AND n.nspname NOT LIKE 'pg_temp%' AND c.relkind IN ('r','p') AND a.attnum>0 AND NOT a.attisdropped
+    AND (a.attname IN ('business_id','business_ref_id')
+      OR (n.nspname='public' AND c.relname='shopify_install_contexts' AND a.attname='preferred_business_id'))
+  ORDER BY n.nspname,c.relname,a.attname`;
+
+const ZERO_REFERENCE_INPUTS = `SELECT k.contract_version,k.input_hash::text AS input_hash
+  FROM unnest($1::text[], $2::character(64)[]) k(contract_version,input_hash)
+  WHERE NOT EXISTS (SELECT 1 FROM public.engine_v3_ad_decision_evaluations e
+    WHERE e.contract_version=k.contract_version AND e.input_hash=k.input_hash)`;
+
+function verifyInputReferencePlan(value: unknown, indexes: string[]) {
+  const plan = value as Array<{ Plan: Record<string, unknown> }>;
+  let probes = 0;
+  const walk = (node: Record<string, unknown>) => {
+    if (node["Relation Name"] === "engine_v3_ad_decision_evaluations") {
+      if (!["Index Scan", "Index Only Scan"].includes(String(node["Node Type"]))
+        || !indexes.includes(String(node["Index Name"]))
+        || !/contract_version/.test(String(node["Index Cond"])) || !/input_hash/.test(String(node["Index Cond"])))
+        throw new BusinessDeletionError("schema_not_ready", ["input_evidence_reference_plan"]);
+      probes++;
+    }
+    for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child);
+  };
+  if (!Array.isArray(plan) || plan.length !== 1 || !plan[0]?.Plan) throw new BusinessDeletionError("schema_not_ready");
+  walk(plan[0].Plan);
+  if (!probes) throw new BusinessDeletionError("schema_not_ready", ["input_evidence_reference_plan"]);
+}
+
 export async function deleteBusinessWithData(businessId: string): Promise<void> {
   assertSyncLaneEnabled("assignment_mutation");
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(businessId)) throw new BusinessDeletionError("not_found");
   await runDbTransaction(async () => {
     const sql = getDb();
+    await sql.query("SET LOCAL lock_timeout = '1500ms'");
     await sql`SELECT pg_advisory_xact_lock(${PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE}::int,
       hashtext(${`provider_account_selection:business:${businessId}`}))`;
-    const [business] = await sql`SELECT id FROM businesses WHERE id = ${businessId}::uuid FOR UPDATE`;
-    if (!business) throw new BusinessDeletionError("not_found");
-    const columns = await sql.query<ScopeColumn>(`
-      SELECT c.relname AS table_name, a.attname AS column_name, t.typname AS type_name
-      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-      JOIN pg_attribute a ON a.attrelid = c.oid JOIN pg_type t ON t.oid = a.atttypid
-      WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
-        AND a.attname IN ('business_id', 'business_ref_id')
-      ORDER BY c.relname, a.attname
-    `);
-    const allowed = new Set<string>([...BUSINESS_DELETE_TABLES, ...RETAINED_HISTORY_TABLES]);
-    const unexpected = [...new Set(columns.map((row) => row.table_name))].filter((table) => !allowed.has(table));
-    if (unexpected.length) throw new BusinessDeletionError("schema_not_ready", unexpected);
+    const columns = await sql.query<ScopeColumn>(SCOPE_CATALOG);
+    const allowed = new Set<string>([...BUSINESS_DELETE_TABLES, ...ADDITIONAL_DELETE_TABLES]);
+    const unexpected = columns.filter(c => !(c.schema_name === "public" && allowed.has(c.table_name)
+      || c.schema_name === ARCHIVE_SCHEMA && c.table_name === "meta_creative_lineage_edges"));
+    if (unexpected.length) throw new BusinessDeletionError("schema_not_ready", [...new Set(unexpected.map(c => `${c.schema_name}.${c.table_name}`))]);
     const scopes = new Map<string, ScopeColumn[]>();
-    for (const column of columns) scopes.set(column.table_name, [...(scopes.get(column.table_name) ?? []), column]);
-    const dependencies = await sql.query<Dependency>(`
-      SELECT child.relname AS child_table, parent.relname AS parent_table
-      FROM pg_constraint f JOIN pg_class child ON child.oid = f.conrelid
-      JOIN pg_class parent ON parent.oid = f.confrelid
-      WHERE f.contype = 'f' AND f.connamespace = 'public'::regnamespace
-    `);
-    const ordered = orderBusinessDeletionTables([...scopes.keys()], dependencies);
-    // DELETE guards are authoritative. Never disable triggers or hide a refused
-    // purge behind a successful removal of membership. All checks precede writes.
-    const guarded = await sql.query<{ table_name: string }>(`
-      SELECT DISTINCT c.relname AS table_name FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public' AND NOT t.tgisinternal AND t.tgenabled <> 'D' AND (t.tgtype & 8) <> 0
-    `);
-    const protectedTables: string[] = [];
-    const protectedNames = new Set<string>([...guarded.map((row) => row.table_name), ...RETAINED_HISTORY_TABLES]);
-    for (const table of protectedNames) {
-      const scope = scopes.get(table);
-      if (!scope) continue;
-      const [row] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE (${scopeFor(scope)}) LIMIT 1`, [businessId]);
-      if (row) protectedTables.push(table);
+    for (const c of columns) { const name = `${c.schema_name}.${c.table_name}`; scopes.set(name, [...(scopes.get(name) ?? []), c]); }
+    const existing = new Set((await sql.query<{ name: string }>(`SELECT n.nspname||'.'||c.relname AS name
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p')
+      AND n.nspname IN ('public', '${ARCHIVE_SCHEMA}')`)).map(r => r.name));
+    const indirect = ["public.engine_v3_ad_decision_input_evidence", "public.custom_report_share_snapshots", "public.admin_audit_logs",
+      "public.meta_state_history_compaction_journal", "public.meta_retention_runs", "public.google_ads_retention_runs",
+      "public.sync_repair_plans", "public.sync_release_gates", `${ARCHIVE_SCHEMA}.keep_runs`, `${ARCHIVE_SCHEMA}.run_semantics`];
+    const locked = [...new Set([...scopes.keys(), ...indirect.filter(t => existing.has(t))])].sort();
+    // SHARE ROW EXCLUSIVE permits reads and excludes every competing writer.
+    // Locks and trigger changes are transactional, including rollback/COMMIT failure.
+    try { await sql.query(`LOCK TABLE ${locked.map(qualified).join(", ")} IN SHARE ROW EXCLUSIVE MODE`); }
+    catch (error) { if ((error as { code?: string }).code === "55P03") throw new BusinessDeletionError("business_busy"); throw error; }
+    const [business] = await sql`SELECT id FROM businesses WHERE id=${businessId}::uuid FOR UPDATE`;
+    if (!business) throw new BusinessDeletionError("not_found");
+    if (JSON.stringify(await sql.query<ScopeColumn>(SCOPE_CATALOG)) !== JSON.stringify(columns)) throw new BusinessDeletionError("schema_not_ready");
+    const guards = await sql.query<DeleteGuard>(`SELECT n.nspname||'.'||c.relname AS table_name,t.tgname AS trigger_name,
+      p.proname AS function_name,pn.nspname AS function_schema,t.tgenabled AS enabled,t.tgtype::int AS trigger_type,t.tgnargs::int AS arguments
+      FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+      JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace
+      WHERE NOT t.tgisinternal AND (t.tgtype & 8)<>0 AND n.nspname IN ('public','${ARCHIVE_SCHEMA}') ORDER BY n.nspname,c.relname,t.tgname`);
+    for (const g of guards.filter(g => locked.includes(g.table_name))) {
+      const spec = ERASURE_DELETE_GUARDS[g.table_name.replace(/^public\./, "")];
+      if (!spec || g.table_name !== `public.${g.table_name.split(".")[1]}` || spec[0] !== g.trigger_name
+        || spec[1] !== g.function_name || spec[2] !== g.trigger_type || g.function_schema !== "public" || g.arguments !== 0
+        || !["O", "A", "R"].includes(g.enabled)) throw new BusinessDeletionError("protected_history", [g.table_name]);
     }
-    if (protectedTables.length) throw new BusinessDeletionError("protected_history", protectedTables.sort());
-
+    for (const [table, spec] of Object.entries(ERASURE_DELETE_GUARDS)) {
+      if (scopes.has(`public.${table}`) && !guards.some(g => g.table_name === `public.${table}` && g.trigger_name === spec[0]))
+        throw new BusinessDeletionError("schema_not_ready", [table]);
+    }
     for (const table of ["sync_runner_leases", "google_ads_runner_leases"]) {
-      if (!scopes.has(table)) continue;
-      const [lease] = await sql.query(`SELECT 1 FROM public.${identifier(table)}
-        WHERE business_id = $1::text AND lease_expires_at > clock_timestamp() FOR UPDATE`, [businessId]);
+      if (!scopes.has(`public.${table}`)) continue;
+      const [lease] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE business_id=$1::text AND lease_expires_at>clock_timestamp() LIMIT 1`, [businessId]);
       if (lease) throw new BusinessDeletionError("business_busy", [table]);
     }
     for (const table of ["provider_sync_jobs", "meta_sync_jobs", "meta_sync_partitions", "google_ads_sync_jobs", "google_ads_sync_partitions", "engine_v3_job_runs"]) {
-      const scope = scopes.get(table);
-      if (!scope) continue;
-      const [job] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE (${scopeFor(scope)})
-        AND status IN ('running', 'claimed', 'processing') LIMIT 1 FOR UPDATE`, [businessId]);
+      const scope = scopes.get(`public.${table}`); if (!scope) continue;
+      const [job] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE (${scopeFor(scope)}) AND status IN ('running','claimed','processing') LIMIT 1`, [businessId]);
       if (job) throw new BusinessDeletionError("business_busy", [table]);
     }
-
+    for (const [table, scope] of scopes) {
+      if (scope.length !== 2 || scope.some(c => c.identity_checked)) continue;
+      const [conflict] = await sql.query(`SELECT 1 FROM ${qualified(table)} WHERE (${scopeFor(scope)})
+        AND business_id IS NOT NULL AND business_ref_id IS NOT NULL AND business_id::text<>business_ref_id::text LIMIT 1`, [businessId]);
+      if (conflict) throw new BusinessDeletionError("scope_conflict", [table]);
+    }
+    const dependencies = await sql.query<Dependency>(`SELECT cn.nspname||'.'||child.relname AS child_table,pn.nspname||'.'||parent.relname AS parent_table
+      FROM pg_constraint f JOIN pg_class child ON child.oid=f.conrelid JOIN pg_namespace cn ON cn.oid=child.relnamespace
+      JOIN pg_class parent ON parent.oid=f.confrelid JOIN pg_namespace pn ON pn.oid=parent.relnamespace WHERE f.contype='f'`);
+    const ordered = orderBusinessDeletionTables([...scopes.keys()], dependencies);
+    await sql.query(`CREATE TEMP TABLE business_erasure_input_keys ON COMMIT DROP AS SELECT DISTINCT contract_version,input_hash
+      FROM public.engine_v3_ad_decision_evaluations WHERE (${scopeFor(scopes.get("public.engine_v3_ad_decision_evaluations")!)})`, [businessId]);
+    await sql.query("ALTER TABLE business_erasure_input_keys ADD PRIMARY KEY (contract_version,input_hash)");
+    const [hasKeys] = await sql.query("SELECT 1 FROM business_erasure_input_keys LIMIT 1");
+    let referenceIndexes: string[] = [];
+    if (hasKeys) {
+      referenceIndexes = (await sql.query<{ name: string }>(`SELECT ic.relname AS name FROM pg_index i
+        JOIN pg_class ic ON ic.oid=i.indexrelid JOIN pg_am am ON am.oid=ic.relam
+        JOIN pg_attribute a0 ON a0.attrelid=i.indrelid AND a0.attnum=i.indkey[0]
+        JOIN pg_attribute a1 ON a1.attrelid=i.indrelid AND a1.attnum=i.indkey[1]
+        JOIN pg_opclass o0 ON o0.oid=i.indclass[0] JOIN pg_opclass o1 ON o1.oid=i.indclass[1]
+        JOIN pg_class tc ON tc.oid=i.indrelid
+        WHERE i.indrelid='public.engine_v3_ad_decision_evaluations'::regclass AND am.amname='btree' AND i.indnkeyatts>=2
+          AND a0.attname='contract_version' AND a1.attname='input_hash' AND i.indpred IS NULL AND i.indexprs IS NULL
+          AND i.indisvalid AND i.indisready AND i.indislive AND o0.opcdefault AND o1.opcdefault
+          AND i.indcollation[0]=a0.attcollation AND i.indcollation[1]=a1.attcollation AND NOT tc.relrowsecurity AND NOT tc.relforcerowsecurity`)).map(r => r.name);
+      if (!referenceIndexes.length) throw new BusinessDeletionError("schema_not_ready", ["input_evidence_reference_index"]);
+    }
+    try { await assertBusinessExternalDataRemoved(businessId); }
+    catch (error) { if (error instanceof BusinessExternalCleanupError) throw new BusinessDeletionError("external_cleanup_required"); throw error; }
+    // Indirect copies must go while their authoritative parent IDs still exist.
+    await sql`DELETE FROM custom_report_share_snapshots WHERE report_id IN (SELECT id::text FROM custom_reports WHERE business_id=${businessId})
+      OR payload::text LIKE ${`%${businessId}%`}`;
+    await sql`DELETE FROM admin_audit_logs WHERE (target_type='business' AND target_id=${businessId}) OR meta::text LIKE ${`%${businessId}%`}`;
+    for (const [table, json] of [["meta_retention_runs","summary_json"], ["google_ads_retention_runs","summary_json"],
+      ["sync_repair_plans","payload_json"], ["sync_release_gates","evidence_json"], ["meta_state_history_compaction_journal","detail_json"]]) {
+      if (!existing.has(`public.${table}`)) continue;
+      const arrayScope = table === "meta_state_history_compaction_journal" ? " OR $1::text=ANY(business_ids)" : "";
+      await sql.query(`DELETE FROM public.${identifier(table!)} WHERE ${identifier(json!)}::text LIKE ('%'||$1::text||'%')${arrayScope}`, [businessId]);
+    }
+    for (const table of ["keep_runs","run_semantics"]) {
+      if (existing.has(`${ARCHIVE_SCHEMA}.${table}`)) await sql.query(`DELETE FROM ${qualified(`${ARCHIVE_SCHEMA}.${table}`)} WHERE run_id IN
+        (SELECT id FROM meta_entity_observation_runs WHERE (${scopeFor(scopes.get("public.meta_entity_observation_runs")!)}))`, [businessId]);
+    }
+    const suspended = guards.filter(g => locked.includes(g.table_name));
+    for (const g of suspended) await sql.query(`ALTER TABLE ${qualified(g.table_name)} DISABLE TRIGGER ${identifier(g.trigger_name)}`);
     for (const table of ordered) {
+      if (table === "public.provider_connections") { await sql`DELETE FROM provider_connections WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
+      if (table === "public.business_provider_accounts") { await sql`DELETE FROM business_provider_accounts WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
+      if (table === "public.provider_account_assignments") { await sql`DELETE FROM provider_account_assignments WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
       const scope = scopes.get(table)!;
-      // Conflicting text/canonical owners must never widen this delete to another
-      // tenant. Nullable legacy references are supported, contradictory ones are not.
-      if (scope.length === 2) {
-        const [conflict] = await sql.query(`
-          SELECT 1 FROM public.${identifier(table)}
-          WHERE (${scopeFor(scope)}) AND business_id IS NOT NULL AND business_ref_id IS NOT NULL
-            AND business_id::text <> business_ref_id::text LIMIT 1
-        `, [businessId]);
-        if (conflict) throw new BusinessDeletionError("scope_conflict", [table]);
-      }
+      const legacyShare = table === "public.creative_share_snapshots"
+        ? ` OR (${scope.map(c => `${identifier(c.column_name)} IS NULL`).join(" AND ")} AND payload->>'businessId'=$1::text)` : "";
+      await sql.query(`DELETE FROM ${qualified(table)} WHERE (${scopeFor(scope)})${legacyShare}`, [businessId]);
     }
-    for (const table of ordered) {
-      if (protectedNames.has(table)) continue;
-      // Keep identity writes explicit so the request-path reachability guard can
-      // enforce that only the authenticated DELETE boundary reaches this helper.
-      if (table === "provider_connections") {
-        await sql`DELETE FROM provider_connections WHERE business_id = ${businessId}`;
-        continue;
-      }
-      if (table === "business_provider_accounts") {
-        await sql`DELETE FROM business_provider_accounts WHERE business_id = ${businessId}`;
-        continue;
-      }
-      if (table === "provider_account_assignments") {
-        await sql`DELETE FROM provider_account_assignments WHERE business_id = ${businessId}`;
-        continue;
-      }
-      const scope = scopeFor(scopes.get(table)!);
-      const legacyShareScope = table === "creative_share_snapshots"
-        ? ` OR (${scopes.get(table)!.map(({ column_name: name }) => `${identifier(name)} IS NULL`).join(" AND ")} AND payload->>'businessId' = $1::text)` : "";
-      await sql.query(`DELETE FROM public.${identifier(table)} WHERE (${scope})${legacyShareScope}`, [businessId]);
+    while (hasKeys) {
+      const keys = await sql.query<{ contract_version: string; input_hash: string }>("SELECT contract_version,input_hash::text FROM business_erasure_input_keys ORDER BY contract_version,input_hash LIMIT 400");
+      if (!keys.length) break;
+      const params = [keys.map(k => k.contract_version), keys.map(k => k.input_hash)];
+      await sql.query("SET LOCAL enable_seqscan = off");
+      const plan = await sql.query(`EXPLAIN (FORMAT JSON) ${ZERO_REFERENCE_INPUTS}`, params);
+      verifyInputReferencePlan(plan[0]!["QUERY PLAN"], referenceIndexes);
+      const unreferenced = await sql.query<{ contract_version: string; input_hash: string }>(ZERO_REFERENCE_INPUTS, params);
+      if (unreferenced.length) await sql.query(`DELETE FROM public.engine_v3_ad_decision_input_evidence i USING
+        unnest($1::text[], $2::character(64)[]) k(contract_version,input_hash) WHERE i.contract_version=k.contract_version AND i.input_hash=k.input_hash`,
+      [unreferenced.map(k => k.contract_version), unreferenced.map(k => k.input_hash)]);
+      await sql.query(`DELETE FROM business_erasure_input_keys i USING unnest($1::text[], $2::character(64)[]) k(contract_version,input_hash)
+        WHERE i.contract_version=k.contract_version AND i.input_hash=k.input_hash`, params);
     }
-    // Credentials cascade only from this business's connections. Shared provider
-    // accounts, user identities, global journals and external backups stay intact.
-    await sql`UPDATE sessions SET active_business_id = NULL WHERE active_business_id = ${businessId}`;
-    await sql`DELETE FROM businesses WHERE id = ${businessId}::uuid`;
-  });
+    await sql.query("SET LOCAL enable_seqscan = on");
+    for (const [table, scope] of scopes) {
+      const [remaining] = await sql.query(`SELECT 1 FROM ${qualified(table)} WHERE (${scopeFor(scope)}) LIMIT 1`, [businessId]);
+      if (remaining) throw new BusinessDeletionError("schema_not_ready", [table]);
+    }
+    for (const g of suspended) {
+      const mode = g.enabled === "A" ? "ENABLE ALWAYS" : g.enabled === "R" ? "ENABLE REPLICA" : "ENABLE";
+      await sql.query(`ALTER TABLE ${qualified(g.table_name)} ${mode} TRIGGER ${identifier(g.trigger_name)}`);
+    }
+    // Read back the exact original modes before COMMIT; rollback restores every
+    // suspension automatically if any earlier or later statement fails.
+    const modes = await sql.query<{ table_name: string; trigger_name: string; enabled: string }>(`SELECT n.nspname||'.'||c.relname AS table_name,
+      t.tgname AS trigger_name,t.tgenabled AS enabled FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE NOT t.tgisinternal AND (t.tgtype & 8)<>0`);
+    if (suspended.some(g => !modes.some(m => m.table_name===g.table_name && m.trigger_name===g.trigger_name && m.enabled===g.enabled)))
+      throw new BusinessDeletionError("schema_not_ready", ["trigger_restoration"]);
+    await sql`UPDATE sessions SET active_business_id=NULL WHERE active_business_id=${businessId}`;
+    await sql`DELETE FROM businesses WHERE id=${businessId}::uuid`;
+  }, { timeoutMs: 30_000, deadlineAtMs: Date.now()+120_000 });
 }

@@ -166,8 +166,8 @@ export async function DELETE(
       const messages = {
         not_found: tr ? "İşletme bulunamadı." : "Business not found.",
         protected_history: tr
-          ? "Bu işletmede silinmeye karşı korumalı karar veya reklam işlem geçmişi var. Hiçbir veri silinmedi. Kontrollü veri kaldırma gerekiyor."
-          : "This business has protected decision or ad action history. No data was deleted. A controlled offboarding is required.",
+          ? "İncelenmemiş bir veri koruma kuralı silmeyi engelliyor. İşletme ve veritabanı kayıtları korundu. Destek ile iletişime geçin."
+          : "An unreviewed data protection rule prevents deletion. The business and database records were preserved. Contact support.",
         schema_not_ready: tr
           ? "İşletmenin tüm verileri güvenle kaldırılamıyor. Hiçbir veri silinmedi. Destek ile iletişime geçin."
           : "The business data cannot be safely removed with the current schema. No data was deleted. Contact support.",
@@ -177,6 +177,9 @@ export async function DELETE(
         business_busy: tr
           ? "Bu işletme için aktif veri işi veya kilit kaydı var. Hiçbir veri silinmedi. İşin kapandığı doğrulandıktan sonra yeniden deneyin."
           : "An active data job or lease record prevents deletion. No data was deleted. Try again after the job is confirmed closed.",
+        external_cleanup_required: tr
+          ? "İşletmeye ait arşiv veya dosyaların kaldırıldığı doğrulanamadı. İşletme silinmedi. Destek ile iletişime geçin."
+          : "Removal of the business archives or files could not be verified. The business was not deleted. Contact support.",
       };
       return NextResponse.json({ error: error.code, message: messages[error.code] }, {
         status: error.code === "not_found" ? 404 : error.code === "schema_not_ready" ? 503 : 409,

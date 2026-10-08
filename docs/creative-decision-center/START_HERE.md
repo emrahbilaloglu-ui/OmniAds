@@ -2,6 +2,11 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For authenticated whole-business erasure, read
+[D153](DECISION_LOG.md#d153--explicit-whole-business-erasure-including-protected-history-2026-10-08)
+and [the deletion contract](../architecture/business-deletion-repair.md).
+This is a narrow offboarding exception, not ordinary retention or reclaim authority.
+
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
 Also read [D130](DECISION_LOG.md#d130--indexed-evidence-equality-and-bounded-creative-completion-proofs-2026-09-28)
 for the two SQL access-plan corrections found during natural acceptance.

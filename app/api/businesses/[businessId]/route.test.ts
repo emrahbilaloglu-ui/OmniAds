@@ -216,4 +216,14 @@ describe("DELETE /api/businesses/[businessId]", () => {
     expect(await response.json()).toMatchObject({ error: "protected_history", message: expect.stringContaining("database records were preserved") });
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
+  it.each([
+    ["sync_worker_heartbeats","running worker seen within the last 5 minutes"],
+    ["sync_runtime_instances","current runtime configuration"],
+  ])("explains the specific live control reference in %s",async(table,message)=>{
+    vi.mocked(deletion.deleteBusinessWithData).mockRejectedValue(new deletion.BusinessDeletionError("control_reference_in_use",[table]));
+    const response=await DELETE(new NextRequest("http://localhost/api/businesses/biz",{method:"DELETE"}),{params:Promise.resolve({businessId:"biz"})});
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({error:"control_reference_in_use",message:expect.stringContaining(message)});
+    expect(migrations.runMigrations).not.toHaveBeenCalled();
+  });
 });

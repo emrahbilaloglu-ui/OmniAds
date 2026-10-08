@@ -62,6 +62,16 @@ writer acquires the gate-table lock before business key-share locks and refuses
 a canary whose business disappeared, preventing delayed ghost copies. The admin route emits only an anonymous deletion count
 receipt, with no removed business ID or name.
 
+Worker heartbeat `last_business_id`/JSON copies and runtime contract canary
+copies are also covered. Complete finite ordered primary-key pages inspect at
+most100,000 rows/512MiB per store. A running/starting worker or runtime configuration referencing the target
+within five minutes returns the specific control-reference blocker. Stale
+observations and fresh idle/shutdown observations are invalidated. Bounds or plan failures roll back every prior page. Actual
+worker/runtime writers lock the destination tables before checking live
+business references under key-share locks. Delayed running/runtime writes
+refuse; idle/shutdown writes discard the entire stale metadata (including old
+names/metrics) and identity fields, retaining anonymous process presence. Unrelated job/partition UUIDs are not business identities.
+
 ## External files and archives
 
 Business media files under the exact provider/business UUID cache directory are

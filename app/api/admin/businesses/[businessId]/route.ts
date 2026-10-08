@@ -134,6 +134,10 @@ export async function DELETE(
     if (err instanceof BusinessDeletionError) {
       return NextResponse.json({ error: err.code, message: err.code === "external_cleanup_required"
         ? "İşletmeye ait arşiv veya dosyaların kaldırıldığı doğrulanamadı. İşletme silinmedi."
+        : err.code === "control_reference_in_use"
+          ? err.tables.includes("sync_runtime_instances")
+            ? "İşletme güncel canlı yapılandırmada referans alınıyor. İlgili canary/yapılandırma referansı kaldırılmadan silinemez. İşletme ve veritabanı kayıtları korundu."
+            : "Son 5 dakika içinde çalışan worker bu işletmeye işaret ediyor. İşin durduğu ve kayıt güncelliğinin sona erdiği doğrulanmadan silinemez. İşletme ve veritabanı kayıtları korundu."
         : "İşletme verileri güvenle kaldırılamadı. İşletme ve veritabanı kayıtları korundu." }, {
         status: err.code === "not_found" ? 404 : err.code === "schema_not_ready" ? 503 : 409,
       });

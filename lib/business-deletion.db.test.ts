@@ -4,8 +4,10 @@ import { Client } from "pg";
 import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, seedTenant } from "../scripts/native-storage-batch/owned-fixture";
 import { getDb, runDbTransaction } from "@/lib/db";
 import { BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
-import { deleteBusinessReleaseReceipts } from "@/lib/business-deletion-control-receipts";
+import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory } from "@/lib/business-deletion-control-receipts";
 import { upsertSyncGateRecord } from "@/lib/sync/release-gates";
+import { heartbeatSyncWorker } from "@/lib/sync/worker-health";
+import { buildRuntimeContract, upsertRuntimeContractInstance } from "@/lib/sync/runtime-contract";
 import { NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION } from "@/lib/creative-decision-engine/ad-operator-response-detection";
 
 // Only the migrated, disposable cluster may execute these destructive fixtures.
@@ -407,5 +409,82 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     await expect(upsertSyncGateRecord({gateKind:"release_gate",gateScope:"release_readiness",buildId:randomUUID(),environment:"fixture",
       mode:"measure_only",baseResult:"pass",verdict:"pass",blockerClass:null,overrideReason:null,summary:"stale canary",breakGlass:false,emittedAt:new Date().toISOString(),
       evidence:{providerScope:"google_ads",canaries:[{businessId}]}})).rejects.toThrow("sync_gate_business_removed");
+  });
+
+  it("removes stale worker aliases and JSON-only/runtime copies while preserving foreign observation bytes", async()=>{
+    const {businessId,otherId}=await fixture();const sql=getDb();const prefix=randomUUID();
+    for (const [suffix,owner,meta] of [["owner",businessId.toUpperCase(),{}],["json",null,{lastConsumedBusinessId:businessId.toUpperCase()}],
+      ["foreign",otherId,{currentBusinessId:otherId}]] as const) {
+      await sql`INSERT INTO sync_worker_heartbeats(worker_id,instance_type,provider_scope,status,last_heartbeat_at,last_business_id,meta_json)
+        VALUES (${prefix+suffix},'fixture','meta','idle',now()-interval '1 hour',${owner},${JSON.stringify(meta)}::jsonb)`;
+    }
+    const contract=buildRuntimeContract({service:"worker",instanceId:prefix+"runtime"});
+    await upsertRuntimeContractInstance({contract:{...contract,config:{...contract.config,releaseCanaryBusinesses:[businessId]}}});
+    await sql`UPDATE sync_runtime_instances SET last_seen_at=now()-interval '1 hour' WHERE instance_id=${contract.instanceId}`;
+    const foreign=await sql`SELECT * FROM sync_worker_heartbeats WHERE worker_id=${prefix+"foreign"}`;
+    await deleteBusinessWithData(businessId);
+    expect(await sql`SELECT * FROM sync_worker_heartbeats WHERE worker_id=ANY(${[prefix+"owner",prefix+"json"]}::text[])`).toEqual([]);
+    expect(await sql`SELECT * FROM sync_runtime_instances WHERE instance_id=${contract.instanceId}`).toEqual([]);
+    expect(await sql`SELECT * FROM sync_worker_heartbeats WHERE worker_id=${prefix+"foreign"}`).toEqual(foreign);
+  });
+
+  it("refuses fresh identifying worker presence and rolls the whole business deletion back",async()=>{
+    const {businessId}=await fixture();const key=randomUUID();
+    await getDb()`INSERT INTO sync_worker_heartbeats(worker_id,instance_type,provider_scope,status,meta_json)
+      VALUES(${key},'fixture','meta','running',${JSON.stringify({batchBusinessIds:[businessId]})}::jsonb)`;
+    await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"control_reference_in_use",tables:["sync_worker_heartbeats"]});
+    expect(await remains(businessId)).toBe(true);expect(await remains(businessId,"memberships","business_id")).toBe(true);
+    expect(await remains(key,"sync_worker_heartbeats","worker_id")).toBe(true);
+  });
+
+  it("rolls an earlier worker-history page back when its finite census bound is exceeded",async()=>{
+    const {businessId}=await fixture();const prefix="000-"+randomUUID();const sql=getDb();
+    await sql`INSERT INTO sync_worker_heartbeats(worker_id,instance_type,provider_scope,status,last_heartbeat_at,last_business_id)
+      SELECT ${prefix}||lpad(g::text,5,'0'),'fixture','meta','idle',now()-interval '1 hour',${businessId} FROM generate_series(1,1025) g`;
+    const before=await sql`SELECT * FROM sync_worker_heartbeats WHERE last_business_id=${businessId} ORDER BY worker_id`;
+    await expect(runDbTransaction(async()=>{
+      await getDb().query("LOCK TABLE sync_worker_heartbeats,sync_runtime_instances IN SHARE ROW EXCLUSIVE MODE");
+      await getDb().query("SET LOCAL enable_seqscan=off");
+      await deleteBusinessWorkerHistory(getDb(),businessId,{maxRows:1024,maxBytes:512*1024**2});
+    })).rejects.toThrow("worker_history_census_limit");
+    expect(await sql`SELECT * FROM sync_worker_heartbeats WHERE last_business_id=${businessId} ORDER BY worker_id`).toEqual(before);
+  });
+
+  it("allows idle presence erasure and makes a real delayed idle heartbeat anonymous without retaining old names or metrics",async()=>{
+    const {businessId,otherId}=await fixture();const workerId=randomUUID();
+    const heartbeat={workerId,instanceType:"fixture",providerScope:"meta",status:"idle" as const,lastBusinessId:businessId,lastPartitionId:randomUUID(),
+      metaJson:{lastConsumedBusinessId:businessId,batchBusinessIds:[otherId,businessId],oldBusinessName:"Sensitive old fixture",oldMetric:123}};
+    await heartbeatSyncWorker(heartbeat);
+    await deleteBusinessWithData(businessId);
+    expect(await remains(workerId,"sync_worker_heartbeats","worker_id")).toBe(false);
+    await heartbeatSyncWorker(heartbeat);
+    const [row]=await getDb()`SELECT * FROM sync_worker_heartbeats WHERE worker_id=${workerId}`;
+    expect(row).toMatchObject({last_business_id:null,last_partition_id:null,meta_json:{businessAdmitted:false,consumeReason:"business_reference_removed"}});
+    expect(JSON.stringify(row)).not.toContain(businessId);
+    expect(JSON.stringify(row)).not.toContain("Sensitive old fixture");
+    expect(row!.meta_json).not.toHaveProperty("oldMetric");
+    expect(await remains(otherId)).toBe(true);
+  });
+
+  it("refuses a real delayed running heartbeat instead of reviving removed business execution",async()=>{
+    const {businessId}=await fixture();await deleteBusinessWithData(businessId);const workerId=randomUUID();
+    await expect(heartbeatSyncWorker({workerId,instanceType:"fixture",providerScope:"meta",status:"running",
+      metaJson:{currentBusinessId:businessId}})).rejects.toThrow("control_metadata_business_removed");
+    expect(await remains(workerId,"sync_worker_heartbeats","worker_id")).toBe(false);
+  });
+
+  it("refuses a fresh runtime canary reference with the specific configuration blocker and preserves the business",async()=>{
+    const {businessId}=await fixture();const contract=buildRuntimeContract({service:"worker",instanceId:randomUUID()});
+    await upsertRuntimeContractInstance({contract:{...contract,config:{...contract.config,releaseCanaryBusinesses:[businessId]}}});
+    await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"control_reference_in_use",tables:["sync_runtime_instances"]});
+    expect(await remains(businessId)).toBe(true);
+  });
+
+  it("refuses the real delayed runtime writer with a removed canary business",async()=>{
+    const {businessId}=await fixture();const contract=buildRuntimeContract({service:"worker",instanceId:randomUUID()});
+    await deleteBusinessWithData(businessId);
+    await expect(upsertRuntimeContractInstance({contract:{...contract,config:{...contract.config,releaseCanaryBusinesses:[businessId]}}}))
+      .rejects.toThrow("control_metadata_business_removed");
+    expect(await remains(contract.instanceId,"sync_runtime_instances","instance_id")).toBe(false);
   });
 });

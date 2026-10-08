@@ -5,6 +5,7 @@ import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, s
 import { getDb, runDbTransaction } from "@/lib/db";
 import { BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
 import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory } from "@/lib/business-deletion-control-receipts";
+import { deleteBusinessNativeEvaluations } from "@/lib/business-deletion-native-evaluations";
 import { upsertSyncGateRecord } from "@/lib/sync/release-gates";
 import { heartbeatSyncWorker } from "@/lib/sync/worker-health";
 import { buildRuntimeContract, upsertRuntimeContractInstance } from "@/lib/sync/runtime-contract";
@@ -309,6 +310,49 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
         expect((await db.query("SELECT * FROM engine_v3_ad_campaign_context_objects WHERE business_ref_id=$1 ORDER BY payload_sha256",[other.business])).rows).toEqual(preserved);
         expect((await db.query("SELECT input_hash::text FROM engine_v3_ad_decision_input_evidence WHERE input_hash=ANY($1::character(64)[])",[keys.map(k=>k.input_hash)])).rows).toEqual([{input_hash:keys[0].input_hash}]);
       } finally { await db.query("DROP INDEX idx_engine_v3_ad_evaluations_contract_input"); }
+    } finally { await db.end(); }
+  });
+
+  it("walks native history across pages/contexts once, rolls back a partial page limit, and removes every owned input", async () => {
+    const db = new Client({ connectionString: process.env.DATABASE_URL }); await db.connect();
+    try {
+      const target = await seedTenant(db,1);
+      const producer = await seedCalibration(db,target,"2026-09-23","2026-09-23T12:00:00Z");
+      for (const [tag,count] of [["large-context",1025],["second-context",3]] as const)
+        await seedGeneration(db,target,{ date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[count],tag });
+      const before = (await db.query("SELECT id,contract_version,input_hash::text FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[target.business])).rows;
+      expect(before).toHaveLength(1028);
+      await expect(runDbTransaction(async () => {
+        const sql=getDb();
+        await sql.query("SET LOCAL enable_seqscan=off");
+        await sql.query("CREATE TEMP TABLE business_erasure_input_keys (contract_version text,input_hash character(64),PRIMARY KEY(contract_version,input_hash)) ON COMMIT DROP");
+        await deleteBusinessNativeEvaluations(sql,target.business,{maxRows:1024});
+      })).rejects.toThrow("native_evaluation_page_limit");
+      expect((await db.query("SELECT id,contract_version,input_hash::text FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[target.business])).rows).toEqual(before);
+      await addObservedProductionReferenceIndex(db);
+      try {
+        await deleteBusinessWithData(target.business);
+        expect(await remains(target.business)).toBe(false);
+        expect(await remains(target.business,"engine_v3_ad_decision_evaluations","business_ref_id")).toBe(false);
+        expect((await db.query("SELECT 1 FROM engine_v3_ad_decision_input_evidence WHERE input_hash=ANY($1::character(64)[])",[before.map(r=>r.input_hash)])).rows).toHaveLength(0);
+      } finally { await db.query("DROP INDEX idx_engine_v3_ad_evaluations_contract_input"); }
+    } finally { await db.end(); }
+  },60_000);
+
+  it("cancels a statement at its shorter cap, rolls back, and releases its row lock before the overall deadline", async () => {
+    const {businessId}=await fixture();
+    const db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();
+    try {
+      const original=(await db.query("SELECT name FROM businesses WHERE id=$1",[businessId])).rows[0];
+      const started=Date.now();
+      await expect(runDbTransaction(async()=>{
+        await getDb()`UPDATE businesses SET name='must roll back' WHERE id=${businessId}`;
+        await getDb().query("SELECT pg_sleep(5)");
+      },{timeoutMs:80,deadlineAtMs:Date.now()+10_000})).rejects.toThrow();
+      expect(Date.now()-started).toBeLessThan(3000);
+      await db.query("BEGIN");
+      expect((await db.query("SELECT name FROM businesses WHERE id=$1 FOR UPDATE NOWAIT",[businessId])).rows[0]).toEqual(original);
+      await db.query("ROLLBACK");
     } finally { await db.end(); }
   });
 

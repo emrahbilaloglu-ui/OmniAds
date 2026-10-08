@@ -1,4 +1,6 @@
 import { getDb, runDbTransaction } from "@/lib/db";
+import { runWithDbJitDisabled } from "@/lib/db-jit-scope";
+import { deleteBusinessNativeEvaluations, BusinessNativeEvaluationCleanupError } from "@/lib/business-deletion-native-evaluations";
 import { PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE } from "@/lib/provider-account-assignments";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertBusinessExternalDataRemoved, BusinessExternalCleanupError } from "@/lib/business-deletion-files";
@@ -333,8 +335,9 @@ const SCOPE_CATALOG = `SELECT n.nspname AS schema_name, c.relname AS table_name,
 
 const ZERO_REFERENCE_INPUTS = `SELECT k.contract_version,k.input_hash::text AS input_hash
   FROM unnest($1::text[], $2::character(64)[]) k(contract_version,input_hash)
-  WHERE NOT EXISTS (SELECT 1 FROM public.engine_v3_ad_decision_evaluations e
-    WHERE e.contract_version=k.contract_version AND e.input_hash=k.input_hash)`;
+  LEFT JOIN LATERAL (SELECT 1 AS found FROM public.engine_v3_ad_decision_evaluations e
+    WHERE e.contract_version=k.contract_version AND e.input_hash=k.input_hash LIMIT 1) referenced ON true
+  WHERE referenced.found IS NULL`;
 
 function verifyInputReferencePlan(value: unknown, indexes: string[]) {
   const plan = value as Array<{ Plan: Record<string, unknown> }>;
@@ -357,7 +360,7 @@ function verifyInputReferencePlan(value: unknown, indexes: string[]) {
 export async function deleteBusinessWithData(businessId: string): Promise<void> {
   assertSyncLaneEnabled("assignment_mutation");
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(businessId)) throw new BusinessDeletionError("not_found");
-  await runDbTransaction(async () => {
+  await runWithDbJitDisabled(() => runDbTransaction(async () => {
     const sql = getDb();
     await sql.query("SET LOCAL lock_timeout = '1500ms'");
     await sql`SELECT pg_advisory_xact_lock(${PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE}::int,
@@ -432,10 +435,10 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       };
       walk(plan[0]!["QUERY PLAN"][0].Plan);
     }
-    await sql.query(`CREATE TEMP TABLE business_erasure_input_keys ON COMMIT DROP AS SELECT DISTINCT contract_version,input_hash
-      FROM public.engine_v3_ad_decision_evaluations WHERE (${scopeFor(scopes.get("public.engine_v3_ad_decision_evaluations")!)})`, [businessId]);
-    await sql.query("ALTER TABLE business_erasure_input_keys ADD PRIMARY KEY (contract_version,input_hash)");
-    const [hasKeys] = await sql.query("SELECT 1 FROM business_erasure_input_keys LIMIT 1");
+    await sql.query(`CREATE TEMP TABLE business_erasure_input_keys
+      (contract_version text NOT NULL,input_hash character(64) NOT NULL,PRIMARY KEY(contract_version,input_hash)) ON COMMIT DROP`);
+    const [hasKeys] = await sql.query(`SELECT 1 FROM public.engine_v3_ad_decision_evaluations
+      WHERE (${scopeFor(scopes.get("public.engine_v3_ad_decision_evaluations")!)}) LIMIT 1`,[businessId]);
     let referenceIndexes: string[] = [];
     if (hasKeys) {
       referenceIndexes = (await sql.query<{ name: string }>(`SELECT ic.relname AS name FROM pg_index i
@@ -480,6 +483,12 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
     const suspended = guards.filter(g => locked.includes(g.table_name));
     for (const g of suspended) await sql.query(`ALTER TABLE ${qualified(g.table_name)} DISABLE TRIGGER ${identifier(g.trigger_name)}`);
     for (const table of ordered) {
+      if (table === "public.engine_v3_ad_decision_evaluations") {
+        try { await deleteBusinessNativeEvaluations(sql,businessId); }
+        catch (error) { if (error instanceof BusinessNativeEvaluationCleanupError)
+          throw new BusinessDeletionError("schema_not_ready",[error.message]); throw error; }
+        continue;
+      }
       if (table === "public.provider_connections") { await sql`DELETE FROM provider_connections WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
       if (table === "public.business_provider_accounts") { await sql`DELETE FROM business_provider_accounts WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
       if (table === "public.provider_account_assignments") { await sql`DELETE FROM provider_account_assignments WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
@@ -519,5 +528,5 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       throw new BusinessDeletionError("schema_not_ready", ["trigger_restoration"]);
     await sql`UPDATE sessions SET active_business_id=NULL WHERE active_business_id=${businessId}`;
     await sql`DELETE FROM businesses WHERE id=${businessId}::uuid`;
-  }, { timeoutMs: 30_000, deadlineAtMs: Date.now()+120_000 });
+  }, { timeoutMs: 30_000, deadlineAtMs: Date.now()+120_000 }));
 }

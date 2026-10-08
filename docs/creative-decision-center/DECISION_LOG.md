@@ -12746,7 +12746,7 @@ selected-business deletion and independent live absence are separate gates.
 The retained-reader ledger's business teardown entry is repinned only after this
 explicit source review. Its new retention wording is this narrowly authorized
 offboarding exception; all other retained roots and ordinary lifecycle roles are
-preserved. The canonical migrations harness requires twenty-nine meaningful cases,
+preserved. The canonical migrations harness requires thirty-one meaningful cases,
 including worker/runtime alias cleanup, fresh-observation refusal, partial-page
 rollback and actual delayed writer refusal, not production DDL. Current catalog evidence
 also requires the indexed text owner for lineage, the five reviewed required
@@ -12775,3 +12775,18 @@ anonymous process presence. A delayed writer cannot recreate the erased copy. Un
 job/partition UUIDs are not interpreted as business identities; unrelated
 observations remain byte-for-byte. UUID matching in shared control copies is
 case-insensitive. Global shared backup/WAL/system-log boundaries remain explicit.
+
+D153 native-history timeout correction (2026-10-08): the first live Halıcızade
+request failed in eager whole-history DISTINCT input capture and independently
+rolled back. Native evaluation erasure now walks the existing leading-business
+index once with a non-holdable server cursor, deletes exact 1,024-ID pages at the
+child-first position, and captures returned keys into a temporary unique-key
+table. Actual cursor/PK plans are verified; maximum 4,194,304 evaluations and
+the existing 120-second transaction deadline refuse/roll back partial work.
+No new production index, maintenance, job or FK bypass is authorized.
+Transaction-local JIT disabling avoids compilation cost for offboarding only.
+The common transaction executor caps the server statement timeout at the
+shorter per-query limit and remaining deadline; the latter must not silently
+extend the former while the application rejects. Migrated PostgreSQL cases
+cover more than one page/context, partial-page rollback and actual timeout/row-
+lock release. Local and CI success remain separate from live erasure acceptance.

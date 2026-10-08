@@ -40,7 +40,18 @@ scan refuses. No production index or index maintenance is introduced. Every scop
 root deletion. Shared users and provider-account identities are preserved;
 connection-owned credentials cascade and active sessions lose the deleted scope.
 
-Native input keys are captured before evaluations disappear. Only keys with no
+Native evaluation history is walked once through a non-holdable, non-scrolling
+server cursor over the verified leading business index. At its child-first
+position, exact primary-key pages of at most 1,024 evaluations are deleted;
+RETURNING captures their input keys into a temporary unique-key table without
+a whole-history DISTINCT/sort or a second eager history read. Each actual cursor
+and delete plan must be an index walk/probe, with no blocking Sort/Bitmap or
+non-leading ownership scan. The complete operation permits at most 4,194,304
+evaluations and retains its absolute 120-second deadline; bounds roll back all
+prior pages. Erasure alone disables JIT in its transaction. The server statement
+timeout is capped by both the 30-second query limit and remaining transaction
+deadline, so an application timeout cannot leave a longer-running statement
+holding its writer locks. Native input keys are captured as evaluations disappear. Only keys with no
 reference from ANY remaining evaluation are collected, in 400-key pages. This
 requires a valid, ready, live, nonpartial btree on `(contract_version,input_hash)`
 and a verified parameterized index-probe plan. The real observed production index
@@ -109,7 +120,7 @@ opening the 163 GiB growth-admission gate.
 
 ## Verification and rollout
 
-Twenty-two destructive cases run only on a disposable localhost PostgreSQL migrated
+Thirty-one destructive cases run only on a disposable localhost PostgreSQL migrated
 by the actual migrations and are registered in the canonical CI harness. They
 cover legacy FK failure, complete scoped removal, frozen/protected history,
 shared users/accounts, credentials/sessions, unknown tables/guards, late-FK

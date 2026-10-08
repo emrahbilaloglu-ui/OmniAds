@@ -122,6 +122,7 @@ export interface CreativeEvidenceWindowExactCoverage {
 }
 
 export interface CreativeEvidenceWindowExactViewModel {
+  identityContext?: string;
   name?: CreativeEvidenceWindowExactDisplayValue;
   decisionLabel?: CreativeEvidenceWindowExactDisplayValue;
   decisionTone?: CreativeEvidenceWindowExactTone;
@@ -358,6 +359,7 @@ export function CreativeEvidenceWindowExact({
           <div className={styles.headerIdentity}>
             <p className={styles.headerEyebrow}>Creative decision</p>
             <p className={styles.headerTitle}>{display(viewModel.name)}</p>
+            {viewModel.identityContext ? <p>{viewModel.identityContext}</p> : null}
           </div>
           {meaningful(viewModel.decisionLabel) ? (
             <span

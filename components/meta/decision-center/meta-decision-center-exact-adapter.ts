@@ -3236,6 +3236,7 @@ function creativeRows(input: {
     return {
       id: decision.id,
       name: nonBlank(decision.adName) ?? EM_DASH,
+      identityContext: { campaignName: nonBlank(decision.campaignName), adsetName: nonBlank(decision.adsetName), adId: nonBlank(decision.adId) },
       kindShort: creativeKindShort(
         decision.creativeFormat,
         decision.sourceCreativeType?.value,
@@ -3310,8 +3311,10 @@ function creativeRows(input: {
       observedCtrContext: ctrObservation ? {
         accountId: ctrObservation.providerAccountId,
         adId: ctrObservation.adId,
-        startDate: ctrObservation.requestedStartDate,
-        endDate: ctrObservation.requestedEndDate,
+        startDate: ctrObservation.observedStartDate,
+        endDate: ctrObservation.observedEndDate,
+        requestedStartDate: ctrObservation.requestedStartDate,
+        requestedEndDate: ctrObservation.requestedEndDate,
         measuredDays: ctrObservation.measuredDays,
         state: ctrObservation.state,
         warehouseUpdatedAt: ctrObservation.lastWarehouseUpdateAt,

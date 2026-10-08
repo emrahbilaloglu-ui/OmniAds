@@ -286,6 +286,7 @@ export interface MetaDecisionCenterExactCreativePostureViewModel {
 
 export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   id: string;
+  identityContext?: { campaignName: string | null; adsetName: string | null; adId: string | null };
   name?: MetaDecisionCenterExactDisplayValue;
   kindShort?: MetaDecisionCenterExactDisplayValue;
   /** Full current Meta-derived type, used when snapshot format is absent. */
@@ -358,8 +359,10 @@ export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   observedCtrContext?: {
     accountId: string;
     adId: string;
-    startDate: string;
-    endDate: string;
+    startDate: string | null;
+    endDate: string | null;
+    requestedStartDate?: string;
+    requestedEndDate?: string;
     measuredDays: number;
     state: "observed" | "missing" | "incomplete";
     warehouseUpdatedAt: string | null;
@@ -1959,6 +1962,13 @@ function CreativeCard({
         </span>
       </span>
       <div className={styles.creativeIdentity}>
+        {row.identityContext ? (
+          <p className={styles.creativeContext}>
+            {language === "tr" ? "Kampanya" : "Campaign"}: {row.identityContext.campaignName ?? (language === "tr" ? "bilinmiyor" : "unknown")}
+            {" · "}{language === "tr" ? "Reklam seti" : "Ad set"}: {row.identityContext.adsetName ?? (language === "tr" ? "bilinmiyor" : "unknown")}
+            {" · Ad "}{row.identityContext.adId ?? (language === "tr" ? "bilinmiyor" : "unknown")}
+          </p>
+        ) : null}
         <div className={styles.creativeHeading}>
           <span className={styles.creativeName}>{display(row.name)}</span>
           {/* Lead with the actual recommendation when its authority is held.
@@ -2064,9 +2074,11 @@ function CreativeCard({
             ) : null}
             {row.observedCtrContext ? (
               <p className={styles.creativeObservedCtrDetail}>
-                {language === "tr" ? "Rapor" : "Report"}{" "}
+                {language === "tr" ? "Gözlenen" : "Observed"}{" "}
                 <span className={styles.creativeMetricPeriod}>
-                  {row.observedCtrContext.startDate}–{row.observedCtrContext.endDate}
+                  {row.observedCtrContext.startDate && row.observedCtrContext.endDate
+                    ? `${row.observedCtrContext.startDate}–${row.observedCtrContext.endDate}`
+                    : language === "tr" ? "ölçülen dönem bilinmiyor" : "measured period unknown"}
                 </span>
                 {" "}
                 {row.observedCtrContext.measuredDays} {language === "tr" ? "ölçülen gün" : "measured days"} · {language === "tr"

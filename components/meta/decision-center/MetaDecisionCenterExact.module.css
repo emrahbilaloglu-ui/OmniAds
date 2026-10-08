@@ -1000,6 +1000,14 @@ img.creativeThumbImage + .creativeKind {
   line-height: 1.05;
 }
 
+.creativeContext {
+  margin: 0 0 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+}
+
 .creativeIdentity {
   min-width: 0;
   flex: 1 1 60%;

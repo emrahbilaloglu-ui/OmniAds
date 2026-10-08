@@ -1325,7 +1325,7 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     });
     const reason = String(value(model.authority, "held-reason"));
     expect(reason).toContain("The campaign configuration is not verified for every day used by this recommendation.");
-    expect(reason).toContain("Fresh, completed Meta source data is still arriving.");
+    expect(reason).toContain("Fresh, completed Meta source data is required and has not been verified.");
     expect(reason).toContain("The next decision run still has to confirm it.");
     expect(reason).not.toContain("Internal producer copy");
     expect(reason).not.toContain("Pause this ad");

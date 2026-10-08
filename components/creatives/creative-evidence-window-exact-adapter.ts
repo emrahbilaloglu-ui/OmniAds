@@ -2428,6 +2428,7 @@ export function buildCreativeEvidenceWindowExactViewModel(
       (nonBlank(canonical?.parentChain.ad?.id) || nonBlank(decision?.adId)
         ? "Unnamed Meta ad"
         : EM_DASH),
+    identityContext: `Campaign: ${nonBlank(canonical?.parentChain.campaign?.name) ?? nonBlank(decision?.campaignName) ?? "unknown"} · Ad set: ${nonBlank(canonical?.parentChain.adset?.name) ?? nonBlank(decision?.adsetName) ?? "unknown"} · Ad: ${nonBlank(canonical?.parentChain.ad?.id) ?? nonBlank(decision?.adId) ?? "unknown"}`,
     decisionLabel: verdictLabel ?? EM_DASH,
     decisionTone: tone,
     /*

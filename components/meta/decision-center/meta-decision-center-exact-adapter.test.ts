@@ -820,8 +820,8 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     expect(rows.get("grandmix")?.ctrValue).toBeNull();
     expect(rows.get("grandmix")?.observedCtrValue).toBe("4.25%");
     expect(rows.get("grandmix")?.observedCtrContext).toMatchObject({
-      accountId: "act_1", adId: "ad_gm", startDate: "2026-07-20",
-      endDate: "2026-08-16", measuredDays: 2,
+      accountId: "act_1", adId: "ad_gm", startDate: "2026-08-01",
+      endDate: "2026-08-02", requestedStartDate: "2026-07-20", requestedEndDate: "2026-08-16", measuredDays: 2,
       warehouseUpdatedAt: "2026-08-17T10:00:00Z",
     });
     expect(rows.get("grandmix")?.observedSparkPath).toBeTruthy();

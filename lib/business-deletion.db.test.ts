@@ -1,5 +1,5 @@
 import { randomUUID, randomBytes } from "node:crypto";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, seedTenant } from "../scripts/native-storage-batch/owned-fixture";
 import { getDb, runDbTransaction } from "@/lib/db";
@@ -258,6 +258,66 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     await deleteBusinessWithData(businessId);
     expect(await remains(businessId,"engine_v3_job_runs","business_ref_id")).toBe(false);
     expect(await getDb()`SELECT * FROM engine_v3_job_runs WHERE business_ref_id=${otherId} ORDER BY id`).toEqual(before);
+  });
+
+  it("finds a late dual-owner contradiction across cursor pages, then erases all corrected fact pages while preserving foreign bytes", async () => {
+    const { businessId, otherId } = await fixture();
+    await getDb().query(`INSERT INTO meta_adset_daily
+      (business_id,business_ref_id,provider_account_id,date,adset_id,account_timezone,account_currency,promoted_object_json)
+      SELECT b,b::uuid,'fixture-account','2026-10-01','fact-'||lpad(n::text,5,'0'),'UTC','USD',$3::jsonb
+      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,1250) n`,
+    [businessId,otherId,JSON.stringify({fixture:randomBytes(512).toString("hex")})]);
+    const [size] = await getDb()`SELECT pg_relation_size('meta_adset_daily')::int AS bytes`;
+    expect(Number(size!.bytes)).toBeGreaterThan(1024**2);
+    await getDb()`INSERT INTO meta_adset_daily
+      (business_id,business_ref_id,provider_account_id,date,adset_id,account_timezone,account_currency)
+      VALUES (${businessId},${otherId},'fixture-account','2026-10-01','zz-late-conflict','UTC','USD')`;
+    const before = await getDb()`SELECT * FROM meta_adset_daily WHERE business_id IN (${businessId},${otherId}) ORDER BY id`;
+    await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"scope_conflict"});
+    expect(await remains(businessId,"memberships","business_id")).toBe(true);
+    expect(await getDb()`SELECT * FROM meta_adset_daily WHERE business_id IN (${businessId},${otherId}) ORDER BY id`).toEqual(before);
+    await getDb()`UPDATE meta_adset_daily SET business_ref_id=${businessId} WHERE business_id=${businessId} AND adset_id='zz-late-conflict'`;
+    const foreign = await getDb()`SELECT * FROM meta_adset_daily WHERE business_id=${otherId} ORDER BY id`;
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId,"meta_adset_daily","business_id")).toBe(false);
+    expect(await remains(businessId)).toBe(false);
+    expect(await getDb()`SELECT * FROM meta_adset_daily WHERE business_id=${otherId} ORDER BY id`).toEqual(foreign);
+  });
+
+  it("rolls an already deleted large-table page back when a later exact row has an unforeseen FK", async () => {
+    const { businessId, otherId } = await fixture();
+    await getDb().query(`INSERT INTO engine_v3_job_runs
+      (job_name,business_ref_id,business_id,as_of_date,engine_version,status,error_json)
+      SELECT 'late-page-fixture',b::uuid,NULL,'2026-10-01','fixture','failed',$3::jsonb
+      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,1250) n`,
+    [businessId,otherId,JSON.stringify({fixture:randomBytes(512).toString("hex")})]);
+    // Pick an actual later tuple in the same owner cursor order. No fixture
+    // write intervenes between this read and the deletion under test.
+    const lateTid = await runDbTransaction(async () => {
+      const sql = getDb();
+      await sql.query("SET LOCAL enable_seqscan=off");
+      await sql.query("SET LOCAL cursor_tuple_fraction=1");
+      await sql.query(`DECLARE late_page_probe NO SCROLL CURSOR FOR SELECT ctid::text AS row_tid,tableoid::text AS row_table
+        FROM public.engine_v3_job_runs WHERE business_ref_id=$1::uuid`,[businessId]);
+      const page = await sql.query<{row_tid:string}>("FETCH FORWARD 1025 FROM late_page_probe");
+      await sql.query("CLOSE late_page_probe");
+      expect(page).toHaveLength(1025);
+      return page[1024]!.row_tid;
+    });
+    await getDb()`CREATE TABLE business_delete_late_page_fk (job_id uuid REFERENCES engine_v3_job_runs(id) ON DELETE RESTRICT)`;
+    await getDb().query("INSERT INTO business_delete_late_page_fk SELECT id FROM engine_v3_job_runs WHERE ctid=$1::tid",[lateTid]);
+    const before = await getDb()`SELECT * FROM engine_v3_job_runs WHERE business_ref_id IN (${businessId},${otherId}) ORDER BY id`;
+    const log = vi.spyOn(console,"error").mockImplementation(() => {});
+    try {
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"23503"});
+      const failure = log.mock.calls.find(([message])=>message==="[business erasure] failed");
+      expect(JSON.parse(String(failure?.[1])).ownedPages).toBeGreaterThanOrEqual(1);
+      expect(await remains(businessId,"memberships","business_id")).toBe(true);
+      expect(await getDb()`SELECT * FROM engine_v3_job_runs WHERE business_ref_id IN (${businessId},${otherId}) ORDER BY id`).toEqual(before);
+    } finally {
+      log.mockRestore();
+      await getDb()`DROP TABLE business_delete_late_page_fk`;
+    }
   });
 
   it("keeps the assignment kill switch authoritative", async () => {

@@ -35,8 +35,8 @@
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "6b8dcda6df857ee9347726d43460da5f336daa7be8df4fea036bbaabf5cc56cf",
-      "retention": "D153 authenticated whole-business erasure only: remove all target-owned retained lineage, frozen labels and protected action history under exclusive writer locks with transactionally suspended exact reviewed guards and restored modes. Foreign keys stay active; global shared input references and other tenants remain. Ordinary retention and snapshot age pruning receive no removal authority; external archive/file remnants refuse success. Large uncertified dual-owner preflights require actual leading-owner equality plans; exact complete state-run FK inheritance and six required legacy UUID owners are reviewed. A 240-second total deadline fits the existing 300-second proxy while each statement remains capped at 30 seconds; failure preserves transactional rollback."
+      "sha256": "31468ac0a6895d21c4f3f0dc17ada95df4b2fd5bbb05de93d49090b9ec9716d7",
+      "retention": "D153 authenticated whole-business erasure only: remove all target-owned retained lineage, frozen labels and protected action history under exclusive writer locks with transactionally suspended exact reviewed guards and restored modes. Foreign keys stay active; global shared input references and other tenants remain. Ordinary retention and snapshot age pruning receive no removal authority; external archive/file remnants refuse success. Large uncertified dual-owner preflights require actual leading-owner equality plans; exact complete state-run FK inheritance and six required legacy UUID owners are reviewed. A 240-second total deadline fits the existing 300-second proxy while each statement remains capped at 30 seconds; failure preserves transactional rollback. Uncertified identities use one complete bounded 1024-row owner-union cursor census; proven large ordinary heaps use exact owner-checked 1024-TID pages under the same transaction. Late contradictions, FK failures or bounds roll all pages back; no production DDL or wider retention authority."
     },
     {
       "path": "lib/creative-decision-engine/ad-backtest-store.ts",
@@ -293,7 +293,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "74f92baedf5fbee7fba9be043bdfc3cd3cca02a074753696ed9a0318c4d026af",
+      "sha256": "045e31ed950277038de38e386e172884aadc90a28c1d1a43bba17b1d92fcedd4",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
@@ -459,5 +459,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "4289a2ac639b77a2feea31f8bc6ac3c88abb7bea2df16f7938e3825778646512"
+  "sourceInventorySha256": "c130a88bdae948b2083dd1a5ee9b91c0a276d6d2423954379e0147118c1db8fd"
 }

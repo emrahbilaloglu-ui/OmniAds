@@ -256,7 +256,7 @@ export class BusinessDeletionError extends Error {
   ) { super(code); this.name = "BusinessDeletionError"; }
 }
 
-type ScopeColumn = { schema_name: string; table_name: string; column_name: string; type_name: string; not_null: boolean; identity_checked: boolean; indexed: boolean; owner_indexes: string[]; heap_bytes: string; episode_bound: boolean; row_security: boolean };
+type ScopeColumn = { schema_name: string; table_name: string; column_name: string; type_name: string; not_null: boolean; identity_checked: boolean; indexed: boolean; owner_indexes: string[]; heap_bytes: string; relation_oid: string; relation_kind: string; episode_bound: boolean; row_security: boolean };
 type Dependency = { child_table: string; parent_table: string };
 type DeleteGuard = { table_name: string; trigger_name: string; function_name: string; function_schema: string; enabled: string; trigger_type: number; arguments: number };
 const identifier = (value: string) => `"${value.replaceAll('"', '""')}"`;
@@ -306,32 +306,91 @@ function scopeFor(columns: ScopeColumn[]): string {
   return scopePredicates(columns).map(s => s.predicate).join(" OR ");
 }
 
-/** LIMIT 1 plus an OR can choose a whole-table or whole-index walk while
- * estimating an early mismatch. Check each owner arm separately and require
- * its actual leading-owner index before reading any large history. */
-function verifyConflictReadPlan(plan: Record<string, unknown>, owner: ScopeColumn) {
-  if (Number(owner.heap_bytes) <= 1024 * 1024) return;
-  const equality = new RegExp(`\\b${owner.column_name}\\b\\s*=`);
-  let found = false;
+const OWNER_PAGE = 1024;
+const OWNER_ROW_BOUND = 4_194_304;
+
+/** Read complete owned identities, never a selective mismatch/LIMIT over the
+ * whole relation. Each arm of a large union needs its actual leading index;
+ * an eager sort/materialization or unrelated whole-index walk still refuses. */
+function verifyOwnerReadPlan(plan: Record<string, unknown>, owners: ScopeColumn[]) {
+  if (Number(owners[0]!.heap_bytes) <= 1024 * 1024) return;
+  const found = new Set<string>();
   const checkIndex = (node: Record<string, unknown>) => {
-    if (!owner.owner_indexes.includes(String(node["Index Name"])) || !equality.test(String(node["Index Cond"])))
-      throw new BusinessDeletionError("schema_not_ready", [owner.table_name]);
-    found = true;
+    const owner = owners.find(o => o.owner_indexes.includes(String(node["Index Name"]))
+      && new RegExp(`\\b${o.column_name}\\b\\s*=`).test(String(node["Index Cond"])));
+    if (!owner) throw new BusinessDeletionError("schema_not_ready", [owners[0]!.table_name]);
+    found.add(owner.column_name);
   };
   const walk = (node: Record<string, unknown>) => {
-    if (node["Relation Name"] === owner.table_name) {
+    if (["Sort", "Incremental Sort", "Materialize", "CTE Scan", "Gather", "Gather Merge"].includes(String(node["Node Type"])))
+      throw new BusinessDeletionError("schema_not_ready", [owners[0]!.table_name]);
+    if (node["Relation Name"] === owners[0]!.table_name) {
       if (["Index Scan", "Index Only Scan"].includes(String(node["Node Type"]))) checkIndex(node);
-      else if (node["Node Type"] !== "Bitmap Heap Scan") throw new BusinessDeletionError("schema_not_ready", [owner.table_name]);
+      else if (node["Node Type"] !== "Bitmap Heap Scan") throw new BusinessDeletionError("schema_not_ready", [owners[0]!.table_name]);
     }
     if (node["Node Type"] === "Bitmap Index Scan") checkIndex(node);
     for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child);
   };
   walk(plan);
-  if (!found) throw new BusinessDeletionError("schema_not_ready", [owner.table_name]);
+  if (owners.some(o => !found.has(o.column_name))) throw new BusinessDeletionError("schema_not_ready", [owners[0]!.table_name]);
+}
+
+/** The caller already holds writer exclusion, has checked ownership and keeps
+ * all FKs active. A non-holdable cursor visits each original owned tuple once;
+ * exact physical pages avoid restarting an owner scan over deleted prefixes.
+ * Only ordinary heap relations are supported. A changed plan/row/bound rolls
+ * every earlier page back with the caller's transaction. */
+async function deleteLargeOwnedRows(sql: ReturnType<typeof getDb>, table: string, scope: ScopeColumn[],
+  businessId: string, progress: { ownedRows: number; ownedPages: number }) {
+  const first = scope[0]!;
+  if (first.relation_kind !== "r" || scope.some(c => c.episode_bound))
+    throw new BusinessDeletionError("schema_not_ready", [table]);
+  const predicate = scopeFor(scope);
+  const declare = `DECLARE business_erasure_owned_rows NO SCROLL CURSOR FOR
+    SELECT ctid::text AS row_tid,tableoid::text AS row_table FROM ${qualified(table)} WHERE (${predicate})`;
+  const [readPlan] = await sql.query(`EXPLAIN (FORMAT JSON) ${declare}`, [businessId]);
+  verifyOwnerReadPlan(readPlan!["QUERY PLAN"][0].Plan, scopePredicates(scope).map(s => s.owner));
+  await sql.query(declare, [businessId]);
+  const [settings] = await sql.query<{ index: string; bitmap: string }>(
+    "SELECT current_setting('enable_indexscan') AS index,current_setting('enable_bitmapscan') AS bitmap");
+  // The cursor's owner plan is already pinned. Exact TID probes must not be
+  // replaced by a fresh full owner-index scan on each DELETE page.
+  await sql.query("SET LOCAL enable_indexscan=off");
+  await sql.query("SET LOCAL enable_bitmapscan=off");
+  let rows = 0;
+  for (;;) {
+    const page = await sql.query<{ row_tid: string; row_table: string }>(`FETCH FORWARD ${OWNER_PAGE} FROM business_erasure_owned_rows`);
+    rows += page.length;
+    if (rows > OWNER_ROW_BOUND || page.some(r => r.row_table !== first.relation_oid))
+      throw new BusinessDeletionError("schema_not_ready", [table]);
+    if (!page.length) break;
+    const query = `WITH removed AS (DELETE FROM ${qualified(table)}
+      WHERE ctid=ANY($1::tid[]) AND tableoid=$2::oid AND (${predicate.replaceAll("$1", "$3")}) RETURNING 1)
+      SELECT count(*)::int AS removed FROM removed`;
+    const params = [page.map(r => r.row_tid), first.relation_oid, businessId];
+    const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`, params);
+    let exact = false;
+    const walk = (node: Record<string, unknown>) => {
+      if (node["Relation Name"] === first.table_name && node["Node Type"] !== "ModifyTable") {
+        if (node["Node Type"] !== "Tid Scan" || !/ctid.*ANY/.test(String(node["TID Cond"])))
+          throw new BusinessDeletionError("schema_not_ready", [table]);
+        exact = true;
+      }
+      for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child);
+    };
+    walk(plan!["QUERY PLAN"][0].Plan);
+    if (!exact) throw new BusinessDeletionError("schema_not_ready", [table]);
+    const [deleted] = await sql.query<{ removed: number }>(query, params);
+    if (deleted?.removed !== page.length) throw new BusinessDeletionError("schema_not_ready", [table]);
+    progress.ownedRows += page.length; progress.ownedPages++;
+  }
+  await sql.query("CLOSE business_erasure_owned_rows");
+  await sql.query("SELECT set_config('enable_indexscan',$1,true),set_config('enable_bitmapscan',$2,true)", [settings!.index, settings!.bitmap]);
 }
 
 const SCOPE_CATALOG = `SELECT n.nspname AS schema_name, c.relname AS table_name, a.attname AS column_name,
   t.typname AS type_name, a.attnotnull AS not_null, pg_relation_size(c.oid)::text AS heap_bytes,
+  c.oid::text AS relation_oid,c.relkind::text AS relation_kind,
   c.relrowsecurity OR c.relforcerowsecurity AS row_security,
   EXISTS (SELECT 1 FROM pg_index i JOIN pg_class ic ON ic.oid=i.indexrelid JOIN pg_am am ON am.oid=ic.relam
     JOIN pg_opclass op ON op.oid=i.indclass[0] WHERE i.indrelid=c.oid AND am.amname='btree' AND i.indkey[0]=a.attnum
@@ -414,7 +473,8 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
   const startedAt = Date.now();
   let phase = "catalog", phaseAt = startedAt;
   const timings: { phase: string; ms: number }[] = [];
-  const progress = { releaseRows: 0, releaseBytes: 0, nativeRows: 0, nativePages: 0, inputKeys: 0 };
+  const progress = { releaseRows: 0, releaseBytes: 0, nativeRows: 0, nativePages: 0, inputKeys: 0,
+    ownershipRows: 0, ownershipPages: 0, ownedRows: 0, ownedPages: 0 };
   const mark = (next: string) => { timings.push({ phase, ms: Date.now()-phaseAt }); phase=next; phaseAt=Date.now(); };
   try { await runWithDbJitDisabled(() => runDbTransaction(async () => {
     const sql = getDb();
@@ -473,21 +533,30 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       if (job) throw new BusinessDeletionError("business_busy", [table]);
     }
     mark("ownership_conflicts");
+    await sql.query("SET LOCAL cursor_tuple_fraction=1");
     for (const [table, scope] of scopes) {
       if (scope.length !== 2 || scope.some(c => c.identity_checked || c.episode_bound)) continue;
-      for (const { predicate, owner } of scopePredicates(scope)) {
-        // Keep mismatch selectivity/LIMIT outside the owner relation. Returning
-        // the conflicting row version also prevents a non-leading covering
-        // index from winning a whole-index walk over the bounded owner scan.
-        const query = `WITH owned AS MATERIALIZED (SELECT business_id,business_ref_id,xmin
-          FROM ${qualified(table)} WHERE (${predicate}))
-          SELECT xmin::text AS conflicting_row_version FROM owned
-          WHERE business_id::text<>business_ref_id::text LIMIT 1`;
-        const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`, [businessId]);
-        verifyConflictReadPlan(plan!["QUERY PLAN"][0].Plan, owner);
-        const [conflict] = await sql.query(query, [businessId]);
-        if (conflict) throw new BusinessDeletionError("scope_conflict", [table]);
+      mark(`ownership_conflicts:${table}`);
+      const owners = scopePredicates(scope);
+      const declare = `DECLARE business_erasure_owner_census NO SCROLL CURSOR FOR
+        SELECT business_id,business_ref_id FROM ${qualified(table)} WHERE (${scopeFor(scope)})`;
+      const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${declare}`, [businessId]);
+      verifyOwnerReadPlan(plan!["QUERY PLAN"][0].Plan, owners.map(s => s.owner));
+      await sql.query(declare, [businessId]);
+      let rows = 0;
+      for (;;) {
+        const page = await sql.query<{ business_id: string | null; business_ref_id: string | null }>(
+          `FETCH FORWARD ${OWNER_PAGE} FROM business_erasure_owner_census`);
+        rows += page.length; progress.ownershipRows += page.length;
+        if (rows > OWNER_ROW_BOUND) throw new BusinessDeletionError("schema_not_ready", [table]);
+        if (!page.length) break;
+        progress.ownershipPages++;
+        // Preserve SQL NULL semantics: a compatibility NULL is not itself a
+        // contradiction. Required canonical ownership is established above.
+        if (page.some(r => r.business_id !== null && r.business_ref_id !== null && r.business_id !== r.business_ref_id))
+          throw new BusinessDeletionError("scope_conflict", [table]);
       }
+      await sql.query("CLOSE business_erasure_owner_census");
     }
     mark("delete_plans");
     const dependencies = await sql.query<Dependency>(`SELECT cn.nspname||'.'||child.relname AS child_table,pn.nspname||'.'||parent.relname AS parent_table
@@ -571,10 +640,19 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
           throw new BusinessDeletionError("schema_not_ready",[error.message]); throw error; }
         continue;
       }
+      const scope = scopes.get(table)!;
+      // Page the histories with proven leading-owner access. Scoped stores
+      // without that prerequisite and episode-bound response stores
+      // retain their existing checked DELETE path and the same 30s deadline.
+      if (Number(scope[0]!.heap_bytes) > 1024*1024 && scope[0]!.relation_kind === "r"
+        && !scope.some(c => c.episode_bound) && scopePredicates(scope).every(s => s.owner.indexed)
+        && table !== "public.creative_share_snapshots") {
+        await deleteLargeOwnedRows(sql, table, scope, businessId, progress);
+        continue;
+      }
       if (table === "public.provider_connections") { await sql`DELETE FROM provider_connections WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
       if (table === "public.business_provider_accounts") { await sql`DELETE FROM business_provider_accounts WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
       if (table === "public.provider_account_assignments") { await sql`DELETE FROM provider_account_assignments WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
-      const scope = scopes.get(table)!;
       const legacyShare = table === "public.creative_share_snapshots"
         ? ` OR (${scope.map(c => `${identifier(c.column_name)} IS NULL`).join(" AND ")} AND payload->>'businessId'=$1::text)` : "";
       await sql.query(`DELETE FROM ${qualified(table)} WHERE (${scopeFor(scope)})${legacyShare}`, [businessId]);

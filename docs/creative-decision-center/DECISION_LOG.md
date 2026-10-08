@@ -12746,7 +12746,7 @@ selected-business deletion and independent live absence are separate gates.
 The retained-reader ledger's business teardown entry is repinned only after this
 explicit source review. Its new retention wording is this narrowly authorized
 offboarding exception; all other retained roots and ordinary lifecycle roles are
-preserved. The canonical migrations harness requires thirty-three meaningful cases,
+preserved. The canonical migrations harness requires thirty-five meaningful cases,
 including worker/runtime alias cleanup, fresh-observation refusal, partial-page
 rollback and actual delayed writer refusal, not production DDL. Current catalog evidence
 also requires the indexed text owner for lineage, the six reviewed required
@@ -12820,3 +12820,53 @@ changes and guard modes. Sanitized completion/failure telemetry records phase
 times and finite progress counts without business identifiers or payloads.
 No production proxy, growth gate, capacity setting or job is changed. This is
 source/local validation until the exact release and live erasure are proved.
+
+D153 bounded-owner census correction (2026-10-09): the third live Halıcızade
+request on `6a097a6486e434375f0497edffe3bb767b90679e` failed after 50.8 seconds
+in ownership preflight. The actual timed-out statement was the materialized
+`meta_adset_daily` owner-arm mismatch read, not a DELETE or release-receipt
+census. All 418 scoped presence checks, roots, membership/connection and guard
+digests independently matched the pre-state afterward. An owner index existed;
+EXPLAIN estimated about 698,000 selected rows. Index availability alone did not
+prove that the entire mismatch read could finish in one 30-second statement.
+
+Uncertified dual-owner identities now use one complete union of the selected
+owner arms through a non-holdable, NO SCROLL cursor, comparing 1,024-row identity
+pages without re-reading overlapping arms. Both non-null identities must agree;
+compatibility NULL semantics and the previously reviewed canonical owners stay
+unchanged. Actual large-table plans must prove each arm's valid leading-owner
+equality index and refuse sorts, eager materialization and global scans. Each
+table census is bounded at 4,194,304 rows, under the same total deadline. Partial
+observations never authorize deletion. The old materialized mismatch algorithm
+above is superseded; the exact FK inheritance proof is unchanged.
+
+For large ordinary heaps with the same proven leading-owner access, child-first
+erasure also walks a non-holdable owner cursor once and deletes exact 1,024-TID
+pages. The table OID, ownership residual, actual TID-only DELETE plan and exact
+removed count are checked on every page. Existing writer exclusion prevents
+concurrent movement/reuse; no maintenance, partition rewrite or FK bypass is
+introduced. Native evaluation PK/input capture remains on its existing separate
+path. Episode-bound responses, legacy share-payload handling and stores without
+the leading-owner prerequisite retain their existing checked DELETE path and
+30-second limit. No index or production configuration changes are included.
+
+The migrated PostgreSQL harness additionally proves a contradiction beyond the
+first fact page refuses with unchanged tenant bytes, corrected multi-page fact
+erasure preserves foreign rows, and an unforeseen FK on a later large-table
+page rolls already deleted pages and memberships back. Sanitized telemetry
+reports the table phase and finite observed/page counts; failed counts are
+progress, never a commit claim. Exact live release and complete selected-business
+absence remain required separately from source, local tests and EXPLAIN-only
+plan acceptance.
+
+A targeted live browser read also found business-scoped platform and briefing
+keys outside the workspace/integration stores. Confirmed deletion now clears
+the four reviewed platform/briefing/overview/Studio key namespaces for that exact
+business and cancels in-memory query caches, after the fresh server list proves
+absence. Other live businesses' preference bytes and global layouts remain.
+An authenticated authoritative membership refresh prunes these stale namespaces
+for older clients; an offline device cannot be erased remotely before reconnect
+and that read. Storage refusal is reported separately from completed server
+deletion. This is client cache cleanup, not a new decision authority or browser
+history/forensic purge. Tests cover exact/similar foreign IDs, global/unscoped
+layout preservation, unconfirmed-delete preservation and older-client healing.

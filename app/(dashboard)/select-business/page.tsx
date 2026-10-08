@@ -6,6 +6,7 @@ import { useIntegrationsStore } from "@/store/integrations-store";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { sanitizeNextPath } from "@/lib/auth-routing";
+import { removeBusinessClientState } from "@/lib/client-auth-state";
 import { AuthSurface } from "@/components/auth/auth-surface";
 import { AuthOnboardingArc } from "@/components/auth/onboarding-arc";
 import { CURRENCY_OPTIONS } from "@/components/business/BusinessForm";
@@ -32,11 +33,9 @@ export default function SelectBusinessPage() {
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const workspaceOwnerId = useAppStore((state) => state.workspaceOwnerId);
   const selectBusiness = useAppStore((state) => state.selectBusiness);
-  const deleteBusiness = useAppStore((state) => state.deleteBusiness);
   const setWorkspaceSnapshot = useAppStore((state) => state.setWorkspaceSnapshot);
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
   const assignedAccountsByBusiness = useIntegrationsStore((state) => state.assignedAccountsByBusiness);
-  const removeBusinessData = useIntegrationsStore((state) => state.removeBusinessData);
   const [confirmBusinessId, setConfirmBusinessId] = useState<string | null>(null);
   const [confirmInput, setConfirmInput] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -256,10 +255,9 @@ export default function SelectBusinessPage() {
         throw new Error("The delete was accepted, but the business list did not confirm removal. Refresh the page before trying again.");
       }
 
-      deleteBusiness(confirmBusiness.id);
+      const browserDataCleared = removeBusinessClientState(confirmBusiness.id);
       const nextSelected = rows.some((row) => row.id === selectedBusinessId)
         ? selectedBusinessId : rows[0]?.id ?? null;
-      removeBusinessData(confirmBusiness.id);
       if (workspaceOwnerId) setWorkspaceSnapshot(workspaceOwnerId, rows, nextSelected);
       selectBusiness(nextSelected);
       let switched = true;
@@ -274,7 +272,9 @@ export default function SelectBusinessPage() {
 
       setConfirmBusinessId(null);
       setConfirmInput("");
-      setFeedback(switched
+      setFeedback(!browserDataCleared
+        ? { type: "error", message: "Business deleted, but its browser data could not be cleared. Reload before continuing." }
+        : switched
         ? { type: "success", message: "Business deleted." }
         : { type: "error", message: "Business deleted, but switching to the next business failed. Refresh the page before continuing." });
     } catch (error: unknown) {

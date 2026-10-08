@@ -230,6 +230,24 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     expect(await remains(businessId)).toBe(false);
   });
 
+  it("rolls owned data and the job back when a root trigger silently skips removal",async()=>{
+    const {businessId}=await fixture();await enqueueBusinessDeletion(businessId);
+    await getDb()`CREATE FUNCTION business_delete_root_skip() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$`;
+    await getDb()`CREATE TRIGGER business_delete_root_skip BEFORE DELETE ON businesses FOR EACH ROW EXECUTE FUNCTION business_delete_root_skip()`;
+    try {
+      expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"failed",code:"schema_not_ready"});
+      expect(await remains(businessId,"memberships","business_id")).toBe(true);
+      expect(await remains(businessId,"provider_connections","business_id")).toBe(true);
+      const [job]=await getDb()`SELECT status FROM business_deletion_jobs WHERE business_ref_id=${businessId}`;
+      expect(job!.status).toBe("failed");
+    } finally {
+      await getDb()`DROP TRIGGER business_delete_root_skip ON businesses`;
+      await getDb()`DROP FUNCTION business_delete_root_skip()`;
+    }
+    await enqueueBusinessDeletion(businessId);
+    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
+  });
+
   it("does not claim a queued job while a second session owns the global erasure lock", async () => {
     const {businessId}=await fixture();await enqueueBusinessDeletion(businessId);
     const blocker=new Client({connectionString:process.env.DATABASE_URL});await blocker.connect();

@@ -719,7 +719,8 @@ export async function deleteBusinessWithData(businessId: string,
     if (suspended.some(g => !modes.some(m => m.table_name===g.table_name && m.trigger_name===g.trigger_name && m.enabled===g.enabled)))
       throw new BusinessDeletionError("schema_not_ready", ["trigger_restoration"]);
     await sql`UPDATE sessions SET active_business_id=NULL WHERE active_business_id=${businessId}`;
-    await sql`DELETE FROM businesses WHERE id=${businessId}::uuid`;
+    const removedRoot = await sql`DELETE FROM businesses WHERE id=${businessId}::uuid RETURNING id`;
+    if (removedRoot.length !== 1) throw new BusinessDeletionError("schema_not_ready", ["business_root"]);
   // Background execution uses its pinned lock-owning backend, a 20m operation
   // deadline and the same 30s statement cap. No HTTP/proxy timeout is raised.
   // Direct internal callers retain their previous four-minute bound.

@@ -12984,7 +12984,9 @@ bounds, live heartbeat writes during bulk exclusion, and shorter statement plus
 absolute pinned deadlines. Exact input-reference probes pin bitmap scans off;
 dense shared hashes still require the reviewed leading contract/hash index and
 preserve GLOBAL inputs with any remaining native reference. The canonical seam
-requires all 43 deletion cases with no skips. Source/tests are not live erasure
+requires all 44 deletion cases with no skips. A root DELETE must return exactly
+one removed row; a trigger that silently skips it rolls owned data and the job
+back rather than committing an inaccessible partial business. Source/tests are not live erasure
 acceptance: exact runtime plus complete selected DB, external archive/input,
 media and browser absence proofs remain necessary. SQL deletion does not prove
 physical file shrink or that the 163 GiB aggregate admission gate has reopened.

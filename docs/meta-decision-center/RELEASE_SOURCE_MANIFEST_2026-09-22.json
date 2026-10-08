@@ -1,5 +1,5 @@
 {
-  "manifestHash": "8c7decf41fcbbe280b694e595c73e052f42e72aa3ea6995b2a0f21952d6bcd45",
+  "manifestHash": "1e2f12cf82395ba509bf72248440b34b7f1ef0fbe708a8277c26dc4c35b541b1",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -88,7 +88,7 @@
     },
     {
       "path": "app/(dashboard)/platforms/meta/creative-inbox/served-cut-readiness.test.tsx",
-      "sha256": "e64f90ff60ff989b64bb6adc67e67e87f97a8e8b4bf62787a34efed51d0ea483"
+      "sha256": "8472924cda249944bdb424e4af12fcd5d9b8434a23b74894dbc8d657bd72d2b4"
     },
     {
       "path": "app/(dashboard)/platforms/meta/creatives/grouped-row-decision-identity.test.tsx",
@@ -316,7 +316,7 @@
     },
     {
       "path": "app/api/meta/status/route.test.ts",
-      "sha256": "e87ff49a7311db096be6e4cda34efb6ccea4d6542d00c285c4164d327e7ae33a"
+      "sha256": "e65e3148ec5bd793ebb00f32bf831da4433dd72ba68d879dd6c28a16d3ff8593"
     },
     {
       "path": "app/api/meta/status/route.ts",

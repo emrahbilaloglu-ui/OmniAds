@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { evaluateDbGrowthFence } from "@/lib/sync/db-growth-fence";
 
 vi.mock("@/lib/sync/db-growth-fence", () => ({
-  evaluateDbGrowthFence: vi.fn(async () => ({ allowed: true, reason: "ok", evaluatedAt: new Date().toISOString() })),
+  evaluateDbGrowthFence: vi.fn(async () => ({ allowed: true, reason: "ready", evaluatedAt: new Date().toISOString() })),
 }));
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/status/route";

@@ -426,6 +426,7 @@ export function toCreativeStudioAssetRows(
     return {
       id: row.id,
       name: row.name,
+      windowCoverage: row.windowCoverage,
       kind: row.creativePrimaryLabel ?? row.creativeTypeLabel ?? row.format,
       imageUrl: image.imageUrl,
       imageNote: image.imageNote,

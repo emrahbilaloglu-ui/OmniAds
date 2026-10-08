@@ -377,6 +377,30 @@ describe("meta creatives warehouse", () => {
     });
   });
 
+  it("adds exact per-creative window coverage without borrowing other creative days or changing totals", async () => {
+    const dates = ["2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-05"];
+    vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
+      ...dates.map((date) => buildCreativeFactRow({ date, spend: 100, conversions: 2,
+        updatedAt: "2026-10-06T22:40:10.787Z" })),
+      buildCreativeFactRow({ creativeId: "crt-other", date: "2026-09-29", payloadJson: verifiedCreativeDayPayload("crt-other") }),
+    ] as never);
+    vi.mocked(requestModelStore.readMetaCreativeDimensions).mockResolvedValue(new Map([
+      ["crt-1", { projectionJson: buildProjectionRow() }],
+    ]) as never);
+    const payload = await getMetaCreativesWarehousePayload({ businessId: "biz-1", providerAccountId: "act_1", creativeId: "crt-1",
+      start: "2026-09-29", end: "2026-10-05", groupBy: "creative", format: "all", sort: "spend", mediaMode: "metadata" });
+    expect(payload).toMatchObject({ status: "ok", isPartial: false, freshness_state: "fresh" });
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows[0]).toMatchObject({ spend: 500, purchases: 10, window_coverage: {
+      creativeId: "crt-1", requestedDays: 7, verifiedDays: 5, unknownDays: 2,
+      unknownDates: ["2026-09-29", "2026-10-04"], verifiedAbsentDays: 0,
+      sourceObservedAt: "2026-10-06T22:40:10.787Z",
+    } });
+    expect(warehouse.getMetaAdDailyRange).not.toHaveBeenCalled();
+    expect(creativesService.buildCreativesResponse).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaCreativeDailyRows).not.toHaveBeenCalled();
+  });
+
   it("withholds unversioned creative-grain totals as partial instead of a verified zero or stale amount", async () => {
     vi.mocked(warehouse.getMetaCreativeDailyRange).mockResolvedValue([
       buildCreativeFactRow({

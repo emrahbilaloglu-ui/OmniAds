@@ -127,6 +127,7 @@ export interface MetaCreativeScoreGap {
 
 export interface MetaCreativeRow {
   id: string;
+  windowCoverage?: import("@/lib/meta/creative-membership-coverage").CreativeWindowCoverage;
   /**
    * `null` when the provider supplied no creative for this row. It used to be
    * non-nullable, so the copies mapper substituted the copy row id to satisfy

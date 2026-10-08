@@ -28,6 +28,8 @@ import type {
 } from "./creative-studio-exact-types";
 import styles from "./CreativeStudioExact.module.css";
 
+import { creativeWindowCoverageText } from "@/lib/meta/creative-membership-coverage";
+
 const EM_DASH = "—";
 /**
  * Bumped from 1 when `hold` left the catalogue and seven measurable metrics
@@ -1505,6 +1507,11 @@ function AssetsView({
                           <AssetVisual compact row={row} />
                           <span className={styles.creativeIdentityText}>
                             <span>{displayText(row.name)}</span>
+                            <span data-creative-window-coverage title={row.windowCoverage
+                              ? `Requested ${row.windowCoverage.startDate}–${row.windowCoverage.endDate}. Unknown dates: ${row.windowCoverage.unknownDates.join(", ") || "none"}. Source observed: ${row.windowCoverage.sourceObservedAt ?? "unknown"}. Missing days are not zero activity.`
+                              : "Dated creative coverage was not recorded in this payload. Missing days are not zero activity."}>
+                              {creativeWindowCoverageText(row.windowCoverage)}
+                            </span>
                             <span>
                               {displayText(row.kind)}
                               {/*

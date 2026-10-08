@@ -1949,6 +1949,14 @@ describe("Decisions deep-link compatibility matrix", () => {
         pendingOsDecision({
           heldAction: "refresh",
           heldResolution: { code: "commercial_target_missing" },
+          evidenceRequirements: [{
+            predicate: "refresh_calibration", label: "Refresh calibration sample",
+            observed: 6, required: 20, unit: "ad_roas_ratio_observations", currency: null,
+            status: "failed", source: "referenced_native_calibration", sourceId: "cal_original",
+            window: { startDate: "2026-04-01", endDate: "2026-07-10" },
+            cell: null, owner: "system", recheck: "After eligible decision completion",
+          }],
+          confidenceBasis: { rule: "missing_data_cap", missingData: ["missing_refresh_calibration"] },
           metrics: {
             ...pendingOsDecision().metrics,
             spend: 100,
@@ -1974,6 +1982,11 @@ describe("Decisions deep-link compatibility matrix", () => {
     const current = card?.nextElementSibling;
     expect(current?.textContent).toContain("Current status: Needs review");
     expect(card?.closest('[data-mobile-row-id]')?.querySelector('.ad-mobile-action-note')).toBeNull();
+    const row = card?.closest('[data-mobile-row-id]');
+    expect(row?.querySelector('[data-mobile-creative-identity]')?.textContent)
+      .toContain("Campaign: Prospecting · Ad set: Broad · Ad: ad_pending");
+    expect(row?.querySelector('[data-mobile-creative-requirement]')?.textContent)
+      .toContain("6 / 20 Ad ROAS-ratio observations");
 
     // Tap through.
     const open = Array.from(
@@ -1990,6 +2003,12 @@ describe("Decisions deep-link compatibility matrix", () => {
     );
     expect(evidence, "the evidence screen must open").not.toBeNull();
     const text = evidence?.textContent ?? "";
+    expect(evidence?.querySelector('[data-mobile-creative-identity]')?.textContent)
+      .toContain("Campaign: Prospecting · Ad set: Broad · Ad: ad_pending");
+    expect(evidence?.querySelector('[data-mobile-creative-requirements]')?.textContent)
+      .toContain("6 / 20 Ad ROAS-ratio observations");
+    expect(evidence?.querySelector('[data-mobile-creative-requirements]')?.textContent)
+      .toContain("Sample readiness alone does not authorize a change");
     // The pending recommendation and its next step remain visible. This
     // served-only row has no ad-performance observation status, so the
     // numeric fixture cannot be treated as measured decision evidence.

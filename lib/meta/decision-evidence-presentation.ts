@@ -76,7 +76,18 @@ export const NATIVE_CALIBRATION_PRESENTATION_JSON_SQL = `CASE WHEN explanation_b
  'breakEvenRoas', explanation_cell.break_even_roas,
  'metaAov', explanation_cell.meta_attributed_aov_mean_90d,
  'metaAovPurchases', explanation_cell.meta_attributed_aov_purchase_count_90d,
- 'actionReadiness', explanation_cell.action_readiness_json
+ 'actionReadiness', jsonb_build_object(
+   'scale', explanation_cell.action_readiness_json->'scale',
+   'refresh', explanation_cell.action_readiness_json->'refresh',
+   'spendUnitAuthority', jsonb_build_object(
+     'basis', explanation_cell.action_readiness_json#>'{spendUnitAuthority,basis}',
+     'baseSpendUnit', explanation_cell.action_readiness_json#>'{spendUnitAuthority,baseSpendUnit}',
+     'accountAovEvidence', jsonb_build_object(
+       'sampleWindowStart', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,sampleWindowStart}',
+       'sampleWindowEnd', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,sampleWindowEnd}'
+     )
+   )
+ )
 ) ELSE NULL END`;
 
 const object = (v: unknown): Record<string, unknown> | null => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : null;
@@ -131,12 +142,23 @@ export function projectMetaDecisionEvidenceRequirements(input: {
   window?: { startDate: string; endDate: string } | null;
 }): MetaDecisionEvidenceRequirement[] {
   const recheck = "Re-evaluate after the stated evidence is available and an eligible decision run completes. Other independent checks must also pass.";
-  const requirements: MetaDecisionEvidenceRequirement[] = input.blockers.map((b) => ({
-    predicate: b.predicate, label: b.predicate === "scale_account_benchmark_ready" && typeof b.threshold !== "number" ? "Scale winner purchase benchmark" : CATALOG[b.predicate]?.label ?? "Required decision evidence",
-    observed: b.observed, required: b.threshold, unit: b.predicate === "scale_account_benchmark_ready" && typeof b.threshold !== "number" ? "purchases" : CATALOG[b.predicate]?.unit ?? "unknown",
-    currency: input.currency, status: b.status, source: "persisted_evaluation", sourceId: input.evaluationId,
-    window: input.window ?? null, cell: null, owner: "system", recheck,
-  }));
+  // Only typed, catalogued predicates become quantitative buyer copy.
+  // Producer reason/observed prose is never a display label or measurement.
+  const requirements: MetaDecisionEvidenceRequirement[] = input.blockers.flatMap((b) => {
+    const entry = CATALOG[b.predicate];
+    if (!entry) return [];
+    const winnerBenchmark = b.predicate === "scale_account_benchmark_ready" && typeof b.threshold !== "number";
+    const c = winnerBenchmark ? input.calibration : null;
+    return [{
+      predicate: b.predicate, label: winnerBenchmark ? "Account winner purchase benchmark" : entry.label,
+      observed: numeric(b.observed), required: winnerBenchmark ? "positive winner purchase P50" : numeric(b.threshold),
+      unit: winnerBenchmark ? "purchases" : entry.unit,
+      currency: input.currency, status: b.status, source: "persisted_evaluation" as const, sourceId: input.evaluationId,
+      window: winnerBenchmark ? c ? { startDate: c.windowStart, endDate: c.windowEnd } : null : input.window ?? null,
+      cell: c ? { scope: c.cellScope, objective: c.objective, cohort: c.funnelCohort, optimizationContext: c.optimizationContext } : null,
+      owner: "system" as const, recheck,
+    }];
+  });
   const action = input.heldAction;
   if (action === "scale" || action === "refresh") {
     const c = input.calibration, entry = c?.readiness[action];
@@ -165,10 +187,13 @@ export function projectMetaDecisionEvidenceRequirements(input: {
 }
 
 export function metaDecisionRequirementText(r: MetaDecisionEvidenceRequirement, includeRecheck = true): string {
-  const value = (v: string | number | null) => v === null ? "unknown" : typeof v === "number" ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(v) : /[_:[\]{}]/.test(v) ? "unverified" : v;
+  const value = (v: string | number | null) => typeof v === "number" && Number.isFinite(v) ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(v) : "unknown";
   const unit = { ad_calibration_observations: "Ad calibration observations", ad_roas_ratio_observations: "Ad ROAS-ratio observations", purchases: "purchases", currency: r.currency ?? "currency unknown", roas: "ROAS", unknown: "units unknown" }[r.unit];
   const friendly = (v: string) => v.toLowerCase().replaceAll("_", " ");
   const cell = r.cell ? ` · ${friendly(r.cell.objective)} / ${friendly(r.cell.cohort)} / ${friendly(r.cell.optimizationContext)}` : " · calibration cell unknown";
+  if (r.predicate === "scale_account_benchmark_ready" && typeof r.required === "string") {
+    return `${r.label}: ${value(r.observed)} purchases observed; a positive winner purchase P50 is required${r.window ? ` · calibration ${r.window.startDate}–${r.window.endDate}` : " · sample period unknown"}.${includeRecheck ? ` ${r.recheck}` : ""}`;
+  }
   return `${r.label}: ${value(r.observed)} / ${value(r.required)} ${unit}${r.window ? ` · ${r.window.startDate}–${r.window.endDate}` : " · sample period unknown"}${r.unit.startsWith("ad_") ? cell : ""}.${includeRecheck ? ` ${r.status === "passed" ? "This requirement is met; other checks still apply." : r.recheck}` : ""}`;
 }
 

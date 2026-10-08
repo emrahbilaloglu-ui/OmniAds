@@ -88,6 +88,7 @@ const CONTRACT_FILES = [
   // manual Cut recommendation is declared beside its reader, not in the
   // workspace contract, so the walk opens that file too.
   "lib/meta/manual-cut-advisory.ts",
+  "lib/meta/decision-evidence-presentation.ts",
 ] as const;
 
 /** The one payload the Decision page is handed. Everything walks from here. */
@@ -454,6 +455,11 @@ const UNION_REPRESENTATIVE: Record<string, string> = {
 };
 
 const OVERRIDES: Record<string, { base: unknown; alt: unknown }> = {
+  // These union fields carry numeric measurements. Producer prose is refused
+  // by presentation, so use actual numeric variants to prove its rendering.
+  "MetaDecisionEvidenceRequirement.observed": { base: 6, alt: 9 },
+  "MetaDecisionEvidenceRequirement.required": { base: 30, alt: 31 },
+  "MetaDecisionCalibrationEvidence.spendUnitBasis": { base: "physical_account_purchase_aov_90d", alt: "target_cpa" },
 
   "MetaManualCutRefusal.code": { base: "stressed_cut_not_confirmed", alt: "peer_free_cut_not_confirmed" },
   // The page now validates the workspace envelope against its read-model scope

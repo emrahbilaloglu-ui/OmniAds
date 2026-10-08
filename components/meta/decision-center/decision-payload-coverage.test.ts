@@ -361,6 +361,52 @@ const PACING_IS_EXTRAPOLATED_FROM_SPEND = [
 ] as const;
 
 const COVERAGE: Record<string, Coverage> = {
+  // D152: display-only evidence from the original evaluation/calibration.
+  "MetaDecisionEvidenceRequirement.label": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.observed": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.required": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.unit": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.currency": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.status": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.window.startDate": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.window.endDate": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.cell.objective": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.cell.cohort": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.cell.optimizationContext": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.recheck": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionEvidenceRequirement.predicate": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionEvidenceRequirement.source": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionEvidenceRequirement.sourceId": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionEvidenceRequirement.cell.scope": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionEvidenceRequirement.owner": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.currency": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionCalibrationEvidence.targetRoas": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionCalibrationEvidence.breakEvenRoas": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionCalibrationEvidence.metaAov": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionCalibrationEvidence.metaAovPurchases": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionCalibrationEvidence.baseSpendUnit": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionCalibrationEvidence.metaAovWindowStart": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionCalibrationEvidence.metaAovWindowEnd": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionCalibrationEvidence.spendUnitBasis": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionCalibrationEvidence.rowId": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.batchId": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.contractVersion": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.cellScope": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.objective": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.funnelCohort": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.optimizationContext": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.windowStart": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.windowEnd": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.asOfCutoff": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.inputManifestHash": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.batchInputManifestHash": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.sourceManifestHash": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.readiness{}.observed": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.readiness{}.required": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionCalibrationEvidence.readiness{}.ready": N("Original receipt provenance or projection metadata. The buyer reads its typed requirement and commercial basis; raw identifiers and duplicate calibration internals remain diagnostic."),
+  "MetaDecisionConfidenceBasis.rule": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+  "MetaDecisionConfidenceBasis.missingData": R(S.EVIDENCE, "the typed decision evidence / confidence / commercial basis text"),
+
   // D078 R4: the account-coverage strip. A deselected-but-spending assigned
   // identity is an explicit fact on this screen; the strip is display-only
   // and grants nothing.
@@ -1806,9 +1852,7 @@ const COVERAGE: Record<string, Coverage> = {
     "The served presentation decision's own rawLabel is printed in the diagnostics; the canonical twin is the same string from the same snapshot.",
   ),
   "MetaCanonicalDecision.sourceDecision.reason": N(RAW_PRODUCER_COPY_IS_NOT_BUYER_COPY),
-  "MetaCanonicalDecision.sourceDecision.confidence": N(
-    "The window prints the confidence BAND, which is the engine's own bucketing of this score, and the served decision's numeric score beside it; a third number for one confidence invites arithmetic nobody defined.",
-  ),
+  "MetaCanonicalDecision.sourceDecision.confidence": R(S.EVIDENCE, "the original recorded score in the confidence-basis explanation"),
   "MetaCanonicalDecision.sourceDecision.confidenceBand": R(
     S.EVIDENCE,
     "the window's band chip and its tone",
@@ -3509,9 +3553,9 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // leaves of the new `MetaManualCutAdvisory` interface (814 -> 824).
     // D125 adds two page controls, two recent-sample metrics and four config-history fields.
     // D127 adds economicConcern; the second degraded reason also becomes varying.
-    expect(fields.length).toBe(835);
+    expect(fields.length).toBe(879);
     // The manual-advice DTO contributes one new reachable interface.
-    expect(new Set(fields.map((field) => field.iface)).size).toBe(70);
+    expect(new Set(fields.map((field) => field.iface)).size).toBe(73);
     // Candidate selection v3 retains v2 payload compatibility. Its version
     // leaf now has two values instead of one pinned literal.
     // The new observation leaf and three v5/v6 compatibility version leaves vary.
@@ -3519,7 +3563,7 @@ describe("Meta Decision payload · served-field coverage matrix", () => {
     // provenance leaf now varies while remaining intentionally unrendered.
     // D123: `currentObserved` and the four manual-advice counts vary; the five
     // pinned manual-advice markers do not (764 -> 769).
-    expect(fields.filter((field) => field.varies).length).toBe(781);
+    expect(fields.filter((field) => field.varies).length).toBe(825);
     expect(fields.some((field) => field.key.endsWith(".metrics.cpa"))).toBe(
       true,
     );
@@ -3719,6 +3763,7 @@ const PROBE_SURFACE: Record<string, string> = {
  * of that chain its turn.
  */
 const SCENARIOS: readonly ProbeScenario[] = [
+  { name: "typedCurrencyRequirement", force: { "MetaDecisionEvidenceRequirement.unit": "currency", "MetaDecisionEvidenceRequirement.status": "failed" } },
   {
     name: "full",
     // A current healthy source does not carry the optional retained-generation
@@ -4075,7 +4120,7 @@ const ELEMENT_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // the six reference/manifest contract-identity leaves were added. Each is keyed on one of the
   // six labelled config rows the diagnostics now print. The Ad id keys the
   // exact-Ad evidence window; D109 removes a cross-period purchase claim.
-  EVIDENCE: [124, 19],
+  EVIDENCE: [124, 43],
   HEADER: [0, 9],
   HEALTHY: [0, 10],
   // Five more claims on this panel, none of them keyed to a stable row id:
@@ -4165,7 +4210,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
   // 106 -> 127: the original receipt-lineage rows; -> 133 with the six
   // contract-identity leaves. D109 removes the cross-period purchase claim;
   // the remaining claims sit behind the evidence-window control.
-  EVIDENCE: [0, 139],
+  EVIDENCE: [0, 163],
   INVENTORY: [0, 14],
   // D078 R4 (correction 2): the coverage PANEL renders every one of its
   // eleven leaves as visible text in the resting desktop DOM — including
@@ -4197,7 +4242,7 @@ const DOM_PROOF_BY_SURFACE: Record<string, [number, number]> = {
 // contract-identity leaves. D109 removes one cross-period purchase claim;
 // the remaining evidence claims are behind the window control. The pre-cap
 // counts move into the resting DOM as the lane-tab and scope-pill counts.
-const DOM_PROOF_TOTALS: [number, number] = [34, 360];
+const DOM_PROOF_TOTALS: [number, number] = [34, 384];
 
 /** Claims on leaves the contract pins to one value, which cannot be varied. */
 // PRE-DEPLOY AUDIT — 7 -> 20. Thirteen more claims sit on leaves the budget
@@ -4235,7 +4280,7 @@ const DOM_PROOF_PINNED_LEAVES = 6;
 // D123: `currentObserved` and the four manual-advice counts move no surface;
 // each is classified with its own reason above: 384 -> 389.
 // D128: served pagination offset now changes the page-level range (388 -> 387).
-const NOWHERE_LEAVES = 387;
+const NOWHERE_LEAVES = 407;
 
 /**
  * Of those, the ones that DO reach the callback boundary — the served tuple
@@ -4259,7 +4304,7 @@ const NOWHERE_LEAVES = 387;
 // +2: the admitted window's recent band travels inside the decision handed
 // to the drawer callback and is printed nowhere on this surface: 71 -> 73.
 // D123's five varying audit leaves travel in that same callback tuple.
-const NOWHERE_BUT_AT_THE_BOUNDARY = 76;
+const NOWHERE_BUT_AT_THE_BOUNDARY = 95;
 
 /** The one character every surface in this app prints for "unserved". */
 const EM_DASH = "\u2014";
@@ -4859,6 +4904,7 @@ const CONTRADICTED_WITHHOLDINGS: Record<
  * is the honest answer; asserting a search that cannot fail is not.
  */
 const PINNED_BEYOND_TEXT_PROOF: Record<string, string> = {
+  "MetaDecisionEvidenceRequirement.owner": "The contract pins system, an ordinary word that cannot prove a provenance field is displayed.",
   // PRE-DEPLOY AUDIT — three leaves the budget contracts pin in the TYPE
   // (`ctaEnabled: false`, `providerWriteAttempted: false`,
   // `directionSelected: null`). They are rendered — the matrix proves the
@@ -5073,7 +5119,7 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // Current creative taxonomy adds two varying display/provenance leaves.
     // The admitted window's recent band adds two varying dates -> 760.
     // D123's five varying leaves -> 769.
-    expect(outcomes.size).toBe(781);
+    expect(outcomes.size).toBe(825);
     // And the baseline surfaces are not empty, or "nothing changed" would be
     // true of everything.
     for (const [surface, text] of Object.entries(baseline)) {
@@ -5329,9 +5375,9 @@ describe("Meta Decision payload · every claim, proven against the running code"
     // The Meta-derived creative type adds one badge claim behind the scope tab.
     // D109 removes one canonical purchase claim from a different period.
     // D128 adds the served pagination offset to the visible claims.
-    expect(rendered.length).toBe(400);
+    expect(rendered.length).toBe(424);
     expect(withElement.length).toBe(237);
-    expect(withoutElement.length).toBe(163);
+    expect(withoutElement.length).toBe(187);
 
     /*
      * AND WHICH ENTRIES, not merely how many.

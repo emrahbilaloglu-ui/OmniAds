@@ -1002,7 +1002,7 @@ img.creativeThumbImage + .creativeKind {
 
 .creativeContext {
   margin: 0 0 4px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
   opacity: 0.75;
   overflow-wrap: anywhere;

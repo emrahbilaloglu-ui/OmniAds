@@ -32,6 +32,24 @@ describe("recorded decision evidence presentation", () => {
       calibration: readMetaDecisionCalibrationEvidence(receipt()), heldAction: "scale", currency: "USD", evaluationId: "eval" });
     expect(result[0]).toMatchObject({ observed: null, required: "positive winner purchase P50", unit: "purchases", source: "persisted_evaluation" });
     expect(result).toHaveLength(1);
+    expect(result[0]?.window).toEqual({ startDate: "2026-09-08", endDate: "2026-10-06" });
+    const unknown = projectMetaDecisionEvidenceRequirements({ blockers: [blocker(null, "positive winner purchase P50")],
+      calibration: null, heldAction: "scale", currency: "USD", evaluationId: "eval" });
+    expect(unknown[0]?.window).toBeNull();
+    expect(metaDecisionRequirementText(unknown[0]!)).toContain("sample period unknown");
+    expect(metaDecisionRequirementText(unknown[0]!)).not.toContain("P50 purchases");
+  });
+  it("does not render uncatalogued producer prose or unknown units as quantitative requirements", () => {
+    const blockers: DecisionPredicateBlocker[] = [
+      { ...blocker(), predicate: "refresh_ad_lifecycle_evidence", observed: "unavailable", threshold: "fatigued" },
+      { ...blocker(), predicate: "scale_recent_freshness", observed: "producer reason text", threshold: "fresh" },
+    ];
+    const result = projectMetaDecisionEvidenceRequirements({ blockers, calibration: null, heldAction: "cut", currency: "USD", evaluationId: "eval" });
+    expect(result).toEqual([]);
+    const malformed = projectMetaDecisionEvidenceRequirements({ blockers: [{ ...blocker(), predicate: "scale_spend_depth", observed: "producer reason text", threshold: 100 }], calibration: null, heldAction: "cut", currency: "USD", evaluationId: "eval" });
+    expect(malformed[0]?.observed).toBeNull();
+    expect(metaDecisionRequirementText(malformed[0]!)).toContain("unknown / 100 USD");
+    expect(metaDecisionRequirementText(malformed[0]!)).not.toContain("producer reason text");
   });
   it("reports absent or inconsistent calibration as unknown; Refresh counts are not invented", () => {
     const missing = projectMetaDecisionEvidenceRequirements({ blockers: [], calibration: null, heldAction: "refresh", currency: "USD", evaluationId: "eval" });

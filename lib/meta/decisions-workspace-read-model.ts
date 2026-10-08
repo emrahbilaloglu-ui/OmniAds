@@ -3303,7 +3303,7 @@ function applyNativeCanonicalDecisionAuthority(input: {
     row.as_of_date,
   );
   for (const requirement of decision.evidenceRequirements ?? []) {
-    if (requirement.source !== "persisted_evaluation" || requirement.unit.startsWith("ad_")) continue;
+    if (requirement.source !== "persisted_evaluation" || requirement.unit.startsWith("ad_") || requirement.predicate === "scale_account_benchmark_ready") continue;
     const window = decision.decisionWindow;
     requirement.window = requirement.predicate.includes("recent")
       ? window?.recentStartDate && window.recentEndDate ? { startDate: window.recentStartDate, endDate: window.recentEndDate } : null

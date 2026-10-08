@@ -11,18 +11,24 @@ export interface MetaSyncCapability {
 /** Projection of existing admission only; liveness and readable data cannot
  * grant new work. Old/unreadable observations remain unknown. */
 export function buildMetaSyncCapability(
-  admission: Pick<DbGrowthFenceDecision, "allowed" | "reason" | "evaluatedAt"> | null,
+  admission: (Pick<DbGrowthFenceDecision, "allowed" | "reason" | "evaluatedAt"> & Partial<Pick<DbGrowthFenceDecision, "overridden">>) | null,
   nowMs = Date.now(),
 ): MetaSyncCapability {
   const at = admission ? Date.parse(admission.evaluatedAt) : NaN;
-  const known = Boolean(admission && Number.isFinite(at) && at <= nowMs && nowMs - at <= 60_000 && admission.reason !== "fence_read_failed");
+  const measuredCapacityReason = ["database_budget_exceeded", "table_budget_exceeded", "physical_free_space_low", "physical_projected_free_space_low"].includes(admission?.reason ?? "");
+  const hasMeasuredDecision = admission?.allowed === true
+    ? admission.reason === "ready" || (admission.overridden === true && ["database_budget_exceeded", "table_budget_exceeded"].includes(admission.reason))
+    : measuredCapacityReason;
+  const known = Boolean(admission && hasMeasuredDecision && Number.isFinite(at) && at <= nowMs && nowMs - at <= 60_000);
   const state = !known ? "unknown" : admission!.allowed ? "admitted" : "capacity_refused";
   return {
     state, canStartSync: state === "admitted",
     reason: known ? admission!.reason : "sync_admission_unavailable",
     evaluatedAt: admission?.evaluatedAt ?? null,
     message: state === "admitted"
-      ? "Capacity admission permits new work; worker health and evidence freshness are separate checks."
+      ? admission?.overridden === true
+        ? "An existing emergency capacity admission override permits new work; worker health and evidence freshness are separate checks."
+        : "Capacity admission permits new work; worker health and evidence freshness are separate checks."
       : state === "capacity_refused"
         ? "New Meta sync and decision generation are blocked by database capacity. Existing evidence remains readable; re-evaluate after admission is restored."
         : "Admission for new Meta sync and decision generation could not be verified. Existing evidence does not prove that new work can start.",

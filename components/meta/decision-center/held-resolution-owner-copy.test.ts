@@ -288,7 +288,7 @@ describe("held and blocked creative steps follow the served resolution owner", (
     const verdict = heldCreativeVerdict(held, configGap);
     expect(verdict?.nextStep).not.toMatch(/budget increase|before replacing|whether to pause manually/);
     expect(verdict?.nextStep).toContain("evidence requirements");
-    if (_name === "W9") expect(verdict?.nextStep).toContain("Scale calibration floor");
+    if (_name === "W9") expect(verdict?.nextStep).toContain("exact-cell Ad calibration sample");
   });
 
   it("keeps Bathroom's economic review and the recorded refusal distinct", () => {
@@ -307,6 +307,7 @@ describe("held and blocked creative steps follow the served resolution owner", (
     const verdict = heldCreativeVerdict(held, configGap);
     expect(verdict?.nextStep).toContain("ad set or campaign delivery");
     expect(verdict?.nextStep).not.toMatch(/budget|judging this signal/);
+    expect(verdict?.nextStep).toContain("role panel");
     for (const evidenceGap of ["profile_hard_action_ineligible", "scale_calibration", "native_metrics_unavailable", "source_coverage_unverified", "unknown_blocker"]) {
       const insufficient = heldCreativeVerdict({ ...held, blockers: [...held.blockers, { code: evidenceGap, label: "Insufficient evidence" }] }, configGap);
       expect(insufficient?.nextStep).not.toContain("ad set or campaign delivery");
@@ -322,9 +323,9 @@ describe("held and blocked creative steps follow the served resolution owner", (
     const verdict = heldCreativeVerdict(held);
 
     expect(verdict?.label).toBe("Pause signal awaiting verification");
-    expect(verdict?.nextStep).toContain("Fresh, completed Meta source data is still arriving.");
+    expect(verdict?.nextStep).toContain("Fresh, completed Meta source data is required and has not been verified.");
     expect(verdict?.nextStep).toContain(
-      "These evidence requirements must be met before Adsecute can authorize a change; the pause signal is re-checked on each decision run.",
+      "These evidence requirements must be met before Adsecute can authorize a change; the pause signal can be reassessed after an eligible decision run completes.",
     );
     for (const chore of CHORES) expect(verdict?.nextStep).not.toMatch(chore);
   });
@@ -339,7 +340,7 @@ describe("held and blocked creative steps follow the served resolution owner", (
     });
 
     expect(buyerFacingCreativeResolution(blocked)).toBe(
-      "Decision data for this ad is waiting for the next Meta sync. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
+      "Decision data for this ad requires a completed eligible Meta sync and evaluation. These evidence requirements must be met before Adsecute can authorize a change; this ad can be reassessed after an eligible decision run completes.",
     );
   });
 

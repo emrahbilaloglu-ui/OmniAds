@@ -12661,3 +12661,22 @@ rewrite. Preserve the server admission gate, historical read-only authority,
 null economics and neutral coverage wording when reverting presentation.
 Actual production publication and acceptance remain separate from local tests;
 capacity refusal cannot establish new-generation or recovery acceptance.
+
+D152 source-ledger review: the current evidence route retains every original
+identity/hash/context check and only casts its text parameter. The workspace
+reader adds two referenced calibration PK joins, with no selection, retention
+or removal change. Its DTO stays additive. The migrations seam adds disposable
+fixture tests only. The five existing retained-reader ledger entries are
+repinned after reviewing these exact changes; their roles and retained roots
+are preserved. This source review grants no storage operation or live closure.
+
+D152 review corrections: quantitative requirement rows only admit catalogued
+predicates and numeric measurements; producer prose never becomes a metric.
+The account winner-P50 requirement keeps its original calibration period (or
+unknown), not the Ad decision window. Main/Test instructions remain limited to
+eligible Scale/Refresh holds and supplement the existing economic review.
+Copy describes completed eligible reassessment, never background progress.
+Creative grouping coverage uses all provider creative IDs contributing to the
+same totals. The native-ad seam mirrors optional read-side receipt columns;
+legacy fixture receipts remain unknown. Only fresh, measured capacity reasons
+are classified as capacity refusal; unavailable measurements remain unknown.

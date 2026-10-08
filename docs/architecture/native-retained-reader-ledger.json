@@ -11,7 +11,7 @@
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.ts",
       "role": "serving-and-history",
-      "sha256": "db02cc6d0bd11ecf008f6628e76eac71bc19a0a6cddc91f486f8567a8147486d",
+      "sha256": "a8d78c2b58215abbfb2b0e7d0e9196411d77d3685550caa37bc05f5142c7337a",
       "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
     },
     {
@@ -173,13 +173,13 @@
     {
       "path": "lib/meta/decisions-workspace-contract.ts",
       "role": "provenance-only",
-      "sha256": "f8337f913dec946ebc068b5b81643e0f595aee45b1c60b1864cbf6a9891c5a14",
+      "sha256": "e326ca1e9d9639cbc1ed26a0d9a83e4e656128b98243f0b3c255e29789339e5b",
       "retention": "Source provenance declaration, not a production SQL closure proof; changes require selection/retention review."
     },
     {
       "path": "lib/meta/decisions-workspace-read-model.ts",
       "role": "serving-and-history",
-      "sha256": "2a20043c17d5b72328be7f37585631d2c67b959d24ac3b7c3bca9225091489f6",
+      "sha256": "576d23574f06e58eeaeb2d3f6e699d50d52dfc614fac65136d7d6c1815cbf36d",
       "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
     },
     {
@@ -281,13 +281,13 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "b3dc429177b2a0ff0d19d3397161de10ede626248910bfbcd20c3e72ef075a8c",
+      "sha256": "f28daeeecd76deae11786fd6496471f82a6ce49b539f99a5dff79a67787edf76",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
       "role": "owned-fixture",
-      "sha256": "f1d687dbe9096821c8a9e7e2650fa946a4eb20bd61fef69ddb0ec1676c1beca9",
+      "sha256": "09beaea7658a6e742579752be25421577430ec8d83c8fba7cdbaf4f926cb7932",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
@@ -447,5 +447,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "f8453cb372f972815f3a480d345e540486d1aa808b6dcab7065816d7a583e7bb"
+  "sourceInventorySha256": "dbcec60d23ba745218aeda403a2ccfa77da46be1108a1b18472169286603c7d6"
 }

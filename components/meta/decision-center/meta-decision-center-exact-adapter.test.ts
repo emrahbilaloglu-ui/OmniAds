@@ -900,7 +900,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
     });
     const rows = new Map(model.creativeDecisions?.map((row) => [row.id, row]));
     expect(rows.get("no_metrics")?.note).toBe(
-      "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance. Review this ad set's Main/Test role in the role panel; the next decision run will reassess it.",
+      "No finalized ad performance data is available for this period. Wait for a completed data day before judging performance. Review this ad set's Main/Test role in the role panel; reassessment requires an eligible decision run to complete.",
     );
     expect(rows.get("no_metrics")?.money).toBe("—");
     expect(rows.get("no_metrics")?.ctrValue).toBeNull();
@@ -925,7 +925,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
 
     // A numeric zero alone says nothing about delivery or read completeness.
     expect(buyerFacingCreativeResolution(noMetrics)).toBe(
-      "Review this ad set's Main/Test role in the role panel; the next decision run will reassess it.",
+      "Review this ad set's Main/Test role in the role panel; reassessment requires an eligible decision run to complete.",
     );
     // This broad blocker also covers an observed ad whose account winner
     // benchmark is missing; it must not claim the ad has no performance day.
@@ -942,7 +942,7 @@ describe("buildMetaDecisionCenterExactViewModel R7 boundaries", () => {
         },
       }),
     ).toBe(
-      "Required evidence for this change is missing or unverified. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
+      "Required evidence for this change is missing or unverified. These evidence requirements must be met before Adsecute can authorize a change; this ad can be reassessed after an eligible decision run completes.",
     );
     expect(
       buyerFacingCreativeResolution({
@@ -1863,7 +1863,7 @@ describe("the creative queue is the served set, split by the served state", () =
     expect(rows.get("os_ad_pending")).toMatchObject({
       stateLabel: "Blocked",
       stateTone: "warning",
-      note: "Wait for the next completed ad-level decision. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
+      note: "Wait for the next completed ad-level decision. These evidence requirements must be met before Adsecute can authorize a change; this ad can be reassessed after an eligible decision run completes.",
     });
     expect(rows.get("os_ad_pending")?.chips).not.toContain("Decision pending");
     expect(rows.get("os_ad_pending")?.blockedNote).toBeUndefined();
@@ -1990,7 +1990,7 @@ describe("the creative queue is the served set, split by the served state", () =
       .creativeDecisions?.[0];
 
     expect(row).toMatchObject({
-      note: "Required decision evidence is missing or unverified. These evidence requirements must be met before Adsecute can authorize a change; this ad is re-checked on each decision run.",
+      note: "Required decision evidence is missing or unverified. These evidence requirements must be met before Adsecute can authorize a change; this ad can be reassessed after an eligible decision run completes.",
     });
     expect(row?.blockedNote).toBeUndefined();
     const serialized = JSON.stringify(row);
@@ -4876,7 +4876,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     const row = model.creativeDecisions?.[0];
     expect(row?.note).toContain("The campaign configuration is not verified for every day used by this recommendation.");
     expect(row?.note).toContain("Fresh, completed Meta source data is required and has not been verified.");
-    expect(row?.note).toContain("The next decision run still has to confirm it.");
+    expect(row?.note).toContain("Confirmation requires a later eligible decision run.");
     expect(row?.note).toContain("These evidence requirements must be met before Adsecute can authorize a change");
     expect(row?.note).not.toMatch(/\b(Verify|Restore)\b/);
     expect(row?.note).not.toContain("Pause this ad");
@@ -4965,7 +4965,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
     expect(row?.heldVerdictLabel).toBe("Recommendation on hold: Pause ad");
     // A system-owned code with no sentence still states a wait, never a chore.
     expect(row?.note).toBe(
-      "Required decision evidence is missing or unverified. Review the stated evidence gap before judging this signal. These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation is re-checked on each decision run.",
+      "Required decision evidence is missing or unverified. Review the stated evidence gap before judging this signal. These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation can be reassessed after an eligible decision run completes.",
     );
     expect(JSON.stringify(row)).not.toContain(
       "a_code_this_surface_has_no_sentence_for",
@@ -5138,7 +5138,7 @@ describe("the held verdict is shown as the engine's own, and counted apart", () 
 
     expect(inspector?.heldVerdictLabel).toBe("Recommendation on hold: Pause ad");
     expect(inspector?.heldVerdictNextStep).toBe(
-      "Required decision evidence is missing or unverified. Review the stated evidence gap before judging this signal. These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation is re-checked on each decision run.",
+      "Required decision evidence is missing or unverified. Review the stated evidence gap before judging this signal. These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation can be reassessed after an eligible decision run completes.",
     );
     expect(JSON.stringify(inspector)).not.toContain(
       "a_code_this_surface_has_no_sentence_for",

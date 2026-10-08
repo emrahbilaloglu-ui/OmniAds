@@ -77,6 +77,17 @@ describe("D074 manual campaign-label isolation", () => {
       }
       const source = readFileSync(path, "utf8");
       if (!TABLE_PATTERN.test(source)) return false;
+      if (path === join("lib", "business-deletion.ts")) {
+        // A policy name is not a revived manual-label writer. The teardown
+        // explicitly refuses frozen history and skips every protected table.
+        expect(source).toContain('const RETAINED_HISTORY_TABLES = [');
+        expect(source).toContain('...RETAINED_HISTORY_TABLES');
+        expect(source).toContain('if (protectedNames.has(table)) continue;');
+        expect(source).toContain('throw new BusinessDeletionError("protected_history"');
+        const namedLines = source.split("\n").filter((line) => TABLE_PATTERN.test(line));
+        expect(namedLines.every((line) => /^\s*"meta_campaign_label(?:s|_history)",\s*$/.test(line))).toBe(true);
+        return false;
+      }
       // Comments explaining the removal are fine; executable references are
       // not. Keep this heuristic strict: any non-comment line naming the
       // tables fails.

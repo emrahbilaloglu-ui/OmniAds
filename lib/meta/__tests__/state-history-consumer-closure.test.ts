@@ -37,6 +37,7 @@ const ACTIVE_FILES = [
  *    (absence-aware winners, manifest-kind-aware membership, confirmation
  *    clocks) — each carries byte pins below.
  *  - writer: the persistence layer itself (D075 write contract).
+ *  - business-teardown: explicit whole-business deletion, no decision reader.
  *  - central-helper: the shared as-of read helpers (presence-returning;
  *    callers own the presence guard).
  *  - ddl: migrations / schema verification.
@@ -56,6 +57,11 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   category: string;
   count: number;
 }> = [
+  {
+    file: "lib/business-deletion.ts",
+    category: "business-teardown",
+    count: 1,
+  },
   /*
     The 2026-09-21 campaign field fix replaced the old schedule-only refusal
     comment with the measured unsupported bid_constraints cause. That removed

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { getDb, runDbTransaction } from "@/lib/db";
-import { PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE } from "@/lib/provider-account-assignments";
+import { getDb } from "@/lib/db";
+import { BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
 import { logAdminAction } from "@/lib/admin-logger";
 import { PLAN_ORDER } from "@/lib/pricing/plans";
 
@@ -124,42 +124,7 @@ export async function DELETE(
 
     const rows = (await sql`SELECT name FROM businesses WHERE id = ${businessId} LIMIT 1`) as any[];
 
-    // This used to be a bare `DELETE FROM businesses`. provider_connections
-    // references the business by a TEXT column with no foreign key (its only FK
-    // is business_ref_id, declared ON DELETE SET NULL), so the connection rows
-    // survived the delete with status='connected' and integration_credentials
-    // still holding live encrypted OAuth tokens — orphaned indefinitely, with
-    // no UI left that could reach them to disconnect. Several other tables
-    // reference businesses ON DELETE RESTRICT, so the bare delete also simply
-    // failed for any business that had ever run Meta observation.
-    //
-    // This is the same transactional, advisory-locked teardown the user-facing
-    // delete already performs.
-    await runDbTransaction(async () => {
-      const tx = getDb();
-      await tx`
-        SELECT pg_advisory_xact_lock(
-          ${PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE}::int,
-          hashtext(${`provider_account_selection:business:${businessId}`})
-        )
-      `;
-      await tx`DELETE FROM memberships WHERE business_id = ${businessId}`;
-      await tx`DELETE FROM invites WHERE business_id = ${businessId}`;
-      await tx`DELETE FROM business_cost_models WHERE business_id = ${businessId}`;
-      await tx`DELETE FROM provider_account_snapshot_runs WHERE business_id = ${businessId}`;
-      await tx`DELETE FROM business_provider_accounts WHERE business_id = ${businessId}`;
-      await tx`DELETE FROM provider_connections WHERE business_id = ${businessId}`;
-      await tx`
-        DELETE FROM creative_share_snapshots
-        WHERE payload->>'businessId' = ${businessId}
-      `;
-      await tx`DELETE FROM businesses WHERE id = ${businessId}`;
-      await tx`
-        UPDATE sessions
-        SET active_business_id = NULL
-        WHERE active_business_id = ${businessId}
-      `;
-    });
+    await deleteBusinessWithData(businessId);
 
     await logAdminAction({
       adminId: auth.session!.user.id,
@@ -171,6 +136,13 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true });
   } catch (err) {
+    if (err instanceof BusinessDeletionError) {
+      return NextResponse.json({ error: err.code, message: err.code === "protected_history"
+        ? "Korumalı karar veya reklam işlem geçmişi silmeyi engelliyor. Hiçbir veri silinmedi. Kontrollü veri kaldırma gerekiyor."
+        : "İşletme verileri güvenle kaldırılamadı. Hiçbir veri silinmedi." }, {
+        status: err.code === "not_found" ? 404 : err.code === "schema_not_ready" ? 503 : 409,
+      });
+    }
     console.error("[admin/businesses/[businessId] DELETE]", err);
     return NextResponse.json({ error: "internal_error", message: String(err) }, { status: 500 });
   }

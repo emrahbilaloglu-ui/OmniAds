@@ -139,9 +139,9 @@ describe("/select-business workspace edit", () => {
     await mount();
 
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
-    // The delete ceremony this sits beside is still rendered, so the absence is
-    // the role gate rather than the row failing to render at all.
-    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
+    // Deleting has the same admin requirement as renaming. Offering a control
+    // that always receives 403 made non-admin workspaces look broken.
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
   it("shows no rename control on the demo workspace, exactly as delete does not", async () => {
@@ -213,5 +213,70 @@ describe("/select-business workspace edit", () => {
     });
 
     expect(screen.getByText("Currency must be a three-letter ISO 4217 code.")).toBeTruthy();
+  });
+});
+
+describe("/select-business workspace deletion", () => {
+  async function confirmDelete() {
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]!);
+    fireEvent.change(screen.getByLabelText("Type business name"), { target: { value: "Workspace One" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Delete business" })); });
+  }
+
+  it("confirms absence from a fresh list before clearing the current business", async () => {
+    const rows = [workspaceRow(), workspaceRow({ id: "biz_2", name: "Workspace Two" })];
+    let removed = false;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ url: String(input), method, body: null });
+      if (method === "DELETE") { removed = true; return jsonResponse({ status: "ok" }); }
+      if (method === "POST") return jsonResponse({ status: "ok" });
+      return jsonResponse({ businesses: removed ? [rows[1]] : rows });
+    }) as typeof fetch;
+    seedStore(rows);
+    await mount();
+    await confirmDelete();
+    expect(screen.getByText("Business deleted.")).toBeTruthy();
+    expect(useAppStore.getState().businesses.map((row) => row.id)).toEqual(["biz_2"]);
+    expect(useAppStore.getState().selectedBusinessId).toBe("biz_2");
+    expect(calls.filter((call) => call.url === "/api/businesses" && call.method === "GET")).toHaveLength(2);
+  });
+
+  it("keeps the workspace when the list still contains it despite HTTP success", async () => {
+    const rows = [workspaceRow()];
+    installFetch(rows);
+    seedStore(rows);
+    await mount();
+    await confirmDelete();
+    expect(screen.queryByText("Business deleted.")).toBeNull();
+    expect(screen.getByText(/business list did not confirm removal/)).toBeTruthy();
+    expect(useAppStore.getState().businesses).toHaveLength(1);
+  });
+
+  it("shows the server's specific protected-history refusal and keeps access", async () => {
+    const rows = [workspaceRow()];
+    const message = "This business has protected decision history. No data was deleted.";
+    globalThis.fetch = ((_: RequestInfo | URL, init?: RequestInit) => init?.method === "DELETE"
+      ? jsonResponse({ error: "protected_history", message }, false, 409)
+      : jsonResponse({ businesses: rows })) as typeof fetch;
+    seedStore(rows);
+    await mount();
+    await confirmDelete();
+    expect(screen.getByText(message)).toBeTruthy();
+    expect(useAppStore.getState().businesses).toHaveLength(1);
+  });
+
+  it("does not claim deletion when its confirming list cannot be read", async () => {
+    const rows = [workspaceRow()];
+    let removed = false;
+    globalThis.fetch = ((_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") { removed = true; return jsonResponse({ status: "ok" }); }
+      return removed ? jsonResponse({}, false, 503) : jsonResponse({ businesses: rows });
+    }) as typeof fetch;
+    seedStore(rows);
+    await mount();
+    await confirmDelete();
+    expect(screen.queryByText("Business deleted.")).toBeNull();
+    expect(useAppStore.getState().businesses).toHaveLength(1);
   });
 });

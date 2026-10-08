@@ -251,8 +251,14 @@ export default function SelectBusinessPage() {
         throw new Error(payload?.message ?? "Could not delete business.");
       }
 
+      const rows = await readWorkspaces();
+      if (!rows || rows.some((row) => row.id === confirmBusiness.id)) {
+        throw new Error("The delete was accepted, but the business list did not confirm removal. Refresh the page before trying again.");
+      }
+
       const nextSelected = deleteBusiness(confirmBusiness.id);
       removeBusinessData(confirmBusiness.id);
+      if (workspaceOwnerId) setWorkspaceSnapshot(workspaceOwnerId, rows, nextSelected);
       if (nextSelected && selectedBusinessId === confirmBusiness.id) {
         selectBusiness(nextSelected);
         await fetch("/api/auth/switch-business", {
@@ -338,7 +344,7 @@ export default function SelectBusinessPage() {
                     Edit
                   </button>
                 ) : null}
-                {!business.isDemoBusiness ? (
+                {canEditWorkspace(business) ? (
                   <button
                     type="button"
                     className="ad-auth-secondary shrink-0 px-3"
@@ -427,13 +433,16 @@ export default function SelectBusinessPage() {
           <div className="ad-auth-alert ad-auth-alert-caution">
             <p>
               Delete requires typing <span className="font-semibold">{confirmBusiness.name}</span>.
-              This removes the linked workspace context.
+              Permanently removes this business and its stored provider data from Adsecute. Your Meta, Google and Shopify accounts are unchanged.
             </p>
             {hasLinkedData ? (
               <p className="mt-1">
-                Connected integrations, assigned accounts, and related share snapshots for this business will also be removed.
+                Connections, assigned accounts, and share snapshots will also be removed. Protected decision or ad action history can prevent deletion.
               </p>
             ) : null}
+            <p className="mt-1">
+              Backups are retained. Database files may not shrink immediately; deletion does not guarantee that the capacity block will clear.
+            </p>
             <label className="ad-auth-label mt-3">
               Type business name
               <input

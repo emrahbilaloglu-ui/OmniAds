@@ -2,7 +2,7 @@ import { getDb, runDbTransaction } from "@/lib/db";
 import { PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE } from "@/lib/provider-account-assignments";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertBusinessExternalDataRemoved, BusinessExternalCleanupError } from "@/lib/business-deletion-files";
-import { deleteBusinessReleaseReceipts, BusinessControlReceiptCleanupError } from "@/lib/business-deletion-control-receipts";
+import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory, BusinessControlReceiptCleanupError } from "@/lib/business-deletion-control-receipts";
 
 /** Explicit ownership allowlist. New tables must be reviewed, never auto-purged. */
 export const BUSINESS_DELETE_TABLES = [
@@ -249,7 +249,7 @@ const ERASURE_DELETE_GUARDS: Record<string, readonly [string, string, number]> =
 
 export class BusinessDeletionError extends Error {
   constructor(
-    readonly code: "not_found" | "protected_history" | "schema_not_ready" | "scope_conflict" | "business_busy" | "external_cleanup_required",
+    readonly code: "not_found" | "protected_history" | "schema_not_ready" | "scope_conflict" | "business_busy" | "control_reference_in_use" | "external_cleanup_required",
     readonly tables: string[] = [],
   ) { super(code); this.name = "BusinessDeletionError"; }
 }
@@ -375,7 +375,7 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       AND n.nspname IN ('public', '${ARCHIVE_SCHEMA}')`)).map(r => r.name));
     const indirect = ["public.engine_v3_ad_decision_input_evidence", "public.custom_report_share_snapshots", "public.admin_audit_logs",
       "public.meta_state_history_compaction_journal", "public.meta_retention_runs", "public.google_ads_retention_runs",
-      "public.sync_repair_plans", "public.sync_release_gates", `${ARCHIVE_SCHEMA}.keep_runs`, `${ARCHIVE_SCHEMA}.run_semantics`];
+      "public.sync_repair_plans", "public.sync_release_gates", "public.sync_worker_heartbeats", "public.sync_runtime_instances", `${ARCHIVE_SCHEMA}.keep_runs`, `${ARCHIVE_SCHEMA}.run_semantics`];
     const locked = [...new Set([...scopes.keys(), ...indirect.filter(t => existing.has(t))])].sort();
     // SHARE ROW EXCLUSIVE permits reads and excludes every competing writer.
     // Locks and trigger changes are transactional, including rollback/COMMIT failure.
@@ -452,6 +452,13 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
     }
     try { await assertBusinessExternalDataRemoved(businessId); }
     catch (error) { if (error instanceof BusinessExternalCleanupError) throw new BusinessDeletionError("external_cleanup_required"); throw error; }
+    try { await deleteBusinessWorkerHistory(sql,businessId); }
+    catch (error) {
+      if (error instanceof BusinessControlReceiptCleanupError) throw new BusinessDeletionError(
+        error.message.startsWith("control_history_active:") ? "control_reference_in_use" : "schema_not_ready",
+        [error.message.startsWith("control_history_active:") ? error.message.split(":")[1]! : "worker_runtime_history"]);
+      throw error;
+    }
     if (existing.has("public.sync_release_gates")) {
       try { await deleteBusinessReleaseReceipts(sql,businessId); }
       catch (error) { if (error instanceof BusinessControlReceiptCleanupError) throw new BusinessDeletionError("schema_not_ready",["sync_release_gates"]); throw error; }

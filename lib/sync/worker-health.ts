@@ -1,4 +1,5 @@
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
+import { metadataBusinessesAreLive } from "@/lib/sync/business-reference-metadata";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
   buildRuntimeContract,
@@ -206,7 +207,17 @@ export async function heartbeatSyncWorker(input: {
     service: "worker",
     instanceId: input.workerId,
   });
+  await runDbTransaction(async () => {
   const sql = getDb();
+  // Acquire both destinations in erasure's order before any business row lock,
+  // including when the heartbeat is called inside an existing transaction.
+  await sql.query("LOCK TABLE public.sync_runtime_instances, public.sync_worker_heartbeats IN ROW EXCLUSIVE MODE");
+  const live = await metadataBusinessesAreLive(sql, { lastBusinessId: input.lastBusinessId, meta: input.metaJson });
+  if (!live && (input.status==="running" || input.status==="starting")) throw new Error("control_metadata_business_removed");
+  // Idle/shutdown presence is not business execution. Invalidate the entire
+  // stale derived payload, including names/metrics, rather than only its ID.
+  const meta = live ? input.metaJson : { businessAdmitted:false,consumeStage:"admission_refused",
+    consumeOutcome:"admission_refused",consumeReason:"business_reference_removed" };
   await sql`
     INSERT INTO sync_worker_heartbeats (
       worker_id,
@@ -225,10 +236,10 @@ export async function heartbeatSyncWorker(input: {
       ${input.providerScope},
       ${input.status},
       now(),
-      ${input.lastBusinessId ?? null},
-      ${input.lastPartitionId ?? null},
+      ${live ? input.lastBusinessId ?? null : null},
+      ${live ? input.lastPartitionId ?? null : null},
       ${JSON.stringify({
-        ...(input.metaJson ?? {}),
+        ...(meta ?? {}),
         runtimeContract: {
           buildId: runtimeContract.buildId,
           dbFingerprint: runtimeContract.dbFingerprint,
@@ -249,6 +260,7 @@ export async function heartbeatSyncWorker(input: {
       meta_json = EXCLUDED.meta_json,
       updated_at = now()
   `;
+  });
   await upsertRuntimeContractInstance({
     contract: runtimeContract,
     // A staged worker registers so it can be inspected; it is not healthy in

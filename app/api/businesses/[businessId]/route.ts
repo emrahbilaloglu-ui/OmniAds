@@ -177,6 +177,11 @@ export async function DELETE(
         business_busy: tr
           ? "Bu işletme için aktif veri işi veya kilit kaydı var. Hiçbir veri silinmedi. İşin kapandığı doğrulandıktan sonra yeniden deneyin."
           : "An active data job or lease record prevents deletion. No data was deleted. Try again after the job is confirmed closed.",
+        control_reference_in_use: error.tables.includes("sync_runtime_instances")
+          ? tr ? "İşletme güncel canlı yapılandırmada referans alınıyor. İlgili canary/yapılandırma referansı kaldırılmadan silinemez. İşletme ve veritabanı kayıtları korundu."
+            : "A current runtime configuration still references this business. Remove the relevant canary/configuration reference before deleting. The business and database records were preserved."
+          : tr ? "Son 5 dakika içinde çalışan bir worker bu işletmeye işaret ediyor. İlgili işin durduğunu doğrulayın; çalışan kayıt güncelliği sona erdiğinde tekrar deneyin. İşletme ve veritabanı kayıtları korundu."
+            : "A running worker seen within the last 5 minutes references this business. Confirm that work has stopped, then retry when the running observation expires. The business and database records were preserved.",
         external_cleanup_required: tr
           ? "İşletmeye ait arşiv veya dosyaların kaldırıldığı doğrulanamadı. İşletme silinmedi. Destek ile iletişime geçin."
           : "Removal of the business archives or files could not be verified. The business was not deleted. Contact support.",

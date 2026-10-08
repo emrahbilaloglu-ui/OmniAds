@@ -12746,8 +12746,9 @@ selected-business deletion and independent live absence are separate gates.
 The retained-reader ledger's business teardown entry is repinned only after this
 explicit source review. Its new retention wording is this narrowly authorized
 offboarding exception; all other retained roots and ordinary lifecycle roles are
-preserved. The canonical migrations harness requires twenty-two meaningful cases (nine
-added to the earlier thirteen), not production DDL. Current catalog evidence
+preserved. The canonical migrations harness requires twenty-nine meaningful cases,
+including worker/runtime alias cleanup, fresh-observation refusal, partial-page
+rollback and actual delayed writer refusal, not production DDL. Current catalog evidence
 also requires the indexed text owner for lineage, the five reviewed required
 legacy UUID owners, and validated complete episode FKs for native responses.
 Actual large sequential DELETE plans refuse. Global release receipts use a
@@ -12759,3 +12760,18 @@ freeze and independently erase globally unreferenced archived input keys before
 claiming completion; the request's remaining hot evaluations cannot discover
 already retired original inputs. This ADR itself grants no production mutation outside
 an explicitly authorized business deletion and no storage-closure claim.
+
+D153 alias correction (2026-10-08): live bounded evidence found old worker rows
+with `last_business_id` and nested JSON identities for selected businesses.
+Whole-business erasure also invalidates identifying `sync_worker_heartbeats`
+and `sync_runtime_instances` observations through complete finite ordered PK
+pages (1,024/page; at most100,000 rows/512MiB per store). A running/starting worker or runtime configuration identifying the business
+within five minutes refuses as a specific control reference in use; prior page
+removals roll back. Fresh idle presence alone is not execution and does not block. Worker/runtime writers lock their destination
+tables before business key-share locks and require metadata business identities
+to remain live. Delayed running/runtime writes refuse; delayed idle/shutdown
+heartbeats discard the entire stale metadata and identity fields, preserving
+anonymous process presence. A delayed writer cannot recreate the erased copy. Unrelated
+job/partition UUIDs are not interpreted as business identities; unrelated
+observations remain byte-for-byte. UUID matching in shared control copies is
+case-insensitive. Global shared backup/WAL/system-log boundaries remain explicit.

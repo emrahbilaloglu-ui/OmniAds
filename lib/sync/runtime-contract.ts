@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import os from "node:os";
 import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
+import { assertLiveMetadataBusinesses } from "@/lib/sync/business-reference-metadata";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
 
@@ -489,7 +490,10 @@ export async function upsertRuntimeContractInstance(input?: {
       instanceId: input?.instanceId,
     });
   await assertRuntimeContractTablesReady("runtime_contract:upsert_instance");
+  await runDbTransaction(async () => {
   const sql = getDb();
+  await sql.query("LOCK TABLE public.sync_runtime_instances IN ROW EXCLUSIVE MODE");
+  await assertLiveMetadataBusinesses(sql, contract.config);
   await sql`
     INSERT INTO sync_runtime_instances (
       instance_id,
@@ -531,6 +535,7 @@ export async function upsertRuntimeContractInstance(input?: {
       last_seen_at = now(),
       updated_at = now()
   `;
+  });
   return contract;
 }
 

@@ -354,15 +354,20 @@ async function connectPoolByDeadline(pool: Pool, deadlineAtMs: number) {
 function deadlineBoundClientQuery(
   client: Pick<PoolClient, "query">,
   deadlineAtMs: number,
+  statementCapMs?: number,
 ): PoolClient["query"] {
   return (async (text: string, params?: unknown[]) => {
-    const timeoutMs = remainingDeadlineMs(deadlineAtMs, "Database migration");
+    // A transaction's absolute deadline must not overwrite its shorter per-
+    // statement timeout. Otherwise the wrapper can reject while PostgreSQL
+    // keeps executing (and holding locks) until the much later deadline.
+    const remaining = () => Math.min(remainingDeadlineMs(deadlineAtMs, "Database operation"), statementCapMs ?? Infinity);
+    const timeoutMs = remaining();
     await withTimeout(
       client.query(buildStatementTimeoutSql(timeoutMs)),
       timeoutMs,
       "Database migration timeout setup",
     );
-    const queryTimeoutMs = remainingDeadlineMs(deadlineAtMs, "Database migration");
+    const queryTimeoutMs = remaining();
     return withTimeout(
       client.query(text, params),
       queryTimeoutMs,
@@ -993,7 +998,7 @@ export async function runDbTransaction<T>(
     : await pool.connect();
   const timeoutMs = options?.timeoutMs ?? getDbTimeoutMs();
   const queryable = options?.deadlineAtMs != null
-    ? { query: deadlineBoundClientQuery(client, options.deadlineAtMs) }
+    ? { query: deadlineBoundClientQuery(client, options.deadlineAtMs, timeoutMs) }
     : client;
   const transactionJit: DbTransactionJitState = {
     open: false,

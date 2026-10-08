@@ -333,6 +333,17 @@ describe("pool client cleanup around statement-timeout setup", () => {
 });
 
 describe("runDbTransaction setup cleanup", () => {
+  it("keeps the server statement cap below a later transaction deadline", async () => {
+    const client = fakeClient(async () => ({ rows: [] }));
+    installFakePool([client]);
+    await runDbTransaction(async () => getDbWithTimeout(50).query("SELECT 1"), {
+      timeoutMs:50, deadlineAtMs:Date.now()+10_000,
+    });
+    const caps=client.query.mock.calls.map(([text])=>/^SET statement_timeout = (\d+)$/.exec(text))
+      .filter((m):m is RegExpExecArray=>m!==null).map(m=>Number(m[1]));
+    expect(caps.length).toBeGreaterThan(0);
+    expect(caps.every(n=>n<=50)).toBe(true);
+  });
   it("rejects a COMMIT that PostgreSQL reports as ROLLBACK", async () => {
     const client = fakeClient(async (text) => ({ rows: [], command: text === "COMMIT" ? "ROLLBACK" : text }));
     installFakePool([client]);

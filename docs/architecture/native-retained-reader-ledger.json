@@ -27,9 +27,15 @@
       "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
     },
     {
+      "path": "lib/business-deletion-native-evaluations.ts",
+      "role": "storage-and-pin-reader",
+      "sha256": "7de2ddce12791f711cc959c2df172a306ec455c77f5398d00313401729bf306a",
+      "retention": "D153 authenticated whole-business erasure only, under caller writer exclusion/FK child-first order: walk the verified leading business index once with a non-holdable cursor and delete exact 1024-ID pages, capturing returned input keys. Bounds or plan failure roll back all pages; global shared input reference proof remains mandatory. No ordinary retention or age pruning authority."
+    },
+    {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "8aeff25f0fc1a60e1d520049ad8c9d6abb53b83a61f4c865069c851d49352c4c",
+      "sha256": "2cea496d519c1508f4cc66ca3b6314a9326bd05affb69b706533f7c002ef4ce1",
       "retention": "D153 authenticated whole-business erasure only: remove all target-owned retained lineage, frozen labels and protected action history under exclusive writer locks with transactionally suspended exact reviewed guards and restored modes. Foreign keys stay active; global shared input references and other tenants remain. Ordinary retention and snapshot age pruning receive no removal authority; external archive/file remnants refuse success."
     },
     {
@@ -287,7 +293,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "ae30c56bb99ebc348f42599925b9ec0e7b48c8cf21f06241c0a787c55b4d4cb8",
+      "sha256": "af83485e4a78925294f58d246e91f67e44dbe13d58499c27df17eb8d2a6e1c2b",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
@@ -453,5 +459,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "5ce1c37ef3ea22483608d131d0df8487d11aaffb439791a3d546276a3dff140a"
+  "sourceInventorySha256": "ad011064780e40985de0449557b1c84b91d803a3f939e7c56362c8dbd03431b9"
 }

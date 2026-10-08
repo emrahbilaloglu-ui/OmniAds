@@ -34,7 +34,9 @@ An explicit controlled-offboarding design is still required for those businesses
 Do not call this universal deletion support or storage closure.
 
 Manage Business confirms the business is absent from a fresh authoritative list
-before clearing local state or announcing success. Its confirmation describes
+before clearing local state or announcing success. It selects the next workspace
+from that same list and distinguishes a completed deletion from a failed session
+switch. Its confirmation describes
 the permanent local-data effect, preserved provider accounts/backups, possible
 protected-history refusal, and the absence of a guaranteed disk-size reduction.
 

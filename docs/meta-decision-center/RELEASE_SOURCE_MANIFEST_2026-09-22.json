@@ -1,5 +1,5 @@
 {
-  "manifestHash": "a1966fc3a7e81894c18990ace08a331382d59505ee93c3295e8f215e7347fe08",
+  "manifestHash": "e06b270748221dce7b98fd1fddf16e5042968b0641248b61d06a44a63befb850",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -148,11 +148,11 @@
     },
     {
       "path": "app/(dashboard)/select-business/page.test.tsx",
-      "sha256": "585f4e4f6bb2ed9e732c9eceb1373841b6e9df14439e156d0bcee9df46c77c7d"
+      "sha256": "bb280eba0f869154a74edde1f9cf1a128532456d49b0546f8cd140724945c95a"
     },
     {
       "path": "app/(dashboard)/select-business/page.tsx",
-      "sha256": "6a04c16464453e43e12092f4b689f36d62ccc1f601c8ce032a1db8aebc15ea16"
+      "sha256": "3ae52770108e6605b2b1c31d7867f47f1f88709d5a5e312e508cbf374916e8b2"
     },
     {
       "path": "app/api/admin/businesses/[businessId]/route.ts",
@@ -784,7 +784,7 @@
     },
     {
       "path": "docs/architecture/business-deletion-repair.md",
-      "sha256": "1f4257af8f3ce878b057b53f7feaaf045ae9e3030a921f62585b1c43e0dab4f6"
+      "sha256": "4662d9dee1650aca0a3a6ba5b84d3068aa475d8d7af70cd57c5e9fcf0494dae1"
     },
     {
       "path": "docs/architecture/migration-replay-worker-recovery.md",

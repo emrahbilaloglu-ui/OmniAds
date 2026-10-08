@@ -256,21 +256,27 @@ export default function SelectBusinessPage() {
         throw new Error("The delete was accepted, but the business list did not confirm removal. Refresh the page before trying again.");
       }
 
-      const nextSelected = deleteBusiness(confirmBusiness.id);
+      deleteBusiness(confirmBusiness.id);
+      const nextSelected = rows.some((row) => row.id === selectedBusinessId)
+        ? selectedBusinessId : rows[0]?.id ?? null;
       removeBusinessData(confirmBusiness.id);
       if (workspaceOwnerId) setWorkspaceSnapshot(workspaceOwnerId, rows, nextSelected);
-      if (nextSelected && selectedBusinessId === confirmBusiness.id) {
-        selectBusiness(nextSelected);
-        await fetch("/api/auth/switch-business", {
+      selectBusiness(nextSelected);
+      let switched = true;
+      if (nextSelected && selectedBusinessId !== nextSelected) {
+        const switchResponse = await fetch("/api/auth/switch-business", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ businessId: nextSelected }),
         }).catch(() => null);
+        switched = Boolean(switchResponse?.ok);
       }
 
       setConfirmBusinessId(null);
       setConfirmInput("");
-      setFeedback({ type: "success", message: "Business deleted." });
+      setFeedback(switched
+        ? { type: "success", message: "Business deleted." }
+        : { type: "error", message: "Business deleted, but switching to the next business failed. Refresh the page before continuing." });
     } catch (error: unknown) {
       setFeedback({
         type: "error",

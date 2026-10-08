@@ -253,6 +253,41 @@ describe("/select-business workspace deletion", () => {
     expect(useAppStore.getState().businesses).toHaveLength(1);
   });
 
+  it("selects the next workspace from the fresh list when the cached next membership disappeared", async () => {
+    const rows = [workspaceRow(), workspaceRow({ id: "biz_stale", name: "Old workspace" }), workspaceRow({ id: "biz_3", name: "Current workspace" })];
+    let removed = false;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ url: String(input), method, body: typeof init?.body === "string" ? JSON.parse(init.body) : null });
+      if (method === "DELETE") { removed = true; return jsonResponse({ status: "ok" }); }
+      if (method === "POST") return jsonResponse({ status: "ok" });
+      return jsonResponse({ businesses: removed ? [rows[2]] : rows });
+    }) as typeof fetch;
+    seedStore(rows);
+    await mount();
+    await confirmDelete();
+    expect(useAppStore.getState().businesses.map((row) => row.id)).toEqual(["biz_3"]);
+    expect(useAppStore.getState().selectedBusinessId).toBe("biz_3");
+    expect(calls.find((call) => call.url === "/api/auth/switch-business")?.body).toEqual({ businessId: "biz_3" });
+  });
+
+  it("distinguishes a completed deletion from a failed switch to the next workspace", async () => {
+    const rows = [workspaceRow(), workspaceRow({ id: "biz_2", name: "Workspace Two" })];
+    let removed = false;
+    globalThis.fetch = ((_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") { removed = true; return jsonResponse({ status: "ok" }); }
+      if (init?.method === "POST") return jsonResponse({}, false, 503);
+      return jsonResponse({ businesses: removed ? [rows[1]] : rows });
+    }) as typeof fetch;
+    seedStore(rows);
+    await mount();
+    await confirmDelete();
+    expect(screen.queryByText("Business deleted.")).toBeNull();
+    expect(screen.getByText(/Business deleted, but switching/)).toBeTruthy();
+    expect(useAppStore.getState().businesses.map((row) => row.id)).toEqual(["biz_2"]);
+    expect(screen.queryByLabelText("Type business name")).toBeNull();
+  });
+
   it("shows the server's specific protected-history refusal and keeps access", async () => {
     const rows = [workspaceRow()];
     const message = "This business has protected decision history. No data was deleted.";

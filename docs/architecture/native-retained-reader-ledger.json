@@ -281,7 +281,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "f28daeeecd76deae11786fd6496471f82a6ce49b539f99a5dff79a67787edf76",
+      "sha256": "2893f841bcfa81f22c0cec681ebc1fe991a5a997d43fbe6afc24b8822666c29e",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
@@ -447,5 +447,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "dbcec60d23ba745218aeda403a2ccfa77da46be1108a1b18472169286603c7d6"
+  "sourceInventorySha256": "328592a9782c99665782a1c17f60ec2c1bc82836a65decb4c91aaf63b11e2db6"
 }

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "96091ed5f7b1bc131faca46e8b9ef6ef9c229b9bed848b51306ee563482f4b6c",
+  "manifestHash": "4cfa541b7726ba1544ed45a03dcf4e48c297ff6a357a3338a6ecc86d15b24828",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -812,7 +812,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "e228f8d782263719542fa5ccc3c20e15082015cc55df4748d1587925000ba318"
+      "sha256": "2670961d4c79d94b07d50bc7536bd674f816c795c1281b055f1c6ebee0424489"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",

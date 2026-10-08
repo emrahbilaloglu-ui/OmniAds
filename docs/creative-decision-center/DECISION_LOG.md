@@ -12746,10 +12746,10 @@ selected-business deletion and independent live absence are separate gates.
 The retained-reader ledger's business teardown entry is repinned only after this
 explicit source review. Its new retention wording is this narrowly authorized
 offboarding exception; all other retained roots and ordinary lifecycle roles are
-preserved. The canonical migrations harness requires thirty-one meaningful cases,
+preserved. The canonical migrations harness requires thirty-three meaningful cases,
 including worker/runtime alias cleanup, fresh-observation refusal, partial-page
 rollback and actual delayed writer refusal, not production DDL. Current catalog evidence
-also requires the indexed text owner for lineage, the five reviewed required
+also requires the indexed text owner for lineage, the six reviewed required
 legacy UUID owners, and validated complete episode FKs for native responses.
 Actual large sequential DELETE plans refuse. Global release receipts use a
 complete finite ordered-index census (1,024/page, at most 1,048,576 rows / 4 GiB)
@@ -12782,7 +12782,8 @@ rolled back. Native evaluation erasure now walks the existing leading-business
 index once with a non-holdable server cursor, deletes exact 1,024-ID pages at the
 child-first position, and captures returned keys into a temporary unique-key
 table. Actual cursor/PK plans are verified; maximum 4,194,304 evaluations and
-the existing 120-second transaction deadline refuse/roll back partial work.
+the then-existing 120-second transaction deadline refuse/roll back partial work
+(superseded by the bounded preflight correction below).
 No new production index, maintenance, job or FK bypass is authorized.
 Transaction-local JIT disabling avoids compilation cost for offboarding only.
 The common transaction executor caps the server statement timeout at the
@@ -12790,3 +12791,32 @@ shorter per-query limit and remaining deadline; the latter must not silently
 extend the former while the application rejects. Migrated PostgreSQL cases
 cover more than one page/context, partial-page rollback and actual timeout/row-
 lock release. Local and CI success remain separate from live erasure acceptance.
+
+D153 owner-preflight correction (2026-10-08): the next live request reached the
+120-second deadline and independently rolled back. EXPLAIN-only evidence found
+that the preflight's OR/mismatch/LIMIT query could choose a whole-table or
+non-leading whole-index walk before the release-receipt census. The final
+statement alone does not establish the time spent in each earlier phase.
+Each uncertified ownership arm now materializes only that owner's identity
+columns and row version before applying mismatch/LIMIT. Large-table reads
+require an actual valid leading-owner BTree equality plan; a non-leading index
+or missing proof refuses before erasure. This adds no index or migration.
+
+`engine_v3_job_runs` joins the five original creative-history tables whose
+required, indexed UUID is the producer/lookup owner and whose nullable text
+column is compatibility context. A contradictory alias on a selected canonical
+row still refuses. `meta_entity_state_history` may inherit identity equality
+only from its exact validated eight-column observation-run FK: all child keys
+must be NOT NULL, all four FK triggers must be enabled for ordinary writes, and
+the parent must have a validated equality CHECK. Missing any prerequisite loses
+the optimization and must still pass bounded owner-plan checks. Migrated
+PostgreSQL cases cover disabled/nullable inheritance refusal and large original
+job history with NULL compatibility, preserving other-tenant bytes.
+
+The total transaction budget is 240 seconds, within the independently observed
+existing 300-second HTTP proxy limit; individual statements stay capped at 30
+seconds and lock acquisition at 1.5 seconds. Bounds still roll back all database
+changes and guard modes. Sanitized completion/failure telemetry records phase
+times and finite progress counts without business identifiers or payloads.
+No production proxy, growth gate, capacity setting or job is changed. This is
+source/local validation until the exact release and live erasure are proved.

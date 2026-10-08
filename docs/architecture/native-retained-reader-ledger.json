@@ -35,8 +35,8 @@
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "2cea496d519c1508f4cc66ca3b6314a9326bd05affb69b706533f7c002ef4ce1",
-      "retention": "D153 authenticated whole-business erasure only: remove all target-owned retained lineage, frozen labels and protected action history under exclusive writer locks with transactionally suspended exact reviewed guards and restored modes. Foreign keys stay active; global shared input references and other tenants remain. Ordinary retention and snapshot age pruning receive no removal authority; external archive/file remnants refuse success."
+      "sha256": "6b8dcda6df857ee9347726d43460da5f336daa7be8df4fea036bbaabf5cc56cf",
+      "retention": "D153 authenticated whole-business erasure only: remove all target-owned retained lineage, frozen labels and protected action history under exclusive writer locks with transactionally suspended exact reviewed guards and restored modes. Foreign keys stay active; global shared input references and other tenants remain. Ordinary retention and snapshot age pruning receive no removal authority; external archive/file remnants refuse success. Large uncertified dual-owner preflights require actual leading-owner equality plans; exact complete state-run FK inheritance and six required legacy UUID owners are reviewed. A 240-second total deadline fits the existing 300-second proxy while each statement remains capped at 30 seconds; failure preserves transactional rollback."
     },
     {
       "path": "lib/creative-decision-engine/ad-backtest-store.ts",
@@ -293,7 +293,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "af83485e4a78925294f58d246e91f67e44dbe13d58499c27df17eb8d2a6e1c2b",
+      "sha256": "74f92baedf5fbee7fba9be043bdfc3cd3cca02a074753696ed9a0318c4d026af",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
@@ -459,5 +459,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "ad011064780e40985de0449557b1c84b91d803a3f939e7c56362c8dbd03431b9"
+  "sourceInventorySha256": "4289a2ac639b77a2feea31f8bc6ac3c88abb7bea2df16f7938e3825778646512"
 }

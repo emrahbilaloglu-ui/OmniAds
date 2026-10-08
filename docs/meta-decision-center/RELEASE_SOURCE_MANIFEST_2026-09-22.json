@@ -1,5 +1,5 @@
 {
-  "manifestHash": "305905050ce0bd12ef8710e66fc70d8ac59c718938473ee8116be617da4d9414",
+  "manifestHash": "8d26a0c3385846ec3a30d879c8f371c05dd0db8ddf9eeb1c1f7ba0540355c702",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -840,7 +840,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "48689bf79401895421f2384f83a3abd26fc8c3d39435953bc2489f33f8426ee8"
+      "sha256": "3171685a21ab9b1a4226874914557f35c9eaf317e66053babfa7d8e845a3be12"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -876,7 +876,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "8542b6d0b1300c4f5e47c19924a3240cda6aff1df724ef35dc85ec63c716078f"
+      "sha256": "a30f53eaad347cd5cce16d5dc7f702cdae45bb22acb35d14eb9855419704770a"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -972,11 +972,11 @@
     },
     {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "b5b159fd7af5beae9b04209a8f0d15572861593d3447d2dfea47e1e6868de6c1"
+      "sha256": "da085a8020e1aa45dac518d9907bd55479a349af35663f6bd9bcbfb775275622"
     },
     {
       "path": "lib/business-deletion.ts",
-      "sha256": "2cea496d519c1508f4cc66ca3b6314a9326bd05affb69b706533f7c002ef4ce1"
+      "sha256": "6b8dcda6df857ee9347726d43460da5f336daa7be8df4fea036bbaabf5cc56cf"
     },
     {
       "path": "lib/creative-decision-center/__tests__/v3-bridge.test.ts",
@@ -2876,7 +2876,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "af83485e4a78925294f58d246e91f67e44dbe13d58499c27df17eb8d2a6e1c2b"
+      "sha256": "74f92baedf5fbee7fba9be043bdfc3cd3cca02a074753696ed9a0318c4d026af"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

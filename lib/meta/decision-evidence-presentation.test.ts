@@ -4,14 +4,18 @@ import { metaDecisionCommercialBasisText, metaDecisionConfidenceBasisText, metaD
 import type { DecisionPredicateBlocker } from "@/lib/creative-decision-engine/types";
 
 const receipt = () => ({ rowId: "original-cell", batchId: "original-batch", contractVersion: "engine-v3-native-ad-calibration.v7",
+  businessId: "business", providerAccountRefId: "ref", providerAccountId: "act_1",
   cellScope: "objective_cohort_context", objective: "OUTCOME_SALES", funnelCohort: "purchase", optimizationContext: "purchase",
   windowStart: "2026-09-08", windowEnd: "2026-10-06", asOfCutoff: "2026-10-07T14:00:00Z",
   inputManifestHash: "a".repeat(64), batchInputManifestHash: "b".repeat(64), sourceManifestHash: "c".repeat(64),
-  currency: "USD", targetRoas: 2.2, breakEvenRoas: 1.8, metaAov: 216.46207818930088, metaAovPurchases: 972,
+  currency: "USD", targetRoas: 2.2, breakEvenRoas: 1.8, metaAov: 208.4171428571429, metaAovPurchases: 7,
   actionReadiness: { scale: { observedSampleCount: 6, requiredSampleCount: 30, ready: false },
     refresh: { observedSampleCount: 8, requiredSampleCount: 20, ready: false },
     spendUnitAuthority: { basis: "physical_account_purchase_aov_90d", baseSpendUnit: 98.39185372240948,
-      accountAovEvidence: { sampleWindowStart: "2026-07-09", sampleWindowEnd: "2026-10-06" },
+      accountAovEvidence: { status: "ready", scope: "business_provider_account_currency",
+        businessId: "business", providerAccountRefId: "ref", providerAccountId: "act_1", accountCurrency: "USD",
+        asOfCutoff: "2026-10-07T14:00:00Z", meanAov: 216.46207818930088, observedPurchaseCount: 972,
+        sampleWindowStart: "2026-07-09", sampleWindowEnd: "2026-10-06" },
       observedShopifyAovEvidence: { meanAov: 9999 } } } });
 const blocker = (observed: number | null = 6, threshold: number | string = 30): DecisionPredicateBlocker => ({
   predicate: "scale_account_benchmark_ready", observed, threshold, status: "failed", severity: "warning", reason: "legacy producer wording" });
@@ -67,9 +71,31 @@ describe("recorded decision evidence presentation", () => {
     expect(text).toContain("98.39 USD");
     expect(text).toContain("972 attributed purchases, 2026-07-09–2026-10-06");
     expect(text).not.toContain("9999");
+    expect(text).not.toContain("208.42");
+    expect(c.metaAov! / c.targetRoas!).toBeCloseTo(c.baseSpendUnit!, 10);
     expect(metaDecisionConfidenceBasisText({ rule: "missing_data_cap", missingData: ["scale_calibration"] }, "low", 55)).toContain("Missing Scale calibration caps");
     expect(metaDecisionConfidenceBasisText({ rule: "score_band", missingData: [] }, "medium", 55)).toContain("Band follows the recorded score");
     expect(metaDecisionConfidenceBasisText(undefined, "low", null)).toContain("basis unknown");
+  });
+  it.each([
+    ["businessId", "foreign"], ["providerAccountRefId", "foreign"], ["providerAccountId", "act_foreign"],
+    ["accountCurrency", "EUR"], ["asOfCutoff", "2026-10-08T14:00:00Z"], ["status", "insufficient"],
+  ])("keeps the physical AOV unknown for a mismatched %s receipt without borrowing the cell AOV", (field, value) => {
+    const r = receipt();
+    Object.assign(r.actionReadiness.spendUnitAuthority.accountAovEvidence, { [field]: value });
+    const c = readMetaDecisionCalibrationEvidence(r)!;
+    expect(c).toMatchObject({ metaAov: null, metaAovPurchases: null, metaAovWindowStart: null,
+      readiness: { scale: { observed: 6, required: 30 } } });
+    expect(metaDecisionCommercialBasisText(c)).toContain("Meta platform AOV unknown");
+    expect(metaDecisionCommercialBasisText(c)).not.toContain("208.42");
+  });
+  it("does not use legacy cell numerators when the physical-account receipt is absent", () => {
+    const r = receipt();
+    const c = readMetaDecisionCalibrationEvidence({ ...r, actionReadiness: {
+      ...r.actionReadiness, spendUnitAuthority: { basis: "physical_account_purchase_aov_90d", baseSpendUnit: 98.39 },
+    } })!;
+    expect(c.metaAov).toBeNull();
+    expect(c.metaAovPurchases).toBeNull();
   });
   it("formats currency evidence without changing the recorded floor or filling NULL", () => {
     const result = projectMetaDecisionEvidenceRequirements({ blockers: [{ ...blocker(), predicate: "expanded_cut_recent_recovery_evidence", observed: 95.18, threshold: 98.39185372240948 }], calibration: null, heldAction: "cut", currency: "USD", evaluationId: "eval" });

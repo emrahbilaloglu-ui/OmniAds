@@ -64,6 +64,9 @@ export const NATIVE_CALIBRATION_PRESENTATION_JOIN_SQL = `
 
 export const NATIVE_CALIBRATION_PRESENTATION_JSON_SQL = `CASE WHEN explanation_batch.id IS NOT NULL THEN jsonb_build_object(
  'rowId', explanation_cell.id, 'batchId', explanation_cell.batch_id,
+ 'businessId', explanation_cell.business_id,
+ 'providerAccountRefId', explanation_cell.provider_account_ref_id,
+ 'providerAccountId', explanation_cell.provider_account_id,
  'contractVersion', explanation_cell.contract_version,
  'cellScope', explanation_cell.cell_scope, 'objective', explanation_cell.objective,
  'funnelCohort', explanation_cell.funnel_cohort, 'optimizationContext', explanation_cell.optimization_context,
@@ -74,8 +77,6 @@ export const NATIVE_CALIBRATION_PRESENTATION_JSON_SQL = `CASE WHEN explanation_b
  'sourceManifestHash', explanation_cell.source_manifest_hash,
  'currency', explanation_cell.account_currency, 'targetRoas', explanation_cell.target_roas,
  'breakEvenRoas', explanation_cell.break_even_roas,
- 'metaAov', explanation_cell.meta_attributed_aov_mean_90d,
- 'metaAovPurchases', explanation_cell.meta_attributed_aov_purchase_count_90d,
  'actionReadiness', jsonb_build_object(
    'scale', explanation_cell.action_readiness_json->'scale',
    'refresh', explanation_cell.action_readiness_json->'refresh',
@@ -83,6 +84,15 @@ export const NATIVE_CALIBRATION_PRESENTATION_JSON_SQL = `CASE WHEN explanation_b
      'basis', explanation_cell.action_readiness_json#>'{spendUnitAuthority,basis}',
      'baseSpendUnit', explanation_cell.action_readiness_json#>'{spendUnitAuthority,baseSpendUnit}',
      'accountAovEvidence', jsonb_build_object(
+       'status', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,status}',
+       'scope', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,scope}',
+       'businessId', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,businessId}',
+       'providerAccountRefId', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,providerAccountRefId}',
+       'providerAccountId', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,providerAccountId}',
+       'accountCurrency', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,accountCurrency}',
+       'asOfCutoff', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,asOfCutoff}',
+       'meanAov', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,meanAov}',
+       'observedPurchaseCount', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,observedPurchaseCount}',
        'sampleWindowStart', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,sampleWindowStart}',
        'sampleWindowEnd', explanation_cell.action_readiness_json#>'{spendUnitAuthority,accountAovEvidence,sampleWindowEnd}'
      )
@@ -104,6 +114,17 @@ export function readMetaDecisionCalibrationEvidence(value: unknown): MetaDecisio
   if (!/^engine-v3-native-ad-calibration\.v[1-7]$/.test(String(r.contractVersion))) return null;
   const actions = object(r.actionReadiness);
   const authority = object(actions?.spendUnitAuthority);
+  const accountAov = object(authority?.accountAovEvidence);
+  // D091's numerator belongs to the physical account, not the exact-cell
+  // calibration sample. Keep the original account receipt's identity/cutoff;
+  // absent or mismatched evidence must not fall back to the cell AOV.
+  const accountAovMatches = accountAov?.status === "ready" &&
+    accountAov.scope === "business_provider_account_currency" &&
+    ["businessId", "providerAccountRefId", "providerAccountId"].every((key) =>
+      text(r[key]) !== null && text(accountAov[key]) === text(r[key])) &&
+    text(r.currency) !== null && text(accountAov.accountCurrency) === text(r.currency) &&
+    Number.isFinite(Date.parse(String(accountAov.asOfCutoff))) &&
+    Date.parse(String(accountAov.asOfCutoff)) === Date.parse(String(r.asOfCutoff));
   const readiness: MetaDecisionCalibrationEvidence["readiness"] = {};
   for (const action of ["scale", "refresh"] as const) {
     const entry = object(actions?.[action]);
@@ -118,9 +139,10 @@ export function readMetaDecisionCalibrationEvidence(value: unknown): MetaDecisio
     windowStart: String(r.windowStart), windowEnd: String(r.windowEnd), asOfCutoff: String(r.asOfCutoff),
     inputManifestHash: String(r.inputManifestHash), batchInputManifestHash: String(r.batchInputManifestHash), sourceManifestHash: String(r.sourceManifestHash),
     currency: text(r.currency), targetRoas: numeric(r.targetRoas), breakEvenRoas: numeric(r.breakEvenRoas),
-    metaAov: numeric(r.metaAov), metaAovPurchases: numeric(r.metaAovPurchases),
-    metaAovWindowStart: day(object(authority?.accountAovEvidence)?.sampleWindowStart),
-    metaAovWindowEnd: day(object(authority?.accountAovEvidence)?.sampleWindowEnd),
+    metaAov: accountAovMatches ? numeric(accountAov?.meanAov) : null,
+    metaAovPurchases: accountAovMatches ? numeric(accountAov?.observedPurchaseCount) : null,
+    metaAovWindowStart: accountAovMatches ? day(accountAov?.sampleWindowStart) : null,
+    metaAovWindowEnd: accountAovMatches ? day(accountAov?.sampleWindowEnd) : null,
     baseSpendUnit: numeric(authority?.baseSpendUnit), spendUnitBasis: text(authority?.basis), readiness,
   };
 }

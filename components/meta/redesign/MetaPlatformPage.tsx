@@ -228,7 +228,7 @@ export function interpretMetaSnapshotRunResponse(
   responseOk: boolean,
   payload: unknown,
 ):
-  { ok: true; status: MetaSnapshotRunStatus } | { ok: false; message: string } {
+  { ok: true; status: MetaSnapshotRunStatus } | { ok: false; message: string; blocked?: boolean } {
   const record =
     payload && typeof payload === "object"
       ? (payload as Record<string, unknown>)
@@ -267,7 +267,7 @@ export function interpretMetaSnapshotRunResponse(
     (responseOk
       ? "Snapshot refresh returned an invalid response."
       : "Snapshot refresh failed.");
-  return { ok: false, message };
+  return { ok: false, message, ...(status === "blocked" ? { blocked: true } : {}) };
 }
 
 /**
@@ -5178,7 +5178,10 @@ export function MetaPlatformPage({
       });
       const payload = await response.json().catch(() => null);
       const outcome = interpretMetaSnapshotRunResponse(response.ok, payload);
-      if (!outcome.ok) throw new Error(outcome.message);
+      if (!outcome.ok) {
+        setNotice({ tone: outcome.blocked ? "info" : "danger", title: "Decisions could not be refreshed.", detail: outcome.message });
+        return;
+      }
       setNotice({
         tone: outcome.status === "ran" ? "success" : "info",
         title:
@@ -6690,6 +6693,13 @@ export function MetaPlatformPage({
               providerAccountId && !refreshingSnapshot && !isViewerReadOnly
                 ? () => void refreshSnapshotNow()
                 : undefined
+            }
+            snapshotRefreshBlockedReason={
+              workspaceQuery.data?.system.pipelineHealth?.admission.allowed === true
+                ? null
+                : workspaceQuery.data?.system.pipelineHealth?.admission.status === "blocked"
+                  ? "Decision generation is blocked by database capacity. Re-evaluate after admission is restored."
+                  : "Decision generation admission could not be verified."
             }
             onNewCampaign={
               providerAccountId && !isViewerReadOnly

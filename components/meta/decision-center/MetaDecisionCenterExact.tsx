@@ -843,6 +843,7 @@ export interface MetaDecisionCenterExactProps {
   onScopeChange?: (scope: MetaDecisionCenterExactScope) => void;
   onLaneChange?: (lane: MetaDecisionCenterExactLane) => void;
   onRunSnapshot?: () => void;
+  snapshotRefreshBlockedReason?: string | null;
   onNewCampaign?: () => void;
   onSortChange?: (sort: MetaDecisionCenterExactSort) => void;
   /**
@@ -2789,6 +2790,7 @@ export function MetaDecisionCenterExact({
   onScopeChange,
   onLaneChange,
   onRunSnapshot,
+  snapshotRefreshBlockedReason,
   onSortChange,
   levels = [],
   onLevelsChange,
@@ -3014,10 +3016,15 @@ export function MetaDecisionCenterExact({
             <button
               className={styles.snapshotButton}
               onClick={onRunSnapshot}
+              disabled={Boolean(snapshotRefreshBlockedReason)}
+              title={snapshotRefreshBlockedReason ?? undefined}
               type="button"
             >
               {language === "tr" ? "Yapı kararlarını yenile" : "Refresh structure decisions"}
             </button>
+          ) : null}
+          {onRunSnapshot && snapshotRefreshBlockedReason ? (
+            <span role="status">{snapshotRefreshBlockedReason}</span>
           ) : null}
           {adsManagerHref ? (
             <a

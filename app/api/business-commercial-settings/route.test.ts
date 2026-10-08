@@ -132,6 +132,20 @@ describe("business commercial settings route", () => {
     });
   });
 
+  it.each(["PUT", "POST"])("%s preserves a successful setting save when decision refresh is blocked", async (method) => {
+    vi.mocked(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).mockResolvedValueOnce({
+      ok: false, status: "blocked", businessId: "biz", snapshotDate: "2026-10-08", reason: "commercial_truth_updated",
+      blockedReason: "database_budget_exceeded", cooldownUntil: null, message: "Decision generation is blocked by capacity.",
+    });
+    const response = await (method === "PUT" ? PUT : POST)(new NextRequest("http://localhost/api/business-commercial-settings", {
+      method, body: JSON.stringify(method === "PUT"
+        ? { businessId: "biz", expectedRevision: "a".repeat(64), snapshot: { businessId: "biz" } }
+        : { businessId: "biz", action: "reconfirm_target_pack", expectedUpdatedAt: "2026-07-14T12:00:00.123456Z" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ decisionSnapshotRefresh: { ok: false, status: "blocked" } });
+  });
+
   it("returns snapshot permissions for GET", async () => {
     const response = await GET(
       new NextRequest(

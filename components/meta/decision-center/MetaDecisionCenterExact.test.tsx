@@ -544,6 +544,15 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
 });
 
 describe("MetaDecisionCenterExact branches and callbacks", () => {
+  it("keeps a capacity-blocked refresh visible, disabled and explained", () => {
+    const run = vi.fn();
+    renderExact({ onRunSnapshot: run, snapshotRefreshBlockedReason: "Decision generation is blocked by database capacity." });
+    const button = screen.getByRole("button", { name: "Refresh structure decisions" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(run).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("blocked by database capacity");
+  });
   it("routes directly from the compact lane controls without an extra summary card", () => {
     const onLaneChange = vi.fn();
     const onScopeChange = vi.fn();

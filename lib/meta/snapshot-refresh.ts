@@ -1,4 +1,6 @@
 import { runMetaSnapshotForBusiness } from "@/lib/meta/snapshot";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { assertDbGrowthFenceAdmits, describeGrowthFenceRefusal } from "@/lib/sync/db-growth-fence";
 
 export type MetaSnapshotRefreshReason =
   | "manual"
@@ -9,6 +11,7 @@ export type MetaSnapshotRefreshStatus =
   | "ran"
   | "already_running"
   | "cooldown"
+  | "blocked"
   | "failed";
 
 export interface MetaSnapshotRefreshResult {
@@ -19,6 +22,8 @@ export interface MetaSnapshotRefreshResult {
   reason: MetaSnapshotRefreshReason;
   cooldownUntil: string | null;
   message: string;
+  blockedReason?: string;
+  admission?: { allowed: false; reason: string; evaluatedAt: string };
   result?: Awaited<ReturnType<typeof runMetaSnapshotForBusiness>>;
 }
 
@@ -55,6 +60,35 @@ export async function requestMetaSnapshotRefreshForBusiness(input: {
   const businessId = input.businessId.trim();
   const snapshotDate = input.snapshotDate?.trim() || todayISO();
   const cooldownMs = input.cooldownMs ?? META_SNAPSHOT_REFRESH_COOLDOWN_MS;
+  const blocked = (blockedReason: string, message: string): MetaSnapshotRefreshResult => ({
+    ok: false, status: "blocked", businessId, snapshotDate, reason: input.reason,
+    cooldownUntil: null, blockedReason, message,
+  });
+  // Selected scope and admission precede cooldown, inflight success and the
+  // calibration/backfill writes. force cannot bypass either boundary. Typed
+  // refusal also lets callers report settings saved / refresh blocked.
+  if (input.providerAccountId?.trim()) {
+    try {
+      const assignment = await getProviderAccountAssignments(businessId, "meta");
+      if (!assignment?.account_ids.includes(input.providerAccountId.trim())) {
+        return blocked("provider_account_not_assigned", "This Meta account is no longer assigned to this workspace. Select an assigned account before refreshing decisions.");
+      }
+    } catch {
+      return blocked("account_scope_unavailable", "The selected Meta account could not be verified. Decision generation has not started.");
+    }
+  }
+  try {
+    await assertDbGrowthFenceAdmits("meta.snapshot_refresh");
+  } catch (error) {
+    const refusal = describeGrowthFenceRefusal(error);
+    const reason = refusal?.decision.reason ?? "fence_read_failed";
+    return {
+      ...blocked(reason, reason === "fence_read_failed"
+        ? "Decision generation safety checks could not be verified. No refresh has started; retry after admission can be verified."
+        : "Database capacity currently prevents new decision generation. Existing decisions remain available for review. Re-evaluate after admission is restored."),
+      admission: { allowed: false, reason, evaluatedAt: refusal?.decision.evaluatedAt ?? new Date().toISOString() },
+    };
+  }
   /*
    * The key carries the ACCOUNT, when one was asked for.
    *

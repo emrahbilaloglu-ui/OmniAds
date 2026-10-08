@@ -42,6 +42,18 @@ describe("POST /api/meta/snapshot/run-now", () => {
     vi.mocked(demoAuthority.readLaunchpadWriteAuthority).mockResolvedValue("live");
   });
 
+  it("returns a typed capacity refusal rather than 500 or success", async () => {
+    vi.mocked(snapshotRefresh.requestMetaSnapshotRefreshForBusiness).mockResolvedValueOnce({
+      ok: false, status: "blocked", businessId: "biz_1", snapshotDate: "2026-10-08", reason: "manual",
+      blockedReason: "database_budget_exceeded", cooldownUntil: null, message: "Decision generation is blocked by capacity.",
+    });
+    const response = await POST(new NextRequest("http://localhost/api/meta/snapshot/run-now", {
+      method: "POST", body: JSON.stringify({ businessId: "biz_1", providerAccountId: "act_1" }),
+    }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ ok: false, status: "blocked", cooldownUntil: null });
+  });
+
   it("runs a manual snapshot refresh behind collaborator access", async () => {
     const request = new NextRequest("http://localhost/api/meta/snapshot/run-now", {
       method: "POST",

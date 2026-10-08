@@ -21,6 +21,11 @@ vi.mock("@/lib/db-schema-readiness", () => ({
   getDbSchemaReadiness: vi.fn(),
 }));
 
+vi.mock("@/lib/business-deletion", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/business-deletion")>(),
+  deleteBusinessWithData: vi.fn(),
+}));
+
 vi.mock("@/lib/demo-business", () => ({
   isDemoBusinessId: vi.fn(),
 }));
@@ -40,6 +45,7 @@ const demoBusiness = await import("@/lib/demo-business");
 const requestLanguage = await import("@/lib/request-language");
 const migrations = await import("@/lib/migrations");
 const accountStore = await import("@/lib/account-store");
+const deletion = await import("@/lib/business-deletion");
 const { DELETE, PATCH } = await import("@/app/api/businesses/[businessId]/route");
 
 /**
@@ -196,9 +202,18 @@ describe("DELETE /api/businesses/[businessId]", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toEqual({ status: "ok" });
-    // Nine deletes plus the advisory lock that serialises this against ordinary
-    // selection mutation.
-    expect(sql).toHaveBeenCalledTimes(10);
+    expect(deletion.deleteBusinessWithData).toHaveBeenCalledWith("biz");
+    expect(sql).not.toHaveBeenCalled();
+    expect(migrations.runMigrations).not.toHaveBeenCalled();
+  });
+
+  it("returns a useful conflict for protected history and preserves the schema", async () => {
+    vi.mocked(deletion.deleteBusinessWithData).mockRejectedValue(new deletion.BusinessDeletionError("protected_history"));
+    const response = await DELETE(new NextRequest("http://localhost/api/businesses/biz", { method: "DELETE" }), {
+      params: Promise.resolve({ businessId: "biz" }),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: "protected_history", message: expect.stringContaining("No data was deleted") });
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 });

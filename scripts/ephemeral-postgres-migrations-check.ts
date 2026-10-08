@@ -4333,6 +4333,7 @@ async function main() {
     // These four suites used to self-provision only on developer machines and
     // skip in CI. Reuse this migrated cluster and require every case to pass.
     for (const [file, label, count] of [
+      ["lib/business-deletion.db.test.ts", "Business data deletion and rollback", 11],
       ["app/api/meta/served-profile-account-scope.db.test.ts", "Served Meta account profile scope", 9],
       ["app/api/meta/bootstrap-account-population.db.test.ts", "Meta bootstrap account population", 8],
       ["app/api/meta/anchor-scope-transition-serve.db.test.ts", "Meta anchor scope transition", 6],

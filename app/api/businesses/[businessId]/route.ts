@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateBusinessSettings } from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
-import { PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE } from "@/lib/provider-account-assignments";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
-import { getDb, runDbTransaction } from "@/lib/db";
+import { BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { resolveRequestLanguage } from "@/lib/request-language";
@@ -159,35 +158,35 @@ export async function DELETE(
     );
   }
 
-  // One transaction, under the same advisory locks selection mutation takes, in
-  // the same order. Previously each DELETE committed on its own: a failure
-  // partway through left memberships gone — so nobody could reach the business
-  // to retry — while the business, its connections and its bindings survived.
-  await runDbTransaction(async () => {
-    const sql = getDb();
-    await sql`
-      SELECT pg_advisory_xact_lock(
-        ${PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE}::int,
-        hashtext(${`provider_account_selection:business:${businessId}`})
-      )
-    `;
-    await sql`DELETE FROM memberships WHERE business_id = ${businessId}`;
-    await sql`DELETE FROM invites WHERE business_id = ${businessId}`;
-    await sql`DELETE FROM business_cost_models WHERE business_id = ${businessId}`;
-    await sql`DELETE FROM provider_account_snapshot_runs WHERE business_id = ${businessId}`;
-    await sql`DELETE FROM business_provider_accounts WHERE business_id = ${businessId}`;
-    await sql`DELETE FROM provider_connections WHERE business_id = ${businessId}`;
-    await sql`
-      DELETE FROM creative_share_snapshots
-      WHERE payload->>'businessId' = ${businessId}
-    `;
-    await sql`DELETE FROM businesses WHERE id = ${businessId}`;
-    await sql`
-      UPDATE sessions
-      SET active_business_id = NULL
-      WHERE active_business_id = ${businessId}
-    `;
-  });
+  try {
+    await deleteBusinessWithData(businessId);
+  } catch (error) {
+    if (error instanceof BusinessDeletionError) {
+      const tr = language === "tr";
+      const messages = {
+        not_found: tr ? "İşletme bulunamadı." : "Business not found.",
+        protected_history: tr
+          ? "Bu işletmede silinmeye karşı korumalı karar veya reklam işlem geçmişi var. Hiçbir veri silinmedi. Kontrollü veri kaldırma gerekiyor."
+          : "This business has protected decision or ad action history. No data was deleted. A controlled offboarding is required.",
+        schema_not_ready: tr
+          ? "İşletmenin tüm verileri güvenle kaldırılamıyor. Hiçbir veri silinmedi. Destek ile iletişime geçin."
+          : "The business data cannot be safely removed with the current schema. No data was deleted. Contact support.",
+        scope_conflict: tr
+          ? "İşletme verilerindeki sahiplik uyuşmazlığı silmeyi engelliyor. Hiçbir veri silinmedi. Destek ile iletişime geçin."
+          : "Conflicting business ownership prevents deletion. No data was deleted. Contact support.",
+        business_busy: tr
+          ? "Bu işletme için aktif veri işi veya kilit kaydı var. Hiçbir veri silinmedi. İşin kapandığı doğrulandıktan sonra yeniden deneyin."
+          : "An active data job or lease record prevents deletion. No data was deleted. Try again after the job is confirmed closed.",
+      };
+      return NextResponse.json({ error: error.code, message: messages[error.code] }, {
+        status: error.code === "not_found" ? 404 : error.code === "schema_not_ready" ? 503 : 409,
+      });
+    }
+    console.error("[businesses DELETE] failed", error);
+    return NextResponse.json({ error: "delete_failed", message: language === "tr"
+      ? "İşletme silme sonucu doğrulanamadı. Listeyi yenileyerek işletmenin durumunu kontrol edin."
+      : "Business deletion could not be confirmed. Refresh the business list to check its status." }, { status: 503 });
+  }
 
   return NextResponse.json({ status: "ok" });
 }

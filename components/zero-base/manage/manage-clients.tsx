@@ -833,6 +833,7 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
     }).catch(() => null);
+    const refusal = !response?.ok ? await response?.json().catch(() => null) as { message?: string } | null : null;
 
     // Separate read from the LIST endpoint. `/api/businesses/[businessId]` has
     // no GET, so re-reading it answered 405 every time and the ceremony could
@@ -848,7 +849,7 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
     setOutcome(
       resolveCeremony({
         accepted: Boolean(response?.ok),
-        acceptError: response?.ok ? null : `The delete was refused (HTTP ${response?.status ?? "no response"}).`,
+        acceptError: response?.ok ? null : refusal?.message ?? `The delete was refused (HTTP ${response?.status ?? "no response"}).`,
         observed,
         observeError: observed === null ? "The confirming read failed." : null,
       }),

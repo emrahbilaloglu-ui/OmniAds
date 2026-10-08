@@ -902,3 +902,15 @@ The exact-count ledger now includes this literal. The canonical scan, all
 content-reader safety predicates and test limits remain unchanged; no reference
 was hidden or removed to pass the guard. The runtime and migrated-Postgres seam
 bytes from the completed D151 source review are unchanged.
+
+## 2026-10-08 — Explicit business deletion ownership
+
+| File | References | Classification |
+| --- | ---: | --- |
+| `lib/business-deletion.ts` | 1 | Business teardown. The literal is in the reviewed ownership allowlist. The runtime deletes the exact authenticated business's rows after guarded-history, schema, ownership and active-work checks, in a single transaction with FK-derived child-first ordering. It reads no entity payload and computes no decisions, presence, provider authority or retention eligibility. Enabled immutable DELETE guards are preserved; scoped protected evidence refuses before writes. |
+
+The real migrated-PostgreSQL regression suite proves the old FK failure, supported
+scoped teardown, tenant/shared-account preservation, protected-evidence refusal,
+late-FK rollback, growth-budget independence and kill-switch refusal. No content
+reader or its D075 presence/clock/manifest safety predicates changed. The exact
+reference scanner remains enabled.

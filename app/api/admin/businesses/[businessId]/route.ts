@@ -120,26 +120,21 @@ export async function DELETE(
     if (auth.error) return auth.error;
 
     const { businessId } = await params;
-    const sql = getDb();
-
-    const rows = (await sql`SELECT name FROM businesses WHERE id = ${businessId} LIMIT 1`) as any[];
-
     await deleteBusinessWithData(businessId);
 
     await logAdminAction({
       adminId: auth.session!.user.id,
       action: "business.delete",
       targetType: "business",
-      targetId: businessId,
-      meta: { name: rows[0]?.name },
+      meta: { deleted: true },
     });
 
     return NextResponse.json({ ok: true });
   } catch (err) {
     if (err instanceof BusinessDeletionError) {
-      return NextResponse.json({ error: err.code, message: err.code === "protected_history"
-        ? "Korumalı karar veya reklam işlem geçmişi silmeyi engelliyor. Hiçbir veri silinmedi. Kontrollü veri kaldırma gerekiyor."
-        : "İşletme verileri güvenle kaldırılamadı. Hiçbir veri silinmedi." }, {
+      return NextResponse.json({ error: err.code, message: err.code === "external_cleanup_required"
+        ? "İşletmeye ait arşiv veya dosyaların kaldırıldığı doğrulanamadı. İşletme silinmedi."
+        : "İşletme verileri güvenle kaldırılamadı. İşletme ve veritabanı kayıtları korundu." }, {
         status: err.code === "not_found" ? 404 : err.code === "schema_not_ready" ? 503 : 409,
       });
     }

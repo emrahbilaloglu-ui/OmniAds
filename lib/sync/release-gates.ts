@@ -366,6 +366,21 @@ export async function upsertSyncGateRecord(
 
   return runDbTransaction(async () => {
     const sql = getDb();
+    // Same lock order as whole-business erasure: gate table, then business rows.
+    // A canary collected before deletion must not recreate a ghost receipt
+    // after waiting for that deletion's writer-exclusion lock to be released.
+    await sql.query("LOCK TABLE public.sync_release_gates IN ROW EXCLUSIVE MODE");
+    const evidence = input.evidence ?? {};
+    const canaries = Array.isArray(evidence.canaries) ? evidence.canaries : [];
+    const ids = [...new Set([
+      ...canaries.map(c => c && typeof c === "object" ? (c as Record<string,unknown>).businessId : undefined),
+      ...(Array.isArray(evidence.canaryBusinessIds) ? evidence.canaryBusinessIds : []),
+    ].filter((id): id is string => typeof id === "string"))].sort();
+    if (ids.length) {
+      if (ids.some(id=>!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))) throw new Error("sync_gate_business_identity_invalid");
+      const live = await sql.query("SELECT id FROM businesses WHERE id=ANY($1::uuid[]) ORDER BY id FOR KEY SHARE",[ids]);
+      if (live.length!==ids.length) throw new Error("sync_gate_business_removed");
+    }
     await sql`
       SELECT pg_advisory_xact_lock(
         ${SYNC_GATE_COALESCE_LOCK_NAMESPACE}::int,

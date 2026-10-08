@@ -213,7 +213,7 @@ describe("DELETE /api/businesses/[businessId]", () => {
       params: Promise.resolve({ businessId: "biz" }),
     });
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: "protected_history", message: expect.stringContaining("No data was deleted") });
+    expect(await response.json()).toMatchObject({ error: "protected_history", message: expect.stringContaining("database records were preserved") });
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 });

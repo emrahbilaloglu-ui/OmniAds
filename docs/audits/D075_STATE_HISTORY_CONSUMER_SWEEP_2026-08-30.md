@@ -909,6 +909,23 @@ bytes from the completed D151 source review are unchanged.
 | --- | ---: | --- |
 | `lib/business-deletion.ts` | 1 | Business teardown. The literal is in the reviewed ownership allowlist. The runtime deletes the exact authenticated business's rows after guarded-history, schema, ownership and active-work checks, in a single transaction with FK-derived child-first ordering. It reads no entity payload and computes no decisions, presence, provider authority or retention eligibility. Enabled immutable DELETE guards are preserved; scoped protected evidence refuses before writes. |
 
+## 2026-10-08 — D153 bounded ownership preflight
+
+This classification supersedes the preceding limited-teardown description for
+explicit authenticated whole-business erasure. D153 authorizes only the exact
+reviewed immutable DELETE guards to be suspended transactionally under writer
+exclusion, then restored; ordinary retained readers and writers keep their
+existing authority.
+
+| File | Current literals | Classification |
+| --- | ---: | --- |
+| `lib/business-deletion.ts` | 2 | Business teardown. One ownership allowlist literal and one catalog-only comparison identifying the exact state-history table whose complete validated observation-run FK can prove identity equality. All eight child keys must be NOT NULL, all four FK triggers must be enabled for ordinary writes, and the parent must have the equality CHECK. This reads schema metadata, not entity payload, and computes no status, presence, decision or retention eligibility. |
+| `lib/business-deletion.db.test.ts` | 13 | Harness. Disposable migrated-PostgreSQL fixture INSERT, heap-size assertion, exact FK-trigger catalog lookup/temporary disable and restore, temporary nullability removal/restore, and selected/foreign-row absence and byte-preservation assertions. These are local/CI test mutations only; no production maintenance or ordinary writer permission is added. |
+
+The closure guard pins both counts without an ignore or allow-all rule. The
+new fixtures require a large heap and prove refusal when inherited identity is
+unenforced or nullable before allowing the complete guarded erasure path.
+
 The real migrated-PostgreSQL regression suite proves the old FK failure, supported
 scoped teardown, tenant/shared-account preservation, protected-evidence refusal,
 late-FK rollback, growth-budget independence and kill-switch refusal. No content

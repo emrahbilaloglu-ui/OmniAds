@@ -1,5 +1,5 @@
 {
-  "manifestHash": "8d26a0c3385846ec3a30d879c8f371c05dd0db8ddf9eeb1c1f7ba0540355c702",
+  "manifestHash": "dd992c88027efcd6120ed7191612ba21b99134f9b427a967d2ddae19671d410b",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -852,7 +852,7 @@
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
-      "sha256": "1d3d4a2fa9d547709d5e84989b872da9000ce2e3f30cb4711281f77f8d3b2c1a"
+      "sha256": "260a373a90ce475680f226c175eb9912f9b63097b678ae9506e1accbd3ddb889"
     },
     {
       "path": "docs/audits/generated/d085-budget-proposal-dry-run-2026-09-01.r17.json",
@@ -1792,7 +1792,7 @@
     },
     {
       "path": "lib/meta/__tests__/state-history-consumer-closure.test.ts",
-      "sha256": "f0a0868def356f8d804813ac658f07d0b49811ce3aa44035018d1134278382e2"
+      "sha256": "eab94eb7c9eb1e341df322988d0715f5dca7742e155fb10480cddffaca5c74ae"
     },
     {
       "path": "lib/meta/action-count-parse.test.ts",

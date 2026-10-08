@@ -60,7 +60,12 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   {
     file: "lib/business-deletion.ts",
     category: "business-teardown",
-    count: 1,
+    count: 2,
+  },
+  {
+    file: "lib/business-deletion.db.test.ts",
+    category: "harness",
+    count: 13,
   },
   /*
     The 2026-09-21 campaign field fix replaced the old schedule-only refusal

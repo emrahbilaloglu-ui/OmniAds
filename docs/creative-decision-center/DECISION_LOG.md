@@ -12858,3 +12858,15 @@ reports the table phase and finite observed/page counts; failed counts are
 progress, never a commit claim. Exact live release and complete selected-business
 absence remain required separately from source, local tests and EXPLAIN-only
 plan acceptance.
+
+A targeted live browser read also found business-scoped platform and briefing
+keys outside the workspace/integration stores. Confirmed deletion now clears
+the four reviewed platform/briefing/overview/Studio key namespaces for that exact
+business and cancels in-memory query caches, after the fresh server list proves
+absence. Other live businesses' preference bytes and global layouts remain.
+An authenticated authoritative membership refresh prunes these stale namespaces
+for older clients; an offline device cannot be erased remotely before reconnect
+and that read. Storage refusal is reported separately from completed server
+deletion. This is client cache cleanup, not a new decision authority or browser
+history/forensic purge. Tests cover exact/similar foreign IDs, global/unscoped
+layout preservation, unconfirmed-delete preservation and older-client healing.

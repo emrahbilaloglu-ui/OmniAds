@@ -17,6 +17,40 @@ interface WorkspacePayload {
   activeBusinessId: string | null;
 }
 
+// Exact production business-scoped preferences. Global layout/preferences and
+// another live business's keys are preserved; storage values are never scanned.
+const BUSINESS_BROWSER_PREFIXES = ["adsecute_active_platform_", "creatives-briefing-selected:",
+  "adsecute:overview-layout:v1:", "creative-studio:assets:v1:"] as const;
+
+function businessForBrowserKey(key: string): string | null {
+  const prefix = BUSINESS_BROWSER_PREFIXES.find(p => key.startsWith(p));
+  if (!prefix) return null;
+  const suffix = key.slice(prefix.length);
+  if (prefix === "adsecute:overview-layout:v1:" && suffix === "unscoped") return null;
+  return prefix === "creative-studio:assets:v1:" ? suffix.split(":")[0] || null : suffix || null;
+}
+
+function pruneBusinessBrowserKeys(keep: (businessId: string) => boolean): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const keys = Object.keys(window.localStorage);
+    for (const key of keys) {
+      const owner = businessForBrowserKey(key);
+      if (owner && !keep(owner)) window.localStorage.removeItem(key);
+    }
+    return true;
+  } catch { return false; }
+}
+
+/** Call only after the server's fresh list proves deletion. Also cancels
+ * in-flight cached reads so an old response cannot revive removed decisions. */
+export function removeBusinessClientState(businessId: string): boolean {
+  useAppStore.getState().deleteBusiness(businessId);
+  useIntegrationsStore.getState().removeBusinessData(businessId);
+  clearAppQueryClient();
+  return pruneBusinessBrowserKeys(id => id !== businessId);
+}
+
 export function clearAuthScopedClientState() {
   useAppStore.getState().clearWorkspaceState();
   useAppStore.getState().setAuthBootstrapStatus("idle");
@@ -36,6 +70,9 @@ export function applyAuthenticatedWorkspace(payload: WorkspacePayload) {
     useIntegrationsStore.getState().clearAllState();
     clearAppQueryClient();
   }
+  const allowed = new Set(payload.businesses.map(b => b.id));
+  if (useAppStore.getState().businesses.some(b => !allowed.has(b.id))) clearAppQueryClient();
+  pruneBusinessBrowserKeys(id => allowed.has(id));
   useIntegrationsStore
     .getState()
     .retainBusinesses(payload.businesses.map((business) => business.id));
@@ -46,6 +83,8 @@ export function applyAuthenticatedWorkspace(payload: WorkspacePayload) {
 
 export function replaceAuthenticatedWorkspace(payload: WorkspacePayload) {
   clearAuthScopedClientState();
+  const allowed = new Set(payload.businesses.map(b => b.id));
+  pruneBusinessBrowserKeys(id => allowed.has(id));
   useAppStore
     .getState()
     .setWorkspaceSnapshot(payload.userId, payload.businesses, payload.activeBusinessId);

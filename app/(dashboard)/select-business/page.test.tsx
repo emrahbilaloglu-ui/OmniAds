@@ -234,23 +234,41 @@ describe("/select-business workspace deletion", () => {
       return jsonResponse({ businesses: removed ? [rows[1]] : rows });
     }) as typeof fetch;
     seedStore(rows);
+    const prefixes = ["adsecute_active_platform_", "creatives-briefing-selected:", "adsecute:overview-layout:v1:", "creative-studio:assets:v1:"];
+    for (const prefix of prefixes) {
+      const suffix = prefix === "creative-studio:assets:v1:" ? ":account-one" : "";
+      window.localStorage.setItem(prefix+"biz_1"+suffix,"owned-fixture");
+      window.localStorage.setItem(prefix+"biz_2"+suffix,"foreign-fixture");
+    }
+    window.localStorage.setItem("creativesTableLayout","global-fixture");
     await mount();
     await confirmDelete();
     expect(screen.getByText("Business deleted.")).toBeTruthy();
     expect(useAppStore.getState().businesses.map((row) => row.id)).toEqual(["biz_2"]);
     expect(useAppStore.getState().selectedBusinessId).toBe("biz_2");
     expect(calls.filter((call) => call.url === "/api/businesses" && call.method === "GET")).toHaveLength(2);
+    for (const prefix of prefixes) {
+      const suffix = prefix === "creative-studio:assets:v1:" ? ":account-one" : "";
+      expect(window.localStorage.getItem(prefix+"biz_1"+suffix)).toBeNull();
+      expect(window.localStorage.getItem(prefix+"biz_2"+suffix)).toBe("foreign-fixture");
+      window.localStorage.removeItem(prefix+"biz_2"+suffix);
+    }
+    expect(window.localStorage.getItem("creativesTableLayout")).toBe("global-fixture");
+    window.localStorage.removeItem("creativesTableLayout");
   });
 
   it("keeps the workspace when the list still contains it despite HTTP success", async () => {
     const rows = [workspaceRow()];
     installFetch(rows);
     seedStore(rows);
+    window.localStorage.setItem("creatives-briefing-selected:biz_1","keep-on-unconfirmed");
     await mount();
     await confirmDelete();
     expect(screen.queryByText("Business deleted.")).toBeNull();
     expect(screen.getByText(/business list did not confirm removal/)).toBeTruthy();
     expect(useAppStore.getState().businesses).toHaveLength(1);
+    expect(window.localStorage.getItem("creatives-briefing-selected:biz_1")).toBe("keep-on-unconfirmed");
+    window.localStorage.removeItem("creatives-briefing-selected:biz_1");
   });
 
   it("selects the next workspace from the fresh list when the cached next membership disappeared", async () => {

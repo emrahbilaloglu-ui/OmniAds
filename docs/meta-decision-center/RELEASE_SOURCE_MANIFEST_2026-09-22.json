@@ -1,5 +1,5 @@
 {
-  "manifestHash": "2d98e8a29a8565da1f2182ad6306defd1f66e2563d2507c55103ade4dba87db3",
+  "manifestHash": "000a89380c73f7749a3cd9cdb2dda59601e50dfefbcae8477dbb0ee61461bc7e",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -148,11 +148,11 @@
     },
     {
       "path": "app/(dashboard)/select-business/page.test.tsx",
-      "sha256": "bb280eba0f869154a74edde1f9cf1a128532456d49b0546f8cd140724945c95a"
+      "sha256": "73658c208f0949df3ff43f8e26baaa076190d2ba3618714144efe667b760c378"
     },
     {
       "path": "app/(dashboard)/select-business/page.tsx",
-      "sha256": "965d8438b3778db83e31bde369b97f49a035621cedc00f6ebe05f3b771f8df6d"
+      "sha256": "28955c0d44bae3c15ef695e0f0c91b92a08a8b44c79c7694964aa6e4204da188"
     },
     {
       "path": "app/api/admin/businesses/[businessId]/route.ts",
@@ -876,7 +876,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "738e81300535ad1a63950af41f5f05a26e53e3050f9f7420ee182e5a9c52fda9"
+      "sha256": "9c4693d41e28550f19a93079428c0817b49f904811d011df77f0942c06889525"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -977,6 +977,14 @@
     {
       "path": "lib/business-deletion.ts",
       "sha256": "31468ac0a6895d21c4f3f0dc17ada95df4b2fd5bbb05de93d49090b9ec9716d7"
+    },
+    {
+      "path": "lib/client-auth-state.test.ts",
+      "sha256": "3d078c9813c61021edc9a5915f4dc26e455452afadd1a207275bbd73d5cdafe4"
+    },
+    {
+      "path": "lib/client-auth-state.ts",
+      "sha256": "d2e22f6dd8dfc03f263f55fbddddd32af3641e4fbca29dac15f8109a05e6e38d"
     },
     {
       "path": "lib/creative-decision-center/__tests__/v3-bridge.test.ts",

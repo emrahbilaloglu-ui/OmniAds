@@ -209,6 +209,57 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     expect(await remains(otherId)).toBe(true);
   });
 
+  it("uses the complete enforced run FK for large state history, refusing nullable or disabled inheritance before any erasure", async () => {
+    const { businessId, otherId } = await fixture();
+    // Keep the non-compressible payload inline so the heap exceeds the large-
+    // relation threshold; an out-of-line TOAST fixture would miss that path.
+    const payload = JSON.stringify({ fixture: randomBytes(512).toString("hex") });
+    await getDb().query(`INSERT INTO meta_entity_state_history
+      (run_id,business_ref_id,business_id,provider_account_ref_id,provider_account_id,entity_type,entity_id,
+       campaign_id,adset_id,ad_id,observed_at,captured_at,run_completeness,presence,state_hash,field_coverage_json)
+      SELECT r.id,r.business_ref_id,r.business_id,r.provider_account_ref_id,r.provider_account_id,'ad',n::text,
+        'fixture-campaign','fixture-adset',n::text,r.observed_at,r.captured_at,r.completeness,'present',
+        encode(sha256(convert_to(n::text,'UTF8')),'hex'),$3::jsonb
+      FROM meta_entity_observation_runs r CROSS JOIN generate_series(1,1025) n
+      WHERE r.business_id IN ($1,$2)`,[businessId,otherId,payload]);
+    const [size] = await getDb()`SELECT pg_relation_size('meta_entity_state_history')::int AS bytes`;
+    expect(Number(size!.bytes)).toBeGreaterThan(1024**2);
+    const [trigger] = await getDb()`SELECT t.tgname FROM pg_trigger t JOIN pg_constraint f ON f.oid=t.tgconstraint
+      WHERE f.conrelid='meta_entity_state_history'::regclass AND f.conname='meta_entity_state_history_run_fk'
+        AND t.tgrelid='meta_entity_state_history'::regclass ORDER BY t.tgname LIMIT 1`;
+    const quotedTrigger = '"'+String(trigger!.tgname).replaceAll('"','""')+'"';
+    await getDb().query(`ALTER TABLE meta_entity_state_history DISABLE TRIGGER ${quotedTrigger}`);
+    try {
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"schema_not_ready"});
+      expect(await remains(businessId,"memberships","business_id")).toBe(true);
+    } finally { await getDb().query(`ALTER TABLE meta_entity_state_history ENABLE TRIGGER ${quotedTrigger}`); }
+    await getDb()`ALTER TABLE meta_entity_state_history ALTER COLUMN run_id DROP NOT NULL`;
+    try {
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"schema_not_ready"});
+      expect(await remains(businessId,"meta_entity_state_history","business_id")).toBe(true);
+    } finally { await getDb()`ALTER TABLE meta_entity_state_history ALTER COLUMN run_id SET NOT NULL`; }
+    const before = await getDb()`SELECT * FROM meta_entity_state_history WHERE business_id=${otherId} ORDER BY id`;
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId,"meta_entity_state_history","business_id")).toBe(false);
+    expect(await remains(businessId)).toBe(false);
+    expect(await getDb()`SELECT * FROM meta_entity_state_history WHERE business_id=${otherId} ORDER BY id`).toEqual(before);
+  });
+
+  it("erases large original job history through its required UUID owner while retaining NULL compatibility and other-tenant bytes", async () => {
+    const { businessId, otherId } = await fixture();
+    await getDb().query(`INSERT INTO engine_v3_job_runs
+      (job_name,business_ref_id,business_id,as_of_date,engine_version,status,error_json)
+      SELECT 'erasure-fixture',b::uuid,NULL,'2026-10-01','fixture','failed',$3::jsonb
+      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,1025) n`,
+    [businessId,otherId,JSON.stringify({fixture:randomBytes(512).toString("hex")})]);
+    const [size] = await getDb()`SELECT pg_relation_size('engine_v3_job_runs')::int AS bytes`;
+    expect(Number(size!.bytes)).toBeGreaterThan(1024**2);
+    const before = await getDb()`SELECT * FROM engine_v3_job_runs WHERE business_ref_id=${otherId} ORDER BY id`;
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId,"engine_v3_job_runs","business_ref_id")).toBe(false);
+    expect(await getDb()`SELECT * FROM engine_v3_job_runs WHERE business_ref_id=${otherId} ORDER BY id`).toEqual(before);
+  });
+
   it("keeps the assignment kill switch authoritative", async () => {
     const { businessId } = await fixture();
     delete process.env.ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED;

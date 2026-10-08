@@ -256,7 +256,7 @@ export class BusinessDeletionError extends Error {
   ) { super(code); this.name = "BusinessDeletionError"; }
 }
 
-type ScopeColumn = { schema_name: string; table_name: string; column_name: string; type_name: string; not_null: boolean; identity_checked: boolean; indexed: boolean; heap_bytes: string; episode_bound: boolean; row_security: boolean };
+type ScopeColumn = { schema_name: string; table_name: string; column_name: string; type_name: string; not_null: boolean; identity_checked: boolean; indexed: boolean; owner_indexes: string[]; heap_bytes: string; episode_bound: boolean; row_security: boolean };
 type Dependency = { child_table: string; parent_table: string };
 type DeleteGuard = { table_name: string; trigger_name: string; function_name: string; function_schema: string; enabled: string; trigger_type: number; arguments: number };
 const identifier = (value: string) => `"${value.replaceAll('"', '""')}"`;
@@ -279,25 +279,55 @@ export function orderBusinessDeletionTables(tables: string[], dependencies: Depe
   return ordered;
 }
 
-// These five original creative-grain tables predate dual-owner equality CHECKs.
-// Their required UUID is the producer/PK owner; nullable text is compatibility
-// context. Never select another canonical owner through a contradictory alias.
-const LEGACY_CANONICAL_OWNERS = new Set(["engine_v3_account_calibration_daily", "engine_v3_creative_lifecycle_daily",
+// Original creative history and its shared job-run registry predate dual-owner
+// equality CHECKs. Their required UUID is the producer/lookup owner; nullable
+// text is compatibility context. Never select a different canonical owner
+// through a contradictory alias.
+const LEGACY_CANONICAL_OWNERS = new Set(["engine_v3_job_runs", "engine_v3_account_calibration_daily", "engine_v3_creative_lifecycle_daily",
   "engine_v3_decision_events", "engine_v3_decision_outcomes_daily", "engine_v3_decision_snapshots_daily"]);
 
-function scopeFor(columns: ScopeColumn[]): string {
+function scopePredicates(columns: ScopeColumn[]): { predicate: string; owner: ScopeColumn }[] {
   const first = columns[0]!;
-  if (first.episode_bound) return `episode_key IN (SELECT episode_key FROM public.engine_v3_ad_recommendation_episodes WHERE business_ref_id=$1::uuid)`;
+  if (first.episode_bound) return [{ predicate: `episode_key IN (SELECT episode_key FROM public.engine_v3_ad_recommendation_episodes WHERE business_ref_id=$1::uuid)`, owner: first }];
   const canonical = columns.find(c => c.column_name === "business_ref_id" && c.not_null && c.indexed
     && (c.identity_checked || c.schema_name === "public" && LEGACY_CANONICAL_OWNERS.has(c.table_name)));
   const equalIndexedOwner = columns.find(c => c.identity_checked && c.not_null && c.indexed);
   if (first.schema_name === "public" && LEGACY_CANONICAL_OWNERS.has(first.table_name) && !canonical)
     throw new BusinessDeletionError("schema_not_ready", [first.table_name]);
   const owner = canonical ?? equalIndexedOwner;
-  return (owner ? [owner] : columns).map(({ column_name: name, type_name: type }) => {
+  return (owner ? [owner] : columns).map(owner => {
+    const { column_name: name, type_name: type } = owner;
     if (type !== "uuid" && type !== "text") throw new BusinessDeletionError("schema_not_ready");
-    return `${identifier(name)} = $1::${type}`;
-  }).join(" OR ");
+    return { predicate: `${identifier(name)} = $1::${type}`, owner };
+  });
+}
+
+function scopeFor(columns: ScopeColumn[]): string {
+  return scopePredicates(columns).map(s => s.predicate).join(" OR ");
+}
+
+/** LIMIT 1 plus an OR can choose a whole-table or whole-index walk while
+ * estimating an early mismatch. Check each owner arm separately and require
+ * its actual leading-owner index before reading any large history. */
+function verifyConflictReadPlan(plan: Record<string, unknown>, owner: ScopeColumn) {
+  if (Number(owner.heap_bytes) <= 1024 * 1024) return;
+  const equality = new RegExp(`\\b${owner.column_name}\\b\\s*=`);
+  let found = false;
+  const checkIndex = (node: Record<string, unknown>) => {
+    if (!owner.owner_indexes.includes(String(node["Index Name"])) || !equality.test(String(node["Index Cond"])))
+      throw new BusinessDeletionError("schema_not_ready", [owner.table_name]);
+    found = true;
+  };
+  const walk = (node: Record<string, unknown>) => {
+    if (node["Relation Name"] === owner.table_name) {
+      if (["Index Scan", "Index Only Scan"].includes(String(node["Node Type"]))) checkIndex(node);
+      else if (node["Node Type"] !== "Bitmap Heap Scan") throw new BusinessDeletionError("schema_not_ready", [owner.table_name]);
+    }
+    if (node["Node Type"] === "Bitmap Index Scan") checkIndex(node);
+    for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child);
+  };
+  walk(plan);
+  if (!found) throw new BusinessDeletionError("schema_not_ready", [owner.table_name]);
 }
 
 const SCOPE_CATALOG = `SELECT n.nspname AS schema_name, c.relname AS table_name, a.attname AS column_name,
@@ -307,6 +337,10 @@ const SCOPE_CATALOG = `SELECT n.nspname AS schema_name, c.relname AS table_name,
     JOIN pg_opclass op ON op.oid=i.indclass[0] WHERE i.indrelid=c.oid AND am.amname='btree' AND i.indkey[0]=a.attnum
     AND i.indisvalid AND i.indisready AND i.indislive AND i.indpred IS NULL AND i.indexprs IS NULL
     AND op.opcdefault AND i.indcollation[0]=a.attcollation) AS indexed,
+  ARRAY(SELECT ic.relname::text FROM pg_index i JOIN pg_class ic ON ic.oid=i.indexrelid JOIN pg_am am ON am.oid=ic.relam
+    JOIN pg_opclass op ON op.oid=i.indclass[0] WHERE i.indrelid=c.oid AND am.amname='btree' AND i.indkey[0]=a.attnum
+      AND i.indisvalid AND i.indisready AND i.indislive AND i.indpred IS NULL AND i.indexprs IS NULL
+      AND op.opcdefault AND i.indcollation[0]=a.attcollation ORDER BY ic.relname) AS owner_indexes,
   (n.nspname='public' AND c.relname IN ('engine_v3_ad_operator_responses','engine_v3_ad_operator_response_events')
     AND EXISTS (SELECT 1 FROM pg_constraint fk JOIN pg_class parent ON parent.oid=fk.confrelid
       JOIN pg_namespace pn ON pn.oid=parent.relnamespace
@@ -322,9 +356,26 @@ const SCOPE_CATALOG = `SELECT n.nspname AS schema_name, c.relname AS table_name,
         AND EXISTS (SELECT 1 FROM pg_constraint ck WHERE ck.conrelid=parent.oid AND ck.contype='c' AND ck.convalidated
           AND regexp_replace(pg_get_constraintdef(ck.oid),'[[:space:]()]','','g')
             IN ('CHECKbusiness_id=business_ref_id::text','CHECKbusiness_ref_id::text=business_id')))) AS episode_bound,
-  EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid=c.oid AND k.contype='c' AND k.convalidated
+  (EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid=c.oid AND k.contype='c' AND k.convalidated
     AND regexp_replace(pg_get_constraintdef(k.oid), '[[:space:]()]', '', 'g')
-      IN ('CHECKbusiness_id=business_ref_id::text','CHECKbusiness_ref_id::text=business_id')) AS identity_checked
+      IN ('CHECKbusiness_id=business_ref_id::text','CHECKbusiness_ref_id::text=business_id'))
+   OR (n.nspname='public' AND c.relname='meta_entity_state_history'
+    AND EXISTS (SELECT 1 FROM pg_constraint fk JOIN pg_class parent ON parent.oid=fk.confrelid
+      JOIN pg_namespace pn ON pn.oid=parent.relnamespace
+      WHERE fk.conrelid=c.oid AND fk.contype='f' AND fk.convalidated AND pn.nspname='public'
+        AND parent.relname='meta_entity_observation_runs'
+        AND ARRAY(SELECT ca.attname::text FROM unnest(fk.conkey) WITH ORDINALITY k(num,ord)
+          JOIN pg_attribute ca ON ca.attrelid=c.oid AND ca.attnum=k.num ORDER BY k.ord)
+          =ARRAY['run_id','business_ref_id','business_id','provider_account_ref_id','provider_account_id','entity_type','captured_at','run_completeness']::text[]
+        AND ARRAY(SELECT pa.attname::text FROM unnest(fk.confkey) WITH ORDINALITY k(num,ord)
+          JOIN pg_attribute pa ON pa.attrelid=parent.oid AND pa.attnum=k.num ORDER BY k.ord)
+          =ARRAY['id','business_ref_id','business_id','provider_account_ref_id','provider_account_id','entity_type','captured_at','completeness']::text[]
+        AND NOT EXISTS (SELECT 1 FROM unnest(fk.conkey) k(num) JOIN pg_attribute ca ON ca.attrelid=c.oid AND ca.attnum=k.num WHERE NOT ca.attnotnull)
+        AND (SELECT count(*) FROM pg_trigger tr WHERE tr.tgconstraint=fk.oid AND tr.tgisinternal)=4
+        AND NOT EXISTS (SELECT 1 FROM pg_trigger tr WHERE tr.tgconstraint=fk.oid AND tr.tgisinternal AND tr.tgenabled NOT IN ('O','A'))
+        AND EXISTS (SELECT 1 FROM pg_constraint ck WHERE ck.conrelid=parent.oid AND ck.contype='c' AND ck.convalidated
+          AND regexp_replace(pg_get_constraintdef(ck.oid),'[[:space:]()]','','g')
+            IN ('CHECKbusiness_id=business_ref_id::text','CHECKbusiness_ref_id::text=business_id'))))) AS identity_checked
   FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
   JOIN pg_attribute a ON a.attrelid=c.oid JOIN pg_type t ON t.oid=a.atttypid
   WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%'
@@ -360,7 +411,12 @@ function verifyInputReferencePlan(value: unknown, indexes: string[]) {
 export async function deleteBusinessWithData(businessId: string): Promise<void> {
   assertSyncLaneEnabled("assignment_mutation");
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(businessId)) throw new BusinessDeletionError("not_found");
-  await runWithDbJitDisabled(() => runDbTransaction(async () => {
+  const startedAt = Date.now();
+  let phase = "catalog", phaseAt = startedAt;
+  const timings: { phase: string; ms: number }[] = [];
+  const progress = { releaseRows: 0, releaseBytes: 0, nativeRows: 0, nativePages: 0, inputKeys: 0 };
+  const mark = (next: string) => { timings.push({ phase, ms: Date.now()-phaseAt }); phase=next; phaseAt=Date.now(); };
+  try { await runWithDbJitDisabled(() => runDbTransaction(async () => {
     const sql = getDb();
     await sql.query("SET LOCAL lock_timeout = '1500ms'");
     await sql`SELECT pg_advisory_xact_lock(${PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE}::int,
@@ -380,6 +436,7 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       "public.meta_state_history_compaction_journal", "public.meta_retention_runs", "public.google_ads_retention_runs",
       "public.sync_repair_plans", "public.sync_release_gates", "public.sync_worker_heartbeats", "public.sync_runtime_instances", `${ARCHIVE_SCHEMA}.keep_runs`, `${ARCHIVE_SCHEMA}.run_semantics`];
     const locked = [...new Set([...scopes.keys(), ...indirect.filter(t => existing.has(t))])].sort();
+    mark("writer_exclusion");
     // SHARE ROW EXCLUSIVE permits reads and excludes every competing writer.
     // Locks and trigger changes are transactional, including rollback/COMMIT failure.
     try { await sql.query(`LOCK TABLE ${locked.map(qualified).join(", ")} IN SHARE ROW EXCLUSIVE MODE`); }
@@ -403,6 +460,8 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       if (scopes.has(`public.${table}`) && !guards.some(g => g.table_name === `public.${table}` && g.trigger_name === spec[0]))
         throw new BusinessDeletionError("schema_not_ready", [table]);
     }
+    mark("active_work");
+    await sql.query("SET LOCAL enable_seqscan = off");
     for (const table of ["sync_runner_leases", "google_ads_runner_leases"]) {
       if (!scopes.has(`public.${table}`)) continue;
       const [lease] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE business_id=$1::text AND lease_expires_at>clock_timestamp() LIMIT 1`, [businessId]);
@@ -413,12 +472,24 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       const [job] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE (${scopeFor(scope)}) AND status IN ('running','claimed','processing') LIMIT 1`, [businessId]);
       if (job) throw new BusinessDeletionError("business_busy", [table]);
     }
+    mark("ownership_conflicts");
     for (const [table, scope] of scopes) {
       if (scope.length !== 2 || scope.some(c => c.identity_checked || c.episode_bound)) continue;
-      const [conflict] = await sql.query(`SELECT 1 FROM ${qualified(table)} WHERE (${scopeFor(scope)})
-        AND business_id IS NOT NULL AND business_ref_id IS NOT NULL AND business_id::text<>business_ref_id::text LIMIT 1`, [businessId]);
-      if (conflict) throw new BusinessDeletionError("scope_conflict", [table]);
+      for (const { predicate, owner } of scopePredicates(scope)) {
+        // Keep mismatch selectivity/LIMIT outside the owner relation. Returning
+        // the conflicting row version also prevents a non-leading covering
+        // index from winning a whole-index walk over the bounded owner scan.
+        const query = `WITH owned AS MATERIALIZED (SELECT business_id,business_ref_id,xmin
+          FROM ${qualified(table)} WHERE (${predicate}))
+          SELECT xmin::text AS conflicting_row_version FROM owned
+          WHERE business_id::text<>business_ref_id::text LIMIT 1`;
+        const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`, [businessId]);
+        verifyConflictReadPlan(plan!["QUERY PLAN"][0].Plan, owner);
+        const [conflict] = await sql.query(query, [businessId]);
+        if (conflict) throw new BusinessDeletionError("scope_conflict", [table]);
+      }
     }
+    mark("delete_plans");
     const dependencies = await sql.query<Dependency>(`SELECT cn.nspname||'.'||child.relname AS child_table,pn.nspname||'.'||parent.relname AS parent_table
       FROM pg_constraint f JOIN pg_class child ON child.oid=f.conrelid JOIN pg_namespace cn ON cn.oid=child.relnamespace
       JOIN pg_class parent ON parent.oid=f.confrelid JOIN pg_namespace pn ON pn.oid=parent.relnamespace WHERE f.contype='f'`);
@@ -453,8 +524,10 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
           AND i.indcollation[0]=a0.attcollation AND i.indcollation[1]=a1.attcollation AND NOT tc.relrowsecurity AND NOT tc.relforcerowsecurity`)).map(r => r.name);
       if (!referenceIndexes.length) throw new BusinessDeletionError("schema_not_ready", ["input_evidence_reference_index"]);
     }
+    mark("external_data");
     try { await assertBusinessExternalDataRemoved(businessId); }
     catch (error) { if (error instanceof BusinessExternalCleanupError) throw new BusinessDeletionError("external_cleanup_required"); throw error; }
+    mark("worker_history");
     try { await deleteBusinessWorkerHistory(sql,businessId); }
     catch (error) {
       if (error instanceof BusinessControlReceiptCleanupError) throw new BusinessDeletionError(
@@ -462,10 +535,15 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
         [error.message.startsWith("control_history_active:") ? error.message.split(":")[1]! : "worker_runtime_history"]);
       throw error;
     }
+    mark("release_receipts");
     if (existing.has("public.sync_release_gates")) {
-      try { await deleteBusinessReleaseReceipts(sql,businessId); }
+      try {
+        const result = await deleteBusinessReleaseReceipts(sql,businessId);
+        progress.releaseRows=result.rows; progress.releaseBytes=result.bytes;
+      }
       catch (error) { if (error instanceof BusinessControlReceiptCleanupError) throw new BusinessDeletionError("schema_not_ready",["sync_release_gates"]); throw error; }
     }
+    mark("indirect_copies");
     // Indirect copies must go while their authoritative parent IDs still exist.
     await sql`DELETE FROM custom_report_share_snapshots WHERE report_id IN (SELECT id::text FROM custom_reports WHERE business_id=${businessId})
       OR payload::text LIKE ${`%${businessId}%`}`;
@@ -483,8 +561,12 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
     const suspended = guards.filter(g => locked.includes(g.table_name));
     for (const g of suspended) await sql.query(`ALTER TABLE ${qualified(g.table_name)} DISABLE TRIGGER ${identifier(g.trigger_name)}`);
     for (const table of ordered) {
+      mark(table);
       if (table === "public.engine_v3_ad_decision_evaluations") {
-        try { await deleteBusinessNativeEvaluations(sql,businessId); }
+        try {
+          const result = await deleteBusinessNativeEvaluations(sql,businessId);
+          progress.nativeRows=result.rows; progress.nativePages=result.pages;
+        }
         catch (error) { if (error instanceof BusinessNativeEvaluationCleanupError)
           throw new BusinessDeletionError("schema_not_ready",[error.message]); throw error; }
         continue;
@@ -497,9 +579,11 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
         ? ` OR (${scope.map(c => `${identifier(c.column_name)} IS NULL`).join(" AND ")} AND payload->>'businessId'=$1::text)` : "";
       await sql.query(`DELETE FROM ${qualified(table)} WHERE (${scopeFor(scope)})${legacyShare}`, [businessId]);
     }
+    mark("input_gc");
     while (hasKeys) {
       const keys = await sql.query<{ contract_version: string; input_hash: string }>("SELECT contract_version,input_hash::text FROM business_erasure_input_keys ORDER BY contract_version,input_hash LIMIT 400");
       if (!keys.length) break;
+      progress.inputKeys+=keys.length;
       const params = [keys.map(k => k.contract_version), keys.map(k => k.input_hash)];
       await sql.query("SET LOCAL enable_seqscan = off");
       const plan = await sql.query(`EXPLAIN (FORMAT JSON) ${ZERO_REFERENCE_INPUTS}`, params);
@@ -511,6 +595,7 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       await sql.query(`DELETE FROM business_erasure_input_keys i USING unnest($1::text[], $2::character(64)[]) k(contract_version,input_hash)
         WHERE i.contract_version=k.contract_version AND i.input_hash=k.input_hash`, params);
     }
+    mark("absence_and_guard_restore");
     for (const [table, scope] of scopes) {
       const [remaining] = await sql.query(`SELECT 1 FROM ${qualified(table)} WHERE (${scopeFor(scope)}) LIMIT 1`, [businessId]);
       if (remaining) throw new BusinessDeletionError("schema_not_ready", [table]);
@@ -528,5 +613,17 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       throw new BusinessDeletionError("schema_not_ready", ["trigger_restoration"]);
     await sql`UPDATE sessions SET active_business_id=NULL WHERE active_business_id=${businessId}`;
     await sql`DELETE FROM businesses WHERE id=${businessId}::uuid`;
-  }, { timeoutMs: 30_000, deadlineAtMs: Date.now()+120_000 }));
+  // A complete bounded receipt census and millions of owned evaluations are
+  // distinct work. Keep each statement at 30s; the 4m total budget fits inside
+  // the existing 300s HTTP proxy limit without changing production settings.
+  }, { timeoutMs: 30_000, deadlineAtMs: startedAt+240_000 }));
+    mark("committed");
+    console.info("[business erasure] committed", JSON.stringify({ elapsedMs: Date.now()-startedAt, ...progress,
+      slowestPhases: [...timings].sort((a,b)=>b.ms-a.ms).slice(0,10) }));
+  } catch (error) {
+    console.error("[business erasure] failed", JSON.stringify({ phase, elapsedMs: Date.now()-startedAt,
+      phaseElapsedMs: Date.now()-phaseAt, ...progress,
+      slowestPhases: [...timings].sort((a,b)=>b.ms-a.ms).slice(0,10) }));
+    throw error;
+  }
 }

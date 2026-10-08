@@ -1204,7 +1204,7 @@ describe("the evidence drawer states a held reason once and recovers its image b
     expect(heldBox.textContent).toContain("Recommendation on hold: Pause ad");
     // The reason itself is stated once, below, not inside the held box too.
     expect(heldBox.querySelector("[data-mobile-evidence-held-next-step]")).toBeNull();
-    const sentence = "These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation is re-checked on each decision run.";
+    const sentence = "These evidence requirements must be met before Adsecute can authorize a change; this Pause ad recommendation can be reassessed after an eligible decision run completes.";
     expect(screen.textContent!.split(sentence).length - 1).toBe(1);
   });
 

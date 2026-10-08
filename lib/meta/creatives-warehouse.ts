@@ -1,4 +1,4 @@
-import { buildCreativeMembershipCoverage } from "@/lib/meta/creative-membership-coverage";
+import { buildCreativeMembershipCoverage, buildCreativeWindowCoverage } from "@/lib/meta/creative-membership-coverage";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
@@ -2273,6 +2273,24 @@ export async function getMetaCreativesWarehousePayload(input: {
           includeDebugFields: false,
         })
   );
+  // Reuse the already-scoped dated creative rows. No Ad-day substitution,
+  // provider fetch, gap repair or additional database query on this GET path.
+  if (useCreativeWarehouse && input.groupBy === "creative") {
+    for (const row of responseRows) {
+      // Creative grouping may combine several provider creatives with the
+      // same name/format. Coverage must describe the same members as totals.
+      const memberIds = new Set(row.source_creative_ids?.length ? row.source_creative_ids : [row.creative_id]);
+      const membershipKnown = memberIds.size > 0 && [...memberIds].every((id) => id && !isMetaUnresolvedCreativeId(id));
+      const belongs = (fact: MetaCreativeDailyRow) => memberIds.has(fact.creativeId);
+      row.window_coverage = buildCreativeWindowCoverage({
+        businessId: input.businessId, providerAccountId: accountScope.providerAccountId,
+        creativeId: row.creative_id, startDate: input.start, endDate: input.end,
+        verified: (sourceRows as MetaCreativeDailyRow[]).filter((fact) => belongs(fact) && !presentableProvisional(fact)),
+        provisional: provisionalCreativeDays.filter(belongs), withheld: unverifiedCreativeDays.filter(belongs),
+      });
+      if (!membershipKnown) row.window_coverage.requestedDays = null;
+    }
+  }
   const membershipCoverage = buildCreativeMembershipCoverage({
     businessId: input.businessId, providerAccountId: accountScope.providerAccountId,
     startDate: input.start, endDate: input.end,

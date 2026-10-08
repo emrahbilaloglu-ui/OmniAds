@@ -204,6 +204,17 @@ describe("CreativeStudioExact canonical shared anatomy", () => {
     expect(retainedDecisionGenerationFromInventory({ ...inventory, generation: { jobRunId: "other", asOfDate: "2026-09-26" } })).toBeNull();
   });
 
+  it("shows creative-day coverage and unknown dates while preserving the measured totals", () => {
+    const row = asset("coverage-row", "Sparse creative", 1761.04, 3.18);
+    row.windowCoverage = { businessId: "biz", providerAccountId: "act", creativeId: "crt", startDate: "2026-09-29", endDate: "2026-10-05",
+      requestedDays: 7, verifiedDays: 5, unknownDays: 2, unknownDates: ["2026-09-29", "2026-10-04"], withheldDays: 0, provisionalDays: 0,
+      verifiedAbsentDays: 0, totalsBasis: "verified_creative_days", sourceObservedAt: "2026-10-06T22:40:10.787Z" };
+    renderStudio("assets", { assets: assetsModel({ rows: [row] }) });
+    expect(screen.getByText(/5\/7 creative days verified/)).toHaveTextContent("2 unknown (2026-09-29, 2026-10-04)");
+    expect(screen.getByText(/5\/7 creative days verified/)).toHaveAttribute("title", expect.stringContaining("2026-10-06T22:40:10.787Z"));
+    expect(row.metrics.spend).toBe(1761.04);
+  });
+
   it("shows the served decision segment and never leaves a legacy status blank", () => {
     const served = {
       ...asset("asset-served", "Served decision", 100, 2),

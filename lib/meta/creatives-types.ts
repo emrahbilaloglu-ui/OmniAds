@@ -865,6 +865,7 @@ export interface MetaCreativeApiRow
     CreativeClassificationFields,
     CreativeMetricFields,
     CreativeWarehouseCommonFields {
+  window_coverage?: import("./creative-membership-coverage").CreativeWindowCoverage;
   copy_text?: string | null;
   copy_variants?: string[];
   headline_variants?: string[];

@@ -2284,7 +2284,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
-    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v9");
+    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v10");
     /*
       RE-PINNED. This asserted `code: "keep_running", intent: "none"` — the
       published `keep` label's own affirmative soft action, served for a row
@@ -2881,6 +2881,16 @@ describe("held verdicts on the served Ad decision", () => {
       currency: "EUR",
     });
 
+    // Additive receipt data survives the served adapter; it never upgrades authority.
+    decision.evidenceRequirements = [{ predicate: "refresh_calibration_sample", label: "Refresh calibration sample",
+      observed: 8, required: 20, unit: "ad_roas_ratio_observations", currency: "EUR", status: "failed",
+      source: "referenced_native_calibration", sourceId: "original-cell", window: { startDate: "2026-09-08", endDate: "2026-10-06" },
+      cell: null, owner: "system", recheck: "Wait for eligible evidence" }];
+    decision.sourceDecision.confidenceBasis = { rule: "missing_data_cap", missingData: ["scale_calibration"] };
+    const withReceipt = buildMetaOsDecisionsPresentation({ actionNow: [], watching: [], nonSales: [], decisionReadModel: nativeReadModel([decision]), currency: "EUR" });
+    expect(withReceipt.ads.items[0]?.evidenceRequirements).toEqual(decision.evidenceRequirements);
+    expect(withReceipt.ads.items[0]?.confidenceBasis).toEqual(decision.sourceDecision.confidenceBasis);
+    expect(withReceipt.ads.items[0]?.action).toEqual(built.ads.items[0]?.action);
     // What the current builder emits...
     expect(built.ads.heldCounts).toEqual({ scale: 0, cut: 0, refresh: 1 });
     expect(built.ads.items[0]!.heldAction).toBe("refresh");
@@ -2899,7 +2909,7 @@ describe("held verdicts on the served Ad decision", () => {
     // reads as "not measured", which a reader must not confuse with three
     // measured zeroes or with a measured "no verdict was held".
     expect(serializedBeforeTheseFields.contractVersion).toBe(
-      "meta-os-decisions.presentation.v9",
+      "meta-os-decisions.presentation.v10",
     );
     expect(serializedBeforeTheseFields.ads.heldCounts).toBeUndefined();
     expect(serializedBeforeTheseFields.ads.items[0]!.heldAction).toBeUndefined();

@@ -139,6 +139,7 @@ export interface ProviderRepairableAction {
   kind: string;
   detail: string;
   available: boolean;
+  unavailableReason?: string;
 }
 
 export interface ProviderAutoHealResult {

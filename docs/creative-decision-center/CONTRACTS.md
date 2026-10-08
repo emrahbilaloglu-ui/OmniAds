@@ -1108,3 +1108,19 @@ immutability and retained authoritative upsert/truth-version behavior.
 - `priority`
 - `nextStep`
 - `missingData` if any
+
+
+### Additive Meta output evidence (D152)
+
+Workspace read v5 and OS presentation v10 carry optional `evidenceRequirements`,
+`calibrationEvidence` and `confidenceBasis`. Old read-v4 / presentation-v9
+payloads need no migration. These fields are display-only: `buyerAction`,
+provider mutation, held verdict and authority remain the existing server result.
+Requirements retain observed/required, unit, source ID, exact cell/window, owner
+and recheck condition. Absent calibration lineage stays unknown. No latest
+profile or prose parsing fills it. Commercial values are recorded D091 receipts.
+
+`syncCapability` separately reports admitted / capacity_refused / unknown;
+`canStartSync` is true only for a fresh positive existing fence decision.
+Healthy worker or evidence-ready status grants no work capability. The manual
+refresh helper independently enforces fresh scope/admission before side effects.

@@ -1325,8 +1325,8 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     });
     const reason = String(value(model.authority, "held-reason"));
     expect(reason).toContain("The campaign configuration is not verified for every day used by this recommendation.");
-    expect(reason).toContain("Fresh, completed Meta source data is still arriving.");
-    expect(reason).toContain("The next decision run still has to confirm it.");
+    expect(reason).toContain("Fresh, completed Meta source data is required and has not been verified.");
+    expect(reason).toContain("Confirmation requires a later eligible decision run.");
     expect(reason).not.toContain("Internal producer copy");
     expect(reason).not.toContain("Pause this ad");
   });
@@ -1762,6 +1762,18 @@ describe("buildCreativeEvidenceWindowExactViewModel audit surface", () => {
     expect(model.verdictSub).toContain("More verified evidence is required.");
     expect(model.verdictSub).not.toContain("Risk is unclassified");
     expect(model.verdictSub).not.toContain("risk_tier_unclassified");
+  });
+
+  it("states automatic role authority without adding a role instruction to held Cut", () => {
+    const decision = decisionFixture({ rawLabel: "cut", heldAction: "cut", campaignRoleTrustedForAction: false,
+      lane: "blocked", heldResolution: { code: "verify_campaign_config_source", category: "configuration", label: "Verify campaign config", owner: "system", nextStep: "Verify historical configuration evidence." },
+      blockers: [{ code: "campaign_context_resolver_unvalidated", label: "Unverified resolver" }] });
+    const model = buildCreativeEvidenceWindowExactViewModel({ decision,
+      canonical: canonicalFixture({ classification: { buyerLabel: "Watch", heldAction: "cut",
+        blockers: [{ code: "campaign_context_resolver_unvalidated", label: "Unverified resolver" }, { code: "config_source_authority", label: "Config" }],
+        resolution: decision.heldResolution } }) });
+    expect(model.verdictSub).toContain("Automatic Main/Test role is not authorized.");
+    expect(model.verdictSub).not.toContain("role panel");
   });
 
   it("keeps risk-tier advisory receipts out of the buyer-facing verdict", () => {
@@ -2256,7 +2268,7 @@ describe("a row served with no canonical decision envelope", () => {
     // The blocker label and the next step ride the verdict sub-line, which is
     // where this drawer keeps gate text.
     expect(model.verdictSub).toContain(
-      "Decision evidence is still being prepared.",
+      "Ad-level decision evidence is unavailable.",
     );
     expect(model.verdictSub).toContain(
       "Wait for the next completed ad-level decision.",

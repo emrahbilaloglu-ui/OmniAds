@@ -1,7 +1,8 @@
 import type { MetaManualCutAdvisory, MetaManualCutRefusal } from "./manual-cut-advisory";
+import type { MetaDecisionCalibrationEvidence, MetaDecisionConfidenceBasis, MetaDecisionEvidenceRequirement } from "./decision-evidence-presentation";
 
 export const META_DECISIONS_WORKSPACE_CONTRACT_VERSION =
-  "meta-decisions-workspace.read.v4" as const;
+  "meta-decisions-workspace.read.v5" as const;
 
 export const META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION =
   "meta-decisions-classification-overlay.v8" as const;
@@ -402,6 +403,9 @@ export interface MetaDecisionConfigEvidence {
 }
 
 export interface MetaCanonicalDecision {
+  /** Optional display-only evidence; absent on older serialized snapshots. */
+  evidenceRequirements?: MetaDecisionEvidenceRequirement[];
+  calibrationEvidence?: MetaDecisionCalibrationEvidence | null;
   decisionId: string;
   episodeId: string;
   episodeStartedAt: string;
@@ -429,6 +433,7 @@ export interface MetaCanonicalDecision {
     reason: string;
     confidence: number;
     confidenceBand: "high" | "medium" | "low";
+    confidenceBasis?: MetaDecisionConfidenceBasis;
     truthSource: string;
     engineVersion: string;
     snapshotAsOf: string;
@@ -656,7 +661,7 @@ export type MetaDecisionsReadModelUnavailableCode =
   | "source_read_failed";
 
 export interface MetaDecisionsWorkspaceReadModel {
-  contractVersion: typeof META_DECISIONS_WORKSPACE_CONTRACT_VERSION;
+  contractVersion: typeof META_DECISIONS_WORKSPACE_CONTRACT_VERSION | "meta-decisions-workspace.read.v4";
   status: "available" | "unavailable";
   generatedAt: string;
   scope: {

@@ -1,6 +1,7 @@
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { isNonEconomicAuthorityHold } from "@/lib/meta/decision-authority-hold";
 import { reportingDayCount } from "@/lib/meta/reporting-period";
+import { metaDecisionConfidenceBasisText, metaDecisionRequirementText } from "@/lib/meta/decision-evidence-presentation";
 import type {
   MetaDecisionCenterExactActionRowViewModel,
   MetaDecisionCenterExactArchiveRowViewModel,
@@ -991,9 +992,9 @@ const BUYER_READINESS_RESOLUTION_COPY = {
     "Review the evidence. No change can be applied right now.",
   low_confidence: "Wait for more performance data, then review again.",
   missing_campaign_label:
-    "Review the Main/Test role in the role panel; the next decision run will reassess it.",
+    "Review the Main/Test role in the role panel; reassessment requires an eligible decision run to complete.",
   campaign_context_unresolved:
-    "Review the Main/Test role in the role panel; the next decision run will reassess it.",
+    "Review the Main/Test role in the role panel; reassessment requires an eligible decision run to complete.",
   campaign_context_resolver_unvalidated:
     "Review the campaign structure before acting.",
   // A target ROAS alone is now sufficient — the spend unit is the account's own
@@ -1170,7 +1171,7 @@ function buyerFacingReadinessResolution(
     node
   ) {
     if (node.campaignRoleTrustedForAction === true) {
-      return `${node.level === "adset" ? "Ad set" : "Campaign"} role is now verified. A new decision run will replace this older blocked recommendation.`;
+      return `${node.level === "adset" ? "Ad set" : "Campaign"} role is now verified. Reassess the earlier blocked recommendation after an eligible decision run completes.`;
     }
     const role = node.lifecycleRole;
     if (role === "main" || role === "test" || role === "mixed") {
@@ -2196,7 +2197,7 @@ function canonicalAdvisoryNotes(
 }
 
 const BUYER_CREATIVE_BLOCKER_COPY: Readonly<Record<string, string>> = {
-  native_ad_decision_unavailable: "Decision evidence is still being prepared.",
+  native_ad_decision_unavailable: "Ad-level decision evidence is unavailable.",
   policy_blocked: "A Meta policy issue needs review.",
   delivery_no_spend_24h: "Delivery needs attention.",
   delivery_proof: "Delivery evidence is incomplete.",
@@ -2206,14 +2207,14 @@ const BUYER_CREATIVE_BLOCKER_COPY: Readonly<Record<string, string>> = {
   landing_page_issue: "Landing-page performance needs review.",
   upper_funnel_strong_site_weak: "Landing-page performance needs review.",
   campaign_context_conflict: "Campaign context sources do not agree.",
-  campaign_context_unresolved: "Campaign context is still being verified.",
+  campaign_context_unresolved: "The required Main/Test role has not been verified.",
   campaign_context_low_confidence: "Campaign context needs more evidence.",
   campaign_context_resolver_unvalidated:
-    "Campaign context is still being verified.",
-  campaign_label_missing: "Campaign context is still being verified.",
-  campaign_role_unresolved: "Campaign context is still being verified.",
-  unlabeled_campaign_context: "Campaign context is still being verified.",
-  campaign_context: "Campaign context is still being verified.",
+    "Automatic Main/Test role is not authorized.",
+  campaign_label_missing: "The required Main/Test role has not been verified.",
+  campaign_role_unresolved: "The required Main/Test role has not been verified.",
+  unlabeled_campaign_context: "The required Main/Test role has not been verified.",
+  campaign_context: "The required Main/Test role has not been verified.",
   config_source_authority:
     "The campaign configuration behind this decision is not verified for the evaluation day or its economic window.",
   commercial_truth_stale: "The commercial target needs confirmation.",
@@ -2249,7 +2250,7 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
   fix_checkout: "Review checkout performance before changing the ad.",
   fix_landing_page: "Review landing-page performance before changing the ad.",
   resolve_campaign_role:
-    "Review the Main/Test role in the role panel; the next decision run will reassess it.",
+    "Review the Main/Test role in the role panel; reassessment requires an eligible decision run to complete.",
   /*
     ADR D097 round 4. The Cut performance verdict is complete, but a relative
     boundary does not itself prove realised financial loss. The owner-based
@@ -2268,7 +2269,7 @@ const BUYER_CREATIVE_RESOLUTION_COPY: Readonly<Record<string, string>> = {
   complete_hard_action_evidence:
     "Complete the missing evidence before applying this change.",
   await_scale_calibration_sample:
-    "Wait for enough mature creatives to complete the Scale calibration sample.",
+    "Scale needs sufficient Ad calibration observations in the matching cell; reassessment requires an eligible decision run to complete.",
   await_scale_winner_benchmark:
     "Wait for the account winner purchase benchmark before scaling.",
   restore_native_profile:
@@ -2395,10 +2396,10 @@ export function buyerFacingCreativeResolution(
   // @see resolutionWaitsOnSystem
   const mapped = resolution.code === "resolve_campaign_role"
     ? decision.campaignRoleTrustedForAction === true
-      ? "The role is now confirmed. A new decision run will replace this older blocked result."
-      : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel; the next decision run will reassess it.`
+      ? "The role is now confirmed. Reassess the earlier blocked result after an eligible decision run completes."
+      : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel; reassessment requires an eligible decision run to complete.`
     : resolutionWaitsOnSystem(resolution)
-      ? `${systemResolutionStatus(resolution)} ${EVIDENCE_REQUIRED_BEFORE_AUTHORIZATION}; this ad is re-checked on each decision run.`
+      ? `${systemResolutionStatus(resolution)} ${EVIDENCE_REQUIRED_BEFORE_AUTHORIZATION}; this ad can be reassessed after an eligible decision run completes.`
       : knownBuyerCopy(BUYER_CREATIVE_RESOLUTION_COPY, resolution.code);
   // Metric availability is supplementary evidence for an already blocked row
   // with a server-produced resolution. It never creates a blocked resolution.
@@ -2661,21 +2662,21 @@ function resolutionWaitsOnSystem(
 /** What a system-owned resolution is waiting on, stated as a fact. */
 const SYSTEM_RESOLUTION_STATUS_COPY: Readonly<Record<string, string>> = {
   complete_hard_action_evidence:
-    "The evidence this change needs is still being completed.",
-  resolve_evidence_gap: "Missing decision evidence is still being completed.",
+    "Required evidence for this change is missing or unverified.",
+  resolve_evidence_gap: "Required decision evidence is missing or unverified.",
   restore_native_profile:
-    "The ad-level decision profile is rebuilt by the next decision run.",
+    "The ad-level decision profile is unavailable; a completed eligible decision run is required.",
   resolve_campaign_role:
     "The Main/Test role has not been confirmed.",
   await_decision_confirmation:
-    "The next decision run still has to confirm it.",
-  await_recent_evidence: "More recent performance data is still accruing.",
+    "Confirmation requires a later eligible decision run.",
+  await_recent_evidence: "The required recent performance evidence is not available yet.",
   await_scale_calibration_sample:
-    "The account does not yet have enough mature creatives for the Scale calibration floor.",
+    "The exact-cell Ad calibration sample is below the Scale floor.",
   await_scale_winner_benchmark:
     "The account winner purchase benchmark is not available yet.",
   refresh_decision_data:
-    "Decision data for this ad is waiting for the next Meta sync.",
+    "Decision data for this ad requires a completed eligible Meta sync and evaluation.",
   // D108 (#290) serves this as integration/data: re-fetching the provider
   // rows, not the buyer, verifies them. Named here so it states its own fact.
   verify_purchase_observation:
@@ -2686,7 +2687,7 @@ const SYSTEM_RESOLUTION_STATUS_COPY: Readonly<Record<string, string>> = {
 };
 
 const SYSTEM_RESOLUTION_STATUS_FALLBACK =
-  "The evidence this decision needs is still being completed.";
+  "Required decision evidence is missing or unverified.";
 
 /** The closing clause every system-owned wait ends with. */
 const EVIDENCE_REQUIRED_BEFORE_AUTHORIZATION = "These evidence requirements must be met before Adsecute can authorize a change";
@@ -2756,7 +2757,7 @@ const HELD_PRIMARY_STEP_COPY: Readonly<Record<HeldPrimaryReason, string>> = {
   winner_benchmark_missing:
     "The account winner purchase benchmark is missing. Wait for enough winning ads before scaling.",
   scale_calibration_sample:
-    "The account has too few mature creatives for the Scale calibration floor. Wait for more mature creatives before scaling.",
+    "The account has too few Ad calibration observations in the matching cell for the Scale calibration floor. Wait for sufficient Ad calibration observations in the matching cell before scaling.",
   profile_not_authorized:
     "The decision profile does not yet authorize this change. Review its action-specific evidence and missing requirement before applying it.",
   campaign_role_unresolved:
@@ -2779,7 +2780,7 @@ const HELD_PRIMARY_STATUS_COPY: Readonly<Record<HeldPrimaryReason, string>> = {
 const HELD_PREREQUISITE_STATUS = {
   config:
     "The campaign configuration is not verified for every day used by this recommendation.",
-  source: "Fresh, completed Meta source data is still arriving.",
+  source: "Fresh, completed Meta source data is required and has not been verified.",
   confirmation: SYSTEM_RESOLUTION_STATUS_COPY.await_decision_confirmation!,
   campaignRole: SYSTEM_RESOLUTION_STATUS_COPY.resolve_campaign_role!,
 } as const;
@@ -2867,7 +2868,10 @@ function heldCreativeVerdictWithoutRefusal(
   const needsCampaignContext =
     authorityBlocker === "campaign_context" ||
     blockerCodes.has("campaign_context") ||
-    blockerCodes.has("campaign_context_unresolved");
+    blockerCodes.has("campaign_context_unresolved") ||
+    (action !== "cut" && (blockerCodes.has("campaign_context_resolver_unvalidated") ||
+      blockerCodes.has("campaign_context_low_confidence") ||
+      decision.campaignRoleTrustedForAction === false));
   // The served blocker list is not exhaustive: the native confirmation badge
   // and automatic role trust also live on the canonical decision. A config-only
   // manual-review sentence must not hide either independent hold.
@@ -2945,7 +2949,7 @@ function heldCreativeVerdictWithoutRefusal(
         action,
         label: "Pause signal · configuration unverified",
         nextStep:
-          "The recorded performance raises a pause signal, but the campaign configuration is not verified for every day in this decision window. Review the current setup and recent results in Meta before making a manual decision. Adsecute will re-check the signal as source evidence improves; no automated change is available.",
+          "The recorded performance raises a pause signal, but the campaign configuration is not verified for every day in this decision window. Review the current setup and recent results in Meta before making a manual decision. Reassess after the required dated configuration evidence is verified and an eligible decision run completes; no automated change is available.",
       };
     }
     const primaryReason = heldPrimaryReason(decision, authorityBlocker);
@@ -2961,8 +2965,8 @@ function heldCreativeVerdictWithoutRefusal(
     ].filter((part): part is string => Boolean(part));
     const roleReviewStep = needsCampaignContext
       ? decision.campaignRoleTrustedForAction === true
-        ? "A new decision run will replace this older role-held verdict."
-        : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel; the next decision run will reassess it.`
+        ? "Reassess the earlier role-held verdict after an eligible decision run completes."
+        : `Review this ${decision.roleEntityType === "adset" ? "ad set" : "campaign"}'s Main/Test role in the role panel; reassessment requires an eligible decision run to complete.`
       : null;
     const manualEvidenceReview = authorityBlocker === "config_source_authority" && decision.rawLabel === action && needsConfig && !needsFreshSource &&
       !needsConfirmation && !needsCampaignContext && !canonicalHasOtherHold &&
@@ -2972,9 +2976,12 @@ function heldCreativeVerdictWithoutRefusal(
       decision.rawLabel === action &&
       (authorityBlocker === "config_source_authority" || authorityBlocker === "campaign_context") &&
       [...blockerCodes, ...(canonical?.classification?.blockers ?? []).map((blocker) => blocker.code)].every(isNonEconomicAuthorityHold);
-    const nextStep = roleReviewStep ?? (manualEvidenceReview
-      ? HELD_VERDICT_MANUAL_REVIEW_COPY[action]
-      : `${authorityOnlyHold ? HELD_VERDICT_MANUAL_REVIEW_COPY[action] + " " : "Review the stated evidence gap before judging this signal. "}${EVIDENCE_REQUIRED_BEFORE_AUTHORIZATION};`);
+    const evidenceReviewStep = authorityOnlyHold ? HELD_VERDICT_MANUAL_REVIEW_COPY[action] : null;
+    const nextStep = roleReviewStep
+      ? [roleReviewStep, evidenceReviewStep, `${EVIDENCE_REQUIRED_BEFORE_AUTHORIZATION};`].filter(Boolean).join(" ")
+      : manualEvidenceReview
+        ? HELD_VERDICT_MANUAL_REVIEW_COPY[action]
+        : `${evidenceReviewStep ? evidenceReviewStep + " " : "Review the stated evidence gap before judging this signal. "}${EVIDENCE_REQUIRED_BEFORE_AUTHORIZATION};`;
     const recheckSubject = cutSignalAwaitingEvidence
       ? hasBuyerReview ? "The pause signal" : "the pause signal"
       : `${hasBuyerReview ? "This" : "this"} ${verdict} recommendation`;
@@ -2983,7 +2990,7 @@ function heldCreativeVerdictWithoutRefusal(
       label: cutSignalAwaitingEvidence
         ? "Pause signal awaiting verification"
         : `Recommendation on hold: ${verdict}`,
-      nextStep: `${[...new Set(waits)].join(" ")} ${nextStep} ${recheckSubject} is re-checked on each decision run.`,
+      nextStep: `${[...new Set(waits)].join(" ")} ${nextStep} ${recheckSubject} can be reassessed after an eligible decision run completes.`,
     };
   }
   /*
@@ -3233,6 +3240,9 @@ function creativeRows(input: {
     return {
       id: decision.id,
       name: nonBlank(decision.adName) ?? EM_DASH,
+      identityContext: { campaignName: nonBlank(decision.campaignName), adsetName: nonBlank(decision.adsetName), adId: nonBlank(decision.adId) },
+      evidenceRequirements: decision.evidenceRequirements?.map((requirement) => metaDecisionRequirementText(requirement, false)),
+      confidenceExplanation: metaDecisionConfidenceBasisText(decision.confidenceBasis, decision.confidence, decision.confidenceScore),
       kindShort: creativeKindShort(
         decision.creativeFormat,
         decision.sourceCreativeType?.value,
@@ -3307,8 +3317,10 @@ function creativeRows(input: {
       observedCtrContext: ctrObservation ? {
         accountId: ctrObservation.providerAccountId,
         adId: ctrObservation.adId,
-        startDate: ctrObservation.requestedStartDate,
-        endDate: ctrObservation.requestedEndDate,
+        startDate: ctrObservation.observedStartDate,
+        endDate: ctrObservation.observedEndDate,
+        requestedStartDate: ctrObservation.requestedStartDate,
+        requestedEndDate: ctrObservation.requestedEndDate,
         measuredDays: ctrObservation.measuredDays,
         state: ctrObservation.state,
         warehouseUpdatedAt: ctrObservation.lastWarehouseUpdateAt,

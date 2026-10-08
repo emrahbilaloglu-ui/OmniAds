@@ -1133,7 +1133,7 @@ export function mapApiRowToUiRow(
     previewStatus: row.preview_status ?? (row.preview_url || row.thumbnail_url || row.image_url ? "ready" : "missing"),
     previewOrigin: row.preview_origin ?? null,
   };
-  const scoredRow = withCreativeTeamScores(uiRow, row as MetaCreativeApiRow & Record<string, unknown>);
+  const scoredRow = { ...withCreativeTeamScores(uiRow, row as MetaCreativeApiRow & Record<string, unknown>), windowCoverage: row.window_coverage };
   const sourceIdentity = readCreativeSourceIdentity(row);
   if (!sourceIdentity) {
     // Older cached creative snapshots did not carry member lists. A row that

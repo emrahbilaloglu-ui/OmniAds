@@ -544,6 +544,24 @@ describe("MetaDecisionCenterExact canonical desktop anatomy", () => {
 });
 
 describe("MetaDecisionCenterExact branches and callbacks", () => {
+  it("distinguishes same-name Ads by their served parent and exact Ad identity", () => {
+    const seed = exactViewModel().creativeDecisions![0]!;
+    renderExact({ scope: "creatives", viewModel: exactViewModel({ creativeDecisions: [
+      { ...seed, id: "a", name: "Cat-Original", identityContext: { campaignName: "Catalog", adsetName: "Purchase 180", adId: "111" } },
+      { ...seed, id: "b", name: "Cat-Original", identityContext: { campaignName: null, adsetName: "Purchase 730", adId: "222" } },
+    ] }) });
+    expect(screen.getByText("Campaign: Catalog · Ad set: Purchase 180 · Ad 111")).toBeVisible();
+    expect(screen.getByText("Campaign: unknown · Ad set: Purchase 730 · Ad 222")).toBeVisible();
+  });
+  it("keeps a capacity-blocked refresh visible, disabled and explained", () => {
+    const run = vi.fn();
+    renderExact({ onRunSnapshot: run, snapshotRefreshBlockedReason: "Decision generation is blocked by database capacity." });
+    const button = screen.getByRole("button", { name: "Refresh structure decisions" });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(run).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("blocked by database capacity");
+  });
   it("routes directly from the compact lane controls without an extra summary card", () => {
     const onLaneChange = vi.fn();
     const onScopeChange = vi.fn();
@@ -797,7 +815,7 @@ describe("MetaDecisionCenterExact branches and callbacks", () => {
     const observation = card?.querySelector('[data-meta-exact-creative-observed-ctr]');
     expect(observation?.textContent).toContain("Recorded Ad-day CTR");
     expect(observation?.textContent).toContain("4.25%");
-    expect(observation?.textContent).toContain("Report");
+    expect(observation?.textContent).toContain("Observed");
     expect(observation?.querySelector(`.${styles.creativeMetricPeriod}`)?.textContent).toBe("2026-08-26–2026-09-22");
     expect(observation?.getAttribute("title")).toContain("does not change decision authority");
     expect(card?.querySelector('[data-meta-exact-creative-ctr-value]')).toBeNull();

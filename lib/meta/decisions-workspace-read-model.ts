@@ -39,6 +39,7 @@ import {
 } from "@/lib/creative-decision-engine/campaign-context/entity-role";
 import type { MetaCreativeAssessmentPresentation } from "@/lib/meta/creative-assessment";
 import { projectCanonicalMetaDecisionPresentation } from "@/lib/meta/canonical-decision-presentation";
+import { NATIVE_CALIBRATION_PRESENTATION_JOIN_SQL, NATIVE_CALIBRATION_PRESENTATION_JSON_SQL, projectMetaDecisionEvidenceRequirements, readMetaDecisionCalibrationEvidence } from "@/lib/meta/decision-evidence-presentation";
 import {
   META_CONFIG_FIELD_EVIDENCE_REF_CONTRACT_VERSION,
   META_CONFIG_EVIDENCE_FIELDS,
@@ -252,6 +253,8 @@ export interface MetaDecisionSnapshotSourceRow {
    * fabricated one. @see toDecisionOutput
    */
   predicate_blockers?: unknown;
+  evaluation_id?: string | null;
+  calibration_evidence?: unknown;
   /**
    * Native ad path only: whether the evaluation's own recorded config evidence
    * (ADR D098) had the current-day value observed AND every economic day
@@ -330,6 +333,7 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   fatigue_status?: string | null;
   /** @see MetaDecisionSnapshotSourceRow.predicate_blockers */
   predicate_blockers?: unknown;
+  calibration_evidence?: unknown;
   /** @see MetaDecisionSnapshotSourceRow.config_authority_verified */
   config_authority_verified?: boolean | null;
   /**
@@ -1888,6 +1892,7 @@ function buildCanonicalDecision(input: {
   }
   const bridged = presentation.bridge;
   const adapted = presentation.adapterRow;
+  const calibrationEvidence = readMetaDecisionCalibrationEvidence(input.snapshot.calibration_evidence);
   // This read model is creative-grain only. Campaign/ad-set money moves and
   // account integrity events are composed by their own server producers; a
   // creative label never crosses into those grains merely because its action
@@ -1974,6 +1979,11 @@ function buildCanonicalDecision(input: {
         authorizedAction: null,
         jobRunId: null,
       },
+      calibrationEvidence,
+      evidenceRequirements: projectMetaDecisionEvidenceRequirements({
+        blockers: decisionOutput.blockers ?? [], calibration: calibrationEvidence,
+        heldAction, currency: text(input.identity.currency), evaluationId: input.snapshot.evaluation_id ?? null,
+      }),
       sourceDecision: {
         label: input.snapshot.label,
         preAuthorityLabel: persistedDecisionLabel(
@@ -1986,6 +1996,7 @@ function buildCanonicalDecision(input: {
         reason: input.snapshot.reason,
         confidence: finiteNumber(input.snapshot.confidence) ?? 0,
         confidenceBand: adapted.confidenceBand,
+        confidenceBasis: { rule: bridged.engine.missingData.length > 0 ? "missing_data_cap" : "score_band", missingData: [...bridged.engine.missingData] },
         truthSource: input.snapshot.truth_source,
         engineVersion: input.snapshot.engine_version,
         snapshotAsOf: input.snapshot.as_of_date,
@@ -3062,6 +3073,8 @@ function nativeSnapshotToInternalSnapshot(
     frequency_28d: row.frequency_28d,
     fatigue_status: row.fatigue_status,
     predicate_blockers: row.predicate_blockers,
+    evaluation_id: row.evaluation_id,
+    calibration_evidence: row.calibration_evidence,
     config_authority_verified: verifiedForPresentation,
     manual_cut_advisory: manualCutAdvisory,
     manual_cut_refusal: !manualCutAdvisory && row.blocked_action_type === "cut" && row.authority_blocker === "config_source_authority"
@@ -3289,6 +3302,13 @@ function applyNativeCanonicalDecisionAuthority(input: {
     row.decision_window,
     row.as_of_date,
   );
+  for (const requirement of decision.evidenceRequirements ?? []) {
+    if (requirement.source !== "persisted_evaluation" || requirement.unit.startsWith("ad_") || requirement.predicate === "scale_account_benchmark_ready") continue;
+    const window = decision.decisionWindow;
+    requirement.window = requirement.predicate.includes("recent")
+      ? window?.recentStartDate && window.recentEndDate ? { startDate: window.recentStartDate, endDate: window.recentEndDate } : null
+      : window ? { startDate: window.startDate, endDate: window.endDate } : null;
+  }
   // The lifecycle join is creative-grain and usually covers a different 28-day
   // population. A native Ad card may show only the metrics recorded by its own
   // evaluation, with a valid admitted window to identify that population.
@@ -4714,6 +4734,7 @@ export async function readNativeSnapshotRows(input: {
          projected, so the payload stays the blockers array and never the whole
          decision document. This adds no join and no extra row. */
       evaluation.decision_output_json -> 'blockers' AS predicate_blockers,
+      ${NATIVE_CALIBRATION_PRESENTATION_JSON_SQL} AS calibration_evidence,
       /* D107's actual admitted economic period is already hash-bound in this
          evaluation. Serve it for display; never infer it from the UI filter. */
       evaluation.creative_input_json -> 'decisionWindow' AS decision_window,
@@ -4775,6 +4796,7 @@ export async function readNativeSnapshotRows(input: {
       ON lifecycle.id = snapshot.creative_evidence_lifecycle_row_id
      AND lifecycle.business_ref_id = snapshot.business_ref_id
      AND lifecycle.business_id = snapshot.business_id
+    ${NATIVE_CALIBRATION_PRESENTATION_JOIN_SQL}
     LEFT JOIN engine_v3_ad_decision_evaluations evaluation
       ON evaluation.id = snapshot.evaluation_id
      AND evaluation.business_ref_id = snapshot.business_ref_id

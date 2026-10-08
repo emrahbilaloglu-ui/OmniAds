@@ -146,6 +146,7 @@ export type CreativeAssetMetricId =
 
 export interface CreativeStudioAssetRow {
   id: string;
+  windowCoverage?: import("@/lib/meta/creative-membership-coverage").CreativeWindowCoverage;
   name: string;
   kind: string;
   imageUrl: string | null;

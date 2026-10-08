@@ -252,7 +252,16 @@ async function createBaseSchema(client: Client) {
       provider_account_ref_id UUID NOT NULL,
       provider_account_id TEXT NOT NULL,
       as_of_date DATE NOT NULL,
-      engine_version TEXT NOT NULL
+      engine_version TEXT NOT NULL,
+      -- Optional read-side calibration receipt columns mirror production DDL.
+      -- This seam's legacy row deliberately has no receipt, so it stays unknown.
+      batch_id UUID, provider TEXT DEFAULT 'meta', as_of_cutoff TIMESTAMPTZ,
+      policy_version TEXT, contract_version TEXT, batch_input_manifest_hash CHAR(64),
+      source_manifest_hash CHAR(64), input_manifest_hash CHAR(64), cell_scope TEXT,
+      objective TEXT, funnel_cohort TEXT, optimization_context TEXT,
+      sample_window_start DATE, sample_window_end DATE, account_currency TEXT,
+      target_roas NUMERIC, break_even_roas NUMERIC, meta_attributed_aov_mean_90d NUMERIC,
+      meta_attributed_aov_purchase_count_90d INTEGER, action_readiness_json JSONB
     );
     CREATE TABLE engine_v3_ad_account_calibration_batches (
       id UUID PRIMARY KEY,
@@ -263,7 +272,9 @@ async function createBaseSchema(client: Client) {
       as_of_date DATE NOT NULL,
       as_of_cutoff TIMESTAMPTZ NOT NULL,
       engine_version TEXT NOT NULL,
-      completeness_status TEXT NOT NULL
+      completeness_status TEXT NOT NULL,
+      provider TEXT DEFAULT 'meta', policy_version TEXT, contract_version TEXT,
+      input_manifest_hash CHAR(64), source_manifest_hash CHAR(64), completed_at TIMESTAMPTZ
     );
     CREATE TABLE business_target_pack_history (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

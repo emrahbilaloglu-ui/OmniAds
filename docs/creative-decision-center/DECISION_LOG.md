@@ -12621,3 +12621,62 @@ The sequential refresh waits at least 10 seconds and the configured heartbeat in
 No discovery, provider call, lease, reaper, retention or other business/maintenance work runs in this wait. All existing operation-level fences remain in force. This is bounded control-plane liveness, not provider execution, sync capability, data freshness, sustained growth balance or storage remediation. Publication must also prove the actual block-mode control-plane persistence route; a blocked canonical deploy gate is not bypassed. A later capability refusal is reported honestly and does not alone warrant rollback to the identical fatal boot behavior.
 
 Validation: actual-runtime baseline RED; refusal/recovery/error/shutdown and health-contract guards; migrated PostgreSQL real child worker with unchanged business-table digests and zero HTTP, actual container/post-start health probes, and actual canonical control-plane route under `block` modes. The candidate requires its own canonical QA, exact source/image checks and controlled publication; earlier worker observation is not transferred to this source.
+
+
+## D152 — Bound decision explanations and honest sync/creative coverage (2026-10-08)
+
+The Meta output reaudit found read and presentation gaps around existing
+persisted decisions. This change does not introduce another decision core or
+change engine epochs, predicates, hysteresis, commercial thresholds or hashes.
+
+- The current native evidence reader casts the text business identity explicitly,
+  retaining its UUID, account, snapshot, evaluation, context and hash guards.
+- Manual snapshot refresh checks assigned account scope and the existing growth
+  fence before cooldown, inflight reuse or any writer. `force` cannot bypass it.
+  Settings may save successfully while refresh returns a typed blocked result.
+- Status adds `syncCapability`; worker liveness and readable evidence grant no
+  sync capability. Missing, failed, future or older-than-60-second admission is
+  unknown. Refused admission disables work-starting repair actions and names
+  capacity idle; the existing process presence semantics (D151) remain intact.
+- Workspace read v5 / OS presentation v10 add optional evidence requirements,
+  confidence basis and commercial receipts. Older v4/v9 payloads remain readable.
+  Predicate numbers come from the joined original evaluation. Calibration comes
+  only from the snapshot's referenced calibration PK and its matching completed
+  batch, bound by tenant/account/day/engine/policy/cutoff/contract/manifests. Missing
+  or inconsistent receipts stay unknown; latest-cell substitution is prohibited.
+  Native sample units are Ad observations, not creative counts. Missing winner
+  purchase P50 is a separate requirement. These fields authorize nothing.
+- Confidence explains the existing missing-data cap or score-band rule; it is
+  not a probability. D091 Meta AOV / Target ROAS and explicit break-even context
+  are displayed from the same receipt without Shopify or operator fallback.
+- List/detail show served campaign, ad set and exact Ad identity. Recorded CTR
+  labels its observed dates; requested dates remain query scope only.
+- Studio creative totals add a window-coverage qualifier built from existing
+  dated creative membership rows. Missing dates stay unknown, never zero or
+  inferred absent from complete Ad IDs or account-wide coverage. `isPartial`
+  and media `freshness_state` keep their previous meanings.
+
+Rollback is additive code reversal, with no database migration or snapshot
+rewrite. Preserve the server admission gate, historical read-only authority,
+null economics and neutral coverage wording when reverting presentation.
+Actual production publication and acceptance remain separate from local tests;
+capacity refusal cannot establish new-generation or recovery acceptance.
+
+D152 source-ledger review: the current evidence route retains every original
+identity/hash/context check and only casts its text parameter. The workspace
+reader adds two referenced calibration PK joins, with no selection, retention
+or removal change. Its DTO stays additive. The migrations seam adds disposable
+fixture tests only. The five existing retained-reader ledger entries are
+repinned after reviewing these exact changes; their roles and retained roots
+are preserved. This source review grants no storage operation or live closure.
+
+D152 review corrections: quantitative requirement rows only admit catalogued
+predicates and numeric measurements; producer prose never becomes a metric.
+The account winner-P50 requirement keeps its original calibration period (or
+unknown), not the Ad decision window. Main/Test instructions remain limited to
+eligible Scale/Refresh holds and supplement the existing economic review.
+Copy describes completed eligible reassessment, never background progress.
+Creative grouping coverage uses all provider creative IDs contributing to the
+same totals. The native-ad seam mirrors optional read-side receipt columns;
+legacy fixture receipts remain unknown. Only fresh, measured capacity reasons
+are classified as capacity refusal; unavailable measurements remain unknown.

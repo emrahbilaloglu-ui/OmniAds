@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(
     refresh,
     {
-      status: refresh.ok ? 200 : 500,
+      status: refresh.ok ? 200 : refresh.status === "blocked" ? 409 : 500,
       headers: { "Cache-Control": "no-store" },
     },
   );

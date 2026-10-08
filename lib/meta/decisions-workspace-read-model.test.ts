@@ -5178,7 +5178,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       legacy.queue.sections.creative_rotation.items[0] ??
       legacy.queue.adCandidates?.items[0];
 
-    expect(legacy.contractVersion).toBe("meta-decisions-workspace.read.v4");
+    expect(legacy.contractVersion).toBe("meta-decisions-workspace.read.v5");
     expect(legacyDecision?.sourceDecision).toMatchObject({
       label: "keep",
       rawLabel: "keep",
@@ -5586,12 +5586,18 @@ describe("served held-verdict resolutions carry the engine's predicate blockers"
       owner: "system",
       label: "Scale Held — Calibration Sample Thin",
     });
+    expect(item?.evidenceRequirements).toEqual([expect.objectContaining({
+      predicate: "scale_account_benchmark_ready", observed: 19, required: 30,
+      unit: "ad_calibration_observations", source: "persisted_evaluation",
+      cell: null, window: null,
+    })]);
+    expect(item?.classification.buyerAction).toBeNull();
     // The generic sentence this beats, which the served row used to get.
     expect(item?.classification.resolution?.label).not.toBe(
       "Complete Hard-Action Evidence",
     );
     expect(item?.classification.resolution?.nextStep).toContain(
-      "only the account winner-calibration sample is below its floor",
+      "the exact-cell Ad calibration sample is below its floor",
     );
   });
 

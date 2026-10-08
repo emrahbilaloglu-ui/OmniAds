@@ -605,7 +605,7 @@ describe("Creative Inbox — served Cut readiness and holds (production chain)",
     // Authority blocker first, then the separate D100 configuration gap. The
     // evidence-detail blocker (`campaign_context_low_confidence`) is not a hold.
     expect(card.note).toBe(
-      "100000000003 served reason. Held: Campaign context is still being verified. Campaign configuration evidence is unverified.",
+      "100000000003 served reason. Held: The required Main/Test role has not been verified. Campaign configuration evidence is unverified.",
     );
     expect(card.fact("Readiness")).toBe("Readiness Review only");
     expect(card.text.toLowerCase()).not.toContain("economic");
@@ -673,7 +673,7 @@ describe("Creative Inbox — served Cut readiness and holds (production chain)",
     const held = served.card("100000000009");
     expect(held.chip).toBe("Test more · Scale signal held");
     expect(held.note).toBe(
-      "100000000009 served reason. Held: Campaign context is still being verified. Campaign configuration evidence is unverified.",
+      "100000000009 served reason. Held: The required Main/Test role has not been verified. Campaign configuration evidence is unverified.",
     );
     expect(held.fact("Readiness")).toBe("Readiness Review only");
 

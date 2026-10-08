@@ -1,3 +1,5 @@
+import { hashAdvisoryLock } from "@/lib/creative-decision-engine/jobs/advisory-lock";
+import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { getDb, runDbTransaction, runPinnedDbTransaction } from "@/lib/db";
 import { runWithDbJitDisabled } from "@/lib/db-jit-scope";
 import { deleteBusinessNativeEvaluations, BusinessNativeEvaluationCleanupError } from "@/lib/business-deletion-native-evaluations";
@@ -470,6 +472,81 @@ function verifyInputReferencePlan(value: unknown, indexes: string[]) {
   if (!probes) throw new BusinessDeletionError("schema_not_ready", ["input_evidence_reference_plan"]);
 }
 
+/** A global active-status probe must use its leading status index, never a
+ * whole owner-index walk or an eager bitmap over accumulated history. */
+async function verifyActiveJobPlan(sql: ReturnType<typeof getDb>, plan: Record<string, unknown>, table: string) {
+  const indexes = await sql.query<{ name: string; leading: string; predicate: string | null }>(`
+    SELECT ic.relname AS name,a.attname AS leading,pg_get_expr(i.indpred,i.indrelid) AS predicate
+    FROM pg_index i JOIN pg_class ic ON ic.oid=i.indexrelid JOIN pg_am am ON am.oid=ic.relam
+    LEFT JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=i.indkey[0]
+    WHERE i.indrelid=$1::regclass AND i.indisvalid AND i.indisready AND i.indislive AND am.amname='btree'`, [`public.${table}`]);
+  const leadingStatusIndexes = indexes.filter(i=>i.leading==="status").map(i=>i.name);
+  const partialStatusIndexes = table === "google_ads_sync_jobs" ? indexes.filter(i=>
+    i.predicate?.replace(/[\s()]/g, "") === "status='running'::text").map(i=>i.name) : [];
+  let found = false;
+  const walk = (node: Record<string, unknown>) => {
+    if (["Sort", "Incremental Sort", "Materialize", "Bitmap Heap Scan", "Bitmap Index Scan", "Gather", "Gather Merge"]
+      .includes(String(node["Node Type"]))) throw new BusinessDeletionError("schema_not_ready", [table]);
+    if (node["Relation Name"] === table) {
+      if (!["Index Scan", "Index Only Scan"].includes(String(node["Node Type"]))
+        || !(leadingStatusIndexes.includes(String(node["Index Name"])) && /\bstatus\b/.test(String(node["Index Cond"]))
+          || partialStatusIndexes.includes(String(node["Index Name"]))))
+        throw new BusinessDeletionError("schema_not_ready", [table]);
+      found = true;
+    }
+    for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child);
+  };
+  walk(plan);
+  if (!found) throw new BusinessDeletionError("schema_not_ready", [table]);
+}
+
+// Same three diagnosed retired epochs and conservative age as the existing
+// native-maintenance-producer-idle.v1 assessment. This path never reaps or
+// rewrites a foreign ledger: it additionally holds the canonical locks until
+// the erasure transaction ends, closing the assessment-to-execution race.
+const ERASURE_RETIRED_NATIVE_EPOCHS = new Set([
+  "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
+  "v3-ad-2026-09-07-held-verdict-authority-shadow",
+  "v3-ad-2026-09-24-cut-proof-floor-story-shadow",
+]);
+async function assertErasureNativeProducerIdle(sql: ReturnType<typeof getDb>) {
+  const table = "engine_v3_job_runs";
+  const query = `SELECT id::text,business_ref_id::text,business_id,job_name,as_of_date::text,engine_version,
+    to_jsonb(started_at)#>>'{}' AS started_at,to_jsonb(updated_at)#>>'{}' AS updated_at,
+    finished_at IS NULL AS unfinished FROM public.engine_v3_job_runs
+    WHERE status='running' ORDER BY engine_v3_job_runs.started_at DESC LIMIT 65`;
+  const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`);
+  await verifyActiveJobPlan(sql, plan!["QUERY PLAN"][0].Plan, table);
+  const rows = await sql.query(query);
+  const [clock] = await sql.query<{ now: string }>("SELECT clock_timestamp()::text AS now");
+  const now = Date.parse(clock!.now), uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+  const decisionJob = "engine_v3_native_ad_decisions_shadow_job", calibrationJob = "engine_v3_native_ad_calibration_shadow_job";
+  if (!Number.isFinite(now) || rows.length>64) throw new BusinessDeletionError("business_busy", [table]);
+  const keys = new Set<string>();
+  for (const row of rows) {
+    const start = Date.parse(row.started_at), updated = Date.parse(row.updated_at);
+    if (row.engine_version === NATIVE_AD_ENGINE_VERSION || !ERASURE_RETIRED_NATIVE_EPOCHS.has(row.engine_version)
+      || ![decisionJob,calibrationJob].includes(row.job_name) || !uuid.test(row.id) || !uuid.test(row.business_ref_id)
+      || row.business_id !== row.business_ref_id || !/^\d{4}-\d{2}-\d{2}$/.test(row.as_of_date) || row.unfinished !== true
+      || !Number.isFinite(start) || !Number.isFinite(updated) || updated<start
+      || start>=now-30*60_000 || updated>=now-30*60_000) throw new BusinessDeletionError("business_busy", [table]);
+    keys.add(hashAdvisoryLock(`${row.job_name}:${row.business_ref_id}:${row.as_of_date}`).toString());
+    keys.add(hashAdvisoryLock(`engine_v3_native_ad_shadow_business_chain:${row.business_ref_id}:${row.as_of_date}`).toString());
+    if (row.job_name===calibrationJob) keys.add(hashAdvisoryLock(`${row.job_name}:${row.business_ref_id}:${row.as_of_date}:${row.engine_version}`).toString());
+  }
+  for (const key of keys) {
+    const [lock] = await sql.query<{ acquired: boolean }>("SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired", [key]);
+    if (lock?.acquired!==true) throw new BusinessDeletionError("business_busy", [table]);
+  }
+  if (keys.size) {
+    const [waiting] = await sql.query(`SELECT 1 FROM pg_locks l JOIN unnest($1::bigint[]) k(key)
+      ON l.locktype='advisory' AND l.objsubid=1 AND l.classid::bigint=((k.key>>32)&4294967295::bigint)
+        AND l.objid::bigint=(k.key&4294967295::bigint)
+      WHERE l.database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND l.pid<>pg_backend_pid() LIMIT 1`, [[...keys]]);
+    if (waiting) throw new BusinessDeletionError("business_busy", [table]);
+  }
+}
+
 export const BUSINESS_ERASURE_LOCK_NAMESPACE = 0x42555344;
 
 export async function deleteBusinessWithData(businessId: string,
@@ -547,13 +624,22 @@ export async function deleteBusinessWithData(businessId: string,
         if (lease) throw new BusinessDeletionError("business_busy", [table]);
       }
     }
+    await sql.query("SET LOCAL enable_bitmapscan=off");
     for (const table of ["provider_sync_jobs", "meta_sync_jobs", "meta_sync_partitions", "google_ads_sync_jobs", "google_ads_sync_partitions", "engine_v3_job_runs"]) {
       const scope = scopes.get(`public.${table}`); if (!scope) continue;
-      for (const business of businessDirectory) {
-        const [job] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE (${scopeFor(scope)}) AND status IN ('running','claimed','processing') LIMIT 1`, [business.id]);
-        if (job) throw new BusinessDeletionError("business_busy", [table]);
-      }
+      if (table === "engine_v3_job_runs") { await assertErasureNativeProducerIdle(sql); continue; }
+      // Global exclusion needs global idleness, including an orphaned active
+      // job. Repeating a status-index walk with an owner filter can scan the
+      // same large history for every business. Probe the leading status index
+      // once, with no owner residual. Native jobs use their CHECKed vocabulary.
+      const statuses = table === "google_ads_sync_jobs" ? "('running')" : "('running','claimed','processing')";
+      const query = `SELECT 1 FROM public.${identifier(table)} WHERE status IN ${statuses} LIMIT 1`;
+      const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`);
+      await verifyActiveJobPlan(sql, plan!["QUERY PLAN"][0].Plan, table);
+      const [job] = await sql.query(query);
+      if (job) throw new BusinessDeletionError("business_busy", [table]);
     }
+    await sql.query("SET LOCAL enable_bitmapscan=on");
     mark("ownership_conflicts");
     await sql.query("SET LOCAL cursor_tuple_fraction=1");
     for (const [table, scope] of scopes) {

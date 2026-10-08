@@ -35,7 +35,7 @@
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "69992d4a09ea7cece6c6e64c116c3486c251dca1c6755f3aa2a0b3cabb2cb7a5",
+      "sha256": "2da29208afab3ae0e6d0c3bbca81a2b4511195eaf46ef55d7c17e93a099f0265",
       "retention": "D154 explicit admin whole-business erasure only: durable web-owned execution, one lock-owning pinned backend/atomic transaction, exact scoped histories and GLOBAL reference proof; all-business active-work refusal, final control-history fence, FK/guard/absence verification. 4096-identity/TID pages and finite bounds do not confer age pruning or provider authority. Preserve every other tenant and all still-referenced shared input content."
     },
     {
@@ -293,7 +293,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "5fbf0fbbd036159edf4b81989ae3ac2a828ae4fdcfdf858b6240d4a8b513544f",
+      "sha256": "e4fee11490588ad7efbd8a49115d38c73b3ca20302d7434e7df6f716be92a5ee",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
@@ -459,5 +459,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "594535252b63a82f9c77d93b1cbb03917148ad1e49a2842603c8aaa3c0db79f1"
+  "sourceInventorySha256": "30df2beea9e9f11cf2da6c320c9d65869dac69dbe7e322df77852ddd460f87e6"
 }

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "2fd82fea3c46b660b130610264866f4ca644cc330e17b291457f9fda220069ee",
+  "manifestHash": "d77993d4eb42166ec22a911c49512367d12f0d7d6ba8308b95263edd10596079",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -804,7 +804,7 @@
     },
     {
       "path": "docs/architecture/business-deletion-repair.md",
-      "sha256": "bf7c370ca95f8a827581f801459cfbc57a591d6f6265464f6fcad4188024b1de"
+      "sha256": "6efdbf19a8217702326e10a94516e5cc141643e51869a5e15c8064ba58668ec0"
     },
     {
       "path": "docs/architecture/migration-replay-worker-recovery.md",
@@ -860,7 +860,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "9d89b2b1c21ed1f449fc8d9323d56bc6237a17b7fcc9c3bfc43c7d01b514a0d6"
+      "sha256": "7b8e8899afd5dae5f640748e2778a975875b6cbb97091ac81c1dd739415c1551"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -896,7 +896,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "4e17a436d47e757576022e8f9070fb5893807c0e3824a13849a8a23ebaf5265e"
+      "sha256": "27ec200fbb5998be5defec651d56be18eb1a4de5ccf5fde118bb6f3def723cf4"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1024,11 +1024,11 @@
     },
     {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "8ba3a7577cc520a3d5f1cd5b896b79210283d93def5190dc5650223fbea56ab8"
+      "sha256": "3de21b7e3581f43c7c8ad5ec39407443e962199706479798fde1bfe3ab398c11"
     },
     {
       "path": "lib/business-deletion.ts",
-      "sha256": "69992d4a09ea7cece6c6e64c116c3486c251dca1c6755f3aa2a0b3cabb2cb7a5"
+      "sha256": "2da29208afab3ae0e6d0c3bbca81a2b4511195eaf46ef55d7c17e93a099f0265"
     },
     {
       "path": "lib/client-auth-state.test.ts",
@@ -2936,7 +2936,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "5fbf0fbbd036159edf4b81989ae3ac2a828ae4fdcfdf858b6240d4a8b513544f"
+      "sha256": "e4fee11490588ad7efbd8a49115d38c73b3ca20302d7434e7df6f716be92a5ee"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -3272,7 +3272,7 @@
     },
     {
       "path": "scripts/read-path-write-reachability.ts",
-      "sha256": "57d960e062304078446b93bbdac40732c5e977fc62ac1bf75a63c616527779a5"
+      "sha256": "a0ec9a32d4a5a09ed78085cf0b72b682d5219d60aa7d5e4d5e491e50bb7136c8"
     },
     {
       "path": "scripts/sync-worker-healthcheck.ts",

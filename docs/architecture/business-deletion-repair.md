@@ -1,7 +1,9 @@
 # Complete business data deletion — 2026-10-08
 
-Both authenticated DELETE routes use `deleteBusinessWithData`. A successful
-response means the business and its owned application records have been removed,
+Both authenticated DELETE routes enqueue durable web-owned erasure under D154
+and return HTTP 202. That acknowledgement is pending, never success. The
+completion endpoint and an independent authorized-list read must prove absence.
+A completed response means the business and its owned application records have been removed,
 including retained decisions, frozen labels, calibrations, protected action
 history, indirect report copies and the optional normalization archive. D153 is
 an explicit whole-business offboarding exception to ordinary retained-history
@@ -12,7 +14,10 @@ policy. It grants no routine retention, age pruning or decision-writer authority
 The assignment kill switch and existing selection advisory lock apply. Catalog
 ownership is checked against an explicit reviewed allowlist across non-system
 schemas; unknown tables, inconsistent owners, unknown DELETE guards, live runner
-leases and running jobs refuse the request. The known legacy compaction schema's
+leases and active jobs refuse the request. Retired native running bookkeeping
+qualifies only under the existing three-epoch, 30-minute, 64-row idle contract,
+with exact job/chain locks held until commit and no foreign ledger rewrite.
+Current/fresh/unknown/owned runs or an incomplete census still refuse. The known legacy compaction schema's
 lineage table is owned data; `keep_runs` and `run_semantics` are removed through
 the exact observation-run IDs before their parents disappear.
 
@@ -42,12 +47,12 @@ connection-owned credentials cascade and active sessions lose the deleted scope.
 
 Native evaluation history is walked once through a non-holdable, non-scrolling
 server cursor over the verified leading business index. At its child-first
-position, exact primary-key pages of at most 1,024 evaluations are deleted;
+position, exact primary-key pages of at most 4,096 evaluations are deleted;
 RETURNING captures their input keys into a temporary unique-key table without
 a whole-history DISTINCT/sort or a second eager history read. Each actual cursor
 and delete plan must be an index walk/probe, with no blocking Sort/Bitmap or
 non-leading ownership scan. The complete operation permits at most 4,194,304
-evaluations and retains its absolute 120-second deadline; bounds roll back all
+evaluations and uses a 20-minute background deadline (four minutes for direct internal callers); bounds roll back all
 prior pages. Erasure alone disables JIT in its transaction. The server statement
 timeout is capped by both the 30-second query limit and remaining transaction
 deadline, so an application timeout cannot leave a longer-running statement
@@ -120,7 +125,7 @@ opening the 163 GiB growth-admission gate.
 
 ## Verification and rollout
 
-Thirty-one destructive cases run only on a disposable localhost PostgreSQL migrated
+Fifty destructive cases run only on a disposable localhost PostgreSQL migrated
 by the actual migrations and are registered in the canonical CI harness. They
 cover legacy FK failure, complete scoped removal, frozen/protected history,
 shared users/accounts, credentials/sessions, unknown tables/guards, late-FK
@@ -148,8 +153,11 @@ delete response or host health.
 
 ## Rollback
 
-There is no migration. Revert the code and redeploy the previous image through
-the normal release workflow. Code rollback restores neither deleted records nor
+The additive `business_deletion_jobs` table has no completed tombstones: each
+job disappears in the same commit as its business. Drain/refuse active jobs
+before reverting code through the normal release workflow. Do not return to a
+pre-D154 eraser while this new ownership table exists; it correctly refuses an
+unreviewed scope. Keep the small additive table attached to surviving businesses. Code rollback restores neither deleted records nor
 evicted files. Completed erasure is permanent in the application; any disaster
 recovery needs explicit scope and must account for deletions after the backup.
 No provider account, advertisement, budget, quota or growth override is changed.

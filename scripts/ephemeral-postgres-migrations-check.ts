@@ -4330,10 +4330,28 @@ async function main() {
       6,
     );
 
+    // Complete erasure requires ALL businesses to be idle. Earlier canonical
+    // seams deliberately leave live foreign leases/jobs, so give this suite its
+    // own database on this SAME disposable server, using the real migrations.
+    // Do not weaken production exclusion or mutate another seam's fixtures.
+    const deletionDatabaseName = "adsecute_business_deletion";
+    const deletionUrl = new URL(databaseUrl);
+    if (deletionUrl.hostname !== "127.0.0.1" || ["5432", "15432", ""].includes(deletionUrl.port))
+      throw new Error("Unsafe isolated deletion seam database");
+    deletionUrl.pathname = `/${deletionDatabaseName}`;
+    runSync(path.join(pgBinDir, "createdb"), ["-h", "127.0.0.1", "-p", String(port), "-U", EPHEMERAL_DB_USER, deletionDatabaseName], "createdb isolated erasure");
+    try {
+      await runMigrationsChild(repoRoot, deletionUrl.toString(), "isolated business deletion from zero");
+      await runChildVitest(repoRoot, deletionUrl.toString(), "lib/business-deletion.db.test.ts", "Business data deletion and rollback DB seam check", 50);
+    } finally {
+      const maintenance = new Client({ connectionString: databaseUrl });
+      try { await maintenance.connect(); await maintenance.query(`DROP DATABASE ${deletionDatabaseName} WITH (FORCE)`); }
+      finally { await maintenance.end(); }
+    }
+
     // These four suites used to self-provision only on developer machines and
     // skip in CI. Reuse this migrated cluster and require every case to pass.
     for (const [file, label, count] of [
-      ["lib/business-deletion.db.test.ts", "Business data deletion and rollback", 44],
       ["app/api/meta/served-profile-account-scope.db.test.ts", "Served Meta account profile scope", 9],
       ["app/api/meta/bootstrap-account-population.db.test.ts", "Meta bootstrap account population", 8],
       ["app/api/meta/anchor-scope-transition-serve.db.test.ts", "Meta anchor scope transition", 6],

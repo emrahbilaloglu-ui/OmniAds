@@ -1,3 +1,5 @@
+import { hashAdvisoryLock } from "@/lib/creative-decision-engine/jobs/advisory-lock";
+import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { randomUUID, randomBytes } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
@@ -197,6 +199,77 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"business_busy"});
       expect(await remains(businessId,"memberships","business_id")).toBe(true);
     } finally { await getDb()`DELETE FROM sync_runner_leases WHERE business_id=${otherId}`; }
+  });
+
+  it("refuses a foreign active native job through the global status index without changing either tenant", async () => {
+    const {businessId,otherId}=await fixture();
+    const [job]=await getDb()`INSERT INTO engine_v3_job_runs
+      (job_name,business_ref_id,business_id,as_of_date,engine_version,status)
+      VALUES ('deletion-active-fixture',${otherId},${otherId},'2026-10-08','fixture','running') RETURNING id`;
+    const before=await getDb()`SELECT * FROM engine_v3_job_runs WHERE id=${job!.id}`;
+    try {
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"business_busy",tables:["engine_v3_job_runs"]});
+      expect(await remains(businessId,"memberships","business_id")).toBe(true);
+      expect(await getDb()`SELECT * FROM engine_v3_job_runs WHERE id=${job!.id}`).toEqual(before);
+      await expect(getDb()`UPDATE engine_v3_job_runs SET status='claimed' WHERE id=${job!.id}`).rejects.toMatchObject({code:"23514"});
+    } finally { await getDb()`UPDATE engine_v3_job_runs SET status='success' WHERE id=${job!.id}`; }
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId)).toBe(false);
+    expect(await remains(otherId)).toBe(true);
+  });
+
+  it("preserves a proven stale retired foreign ledger byte for byte while holding its canonical execution locks", async () => {
+    const {businessId,otherId}=await fixture();
+    const [job]=await getDb()`INSERT INTO engine_v3_job_runs
+      (job_name,business_ref_id,business_id,as_of_date,engine_version,status,started_at,updated_at)
+      VALUES ('engine_v3_native_ad_decisions_shadow_job',${otherId},${otherId},'2026-09-27',
+        'v3-ad-2026-09-24-cut-proof-floor-story-shadow','running',now()-interval '1 day',now()-interval '1 day') RETURNING id`;
+    const before=await getDb()`SELECT * FROM engine_v3_job_runs WHERE id=${job!.id}`;
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId)).toBe(false);
+    expect(await getDb()`SELECT * FROM engine_v3_job_runs WHERE id=${job!.id}`).toEqual(before);
+  });
+
+  it.each(["job","chain"])("refuses retired running metadata while its actual %s execution lock is held", async kind => {
+    const {businessId,otherId}=await fixture();
+    const [job]=await getDb()`INSERT INTO engine_v3_job_runs
+      (job_name,business_ref_id,business_id,as_of_date,engine_version,status,started_at,updated_at)
+      VALUES ('engine_v3_native_ad_decisions_shadow_job',${otherId},${otherId},'2026-09-27',
+        'v3-ad-2026-09-24-cut-proof-floor-story-shadow','running',now()-interval '1 day',now()-interval '1 day') RETURNING id`;
+    const lock=new Client({connectionString:process.env.DATABASE_URL});await lock.connect();
+    const key=hashAdvisoryLock(`${kind==="job"?"engine_v3_native_ad_decisions_shadow_job":"engine_v3_native_ad_shadow_business_chain"}:${otherId}:2026-09-27`).toString();
+    try {
+      await lock.query("SELECT pg_advisory_lock($1::bigint)",[key]);
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"business_busy",tables:["engine_v3_job_runs"]});
+      expect(await remains(businessId,"memberships","business_id")).toBe(true);
+    } finally { await lock.end(); await getDb()`UPDATE engine_v3_job_runs SET status='success' WHERE id=${job!.id}`; }
+  });
+
+  it("refuses a current-epoch running ledger regardless of its age and preserves its bytes", async () => {
+    const {businessId,otherId}=await fixture();
+    const [job]=await getDb()`INSERT INTO engine_v3_job_runs
+      (job_name,business_ref_id,business_id,as_of_date,engine_version,status,started_at,updated_at)
+      VALUES ('engine_v3_native_ad_decisions_shadow_job',${otherId},${otherId},'2026-09-27',${NATIVE_AD_ENGINE_VERSION},
+        'running',now()-interval '1 day',now()-interval '1 day') RETURNING id`;
+    const before=await getDb()`SELECT * FROM engine_v3_job_runs WHERE id=${job!.id}`;
+    try {
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"business_busy",tables:["engine_v3_job_runs"]});
+      expect(await getDb()`SELECT * FROM engine_v3_job_runs WHERE id=${job!.id}`).toEqual(before);
+      expect(await remains(businessId)).toBe(true);
+    } finally { await getDb()`UPDATE engine_v3_job_runs SET status='success' WHERE id=${job!.id}`; }
+  });
+
+  it("refuses an incomplete retired running-ledger census instead of accepting a partial sample", async () => {
+    const {businessId,otherId}=await fixture();
+    const jobs=await getDb()`INSERT INTO engine_v3_job_runs
+      (job_name,business_ref_id,business_id,as_of_date,engine_version,status,started_at,updated_at)
+      SELECT 'engine_v3_native_ad_decisions_shadow_job',${otherId}::uuid,${otherId},'2026-09-27'::date,
+        'v3-ad-2026-09-24-cut-proof-floor-story-shadow','running',now()-interval '1 day',now()-interval '1 day'
+      FROM generate_series(1,65) RETURNING id`;
+    try {
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"business_busy",tables:["engine_v3_job_runs"]});
+      expect(await remains(businessId,"memberships","business_id")).toBe(true);
+    } finally { await getDb().query("UPDATE engine_v3_job_runs SET status='success' WHERE id=ANY($1::uuid[])",[jobs.map(j=>j.id)]); }
   });
 
   it("durably queues once, performs erasure on the pinned worker backend and removes the job in the same commit", async () => {

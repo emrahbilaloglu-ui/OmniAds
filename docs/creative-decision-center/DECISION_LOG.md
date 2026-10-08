@@ -12947,9 +12947,28 @@ client error between statements is handled and destroys the failed connection
 rather than becoming an unhandled process exception.
 
 Global writer exclusion/guard suspension can delay other businesses' writes and
-historical reads. Before proceeding, exact indexed owner probes across the
-bounded business directory require all businesses to have no active runner lease
-or running/claimed/processing provider/native job. Failure rolls back. Queued
+historical reads. Before proceeding, exact indexed lease probes across the
+bounded business directory and one verified leading-status-index probe per job
+table require global idleness, including orphaned active jobs. Provider states
+are running/claimed/processing; the native registry CHECK permits only running,
+success, failed and skipped, so its active state is running. Failure rolls back.
+The existing three diagnosed retired native epochs may carry stale running
+bookkeeping. A complete 64-row-bounded census applies the existing 30-minute
+`native-maintenance-producer-idle.v1` identity/age rules, then holds every exact
+canonical job/chain lock (including versioned calibration keys) until commit.
+Any owner/waiter, current epoch, fresh/unknown row or census bound refuses.
+No foreign ledger is reaped, finalized or rewritten. The bounded live diagnosis
+found eleven rows from those three retired epochs; this is not current work.
+Google job states are CHECKed; only running is active. Its existing exact
+`status='running'` partial btree avoids the large general status-index walk.
+The eraser verifies that exact catalog predicate and index readiness before
+accepting its actual global LIMIT 1 plan. No index/maintenance change is made.
+A live read rejected repeated owner-filtered status-index walks; these can
+rescan accumulated global history once per business. The eraser now requires
+the actual global LIMIT 1 plan to use its status index, without bitmap/sort or
+an unrelated owner-index walk. Canonical erasure tests use a separately migrated
+database on the same disposable server: prior seams deliberately retain active
+foreign work, which must continue to block a production erasure. Queued
 work is not represented as having run. Worker heartbeat/runtime tables remain
 writable during bulk erasure; their finite writer-excluded census moves to the
 final phase. Any fresh selected runtime/worker reference still rolls back the

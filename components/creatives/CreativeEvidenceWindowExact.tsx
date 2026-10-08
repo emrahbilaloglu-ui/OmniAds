@@ -123,6 +123,9 @@ export interface CreativeEvidenceWindowExactCoverage {
 
 export interface CreativeEvidenceWindowExactViewModel {
   identityContext?: string;
+  requirements?: readonly string[];
+  confidenceExplanation?: string;
+  commercialBasis?: string;
   name?: CreativeEvidenceWindowExactDisplayValue;
   decisionLabel?: CreativeEvidenceWindowExactDisplayValue;
   decisionTone?: CreativeEvidenceWindowExactTone;
@@ -497,6 +500,15 @@ export function CreativeEvidenceWindowExact({
                   <span>{display(reason)}</span>
                 </p>
               ))}
+            </BodyCard>
+          ) : null}
+          {viewModel.requirements?.length || viewModel.confidenceExplanation || viewModel.commercialBasis ? (
+            <BodyCard>
+              <p className={styles.cardEyebrowReasons}>Decision evidence and requirements</p>
+              {viewModel.requirements?.map((requirement, index) => <p className={styles.reasonLine} key={`requirement-${index}`}>{requirement}</p>)}
+              {viewModel.confidenceExplanation ? <p>{viewModel.confidenceExplanation}</p> : null}
+              {viewModel.commercialBasis ? <p>{viewModel.commercialBasis}</p> : null}
+              <p>Sample readiness alone does not authorize a change. Configuration, role, freshness and operational checks remain separate.</p>
             </BodyCard>
           ) : null}
 

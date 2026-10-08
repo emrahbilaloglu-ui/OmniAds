@@ -4210,6 +4210,13 @@ async function main() {
       "Native evidence complete SQL and tenant/hash/context seam",
       4,
     );
+    await runChildVitest(
+      repoRoot,
+      databaseUrl,
+      path.join("lib", "meta", "decision-evidence-presentation.db.test.ts"),
+      "Referenced original calibration presentation lineage DB seam",
+      4,
+    );
 
     /*
       ROUND 16. The bootstrap probe must ask the SAME question the recent-edit

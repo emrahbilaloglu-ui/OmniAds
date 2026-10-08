@@ -11,14 +11,14 @@ describe("sync capability does not infer work from liveness or readable data", (
   });
   it("does not promote absent, stale, future or failed admission to capability", () => {
     for (const decision of [null,
-      { allowed: true, reason: "ok" as const, evaluatedAt: "2026-10-08T05:58:00Z" },
-      { allowed: true, reason: "ok" as const, evaluatedAt: "2026-10-08T06:00:01Z" },
+      { allowed: true, reason: "ready" as const, evaluatedAt: "2026-10-08T05:58:00Z" },
+      { allowed: true, reason: "ready" as const, evaluatedAt: "2026-10-08T06:00:01Z" },
       { allowed: false, reason: "fence_read_failed" as const, evaluatedAt: at }]) {
       expect(buildMetaSyncCapability(decision, now)).toMatchObject({ state: "unknown", canStartSync: false });
     }
   });
   it("admits the positive control without claiming a worker or a sync ran", () => {
-    expect(buildMetaSyncCapability({ allowed: true, reason: "ok", evaluatedAt: at }, now)).toMatchObject({ state: "admitted", canStartSync: true });
+    expect(buildMetaSyncCapability({ allowed: true, reason: "ready", evaluatedAt: at }, now)).toMatchObject({ state: "admitted", canStartSync: true });
   });
 });
 

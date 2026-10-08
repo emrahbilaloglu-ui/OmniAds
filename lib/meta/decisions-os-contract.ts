@@ -5,12 +5,14 @@ import type {
   MetaDecisionSourceCreativeType,
   MetaDecisionAdmittedWindow,
 } from "@/lib/meta/decisions-workspace-contract";
+import type { MetaDecisionCalibrationEvidence, MetaDecisionConfidenceBasis, MetaDecisionEvidenceRequirement } from "./decision-evidence-presentation";
 
 export const META_OS_DECISIONS_PRESENTATION_VERSION =
-  "meta-os-decisions.presentation.v9" as const;
+  "meta-os-decisions.presentation.v10" as const;
 
 export type MetaOsDecisionsPresentationVersion =
   | typeof META_OS_DECISIONS_PRESENTATION_VERSION
+  | "meta-os-decisions.presentation.v9"
   | "meta-os-decisions.presentation.v8"
   | "meta-os-decisions.presentation.v7"
   | "meta-os-decisions.presentation.v6"
@@ -444,6 +446,9 @@ export interface MetaOsDecisionResolution {
 }
 
 export interface MetaOsAdDecision {
+  evidenceRequirements?: MetaDecisionEvidenceRequirement[];
+  calibrationEvidence?: MetaDecisionCalibrationEvidence | null;
+  confidenceBasis?: MetaDecisionConfidenceBasis;
   id: string;
   decisionId: string;
   sourceSnapshotId: string;

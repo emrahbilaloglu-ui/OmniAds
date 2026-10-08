@@ -1,6 +1,7 @@
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import { isNonEconomicAuthorityHold } from "@/lib/meta/decision-authority-hold";
 import { reportingDayCount } from "@/lib/meta/reporting-period";
+import { metaDecisionConfidenceBasisText, metaDecisionRequirementText } from "@/lib/meta/decision-evidence-presentation";
 import type {
   MetaDecisionCenterExactActionRowViewModel,
   MetaDecisionCenterExactArchiveRowViewModel,
@@ -3237,6 +3238,8 @@ function creativeRows(input: {
       id: decision.id,
       name: nonBlank(decision.adName) ?? EM_DASH,
       identityContext: { campaignName: nonBlank(decision.campaignName), adsetName: nonBlank(decision.adsetName), adId: nonBlank(decision.adId) },
+      evidenceRequirements: decision.evidenceRequirements?.map((requirement) => metaDecisionRequirementText(requirement, false)),
+      confidenceExplanation: metaDecisionConfidenceBasisText(decision.confidenceBasis, decision.confidence, decision.confidenceScore),
       kindShort: creativeKindShort(
         decision.creativeFormat,
         decision.sourceCreativeType?.value,

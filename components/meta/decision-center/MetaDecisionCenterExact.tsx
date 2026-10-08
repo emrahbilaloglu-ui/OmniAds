@@ -287,6 +287,8 @@ export interface MetaDecisionCenterExactCreativePostureViewModel {
 export interface MetaDecisionCenterExactCreativeDecisionViewModel {
   id: string;
   identityContext?: { campaignName: string | null; adsetName: string | null; adId: string | null };
+  evidenceRequirements?: readonly string[];
+  confidenceExplanation?: string;
   name?: MetaDecisionCenterExactDisplayValue;
   kindShort?: MetaDecisionCenterExactDisplayValue;
   /** Full current Meta-derived type, used when snapshot format is absent. */
@@ -2016,6 +2018,10 @@ function CreativeCard({
             {display(rowNote)}
           </p>
         ) : null}
+        {(row.evidenceRequirements ?? []).map((requirement, index) => (
+          <p className={styles.creativeNote} key={`requirement-${index}`}>{requirement}</p>
+        ))}
+        {row.confidenceExplanation ? <p className={styles.creativeContext}>{row.confidenceExplanation}</p> : null}
       </div>
       <div className={styles.creativeMetrics}>
         {row.sparkPath || nonBlankDisplay(row.ctrValue) ? (

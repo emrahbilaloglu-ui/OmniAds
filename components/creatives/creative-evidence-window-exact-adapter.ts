@@ -11,6 +11,7 @@ import type {
   CreativeEvidenceWindowExactViewModel,
 } from "@/components/creatives/CreativeEvidenceWindowExact";
 import { buyerAuthorityBlockerCopy } from "@/lib/meta/buyer-copy";
+import { metaDecisionCommercialBasisText, metaDecisionConfidenceBasisText, metaDecisionRequirementText } from "@/lib/meta/decision-evidence-presentation";
 import { adPerformanceAvailability } from "@/lib/meta/ad-performance-availability";
 import {
   buyerFacingCreativeActionLabel,
@@ -2429,6 +2430,10 @@ export function buildCreativeEvidenceWindowExactViewModel(
         ? "Unnamed Meta ad"
         : EM_DASH),
     identityContext: `Campaign: ${nonBlank(canonical?.parentChain.campaign?.name) ?? nonBlank(decision?.campaignName) ?? "unknown"} · Ad set: ${nonBlank(canonical?.parentChain.adset?.name) ?? nonBlank(decision?.adsetName) ?? "unknown"} · Ad: ${nonBlank(canonical?.parentChain.ad?.id) ?? nonBlank(decision?.adId) ?? "unknown"}`,
+    requirements: (decision?.evidenceRequirements ?? canonical?.evidenceRequirements)?.map((requirement) => metaDecisionRequirementText(requirement)),
+    confidenceExplanation: metaDecisionConfidenceBasisText(decision?.confidenceBasis ?? canonical?.sourceDecision.confidenceBasis,
+      decision?.confidence ?? canonical?.sourceDecision.confidenceBand ?? "unknown", decision?.confidenceScore ?? canonical?.sourceDecision.confidence ?? null),
+    commercialBasis: metaDecisionCommercialBasisText(decision?.calibrationEvidence ?? canonical?.calibrationEvidence),
     decisionLabel: verdictLabel ?? EM_DASH,
     decisionTone: tone,
     /*

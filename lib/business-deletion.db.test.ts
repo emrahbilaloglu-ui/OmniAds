@@ -4,6 +4,9 @@ import { Client } from "pg";
 import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, seedTenant } from "../scripts/native-storage-batch/owned-fixture";
 import { getDb, runDbTransaction } from "@/lib/db";
 import { BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
+import { deleteBusinessReleaseReceipts } from "@/lib/business-deletion-control-receipts";
+import { upsertSyncGateRecord } from "@/lib/sync/release-gates";
+import { NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION } from "@/lib/creative-decision-engine/ad-operator-response-detection";
 
 // Only the migrated, disposable cluster may execute these destructive fixtures.
 const seam = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
@@ -305,5 +308,104 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
         expect((await db.query("SELECT input_hash::text FROM engine_v3_ad_decision_input_evidence WHERE input_hash=ANY($1::character(64)[])",[keys.map(k=>k.input_hash)])).rows).toEqual([{input_hash:keys[0].input_hash}]);
       } finally { await db.query("DROP INDEX idx_engine_v3_ad_evaluations_contract_input"); }
     } finally { await db.end(); }
+  });
+
+  it("erases original creative-grain evidence with a NULL compatibility owner and preserves the other canonical owner", async () => {
+    const { businessId, otherId } = await fixture();
+    for (const id of [businessId,otherId]) await getDb()`INSERT INTO engine_v3_decision_events
+      (business_ref_id,business_id,creative_id,event_date,event_type)
+      VALUES (${id},NULL,'legacy-original','2026-10-01','data_disabled')`;
+    const before = await getDb()`SELECT * FROM engine_v3_decision_events WHERE business_ref_id=${otherId}`;
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId,"engine_v3_decision_events","business_ref_id")).toBe(false);
+    expect(await getDb()`SELECT * FROM engine_v3_decision_events WHERE business_ref_id=${otherId}`).toEqual(before);
+  });
+
+  it("refuses a contradictory compatibility owner in the selected canonical creative history", async () => {
+    const { businessId, otherId } = await fixture();
+    await getDb()`INSERT INTO engine_v3_decision_events (business_ref_id,business_id,creative_id,event_date,event_type)
+      VALUES (${businessId},${otherId},'legacy-conflict','2026-10-01','data_disabled')`;
+    await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"scope_conflict"});
+    expect(await remains(businessId)).toBe(true);
+    expect(await remains(otherId)).toBe(true);
+  });
+
+  it("removes native operator responses through their validated complete episode ownership, preserving foreign responses", async () => {
+    const db = new Client({connectionString:process.env.DATABASE_URL}); await db.connect();
+    try {
+      const target = await seedTenant(db,1), other = await seedTenant(db,1);
+      for (const [tenant,tag] of [[target,"response-delete"],[other,"response-preserve"]] as const) {
+        const producer = await seedCalibration(db,tenant,"2026-09-23","2026-09-23T12:00:00Z");
+        const generation = await seedGeneration(db,tenant,{date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[1],tag,snapshots:true});
+        const key = randomBytes(32).toString("hex");
+        await db.query(`INSERT INTO engine_v3_ad_recommendation_episodes
+          (contract_version,episode_key,business_ref_id,business_id,provider_account_ref_id,provider_account_id,
+          decision_entity_type,decision_entity_id,ad_id,creative_id,as_of_date,engine_version,scope_type,scope_id,
+          decision_snapshot_id,evaluation_id,input_hash,decision_hash,decision_label,recommended_at,captured_at,job_run_id)
+          SELECT $1,$2,business_ref_id,business_id,provider_account_ref_id,provider_account_id,
+          decision_entity_type,decision_entity_id,ad_id,creative_id,as_of_date,engine_version,scope_type,scope_id,
+          id,evaluation_id,input_hash,decision_hash,label,computed_at,computed_at,job_run_id
+          FROM engine_v3_ad_decision_snapshots_daily WHERE job_run_id=$3`,[NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION,key,generation.jobRunId]);
+        await db.query(`INSERT INTO engine_v3_ad_operator_responses
+          (contract_version,episode_key,business_ref_id,business_id,provider_account_ref_id,provider_account_id,job_run_id,
+          response_cutoff,observation_status,response_type,operator_response_detected,ad_treatment_detected,
+          window_start,window_end,window_closed,source_complete,source_set_hash,action_receipt_count,state_observation_count,
+          tombstone_observation_count,required_state_target_count,complete_state_target_count,evidence_count,evidence_set_hash,replacement_set_hash,response_hash)
+          SELECT contract_version,episode_key,business_ref_id,business_id,provider_account_ref_id,provider_account_id,job_run_id,
+          '2026-09-24','unknown_incomplete','unknown_incomplete',false,false,'2026-09-23','2026-09-24',true,false,
+          $2,0,0,0,1,0,0,$2,$2,$2 FROM engine_v3_ad_recommendation_episodes WHERE episode_key=$1`,[key,randomBytes(32).toString("hex")]);
+      }
+      await addObservedProductionReferenceIndex(db);
+      try {
+        const before = await getDb()`SELECT * FROM engine_v3_ad_operator_responses WHERE business_ref_id=${other.business}`;
+        expect(before).toHaveLength(1);
+        await deleteBusinessWithData(target.business);
+        expect(await remains(target.business,"engine_v3_ad_operator_responses","business_ref_id")).toBe(false);
+        expect(await getDb()`SELECT * FROM engine_v3_ad_operator_responses WHERE business_ref_id=${other.business}`).toEqual(before);
+      } finally { await db.query("DROP INDEX idx_engine_v3_ad_evaluations_contract_input"); }
+    } finally { await db.end(); }
+  });
+
+  async function releaseReceipts(businessId: string, otherId: string, year: number) {
+    const build = randomUUID();
+    await getDb().query(`INSERT INTO sync_release_gates (build_id,environment,gate_kind,gate_scope,mode,base_result,verdict,summary,evidence_json,emitted_at)
+      SELECT $1,'fixture','release_gate','release_readiness','measure_only','pass','pass','fixture',
+      jsonb_build_object('canaries',jsonb_build_array(jsonb_build_object('businessId',CASE WHEN n IN (1,1025) THEN $2 ELSE $3 END))),
+      make_timestamptz($4::int,1,1,0,0,0,'UTC')+n*interval '1 second' FROM generate_series(1,1025) n`,[build,businessId,otherId,year]);
+    return build;
+  }
+
+  it("erases identifying release receipts across multiple bounded index pages and preserves other receipts byte-for-byte", async () => {
+    const { businessId,otherId } = await fixture();
+    const build = await releaseReceipts(businessId,otherId,2000);
+    const before = await getDb()`SELECT * FROM sync_release_gates WHERE build_id=${build} AND NOT evidence_json::text LIKE ${`%${businessId}%`} ORDER BY id`;
+    try {
+      await deleteBusinessWithData(businessId);
+      expect(await getDb()`SELECT 1 FROM sync_release_gates WHERE build_id=${build} AND evidence_json::text LIKE ${`%${businessId}%`}`).toHaveLength(0);
+      expect(await getDb()`SELECT * FROM sync_release_gates WHERE build_id=${build} ORDER BY id`).toEqual(before);
+    } finally { await getDb()`DELETE FROM sync_release_gates WHERE build_id=${build}`; }
+  });
+
+  it("rolls back already erased receipt pages when the complete census exceeds its bound", async () => {
+    const { businessId,otherId } = await fixture();
+    const build = await releaseReceipts(businessId,otherId,1900);
+    const before = await getDb()`SELECT * FROM sync_release_gates WHERE build_id=${build} ORDER BY id`;
+    try {
+      await expect(runDbTransaction(async()=>{
+        await getDb().query("LOCK TABLE sync_release_gates IN SHARE ROW EXCLUSIVE MODE");
+        await getDb().query("SET LOCAL enable_seqscan=off");
+        await deleteBusinessReleaseReceipts(getDb(),businessId,{maxRows:1024,maxBytes:1024**3});
+      })).rejects.toThrow("release_receipt_census_limit");
+      expect(await getDb()`SELECT * FROM sync_release_gates WHERE build_id=${build} ORDER BY id`).toEqual(before);
+      expect(await remains(businessId)).toBe(true);
+    } finally { await getDb()`DELETE FROM sync_release_gates WHERE build_id=${build}`; }
+  });
+
+  it("refuses to persist a stale canary collected before the business was erased", async () => {
+    const { businessId } = await fixture();
+    await deleteBusinessWithData(businessId);
+    await expect(upsertSyncGateRecord({gateKind:"release_gate",gateScope:"release_readiness",buildId:randomUUID(),environment:"fixture",
+      mode:"measure_only",baseResult:"pass",verdict:"pass",blockerClass:null,overrideReason:null,summary:"stale canary",breakGlass:false,emittedAt:new Date().toISOString(),
+      evidence:{providerScope:"google_ads",canaries:[{businessId}]}})).rejects.toThrow("sync_gate_business_removed");
   });
 });

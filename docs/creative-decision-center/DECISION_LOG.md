@@ -12746,6 +12746,16 @@ selected-business deletion and independent live absence are separate gates.
 The retained-reader ledger's business teardown entry is repinned only after this
 explicit source review. Its new retention wording is this narrowly authorized
 offboarding exception; all other retained roots and ordinary lifecycle roles are
-preserved. The canonical migrations harness adds the three meaningful erasure
-cases, not production DDL. This ADR itself grants no production mutation outside
+preserved. The canonical migrations harness requires twenty-two meaningful cases (nine
+added to the earlier thirteen), not production DDL. Current catalog evidence
+also requires the indexed text owner for lineage, the five reviewed required
+legacy UUID owners, and validated complete episode FKs for native responses.
+Actual large sequential DELETE plans refuse. Global release receipts use a
+complete finite ordered-index census (1,024/page, at most 1,048,576 rows / 4 GiB)
+under the same transaction deadline; exceeding a bound rolls all pages back.
+The gate writer locks before validating live canary businesses, so a delayed
+writer cannot recreate erased identifying evidence. Archive offboarding must
+freeze and independently erase globally unreferenced archived input keys before
+claiming completion; the request's remaining hot evaluations cannot discover
+already retired original inputs. This ADR itself grants no production mutation outside
 an explicitly authorized business deletion and no storage-closure claim.

@@ -29,7 +29,7 @@
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "3f938f9a05e8a29f80d4984d2828ed105fd8b13a46c1fc99ee84f34f241c4396",
+      "sha256": "5a95ef3985d9536d88c1cc56f9616f53612f7e56f61a798fb6c9b2895d90941b",
       "retention": "D153 authenticated whole-business erasure only: remove all target-owned retained lineage, frozen labels and protected action history under exclusive writer locks with transactionally suspended exact reviewed guards and restored modes. Foreign keys stay active; global shared input references and other tenants remain. Ordinary retention and snapshot age pruning receive no removal authority; external archive/file remnants refuse success."
     },
     {
@@ -287,7 +287,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "ab6ee3495b564dca3d4254eb7df3e57faef209c61769d1342a3c1b1d5b0a7651",
+      "sha256": "f3c7e724e26fa0ddfcb2a8279417676587822fae93389abf66e989a3f6de8da6",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {

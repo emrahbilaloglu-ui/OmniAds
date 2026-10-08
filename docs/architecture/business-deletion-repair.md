@@ -28,9 +28,15 @@ statement or commit rolls back database mutations and trigger changes together.
 No `session_replication_role`, FK disabling, global bypass flag or schema change
 is used. Ordinary protected-history mutation remains forbidden.
 
-Validated equality CHECKs plus a NOT NULL canonical UUID permit indexed native
-ownership reads. Legacy dual-owner rows retain both scope checks and reject
-contradictions. Every scoped table is checked for remaining target rows before
+Validated equality CHECKs plus a NOT NULL indexed owner permit indexed native
+ownership reads; `meta_creative_lineage_edges` uses its existing text-leading
+index. Five explicitly reviewed original creative-grain tables use their
+required UUID/PK owner despite nullable compatibility text. A contradictory
+non-null alias in the selected canonical scope refuses. Native response tables
+use their episode-key indexes only when a validated, complete, NOT NULL composite
+FK proves episode ownership through the parent's equality CHECK. Missing proofs
+refuse. Actual DELETE plans are checked before writes; a large sequential scope
+scan refuses. No production index or index maintenance is introduced. Every scoped table is checked for remaining target rows before
 root deletion. Shared users and provider-account identities are preserved;
 connection-owned credentials cascade and active sessions lose the deleted scope.
 
@@ -44,7 +50,16 @@ Genuinely shared input keys remain for the other business that still owns them.
 Indirect custom-report shares and identifying admin-audit entries are removed.
 Derived cross-business retention/release/repair receipts containing the exact
 UUID are invalidated as whole receipts; unrelated receipts and underlying other
-business facts remain. The admin route emits only an anonymous deletion count
+business facts remain. The multi-gigabyte global release-receipt table has no
+business index: it receives a complete finite census through its existing
+`(emitted_at,id)` index, at most 1,024 rows per verified ordered page. No global
+JSON DELETE or sequential plan is allowed. A maximum of 1,048,576 rows / 4 GiB
+of evidence and the transaction deadline bound the complete operation. Exceeding
+any bound rolls back all earlier pages and the business deletion; a partial
+census never counts as erasure. This can inspect substantial historical evidence
+and holds the deletion's writer locks for that bounded operation. Every gate
+writer acquires the gate-table lock before business key-share locks and refuses
+a canary whose business disappeared, preventing delayed ghost copies. The admin route emits only an anonymous deletion count
 receipt, with no removed business ID or name.
 
 ## External files and archives
@@ -64,7 +79,15 @@ not guessed by the web request. An archive-bearing business must first have its
 owned archive copies removed through a separately reviewed archive offboarding
 path; until then the product MUST NOT report successful deletion. Halıcızade and
 Vornom are checked independently against the actual configured catalog before
-any production attempt.
+any production attempt. Archive offboarding must freeze every archived native
+input key and its current full-row digest before destroying the archive. After
+removal of served and inactive copies, collect only those frozen keys after
+GLOBAL indexed zero-reference proof under native-producer and input/evaluation
+writer exclusion. Source drift or a new foreign reference vetoes collection.
+The separately reviewed Vornom operational artifact covers 518 already-orphaned
+archived keys; the ordinary request's hot-evaluation key census alone cannot
+prove their removal. Its local fixture, live execution and independent post-read
+are separate evidence. No whole input-table scan or other-key GC is authorized.
 
 Application deletion is not a claim of forensic erasure of PostgreSQL MVCC/WAL,
 shared system logs, or shared disaster-recovery backups. Shared backups contain
@@ -76,14 +99,16 @@ opening the 163 GiB growth-admission gate.
 
 ## Verification and rollout
 
-Sixteen destructive cases run only on a disposable localhost PostgreSQL migrated
+Twenty-two destructive cases run only on a disposable localhost PostgreSQL migrated
 by the actual migrations and are registered in the canonical CI harness. They
 cover legacy FK failure, complete scoped removal, frozen/protected history,
 shared users/accounts, credentials/sessions, unknown tables/guards, late-FK
 rollback with trigger restoration, live leases, growth-refused removal, ownership
 conflicts, the kill switch, absent businesses, indirect compact/report/audit
 copies, native producer calibration/context/evaluation cleanup and GLOBAL shared
-input safety. A real second session proves another tenant's writer times out
+input safety, nullable legacy owners, contradictory legacy aliases, actual
+native episode/response cleanup, multiple release-receipt pages, rollback after
+a census bound and stale-canary write refusal. A real second session proves another tenant's writer times out
 while the first deletion has suspended guards, then proves ordinary immutable
 DELETE still fails after commit. External-file tests cover exact scoped cache
 removal, absent files, unsafe paths and pinned archive blockers.

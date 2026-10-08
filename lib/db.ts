@@ -1130,6 +1130,11 @@ export async function withPinnedDbClient<T>(
   const timeoutMs = options?.timeoutMs;
   let statementTimeoutApplied = false;
   let releaseError: Error | undefined;
+  // PostgreSQL may terminate an owned backend BETWEEN queries. A checked-out
+  // client then emits `error` rather than rejecting a query; without a listener
+  // a durable background operation can crash the entire web process.
+  const onClientError = (error: Error) => { releaseError ??= error; };
+  client.on?.("error", onClientError);
   try {
     if (timeoutMs != null && options?.deadlineAtMs == null) {
       // A caller-level Promise.race cannot cancel PostgreSQL work. Put the
@@ -1146,10 +1151,12 @@ export async function withPinnedDbClient<T>(
       "SELECT pg_backend_pid() AS pid",
     );
     const backendPid = Number(pidRows.rows[0]?.pid ?? Number.NaN);
-    return await fn({
+    const result = await fn({
       query,
       backendPid: Number.isFinite(backendPid) ? backendPid : null,
     });
+    if (releaseError) throw releaseError;
+    return result;
   } catch (error) {
     // A deadline or failed transactional cleanup may leave protocol work or an
     // open transaction on this session. Destroy it instead of returning an
@@ -1170,6 +1177,7 @@ export async function withPinnedDbClient<T>(
       }
     }
     client.release(releaseError);
+    client.removeListener?.("error", onClientError);
   }
 }
 
@@ -1214,8 +1222,11 @@ export async function runPinnedDbTransaction<T>(input: {
     );
   }
   const settings = getCachedOrResolvedDbSettings();
+  const queryable = input.deadlineAtMs != null
+    ? { query: deadlineBoundClientQuery(input.client, input.deadlineAtMs, input.timeoutMs) }
+    : input.client;
   const wrapped = createWrappedDbExecutor(
-    input.client,
+    queryable,
     settings,
     input.timeoutMs,
     { allowRetries: false },
@@ -1234,7 +1245,7 @@ export async function runPinnedDbTransaction<T>(input: {
       input.client.query("ROLLBACK"),
       DB_DEADLINE_CLEANUP_ALLOWANCE_MS,
       "Database migration rollback",
-    ).catch(() => undefined);
+    );
     throw error;
   }
 }

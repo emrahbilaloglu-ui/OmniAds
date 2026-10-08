@@ -36,4 +36,10 @@ export async function registerNodeInstrumentation() {
   await publish();
   const timer = setInterval(publish, refreshMs);
   timer.unref?.();
+
+  // Explicit admin erasure is durable work independent of HTTP lifetime. Run
+  // where the actual media cache/archive mounts live; provider worker admission
+  // and production capacity budgets remain unchanged.
+  const { startBusinessDeletionProcessor } = await import("@/lib/business-deletion-runtime");
+  startBusinessDeletionProcessor();
 }

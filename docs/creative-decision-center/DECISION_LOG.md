@@ -12870,3 +12870,121 @@ and that read. Storage refusal is reported separately from completed server
 deletion. This is client cache cleanup, not a new decision authority or browser
 history/forensic purge. Tests cover exact/similar foreign IDs, global/unscoped
 layout preservation, unconfirmed-delete preservation and older-client healing.
+
+D153 fourth-request performance correction (2026-10-09): the actual UI request
+on `a74f7eef5dd16971175afdd154b09f0137286580` reached the 240-second total
+transaction deadline in `meta_creative_daily`. Its failed counters were progress,
+not a commit: 704,463 release receipts / 1,995,499,076 metadata bytes, 2,094,859
+owned identity observations and 1,882,452 deleted ordinary rows. Independent
+post-request checks proved all 418 selected scope presences, 15 business roots,
+other memberships/connections and reviewed guards matched the pre-state. Vornom
+external archives and frozen inputs had not been touched. The final timed-out
+statement alone does not explain the total duration: the completed release
+receipt census cost 99.4 seconds and the ad-set fact phase 41.1 seconds.
+
+The release census now pins one non-holdable ordered index cursor, verifies its
+actual leading `(emitted_at,id)` plan once, and FETCHes 1,024-row pages. A lateral
+projection with OFFSET 0 serializes each evidence JSON value once for both byte
+accounting and the same case-insensitive identifying match. No global eager
+sort, bitmap, materialization or sequential scan is accepted. Complete row/byte
+bounds and exact removed IDs remain mandatory; a later bound still rolls earlier
+receipt removals back. The first 1,024-row live read-only sample (2,965,686 metadata
+bytes) matched the old result digest exactly; it is not a complete census or
+live-erasure acceptance.
+
+Owner identity and ordinary TID pages now carry at most 4,096 identities, with
+no payload projection and the same 4,194,304-row table limit. Native evaluation
+erasure also uses 4,096-row pages from one actual leading-owner Index Scan,
+without a user-facing timeline ORDER BY, and deletes exact TIDs with a table-OID
+and owner residual check. The cursor excludes eager sort/bitmap/materialization;
+every DELETE must still prove its actual TID-only plan and exact removed count.
+The returned contract/input keys are captured transactionally and undergo the
+same GLOBAL zero-reference proof. Ordinary-heap, writer-exclusion, FK and guard
+requirements are preserved. The 240-second total, 30-second statement and
+1.5-second lock limits, production configuration and provider authority are
+unchanged. Test fixtures now exceed 4,096 rows, including late ownership/FK
+failures, native partial-page rollback and foreign native-row preservation.
+This is a source/performance correction; exact release, real erasure and the
+independent full absence proofs are still required before claiming completion.
+
+
+## D154 — Durable whole-business erasure outside HTTP, on the file-owning web service (2026-10-09)
+
+The four completed Halıcızade requests above all rolled back. The last request
+spent 240 seconds without reaching native evaluation erasure. A bounded live
+read of the candidate native owner cursor took 2.056 seconds for its first 4,096
+identities; its estimated selected history was 1.34 million rows. That sample
+cannot predict a total duration, and neither larger pages nor passing fixtures
+establish reliable completion inside HTTP. D153's four-minute direct-call bound
+is therefore not the execution contract for the product's deletion request.
+
+An authorized, non-demo business DELETE now idempotently enqueues one durable
+`business_deletion_jobs` row and returns HTTP 202. Both ordinary business and
+superadmin callers use this path; an acknowledgement never means deleted. A
+production Node.js web instrumentation timer services queued/interrupted work.
+It runs on the service that actually owns the mounted historical archive and
+media cache. The sync worker has no archive mount; checking its empty filesystem
+would be a false absence proof. No worker mount, provider job, cron, budget,
+override, proxy limit or external provider account is changed by this repair.
+
+The processor obtains fresh physical-capacity proof and honors the assignment
+kill switch. A measured aggregate/table logical growth refusal may admit only
+this expressly requested erasure, without an override; physical refusal,
+unknown/malformed measurement and override refuse it before claiming a job.
+Provider growth admission and truthful capacity-idle worker heartbeats remain
+unchanged. Production-build, development/test and sync-worker processes never
+start the web erasure timer.
+
+One pinned PostgreSQL backend owns a session advisory exclusion and the actual
+whole-business transaction. Only one erasure runs globally. The background
+operation has a 20-minute absolute deadline, the same 30-second statement cap,
+1.5-second lock timeout, exact ownership/plan/bound checks, child-first ordering,
+FKs and reviewed immutable-guard restoration. Direct internal callers retain
+their existing four-minute limit. No partial phase commits are introduced.
+Pinned transaction queries now apply their existing absolute deadline argument;
+rollback failure propagates so an uncertain backend cannot be reused. A pinned
+client error between statements is handled and destroys the failed connection
+rather than becoming an unhandled process exception.
+
+Global writer exclusion/guard suspension can delay other businesses' writes and
+historical reads. Before proceeding, exact indexed owner probes across the
+bounded business directory require all businesses to have no active runner lease
+or running/claimed/processing provider/native job. Failure rolls back. Queued
+work is not represented as having run. Worker heartbeat/runtime tables remain
+writable during bulk erasure; their finite writer-excluded census moves to the
+final phase. Any fresh selected runtime/worker reference still rolls back the
+entire transaction. This does not hide provider incapability behind health.
+
+The durable job moves to running before the erasure transaction. A process or
+connection crash releases the same backend's lock and rolls its transaction back;
+the next web process may recover that running job, at most three interrupted
+attempts. An ordinary failure persists a safe code and requires a fresh admin
+DELETE to retry. No automatic infinite error retry is introduced. The job itself
+is explicitly scoped and removed in the SAME COMMIT as all owned records and
+the business root. No completed business tombstone remains. The job table is an
+additive small table; rolling back code requires first draining/refusing active
+jobs and leaves queued/failed rows attached to their still-existing businesses.
+Do not roll back to a pre-D154 eraser while the new ownership table exists.
+
+A session-cookie-keyed, expiring HMAC read receipt lets the initiating session
+observe completion after the job and memberships disappear, without retaining
+server-side business metadata. It grants no mutation authority and is sent only
+in response/POST bodies, not URL parameters. Status requires the current
+session, matching business/session receipt and a fresh root/job read. An existing
+root with no job is an unknown/failed outcome, never completion. Clients keep
+workspace/browser state through queued/running, wait for completed atomic
+absence, then independently re-read the authorized list before purging their
+exact client namespaces. Offline devices heal on their next authoritative list
+refresh. Read receipts/cookies must not be exported into operator artifacts.
+
+The real migrated PostgreSQL suite covers idempotent queueing, same-COMMIT job
+absence, foreign tenant preservation, failed rollback plus explicit retry,
+second-session exclusion, actual backend termination/recovery, interruption
+bounds, live heartbeat writes during bulk exclusion, and shorter statement plus
+absolute pinned deadlines. Exact input-reference probes pin bitmap scans off;
+dense shared hashes still require the reviewed leading contract/hash index and
+preserve GLOBAL inputs with any remaining native reference. The canonical seam
+requires all 43 deletion cases with no skips. Source/tests are not live erasure
+acceptance: exact runtime plus complete selected DB, external archive/input,
+media and browser absence proofs remain necessary. SQL deletion does not prove
+physical file shrink or that the 163 GiB aggregate admission gate has reopened.

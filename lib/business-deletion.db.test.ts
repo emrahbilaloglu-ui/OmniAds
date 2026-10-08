@@ -2,8 +2,9 @@ import { randomUUID, randomBytes } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, seedTenant } from "../scripts/native-storage-batch/owned-fixture";
-import { getDb, runDbTransaction } from "@/lib/db";
-import { BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
+import { getDb, runDbTransaction, runPinnedDbTransaction, withPinnedDbClient } from "@/lib/db";
+import { BUSINESS_ERASURE_LOCK_NAMESPACE, BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
+import { enqueueBusinessDeletion, runBusinessDeletionWorkerTick } from "@/lib/business-deletion-jobs";
 import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory } from "@/lib/business-deletion-control-receipts";
 import { deleteBusinessNativeEvaluations } from "@/lib/business-deletion-native-evaluations";
 import { upsertSyncGateRecord } from "@/lib/sync/release-gates";
@@ -182,8 +183,129 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     const { businessId } = await fixture();
     await getDb()`INSERT INTO sync_runner_leases (business_id, provider_scope, lease_owner, lease_expires_at)
       VALUES (${businessId}, 'meta', 'disposable-owner', now() + interval '10 minutes')`;
-    await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({ code: "business_busy" });
-    expect(await remains(businessId, "memberships", "business_id")).toBe(true);
+    try {
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({ code: "business_busy" });
+      expect(await remains(businessId, "memberships", "business_id")).toBe(true);
+    } finally { await getDb()`DELETE FROM sync_runner_leases WHERE business_id=${businessId}`; }
+  });
+
+  it("refuses global writer exclusion while ANOTHER business has an active lease", async () => {
+    const { businessId,otherId } = await fixture();
+    await getDb()`INSERT INTO sync_runner_leases (business_id,provider_scope,lease_owner,lease_expires_at)
+      VALUES (${otherId},'meta','foreign-active-worker',now()+interval '10 minutes')`;
+    try {
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"business_busy"});
+      expect(await remains(businessId,"memberships","business_id")).toBe(true);
+    } finally { await getDb()`DELETE FROM sync_runner_leases WHERE business_id=${otherId}`; }
+  });
+
+  it("durably queues once, performs erasure on the pinned worker backend and removes the job in the same commit", async () => {
+    const {businessId,otherId,userId}=await fixture();
+    const first=await enqueueBusinessDeletion(businessId),again=await enqueueBusinessDeletion(businessId);
+    expect(first.status).toBe("queued");expect(again.attempt_id).toBe(first.attempt_id);
+    expect(await remains(businessId)).toBe(true);
+    const foreign=await getDb()`SELECT * FROM memberships WHERE business_id=${otherId}`;
+    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
+    expect(await remains(businessId)).toBe(false);
+    expect(await remains(businessId,"business_deletion_jobs","business_ref_id")).toBe(false);
+    expect(await remains(userId,"users")).toBe(true);
+    expect(await getDb()`SELECT * FROM memberships WHERE business_id=${otherId}`).toEqual(foreign);
+  });
+
+  it("marks a rolled-back job failed and retries only after a fresh authorized enqueue", async () => {
+    const {businessId}=await fixture();
+    await getDb()`CREATE TABLE business_delete_job_fk_fixture(member_id uuid REFERENCES memberships(id) ON DELETE RESTRICT)`;
+    await getDb()`INSERT INTO business_delete_job_fk_fixture SELECT id FROM memberships WHERE business_id=${businessId}`;
+    const first=await enqueueBusinessDeletion(businessId);
+    try {
+      expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"failed"});
+      expect(await remains(businessId,"memberships","business_id")).toBe(true);
+      const [job]=await getDb()`SELECT * FROM business_deletion_jobs WHERE business_ref_id=${businessId}`;
+      expect(job!.status).toBe("failed");
+      expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"idle"});
+    } finally { await getDb()`DROP TABLE business_delete_job_fk_fixture`; }
+    const retry=await enqueueBusinessDeletion(businessId);
+    expect(retry.attempt_id).not.toBe(first.attempt_id);
+    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
+    expect(await remains(businessId)).toBe(false);
+  });
+
+  it("does not claim a queued job while a second session owns the global erasure lock", async () => {
+    const {businessId}=await fixture();await enqueueBusinessDeletion(businessId);
+    const blocker=new Client({connectionString:process.env.DATABASE_URL});await blocker.connect();
+    try {
+      await blocker.query("SELECT pg_advisory_lock($1::int,0)",[BUSINESS_ERASURE_LOCK_NAMESPACE]);
+      expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"busy"});
+      const [job]=await getDb()`SELECT status,attempts FROM business_deletion_jobs WHERE business_ref_id=${businessId}`;
+      expect(job).toMatchObject({status:"queued",attempts:0});
+    } finally { await blocker.end(); }
+    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
+  });
+
+  it("stops automatic recovery after three interrupted attempts without deleting the business",async()=>{
+    const {businessId}=await fixture();await enqueueBusinessDeletion(businessId);
+    await getDb()`UPDATE business_deletion_jobs SET status='running',attempts=3 WHERE business_ref_id=${businessId}`;
+    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"interrupted"});
+    const [job]=await getDb()`SELECT status,error_code FROM business_deletion_jobs WHERE business_ref_id=${businessId}`;
+    expect(job).toMatchObject({status:"failed",error_code:"interrupted"});
+    expect(await remains(businessId,"memberships","business_id")).toBe(true);
+    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"idle"});
+    await getDb()`DELETE FROM business_deletion_jobs WHERE business_ref_id=${businessId}`;
+  });
+
+  it("recovers a running job after its actual pinned PostgreSQL backend is terminated, without leaving partial erasure", async () => {
+    const {businessId}=await fixture();await enqueueBusinessDeletion(businessId);
+    const observer=new Client({connectionString:process.env.DATABASE_URL});await observer.connect();
+    const work=runBusinessDeletionWorkerTick().then(v=>({value:v}),e=>({error:e}));
+    let killed=false;
+    try {
+      for(let n=0;n<200;n++) {
+        const {rows:[active]}=await observer.query(`SELECT a.pid FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid
+          WHERE l.locktype='advisory' AND l.classid=$1::oid AND l.objid=0 AND l.granted
+            AND a.xact_start IS NOT NULL AND a.query NOT ILIKE '%UPDATE business_deletion_jobs%'
+            AND a.query NOT ILIKE '%pg_try_advisory%' LIMIT 1`,[BUSINESS_ERASURE_LOCK_NAMESPACE]);
+        if(active) {await observer.query("SELECT pg_terminate_backend($1)",[active.pid]);killed=true;break;}
+        await new Promise(r=>setTimeout(r,2));
+      }
+      expect(killed).toBe(true);expect(await work).toHaveProperty("error");
+      expect(await remains(businessId,"memberships","business_id")).toBe(true);
+      const [job]=await getDb()`SELECT status FROM business_deletion_jobs WHERE business_ref_id=${businessId}`;
+      expect(job!.status).toBe("running");
+      expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
+      expect(await remains(businessId)).toBe(false);
+    } finally {await work;await observer.end();}
+  });
+
+  it("retains live process heartbeat writes during the bulk transaction before its final control-history fence",async()=>{
+    const {businessId}=await fixture();
+    let observed=false;
+    await withPinnedDbClient(async client=>{
+      const wrapped={query:async(text:string,params?:unknown[])=>{
+        if(!observed && text.startsWith("CREATE TEMP TABLE business_erasure_input_keys")) {
+          await heartbeatSyncWorker({workerId:`delete-live-${randomUUID()}`,instanceType:"fixture",providerScope:"all",status:"idle",metaJson:{fixture:true}});
+          observed=true;
+        }
+        return client.query(text,params);
+      }};
+      await deleteBusinessWithData(businessId,{client:wrapped as never});
+    },{timeoutMs:30_000});
+    expect(observed).toBe(true);expect(await remains(businessId)).toBe(false);
+  });
+
+  it("enforces the pinned transaction statement cap and absolute deadline, rolling back before the backend is reused",async()=>{
+    const {businessId}=await fixture();
+    await withPinnedDbClient(async client=>{
+      await expect(runPinnedDbTransaction({client,timeoutMs:80,lockTimeoutMs:80,deadlineAtMs:Date.now()+10_000,fn:async sql=>{
+        await sql`UPDATE businesses SET name='pinned must roll back' WHERE id=${businessId}`;
+        await sql.query("SELECT pg_sleep(5)");
+      }})).rejects.toThrow();
+      expect((await client.query("SELECT name FROM businesses WHERE id=$1",[businessId])).rows[0].name).toBe("Remove this business");
+      await expect(runPinnedDbTransaction({client,timeoutMs:500,lockTimeoutMs:80,deadlineAtMs:Date.now()+150,fn:async sql=>{
+        await sql`UPDATE businesses SET name='deadline must roll back' WHERE id=${businessId}`;
+        await sql.query("SELECT pg_sleep(5)");
+      }})).rejects.toThrow();
+      expect((await client.query("SELECT name FROM businesses WHERE id=$1",[businessId])).rows[0].name).toBe("Remove this business");
+    },{timeoutMs:30_000});
   });
 
   it("allows data removal under a growth refusal, without changing the growth budget", async () => {
@@ -250,7 +372,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     await getDb().query(`INSERT INTO engine_v3_job_runs
       (job_name,business_ref_id,business_id,as_of_date,engine_version,status,error_json)
       SELECT 'erasure-fixture',b::uuid,NULL,'2026-10-01','fixture','failed',$3::jsonb
-      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,1025) n`,
+      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,4097) n`,
     [businessId,otherId,JSON.stringify({fixture:randomBytes(512).toString("hex")})]);
     const [size] = await getDb()`SELECT pg_relation_size('engine_v3_job_runs')::int AS bytes`;
     expect(Number(size!.bytes)).toBeGreaterThan(1024**2);
@@ -265,7 +387,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     await getDb().query(`INSERT INTO meta_adset_daily
       (business_id,business_ref_id,provider_account_id,date,adset_id,account_timezone,account_currency,promoted_object_json)
       SELECT b,b::uuid,'fixture-account','2026-10-01','fact-'||lpad(n::text,5,'0'),'UTC','USD',$3::jsonb
-      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,1250) n`,
+      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,4500) n`,
     [businessId,otherId,JSON.stringify({fixture:randomBytes(512).toString("hex")})]);
     const [size] = await getDb()`SELECT pg_relation_size('meta_adset_daily')::int AS bytes`;
     expect(Number(size!.bytes)).toBeGreaterThan(1024**2);
@@ -289,7 +411,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     await getDb().query(`INSERT INTO engine_v3_job_runs
       (job_name,business_ref_id,business_id,as_of_date,engine_version,status,error_json)
       SELECT 'late-page-fixture',b::uuid,NULL,'2026-10-01','fixture','failed',$3::jsonb
-      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,1250) n`,
+      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,4500) n`,
     [businessId,otherId,JSON.stringify({fixture:randomBytes(512).toString("hex")})]);
     // Pick an actual later tuple in the same owner cursor order. No fixture
     // write intervenes between this read and the deletion under test.
@@ -299,10 +421,10 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       await sql.query("SET LOCAL cursor_tuple_fraction=1");
       await sql.query(`DECLARE late_page_probe NO SCROLL CURSOR FOR SELECT ctid::text AS row_tid,tableoid::text AS row_table
         FROM public.engine_v3_job_runs WHERE business_ref_id=$1::uuid`,[businessId]);
-      const page = await sql.query<{row_tid:string}>("FETCH FORWARD 1025 FROM late_page_probe");
+      const page = await sql.query<{row_tid:string}>("FETCH FORWARD 4097 FROM late_page_probe");
       await sql.query("CLOSE late_page_probe");
-      expect(page).toHaveLength(1025);
-      return page[1024]!.row_tid;
+      expect(page).toHaveLength(4097);
+      return page[4096]!.row_tid;
     });
     await getDb()`CREATE TABLE business_delete_late_page_fk (job_id uuid REFERENCES engine_v3_job_runs(id) ON DELETE RESTRICT)`;
     await getDb().query("INSERT INTO business_delete_late_page_fk SELECT id FROM engine_v3_job_runs WHERE ctid=$1::tid",[lateTid]);
@@ -429,15 +551,19 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     try {
       const target = await seedTenant(db,1);
       const producer = await seedCalibration(db,target,"2026-09-23","2026-09-23T12:00:00Z");
-      for (const [tag,count] of [["large-context",1025],["second-context",3]] as const)
+      for (const [tag,count] of [["large-context",4097],["second-context",3]] as const)
         await seedGeneration(db,target,{ date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[count],tag });
+      const other=await seedTenant(db,1);
+      const otherProducer=await seedCalibration(db,other,"2026-09-23","2026-09-23T12:00:00Z");
+      await seedGeneration(db,other,{date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer:otherProducer,perAccount:[2],tag:"foreign-context"});
+      const foreign=(await db.query("SELECT * FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[other.business])).rows;
       const before = (await db.query("SELECT id,contract_version,input_hash::text FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[target.business])).rows;
-      expect(before).toHaveLength(1028);
+      expect(before).toHaveLength(4100);
       await expect(runDbTransaction(async () => {
         const sql=getDb();
         await sql.query("SET LOCAL enable_seqscan=off");
         await sql.query("CREATE TEMP TABLE business_erasure_input_keys (contract_version text,input_hash character(64),PRIMARY KEY(contract_version,input_hash)) ON COMMIT DROP");
-        await deleteBusinessNativeEvaluations(sql,target.business,{maxRows:1024});
+        await deleteBusinessNativeEvaluations(sql,target.business,{maxRows:4096});
       })).rejects.toThrow("native_evaluation_page_limit");
       expect((await db.query("SELECT id,contract_version,input_hash::text FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[target.business])).rows).toEqual(before);
       await addObservedProductionReferenceIndex(db);
@@ -445,7 +571,10 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
         await deleteBusinessWithData(target.business);
         expect(await remains(target.business)).toBe(false);
         expect(await remains(target.business,"engine_v3_ad_decision_evaluations","business_ref_id")).toBe(false);
-        expect((await db.query("SELECT 1 FROM engine_v3_ad_decision_input_evidence WHERE input_hash=ANY($1::character(64)[])",[before.map(r=>r.input_hash)])).rows).toHaveLength(0);
+        expect((await db.query("SELECT * FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[other.business])).rows).toEqual(foreign);
+        const protectedHashes=new Set(foreign.map(r=>String(r.input_hash).trim()));
+        const expected=[...new Set(before.filter(r=>protectedHashes.has(r.input_hash)).map(r=>r.input_hash))].sort().map(input_hash=>({input_hash}));
+        expect((await db.query("SELECT input_hash::text FROM engine_v3_ad_decision_input_evidence WHERE input_hash=ANY($1::character(64)[]) ORDER BY input_hash",[before.map(r=>r.input_hash)])).rows).toEqual(expected);
       } finally { await db.query("DROP INDEX idx_engine_v3_ad_evaluations_contract_input"); }
     } finally { await db.end(); }
   },60_000);
@@ -527,18 +656,22 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     const build = randomUUID();
     await getDb().query(`INSERT INTO sync_release_gates (build_id,environment,gate_kind,gate_scope,mode,base_result,verdict,summary,evidence_json,emitted_at)
       SELECT $1,'fixture','release_gate','release_readiness','measure_only','pass','pass','fixture',
-      jsonb_build_object('canaries',jsonb_build_array(jsonb_build_object('businessId',CASE WHEN n IN (1,1025) THEN $2 ELSE $3 END))),
+      jsonb_build_object('canaries',jsonb_build_array(jsonb_build_object('businessId',CASE WHEN n=1 THEN $2 WHEN n=1025 THEN upper($2) ELSE $3 END))),
       make_timestamptz($4::int,1,1,0,0,0,'UTC')+n*interval '1 second' FROM generate_series(1,1025) n`,[build,businessId,otherId,year]);
+    await getDb().query("UPDATE sync_release_gates SET summary=upper($2) WHERE build_id=$1 AND emitted_at=make_timestamptz($3::int,1,1,0,0,0,'UTC')+interval '512 seconds'",[build,businessId,year]);
+    await getDb().query("UPDATE sync_release_gates SET override_reason=upper($2) WHERE build_id=$1 AND emitted_at=make_timestamptz($3::int,1,1,0,0,0,'UTC')+interval '513 seconds'",[build,businessId,year]);
     return build;
   }
 
   it("erases identifying release receipts across multiple bounded index pages and preserves other receipts byte-for-byte", async () => {
     const { businessId,otherId } = await fixture();
     const build = await releaseReceipts(businessId,otherId,2000);
-    const before = await getDb()`SELECT * FROM sync_release_gates WHERE build_id=${build} AND NOT evidence_json::text LIKE ${`%${businessId}%`} ORDER BY id`;
+    const before = await getDb()`SELECT * FROM sync_release_gates WHERE build_id=${build} AND
+      (evidence_json::text ILIKE ${`%${businessId}%`} OR summary ILIKE ${`%${businessId}%`} OR override_reason ILIKE ${`%${businessId}%`}) IS NOT TRUE ORDER BY id`;
     try {
       await deleteBusinessWithData(businessId);
-      expect(await getDb()`SELECT 1 FROM sync_release_gates WHERE build_id=${build} AND evidence_json::text LIKE ${`%${businessId}%`}`).toHaveLength(0);
+      expect(await getDb()`SELECT 1 FROM sync_release_gates WHERE build_id=${build} AND
+        (evidence_json::text ILIKE ${`%${businessId}%`} OR summary ILIKE ${`%${businessId}%`} OR override_reason ILIKE ${`%${businessId}%`}) IS TRUE`).toHaveLength(0);
       expect(await getDb()`SELECT * FROM sync_release_gates WHERE build_id=${build} ORDER BY id`).toEqual(before);
     } finally { await getDb()`DELETE FROM sync_release_gates WHERE build_id=${build}`; }
   });

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Search, ChevronLeft, ChevronRight, Filter, Trash2 } from "lucide-react";
 import { InlineHelp } from "@/components/admin/inline-help";
+import { awaitBusinessDeletion } from "@/lib/business-deletion-client";
 
 interface BusinessRow {
   id: string;
@@ -109,6 +110,8 @@ export default function AdminBusinessesPage() {
       if (!response.ok) {
         throw new Error(payload?.message ?? "Workspace silinemedi.");
       }
+
+      await awaitBusinessDeletion(business.id, payload ?? {});
 
       setBusinesses((current) => current.filter((item) => item.id !== business.id));
       setTotal((current) => Math.max(0, current - 1));

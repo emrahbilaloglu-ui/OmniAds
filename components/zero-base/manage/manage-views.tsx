@@ -40,7 +40,8 @@ export function CeremonyResult({ outcome, name }: { outcome: CeremonyOutcome; na
   if (outcome.kind === "submitted") {
     return (
       <p role="status" data-ceremony={`${name}:submitted`} style={{ margin: "6px 0 0", fontSize: 12 }}>
-        Applying, then reading the result back…
+        {name === "delete" ? "Deletion requested. Waiting for all business records to be removed; large histories can take several minutes. Closing this window does not cancel the background job."
+          : "Applying, then reading the result back…"}
       </p>
     );
   }

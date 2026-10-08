@@ -1,5 +1,7 @@
 "use client";
 
+import { awaitBusinessDeletion } from "@/lib/business-deletion-client";
+
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -87,11 +89,14 @@ export default function AdminBusinessDetailPage() {
   const deleteBusiness = async () => {
     if (!confirm(`"${data?.business.name}" workspace'ini kalıcı olarak silmek istiyor musunuz? Bu işlem geri alınamaz.`)) return;
     setBusy(true);
-    const res = await fetch(`/api/admin/businesses/${businessId}`, { method: "DELETE" });
-    if (res.ok) { router.push("/admin/businesses"); return; }
-    const body = await res.json().catch(() => null);
-    showMsg("error", body?.message ?? "Silme başarısız.");
-    setBusy(false);
+    try {
+      const res = await fetch(`/api/admin/businesses/${businessId}`, { method: "DELETE" });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.message ?? "Silme başarısız.");
+      await awaitBusinessDeletion(businessId, body ?? {});
+      router.push("/admin/businesses");
+    } catch (error) { showMsg("error", error instanceof Error ? error.message : "Silme sonucu doğrulanamadı."); }
+    finally { setBusy(false); }
   };
 
   if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded w-64" /><div className="h-48 bg-gray-200 rounded-xl" /></div>;

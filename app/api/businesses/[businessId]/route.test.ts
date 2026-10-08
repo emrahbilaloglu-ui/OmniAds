@@ -26,6 +26,11 @@ vi.mock("@/lib/business-deletion", async (importOriginal) => ({
   deleteBusinessWithData: vi.fn(),
 }));
 
+vi.mock("@/lib/business-deletion-jobs", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/business-deletion-jobs")>(),
+  enqueueBusinessDeletion: vi.fn(),
+}));
+
 vi.mock("@/lib/demo-business", () => ({
   isDemoBusinessId: vi.fn(),
 }));
@@ -46,6 +51,7 @@ const requestLanguage = await import("@/lib/request-language");
 const migrations = await import("@/lib/migrations");
 const accountStore = await import("@/lib/account-store");
 const deletion = await import("@/lib/business-deletion");
+const jobs = await import("@/lib/business-deletion-jobs");
 const { DELETE, PATCH } = await import("@/app/api/businesses/[businessId]/route");
 
 /**
@@ -130,9 +136,10 @@ describe("DELETE /api/businesses/[businessId]", () => {
     vi.resetAllMocks();
     vi.mocked(requestLanguage.resolveRequestLanguage).mockResolvedValue("en");
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
-      session: {} as never,
+      session: { sessionId: "test-session" } as never,
       membership: {} as never,
     });
+    vi.mocked(jobs.enqueueBusinessDeletion).mockResolvedValue({ status: "queued" } as never);
     vi.mocked(demoBusiness.isDemoBusinessId).mockReturnValue(false);
     // Business deletion is the widest selection mutation there is, so it runs
     // under the assignment lane like every other one.
@@ -152,7 +159,7 @@ describe("DELETE /api/businesses/[businessId]", () => {
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
     const request = new NextRequest("http://localhost/api/businesses/biz", {
-      method: "DELETE",
+      method: "DELETE", headers: { Cookie: "omniads_session=test-session-cookie" },
     });
     const response = await DELETE(request, {
       params: Promise.resolve({ businessId: "biz" }),
@@ -170,7 +177,7 @@ describe("DELETE /api/businesses/[businessId]", () => {
     });
 
     const request = new NextRequest("http://localhost/api/businesses/biz", {
-      method: "DELETE",
+      method: "DELETE", headers: { Cookie: "omniads_session=test-session-cookie" },
     });
     const response = await DELETE(request, {
       params: Promise.resolve({ businessId: "biz" }),
@@ -188,28 +195,29 @@ describe("DELETE /api/businesses/[businessId]", () => {
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 
-  it("preserves the delete success contract without migrations", async () => {
+  it("acknowledges a durable job without claiming completed deletion or executing erasure in HTTP", async () => {
     const sql = vi.fn().mockResolvedValue([]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
     const request = new NextRequest("http://localhost/api/businesses/biz", {
-      method: "DELETE",
+      method: "DELETE", headers: { Cookie: "omniads_session=test-session-cookie" },
     });
     const response = await DELETE(request, {
       params: Promise.resolve({ businessId: "biz" }),
     });
     const payload = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(payload).toEqual({ status: "ok" });
-    expect(deletion.deleteBusinessWithData).toHaveBeenCalledWith("biz");
+    expect(response.status).toBe(202);
+    expect(payload).toMatchObject({ status: "queued", monitorTicket: expect.any(String) });
+    expect(jobs.enqueueBusinessDeletion).toHaveBeenCalledWith("biz");
+    expect(deletion.deleteBusinessWithData).not.toHaveBeenCalled();
     expect(sql).not.toHaveBeenCalled();
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 
   it("returns a useful conflict for protected history and preserves the schema", async () => {
-    vi.mocked(deletion.deleteBusinessWithData).mockRejectedValue(new deletion.BusinessDeletionError("protected_history"));
-    const response = await DELETE(new NextRequest("http://localhost/api/businesses/biz", { method: "DELETE" }), {
+    vi.mocked(jobs.enqueueBusinessDeletion).mockRejectedValue(new deletion.BusinessDeletionError("protected_history"));
+    const response = await DELETE(new NextRequest("http://localhost/api/businesses/biz", { method: "DELETE", headers: { Cookie: "omniads_session=test-session-cookie" } }), {
       params: Promise.resolve({ businessId: "biz" }),
     });
     expect(response.status).toBe(409);
@@ -220,8 +228,8 @@ describe("DELETE /api/businesses/[businessId]", () => {
     ["sync_worker_heartbeats","running worker seen within the last 5 minutes"],
     ["sync_runtime_instances","current runtime configuration"],
   ])("explains the specific live control reference in %s",async(table,message)=>{
-    vi.mocked(deletion.deleteBusinessWithData).mockRejectedValue(new deletion.BusinessDeletionError("control_reference_in_use",[table]));
-    const response=await DELETE(new NextRequest("http://localhost/api/businesses/biz",{method:"DELETE"}),{params:Promise.resolve({businessId:"biz"})});
+    vi.mocked(jobs.enqueueBusinessDeletion).mockRejectedValue(new deletion.BusinessDeletionError("control_reference_in_use",[table]));
+    const response=await DELETE(new NextRequest("http://localhost/api/businesses/biz",{method:"DELETE",headers:{Cookie:"omniads_session=test-session-cookie"}}),{params:Promise.resolve({businessId:"biz"})});
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({error:"control_reference_in_use",message:expect.stringContaining(message)});
     expect(migrations.runMigrations).not.toHaveBeenCalled();

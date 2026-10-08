@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { updateBusinessSettings } from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
-import { BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
+import { BusinessDeletionError } from "@/lib/business-deletion";
+import { businessDeletionFailureMessage, enqueueBusinessDeletion } from "@/lib/business-deletion-jobs";
+import { issueBusinessDeletionTicket } from "@/lib/business-deletion-ticket";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { resolveRequestLanguage } from "@/lib/request-language";
 
 const BUSINESS_DELETE_REQUIRED_TABLES = [
+  "business_deletion_jobs",
   "memberships",
   "invites",
   "business_cost_models",
@@ -159,42 +162,15 @@ export async function DELETE(
   }
 
   try {
-    await deleteBusinessWithData(businessId);
+    const job = await enqueueBusinessDeletion(businessId);
+    const monitorTicket = issueBusinessDeletionTicket(request.cookies.get("omniads_session")?.value ?? "", businessId, access.session.sessionId);
+    return NextResponse.json({ status: job.status, monitorTicket }, { status: 202 });
   } catch (error) {
-    if (error instanceof BusinessDeletionError) {
-      const tr = language === "tr";
-      const messages = {
-        not_found: tr ? "İşletme bulunamadı." : "Business not found.",
-        protected_history: tr
-          ? "İncelenmemiş bir veri koruma kuralı silmeyi engelliyor. İşletme ve veritabanı kayıtları korundu. Destek ile iletişime geçin."
-          : "An unreviewed data protection rule prevents deletion. The business and database records were preserved. Contact support.",
-        schema_not_ready: tr
-          ? "İşletmenin tüm verileri güvenle kaldırılamıyor. Hiçbir veri silinmedi. Destek ile iletişime geçin."
-          : "The business data cannot be safely removed with the current schema. No data was deleted. Contact support.",
-        scope_conflict: tr
-          ? "İşletme verilerindeki sahiplik uyuşmazlığı silmeyi engelliyor. Hiçbir veri silinmedi. Destek ile iletişime geçin."
-          : "Conflicting business ownership prevents deletion. No data was deleted. Contact support.",
-        business_busy: tr
-          ? "Bu işletme için aktif veri işi veya kilit kaydı var. Hiçbir veri silinmedi. İşin kapandığı doğrulandıktan sonra yeniden deneyin."
-          : "An active data job or lease record prevents deletion. No data was deleted. Try again after the job is confirmed closed.",
-        control_reference_in_use: error.tables.includes("sync_runtime_instances")
-          ? tr ? "İşletme güncel canlı yapılandırmada referans alınıyor. İlgili canary/yapılandırma referansı kaldırılmadan silinemez. İşletme ve veritabanı kayıtları korundu."
-            : "A current runtime configuration still references this business. Remove the relevant canary/configuration reference before deleting. The business and database records were preserved."
-          : tr ? "Son 5 dakika içinde çalışan bir worker bu işletmeye işaret ediyor. İlgili işin durduğunu doğrulayın; çalışan kayıt güncelliği sona erdiğinde tekrar deneyin. İşletme ve veritabanı kayıtları korundu."
-            : "A running worker seen within the last 5 minutes references this business. Confirm that work has stopped, then retry when the running observation expires. The business and database records were preserved.",
-        external_cleanup_required: tr
-          ? "İşletmeye ait arşiv veya dosyaların kaldırıldığı doğrulanamadı. İşletme silinmedi. Destek ile iletişime geçin."
-          : "Removal of the business archives or files could not be verified. The business was not deleted. Contact support.",
-      };
-      return NextResponse.json({ error: error.code, message: messages[error.code] }, {
-        status: error.code === "not_found" ? 404 : error.code === "schema_not_ready" ? 503 : 409,
-      });
-    }
-    console.error("[businesses DELETE] failed", error);
-    return NextResponse.json({ error: "delete_failed", message: language === "tr"
-      ? "İşletme silme sonucu doğrulanamadı. Listeyi yenileyerek işletmenin durumunu kontrol edin."
-      : "Business deletion could not be confirmed. Refresh the business list to check its status." }, { status: 503 });
+    if (error instanceof BusinessDeletionError) return NextResponse.json({ error: error.code,
+      message: businessDeletionFailureMessage(error.code, language === "tr", error.tables) }, {
+      status: error.code === "not_found" ? 404 : error.code === "schema_not_ready" ? 503 : 409,
+    });
+    console.error("[businesses DELETE] enqueue failed");
+    return NextResponse.json({ error: "delete_failed", message: businessDeletionFailureMessage("delete_failed", language === "tr") }, { status: 503 });
   }
-
-  return NextResponse.json({ status: "ok" });
 }

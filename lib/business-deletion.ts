@@ -1,4 +1,4 @@
-import { getDb, runDbTransaction } from "@/lib/db";
+import { getDb, runDbTransaction, runPinnedDbTransaction } from "@/lib/db";
 import { runWithDbJitDisabled } from "@/lib/db-jit-scope";
 import { deleteBusinessNativeEvaluations, BusinessNativeEvaluationCleanupError } from "@/lib/business-deletion-native-evaluations";
 import { PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE } from "@/lib/provider-account-assignments";
@@ -15,6 +15,7 @@ export const BUSINESS_DELETE_TABLES = [
   "business_cost_models",
   "business_country_economics",
   "business_decision_calibration_profiles",
+  "business_deletion_jobs",
   "business_engine_v3_flags",
   "business_operating_constraints",
   "business_promo_calendar_events",
@@ -306,7 +307,9 @@ function scopeFor(columns: ScopeColumn[]): string {
   return scopePredicates(columns).map(s => s.predicate).join(" OR ");
 }
 
-const OWNER_PAGE = 1024;
+// Identity/TID pages carry no payloads. Four thousand identities keep memory
+// finite while avoiding thousands of network/planning round trips per tenant.
+const OWNER_PAGE = 4096;
 const OWNER_ROW_BOUND = 4_194_304;
 
 /** Read complete owned identities, never a selective mismatch/LIMIT over the
@@ -467,7 +470,10 @@ function verifyInputReferencePlan(value: unknown, indexes: string[]) {
   if (!probes) throw new BusinessDeletionError("schema_not_ready", ["input_evidence_reference_plan"]);
 }
 
-export async function deleteBusinessWithData(businessId: string): Promise<void> {
+export const BUSINESS_ERASURE_LOCK_NAMESPACE = 0x42555344;
+
+export async function deleteBusinessWithData(businessId: string,
+  options: { client?: Parameters<typeof runPinnedDbTransaction>[0]["client"] } = {}): Promise<void> {
   assertSyncLaneEnabled("assignment_mutation");
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(businessId)) throw new BusinessDeletionError("not_found");
   const startedAt = Date.now();
@@ -476,9 +482,16 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
   const progress = { releaseRows: 0, releaseBytes: 0, nativeRows: 0, nativePages: 0, inputKeys: 0,
     ownershipRows: 0, ownershipPages: 0, ownedRows: 0, ownedPages: 0 };
   const mark = (next: string) => { timings.push({ phase, ms: Date.now()-phaseAt }); phase=next; phaseAt=Date.now(); };
-  try { await runWithDbJitDisabled(() => runDbTransaction(async () => {
+  const deadlineAtMs = startedAt + (options.client ? 20 * 60_000 : 240_000);
+  const transact = (run: () => Promise<void>) => options.client
+    ? runPinnedDbTransaction({ client: options.client, timeoutMs: 30_000, lockTimeoutMs: 1500, deadlineAtMs, fn: run })
+    : runDbTransaction(run, { timeoutMs: 30_000, deadlineAtMs });
+  try { await runWithDbJitDisabled(() => transact(async () => {
     const sql = getDb();
     await sql.query("SET LOCAL lock_timeout = '1500ms'");
+    const [exclusive] = await sql.query<{ acquired: boolean }>("SELECT pg_try_advisory_xact_lock($1::int,0) AS acquired", [BUSINESS_ERASURE_LOCK_NAMESPACE]);
+    if (!exclusive?.acquired) throw new BusinessDeletionError("business_busy");
+    await sql.query("SET LOCAL jit=off");
     await sql`SELECT pg_advisory_xact_lock(${PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE}::int,
       hashtext(${`provider_account_selection:business:${businessId}`}))`;
     const columns = await sql.query<ScopeColumn>(SCOPE_CATALOG);
@@ -494,7 +507,7 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       AND n.nspname IN ('public', '${ARCHIVE_SCHEMA}')`)).map(r => r.name));
     const indirect = ["public.engine_v3_ad_decision_input_evidence", "public.custom_report_share_snapshots", "public.admin_audit_logs",
       "public.meta_state_history_compaction_journal", "public.meta_retention_runs", "public.google_ads_retention_runs",
-      "public.sync_repair_plans", "public.sync_release_gates", "public.sync_worker_heartbeats", "public.sync_runtime_instances", `${ARCHIVE_SCHEMA}.keep_runs`, `${ARCHIVE_SCHEMA}.run_semantics`];
+      "public.sync_repair_plans", "public.sync_release_gates", `${ARCHIVE_SCHEMA}.keep_runs`, `${ARCHIVE_SCHEMA}.run_semantics`];
     const locked = [...new Set([...scopes.keys(), ...indirect.filter(t => existing.has(t))])].sort();
     mark("writer_exclusion");
     // SHARE ROW EXCLUSIVE permits reads and excludes every competing writer.
@@ -522,15 +535,24 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
     }
     mark("active_work");
     await sql.query("SET LOCAL enable_seqscan = off");
+    // Immutable guards require global writer exclusion. A longer background
+    // erasure may therefore start only when ALL businesses have no active work.
+    // Enumerate only the small business directory, then use exact owner probes.
+    const businessDirectory = await sql.query<{ id: string }>("SELECT id::text FROM businesses ORDER BY id LIMIT 257");
+    if (businessDirectory.length>256) throw new BusinessDeletionError("business_busy");
     for (const table of ["sync_runner_leases", "google_ads_runner_leases"]) {
       if (!scopes.has(`public.${table}`)) continue;
-      const [lease] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE business_id=$1::text AND lease_expires_at>clock_timestamp() LIMIT 1`, [businessId]);
-      if (lease) throw new BusinessDeletionError("business_busy", [table]);
+      for (const business of businessDirectory) {
+        const [lease] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE business_id=$1::text AND lease_expires_at>clock_timestamp() LIMIT 1`, [business.id]);
+        if (lease) throw new BusinessDeletionError("business_busy", [table]);
+      }
     }
     for (const table of ["provider_sync_jobs", "meta_sync_jobs", "meta_sync_partitions", "google_ads_sync_jobs", "google_ads_sync_partitions", "engine_v3_job_runs"]) {
       const scope = scopes.get(`public.${table}`); if (!scope) continue;
-      const [job] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE (${scopeFor(scope)}) AND status IN ('running','claimed','processing') LIMIT 1`, [businessId]);
-      if (job) throw new BusinessDeletionError("business_busy", [table]);
+      for (const business of businessDirectory) {
+        const [job] = await sql.query(`SELECT 1 FROM public.${identifier(table)} WHERE (${scopeFor(scope)}) AND status IN ('running','claimed','processing') LIMIT 1`, [business.id]);
+        if (job) throw new BusinessDeletionError("business_busy", [table]);
+      }
     }
     mark("ownership_conflicts");
     await sql.query("SET LOCAL cursor_tuple_fraction=1");
@@ -596,14 +618,6 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
     mark("external_data");
     try { await assertBusinessExternalDataRemoved(businessId); }
     catch (error) { if (error instanceof BusinessExternalCleanupError) throw new BusinessDeletionError("external_cleanup_required"); throw error; }
-    mark("worker_history");
-    try { await deleteBusinessWorkerHistory(sql,businessId); }
-    catch (error) {
-      if (error instanceof BusinessControlReceiptCleanupError) throw new BusinessDeletionError(
-        error.message.startsWith("control_history_active:") ? "control_reference_in_use" : "schema_not_ready",
-        [error.message.startsWith("control_history_active:") ? error.message.split(":")[1]! : "worker_runtime_history"]);
-      throw error;
-    }
     mark("release_receipts");
     if (existing.has("public.sync_release_gates")) {
       try {
@@ -658,6 +672,9 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       await sql.query(`DELETE FROM ${qualified(table)} WHERE (${scopeFor(scope)})${legacyShare}`, [businessId]);
     }
     mark("input_gc");
+    // Exact hash references use the reviewed leading (contract_version,input_hash)
+    // index. Do not let a denser shared hash choose a whole-owner bitmap startup.
+    await sql.query("SET LOCAL enable_bitmapscan=off");
     while (hasKeys) {
       const keys = await sql.query<{ contract_version: string; input_hash: string }>("SELECT contract_version,input_hash::text FROM business_erasure_input_keys ORDER BY contract_version,input_hash LIMIT 400");
       if (!keys.length) break;
@@ -672,6 +689,18 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       [unreferenced.map(k => k.contract_version), unreferenced.map(k => k.input_hash)]);
       await sql.query(`DELETE FROM business_erasure_input_keys i USING unnest($1::text[], $2::character(64)[]) k(contract_version,input_hash)
         WHERE i.contract_version=k.contract_version AND i.input_hash=k.input_hash`, params);
+    }
+    // Heartbeats/runtime observations stay writable throughout the bulk work.
+    // Exclude their writers only for the finite final census and COMMIT. A fresh
+    // reference still refuses the entire erasure, including all earlier pages.
+    mark("worker_history");
+    await sql.query("LOCK TABLE public.sync_worker_heartbeats,public.sync_runtime_instances IN SHARE ROW EXCLUSIVE MODE");
+    try { await deleteBusinessWorkerHistory(sql,businessId); }
+    catch (error) {
+      if (error instanceof BusinessControlReceiptCleanupError) throw new BusinessDeletionError(
+        error.message.startsWith("control_history_active:") ? "control_reference_in_use" : "schema_not_ready",
+        [error.message.startsWith("control_history_active:") ? error.message.split(":")[1]! : "worker_runtime_history"]);
+      throw error;
     }
     mark("absence_and_guard_restore");
     for (const [table, scope] of scopes) {
@@ -691,10 +720,10 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
       throw new BusinessDeletionError("schema_not_ready", ["trigger_restoration"]);
     await sql`UPDATE sessions SET active_business_id=NULL WHERE active_business_id=${businessId}`;
     await sql`DELETE FROM businesses WHERE id=${businessId}::uuid`;
-  // A complete bounded receipt census and millions of owned evaluations are
-  // distinct work. Keep each statement at 30s; the 4m total budget fits inside
-  // the existing 300s HTTP proxy limit without changing production settings.
-  }, { timeoutMs: 30_000, deadlineAtMs: startedAt+240_000 }));
+  // Background execution uses its pinned lock-owning backend, a 20m operation
+  // deadline and the same 30s statement cap. No HTTP/proxy timeout is raised.
+  // Direct internal callers retain their previous four-minute bound.
+  }));
     mark("committed");
     console.info("[business erasure] committed", JSON.stringify({ elapsedMs: Date.now()-startedAt, ...progress,
       slowestPhases: [...timings].sort((a,b)=>b.ms-a.ms).slice(0,10) }));

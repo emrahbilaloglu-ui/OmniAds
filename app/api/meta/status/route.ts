@@ -68,7 +68,8 @@ import {
   getRuntimeRegistryStatus,
   upsertRuntimeContractInstance,
 } from "@/lib/sync/runtime-contract";
-import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
+import { buildMetaSyncCapability, deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
+import { evaluateDbGrowthFence } from "@/lib/sync/db-growth-fence";
 import { GLOBAL_OPERATOR_REVIEW_WORKFLOW } from "@/lib/global-operator-review";
 import {
   deriveOperationalSyncState,
@@ -350,6 +351,7 @@ export async function GET(request: NextRequest) {
   }
   if (posture !== "live") return metaPostureUnavailable("meta_status");
   const buildResponse = async () => {
+  const admissionRead = evaluateDbGrowthFence({ queryTimeoutMs: 5_000 }).catch(() => null);
   const [
     integration,
     assignments,
@@ -626,7 +628,10 @@ export async function GET(request: NextRequest) {
     queueHealth?.latestExtendedActivityAt ??
     queueHealth?.latestCoreActivityAt ??
     null;
-  const operationsBlockReason = workerHealth
+  const syncCapability = buildMetaSyncCapability(await admissionRead);
+  const operationsBlockReason = !syncCapability.canStartSync
+    ? syncCapability.state === "capacity_refused" ? "capacity_refused" : "sync_admission_unavailable"
+    : workerHealth
     ? deriveMetaOperationsBlockReason({
         workerHealthy: workerHealth.workerHealthy,
         queueDepth: queueHealth?.queueDepth ?? 0,
@@ -1857,7 +1862,7 @@ export async function GET(request: NextRequest) {
     operationsBlockReason
       ? buildBlockingReason(
           `operations_${operationsBlockReason}`,
-          `Meta sync operations are currently limited by ${operationsBlockReason}.`,
+          !syncCapability.canStartSync ? syncCapability.message : `Meta sync operations are currently limited by ${operationsBlockReason}.`,
         )
       : null,
   ]);
@@ -1898,7 +1903,9 @@ export async function GET(request: NextRequest) {
           "Requeue retryable Meta failed partitions."
         )
       : null,
-  ]);
+  ]).map((action) => syncCapability.canStartSync || !["refresh_queue", "retry_authoritative_refresh", "replay_dead_letters", "requeue_failed"].includes(action.kind)
+    ? action
+    : { ...action, available: false, unavailableReason: syncCapability.message });
   const metaRequiredCoverage = buildRequiredCoverage({
     completedDays: historicalArchiveCompletedDays,
     totalDays: historicalTotalDays,
@@ -2586,13 +2593,17 @@ export async function GET(request: NextRequest) {
 
   return {
     ...response,
+    syncCapability,
     userVisibleSyncState,
-    operationalSyncState: deriveOperationalSyncState({
+    controlPlaneIncidentState: deriveOperationalSyncState({
       releaseGateVerdict: response.releaseGate?.verdict ?? null,
       incidentSummary,
       recommendationCount: response.repairPlan?.recommendations.length ?? 0,
     }),
-    degradedServing: incidentSummary?.degradedServing ?? userVisibleSyncState.degradedServing,
+    operationalSyncState: !syncCapability.canStartSync
+      ? syncCapability.state === "capacity_refused" ? "capacity_idle" : "admission_unavailable"
+      : deriveOperationalSyncState({ releaseGateVerdict: response.releaseGate?.verdict ?? null, incidentSummary, recommendationCount: response.repairPlan?.recommendations.length ?? 0 }),
+    degradedServing: Boolean(incidentSummary?.degradedServing || userVisibleSyncState.degradedServing || !syncCapability.canStartSync),
     openIncidents: incidentSummary?.openCount ?? response.repairPlan?.recommendations.length ?? 0,
     integrationSummary: buildMetaIntegrationSummary(integrationSummaryInput),
   };

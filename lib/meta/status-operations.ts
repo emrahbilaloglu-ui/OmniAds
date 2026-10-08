@@ -1,4 +1,37 @@
+import type { DbGrowthFenceDecision } from "@/lib/sync/db-growth-fence";
+
+export interface MetaSyncCapability {
+  state: "admitted" | "capacity_refused" | "unknown";
+  canStartSync: boolean;
+  reason: string;
+  evaluatedAt: string | null;
+  message: string;
+}
+
+/** Projection of existing admission only; liveness and readable data cannot
+ * grant new work. Old/unreadable observations remain unknown. */
+export function buildMetaSyncCapability(
+  admission: Pick<DbGrowthFenceDecision, "allowed" | "reason" | "evaluatedAt"> | null,
+  nowMs = Date.now(),
+): MetaSyncCapability {
+  const at = admission ? Date.parse(admission.evaluatedAt) : NaN;
+  const known = Boolean(admission && Number.isFinite(at) && at <= nowMs && nowMs - at <= 60_000 && admission.reason !== "fence_read_failed");
+  const state = !known ? "unknown" : admission!.allowed ? "admitted" : "capacity_refused";
+  return {
+    state, canStartSync: state === "admitted",
+    reason: known ? admission!.reason : "sync_admission_unavailable",
+    evaluatedAt: admission?.evaluatedAt ?? null,
+    message: state === "admitted"
+      ? "Capacity admission permits new work; worker health and evidence freshness are separate checks."
+      : state === "capacity_refused"
+        ? "New Meta sync and decision generation are blocked by database capacity. Existing evidence remains readable; re-evaluate after admission is restored."
+        : "Admission for new Meta sync and decision generation could not be verified. Existing evidence does not prove that new work can start.",
+  };
+}
+
 export type MetaOperationsBlockReason =
+  | "capacity_refused"
+  | "sync_admission_unavailable"
   | "worker_offline"
   | "lease_denied"
   | "queue_backlogged";
@@ -20,7 +53,11 @@ export function deriveMetaOperationsBlockReason(input: {
   extendedHistoricalQueued?: number;
   maintenanceQueued?: number;
   nowMs?: number;
+  syncCapability?: MetaSyncCapability;
 }): MetaOperationsBlockReason | null {
+  if (input.syncCapability && !input.syncCapability.canStartSync) {
+    return input.syncCapability.state === "capacity_refused" ? "capacity_refused" : "sync_admission_unavailable";
+  }
   if (input.queueDepth <= 0) return null;
   if (!input.workerHealthy) return "worker_offline";
   if (input.consumeStage === "lease_denied") return "lease_denied";

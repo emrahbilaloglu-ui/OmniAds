@@ -182,7 +182,7 @@ function resolutionForAuthorityBlocker(
         owner: "system",
         label: "Scale Held — Calibration Sample Thin",
         nextStep:
-          "The Scale verdict stands on this ad's own economics; only the account winner-calibration sample is below its floor, so no provider action is authorized yet. The engine keeps re-evaluating as mature ads accumulate.",
+          "The Scale verdict stands on this ad's own economics, but the exact-cell Ad calibration sample is below its floor. Other evidence, role and operational checks may also withhold authority. Re-evaluate after the required evidence is available and an eligible decision run completes; no provider action is authorized yet.",
       };
     }
     return {

@@ -267,7 +267,12 @@ export interface MetaStatusResponse {
     suppressRecoverableAttention: boolean;
     degradedServing: boolean;
   } | null;
+  syncCapability?: import("@/lib/meta/status-operations").MetaSyncCapability;
+  /** Incident state remains separate from capacity-idle business work. */
+  controlPlaneIncidentState?: string | null;
   operationalSyncState?:
+    | "capacity_idle"
+    | "admission_unavailable"
     | "healthy"
     | "detected"
     | "eligible"

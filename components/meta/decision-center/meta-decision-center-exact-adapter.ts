@@ -2661,21 +2661,21 @@ function resolutionWaitsOnSystem(
 /** What a system-owned resolution is waiting on, stated as a fact. */
 const SYSTEM_RESOLUTION_STATUS_COPY: Readonly<Record<string, string>> = {
   complete_hard_action_evidence:
-    "The evidence this change needs is still being completed.",
-  resolve_evidence_gap: "Missing decision evidence is still being completed.",
+    "Required evidence for this change is missing or unverified.",
+  resolve_evidence_gap: "Required decision evidence is missing or unverified.",
   restore_native_profile:
-    "The ad-level decision profile is rebuilt by the next decision run.",
+    "The ad-level decision profile is unavailable; a completed eligible decision run is required.",
   resolve_campaign_role:
     "The Main/Test role has not been confirmed.",
   await_decision_confirmation:
     "The next decision run still has to confirm it.",
-  await_recent_evidence: "More recent performance data is still accruing.",
+  await_recent_evidence: "The required recent performance evidence is not available yet.",
   await_scale_calibration_sample:
-    "The account does not yet have enough mature creatives for the Scale calibration floor.",
+    "The exact-cell Ad calibration sample is below the Scale floor.",
   await_scale_winner_benchmark:
     "The account winner purchase benchmark is not available yet.",
   refresh_decision_data:
-    "Decision data for this ad is waiting for the next Meta sync.",
+    "Decision data for this ad requires a completed eligible Meta sync and evaluation.",
   // D108 (#290) serves this as integration/data: re-fetching the provider
   // rows, not the buyer, verifies them. Named here so it states its own fact.
   verify_purchase_observation:
@@ -2686,7 +2686,7 @@ const SYSTEM_RESOLUTION_STATUS_COPY: Readonly<Record<string, string>> = {
 };
 
 const SYSTEM_RESOLUTION_STATUS_FALLBACK =
-  "The evidence this decision needs is still being completed.";
+  "Required decision evidence is missing or unverified.";
 
 /** The closing clause every system-owned wait ends with. */
 const EVIDENCE_REQUIRED_BEFORE_AUTHORIZATION = "These evidence requirements must be met before Adsecute can authorize a change";
@@ -2779,7 +2779,7 @@ const HELD_PRIMARY_STATUS_COPY: Readonly<Record<HeldPrimaryReason, string>> = {
 const HELD_PREREQUISITE_STATUS = {
   config:
     "The campaign configuration is not verified for every day used by this recommendation.",
-  source: "Fresh, completed Meta source data is still arriving.",
+  source: "Fresh, completed Meta source data is required and has not been verified.",
   confirmation: SYSTEM_RESOLUTION_STATUS_COPY.await_decision_confirmation!,
   campaignRole: SYSTEM_RESOLUTION_STATUS_COPY.resolve_campaign_role!,
 } as const;
@@ -2867,7 +2867,10 @@ function heldCreativeVerdictWithoutRefusal(
   const needsCampaignContext =
     authorityBlocker === "campaign_context" ||
     blockerCodes.has("campaign_context") ||
-    blockerCodes.has("campaign_context_unresolved");
+    blockerCodes.has("campaign_context_unresolved") ||
+    blockerCodes.has("campaign_context_resolver_unvalidated") ||
+    blockerCodes.has("campaign_context_low_confidence") ||
+    (action !== "cut" && decision.campaignRoleTrustedForAction === false);
   // The served blocker list is not exhaustive: the native confirmation badge
   // and automatic role trust also live on the canonical decision. A config-only
   // manual-review sentence must not hide either independent hold.

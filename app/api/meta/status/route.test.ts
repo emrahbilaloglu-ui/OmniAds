@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { evaluateDbGrowthFence } from "@/lib/sync/db-growth-fence";
+
+vi.mock("@/lib/sync/db-growth-fence", () => ({
+  evaluateDbGrowthFence: vi.fn(async () => ({ allowed: true, reason: "ok", evaluatedAt: new Date().toISOString() })),
+}));
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/status/route";
 import { assertMetaStatusPageContract } from "@/lib/meta/page-route-contract.test-helpers";
@@ -131,7 +136,8 @@ vi.mock("@/lib/sync/remediation-executions", () => ({
   getLatestSyncRepairExecution: vi.fn(async () => null),
 }));
 
-vi.mock("@/lib/meta/status-operations", () => ({
+vi.mock("@/lib/meta/status-operations", async (original) => ({
+  ...await original<typeof import("@/lib/meta/status-operations")>(),
   deriveMetaOperationsBlockReason: vi.fn(() => null),
 }));
 
@@ -248,6 +254,17 @@ function getUtcTodayIso() {
 }
 
 describe("GET /api/meta/status", () => {
+  it("exposes refused admission and disables work repair without hiding healthy worker evidence", async () => {
+    vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValueOnce({ workerHealthy: true, heartbeatAgeMs: 1_000, consumeStage: "capacity_refused" } as never);
+    vi.mocked(evaluateDbGrowthFence).mockResolvedValueOnce({ allowed: false, reason: "database_budget_exceeded", evaluatedAt: new Date().toISOString() } as never);
+    const response = await GET(new NextRequest("http://localhost/api/meta/status?businessId=biz_1"));
+    const body = await response.json();
+    expect(body.syncCapability).toMatchObject({ state: "capacity_refused", canStartSync: false, reason: "database_budget_exceeded" });
+    expect(body.operationalSyncState).toBe("capacity_idle");
+    expect(body.operations.blockReason).toBe("capacity_refused");
+    expect(body.operations.repairableActions.find((action: {kind: string}) => action.kind === "refresh_queue")).toMatchObject({ available: false, unavailableReason: expect.stringContaining("capacity") });
+    expect(body.degradedServing).toBe(true);
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-13T12:00:00Z"));
@@ -1121,7 +1138,7 @@ describe("GET /api/meta/status", () => {
     });
     expect(payload.operationalSyncState).toBe("healthy");
     expect(payload.openIncidents).toBe(0);
-    expect(payload.degradedServing).toBe(false);
+    expect(payload.degradedServing).toBe(payload.userVisibleSyncState.degradedServing);
     expect(payload.controlPlanePersistence).toMatchObject({
       exactRowsPresent: true,
       missingExact: [],

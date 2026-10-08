@@ -42,6 +42,27 @@ async function remains(id: string, table = "businesses", column = "id") {
   return (await getDb().query(`SELECT 1 FROM ${table} WHERE ${column} = $1 LIMIT 1`, [id])).length === 1;
 }
 
+// This recovery table is created by an optional normalization tool, so the
+// canonical migrations alone cannot reproduce its presence on older databases.
+async function normalizationArchive(businessId: string) {
+  await getDb()`CREATE TABLE db_normalization_orphan_core_legacy (
+    id BIGSERIAL PRIMARY KEY,
+    source_table TEXT NOT NULL,
+    business_id TEXT,
+    provider TEXT,
+    payload_hash TEXT NOT NULL,
+    payload_json JSONB NOT NULL,
+    reason TEXT NOT NULL,
+    archived_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (source_table, payload_hash)
+  )`;
+  await getDb()`INSERT INTO db_normalization_orphan_core_legacy
+    (source_table, business_id, provider, payload_hash, payload_json, reason)
+    VALUES ('provider_connections', ${businessId}, 'meta', 'fixture-hash',
+      '{"fixture":"recovery-original"}'::jsonb, 'business_missing_during_normalization')`;
+  return getDb()`SELECT * FROM db_normalization_orphan_core_legacy ORDER BY id`;
+}
+
 describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema", () => {
   beforeEach(() => {
     process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
@@ -93,6 +114,39 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({ code: "schema_not_ready" });
       expect(await remains(businessId, "memberships", "business_id")).toBe(true);
     } finally { await getDb()`DROP TABLE business_delete_unknown_fixture`; }
+  });
+
+  it("removes an unrelated business while preserving the legacy recovery archive byte for byte", async () => {
+    const { businessId, otherId } = await fixture();
+    const archiveBefore = await normalizationArchive(randomUUID());
+    try {
+      await getDb()`CREATE FUNCTION business_delete_archive_fixture_guard() RETURNS trigger
+        LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Recovery archive DELETE is forbidden'; END $$`;
+      await getDb()`CREATE TRIGGER business_delete_archive_fixture_guard
+        BEFORE DELETE ON db_normalization_orphan_core_legacy FOR EACH STATEMENT
+        EXECUTE FUNCTION business_delete_archive_fixture_guard()`;
+      await deleteBusinessWithData(businessId);
+      expect(await remains(businessId)).toBe(false);
+      expect(await remains(otherId, "memberships", "business_id")).toBe(true);
+      expect(await getDb()`SELECT * FROM db_normalization_orphan_core_legacy ORDER BY id`).toEqual(archiveBefore);
+    } finally {
+      await getDb()`DROP TABLE db_normalization_orphan_core_legacy`;
+      await getDb()`DROP FUNCTION IF EXISTS business_delete_archive_fixture_guard()`;
+    }
+  });
+
+  it("refuses target-owned normalization recovery history before changing business access or facts", async () => {
+    const { businessId } = await fixture();
+    const archiveBefore = await normalizationArchive(businessId);
+    try {
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({
+        code: "protected_history", tables: ["db_normalization_orphan_core_legacy"],
+      });
+      expect(await remains(businessId)).toBe(true);
+      expect(await remains(businessId, "memberships", "business_id")).toBe(true);
+      expect(await remains(businessId, "meta_entity_observation_runs", "business_id")).toBe(true);
+      expect(await getDb()`SELECT * FROM db_normalization_orphan_core_legacy ORDER BY id`).toEqual(archiveBefore);
+    } finally { await getDb()`DROP TABLE db_normalization_orphan_core_legacy`; }
   });
 
   it("rolls every change back when an unforeseen indirect foreign key refuses deletion", async () => {

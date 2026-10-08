@@ -215,8 +215,9 @@ export const BUSINESS_DELETE_TABLES = [
   "sync_runner_leases",
 ] as const;
 
-/** Retained native lineage and frozen label evidence have no offboarding
- * contract. Refuse before writes; ordinary business deletion never purges them. */
+/** Retained native lineage, frozen labels and the optional normalization
+ * recovery archive have no purge contract. Recognize these reviewed tables,
+ * refuse scoped history before writes and never delete even an empty archive. */
 const RETAINED_HISTORY_TABLES = [
   "engine_v3_ad_decision_evaluations",
   "engine_v3_ad_decision_snapshots_daily",
@@ -225,6 +226,7 @@ const RETAINED_HISTORY_TABLES = [
   "engine_v3_ad_decision_events",
   "meta_campaign_labels",
   "meta_campaign_label_history",
+  "db_normalization_orphan_core_legacy",
 ] as const;
 
 export class BusinessDeletionError extends Error {
@@ -281,7 +283,7 @@ export async function deleteBusinessWithData(businessId: string): Promise<void> 
         AND a.attname IN ('business_id', 'business_ref_id')
       ORDER BY c.relname, a.attname
     `);
-    const allowed = new Set<string>(BUSINESS_DELETE_TABLES);
+    const allowed = new Set<string>([...BUSINESS_DELETE_TABLES, ...RETAINED_HISTORY_TABLES]);
     const unexpected = [...new Set(columns.map((row) => row.table_name))].filter((table) => !allowed.has(table));
     if (unexpected.length) throw new BusinessDeletionError("schema_not_ready", unexpected);
     const scopes = new Map<string, ScopeColumn[]>();

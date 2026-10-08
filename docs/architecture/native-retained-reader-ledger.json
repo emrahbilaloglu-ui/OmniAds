@@ -29,7 +29,7 @@
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "edb153a5d073b7fb9e848f97b1ca32bc77ffef30ef6b11199add6de1a66bf8f5",
+      "sha256": "2987fdea8a4fa26dd8b341a33a90a994b764642ffb53eae6e339f672943d289b",
       "retention": "Explicit whole-business offboarding checks original native lineage as a hard pin. Any retained native evaluation, snapshot, context, input evidence or event refuses the teardown before writes. Protected tables are never deleted; no snapshot age pruning, trigger/FK bypass, live deletion or reclaim authority is granted by this ledger."
     },
     {
@@ -287,7 +287,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "2f0fbf81d57b86aec0b4a00afc07b55b0e4543d9eaadac297000ed6c8457f68f",
+      "sha256": "8e7c0aa9f66e8c6e7f13faed2df79a7ffc6e74dbe4ae3a1feab2e7a8c8b639eb",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
@@ -453,5 +453,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "b027e9cf72177248b0842f5a79bb3c80b24894549056eddaaa85645ec51e451d"
+  "sourceInventorySha256": "c5079b6a62a2b6af6a1654fad3f9ce8dacfed6d5f34cb34aed2a3ca95740757c"
 }

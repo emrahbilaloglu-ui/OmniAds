@@ -33,6 +33,13 @@ labels are also hard pins even where they have no DELETE trigger.
 An explicit controlled-offboarding design is still required for those businesses.
 Do not call this universal deletion support or storage closure.
 
+The optional `db_normalization_orphan_core_legacy` recovery archive is created by
+`scripts/db-normalization-archive-orphans.ts`, outside the migrations. It is a
+reviewed retained table, not a deletion target. Its presence must not prevent
+unrelated business removal. Matching business history still refuses the teardown
+before writes; the archive is preserved unchanged. Other unknown ownership tables
+continue to fail closed.
+
 Manage Business confirms the business is absent from a fresh authoritative list
 before clearing local state or announcing success. It selects the next workspace
 from that same list and distinguishes a completed deletion from a failed session
@@ -42,12 +49,15 @@ protected-history refusal, and the absence of a guaranteed disk-size reduction.
 
 ## Validation and live acceptance
 
-`lib/business-deletion.db.test.ts` has eleven cases on a disposable PostgreSQL
+`lib/business-deletion.db.test.ts` has thirteen cases on a disposable PostgreSQL
 with the real migrations, registered in the canonical migrations harness. They
 cover the old failure, supported deletion, shared-account/tenant isolation,
 credential/session cleanup, immutable evidence, unknown schema, late-FK rollback,
 live lease refusal, growth-refused removal, conflicting owners, kill switch,
 absent businesses and frozen campaign labels.
+Two cases reproduce the optional legacy archive, checking unrelated deletion
+with the original archive unchanged and target-owned history refusal with no
+loss of access or facts.
 Route and mounted picker tests cover the contract, permissions and fresh readback.
 
 Before publication, complete `npm run verify:pre-push`, exact-head CI and image

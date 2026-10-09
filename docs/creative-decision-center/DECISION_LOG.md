@@ -13604,3 +13604,39 @@ Release acceptance and terminal physical acceptance are separate: exact QA/CI/
 runtime, one authorized operator retry of Halıcızade, full independent absence
 and foreign preservation, then Vornom. A rollback preserves D163 visibility
 and requires operator handling; committed erasure cannot be restored by code.
+
+## D166 — Two additive root business FK lookups before physical retry (2026-10-10)
+
+Before deploying or retrying D165, bounded live root-FK catalog and EXPLAIN
+inspection found two additional missing UUID-leading lookups:
+engine_v3_ad_account_calibration_daily.business_ref_id (34,734,080-byte heap)
+and meta_creative_lineage_edges.business_ref_id (1,687,093,248-byte heap).
+Their root businesses FKs are RESTRICT. Existing canonical text-owner access
+and account-leading complete binding indexes do not supply this predicate.
+The native evaluation timeout is the actual witnessed D164 failure; a timeout
+on these two additional root probes is not claimed to have occurred.
+
+Add exactly these two UUID columns to the existing reviewed reference-index
+inventory,49 contracts total. Reuse its actual FK/type/opclass/collation and
+named-conflict checks, adoption of valid leading access, separate fresh scalar
+heap admission with the existing3x reserve and40GiB floor, and CONCURRENTLY
+DDL for ordinary heaps. No new capacity basis, override, rebuild or DROP.
+Keep partial WHERE business_ref_id IS NOT NULL: equality in the root FK query
+implies that predicate. Root-specific live plan acceptance must verify that
+existing valid partial access rather than treating it as missing. Canonical
+ownership/SCOPE_CATALOG rules remain unchanged.
+
+The65-case migrated erasure suite now also requires actual ready FK indexes
+and constrained row-lock plans for these two probes immediately before its
+real populated root deletion. Existing generic catalog/admission refusal,
+full rollback, shared input and foreign-byte preservation coverage remains.
+The obsolete initial D165 full local invocation was interrupted, not accepted,
+when this material prerequisite was found; final exact-source QA and CI must
+complete after repinning the two-source inventory/manifest. D163 immediate
+user offboarding and D165 active FKs/final worker fence stay intact. No ordinary
+user cleanup status, timeout increase, provider mutation, maintenance or new
+physical attempt before exact release and bounded root-plan acceptance.
+
+Rollback keeps these additive indexes and D163 hidden access. A code revert
+cannot restore committed physical erasure. Live index readiness, release,
+terminal cleanup and independent whole-scope absence remain separate facts.

@@ -31,6 +31,9 @@ For the actual final-presence rollback and constrained owner-arm probes, read
 [D164](DECISION_LOG.md#d164--indexed-final-owner-absence-after-actual-late-rollback-2026-10-10).
 For the subsequent actual root RESTRICT rollback and shorter final heartbeat
 fence, read [D165](DECISION_LOG.md#d165--root-business-ri-access-and-late-control-history-fence-2026-10-10).
+For the two additional UUID-leading root FK prerequisites found by bounded
+plan inspection before another physical retry, also read
+[D166](DECISION_LOG.md#d166--two-additive-root-business-fk-lookups-before-physical-retry-2026-10-10).
 
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
 Also read [D130](DECISION_LOG.md#d130--indexed-evidence-equality-and-bounded-creative-completion-proofs-2026-09-28)

@@ -695,6 +695,12 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
         WHERE c.conname='engine_v3_ad_decision_evaluations_business_ref_id_fkey'
         GROUP BY c.oid`)).rows;
       expect(fk).toMatchObject({confdeltype:"r",convalidated:true,active:true});
+      const rootIndexes=BUSINESS_ERASURE_REFERENCE_INDEXES.filter(e=>e.column==="business_ref_id");
+      expect(rootIndexes).toHaveLength(2);
+      for(const e of rootIndexes) {
+        const [status]=await getDb().query(BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL,[e.table,e.column,e.index,"btree"]);
+        expect(status).toMatchObject({reference_foreign_key:true,lookup_ready:true,named_index_conflict:false});
+      }
       await addObservedProductionReferenceIndex(db);
       try {
         let rootChecked=false;
@@ -706,6 +712,12 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
               // leaked bitmap-off setting in the real FK row-lock query shape.
               // Restore it before the actual root DELETE and its active FKs.
               const {rows:[settings]}=await client.query("SELECT current_setting('enable_indexscan') AS indexed");
+              for(const e of rootIndexes) {
+                const {rows:[plan]}=await client.query(`EXPLAIN (FORMAT JSON) SELECT 1 FROM ONLY public.${e.table} x
+                  WHERE $1::uuid OPERATOR(pg_catalog.=) business_ref_id FOR KEY SHARE OF x`,[target.business]);
+                expect(JSON.stringify(plan["QUERY PLAN"])).toContain(e.index);
+                expect(JSON.stringify(plan["QUERY PLAN"])).not.toContain('"Node Type":"Seq Scan"');
+              }
               await client.query("SET LOCAL enable_indexscan=off");
               try {
                 const {rows:[plan]}=await client.query(`EXPLAIN (FORMAT JSON) SELECT 1 FROM ONLY public.engine_v3_ad_decision_evaluations x

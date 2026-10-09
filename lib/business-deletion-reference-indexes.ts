@@ -2,6 +2,10 @@ import type { DbClient } from "@/lib/db";
 
 /** Reviewed FK-column lookups used by Meta/native whole-business erasure. */
 export const BUSINESS_ERASURE_REFERENCE_INDEXES = [
+  // D166: the root businesses RESTRICT probes use the UUID FK itself. A
+  // text-owner index or a later UUID in an account tuple cannot bound them.
+  { table: "engine_v3_ad_account_calibration_daily", column: "business_ref_id", index: "idx_biz_erase_root_ad_calibration_business" },
+  { table: "meta_creative_lineage_edges", column: "business_ref_id", index: "idx_biz_erase_root_lineage_business" },
   // Composite lineage FKs still need their selective parent UUID as a leading
   // lookup after child-first deletes; an owner/date residual repeats dead rows.
   { table: "engine_v3_ad_account_calibration_batches", column: "job_run_id", index: "idx_biz_erase_calibration_batch_job" },

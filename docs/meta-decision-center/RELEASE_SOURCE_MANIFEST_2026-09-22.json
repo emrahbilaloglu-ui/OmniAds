@@ -1,5 +1,5 @@
 {
-  "manifestHash": "bb82407f6510ffd5a21d15135a6b55ff1d1cea69d8da1c0ad68117f4e60f72e8",
+  "manifestHash": "1647c77e91746f6ae2e60842a8466b4372510e0dfaece8e9b63e196a6eaa2835",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -812,7 +812,7 @@
     },
     {
       "path": "docs/architecture/business-deletion-repair.md",
-      "sha256": "ef1ee054d938f80bff7b14e378ac215f1ff772f9ce242607d9750e074d615118"
+      "sha256": "fabe86438cd51e427152165ecc4154da497a18b8dda961c9327fd0d02b280049"
     },
     {
       "path": "docs/architecture/migration-replay-worker-recovery.md",
@@ -868,7 +868,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "ed399bb730775108724992a86e2571c64c344184be4c1d7bf418d3f41f152399"
+      "sha256": "b641469fdd90509453f9f8f6fc47633ea7e5494cc7ca648ab0d5f439f44cc429"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -904,7 +904,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "c57791c6189b45a51b11b5ae5d01763c43e7af7d949f358daf0a69af873acf20"
+      "sha256": "d2e8b637bed859520be9ece2d87e9d98a9e62748131f96ca705b6595a4bd7749"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -916,7 +916,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "ae4eb893a167c18425364fb2b8e0e3b0ade9aff41ae6bb8a3f9f36884fd2c052"
+      "sha256": "6bfe8bfe23aab78998b645ed63416372c365e89a94eaecc5abddbfef1ffed7de"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -1032,11 +1032,11 @@
     },
     {
       "path": "lib/business-deletion-reference-indexes.test.ts",
-      "sha256": "812e31bc55ff97ee8d119afc4baaf5c0d4d90cc5fa485f7a58c154b2d5d0af52"
+      "sha256": "490067b48a4961591b4573c8b45d7a2942cdef0bd9ed954935bd2bb3d6f853bd"
     },
     {
       "path": "lib/business-deletion-reference-indexes.ts",
-      "sha256": "c0685cd8f7b43f3d6c8aaa63d55771d0e564f5492ea7c0134382a48240e51fe6"
+      "sha256": "5747ba0c08f9a16d0c9dd2255794e51816e791dc93e24426f8242bfba2e460c4"
     },
     {
       "path": "lib/business-deletion-runtime.test.ts",
@@ -1064,7 +1064,7 @@
     },
     {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "957c79ae2dae77d469903389d47c7c3702dc81a4fee00ebc2da2dc18fe9625dd"
+      "sha256": "16db276cb0038cc2ab28ee15297929f71d65a9f4f70e434dd0e94a41cdb6f998"
     },
     {
       "path": "lib/business-deletion.ts",

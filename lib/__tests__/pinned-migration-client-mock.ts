@@ -50,6 +50,15 @@ const CAPACITY_SIZE_QUERY = `SELECT COALESCE(pg_total_relation_size(to_regclass(
 // Explicit pre-existing FK access fixture for SQL-capture suites. Actual
 // missing-index creation/refusal and plans are tested against real PostgreSQL.
 const ERASURE_REFERENCE_FIXTURE = new Set([
+  "engine_v3_ad_operator_action_receipts.provider_account_ref_id:idx_biz_erase_binding_action_account",
+  "engine_v3_ad_account_calibration_batches.provider_account_ref_id:idx_biz_erase_binding_cal_batch_account",
+  "engine_v3_ad_account_calibration_daily.provider_account_ref_id:idx_biz_erase_binding_cal_daily_account",
+  "engine_v3_ad_decision_evaluation_contexts.provider_account_ref_id:idx_biz_erase_binding_eval_context_account",
+  "engine_v3_ad_decision_evaluations.provider_account_ref_id:idx_biz_erase_binding_evaluation_account",
+  "engine_v3_ad_decision_events.provider_account_ref_id:idx_biz_erase_binding_event_account",
+  "engine_v3_ad_decision_outcomes_daily.provider_account_ref_id:idx_biz_erase_binding_outcome_account",
+  "engine_v3_ad_recommendation_episodes.provider_account_ref_id:idx_biz_erase_binding_episode_account",
+  "engine_v3_ad_decision_snapshots_daily.provider_account_ref_id:idx_biz_erase_binding_snapshot_account",
   "engine_v3_ad_account_calibration_batches.job_run_id:idx_biz_erase_calibration_batch_job",
   "engine_v3_ad_account_calibration_daily.job_run_id:idx_biz_erase_ad_calibration_job",
   "engine_v3_ad_decision_events.decision_snapshot_id:idx_biz_erase_ad_event_snapshot",

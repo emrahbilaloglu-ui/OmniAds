@@ -13178,3 +13178,62 @@ archive/input destruction and deletion. Additive indexes stay on code rollback;
 an invalid build stops rather than being auto-dropped/rebuilt. Completed logical
 erasure is irreversible by code rollback. Backup/WAL/physical-shrink boundaries
 remain explicit; source, tests and publication alone delete no business.
+
+
+## D157 — Leading account UUID access for complete business erasure (2026-10-09)
+
+The seventh completed Halıcızade request on live
+`44155554ccd0b17f442092a75844afda29a28825` failed after 932,927ms at
+`business_provider_accounts`. The PostgreSQL error identified the internal
+three-column `engine_v3_ad_decision_snapshots_daily` account-binding RESTRICT
+lookup under the unchanged 30s outer-statement limit. It had processed
+1,364,593 native evaluations, 4,375,783 other owned rows and 704,472 release
+receipts before the whole transaction rolled back. Independent 420 presence
+checks, fifteen roots, guard modes and foreign access records were preserved.
+No business was deleted; Vornom archive and 518 frozen keys remain untouched.
+
+Read-only custom/generic plans cover all thirteen inbound account bindings for
+both targets (52 plans). Nine native children choose indexes whose leading
+business UUID, row UUID or episode key is absent from the actual RI predicate.
+Conditions on later account columns do not prove a bounded leading-key walk.
+
+D157 adds only missing partial btree lookups on the fixed UUID
+`provider_account_ref_id` for those nine explicit reviewed native children.
+They reuse D155 typed scalar catalog checks, concurrent ordinary-heap DDL,
+valid existing-index adoption and conflicting-name refusal. The complete FK
+still rechecks business ownership, provider and external account text; no
+variable text/payload key, FK disabling, DROP or rebuild is introduced. During
+account-binding parent removal, bitmap access is disabled transaction-locally;
+index scans and the complete FK remain enabled. The erasure's row/page limits,
+child-first order, writer exclusion, 30s statement cap, 20m durable deadline and
+atomic rollback remain unchanged.
+
+Only these exact column/relation contracts use an eight-times measured valid,
+ready/live/immediate nonpartial unique single-UUID PK reserve plus the same
+40GiB residual floor. Catalog proof additionally requires a raw UUID account
+column. A conservative fixed-UUID leaf entry is at most 32 bytes (UUID, aligned
+index header/TID and line pointer), versus at least24 bytes for each distinct
+live UUID PK key. Older versions of one unique key may deduplicate; distinct
+live keys cannot. The reserve exceeds five times the conservative90% leaf
+estimate and covers build/sort/WAL headroom. This is an admission model, not a
+measurement of the eventual index or a general reserve exemption. Fresh complete
+physical telemetry remains mandatory in production; missing/ambiguous/stale or
+short evidence refuses even with an override. D155 scalar/hash, D156 state-run
+and ordinary heavy-rewrite models and the163GiB growth budget are unchanged.
+
+Canonical erasure coverage is now56 actual migrated PostgreSQL cases and47
+reviewed scalar/reference index contracts. A populated two-tenant fixture uses
+one shared provider account, actual producer generations and full generic RI
+queries, requires leading UUID access for the two heavy evaluation/snapshot
+children, then erases only the selected tenant and compares foreign native
+history/calibration/account bytes. Capacity units check coverage, stale/unknown
+telemetry, physical shortfall, exact scope and unchanged floor. Passing tests or
+a release still do not establish complete live erasure.
+
+Before another DELETE: exact-tree canonical QA/CI/deploy, fresh exact runtime,
+all47 catalog contracts, the existing D156 plans and actual selected leading
+account RI plans for all thirteen bindings in both targets are required.
+Halıcızade terminal success plus independent complete absence must precede
+Vornom offboarding. Additive indexes remain on code rollback; rollback cannot
+restore erased records or evicted archives. No growth/provider/decision authority
+or ordinary storage maintenance is granted.

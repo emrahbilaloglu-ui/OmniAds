@@ -72,6 +72,11 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
     category: "ddl",
     count: 3,
   },
+  {
+    file: "lib/meta/__tests__/migration-release-provider-replay.test.ts",
+    category: "test",
+    count: 1,
+  },
   /*
     The 2026-09-21 campaign field fix replaced the old schedule-only refusal
     comment with the measured unsupported bid_constraints cause. That removed

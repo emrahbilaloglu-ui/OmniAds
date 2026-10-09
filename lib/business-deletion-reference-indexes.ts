@@ -41,6 +41,18 @@ export const BUSINESS_ERASURE_REFERENCE_INDEXES = [
   { table: "meta_entity_observation_receipts_v2", column: "sync_run_id", index: "idx_biz_erase_fk_50915a253220" },
   { table: "meta_raw_snapshot_observations", column: "partition_id", index: "idx_biz_erase_fk_9e077f2b0ee7" },
   { table: "meta_raw_snapshots", column: "checkpoint_id", index: "idx_biz_erase_fk_aea32a54dfa8" },
+  // D157: account-binding RI predicates do not include business_ref_id.
+  // A condition on a later UUID key still walks the whole owner-prefix index.
+  // Lead with the fixed account UUID; the complete FK rechecks owner/text IDs.
+  { table: "engine_v3_ad_operator_action_receipts", column: "provider_account_ref_id", index: "idx_biz_erase_binding_action_account" },
+  { table: "engine_v3_ad_account_calibration_batches", column: "provider_account_ref_id", index: "idx_biz_erase_binding_cal_batch_account" },
+  { table: "engine_v3_ad_account_calibration_daily", column: "provider_account_ref_id", index: "idx_biz_erase_binding_cal_daily_account" },
+  { table: "engine_v3_ad_decision_evaluation_contexts", column: "provider_account_ref_id", index: "idx_biz_erase_binding_eval_context_account" },
+  { table: "engine_v3_ad_decision_evaluations", column: "provider_account_ref_id", index: "idx_biz_erase_binding_evaluation_account" },
+  { table: "engine_v3_ad_decision_events", column: "provider_account_ref_id", index: "idx_biz_erase_binding_event_account" },
+  { table: "engine_v3_ad_decision_outcomes_daily", column: "provider_account_ref_id", index: "idx_biz_erase_binding_outcome_account" },
+  { table: "engine_v3_ad_recommendation_episodes", column: "provider_account_ref_id", index: "idx_biz_erase_binding_episode_account" },
+  { table: "engine_v3_ad_decision_snapshots_daily", column: "provider_account_ref_id", index: "idx_biz_erase_binding_snapshot_account" },
   // BYTEA has no validated width bound. Hash stores a fixed four-byte value
   // and rechecks equality; it must not use the scalar heap/TOAST sizing model.
   { table: "engine_v3_ad_decision_evaluations", column: "campaign_context_ref", index: "idx_biz_erase_campaign_reference", method: "hash" },
@@ -88,7 +100,7 @@ type CatalogRow = {
 /** Additive only; the caller must reserve physical build/sort/WAL capacity. */
 export async function ensureBusinessErasureReferenceIndexes(
   sql: Pick<DbClient, "query">,
-  admitScalarIndex: (relation: string, method: "btree" | "hash") => Promise<unknown>,
+  admitScalarIndex: (relation: string, method: "btree" | "hash", column: string) => Promise<unknown>,
 ) {
   const built: string[] = [];
   const read = async (entry: (typeof BUSINESS_ERASURE_REFERENCE_INDEXES)[number]) => {
@@ -110,7 +122,7 @@ export async function ensureBusinessErasureReferenceIndexes(
     const before = await read(entry);
     if (before.lookup_ready) continue;
     const method = "method" in entry ? entry.method : "btree";
-    await admitScalarIndex(`public.${entry.table}`, method);
+    await admitScalarIndex(`public.${entry.table}`, method, entry.column);
     // PostgreSQL cannot build a partitioned parent's index CONCURRENTLY.
     // Its child heap sum is capacity checked; the existing migration lock and
     // statement deadlines also apply to that ordinary parent/leaf DDL.

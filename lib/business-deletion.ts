@@ -755,7 +755,13 @@ export async function deleteBusinessWithData(businessId: string,
         continue;
       }
       if (table === "public.provider_connections") { await sql`DELETE FROM provider_connections WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
-      if (table === "public.business_provider_accounts") { await sql`DELETE FROM business_provider_accounts WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
+      if (table === "public.business_provider_accounts") {
+        // Keep complete account-binding RI probes on their leading UUID index.
+        // No FK/owner predicate is weakened; this setting is transaction-local.
+        await sql.query("SET LOCAL enable_bitmapscan=off");
+        await sql`DELETE FROM business_provider_accounts WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`;
+        continue;
+      }
       if (table === "public.provider_account_assignments") { await sql`DELETE FROM provider_account_assignments WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
       const legacyShare = table === "public.creative_share_snapshots"
         ? ` OR (${scope.map(c => `${identifier(c.column_name)} IS NULL`).join(" AND ")} AND payload->>'businessId'=$1::text)` : "";

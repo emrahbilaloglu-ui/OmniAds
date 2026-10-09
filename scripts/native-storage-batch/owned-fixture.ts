@@ -130,7 +130,10 @@ export async function seedGeneration(db: Client, t: OwnedTenant, input: { date: 
       badges,reason,job_run_id,calibration_row_id,evaluation_id,input_hash,decision_hash,computed_at)
       SELECT e.business_ref_id,e.business_id,e.provider_account_ref_id,e.provider_account_id,e.decision_entity_type,e.decision_entity_id,e.ad_id,
       e.creative_id,e.as_of_date,e.engine_version,e.scope_type,e.scope_id,'keep','keep',40,'commercial_truth',2,'[]'::jsonb,
-      'Owned batch fixture',e.job_run_id,(SELECT d.id FROM engine_v3_ad_account_calibration_daily d WHERE d.provider_account_ref_id=e.provider_account_ref_id AND d.as_of_date=e.as_of_date LIMIT 1),
+      'Owned batch fixture',e.job_run_id,(SELECT d.id FROM engine_v3_ad_account_calibration_daily d
+        WHERE d.business_ref_id=e.business_ref_id AND d.business_id=e.business_id
+          AND d.provider_account_ref_id=e.provider_account_ref_id AND d.provider_account_id=e.provider_account_id
+          AND d.as_of_date=e.as_of_date LIMIT 1),
       e.id,e.input_hash,e.decision_hash,e.evaluated_at FROM engine_v3_ad_decision_evaluations e WHERE e.job_run_id=$1`, [job]);
   return { jobRunId: job, evaluations: total, contexts: input.perAccount.filter(Boolean).length };
 }

@@ -11,6 +11,9 @@ read [D155](DECISION_LOG.md#d155--additive-fk-access-for-whole-business-erasure-
 For generic observation-run RI lookup and bounded mutation pages, also read
 [D156](DECISION_LOG.md#d156--bounded-observation-run-lineage-access-for-erasure-2026-10-09).
 
+For account-binding RI lookup and its complete-erasure acceptance, read
+[D157](DECISION_LOG.md#d157--leading-account-uuid-access-for-complete-business-erasure-2026-10-09).
+
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
 Also read [D130](DECISION_LOG.md#d130--indexed-evidence-equality-and-bounded-creative-completion-proofs-2026-09-28)
 for the two SQL access-plan corrections found during natural acceptance.

@@ -13046,7 +13046,7 @@ supported ordinary parent/leaf DDL with existing lock/statement deadlines.
 A new fixed-width scalar index reads heap and does not rewrite existing indexes
 or TOAST. Its narrow admission basis is three times the heap bytes, including
 partition leaves, plus the unchanged 40 GiB residual floor. The relation must
-be one of the 32 reviewed entries and its catalog must prove the scalar fixed
+be one of the 37 reviewed scalar-key entries and its catalog must prove the scalar fixed
 key. Production always requires a fresh physical sample. Unknown, stale,
 malformed or insufficient physical evidence refuses without an override. Other
 heavy migration operations retain their original total-relation sizing. The
@@ -13061,7 +13061,7 @@ guard and repair group. No broad catalogue inference or logical-capacity bypass
 is introduced.
 
 Real migrated PostgreSQL reproduces the actual SET NULL scan, proves the new
-lookup is indexed, verifies all 33 contracts and preserves foreign event/slice
+lookup is indexed, verifies all 38 contracts and preserves foreign event/slice
 bytes after selected erasure. It also checks completed provider-scope replay
 preserves index definitions and physical identities. The canonical erasure seam
 now requires 53 passing cases. Unit cases cover adoption, physical refusal,
@@ -13090,9 +13090,19 @@ fresh measured bytes for hash bucket/entry, build and WAL peak, plus the same
 coverage refuses; no arbitrary index, text payload, existing rewrite or other
 relation can select this basis. A fresh physical sample is still mandatory
 in production before DDL; 32 scalar btree builds keep their 3x heap model.
-All 33 definitions are independently read back. A real native reference-writer
+All 38 definitions are independently read back. A real native reference-writer
 fixture verifies the actual campaign RI equality selects the hash index and
 complete selected deletion preserves foreign evaluations and objects.
 PostgreSQL 16 documents the fixed four-byte hash and lossy equality recheck at
 https://www.postgresql.org/docs/16/hash-intro.html . This is additive schema
 for the authorized erasure, without index rebuild or disk reclaim.
+
+The same bounded composite-FK catalog review identified five more selective
+parent UUIDs without leading access: native calibration batch/daily job IDs,
+native event/outcome snapshot IDs, and native snapshot calibration IDs. They
+join the 32 scalar entries under the unchanged 3x heap admission (37 btrees
+and one hash, 38 contracts total). Child-first deletion does not remove dead
+index/heap versions within its transaction; owner/date-only probes can revisit
+them for every parent. Existing selective lineage access is adopted rather
+than requiring every compound FK column. Binding roots with no repeated
+parent histories do not justify blanket provider-reference indexing.

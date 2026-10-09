@@ -149,7 +149,7 @@ removal, absent files, unsafe paths and pinned archive blockers.
 
 The actual reconciliation-event `ON DELETE SET NULL` lookup is reproduced with
 and without its scalar index. The migrated seam requires indexed RI access and
-byte-identical foreign reconciliation/slice rows after selected erasure. All 33
+byte-identical foreign reconciliation/slice rows after selected erasure. All 38
 reviewed lookup contracts, including the partitioned outcome parent, must be
 valid, ready and live. A completed release-gate provider-scope replay must keep
 the exact existing index definitions and physical identities.
@@ -216,4 +216,8 @@ a fixed four-byte hash index, with full equality/owner recheck. Its separate
 physical admission requires exact valid nonpartial unique UUID PK coverage,
 8x measured PK bytes plus the unchanged 40 GiB floor and fresh telemetry.
 No BYTEA width assumption or ordinary heavy-step relaxation is allowed.
-Canonical deletion seam: 53 cases and 33 reviewed FK access contracts.
+Canonical deletion seam: 53 cases and 38 reviewed FK access contracts.
+
+Five additional compound-lineage parent UUIDs use the same scalar btree
+admission: calibration batch/daily jobs, native event/outcome snapshot refs,
+and snapshot calibration refs. All 38 catalog contracts are required.

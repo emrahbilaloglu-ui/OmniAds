@@ -153,7 +153,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       const target = await seedTenant(db,1), other = await seedTenant(db,1);
       for (const [tenant,tag,count] of [[target,"campaign-erase",256],[other,"campaign-preserve",2048]] as const) {
         const producer = await seedCalibration(db,tenant,"2026-09-23","2026-09-23T12:00:00Z");
-        await seedGeneration(db,tenant,{date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[count],tag});
+        await seedGeneration(db,tenant,{date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[count],tag,snapshots:true});
       }
       const [ref] = (await db.query("SELECT campaign_context_ref FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 AND campaign_context_ref IS NOT NULL LIMIT 1",[target.business])).rows;
       expect(ref).toBeDefined();

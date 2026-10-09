@@ -2,6 +2,13 @@ import type { DbClient } from "@/lib/db";
 
 /** Reviewed FK-column lookups used by Meta/native whole-business erasure. */
 export const BUSINESS_ERASURE_REFERENCE_INDEXES = [
+  // Composite lineage FKs still need their selective parent UUID as a leading
+  // lookup after child-first deletes; an owner/date residual repeats dead rows.
+  { table: "engine_v3_ad_account_calibration_batches", column: "job_run_id", index: "idx_biz_erase_calibration_batch_job" },
+  { table: "engine_v3_ad_account_calibration_daily", column: "job_run_id", index: "idx_biz_erase_ad_calibration_job" },
+  { table: "engine_v3_ad_decision_events", column: "decision_snapshot_id", index: "idx_biz_erase_ad_event_snapshot" },
+  { table: "engine_v3_ad_decision_outcomes_daily", column: "decision_snapshot_id", index: "idx_biz_erase_ad_outcome_snapshot" },
+  { table: "engine_v3_ad_decision_snapshots_daily", column: "calibration_row_id", index: "idx_biz_erase_ad_snapshot_calibration" },
   { table: "engine_v3_account_calibration_daily", column: "job_run_id", index: "idx_biz_erase_fk_7df07df156e8" },
   { table: "engine_v3_ad_decision_events", column: "job_run_id", index: "idx_biz_erase_fk_8bd033a67700" },
   { table: "engine_v3_ad_decision_outcomes_daily", column: "job_run_id", index: "idx_biz_erase_fk_291b511f25e9" },

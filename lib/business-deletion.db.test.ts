@@ -579,13 +579,18 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     const { businessId, otherId, accountId } = await fixture();
     const sql = getDb();
     const [account] = await sql`SELECT external_account_id FROM provider_accounts WHERE id=${accountId}::uuid`;
-    await sql.query(`INSERT INTO meta_entity_observation_runs
+    // Only bulk fixture population has this longer disposable-client deadline.
+    // Actual erasure retains its production page deadline and all FK checks.
+    const seeding = new Client({ connectionString: process.env.DATABASE_URL, statement_timeout: 30_000, query_timeout: 30_000 });
+    await seeding.connect();
+    try {
+    await seeding.query(`INSERT INTO meta_entity_observation_runs
       (business_ref_id,business_id,provider_account_ref_id,provider_account_id,entity_type,endpoint,observed_at,captured_at,completeness,run_hash)
       SELECT b::uuid,b,$3::uuid,$4,'ad','ads',now()-n*interval '1 second',now()-n*interval '1 second','complete',
         encode(sha256(convert_to(b||':'||n,'UTF8')),'hex')
       FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,5000) n`,
     [businessId,otherId,accountId,account!.external_account_id]);
-    await sql.query(`INSERT INTO meta_entity_state_history
+    await seeding.query(`INSERT INTO meta_entity_state_history
       (run_id,business_ref_id,business_id,provider_account_ref_id,provider_account_id,entity_type,entity_id,
        campaign_id,adset_id,ad_id,observed_at,captured_at,run_completeness,presence,state_hash,field_coverage_json)
       SELECT r.id,r.business_ref_id,r.business_id,r.provider_account_ref_id,r.provider_account_id,'ad',n::text,
@@ -593,6 +598,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
         encode(sha256(convert_to(r.id::text||':'||n,'UTF8')),'hex'),$3::jsonb
       FROM meta_entity_observation_runs r CROSS JOIN generate_series(1,2) n
       WHERE r.business_id IN ($1,$2)`,[businessId,otherId,JSON.stringify({ fixture: randomBytes(512).toString("hex") })]);
+    } finally { await seeding.end(); }
     const foreign = async () => {
       const [runs] = await sql.query(`SELECT md5(string_agg(row_to_json(r)::text,'' ORDER BY id)) AS digest
         FROM meta_entity_observation_runs r WHERE business_ref_id=$1::uuid`,[otherId]);

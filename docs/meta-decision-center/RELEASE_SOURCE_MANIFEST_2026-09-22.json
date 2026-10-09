@@ -1,5 +1,5 @@
 {
-  "manifestHash": "3989524f8e5be12835616dab6f793023e8163c8a28779cba1624fb1a7cad32ac",
+  "manifestHash": "4874f4c87e3d8d1538f16af33d6d07bbea9bd895fd0ce24df5c6e07939299b63",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -860,7 +860,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "24b943e977d1b4973d6446d5b146bb9995175dc277f15d5fbb3bfc0c2708459d"
+      "sha256": "d9f026314b672ebe3a634b2998c0ffdf3a916d90cfefd06695b2eb361f279266"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -1044,7 +1044,7 @@
     },
     {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "ee00dc8ed0e8ec218389728606ab519e1c60844f7aaee68a6920359e59587a3d"
+      "sha256": "812542c15c9d626e73c5a274c32324596af730bc6f0a615b7f399a82b6787cb3"
     },
     {
       "path": "lib/business-deletion.ts",
@@ -3236,7 +3236,7 @@
     },
     {
       "path": "scripts/native-storage-batch/owned-fixture.ts",
-      "sha256": "b66b571000b7655ed04d9a0d1ad34c1d57fcc28c43f46bf49910245fd498a67d"
+      "sha256": "aea4d93943cd83c96c5d326483ce23f5e6c3fe71df540fe243a5f1d008614457"
     },
     {
       "path": "scripts/native-storage-batch/production-actor.py",

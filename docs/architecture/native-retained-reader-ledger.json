@@ -33,6 +33,12 @@
       "retention": "D153 authenticated whole-business erasure only, under caller writer exclusion/FK child-first order: walk the verified leading business index once without timeline sorting, through a non-holdable ordinary-heap cursor, and delete exact owner/table-OID-checked 4096-TID pages. Each actual DELETE plan must be TID-only; returned input keys are captured transactionally. Bounds, late FK or plan failure roll back all pages; GLOBAL shared input reference proof remains mandatory. No ordinary retention or age pruning authority. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory."
     },
     {
+      "path": "lib/business-deletion-reference-indexes.ts",
+      "role": "schema",
+      "sha256": "208d8b60f1d0b61605bb1f9e554a5a2f2d9944db00408c92668eaf860d925a89",
+      "retention": "D155 additive reviewed FK access: 37 fixed-width FK-column btree keys, including five compound-lineage UUIDs and one fixed four-byte campaign-reference hash with full BYTEA equality/owner recheck, after typed fresh physical admission. Adopt valid default-opclass/collation indexes; refuse unknown/invalid/ambiguous definitions. No DROP, rebuild, FK disabling, retained history removal, provider authority, new writer or storage reclaim permission."
+    },
+    {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
       "sha256": "12547b1f3afd356d0c2d91213b86502b9e02722c6520fa50961751a4dca35130",
@@ -215,7 +221,7 @@
     {
       "path": "lib/migrations.ts",
       "role": "schema",
-      "sha256": "945f50e6a0ea0ec7b7029a2e5844e4ccafe54da1c8398bf27d63673543093014",
+      "sha256": "1d7b2050cc329ed82a25f34ac29d2098758c7b058d00c586cda53502059090de",
       "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission."
     },
     {
@@ -293,7 +299,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "e4fee11490588ad7efbd8a49115d38c73b3ca20302d7434e7df6f716be92a5ee",
+      "sha256": "0bafb10eebe6b91b849d769accf7150a9dbd8bf3c7d3e3aad901e2ed13989e49",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
@@ -459,5 +465,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "239b6d8c6daff7ef613178d443829fbdd72157d20e3111a90875eb0d87fa0c66"
+  "sourceInventorySha256": "1de0bb573b9a2a361657bb20caf29fc9f845315d650566153fdbc87751dc9408"
 }

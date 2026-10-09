@@ -4342,7 +4342,7 @@ async function main() {
     runSync(path.join(pgBinDir, "createdb"), ["-h", "127.0.0.1", "-p", String(port), "-U", EPHEMERAL_DB_USER, deletionDatabaseName], "createdb isolated erasure");
     try {
       await runMigrationsChild(repoRoot, deletionUrl.toString(), "isolated business deletion from zero");
-      await runChildVitest(repoRoot, deletionUrl.toString(), "lib/business-deletion.db.test.ts", "Business data deletion and rollback DB seam check", 50);
+      await runChildVitest(repoRoot, deletionUrl.toString(), "lib/business-deletion.db.test.ts", "Business data deletion and rollback DB seam check", 53);
     } finally {
       const maintenance = new Client({ connectionString: databaseUrl });
       try { await maintenance.connect(); await maintenance.query(`DROP DATABASE ${deletionDatabaseName} WITH (FORCE)`); }

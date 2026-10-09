@@ -13022,3 +13022,87 @@ back rather than committing an inaccessible partial business. Source/tests are n
 acceptance: exact runtime plus complete selected DB, external archive/input,
 media and browser absence proofs remain necessary. SQL deletion does not prove
 physical file shrink or that the 163 GiB aggregate admission gate has reopened.
+
+## D155 — Additive FK access for whole-business erasure (2026-10-09)
+
+The fifth completed Halıcızade request on live `11937ebf066299fbcb3fefcb0eaec9321eaf0cdc`
+failed and rolled back. The durable runner removed no business. A sanitized
+PostgreSQL error context identified its unchanged 30-second statement timeout:
+`UPDATE ONLY meta_authoritative_reconciliation_events SET slice_version_id=NULL`
+for the parent slice UUID. The outer delete's indexed owner/TID plan does not
+prove the internal FK probe is indexed. Independent post-read preserved all
+420 target-presence checks, fifteen business roots, guards and foreign access
+records, except the expected failed job attached to the surviving business.
+
+Bounded catalog review found 32 missing leading scalar FK lookups in selected
+Meta/native parent histories. This repair adds only those reviewed UUID,
+integer and bigint partial btree indexes. Existing usable leading default
+opclass/collation indexes are adopted; full composite-FK coverage is not a
+requirement. Unknown or invalid named indexes refuse. There is no FK disabling,
+index replacement, existing-index rebuild or maintenance/reclaim operation.
+Heap relations build concurrently; the partitioned outcome parent uses the
+supported ordinary parent/leaf DDL with existing lock/statement deadlines.
+
+A new fixed-width scalar index reads heap and does not rewrite existing indexes
+or TOAST. Its narrow admission basis is three times the heap bytes, including
+partition leaves, plus the unchanged 40 GiB residual floor. The relation must
+be one of the 37 reviewed scalar-key entries and its catalog must prove the scalar fixed
+key. Production always requires a fresh physical sample. Unknown, stale,
+malformed or insufficient physical evidence refuses without an override. Other
+heavy migration operations retain their original total-relation sizing. The
+163 GiB logical growth budget and provider admission are unchanged.
+
+The previous deploy also diagnosed a completed provider-scope group replay
+attempting an unnecessary heavy rebuild. Skip that whole group only after exact
+valid/ready/live index, column/default and obsolete-index-absence proofs, plus
+two actual indexed range witnesses excluding incorrectly scoped deploy rows.
+Any missing/inconsistent proof retains the original total-relation physical
+guard and repair group. No broad catalogue inference or logical-capacity bypass
+is introduced.
+
+Real migrated PostgreSQL reproduces the actual SET NULL scan, proves the new
+lookup is indexed, verifies all 38 contracts and preserves foreign event/slice
+bytes after selected erasure. It also checks completed provider-scope replay
+preserves index definitions and physical identities. The canonical erasure seam
+now requires 53 passing cases. Unit cases cover adoption, physical refusal,
+partial/partitioned DDL, unsupported or ambiguous catalog evidence, postcondition
+failure and unchanged provider-repair refusal. Local fixtures and CI are not
+live migration or erasure acceptance.
+
+Release/deploy remains exact-tree and canonical without break glass. Do not
+retry either target on the old runtime. After successful live schema/runtime
+acceptance, require fresh bounded pre-state, then Halıcızade erasure and complete
+independent acceptance before any Vornom archive destruction or deletion. New
+indexes stay additive on code rollback; a refused/invalid build is not repaired
+by dropping or rebuilding it automatically. Completed erasure cannot be undone
+by code rollback. The existing backup/WAL boundary remains explicit.
+
+D155 native reference correction (2026-10-09): a bounded read-only RI EXPLAIN
+proved the campaign-object composite FK can choose a sequential scan of the
+17,802,330,112B evaluation heap. Add one nullable `campaign_context_ref` hash
+index; its four-byte stored hash rechecks full BYTEA equality, preserving the
+FK and owner predicate. The BYTEA column has no validated width bound, so it
+must not be treated as a fixed-width btree key. The existing valid, ready, live,
+nonpartial single UUID primary index (459,505,664B observed) covers all rows
+without unique-key deduplication. This new operation reserves eight times its
+fresh measured bytes for hash bucket/entry, build and WAL peak, plus the same
+40 GiB floor (46,625,718,272B observed requirement). Missing or ambiguous PK
+coverage refuses; no arbitrary index, text payload, existing rewrite or other
+relation can select this basis. A fresh physical sample is still mandatory
+in production before DDL; 32 scalar btree builds keep their 3x heap model.
+All 38 definitions are independently read back. A real native reference-writer
+fixture verifies the actual campaign RI equality selects the hash index and
+complete selected deletion preserves foreign evaluations and objects.
+PostgreSQL 16 documents the fixed four-byte hash and lossy equality recheck at
+https://www.postgresql.org/docs/16/hash-intro.html . This is additive schema
+for the authorized erasure, without index rebuild or disk reclaim.
+
+The same bounded composite-FK catalog review identified five more selective
+parent UUIDs without leading access: native calibration batch/daily job IDs,
+native event/outcome snapshot IDs, and native snapshot calibration IDs. They
+join the 32 scalar entries under the unchanged 3x heap admission (37 btrees
+and one hash, 38 contracts total). Child-first deletion does not remove dead
+index/heap versions within its transaction; owner/date-only probes can revisit
+them for every parent. Existing selective lineage access is adopted rather
+than requiring every compound FK column. Binding roots with no repeated
+parent histories do not justify blanket provider-reference indexing.

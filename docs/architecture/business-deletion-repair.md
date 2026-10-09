@@ -41,7 +41,9 @@ non-null alias in the selected canonical scope refuses. Native response tables
 use their episode-key indexes only when a validated, complete, NOT NULL composite
 FK proves episode ownership through the parent's equality CHECK. Missing proofs
 refuse. Actual DELETE plans are checked before writes; a large sequential scope
-scan refuses. No production index or index maintenance is introduced. Every scoped table is checked for remaining target rows before
+scan refuses. D155 adds only the reviewed missing scalar FK lookup indexes,
+under physical build admission; it does not rebuild existing indexes or reclaim
+storage. Every scoped table is checked for remaining target rows before
 root deletion. Shared users and provider-account identities are preserved;
 connection-owned credentials cascade and active sessions lose the deleted scope.
 
@@ -131,7 +133,7 @@ opening the 163 GiB growth-admission gate.
 
 ## Verification and rollout
 
-Fifty destructive cases run only on a disposable localhost PostgreSQL migrated
+Fifty-two destructive cases run only on a disposable localhost PostgreSQL migrated
 by the actual migrations and are registered in the canonical CI harness. They
 cover legacy FK failure, complete scoped removal, frozen/protected history,
 shared users/accounts, credentials/sessions, unknown tables/guards, late-FK
@@ -144,6 +146,47 @@ a census bound and stale-canary write refusal. A real second session proves anot
 while the first deletion has suspended guards, then proves ordinary immutable
 DELETE still fails after commit. External-file tests cover exact scoped cache
 removal, absent files, unsafe paths and pinned archive blockers.
+
+The actual reconciliation-event `ON DELETE SET NULL` lookup is reproduced with
+and without its scalar index. The migrated seam requires indexed RI access and
+byte-identical foreign reconciliation/slice rows after selected erasure. All 38
+reviewed lookup contracts, including the partitioned outcome parent, must be
+valid, ready and live. A completed release-gate provider-scope replay must keep
+the exact existing index definitions and physical identities.
+
+## D155 additive FK lookup schema
+
+The fifth live Halıcızade attempt reached `meta_authoritative_slice_versions`
+and rolled back at the unchanged 30-second statement cap. The PostgreSQL error
+context identified the internal `SET slice_version_id=NULL` lookup in
+`meta_authoritative_reconciliation_events`; its indexes had no leading slice
+UUID. This is a foreign-key access defect, not proof of slow outer owner access.
+Thirty-two reviewed, fixed-width scalar Meta/native FK columns with selected
+parent history receive missing partial btree indexes (`key IS NOT NULL`).
+Usable existing leading default-opclass/collation indexes are adopted. Unknown,
+invalid or conflicting indexes refuse; none is dropped or rebuilt. Ordinary
+heap indexes use `CONCURRENTLY`; PostgreSQL's partitioned-parent case uses
+ordinary parent/leaf DDL under the existing migration deadlines.
+
+Only these reviewed scalar UUID/integer/bigint indexes use a physical reserve
+of three times the heap size (including every partition leaf) plus the unchanged
+40 GiB residual floor. Variable/toasted keys and expressions are excluded. The
+live physical sample must be fresh and complete, even for a tiny production
+build. This additive index operation does not rewrite existing indexes or TOAST.
+All existing heavy rewrites retain their total-relation reserve and physical
+refusals remain unoverrideable. No logical growth budget is raised.
+
+An already completed provider-scope migration is recognized by the exact three
+valid/live/ready index definitions, NOT NULL text/default contract and absence
+of the obsolete index. Two actual bounded indexed range probes must find no
+mislabelled deploy row before the entire old repair group may be skipped. Any
+missing, ambiguous or inconsistent proof takes the original physical guard
+before any repair mutation. This avoids replaying a completed heavy rebuild.
+
+New indexes are additive and remain during a code rollback. A failed build or
+physical refusal stops publication without bypass or automatic cleanup/rebuild.
+Local tests do not establish successful live migration, erasure or a reopened
+growth gate. Fresh pre/post target and foreign-scope proofs remain required.
 
 Manage Business rereads the authoritative list and requires target absence
 before clearing local data or showing success. Active-workspace switching uses
@@ -167,3 +210,14 @@ unreviewed scope. Keep the small additive table attached to surviving businesses
 evicted files. Completed erasure is permanent in the application; any disaster
 recovery needs explicit scope and must account for deletions after the backup.
 No provider account, advertisement, budget, quota or growth override is changed.
+
+D155 native campaign RI access: the additional nullable BYTEA reference uses
+a fixed four-byte hash index, with full equality/owner recheck. Its separate
+physical admission requires exact valid nonpartial unique UUID PK coverage,
+8x measured PK bytes plus the unchanged 40 GiB floor and fresh telemetry.
+No BYTEA width assumption or ordinary heavy-step relaxation is allowed.
+Canonical deletion seam: 53 cases and 38 reviewed FK access contracts.
+
+Five additional compound-lineage parent UUIDs use the same scalar btree
+admission: calibration batch/daily jobs, native event/outcome snapshot refs,
+and snapshot calibration refs. All 38 catalog contracts are required.

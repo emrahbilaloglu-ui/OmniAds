@@ -47,7 +47,14 @@ refuse. Actual DELETE plans are checked before writes; a large sequential scope
 scan refuses. D155 adds only the reviewed missing scalar FK lookup indexes,
 under physical build admission; it does not rebuild existing indexes or reclaim
 storage. Every scoped table is checked for remaining target rows before
-root deletion. Shared users and still-referenced provider-account identities are preserved;
+root deletion. D164 checks independent owner aliases in separate LIMIT1 probes,
+with actual constrained leading-owner plans required for large indexed direct-owner
+relations. This prevents the late bitmap-off OR query from scanning a whole
+heap. CHECKed canonical and validated episode predicates keep their existing
+ownership rules; any remaining row or unsafe plan rolls back the entire erase.
+Existing stores without a leading owner index retain their existing checked
+erasure path; this correction adds no new index prerequisite to those stores.
+Shared users and still-referenced provider-account identities are preserved;
 connection-owned credentials cascade and active sessions lose the deleted scope.
 
 D160 also removes an unshared application `provider_accounts` row, including

@@ -47,11 +47,17 @@ connection-owned credentials cascade and active sessions lose the deleted scope.
 
 Native evaluation history is walked once through a non-holdable, non-scrolling
 server cursor over the verified leading business index. At its child-first
-position, exact primary-key pages of at most 4,096 evaluations are deleted;
+position, exact physical-TID pages of at most 4,096 evaluations are deleted;
 RETURNING captures their input keys into a temporary unique-key table without
 a whole-history DISTINCT/sort or a second eager history read. Each actual cursor
-and delete plan must be an index walk/probe, with no blocking Sort/Bitmap or
-non-leading ownership scan. The complete operation permits at most 4,194,304
+and delete plan must be a leading owner-index walk and exact Tid Scan respectively,
+with no blocking Sort/Bitmap or non-leading ownership scan. Byte-exact,
+non-indexable owner residuals retain ownership checks without restarting the
+owner index per page. Index scans stay available for internal foreign-key probes;
+disabling them globally made the real 4,096-row page time out in canonical CI.
+The real page-limit rollback case verifies that FK probe's indexed plan under
+the actual DELETE settings without raising its eight-second query cap.
+The complete operation permits at most 4,194,304
 evaluations and uses a 20-minute background deadline (four minutes for direct internal callers); bounds roll back all
 prior pages. Erasure alone disables JIT in its transaction. The server statement
 timeout is capped by both the 30-second query limit and remaining transaction

@@ -13008,7 +13008,15 @@ bounds, live heartbeat writes during bulk exclusion, and shorter statement plus
 absolute pinned deadlines. Exact input-reference probes pin bitmap scans off;
 dense shared hashes still require the reviewed leading contract/hash index and
 preserve GLOBAL inputs with any remaining native reference. The canonical seam
-requires all 44 deletion cases with no skips. A root DELETE must return exactly
+requires all 50 deletion cases with no skips. Canonical CI exposed a real FK
+performance defect: disabling index scans for an outer exact-TID DELETE also
+disabled the internal child-reference probes, timing out the 4,096-row page.
+Both erasure helpers now retain index scans, use non-indexable exact owner
+residuals, and still verify the actual outer Tid Scan, table OID and row count.
+The real native page-limit test checks the actual FK probe plan under the page
+DELETE's settings and still requires complete rollback within its existing
+eight-second statement cap. No timeout or FK safeguard is relaxed.
+A root DELETE must return exactly
 one removed row; a trigger that silently skips it rolls owned data and the job
 back rather than committing an inaccessible partial business. Source/tests are not live erasure
 acceptance: exact runtime plus complete selected DB, external archive/input,

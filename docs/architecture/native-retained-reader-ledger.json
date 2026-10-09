@@ -29,14 +29,14 @@
     {
       "path": "lib/business-deletion-native-evaluations.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "e19f635b8696484f3107b8c28fc4cfb516c85a39de3f79728497600ab46e254c",
-      "retention": "D153 authenticated whole-business erasure only, under caller writer exclusion/FK child-first order: walk the verified leading business index once without timeline sorting, through a non-holdable ordinary-heap cursor, and delete exact owner/table-OID-checked 4096-TID pages. Each actual DELETE plan must be TID-only; returned input keys are captured transactionally. Bounds, late FK or plan failure roll back all pages; GLOBAL shared input reference proof remains mandatory. No ordinary retention or age pruning authority."
+      "sha256": "3e2b7df213b3ee34f1e535623feb623ef56ea74c7bed190fb549d0c67bccbaa1",
+      "retention": "D153 authenticated whole-business erasure only, under caller writer exclusion/FK child-first order: walk the verified leading business index once without timeline sorting, through a non-holdable ordinary-heap cursor, and delete exact owner/table-OID-checked 4096-TID pages. Each actual DELETE plan must be TID-only; returned input keys are captured transactionally. Bounds, late FK or plan failure roll back all pages; GLOBAL shared input reference proof remains mandatory. No ordinary retention or age pruning authority. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory."
     },
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "2da29208afab3ae0e6d0c3bbca81a2b4511195eaf46ef55d7c17e93a099f0265",
-      "retention": "D154 explicit admin whole-business erasure only: durable web-owned execution, one lock-owning pinned backend/atomic transaction, exact scoped histories and GLOBAL reference proof; all-business active-work refusal, final control-history fence, FK/guard/absence verification. 4096-identity/TID pages and finite bounds do not confer age pruning or provider authority. Preserve every other tenant and all still-referenced shared input content."
+      "sha256": "12547b1f3afd356d0c2d91213b86502b9e02722c6520fa50961751a4dca35130",
+      "retention": "D154 explicit admin whole-business erasure only: durable web-owned execution, one lock-owning pinned backend/atomic transaction, exact scoped histories and GLOBAL reference proof; all-business active-work refusal, final control-history fence, FK/guard/absence verification. 4096-identity/TID pages and finite bounds do not confer age pruning or provider authority. Preserve every other tenant and all still-referenced shared input content. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory."
     },
     {
       "path": "lib/creative-decision-engine/ad-backtest-store.ts",
@@ -459,5 +459,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "30df2beea9e9f11cf2da6c320c9d65869dac69dbe7e322df77852ddd460f87e6"
+  "sourceInventorySha256": "239b6d8c6daff7ef613178d443829fbdd72157d20e3111a90875eb0d87fa0c66"
 }

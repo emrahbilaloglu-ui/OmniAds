@@ -650,12 +650,37 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       const foreign=(await db.query("SELECT * FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[other.business])).rows;
       const before = (await db.query("SELECT id,contract_version,input_hash::text FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[target.business])).rows;
       expect(before).toHaveLength(4100);
+      const evaluation=(await db.query("SELECT * FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id LIMIT 1",[target.business])).rows[0];
+      let fkProbeCount=0;
       await expect(runDbTransaction(async () => {
         const sql=getDb();
         await sql.query("SET LOCAL enable_seqscan=off");
         await sql.query("CREATE TEMP TABLE business_erasure_input_keys (contract_version text,input_hash character(64),PRIMARY KEY(contract_version,input_hash)) ON COMMIT DROP");
-        await deleteBusinessNativeEvaluations(sql,target.business,{maxRows:4096});
+        // Observe the real transaction settings immediately before its actual
+        // page DELETE. This is the RI lookup that timed out in canonical CI when
+        // the outer TID optimization also disabled every child's index scan.
+        const checkedSql=new Proxy(sql,{get(object,key){
+          if(key!=="query")return Reflect.get(object,key);
+          return async(text:string,values:unknown[]=[])=>{
+            if(text.startsWith("WITH removed AS (DELETE FROM public.engine_v3_ad_decision_evaluations")){
+              const columns=["evaluation_id","business_ref_id","provider_account_id","decision_entity_type","decision_entity_id","ad_id","as_of_date","engine_version","scope_type","scope_id","input_hash","decision_hash"];
+              const [probe]=await sql.query(`EXPLAIN (FORMAT JSON) SELECT 1 FROM ONLY public.engine_v3_ad_recommendation_episodes x
+                WHERE ${columns.map((column,i)=>`x.${column}=$${i+1}`).join(" AND ")} FOR KEY SHARE OF x`,
+              columns.map(column=>evaluation[column==="evaluation_id"?"id":column]));
+              const nodes:Record<string,unknown>[]=[];
+              const visit=(node:Record<string,unknown>)=>{nodes.push(node);for(const child of (node.Plans??[]) as Record<string,unknown>[])visit(child);};
+              visit(probe!["QUERY PLAN"][0].Plan);
+              expect(nodes.some(node=>node["Node Type"]==="Seq Scan")).toBe(false);
+              expect(nodes.some(node=>node["Node Type"]==="Index Scan" && node["Relation Name"]==="engine_v3_ad_recommendation_episodes"
+                && /evaluation_id|business_ref_id/.test(String(node["Index Cond"])))).toBe(true);
+              fkProbeCount++;
+            }
+            return sql.query(text,values);
+          };
+        }});
+        await deleteBusinessNativeEvaluations(checkedSql,target.business,{maxRows:4096});
       })).rejects.toThrow("native_evaluation_page_limit");
+      expect(fkProbeCount).toBe(1);
       expect((await db.query("SELECT id,contract_version,input_hash::text FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[target.business])).rows).toEqual(before);
       await addObservedProductionReferenceIndex(db);
       try {

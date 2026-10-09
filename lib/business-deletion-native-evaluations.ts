@@ -37,9 +37,9 @@ export async function deleteBusinessNativeEvaluations(sql: ReturnType<typeof get
   const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${DECLARE}`,[businessId]);
   verifyOwner(plan!["QUERY PLAN"][0].Plan);
   await sql.query(DECLARE,[businessId]);
-  // Keep the pinned owner cursor, but prevent every exact page DELETE from
-  // being replaced by a fresh owner or PK walk over the large history.
-  await sql.query("SET LOCAL enable_indexscan=off");
+  // The non-indexable owner residual below keeps the outer DELETE on its exact
+  // TIDs. Keep index scans available to PostgreSQL's internal FK probes: turning
+  // them off here also forces a child-table scan for every removed evaluation.
   const tableOid=indexes[0]!.table_oid;
   let rows = 0, pages = 0;
   for (;;) {

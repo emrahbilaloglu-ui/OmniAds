@@ -358,9 +358,11 @@ async function deleteLargeOwnedRows(sql: ReturnType<typeof getDb>, table: string
   await sql.query(declare, [businessId]);
   const [settings] = await sql.query<{ index: string; bitmap: string }>(
     "SELECT current_setting('enable_indexscan') AS index,current_setting('enable_bitmapscan') AS bitmap");
-  // The cursor's owner plan is already pinned. Exact TID probes must not be
-  // replaced by a fresh full owner-index scan on each DELETE page.
-  await sql.query("SET LOCAL enable_indexscan=off");
+  // Keep indexed FK checks available. A byte-exact, non-indexable owner residual
+  // prevents a fresh owner-index walk without disabling PostgreSQL's RI probes.
+  const physicalOwnerPredicate = scopePredicates(scope).map(({ owner }) =>
+    `convert_to(${identifier(owner.column_name)}::text,'UTF8')=convert_to(($3::${owner.type_name})::text,'UTF8')`).join(" OR ");
+  await sql.query("SET LOCAL enable_indexscan=on");
   await sql.query("SET LOCAL enable_bitmapscan=off");
   let rows = 0;
   for (;;) {
@@ -370,7 +372,7 @@ async function deleteLargeOwnedRows(sql: ReturnType<typeof getDb>, table: string
       throw new BusinessDeletionError("schema_not_ready", [table]);
     if (!page.length) break;
     const query = `WITH removed AS (DELETE FROM ${qualified(table)}
-      WHERE ctid=ANY($1::tid[]) AND tableoid=$2::oid AND (${predicate.replaceAll("$1", "$3")}) RETURNING 1)
+      WHERE ctid=ANY($1::tid[]) AND tableoid=$2::oid AND (${physicalOwnerPredicate}) RETURNING 1)
       SELECT count(*)::int AS removed FROM removed`;
     const params = [page.map(r => r.row_tid), first.relation_oid, businessId];
     const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`, params);

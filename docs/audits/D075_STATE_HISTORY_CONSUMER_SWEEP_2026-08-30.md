@@ -953,5 +953,15 @@ fixture validation are not live erasure or provider-authority evidence.
 | --- | ---: | ---: | --- |
 | `lib/meta/__tests__/migration-release-provider-replay.test.ts` | 0 | 1 | Unit fixture naming the state-history relation to prove that the account-binding UUID capacity model refuses this unrelated table. No entity content query, DDL, writer or decision authority is added. |
 
+## 2026-10-09 — D159 account-authoritative erasure fixture
+
+| File | Previous literals | Current literals | Classification |
+| --- | ---: | ---: | --- |
+| `lib/business-deletion.db.test.ts` | 22 | 25 | Harness only. Three new literals insert complete source/target ad states for the Meta observation-backed creative lineage, require 10,000 populated states per disposable tenant, and include foreign-state byte preservation in the existing actual erasure case. No production content reader, writer, decision rule, FK relaxation or maintenance authority is added. |
+
+The exact-count guard remains enabled and accounts for every reference. These
+new fixture states satisfy the existing account-authority and source/target
+state FKs; the test does not disable those constraints to manufacture lineage.
+
 The exact closure ledger classifies this negative scope test; its scanner and
 all existing content-reader predicates remain enabled.

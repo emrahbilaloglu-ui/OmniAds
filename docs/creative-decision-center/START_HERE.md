@@ -8,6 +8,8 @@ and [the deletion contract](../architecture/business-deletion-repair.md).
 This is a narrow offboarding exception, not ordinary retention or reclaim authority.
 For its additive FK lookup prerequisites and completed migration replay, also
 read [D155](DECISION_LOG.md#d155--additive-fk-access-for-whole-business-erasure-2026-10-09).
+For generic observation-run RI lookup and bounded mutation pages, also read
+[D156](DECISION_LOG.md#d156--bounded-observation-run-lineage-access-for-erasure-2026-10-09).
 
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
 Also read [D130](DECISION_LOG.md#d130--indexed-evidence-equality-and-bounded-creative-completion-proofs-2026-09-28)

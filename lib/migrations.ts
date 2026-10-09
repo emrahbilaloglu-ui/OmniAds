@@ -1,3 +1,4 @@
+import { ensureBusinessErasureStateRunIndex, readBusinessErasureStateRunContract } from "@/lib/business-deletion-state-run-index";
 import { BUSINESS_ERASURE_REFERENCE_INDEXES, ensureBusinessErasureReferenceIndexes } from "@/lib/business-deletion-reference-indexes";
 import { NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL } from "./creative-decision-engine/native-campaign-context-writer";
 import { NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL } from "@/lib/creative-decision-engine/native-campaign-context-storage";
@@ -2489,7 +2490,7 @@ async function assertMigrationCapacityForHeavyStep(
     /** Multiple of the relation size the host must have free. */
     headroomMultiplier?: number;
     /** Only reviewed fixed-width scalar FK indexes; existing rewrite default is unchanged. */
-    sizeBasis?: "total_relation" | "scalar_fk_heap" | "campaign_reference_pk";
+    sizeBasis?: "total_relation" | "scalar_fk_heap" | "campaign_reference_pk" | "state_run_lineage_pk";
   },
 ): Promise<{ engaged: boolean; detail: string }> {
   const heavyBytes = input.heavyBytes ?? 256 * 1024 * 1024;
@@ -2497,12 +2498,16 @@ async function assertMigrationCapacityForHeavyStep(
 
   const scalarHeap = input.sizeBasis === "scalar_fk_heap";
   const campaignHash = input.sizeBasis === "campaign_reference_pk";
+  const stateRun = input.sizeBasis === "state_run_lineage_pk";
+  const coveragePk = campaignHash || stateRun;
+  if (stateRun && (input.label !== "business_erasure_state_run_lineage"
+    || input.relation !== "public.meta_entity_state_history" || headroomMultiplier !== 32)) throw new Error("migration_state_run_scope_refused");
   if (scalarHeap && input.label !== "business_erasure_reference_index") throw new Error("migration_scalar_index_scope_refused");
   if (campaignHash && (input.label !== "business_erasure_campaign_reference_hash"
     || input.relation !== "public.engine_v3_ad_decision_evaluations")) throw new Error("migration_campaign_hash_scope_refused");
   const sizeRows = (await sql.query(
-    campaignHash ? `SELECT pg_relation_size(i.indexrelid)::bigint AS relation_bytes,
-      pg_relation_size(i.indexrelid)::bigint AS campaign_reference_pk_bytes,
+    coveragePk ? `SELECT pg_relation_size(i.indexrelid)::bigint AS relation_bytes,
+      pg_relation_size(i.indexrelid)::bigint AS ${stateRun ? "state_run_pk_bytes" : "campaign_reference_pk_bytes"},
       pg_database_size(current_database())::bigint AS database_bytes
       FROM pg_class c JOIN pg_index i ON i.indrelid=c.oid
       JOIN pg_class ix ON ix.oid=i.indexrelid JOIN pg_am am ON am.oid=ix.relam
@@ -2530,8 +2535,8 @@ async function assertMigrationCapacityForHeavyStep(
   }
   const relationBytes = Number(sizeRows[0]?.relation_bytes ?? 0);
   const databaseBytes = Number(sizeRows[0]?.database_bytes ?? 0);
-  if (campaignHash && (sizeRows.length !== 1 || !Number.isSafeInteger(relationBytes) || relationBytes < 8192)) {
-    throw new Error("migration_campaign_hash_primary_coverage_refused");
+  if (coveragePk && (sizeRows.length !== 1 || !Number.isSafeInteger(relationBytes) || relationBytes < 8192)) {
+    throw new Error(stateRun ? "migration_state_run_primary_coverage_refused" : "migration_campaign_hash_primary_coverage_refused");
   }
   if (scalarHeap && (!Number.isSafeInteger(relationBytes) || relationBytes < 0)) {
     throw new Error("migration_scalar_index_heap_measurement_refused");
@@ -2651,6 +2656,18 @@ async function assertMigrationCapacityForHeavyStep(
       `Confirm adsecute-db-healthcheck.timer is running on the database host. ` +
       `ADSECUTE_MIGRATION_CAPACITY_OVERRIDE cannot bypass a physical capacity refusal.`,
   );
+}
+
+/** D156: six bounded keys, verified enums and full UUID PK coverage. The
+ * 32x PK reserve covers conservative <=160B entries, build/sort/WAL peaks and
+ * the same 40GiB residual floor; it is not available to any other relation. */
+export async function assertBusinessErasureStateRunIndexCapacity(sql: DbClientLike) {
+  await readBusinessErasureStateRunContract(sql);
+  return assertMigrationCapacityForHeavyStep(sql, {
+    label: "business_erasure_state_run_lineage", relation: "public.meta_entity_state_history",
+    sizeBasis: "state_run_lineage_pk", headroomMultiplier: 32,
+    heavyBytes: process.env.NODE_ENV === "production" ? 0 : undefined,
+  });
 }
 
 /** A new fixed-width scalar index reads heap, never rewrites TOAST or old indexes. */
@@ -16984,6 +17001,8 @@ export async function runMigrations(options?: {
         const erasureIndexes = await ensureBusinessErasureReferenceIndexes(sql, (relation, method) =>
           assertBusinessErasureScalarIndexCapacity(sql, relation, method));
         logStartupEvent("migrations_business_erasure_reference_indexes_verified", erasureIndexes);
+        const stateRunIndex = await ensureBusinessErasureStateRunIndex(sql, () => assertBusinessErasureStateRunIndexCapacity(sql));
+        logStartupEvent("migrations_business_erasure_state_run_index_verified", stateRunIndex);
 
         const claimSchema = await assertMetaAutomationClaimSchema(sql);
         logStartupEvent("migrations_automation_claim_schema_verified", {

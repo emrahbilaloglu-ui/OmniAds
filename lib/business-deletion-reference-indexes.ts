@@ -46,7 +46,8 @@ export const BUSINESS_ERASURE_REFERENCE_INDEXES = [
   { table: "engine_v3_ad_decision_evaluations", column: "campaign_context_ref", index: "idx_biz_erase_campaign_reference", method: "hash" },
 ] as const;
 
-// A valid raw leading key is sufficient; a covering full composite FK is not
+// A valid raw leading key satisfies these scalar catalog contracts; actual
+// compound RI plans still need independent acceptance (see D156). A full FK is not
 // required. Only an absent index is built. Unknown/invalid named indexes are
 // refused rather than dropped/rebuilt by offboarding.
 export const BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL = `

@@ -13272,8 +13272,9 @@ admission budget remain unchanged. Future keys and writes still use the existing
 provider identity validation; this narrow migration does not redefine them.
 
 Canonical erasure coverage remains56 actual migrated PostgreSQL cases. Its
-populated shared-account test now requires all three searchable identity keys
-in the actual generic RI plan, then proves foreign bytes and provider identity
+populated shared-account test verifies all five full-key catalog contracts,
+requires bounded leading-account access and every full identity equality in
+the actual generic RI plan (as keys or rechecks), then proves foreign bytes and provider identity
 preservation after the selected tenant's erase. Additive schema/width/coverage
 and physical-refusal tests cover each new contract. Before DELETE, require
 47 existing contracts, five full-binding contracts, the four state-run plans and

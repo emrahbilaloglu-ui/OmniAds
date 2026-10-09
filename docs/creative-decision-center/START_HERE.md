@@ -17,6 +17,9 @@ Its live plan acceptance refused broad full-binding access despite valid scalar
 indexes; also read [D158](DECISION_LOG.md#d158--complete-account-binding-key-access-for-erasure-2026-10-09).
 The subsequent actual Meta binding rollback and narrow follow-up are recorded in
 [D159](DECISION_LOG.md#d159--meta-account-binding-ri-access-after-actual-erasure-rollback-2026-10-09).
+For removing unshared application provider-account registry records during
+explicit whole-business offboarding, also read
+[D160](DECISION_LOG.md#d160--unshared-provider-account-registry-erasure-2026-10-09).
 
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
 Also read [D130](DECISION_LOG.md#d130--indexed-evidence-equality-and-bounded-creative-completion-proofs-2026-09-28)

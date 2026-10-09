@@ -44,8 +44,31 @@ refuse. Actual DELETE plans are checked before writes; a large sequential scope
 scan refuses. D155 adds only the reviewed missing scalar FK lookup indexes,
 under physical build admission; it does not rebuild existing indexes or reclaim
 storage. Every scoped table is checked for remaining target rows before
-root deletion. Shared users and provider-account identities are preserved;
+root deletion. Shared users and still-referenced provider-account identities are preserved;
 connection-owned credentials cascade and active sessions lose the deleted scope.
+
+D160 also removes an unshared application `provider_accounts` row, including
+its name, currency, timezone and metadata. It captures account UUIDs from the
+existing owned DELETE RETURNING pages, including native evaluation pages;
+no additional native-history projection or other-account census is allowed.
+Before parent CASCADE, the two inherited snapshot/summary account stores are
+captured through selected owner-parent IDs and checked parent-index cursor
+pages. Parents are bounded to8MiB/1024 IDs and each inherited census to4,194,304
+rows in4096-row pages. Candidate accounts are bounded to128; the global registry
+directory is bounded to8MiB/256 identities. Unknown global FK children, RLS,
+partitions or unsupported metadata refuse before mutation.
+
+Sorted writer/DDL exclusion includes the registry and both inherited stores.
+Every candidate requires a global UUID-point zero-reference proof over every
+catalogued provider-account FK child. Large children require valid raw leading
+UUID indexes and actual constrained index plans; ordinary heaps of at most1MiB
+may use their existing bounded access. The single exact existing NOT VALID
+campaign-label FK is preserved with all four RI triggers and included in the
+proof. No new validation, FK/guard disabling or cascaded foreign removal is
+authorized. Any remaining reference preserves the complete original registry
+row. Delete and independent absence run in the same transaction; failure rolls
+back every business/account mutation. This is application offboarding, with no
+provider-side account deletion, backup/WAL destruction or physical shrink.
 
 Native evaluation history is walked once through a non-holdable, non-scrolling
 server cursor over the verified leading business index. At its child-first

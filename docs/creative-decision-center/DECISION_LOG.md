@@ -13329,3 +13329,41 @@ constrained leading access. No hypothetical timing assertion replaces terminal
 success, full selected absence and foreign preservation. Halıcızade must pass
 before Vornom archive/input offboarding and erasure. Code rollback retains
 additive indexes; committed data erasure is irreversible through code rollback.
+
+## D160 — Unshared provider account registry erasure (2026-10-09)
+
+The human explicitly requires no owned application data after whole-business
+deletion. A read-only check on live a7d7fdb proves Halıcızade and Vornom each have
+a provider_accounts registry row containing name/currency/timezone/metadata and
+only their own business binding. Existing erasure always preserved that global
+registry, which leaves private account data when no other reference remains.
+Bindings alone are insufficient sharing proof: the actual catalog has102 FKs
+across101 child relations, including RESTRICT, CASCADE and SET NULL behavior.
+
+Capture candidates from existing owned DELETE RETURNING pages and from the
+two inherited snapshot/summary stores before their selected parent CASCADE.
+No extra whole-history, native-table DISTINCT or other-account projection is
+allowed. Include all101 known global children in writer/DDL exclusion, plus
+the registry. Each candidate requires actual indexed UUID-point GLOBAL zero
+reference proof before exact registry DELETE and independent absence. Preserve
+the entire shared row if any reference survives. Small ordinary children must
+remain at most1MiB; large ones require verified raw UUID-leading access. The
+single exact existing unvalidated campaign-label FK stays active and unchanged
+and is included in that proof. Unknown children/metadata/guards/RLS/partitions,
+changed catalog, bounds or late constraints roll back the whole operation.
+
+Keep existing pages,30-second query cap,20-minute background deadline, physical
+index admission, FKs, immutable guards and authority boundaries. Add no indexes
+beyond D159's two already proven necessary Meta lookups. Registry identities
+are application records; no upstream advertising/provider mutation is allowed.
+Shared DR backups/WAL and forensic/physical shrink remain outside this scope.
+
+Canonical erasure coverage becomes59 actual migrated PostgreSQL cases: remove
+private registry metadata including a snapshot-only account, preserve exact
+shared account bytes through a foreign connection with no foreign binding,
+and refuse an unknown global cascading FK before mutation with both tenants
+preserved. Existing56 cases still run. Passing local/CI checks is not live
+acceptance: require exact released source, actual terminal success, every owned
+absence, unshared registry absence and foreign preservation for Halıcızade
+before Vornom offboarding. Code rollback retains additive indexes; committed
+business/account/archive erasure cannot be undone by code rollback.

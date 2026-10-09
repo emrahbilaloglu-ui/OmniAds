@@ -83,6 +83,70 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     process.env.ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED = "enabled";
   });
 
+  it("erases unshared provider registry metadata including an account owned only through snapshot items", async()=>{
+    const sql=getDb();
+    const {businessId,otherId,accountId}=await fixture();
+    const foreign=await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${accountId}::uuid`;
+    const ids:string[]=[];
+    for(const name of ["Selected account","Snapshot-only account"]) {
+      const [account]=await sql`INSERT INTO provider_accounts (provider,external_account_id,account_name,currency,timezone,metadata)
+        VALUES ('meta',${`act_private_${randomUUID()}`},${name},'TRY','Europe/Istanbul','{"private":"fixture"}'::jsonb)
+        RETURNING id,external_account_id`;
+      ids.push(String(account!.id));
+      if(ids.length===1) await sql`INSERT INTO business_provider_accounts
+        (business_id,provider,provider_account_ref_id,provider_account_id)
+        VALUES (${businessId},'meta',${account!.id},${account!.external_account_id})`;
+      else {
+        const [run]=await sql`INSERT INTO provider_account_snapshot_runs (business_id,provider)
+          VALUES (${businessId},'meta') RETURNING id`;
+        await sql`INSERT INTO provider_account_snapshot_items
+          (snapshot_run_id,provider_account_ref_id,provider_account_id,provider_account_name)
+          VALUES (${run!.id},${account!.id},${account!.external_account_id},${name})`;
+      }
+    }
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId)).toBe(false);
+    expect(await remains(otherId)).toBe(true);
+    for(const id of ids) {
+      expect(await remains(id,"provider_accounts")).toBe(false);
+      expect(await remains(id,"provider_account_snapshot_items","provider_account_ref_id")).toBe(false);
+    }
+    expect(await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${accountId}::uuid`).toEqual(foreign);
+  });
+
+  it("preserves exact shared provider metadata when only a foreign connection still references the account",async()=>{
+    const sql=getDb();
+    const {businessId,otherId}=await fixture();
+    const [account]=await sql`INSERT INTO provider_accounts (provider,external_account_id,account_name,metadata)
+      VALUES ('meta',${`act_shared_${randomUUID()}`},'Shared fixture','{"keep":"exact"}'::jsonb) RETURNING id,external_account_id`;
+    await sql`INSERT INTO business_provider_accounts (business_id,provider,provider_account_ref_id,provider_account_id)
+      VALUES (${businessId},'meta',${account!.id},${account!.external_account_id})`;
+    const [connection]=await sql`UPDATE provider_connections SET provider_account_ref_id=${account!.id}
+      WHERE business_id=${otherId} AND provider='meta' RETURNING id`;
+    const before=await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${account!.id}::uuid`;
+    const connectionBefore=await sql`SELECT to_jsonb(c)::text AS bytes FROM provider_connections c WHERE id=${connection!.id}::uuid`;
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId)).toBe(false);
+    expect(await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${account!.id}::uuid`).toEqual(before);
+    expect(await sql`SELECT to_jsonb(c)::text AS bytes FROM provider_connections c WHERE id=${connection!.id}::uuid`).toEqual(connectionBefore);
+  });
+
+  it("refuses an unknown global provider FK before any mutation and preserves both tenants",async()=>{
+    const sql=getDb();
+    const {businessId,otherId,accountId}=await fixture();
+    await sql`CREATE TABLE business_erasure_unknown_provider_ref_test
+      (provider_ref UUID NOT NULL REFERENCES provider_accounts(id) ON DELETE CASCADE,fixture TEXT NOT NULL)`;
+    try {
+      await sql`INSERT INTO business_erasure_unknown_provider_ref_test VALUES (${accountId},'must remain')`;
+      const before=await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${accountId}::uuid`;
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"schema_not_ready"});
+      expect(await remains(businessId)).toBe(true);
+      expect(await remains(otherId)).toBe(true);
+      expect(await sql`SELECT fixture FROM business_erasure_unknown_provider_ref_test`).toEqual([{fixture:"must remain"}]);
+      expect(await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${accountId}::uuid`).toEqual(before);
+    } finally { await sql`DROP TABLE business_erasure_unknown_provider_ref_test`; }
+  });
+
   it("indexes the actual SET NULL RI lookup and erases selected history while preserving foreign rows byte for byte", async () => {
     const sql = getDb();
     const { businessId, otherId, accountId } = await fixture();

@@ -7,6 +7,8 @@ import { PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE } from "@/lib/provider-accoun
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertBusinessExternalDataRemoved, BusinessExternalCleanupError } from "@/lib/business-deletion-files";
 import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory, BusinessControlReceiptCleanupError } from "@/lib/business-deletion-control-receipts";
+import { prepareBusinessProviderAccountErasure, BusinessProviderAccountCleanupError,
+  BUSINESS_PROVIDER_ACCOUNT_CAPTURE_CTE, businessProviderAccountDeleteSql } from "@/lib/business-deletion-provider-accounts";
 
 /** Explicit ownership allowlist. New tables must be reviewed, never auto-purged. */
 export const BUSINESS_DELETE_TABLES = [
@@ -348,7 +350,7 @@ function verifyOwnerReadPlan(plan: Record<string, unknown>, owners: ScopeColumn[
  * Only ordinary heap relations are supported. A changed plan/row/bound rolls
  * every earlier page back with the caller's transaction. */
 async function deleteLargeOwnedRows(sql: ReturnType<typeof getDb>, table: string, scope: ScopeColumn[],
-  businessId: string, progress: { ownedRows: number; ownedPages: number }) {
+  businessId: string, progress: { ownedRows: number; ownedPages: number }, accountKey?: string) {
   const first = scope[0]!;
   if (first.relation_kind !== "r" || scope.some(c => c.episode_bound))
     throw new BusinessDeletionError("schema_not_ready", [table]);
@@ -374,7 +376,9 @@ async function deleteLargeOwnedRows(sql: ReturnType<typeof getDb>, table: string
       throw new BusinessDeletionError("schema_not_ready", [table]);
     if (!page.length) break;
     const query = `WITH removed AS (DELETE FROM ${qualified(table)}
-      WHERE ctid=ANY($1::tid[]) AND tableoid=$2::oid AND (${physicalOwnerPredicate}) RETURNING 1)
+      WHERE ctid=ANY($1::tid[]) AND tableoid=$2::oid AND (${physicalOwnerPredicate})
+      RETURNING ${accountKey ? `${identifier(accountKey)} AS account_id` : "1"})
+      ${accountKey ? BUSINESS_PROVIDER_ACCOUNT_CAPTURE_CTE : ""}
       SELECT count(*)::int AS removed FROM removed`;
     const params = [page.map(r => r.row_tid), first.relation_oid, businessId];
     const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`, params);
@@ -586,7 +590,8 @@ export async function deleteBusinessWithData(businessId: string,
     const existing = new Set((await sql.query<{ name: string }>(`SELECT n.nspname||'.'||c.relname AS name
       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p')
       AND n.nspname IN ('public', '${ARCHIVE_SCHEMA}')`)).map(r => r.name));
-    const indirect = ["public.engine_v3_ad_decision_input_evidence", "public.custom_report_share_snapshots", "public.admin_audit_logs",
+    const indirect = ["public.provider_accounts", "public.provider_account_snapshot_items", "public.platform_overview_summary_range_accounts",
+      "public.engine_v3_ad_decision_input_evidence", "public.custom_report_share_snapshots", "public.admin_audit_logs",
       "public.meta_state_history_compaction_journal", "public.meta_retention_runs", "public.google_ads_retention_runs",
       "public.sync_repair_plans", "public.sync_release_gates", `${ARCHIVE_SCHEMA}.keep_runs`, `${ARCHIVE_SCHEMA}.run_semantics`];
     const locked = [...new Set([...scopes.keys(), ...indirect.filter(t => existing.has(t))])].sort();
@@ -670,6 +675,29 @@ export async function deleteBusinessWithData(businessId: string,
       }
       await sql.query("CLOSE business_erasure_owner_census");
     }
+    mark("provider_identity_candidates");
+    let providerAccounts: Awaited<ReturnType<typeof prepareBusinessProviderAccountErasure>>;
+    try {
+      providerAccounts=await prepareBusinessProviderAccountErasure(sql,new Set([...scopes.keys(),
+        "public.provider_account_snapshot_items","public.platform_overview_summary_range_accounts"]));
+      for (const [parent,child,parentKey] of [
+        ["public.provider_account_snapshot_runs","public.provider_account_snapshot_items","snapshot_run_id"],
+        ["public.platform_overview_summary_ranges","public.platform_overview_summary_range_accounts","summary_range_id"],
+      ] as const) {
+        const scope=scopes.get(parent);
+        if(!scope || Number(scope[0]!.heap_bytes)>8*1024*1024)
+          throw new BusinessDeletionError("schema_not_ready",[parent]);
+        const query=`SELECT id::text FROM ${qualified(parent)} WHERE (${scopeFor(scope)}) LIMIT 1025`;
+        const [plan]=await sql.query(`EXPLAIN (FORMAT JSON) ${query}`,[businessId]);
+        verifyOwnerReadPlan(plan!["QUERY PLAN"][0].Plan,scopePredicates(scope).map(s=>s.owner));
+        const parents=await sql.query<{id:string}>(query,[businessId]);
+        if(parents.length>1024) throw new BusinessDeletionError("schema_not_ready",[parent]);
+        await providerAccounts.captureInherited(child,parentKey,parents.map(p=>p.id));
+      }
+    } catch(error) {
+      if(error instanceof BusinessProviderAccountCleanupError) throw new BusinessDeletionError("schema_not_ready",[error.message]);
+      throw error;
+    }
     mark("delete_plans");
     const dependencies = await sql.query<Dependency>(`SELECT cn.nspname||'.'||child.relname AS child_table,pn.nspname||'.'||parent.relname AS parent_table
       FROM pg_constraint f JOIN pg_class child ON child.oid=f.conrelid JOIN pg_namespace cn ON cn.oid=child.relnamespace
@@ -737,7 +765,7 @@ export async function deleteBusinessWithData(businessId: string,
       mark(table);
       if (table === "public.engine_v3_ad_decision_evaluations") {
         try {
-          const result = await deleteBusinessNativeEvaluations(sql,businessId);
+          const result = await deleteBusinessNativeEvaluations(sql,businessId,undefined,true);
           progress.nativeRows=result.rows; progress.nativePages=result.pages;
         }
         catch (error) { if (error instanceof BusinessNativeEvaluationCleanupError)
@@ -751,21 +779,29 @@ export async function deleteBusinessWithData(businessId: string,
       if (Number(scope[0]!.heap_bytes) > 1024*1024 && scope[0]!.relation_kind === "r"
         && !scope.some(c => c.episode_bound) && scopePredicates(scope).every(s => s.owner.indexed)
         && table !== "public.creative_share_snapshots") {
-        await deleteLargeOwnedRows(sql, table, scope, businessId, progress);
+        await deleteLargeOwnedRows(sql, table, scope, businessId, progress,providerAccounts.columns.get(table));
         continue;
       }
-      if (table === "public.provider_connections") { await sql`DELETE FROM provider_connections WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
+      if (table === "public.provider_connections") {
+        await sql.query(businessProviderAccountDeleteSql("DELETE FROM provider_connections WHERE business_id=$1::text OR business_ref_id=$1::uuid",
+          providerAccounts.columns.get(table)),[businessId]); continue;
+      }
       if (table === "public.business_provider_accounts") {
         // Keep complete account-binding RI probes on their leading UUID index.
         // No FK/owner predicate is weakened; this setting is transaction-local.
         await sql.query("SET LOCAL enable_bitmapscan=off");
-        await sql`DELETE FROM business_provider_accounts WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`;
+        await sql.query(businessProviderAccountDeleteSql("DELETE FROM business_provider_accounts WHERE business_id=$1::text OR business_ref_id=$1::uuid",
+          providerAccounts.columns.get(table)),[businessId]);
         continue;
       }
-      if (table === "public.provider_account_assignments") { await sql`DELETE FROM provider_account_assignments WHERE business_id=${businessId} OR business_ref_id=${businessId}::uuid`; continue; }
+      if (table === "public.provider_account_assignments") {
+        await sql.query(businessProviderAccountDeleteSql("DELETE FROM provider_account_assignments WHERE business_id=$1::text OR business_ref_id=$1::uuid",
+          providerAccounts.columns.get(table)),[businessId]); continue;
+      }
       const legacyShare = table === "public.creative_share_snapshots"
         ? ` OR (${scope.map(c => `${identifier(c.column_name)} IS NULL`).join(" AND ")} AND payload->>'businessId'=$1::text)` : "";
-      await sql.query(`DELETE FROM ${qualified(table)} WHERE (${scopeFor(scope)})${legacyShare}`, [businessId]);
+      await sql.query(businessProviderAccountDeleteSql(`DELETE FROM ${qualified(table)} WHERE (${scopeFor(scope)})${legacyShare}`,
+        providerAccounts.columns.get(table)), [businessId]);
     }
     mark("input_gc");
     // Exact hash references use the reviewed leading (contract_version,input_hash)
@@ -785,6 +821,12 @@ export async function deleteBusinessWithData(businessId: string,
       [unreferenced.map(k => k.contract_version), unreferenced.map(k => k.input_hash)]);
       await sql.query(`DELETE FROM business_erasure_input_keys i USING unnest($1::text[], $2::character(64)[]) k(contract_version,input_hash)
         WHERE i.contract_version=k.contract_version AND i.input_hash=k.input_hash`, params);
+    }
+    mark("provider_identity_gc");
+    try { await providerAccounts.finish(); }
+    catch(error) {
+      if(error instanceof BusinessProviderAccountCleanupError) throw new BusinessDeletionError("schema_not_ready",[error.message]);
+      throw error;
     }
     // Heartbeats/runtime observations stay writable throughout the bulk work.
     // Exclude their writers only for the finite final census and COMMIT. A fresh

@@ -158,13 +158,32 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
           SELECT $1::text::uuid,$1::text,$2::uuid,$3,'ad','ads','2026-09-23T12:00:00Z','2026-09-23T12:01:00Z',
             'complete',md5($4||n::text)||md5(n::text||$4) FROM generate_series(1,5000) n`,
         [tenant.business,account.ref,account.id,tag]);
+        await db.query(`INSERT INTO meta_entity_state_history
+          (run_id,business_ref_id,business_id,provider_account_ref_id,provider_account_id,entity_type,
+           entity_id,campaign_id,adset_id,ad_id,creative_id,presence,observed_at,captured_at,run_completeness,state_hash)
+          SELECT r.id,r.business_ref_id,r.business_id,r.provider_account_ref_id,r.provider_account_id,'ad',
+            side.name||'-'||n,'campaign-'||n,'adset-'||n,side.name||'-'||n,'creative-'||n,'present',
+            r.observed_at,r.captured_at,r.completeness,
+            md5($2||side.name||n::text)||md5(n::text||side.name||$2)
+          FROM generate_series(1,5000) n JOIN meta_entity_observation_runs r
+            ON r.business_id=$1::text AND r.run_hash=md5($2||n::text)||md5(n::text||$2)
+          CROSS JOIN (VALUES ('source'),('target')) side(name)`,
+        [tenant.business,tag]);
         await db.query(`INSERT INTO meta_creative_lineage_edges
           (business_ref_id,business_id,provider_account_ref_id,provider_account_id,source_ad_id,source_creative_id,
-           target_ad_id,target_creative_id,lineage_type,evidence_source,observed_at,captured_at,lineage_hash)
+           target_ad_id,target_creative_id,lineage_type,evidence_source,observation_run_id,
+           observation_run_entity_type,observation_run_completeness,observed_at,captured_at,lineage_hash)
           SELECT $1::text::uuid,$1::text,$2::uuid,$3,'source-'||n,'creative-'||n,'target-'||n,'creative-'||n,
-            'reuse_same_creative','manual_verified','2026-09-23T12:00:00Z','2026-09-23T12:01:00Z',
-            md5($4||n::text)||md5(n::text||$4) FROM generate_series(1,5000) n`,
+            'reuse_same_creative','observation_run',r.id,r.entity_type,r.completeness,r.observed_at,r.captured_at,
+            md5($4||n::text)||md5(n::text||$4) FROM generate_series(1,5000) n
+          JOIN meta_entity_observation_runs r ON r.business_id=$1::text
+            AND r.run_hash=md5($4||n::text)||md5(n::text||$4)`,
         [tenant.business,account.ref,account.id,tag]);
+        for (const [table,count] of [["meta_entity_observation_runs",5000],["meta_creative_lineage_edges",5000],
+          ["meta_entity_state_history",10000]] as const) {
+          expect((await db.query(`SELECT count(*)::int AS rows FROM public.${table} WHERE business_id=$1`,
+            [tenant.business])).rows[0].rows).toBe(count);
+        }
       }
       const account = target.accounts[0]!;
       for (const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily",
@@ -194,7 +213,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       const foreign = async () => {
         const out: unknown[] = [];
         for(const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily","engine_v3_ad_account_calibration_daily",
-          "meta_creative_lineage_edges","meta_entity_observation_runs","business_provider_accounts"]) {
+          "meta_creative_lineage_edges","meta_entity_observation_runs","meta_entity_state_history","business_provider_accounts"]) {
           out.push((await db.query(`SELECT count(*)::int AS count,md5(string_agg(md5(to_jsonb(t)::text),',' ORDER BY to_jsonb(t)::text)) AS bytes FROM public.${table} t WHERE business_id=$1`,[other.business])).rows);
         }
         return out;

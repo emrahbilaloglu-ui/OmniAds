@@ -13106,3 +13106,75 @@ index/heap versions within its transaction; owner/date-only probes can revisit
 them for every parent. Existing selective lineage access is adopted rather
 than requiring every compound FK column. Binding roots with no repeated
 parent histories do not justify blanket provider-reference indexing.
+
+## D156 — Bounded observation-run lineage access for erasure (2026-10-09)
+
+The sixth completed Halıcızade attempt on live
+`f3dd2c0252a5bcdf3334e313b8d531fd68688605` failed and rolled back at
+`meta_entity_observation_runs`. PostgreSQL identified its internal full
+eight-column `meta_entity_state_history_run_fk` lookup at the unchanged
+30-second statement cap. The cap applies to the entire outer 4,096-parent
+DELETE; the evidence does not prove that one internal lookup took 30 seconds.
+Independent post-read accepted all 420 scope-presence checks, fifteen roots,
+guard modes and foreign access records. Both targets remained; Vornom archive
+and frozen input keys were untouched.
+
+A valid leading `run_id` index already exists. EXPLAIN-only custom/generic
+plans under the actual erasure settings showed generic RI probes choosing the
+owner-prefix manifest index with `run_id` as a residual. Vornom's custom probe
+also chose owner/as-of access. Index existence is not chosen-plan acceptance.
+Bitmap-only access and custom-plan-only access did not prove selective lineage
+lookup for both targets and were rejected, without a new DELETE experiment.
+
+Add only `idx_biz_erase_state_run_lineage`, a concurrent, nonpartial btree on
+`(run_id,business_ref_id,provider_account_ref_id,entity_type,captured_at,run_completeness)`
+with fillfactor 90. Three UUIDs and timestamptz are fixed-width. The two text
+keys require deterministic collation and exact validated NOT NULL enum CHECKs, bounding their ASCII values
+to eight and twelve bytes. Catalog proof also requires the exact validated,
+nondeferrable eight-column RESTRICT FK and all four active internal triggers.
+The two variable identity text predicates remain in that full FK recheck;
+no unbounded identity, entity or payload is indexed. Unknown shape, checks,
+lineage or a conflicting named index refuses before admission/DDL. A usable
+existing six-key prefix is adopted. No existing index is dropped or rebuilt.
+
+Only this exact relation/key contract may use a fresh valid, ready, live,
+immediate nonpartial unique single-UUID primary-index measurement. The narrow
+physical reserve is 32 times those measured bytes plus the unchanged 40 GiB
+residual floor. A conservative new-entry bound is 160 bytes, including key
+alignment, index tuple and line pointer; distinct live UUIDs in a unique PK cannot
+share a deduplication tuple and require at least 24 bytes each. Older MVCC
+versions of one UUID can share a posting list; this model does not count those
+as distinct live rows. See PostgreSQL 16's deduplication contract at
+https://www.postgresql.org/docs/16/btree-implementation.html#BTREE-DEDUPLICATION .
+The 90-percent fill target and
+page overhead leave this reserve more than four times the conservative leaf
+size estimate for build/sort/WAL peak. This is a guarded admission model,
+not a measured final index size. A fresh complete data-path physical sample
+remains mandatory in production; stale/unknown/malformed/short capacity cannot
+be overridden. No other migration may select this basis. Existing scalar,
+hash and heavy-rewrite reserves and the 163 GiB logical growth gate stay intact.
+The observed 139,321,344-byte PK implies a 47,407,955,968-byte requirement;
+48,630,308,864 bytes free was an observation, not a future DDL guarantee.
+
+Owned identity census pages stay at 4,096. Generic owned mutation pages become
+512 so cumulative per-parent FK work remains bounded within a statement. Native
+evaluation pages retain their separate 4,096-row helper. Exact TID/table/owner
+proof, row limits, locks, trigger restoration, child-first order, 30-second
+statement cap and 20-minute durable deadline are unchanged. Atomic rollback
+remains mandatory; no partial erasure is called success.
+
+Canonical migrated PostgreSQL now requires 55 erasure cases. The new populated
+two-tenant fixture checks the actual full-FK generic RI access under erasure
+settings, erases more than one parent mutation page, and preserves complete
+foreign run/state bytes. Removing the enum width proof must refuse before DDL.
+Unit cases cover admission ordering, exact DDL/adoption, malformed contracts,
+missing PK coverage, stale telemetry and measured shortfall despite override.
+
+Exact-tree local QA, CI, canonical deploy without break glass, runtime identity,
+new index readback and actual selective custom/generic full-FK plans for both
+targets are prerequisites to another DELETE. Then fresh bounded pre-state and
+Halıcızade terminal plus complete independent absence must precede Vornom
+archive/input destruction and deletion. Additive indexes stay on code rollback;
+an invalid build stops rather than being auto-dropped/rebuilt. Completed logical
+erasure is irreversible by code rollback. Backup/WAL/physical-shrink boundaries
+remain explicit; source, tests and publication alone delete no business.

@@ -139,6 +139,13 @@ export function pinnedMigrationClientOver(
         // Explicit responses, including malformed measurements, are never
         // replaced with a healthy fixture. Real guards must still reject them.
         if (Array.isArray(delegated) && delegated.length === 0) {
+          if (statement.includes("AS lineage_valid") && statement.includes("idx_biz_erase_state_run_lineage")
+            && JSON.stringify(params?.[0]) === JSON.stringify(["run_id", "business_ref_id", "provider_account_ref_id", "entity_type", "captured_at", "run_completeness"])
+            && JSON.stringify(params?.[1]) === JSON.stringify([
+              "(entity_type = ANY (ARRAY['campaign'::text, 'adset'::text, 'ad'::text, 'creative'::text]))",
+              "(run_completeness = ANY (ARRAY['complete'::text, 'partial'::text, 'point_lookup'::text]))",
+            ])) return { rows: [{ shape_valid: true, bounds_valid: true, lineage_valid: true, lookup_ready: true, named_index_conflict: false }] };
+
           if (statement.includes("AS reference_foreign_key") && statement.includes("AS named_index_conflict")
             && params?.length === 4 && ERASURE_REFERENCE_FIXTURE.has(`${params[0]}.${params[1]}:${params[2]}`)) {
             return { rows: [{ relation_kind: "r", key_type: params?.[3] === "hash" ? 17 : 2950, reference_foreign_key: true,

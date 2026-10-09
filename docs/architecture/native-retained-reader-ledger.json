@@ -35,14 +35,14 @@
     {
       "path": "lib/business-deletion-reference-indexes.ts",
       "role": "schema",
-      "sha256": "208d8b60f1d0b61605bb1f9e554a5a2f2d9944db00408c92668eaf860d925a89",
+      "sha256": "9039ab85b9bd6ab381a0f8293643e0960702a06665993e4dc185a219e347f56c",
       "retention": "D155 additive reviewed FK access: 37 fixed-width FK-column btree keys, including five compound-lineage UUIDs and one fixed four-byte campaign-reference hash with full BYTEA equality/owner recheck, after typed fresh physical admission. Adopt valid default-opclass/collation indexes; refuse unknown/invalid/ambiguous definitions. No DROP, rebuild, FK disabling, retained history removal, provider authority, new writer or storage reclaim permission."
     },
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "12547b1f3afd356d0c2d91213b86502b9e02722c6520fa50961751a4dca35130",
-      "retention": "D154 explicit admin whole-business erasure only: durable web-owned execution, one lock-owning pinned backend/atomic transaction, exact scoped histories and GLOBAL reference proof; all-business active-work refusal, final control-history fence, FK/guard/absence verification. 4096-identity/TID pages and finite bounds do not confer age pruning or provider authority. Preserve every other tenant and all still-referenced shared input content. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory."
+      "sha256": "1fa8b693315d27b71b71ba373da8c9a4ad547b4385fa9d5eb3a5ed7f7fb81d0e",
+      "retention": "D154 explicit admin whole-business erasure only: durable web-owned execution, one lock-owning pinned backend/atomic transaction, exact scoped histories and GLOBAL reference proof; all-business active-work refusal, final control-history fence, FK/guard/absence verification. 4096-identity/TID pages and finite bounds do not confer age pruning or provider authority. Preserve every other tenant and all still-referenced shared input content. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory. D156 retains 4096-row census, bounds owned mutation pages to 512 and keeps full FK/owner/TID/rollback proofs."
     },
     {
       "path": "lib/creative-decision-engine/ad-backtest-store.ts",
@@ -221,8 +221,8 @@
     {
       "path": "lib/migrations.ts",
       "role": "schema",
-      "sha256": "1d7b2050cc329ed82a25f34ac29d2098758c7b058d00c586cda53502059090de",
-      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission."
+      "sha256": "6364b16864b203103adb70c177d053c5824ed1a785fe28780b555b90c8defaaa",
+      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission. D156 adds only the bounded six-key observation-run index under exact enum/full-FK and UUID-PK capacity proofs; no existing-index rebuild or generic reserve relaxation."
     },
     {
       "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
@@ -299,8 +299,8 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "0bafb10eebe6b91b849d769accf7150a9dbd8bf3c7d3e3aad901e2ed13989e49",
-      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+      "sha256": "542df759a7dc3f5752afcb71a3c25f6254e7c409eda41928788ee782016b2fcf",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness. D156 requires all 55 actual erasure cases, including generic RI lookup/foreign-byte preservation and enum-bound refusal; no new production selection/removal authority."
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -465,5 +465,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "1de0bb573b9a2a361657bb20caf29fc9f845315d650566153fdbc87751dc9408"
+  "sourceInventorySha256": "99959c46cb113bc0fa51dda5f7d5ad443e7dcddef161e114220b270f6202ec13"
 }

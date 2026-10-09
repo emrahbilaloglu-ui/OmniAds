@@ -133,7 +133,7 @@ opening the 163 GiB growth-admission gate.
 
 ## Verification and rollout
 
-Fifty-two destructive cases run only on a disposable localhost PostgreSQL migrated
+Fifty-five destructive cases run only on a disposable localhost PostgreSQL migrated
 by the actual migrations and are registered in the canonical CI harness. They
 cover legacy FK failure, complete scoped removal, frozen/protected history,
 shared users/accounts, credentials/sessions, unknown tables/guards, late-FK
@@ -221,3 +221,26 @@ Canonical deletion seam: 53 cases and 38 reviewed FK access contracts.
 Five additional compound-lineage parent UUIDs use the same scalar btree
 admission: calibration batch/daily jobs, native event/outcome snapshot refs,
 and snapshot calibration refs. All 38 catalog contracts are required.
+
+
+## D156 observation-run generic RI access
+
+After D155 the sixth live Halıcızade request rolled back at observation-run
+parents. Actual generic full-FK plans used owner-wide access with run_id
+residual despite an existing run_id-leading index; Vornom custom access was
+also broad. The 30-second timeout bounds the complete 4,096-parent statement.
+
+[D156](../creative-decision-center/DECISION_LOG.md#d156--bounded-observation-run-lineage-access-for-erasure-2026-10-09)
+adds one nonpartial concurrent six-key lineage btree with fillfactor 90.
+Three UUIDs, timestamptz and exact validated bounded enum keys with deterministic collation are proved
+before DDL; the full eight-column RESTRICT FK and identity residuals remain.
+Only this contract uses 32x fresh validated full single-UUID PK bytes plus the
+same 40GiB residual floor for physical admission. No override, existing-index
+rebuild, growth-budget adjustment or other-relation reserve relaxation applies.
+
+Owned mutation pages are now 512; ownership census and the native evaluation
+helper remain 4,096. Limits, exact TID/owner checks, locks and atomic rollback
+are preserved. Canonical deletion seam requires 55 actual PostgreSQL cases.
+Live acceptance requires selective actual custom/generic RI plans for both
+selected targets, then fresh prestate and Halıcızade complete absence before
+Vornom. An index or successful release alone is not erasure acceptance.

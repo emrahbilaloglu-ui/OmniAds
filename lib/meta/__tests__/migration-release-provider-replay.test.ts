@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertBusinessErasureScalarIndexCapacity, RELEASE_GATE_PROVIDER_INDEX_CONTRACTS, releaseGateProviderScopeIsCurrent, runReleaseGateProviderScopeMigration } from "@/lib/migrations";
+import { assertBusinessErasureStateRunIndexCapacity, assertBusinessErasureScalarIndexCapacity, RELEASE_GATE_PROVIDER_INDEX_CONTRACTS, releaseGateProviderScopeIsCurrent, runReleaseGateProviderScopeMigration } from "@/lib/migrations";
 
 vi.mock("@/lib/startup-diagnostics", () => ({ logStartupEvent: vi.fn(), logStartupError: vi.fn() }));
 afterEach(() => vi.unstubAllEnvs());
@@ -102,5 +102,22 @@ describe("fixed scalar FK index physical reserve", () => {
   });
   it("does not turn malformed heap bytes into light-work admission", async () => {
     await expect(assertBusinessErasureScalarIndexCapacity(capacity(undefined, 1, 1, "NaN") as never, "public.meta_authoritative_reconciliation_events")).rejects.toThrow("heap_measurement_refused");
+  });
+});
+
+
+describe("bounded state-run index physical reserve", () => {
+  it.each(["valid", "shortfall", "stale", "coverage", "bounds"])("checks %s coverage without a heap rewrite or override", async kind => {
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("ADSECUTE_MIGRATION_CAPACITY_OVERRIDE", "fixture");
+    const required = 139321344 * 32 + 40 * 1024 ** 3;
+    const sql = { query: vi.fn(async (q: string) => {
+      if (q.includes("AS lineage_valid")) return [{ shape_valid: true, bounds_valid: kind !== "bounds", lineage_valid: true, lookup_ready: false, named_index_conflict: false }];
+      if (q.includes("AS state_run_pk_bytes")) return kind === "coverage" ? [] : [{ relation_bytes: "139321344", database_bytes: "175577545751" }];
+      if (q.includes("s.payload")) return [{ payload: { disks: [{ path: "/var/lib/postgresql", availableBytes: kind === "shortfall" ? required - 1 : required }] }, age_seconds: kind === "stale" ? 901 : 1 }];
+      throw Error("unexpected reserve query");
+    }) };
+    if (kind === "valid") await expect(assertBusinessErasureStateRunIndexCapacity(sql as never)).resolves.toMatchObject({ engaged: true });
+    else await expect(assertBusinessErasureStateRunIndexCapacity(sql as never)).rejects.toThrow(kind === "bounds" ? "state_run_index_contract" : kind === "coverage" ? "primary_coverage_refused" : "capacity_refused");
+    expect(sql.query.mock.calls.every(([q]) => !q.includes("pg_total_relation_size"))).toBe(true);
   });
 });

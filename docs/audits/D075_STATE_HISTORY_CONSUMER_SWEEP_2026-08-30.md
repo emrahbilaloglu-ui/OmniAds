@@ -931,3 +931,18 @@ scoped teardown, tenant/shared-account preservation, protected-evidence refusal,
 late-FK rollback, growth-budget independence and kill-switch refusal. No content
 reader or its D075 presence/clock/manifest safety predicates changed. The exact
 reference scanner remains enabled.
+
+
+## 2026-10-09 — D156 bounded erasure lineage lookup
+
+| File | Previous literals | Current literals | Classification |
+| --- | ---: | ---: | --- |
+| `lib/business-deletion-state-run-index.ts` | 0 | 3 | DDL/catalog only. Exact relation and full-FK catalog proof, enum/type/collation bounds and concurrent six-key index definition; no entity content SELECT, decision, presence or manifest membership authority. It does not disable a FK or replace an existing index. |
+| `lib/migrations.ts` | 54 | 56 | DDL/catalog and byte measurement. The two added literals restrict the new capacity basis to this exact relation. Complete single-UUID PK coverage and fresh physical capacity are required before the additive build; no state-history entity row is read or rewritten by the admission proof. |
+| `lib/business-deletion.db.test.ts` | 13 | 22 | Disposable migrated-PostgreSQL harness. Two-tenant state fixture INSERT, full-FK EXPLAIN, local ANALYZE, complete foreign-row digests and selected absence; temporary local removal/restoration of enum proof and the new index checks refusal before DDL. These operations require the explicit disposable localhost seam and grant no production maintenance or ordinary decision authority. |
+
+The exact closure ledger includes all references. No scanner exemption, content
+reader predicate, production scope, FK or retained-history policy is weakened.
+The canonical migration harness now requires 55 actual erasure cases instead
+of 53; its source ledger pin records that stricter fixture count. Source and
+fixture validation are not live erasure or provider-authority evidence.

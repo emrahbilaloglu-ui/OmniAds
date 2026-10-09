@@ -15,6 +15,7 @@ import { buildRuntimeContract, upsertRuntimeContractInstance } from "@/lib/sync/
 import { NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION } from "@/lib/creative-decision-engine/ad-operator-response-detection";
 import { BUSINESS_ERASURE_REFERENCE_INDEXES, BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL, ensureBusinessErasureReferenceIndexes } from "@/lib/business-deletion-reference-indexes";
 import { assertBusinessErasureScalarIndexCapacity, releaseGateProviderScopeIsCurrent, runReleaseGateProviderScopeMigration } from "@/lib/migrations";
+import { BUSINESS_ERASURE_STATE_RUN_BOUNDS, BUSINESS_ERASURE_STATE_RUN_INDEX, ensureBusinessErasureStateRunIndex } from "@/lib/business-deletion-state-run-index";
 
 // Only the migrated, disposable cluster may execute these destructive fixtures.
 const seam = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
@@ -522,6 +523,85 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({ code: "scope_conflict" });
     expect(await remains(businessId)).toBe(true);
     expect(await remains(otherId)).toBe(true);
+  });
+
+  it("erases many observation parents with generic RI plans while retaining foreign history byte for byte", async () => {
+    const { businessId, otherId, accountId } = await fixture();
+    const sql = getDb();
+    const [account] = await sql`SELECT external_account_id FROM provider_accounts WHERE id=${accountId}::uuid`;
+    await sql.query(`INSERT INTO meta_entity_observation_runs
+      (business_ref_id,business_id,provider_account_ref_id,provider_account_id,entity_type,endpoint,observed_at,captured_at,completeness,run_hash)
+      SELECT b::uuid,b,$3::uuid,$4,'ad','ads',now()-n*interval '1 second',now()-n*interval '1 second','complete',
+        encode(sha256(convert_to(b||':'||n,'UTF8')),'hex')
+      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,5000) n`,
+    [businessId,otherId,accountId,account!.external_account_id]);
+    await sql.query(`INSERT INTO meta_entity_state_history
+      (run_id,business_ref_id,business_id,provider_account_ref_id,provider_account_id,entity_type,entity_id,
+       campaign_id,adset_id,ad_id,observed_at,captured_at,run_completeness,presence,state_hash,field_coverage_json)
+      SELECT r.id,r.business_ref_id,r.business_id,r.provider_account_ref_id,r.provider_account_id,'ad',n::text,
+        'fixture-campaign','fixture-adset',n::text,r.observed_at,r.captured_at,r.completeness,'present',
+        encode(sha256(convert_to(r.id::text||':'||n,'UTF8')),'hex'),$3::jsonb
+      FROM meta_entity_observation_runs r CROSS JOIN generate_series(1,2) n
+      WHERE r.business_id IN ($1,$2)`,[businessId,otherId,JSON.stringify({ fixture: randomBytes(512).toString("hex") })]);
+    const foreign = async () => {
+      const [runs] = await sql.query(`SELECT md5(string_agg(row_to_json(r)::text,'' ORDER BY id)) AS digest
+        FROM meta_entity_observation_runs r WHERE business_ref_id=$1::uuid`,[otherId]);
+      const [states] = await sql.query(`SELECT md5(string_agg(row_to_json(r)::text,'' ORDER BY id)) AS digest
+        FROM meta_entity_state_history r WHERE business_ref_id=$1::uuid`,[otherId]);
+      return [runs!.digest,states!.digest];
+    };
+    const before = await foreign();
+    await sql`ANALYZE meta_entity_state_history`;
+    const witnesses = await sql.query(`SELECT DISTINCT ON (business_ref_id) * FROM meta_entity_observation_runs
+      WHERE business_ref_id IN ($1::uuid,$2::uuid) ORDER BY business_ref_id,captured_at DESC`,[businessId,otherId]);
+    await withPinnedDbClient(async client => {
+      await client.query("SET plan_cache_mode=force_generic_plan");
+      await client.query("SET enable_seqscan=off");
+      await client.query("SET enable_bitmapscan=off");
+      await client.query(`PREPARE business_erasure_state_run_probe(uuid,uuid,text,uuid,text,text,timestamptz,text) AS
+        SELECT 1 FROM ONLY public.meta_entity_state_history x
+        WHERE $1=run_id AND $2=business_ref_id AND $3=business_id AND $4=provider_account_ref_id
+          AND $5=provider_account_id AND $6=entity_type AND $7=captured_at AND $8=run_completeness FOR KEY SHARE OF x`);
+      try {
+        for (const r of witnesses) {
+          const literal = (v: unknown) => `'${String(v).replaceAll("'", "''")}'`;
+          const values = [r.id,r.business_ref_id,r.business_id,r.provider_account_ref_id,r.provider_account_id,
+            r.entity_type,new Date(r.captured_at as string).toISOString(),r.completeness].map(literal).join(",");
+          const {rows:[explain]} = await client.query(`EXPLAIN (FORMAT JSON) EXECUTE business_erasure_state_run_probe(${values})`);
+          const nodes: Record<string,unknown>[] = [];
+          const walk = (n: Record<string,unknown>) => { nodes.push(n); for (const c of (n.Plans ?? []) as Record<string,unknown>[]) walk(c); };
+          walk((explain!["QUERY PLAN"] as Array<{Plan:Record<string,unknown>}>)[0]!.Plan);
+          expect(nodes.some(n=>n["Index Name"]===BUSINESS_ERASURE_STATE_RUN_INDEX && String(n["Index Cond"]).includes("run_id"))).toBe(true);
+        }
+        await deleteBusinessWithData(businessId,{client});
+      } finally {
+        await client.query("DEALLOCATE business_erasure_state_run_probe");
+        await client.query("RESET plan_cache_mode");
+        await client.query("RESET enable_seqscan");
+        await client.query("RESET enable_bitmapscan");
+      }
+    });
+    expect(await remains(businessId)).toBe(false);
+    expect(await remains(businessId,"meta_entity_state_history","business_ref_id")).toBe(false);
+    expect(await remains(businessId,"meta_entity_observation_runs","business_ref_id")).toBe(false);
+    expect(await foreign()).toEqual(before);
+  },60_000);
+
+  it("refuses an unbounded state-run key before index DDL and restores the disposable schema", async () => {
+    const sql = getDb();
+    await sql.query(`DROP INDEX public.${BUSINESS_ERASURE_STATE_RUN_INDEX}`);
+    await sql`ALTER TABLE meta_entity_state_history DROP CONSTRAINT meta_entity_state_history_entity_type_check`;
+    const admit = vi.fn();
+    try {
+      await expect(ensureBusinessErasureStateRunIndex(sql,admit)).rejects.toThrow("state_run_index_contract");
+      expect(admit).not.toHaveBeenCalled();
+      const [index] = await sql`SELECT to_regclass('public.idx_biz_erase_state_run_lineage') AS present`;
+      expect(index!.present).toBeNull();
+    } finally {
+      await sql.query(`ALTER TABLE meta_entity_state_history ADD CONSTRAINT meta_entity_state_history_entity_type_check
+        CHECK ${BUSINESS_ERASURE_STATE_RUN_BOUNDS[0]}`);
+      await ensureBusinessErasureStateRunIndex(sql,async()=>{});
+    }
   });
 
   it("uses the complete enforced run FK for large state history, refusing nullable or disabled inheritance before any erasure", async () => {

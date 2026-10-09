@@ -312,6 +312,8 @@ function scopeFor(columns: ScopeColumn[]): string {
 // Identity/TID pages carry no payloads. Four thousand identities keep memory
 // finite while avoiding thousands of network/planning round trips per tenant.
 const OWNER_PAGE = 4096;
+// FK work is per deleted parent; keep the mutation page below the read census.
+const OWNER_DELETE_PAGE = 512;
 const OWNER_ROW_BOUND = 4_194_304;
 
 /** Read complete owned identities, never a selective mismatch/LIMIT over the
@@ -366,7 +368,7 @@ async function deleteLargeOwnedRows(sql: ReturnType<typeof getDb>, table: string
   await sql.query("SET LOCAL enable_bitmapscan=off");
   let rows = 0;
   for (;;) {
-    const page = await sql.query<{ row_tid: string; row_table: string }>(`FETCH FORWARD ${OWNER_PAGE} FROM business_erasure_owned_rows`);
+    const page = await sql.query<{ row_tid: string; row_table: string }>(`FETCH FORWARD ${OWNER_DELETE_PAGE} FROM business_erasure_owned_rows`);
     rows += page.length;
     if (rows > OWNER_ROW_BOUND || page.some(r => r.row_table !== first.relation_oid))
       throw new BusinessDeletionError("schema_not_ready", [table]);

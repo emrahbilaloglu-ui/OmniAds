@@ -13367,3 +13367,11 @@ acceptance: require exact released source, actual terminal success, every owned
 absence, unshared registry absence and foreign preservation for Halıcızade
 before Vornom offboarding. Code rollback retains additive indexes; committed
 business/account/archive erasure cannot be undone by code rollback.
+
+D160 live preflight measured43,696,128 heap bytes but only128 registry UUIDs.
+A heap-size assumption would refuse a genuinely finite directory. Require its
+actual raw UUID-leading index plan and LIMIT257 with no Sort/materialization,
+then refuse more than256 identities. No full heap scan or maintenance is allowed.
+The D074 guard explicitly classifies only the single exact legacy FK-name
+reference and global read proof in this offboarding helper; manual label
+writers and decision authority remain frozen.

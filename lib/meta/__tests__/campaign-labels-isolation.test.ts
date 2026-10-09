@@ -88,6 +88,18 @@ describe("D074 manual campaign-label isolation", () => {
         expect(namedLines.every((line) => /^\s*"meta_campaign_label(?:s|_history)",\s*$/.test(line))).toBe(true);
         return false;
       }
+      if (path === join("lib", "business-deletion-provider-accounts.ts")) {
+        // D160 names only the exact legacy FK exception. Authenticated erasure
+        // performs a GLOBAL read-only zero-reference proof before removing an
+        // unshared provider root; no manual label writer/decision authority.
+        expect(source).toContain('export async function prepareBusinessProviderAccountErasure');
+        expect(source).toContain('r.enabled_triggers !== 4');
+        expect(source).toContain('r.definition==="FOREIGN KEY (provider_account_ref_id, provider_account_id) REFERENCES provider_accounts(id, external_account_id) ON DELETE RESTRICT NOT VALID"');
+        expect(source).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM) (?:public\.)?meta_campaign_label/);
+        const namedLines=source.split("\n").filter(line=>TABLE_PATTERN.test(line));
+        expect(namedLines).toEqual(['    const legacyUnvalidated=r.child==="public.meta_campaign_label_history"']);
+        return false;
+      }
       // Comments explaining the removal are fine; executable references are
       // not. Keep this heuristic strict: any non-comment line naming the
       // tables fails.

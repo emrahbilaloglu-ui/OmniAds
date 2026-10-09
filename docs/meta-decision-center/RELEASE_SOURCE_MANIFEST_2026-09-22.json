@@ -1,5 +1,5 @@
 {
-  "manifestHash": "e3e17f313c98d246de5237d52ab9254dab731dcaef5f97854c1c3c1bf118b5a8",
+  "manifestHash": "cac6e4ac40e315cc5eb43f6e706c0c1857ba1b96489a4e151baec1fc5ab8e18b",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -804,7 +804,7 @@
     },
     {
       "path": "docs/architecture/business-deletion-repair.md",
-      "sha256": "8e2777ff3ca1aa8394d1ae12cc7d21902243611720b2c0d7fcccdb8948d3e5e8"
+      "sha256": "457de61fb781439abb054fd528e06089af75c6d29ffdf1565bc32a7a6c102e03"
     },
     {
       "path": "docs/architecture/migration-replay-worker-recovery.md",
@@ -896,7 +896,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "15fee3e7b6308b41046c906f740b2a548033c1539b4aaf7b9a6145cab678c385"
+      "sha256": "fc6b30dadc9d83be062a686ca6f26113bca5c22b192b2a9becc6cc3c7a4a949a"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1012,7 +1012,7 @@
     },
     {
       "path": "lib/business-deletion-provider-accounts.ts",
-      "sha256": "dac5957a98ee687747f85bf3489b9bc0f919f39cde4aa8ca5604b25c55b61174"
+      "sha256": "3961e18b187d7d439f417c0d8355e9da57822240a8ebf48a4012e022aca53b10"
     },
     {
       "path": "lib/business-deletion-reference-indexes.test.ts",
@@ -1840,7 +1840,7 @@
     },
     {
       "path": "lib/meta/__tests__/campaign-labels-isolation.test.ts",
-      "sha256": "0848f28b95892801f8f3562a588aa48a6cc65034d99f2bb3871d65bacf743985"
+      "sha256": "c13ba5b8b52f093cafb6d8bcf688e787c50fe72f303debdafe6aa096010701ae"
     },
     {
       "path": "lib/meta/__tests__/campaign-role-vocabulary-closure.test.ts",

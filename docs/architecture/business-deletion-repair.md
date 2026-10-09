@@ -55,7 +55,7 @@ Before parent CASCADE, the two inherited snapshot/summary account stores are
 captured through selected owner-parent IDs and checked parent-index cursor
 pages. Parents are bounded to8MiB/1024 IDs and each inherited census to4,194,304
 rows in4096-row pages. Candidate accounts are bounded to128; the global registry
-directory is bounded to8MiB/256 identities. Unknown global FK children, RLS,
+directory is a verified leading raw-UUID index walk bounded to256 identities. Unknown global FK children, RLS,
 partitions or unsupported metadata refuse before mutation.
 
 Sorted writer/DDL exclusion includes the registry and both inherited stores.

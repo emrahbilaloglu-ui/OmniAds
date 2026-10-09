@@ -137,14 +137,30 @@ export async function prepareBusinessProviderAccountErasure(
       throw new BusinessProviderAccountCleanupError(`provider_reference_contract:${r.child}`);
     }
   }
-  const [parent] = await sql.query<{ bytes:string; row_security:boolean; relation_kind:string; partition:boolean }>(`SELECT pg_relation_size(c.oid)::text AS bytes,
+  const [parent] = await sql.query<{ bytes:string; row_security:boolean; relation_kind:string; partition:boolean; indexes:string[] }>(`SELECT pg_relation_size(c.oid)::text AS bytes,
+    ARRAY(SELECT ix.relname FROM pg_index i JOIN pg_class ix ON ix.oid=i.indexrelid
+      JOIN pg_am am ON am.oid=ix.relam JOIN pg_opclass op ON op.oid=i.indclass[0]
+      JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=i.indkey[0]
+      WHERE i.indrelid=c.oid AND am.amname='btree' AND i.indisvalid AND i.indisready
+        AND i.indislive AND i.indexprs IS NULL AND i.indpred IS NULL AND i.indnkeyatts>=1
+        AND a.attname='id' AND a.atttypid=2950 AND a.attnotnull AND op.opcdefault
+        AND i.indcollation[0]=a.attcollation ORDER BY ix.relname) AS indexes,
     c.relrowsecurity OR c.relforcerowsecurity AS row_security,c.relkind AS relation_kind,c.relispartition AS partition
     FROM pg_class c WHERE c.oid='public.provider_accounts'::regclass`);
   if (!parent || parent.row_security || parent.relation_kind!=="r" || parent.partition
-    || !/^\d+$/.test(parent.bytes) || Number(parent.bytes)>8*1024*1024) {
+    || !/^\d+$/.test(parent.bytes) || !parent.indexes.length) {
     throw new BusinessProviderAccountCleanupError("provider_parent_bound");
   }
-  const directory = await sql.query<{id:string}>(`SELECT id::text FROM public.provider_accounts ORDER BY id LIMIT ${MAX_ROOTS+1}`);
+  const directoryQuery=`SELECT id::text FROM public.provider_accounts ORDER BY provider_accounts.id LIMIT ${MAX_ROOTS+1}`;
+  const [directoryExplain]=await sql.query(`EXPLAIN (FORMAT JSON) ${directoryQuery}`);
+  const directoryPlan=directoryExplain!["QUERY PLAN"][0].Plan;
+  const directoryAccess=directoryPlan.Plans?.[0];
+  if(directoryPlan["Node Type"]!=="Limit" || !directoryAccess
+    || !["Index Scan","Index Only Scan"].includes(directoryAccess["Node Type"])
+    || directoryAccess["Relation Name"]!=="provider_accounts"
+    || !parent.indexes.includes(directoryAccess["Index Name"]))
+    throw new BusinessProviderAccountCleanupError("provider_parent_plan");
+  const directory = await sql.query<{id:string}>(directoryQuery);
   if (directory.length > MAX_ROOTS) throw new BusinessProviderAccountCleanupError("provider_parent_bound");
   await sql.query(`CREATE TEMP TABLE ${candidates} (id UUID PRIMARY KEY) ON COMMIT DROP`);
   const [settings] = await sql.query<{seq:string;bitmap:string;index:string}>(`SELECT current_setting('enable_seqscan') AS seq,

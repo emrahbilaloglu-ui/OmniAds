@@ -65,7 +65,12 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   {
     file: "lib/business-deletion.db.test.ts",
     category: "harness",
-    count: 13,
+    count: 22,
+  },
+  {
+    file: "lib/business-deletion-state-run-index.ts",
+    category: "ddl",
+    count: 3,
   },
   /*
     The 2026-09-21 campaign field fix replaced the old schedule-only refusal
@@ -226,7 +231,7 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   // labels. It reads no entity content and changes no D075 winner predicate.
   // D141 50 -> 54: exact index name/table/definition contracts and the
   // unchanged fallback physical guard. Catalog/DDL only; no entity row read.
-  { file: "lib/migrations.ts", category: "ddl", count: 54 },
+  { file: "lib/migrations.ts", category: "ddl", count: 56 },
   {
     file: "lib/meta/__tests__/migration-relation-budget.test.ts",
     category: "test",

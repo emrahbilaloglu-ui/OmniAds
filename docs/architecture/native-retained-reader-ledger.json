@@ -299,8 +299,8 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "0bafb10eebe6b91b849d769accf7150a9dbd8bf3c7d3e3aad901e2ed13989e49",
-      "retention": "Owned public/isolated fixture only; not live consumer completeness."
+      "sha256": "542df759a7dc3f5752afcb71a3c25f6254e7c409eda41928788ee782016b2fcf",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness. D156 requires all 55 actual erasure cases, including generic RI lookup/foreign-byte preservation and enum-bound refusal; no new production selection/removal authority."
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -465,5 +465,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "b45d677f3f5c71b795ae15e6996616734d9b5c53462d8620280a4ecea37233a8"
+  "sourceInventorySha256": "99959c46cb113bc0fa51dda5f7d5ad443e7dcddef161e114220b270f6202ec13"
 }

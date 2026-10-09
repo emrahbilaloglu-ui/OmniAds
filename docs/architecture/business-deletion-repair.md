@@ -292,3 +292,17 @@ The model uses PostgreSQL16's [leading equality rules](https://www.postgresql.or
 and the header/layout sources cited above. It bounds current referenced keys
 through their validated small parent and refuses unbounded keys; it is not a
 measured future index or physical storage reclamation claim.
+
+## D159 Meta binding access and honest live acceptance
+
+The eighth Halıcızade attempt on D158 rolled back at the Meta creative-lineage
+binding RI probe. Neither business is erased. See
+[D159](../creative-decision-center/DECISION_LOG.md#d159--meta-account-binding-ri-access-after-actual-erasure-rollback-2026-10-09).
+The existing full-binding migration adds only two validated Meta contracts,
+for seven in total, using unchanged typed12x UUID-PK physical admission.
+Its populated shared-account seam now proves both Meta generic account-leading
+plans, selected full erasure and foreign byte preservation. Live52-plan
+acceptance must require UUID-leading access for every large binding child;
+only the explicitly measured campaign-label and retained-lineage heaps below
+1MiB may retain constrained owner-leading access. A preparation receipt is not
+terminal completion; all prior selected/foreign proofs remain required.

@@ -15,6 +15,8 @@ For account-binding RI lookup and its complete-erasure acceptance, read
 [D157](DECISION_LOG.md#d157--leading-account-uuid-access-for-complete-business-erasure-2026-10-09).
 Its live plan acceptance refused broad full-binding access despite valid scalar
 indexes; also read [D158](DECISION_LOG.md#d158--complete-account-binding-key-access-for-erasure-2026-10-09).
+The subsequent actual Meta binding rollback and narrow follow-up are recorded in
+[D159](DECISION_LOG.md#d159--meta-account-binding-ri-access-after-actual-erasure-rollback-2026-10-09).
 
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
 Also read [D130](DECISION_LOG.md#d130--indexed-evidence-equality-and-bounded-creative-completion-proofs-2026-09-28)

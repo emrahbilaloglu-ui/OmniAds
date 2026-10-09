@@ -105,6 +105,8 @@ const ERASURE_FULL_BINDING_FIXTURE = new Set([
   "engine_v3_ad_decision_evaluation_contexts:idx_biz_erase_binding_eval_context_full",
   "engine_v3_ad_account_calibration_daily:idx_biz_erase_binding_cal_daily_full",
   "engine_v3_ad_decision_events:idx_biz_erase_binding_event_full",
+  "meta_creative_lineage_edges:idx_biz_erase_binding_meta_lineage_full",
+  "meta_entity_observation_runs:idx_biz_erase_binding_meta_run_full",
 ]);
 
 /**

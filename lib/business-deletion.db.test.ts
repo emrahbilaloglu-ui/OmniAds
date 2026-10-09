@@ -134,7 +134,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       WHERE business_ref_id=${otherId}::uuid ORDER BY id`).toEqual(parentsBefore);
   });
 
-  it("uses bounded full binding RI with rechecked identities and preserves a shared account tenant", async () => {
+  it("uses bounded native and Meta full binding RI with rechecked identities and preserves a shared account tenant", async () => {
     const db = new Client({connectionString:process.env.DATABASE_URL}); await db.connect();
     let addedReference = false;
     try {
@@ -151,9 +151,24 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       for (const [tenant,tag] of [[target,"binding-remove"],[other,"binding-preserve"]] as const) {
         const producer = await seedCalibration(db,tenant,"2026-09-23","2026-09-23T12:00:00Z");
         await seedGeneration(db,tenant,{date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[5000],tag,snapshots:true});
+        const account = tenant.accounts[0]!;
+        await db.query(`INSERT INTO meta_entity_observation_runs
+          (business_ref_id,business_id,provider_account_ref_id,provider_account_id,entity_type,endpoint,
+           observed_at,captured_at,completeness,run_hash)
+          SELECT $1::text::uuid,$1::text,$2::uuid,$3,'ad','ads','2026-09-23T12:00:00Z','2026-09-23T12:01:00Z',
+            'complete',md5($4||n::text)||md5(n::text||$4) FROM generate_series(1,5000) n`,
+        [tenant.business,account.ref,account.id,tag]);
+        await db.query(`INSERT INTO meta_creative_lineage_edges
+          (business_ref_id,business_id,provider_account_ref_id,provider_account_id,source_ad_id,source_creative_id,
+           target_ad_id,target_creative_id,lineage_type,evidence_source,observed_at,captured_at,lineage_hash)
+          SELECT $1::text::uuid,$1::text,$2::uuid,$3,'source-'||n,'creative-'||n,'target-'||n,'creative-'||n,
+            'reuse_same_creative','manual_verified','2026-09-23T12:00:00Z','2026-09-23T12:01:00Z',
+            md5($4||n::text)||md5(n::text||$4) FROM generate_series(1,5000) n`,
+        [tenant.business,account.ref,account.id,tag]);
       }
       const account = target.accounts[0]!;
-      for (const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily"]) {
+      for (const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily",
+        "meta_creative_lineage_edges","meta_entity_observation_runs"]) {
         await db.query(`ANALYZE public.${table}`);
         await db.query("BEGIN");
         try {
@@ -170,7 +185,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
           // Either reviewed account-leading access is bounded. The optimizer
           // may prefer the narrower scalar key in this smaller fixture; full
           // owner/account equality must still be present as keys or rechecks.
-          expect(nodes.some(n => [contract.index,scalar.index].includes(String(n["Index Name"]) as typeof contract.index)
+          expect(nodes.some(n => [contract.index,scalar?.index].includes(String(n["Index Name"]) as typeof contract.index)
             && /provider_account_ref_id\s*=/.test(String(n["Index Cond"]))
             && ["business_id","provider_account_id"].every(k => new RegExp(`(?:^|[^a-z0-9_])${k}\\s*=|=\\s*${k}(?:$|[^a-z0-9_])`).test(`${n["Index Cond"]??""} ${n.Filter??""}`))),JSON.stringify(plan["QUERY PLAN"])).toBe(true);
           expect(nodes.some(n => ["Seq Scan","Bitmap Heap Scan"].includes(String(n["Node Type"])))).toBe(false);
@@ -178,7 +193,8 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       }
       const foreign = async () => {
         const out: unknown[] = [];
-        for(const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily","engine_v3_ad_account_calibration_daily","business_provider_accounts"]) {
+        for(const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily","engine_v3_ad_account_calibration_daily",
+          "meta_creative_lineage_edges","meta_entity_observation_runs","business_provider_accounts"]) {
           out.push((await db.query(`SELECT count(*)::int AS count,md5(string_agg(md5(to_jsonb(t)::text),',' ORDER BY to_jsonb(t)::text)) AS bytes FROM public.${table} t WHERE business_id=$1`,[other.business])).rows);
         }
         return out;
@@ -188,6 +204,9 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       if(!ref.present) { await addObservedProductionReferenceIndex(db); addedReference=true; }
       await deleteBusinessWithData(target.business);
       expect(await remains(target.business)).toBe(false);
+      for (const table of ["meta_creative_lineage_edges","meta_entity_observation_runs"]) {
+        expect(await remains(target.business,table,"business_id")).toBe(false);
+      }
       expect(await remains(other.business)).toBe(true);
       expect(await foreign()).toEqual(before);
       expect(await remains(account.ref,"provider_accounts","id")).toBe(true);

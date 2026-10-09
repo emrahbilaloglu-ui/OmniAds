@@ -13283,3 +13283,49 @@ No tests, indices, build or healthy worker state establish erasure completion;
 terminal success and independent full absence must still pass for Hali before Vornom.
 Code rollback preserves additive indexes. Erased data/archive objects cannot be
 restored by code rollback; no shared DR backup/WAL or forensic erase is authorized.
+
+## D159 — Meta account-binding RI access after actual erasure rollback (2026-10-09)
+
+Exact live D158 a7d7fdb305fc553df0b3e1bc98230b848de9cfea passed its local
+and CI checks and pre-delete plans, but the eighth Halıcızade erase rolled back.
+At 2026-10-09 10:19:40 UTC PostgreSQL reported statement_timeout in the internal
+meta_creative_lineage_edges full-binding RESTRICT probe during DELETE FROM
+business_provider_accounts. The database transaction reached that phase after
+966978ms; that statement hit the unchanged30s cap. Independent420 presence
+checks,15 root identities, guard modes, enabled FK triggers and foreign
+membership/connection digests matched pre-state. Neither business was deleted.
+This is actual failure evidence; passing plan preparation did not prove erasure.
+
+D158's acceptance required a constrained leading key, but required the account
+UUID first only for native tables. The failing Meta plan led with business_id
+and provider_account_id; provider_account_ref_id was only a residual filter.
+Its generic plan cost82944 and selected-owner custom cost310254 describe planner
+estimates, not measured latency or proof of dead-tuple causality. The other
+large Meta binding child, meta_entity_observation_runs, has the same access
+shape. Fresh catalog reads prove both ordinary heaps, non-null UUID/TEXT/TEXT
+identity, complete valid single-UUID PKs, validated nondeferrable RESTRICT
+binding FKs and four enabled internal RI triggers.
+
+Extend the existing D158 contracts by only two additive full-binding btrees:
+meta_creative_lineage_edges and meta_entity_observation_runs. Preserve all five
+native contracts,47 scalar/hash contracts, FK definitions, guards, erasure
+locks/pages/deadlines, shared identities and rollback. Use exactly the same
+small-parent width proof,12x UUID-PK reserve, fresh physical telemetry and40GiB
+floor; no FK weakening, timeout increase, index replacement or growth-budget
+change. The unvalidated nullable campaign-label binding and empty retained
+lineage are outside this width-based DDL scope. Their current heaps are24576
+and0 bytes respectively; acceptance must remeasure a maximum1MiB before allowing
+existing owner-leading access. Any growth or unknown shape refuses acceptance.
+
+The existing populated actual migrated erasure case now seeds5000 rows per
+selected and foreign shared-account tenant in each affected Meta table, requires
+account-leading generic full-identity access, performs the actual full erase,
+proves selected Meta absence and byte-identical foreign Meta/native/binding
+rows. Canonical coverage remains56 cases; two exact Meta physical-refusal tests
+extend capacity coverage. Before the next DELETE require all seven full-key
+contracts and52 generic/custom plans: account UUID must lead every large
+binding child; only the two explicitly small measured children may use existing
+constrained leading access. No hypothetical timing assertion replaces terminal
+success, full selected absence and foreign preservation. Halıcızade must pass
+before Vornom archive/input offboarding and erasure. Code rollback retains
+additive indexes; committed data erasure is irreversible through code rollback.

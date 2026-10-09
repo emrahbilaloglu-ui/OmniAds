@@ -35,8 +35,8 @@
     {
       "path": "lib/business-deletion-reference-indexes.ts",
       "role": "schema",
-      "sha256": "4e29f1e85fd080eb480616f7b4695d047905979c9c3a46001f784c599b853bc0",
-      "retention": "D155 additive reviewed FK access: 37 fixed-width FK-column btree keys, including five compound-lineage UUIDs and one fixed four-byte campaign-reference hash with full BYTEA equality/owner recheck, after typed fresh physical admission. Adopt valid default-opclass/collation indexes; refuse unknown/invalid/ambiguous definitions. No DROP, rebuild, FK disabling, retained history removal, provider authority, new writer or storage reclaim permission. D157 adds nine explicit fixed account-UUID leading binding RI lookups (47 total contracts), with full owner/provider/text recheck and no FK weakening. Only these columns use their separate fresh8x UUID-PK physical reserve plus the same40GiB floor. D158 adds five exact full-binding three-key indexes; validated FK/RI metadata, finite small-parent key widths and fresh12x complete UUID-PK reserve plus the same40GiB floor are required. No DROP/rebuild, FK weakening, growth, pruning or reclaimed-space authority."
+      "sha256": "c0685cd8f7b43f3d6c8aaa63d55771d0e564f5492ea7c0134382a48240e51fe6",
+      "retention": "D155 additive reviewed FK access: 37 fixed-width FK-column btree keys, including five compound-lineage UUIDs and one fixed four-byte campaign-reference hash with full BYTEA equality/owner recheck, after typed fresh physical admission. Adopt valid default-opclass/collation indexes; refuse unknown/invalid/ambiguous definitions. No DROP, rebuild, FK disabling, retained history removal, provider authority, new writer or storage reclaim permission. D157 adds nine explicit fixed account-UUID leading binding RI lookups (47 total contracts), with full owner/provider/text recheck and no FK weakening. Only these columns use their separate fresh8x UUID-PK physical reserve plus the same40GiB floor. D158 adds five exact full-binding three-key indexes; validated FK/RI metadata, finite small-parent key widths and fresh12x complete UUID-PK reserve plus the same40GiB floor are required. No DROP/rebuild, FK weakening, growth, pruning or reclaimed-space authority. D159 extends the existing full-binding scope by only the two validated Meta lineage/observation-run contracts, preserving the same typed key-width, fresh12x UUID-PK physical reserve and40GiB floor; no timeout, FK or guard relaxation."
     },
     {
       "path": "lib/business-deletion.ts",
@@ -222,7 +222,7 @@
       "path": "lib/migrations.ts",
       "role": "schema",
       "sha256": "e4435022e2828ce5ece36ef42fb5041d285a81616ffca6ed0082c00df4941986",
-      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission. D156 adds only the bounded six-key observation-run index under exact enum/full-FK and UUID-PK capacity proofs; no existing-index rebuild or generic reserve relaxation. D157 limits8x UUID-PK sizing to nine typed account-reference scalar contracts; existing scalar/hash/state-run/ordinary rewrite guards and physical floor are preserved. D158 adds five exact full-binding three-key indexes; validated FK/RI metadata, finite small-parent key widths and fresh12x complete UUID-PK reserve plus the same40GiB floor are required. No DROP/rebuild, FK weakening, growth, pruning or reclaimed-space authority."
+      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission. D156 adds only the bounded six-key observation-run index under exact enum/full-FK and UUID-PK capacity proofs; no existing-index rebuild or generic reserve relaxation. D157 limits8x UUID-PK sizing to nine typed account-reference scalar contracts; existing scalar/hash/state-run/ordinary rewrite guards and physical floor are preserved. D158 adds five exact full-binding three-key indexes; validated FK/RI metadata, finite small-parent key widths and fresh12x complete UUID-PK reserve plus the same40GiB floor are required. No DROP/rebuild, FK weakening, growth, pruning or reclaimed-space authority. D159 extends the existing full-binding scope by only the two validated Meta lineage/observation-run contracts, preserving the same typed key-width, fresh12x UUID-PK physical reserve and40GiB floor; no timeout, FK or guard relaxation."
     },
     {
       "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
@@ -465,5 +465,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "f1a900babd71617e3be7c10e2473583f41159ff9d359192d1f3ab14868d0ffb5"
+  "sourceInventorySha256": "51bda4451bb56af8e00019d4f6ee4b9fdc8d0ee0c917e5bb19f381fd14d9a33b"
 }

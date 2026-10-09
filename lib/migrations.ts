@@ -4142,6 +4142,17 @@ export async function runMigrations(options?: {
           metadata         JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+          sql`CREATE TABLE IF NOT EXISTS business_deletion_jobs (
+          business_ref_id UUID PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
+          attempt_id UUID NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('queued','running','failed')),
+          attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0),
+          error_code TEXT,
+          error_tables TEXT[] NOT NULL DEFAULT '{}',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          started_at TIMESTAMPTZ,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
           sql`CREATE TABLE IF NOT EXISTS creative_share_snapshots (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           token       TEXT NOT NULL UNIQUE,

@@ -1,5 +1,7 @@
 "use client";
 
+import { awaitBusinessDeletion } from "@/lib/business-deletion-client";
+
 /**
  * Data boundaries for the Manage routes.
  *
@@ -834,6 +836,13 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
       headers: { "Content-Type": "application/json" },
     }).catch(() => null);
     const refusal = !response?.ok ? await response?.json().catch(() => null) as { message?: string } | null : null;
+    if (response?.ok) {
+      try { await awaitBusinessDeletion(businessId, await response.json().catch(() => ({}))); }
+      catch (error) {
+        setOutcome({ kind: "unknown", detail: error instanceof Error ? error.message : "The deletion status could not be confirmed." });
+        return;
+      }
+    }
 
     // Separate read from the LIST endpoint. `/api/businesses/[businessId]` has
     // no GET, so re-reading it answered 405 every time and the ceremony could

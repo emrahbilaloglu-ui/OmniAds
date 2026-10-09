@@ -10,6 +10,7 @@ import { removeBusinessClientState } from "@/lib/client-auth-state";
 import { AuthSurface } from "@/components/auth/auth-surface";
 import { AuthOnboardingArc } from "@/components/auth/onboarding-arc";
 import { CURRENCY_OPTIONS } from "@/components/business/BusinessForm";
+import { awaitBusinessDeletion } from "@/lib/business-deletion-client";
 
 /** The same ISO 4217 shape `PATCH /api/businesses/{id}` refuses on the server. */
 const ISO_4217_ALPHABETIC = /^[A-Z]{3}$/;
@@ -39,6 +40,7 @@ export default function SelectBusinessPage() {
   const [confirmBusinessId, setConfirmBusinessId] = useState<string | null>(null);
   const [confirmInput, setConfirmInput] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteStage, setDeleteStage] = useState<"queued" | "running" | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [roleByBusinessId, setRoleByBusinessId] = useState<Record<string, string>>({});
   const [editBusinessId, setEditBusinessId] = useState<string | null>(null);
@@ -240,15 +242,17 @@ export default function SelectBusinessPage() {
   async function handleDeleteBusiness() {
     if (!confirmBusiness) return;
     setDeleteLoading(true);
+    setDeleteStage(null);
     setFeedback(null);
     try {
       const response = await fetch(`/api/businesses/${encodeURIComponent(confirmBusiness.id)}`, {
         method: "DELETE",
       });
-      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+      const payload = (await response.json().catch(() => null)) as { message?: string; status?: string; monitorTicket?: string } | null;
       if (!response.ok) {
         throw new Error(payload?.message ?? "Could not delete business.");
       }
+      await awaitBusinessDeletion(confirmBusiness.id, payload ?? {}, setDeleteStage);
 
       const rows = await readWorkspaces();
       if (!rows || rows.some((row) => row.id === confirmBusiness.id)) {
@@ -284,6 +288,7 @@ export default function SelectBusinessPage() {
       });
     } finally {
       setDeleteLoading(false);
+      setDeleteStage(null);
     }
   }
 
@@ -449,6 +454,7 @@ export default function SelectBusinessPage() {
             <p className="mt-1">
               Backups are retained. Database files may not shrink immediately; deletion does not guarantee that the capacity block will clear.
             </p>
+            <p className="mt-1">Large histories are removed in the background. Data updates and historical reads may pause during removal; deletion waits until active data work has stopped.</p>
             <label className="ad-auth-label mt-3">
               Type business name
               <input
@@ -457,6 +463,10 @@ export default function SelectBusinessPage() {
                 className="ad-auth-input"
               />
             </label>
+            {deleteStage ? <p role="status" className="mt-2">
+              {deleteStage === "queued" ? "Deletion queued. Waiting for the worker." : "Deleting all business records in the background."}
+              {" "}Large histories can take several minutes. Closing this window does not cancel deletion. Completion will be confirmed after all records are removed.
+            </p> : null}
             <div className="mt-3 flex gap-2">
               <button
                 type="button"

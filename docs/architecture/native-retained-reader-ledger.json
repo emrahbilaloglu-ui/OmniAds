@@ -29,14 +29,14 @@
     {
       "path": "lib/business-deletion-native-evaluations.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "7de2ddce12791f711cc959c2df172a306ec455c77f5398d00313401729bf306a",
-      "retention": "D153 authenticated whole-business erasure only, under caller writer exclusion/FK child-first order: walk the verified leading business index once with a non-holdable cursor and delete exact 1024-ID pages, capturing returned input keys. Bounds or plan failure roll back all pages; global shared input reference proof remains mandatory. No ordinary retention or age pruning authority."
+      "sha256": "3e2b7df213b3ee34f1e535623feb623ef56ea74c7bed190fb549d0c67bccbaa1",
+      "retention": "D153 authenticated whole-business erasure only, under caller writer exclusion/FK child-first order: walk the verified leading business index once without timeline sorting, through a non-holdable ordinary-heap cursor, and delete exact owner/table-OID-checked 4096-TID pages. Each actual DELETE plan must be TID-only; returned input keys are captured transactionally. Bounds, late FK or plan failure roll back all pages; GLOBAL shared input reference proof remains mandatory. No ordinary retention or age pruning authority. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory."
     },
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "31468ac0a6895d21c4f3f0dc17ada95df4b2fd5bbb05de93d49090b9ec9716d7",
-      "retention": "D153 authenticated whole-business erasure only: remove all target-owned retained lineage, frozen labels and protected action history under exclusive writer locks with transactionally suspended exact reviewed guards and restored modes. Foreign keys stay active; global shared input references and other tenants remain. Ordinary retention and snapshot age pruning receive no removal authority; external archive/file remnants refuse success. Large uncertified dual-owner preflights require actual leading-owner equality plans; exact complete state-run FK inheritance and six required legacy UUID owners are reviewed. A 240-second total deadline fits the existing 300-second proxy while each statement remains capped at 30 seconds; failure preserves transactional rollback. Uncertified identities use one complete bounded 1024-row owner-union cursor census; proven large ordinary heaps use exact owner-checked 1024-TID pages under the same transaction. Late contradictions, FK failures or bounds roll all pages back; no production DDL or wider retention authority."
+      "sha256": "12547b1f3afd356d0c2d91213b86502b9e02722c6520fa50961751a4dca35130",
+      "retention": "D154 explicit admin whole-business erasure only: durable web-owned execution, one lock-owning pinned backend/atomic transaction, exact scoped histories and GLOBAL reference proof; all-business active-work refusal, final control-history fence, FK/guard/absence verification. 4096-identity/TID pages and finite bounds do not confer age pruning or provider authority. Preserve every other tenant and all still-referenced shared input content. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory."
     },
     {
       "path": "lib/creative-decision-engine/ad-backtest-store.ts",
@@ -215,7 +215,7 @@
     {
       "path": "lib/migrations.ts",
       "role": "schema",
-      "sha256": "4db32585f8ab4c8e1db00379a4590d0e7809fca4f8ebad8033b66a7dd6e52029",
+      "sha256": "945f50e6a0ea0ec7b7029a2e5844e4ccafe54da1c8398bf27d63673543093014",
       "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission."
     },
     {
@@ -293,7 +293,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "045e31ed950277038de38e386e172884aadc90a28c1d1a43bba17b1d92fcedd4",
+      "sha256": "e4fee11490588ad7efbd8a49115d38c73b3ca20302d7434e7df6f716be92a5ee",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
@@ -459,5 +459,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "c130a88bdae948b2083dd1a5ee9b91c0a276d6d2423954379e0147118c1db8fd"
+  "sourceInventorySha256": "239b6d8c6daff7ef613178d443829fbdd72157d20e3111a90875eb0d87fa0c66"
 }

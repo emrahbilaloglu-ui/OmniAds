@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getDb } from "@/lib/db";
-import { BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
+import { BusinessDeletionError } from "@/lib/business-deletion";
+import { businessDeletionFailureMessage, enqueueBusinessDeletion } from "@/lib/business-deletion-jobs";
+import { issueBusinessDeletionTicket } from "@/lib/business-deletion-ticket";
 import { logAdminAction } from "@/lib/admin-logger";
 import { PLAN_ORDER } from "@/lib/pricing/plans";
 
@@ -120,29 +122,15 @@ export async function DELETE(
     if (auth.error) return auth.error;
 
     const { businessId } = await params;
-    await deleteBusinessWithData(businessId);
-
-    await logAdminAction({
-      adminId: auth.session!.user.id,
-      action: "business.delete",
-      targetType: "business",
-      meta: { deleted: true },
-    });
-
-    return NextResponse.json({ ok: true });
+    const monitorTicket = issueBusinessDeletionTicket(request.cookies.get("omniads_session")?.value ?? "", businessId, auth.session!.sessionId);
+    const job = await enqueueBusinessDeletion(businessId);
+    return NextResponse.json({ status: job.status, monitorTicket }, { status: 202 });
   } catch (err) {
-    if (err instanceof BusinessDeletionError) {
-      return NextResponse.json({ error: err.code, message: err.code === "external_cleanup_required"
-        ? "İşletmeye ait arşiv veya dosyaların kaldırıldığı doğrulanamadı. İşletme silinmedi."
-        : err.code === "control_reference_in_use"
-          ? err.tables.includes("sync_runtime_instances")
-            ? "İşletme güncel canlı yapılandırmada referans alınıyor. İlgili canary/yapılandırma referansı kaldırılmadan silinemez. İşletme ve veritabanı kayıtları korundu."
-            : "Son 5 dakika içinde çalışan worker bu işletmeye işaret ediyor. İşin durduğu ve kayıt güncelliğinin sona erdiği doğrulanmadan silinemez. İşletme ve veritabanı kayıtları korundu."
-        : "İşletme verileri güvenle kaldırılamadı. İşletme ve veritabanı kayıtları korundu." }, {
-        status: err.code === "not_found" ? 404 : err.code === "schema_not_ready" ? 503 : 409,
-      });
-    }
-    console.error("[admin/businesses/[businessId] DELETE]", err);
-    return NextResponse.json({ error: "internal_error", message: String(err) }, { status: 500 });
+    if (err instanceof BusinessDeletionError) return NextResponse.json({ error: err.code,
+      message: businessDeletionFailureMessage(err.code, true, err.tables) }, {
+      status: err.code === "not_found" ? 404 : err.code === "schema_not_ready" ? 503 : 409,
+    });
+    console.error("[admin/businesses DELETE] enqueue failed");
+    return NextResponse.json({ error: "delete_failed", message: businessDeletionFailureMessage("delete_failed", true) }, { status: 503 });
   }
 }

@@ -80,6 +80,7 @@ function installFetch(rows: Array<Record<string, unknown>>, patch?: { ok: boolea
     if (method === "PATCH") {
       return jsonResponse(patch?.body ?? { business: rows[0] }, patch?.ok ?? true, patch?.ok === false ? 400 : 200);
     }
+    if (method === "DELETE") return jsonResponse({status:"ok"});
     return jsonResponse({ businesses: rows, activeBusinessId: rows[0]?.id ?? null });
   }) as unknown as typeof fetch;
 }
@@ -112,6 +113,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   globalThis.fetch = originalFetch;
   useAppStore.getState().clearWorkspaceState();
@@ -222,6 +224,33 @@ describe("/select-business workspace deletion", () => {
     fireEvent.change(screen.getByLabelText("Type business name"), { target: { value: "Workspace One" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Delete business" })); });
   }
+
+  it("keeps the workspace and browser data while a 202 is pending, then confirms the completed job and fresh list",async()=>{
+    vi.useFakeTimers();
+    const rows=[workspaceRow(),workspaceRow({id:"biz_2",name:"Workspace Two"})];
+    let reads=0,completed=false;
+    globalThis.fetch=((input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=String(input),method=init?.method??"GET";
+      calls.push({url,method,body:null});
+      if(method==="DELETE") return jsonResponse({status:"queued",monitorTicket:"fixture-ticket"},true,202);
+      if(url.endsWith("/deletion-status")) {reads++;completed=reads===2;return jsonResponse({status:completed?"ok":"running"});}
+      if(method==="POST") return jsonResponse({status:"ok"});
+      return jsonResponse({businesses:completed?[rows[1]]:rows});
+    }) as typeof fetch;
+    seedStore(rows);window.localStorage.setItem("creatives-briefing-selected:biz_1","keep-until-commit");
+    await mount();await confirmDelete();
+    expect(screen.getByRole("status").textContent).toContain("Deletion queued");
+    expect(screen.queryByText("Business deleted.")).toBeNull();expect(useAppStore.getState().businesses).toHaveLength(2);
+    expect(window.localStorage.getItem("creatives-briefing-selected:biz_1")).toBe("keep-until-commit");
+    await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});
+    expect(screen.getByRole("status").textContent).toContain("Deleting all business records");
+    expect(useAppStore.getState().businesses).toHaveLength(2);
+    await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});
+    expect(screen.getByText("Business deleted.")).toBeTruthy();
+    expect(useAppStore.getState().businesses.map(b=>b.id)).toEqual(["biz_2"]);
+    expect(window.localStorage.getItem("creatives-briefing-selected:biz_1")).toBeNull();
+    expect(calls.filter(c=>c.method==="DELETE")).toHaveLength(1);
+  });
 
   it("confirms absence from a fresh list before clearing the current business", async () => {
     const rows = [workspaceRow(), workspaceRow({ id: "biz_2", name: "Workspace Two" })];

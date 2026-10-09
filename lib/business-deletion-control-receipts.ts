@@ -66,7 +66,7 @@ export async function deleteBusinessWorkerHistory(sql: ReturnType<typeof getDb>,
 }
 
 /** Global release receipts have no business ownership column. Inspect finite,
- * ordered index pages under the caller's writer-exclusion transaction. Never
+ * ordered cursor pages under the caller's writer-exclusion transaction. Never
  * issue a global JSON DELETE/Seq Scan, or report completion after a partial census.
  * Only identifying derived receipts are invalidated; other receipts stay intact.
  */
@@ -82,33 +82,38 @@ export async function deleteBusinessReleaseReceipts(sql: ReturnType<typeof getDb
       AND NOT EXISTS (SELECT 1 FROM pg_class t WHERE t.oid=i.indrelid AND (t.relrowsecurity OR t.relforcerowsecurity))`);
   if (!indexes.length) throw new BusinessControlReceiptCleanupError("release_receipt_index_missing");
   const [settings] = await sql.query<{ bitmap: string }>("SELECT current_setting('enable_bitmapscan') AS bitmap");
-  // A Bitmap Heap Scan followed by Sort could consume the entire remaining
-  // range before LIMIT. Require the ordered index walk on every page instead.
+  // Pin one ordered walk. Re-planning a keyset page and serializing evidence
+  // twice for each of hundreds of pages exhausted the live HTTP deadline.
   await sql.query("SET LOCAL enable_bitmapscan=off");
-  let cursor: { at: string; id: string } | undefined, rows = 0, bytes = 0, removed = 0;
+  const cursor = "business_erasure_release_receipts";
+  // OFFSET 0 keeps the lateral projection from being flattened: the JSON
+  // text is made once per row and reused by both length and ownership checks.
+  // It introduces no sort/materialization of the global receipt history.
+  const declare = `DECLARE ${cursor} NO SCROLL CURSOR FOR
+    SELECT r.id::text,r.emitted_at::text AS at,
+      octet_length(e.evidence_text)+octet_length(coalesce(r.summary,''))+octet_length(coalesce(r.override_reason,'')) AS bytes,
+      (e.evidence_text ILIKE ('%'||$1::text||'%') OR r.summary ILIKE ('%'||$1::text||'%')
+        OR r.override_reason ILIKE ('%'||$1::text||'%')) IS TRUE AS owned
+    FROM public.sync_release_gates r
+    CROSS JOIN LATERAL (SELECT r.evidence_json::text AS evidence_text OFFSET 0) e ORDER BY r.emitted_at,r.id`;
+  const plan = await sql.query(`EXPLAIN (FORMAT JSON) ${declare}`, [businessId]);
+  let indexed = false;
+  const walk = (node: Record<string, unknown>) => {
+    if (["Sort", "Incremental Sort", "Materialize", "CTE Scan", "Gather", "Gather Merge"].includes(String(node["Node Type"])))
+      throw new BusinessControlReceiptCleanupError("release_receipt_plan_not_bounded");
+    if (node["Relation Name"] === "sync_release_gates") {
+      if (node["Node Type"] !== "Index Scan" || !indexes.some(i => i.name===node["Index Name"]))
+        throw new BusinessControlReceiptCleanupError("release_receipt_plan_not_bounded");
+      indexed = true;
+    }
+    for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child);
+  };
+  walk(plan[0]!["QUERY PLAN"][0].Plan);
+  if (!indexed) throw new BusinessControlReceiptCleanupError("release_receipt_plan_missing");
+  await sql.query(declare, [businessId]);
+  let rows = 0, bytes = 0, removed = 0;
   for (;;) {
-    const where = cursor ? "WHERE (emitted_at,id)>($2::timestamptz,$3::uuid)" : "";
-    const query = `WITH page AS MATERIALIZED (SELECT id,emitted_at,evidence_json,summary,override_reason
-      FROM public.sync_release_gates ${where} ORDER BY emitted_at,id LIMIT ${PAGE})
-      SELECT id::text, emitted_at::text AS at,
-        octet_length(evidence_json::text)+octet_length(coalesce(summary,''))+octet_length(coalesce(override_reason,'')) AS bytes,
-        (evidence_json::text ILIKE ('%'||$1::text||'%') OR summary ILIKE ('%'||$1::text||'%')
-          OR override_reason ILIKE ('%'||$1::text||'%')) IS TRUE AS owned FROM page ORDER BY emitted_at,id`;
-    const values = cursor ? [businessId,cursor.at,cursor.id] : [businessId];
-    const plan = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`, values);
-    let indexed = false;
-    const walk = (node: Record<string, unknown>) => {
-      if (node["Relation Name"] === "sync_release_gates") {
-        if (node["Node Type"] !== "Index Scan" || !indexes.some(i => i.name===node["Index Name"])
-          || cursor && !String(node["Index Cond"]).includes("ROW(emitted_at, id)"))
-          throw new BusinessControlReceiptCleanupError("release_receipt_plan_not_bounded");
-        indexed = true;
-      }
-      for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child);
-    };
-    walk(plan[0]!["QUERY PLAN"][0].Plan);
-    if (!indexed) throw new BusinessControlReceiptCleanupError("release_receipt_plan_missing");
-    const page = await sql.query<{ id: string; at: string; bytes: number; owned: boolean }>(query, values);
+    const page = await sql.query<{ id: string; at: string; bytes: number; owned: boolean }>(`FETCH FORWARD ${PAGE} FROM ${cursor}`);
     rows += page.length; bytes += page.reduce((n,r)=>n+Number(r.bytes),0);
     if (rows>bounds.maxRows || bytes>bounds.maxBytes) throw new BusinessControlReceiptCleanupError("release_receipt_census_limit");
     const ids = page.filter(r=>r.owned).map(r=>r.id);
@@ -118,9 +123,9 @@ export async function deleteBusinessReleaseReceipts(sql: ReturnType<typeof getDb
       removed += deleted.length;
     }
     if (page.length<PAGE) {
+      await sql.query(`CLOSE ${cursor}`);
       await sql.query("SELECT set_config('enable_bitmapscan',$1,true)",[settings!.bitmap]);
       return { rows, bytes, removed, complete: true as const };
     }
-    const last = page[page.length-1]!; cursor = { at:last.at,id:last.id };
   }
 }

@@ -348,20 +348,6 @@ export const REQUEST_PATH_WRITE_EXCEPTIONS: ReadonlyArray<RequestPathWriteExcept
       "'Stop using my accounts' from the POST assign-accounts surfaces. Deliberately NOT lane-guarded — a user is more likely to want to revoke when the integration is broken, not less — and safe to exempt because it can only ever set is_selected=FALSE. Registered so that this exemption is visible rather than inferred from its absence.",
   },
   {
-    writeSite: "lib/business-deletion.ts#deleteBusinessWithData",
-    via: "app/api/businesses/[businessId]/route.ts#DELETE",
-    tables: ["provider_connections", "business_provider_accounts", "provider_account_assignments"],
-    reason:
-      "The authenticated admin-role business DELETE tears down only the requested business's connection and account bindings in one transaction, after schema, retained-history and active-job checks. Any additional caller, including a GET, is unregistered.",
-  },
-  {
-    writeSite: "lib/business-deletion.ts#deleteBusinessWithData",
-    via: "app/api/admin/businesses/[businessId]/route.ts#DELETE",
-    tables: ["provider_connections", "business_provider_accounts", "provider_account_assignments"],
-    reason:
-      "The superadmin business DELETE uses the same scoped transactional teardown as the owner-facing route, with the same protected-history and active-job refusals. No read handler is allowed to reach this writer.",
-  },
-  {
     writeSite: "app/api/webhooks/shopify/shop-redact/route.ts#POST",
     via: null,
     tables: ["provider_connections"],

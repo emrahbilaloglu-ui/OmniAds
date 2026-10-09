@@ -35,8 +35,8 @@
     {
       "path": "lib/business-deletion-reference-indexes.ts",
       "role": "schema",
-      "sha256": "8200a7633fd94c1dbc05e781e1284ef57aa1925a0b68e281d5323df8020e0a81",
-      "retention": "D155 additive reviewed fixed-width scalar FK lookup indexes only, after fresh physical build admission. Adopt existing valid default-opclass/collation leading indexes; refuse unknown/invalid/ambiguous definitions. No DROP, rebuild, FK disabling, retained history removal, provider authority, new writer or storage reclaim permission."
+      "sha256": "aaf3e6c3e3563e87a883fc98e985e48b35126b493c40b55c865fcd5c80ddf067",
+      "retention": "D155 additive reviewed FK access: 32 fixed-width scalar btree keys and one fixed four-byte campaign-reference hash with full BYTEA equality/owner recheck, after typed fresh physical admission. Adopt valid default-opclass/collation indexes; refuse unknown/invalid/ambiguous definitions. No DROP, rebuild, FK disabling, retained history removal, provider authority, new writer or storage reclaim permission."
     },
     {
       "path": "lib/business-deletion.ts",
@@ -221,7 +221,7 @@
     {
       "path": "lib/migrations.ts",
       "role": "schema",
-      "sha256": "43481ef6153cb0f997c15c706102507ae64fc71f0e715b7f421d8aac9fe877e3",
+      "sha256": "1d7b2050cc329ed82a25f34ac29d2098758c7b058d00c586cda53502059090de",
       "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission."
     },
     {
@@ -299,7 +299,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "e738711f98840cd60767d8b65c489885f76471c1e5bbd16dfe81dc5a76811a6d",
+      "sha256": "0bafb10eebe6b91b849d769accf7150a9dbd8bf3c7d3e3aad901e2ed13989e49",
       "retention": "Owned public/isolated fixture only; not live consumer completeness."
     },
     {
@@ -465,5 +465,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "4b086818c226be21e2108dd6c8bb3b0fbb76aee60017e8c8c43d1a5e35ec0b8f"
+  "sourceInventorySha256": "92ba7395ff3775fd92537640f36b7e2ecb91bbcf651d8aa2b2ff4df14ba3544f"
 }

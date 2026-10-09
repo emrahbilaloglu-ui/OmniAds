@@ -56,6 +56,31 @@ function capacity(free = 50 * 1024 ** 3, age = 1, relationCount = 1, heap = "107
 }
 
 describe("fixed scalar FK index physical reserve", () => {
+  it("reserves eight times proven UUID primary coverage plus the same floor for the fixed-width campaign hash", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const sql = { query: vi.fn(async (q: string) => {
+      if (q.includes("AS campaign_reference_pk_bytes")) return [{ relation_bytes: "459505664", database_bytes: "175192964119" }];
+      if (q.includes("s.payload")) return [{ payload: { disks: [{ path: "/var/lib/postgresql", availableBytes: 49048449024 }] }, age_seconds: 1 }];
+      throw Error("unexpected hash reserve query");
+    }) };
+    await expect(assertBusinessErasureScalarIndexCapacity(sql as never, "public.engine_v3_ad_decision_evaluations", "hash")).resolves.toMatchObject({ engaged: true });
+    const measured = sql.query.mock.calls[0]![0];
+    for (const proof of ["i.indisprimary", "i.indisunique", "i.indimmediate", "i.indpred IS NULL", "i.indnkeyatts=1", "a.atttypid=2950", "a.attnotnull", "i.indisvalid", "i.indisready", "i.indislive"]) expect(measured).toContain(proof);
+  });
+  it.each(["coverage", "shortfall", "stale", "unknown"])("refuses %s campaign hash admission without falling back to heap or an override", async kind => {
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("ADSECUTE_MIGRATION_CAPACITY_OVERRIDE", "fixture");
+    const sql = { query: vi.fn(async (q: string) => {
+      if (q.includes("AS campaign_reference_pk_bytes")) return kind === "coverage" ? [] : [{ relation_bytes: "459505664", database_bytes: "175192964119" }];
+      if (q.includes("s.payload")) return [{ payload: { disks: [{ path: "/var/lib/postgresql", availableBytes: kind === "shortfall" ? 46_625_718_271 : kind === "unknown" ? null : 49048449024 }] }, age_seconds: kind === "stale" ? 901 : 1 }];
+      throw Error("unexpected hash reserve query");
+    }) };
+    await expect(assertBusinessErasureScalarIndexCapacity(sql as never, "public.engine_v3_ad_decision_evaluations", "hash")).rejects.toThrow(kind === "coverage" ? "primary_coverage_refused" : "capacity_refused");
+  });
+  it("refuses campaign hash sizing on another relation", async () => {
+    const sql = capacity();
+    await expect(assertBusinessErasureScalarIndexCapacity(sql as never, "public.meta_raw_snapshots", "hash")).rejects.toThrow("hash_scope_refused");
+    expect(sql.query).not.toHaveBeenCalled();
+  });
   it("does not apply heap-only accounting to an unreviewed relation", async () => {
     const sql = capacity();
     await expect(assertBusinessErasureScalarIndexCapacity(sql as never, "public.unreviewed_text_index")).rejects.toThrow("scope_refused");

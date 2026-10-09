@@ -13023,7 +13023,7 @@ acceptance: exact runtime plus complete selected DB, external archive/input,
 media and browser absence proofs remain necessary. SQL deletion does not prove
 physical file shrink or that the 163 GiB aggregate admission gate has reopened.
 
-## D155 — Additive scalar FK access for whole-business erasure (2026-10-09)
+## D155 — Additive FK access for whole-business erasure (2026-10-09)
 
 The fifth completed Halıcızade request on live `11937ebf066299fbcb3fefcb0eaec9321eaf0cdc`
 failed and rolled back. The durable runner removed no business. A sanitized
@@ -13061,10 +13061,10 @@ guard and repair group. No broad catalogue inference or logical-capacity bypass
 is introduced.
 
 Real migrated PostgreSQL reproduces the actual SET NULL scan, proves the new
-lookup is indexed, verifies all 32 contracts and preserves foreign event/slice
+lookup is indexed, verifies all 33 contracts and preserves foreign event/slice
 bytes after selected erasure. It also checks completed provider-scope replay
 preserves index definitions and physical identities. The canonical erasure seam
-now requires 52 passing cases. Unit cases cover adoption, physical refusal,
+now requires 53 passing cases. Unit cases cover adoption, physical refusal,
 partial/partitioned DDL, unsupported or ambiguous catalog evidence, postcondition
 failure and unchanged provider-repair refusal. Local fixtures and CI are not
 live migration or erasure acceptance.
@@ -13076,3 +13076,23 @@ independent acceptance before any Vornom archive destruction or deletion. New
 indexes stay additive on code rollback; a refused/invalid build is not repaired
 by dropping or rebuilding it automatically. Completed erasure cannot be undone
 by code rollback. The existing backup/WAL boundary remains explicit.
+
+D155 native reference correction (2026-10-09): a bounded read-only RI EXPLAIN
+proved the campaign-object composite FK can choose a sequential scan of the
+17,802,330,112B evaluation heap. Add one nullable `campaign_context_ref` hash
+index; its four-byte stored hash rechecks full BYTEA equality, preserving the
+FK and owner predicate. The BYTEA column has no validated width bound, so it
+must not be treated as a fixed-width btree key. The existing valid, ready, live,
+nonpartial single UUID primary index (459,505,664B observed) covers all rows
+without unique-key deduplication. This new operation reserves eight times its
+fresh measured bytes for hash bucket/entry, build and WAL peak, plus the same
+40 GiB floor (46,625,718,272B observed requirement). Missing or ambiguous PK
+coverage refuses; no arbitrary index, text payload, existing rewrite or other
+relation can select this basis. A fresh physical sample is still mandatory
+in production before DDL; 32 scalar btree builds keep their 3x heap model.
+All 33 definitions are independently read back. A real native reference-writer
+fixture verifies the actual campaign RI equality selects the hash index and
+complete selected deletion preserves foreign evaluations and objects.
+PostgreSQL 16 documents the fixed four-byte hash and lossy equality recheck at
+https://www.postgresql.org/docs/16/hash-intro.html . This is additive schema
+for the authorized erasure, without index rebuild or disk reclaim.

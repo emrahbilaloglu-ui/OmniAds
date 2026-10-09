@@ -1,6 +1,6 @@
 import type { DbClient } from "@/lib/db";
 
-/** Reviewed scalar FK lookups used by Meta/native whole-business erasure. */
+/** Reviewed FK-column lookups used by Meta/native whole-business erasure. */
 export const BUSINESS_ERASURE_REFERENCE_INDEXES = [
   { table: "engine_v3_account_calibration_daily", column: "job_run_id", index: "idx_biz_erase_fk_7df07df156e8" },
   { table: "engine_v3_ad_decision_events", column: "job_run_id", index: "idx_biz_erase_fk_8bd033a67700" },
@@ -34,6 +34,9 @@ export const BUSINESS_ERASURE_REFERENCE_INDEXES = [
   { table: "meta_entity_observation_receipts_v2", column: "sync_run_id", index: "idx_biz_erase_fk_50915a253220" },
   { table: "meta_raw_snapshot_observations", column: "partition_id", index: "idx_biz_erase_fk_9e077f2b0ee7" },
   { table: "meta_raw_snapshots", column: "checkpoint_id", index: "idx_biz_erase_fk_aea32a54dfa8" },
+  // BYTEA has no validated width bound. Hash stores a fixed four-byte value
+  // and rechecks equality; it must not use the scalar heap/TOAST sizing model.
+  { table: "engine_v3_ad_decision_evaluations", column: "campaign_context_ref", index: "idx_biz_erase_campaign_reference", method: "hash" },
 ] as const;
 
 // A valid raw leading key is sufficient; a covering full composite FK is not
@@ -42,12 +45,12 @@ export const BUSINESS_ERASURE_REFERENCE_INDEXES = [
 export const BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL = `
   SELECT c.relkind AS relation_kind, a.atttypid::int AS key_type,
     EXISTS (SELECT 1 FROM pg_constraint fk WHERE fk.contype='f'
-      AND fk.conrelid=c.oid AND fk.conkey=ARRAY[a.attnum]::int2[])
-      AS scalar_foreign_key,
+      AND fk.conrelid=c.oid AND a.attnum=ANY(fk.conkey))
+      AS reference_foreign_key,
     EXISTS (SELECT 1 FROM pg_index i JOIN pg_class ix ON ix.oid=i.indexrelid
       JOIN pg_am am ON am.oid=ix.relam
       JOIN pg_opclass op ON op.oid=i.indclass[0]
-      WHERE i.indrelid=c.oid AND am.amname='btree'
+      WHERE i.indrelid=c.oid AND am.amname=$4::text
         AND i.indisvalid AND i.indisready AND i.indislive
         AND i.indnkeyatts>=1 AND i.indkey[0]=a.attnum AND i.indexprs IS NULL
         AND op.opcdefault AND i.indcollation[0]=a.attcollation
@@ -58,7 +61,7 @@ export const BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL = `
       LEFT JOIN pg_am am ON am.oid=named.relam
       LEFT JOIN pg_opclass op ON op.oid=i.indclass[0]
       WHERE named.oid=to_regclass(format('public.%I',$3::text))
-        AND NOT COALESCE(i.indrelid=c.oid AND am.amname='btree'
+        AND NOT COALESCE(i.indrelid=c.oid AND am.amname=$4::text
           AND i.indisvalid AND i.indisready AND i.indislive
           AND i.indnkeyatts=1 AND i.indnatts=1 AND i.indkey[0]=a.attnum
           AND i.indexprs IS NULL AND op.opcdefault AND i.indcollation[0]=a.attcollation
@@ -70,24 +73,26 @@ export const BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL = `
 `;
 
 type CatalogRow = {
-  relation_kind: string; key_type: number; scalar_foreign_key: boolean;
+  relation_kind: string; key_type: number; reference_foreign_key: boolean;
   lookup_ready: boolean; named_index_conflict: boolean;
 };
 
 /** Additive only; the caller must reserve physical build/sort/WAL capacity. */
 export async function ensureBusinessErasureReferenceIndexes(
   sql: Pick<DbClient, "query">,
-  admitScalarIndex: (relation: string) => Promise<unknown>,
+  admitScalarIndex: (relation: string, method: "btree" | "hash") => Promise<unknown>,
 ) {
   const built: string[] = [];
   const read = async (entry: (typeof BUSINESS_ERASURE_REFERENCE_INDEXES)[number]) => {
+    const method = "method" in entry ? entry.method : "btree";
     const rows = await sql.query(BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL,
-      [entry.table, entry.column, entry.index]) as CatalogRow[];
+      [entry.table, entry.column, entry.index, method]) as CatalogRow[];
     const row = rows.length === 1 ? rows[0] : undefined;
-    // Fixed-width bigint/integer/UUID keys only. Heap-only peak accounting is
-    // inappropriate for arbitrary text, expressions or toasted key material.
+    // Btree keys must be fixed-width bigint/integer/UUID. The one BYTEA
+    // hash has a separate PK-coverage admission; text/expressions refuse.
     if (!row || !["r", "p"].includes(row.relation_kind)
-      || ![20, 23, 2950].includes(row.key_type) || row.scalar_foreign_key !== true
+      || !(method === "hash" ? row.relation_kind === "r" && row.key_type === 17 : [20, 23, 2950].includes(row.key_type))
+      || row.reference_foreign_key !== true
       || typeof row.lookup_ready !== "boolean" || row.named_index_conflict !== false) {
       throw new Error(`business_erasure_reference_index_contract:${entry.table}.${entry.column}`);
     }
@@ -96,13 +101,14 @@ export async function ensureBusinessErasureReferenceIndexes(
   for (const entry of BUSINESS_ERASURE_REFERENCE_INDEXES) {
     const before = await read(entry);
     if (before.lookup_ready) continue;
-    await admitScalarIndex(`public.${entry.table}`);
+    const method = "method" in entry ? entry.method : "btree";
+    await admitScalarIndex(`public.${entry.table}`, method);
     // PostgreSQL cannot build a partitioned parent's index CONCURRENTLY.
     // Its child heap sum is capacity checked; the existing migration lock and
     // statement deadlines also apply to that ordinary parent/leaf DDL.
     const concurrently = before.relation_kind === "r" ? " CONCURRENTLY" : "";
     await sql.query(`CREATE INDEX${concurrently} IF NOT EXISTS ${entry.index}
-      ON public.${entry.table} (${entry.column}) WHERE ${entry.column} IS NOT NULL`);
+      ON public.${entry.table} USING ${method} (${entry.column}) WHERE ${entry.column} IS NOT NULL`);
     if (!(await read(entry)).lookup_ready) {
       throw new Error(`business_erasure_reference_index_not_ready:${entry.table}.${entry.column}`);
     }

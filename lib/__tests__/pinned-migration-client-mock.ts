@@ -50,6 +50,7 @@ const CAPACITY_SIZE_QUERY = `SELECT COALESCE(pg_total_relation_size(to_regclass(
 // Explicit pre-existing FK access fixture for SQL-capture suites. Actual
 // missing-index creation/refusal and plans are tested against real PostgreSQL.
 const ERASURE_REFERENCE_FIXTURE = new Set([
+  "engine_v3_ad_decision_evaluations.campaign_context_ref:idx_biz_erase_campaign_reference",
   "engine_v3_account_calibration_daily.job_run_id:idx_biz_erase_fk_7df07df156e8",
   "engine_v3_ad_decision_events.job_run_id:idx_biz_erase_fk_8bd033a67700",
   "engine_v3_ad_decision_outcomes_daily.job_run_id:idx_biz_erase_fk_291b511f25e9",
@@ -133,9 +134,9 @@ export function pinnedMigrationClientOver(
         // Explicit responses, including malformed measurements, are never
         // replaced with a healthy fixture. Real guards must still reject them.
         if (Array.isArray(delegated) && delegated.length === 0) {
-          if (statement.includes("AS scalar_foreign_key") && statement.includes("AS named_index_conflict")
-            && params?.length === 3 && ERASURE_REFERENCE_FIXTURE.has(`${params[0]}.${params[1]}:${params[2]}`)) {
-            return { rows: [{ relation_kind: "r", key_type: 2950, scalar_foreign_key: true,
+          if (statement.includes("AS reference_foreign_key") && statement.includes("AS named_index_conflict")
+            && params?.length === 4 && ERASURE_REFERENCE_FIXTURE.has(`${params[0]}.${params[1]}:${params[2]}`)) {
+            return { rows: [{ relation_kind: "r", key_type: params?.[3] === "hash" ? 17 : 2950, reference_foreign_key: true,
               lookup_ready: true, named_index_conflict: false }] };
           }
           if (statement === normalizeSql(META_HISTORY_SIZE_QUERY) &&

@@ -13553,3 +13553,54 @@ already hidden Halıcızade, terminalOK and independent full absence/foreign
 preservation before Vornom. Reverting this query fix must preserve D163
 hidden markers and server authorization; code rollback cannot recover any
 committed business/account/archive erasure.
+
+## D165 — Root business RI access and late control-history fence (2026-10-10)
+
+D164 is exact live f4e001aa78e622b03fbf29cfa9a754c482b44c97. Its twelfth
+Halıcızade physical attempt passed all owned deletion, input GC, provider
+registry GC and final owned absence checks, then rolled back after1,623,303ms.
+The actual PostgreSQL error is a30-second statement timeout during businesses
+DELETE: the active native evaluation business_ref_id RESTRICT trigger executed
+its full-owner SELECT1 FOR KEY SHARE. Phase logging still called this
+guard_restore. Independent420 owner checks,15 root digests, foreign membership/
+connection bytes, exact guard modes and active FKs verified rollback. The
+failed job remains hidden; Vornom and its frozen archive are untouched.
+
+Bounded read-only EXPLAIN of that exact row-lock shape on the17,802,330,112-byte
+native evaluation heap proves bitmap-off chooses an owner-leading Index Scan;
+bitmap-on chooses an owner-constrained Bitmap Heap/Index Scan in both generic
+and custom plans. The leading index already exists. Lower estimated cost does
+not prove elapsed time, and no production FK probe was executed by this read.
+Three separate contemporaneous statement timeouts name LOCK on the runtime/
+heartbeat tables; the code held their final fence through the expensive owned
+absence probes. This is distinct from the root RESTRICT failure.
+
+Restore enable_bitmapscan=on only after the D164 absence probes and exact guard
+restoration. Preserve the earlier exact-key/input settings and leading-index
+proofs. Move the worker/runtime destination-table fence and complete finite
+census after those probes/restoration, immediately before root deletion.
+These stores are outside ordinary owner-column scopes. A fresh active target
+reference still refuses and rolls back all prior work. Late history writers
+retain their existing table-lock then live-business key-share ordering, so no
+ghost reference is admitted after root COMMIT. Mark root deletion separately.
+
+Canonical coverage becomes65 actual migrated PostgreSQL cases. The populated
+native fixture proves root FK rejection before cleanup, original row preservation
+after that rollback, active native RESTRICT metadata, real full erasure and
+foreign evaluation bytes. A fixture-only disabled plain-index alternative
+exposes any leaked bitmap-off setting in the exact row-lock query shape;
+plain-index settings are restored before the real root DELETE. This is a
+planner capability regression, not a production latency benchmark. The existing
+heartbeat fixture also writes independently during a final owned absence
+probe, proving the destination-table fence is still open at that point.
+Existing fresh-reference refusal, late rollback, guard/FK, hidden-access and
+shared-content cases remain required.
+
+No index/maintenance, data thinning, FK disabling, larger timeout, partial
+commit or ordinary-user progress screen. D163 user removal remains immediate
+at durable202 and failed physical work remains operator-owned/hidden.30m
+background,4m direct,30s statement and1500ms erasure lock bounds are unchanged.
+Release acceptance and terminal physical acceptance are separate: exact QA/CI/
+runtime, one authorized operator retry of Halıcızade, full independent absence
+and foreign preservation, then Vornom. A rollback preserves D163 visibility
+and requires operator handling; committed erasure cannot be restored by code.

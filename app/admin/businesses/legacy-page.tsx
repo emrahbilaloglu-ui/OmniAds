@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Search, ChevronLeft, ChevronRight, Filter, Trash2 } from "lucide-react";
 import { InlineHelp } from "@/components/admin/inline-help";
-import { awaitBusinessDeletion } from "@/lib/business-deletion-client";
+import { acceptBusinessDeletion } from "@/lib/business-deletion-client";
 
 interface BusinessRow {
   id: string;
@@ -19,6 +19,9 @@ interface BusinessRow {
   subscription_status: string | null;
   member_count: number;
   integration_count: number;
+  deletion_status?: "queued" | "running" | "failed" | null;
+  deletion_error?: string | null;
+  removed_at?: string | null;
 }
 
 const PLAN_LABELS: Record<string, string> = {
@@ -111,11 +114,11 @@ export default function AdminBusinessesPage() {
         throw new Error(payload?.message ?? "Workspace silinemedi.");
       }
 
-      await awaitBusinessDeletion(business.id, payload ?? {});
+      acceptBusinessDeletion(payload ?? {});
 
       setBusinesses((current) => current.filter((item) => item.id !== business.id));
       setTotal((current) => Math.max(0, current - 1));
-      showMessage("success", `${business.name} silindi.`);
+      showMessage("success", `${business.name} kaldırıldı.`);
     } catch (err) {
       console.error("[admin/businesses delete]", err);
       showMessage("error", err instanceof Error ? err.message : "Workspace silinemedi.");
@@ -207,6 +210,10 @@ export default function AdminBusinessesPage() {
                     <Link href={`/admin/businesses/${b.id}`} className="font-medium text-gray-900 hover:text-indigo-600">
                       {b.name}
                     </Link>
+                    {b.deletion_status ? <p className="text-xs mt-1 text-amber-700">
+                      {b.deletion_status === "failed" ? `Veri temizliği başarısız: ${b.deletion_error ?? "bilinmiyor"}`
+                        : b.deletion_status === "running" ? "Arka plan veri temizliği sürüyor" : "Arka plan veri temizliği bekliyor"}
+                    </p> : null}
                     {b.is_demo_business && (
                       <span className="ml-1.5 text-[12px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold">Demo</span>
                     )}

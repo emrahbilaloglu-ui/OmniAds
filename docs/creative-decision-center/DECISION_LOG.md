@@ -13452,3 +13452,52 @@ request. Actual terminalOK plus full independent absence and foreign-preservatio
 proof remain mandatory, Halıcızade before Vornom. A failed/queued job, healthy
 worker or passing CI is not erasure or capacity relief. Code rollback restores
 the20-minute bound but cannot restore committed erasure.
+
+
+## D163 — Immediate user offboarding, application-owned physical erasure (2026-10-09)
+
+The human requires ordinary users to see the business removed immediately after
+an authorized DELETE is durably accepted. Physical erasure, its duration and
+failures are Adsecute operator responsibilities. The user must not wait for a
+30-minute transaction, poll an erasure receipt or receive technical cleanup
+progress. Logical removal is not proof of physical absence for release owners.
+
+Add nullable `business_deletion_jobs.hidden_at` without rewriting business rows
+or hiding existing failed attempts. A newly authorized enqueue commits this
+marker before HTTP 202; idempotent existing work gains the marker as well. Normal
+membership authorization, business lists, active selection and team workspace
+choices exclude marked jobs regardless of queued/running/failed status. A failed
+physical transaction retains the marker and operator error; it does not restore
+user access. Existing unmarked failed attempts stay visible until a new DELETE.
+
+The primary UI closes its confirmation, removes business-scoped browser/store
+state and shows `Business removed.` on durable acceptance. It performs no
+physical-status polling. Its list reconciliation rejects older in-flight rows
+for the just-removed ID and preserves foreign preferences. Reload/bootstrap uses
+the same server visibility rule. Legacy and Manage clients leave immediately.
+Only existing superadmin routes expose job status/error and can retry hidden
+failed erasure; no new credentials, privileges or automatic provider work.
+The signed status receipt remains available for independently authorized
+operator acceptance, and root/job removal still commits only after full erasure.
+
+D162's finite 30-minute background budget, four-minute direct bound, 30-second
+statement and 1500ms lock caps remain. Physical ownership, protected history,
+shared references, archive and guard proofs are unchanged. The new marker grants
+no backup/WAL destruction or physical-storage claim. It disappears with the job
+and root on complete erasure, leaving no completed tombstone.
+
+Canonical full-schema erasure coverage is 63 actual PostgreSQL cases: the new
+legacy-failure case proves additive nullable rollout and authorized transition;
+existing durable enqueue and actual rollback cases now prove immediate hidden
+membership/list state, foreign access and non-resurrection on failure. Mounted
+UI tests prove immediate removal, closed dialog, foreign browser preservation,
+no status polling, stale-read rejection and reload behavior. These prove logical
+offboarding only; terminal OK plus scoped physical absence and foreign byte
+preservation are still required before proceeding from Halicizade to Vornom.
+
+Rollback: keep the additive nullable column and server visibility filters for
+already accepted removals. A UI-only revert must not reintroduce waiting or
+unhide failed jobs. Reverting the background budget to 20 minutes preserves the
+marker and requires operator handling of any resulting failed erase. An older
+image that ignores the marker can restore visible access and is not an accepted
+rollback after any D163 removal. No rollback can restore a committed erasure.

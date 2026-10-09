@@ -1,6 +1,6 @@
 "use client";
 
-import { awaitBusinessDeletion } from "@/lib/business-deletion-client";
+import { acceptBusinessDeletion } from "@/lib/business-deletion-client";
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -93,7 +93,7 @@ export default function AdminBusinessDetailPage() {
       const res = await fetch(`/api/admin/businesses/${businessId}`, { method: "DELETE" });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.message ?? "Silme başarısız.");
-      await awaitBusinessDeletion(businessId, body ?? {});
+      acceptBusinessDeletion(body ?? {});
       router.push("/admin/businesses");
     } catch (error) { showMsg("error", error instanceof Error ? error.message : "Silme sonucu doğrulanamadı."); }
     finally { setBusy(false); }

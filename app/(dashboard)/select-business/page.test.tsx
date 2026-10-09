@@ -225,31 +225,36 @@ describe("/select-business workspace deletion", () => {
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Delete business" })); });
   }
 
-  it("keeps the workspace and browser data while a 202 is pending, then confirms the completed job and fresh list",async()=>{
-    vi.useFakeTimers();
+  it("removes the workspace immediately on durable 202 without polling or waiting for physical erasure",async()=>{
     const rows=[workspaceRow(),workspaceRow({id:"biz_2",name:"Workspace Two"})];
-    let reads=0,completed=false;
+    let accepted=false;
     globalThis.fetch=((input:RequestInfo|URL,init?:RequestInit)=>{
       const url=String(input),method=init?.method??"GET";
       calls.push({url,method,body:null});
-      if(method==="DELETE") return jsonResponse({status:"queued",monitorTicket:"fixture-ticket"},true,202);
-      if(url.endsWith("/deletion-status")) {reads++;completed=reads===2;return jsonResponse({status:completed?"ok":"running"});}
-      if(method==="POST") return jsonResponse({status:"ok"});
-      return jsonResponse({businesses:completed?[rows[1]]:rows});
+      if(method==="DELETE") {accepted=true;return jsonResponse({status:"queued",monitorTicket:"fixture-ticket"},true,202);}
+      // Deliberately return a stale in-flight list after acceptance. It must
+      // not revive the removed workspace or hold the confirmation open.
+      return jsonResponse({businesses:rows});
     }) as typeof fetch;
-    seedStore(rows);window.localStorage.setItem("creatives-briefing-selected:biz_1","keep-until-commit");
+    seedStore(rows);window.localStorage.setItem("creatives-briefing-selected:biz_1","owned");
+    window.localStorage.setItem("creatives-briefing-selected:biz_2","foreign");
     await mount();await confirmDelete();
-    expect(screen.getByRole("status").textContent).toContain("Deletion queued");
-    expect(screen.queryByText("Business deleted.")).toBeNull();expect(useAppStore.getState().businesses).toHaveLength(2);
-    expect(window.localStorage.getItem("creatives-briefing-selected:biz_1")).toBe("keep-until-commit");
-    await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});
-    expect(screen.getByRole("status").textContent).toContain("Deleting all business records");
-    expect(useAppStore.getState().businesses).toHaveLength(2);
-    await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});
-    expect(screen.getByText("Business deleted.")).toBeTruthy();
+    expect(accepted).toBe(true);
+    expect(screen.getByText("Business removed.")).toBeTruthy();
+    expect(screen.queryByLabelText("Type business name")).toBeNull();
     expect(useAppStore.getState().businesses.map(b=>b.id)).toEqual(["biz_2"]);
+    expect(useAppStore.getState().selectedBusinessId).toBe("biz_2");
     expect(window.localStorage.getItem("creatives-briefing-selected:biz_1")).toBeNull();
+    expect(window.localStorage.getItem("creatives-briefing-selected:biz_2")).toBe("foreign");
     expect(calls.filter(c=>c.method==="DELETE")).toHaveLength(1);
+    expect(calls.some(c=>c.url.endsWith("/deletion-status"))).toBe(false);
+    expect(screen.queryByText(/worker|all business records|several minutes/i)).toBeNull();
+    cleanup();
+    globalThis.fetch=(() => jsonResponse({businesses:[rows[1]]})) as typeof fetch;
+    seedStore(rows);await mount();
+    expect(useAppStore.getState().businesses.map(b=>b.id)).toEqual(["biz_2"]);
+    expect(screen.queryByText("Workspace One")).toBeNull();
+    window.localStorage.removeItem("creatives-briefing-selected:biz_2");
   });
 
   it("confirms absence from a fresh list before clearing the current business", async () => {

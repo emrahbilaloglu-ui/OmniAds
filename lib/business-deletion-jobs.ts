@@ -17,10 +17,13 @@ export async function enqueueBusinessDeletion(businessId: string) {
   if (isDemoBusinessId(businessId)) throw new BusinessDeletionError("protected_history");
   const sql = getDb();
   const [existing] = await sql.query<BusinessDeletionJob>("SELECT * FROM business_deletion_jobs WHERE business_ref_id=$1::uuid", [businessId]);
-  if (existing && existing.status !== "failed") return existing;
-  const [job] = await sql.query<BusinessDeletionJob>(`INSERT INTO business_deletion_jobs (business_ref_id,attempt_id,status)
-    VALUES($1::uuid,$2::uuid,'queued') ON CONFLICT(business_ref_id) DO UPDATE
-    SET attempt_id=EXCLUDED.attempt_id,status='queued',attempts=0,error_code=NULL,error_tables='{}',started_at=NULL,updated_at=now()
+  if (existing && existing.status !== "failed") {
+    await sql.query("UPDATE business_deletion_jobs SET hidden_at=COALESCE(hidden_at,now()) WHERE business_ref_id=$1::uuid",[businessId]);
+    return existing;
+  }
+  const [job] = await sql.query<BusinessDeletionJob>(`INSERT INTO business_deletion_jobs (business_ref_id,attempt_id,status,hidden_at)
+    VALUES($1::uuid,$2::uuid,'queued',now()) ON CONFLICT(business_ref_id) DO UPDATE
+    SET attempt_id=EXCLUDED.attempt_id,status='queued',attempts=0,error_code=NULL,error_tables='{}',started_at=NULL,updated_at=now(),hidden_at=COALESCE(business_deletion_jobs.hidden_at,now())
     WHERE business_deletion_jobs.status='failed' RETURNING *`, [businessId, randomUUID()]);
   // Another admin may have enqueued the same business after our initial read.
   if (job) return job;

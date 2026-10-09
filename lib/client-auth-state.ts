@@ -42,7 +42,7 @@ function pruneBusinessBrowserKeys(keep: (businessId: string) => boolean): boolea
   } catch { return false; }
 }
 
-/** Call only after the server's fresh list proves deletion. Also cancels
+/** Call after durable server offboarding or a fresh list proves removal. Also cancels
  * in-flight cached reads so an old response cannot revive removed decisions. */
 export function removeBusinessClientState(businessId: string): boolean {
   useAppStore.getState().deleteBusiness(businessId);

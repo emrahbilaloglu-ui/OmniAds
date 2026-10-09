@@ -25,6 +25,8 @@ read [D161](DECISION_LOG.md#d161--raw-input-keyset-pages-after-total-deadline-ro
 For the explicitly approved30-minute background-only operation budget after
 full input cleanup passed but final identity cleanup hit the20-minute bound,
 read [D162](DECISION_LOG.md#d162--finite-background-erasure-budget-after-complete-input-cleanup-2026-10-09).
+For immediate ordinary-user removal and operator-owned background cleanup,
+read [D163](DECISION_LOG.md#d163--immediate-user-offboarding-application-owned-physical-erasure-2026-10-09).
 
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
 Also read [D130](DECISION_LOG.md#d130--indexed-evidence-equality-and-bounded-creative-completion-proofs-2026-09-28)

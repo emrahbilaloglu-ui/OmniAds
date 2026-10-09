@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore, type Business } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -10,7 +10,7 @@ import { removeBusinessClientState } from "@/lib/client-auth-state";
 import { AuthSurface } from "@/components/auth/auth-surface";
 import { AuthOnboardingArc } from "@/components/auth/onboarding-arc";
 import { CURRENCY_OPTIONS } from "@/components/business/BusinessForm";
-import { awaitBusinessDeletion } from "@/lib/business-deletion-client";
+import { acceptBusinessDeletion } from "@/lib/business-deletion-client";
 
 /** The same ISO 4217 shape `PATCH /api/businesses/{id}` refuses on the server. */
 const ISO_4217_ALPHABETIC = /^[A-Z]{3}$/;
@@ -40,7 +40,7 @@ export default function SelectBusinessPage() {
   const [confirmBusinessId, setConfirmBusinessId] = useState<string | null>(null);
   const [confirmInput, setConfirmInput] = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
-  const [deleteStage, setDeleteStage] = useState<"queued" | "running" | null>(null);
+  const removedIds = useRef(new Set<string>());
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [roleByBusinessId, setRoleByBusinessId] = useState<Record<string, string>>({});
   const [editBusinessId, setEditBusinessId] = useState<string | null>(null);
@@ -89,11 +89,14 @@ export default function SelectBusinessPage() {
       businesses?: WorkspaceRow[];
       activeBusinessId?: string | null;
     } | null;
-    const rows = payload?.businesses;
-    if (!Array.isArray(rows)) return null;
+    if (!Array.isArray(payload?.businesses)) return null;
+    const rows = payload.businesses.filter(row => !removedIds.current.has(row.id));
     setRoleByBusinessId(
       Object.fromEntries(rows.map((row) => [row.id, typeof row.role === "string" ? row.role : ""]))
     );
+    const current = useAppStore.getState();
+    if (current.workspaceOwnerId) current.setWorkspaceSnapshot(current.workspaceOwnerId, rows,
+      rows.some(row => row.id === current.selectedBusinessId) ? current.selectedBusinessId : rows[0]?.id ?? null);
     return rows;
   }, []);
 
@@ -242,7 +245,6 @@ export default function SelectBusinessPage() {
   async function handleDeleteBusiness() {
     if (!confirmBusiness) return;
     setDeleteLoading(true);
-    setDeleteStage(null);
     setFeedback(null);
     try {
       const response = await fetch(`/api/businesses/${encodeURIComponent(confirmBusiness.id)}`, {
@@ -252,7 +254,19 @@ export default function SelectBusinessPage() {
       if (!response.ok) {
         throw new Error(payload?.message ?? "Could not delete business.");
       }
-      await awaitBusinessDeletion(confirmBusiness.id, payload ?? {}, setDeleteStage);
+      const acceptance = acceptBusinessDeletion(payload ?? {});
+      if (acceptance === "accepted") {
+        // The committed server marker hides the business across sessions and
+        // reloads. Physical erasure belongs to the application, not this page.
+        removedIds.current.add(confirmBusiness.id);
+        removeBusinessClientState(confirmBusiness.id);
+        setConfirmBusinessId(null);
+        setConfirmInput("");
+        setDeleteLoading(false);
+        setFeedback({ type: "success", message: "Business removed." });
+        void readWorkspaces();
+        return;
+      }
 
       const rows = await readWorkspaces();
       if (!rows || rows.some((row) => row.id === confirmBusiness.id)) {
@@ -288,7 +302,6 @@ export default function SelectBusinessPage() {
       });
     } finally {
       setDeleteLoading(false);
-      setDeleteStage(null);
     }
   }
 
@@ -446,15 +459,7 @@ export default function SelectBusinessPage() {
               Delete requires typing <span className="font-semibold">{confirmBusiness.name}</span>.
               Permanently removes this business and all its stored data from Adsecute, including decision history and report copies. Your Meta, Google and Shopify accounts are unchanged.
             </p>
-            {hasLinkedData ? (
-              <p className="mt-1">
-                Connections, assigned accounts, share snapshots, decision and ad action history will also be removed. If an archive or file cannot be removed, deletion is blocked.
-              </p>
-            ) : null}
-            <p className="mt-1">
-              Backups are retained. Database files may not shrink immediately; deletion does not guarantee that the capacity block will clear.
-            </p>
-            <p className="mt-1">Large histories are removed in the background. Data updates and historical reads may pause during removal; deletion waits until active data work has stopped.</p>
+            {hasLinkedData ? <p className="mt-1">This also removes the business's connected data.</p> : null}
             <label className="ad-auth-label mt-3">
               Type business name
               <input
@@ -463,10 +468,6 @@ export default function SelectBusinessPage() {
                 className="ad-auth-input"
               />
             </label>
-            {deleteStage ? <p role="status" className="mt-2">
-              {deleteStage === "queued" ? "Deletion queued. Waiting for the worker." : "Deleting all business records in the background."}
-              {" "}Large histories can take several minutes. Closing this window does not cancel deletion. Completion will be confirmed after all records are removed.
-            </p> : null}
             <div className="mt-3 flex gap-2">
               <button
                 type="button"

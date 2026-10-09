@@ -1,8 +1,11 @@
 # Complete business data deletion — 2026-10-08
 
 Both authenticated DELETE routes enqueue durable web-owned erasure under D154
-and return HTTP 202. That acknowledgement is pending, never success. The
-completion endpoint and an independent authorized-list read must prove absence.
+and commit user offboarding under D163 before returning HTTP 202. The ordinary
+user sees the business removed immediately and continues working. Physical
+erasure is an operator responsibility; only the signed completion endpoint and
+independent scoped reads prove stored absence. A hidden business list entry
+proves logical offboarding, never physical erasure.
 A completed response means the business and its owned application records have been removed,
 including retained decisions, frozen labels, calibrations, protected action
 history, indirect report copies and the optional normalization archive. D153 is
@@ -231,9 +234,11 @@ physical refusal stops publication without bypass or automatic cleanup/rebuild.
 Local tests do not establish successful live migration, erasure or a reopened
 growth gate. Fresh pre/post target and foreign-scope proofs remain required.
 
-Manage Business rereads the authoritative list and requires target absence
-before clearing local data or showing success. Active-workspace switching uses
-that fresh list and distinguishes switch failure from deletion failure.
+Under D163, Manage Business clears the removed scope and closes its dialog as
+soon as durable user offboarding is accepted. It reconciles the visible list
+without waiting for physical erasure. The server excludes marked jobs from
+authorization, lists and active selection even after a background failure.
+Physical completion and retry are separate superadmin/operator responsibilities.
 
 Release requires canonical local checks, exact-head CI, exact main CI/images and
 canonical deployment without break glass. Deployment alone deletes nothing.
@@ -349,3 +354,22 @@ acceptance must require UUID-leading access for every large binding child;
 only the explicitly measured campaign-label and retained-lineage heaps below
 1MiB may retain constrained owner-leading access. A preparation receipt is not
 terminal completion; all prior selected/foreign proofs remain required.
+
+
+## D163 user visibility and operator responsibility
+
+Nullable `business_deletion_jobs.hidden_at` is set durably by authorized enqueue
+before acknowledgement. Normal membership authorization, business lists, active
+selection and team workspace choices omit marked businesses even after a failed
+physical rollback. Unmarked historical failures stay visible until newly
+accepted offboarding. Existing superadmin APIs retain status/error visibility
+and retry authority. The primary UI clears the removed scope and closes its
+confirmation on 202 without waiting, polling or exposing physical cleanup.
+Stale in-flight list responses cannot restore the removed row; reload uses the
+server rule. The signed terminal receipt remains an operator acceptance tool.
+
+Full-schema coverage becomes 63 actual erasure cases and pins immediate hidden
+access, failure non-resurrection, preserved foreign access and legacy rollout.
+The 30-minute background limit and all physical erasure bounds remain intact.
+Rollback must preserve hidden markers and visibility filters for already
+accepted removals; an older image that ignores them is not an accepted rollback.

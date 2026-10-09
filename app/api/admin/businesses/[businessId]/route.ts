@@ -21,9 +21,11 @@ export async function GET(
     const [businesses, members, integrations, subscription] = await Promise.all([
       sql`
         SELECT b.id, b.name, b.created_at, b.timezone, b.currency, b.plan_override, b.is_demo_business,
-               u.id AS owner_id, u.name AS owner_name, u.email AS owner_email
+               u.id AS owner_id, u.name AS owner_name, u.email AS owner_email,
+               dj.status AS deletion_status, dj.error_code AS deletion_error, dj.hidden_at AS removed_at
         FROM businesses b
         JOIN users u ON u.id = b.owner_id
+        LEFT JOIN business_deletion_jobs dj ON dj.business_ref_id=b.id
         WHERE b.id = ${businessId}
         LIMIT 1
       `,

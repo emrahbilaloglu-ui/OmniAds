@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d77993d4eb42166ec22a911c49512367d12f0d7d6ba8308b95263edd10596079",
+  "manifestHash": "690d504953524ccd08da294d8d3ae6643bd7d3a9e2e6feed8a58cc7ee772546c",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -164,7 +164,7 @@
     },
     {
       "path": "app/api/admin/businesses/[businessId]/route.ts",
-      "sha256": "3dd2fd8b6130488727faf12fbf7ff30df25cba8a5ebdda13f0828395d3818fec"
+      "sha256": "f164e013d2839b6061e4f56028d4d74188ccc420cabb7afd2d2a885ae335489e"
     },
     {
       "path": "app/api/business-commercial-settings/route.test.ts",
@@ -172,7 +172,7 @@
     },
     {
       "path": "app/api/businesses/[businessId]/deletion-status/route.test.ts",
-      "sha256": "33bd5006bebcf90958f497c38eaf7a61040da065442054ed229780c00eb3189f"
+      "sha256": "d01d96ab3c15ecf8aafa14f061f6a0b73cebd7a9b801ae6677fd3bd395278af7"
     },
     {
       "path": "app/api/businesses/[businessId]/deletion-status/route.ts",
@@ -180,11 +180,11 @@
     },
     {
       "path": "app/api/businesses/[businessId]/route.test.ts",
-      "sha256": "e90b093a3328af7ee975731cf6cb9af217ae48a65385b03f8134875c29cef574"
+      "sha256": "8a2dd8e53df896e8d631473afe326b79f4fde53cb41082ac24843f371fe3f6b3"
     },
     {
       "path": "app/api/businesses/[businessId]/route.ts",
-      "sha256": "8f0901c6d8e96bd1526d0b827e98673a63b1e36ecffed4b35f35f7a19aa4e645"
+      "sha256": "12a2f23fb87cc613fc81a2bdaf1f5207dbe5ed5be0d1abdcc4fa7c99a54b538a"
     },
     {
       "path": "app/api/creatives/briefing/canonical-projection.test.ts",
@@ -896,7 +896,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "27ec200fbb5998be5defec651d56be18eb1a4de5ccf5fde118bb6f3def723cf4"
+      "sha256": "e3061cb61afe6bdd9b29398d4bc87e74cf5b651097394c62719ee3eb197195bf"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1016,11 +1016,11 @@
     },
     {
       "path": "lib/business-deletion-ticket.test.ts",
-      "sha256": "52945a2c2fc61a137d17106d096a24fdf92f8817e517ec7b5894e096c49d67c7"
+      "sha256": "2823d52e182b2f502f9317474f8d336ac4ea70fe4cb5f8fbaafa0dd9c98cd554"
     },
     {
       "path": "lib/business-deletion-ticket.ts",
-      "sha256": "bd2cf687c51e830beec726c50e28120cec194426fe105442bd341e57d4de3afa"
+      "sha256": "69fca77469d242bcdd0c30418a1f7b7ca2d230caf26f63783943bd1fca2d3314"
     },
     {
       "path": "lib/business-deletion.db.test.ts",

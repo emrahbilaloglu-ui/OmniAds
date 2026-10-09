@@ -1,4 +1,5 @@
-import { beforeEach,describe,expect,it,vi } from "vitest";
+import { createHmac } from "node:crypto";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 import { NextRequest,NextResponse } from "next/server";
 import { issueBusinessDeletionTicket } from "@/lib/business-deletion-ticket";
 vi.mock("@/lib/access",()=>({requireAuthedRequest:vi.fn()}));
@@ -15,9 +16,10 @@ describe("authorized deletion status after membership erasure",()=>{
     });
   }
   beforeEach(()=>{
-    vi.resetAllMocks();vi.mocked(access.requireAuthedRequest).mockResolvedValue({session:{sessionId:session} as never});
+    vi.stubEnv("INTEGRATION_TOKEN_ENCRYPTION_KEY","fixture-server-master-key");vi.resetAllMocks();vi.mocked(access.requireAuthedRequest).mockResolvedValue({session:{sessionId:session} as never});
     vi.mocked(db.getDb).mockReturnValue({query} as never);query.mockResolvedValue([]);
   });
+  afterEach(()=>vi.unstubAllEnvs());
   it("requires a current authenticated session before any lookup",async()=>{
     vi.mocked(access.requireAuthedRequest).mockResolvedValue({error:NextResponse.json({}, {status:401})});
     expect((await POST(request(),{params:Promise.resolve({businessId:business})})).status).toBe(401);expect(query).not.toHaveBeenCalled();
@@ -26,6 +28,12 @@ describe("authorized deletion status after membership erasure",()=>{
     for(const ticket of ["forged",issueBusinessDeletionTicket(key,business,"other"),issueBusinessDeletionTicket(key,"other",session)]) {
       expect((await POST(request(ticket),{params:Promise.resolve({businessId:business})})).status).toBe(403);
     }
+    expect(query).not.toHaveBeenCalled();
+  });
+  it("rejects caller-cookie signatures for arbitrary businesses before any database read",async()=>{
+    const payload=Buffer.from(JSON.stringify({businessId:business,sessionId:session,expiresAt:Date.now()+60*60_000})).toString("base64url");
+    const forged=payload+"."+createHmac("sha256",key).update(payload).digest("base64url");
+    expect((await POST(request(forged),{params:Promise.resolve({businessId:business})})).status).toBe(403);
     expect(query).not.toHaveBeenCalled();
   });
   it("confirms the erased root with no job/membership/tombstone remaining",async()=>{

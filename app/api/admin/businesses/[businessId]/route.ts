@@ -122,8 +122,8 @@ export async function DELETE(
     if (auth.error) return auth.error;
 
     const { businessId } = await params;
-    const job = await enqueueBusinessDeletion(businessId);
     const monitorTicket = issueBusinessDeletionTicket(request.cookies.get("omniads_session")?.value ?? "", businessId, auth.session!.sessionId);
+    const job = await enqueueBusinessDeletion(businessId);
     return NextResponse.json({ status: job.status, monitorTicket }, { status: 202 });
   } catch (err) {
     if (err instanceof BusinessDeletionError) return NextResponse.json({ error: err.code,

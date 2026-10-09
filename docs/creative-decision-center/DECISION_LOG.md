@@ -12985,9 +12985,14 @@ additive small table; rolling back code requires first draining/refusing active
 jobs and leaves queued/failed rows attached to their still-existing businesses.
 Do not roll back to a pre-D154 eraser while the new ownership table exists.
 
-A session-cookie-keyed, expiring HMAC read receipt lets the initiating session
+A server-keyed, session-bound, expiring HMAC read receipt lets the initiating session
 observe completion after the job and memberships disappear, without retaining
-server-side business metadata. It grants no mutation authority and is sent only
+server-side business metadata. The existing integration master derives a separate-purpose HKDF key bound to the
+session cookie; the caller-known cookie alone can never sign a valid receipt.
+No credential/configuration is changed, and no server key is exported. Ticket
+issuance occurs before enqueue: a missing server key cannot start unmonitorable
+work. Forged caller-cookie signatures refuse before any database read.
+It grants no mutation authority and is sent only
 in response/POST bodies, not URL parameters. Status requires the current
 session, matching business/session receipt and a fresh root/job read. An existing
 root with no job is an unknown/failed outcome, never completion. Clients keep

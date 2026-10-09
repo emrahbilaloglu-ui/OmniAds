@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/lib/account-store", () => ({
@@ -132,7 +132,9 @@ describe("PATCH /api/businesses/[businessId]", () => {
 });
 
 describe("DELETE /api/businesses/[businessId]", () => {
+  afterEach(()=>vi.unstubAllEnvs());
   beforeEach(() => {
+    vi.stubEnv("INTEGRATION_TOKEN_ENCRYPTION_KEY","fixture-server-master-key");
     vi.resetAllMocks();
     vi.mocked(requestLanguage.resolveRequestLanguage).mockResolvedValue("en");
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
@@ -151,6 +153,12 @@ describe("DELETE /api/businesses/[businessId]", () => {
       checkedAt: "2026-04-09T00:00:00.000Z",
     });
     vi.mocked(db.getDb).mockReturnValue(vi.fn().mockResolvedValue([]) as never);
+  });
+
+  it("does not enqueue unmonitorable work when the server signing master is missing",async()=>{
+    vi.stubEnv("INTEGRATION_TOKEN_ENCRYPTION_KEY","");
+    const response=await DELETE(new NextRequest("http://localhost/api/businesses/biz",{method:"DELETE",headers:{Cookie:"omniads_session=test-session-cookie"}}),{params:Promise.resolve({businessId:"biz"})});
+    expect(response.status).toBe(503);expect(jobs.enqueueBusinessDeletion).not.toHaveBeenCalled();
   });
 
   it("refuses while the assignment lane is disabled, before any delete", async () => {

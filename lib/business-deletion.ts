@@ -881,9 +881,23 @@ export async function deleteBusinessWithData(businessId: string,
     }
     mark("absence_and_guard_restore");
     for (const [table, scope] of scopes) {
-      const [remaining] = await sql.query(`SELECT 1 FROM ${qualified(table)} WHERE (${scopeFor(scope)}) LIMIT 1`, [businessId]);
-      if (remaining) throw new BusinessDeletionError("schema_not_ready", [table]);
+      mark(`absence:${table}`);
+      // D164: bitmap access remains off after the indexed RI/input phases.
+      // An OR across independent owner aliases can then choose a whole heap
+      // walk, especially after every selected tuple was deleted. Prove each
+      // existing owner arm separately with its constrained leading index.
+      // CHECKed canonical and validated episode ownership retain their rules.
+      for (const { predicate, owner } of scopePredicates(scope)) {
+        const query = `SELECT 1 FROM ${qualified(table)} WHERE (${predicate}) LIMIT 1`;
+        if (!owner.episode_bound && owner.indexed) {
+          const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`, [businessId]);
+          verifyOwnerReadPlan(plan!["QUERY PLAN"][0].Plan, [owner]);
+        }
+        const [remaining] = await sql.query(query, [businessId]);
+        if (remaining) throw new BusinessDeletionError("schema_not_ready", [table]);
+      }
     }
+    mark("guard_restore");
     for (const g of suspended) {
       const mode = g.enabled === "A" ? "ENABLE ALWAYS" : g.enabled === "R" ? "ENABLE REPLICA" : "ENABLE";
       await sql.query(`ALTER TABLE ${qualified(g.table_name)} ${mode} TRIGGER ${identifier(g.trigger_name)}`);

@@ -13501,3 +13501,55 @@ unhide failed jobs. Reverting the background budget to 20 minutes preserves the
 marker and requires operator handling of any resulting failed erase. An older
 image that ignores the marker can restore visible access and is not an accepted
 rollback after any D163 removal. No rollback can restore a committed erasure.
+
+## D164 — Indexed final owner absence after actual late rollback (2026-10-10)
+
+D163 is exact live e9ca26242d6e733ac85402fedd69471cecb7d4c7. One actual
+Halıcızade normal UI request returned202/queued, removed its row immediately,
+closed the dialog and survived reload. A separate DB read while the physical
+job was running proved root/job presence with hidden_at set and normal access
+denied. This is proven logical offboarding, not proven physical erasure.
+
+The eleventh physical attempt failed after1,411,314ms in
+absence_and_guard_restore, after all1,001,786 input keys and provider identity
+cleanup passed. PostgreSQL recorded a30-second timeout on the final
+meta_adset_daily presence SELECT. The approved30-minute total bound was not
+exceeded. Independent420 owner-presence checks,15 root digests, foreign
+membership/connection digests, guard modes and active FKs verify rollback.
+The failed job remains hidden and unauthorized for ordinary users; Vornom
+and its frozen archive have not been touched.
+
+Bounded live EXPLAIN without ANALYZE proves the exact OR query chooses a Seq
+Scan over a1,209,999,360-byte heap under the actual final bitmap-off settings.
+Its separate text/UUID equality arms both choose constrained leading-owner
+Index Only Scans. Merely setting enable_seqscan=off does not prohibit a scan;
+the actual plan must be checked before executing a large relation probe.
+
+Check each existing scopePredicates arm separately before root deletion.
+For a large indexed direct-owner relation, EXPLAIN and reuse the existing owner-plan
+verifier to require its actual leading index and owner equality. Small heaps
+retain their fixed1MiB exemption. CHECKed canonical ownership and validated
+episode lineage retain their exact existing rules. Existing stores without a
+leading owner index retain their existing checked erasure path; this change
+does not invent a new prerequisite for a store such as creative_media_cache.
+Require every arm absent;
+an unsafe plan or remaining row rolls back all prior mutations. Record each
+final relation as a sanitized phase so a future late failure has a concrete
+location. All active FKs/guards, shared-content proofs, writer exclusion,
+row/page bounds,30s query cap and30m/4m deadlines remain unchanged.
+
+Canonical coverage becomes64 actual migrated PostgreSQL cases. The new
+populated fixture reproduces the old OR Seq Scan, checks both owner-arm
+generic/custom index plans, includes nullable UUID compatibility rows, and
+injects an unsafe final plan after owned deletion to prove full rollback and
+guard restoration. Its subsequent actual erase requires both checked final
+arms and preserves all foreign fact bytes. Existing physical, hidden-access,
+shared-input, registry and late-failure cases still run.
+
+No new index, maintenance, provider mutation, data thinning, timeout increase
+or ordinary-user cleanup burden. Release and physical acceptance remain
+separate: exact canonical checks/CI/images/runtime, an operator retry of the
+already hidden Halıcızade, terminalOK and independent full absence/foreign
+preservation before Vornom. Reverting this query fix must preserve D163
+hidden markers and server authorization; code rollback cannot recover any
+committed business/account/archive erasure.

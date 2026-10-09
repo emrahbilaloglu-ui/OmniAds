@@ -882,6 +882,75 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     expect(await getDb()`SELECT * FROM engine_v3_job_runs WHERE business_ref_id=${otherId} ORDER BY id`).toEqual(before);
   });
 
+  it("proves each final owner absence without an OR scan and rolls all work back for an unsafe final plan", async () => {
+    const sql=getDb();
+    const {businessId,otherId}=await fixture();
+    await sql.query(`INSERT INTO meta_adset_daily
+      (business_id,business_ref_id,provider_account_id,date,adset_id,account_timezone,account_currency,promoted_object_json)
+      SELECT b,CASE WHEN n%2=0 THEN b::uuid ELSE NULL END,'fixture-account','2026-10-01',
+        'absence-'||n::text,'UTC','USD',$3::jsonb
+      FROM unnest(ARRAY[$1::text,$2::text]) b CROSS JOIN generate_series(1,4500) n`,
+    [businessId,otherId,JSON.stringify({fixture:randomBytes(512).toString("hex")})]);
+    const [size]=await sql`SELECT pg_relation_size('meta_adset_daily')::int AS bytes`;
+    expect(Number(size!.bytes)).toBeGreaterThan(1024**2);
+    await sql`ANALYZE meta_adset_daily`;
+    // Disposable reproduction under the actual final planner settings. A
+    // single OR cannot use either leading-owner index with bitmap scans off.
+    await runDbTransaction(async()=>{
+      const db=getDb();
+      await db.query("SET LOCAL enable_seqscan=off");await db.query("SET LOCAL enable_bitmapscan=off");
+      const [old]=await db.query(`EXPLAIN (FORMAT JSON) SELECT 1 FROM public.meta_adset_daily
+        WHERE business_id=$1::text OR business_ref_id=$1::uuid LIMIT 1`,[businessId]);
+      expect(JSON.stringify(old!["QUERY PLAN"])).toContain('"Node Type":"Seq Scan"');
+      for(const [name,predicate] of [["text","business_id=$1::text"],["uuid","business_ref_id=$1::uuid"]]) {
+        await db.query(`PREPARE erasure_absence_${name}(text) AS SELECT 1 FROM public.meta_adset_daily WHERE ${predicate} LIMIT 1`);
+        for(const mode of ["force_generic_plan","force_custom_plan"]) {
+          await db.query(`SET LOCAL plan_cache_mode=${mode}`);
+          const [plan]=await db.query(`EXPLAIN (FORMAT JSON) EXECUTE erasure_absence_${name}('${businessId}')`);
+          const access=plan!["QUERY PLAN"][0].Plan.Plans[0];
+          expect(["Index Scan","Index Only Scan"]).toContain(access["Node Type"]);
+          expect(access["Index Cond"]).toContain(name==="text"?"business_id":"business_ref_id");
+          expect(access["Index Cond"]).toContain("=");
+        }
+        await db.query(`DEALLOCATE erasure_absence_${name}`);
+      }
+    });
+    const foreign=await sql`SELECT to_jsonb(a)::text AS bytes FROM meta_adset_daily a WHERE business_id=${otherId} ORDER BY id`;
+    const before=await sql`SELECT to_jsonb(a)::text AS bytes FROM meta_adset_daily a WHERE business_id=${businessId} ORDER BY id`;
+    const guards=await sql`SELECT tgrelid,tgname,tgenabled FROM pg_trigger WHERE NOT tgisinternal AND (tgtype&8)<>0 ORDER BY tgrelid,tgname`;
+    let injected=false;
+    await withPinnedDbClient(async client=>{
+      const wrapped={query:async(text:string,params?:unknown[])=>{
+        if(text.startsWith('EXPLAIN (FORMAT JSON) SELECT 1 FROM "public"."meta_adset_daily" WHERE (')) {
+          injected=true;
+          return {rows:[{"QUERY PLAN":[{Plan:{"Node Type":"Limit",Plans:[{"Node Type":"Seq Scan","Relation Name":"meta_adset_daily"}]}}]}]};
+        }
+        return client.query(text,params);
+      }};
+      await expect(deleteBusinessWithData(businessId,{client:wrapped as never})).rejects.toMatchObject({code:"schema_not_ready",tables:["meta_adset_daily"]});
+    },{timeoutMs:30_000});
+    expect(injected).toBe(true);
+    expect(await remains(businessId)).toBe(true);
+    expect(await sql`SELECT to_jsonb(a)::text AS bytes FROM meta_adset_daily a WHERE business_id=${businessId} ORDER BY id`).toEqual(before);
+    expect(await sql`SELECT tgrelid,tgname,tgenabled FROM pg_trigger WHERE NOT tgisinternal AND (tgtype&8)<>0 ORDER BY tgrelid,tgname`).toEqual(guards);
+    const checked:string[]=[],probed:string[]=[];
+    await withPinnedDbClient(async client=>{
+      const wrapped={query:async(text:string,params?:unknown[])=>{
+        if(text.startsWith('EXPLAIN (FORMAT JSON) SELECT 1 FROM "public"."meta_adset_daily" WHERE ('))checked.push(text);
+        if(text.startsWith('SELECT 1 FROM "public"."meta_adset_daily" WHERE ('))probed.push(text);
+        return client.query(text,params);
+      }};
+      await deleteBusinessWithData(businessId,{client:wrapped as never});
+    },{timeoutMs:30_000});
+    expect(probed).toHaveLength(2);expect(checked).toHaveLength(2);
+    expect(probed.every(q=>!q.includes(" OR "))).toBe(true);
+    expect(probed.some(q=>q.includes('"business_id" = $1::text'))).toBe(true);
+    expect(probed.some(q=>q.includes('"business_ref_id" = $1::uuid'))).toBe(true);
+    expect(await remains(businessId)).toBe(false);
+    expect(await remains(businessId,"meta_adset_daily","business_id")).toBe(false);
+    expect(await sql`SELECT to_jsonb(a)::text AS bytes FROM meta_adset_daily a WHERE business_id=${otherId} ORDER BY id`).toEqual(foreign);
+  });
+
   it("finds a late dual-owner contradiction across cursor pages, then erases all corrected fact pages while preserving foreign bytes", async () => {
     const { businessId, otherId } = await fixture();
     await getDb().query(`INSERT INTO meta_adset_daily

@@ -83,7 +83,7 @@ disabling them globally made the real 4,096-row page time out in canonical CI.
 The real page-limit rollback case verifies that FK probe's indexed plan under
 the actual DELETE settings without raising its eight-second query cap.
 The complete operation permits at most 4,194,304
-evaluations and uses a 20-minute background deadline (four minutes for direct internal callers); bounds roll back all
+evaluations and uses a 30-minute background deadline (D162) (four minutes for direct internal callers); bounds roll back all
 prior pages. Erasure alone disables JIT in its transaction. The server statement
 timeout is capped by both the 30-second query limit and remaining transaction
 deadline, so an application timeout cannot leave a longer-running statement
@@ -102,8 +102,17 @@ Bitmap/Seq Scan or materialization; continuation requires the tuple seek in its
 index condition. Captured keys are complete before this traversal begins and
 writers remain excluded. GLOBAL references are still checked on every page,
 shared input content is preserved and only processed temporary keys are removed.
-Unsafe page plans roll back every preceding business/input mutation. The query
-cap, total deadline, pages, ownership bounds, guards and FKs are unchanged.
+Unsafe page plans roll back every preceding business/input mutation. At D161 the query cap, total deadline, pages, ownership bounds, guards and FKs
+were unchanged. D162 subsequently changes only the approved background total
+deadline from20 to30 minutes, following actual full-input-cleanup completion
+and total-deadline rollback in provider-identity cleanup. Direct internal
+callers remain bounded tofour minutes and every PostgreSQL statement to30
+seconds or the remaining deadline, whichever is shorter. The lock cap, pages,
+row bounds, GLOBAL reference proof, guards/FKs, writer exclusion and single
+atomic rollback remain unchanged. Local fixtures advance only the application
+clock at the real late provider phase: completion beyond20 minutes remains
+allowed, while exceeding30 minutes rolls back all earlier owned-row removal
+and preserves foreign businesses. No new index or maintenance is authorized.
 
 Indirect custom-report shares and identifying admin-audit entries are removed.
 Derived cross-business retention/release/repair receipts containing the exact

@@ -13408,3 +13408,47 @@ monotonic paged execution and owned-input absence. Existing shared-input and
 registry/unknown-child protections still run. Local/CI success is preparation;
 live terminal success and full independent absence remain required, Halıcızade
 before Vornom. Code rollback cannot restore committed erasure.
+
+
+## D162 — Finite background erasure budget after complete input cleanup (2026-10-09)
+
+The tenth actual Halıcızade UI request on0f44cfc8a6f1cf34748e4be9546f68d33d1566dd
+returned202/queued and then terminal failed. Sanitized telemetry records
+1,200,078ms total elapsed and failure in `provider_identity_gc`, after completing
+all1,001,786 input keys in335,506ms. D161 improved the input traversal, but
+completing that phase is not completing the business erasure.420 scope-presence
+checks,15 business roots, foreign membership/connection/guard digests and all
+128 provider registry row digests independently verify rollback. Vornom and
+its archive remain untouched.
+
+Bounded live EXPLAIN without ANALYZE verifies400-key input deletion and GLOBAL
+evaluation-reference probes as constrained PK/leading-index access. A20-sample
+SET/SELECT-only live read measured0.219ms mean setup cost. Neither a new index
+nor timeout-setup caching is justified as the remedy by these observations.
+
+The human explicitly approved changing only the pinned web-owned background
+erasure total deadline from20 to30 minutes, with testing and live publication.
+Direct internal calls keepfour minutes. Individual PostgreSQL statements still
+use the shorter of30 seconds and remaining absolute deadline;1500ms lock cap,
+all finite row/page/key bounds, GLOBAL shared-content proof, active-work
+refusal, writer exclusion, full FK/guard verification and one atomic transaction
+remain. This allows at mostten extra minutes of writer/history-read exclusion
+for an explicitly requested whole-business erase; it is not an unbounded job,
+HTTP/proxy timeout change, new index, maintenance or ordinary pruning authority.
+No production data or provider work is forced during validation.
+
+Canonical erasure coverage becomes62 actual migrated PostgreSQL cases. Thetwo
+new late-phase fixtures advance only Date.now at actual provider-candidate
+cleanup: a20-minute-plus elapsed background operation commits complete erasure
+while keeping server caps at30 seconds; a30-minute-plus operation rolls back
+prior owned removals and preserves foreign business bytes. Existing real server
+statement cancellation, remaining-deadline rollback, lock release, shared input
+and unknown-child protections still run. These fixtures simulate elapsed time,
+not a30-minute PostgreSQL wait.
+
+30 minutes is a finite approved budget, not proven live completion. Canonical
+local checks, PR/main CI and exact web/worker images precede one normal UI
+request. Actual terminalOK plus full independent absence and foreign-preservation
+proof remain mandatory, Halıcızade before Vornom. A failed/queued job, healthy
+worker or passing CI is not erasure or capacity relief. Code rollback restores
+the20-minute bound but cannot restore committed erasure.

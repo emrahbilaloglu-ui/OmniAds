@@ -649,6 +649,41 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     expect(observed).toBe(true);expect(await remains(businessId)).toBe(false);
   });
 
+  it.each([
+    { elapsedMs:20*60_000+1000, completes:true },
+    { elapsedMs:30*60_000+1000, completes:false },
+  ])("keeps the background erase finite after a simulated $elapsedMs elapsed milliseconds",async({elapsedMs,completes})=>{
+    const {businessId,otherId}=await fixture();
+    const [foreignBefore]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${otherId}::uuid`;
+    const realNow=Date.now.bind(Date);
+    let advanced=false;
+    const caps:number[]=[];
+    await withPinnedDbClient(async client=>{
+      const clock=vi.spyOn(Date,"now").mockImplementation(()=>realNow()+(advanced?elapsedMs:0));
+      const wrapped={query:async(text:string,params?:unknown[])=>{
+        const cap=/^SET statement_timeout = (\d+)$/.exec(text);
+        if(cap)caps.push(Number(cap[1]));
+        // Advance only at the real late provider-identity phase, after owned
+        // rows/input work. PostgreSQL still executes every statement normally.
+        if(text.startsWith("SELECT id::text FROM business_erasure_provider_candidates"))advanced=true;
+        return client.query(text,params);
+      }};
+      try {
+        const erase=deleteBusinessWithData(businessId,{client:wrapped as never});
+        if(completes)await erase;
+        else await expect(erase).rejects.toThrow("deadline exceeded");
+      } finally {clock.mockRestore();}
+    },{timeoutMs:30_000});
+    expect(advanced).toBe(true);
+    expect(caps.length).toBeGreaterThan(0);
+    expect(caps.every(ms=>ms>0&&ms<=30_000)).toBe(true);
+    for(const [table,column]of [["businesses","id"],["memberships","business_id"],
+      ["business_provider_accounts","business_id"],["meta_entity_observation_runs","business_ref_id"]])
+      expect(await remains(businessId,table,column)).toBe(!completes);
+    const [foreignAfter]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${otherId}::uuid`;
+    expect(foreignAfter).toEqual(foreignBefore);
+  });
+
   it("enforces the pinned transaction statement cap and absolute deadline, rolling back before the backend is reused",async()=>{
     const {businessId}=await fixture();
     await withPinnedDbClient(async client=>{

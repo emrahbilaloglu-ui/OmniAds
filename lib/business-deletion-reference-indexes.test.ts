@@ -104,6 +104,11 @@ describe("full-binding physical capacity and key bounds",()=>{
     expect((await assertBusinessErasureFullBindingIndexCapacity(sql,relation)).engaged).toBe(true);
     expect(sql.query.mock.calls.some(([q])=>q.includes("pg_total_relation_size"))).toBe(false);
   });
+  it.each(["public.meta_creative_lineage_edges","public.meta_entity_observation_runs"])("requires fresh physical admission for the reviewed Meta binding %s",async metaRelation=>{
+    vi.stubEnv("NODE_ENV","production");
+    expect((await assertBusinessErasureFullBindingIndexCapacity(capacityFixture(),metaRelation)).engaged).toBe(true);
+    await expect(assertBusinessErasureFullBindingIndexCapacity(capacityFixture({available:floor+8192*12-1}),metaRelation)).rejects.toThrow("migration_capacity_refused");
+  });
   it.each([{parent:"8388609"},{parent:"-1"},{parent:true},{lengths:Array.from({length:1025},()=>({business_bytes:36,account_bytes:20}))},
     {lengths:[{business_bytes:37,account_bytes:20}]},{lengths:[{business_bytes:36,account_bytes:25}]}])("refuses unbounded parent/key evidence %j before size reservation",async input=>{
     const sql=capacityFixture(input);
@@ -120,7 +125,7 @@ describe("complete account-binding lookup admission", () => {
   const healthyFull = {full_binding_shape_valid:true,full_binding_lineage_valid:true,lookup_ready:true,named_index_conflict:false};
   it("keeps usable full-binding indexes without DDL or new capacity reservations", async () => {
     const sql={query:vi.fn(async()=>[healthyFull])},admit=vi.fn();
-    expect(await ensureBusinessErasureFullBindingIndexes(sql as never,admit)).toEqual({built:[],verified:5});
+    expect(await ensureBusinessErasureFullBindingIndexes(sql as never,admit)).toEqual({built:[],verified:7});
     expect(admit).not.toHaveBeenCalled();
   });
   it("adds only missing exact three-key indexes after their independent capacity admission", async () => {

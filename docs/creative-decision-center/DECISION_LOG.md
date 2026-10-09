@@ -13283,3 +13283,95 @@ No tests, indices, build or healthy worker state establish erasure completion;
 terminal success and independent full absence must still pass for Hali before Vornom.
 Code rollback preserves additive indexes. Erased data/archive objects cannot be
 restored by code rollback; no shared DR backup/WAL or forensic erase is authorized.
+
+## D159 — Meta account-binding RI access after actual erasure rollback (2026-10-09)
+
+Exact live D158 a7d7fdb305fc553df0b3e1bc98230b848de9cfea passed its local
+and CI checks and pre-delete plans, but the eighth Halıcızade erase rolled back.
+At 2026-10-09 10:19:40 UTC PostgreSQL reported statement_timeout in the internal
+meta_creative_lineage_edges full-binding RESTRICT probe during DELETE FROM
+business_provider_accounts. The database transaction reached that phase after
+966978ms; that statement hit the unchanged30s cap. Independent420 presence
+checks,15 root identities, guard modes, enabled FK triggers and foreign
+membership/connection digests matched pre-state. Neither business was deleted.
+This is actual failure evidence; passing plan preparation did not prove erasure.
+
+D158's acceptance required a constrained leading key, but required the account
+UUID first only for native tables. The failing Meta plan led with business_id
+and provider_account_id; provider_account_ref_id was only a residual filter.
+Its generic plan cost82944 and selected-owner custom cost310254 describe planner
+estimates, not measured latency or proof of dead-tuple causality. The other
+large Meta binding child, meta_entity_observation_runs, has the same access
+shape. Fresh catalog reads prove both ordinary heaps, non-null UUID/TEXT/TEXT
+identity, complete valid single-UUID PKs, validated nondeferrable RESTRICT
+binding FKs and four enabled internal RI triggers.
+
+Extend the existing D158 contracts by only two additive full-binding btrees:
+meta_creative_lineage_edges and meta_entity_observation_runs. Preserve all five
+native contracts,47 scalar/hash contracts, FK definitions, guards, erasure
+locks/pages/deadlines, shared identities and rollback. Use exactly the same
+small-parent width proof,12x UUID-PK reserve, fresh physical telemetry and40GiB
+floor; no FK weakening, timeout increase, index replacement or growth-budget
+change. The unvalidated nullable campaign-label binding and empty retained
+lineage are outside this width-based DDL scope. Their current heaps are24576
+and0 bytes respectively; acceptance must remeasure a maximum1MiB before allowing
+existing owner-leading access. Any growth or unknown shape refuses acceptance.
+
+The existing populated actual migrated erasure case now seeds5000 rows per
+selected and foreign shared-account tenant in each affected Meta table, requires
+account-leading generic full-identity access, performs the actual full erase,
+proves selected Meta absence and byte-identical foreign Meta/native/binding
+rows. Canonical coverage remains56 cases; two exact Meta physical-refusal tests
+extend capacity coverage. Before the next DELETE require all seven full-key
+contracts and52 generic/custom plans: account UUID must lead every large
+binding child; only the two explicitly small measured children may use existing
+constrained leading access. No hypothetical timing assertion replaces terminal
+success, full selected absence and foreign preservation. Halıcızade must pass
+before Vornom archive/input offboarding and erasure. Code rollback retains
+additive indexes; committed data erasure is irreversible through code rollback.
+
+## D160 — Unshared provider account registry erasure (2026-10-09)
+
+The human explicitly requires no owned application data after whole-business
+deletion. A read-only check on live a7d7fdb proves Halıcızade and Vornom each have
+a provider_accounts registry row containing name/currency/timezone/metadata and
+only their own business binding. Existing erasure always preserved that global
+registry, which leaves private account data when no other reference remains.
+Bindings alone are insufficient sharing proof: the actual catalog has102 FKs
+across101 child relations, including RESTRICT, CASCADE and SET NULL behavior.
+
+Capture candidates from existing owned DELETE RETURNING pages and from the
+two inherited snapshot/summary stores before their selected parent CASCADE.
+No extra whole-history, native-table DISTINCT or other-account projection is
+allowed. Include all101 known global children in writer/DDL exclusion, plus
+the registry. Each candidate requires actual indexed UUID-point GLOBAL zero
+reference proof before exact registry DELETE and independent absence. Preserve
+the entire shared row if any reference survives. Small ordinary children must
+remain at most1MiB; large ones require verified raw UUID-leading access. The
+single exact existing unvalidated campaign-label FK stays active and unchanged
+and is included in that proof. Unknown children/metadata/guards/RLS/partitions,
+changed catalog, bounds or late constraints roll back the whole operation.
+
+Keep existing pages,30-second query cap,20-minute background deadline, physical
+index admission, FKs, immutable guards and authority boundaries. Add no indexes
+beyond D159's two already proven necessary Meta lookups. Registry identities
+are application records; no upstream advertising/provider mutation is allowed.
+Shared DR backups/WAL and forensic/physical shrink remain outside this scope.
+
+Canonical erasure coverage becomes59 actual migrated PostgreSQL cases: remove
+private registry metadata including a snapshot-only account, preserve exact
+shared account bytes through a foreign connection with no foreign binding,
+and refuse an unknown global cascading FK before mutation with both tenants
+preserved. Existing56 cases still run. Passing local/CI checks is not live
+acceptance: require exact released source, actual terminal success, every owned
+absence, unshared registry absence and foreign preservation for Halıcızade
+before Vornom offboarding. Code rollback retains additive indexes; committed
+business/account/archive erasure cannot be undone by code rollback.
+
+D160 live preflight measured43,696,128 heap bytes but only128 registry UUIDs.
+A heap-size assumption would refuse a genuinely finite directory. Require its
+actual raw UUID-leading index plan and LIMIT257 with no Sort/materialization,
+then refuse more than256 identities. No full heap scan or maintenance is allowed.
+The D074 guard explicitly classifies only the single exact legacy FK-name
+reference and global read proof in this offboarding helper; manual label
+writers and decision authority remain frozen.

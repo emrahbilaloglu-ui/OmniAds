@@ -1,4 +1,5 @@
 import type { getDb } from "@/lib/db";
+import { BUSINESS_PROVIDER_ACCOUNT_CAPTURE_CTE } from "@/lib/business-deletion-provider-accounts";
 
 export class BusinessNativeEvaluationCleanupError extends Error {}
 const PAGE = 4096;
@@ -13,7 +14,7 @@ const DECLARE = `DECLARE ${CURSOR} NO SCROLL CURSOR FOR
  * from its first deleted tuple. Exact TID deletes capture inputs as they disappear.
  * A failed page/bound/FK rolls the caller's whole transaction back. */
 export async function deleteBusinessNativeEvaluations(sql: ReturnType<typeof getDb>, businessId: string,
-  bounds = { maxRows: 4_194_304 }) {
+  bounds = { maxRows: 4_194_304 }, captureProviderAccounts = false) {
   const [settings] = await sql.query<{ index: string; bitmap: string }>(
     "SELECT current_setting('enable_indexscan') AS index,current_setting('enable_bitmapscan') AS bitmap");
   await sql.query("SET LOCAL enable_indexscan=on");
@@ -49,9 +50,11 @@ export async function deleteBusinessNativeEvaluations(sql: ReturnType<typeof get
     if (page.some(r=>r.row_table!==tableOid)) throw new BusinessNativeEvaluationCleanupError("native_evaluation_heap_changed");
     if (!page.length) break;
     const query = `WITH removed AS (DELETE FROM public.${TABLE}
-      WHERE ctid=ANY($1::tid[]) AND tableoid=$2::oid AND business_ref_id::text=($3::uuid)::text RETURNING contract_version,input_hash),
+      WHERE ctid=ANY($1::tid[]) AND tableoid=$2::oid AND business_ref_id::text=($3::uuid)::text
+      RETURNING contract_version,input_hash${captureProviderAccounts ? ",provider_account_ref_id AS account_id" : ""}),
       captured AS (INSERT INTO business_erasure_input_keys (contract_version,input_hash)
         SELECT contract_version,input_hash FROM removed ON CONFLICT DO NOTHING RETURNING 1)
+      ${captureProviderAccounts ? BUSINESS_PROVIDER_ACCOUNT_CAPTURE_CTE : ""}
       SELECT (SELECT count(*)::int FROM removed) AS removed,(SELECT count(*)::int FROM captured) AS captured`;
     const values=[page.map(r=>r.row_tid),tableOid,businessId];
     const [deletePlan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`,values);

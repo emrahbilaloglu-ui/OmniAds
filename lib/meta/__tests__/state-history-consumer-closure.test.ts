@@ -65,7 +65,7 @@ const STATE_HISTORY_REFERENCE_LEDGER: ReadonlyArray<{
   {
     file: "lib/business-deletion.db.test.ts",
     category: "harness",
-    count: 22,
+    count: 25,
   },
   {
     file: "lib/business-deletion-state-run-index.ts",

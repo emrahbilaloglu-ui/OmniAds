@@ -83,6 +83,70 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     process.env.ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED = "enabled";
   });
 
+  it("erases unshared provider registry metadata including an account owned only through snapshot items", async()=>{
+    const sql=getDb();
+    const {businessId,otherId,accountId}=await fixture();
+    const foreign=await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${accountId}::uuid`;
+    const ids:string[]=[];
+    for(const name of ["Selected account","Snapshot-only account"]) {
+      const [account]=await sql`INSERT INTO provider_accounts (provider,external_account_id,account_name,currency,timezone,metadata)
+        VALUES ('meta',${`act_private_${randomUUID()}`},${name},'TRY','Europe/Istanbul','{"private":"fixture"}'::jsonb)
+        RETURNING id,external_account_id`;
+      ids.push(String(account!.id));
+      if(ids.length===1) await sql`INSERT INTO business_provider_accounts
+        (business_id,provider,provider_account_ref_id,provider_account_id)
+        VALUES (${businessId},'meta',${account!.id},${account!.external_account_id})`;
+      else {
+        const [run]=await sql`INSERT INTO provider_account_snapshot_runs (business_id,provider)
+          VALUES (${businessId},'meta') RETURNING id`;
+        await sql`INSERT INTO provider_account_snapshot_items
+          (snapshot_run_id,provider_account_ref_id,provider_account_id,provider_account_name)
+          VALUES (${run!.id},${account!.id},${account!.external_account_id},${name})`;
+      }
+    }
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId)).toBe(false);
+    expect(await remains(otherId)).toBe(true);
+    for(const id of ids) {
+      expect(await remains(id,"provider_accounts")).toBe(false);
+      expect(await remains(id,"provider_account_snapshot_items","provider_account_ref_id")).toBe(false);
+    }
+    expect(await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${accountId}::uuid`).toEqual(foreign);
+  });
+
+  it("preserves exact shared provider metadata when only a foreign connection still references the account",async()=>{
+    const sql=getDb();
+    const {businessId,otherId}=await fixture();
+    const [account]=await sql`INSERT INTO provider_accounts (provider,external_account_id,account_name,metadata)
+      VALUES ('meta',${`act_shared_${randomUUID()}`},'Shared fixture','{"keep":"exact"}'::jsonb) RETURNING id,external_account_id`;
+    await sql`INSERT INTO business_provider_accounts (business_id,provider,provider_account_ref_id,provider_account_id)
+      VALUES (${businessId},'meta',${account!.id},${account!.external_account_id})`;
+    const [connection]=await sql`UPDATE provider_connections SET provider_account_ref_id=${account!.id}
+      WHERE business_id=${otherId} AND provider='meta' RETURNING id`;
+    const before=await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${account!.id}::uuid`;
+    const connectionBefore=await sql`SELECT to_jsonb(c)::text AS bytes FROM provider_connections c WHERE id=${connection!.id}::uuid`;
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId)).toBe(false);
+    expect(await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${account!.id}::uuid`).toEqual(before);
+    expect(await sql`SELECT to_jsonb(c)::text AS bytes FROM provider_connections c WHERE id=${connection!.id}::uuid`).toEqual(connectionBefore);
+  });
+
+  it("refuses an unknown global provider FK before any mutation and preserves both tenants",async()=>{
+    const sql=getDb();
+    const {businessId,otherId,accountId}=await fixture();
+    await sql`CREATE TABLE business_erasure_unknown_provider_ref_test
+      (provider_ref UUID NOT NULL REFERENCES provider_accounts(id) ON DELETE CASCADE,fixture TEXT NOT NULL)`;
+    try {
+      await sql`INSERT INTO business_erasure_unknown_provider_ref_test VALUES (${accountId},'must remain')`;
+      const before=await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${accountId}::uuid`;
+      await expect(deleteBusinessWithData(businessId)).rejects.toMatchObject({code:"schema_not_ready"});
+      expect(await remains(businessId)).toBe(true);
+      expect(await remains(otherId)).toBe(true);
+      expect(await sql`SELECT fixture FROM business_erasure_unknown_provider_ref_test`).toEqual([{fixture:"must remain"}]);
+      expect(await sql`SELECT to_jsonb(a)::text AS bytes FROM provider_accounts a WHERE id=${accountId}::uuid`).toEqual(before);
+    } finally { await sql`DROP TABLE business_erasure_unknown_provider_ref_test`; }
+  });
+
   it("indexes the actual SET NULL RI lookup and erases selected history while preserving foreign rows byte for byte", async () => {
     const sql = getDb();
     const { businessId, otherId, accountId } = await fixture();
@@ -134,7 +198,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       WHERE business_ref_id=${otherId}::uuid ORDER BY id`).toEqual(parentsBefore);
   });
 
-  it("uses bounded full binding RI with rechecked identities and preserves a shared account tenant", async () => {
+  it("uses bounded native and Meta full binding RI with rechecked identities and preserves a shared account tenant", async () => {
     const db = new Client({connectionString:process.env.DATABASE_URL}); await db.connect();
     let addedReference = false;
     try {
@@ -151,9 +215,43 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       for (const [tenant,tag] of [[target,"binding-remove"],[other,"binding-preserve"]] as const) {
         const producer = await seedCalibration(db,tenant,"2026-09-23","2026-09-23T12:00:00Z");
         await seedGeneration(db,tenant,{date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[5000],tag,snapshots:true});
+        const account = tenant.accounts[0]!;
+        await db.query(`INSERT INTO meta_entity_observation_runs
+          (business_ref_id,business_id,provider_account_ref_id,provider_account_id,entity_type,endpoint,
+           observed_at,captured_at,completeness,run_hash)
+          SELECT $1::text::uuid,$1::text,$2::uuid,$3,'ad','ads','2026-09-23T12:00:00Z','2026-09-23T12:01:00Z',
+            'complete',md5($4||n::text)||md5(n::text||$4) FROM generate_series(1,5000) n`,
+        [tenant.business,account.ref,account.id,tag]);
+        await db.query(`INSERT INTO meta_entity_state_history
+          (run_id,business_ref_id,business_id,provider_account_ref_id,provider_account_id,entity_type,
+           entity_id,campaign_id,adset_id,ad_id,creative_id,presence,observed_at,captured_at,run_completeness,state_hash)
+          SELECT r.id,r.business_ref_id,r.business_id,r.provider_account_ref_id,r.provider_account_id,'ad',
+            side.name||'-'||n,'campaign-'||n,'adset-'||n,side.name||'-'||n,'creative-'||n,'present',
+            r.observed_at,r.captured_at,r.completeness,
+            md5($2||side.name||n::text)||md5(n::text||side.name||$2)
+          FROM generate_series(1,5000) n JOIN meta_entity_observation_runs r
+            ON r.business_id=$1::text AND r.run_hash=md5($2||n::text)||md5(n::text||$2)
+          CROSS JOIN (VALUES ('source'),('target')) side(name)`,
+        [tenant.business,tag]);
+        await db.query(`INSERT INTO meta_creative_lineage_edges
+          (business_ref_id,business_id,provider_account_ref_id,provider_account_id,source_ad_id,source_creative_id,
+           target_ad_id,target_creative_id,lineage_type,evidence_source,observation_run_id,
+           observation_run_entity_type,observation_run_completeness,observed_at,captured_at,lineage_hash)
+          SELECT $1::text::uuid,$1::text,$2::uuid,$3,'source-'||n,'creative-'||n,'target-'||n,'creative-'||n,
+            'reuse_same_creative','observation_run',r.id,r.entity_type,r.completeness,r.observed_at,r.captured_at,
+            md5($4||n::text)||md5(n::text||$4) FROM generate_series(1,5000) n
+          JOIN meta_entity_observation_runs r ON r.business_id=$1::text
+            AND r.run_hash=md5($4||n::text)||md5(n::text||$4)`,
+        [tenant.business,account.ref,account.id,tag]);
+        for (const [table,count] of [["meta_entity_observation_runs",5000],["meta_creative_lineage_edges",5000],
+          ["meta_entity_state_history",10000]] as const) {
+          expect((await db.query(`SELECT count(*)::int AS rows FROM public.${table} WHERE business_id=$1`,
+            [tenant.business])).rows[0].rows).toBe(count);
+        }
       }
       const account = target.accounts[0]!;
-      for (const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily"]) {
+      for (const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily",
+        "meta_creative_lineage_edges","meta_entity_observation_runs"]) {
         await db.query(`ANALYZE public.${table}`);
         await db.query("BEGIN");
         try {
@@ -170,7 +268,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
           // Either reviewed account-leading access is bounded. The optimizer
           // may prefer the narrower scalar key in this smaller fixture; full
           // owner/account equality must still be present as keys or rechecks.
-          expect(nodes.some(n => [contract.index,scalar.index].includes(String(n["Index Name"]) as typeof contract.index)
+          expect(nodes.some(n => [contract.index,scalar?.index].includes(String(n["Index Name"]) as typeof contract.index)
             && /provider_account_ref_id\s*=/.test(String(n["Index Cond"]))
             && ["business_id","provider_account_id"].every(k => new RegExp(`(?:^|[^a-z0-9_])${k}\\s*=|=\\s*${k}(?:$|[^a-z0-9_])`).test(`${n["Index Cond"]??""} ${n.Filter??""}`))),JSON.stringify(plan["QUERY PLAN"])).toBe(true);
           expect(nodes.some(n => ["Seq Scan","Bitmap Heap Scan"].includes(String(n["Node Type"])))).toBe(false);
@@ -178,7 +276,8 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       }
       const foreign = async () => {
         const out: unknown[] = [];
-        for(const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily","engine_v3_ad_account_calibration_daily","business_provider_accounts"]) {
+        for(const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily","engine_v3_ad_account_calibration_daily",
+          "meta_creative_lineage_edges","meta_entity_observation_runs","meta_entity_state_history","business_provider_accounts"]) {
           out.push((await db.query(`SELECT count(*)::int AS count,md5(string_agg(md5(to_jsonb(t)::text),',' ORDER BY to_jsonb(t)::text)) AS bytes FROM public.${table} t WHERE business_id=$1`,[other.business])).rows);
         }
         return out;
@@ -188,6 +287,9 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       if(!ref.present) { await addObservedProductionReferenceIndex(db); addedReference=true; }
       await deleteBusinessWithData(target.business);
       expect(await remains(target.business)).toBe(false);
+      for (const table of ["meta_creative_lineage_edges","meta_entity_observation_runs"]) {
+        expect(await remains(target.business,table,"business_id")).toBe(false);
+      }
       expect(await remains(other.business)).toBe(true);
       expect(await foreign()).toEqual(before);
       expect(await remains(account.ref,"provider_accounts","id")).toBe(true);

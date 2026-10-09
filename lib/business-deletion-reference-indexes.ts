@@ -58,8 +58,8 @@ export const BUSINESS_ERASURE_REFERENCE_INDEXES = [
   { table: "engine_v3_ad_decision_evaluations", column: "campaign_context_ref", index: "idx_biz_erase_campaign_reference", method: "hash" },
 ] as const;
 
-/** D158: the five live full-binding RI plans that still preferred a broad
- * owner/id-prefix index over D157's single UUID key. Keep all identity equality
+/** D158/D159: native and Meta full-binding RI plans that preferred a broad
+ * owner/id-prefix index. Keep all identity equality
  * predicates as searchable keys; no existing index or FK is replaced. */
 export const BUSINESS_ERASURE_FULL_BINDING_INDEXES = [
   { table: "engine_v3_ad_decision_evaluations", index: "idx_biz_erase_binding_evaluation_full" },
@@ -67,6 +67,8 @@ export const BUSINESS_ERASURE_FULL_BINDING_INDEXES = [
   { table: "engine_v3_ad_decision_evaluation_contexts", index: "idx_biz_erase_binding_eval_context_full" },
   { table: "engine_v3_ad_account_calibration_daily", index: "idx_biz_erase_binding_cal_daily_full" },
   { table: "engine_v3_ad_decision_events", index: "idx_biz_erase_binding_event_full" },
+  { table: "meta_creative_lineage_edges", index: "idx_biz_erase_binding_meta_lineage_full" },
+  { table: "meta_entity_observation_runs", index: "idx_biz_erase_binding_meta_run_full" },
 ] as const;
 export const BUSINESS_ERASURE_FULL_BINDING_KEYS = [
   "provider_account_ref_id", "business_id", "provider_account_id",

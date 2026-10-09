@@ -1,5 +1,5 @@
 {
-  "manifestHash": "73831710e5384540fb5f60b174e6734f069a1a9ca52dc0e858a2dd72a7ffda71",
+  "manifestHash": "fd305af36046bceada616bce1f06666a41c943273756583d58903cdb3d004b60",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -868,7 +868,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "5888c668cb42563feca4c2a1323ae17e2beea5154ccfcd7647fffee7cab182d8"
+      "sha256": "3b67b0dd90e59bad0f7e4ce868d4b11070a770b2a17b3eaf785a780dcc3af1a1"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -2980,7 +2980,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "ffc10c9e76b43a4dccd70cdfd08f140ccb0676cdeef9e183dc3166ee85643c5a"
+      "sha256": "001d060a3f20614100198ad371909937c8e2b82e133a2a4f28a2332fee0a9f90"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

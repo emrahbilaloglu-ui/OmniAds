@@ -299,7 +299,7 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "ffc10c9e76b43a4dccd70cdfd08f140ccb0676cdeef9e183dc3166ee85643c5a",
+      "sha256": "001d060a3f20614100198ad371909937c8e2b82e133a2a4f28a2332fee0a9f90",
       "retention": "Owned public/isolated fixture only; not live consumer completeness. D156 requires all 55 actual erasure cases, including generic RI lookup/foreign-byte preservation and enum-bound refusal; no new production selection/removal authority. D157 requires56 actual migrated erasure cases, including full generic binding RI and byte-exact foreign history with a shared provider identity. D160 requires59 actual migrated whole-business deletion/rollback cases, including unshared registry removal, shared identity preservation and unknown global FK refusal. Disposable fixture only; no production execution or offboarding authority. D161 requires60 actual migrated erasure cases, including generic/custom raw-key continuation and unsafe-page full rollback/foreign preservation; disposable fixtures only."
     },
     {
@@ -465,5 +465,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "26767c5d15ec674ee536b483401981cd2560509242d3983d886844e97facf638"
+  "sourceInventorySha256": "6629a805cb4e7ae34cd074ff7c56e1de7c3371c91f84044948821842c706bd83"
 }

@@ -1,3 +1,4 @@
+import { BUSINESS_ERASURE_REFERENCE_INDEXES, ensureBusinessErasureReferenceIndexes } from "@/lib/business-deletion-reference-indexes";
 import { NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL } from "./creative-decision-engine/native-campaign-context-writer";
 import { NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL } from "@/lib/creative-decision-engine/native-campaign-context-storage";
 import { META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL } from "@/lib/meta/observation-receipt-schema";
@@ -2163,6 +2164,209 @@ export async function assertReceiptIdentityMigrationCapacity(sql: Pick<DbClientL
   });
 }
 
+export const RELEASE_GATE_PROVIDER_INDEX_CONTRACTS = [
+  { index_name: "idx_sync_release_gates_key_latest", definition: "CREATE INDEX idx_sync_release_gates_key_latest ON public.sync_release_gates USING btree (build_id, environment, gate_kind, provider_scope, emitted_at DESC, id DESC)" },
+  { index_name: "idx_sync_release_gates_kind_latest", definition: "CREATE INDEX idx_sync_release_gates_kind_latest ON public.sync_release_gates USING btree (gate_kind, provider_scope, environment, emitted_at DESC, id DESC)" },
+  { index_name: "idx_sync_release_gates_retention_scan", definition: "CREATE INDEX idx_sync_release_gates_retention_scan ON public.sync_release_gates USING btree (emitted_at, id)" },
+] as const;
+
+export const RELEASE_GATE_PROVIDER_STATUS_SQL = `
+  SELECT e.index_name, COALESCE(i.indisvalid AND i.indisready AND i.indislive
+    AND i.indrelid=to_regclass('public.sync_release_gates')
+    AND pg_get_indexdef(i.indexrelid)=e.definition,false) AS index_satisfied,
+    EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_attrdef d
+      ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+      WHERE a.attrelid=to_regclass('public.sync_release_gates')
+        AND a.attname='provider_scope' AND a.atttypid='text'::regtype
+        AND a.attnotnull AND NOT a.attisdropped
+        AND pg_get_expr(d.adbin,d.adrelid)=(quote_literal('unknown')||'::text')) AS column_satisfied,
+    to_regclass('public.idx_sync_release_gates_emitted') IS NULL AS obsolete_index_absent
+  FROM jsonb_to_recordset($1::jsonb) e(index_name text, definition text)
+  LEFT JOIN pg_index i ON i.indexrelid=to_regclass(format('public.%I',e.index_name))
+  ORDER BY e.index_name
+`;
+
+/** Exact completed schema plus two bounded indexed witnesses; no heavy replay. */
+export async function releaseGateProviderScopeIsCurrent(sql: Pick<DbClient, "query">) {
+  const rows = await sql.query(RELEASE_GATE_PROVIDER_STATUS_SQL,
+    [JSON.stringify(RELEASE_GATE_PROVIDER_INDEX_CONTRACTS)]) as Array<{
+      index_name: string; index_satisfied: boolean; column_satisfied: boolean; obsolete_index_absent: boolean;
+    }>;
+  const names = new Set<string>(RELEASE_GATE_PROVIDER_INDEX_CONTRACTS.map(r => r.index_name));
+  if (!Array.isArray(rows) || rows.length !== names.size || new Set(rows.map(r => r.index_name)).size !== names.size
+    || !rows.every(r => names.has(r.index_name) && r.index_satisfied === true
+      && r.column_satisfied === true && r.obsolete_index_absent === true)) return false;
+  for (const operator of ["<", ">"] as const) {
+    const query = `SELECT 1 FROM public.sync_release_gates
+      WHERE gate_kind='deploy_gate' AND provider_scope ${operator} 'global'
+      ORDER BY provider_scope LIMIT 1`;
+    const [explained] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`);
+    const plan = (explained?.["QUERY PLAN"] as Array<{ Plan: Record<string, unknown> }> | undefined)?.[0]?.Plan;
+    let indexed = false, invalid = !plan;
+    const visit = (node: Record<string, unknown>) => {
+      if (["Seq Scan", "Bitmap Heap Scan", "Sort", "Incremental Sort"].includes(String(node["Node Type"]))) invalid = true;
+      if (node["Relation Name"] === "sync_release_gates") {
+        if (!["Index Scan", "Index Only Scan"].includes(String(node["Node Type"]))
+          || node["Index Name"] !== "idx_sync_release_gates_kind_latest"
+          || !String(node["Index Cond"]).includes("gate_kind")
+          || !String(node["Index Cond"]).includes("provider_scope")) invalid = true;
+        else indexed = true;
+      }
+      for (const child of (node.Plans ?? []) as Record<string, unknown>[]) visit(child);
+    };
+    if (plan) visit(plan);
+    if (invalid || !indexed) return false;
+    if ((await sql.query(query)).length) return false;
+  }
+  return true;
+}
+
+/** Required repair still takes the original total-relation physical guard. */
+export async function runReleaseGateProviderScopeMigration(sql: ReturnType<typeof getDb>) {
+  if (await releaseGateProviderScopeIsCurrent(sql)) {
+    logStartupEvent("migration_provider_scope_replay_complete", { noStatementsMutated: true });
+    return;
+  }
+  await orderedMigrationSteps([
+  // Capacity FIRST. Everything below rewrites or rebuilds a relation
+  // that is ~1.35 GB in production, and it ran with no gate at all.
+  async () => {
+    const decision = await assertMigrationCapacityForHeavyStep(sql, {
+      label: "sync_release_gates_provider_scope",
+      relation: "sync_release_gates",
+    });
+    logStartupEvent("migration_capacity_checked", {
+      step: "sync_release_gates_provider_scope",
+      ...decision,
+    });
+  },
+  () =>
+    sql`ALTER TABLE sync_release_gates
+    ADD COLUMN IF NOT EXISTS provider_scope TEXT`,
+  // 20k-row chunks, each its own transaction: bounded lock duration and
+  // bounded WAL per statement instead of one rewrite-sized transaction
+  // over a multi-gigabyte relation.
+  async () => {
+    for (;;) {
+      const touched = (await sql.query(
+        `UPDATE sync_release_gates
+       SET provider_scope = CASE
+             WHEN gate_kind = 'deploy_gate' THEN 'global'
+             WHEN NULLIF(TRIM(COALESCE(evidence_json->>'providerScope', '')), '')
+                  IS NOT NULL
+               THEN TRIM(evidence_json->>'providerScope')
+             ELSE 'unknown'
+           END
+       WHERE id IN (
+         SELECT id FROM sync_release_gates
+         WHERE provider_scope IS NULL
+         LIMIT 20000
+       )
+       RETURNING id`,
+      )) as Array<{ id: string }>;
+      if (touched.length === 0) break;
+    }
+  },
+  // Deploy-gate rows written by the previous revision of this change
+  // went in as 'meta'. They are global gates mislabelled by code, not
+  // evidence about a provider, so the same by-kind rule applies.
+  () =>
+    sql.query(
+      `UPDATE sync_release_gates
+     SET provider_scope = 'global'
+     WHERE gate_kind = 'deploy_gate' AND provider_scope IS DISTINCT FROM 'global'`,
+    ),
+  () =>
+    sql`ALTER TABLE sync_release_gates
+    ALTER COLUMN provider_scope SET DEFAULT 'unknown'`,
+  () =>
+    sql`ALTER TABLE sync_release_gates
+    ALTER COLUMN provider_scope SET NOT NULL`,
+  // The expression indexes on COALESCE(provider_scope, 'meta') encode
+  // the semantics this change removes and cannot serve the plain
+  // equality predicate that replaced it. Dropped rather than left as
+  // dead weight on a multi-gigabyte relation.
+  () =>
+    sql`DROP INDEX CONCURRENTLY IF EXISTS idx_sync_release_gates_key_latest`.catch(
+      () => {},
+    ),
+  () =>
+    sql`DROP INDEX CONCURRENTLY IF EXISTS idx_sync_release_gates_kind_latest`.catch(
+      () => {},
+    ),
+  () => sql.query(
+    buildInvalidIndexRepairQuery({
+      indexName: "idx_sync_release_gates_key_latest",
+      definitionMustContain: [
+        "build_id, environment, gate_kind, provider_scope, emitted_at DESC, id DESC",
+      ],
+    }),
+  ),
+  () =>
+    sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_key_latest
+    ON sync_release_gates (
+      build_id, environment, gate_kind, provider_scope, emitted_at DESC, id DESC
+    )`.catch(() => {}),
+  () => sql.query(
+    buildIndexContractQuery({
+      indexName: "idx_sync_release_gates_key_latest",
+      definitionMustContain: [
+        "build_id, environment, gate_kind, provider_scope, emitted_at DESC, id DESC",
+      ],
+    }),
+  ),
+  () => sql.query(
+    buildInvalidIndexRepairQuery({
+      indexName: "idx_sync_release_gates_kind_latest",
+      definitionMustContain: [
+        "gate_kind, provider_scope, environment, emitted_at DESC, id DESC",
+      ],
+    }),
+  ),
+  // `environment` is a KEY column here, not a filter: the diagnostic
+  // read constrains it, and without it in the index that read walks the
+  // kind's whole history discarding other environments.
+  () =>
+    sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_kind_latest
+    ON sync_release_gates (
+      gate_kind, provider_scope, environment, emitted_at DESC, id DESC
+    )`.catch(() => {}),
+  () => sql.query(
+    buildIndexContractQuery({
+      indexName: "idx_sync_release_gates_kind_latest",
+      definitionMustContain: [
+        "gate_kind, provider_scope, environment, emitted_at DESC, id DESC",
+      ],
+    }),
+  ),
+  // Retention's candidate scan walks the OLDEST rows ascending and stops
+  // at the batch limit. `idx_sync_release_gates_emitted` is DESC-only,
+  // so it cannot serve that keyset without walking the newest rows
+  // first — which is the whole table, every tick.
+  () => sql.query(
+    buildInvalidIndexRepairQuery({
+      indexName: "idx_sync_release_gates_retention_scan",
+      definitionMustContain: ["emitted_at, id"],
+    }),
+  ),
+  () =>
+    sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_retention_scan
+    ON sync_release_gates (emitted_at, id)`.catch(() => {}),
+  // Dropped only AFTER the replacement exists, so there is no window
+  // where retention has no usable index at all.
+  () =>
+    sql`DROP INDEX CONCURRENTLY IF EXISTS idx_sync_release_gates_emitted`.catch(
+      () => {},
+    ),
+  () => sql.query(
+    buildIndexContractQuery({
+      indexName: "idx_sync_release_gates_retention_scan",
+      definitionMustContain: ["emitted_at, id"],
+    }),
+  ),
+  ]);
+}
+
 function orderedMigrationSteps(
   steps: Array<() => Promise<unknown>>,
 ): MigrationBatchQuery {
@@ -2284,18 +2488,35 @@ async function assertMigrationCapacityForHeavyStep(
     heavyBytes?: number;
     /** Multiple of the relation size the host must have free. */
     headroomMultiplier?: number;
+    /** Only reviewed fixed-width scalar FK indexes; existing rewrite default is unchanged. */
+    sizeBasis?: "total_relation" | "scalar_fk_heap";
   },
 ): Promise<{ engaged: boolean; detail: string }> {
   const heavyBytes = input.heavyBytes ?? 256 * 1024 * 1024;
   const headroomMultiplier = input.headroomMultiplier ?? 3;
 
+  const scalarHeap = input.sizeBasis === "scalar_fk_heap";
+  if (scalarHeap && input.label !== "business_erasure_reference_index") throw new Error("migration_scalar_index_scope_refused");
   const sizeRows = (await sql.query(
-    `SELECT COALESCE(pg_total_relation_size(to_regclass($1)), 0)::bigint AS relation_bytes,
+    scalarHeap ? `WITH RECURSIVE relations AS (
+      SELECT to_regclass($1) AS oid
+      UNION ALL SELECT h.inhrelid FROM pg_inherits h JOIN relations r ON h.inhparent=r.oid
+    ) SELECT COALESCE(sum(pg_relation_size(oid)),0)::bigint AS relation_bytes,
+      count(*)::int AS relation_count,
+      pg_database_size(current_database())::bigint AS database_bytes FROM relations`
+      : `SELECT COALESCE(pg_total_relation_size(to_regclass($1)), 0)::bigint AS relation_bytes,
             pg_database_size(current_database())::bigint AS database_bytes`,
     [input.relation],
-  )) as Array<{ relation_bytes: string; database_bytes: string }>;
+  )) as Array<{ relation_bytes: string; database_bytes: string; relation_count?: number }>;
+  if (scalarHeap && (!sizeRows[0] || !Number.isInteger(sizeRows[0].relation_count)
+    || sizeRows[0].relation_count! < 1 || sizeRows[0].relation_count! > 256)) {
+    throw new Error("migration_scalar_index_relation_census_refused");
+  }
   const relationBytes = Number(sizeRows[0]?.relation_bytes ?? 0);
   const databaseBytes = Number(sizeRows[0]?.database_bytes ?? 0);
+  if (scalarHeap && (!Number.isSafeInteger(relationBytes) || relationBytes < 0)) {
+    throw new Error("migration_scalar_index_heap_measurement_refused");
+  }
 
   if (!Number.isFinite(relationBytes) || relationBytes < heavyBytes) {
     return {
@@ -2411,6 +2632,19 @@ async function assertMigrationCapacityForHeavyStep(
       `Confirm adsecute-db-healthcheck.timer is running on the database host. ` +
       `ADSECUTE_MIGRATION_CAPACITY_OVERRIDE cannot bypass a physical capacity refusal.`,
   );
+}
+
+/** A new fixed-width scalar index reads heap, never rewrites TOAST or old indexes. */
+export async function assertBusinessErasureScalarIndexCapacity(sql: DbClientLike, relation: string) {
+  if (!BUSINESS_ERASURE_REFERENCE_INDEXES.some(entry => `public.${entry.table}` === relation)) {
+    throw new Error("migration_scalar_index_scope_refused");
+  }
+  return assertMigrationCapacityForHeavyStep(sql, {
+    label: "business_erasure_reference_index", relation, sizeBasis: "scalar_fk_heap",
+    // Production requires a fresh physical floor even for a tiny index.
+    // Disposable from-zero schemas retain the ordinary light-relation path.
+    heavyBytes: process.env.NODE_ENV === "production" ? 0 : undefined,
+  });
 }
 
 /**
@@ -7075,144 +7309,7 @@ export async function runMigrations(options?: {
           //   everything else -> 'unknown'  (explicit, never silently Meta)
           //
           // evidence_json is never rewritten, so the ambiguity stays inspectable.
-          orderedMigrationSteps([
-            // Capacity FIRST. Everything below rewrites or rebuilds a relation
-            // that is ~1.35 GB in production, and it ran with no gate at all.
-            async () => {
-              const decision = await assertMigrationCapacityForHeavyStep(sql, {
-                label: "sync_release_gates_provider_scope",
-                relation: "sync_release_gates",
-              });
-              logStartupEvent("migration_capacity_checked", {
-                step: "sync_release_gates_provider_scope",
-                ...decision,
-              });
-            },
-            () =>
-              sql`ALTER TABLE sync_release_gates
-              ADD COLUMN IF NOT EXISTS provider_scope TEXT`,
-            // 20k-row chunks, each its own transaction: bounded lock duration and
-            // bounded WAL per statement instead of one rewrite-sized transaction
-            // over a multi-gigabyte relation.
-            async () => {
-              for (;;) {
-                const touched = (await sql.query(
-                  `UPDATE sync_release_gates
-                 SET provider_scope = CASE
-                       WHEN gate_kind = 'deploy_gate' THEN 'global'
-                       WHEN NULLIF(TRIM(COALESCE(evidence_json->>'providerScope', '')), '')
-                            IS NOT NULL
-                         THEN TRIM(evidence_json->>'providerScope')
-                       ELSE 'unknown'
-                     END
-                 WHERE id IN (
-                   SELECT id FROM sync_release_gates
-                   WHERE provider_scope IS NULL
-                   LIMIT 20000
-                 )
-                 RETURNING id`,
-                )) as Array<{ id: string }>;
-                if (touched.length === 0) break;
-              }
-            },
-            // Deploy-gate rows written by the previous revision of this change
-            // went in as 'meta'. They are global gates mislabelled by code, not
-            // evidence about a provider, so the same by-kind rule applies.
-            () =>
-              sql.query(
-                `UPDATE sync_release_gates
-               SET provider_scope = 'global'
-               WHERE gate_kind = 'deploy_gate' AND provider_scope IS DISTINCT FROM 'global'`,
-              ),
-            () =>
-              sql`ALTER TABLE sync_release_gates
-              ALTER COLUMN provider_scope SET DEFAULT 'unknown'`,
-            () =>
-              sql`ALTER TABLE sync_release_gates
-              ALTER COLUMN provider_scope SET NOT NULL`,
-            // The expression indexes on COALESCE(provider_scope, 'meta') encode
-            // the semantics this change removes and cannot serve the plain
-            // equality predicate that replaced it. Dropped rather than left as
-            // dead weight on a multi-gigabyte relation.
-            () =>
-              sql`DROP INDEX CONCURRENTLY IF EXISTS idx_sync_release_gates_key_latest`.catch(
-                () => {},
-              ),
-            () =>
-              sql`DROP INDEX CONCURRENTLY IF EXISTS idx_sync_release_gates_kind_latest`.catch(
-                () => {},
-              ),
-            () => sql.query(
-              buildInvalidIndexRepairQuery({
-                indexName: "idx_sync_release_gates_key_latest",
-                definitionMustContain: [
-                  "build_id, environment, gate_kind, provider_scope, emitted_at DESC, id DESC",
-                ],
-              }),
-            ),
-            () =>
-              sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_key_latest
-              ON sync_release_gates (
-                build_id, environment, gate_kind, provider_scope, emitted_at DESC, id DESC
-              )`.catch(() => {}),
-            () => sql.query(
-              buildIndexContractQuery({
-                indexName: "idx_sync_release_gates_key_latest",
-                definitionMustContain: [
-                  "build_id, environment, gate_kind, provider_scope, emitted_at DESC, id DESC",
-                ],
-              }),
-            ),
-            () => sql.query(
-              buildInvalidIndexRepairQuery({
-                indexName: "idx_sync_release_gates_kind_latest",
-                definitionMustContain: [
-                  "gate_kind, provider_scope, environment, emitted_at DESC, id DESC",
-                ],
-              }),
-            ),
-            // `environment` is a KEY column here, not a filter: the diagnostic
-            // read constrains it, and without it in the index that read walks the
-            // kind's whole history discarding other environments.
-            () =>
-              sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_kind_latest
-              ON sync_release_gates (
-                gate_kind, provider_scope, environment, emitted_at DESC, id DESC
-              )`.catch(() => {}),
-            () => sql.query(
-              buildIndexContractQuery({
-                indexName: "idx_sync_release_gates_kind_latest",
-                definitionMustContain: [
-                  "gate_kind, provider_scope, environment, emitted_at DESC, id DESC",
-                ],
-              }),
-            ),
-            // Retention's candidate scan walks the OLDEST rows ascending and stops
-            // at the batch limit. `idx_sync_release_gates_emitted` is DESC-only,
-            // so it cannot serve that keyset without walking the newest rows
-            // first — which is the whole table, every tick.
-            () => sql.query(
-              buildInvalidIndexRepairQuery({
-                indexName: "idx_sync_release_gates_retention_scan",
-                definitionMustContain: ["emitted_at, id"],
-              }),
-            ),
-            () =>
-              sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_retention_scan
-              ON sync_release_gates (emitted_at, id)`.catch(() => {}),
-            // Dropped only AFTER the replacement exists, so there is no window
-            // where retention has no usable index at all.
-            () =>
-              sql`DROP INDEX CONCURRENTLY IF EXISTS idx_sync_release_gates_emitted`.catch(
-                () => {},
-              ),
-            () => sql.query(
-              buildIndexContractQuery({
-                indexName: "idx_sync_release_gates_retention_scan",
-                definitionMustContain: ["emitted_at, id"],
-              }),
-            ),
-          ]),
+          runReleaseGateProviderScopeMigration(sql),
           sql`CREATE TABLE IF NOT EXISTS sync_repair_plans (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           build_id            TEXT NOT NULL,
@@ -16852,6 +16949,10 @@ export async function runMigrations(options?: {
         // exclusivity, the honest `reconcile` state, the one-action-per-entity
         // slot, and the append-only place a lost outcome is recorded. A release
         // that cannot prove them must not be announced as migrated.
+        const erasureIndexes = await ensureBusinessErasureReferenceIndexes(sql, relation =>
+          assertBusinessErasureScalarIndexCapacity(sql, relation));
+        logStartupEvent("migrations_business_erasure_reference_indexes_verified", erasureIndexes);
+
         const claimSchema = await assertMetaAutomationClaimSchema(sql);
         logStartupEvent("migrations_automation_claim_schema_verified", {
           reason,

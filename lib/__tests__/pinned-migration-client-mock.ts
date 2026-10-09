@@ -47,6 +47,42 @@ const META_HISTORY_SIZE_QUERY = `SELECT pg_total_relation_size('meta_entity_stat
       AND strpos(pg_get_indexdef(i.indexrelid), $1) > 0) AS index_valid`;
 const CAPACITY_SIZE_QUERY = `SELECT COALESCE(pg_total_relation_size(to_regclass($1)), 0)::bigint AS relation_bytes,
   pg_database_size(current_database())::bigint AS database_bytes`;
+// Explicit pre-existing FK access fixture for SQL-capture suites. Actual
+// missing-index creation/refusal and plans are tested against real PostgreSQL.
+const ERASURE_REFERENCE_FIXTURE = new Set([
+  "engine_v3_account_calibration_daily.job_run_id:idx_biz_erase_fk_7df07df156e8",
+  "engine_v3_ad_decision_events.job_run_id:idx_biz_erase_fk_8bd033a67700",
+  "engine_v3_ad_decision_outcomes_daily.job_run_id:idx_biz_erase_fk_291b511f25e9",
+  "engine_v3_ad_decision_snapshots_daily.job_run_id:idx_biz_erase_fk_4df3a44b115a",
+  "engine_v3_ad_operator_response_events.job_run_id:idx_biz_erase_fk_abc142c09034",
+  "engine_v3_ad_operator_responses.job_run_id:idx_biz_erase_fk_ba068cfc8534",
+  "engine_v3_campaign_context_daily.job_run_id:idx_biz_erase_fk_cdca4015f3f9",
+  "engine_v3_creative_lifecycle_daily.job_run_id:idx_biz_erase_fk_617724a9c545",
+  "engine_v3_decision_events.decision_snapshot_id:idx_biz_erase_fk_0abe983b3cbe",
+  "engine_v3_decision_events.job_run_id:idx_biz_erase_fk_69a9118c5b65",
+  "engine_v3_decision_outcomes_daily.job_run_id:idx_biz_erase_fk_fef4793b40b0",
+  "engine_v3_decision_snapshots_daily.calibration_row_id:idx_biz_erase_fk_d4c1198906eb",
+  "engine_v3_decision_snapshots_daily.job_run_id:idx_biz_erase_fk_c1735fe2613c",
+  "engine_v3_decision_snapshots_daily.lifecycle_row_id:idx_biz_erase_fk_cc969935d222",
+  "engine_v3_job_runs.dependency_run_id:idx_biz_erase_fk_ab49b4f5cc2b",
+  "meta_account_daily.source_snapshot_id:idx_biz_erase_fk_a7a20f358f65",
+  "meta_ad_daily.source_snapshot_id:idx_biz_erase_fk_686bef2721c4",
+  "meta_adset_config_history.source_snapshot_id:idx_biz_erase_fk_42ef15999a34",
+  "meta_adset_daily.source_snapshot_id:idx_biz_erase_fk_0ee10e1df934",
+  "meta_authoritative_reconciliation_events.manifest_id:idx_biz_erase_fk_8786652778a2",
+  "meta_authoritative_reconciliation_events.slice_version_id:idx_biz_erase_fk_c899e20faf22",
+  "meta_breakdown_daily.source_snapshot_id:idx_biz_erase_fk_534d58421b12",
+  "meta_campaign_config_history.source_snapshot_id:idx_biz_erase_fk_7e93dd17deec",
+  "meta_campaign_daily.source_snapshot_id:idx_biz_erase_fk_8b5862293a5b",
+  "meta_creative_daily.source_snapshot_id:idx_biz_erase_fk_b7a6c62573f3",
+  "meta_entity_observation_receipts.run_id:idx_biz_erase_fk_c64f82d26a43",
+  "meta_entity_observation_receipts.source_snapshot_ref_id:idx_biz_erase_fk_6d2ec8f8fa12",
+  "meta_entity_observation_receipts_v2.run_id:idx_biz_erase_fk_5b859b87dee5",
+  "meta_entity_observation_receipts_v2.source_snapshot_ref_id:idx_biz_erase_fk_14d1d173410d",
+  "meta_entity_observation_receipts_v2.sync_run_id:idx_biz_erase_fk_50915a253220",
+  "meta_raw_snapshot_observations.partition_id:idx_biz_erase_fk_9e077f2b0ee7",
+  "meta_raw_snapshots.checkpoint_id:idx_biz_erase_fk_aea32a54dfa8",
+]);
 const normalizeSql = (text: string) => text.replace(/\s+/g, " ").trim();
 
 /**
@@ -97,6 +133,11 @@ export function pinnedMigrationClientOver(
         // Explicit responses, including malformed measurements, are never
         // replaced with a healthy fixture. Real guards must still reject them.
         if (Array.isArray(delegated) && delegated.length === 0) {
+          if (statement.includes("AS scalar_foreign_key") && statement.includes("AS named_index_conflict")
+            && params?.length === 3 && ERASURE_REFERENCE_FIXTURE.has(`${params[0]}.${params[1]}:${params[2]}`)) {
+            return { rows: [{ relation_kind: "r", key_type: 2950, scalar_foreign_key: true,
+              lookup_ready: true, named_index_conflict: false }] };
+          }
           if (statement === normalizeSql(META_HISTORY_SIZE_QUERY) &&
               params?.length === 1 && params[0] === META_HISTORY_DELTA_KEY) {
             return { rows: [{

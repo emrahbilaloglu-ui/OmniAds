@@ -13,6 +13,8 @@ import { upsertSyncGateRecord } from "@/lib/sync/release-gates";
 import { heartbeatSyncWorker } from "@/lib/sync/worker-health";
 import { buildRuntimeContract, upsertRuntimeContractInstance } from "@/lib/sync/runtime-contract";
 import { NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION } from "@/lib/creative-decision-engine/ad-operator-response-detection";
+import { BUSINESS_ERASURE_REFERENCE_INDEXES, BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL, ensureBusinessErasureReferenceIndexes } from "@/lib/business-deletion-reference-indexes";
+import { assertBusinessErasureScalarIndexCapacity, releaseGateProviderScopeIsCurrent, runReleaseGateProviderScopeMigration } from "@/lib/migrations";
 
 // Only the migrated, disposable cluster may execute these destructive fixtures.
 const seam = process.env.ADSECUTE_EPHEMERAL_DB_SEAM === "1";
@@ -78,6 +80,69 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
   beforeEach(() => {
     process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
     process.env.ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED = "enabled";
+  });
+
+  it("indexes the actual SET NULL RI lookup and erases selected history while preserving foreign rows byte for byte", async () => {
+    const sql = getDb();
+    const { businessId, otherId, accountId } = await fixture();
+    const [account] = await sql`SELECT external_account_id FROM provider_accounts WHERE id=${accountId}::uuid`;
+    for (const id of [businessId, otherId]) {
+      await sql`INSERT INTO meta_authoritative_slice_versions
+        (business_id,business_ref_id,provider_account_id,provider_account_ref_id,day,surface,candidate_version)
+        SELECT ${id},${id}::uuid,${account!.external_account_id},${accountId}::uuid,'2026-10-01'::date,'ad',n
+        FROM generate_series(1,128) n`;
+      await sql`INSERT INTO meta_authoritative_reconciliation_events
+        (business_id,business_ref_id,provider_account_id,provider_account_ref_id,day,surface,event_kind,result,slice_version_id,details_json)
+        SELECT ${id},${id}::uuid,${account!.external_account_id},${accountId}::uuid,'2026-10-01'::date,'ad','deletion-fixture','ok',id,
+          jsonb_build_object('fixture',candidate_version)
+        FROM meta_authoritative_slice_versions WHERE business_ref_id=${id}::uuid`;
+    }
+    await sql`INSERT INTO meta_authoritative_reconciliation_events
+      (business_id,business_ref_id,provider_account_id,provider_account_ref_id,day,surface,event_kind,result,details_json)
+      SELECT ${otherId},${otherId}::uuid,${account!.external_account_id},${accountId}::uuid,'2026-10-01'::date,'ad','foreign-fixture','ok',
+        jsonb_build_object('untouched',n) FROM generate_series(1,5000) n`;
+    const [selected] = await sql`SELECT id FROM meta_authoritative_slice_versions WHERE business_ref_id=${businessId}::uuid LIMIT 1`;
+    const entry = BUSINESS_ERASURE_REFERENCE_INDEXES.find(x => x.table === "meta_authoritative_reconciliation_events" && x.column === "slice_version_id")!;
+    // This DROP is only the disposable old-schema reproduction. Production
+    // migrations never drop, rebuild or replace an existing FK lookup index.
+    await sql.query(`DROP INDEX public.${entry.index}`);
+    await sql`ANALYZE meta_authoritative_reconciliation_events`;
+    const actualRi = "UPDATE ONLY public.meta_authoritative_reconciliation_events SET slice_version_id=NULL WHERE $1::uuid=slice_version_id";
+    const [before] = await sql.query(`EXPLAIN (FORMAT JSON) ${actualRi}`, [selected!.id]);
+    expect(JSON.stringify(before!["QUERY PLAN"])).toContain("Seq Scan");
+    const built = await ensureBusinessErasureReferenceIndexes(sql, relation => assertBusinessErasureScalarIndexCapacity(sql, relation));
+    expect(built.built).toEqual([entry.index]);
+    const [after] = await sql.query(`EXPLAIN (FORMAT JSON) ${actualRi}`, [selected!.id]);
+    expect(JSON.stringify(after!["QUERY PLAN"])).toContain(entry.index);
+    expect(JSON.stringify(after!["QUERY PLAN"])).not.toContain("Seq Scan");
+    for (const contract of BUSINESS_ERASURE_REFERENCE_INDEXES) {
+      const [status] = await sql.query(BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL, [contract.table,contract.column,contract.index]);
+      expect(status, `${contract.table}.${contract.column}`).toMatchObject({ scalar_foreign_key:true,lookup_ready:true,named_index_conflict:false });
+    }
+    const foreignBefore = await sql`SELECT to_jsonb(e)::text AS bytes FROM meta_authoritative_reconciliation_events e
+      WHERE business_ref_id=${otherId}::uuid ORDER BY id`;
+    const parentsBefore = await sql`SELECT to_jsonb(e)::text AS bytes FROM meta_authoritative_slice_versions e
+      WHERE business_ref_id=${otherId}::uuid ORDER BY id`;
+    await deleteBusinessWithData(businessId);
+    expect(await remains(businessId)).toBe(false);
+    expect(await remains(businessId,"meta_authoritative_slice_versions","business_ref_id")).toBe(false);
+    expect(await remains(businessId,"meta_authoritative_reconciliation_events","business_ref_id")).toBe(false);
+    expect(await sql`SELECT to_jsonb(e)::text AS bytes FROM meta_authoritative_reconciliation_events e
+      WHERE business_ref_id=${otherId}::uuid ORDER BY id`).toEqual(foreignBefore);
+    expect(await sql`SELECT to_jsonb(e)::text AS bytes FROM meta_authoritative_slice_versions e
+      WHERE business_ref_id=${otherId}::uuid ORDER BY id`).toEqual(parentsBefore);
+  });
+
+  it("recognizes a completed provider-scope migration without rebuilding its existing indexes or rewriting rows", async () => {
+    const sql = getDb();
+    expect(await releaseGateProviderScopeIsCurrent(sql)).toBe(true);
+    const indexes = () => sql`SELECT c.relname,pg_relation_filenode(c.oid)::text AS filenode,pg_get_indexdef(c.oid) AS definition
+      FROM pg_class c WHERE c.oid IN (to_regclass('public.idx_sync_release_gates_key_latest'),
+        to_regclass('public.idx_sync_release_gates_retention_scan'),to_regclass('public.idx_sync_release_gates_kind_latest')) ORDER BY c.relname`;
+    const before = await indexes();
+    expect(before).toHaveLength(3);
+    await runReleaseGateProviderScopeMigration(sql);
+    expect(await indexes()).toEqual(before);
   });
 
   it("reproduces the old teardown's foreign-key failure and proves its rollback", async () => {

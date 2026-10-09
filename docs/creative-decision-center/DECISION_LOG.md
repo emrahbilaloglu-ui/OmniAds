@@ -13022,3 +13022,57 @@ back rather than committing an inaccessible partial business. Source/tests are n
 acceptance: exact runtime plus complete selected DB, external archive/input,
 media and browser absence proofs remain necessary. SQL deletion does not prove
 physical file shrink or that the 163 GiB aggregate admission gate has reopened.
+
+## D155 — Additive scalar FK access for whole-business erasure (2026-10-09)
+
+The fifth completed Halıcızade request on live `11937ebf066299fbcb3fefcb0eaec9321eaf0cdc`
+failed and rolled back. The durable runner removed no business. A sanitized
+PostgreSQL error context identified its unchanged 30-second statement timeout:
+`UPDATE ONLY meta_authoritative_reconciliation_events SET slice_version_id=NULL`
+for the parent slice UUID. The outer delete's indexed owner/TID plan does not
+prove the internal FK probe is indexed. Independent post-read preserved all
+420 target-presence checks, fifteen business roots, guards and foreign access
+records, except the expected failed job attached to the surviving business.
+
+Bounded catalog review found 32 missing leading scalar FK lookups in selected
+Meta/native parent histories. This repair adds only those reviewed UUID,
+integer and bigint partial btree indexes. Existing usable leading default
+opclass/collation indexes are adopted; full composite-FK coverage is not a
+requirement. Unknown or invalid named indexes refuse. There is no FK disabling,
+index replacement, existing-index rebuild or maintenance/reclaim operation.
+Heap relations build concurrently; the partitioned outcome parent uses the
+supported ordinary parent/leaf DDL with existing lock/statement deadlines.
+
+A new fixed-width scalar index reads heap and does not rewrite existing indexes
+or TOAST. Its narrow admission basis is three times the heap bytes, including
+partition leaves, plus the unchanged 40 GiB residual floor. The relation must
+be one of the 32 reviewed entries and its catalog must prove the scalar fixed
+key. Production always requires a fresh physical sample. Unknown, stale,
+malformed or insufficient physical evidence refuses without an override. Other
+heavy migration operations retain their original total-relation sizing. The
+163 GiB logical growth budget and provider admission are unchanged.
+
+The previous deploy also diagnosed a completed provider-scope group replay
+attempting an unnecessary heavy rebuild. Skip that whole group only after exact
+valid/ready/live index, column/default and obsolete-index-absence proofs, plus
+two actual indexed range witnesses excluding incorrectly scoped deploy rows.
+Any missing/inconsistent proof retains the original total-relation physical
+guard and repair group. No broad catalogue inference or logical-capacity bypass
+is introduced.
+
+Real migrated PostgreSQL reproduces the actual SET NULL scan, proves the new
+lookup is indexed, verifies all 32 contracts and preserves foreign event/slice
+bytes after selected erasure. It also checks completed provider-scope replay
+preserves index definitions and physical identities. The canonical erasure seam
+now requires 52 passing cases. Unit cases cover adoption, physical refusal,
+partial/partitioned DDL, unsupported or ambiguous catalog evidence, postcondition
+failure and unchanged provider-repair refusal. Local fixtures and CI are not
+live migration or erasure acceptance.
+
+Release/deploy remains exact-tree and canonical without break glass. Do not
+retry either target on the old runtime. After successful live schema/runtime
+acceptance, require fresh bounded pre-state, then Halıcızade erasure and complete
+independent acceptance before any Vornom archive destruction or deletion. New
+indexes stay additive on code rollback; a refused/invalid build is not repaired
+by dropping or rebuilding it automatically. Completed erasure cannot be undone
+by code rollback. The existing backup/WAL boundary remains explicit.

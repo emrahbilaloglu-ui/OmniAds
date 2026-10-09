@@ -121,3 +121,28 @@ describe("bounded state-run index physical reserve", () => {
     expect(sql.query.mock.calls.every(([q]) => !q.includes("pg_total_relation_size"))).toBe(true);
   });
 });
+
+
+describe("account-binding UUID index physical reserve", () => {
+  it.each(["valid", "coverage", "shortfall", "stale", "unknown"])("checks %s without a heap/text-width shortcut or override", async kind => {
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("ADSECUTE_MIGRATION_CAPACITY_OVERRIDE", "fixture");
+    const required = 459505664 * 8 + 40 * 1024 ** 3;
+    const sql = { query: vi.fn(async (q: string) => {
+      if (q.includes("AS account_binding_pk_bytes")) return kind === "coverage" ? [] : [{ relation_bytes: "459505664", database_bytes: "175609633815" }];
+      if (q.includes("s.payload")) return [{ payload: { disks: [{ path: "/var/lib/postgresql", availableBytes: kind === "shortfall" ? required-1 : kind === "unknown" ? null : required }] }, age_seconds: kind === "stale" ? 901 : 1 }];
+      throw Error("unexpected account reserve query");
+    }) };
+    const result = assertBusinessErasureScalarIndexCapacity(sql as never, "public.engine_v3_ad_decision_evaluations", "btree", "provider_account_ref_id");
+    if (kind === "valid") await expect(result).resolves.toMatchObject({ engaged: true });
+    else await expect(result).rejects.toThrow(kind === "coverage" ? "primary_coverage_refused" : "capacity_refused");
+    const query = sql.query.mock.calls[0]![0];
+    for (const proof of ["i.indisprimary", "i.indisunique", "i.indimmediate", "i.indisvalid", "i.indisready", "i.indislive", "i.indnkeyatts=1", "i.indpred IS NULL", "a.atttypid=2950", "a.attnotnull", "k.attname='provider_account_ref_id'", "k.atttypid=2950"]) expect(query).toContain(proof);
+    expect(sql.query.mock.calls.every(([q]) => !q.includes("pg_total_relation_size"))).toBe(true);
+  });
+  it("refuses the binding reserve outside its exact reviewed UUID contracts", async () => {
+    const sql = capacity();
+    await expect(assertBusinessErasureScalarIndexCapacity(sql as never, "public.meta_entity_state_history", "btree", "provider_account_ref_id")).rejects.toThrow("account_binding_scope_refused");
+    await expect(assertBusinessErasureScalarIndexCapacity(sql as never, "public.engine_v3_ad_decision_evaluations", "hash", "provider_account_ref_id")).rejects.toThrow("account_binding_scope_refused");
+    expect(sql.query).not.toHaveBeenCalled();
+  });
+});

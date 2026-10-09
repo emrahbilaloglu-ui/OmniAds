@@ -946,3 +946,12 @@ reader predicate, production scope, FK or retained-history policy is weakened.
 The canonical migration harness now requires 55 actual erasure cases instead
 of 53; its source ledger pin records that stricter fixture count. Source and
 fixture validation are not live erasure or provider-authority evidence.
+
+## 2026-10-09 — D157 account-binding capacity scope test
+
+| File | Previous literals | Current literals | Classification |
+| --- | ---: | ---: | --- |
+| `lib/meta/__tests__/migration-release-provider-replay.test.ts` | 0 | 1 | Unit fixture naming the state-history relation to prove that the account-binding UUID capacity model refuses this unrelated table. No entity content query, DDL, writer or decision authority is added. |
+
+The exact closure ledger classifies this negative scope test; its scanner and
+all existing content-reader predicates remain enabled.

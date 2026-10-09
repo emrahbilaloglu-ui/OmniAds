@@ -134,6 +134,56 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       WHERE business_ref_id=${otherId}::uuid ORDER BY id`).toEqual(parentsBefore);
   });
 
+  it("uses a leading account UUID for full generic binding RI and preserves another tenant sharing that account", async () => {
+    const db = new Client({connectionString:process.env.DATABASE_URL}); await db.connect();
+    let addedReference = false;
+    try {
+      const target = await seedTenant(db,1), other = await seedTenant(db,1);
+      // A shared provider identity must not turn a selective lookup into authority
+      // to remove the foreign tenant: the full owner/text FK still rechecks it.
+      other.accounts = target.accounts;
+      await db.query("INSERT INTO business_provider_accounts (business_id,provider,provider_account_ref_id,provider_account_id) VALUES ($1,'meta',$2,$3)", [other.business,target.accounts[0]!.ref,target.accounts[0]!.id]);
+      for (const [tenant,tag] of [[target,"binding-remove"],[other,"binding-preserve"]] as const) {
+        const producer = await seedCalibration(db,tenant,"2026-09-23","2026-09-23T12:00:00Z");
+        await seedGeneration(db,tenant,{date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[5000],tag,snapshots:true});
+      }
+      const account = target.accounts[0]!;
+      for (const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily"]) {
+        await db.query(`ANALYZE public.${table}`);
+        await db.query("BEGIN");
+        try {
+          await db.query("SET LOCAL enable_seqscan=off"); await db.query("SET LOCAL enable_bitmapscan=off");
+          await db.query("SET LOCAL plan_cache_mode=force_generic_plan");
+          await db.query(`PREPARE binding_ri(text,uuid,text) AS SELECT 1 FROM ONLY public.${table} x
+            WHERE $1=x.business_id AND $2=x.provider_account_ref_id AND $3=x.provider_account_id FOR KEY SHARE OF x`);
+          const {rows:[quoted]} = await db.query("SELECT quote_literal($1::text) AS business,quote_literal($2::text) AS ref,quote_literal($3::text) AS account",[target.business,account.ref,account.id]);
+          const {rows:[plan]} = await db.query(`EXPLAIN (FORMAT JSON) EXECUTE binding_ri(${quoted.business}::text,${quoted.ref}::uuid,${quoted.account}::text)`);
+          const contract = BUSINESS_ERASURE_REFERENCE_INDEXES.find(e => e.table===table && e.column==="provider_account_ref_id")!;
+          const nodes: Record<string,unknown>[] = [];
+          const walk = (n: Record<string,unknown>) => { nodes.push(n); for(const c of (n.Plans??[]) as Record<string,unknown>[]) walk(c); }; walk(plan["QUERY PLAN"][0].Plan);
+          expect(nodes.some(n => n["Index Name"]===contract.index && /provider_account_ref_id\s*=/.test(String(n["Index Cond"])))).toBe(true);
+          expect(nodes.some(n => ["Seq Scan","Bitmap Heap Scan"].includes(String(n["Node Type"])))).toBe(false);
+        } finally { await db.query("DEALLOCATE binding_ri"); await db.query("ROLLBACK"); }
+      }
+      const foreign = async () => {
+        const out: unknown[] = [];
+        for(const table of ["engine_v3_ad_decision_evaluations","engine_v3_ad_decision_snapshots_daily","engine_v3_ad_account_calibration_daily","business_provider_accounts"]) {
+          out.push((await db.query(`SELECT count(*)::int AS count,md5(string_agg(md5(to_jsonb(t)::text),',' ORDER BY to_jsonb(t)::text)) AS bytes FROM public.${table} t WHERE business_id=$1`,[other.business])).rows);
+        }
+        return out;
+      };
+      const before = await foreign();
+      const {rows:[ref]} = await db.query("SELECT to_regclass('public.idx_engine_v3_ad_evaluations_contract_input') AS present");
+      if(!ref.present) { await addObservedProductionReferenceIndex(db); addedReference=true; }
+      await deleteBusinessWithData(target.business);
+      expect(await remains(target.business)).toBe(false);
+      expect(await remains(other.business)).toBe(true);
+      expect(await foreign()).toEqual(before);
+      expect(await remains(account.ref,"provider_accounts","id")).toBe(true);
+      expect((await db.query("SELECT count(*)::int AS rows FROM business_provider_accounts WHERE business_id=$1",[target.business])).rows[0].rows).toBe(0);
+    } finally { if(addedReference) await db.query("DROP INDEX public.idx_engine_v3_ad_evaluations_contract_input"); await db.end(); }
+  },120_000);
+
   it("recognizes a completed provider-scope migration without rebuilding its existing indexes or rewriting rows", async () => {
     const sql = getDb();
     expect(await releaseGateProviderScopeIsCurrent(sql)).toBe(true);

@@ -23,7 +23,7 @@ describe("additive whole-business FK access schema", () => {
   it("builds one missing nullable reference only after admission and verifies it", async () => {
     const sql = fixture({ lookup_ready: false }), admit = vi.fn();
     const result = await ensureBusinessErasureReferenceIndexes(sql as never, admit);
-    expect(admit).toHaveBeenCalledExactlyOnceWith(`public.${first.table}`, "btree");
+    expect(admit).toHaveBeenCalledExactlyOnceWith(`public.${first.table}`, "btree", first.column);
     expect(result.built).toEqual([first.index]);
     expect(sql.query.mock.calls.find(([q]) => q.startsWith("CREATE"))?.[0]).toContain("CREATE INDEX CONCURRENTLY");
   });
@@ -37,13 +37,28 @@ describe("additive whole-business FK access schema", () => {
     });
     const result = await ensureBusinessErasureReferenceIndexes({ query } as never, admit);
     expect(result.built).toEqual(["idx_biz_erase_campaign_reference"]);
-    expect(admit).toHaveBeenCalledExactlyOnceWith("public.engine_v3_ad_decision_evaluations", "hash");
+    expect(admit).toHaveBeenCalledExactlyOnceWith("public.engine_v3_ad_decision_evaluations", "hash", "campaign_context_ref");
     expect(query.mock.calls.find(([q]) => q.startsWith("CREATE"))?.[0]).toContain("USING hash (campaign_context_ref)");
   });
   it("uses supported parent/leaf DDL for a partitioned relation", async () => {
     const sql = fixture({ relation_kind: "p", lookup_ready: false });
     await ensureBusinessErasureReferenceIndexes(sql as never, vi.fn());
     expect(sql.query.mock.calls.find(([q]) => q.startsWith("CREATE"))?.[0]).not.toContain("CONCURRENTLY");
+  });
+  it("reserves each missing account UUID lookup with its exact column before additive DDL", async () => {
+    const entries = BUSINESS_ERASURE_REFERENCE_INDEXES.filter(e => e.column === "provider_account_ref_id");
+    expect(entries).toHaveLength(9);
+    const built = new Set<string>(), admit = vi.fn();
+    const query = vi.fn(async (q: string, params?: unknown[]) => {
+      if (q.startsWith("CREATE")) { const e = entries.find(e => q.includes(e.index))!; built.add(e.table); return []; }
+      return [{ ...healthy, key_type: params?.[3] === "hash" ? 17 : 2950,
+        lookup_ready: params?.[1] !== "provider_account_ref_id" || built.has(String(params[0])) }];
+    });
+    const result = await ensureBusinessErasureReferenceIndexes({query} as never,admit);
+    expect(result.verified).toBe(47);
+    expect(result.built).toEqual(entries.map(e => e.index));
+    for (const e of entries) expect(admit).toHaveBeenCalledWith(`public.${e.table}`,"btree","provider_account_ref_id");
+    expect(query.mock.calls.filter(([q]) => q.startsWith("CREATE")).every(([q]) => q.includes("(provider_account_ref_id) WHERE provider_account_ref_id IS NOT NULL"))).toBe(true);
   });
   it("propagates physical refusal before creating any index", async () => {
     const sql = fixture({ lookup_ready: false });

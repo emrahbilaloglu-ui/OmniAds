@@ -244,3 +244,29 @@ are preserved. Canonical deletion seam requires 55 actual PostgreSQL cases.
 Live acceptance requires selective actual custom/generic RI plans for both
 selected targets, then fresh prestate and Halıcızade complete absence before
 Vornom. An index or successful release alone is not erasure acceptance.
+
+
+## D157 account-binding FK access
+
+The seventh live attempt rolled back at the full snapshot account-binding FK
+when removing business_provider_accounts. Read-only custom/generic plans cover
+all 13 bindings in both targets. Nine native child indexes have an unconstrained
+leading key, even when later account conditions appear in Index Cond.
+D157 adds missing fixed-UUID provider_account_ref_id-leading partial btrees via
+the existing typed/adopt/refuse scalar helper, and keeps bitmap access disabled
+transaction-locally during parent-binding erasure. Full owner/provider/text FK
+rechecks, writer locks, row limits, deadlines and atomic rollback stay intact.
+Only these nine exact UUID contracts use 8x fresh unique single-UUID PK coverage
+plus the unchanged 40GiB floor. All other admission and 163GiB growth limits are
+unchanged; physical refusal has no override. Canonical coverage requires 56
+actual PostgreSQL cases and 47 reference contracts, including actual full generic
+RI access and foreign-byte preservation with a shared provider identity.
+Exact live plans and real terminal/absence acceptance are still separate gates.
+
+The reserve is a conservative fixed-width model, not a measured future index
+size. Its primary-source basis is PostgreSQL 16's [B-tree deduplication rules](https://www.postgresql.org/docs/16/btree-implementation.html),
+[index tuple header/layout](https://github.com/postgres/postgres/blob/REL_16_STABLE/src/include/access/itup.h)
+and [page item identifiers](https://github.com/postgres/postgres/blob/REL_16_STABLE/src/include/storage/itemid.h).
+Distinct live UUID primary keys require separate entries; old versions of one
+key may be deduplicated. The coverage proof rejects partial or incomplete
+primary indexes. Fresh measured free space and the floor remain mandatory.

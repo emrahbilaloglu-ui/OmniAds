@@ -2490,7 +2490,7 @@ async function assertMigrationCapacityForHeavyStep(
     /** Multiple of the relation size the host must have free. */
     headroomMultiplier?: number;
     /** Only reviewed fixed-width scalar FK indexes; existing rewrite default is unchanged. */
-    sizeBasis?: "total_relation" | "scalar_fk_heap" | "campaign_reference_pk" | "state_run_lineage_pk";
+    sizeBasis?: "total_relation" | "scalar_fk_heap" | "campaign_reference_pk" | "state_run_lineage_pk" | "account_binding_uuid_pk";
   },
 ): Promise<{ engaged: boolean; detail: string }> {
   const heavyBytes = input.heavyBytes ?? 256 * 1024 * 1024;
@@ -2499,7 +2499,11 @@ async function assertMigrationCapacityForHeavyStep(
   const scalarHeap = input.sizeBasis === "scalar_fk_heap";
   const campaignHash = input.sizeBasis === "campaign_reference_pk";
   const stateRun = input.sizeBasis === "state_run_lineage_pk";
-  const coveragePk = campaignHash || stateRun;
+  const accountBinding = input.sizeBasis === "account_binding_uuid_pk";
+  const coveragePk = campaignHash || stateRun || accountBinding;
+  if (accountBinding && (input.label !== "business_erasure_account_binding_uuid" || headroomMultiplier !== 8
+    || !BUSINESS_ERASURE_REFERENCE_INDEXES.some(entry => entry.column === "provider_account_ref_id"
+      && `public.${entry.table}` === input.relation))) throw new Error("migration_account_binding_scope_refused");
   if (stateRun && (input.label !== "business_erasure_state_run_lineage"
     || input.relation !== "public.meta_entity_state_history" || headroomMultiplier !== 32)) throw new Error("migration_state_run_scope_refused");
   if (scalarHeap && input.label !== "business_erasure_reference_index") throw new Error("migration_scalar_index_scope_refused");
@@ -2507,7 +2511,7 @@ async function assertMigrationCapacityForHeavyStep(
     || input.relation !== "public.engine_v3_ad_decision_evaluations")) throw new Error("migration_campaign_hash_scope_refused");
   const sizeRows = (await sql.query(
     coveragePk ? `SELECT pg_relation_size(i.indexrelid)::bigint AS relation_bytes,
-      pg_relation_size(i.indexrelid)::bigint AS ${stateRun ? "state_run_pk_bytes" : "campaign_reference_pk_bytes"},
+      pg_relation_size(i.indexrelid)::bigint AS ${stateRun ? "state_run_pk_bytes" : accountBinding ? "account_binding_pk_bytes" : "campaign_reference_pk_bytes"},
       pg_database_size(current_database())::bigint AS database_bytes
       FROM pg_class c JOIN pg_index i ON i.indrelid=c.oid
       JOIN pg_class ix ON ix.oid=i.indexrelid JOIN pg_am am ON am.oid=ix.relam
@@ -2518,7 +2522,8 @@ async function assertMigrationCapacityForHeavyStep(
         AND i.indisvalid AND i.indisready AND i.indislive
         AND i.indnkeyatts=1 AND i.indnatts=1 AND i.indpred IS NULL AND i.indexprs IS NULL
         AND a.atttypid=2950 AND a.attnotnull AND am.amname='btree'
-        AND op.opcdefault AND i.indcollation[0]=a.attcollation`
+        AND op.opcdefault AND i.indcollation[0]=a.attcollation
+        ${accountBinding ? "AND EXISTS (SELECT 1 FROM pg_attribute k WHERE k.attrelid=c.oid AND k.attname='provider_account_ref_id' AND k.atttypid=2950 AND k.attnum>0 AND NOT k.attisdropped)" : ""}`
     : scalarHeap ? `WITH RECURSIVE relations AS (
       SELECT to_regclass($1) AS oid
       UNION ALL SELECT h.inhrelid FROM pg_inherits h JOIN relations r ON h.inhparent=r.oid
@@ -2536,7 +2541,7 @@ async function assertMigrationCapacityForHeavyStep(
   const relationBytes = Number(sizeRows[0]?.relation_bytes ?? 0);
   const databaseBytes = Number(sizeRows[0]?.database_bytes ?? 0);
   if (coveragePk && (sizeRows.length !== 1 || !Number.isSafeInteger(relationBytes) || relationBytes < 8192)) {
-    throw new Error(stateRun ? "migration_state_run_primary_coverage_refused" : "migration_campaign_hash_primary_coverage_refused");
+    throw new Error(stateRun ? "migration_state_run_primary_coverage_refused" : accountBinding ? "migration_account_binding_primary_coverage_refused" : "migration_campaign_hash_primary_coverage_refused");
   }
   if (scalarHeap && (!Number.isSafeInteger(relationBytes) || relationBytes < 0)) {
     throw new Error("migration_scalar_index_heap_measurement_refused");
@@ -2671,11 +2676,24 @@ export async function assertBusinessErasureStateRunIndexCapacity(sql: DbClientLi
 }
 
 /** A new fixed-width scalar index reads heap, never rewrites TOAST or old indexes. */
-export async function assertBusinessErasureScalarIndexCapacity(sql: DbClientLike, relation: string, method: "btree" | "hash" = "btree") {
+export async function assertBusinessErasureScalarIndexCapacity(sql: DbClientLike, relation: string, method: "btree" | "hash" = "btree", column?: string) {
+  if (column === "provider_account_ref_id") {
+    if (method !== "btree" || !BUSINESS_ERASURE_REFERENCE_INDEXES.some(entry => entry.column === column
+      && `public.${entry.table}` === relation)) throw new Error("migration_account_binding_scope_refused");
+    // One fixed 16-byte UUID key, not variable owner/account text. Unique live
+    // UUID PK coverage bounds row count; 8x covers leaf/build/sort/WAL peak.
+    // The unchanged 40GiB floor and fresh production physical proof still apply.
+    return assertMigrationCapacityForHeavyStep(sql, {
+      label: "business_erasure_account_binding_uuid", relation,
+      sizeBasis: "account_binding_uuid_pk", headroomMultiplier: 8,
+      heavyBytes: process.env.NODE_ENV === "production" ? 0 : undefined,
+    });
+  }
   if (method === "hash") {
     if (relation !== "public.engine_v3_ad_decision_evaluations") throw new Error("migration_campaign_hash_scope_refused");
-    // A valid nonpartial unique UUID PK contains every live row and cannot
-    // deduplicate keys. Its physical bytes overcount, rather than omit, dead
+    // A valid nonpartial unique UUID PK covers every live row. Distinct live
+    // UUIDs cannot share a dedup tuple; old versions of one key may. Its bytes
+    // overcount, rather than omit, distinct live keys and dead
     // entries. Reserve eight times that measured coverage index for the new
     // four-byte hash entry/bucket, build and WAL peak, plus the SAME 40GiB floor.
     // No arbitrary BYTEA payload width, heap rewrite or TOAST copy is assumed.
@@ -16998,8 +17016,8 @@ export async function runMigrations(options?: {
         // exclusivity, the honest `reconcile` state, the one-action-per-entity
         // slot, and the append-only place a lost outcome is recorded. A release
         // that cannot prove them must not be announced as migrated.
-        const erasureIndexes = await ensureBusinessErasureReferenceIndexes(sql, (relation, method) =>
-          assertBusinessErasureScalarIndexCapacity(sql, relation, method));
+        const erasureIndexes = await ensureBusinessErasureReferenceIndexes(sql, (relation, method, column) =>
+          assertBusinessErasureScalarIndexCapacity(sql, relation, method, column));
         logStartupEvent("migrations_business_erasure_reference_indexes_verified", erasureIndexes);
         const stateRunIndex = await ensureBusinessErasureStateRunIndex(sql, () => assertBusinessErasureStateRunIndexCapacity(sql));
         logStartupEvent("migrations_business_erasure_state_run_index_verified", stateRunIndex);

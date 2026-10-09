@@ -35,14 +35,14 @@
     {
       "path": "lib/business-deletion-reference-indexes.ts",
       "role": "schema",
-      "sha256": "9039ab85b9bd6ab381a0f8293643e0960702a06665993e4dc185a219e347f56c",
-      "retention": "D155 additive reviewed FK access: 37 fixed-width FK-column btree keys, including five compound-lineage UUIDs and one fixed four-byte campaign-reference hash with full BYTEA equality/owner recheck, after typed fresh physical admission. Adopt valid default-opclass/collation indexes; refuse unknown/invalid/ambiguous definitions. No DROP, rebuild, FK disabling, retained history removal, provider authority, new writer or storage reclaim permission."
+      "sha256": "e94b57ebb7c5b33e853075aa67942e7fd7d680ebf62d5adad42edead5a871527",
+      "retention": "D155 additive reviewed FK access: 37 fixed-width FK-column btree keys, including five compound-lineage UUIDs and one fixed four-byte campaign-reference hash with full BYTEA equality/owner recheck, after typed fresh physical admission. Adopt valid default-opclass/collation indexes; refuse unknown/invalid/ambiguous definitions. No DROP, rebuild, FK disabling, retained history removal, provider authority, new writer or storage reclaim permission. D157 adds nine explicit fixed account-UUID leading binding RI lookups (47 total contracts), with full owner/provider/text recheck and no FK weakening. Only these columns use their separate fresh8x UUID-PK physical reserve plus the same40GiB floor."
     },
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "1fa8b693315d27b71b71ba373da8c9a4ad547b4385fa9d5eb3a5ed7f7fb81d0e",
-      "retention": "D154 explicit admin whole-business erasure only: durable web-owned execution, one lock-owning pinned backend/atomic transaction, exact scoped histories and GLOBAL reference proof; all-business active-work refusal, final control-history fence, FK/guard/absence verification. 4096-identity/TID pages and finite bounds do not confer age pruning or provider authority. Preserve every other tenant and all still-referenced shared input content. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory. D156 retains 4096-row census, bounds owned mutation pages to 512 and keeps full FK/owner/TID/rollback proofs."
+      "sha256": "be9b4e09f6f153c4caf42800bfb04a3150dfe04c20833f052a5378fe28773231",
+      "retention": "D154 explicit admin whole-business erasure only: durable web-owned execution, one lock-owning pinned backend/atomic transaction, exact scoped histories and GLOBAL reference proof; all-business active-work refusal, final control-history fence, FK/guard/absence verification. 4096-identity/TID pages and finite bounds do not confer age pruning or provider authority. Preserve every other tenant and all still-referenced shared input content. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory. D156 retains 4096-row census, bounds owned mutation pages to 512 and keeps full FK/owner/TID/rollback proofs. D157 disables bitmap access transaction-locally only at account-binding parent erasure; full FK probes keep index access and all owner predicates, deadline, lock and rollback proof."
     },
     {
       "path": "lib/creative-decision-engine/ad-backtest-store.ts",
@@ -221,8 +221,8 @@
     {
       "path": "lib/migrations.ts",
       "role": "schema",
-      "sha256": "6364b16864b203103adb70c177d053c5824ed1a785fe28780b555b90c8defaaa",
-      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission. D156 adds only the bounded six-key observation-run index under exact enum/full-FK and UUID-PK capacity proofs; no existing-index rebuild or generic reserve relaxation."
+      "sha256": "f15bd32503df1a3056569a8feffac0cc73161b16150724f95a5846221fffa8d9",
+      "retention": "Preserve original schema/FK/immutable lineage; DDL metadata is not removal permission. D156 adds only the bounded six-key observation-run index under exact enum/full-FK and UUID-PK capacity proofs; no existing-index rebuild or generic reserve relaxation. D157 limits8x UUID-PK sizing to nine typed account-reference scalar contracts; existing scalar/hash/state-run/ordinary rewrite guards and physical floor are preserved."
     },
     {
       "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
@@ -299,8 +299,8 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "542df759a7dc3f5752afcb71a3c25f6254e7c409eda41928788ee782016b2fcf",
-      "retention": "Owned public/isolated fixture only; not live consumer completeness. D156 requires all 55 actual erasure cases, including generic RI lookup/foreign-byte preservation and enum-bound refusal; no new production selection/removal authority."
+      "sha256": "050dace5d87cd3ab2ed13f84bf4ac6c6824de07edfbcf14c7ca4a03ed6f07c6e",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness. D156 requires all 55 actual erasure cases, including generic RI lookup/foreign-byte preservation and enum-bound refusal; no new production selection/removal authority. D157 requires56 actual migrated erasure cases, including full generic binding RI and byte-exact foreign history with a shared provider identity."
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -465,5 +465,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "99959c46cb113bc0fa51dda5f7d5ad443e7dcddef161e114220b270f6202ec13"
+  "sourceInventorySha256": "d7aa19c944dc6115d8551da137db5423ab2ea8f932f108b8b4d1744989797eaa"
 }

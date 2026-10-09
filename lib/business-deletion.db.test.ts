@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, seedTenant } from "../scripts/native-storage-batch/owned-fixture";
 import { getDb, runDbTransaction, runPinnedDbTransaction, withPinnedDbClient } from "@/lib/db";
-import { BUSINESS_ERASURE_LOCK_NAMESPACE, BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
+import { BUSINESS_ERASURE_LOCK_NAMESPACE, BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL, BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
 import { enqueueBusinessDeletion, runBusinessDeletionWorkerTick } from "@/lib/business-deletion-jobs";
 import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory } from "@/lib/business-deletion-control-receipts";
 import { deleteBusinessNativeEvaluations } from "@/lib/business-deletion-native-evaluations";
@@ -988,7 +988,39 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     } finally { await db.end(); }
   });
 
-  it("walks native history across pages/contexts once, rolls back a partial page limit, and removes every owned input", async () => {
+  it("seeks the raw input-key PK without alias sorting under generic/custom plans after a large consumed prefix",async()=>{
+    await withPinnedDbClient(async client=>{
+      await runPinnedDbTransaction({client,timeoutMs:30_000,lockTimeoutMs:1000,deadlineAtMs:Date.now()+60_000,fn:async sql=>{
+        await sql.query("SET LOCAL enable_seqscan=off");await sql.query("SET LOCAL enable_bitmapscan=off");await sql.query("SET LOCAL jit=off");
+        await sql.query("CREATE TEMP TABLE business_erasure_input_keys(contract_version text NOT NULL,input_hash character(64) NOT NULL,PRIMARY KEY(contract_version,input_hash)) ON COMMIT DROP");
+        await sql.query("INSERT INTO business_erasure_input_keys SELECT 'fixture-'||(g/40000)::text,repeat(md5(g::text),2)::character(64) FROM generate_series(1,100000) g");
+        await sql.query("ANALYZE business_erasure_input_keys"); // Disposable fixture only.
+        const nodes=(plan:Record<string,unknown>):Record<string,unknown>[]=>[plan,...((plan.Plans??[]) as Record<string,unknown>[]).flatMap(nodes)];
+        const old=await sql.query("EXPLAIN (FORMAT JSON) SELECT contract_version,input_hash::text FROM business_erasure_input_keys ORDER BY contract_version,input_hash LIMIT 400");
+        expect(nodes(old[0]!["QUERY PLAN"][0].Plan).some(n=>["Sort","Incremental Sort"].includes(String(n["Node Type"])))).toBe(true);
+        const [boundary]=await sql.query<{contract_version:string;input_hash:string}>("SELECT k.contract_version,k.input_hash::text FROM business_erasure_input_keys k ORDER BY k.contract_version,k.input_hash OFFSET 39800 LIMIT 1");
+        const crossing=await sql.query<{contract_version:string;input_hash:string}>(BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL.next,[boundary!.contract_version,boundary!.input_hash]);
+        expect(crossing).toHaveLength(400);expect(new Set(crossing.map(k=>k.contract_version)).size).toBe(2);
+        const [cursor]=await sql.query<{contract_version:string;input_hash:string}>("SELECT k.contract_version,k.input_hash::text FROM business_erasure_input_keys k ORDER BY k.contract_version,k.input_hash OFFSET 89999 LIMIT 1");
+        await sql.query("DELETE FROM business_erasure_input_keys WHERE (contract_version,input_hash)<=($1::text,$2::character(64))",[cursor!.contract_version,cursor!.input_hash]);
+        await sql.query(`PREPARE business_erasure_fixture_page(text,character(64)) AS ${BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL.next}`);
+        for(const mode of ["force_generic_plan","force_custom_plan"]) {
+          await sql.query(`SET LOCAL plan_cache_mode=${mode}`);
+          const [probe]=await sql.query(`EXPLAIN (FORMAT JSON) EXECUTE business_erasure_fixture_page('${cursor!.contract_version}','${cursor!.input_hash}')`);
+          const actual=nodes(probe!["QUERY PLAN"][0].Plan);
+          expect(actual.some(n=>["Sort","Incremental Sort","Seq Scan","Bitmap Heap Scan","Materialize"].includes(String(n["Node Type"])))).toBe(false);
+          expect(actual.some(n=>["Index Scan","Index Only Scan"].includes(String(n["Node Type"])) && n["Index Name"]==="business_erasure_input_keys_pkey"
+            && /ROW.*contract_version.*input_hash/.test(String(n["Index Cond"])) && />/.test(String(n["Index Cond"])))).toBe(true);
+        }
+        await sql.query("DEALLOCATE business_erasure_fixture_page");
+        const first=await sql.query<{contract_version:string;input_hash:string}>(BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL.first);
+        const next=await sql.query<{contract_version:string;input_hash:string}>(BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL.next,[cursor!.contract_version,cursor!.input_hash]);
+        expect(first).toHaveLength(400);expect(next).toEqual(first);
+      }});
+    },{timeoutMs:30_000});
+  },60_000);
+
+  it("walks native history across pages/contexts once, rolls back unsafe input paging, and removes every owned input", async () => {
     const db = new Client({ connectionString: process.env.DATABASE_URL }); await db.connect();
     try {
       const target = await seedTenant(db,1);
@@ -1035,7 +1067,35 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       expect((await db.query("SELECT id,contract_version,input_hash::text FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[target.business])).rows).toEqual(before);
       await addObservedProductionReferenceIndex(db);
       try {
-        await deleteBusinessWithData(target.business);
+        let unsafePageChecked=false;
+        await withPinnedDbClient(async client=>{
+          const wrapped={query:async(text:string,params?:unknown[])=>{
+            if(text===`EXPLAIN (FORMAT JSON) ${BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL.first}`) {
+              unsafePageChecked=true;
+              return client.query("EXPLAIN (FORMAT JSON) SELECT contract_version,input_hash::text FROM business_erasure_input_keys ORDER BY contract_version,input_hash LIMIT 400");
+            }
+            return client.query(text,params);
+          }};
+          await expect(deleteBusinessWithData(target.business,{client:wrapped as never})).rejects.toMatchObject({code:"schema_not_ready",tables:["input_key_page_plan"]});
+        },{timeoutMs:30_000});
+        expect(unsafePageChecked).toBe(true);
+        expect((await db.query("SELECT id,contract_version,input_hash::text FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[target.business])).rows).toEqual(before);
+        expect((await db.query("SELECT * FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[other.business])).rows).toEqual(foreign);
+        let inputPages=0;let lastCursor:string|undefined;
+        await withPinnedDbClient(async client=>{
+          const wrapped={query:async(text:string,params?:unknown[])=>{
+            if(text===BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL.first || text===BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL.next) {
+              if(inputPages===0)expect(params).toEqual([]);
+              else {expect(params).toHaveLength(2);const key=JSON.stringify(params);expect(key>lastCursor!).toBe(true);lastCursor=key;}
+              const page=await client.query(text,params);inputPages++;
+              if(inputPages===1 && page.rows.length)lastCursor=JSON.stringify([page.rows[page.rows.length-1].contract_version,""]);
+              return page;
+            }
+            return client.query(text,params);
+          }};
+          await deleteBusinessWithData(target.business,{client:wrapped as never});
+        },{timeoutMs:30_000});
+        expect(inputPages).toBeGreaterThan(10);
         expect(await remains(target.business)).toBe(false);
         expect(await remains(target.business,"engine_v3_ad_decision_evaluations","business_ref_id")).toBe(false);
         expect((await db.query("SELECT * FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[other.business])).rows).toEqual(foreign);

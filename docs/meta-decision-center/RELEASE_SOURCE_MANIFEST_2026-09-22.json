@@ -1,5 +1,5 @@
 {
-  "manifestHash": "cac6e4ac40e315cc5eb43f6e706c0c1857ba1b96489a4e151baec1fc5ab8e18b",
+  "manifestHash": "964c3f5df11219ac80201ce57bd56e41e759dba74178e8cb1cbf583a3d951aee",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -804,7 +804,7 @@
     },
     {
       "path": "docs/architecture/business-deletion-repair.md",
-      "sha256": "457de61fb781439abb054fd528e06089af75c6d29ffdf1565bc32a7a6c102e03"
+      "sha256": "da8f22b49afe17975610ba524f439842da209d2184a52aa484cdb96f45b0b76d"
     },
     {
       "path": "docs/architecture/migration-replay-worker-recovery.md",
@@ -860,7 +860,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "0da890f9b55605695d37bb7dfd279b76da1e682e04e4890c23ba1b827ad375b2"
+      "sha256": "613d004c3429402d99e917ad88bff6c0501c92624c05fd308d8e66686f251f63"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -896,7 +896,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "fc6b30dadc9d83be062a686ca6f26113bca5c22b192b2a9becc6cc3c7a4a949a"
+      "sha256": "1415bfc0518016df02422e9ce0420dd4938fb451e2c27ef16f96bb35823476d0"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -908,7 +908,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "fd7f1e7ef64a7c73d71d8908104cb93598dde400c46ed1cc494518397b212073"
+      "sha256": "a466dc27e4a6760c6ef97f9681acf2c70c585628e9413b4313cd5b60c3be3942"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -1048,11 +1048,11 @@
     },
     {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "161a9d27c74f3c2c0cacef46d53b4841eea8e99a87083000816089369e3968c0"
+      "sha256": "afe3e4a65a2bbcfb24143e63cf9ad1925a5e5597960fff9bb3137f444f78be90"
     },
     {
       "path": "lib/business-deletion.ts",
-      "sha256": "3c841e9f539f2821c3a7a9f0e7f6764c817930300378d34073aec0eda79bb9ec"
+      "sha256": "0da7ba3ee723ec7bad242f628ea70af007feb5f6ee67e477966c3d05b8336574"
     },
     {
       "path": "lib/client-auth-state.test.ts",
@@ -2964,7 +2964,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "36bbaef99bdcfb3074f85710b482a594b10259b5a53217a51cfbd421789b53da"
+      "sha256": "ffc10c9e76b43a4dccd70cdfd08f140ccb0676cdeef9e183dc3166ee85643c5a"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

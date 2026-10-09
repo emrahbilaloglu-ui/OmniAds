@@ -20,6 +20,8 @@ The subsequent actual Meta binding rollback and narrow follow-up are recorded in
 For removing unshared application provider-account registry records during
 explicit whole-business offboarding, also read
 [D160](DECISION_LOG.md#d160--unshared-provider-account-registry-erasure-2026-10-09).
+For the actual total-deadline rollback during input cleanup and raw-key paging,
+read [D161](DECISION_LOG.md#d161--raw-input-keyset-pages-after-total-deadline-rollback-2026-10-09).
 
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
 Also read [D130](DECISION_LOG.md#d130--indexed-evidence-equality-and-bounded-creative-completion-proofs-2026-09-28)

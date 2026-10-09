@@ -13375,3 +13375,36 @@ then refuse more than256 identities. No full heap scan or maintenance is allowed
 The D074 guard explicitly classifies only the single exact legacy FK-name
 reference and global read proof in this offboarding helper; manual label
 writers and decision authority remain frozen.
+
+## D161 — Raw input keyset pages after total-deadline rollback (2026-10-09)
+
+The ninth actual Halıcızade erasure on dc9e389d failed after1,200,067ms at
+the20-minute total deadline in `input_gc`. The previously failing account-binding
+stage passed. Sanitized runtime telemetry records357,385ms in input cleanup and
+280,400 processed keys, after1,364,593 native evaluations and4,380,848 owned rows.
+Independent420 scope-presence checks,15 business roots, guard modes and foreign
+membership/connection digests verify rollback. Vornom remains untouched.
+
+The exact old page query projects `input_hash::text` and orders by the unqualified
+alias. A disposable100,000-key PostgreSQL reproduction proves its blocking Sort;
+the source also restarts from the beginning after deleting each temporary page.
+This proves avoidable access work, not a measured breakdown of production's
+357 seconds or a promise that any finite dataset now completes in20 minutes.
+
+Qualify raw bpchar PK columns in ORDER BY and seek past the last processed
+`(contract_version,input_hash)` tuple. Keep400-key pages, per-page GLOBAL
+reference proofs, shared-content preservation, writer exclusion, all FKs/guards,
+the30-second query cap and20-minute deadline. Verify every actual temporary
+page plan: one PK Index/Index Only Scan, no Sort/Bitmap/Seq Scan/materialization,
+and a constrained continuation tuple. Unsafe access rolls back all prior work.
+No new index, maintenance, enlarged deadline, provider write or pruning authority.
+
+Canonical erasure coverage becomes60 actual migrated PostgreSQL cases. The new
+100,000-key fixture proves old alias sorting, raw-key continuation through
+contract boundaries and generic/custom constrained plans after90,000 consumed
+keys. The existing4,100-evaluation full-business case additionally injects the
+actual unsafe plan, proves complete rollback/foreign preservation, then checks
+monotonic paged execution and owned-input absence. Existing shared-input and
+registry/unknown-child protections still run. Local/CI success is preparation;
+live terminal success and full independent absence remain required, Halıcızade
+before Vornom. Code rollback cannot restore committed erasure.

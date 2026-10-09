@@ -462,6 +462,37 @@ const ZERO_REFERENCE_INPUTS = `SELECT k.contract_version,k.input_hash::text AS i
     WHERE e.contract_version=k.contract_version AND e.input_hash=k.input_hash LIMIT 1) referenced ON true
   WHERE referenced.found IS NULL`;
 
+// ORDER BY must bind the raw bpchar PK, not the projected text alias. Later
+// pages seek past the consumed prefix instead of revisiting its dead tuples.
+export const BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL = {
+  first: `SELECT k.contract_version,k.input_hash::text AS input_hash FROM business_erasure_input_keys k
+    ORDER BY k.contract_version,k.input_hash LIMIT 400`,
+  next: `SELECT k.contract_version,k.input_hash::text AS input_hash FROM business_erasure_input_keys k
+    WHERE (k.contract_version,k.input_hash)>($1::text,$2::character(64))
+    ORDER BY k.contract_version,k.input_hash LIMIT 400`,
+} as const;
+
+function verifyInputKeyPagePlan(value: unknown, afterCursor: boolean) {
+  const plan = value as Array<{ Plan: Record<string, unknown> }>;
+  let probes = 0;
+  const walk = (node: Record<string, unknown>) => {
+    if (["Sort", "Incremental Sort", "Seq Scan", "Bitmap Heap Scan", "Bitmap Index Scan", "Materialize"].includes(String(node["Node Type"])))
+      throw new BusinessDeletionError("schema_not_ready", ["input_key_page_plan"]);
+    if (node["Relation Name"] === "business_erasure_input_keys") {
+      const condition=String(node["Index Cond"]??"");
+      if (!["Index Scan", "Index Only Scan"].includes(String(node["Node Type"]))
+        || node["Index Name"] !== "business_erasure_input_keys_pkey"
+        || afterCursor && (!/contract_version/.test(condition) || !/input_hash/.test(condition) || !/>/.test(condition)))
+        throw new BusinessDeletionError("schema_not_ready", ["input_key_page_plan"]);
+      probes++;
+    }
+    for (const child of (node.Plans ?? []) as Record<string, unknown>[]) walk(child);
+  };
+  if (!Array.isArray(plan) || plan.length !== 1 || !plan[0]?.Plan) throw new BusinessDeletionError("schema_not_ready", ["input_key_page_plan"]);
+  walk(plan[0].Plan);
+  if(probes!==1) throw new BusinessDeletionError("schema_not_ready", ["input_key_page_plan"]);
+}
+
 function verifyInputReferencePlan(value: unknown, indexes: string[]) {
   const plan = value as Array<{ Plan: Record<string, unknown> }>;
   let probes = 0;
@@ -788,7 +819,7 @@ export async function deleteBusinessWithData(businessId: string,
       }
       if (table === "public.business_provider_accounts") {
         // Keep complete account-binding RI probes on their leading UUID index.
-        // No FK/owner predicate is weakened; this setting is transaction-local.
+    // No FK/owner predicate is weakened; this setting is transaction-local.
         await sql.query("SET LOCAL enable_bitmapscan=off");
         await sql.query(businessProviderAccountDeleteSql("DELETE FROM business_provider_accounts WHERE business_id=$1::text OR business_ref_id=$1::uuid",
           providerAccounts.columns.get(table)),[businessId]);
@@ -807,8 +838,13 @@ export async function deleteBusinessWithData(businessId: string,
     // Exact hash references use the reviewed leading (contract_version,input_hash)
     // index. Do not let a denser shared hash choose a whole-owner bitmap startup.
     await sql.query("SET LOCAL enable_bitmapscan=off");
+    let inputCursor: { contract_version: string; input_hash: string } | undefined;
     while (hasKeys) {
-      const keys = await sql.query<{ contract_version: string; input_hash: string }>("SELECT contract_version,input_hash::text FROM business_erasure_input_keys ORDER BY contract_version,input_hash LIMIT 400");
+      const pageSql=inputCursor ? BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL.next : BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL.first;
+      const pageParams=inputCursor ? [inputCursor.contract_version,inputCursor.input_hash] : [];
+      const pagePlan=await sql.query(`EXPLAIN (FORMAT JSON) ${pageSql}`,pageParams);
+      verifyInputKeyPagePlan(pagePlan[0]!["QUERY PLAN"],Boolean(inputCursor));
+      const keys = await sql.query<{ contract_version: string; input_hash: string }>(pageSql,pageParams);
       if (!keys.length) break;
       progress.inputKeys+=keys.length;
       const params = [keys.map(k => k.contract_version), keys.map(k => k.input_hash)];
@@ -821,6 +857,7 @@ export async function deleteBusinessWithData(businessId: string,
       [unreferenced.map(k => k.contract_version), unreferenced.map(k => k.input_hash)]);
       await sql.query(`DELETE FROM business_erasure_input_keys i USING unnest($1::text[], $2::character(64)[]) k(contract_version,input_hash)
         WHERE i.contract_version=k.contract_version AND i.input_hash=k.input_hash`, params);
+      inputCursor=keys[keys.length-1]!;
     }
     mark("provider_identity_gc");
     try { await providerAccounts.finish(); }

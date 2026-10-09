@@ -94,6 +94,17 @@ and a verified parameterized index-probe plan. The real observed production inde
 is not created by this code or run-migrations. Missing prerequisites roll back.
 Genuinely shared input keys remain for the other business that still owns them.
 
+D161 qualifies the raw temporary `(contract_version,input_hash)` PK in ORDER BY
+and seeks past the last consumed tuple for every later400-key page. Projecting
+the bpchar hash as text must not make that alias the sort key. Each actual first
+and continuation plan must be a PK Index/Index Only Scan, without Sort,
+Bitmap/Seq Scan or materialization; continuation requires the tuple seek in its
+index condition. Captured keys are complete before this traversal begins and
+writers remain excluded. GLOBAL references are still checked on every page,
+shared input content is preserved and only processed temporary keys are removed.
+Unsafe page plans roll back every preceding business/input mutation. The query
+cap, total deadline, pages, ownership bounds, guards and FKs are unchanged.
+
 Indirect custom-report shares and identifying admin-audit entries are removed.
 Derived cross-business retention/release/repair receipts containing the exact
 UUID are invalidated as whole receipts; unrelated receipts and underlying other

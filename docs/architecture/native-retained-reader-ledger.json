@@ -41,8 +41,8 @@
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "3c841e9f539f2821c3a7a9f0e7f6764c817930300378d34073aec0eda79bb9ec",
-      "retention": "D154 explicit admin whole-business erasure only: durable web-owned execution, one lock-owning pinned backend/atomic transaction, exact scoped histories and GLOBAL reference proof; all-business active-work refusal, final control-history fence, FK/guard/absence verification. 4096-identity/TID pages and finite bounds do not confer age pruning or provider authority. Preserve every other tenant and all still-referenced shared input content. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory. D156 retains 4096-row census, bounds owned mutation pages to 512 and keeps full FK/owner/TID/rollback proofs. D157 disables bitmap access transaction-locally only at account-binding parent erasure; full FK probes keep index access and all owner predicates, deadline, lock and rollback proof. D160 additionally captures provider account UUIDs from the same exact owned DELETE RETURNING pages; removes only unshared application registry roots after indexed GLOBAL zero-reference proof over every known FK child, with writer exclusion and full rollback. No extra native-history census or provider mutation; preserve all surviving foreign/shared bytes."
+      "sha256": "0da7ba3ee723ec7bad242f628ea70af007feb5f6ee67e477966c3d05b8336574",
+      "retention": "D154 explicit admin whole-business erasure only: durable web-owned execution, one lock-owning pinned backend/atomic transaction, exact scoped histories and GLOBAL reference proof; all-business active-work refusal, final control-history fence, FK/guard/absence verification. 4096-identity/TID pages and finite bounds do not confer age pruning or provider authority. Preserve every other tenant and all still-referenced shared input content. Outer exact-TID deletes retain a non-indexable exact owner residual and keep internal FK index scans enabled; the actual outer plan, table OID and removed-row count remain mandatory. D156 retains 4096-row census, bounds owned mutation pages to 512 and keeps full FK/owner/TID/rollback proofs. D157 disables bitmap access transaction-locally only at account-binding parent erasure; full FK probes keep index access and all owner predicates, deadline, lock and rollback proof. D160 additionally captures provider account UUIDs from the same exact owned DELETE RETURNING pages; removes only unshared application registry roots after indexed GLOBAL zero-reference proof over every known FK child, with writer exclusion and full rollback. No extra native-history census or provider mutation; preserve all surviving foreign/shared bytes. D161 traverses captured temporary input keys through400-row raw-PK ordered keyset pages with verified first/continuation index plans; preserve per-page GLOBAL reference proof, writer exclusion, shared bytes, complete rollback and existing query/operation bounds. No maintenance, new index or deadline relaxation."
     },
     {
       "path": "lib/creative-decision-engine/ad-backtest-store.ts",
@@ -299,8 +299,8 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "36bbaef99bdcfb3074f85710b482a594b10259b5a53217a51cfbd421789b53da",
-      "retention": "Owned public/isolated fixture only; not live consumer completeness. D156 requires all 55 actual erasure cases, including generic RI lookup/foreign-byte preservation and enum-bound refusal; no new production selection/removal authority. D157 requires56 actual migrated erasure cases, including full generic binding RI and byte-exact foreign history with a shared provider identity. D160 requires59 actual migrated whole-business deletion/rollback cases, including unshared registry removal, shared identity preservation and unknown global FK refusal. Disposable fixture only; no production execution or offboarding authority."
+      "sha256": "ffc10c9e76b43a4dccd70cdfd08f140ccb0676cdeef9e183dc3166ee85643c5a",
+      "retention": "Owned public/isolated fixture only; not live consumer completeness. D156 requires all 55 actual erasure cases, including generic RI lookup/foreign-byte preservation and enum-bound refusal; no new production selection/removal authority. D157 requires56 actual migrated erasure cases, including full generic binding RI and byte-exact foreign history with a shared provider identity. D160 requires59 actual migrated whole-business deletion/rollback cases, including unshared registry removal, shared identity preservation and unknown global FK refusal. Disposable fixture only; no production execution or offboarding authority. D161 requires60 actual migrated erasure cases, including generic/custom raw-key continuation and unsafe-page full rollback/foreign preservation; disposable fixtures only."
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -465,5 +465,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "8bc96473f574fdd551a13981ec15733c706dc4bd043f369bc1a55c155a2289ab"
+  "sourceInventorySha256": "9664a912bbc8094f599699ef91910a3412716be2f95f0d881c014d2d53005767"
 }

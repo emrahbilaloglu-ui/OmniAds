@@ -1,5 +1,5 @@
 import { ensureBusinessErasureStateRunIndex, readBusinessErasureStateRunContract } from "@/lib/business-deletion-state-run-index";
-import { BUSINESS_ERASURE_REFERENCE_INDEXES, ensureBusinessErasureReferenceIndexes } from "@/lib/business-deletion-reference-indexes";
+import { BUSINESS_ERASURE_REFERENCE_INDEXES, BUSINESS_ERASURE_FULL_BINDING_INDEXES, ensureBusinessErasureReferenceIndexes, ensureBusinessErasureFullBindingIndexes } from "@/lib/business-deletion-reference-indexes";
 import { NATIVE_CAMPAIGN_CONTEXT_REFERENCE_WRITER_SCHEMA_SQL } from "./creative-decision-engine/native-campaign-context-writer";
 import { NATIVE_CAMPAIGN_CONTEXT_STORAGE_SCHEMA_SQL } from "@/lib/creative-decision-engine/native-campaign-context-storage";
 import { META_OBSERVATION_RECEIPTS_V2_SCHEMA_SQL } from "@/lib/meta/observation-receipt-schema";
@@ -2490,7 +2490,7 @@ async function assertMigrationCapacityForHeavyStep(
     /** Multiple of the relation size the host must have free. */
     headroomMultiplier?: number;
     /** Only reviewed fixed-width scalar FK indexes; existing rewrite default is unchanged. */
-    sizeBasis?: "total_relation" | "scalar_fk_heap" | "campaign_reference_pk" | "state_run_lineage_pk" | "account_binding_uuid_pk";
+    sizeBasis?: "total_relation" | "scalar_fk_heap" | "campaign_reference_pk" | "state_run_lineage_pk" | "account_binding_uuid_pk" | "account_binding_full_pk";
   },
 ): Promise<{ engaged: boolean; detail: string }> {
   const heavyBytes = input.heavyBytes ?? 256 * 1024 * 1024;
@@ -2500,7 +2500,12 @@ async function assertMigrationCapacityForHeavyStep(
   const campaignHash = input.sizeBasis === "campaign_reference_pk";
   const stateRun = input.sizeBasis === "state_run_lineage_pk";
   const accountBinding = input.sizeBasis === "account_binding_uuid_pk";
-  const coveragePk = campaignHash || stateRun || accountBinding;
+  const fullBinding = input.sizeBasis === "account_binding_full_pk";
+  const coveragePk = campaignHash || stateRun || accountBinding || fullBinding;
+  if (fullBinding && (input.label !== "business_erasure_full_binding_tuple" || headroomMultiplier !== 12
+    || !BUSINESS_ERASURE_FULL_BINDING_INDEXES.some(entry => `public.${entry.table}` === input.relation))) {
+    throw new Error("migration_full_binding_scope_refused");
+  }
   if (accountBinding && (input.label !== "business_erasure_account_binding_uuid" || headroomMultiplier !== 8
     || !BUSINESS_ERASURE_REFERENCE_INDEXES.some(entry => entry.column === "provider_account_ref_id"
       && `public.${entry.table}` === input.relation))) throw new Error("migration_account_binding_scope_refused");
@@ -2511,7 +2516,7 @@ async function assertMigrationCapacityForHeavyStep(
     || input.relation !== "public.engine_v3_ad_decision_evaluations")) throw new Error("migration_campaign_hash_scope_refused");
   const sizeRows = (await sql.query(
     coveragePk ? `SELECT pg_relation_size(i.indexrelid)::bigint AS relation_bytes,
-      pg_relation_size(i.indexrelid)::bigint AS ${stateRun ? "state_run_pk_bytes" : accountBinding ? "account_binding_pk_bytes" : "campaign_reference_pk_bytes"},
+      pg_relation_size(i.indexrelid)::bigint AS ${stateRun ? "state_run_pk_bytes" : fullBinding ? "account_binding_full_pk_bytes" : accountBinding ? "account_binding_pk_bytes" : "campaign_reference_pk_bytes"},
       pg_database_size(current_database())::bigint AS database_bytes
       FROM pg_class c JOIN pg_index i ON i.indrelid=c.oid
       JOIN pg_class ix ON ix.oid=i.indexrelid JOIN pg_am am ON am.oid=ix.relam
@@ -2523,7 +2528,7 @@ async function assertMigrationCapacityForHeavyStep(
         AND i.indnkeyatts=1 AND i.indnatts=1 AND i.indpred IS NULL AND i.indexprs IS NULL
         AND a.atttypid=2950 AND a.attnotnull AND am.amname='btree'
         AND op.opcdefault AND i.indcollation[0]=a.attcollation
-        ${accountBinding ? "AND EXISTS (SELECT 1 FROM pg_attribute k WHERE k.attrelid=c.oid AND k.attname='provider_account_ref_id' AND k.atttypid=2950 AND k.attnum>0 AND NOT k.attisdropped)" : ""}`
+        ${accountBinding || fullBinding ? "AND EXISTS (SELECT 1 FROM pg_attribute k WHERE k.attrelid=c.oid AND k.attname='provider_account_ref_id' AND k.atttypid=2950 AND k.attnum>0 AND NOT k.attisdropped)" : ""}`
     : scalarHeap ? `WITH RECURSIVE relations AS (
       SELECT to_regclass($1) AS oid
       UNION ALL SELECT h.inhrelid FROM pg_inherits h JOIN relations r ON h.inhparent=r.oid
@@ -2541,7 +2546,7 @@ async function assertMigrationCapacityForHeavyStep(
   const relationBytes = Number(sizeRows[0]?.relation_bytes ?? 0);
   const databaseBytes = Number(sizeRows[0]?.database_bytes ?? 0);
   if (coveragePk && (sizeRows.length !== 1 || !Number.isSafeInteger(relationBytes) || relationBytes < 8192)) {
-    throw new Error(stateRun ? "migration_state_run_primary_coverage_refused" : accountBinding ? "migration_account_binding_primary_coverage_refused" : "migration_campaign_hash_primary_coverage_refused");
+    throw new Error(stateRun ? "migration_state_run_primary_coverage_refused" : fullBinding ? "migration_full_binding_primary_coverage_refused" : accountBinding ? "migration_account_binding_primary_coverage_refused" : "migration_campaign_hash_primary_coverage_refused");
   }
   if (scalarHeap && (!Number.isSafeInteger(relationBytes) || relationBytes < 0)) {
     throw new Error("migration_scalar_index_heap_measurement_refused");
@@ -2676,6 +2681,36 @@ export async function assertBusinessErasureStateRunIndexCapacity(sql: DbClientLi
 }
 
 /** A new fixed-width scalar index reads heap, never rewrites TOAST or old indexes. */
+export async function assertBusinessErasureFullBindingIndexCapacity(sql: DbClientLike, relation: string) {
+  if (!BUSINESS_ERASURE_FULL_BINDING_INDEXES.some(entry => `public.${entry.table}`===relation)) {
+    throw new Error("migration_full_binding_scope_refused");
+  }
+  // The validated full FK bounds existing child keys through its small parent.
+  // Never scan native history for a MAX(length) or assume unbounded TEXT fits.
+  const [parent] = await sql.query(
+    "SELECT pg_relation_size('public.business_provider_accounts'::regclass)::text AS full_binding_parent_bytes, pg_relation_size('public.business_provider_accounts'::regclass)::text AS parent_bytes",
+  ) as Array<{parent_bytes:string}>;
+  if (!parent || typeof parent.parent_bytes!=="string" || !/^\d+$/.test(parent.parent_bytes)
+    || !Number.isSafeInteger(Number(parent.parent_bytes)) || Number(parent.parent_bytes)>8*1024*1024) {
+    throw new Error("migration_full_binding_parent_census_refused");
+  }
+  const lengths = await sql.query(
+    "SELECT octet_length(business_id) AS business_bytes, octet_length(provider_account_id) AS account_bytes FROM ONLY public.business_provider_accounts LIMIT 1025",
+  ) as Array<{business_bytes:number;account_bytes:number}>;
+  if (lengths.length>1024 || lengths.some(row => !Number.isInteger(row.business_bytes) || row.business_bytes<1 || row.business_bytes>36
+    || !Number.isInteger(row.account_bytes) || row.account_bytes<1 || row.account_bytes>24)) {
+    throw new Error("migration_full_binding_key_width_refused");
+  }
+  // <=100B ordinary tuples (UUID, <=36B owner, <=24B account, headers/line
+  // pointer), default 90% leaf fill, covered by a complete unique UUID PK.
+  // The 12x model reserves build/sort/WAL peak; it is not a future-size claim.
+  // Same fresh physical proof and non-overridable 40GiB floor as other steps.
+  return assertMigrationCapacityForHeavyStep(sql, {
+    label:"business_erasure_full_binding_tuple",relation,sizeBasis:"account_binding_full_pk",headroomMultiplier:12,
+    heavyBytes:process.env.NODE_ENV==="production" ? 0 : undefined,
+  });
+}
+
 export async function assertBusinessErasureScalarIndexCapacity(sql: DbClientLike, relation: string, method: "btree" | "hash" = "btree", column?: string) {
   if (column === "provider_account_ref_id") {
     if (method !== "btree" || !BUSINESS_ERASURE_REFERENCE_INDEXES.some(entry => entry.column === column
@@ -17019,6 +17054,8 @@ export async function runMigrations(options?: {
         const erasureIndexes = await ensureBusinessErasureReferenceIndexes(sql, (relation, method, column) =>
           assertBusinessErasureScalarIndexCapacity(sql, relation, method, column));
         logStartupEvent("migrations_business_erasure_reference_indexes_verified", erasureIndexes);
+        const fullBindingIndexes = await ensureBusinessErasureFullBindingIndexes(sql, relation => assertBusinessErasureFullBindingIndexCapacity(sql,relation));
+        logStartupEvent("migrations_business_erasure_full_binding_indexes_verified",fullBindingIndexes);
         const stateRunIndex = await ensureBusinessErasureStateRunIndex(sql, () => assertBusinessErasureStateRunIndexCapacity(sql));
         logStartupEvent("migrations_business_erasure_state_run_index_verified", stateRunIndex);
 

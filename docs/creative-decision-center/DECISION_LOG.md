@@ -13237,3 +13237,48 @@ Halıcızade terminal success plus independent complete absence must precede
 Vornom offboarding. Additive indexes remain on code rollback; rollback cannot
 restore erased records or evicted archives. No growth/provider/decision authority
 or ordinary storage maintenance is granted.
+
+## D158 — Complete account-binding key access for erasure (2026-10-09)
+
+D157 exact live 87346a998291a92b719ba4d5fcb1d6cb9041aebd passed47 scalar/hash
+contracts and the four D156 state-run plans, but independent full account-binding
+RI plans still chose unconstrained id/owner-prefix access in20 of52 plans.
+The native calibration daily, evaluation contexts, evaluations, events and
+snapshots are affected. All thirteen FK definitions and validation flags remained
+unchanged. No further DELETE was issued. A single UUID equality index does not
+prove the optimizer will choose bounded access for the entire binding predicate.
+Read-only random_page_cost=1 probing also failed; global planner tuning is rejected.
+
+Add only five missing three-key partial btrees, largest-first, on
+(provider_account_ref_id, business_id, provider_account_id), preserving the
+full FK and its additional provider predicate where applicable. Verify raw key
+types UUID/TEXT/TEXT, non-nullability, default opclasses/collations, valid/ready/live
+index state, validated nondeferrable RESTRICT lineage and enabled internal RI
+triggers. Adopt matching existing indexes; refuse conflicting/invalid names.
+No existing index is dropped/rebuilt, no FK is disabled/replaced and erasure
+locks, pages, deadlines, authority and atomic rollback remain unchanged.
+
+Only these five exact contracts use a12x measured complete unique single-UUID PK
+coverage reserve plus the unchanged40GiB residual floor. The validated full FK
+links the bounded existing child keys to the small parent: refuse a parent heap
+above8MiB, more than1024 parent rows, owner text over36 octets, account text
+over24 octets or missing width evidence. This bounds ordinary three-key entries
+to approximately100 bytes, including the index tuple and page item headers.
+The reserve is a conservative build/sort/WAL admission model, not a measurement
+of future index size; it does not authorize arbitrary TEXT indexes or growth.
+Fresh physical telemetry remains mandatory in production and every refusal is
+non-overridable. D155/D156/D157 models, ordinary rewrite reserves and163GiB
+admission budget remain unchanged. Future keys and writes still use the existing
+provider identity validation; this narrow migration does not redefine them.
+
+Canonical erasure coverage remains56 actual migrated PostgreSQL cases. Its
+populated shared-account test now requires all three searchable identity keys
+in the actual generic RI plan, then proves foreign bytes and provider identity
+preservation after the selected tenant's erase. Additive schema/width/coverage
+and physical-refusal tests cover each new contract. Before DELETE, require
+47 existing contracts, five full-binding contracts, the four state-run plans and
+52 full account-binding custom/generic plans with constrained leading access.
+No tests, indices, build or healthy worker state establish erasure completion;
+terminal success and independent full absence must still pass for Hali before Vornom.
+Code rollback preserves additive indexes. Erased data/archive objects cannot be
+restored by code rollback; no shared DR backup/WAL or forensic erase is authorized.

@@ -270,3 +270,25 @@ and [page item identifiers](https://github.com/postgres/postgres/blob/REL_16_STA
 Distinct live UUID primary keys require separate entries; old versions of one
 key may be deduplicated. The coverage proof rejects partial or incomplete
 primary indexes. Fresh measured free space and the floor remain mandatory.
+
+## D158 complete binding keys
+
+The D157 release is exact live, but20 of52 full account-binding plans still
+choose broad access on five native relations. A catalog comparison formatting
+error was corrected independently; the leading-key failure is real. Do not
+call D157 complete erasure and do not repeat DELETE on that evidence.
+[D158](../creative-decision-center/DECISION_LOG.md#d158--complete-account-binding-key-access-for-erasure-2026-10-09)
+adds five typed three-key btrees in the existing schema helper. Full business
+and account identity equality becomes searchable with the leading account UUID.
+Full FK/provider rechecks, writer exclusion and rollback remain mandatory.
+The five exact contracts require finite parent/width evidence and their separate
+fresh12x complete UUID-PK capacity model plus the same40GiB floor. All other
+models and163GiB growth admission remain unchanged. No rebuild or global
+planner change is authorized. Live52-plan acceptance and terminal/full absence
+are separate from56-case canonical PostgreSQL validation.
+
+The model uses PostgreSQL16's [leading equality rules](https://www.postgresql.org/docs/16/indexes-multicolumn.html),
+[default btree fillfactor and key semantics](https://www.postgresql.org/docs/16/sql-createindex.html)
+and the header/layout sources cited above. It bounds current referenced keys
+through their validated small parent and refuses unbounded keys; it is not a
+measured future index or physical storage reclamation claim.

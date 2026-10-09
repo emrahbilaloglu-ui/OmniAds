@@ -13,7 +13,7 @@ import { upsertSyncGateRecord } from "@/lib/sync/release-gates";
 import { heartbeatSyncWorker } from "@/lib/sync/worker-health";
 import { buildRuntimeContract, upsertRuntimeContractInstance } from "@/lib/sync/runtime-contract";
 import { NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION } from "@/lib/creative-decision-engine/ad-operator-response-detection";
-import { BUSINESS_ERASURE_REFERENCE_INDEXES, BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL, ensureBusinessErasureReferenceIndexes } from "@/lib/business-deletion-reference-indexes";
+import { BUSINESS_ERASURE_REFERENCE_INDEXES, BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL, BUSINESS_ERASURE_FULL_BINDING_INDEXES, ensureBusinessErasureReferenceIndexes } from "@/lib/business-deletion-reference-indexes";
 import { assertBusinessErasureScalarIndexCapacity, releaseGateProviderScopeIsCurrent, runReleaseGateProviderScopeMigration } from "@/lib/migrations";
 import { BUSINESS_ERASURE_STATE_RUN_BOUNDS, BUSINESS_ERASURE_STATE_RUN_INDEX, ensureBusinessErasureStateRunIndex } from "@/lib/business-deletion-state-run-index";
 
@@ -134,7 +134,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       WHERE business_ref_id=${otherId}::uuid ORDER BY id`).toEqual(parentsBefore);
   });
 
-  it("uses a leading account UUID for full generic binding RI and preserves another tenant sharing that account", async () => {
+  it("uses all three binding keys for generic RI and preserves another tenant sharing that account", async () => {
     const db = new Client({connectionString:process.env.DATABASE_URL}); await db.connect();
     let addedReference = false;
     try {
@@ -158,10 +158,11 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
             WHERE $1=x.business_id AND $2=x.provider_account_ref_id AND $3=x.provider_account_id FOR KEY SHARE OF x`);
           const {rows:[quoted]} = await db.query("SELECT quote_literal($1::text) AS business,quote_literal($2::text) AS ref,quote_literal($3::text) AS account",[target.business,account.ref,account.id]);
           const {rows:[plan]} = await db.query(`EXPLAIN (FORMAT JSON) EXECUTE binding_ri(${quoted.business}::text,${quoted.ref}::uuid,${quoted.account}::text)`);
-          const contract = BUSINESS_ERASURE_REFERENCE_INDEXES.find(e => e.table===table && e.column==="provider_account_ref_id")!;
+          const contract = BUSINESS_ERASURE_FULL_BINDING_INDEXES.find(e => e.table===table)!;
           const nodes: Record<string,unknown>[] = [];
           const walk = (n: Record<string,unknown>) => { nodes.push(n); for(const c of (n.Plans??[]) as Record<string,unknown>[]) walk(c); }; walk(plan["QUERY PLAN"][0].Plan);
-          expect(nodes.some(n => n["Index Name"]===contract.index && /provider_account_ref_id\s*=/.test(String(n["Index Cond"])))).toBe(true);
+          expect(nodes.some(n => n["Index Name"]===contract.index
+            && ["provider_account_ref_id","business_id","provider_account_id"].every(k => new RegExp(`(?:^|[^a-z0-9_])${k}\\s*=`).test(String(n["Index Cond"]))))).toBe(true);
           expect(nodes.some(n => ["Seq Scan","Bitmap Heap Scan"].includes(String(n["Node Type"])))).toBe(false);
         } finally { await db.query("DEALLOCATE binding_ri"); await db.query("ROLLBACK"); }
       }

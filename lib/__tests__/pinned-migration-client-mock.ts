@@ -99,6 +99,13 @@ const ERASURE_REFERENCE_FIXTURE = new Set([
   "meta_raw_snapshots.checkpoint_id:idx_biz_erase_fk_aea32a54dfa8",
 ]);
 const normalizeSql = (text: string) => text.replace(/\s+/g, " ").trim();
+const ERASURE_FULL_BINDING_FIXTURE = new Set([
+  "engine_v3_ad_decision_evaluations:idx_biz_erase_binding_evaluation_full",
+  "engine_v3_ad_decision_snapshots_daily:idx_biz_erase_binding_snapshot_full",
+  "engine_v3_ad_decision_evaluation_contexts:idx_biz_erase_binding_eval_context_full",
+  "engine_v3_ad_account_calibration_daily:idx_biz_erase_binding_cal_daily_full",
+  "engine_v3_ad_decision_events:idx_biz_erase_binding_event_full",
+]);
 
 /**
  * Wrap a suite's own capturing `sql` mock in the `withPinnedDbClient` callback
@@ -148,6 +155,11 @@ export function pinnedMigrationClientOver(
         // Explicit responses, including malformed measurements, are never
         // replaced with a healthy fixture. Real guards must still reject them.
         if (Array.isArray(delegated) && delegated.length === 0) {
+          if (statement.includes("AS full_binding_shape_valid") && statement.includes("AS full_binding_lineage_valid")
+            && params?.length===3 && ERASURE_FULL_BINDING_FIXTURE.has(`${params[0]}:${params[1]}`)
+            && JSON.stringify(params[2])===JSON.stringify(["provider_account_ref_id","business_id","provider_account_id"])) {
+            return {rows:[{full_binding_shape_valid:true,full_binding_lineage_valid:true,lookup_ready:true,named_index_conflict:false}]};
+          }
           if (statement.includes("AS lineage_valid") && statement.includes("idx_biz_erase_state_run_lineage")
             && JSON.stringify(params?.[0]) === JSON.stringify(["run_id", "business_ref_id", "provider_account_ref_id", "entity_type", "captured_at", "run_completeness"])
             && JSON.stringify(params?.[1]) === JSON.stringify([

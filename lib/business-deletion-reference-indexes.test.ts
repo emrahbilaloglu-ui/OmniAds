@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
-import { BUSINESS_ERASURE_REFERENCE_INDEXES, ensureBusinessErasureReferenceIndexes } from "@/lib/business-deletion-reference-indexes";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { BUSINESS_ERASURE_REFERENCE_INDEXES, BUSINESS_ERASURE_FULL_BINDING_INDEXES, ensureBusinessErasureReferenceIndexes, ensureBusinessErasureFullBindingIndexes } from "@/lib/business-deletion-reference-indexes";
+import { assertBusinessErasureFullBindingIndexCapacity } from "@/lib/migrations";
 
 const first = BUSINESS_ERASURE_REFERENCE_INDEXES[0];
 const healthy = { relation_kind: "r", key_type: 2950, reference_foreign_key: true, lookup_ready: true, named_index_conflict: false };
@@ -83,5 +84,67 @@ describe("additive whole-business FK access schema", () => {
     sql.query.mockImplementation(async (q, params) => { if (q.startsWith("CREATE")) throw Error("DDL failed"); return [{ ...healthy, key_type: params?.[3] === "hash" ? 17 : 2950, lookup_ready: false }]; });
     await expect(ensureBusinessErasureReferenceIndexes(sql as never, vi.fn())).rejects.toThrow("DDL failed");
     expect(sql.query.mock.calls.every(([q]) => !q.startsWith("DROP"))).toBe(true);
+  });
+});
+
+describe("full-binding physical capacity and key bounds",()=>{
+  afterEach(()=>vi.unstubAllEnvs());
+  const relation="public.engine_v3_ad_decision_evaluations",floor=40*1024**3;
+  function capacityFixture(input:{parent?:unknown;lengths?:unknown[];pk?:unknown;available?:number;age?:number}={}){
+    return {query:vi.fn(async(q:string)=>{
+      if(q.includes("AS full_binding_parent_bytes"))return [{parent_bytes:input.parent??"8192"}];
+      if(q.includes("octet_length(business_id)"))return input.lengths??[{business_bytes:36,account_bytes:24}];
+      if(q.includes("AS account_binding_full_pk_bytes"))return input.pk===null?[]:[{relation_bytes:input.pk??"8192",database_bytes:"1048576"}];
+      if(q.includes("FROM (SELECT to_regclass('system_capacity_snapshots')"))return [{payload:{disks:[{path:"/var/lib/postgresql",availableBytes:input.available??floor+8192*12}]},age_seconds:input.age??0}];
+      throw Error("Unexpected capacity query");
+    })};
+  }
+  it("uses full UUID PK coverage and the same40GiB floor with the larger12x tuple reserve",async()=>{
+    vi.stubEnv("NODE_ENV","production");const sql=capacityFixture();
+    expect((await assertBusinessErasureFullBindingIndexCapacity(sql,relation)).engaged).toBe(true);
+    expect(sql.query.mock.calls.some(([q])=>q.includes("pg_total_relation_size"))).toBe(false);
+  });
+  it.each([{parent:"8388609"},{parent:"-1"},{parent:true},{lengths:Array.from({length:1025},()=>({business_bytes:36,account_bytes:20}))},
+    {lengths:[{business_bytes:37,account_bytes:20}]},{lengths:[{business_bytes:36,account_bytes:25}]}])("refuses unbounded parent/key evidence %j before size reservation",async input=>{
+    const sql=capacityFixture(input);
+    await expect(assertBusinessErasureFullBindingIndexCapacity(sql,relation)).rejects.toThrow(/parent_census_refused|key_width_refused/);
+    expect(sql.query.mock.calls.some(([q])=>q.includes("AS account_binding_full_pk_bytes"))).toBe(false);
+  });
+  it.each([{pk:null},{available:floor+8192*12-1},{age:901}])("refuses missing coverage or fresh physical headroom %j even with an override",async input=>{
+    vi.stubEnv("NODE_ENV","production");vi.stubEnv("ADSECUTE_MIGRATION_CAPACITY_OVERRIDE","cannot bypass");
+    await expect(assertBusinessErasureFullBindingIndexCapacity(capacityFixture(input),relation)).rejects.toThrow(/primary_coverage_refused|migration_capacity_refused/);
+  });
+});
+
+describe("complete account-binding lookup admission", () => {
+  const healthyFull = {full_binding_shape_valid:true,full_binding_lineage_valid:true,lookup_ready:true,named_index_conflict:false};
+  it("keeps usable full-binding indexes without DDL or new capacity reservations", async () => {
+    const sql={query:vi.fn(async()=>[healthyFull])},admit=vi.fn();
+    expect(await ensureBusinessErasureFullBindingIndexes(sql as never,admit)).toEqual({built:[],verified:5});
+    expect(admit).not.toHaveBeenCalled();
+  });
+  it("adds only missing exact three-key indexes after their independent capacity admission", async () => {
+    const built=new Set<string>(),admit=vi.fn();
+    const query=vi.fn(async(q:string,p?:unknown[])=>{
+      if(q.startsWith("CREATE")){built.add(BUSINESS_ERASURE_FULL_BINDING_INDEXES.find(e=>q.includes(e.index))!.table);return [];}
+      return [{...healthyFull,lookup_ready:built.has(String(p?.[0]))}];
+    });
+    expect((await ensureBusinessErasureFullBindingIndexes({query} as never,admit)).built).toEqual(BUSINESS_ERASURE_FULL_BINDING_INDEXES.map(e=>e.index));
+    for(const e of BUSINESS_ERASURE_FULL_BINDING_INDEXES)expect(admit).toHaveBeenCalledWith(`public.${e.table}`);
+    expect(query.mock.calls.filter(([q])=>q.startsWith("CREATE")).every(([q])=>q.includes("(provider_account_ref_id, business_id, provider_account_id) WHERE provider_account_ref_id IS NOT NULL"))).toBe(true);
+  });
+  it.each([{full_binding_shape_valid:false},{full_binding_lineage_valid:false},{named_index_conflict:true},{lookup_ready:"true"}])("rejects malformed full FK/index evidence %j before mutation",async change=>{
+    const sql={query:vi.fn(async()=>[{...healthyFull,...change}])},admit=vi.fn();
+    await expect(ensureBusinessErasureFullBindingIndexes(sql as never,admit)).rejects.toThrow("full_binding_index_contract");
+    expect(admit).not.toHaveBeenCalled();
+  });
+  it("does not build after physical refusal",async()=>{
+    const query=vi.fn(async()=>[{...healthyFull,lookup_ready:false}]);
+    await expect(ensureBusinessErasureFullBindingIndexes({query} as never,async()=>{throw Error("physical refusal");})).rejects.toThrow("physical refusal");
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+  it("requires post-DDL usability",async()=>{
+    const query=vi.fn(async(q:string)=>q.startsWith("CREATE")?[]:[{...healthyFull,lookup_ready:false}]);
+    await expect(ensureBusinessErasureFullBindingIndexes({query} as never,async()=>{})).rejects.toThrow("full_binding_index_not_ready");
   });
 });

@@ -58,6 +58,89 @@ export const BUSINESS_ERASURE_REFERENCE_INDEXES = [
   { table: "engine_v3_ad_decision_evaluations", column: "campaign_context_ref", index: "idx_biz_erase_campaign_reference", method: "hash" },
 ] as const;
 
+/** D158: the five live full-binding RI plans that still preferred a broad
+ * owner/id-prefix index over D157's single UUID key. Keep all identity equality
+ * predicates as searchable keys; no existing index or FK is replaced. */
+export const BUSINESS_ERASURE_FULL_BINDING_INDEXES = [
+  { table: "engine_v3_ad_decision_evaluations", index: "idx_biz_erase_binding_evaluation_full" },
+  { table: "engine_v3_ad_decision_snapshots_daily", index: "idx_biz_erase_binding_snapshot_full" },
+  { table: "engine_v3_ad_decision_evaluation_contexts", index: "idx_biz_erase_binding_eval_context_full" },
+  { table: "engine_v3_ad_account_calibration_daily", index: "idx_biz_erase_binding_cal_daily_full" },
+  { table: "engine_v3_ad_decision_events", index: "idx_biz_erase_binding_event_full" },
+] as const;
+export const BUSINESS_ERASURE_FULL_BINDING_KEYS = [
+  "provider_account_ref_id", "business_id", "provider_account_id",
+] as const;
+
+export const BUSINESS_ERASURE_FULL_BINDING_STATUS_SQL = `
+ WITH target AS (SELECT c.oid,c.relkind,c.relispartition
+   FROM pg_class c WHERE c.oid=to_regclass(format('public.%I',$1::text))),
+ keys AS (SELECT k.name,k.ord,a.attnum,a.atttypid,a.attnotnull,a.attcollation
+   FROM target c CROSS JOIN unnest($3::text[]) WITH ORDINALITY k(name,ord)
+   LEFT JOIN pg_attribute a ON a.attrelid=c.oid AND a.attname=k.name AND a.attnum>0 AND NOT a.attisdropped),
+ usable AS (SELECT i.indexrelid,i.indnkeyatts,i.indnatts
+   FROM target c JOIN pg_index i ON i.indrelid=c.oid
+   JOIN pg_class ix ON ix.oid=i.indexrelid JOIN pg_am am ON am.oid=ix.relam
+   WHERE am.amname='btree' AND i.indisvalid AND i.indisready AND i.indislive
+     AND i.indexprs IS NULL AND i.indnkeyatts>=3
+     AND (i.indpred IS NULL OR pg_get_expr(i.indpred,i.indrelid)='(provider_account_ref_id IS NOT NULL)')
+     AND NOT EXISTS(SELECT 1 FROM keys k
+       LEFT JOIN pg_opclass op ON op.oid=i.indclass[(k.ord-1)::int]
+       WHERE i.indkey[(k.ord-1)::int] IS DISTINCT FROM k.attnum
+         OR op.opcdefault IS DISTINCT FROM true
+         OR i.indcollation[(k.ord-1)::int] IS DISTINCT FROM k.attcollation))
+ SELECT c.relkind='r' AND NOT c.relispartition AND current_setting('block_size')='8192'
+   AND (SELECT count(*)=3 AND bool_and(attnotnull) AND
+     array_agg(atttypid::int ORDER BY ord)=ARRAY[2950,25,25] FROM keys) AS full_binding_shape_valid,
+   EXISTS(SELECT 1 FROM pg_constraint f WHERE f.conrelid=c.oid AND f.contype='f'
+     AND f.convalidated AND NOT f.condeferrable AND f.confdeltype='r'
+     AND f.confrelid='public.business_provider_accounts'::regclass
+     AND ARRAY(SELECT a.attname::text FROM unnest(f.conkey) WITH ORDINALITY x(n,o)
+       JOIN pg_attribute a ON a.attrelid=f.conrelid AND a.attnum=x.n ORDER BY x.o)
+       IN (ARRAY['business_id','provider_account_ref_id','provider_account_id'],
+           ARRAY['business_id','provider','provider_account_ref_id','provider_account_id'])
+     AND ARRAY(SELECT a.attname::text FROM unnest(f.confkey) WITH ORDINALITY x(n,o)
+       JOIN pg_attribute a ON a.attrelid=f.confrelid AND a.attnum=x.n ORDER BY x.o)
+       =ARRAY(SELECT a.attname::text FROM unnest(f.conkey) WITH ORDINALITY x(n,o)
+         JOIN pg_attribute a ON a.attrelid=f.conrelid AND a.attnum=x.n ORDER BY x.o)
+     AND (SELECT count(*)=4 AND bool_and(t.tgisinternal AND t.tgenabled IN ('O','A'))
+       FROM pg_trigger t WHERE t.tgconstraint=f.oid)) AS full_binding_lineage_valid,
+   EXISTS(SELECT 1 FROM usable) AS lookup_ready,
+   EXISTS(SELECT 1 FROM pg_class named WHERE named.oid=to_regclass(format('public.%I',$2::text))
+     AND NOT EXISTS(SELECT 1 FROM usable u WHERE u.indexrelid=named.oid
+       AND u.indnkeyatts=3 AND u.indnatts=3)) AS named_index_conflict
+ FROM target c`;
+
+type FullBindingCatalog = {
+  full_binding_shape_valid: boolean; full_binding_lineage_valid: boolean;
+  lookup_ready: boolean; named_index_conflict: boolean;
+};
+
+export async function ensureBusinessErasureFullBindingIndexes(
+  sql: Pick<DbClient, "query">, admit: (relation: string) => Promise<unknown>,
+) {
+  const built: string[] = [];
+  for (const entry of BUSINESS_ERASURE_FULL_BINDING_INDEXES) {
+    const read = async () => {
+      const rows = await sql.query(BUSINESS_ERASURE_FULL_BINDING_STATUS_SQL,
+        [entry.table,entry.index,[...BUSINESS_ERASURE_FULL_BINDING_KEYS]]) as FullBindingCatalog[];
+      const row = rows.length===1 ? rows[0] : undefined;
+      if (!row || row.full_binding_shape_valid!==true || row.full_binding_lineage_valid!==true
+        || typeof row.lookup_ready!=="boolean" || row.named_index_conflict!==false) {
+        throw new Error(`business_erasure_full_binding_index_contract:${entry.table}`);
+      }
+      return row;
+    };
+    if ((await read()).lookup_ready) continue;
+    await admit(`public.${entry.table}`);
+    await sql.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS ${entry.index}
+      ON public.${entry.table} (${BUSINESS_ERASURE_FULL_BINDING_KEYS.join(", ")}) WHERE provider_account_ref_id IS NOT NULL`);
+    if (!(await read()).lookup_ready) throw new Error(`business_erasure_full_binding_index_not_ready:${entry.table}`);
+    built.push(entry.index);
+  }
+  return {built,verified:BUSINESS_ERASURE_FULL_BINDING_INDEXES.length};
+}
+
 // A valid raw leading key satisfies these scalar catalog contracts; actual
 // compound RI plans still need independent acceptance (see D156). A full FK is not
 // required. Only an absent index is built. Unknown/invalid named indexes are

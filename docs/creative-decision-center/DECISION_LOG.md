@@ -13408,3 +13408,96 @@ monotonic paged execution and owned-input absence. Existing shared-input and
 registry/unknown-child protections still run. Local/CI success is preparation;
 live terminal success and full independent absence remain required, Halıcızade
 before Vornom. Code rollback cannot restore committed erasure.
+
+
+## D162 — Finite background erasure budget after complete input cleanup (2026-10-09)
+
+The tenth actual Halıcızade UI request on0f44cfc8a6f1cf34748e4be9546f68d33d1566dd
+returned202/queued and then terminal failed. Sanitized telemetry records
+1,200,078ms total elapsed and failure in `provider_identity_gc`, after completing
+all1,001,786 input keys in335,506ms. D161 improved the input traversal, but
+completing that phase is not completing the business erasure.420 scope-presence
+checks,15 business roots, foreign membership/connection/guard digests and all
+128 provider registry row digests independently verify rollback. Vornom and
+its archive remain untouched.
+
+Bounded live EXPLAIN without ANALYZE verifies400-key input deletion and GLOBAL
+evaluation-reference probes as constrained PK/leading-index access. A20-sample
+SET/SELECT-only live read measured0.219ms mean setup cost. Neither a new index
+nor timeout-setup caching is justified as the remedy by these observations.
+
+The human explicitly approved changing only the pinned web-owned background
+erasure total deadline from20 to30 minutes, with testing and live publication.
+Direct internal calls keepfour minutes. Individual PostgreSQL statements still
+use the shorter of30 seconds and remaining absolute deadline;1500ms lock cap,
+all finite row/page/key bounds, GLOBAL shared-content proof, active-work
+refusal, writer exclusion, full FK/guard verification and one atomic transaction
+remain. This allows at mostten extra minutes of writer/history-read exclusion
+for an explicitly requested whole-business erase; it is not an unbounded job,
+HTTP/proxy timeout change, new index, maintenance or ordinary pruning authority.
+No production data or provider work is forced during validation.
+
+Canonical erasure coverage becomes62 actual migrated PostgreSQL cases. Thetwo
+new late-phase fixtures advance only Date.now at actual provider-candidate
+cleanup: a20-minute-plus elapsed background operation commits complete erasure
+while keeping server caps at30 seconds; a30-minute-plus operation rolls back
+prior owned removals and preserves foreign business bytes. Existing real server
+statement cancellation, remaining-deadline rollback, lock release, shared input
+and unknown-child protections still run. These fixtures simulate elapsed time,
+not a30-minute PostgreSQL wait.
+
+30 minutes is a finite approved budget, not proven live completion. Canonical
+local checks, PR/main CI and exact web/worker images precede one normal UI
+request. Actual terminalOK plus full independent absence and foreign-preservation
+proof remain mandatory, Halıcızade before Vornom. A failed/queued job, healthy
+worker or passing CI is not erasure or capacity relief. Code rollback restores
+the20-minute bound but cannot restore committed erasure.
+
+
+## D163 — Immediate user offboarding, application-owned physical erasure (2026-10-09)
+
+The human requires ordinary users to see the business removed immediately after
+an authorized DELETE is durably accepted. Physical erasure, its duration and
+failures are Adsecute operator responsibilities. The user must not wait for a
+30-minute transaction, poll an erasure receipt or receive technical cleanup
+progress. Logical removal is not proof of physical absence for release owners.
+
+Add nullable `business_deletion_jobs.hidden_at` without rewriting business rows
+or hiding existing failed attempts. A newly authorized enqueue commits this
+marker before HTTP 202; idempotent existing work gains the marker as well. Normal
+membership authorization, business lists, active selection and team workspace
+choices exclude marked jobs regardless of queued/running/failed status. A failed
+physical transaction retains the marker and operator error; it does not restore
+user access. Existing unmarked failed attempts stay visible until a new DELETE.
+
+The primary UI closes its confirmation, removes business-scoped browser/store
+state and shows `Business removed.` on durable acceptance. It performs no
+physical-status polling. Its list reconciliation rejects older in-flight rows
+for the just-removed ID and preserves foreign preferences. Reload/bootstrap uses
+the same server visibility rule. Legacy and Manage clients leave immediately.
+Only existing superadmin routes expose job status/error and can retry hidden
+failed erasure; no new credentials, privileges or automatic provider work.
+The signed status receipt remains available for independently authorized
+operator acceptance, and root/job removal still commits only after full erasure.
+
+D162's finite 30-minute background budget, four-minute direct bound, 30-second
+statement and 1500ms lock caps remain. Physical ownership, protected history,
+shared references, archive and guard proofs are unchanged. The new marker grants
+no backup/WAL destruction or physical-storage claim. It disappears with the job
+and root on complete erasure, leaving no completed tombstone.
+
+Canonical full-schema erasure coverage is 63 actual PostgreSQL cases: the new
+legacy-failure case proves additive nullable rollout and authorized transition;
+existing durable enqueue and actual rollback cases now prove immediate hidden
+membership/list state, foreign access and non-resurrection on failure. Mounted
+UI tests prove immediate removal, closed dialog, foreign browser preservation,
+no status polling, stale-read rejection and reload behavior. These prove logical
+offboarding only; terminal OK plus scoped physical absence and foreign byte
+preservation are still required before proceeding from Halicizade to Vornom.
+
+Rollback: keep the additive nullable column and server visibility filters for
+already accepted removals. A UI-only revert must not reintroduce waiting or
+unhide failed jobs. Reverting the background budget to 20 minutes preserves the
+marker and requires operator handling of any resulting failed erase. An older
+image that ignores the marker can restore visible access and is not an accepted
+rollback after any D163 removal. No rollback can restore a committed erasure.

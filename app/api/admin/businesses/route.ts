@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       sql.query(`
         SELECT
           b.id, b.name, b.created_at, b.plan_override, b.is_demo_business,
+          dj.status AS deletion_status, dj.error_code AS deletion_error, dj.hidden_at AS removed_at,
           u.id AS owner_id, u.name AS owner_name, u.email AS owner_email,
           ss.plan_id, ss.status AS subscription_status,
           COUNT(DISTINCT m.user_id) AS member_count,
@@ -46,8 +47,9 @@ export async function GET(request: NextRequest) {
         LEFT JOIN shopify_subscriptions ss ON ss.business_id = b.id AND ss.status = 'active'
         LEFT JOIN memberships m ON m.business_id = b.id AND m.status = 'active'
         LEFT JOIN provider_connections pc ON pc.business_id = b.id::text AND pc.status = 'connected'
+        LEFT JOIN business_deletion_jobs dj ON dj.business_ref_id=b.id
         ${where}
-        GROUP BY b.id, u.id, ss.plan_id, ss.status
+        GROUP BY b.id, u.id, ss.plan_id, ss.status, dj.business_ref_id
         ORDER BY b.created_at DESC
         LIMIT $${limitIdx} OFFSET $${offsetIdx}
       `, listParams),

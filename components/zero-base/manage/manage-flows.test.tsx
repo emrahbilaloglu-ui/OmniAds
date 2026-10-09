@@ -8,6 +8,8 @@
  * server said, not what the collection now contains.
  */
 import React from "react";
+
+vi.mock("next/navigation", () => ({useRouter: () => ({push: vi.fn(),refresh: vi.fn()})}));
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
 

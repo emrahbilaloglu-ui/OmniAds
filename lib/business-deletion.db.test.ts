@@ -7,6 +7,7 @@ import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, s
 import { getDb, runDbTransaction, runPinnedDbTransaction, withPinnedDbClient } from "@/lib/db";
 import { BUSINESS_ERASURE_LOCK_NAMESPACE, BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL, BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
 import { enqueueBusinessDeletion, runBusinessDeletionWorkerTick } from "@/lib/business-deletion-jobs";
+import { listUserBusinesses, findMembership } from "@/lib/access-membership";
 import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory } from "@/lib/business-deletion-control-receipts";
 import { deleteBusinessNativeEvaluations } from "@/lib/business-deletion-native-evaluations";
 import { upsertSyncGateRecord } from "@/lib/sync/release-gates";
@@ -538,11 +539,30 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     } finally { await getDb().query("UPDATE engine_v3_job_runs SET status='success' WHERE id=ANY($1::uuid[])",[jobs.map(j=>j.id)]); }
   });
 
+  it("keeps a legacy failed attempt visible until a new authorized offboarding, without rewriting its business",async()=>{
+    const {businessId,otherId,userId}=await fixture();
+    await getDb()`INSERT INTO business_deletion_jobs(business_ref_id,attempt_id,status)
+      VALUES(${businessId},${randomUUID()},'failed')`;
+    const [before]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${businessId}`;
+    expect((await listUserBusinesses(userId)).map(b=>b.id)).toContain(businessId);
+    expect(await findMembership({userId,businessId})).not.toBeNull();
+    await enqueueBusinessDeletion(businessId);
+    expect((await listUserBusinesses(userId)).map(b=>b.id)).toEqual([otherId]);
+    expect(await findMembership({userId,businessId})).toBeNull();
+    const [after]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${businessId}`;
+    expect(after).toEqual(before);
+    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
+    expect(await remains(businessId)).toBe(false);
+  });
+
   it("durably queues once, performs erasure on the pinned worker backend and removes the job in the same commit", async () => {
     const {businessId,otherId,userId}=await fixture();
     const first=await enqueueBusinessDeletion(businessId),again=await enqueueBusinessDeletion(businessId);
     expect(first.status).toBe("queued");expect(again.attempt_id).toBe(first.attempt_id);
     expect(await remains(businessId)).toBe(true);
+    expect((await listUserBusinesses(userId)).map(b=>b.id)).toEqual([otherId]);
+    expect(await findMembership({userId,businessId})).toBeNull();
+    expect(await findMembership({userId,businessId:otherId})).not.toBeNull();
     const foreign=await getDb()`SELECT * FROM memberships WHERE business_id=${otherId}`;
     expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
     expect(await remains(businessId)).toBe(false);
@@ -552,7 +572,7 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
   });
 
   it("marks a rolled-back job failed and retries only after a fresh authorized enqueue", async () => {
-    const {businessId}=await fixture();
+    const {businessId,otherId,userId}=await fixture();
     await getDb()`CREATE TABLE business_delete_job_fk_fixture(member_id uuid REFERENCES memberships(id) ON DELETE RESTRICT)`;
     await getDb()`INSERT INTO business_delete_job_fk_fixture SELECT id FROM memberships WHERE business_id=${businessId}`;
     const first=await enqueueBusinessDeletion(businessId);
@@ -561,6 +581,9 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       expect(await remains(businessId,"memberships","business_id")).toBe(true);
       const [job]=await getDb()`SELECT * FROM business_deletion_jobs WHERE business_ref_id=${businessId}`;
       expect(job!.status).toBe("failed");
+      expect(job!.hidden_at).not.toBeNull();
+      expect((await listUserBusinesses(userId)).map(b=>b.id)).toEqual([otherId]);
+      expect(await findMembership({userId,businessId})).toBeNull();
       expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"idle"});
     } finally { await getDb()`DROP TABLE business_delete_job_fk_fixture`; }
     const retry=await enqueueBusinessDeletion(businessId);
@@ -647,6 +670,41 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       await deleteBusinessWithData(businessId,{client:wrapped as never});
     },{timeoutMs:30_000});
     expect(observed).toBe(true);expect(await remains(businessId)).toBe(false);
+  });
+
+  it.each([
+    { elapsedMs:20*60_000+1000, completes:true },
+    { elapsedMs:30*60_000+1000, completes:false },
+  ])("keeps the background erase finite after a simulated $elapsedMs elapsed milliseconds",async({elapsedMs,completes})=>{
+    const {businessId,otherId}=await fixture();
+    const [foreignBefore]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${otherId}::uuid`;
+    const realNow=Date.now.bind(Date);
+    let advanced=false;
+    const caps:number[]=[];
+    await withPinnedDbClient(async client=>{
+      const clock=vi.spyOn(Date,"now").mockImplementation(()=>realNow()+(advanced?elapsedMs:0));
+      const wrapped={query:async(text:string,params?:unknown[])=>{
+        const cap=/^SET statement_timeout = (\d+)$/.exec(text);
+        if(cap)caps.push(Number(cap[1]));
+        // Advance only at the real late provider-identity phase, after owned
+        // rows/input work. PostgreSQL still executes every statement normally.
+        if(text.startsWith("SELECT id::text FROM business_erasure_provider_candidates"))advanced=true;
+        return client.query(text,params);
+      }};
+      try {
+        const erase=deleteBusinessWithData(businessId,{client:wrapped as never});
+        if(completes)await erase;
+        else await expect(erase).rejects.toThrow("deadline exceeded");
+      } finally {clock.mockRestore();}
+    },{timeoutMs:30_000});
+    expect(advanced).toBe(true);
+    expect(caps.length).toBeGreaterThan(0);
+    expect(caps.every(ms=>ms>0&&ms<=30_000)).toBe(true);
+    for(const [table,column]of [["businesses","id"],["memberships","business_id"],
+      ["business_provider_accounts","business_id"],["meta_entity_observation_runs","business_ref_id"]])
+      expect(await remains(businessId,table,column)).toBe(!completes);
+    const [foreignAfter]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${otherId}::uuid`;
+    expect(foreignAfter).toEqual(foreignBefore);
   });
 
   it("enforces the pinned transaction statement cap and absolute deadline, rolling back before the backend is reused",async()=>{

@@ -1,8 +1,11 @@
 # Complete business data deletion — 2026-10-08
 
 Both authenticated DELETE routes enqueue durable web-owned erasure under D154
-and return HTTP 202. That acknowledgement is pending, never success. The
-completion endpoint and an independent authorized-list read must prove absence.
+and commit user offboarding under D163 before returning HTTP 202. The ordinary
+user sees the business removed immediately and continues working. Physical
+erasure is an operator responsibility; only the signed completion endpoint and
+independent scoped reads prove stored absence. A hidden business list entry
+proves logical offboarding, never physical erasure.
 A completed response means the business and its owned application records have been removed,
 including retained decisions, frozen labels, calibrations, protected action
 history, indirect report copies and the optional normalization archive. D153 is
@@ -83,7 +86,7 @@ disabling them globally made the real 4,096-row page time out in canonical CI.
 The real page-limit rollback case verifies that FK probe's indexed plan under
 the actual DELETE settings without raising its eight-second query cap.
 The complete operation permits at most 4,194,304
-evaluations and uses a 20-minute background deadline (four minutes for direct internal callers); bounds roll back all
+evaluations and uses a 30-minute background deadline (D162) (four minutes for direct internal callers); bounds roll back all
 prior pages. Erasure alone disables JIT in its transaction. The server statement
 timeout is capped by both the 30-second query limit and remaining transaction
 deadline, so an application timeout cannot leave a longer-running statement
@@ -102,8 +105,17 @@ Bitmap/Seq Scan or materialization; continuation requires the tuple seek in its
 index condition. Captured keys are complete before this traversal begins and
 writers remain excluded. GLOBAL references are still checked on every page,
 shared input content is preserved and only processed temporary keys are removed.
-Unsafe page plans roll back every preceding business/input mutation. The query
-cap, total deadline, pages, ownership bounds, guards and FKs are unchanged.
+Unsafe page plans roll back every preceding business/input mutation. At D161 the query cap, total deadline, pages, ownership bounds, guards and FKs
+were unchanged. D162 subsequently changes only the approved background total
+deadline from20 to30 minutes, following actual full-input-cleanup completion
+and total-deadline rollback in provider-identity cleanup. Direct internal
+callers remain bounded tofour minutes and every PostgreSQL statement to30
+seconds or the remaining deadline, whichever is shorter. The lock cap, pages,
+row bounds, GLOBAL reference proof, guards/FKs, writer exclusion and single
+atomic rollback remain unchanged. Local fixtures advance only the application
+clock at the real late provider phase: completion beyond20 minutes remains
+allowed, while exceeding30 minutes rolls back all earlier owned-row removal
+and preserves foreign businesses. No new index or maintenance is authorized.
 
 Indirect custom-report shares and identifying admin-audit entries are removed.
 Derived cross-business retention/release/repair receipts containing the exact
@@ -222,9 +234,11 @@ physical refusal stops publication without bypass or automatic cleanup/rebuild.
 Local tests do not establish successful live migration, erasure or a reopened
 growth gate. Fresh pre/post target and foreign-scope proofs remain required.
 
-Manage Business rereads the authoritative list and requires target absence
-before clearing local data or showing success. Active-workspace switching uses
-that fresh list and distinguishes switch failure from deletion failure.
+Under D163, Manage Business clears the removed scope and closes its dialog as
+soon as durable user offboarding is accepted. It reconciles the visible list
+without waiting for physical erasure. The server excludes marked jobs from
+authorization, lists and active selection even after a background failure.
+Physical completion and retry are separate superadmin/operator responsibilities.
 
 Release requires canonical local checks, exact-head CI, exact main CI/images and
 canonical deployment without break glass. Deployment alone deletes nothing.
@@ -340,3 +354,22 @@ acceptance must require UUID-leading access for every large binding child;
 only the explicitly measured campaign-label and retained-lineage heaps below
 1MiB may retain constrained owner-leading access. A preparation receipt is not
 terminal completion; all prior selected/foreign proofs remain required.
+
+
+## D163 user visibility and operator responsibility
+
+Nullable `business_deletion_jobs.hidden_at` is set durably by authorized enqueue
+before acknowledgement. Normal membership authorization, business lists, active
+selection and team workspace choices omit marked businesses even after a failed
+physical rollback. Unmarked historical failures stay visible until newly
+accepted offboarding. Existing superadmin APIs retain status/error visibility
+and retry authority. The primary UI clears the removed scope and closes its
+confirmation on 202 without waiting, polling or exposing physical cleanup.
+Stale in-flight list responses cannot restore the removed row; reload uses the
+server rule. The signed terminal receipt remains an operator acceptance tool.
+
+Full-schema coverage becomes 63 actual erasure cases and pins immediate hidden
+access, failure non-resurrection, preserved foreign access and legacy rollout.
+The 30-minute background limit and all physical erasure bounds remain intact.
+Rollback must preserve hidden markers and visibility filters for already
+accepted removals; an older image that ignores them is not an accepted rollback.

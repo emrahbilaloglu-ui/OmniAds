@@ -40,7 +40,7 @@ export async function findMembershipResult(input: {
   businessId: string;
 }): Promise<{ schemaReady: boolean; membership: MembershipRecord | null }> {
   const readiness = await getDbSchemaReadiness({
-    tables: ["memberships"],
+    tables: ["memberships", "business_deletion_jobs"],
   }).catch(() => null);
   if (!readiness?.ready) {
     return { schemaReady: false, membership: null };
@@ -50,6 +50,8 @@ export async function findMembershipResult(input: {
     SELECT id, user_id, business_id, role, status, joined_at
     FROM memberships
     WHERE user_id = ${input.userId} AND business_id = ${input.businessId}
+      AND NOT EXISTS (SELECT 1 FROM business_deletion_jobs j
+        WHERE j.business_ref_id=memberships.business_id AND j.hidden_at IS NOT NULL)
     LIMIT 1
   `) as Array<{
     id: string;
@@ -96,7 +98,7 @@ export async function listUserBusinesses(userId: string): Promise<
   }>
 > {
   const readiness = await getDbSchemaReadiness({
-    tables: ["memberships", "businesses"],
+    tables: ["memberships", "businesses", "business_deletion_jobs"],
   }).catch(() => null);
   if (!readiness?.ready) {
     return [];
@@ -117,6 +119,8 @@ export async function listUserBusinesses(userId: string): Promise<
     FROM memberships m
     JOIN businesses b ON b.id = m.business_id
     WHERE m.user_id = ${userId}
+      AND NOT EXISTS (SELECT 1 FROM business_deletion_jobs j
+        WHERE j.business_ref_id=b.id AND j.hidden_at IS NOT NULL)
     ORDER BY b.created_at ASC
   `) as Array<{
     id: string;

@@ -1,5 +1,5 @@
 {
-  "manifestHash": "964c3f5df11219ac80201ce57bd56e41e759dba74178e8cb1cbf583a3d951aee",
+  "manifestHash": "fd305af36046bceada616bce1f06666a41c943273756583d58903cdb3d004b60",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -148,23 +148,27 @@
     },
     {
       "path": "app/(dashboard)/select-business/page.test.tsx",
-      "sha256": "3cdff6a0dd939b8b81eabb49d99f57bae6ff72bbe904389560514d66a01dbc10"
+      "sha256": "fd5a926de811ec7ff20fdee2d8769d7f63fabadd0976b1db4beca38227f6a3a2"
     },
     {
       "path": "app/(dashboard)/select-business/page.tsx",
-      "sha256": "f02516e924c37bfb2bc03a0b3ef4518eab7eceb38771d3ac892fc79463c8a39a"
+      "sha256": "a46406eb29be1fab148ab05d8a5d511cc5d5395b9fd1e1f01802092a6b96fd5e"
     },
     {
       "path": "app/admin/businesses/[businessId]/legacy-page.tsx",
-      "sha256": "81f4a95d9a678d673e691f1e61ad099c4b1bc65b69d49a4a0cae3eeb477a1c20"
+      "sha256": "80c71c0f1e6ae513747adb9f01fa297df8731122f32541e91df309fd304d35fa"
     },
     {
       "path": "app/admin/businesses/legacy-page.tsx",
-      "sha256": "f32a9933477af1c6e9c5b642bb2d61de4a2f9b232883a051a26c034234ad2728"
+      "sha256": "a6c15cc4be30eff0eca55b698ffa9a4fb384b2d175fe613a0b8c0e88de616fd8"
     },
     {
       "path": "app/api/admin/businesses/[businessId]/route.ts",
-      "sha256": "f164e013d2839b6061e4f56028d4d74188ccc420cabb7afd2d2a885ae335489e"
+      "sha256": "ab184c4e318758166d1210857bb7949cd200daf0fb03a27310fa22772dac0141"
+    },
+    {
+      "path": "app/api/admin/businesses/route.ts",
+      "sha256": "2248aa4249e4b0995d7565b3c41cc22d4da5db599a1576c051c8c4b562d6d4f3"
     },
     {
       "path": "app/api/business-commercial-settings/route.test.ts",
@@ -780,7 +784,11 @@
     },
     {
       "path": "components/zero-base/manage/manage-clients.tsx",
-      "sha256": "8cf881565a49a23cbc42a476462f347587249d17fa814d6f51ceeddb312938fb"
+      "sha256": "e1da0f0c863f0cc87460c1d006140921a9e7b4b890725a2c7ebbe8c2295aff3e"
+    },
+    {
+      "path": "components/zero-base/manage/manage-flows.test.tsx",
+      "sha256": "ede98c21dfe3f80aba3198d2fffaff1d85f1ef92e7a8d41d468a08b986ea3f11"
     },
     {
       "path": "components/zero-base/manage/manage-views.tsx",
@@ -804,7 +812,7 @@
     },
     {
       "path": "docs/architecture/business-deletion-repair.md",
-      "sha256": "da8f22b49afe17975610ba524f439842da209d2184a52aa484cdb96f45b0b76d"
+      "sha256": "8a9dff6c3889f66b5ec3e7fa0235f6d8f0f2436fcf3a4bdc7d03624f69f18390"
     },
     {
       "path": "docs/architecture/migration-replay-worker-recovery.md",
@@ -860,7 +868,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "613d004c3429402d99e917ad88bff6c0501c92624c05fd308d8e66686f251f63"
+      "sha256": "3b67b0dd90e59bad0f7e4ce868d4b11070a770b2a17b3eaf785a780dcc3af1a1"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -896,7 +904,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "1415bfc0518016df02422e9ce0420dd4938fb451e2c27ef16f96bb35823476d0"
+      "sha256": "83b37af127873c2224929c21b633f1dd6bf623ddeb001f70fdc0c6631d06670a"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -908,7 +916,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "a466dc27e4a6760c6ef97f9681acf2c70c585628e9413b4313cd5b60c3be3942"
+      "sha256": "3af326dbb533e06828ada9108b73a785f22f54d3747331ed6ad9b43d1a15ef88"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -971,6 +979,14 @@
       "sha256": "2c7cf24ed55b926f1a4148eeaaf902bc2bc9eb8136d78d6ecc1fecd414a6c064"
     },
     {
+      "path": "lib/access-membership.ts",
+      "sha256": "1b1f3d337d1502c09275393bd9a1880ce8b8fb4af53d5f051d4fba9c91983e2e"
+    },
+    {
+      "path": "lib/account-store.ts",
+      "sha256": "906d5ef641b1fab04abf1b4ce68f4e9861cecdf02354e0c2859942a2f35872f7"
+    },
+    {
       "path": "lib/api/meta-link-click-source.test.ts",
       "sha256": "bd5726991a4efabe8ad6786b4621cfdde91611c249fe5c166417a88d0b504a7e"
     },
@@ -984,11 +1000,11 @@
     },
     {
       "path": "lib/business-deletion-client.test.ts",
-      "sha256": "f6f4746d415fc587d91ace5ea75b0c4f8dffdd4756b170095d4c74914dd0ddee"
+      "sha256": "0970855505a398548cabf75105da075a9b91a6bc567c419c19c97dbfa190f45c"
     },
     {
       "path": "lib/business-deletion-client.ts",
-      "sha256": "a0dfd3f225ee55eccfaefcfd323adc9ddb1c682ef1014b3d9a22e1b81dc70bd1"
+      "sha256": "05162895c1ebcbedc7828d663d2fac4ee5ebfc1df3cb75c74096655bfb2efd52"
     },
     {
       "path": "lib/business-deletion-control-receipts.ts",
@@ -1004,7 +1020,7 @@
     },
     {
       "path": "lib/business-deletion-jobs.ts",
-      "sha256": "d10e727789a99f783bfc4590f45154d645ace52e11afb35a584f78159485eb2c"
+      "sha256": "39d8a05056983afad3c4d15e70ccd56084116548fd9456b93dfd2f43b968a861"
     },
     {
       "path": "lib/business-deletion-native-evaluations.ts",
@@ -1048,11 +1064,11 @@
     },
     {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "afe3e4a65a2bbcfb24143e63cf9ad1925a5e5597960fff9bb3137f444f78be90"
+      "sha256": "bf24983c74f5bccf89266c1a6fec224c5cd9a7c0bf9c7fefd02ab5ed8159c4fc"
     },
     {
       "path": "lib/business-deletion.ts",
-      "sha256": "0da7ba3ee723ec7bad242f628ea70af007feb5f6ee67e477966c3d05b8336574"
+      "sha256": "d071a9c0494f03b3110ca9b6da961114589a2b623864710f2587d759b3072532"
     },
     {
       "path": "lib/client-auth-state.test.ts",
@@ -1060,7 +1076,7 @@
     },
     {
       "path": "lib/client-auth-state.ts",
-      "sha256": "d2e22f6dd8dfc03f263f55fbddddd32af3641e4fbca29dac15f8109a05e6e38d"
+      "sha256": "8f419e00a1d9428167a2c0c3cea8e6c58bc9431865eed8020b42ab342aadf084"
     },
     {
       "path": "lib/creative-decision-center/__tests__/v3-bridge.test.ts",
@@ -2628,7 +2644,7 @@
     },
     {
       "path": "lib/migrations.ts",
-      "sha256": "e4435022e2828ce5ece36ef42fb5041d285a81616ffca6ed0082c00df4941986"
+      "sha256": "214c2e70d043bac4ffbd8e8582864308acf562819a07f339519d21e625d39173"
     },
     {
       "path": "lib/overview-summary-support.test.ts",
@@ -2964,7 +2980,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "ffc10c9e76b43a4dccd70cdfd08f140ccb0676cdeef9e183dc3166ee85643c5a"
+      "sha256": "001d060a3f20614100198ad371909937c8e2b82e133a2a4f28a2332fee0a9f90"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

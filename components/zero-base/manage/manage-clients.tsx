@@ -1,6 +1,8 @@
 "use client";
 
-import { awaitBusinessDeletion } from "@/lib/business-deletion-client";
+import { acceptBusinessDeletion } from "@/lib/business-deletion-client";
+import { removeBusinessClientState } from "@/lib/client-auth-state";
+import { useRouter } from "next/navigation";
 
 /**
  * Data boundaries for the Manage routes.
@@ -710,6 +712,7 @@ export function TeamClient({ businessId, role }: { businessId: string; role: str
 }
 
 export function BusinessClient({ businessId, role }: { businessId: string; role: string | null }) {
+  const router = useRouter();
   const [economics, setEconomics] = useState<EconomicsField[]>([]);
   const [costModel, setCostModel] = useState<AdaptedCostModel | null>(null);
   const [costState, setCostState] = useState<{ pending: boolean; error: string | null; confirmed: string | null }>({
@@ -837,7 +840,15 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
     }).catch(() => null);
     const refusal = !response?.ok ? await response?.json().catch(() => null) as { message?: string } | null : null;
     if (response?.ok) {
-      try { await awaitBusinessDeletion(businessId, await response.json().catch(() => ({}))); }
+      try {
+        const accepted = acceptBusinessDeletion(await response.json().catch(() => ({})));
+        if (accepted === "accepted") {
+          removeBusinessClientState(businessId);
+          router.push("/select-business");
+          router.refresh();
+          return;
+        }
+      }
       catch (error) {
         setOutcome({ kind: "unknown", detail: error instanceof Error ? error.message : "The deletion status could not be confirmed." });
         return;
@@ -863,7 +874,7 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
         observeError: observed === null ? "The confirming read failed." : null,
       }),
     );
-  }, [businessId]);
+  }, [businessId, router]);
 
   /**
    * Save name and currency.

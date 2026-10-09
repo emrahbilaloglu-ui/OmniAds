@@ -1,5 +1,5 @@
 import { afterEach,describe,expect,it,vi } from "vitest";
-import { awaitBusinessDeletion } from "./business-deletion-client";
+import { acceptBusinessDeletion, awaitBusinessDeletion } from "./business-deletion-client";
 
 afterEach(()=>{vi.unstubAllGlobals();});
 describe("background deletion confirmation",()=>{
@@ -25,5 +25,16 @@ describe("background deletion confirmation",()=>{
   it("does not infer completion from an unreadable status endpoint",async()=>{
     vi.stubGlobal("fetch",vi.fn().mockResolvedValue({ok:false,json:async()=>({})}));
     await expect(awaitBusinessDeletion("biz",{status:"running",monitorTicket:"fixture"},undefined,{pollMs:1})).rejects.toThrow("may still be running");
+  });
+});
+
+describe("ordinary user offboarding acknowledgement",()=>{
+  it("accepts durable queued/running immediately without confusing them with physical completion",()=>{
+    const fetcher=vi.fn();vi.stubGlobal("fetch",fetcher);
+    expect(acceptBusinessDeletion({status:"queued"})).toBe("accepted");
+    expect(acceptBusinessDeletion({status:"running"})).toBe("accepted");
+    expect(acceptBusinessDeletion({status:"ok"})).toBe("completed");
+    expect(fetcher).not.toHaveBeenCalled();
+    for(const status of [undefined,"failed","unknown"])expect(()=>acceptBusinessDeletion({status})).toThrow("could not be confirmed");
   });
 });

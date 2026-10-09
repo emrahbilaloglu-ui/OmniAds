@@ -346,7 +346,7 @@ export async function revokeAllUserSessions(userId: string): Promise<void> {
 
 export async function listOwnedWorkspaces(userId: string): Promise<Array<{ id: string; name: string }>> {
   const readiness = await getDbSchemaReadiness({
-    tables: ["businesses", "memberships"],
+    tables: ["businesses", "memberships", "business_deletion_jobs"],
   }).catch(() => null);
   if (!readiness?.ready) {
     return [];
@@ -357,6 +357,7 @@ export async function listOwnedWorkspaces(userId: string): Promise<Array<{ id: s
     FROM businesses b
     JOIN memberships m ON m.business_id = b.id
     WHERE m.user_id = ${userId} AND m.role = 'admin' AND m.status = 'active'
+      AND NOT EXISTS (SELECT 1 FROM business_deletion_jobs j WHERE j.business_ref_id=b.id AND j.hidden_at IS NOT NULL)
     ORDER BY b.name ASC
   `) as Array<{ id: string; name: string }>;
 }
@@ -366,7 +367,7 @@ export async function getMemberWorkspaces(
   adminUserId: string,
 ): Promise<Array<{ business_id: string; business_name: string; role: MembershipRole }>> {
   const readiness = await getDbSchemaReadiness({
-    tables: ["memberships", "businesses"],
+    tables: ["memberships", "businesses", "business_deletion_jobs"],
   }).catch(() => null);
   if (!readiness?.ready) {
     return [];
@@ -378,6 +379,7 @@ export async function getMemberWorkspaces(
     JOIN businesses b ON b.id = m.business_id
     WHERE m.user_id = ${memberUserId}
       AND m.status = 'active'
+      AND NOT EXISTS (SELECT 1 FROM business_deletion_jobs j WHERE j.business_ref_id=b.id AND j.hidden_at IS NOT NULL)
       AND EXISTS (
         SELECT 1 FROM memberships am
         WHERE am.user_id = ${adminUserId}

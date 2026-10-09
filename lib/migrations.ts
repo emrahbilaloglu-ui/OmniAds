@@ -4489,6 +4489,9 @@ export async function runMigrations(options?: {
           started_at TIMESTAMPTZ,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+          // Existing failed attempts stay visible until a new authorized DELETE.
+          // New offboarding commits this marker before returning HTTP 202.
+          sql`ALTER TABLE business_deletion_jobs ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ`,
           sql`CREATE TABLE IF NOT EXISTS creative_share_snapshots (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           token       TEXT NOT NULL UNIQUE,

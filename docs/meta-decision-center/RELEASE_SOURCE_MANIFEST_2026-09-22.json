@@ -1,5 +1,5 @@
 {
-  "manifestHash": "1647c77e91746f6ae2e60842a8466b4372510e0dfaece8e9b63e196a6eaa2835",
+  "manifestHash": "af8b75de6ffe7f0642f368a1cdaffe26fbd6ba4b95def76bed387718b3b9814a",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -976,7 +976,7 @@
     },
     {
       "path": "lib/__tests__/pinned-migration-client-mock.ts",
-      "sha256": "2c7cf24ed55b926f1a4148eeaaf902bc2bc9eb8136d78d6ecc1fecd414a6c064"
+      "sha256": "67ee247e7f086f0055808a8d0f3aecb3673973f27a9e73a5c9e767e3be63dfa7"
     },
     {
       "path": "lib/access-membership.ts",

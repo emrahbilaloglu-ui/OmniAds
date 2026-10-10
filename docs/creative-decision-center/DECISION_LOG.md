@@ -13753,3 +13753,71 @@ must precede one new authorized physical attempt. Halıcızade terminal success
 and full independent absence must still precede Vornom offboarding. Revert this
 narrow cap/test amendment to restore D167 behavior; hidden markers and additive
 indexes remain. A code revert cannot restore committed physical deletion.
+
+## D169 — Automatic archive offboarding with owner-only cleanup (2026-10-10)
+
+After selected-business erasure was physically accepted on926562a6cc8bb712348f700b4b849c2e4bdf12e6,
+the owner explicitly requested automatic archive cleanup and live release. This
+replaces the ordinary deletion job's manual archive prerequisite; it grants no
+provider writes, current-generation authority, maintenance, DR/WAL destruction
+or authority to delete another existing business as a test.
+
+Use one durable `business_deletion_jobs` saga and the D163 immediate202 hiding/
+access boundary. A separate archive-only process in the SAME exact worker image
+owns the writable native-archive and small control mount. Web reads both mounts
+read-only; the provider worker has neither. The role has no provider dispatch,
+network endpoint, Docker socket or privileged flag. Canonical deployment and
+cutover quiescence must account for it as an additional writer.
+
+Persist a complete, bounded, crypto-authenticated plan with all served/inactive
+catalogs, selected ciphertext and current full-row digests of every archived input
+key before publication/unlink. Publish only filtered immutable metadata preserving
+foreign ciphertext/leaf bytes, atomically select it via a deployment-base-bound
+content-addressed pointer, purge the exact owned copies, verify complete absence,
+then allow the existing web-owned database transaction to run. Every historical
+read reloads the pointer before cache admission and retains digest, original-row,
+crypto/worker and no-current-authority checks. Malformed pointers refuse; they
+never fall back to an old deleted catalog. Missing initial pointer means base
+configuration only during first activation, before any archive offboarding.
+
+The additive nullable `archive_state`, constant-default `archive_attempts` and
+nullable `erasure_started_at` columns hold the frozen plan and recovery state.
+Archive and DB roles share the existing global pinned-session advisory exclusion.
+Serialize the entire oldest job, including owner-blocked failures: a later saga
+must not collect a key needed by an earlier persisted plan. Seed the existing
+400-key temporary keyset with frozen archived-only keys after exact typed-PK
+indexed reads and full-row drift checks. Existing GLOBAL hot-reference proof,
+writer exclusion, every FK/guard, atomic DB rollback and foreign preservation
+remain. A missing/changed/new input cannot inherit a prior source fingerprint.
+
+Bounds:256 total filesystem entries,16MiB metadata,16384 archived keys,120s
+archive phase,256MiB app-filesystem staging reserve; the archive phase consumes
+the SAME30m absolute background deadline. No planner/index/operation-budget
+relaxation. Source/config/ownership drift, orphan ciphertext and unknown metadata
+fail closed for the owner. Exact interrupted metadata writes and persisted
+publication/unlink plans resume without rediscovering already destroyed input
+evidence. Automatic process-loss recovery is finite; explicit owner retry retains
+the plan and resets counters/start. Root commit cascades the checkpoint/job;
+there is no completed-business tombstone or customer cleanup receipt.
+
+DELETE returns only acknowledgement. `deletion-status` GET and POST retry require
+a current `requireAdmin` application-superadmin check; old ordinary-user signed
+receipts confer no status/retry access. Customers do not poll cleanup, receive
+technical failures, or regain access when the job fails. Owner API/job state and
+anonymous role health/logs carry progress and intervention requirements.
+
+Require real filesystem/crypto interrupted-write/publication/unlink tests,
+foreign historical-reader continuity, ordinary-user denial, plus migrated real
+PostgreSQL archived-only GC, GLOBAL shared preservation, drift rollback, durable
+recovery, queue serialization and aggregate-deadline/exclusion tests. Keep all67
+existing deletion cases, including actual121s root and remaining-budget server
+cancellation. Exact canonical QA/CI/images/deployment and a bounded temporary
+unbound synthetic business with actual automatic archive removal are separate
+acceptance steps; synthetic history never proves new Meta generation/freshness.
+
+After destructive publication, rollback stops/disables the archive processor but
+retains the pointer-aware reader, current immutable metadata and additive columns.
+Do not restore an older static-only reader pointing to purged catalogs, reopen
+hidden business access, recreate erased rows, or claim database file shrink or
+growth admission from SQL DELETE. Shared disaster-recovery backups remain outside
+this application-native archive boundary.

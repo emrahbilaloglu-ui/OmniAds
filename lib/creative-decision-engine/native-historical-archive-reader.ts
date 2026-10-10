@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { resolveBusinessArchiveConfiguration } from "@/lib/business-archive-configuration";
 import { open } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
@@ -99,8 +100,9 @@ export async function readNativeHistoricalAdEvidence(request: NativeHistoricalEv
   if (process.env[NATIVE_HISTORICAL_READER_GATE] !== "true") return { status: "disabled", reason: "native_historical_reader_disabled" };
   try {
     return await controls.read(request, async signal => {
-      const filename = process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_PATH;
-      const catalogDigest = process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_SHA256;
+      const archiveConfiguration = await resolveBusinessArchiveConfiguration();
+      const filename = archiveConfiguration.catalogPath;
+      const catalogDigest = archiveConfiguration.catalogSha256;
       const keyId = process.env.ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_ID;
       const keyHex = process.env.ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_HEX;
       const accessKeyId = process.env.ENGINE_V3_NATIVE_ARCHIVE_S3_ACCESS_KEY_ID;
@@ -115,8 +117,8 @@ export async function readNativeHistoricalAdEvidence(request: NativeHistoricalEv
       let metadataIdentity: string[] | undefined;
       let packaged: Awaited<ReturnType<typeof readPackagedNativeHistoricalWorker>>;
       if (process.env[NATIVE_HISTORICAL_ROUTING_GATE] === "true") {
-        const directory = process.env.ENGINE_V3_NATIVE_ARCHIVE_ROUTING_ROOT;
-        const rootSha256 = process.env.ENGINE_V3_NATIVE_ARCHIVE_ROUTING_ROOT_SHA256;
+        const directory = archiveConfiguration.routingDirectory;
+        const rootSha256 = archiveConfiguration.rootSha256;
         if (transport !== "filesystem" || !directory || !rootSha256) throw new Error("Explicit filesystem routing configuration absent");
         packaged = await readPackagedNativeHistoricalWorker();
         const resolved = await metadataRouter.resolve(request, { directory, rootSha256, legacySha256: catalogDigest,
@@ -132,7 +134,7 @@ export async function readNativeHistoricalAdEvidence(request: NativeHistoricalEv
       // A changed catalog, key, credential policy or compiled validator cannot inherit a cache.
       const configurationFingerprint = createHash("sha256").update(JSON.stringify([
         catalogDigest, keyId, keyHex, transport, localRoot, accessKeyId, secretAccessKey, packaged.sha256,
-        ...(metadataIdentity ? [NATIVE_HISTORICAL_ROUTING_GATE, process.env.ENGINE_V3_NATIVE_ARCHIVE_ROUTING_ROOT, metadataIdentity] : []),
+        ...(metadataIdentity ? [NATIVE_HISTORICAL_ROUTING_GATE, archiveConfiguration.routingDirectory, metadataIdentity] : []),
       ])).digest("hex");
       return { configurationFingerprint, entry, work: {
         download: async (object, signal) => {

@@ -1364,6 +1364,27 @@ assert_stopped() {
   esac
 }
 
+# Archive offboarding is a third database writer even though it has no provider
+# dispatch. Include it in every zero-writer window and enable/rollback boundary.
+stop_archive_erasure() {
+  local declared
+  declared="$(docker compose --profile business-erasure config --services)" || die "archive role inventory failed"
+  if printf '%s\n' "${declared}" | grep -qx archive-erasure; then
+    docker compose --profile business-erasure stop archive-erasure || die "archive role did not stop"
+    assert_stopped archive-erasure
+  fi
+}
+start_archive_erasure() {
+  if [ -f .env.native-archive ] && grep -qx 'BUSINESS_ARCHIVE_ERASURE_ENABLED=true' .env.native-archive; then
+    APP_IMAGE_TAG="${EXPECTED_SHA}" APP_BUILD_ID="${EXPECTED_SHA}" \
+      docker compose --profile business-erasure up -d --no-deps --force-recreate archive-erasure || return 1
+    local actual expected
+    expected="$(expected_image_for worker)"
+    actual="$(docker inspect "$(docker compose ps -q archive-erasure)" --format '{{.Config.Image}}')"
+    [ "${actual}" = "${expected}" ] || return 1
+  fi
+}
+
 # ── F21.6: the fingerprint ─────────────────────────────────────────────────
 #
 # Three row counts could not tell an expand-only migration from one that swapped
@@ -2553,6 +2574,7 @@ rollback_enable() {
     log "restored the disabled env file from ${DISABLED_ENV_BACKUP}"
   fi
   docker compose stop autoheal >/dev/null 2>&1 || true
+  stop_archive_erasure
   docker compose stop web worker >/dev/null 2>&1 || true
   scheduler_stop "${SCHEDULER}" >/dev/null 2>&1 || true
   state_chain_drop deploy-disabled enable resume-scheduler
@@ -2729,6 +2751,7 @@ case "${PHASE}" in
     log "Stopping autoheal, then web, then worker"
     docker compose stop autoheal || true
     assert_stopped autoheal
+    stop_archive_erasure
     docker compose stop web worker || true
     assert_stopped web
     assert_stopped worker
@@ -3264,6 +3287,7 @@ case "${PHASE}" in
       SYNC_WORKER_STAGING_IDLE= \
       docker compose up -d --force-recreate web worker \
       || rollback_enable "docker compose could not recreate both containers"
+    start_archive_erasure || rollback_enable "archive offboarding role could not restart"
 
     wait_for "/healthz" 30 2 healthz_answers \
       || rollback_enable "/healthz did not answer after recreate"
@@ -3353,6 +3377,7 @@ case "${PHASE}" in
     log "EMERGENCY: stopping scheduler (${SCHEDULER}), autoheal, web, worker"
     scheduler_stop "${SCHEDULER}" || true
     docker compose stop autoheal || true
+    stop_archive_erasure
     docker compose stop web worker || true
     failed=0
     for service in autoheal web worker; do

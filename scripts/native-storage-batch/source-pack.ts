@@ -23,6 +23,8 @@ export const PINNED_LIBRARY_FILES = ["lib/creative-decision-engine/canonical-eva
   "lib/creative-decision-engine/native-reference-archive-segments.ts", "lib/creative-decision-engine/native-historical-archive.ts",
   "lib/creative-decision-engine/native-historical-local-store.ts", "lib/creative-decision-engine/native-historical-catalog-routing.ts",
   "lib/creative-decision-engine/native-historical-catalog-routing-store.ts", "lib/creative-decision-engine/native-historical-archive-reader.ts",
+  // D169: pointer selection is part of the exact historical-reader trust boundary.
+  "lib/business-archive-configuration.ts",
   "lib/creative-decision-engine/native-historical-archive-worker.ts", "lib/creative-decision-engine/native-historical-archive-worker-client.ts",
   "lib/creative-decision-engine/native-historical-read-controls.ts", "lib/sync/db-growth-fence.ts", "lib/db.ts", "lib/migrations.ts",
   "scripts/run-migrations.ts", "scripts/build-native-historical-worker.mjs",

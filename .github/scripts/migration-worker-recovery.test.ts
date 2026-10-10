@@ -26,7 +26,7 @@ function run(input: {
   migrationStatus?: number; initiallyRunning?: boolean; missingWorker?: boolean;
   changedWorker?: boolean; startFails?: boolean; stopFails?: boolean; gateRefuses?: boolean; signal?: boolean; activeMigrator?: boolean;
   coordinatorRecovery?: boolean;
-  nextPurpose?: boolean; recoveryId?: string;
+  nextPurpose?: boolean; recoveryId?: string; archiveRole?: boolean; archiveInventoryFails?: boolean;
 }) {
   const directory = mkdtempSync(join(tmpdir(), "migration-worker-recovery-"));
   directories.push(directory);
@@ -37,6 +37,7 @@ function run(input: {
     Mounts: [], State: { Running: input.initiallyRunning ?? true, Health: { Status: "healthy" } },
   };
   writeFileSync(state, JSON.stringify(original)); writeFileSync(calls, "");
+  if(input.archiveRole)writeFileSync(join(directory,".env.native-archive"),"BUSINESS_ARCHIVE_ERASURE_ENABLED=true\n");
   const phaseStart = remote.indexOf("  run_migrations)\n");
   const phaseEnd = remote.indexOf("\n    ;;", phaseStart);
   if (phaseStart < 0 || phaseEnd < 0) throw new Error("actual migration phase absent");
@@ -45,7 +46,8 @@ function run(input: {
   const recoveryEnd = remote.indexOf("\n    ;;", recoveryStart);
   const recoveryPhase = recoveryStart < 0 ? "  recover_migration_worker) return 88 ;;" : remote.slice(recoveryStart, recoveryEnd + 7);
   const functions = ["migration_worker_identity", "migration_worker_state_file", "persist_previous_migration_worker",
-    "restore_previous_migration_worker", "recover_stored_migration_worker", "run_migrations_with_worker_recovery"]
+    "restore_previous_migration_worker", "recover_stored_migration_worker", "run_migrations_with_worker_recovery",
+    "archive_erasure_configured", "stop_archive_erasure_if_declared"]
     .map(actualFunction).join("\n");
   const script = `
 set -Eeuo pipefail
@@ -58,12 +60,17 @@ rootcron_assert_quiesced() { printf 'cron-quiesced\\n' >> "$CALLS"; }
 docker() {
   printf 'docker %s\\n' "$*" >> "$CALLS"
   case "$1" in
-    compose) if [ "$MISSING_WORKER" != true ] && [ "$2" = ps ] && [ "\${@: -1}" = worker ]; then printf '%s\\n' '${workerId}'; fi
+    compose) if [[ "$*" == 'compose --profile business-erasure config --services' ]];then
+        [ "$ARCHIVE_INVENTORY_FAILS" != true ] || return 91
+        printf 'worker\\n';if [ "$ARCHIVE_ROLE" = true ];then printf 'archive-erasure\\n';fi
+      fi
+      if [[ "$*" == 'compose --profile business-erasure ps -a -q archive-erasure' ]] && [ "$ARCHIVE_ROLE" = true ];then printf '%s\\n' '${"c".repeat(64)}';fi
+      if [ "$MISSING_WORKER" != true ] && [ "$2" = ps ] && [ "\${@: -1}" = worker ]; then printf '%s\\n' '${workerId}'; fi
       if [ "$2" = ps ] && [ "\${@: -1}" = migrate ] && [ "$ACTIVE_MIGRATOR" = true ]; then printf '%s\\n' fake-active-migrate; fi
       if [ "$2" = stop ]; then change_state stop; fi ;;
     inspect) if [[ "$*" == *'.State.Health'* ]]; then printf healthy; else cat "$STATE"; fi ;;
     stop) [ "$STOP_FAILS" != true ] || return 9; change_state stop ;;
-    start) [ "$START_FAILS" != true ] || return 17; change_state start ;;
+    start) [ "$START_FAILS" != true ] || return 17; if [ "$2" != '${"c".repeat(64)}' ];then change_state start;fi ;;
     *) return 88 ;;
   esac
 }
@@ -94,7 +101,8 @@ esac
     env: { ...process.env, TEST_PHASE: "run_migrations", DEPLOY_WORKER_RECOVERY_ID: input.recoveryId ?? "12345-1", STATE: state, CALLS: calls, MIGRATION_STATUS: String(input.migrationStatus ?? 42),
       MISSING_WORKER: String(input.missingWorker ?? false), CHANGED_WORKER: String(input.changedWorker ?? false),
       START_FAILS: String(input.startFails ?? false), STOP_FAILS: String(input.stopFails ?? false),
-      GATE_REFUSES: String(input.gateRefuses ?? false), SIGNAL: String(input.signal ?? false), ACTIVE_MIGRATOR: String(input.activeMigrator ?? false) },
+      GATE_REFUSES: String(input.gateRefuses ?? false), SIGNAL: String(input.signal ?? false), ACTIVE_MIGRATOR: String(input.activeMigrator ?? false),
+      ARCHIVE_ROLE:String(input.archiveRole??false),ARCHIVE_INVENTORY_FAILS:String(input.archiveInventoryFails??false) },
   } as const;
   const result = spawnSync("bash", ["-c", script], options);
   // A second process exercises the actual persisted interface the multi-host
@@ -109,6 +117,17 @@ esac
 }
 
 describe("actual migration phase restores only its own previous worker on failure", () => {
+  it("quiesces the archive role before worker migration and recovers its exact existing container through the coordinator",()=>{
+    const r=run({archiveRole:true,coordinatorRecovery:true});
+    expect(r.status).toBe(42);expect(r.coordinator?.status).toBe(0);
+    expect(r.calls.indexOf("docker compose --profile business-erasure stop archive-erasure")).toBeLessThan(r.calls.indexOf("migration"));
+    expect(r.calls.filter(x=>x===`docker start ${"c".repeat(64)}`)).toHaveLength(1);
+    expect(r.calls.some(x=>/docker (?:pull|compose up)/.test(x))).toBe(false);
+  });
+  it("fails closed before stopping workers or migrating when archive writer inventory is unavailable",()=>{
+    const r=run({archiveInventoryFails:true});expect(r.status).toBe(1);expect(r.state.State.Running).toBe(true);
+    expect(r.calls.some(x=>x==="migration"||x.startsWith("docker stop ")||x.startsWith("docker start "))).toBe(false);
+  });
   it("preserves the failed migration status and starts the exact existing worker once", () => {
     const r = run({});
     expect(r.status).toBe(42);

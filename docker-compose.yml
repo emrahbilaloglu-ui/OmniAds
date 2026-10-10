@@ -43,6 +43,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env.production
+      - path: .env.native-archive
+        required: false
     environment:
       APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
       CAMPAIGN_CONTEXT_MODE: ${CAMPAIGN_CONTEXT_MODE:-automatic}
@@ -51,6 +53,8 @@ services:
       HOSTNAME: 0.0.0.0
     ports:
       - "127.0.0.1:3000:3000"
+    volumes:
+      - ./business-erasure-control:/run/adsecute-business-erasure:ro
     healthcheck:
       test:
         - CMD
@@ -101,6 +105,34 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 45s
+
+  # Same immutable worker image, one archive-only command. No provider dispatch,
+  # Docker socket, privileged mode, ports or writable host paths beyond these
+  # two offboarding directories. Ordinary web archive mounts remain read-only.
+  archive-erasure:
+    profiles: [business-erasure]
+    image: ${WORKER_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-worker}:${APP_IMAGE_TAG:-dev-build}
+    restart: unless-stopped
+    stop_grace_period: 150s
+    env_file:
+      - .env.production
+      - path: .env.native-archive
+        required: false
+    environment:
+      APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
+      NODE_ENV: production
+      SYNC_WORKER_MODE: "1"
+      BUSINESS_ARCHIVE_ERASURE_ROLE: "1"
+    command: ["node", "--import", "tsx", "scripts/business-archive-erasure-worker.ts"]
+    volumes:
+      - ./native-archive:/run/adsecute-native-archive:rw
+      - ./business-erasure-control:/run/adsecute-business-erasure:rw
+    healthcheck:
+      test: ["CMD", "node", "--import", "tsx", "scripts/business-archive-erasure-healthcheck.ts"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
       start_period: 45s
 
   # Same image as `worker`, different command — so it takes the SAME repository

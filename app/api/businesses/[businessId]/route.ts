@@ -4,7 +4,6 @@ import { requireBusinessAccess } from "@/lib/access";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { BusinessDeletionError } from "@/lib/business-deletion";
 import { businessDeletionFailureMessage, enqueueBusinessDeletion } from "@/lib/business-deletion-jobs";
-import { issueBusinessDeletionTicket } from "@/lib/business-deletion-ticket";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { resolveRequestLanguage } from "@/lib/request-language";
@@ -162,9 +161,10 @@ export async function DELETE(
   }
 
   try {
-    const monitorTicket = issueBusinessDeletionTicket(request.cookies.get("omniads_session")?.value ?? "", businessId, access.session.sessionId);
     const job = await enqueueBusinessDeletion(businessId);
-    return NextResponse.json({ status: job.status, monitorTicket }, { status: 202 });
+    // The customer is offboarded at this durable acknowledgement. Cleanup
+    // status and errors belong to the application owner, not this client.
+    return NextResponse.json({ status: job.status }, { status: 202 });
   } catch (error) {
     if (error instanceof BusinessDeletionError) return NextResponse.json({ error: error.code,
       message: businessDeletionFailureMessage(error.code, language === "tr", error.tables) }, {

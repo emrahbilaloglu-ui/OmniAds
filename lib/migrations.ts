@@ -4492,6 +4492,11 @@ export async function runMigrations(options?: {
           // Existing failed attempts stay visible until a new authorized DELETE.
           // New offboarding commits this marker before returning HTTP 202.
           sql`ALTER TABLE business_deletion_jobs ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ`,
+          // Nullable checkpoints are additive; the job/root cascade removes
+          // them on complete erasure. No completed business tombstone remains.
+          sql`ALTER TABLE business_deletion_jobs ADD COLUMN IF NOT EXISTS archive_state JSONB`,
+          sql`ALTER TABLE business_deletion_jobs ADD COLUMN IF NOT EXISTS archive_attempts INTEGER NOT NULL DEFAULT 0`,
+          sql`ALTER TABLE business_deletion_jobs ADD COLUMN IF NOT EXISTS erasure_started_at TIMESTAMPTZ`,
           sql`CREATE TABLE IF NOT EXISTS creative_share_snapshots (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           token       TEXT NOT NULL UNIQUE,

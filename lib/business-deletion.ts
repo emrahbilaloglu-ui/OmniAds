@@ -7,6 +7,7 @@ import { PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE } from "@/lib/provider-accoun
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertBusinessExternalDataRemoved, BusinessExternalCleanupError } from "@/lib/business-deletion-files";
 import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory, BusinessControlReceiptCleanupError } from "@/lib/business-deletion-control-receipts";
+import { deleteBackgroundBusinessRoot } from "@/lib/business-deletion-root";
 import { prepareBusinessProviderAccountErasure, BusinessProviderAccountCleanupError,
   BUSINESS_PROVIDER_ACCOUNT_CAPTURE_CTE, businessProviderAccountDeleteSql } from "@/lib/business-deletion-provider-accounts";
 
@@ -599,7 +600,8 @@ export async function deleteBusinessWithData(businessId: string,
     ownershipRows: 0, ownershipPages: 0, ownedRows: 0, ownedPages: 0 };
   const mark = (next: string) => { timings.push({ phase, ms: Date.now()-phaseAt }); phase=next; phaseAt=Date.now(); };
   // D162: the approved web-owned background job has a finite 30m total
-  // budget. Individual statements retain their 30s/remaining-deadline cap.
+  // budget. Cleanup pages retain their 30s/remaining-deadline cap; D167's
+  // background-only final root statement has a separate aggregate FK bound.
   const deadlineAtMs = startedAt + (options.client ? 30 * 60_000 : 240_000);
   const transact = (run: () => Promise<void>) => options.client
     ? runPinnedDbTransaction({ client: options.client, timeoutMs: 30_000, lockTimeoutMs: 1500, deadlineAtMs, fn: run })
@@ -917,10 +919,13 @@ export async function deleteBusinessWithData(businessId: string,
       throw error;
     }
     mark("business_root");
-    const removedRoot = await sql`DELETE FROM businesses WHERE id=${businessId}::uuid RETURNING id`;
+    const removedRoot = options.client
+      ? await deleteBackgroundBusinessRoot(options.client, businessId, deadlineAtMs)
+      : await sql`DELETE FROM businesses WHERE id=${businessId}::uuid RETURNING id`;
     if (removedRoot.length !== 1) throw new BusinessDeletionError("schema_not_ready", ["business_root"]);
   // Background execution uses its pinned lock-owning backend, a 30m operation
-  // deadline and the same 30s statement cap. No HTTP/proxy timeout is raised.
+  // deadline, 30s cleanup pages and one final 120s/remaining-deadline root
+  // statement. No HTTP/proxy timeout is raised.
   // Direct internal callers retain their previous four-minute bound.
   }));
     mark("committed");

@@ -34,6 +34,8 @@ fence, read [D165](DECISION_LOG.md#d165--root-business-ri-access-and-late-contro
 For the two additional UUID-leading root FK prerequisites found by bounded
 plan inspection before another physical retry, also read
 [D166](DECISION_LOG.md#d166--two-additive-root-business-fk-lookups-before-physical-retry-2026-10-10).
+For the actual subsequent root rollback and its background-only aggregate FK
+statement budget, read [D167](DECISION_LOG.md#d167--bounded-final-root-statement-for-durable-erasure-2026-10-10).
 
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
 Also read [D130](DECISION_LOG.md#d130--indexed-evidence-equality-and-bounded-creative-completion-proofs-2026-09-28)

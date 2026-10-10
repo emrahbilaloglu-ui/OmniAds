@@ -13640,3 +13640,62 @@ physical attempt before exact release and bounded root-plan acceptance.
 Rollback keeps these additive indexes and D163 hidden access. A code revert
 cannot restore committed physical erasure. Live index readiness, release,
 terminal cleanup and independent whole-scope absence remain separate facts.
+
+
+## D167 — Bounded final root statement for durable erasure (2026-10-10)
+
+D166 live0af67075abb213ee7271a82850c8b527c095e937 accepted the exact release
+but Halıcızade audit attempt13 physically failed. Actual start00:58:41.896502
+UTC and failure01:22:02.408 UTC: elapsed1,400,589ms, business_root phase30,084ms.
+The PostgreSQL context now names the snapshots_daily business_ref_id RESTRICT
+query; the outer DELETE FROM businesses hit statement_timeout. The earlier
+D164 failure named evaluations. This is not proof of either individual query's
+elapsed time or a new missing index. All19 RESTRICT/NO ACTION roots have bounded
+leading access in76 generic/custom target plans. Independent420 scoped probes,
+15 full business rows, foreign membership/connection digests, original guard
+modes and active FKs prove the entire transaction rolled back. Vornom and its
+17 archive files/518 input keys remain untouched. Hidden user access persists.
+
+One root DELETE executes179 incoming business FK triggers under one outer
+statement budget, whereas ordinary owned mutation pages are bounded to512.
+PostgreSQL16's statement timeout measures the complete command, including
+trigger work; its RI source executes RESTRICT checks via SPI in that command.
+References: https://www.postgresql.org/docs/16/runtime-config-client.html and
+https://github.com/postgres/postgres/blob/REL_16_STABLE/src/backend/utils/adt/ri_triggers.c.
+Source inspection found no erasure setting of plan_cache_mode. Bounded
+EXPLAIN compared generic/custom access and found no new absent root lookup.
+Higher bitmap work_mem changes estimates only modestly and proves no runtime
+improvement; it is not adopted. No new index or repeated maintenance is required
+by the observed failure.
+
+Give ONLY the final durable/background root DELETE a120-second aggregate
+statement cap, shortened by the SAME absolute30-minute operation deadline.
+Cleanup statements and final control census retain30s, direct internal root
+calls retain30s/four minutes, locks retain1500ms. This is an explicit narrow
+exception to D162/D165's previous uniform30s cap, not a whole-job increase.
+Use the same pinned lock-owning backend and open transaction. Set the server
+bound with SET LOCAL and separately bound the client wait. No generic DB timeout
+API, pooled second connection, retry, partial commit or disabled FK is added.
+The existing wrapper resets the ordinary server bound before COMMIT; any root,
+setup, remaining-deadline or COMMIT failure still rolls back the entire erasure.
+Final control-history writers can remain excluded for up to120s at this last
+stage; operator readback must check fresh heartbeat/capacity state afterward.
+
+Actual migrated PostgreSQL coverage becomes67 erasure cases. A disposable
+root trigger sleeps31s: the real background erasure must finish past the page
+cap with origin replication, active FKs,1500ms locks, full target absence and
+unchanged foreign root bytes; the next COMMIT restores30s. A second disposable
+root trigger exceeds the real remaining deadline and must be cancelled by
+PostgreSQL, restore every earlier owned record, preserve foreign bytes and leave
+the backend usable. Existing short-statement cancellation, total-deadline,
+late-root refusal, guard restoration, shared content and hidden access cases
+remain required. This sleep fixture demonstrates the bound, not live latency.
+
+D163 immediate ordinary-user removal at durable202 stays application-owned;
+physical status/errors never become a customer task. Release/QA acceptance is
+not physical acceptance. After the exact new release and fresh limited gates,
+retry Halıcızade once, require terminal signed success and independent whole-
+scope/media/registry absence with foreign preservation, then the already
+approved Vornom archive/input offboarding and normal Manage Business deletion.
+A code rollback keeps hidden access and additive D166 indexes. Committed erasure
+cannot be undone by a code revert; shared DR/WAL backups remain excluded.

@@ -4334,20 +4334,26 @@ async function main() {
     // seams deliberately leave live foreign leases/jobs, so give this suite its
     // own database on this SAME disposable server, using the real migrations.
     // Do not weaken production exclusion or mutate another seam's fixtures.
-    const deletionDatabaseName = "adsecute_business_deletion";
-    const deletionUrl = new URL(databaseUrl);
-    if (deletionUrl.hostname !== "127.0.0.1" || ["5432", "15432", ""].includes(deletionUrl.port))
-      throw new Error("Unsafe isolated deletion seam database");
-    deletionUrl.pathname = `/${deletionDatabaseName}`;
-    runSync(path.join(pgBinDir, "createdb"), ["-h", "127.0.0.1", "-p", String(port), "-U", EPHEMERAL_DB_USER, deletionDatabaseName], "createdb isolated erasure");
-    try {
-      await runMigrationsChild(repoRoot, deletionUrl.toString(), "isolated business deletion from zero");
-      await runChildVitest(repoRoot, deletionUrl.toString(), "lib/business-archive-erasure.db.test.ts", "Automatic archive offboarding DB seam check", 8);
-      await runChildVitest(repoRoot, deletionUrl.toString(), "lib/business-deletion.db.test.ts", "Business data deletion and rollback DB seam check", 67);
-    } finally {
-      const maintenance = new Client({ connectionString: databaseUrl });
-      try { await maintenance.connect(); await maintenance.query(`DROP DATABASE ${deletionDatabaseName} WITH (FORCE)`); }
-      finally { await maintenance.end(); }
+    // Each suite also needs its own planner statistics and heap history.
+    // Removed rows from archive fixtures must not change the older suite's
+    // bounded-plan assertions. Both schemas are freshly, fully migrated.
+    for (const [deletionDatabaseName, file, label, count] of [
+      ["adsecute_archive_erasure", "lib/business-archive-erasure.db.test.ts", "Automatic archive offboarding DB seam check", 8],
+      ["adsecute_business_deletion", "lib/business-deletion.db.test.ts", "Business data deletion and rollback DB seam check", 67],
+    ] as const) {
+      const deletionUrl = new URL(databaseUrl);
+      if (deletionUrl.hostname !== "127.0.0.1" || ["5432", "15432", ""].includes(deletionUrl.port))
+        throw new Error("Unsafe isolated deletion seam database");
+      deletionUrl.pathname = `/${deletionDatabaseName}`;
+      runSync(path.join(pgBinDir, "createdb"), ["-h", "127.0.0.1", "-p", String(port), "-U", EPHEMERAL_DB_USER, deletionDatabaseName], "createdb isolated erasure");
+      try {
+        await runMigrationsChild(repoRoot, deletionUrl.toString(), "isolated business deletion from zero");
+        await runChildVitest(repoRoot, deletionUrl.toString(), file, label, count);
+      } finally {
+        const maintenance = new Client({ connectionString: databaseUrl });
+        try { await maintenance.connect(); await maintenance.query(`DROP DATABASE ${deletionDatabaseName} WITH (FORCE)`); }
+        finally { await maintenance.end(); }
+      }
     }
 
     // These four suites used to self-provision only on developer machines and

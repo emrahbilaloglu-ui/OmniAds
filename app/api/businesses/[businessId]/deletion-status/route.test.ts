@@ -36,6 +36,11 @@ describe("authorized deletion status after membership erasure",()=>{
     const r=await GET(request(),{params:Promise.resolve({businessId:business})});
     expect(await r.json()).toEqual({status:"ok"});
   });
+  it("distinguishes an active business with no request from a lost accepted receipt checkpoint", async () => {
+    query.mockResolvedValue([{status:null,hidden_at:null}]);
+    expect(await (await GET(request(),{params:Promise.resolve({businessId:business})})).json()).toEqual({status:"not_requested"});
+    expect(await (await POST(request(),{params:Promise.resolve({businessId:business})})).json()).toMatchObject({status:"failed"});
+  });
   it("lets the current application owner retry a hidden failed job without a customer monitoring credential",async()=>{
     vi.mocked(jobs.enqueueBusinessDeletion).mockResolvedValue({status:"queued"} as never);
     const req=new NextRequest("https://example.invalid/api/businesses/"+business+"/deletion-status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"retry"})});

@@ -4,6 +4,7 @@ import { assertSafeArchiveDirectory } from "../lib/business-archive-configuratio
 import { runBusinessArchiveErasureTick } from "../lib/business-archive-erasure-worker";
 import { DbGrowthFenceRefusal } from "../lib/sync/db-growth-fence";
 
+async function main(){
 const control = dirname(process.env.ENGINE_V3_NATIVE_ARCHIVE_ACTIVE_POINTER ?? "/run/adsecute-business-erasure/active.json");
 await assertSafeArchiveDirectory(control);
 let stopping = false;
@@ -24,3 +25,5 @@ while (!stopping) {
     process.once("SIGTERM", done); process.once("SIGINT", done);
   });
 }
+}
+void main().catch(()=>{console.error("[business archive erasure] startup failed");process.exitCode=1;});

@@ -56,7 +56,7 @@ describe("additive whole-business FK access schema", () => {
         lookup_ready: params?.[1] !== "provider_account_ref_id" || built.has(String(params[0])) }];
     });
     const result = await ensureBusinessErasureReferenceIndexes({query} as never,admit);
-    expect(result.verified).toBe(47);
+    expect(result.verified).toBe(49);
     expect(result.built).toEqual(entries.map(e => e.index));
     for (const e of entries) expect(admit).toHaveBeenCalledWith(`public.${e.table}`,"btree","provider_account_ref_id");
     expect(query.mock.calls.filter(([q]) => q.startsWith("CREATE")).every(([q]) => q.includes("(provider_account_ref_id) WHERE provider_account_ref_id IS NOT NULL"))).toBe(true);

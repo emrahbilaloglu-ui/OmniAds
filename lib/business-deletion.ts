@@ -867,18 +867,6 @@ export async function deleteBusinessWithData(businessId: string,
       if(error instanceof BusinessProviderAccountCleanupError) throw new BusinessDeletionError("schema_not_ready",[error.message]);
       throw error;
     }
-    // Heartbeats/runtime observations stay writable throughout the bulk work.
-    // Exclude their writers only for the finite final census and COMMIT. A fresh
-    // reference still refuses the entire erasure, including all earlier pages.
-    mark("worker_history");
-    await sql.query("LOCK TABLE public.sync_worker_heartbeats,public.sync_runtime_instances IN SHARE ROW EXCLUSIVE MODE");
-    try { await deleteBusinessWorkerHistory(sql,businessId); }
-    catch (error) {
-      if (error instanceof BusinessControlReceiptCleanupError) throw new BusinessDeletionError(
-        error.message.startsWith("control_history_active:") ? "control_reference_in_use" : "schema_not_ready",
-        [error.message.startsWith("control_history_active:") ? error.message.split(":")[1]! : "worker_runtime_history"]);
-      throw error;
-    }
     mark("absence_and_guard_restore");
     for (const [table, scope] of scopes) {
       mark(`absence:${table}`);
@@ -910,6 +898,25 @@ export async function deleteBusinessWithData(businessId: string,
     if (suspended.some(g => !modes.some(m => m.table_name===g.table_name && m.trigger_name===g.trigger_name && m.enabled===g.enabled)))
       throw new BusinessDeletionError("schema_not_ready", ["trigger_restoration"]);
     await sql`UPDATE sessions SET active_business_id=NULL WHERE active_business_id=${businessId}`;
+    // D165: the exact-key/input phases disable bitmap scans for their own RI
+    // lookups. The root RESTRICT checks have a different, full-owner row-lock
+    // shape; allow its constrained bitmap access over just-deleted tuples.
+    // All FKs stay active and the same statement/operation bounds apply.
+    await sql.query("SET LOCAL enable_bitmapscan=on");
+    // These stores have no ordinary owner scope. Keep their writers available
+    // through final owned absence and guard restoration, then exclude them
+    // only for their finite census, root erasure and COMMIT. A fresh reference
+    // still rolls back the entire erasure, including every earlier page.
+    mark("worker_history");
+    await sql.query("LOCK TABLE public.sync_worker_heartbeats,public.sync_runtime_instances IN SHARE ROW EXCLUSIVE MODE");
+    try { await deleteBusinessWorkerHistory(sql,businessId); }
+    catch (error) {
+      if (error instanceof BusinessControlReceiptCleanupError) throw new BusinessDeletionError(
+        error.message.startsWith("control_history_active:") ? "control_reference_in_use" : "schema_not_ready",
+        [error.message.startsWith("control_history_active:") ? error.message.split(":")[1]! : "worker_runtime_history"]);
+      throw error;
+    }
+    mark("business_root");
     const removedRoot = await sql`DELETE FROM businesses WHERE id=${businessId}::uuid RETURNING id`;
     if (removedRoot.length !== 1) throw new BusinessDeletionError("schema_not_ready", ["business_root"]);
   // Background execution uses its pinned lock-owning backend, a 30m operation

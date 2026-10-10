@@ -54,6 +54,23 @@ heap. CHECKed canonical and validated episode predicates keep their existing
 ownership rules; any remaining row or unsafe plan rolls back the entire erase.
 Existing stores without a leading owner index retain their existing checked
 erasure path; this correction adds no new index prerequisite to those stores.
+D165 restores transaction-local bitmap access after those probes and guard
+restoration, before the final worker census and root DELETE. Exact-key/input
+planner restrictions must not leak into the root's full-owner RESTRICT row-lock
+queries. All FKs remain active. Worker/runtime history writers stay available
+through final owned absence and guard restoration; their destination-table
+fence covers only the complete finite census, root deletion and COMMIT.
+The root DELETE has its own sanitized `business_root` phase. The subsequent
+actual D164 root timeout and read-only plan comparison are recorded in D165;
+allowing the safer access path is not positive production erasure evidence.
+D166 adds only two missing fixed-width UUID root FK lookups, on native ad
+calibration daily and Meta creative lineage business_ref_id. The existing
+additive reference-index helper requires the actual FK/default opclass,
+separate fresh scalar-heap physical admission and the unchanged40GiB floor;
+valid existing leading access is adopted. No rebuild, DROP, FK relaxation or
+storage reclaim. Root row-lock preflight must recognize a reviewed valid
+business_ref_id IS NOT NULL partial index, because UUID equality implies it;
+the ordinary canonical ownership resolver remains unchanged.
 Shared users and still-referenced provider-account identities are preserved;
 connection-owned credentials cascade and active sessions lose the deleted scope.
 

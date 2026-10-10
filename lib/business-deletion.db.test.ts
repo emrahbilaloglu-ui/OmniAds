@@ -656,21 +656,89 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     } finally {await work;await observer.end();}
   });
 
-  it("retains live process heartbeat writes during the bulk transaction before its final control-history fence",async()=>{
+  it("retains live process heartbeat writes through bulk work and final owned absence before the control-history fence",async()=>{
     const {businessId}=await fixture();
-    let observed=false;
+    let observed=false,finalObserved=false;
     await withPinnedDbClient(async client=>{
       const wrapped={query:async(text:string,params?:unknown[])=>{
         if(!observed && text.startsWith("CREATE TEMP TABLE business_erasure_input_keys")) {
           await heartbeatSyncWorker({workerId:`delete-live-${randomUUID()}`,instanceType:"fixture",providerScope:"all",status:"idle",metaJson:{fixture:true}});
           observed=true;
         }
+        if(!finalObserved && text.startsWith('SELECT 1 FROM "public".') && text.endsWith(' LIMIT 1')) {
+          await heartbeatSyncWorker({workerId:`delete-final-${randomUUID()}`,instanceType:"fixture",providerScope:"all",status:"idle",metaJson:{fixture:true}});
+          finalObserved=true;
+        }
         return client.query(text,params);
       }};
       await deleteBusinessWithData(businessId,{client:wrapped as never});
     },{timeoutMs:30_000});
-    expect(observed).toBe(true);expect(await remains(businessId)).toBe(false);
+    expect(observed).toBe(true);expect(finalObserved).toBe(true);expect(await remains(businessId)).toBe(false);
   });
+
+  it("keeps the root RESTRICT check active after large native cleanup and permits its constrained bitmap row-lock access",async()=>{
+    const db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();
+    try {
+      const target=await seedTenant(db,1),other=await seedTenant(db,1);
+      for(const [tenant,count,tag] of [[target,4097,"root-delete"],[other,2,"root-preserve"]] as const) {
+        const producer=await seedCalibration(db,tenant,"2026-09-23","2026-09-23T12:00:00Z");
+        await seedGeneration(db,tenant,{date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[count],tag});
+      }
+      const nativeBefore=(await db.query("SELECT id FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[target.business])).rows;
+      const foreign=(await db.query("SELECT to_jsonb(e)::text AS bytes FROM engine_v3_ad_decision_evaluations e WHERE business_ref_id=$1 ORDER BY id",[other.business])).rows;
+      await db.query("BEGIN");
+      try {await expect(db.query("DELETE FROM businesses WHERE id=$1",[target.business])).rejects.toMatchObject({code:"23503"});}
+      finally {await db.query("ROLLBACK");}
+      expect((await db.query("SELECT id FROM engine_v3_ad_decision_evaluations WHERE business_ref_id=$1 ORDER BY id",[target.business])).rows).toEqual(nativeBefore);
+      const [fk]=(await db.query(`SELECT c.confdeltype,c.convalidated,bool_and(t.tgenabled='O') AS active
+        FROM pg_constraint c JOIN pg_trigger t ON t.tgconstraint=c.oid
+        WHERE c.conname='engine_v3_ad_decision_evaluations_business_ref_id_fkey'
+        GROUP BY c.oid`)).rows;
+      expect(fk).toMatchObject({confdeltype:"r",convalidated:true,active:true});
+      const rootIndexes=BUSINESS_ERASURE_REFERENCE_INDEXES.filter(e=>e.column==="business_ref_id");
+      expect(rootIndexes).toHaveLength(2);
+      for(const e of rootIndexes) {
+        const [status]=await getDb().query(BUSINESS_ERASURE_REFERENCE_INDEX_STATUS_SQL,[e.table,e.column,e.index,"btree"]);
+        expect(status).toMatchObject({reference_foreign_key:true,lookup_ready:true,named_index_conflict:false});
+      }
+      await addObservedProductionReferenceIndex(db);
+      try {
+        let rootChecked=false;
+        await withPinnedDbClient(async client=>{
+          const wrapped={query:async(text:string,params?:unknown[])=>{
+            if(text.startsWith("DELETE FROM businesses WHERE id=")) {
+              rootChecked=true;
+              // Fixture-only: remove the plain index alternative to expose a
+              // leaked bitmap-off setting in the real FK row-lock query shape.
+              // Restore it before the actual root DELETE and its active FKs.
+              const {rows:[settings]}=await client.query("SELECT current_setting('enable_indexscan') AS indexed");
+              for(const e of rootIndexes) {
+                const {rows:[plan]}=await client.query(`EXPLAIN (FORMAT JSON) SELECT 1 FROM ONLY public.${e.table} x
+                  WHERE $1::uuid OPERATOR(pg_catalog.=) business_ref_id FOR KEY SHARE OF x`,[target.business]);
+                expect(JSON.stringify(plan["QUERY PLAN"])).toContain(e.index);
+                expect(JSON.stringify(plan["QUERY PLAN"])).not.toContain('"Node Type":"Seq Scan"');
+              }
+              await client.query("SET LOCAL enable_indexscan=off");
+              try {
+                const {rows:[plan]}=await client.query(`EXPLAIN (FORMAT JSON) SELECT 1 FROM ONLY public.engine_v3_ad_decision_evaluations x
+                  WHERE $1::uuid OPERATOR(pg_catalog.=) business_ref_id FOR KEY SHARE OF x`,[target.business]);
+                const nodes=(p:Record<string,unknown>):Record<string,unknown>[]=>[p,...((p.Plans??[]) as Record<string,unknown>[]).flatMap(nodes)];
+                const access=nodes(plan["QUERY PLAN"][0].Plan);
+                expect(access.some(n=>n["Node Type"]==="LockRows")).toBe(true);
+                expect(access.some(n=>n["Node Type"]==="Seq Scan")).toBe(false);
+                expect(access.some(n=>n["Node Type"]==="Bitmap Index Scan" && /business_ref_id\s*=/.test(String(n["Index Cond"])))).toBe(true);
+              } finally {await client.query("SELECT set_config('enable_indexscan',$1,true)",[settings.indexed]);}
+            }
+            return client.query(text,params);
+          }};
+          await deleteBusinessWithData(target.business,{client:wrapped as never});
+        },{timeoutMs:30_000});
+        expect(rootChecked).toBe(true);expect(await remains(target.business)).toBe(false);
+        expect(await remains(target.business,"engine_v3_ad_decision_evaluations","business_ref_id")).toBe(false);
+        expect((await db.query("SELECT to_jsonb(e)::text AS bytes FROM engine_v3_ad_decision_evaluations e WHERE business_ref_id=$1 ORDER BY id",[other.business])).rows).toEqual(foreign);
+      } finally {await db.query("DROP INDEX idx_engine_v3_ad_evaluations_contract_input");}
+    } finally {await db.end();}
+  },60_000);
 
   it.each([
     { elapsedMs:20*60_000+1000, completes:true },

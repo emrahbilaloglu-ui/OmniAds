@@ -38,6 +38,8 @@ For the actual subsequent root rollback and its background-only aggregate FK
 statement budget, read [D167](DECISION_LOG.md#d167--bounded-final-root-statement-for-durable-erasure-2026-10-10).
 For the subsequent 120s root rollback and all 179 FK-action plan checks, read
 [D168](DECISION_LOG.md#d168--final-root-uses-the-existing-operation-remainder-2026-10-10).
+For automatic native-archive offboarding, owner-only cleanup monitoring and the
+dedicated archive role, read [D169](DECISION_LOG.md#d169--automatic-archive-offboarding-with-owner-only-cleanup-2026-10-10).
 The total background budget remains 30m; its final statement uses the remainder.
 
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).

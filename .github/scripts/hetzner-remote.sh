@@ -2039,6 +2039,29 @@ die_cutover() {
 
 trap on_phase_error ERR
 
+archive_erasure_configured() {
+  [ -f .env.native-archive ] && grep -qx 'BUSINESS_ARCHIVE_ERASURE_ENABLED=true' .env.native-archive
+}
+
+stop_archive_erasure_if_declared() {
+  local declared
+  declared="$(docker compose --profile business-erasure config --services)" || return 1
+  if printf '%s\n' "${declared}" | grep -qx archive-erasure; then
+    docker compose --profile business-erasure stop archive-erasure
+  fi
+}
+
+prepare_archive_erasure_control() {
+  if archive_erasure_configured; then
+    if [ ! -e business-erasure-control ]; then
+      install -d -m 0700 business-erasure-control
+    fi
+    [ -d business-erasure-control ] && [ ! -L business-erasure-control ] \
+      && [ "$(stat -c '%u:%a' business-erasure-control)" = '0:700' ] \
+      || { log 'ABORT unsafe archive erasure control directory'; return 1; }
+  fi
+}
+
 case "${phase}" in
   prepare_runtime)
     # Before the pull, and before the wrapper delivery below.
@@ -2103,6 +2126,7 @@ case "${phase}" in
     # fails closed before the worker or database is touched.
     rootcron_assert_quiesced
 
+    stop_archive_erasure_if_declared
     run_migrations_with_worker_recovery
     ;;
 
@@ -2115,6 +2139,12 @@ case "${phase}" in
     assert_not_cutover_required
     assert_no_cutover_in_progress
     recover_stored_migration_worker
+    # Start only an existing stopped container, retaining its original image.
+    # Never create a new-schema archive role after a failed migration.
+    if archive_erasure_configured; then
+      archive_previous_id="$(docker compose --profile business-erasure ps -a -q archive-erasure)"
+      if [ -n "${archive_previous_id}" ]; then docker start "${archive_previous_id}"; fi
+    fi
     ;;
 
   recreate_services)
@@ -2122,6 +2152,8 @@ case "${phase}" in
     # and it is reachable independently of run_migrations. It gets the gate too.
     assert_not_cutover_required
     assert_no_cutover_in_progress
+    stop_archive_erasure_if_declared
+    prepare_archive_erasure_control
     # Recreate one service at a time. With both services in a single `up`, the
     # worker's health-check/autoheal restart can race Docker's removal after the
     # web container has already been replaced. That leaves production with no
@@ -2142,6 +2174,11 @@ case "${phase}" in
     log "Verifying exact service images"
     verify_service_image web "${expected_web_image}"
     verify_service_image worker "${expected_worker_image}"
+    if archive_erasure_configured; then
+      log "Recreating the archive-only business erasure role"
+      docker compose --profile business-erasure up -d --no-deps --force-recreate archive-erasure
+      verify_service_image archive-erasure "${expected_worker_image}"
+    fi
     ;;
 
   verify_runtime)
@@ -2158,6 +2195,10 @@ case "${phase}" in
     log "Checking optional container health"
     check_optional_health web 20
     check_optional_health worker 40
+    if archive_erasure_configured; then
+      verify_service_image archive-erasure "${expected_worker_image}"
+      check_optional_health archive-erasure 40
+    fi
 
     worker_container_id="$(docker compose ps -q worker || true)"
     if [ -z "${worker_container_id}" ]; then

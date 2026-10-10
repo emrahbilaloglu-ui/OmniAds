@@ -8,6 +8,9 @@ import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertBusinessExternalDataRemoved, BusinessExternalCleanupError } from "@/lib/business-deletion-files";
 import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory, BusinessControlReceiptCleanupError } from "@/lib/business-deletion-control-receipts";
 import { deleteBackgroundBusinessRoot } from "@/lib/business-deletion-root";
+import { archiveDigest } from "@/lib/business-archive-configuration";
+import { assertArchivedInputPointPlan, validateBusinessArchiveErasurePlan,
+  type BusinessArchiveErasureState, type ArchivedBusinessInputKey } from "@/lib/business-archive-erasure";
 import { prepareBusinessProviderAccountErasure, BusinessProviderAccountCleanupError,
   BUSINESS_PROVIDER_ACCOUNT_CAPTURE_CTE, businessProviderAccountDeleteSql } from "@/lib/business-deletion-provider-accounts";
 
@@ -590,7 +593,7 @@ async function assertErasureNativeProducerIdle(sql: ReturnType<typeof getDb>) {
 export const BUSINESS_ERASURE_LOCK_NAMESPACE = 0x42555344;
 
 export async function deleteBusinessWithData(businessId: string,
-  options: { client?: Parameters<typeof runPinnedDbTransaction>[0]["client"] } = {}): Promise<void> {
+  options: { client?: Parameters<typeof runPinnedDbTransaction>[0]["client"]; deadlineAtMs?: number } = {}): Promise<void> {
   assertSyncLaneEnabled("assignment_mutation");
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(businessId)) throw new BusinessDeletionError("not_found");
   const startedAt = Date.now();
@@ -602,7 +605,8 @@ export async function deleteBusinessWithData(businessId: string,
   // D162: the approved web-owned background job has a finite 30m total
   // budget. Cleanup pages retain their 30s/remaining-deadline cap; D168's
   // background-only final root statement uses the same remaining job budget.
-  const deadlineAtMs = startedAt + (options.client ? 30 * 60_000 : 240_000);
+  const deadlineAtMs = options.client ? Math.min(startedAt + 30 * 60_000, options.deadlineAtMs ?? Infinity) : startedAt + 240_000;
+  if (!Number.isFinite(deadlineAtMs) || deadlineAtMs <= startedAt) throw new BusinessDeletionError("business_busy", ["erasure_deadline"]);
   const transact = (run: () => Promise<void>) => options.client
     ? runPinnedDbTransaction({ client: options.client, timeoutMs: 30_000, lockTimeoutMs: 1500, deadlineAtMs, fn: run })
     : runDbTransaction(run, { timeoutMs: 30_000, deadlineAtMs });
@@ -637,6 +641,17 @@ export async function deleteBusinessWithData(businessId: string,
     catch (error) { if ((error as { code?: string }).code === "55P03") throw new BusinessDeletionError("business_busy"); throw error; }
     const [business] = await sql`SELECT id FROM businesses WHERE id=${businessId}::uuid FOR UPDATE`;
     if (!business) throw new BusinessDeletionError("not_found");
+    let archivedInputKeys: ArchivedBusinessInputKey[] = [];
+    const [archiveJob] = await sql.query<{ archive_state: BusinessArchiveErasureState | null }>(
+      "SELECT archive_state FROM business_deletion_jobs WHERE business_ref_id=$1::uuid", [businessId]);
+    // A rollback may stop NEW preparation; it cannot discard an already durable
+    // plan or its archived-only keys after their ciphertext has been removed.
+    if (archiveJob?.archive_state || process.env.BUSINESS_ARCHIVE_ERASURE_ENABLED === "true") {
+      if (archiveJob?.archive_state?.prepared !== true) throw new BusinessDeletionError("external_cleanup_required");
+      try { validateBusinessArchiveErasurePlan(archiveJob.archive_state.plan, businessId); }
+      catch { throw new BusinessDeletionError("external_cleanup_required"); }
+      archivedInputKeys = archiveJob.archive_state.plan.inputKeys;
+    }
     const catalogIdentity = (items: ScopeColumn[]) => JSON.stringify(items.map(({heap_bytes: _size,...column})=>column));
     if (catalogIdentity(await sql.query<ScopeColumn>(SCOPE_CATALOG)) !== catalogIdentity(columns)) throw new BusinessDeletionError("schema_not_ready");
     const guards = await sql.query<DeleteGuard>(`SELECT n.nspname||'.'||c.relname AS table_name,t.tgname AS trigger_name,
@@ -752,8 +767,25 @@ export async function deleteBusinessWithData(businessId: string,
     }
     await sql.query(`CREATE TEMP TABLE business_erasure_input_keys
       (contract_version text NOT NULL,input_hash character(64) NOT NULL,PRIMARY KEY(contract_version,input_hash)) ON COMMIT DROP`);
-    const [hasKeys] = await sql.query(`SELECT 1 FROM public.engine_v3_ad_decision_evaluations
+    if (archivedInputKeys.length) {
+      await sql.query("SET LOCAL enable_bitmapscan=off");
+      for (const key of archivedInputKeys) {
+        const query = "SELECT to_jsonb(i)::text AS row_json FROM public.engine_v3_ad_decision_input_evidence i WHERE contract_version=$1::text AND input_hash=$2::character(64)";
+        const [plan] = await sql.query(`EXPLAIN (FORMAT JSON) ${query}`, [key.contractVersion, key.inputHash]);
+        try { assertArchivedInputPointPlan(plan!["QUERY PLAN"][0].Plan); }
+        catch { throw new BusinessDeletionError("schema_not_ready", ["archived_input_point_index"]); }
+        const [input] = await sql.query<{ row_json: string }>(query, [key.contractVersion, key.inputHash]);
+        // A newly introduced or changed row never inherits old erasure proof.
+        if ((input ? archiveDigest(input.row_json) : null) !== key.frozenRowSha256)
+          throw new BusinessDeletionError("scope_conflict", ["archived_input_source_drift"]);
+        if (input) await sql.query(`INSERT INTO business_erasure_input_keys(contract_version,input_hash)
+          VALUES($1::text,$2::character(64)) ON CONFLICT DO NOTHING`, [key.contractVersion, key.inputHash]);
+      }
+      await sql.query("SET LOCAL enable_bitmapscan=on");
+    }
+    const [hotKeys] = await sql.query(`SELECT 1 FROM public.engine_v3_ad_decision_evaluations
       WHERE (${scopeFor(scopes.get("public.engine_v3_ad_decision_evaluations")!)}) LIMIT 1`,[businessId]);
+    const hasKeys = Boolean(hotKeys) || archivedInputKeys.some(k => k.frozenRowSha256 !== null);
     let referenceIndexes: string[] = [];
     if (hasKeys) {
       referenceIndexes = (await sql.query<{ name: string }>(`SELECT ic.relname AS name FROM pg_index i

@@ -176,22 +176,41 @@ business and database records remain transactionally protected.
 The exact digest-pinned active legacy and routed native archive metadata are
 fully checked within fixed bounds. Inactive/staged local metadata is also scanned
 within a 256-entry/16 MiB census; unowned orphan ciphertext refuses success.
-A remaining target generation, invalid pin,
-missing metadata or failed file cleanup returns `external_cleanup_required` and
-keeps the business. Native archive ciphertext/catalog destruction is deliberately
-not guessed by the web request. An archive-bearing business must first have its
-owned archive copies removed through a separately reviewed archive offboarding
-path; until then the product MUST NOT report successful deletion. Halıcızade and
-Vornom are checked independently against the actual configured catalog before
-any production attempt. Archive offboarding must freeze every archived native
+A remaining target generation, invalid pin, missing metadata or failed cleanup
+returns an owner-only blocker and leaves ordinary-user access closed. Under
+D169, the dedicated `archive-erasure` role now performs native archive offboarding
+automatically from the same durable job. The web mount remains read-only; the
+provider worker has no archive filesystem. The archive role persists an exact
+authenticated file/publication/input-key plan in `business_deletion_jobs` before
+any mutation, publishes filtered immutable routing through an atomic digest-bound
+control pointer, removes served AND inactive owned copies, then marks the job
+prepared for the existing transactional web erasure. Archive offboarding freezes every archived native
 input key and its current full-row digest before destroying the archive. After
 removal of served and inactive copies, collect only those frozen keys after
 GLOBAL indexed zero-reference proof under native-producer and input/evaluation
 writer exclusion. Source drift or a new foreign reference vetoes collection.
-The separately reviewed Vornom operational artifact covers 518 already-orphaned
-archived keys; the ordinary request's hot-evaluation key census alone cannot
-prove their removal. Its local fixture, live execution and independent post-read
-are separate evidence. No whole input-table scan or other-key GC is authorized.
+The hot-evaluation census alone cannot prove archived-only input removal; D169
+seeds the same bounded temporary keyset from the persisted authenticated archive
+keys, checks frozen-row drift, then uses the existing GLOBAL reference verifier.
+No whole input-table scan or other-key GC is authorized. Shared keys keep foreign
+references byte for byte. The full archive-to-database saga is serialized, including
+failed jobs awaiting the application owner; a later job cannot invalidate an
+earlier frozen archived-only key. Queue acceptance closes access immediately.
+`deletion-status` GET and POST/retry require a fresh application-superadmin check;
+ordinary DELETE returns only the durable acknowledgement and no monitor ticket.
+Only the application owner receives physical progress, errors or retry duties.
+
+The archive phase has a120s ceiling and shares the same absolute30m background
+deadline with database erasure. The256-entry/16MiB metadata census,16384 archived
+key ceiling, original crypto/lineage checks and physical-capacity admission fail
+closed. Interrupted exact metadata writes and persisted publication/unlink plans
+resume idempotently; unrecognized files, unsafe ownership/paths, foreign drift
+and missing scope proof remain owner blockers. Additive checkpoint columns are
+removed with the FK-cascaded job, so no completed business tombstone remains.
+After a destructive publication, rollback must retain the pointer-aware reader
+and D163 access boundary: stop the processor and disable its gate, retain additive
+columns and current control pointer. An older static-reader image cannot safely
+be restored after its old metadata was purged. Code rollback cannot undo erasure.
 
 Application deletion is not a claim of forensic erasure of PostgreSQL MVCC/WAL,
 shared system logs, or shared disaster-recovery backups. Shared backups contain

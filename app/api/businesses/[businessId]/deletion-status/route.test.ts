@@ -2,11 +2,13 @@ import { createHmac } from "node:crypto";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 import { NextRequest,NextResponse } from "next/server";
 import { issueBusinessDeletionTicket } from "@/lib/business-deletion-ticket";
-vi.mock("@/lib/access",()=>({requireAuthedRequest:vi.fn()}));
+vi.mock("@/lib/admin-auth",()=>({requireAdmin:vi.fn()}));
 vi.mock("@/lib/db",()=>({getDb:vi.fn()}));
 vi.mock("@/lib/request-language",()=>({resolveRequestLanguage:vi.fn(async()=>"en")}));
-const access=await import("@/lib/access"),db=await import("@/lib/db");
-const {POST}=await import("./route");
+vi.mock("@/lib/business-deletion-jobs",async original=>({...await original<typeof import("@/lib/business-deletion-jobs")>(),enqueueBusinessDeletion:vi.fn()}));
+const access=await import("@/lib/admin-auth"),db=await import("@/lib/db");
+const jobs=await import("@/lib/business-deletion-jobs");
+const {POST,GET}=await import("./route");
 describe("authorized deletion status after membership erasure",()=>{
   const key="fixture-session-cookie",business="75f65b18-97e5-426c-a791-a8f693d34c84",session="fixture-session";
   const query=vi.fn();
@@ -16,13 +18,36 @@ describe("authorized deletion status after membership erasure",()=>{
     });
   }
   beforeEach(()=>{
-    vi.stubEnv("INTEGRATION_TOKEN_ENCRYPTION_KEY","fixture-server-master-key");vi.resetAllMocks();vi.mocked(access.requireAuthedRequest).mockResolvedValue({session:{sessionId:session} as never});
+    vi.stubEnv("INTEGRATION_TOKEN_ENCRYPTION_KEY","fixture-server-master-key");vi.resetAllMocks();vi.mocked(access.requireAdmin).mockResolvedValue({session:{sessionId:session} as never});
     vi.mocked(db.getDb).mockReturnValue({query} as never);query.mockResolvedValue([]);
   });
   afterEach(()=>vi.unstubAllEnvs());
   it("requires a current authenticated session before any lookup",async()=>{
-    vi.mocked(access.requireAuthedRequest).mockResolvedValue({error:NextResponse.json({}, {status:401})});
+    vi.mocked(access.requireAdmin).mockResolvedValue({error:NextResponse.json({}, {status:401})});
     expect((await POST(request(),{params:Promise.resolve({businessId:business})})).status).toBe(401);expect(query).not.toHaveBeenCalled();
+  });
+  it("denies an ordinary customer's old valid ticket and GET before exposing cleanup state", async () => {
+    vi.mocked(access.requireAdmin).mockResolvedValue({error:NextResponse.json({}, {status:403})});
+    expect((await POST(request(),{params:Promise.resolve({businessId:business})})).status).toBe(403);
+    expect((await GET(request(),{params:Promise.resolve({businessId:business})})).status).toBe(403);
+    expect(query).not.toHaveBeenCalled();
+  });
+  it("lets only the currently authorized application owner monitor without a customer receipt", async () => {
+    const r=await GET(request(),{params:Promise.resolve({businessId:business})});
+    expect(await r.json()).toEqual({status:"ok"});
+  });
+  it("distinguishes an active business with no request from a lost accepted receipt checkpoint", async () => {
+    query.mockResolvedValue([{status:null,hidden_at:null}]);
+    expect(await (await GET(request(),{params:Promise.resolve({businessId:business})})).json()).toEqual({status:"not_requested"});
+    expect(await (await POST(request(),{params:Promise.resolve({businessId:business})})).json()).toMatchObject({status:"failed"});
+  });
+  it("lets the current application owner retry a hidden failed job without a customer monitoring credential",async()=>{
+    vi.mocked(jobs.enqueueBusinessDeletion).mockResolvedValue({status:"queued"} as never);
+    const req=new NextRequest("https://example.invalid/api/businesses/"+business+"/deletion-status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"retry"})});
+    const r=await POST(req,{params:Promise.resolve({businessId:business})});
+    expect(r.status).toBe(202);expect(await r.json()).toEqual({status:"queued"});expect(jobs.enqueueBusinessDeletion).toHaveBeenCalledWith(business);
+    vi.mocked(access.requireAdmin).mockResolvedValue({error:NextResponse.json({}, {status:403})});vi.mocked(jobs.enqueueBusinessDeletion).mockClear();
+    expect((await POST(req,{params:Promise.resolve({businessId:business})})).status).toBe(403);expect(jobs.enqueueBusinessDeletion).not.toHaveBeenCalled();
   });
   it("refuses forged, wrong-session and wrong-business receipts before any lookup",async()=>{
     for(const ticket of ["forged",issueBusinessDeletionTicket(key,business,"other"),issueBusinessDeletionTicket(key,"other",session)]) {

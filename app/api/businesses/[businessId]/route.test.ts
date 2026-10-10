@@ -155,10 +155,11 @@ describe("DELETE /api/businesses/[businessId]", () => {
     vi.mocked(db.getDb).mockReturnValue(vi.fn().mockResolvedValue([]) as never);
   });
 
-  it("does not enqueue unmonitorable work when the server signing master is missing",async()=>{
+  it("acknowledges deletion without giving the customer a cleanup monitoring credential",async()=>{
     vi.stubEnv("INTEGRATION_TOKEN_ENCRYPTION_KEY","");
     const response=await DELETE(new NextRequest("http://localhost/api/businesses/biz",{method:"DELETE",headers:{Cookie:"omniads_session=test-session-cookie"}}),{params:Promise.resolve({businessId:"biz"})});
-    expect(response.status).toBe(503);expect(jobs.enqueueBusinessDeletion).not.toHaveBeenCalled();
+    expect(response.status).toBe(202);expect(jobs.enqueueBusinessDeletion).toHaveBeenCalledWith("biz");
+    expect(await response.json()).toEqual({status:"queued"});
   });
 
   it("refuses while the assignment lane is disabled, before any delete", async () => {
@@ -216,7 +217,7 @@ describe("DELETE /api/businesses/[businessId]", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(202);
-    expect(payload).toMatchObject({ status: "queued", monitorTicket: expect.any(String) });
+    expect(payload).toEqual({ status: "queued" });
     expect(jobs.enqueueBusinessDeletion).toHaveBeenCalledWith("biz");
     expect(deletion.deleteBusinessWithData).not.toHaveBeenCalled();
     expect(sql).not.toHaveBeenCalled();

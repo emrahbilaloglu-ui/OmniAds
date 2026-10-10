@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { getDb } from "@/lib/db";
 import { openNativeHistoricalArchiveCatalog } from "@/lib/creative-decision-engine/native-historical-archive";
 import { buildNativeHistoricalCatalogRouting } from "@/lib/creative-decision-engine/native-historical-catalog-routing";
+import { resolveBusinessArchiveConfiguration } from "@/lib/business-archive-configuration";
 
 export class BusinessExternalCleanupError extends Error {}
 function refuse(): never { throw new BusinessExternalCleanupError("external_cleanup_required"); }
@@ -27,21 +28,22 @@ async function metadata(path: string, sha?: string, exactBytes?: number): Promis
 /** A read-only native archive must be explicitly purged before its business can
  * disappear. Never return successful erasure while a historical copy is served.
  * Exact pinned metadata is inspected; ciphertext, keys and other tenants stay intact. */
-async function assertNoNativeArchive(businessId: string) {
-  const path = process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_PATH;
+export async function assertNoBusinessNativeArchive(businessId: string) {
+  const configuration = await resolveBusinessArchiveConfiguration();
+  const path = configuration.catalogPath;
   if (!path) {
     if (process.env.ENGINE_V3_NATIVE_ARCHIVE_HISTORICAL_READER_ENABLED === "true"
       || process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_ROUTING_ENABLED === "true") refuse();
     return;
   }
-  const sha = process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_SHA256;
+  const sha = configuration.catalogSha256;
   if (!sha) refuse();
   const legacy = await metadata(path, sha);
   const catalog = openNativeHistoricalArchiveCatalog(legacy, sha);
   if (catalog.entries.some(e => e.generation.businessId === businessId)) refuse();
-  if (process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_ROUTING_ENABLED !== "true") { await assertNoLocalCopies(businessId); return; }
-  const directory = process.env.ENGINE_V3_NATIVE_ARCHIVE_ROUTING_ROOT;
-  const rootSha = process.env.ENGINE_V3_NATIVE_ARCHIVE_ROUTING_ROOT_SHA256;
+  if (!configuration.routingEnabled) { await assertNoLocalCopies(businessId); return; }
+  const directory = configuration.routingDirectory;
+  const rootSha = configuration.rootSha256;
   if (!directory || !rootSha || !isAbsolute(directory) || await realpath(directory) !== directory) refuse();
   const rootBytes = await metadata(join(directory, "root", `${rootSha}.json`), rootSha);
   const root = JSON.parse(rootBytes.toString("utf8")) as { shards: { sha256: string; bytes: number }[] };
@@ -133,6 +135,6 @@ async function purgeMediaCache(businessId: string) {
 }
 
 export async function assertBusinessExternalDataRemoved(businessId: string): Promise<void> {
-  try { await assertNoNativeArchive(businessId); await purgeMediaCache(businessId); }
+  try { await assertNoBusinessNativeArchive(businessId); await purgeMediaCache(businessId); }
   catch (error) { if (error instanceof BusinessExternalCleanupError) throw error; refuse(); }
 }

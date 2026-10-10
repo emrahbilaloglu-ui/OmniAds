@@ -145,4 +145,15 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
     expect(waiting!.archive_state).toBeNull();expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"ok"});
     expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"ok"});
   });
+  it("retains frozen archived-only keys when preparation is disabled for rollback and refuses unprepared persisted plans",async()=>{
+    const t=await tenant(),input=JSON.parse(await hotInput());await archive(t.id,JSON.stringify(input));await enqueueBusinessDeletion(t.id);
+    const plan=await withPinnedDbClient(client=>prepareBusinessArchiveErasurePlan(t.id,client));
+    await getDb().query("UPDATE business_deletion_jobs SET archive_state=$2::jsonb WHERE business_ref_id=$1::uuid",[t.id,JSON.stringify({plan,prepared:false})]);
+    vi.stubEnv("BUSINESS_ARCHIVE_ERASURE_ENABLED","false");
+    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"idle"});
+    await expect(deleteBusinessWithData(t.id)).rejects.toMatchObject({code:"external_cleanup_required"});
+    vi.stubEnv("BUSINESS_ARCHIVE_ERASURE_ENABLED","true");expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});
+    vi.stubEnv("BUSINESS_ARCHIVE_ERASURE_ENABLED","false");expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"ok"});
+    expect(await getDb().query("SELECT 1 FROM engine_v3_ad_decision_input_evidence WHERE contract_version=$1 AND input_hash=$2::character(64)",[input.contract_version,input.input_hash])).toEqual([]);
+  });
 });

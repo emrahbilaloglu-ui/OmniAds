@@ -642,13 +642,15 @@ export async function deleteBusinessWithData(businessId: string,
     const [business] = await sql`SELECT id FROM businesses WHERE id=${businessId}::uuid FOR UPDATE`;
     if (!business) throw new BusinessDeletionError("not_found");
     let archivedInputKeys: ArchivedBusinessInputKey[] = [];
-    if (process.env.BUSINESS_ARCHIVE_ERASURE_ENABLED === "true") {
-      const [job] = await sql.query<{ archive_state: BusinessArchiveErasureState | null }>(
-        "SELECT archive_state FROM business_deletion_jobs WHERE business_ref_id=$1::uuid", [businessId]);
-      if (job?.archive_state?.prepared !== true) throw new BusinessDeletionError("external_cleanup_required");
-      try { validateBusinessArchiveErasurePlan(job.archive_state.plan, businessId); }
+    const [archiveJob] = await sql.query<{ archive_state: BusinessArchiveErasureState | null }>(
+      "SELECT archive_state FROM business_deletion_jobs WHERE business_ref_id=$1::uuid", [businessId]);
+    // A rollback may stop NEW preparation; it cannot discard an already durable
+    // plan or its archived-only keys after their ciphertext has been removed.
+    if (archiveJob?.archive_state || process.env.BUSINESS_ARCHIVE_ERASURE_ENABLED === "true") {
+      if (archiveJob?.archive_state?.prepared !== true) throw new BusinessDeletionError("external_cleanup_required");
+      try { validateBusinessArchiveErasurePlan(archiveJob.archive_state.plan, businessId); }
       catch { throw new BusinessDeletionError("external_cleanup_required"); }
-      archivedInputKeys = job.archive_state.plan.inputKeys;
+      archivedInputKeys = archiveJob.archive_state.plan.inputKeys;
     }
     const catalogIdentity = (items: ScopeColumn[]) => JSON.stringify(items.map(({heap_bytes: _size,...column})=>column));
     if (catalogIdentity(await sql.query<ScopeColumn>(SCOPE_CATALOG)) !== catalogIdentity(columns)) throw new BusinessDeletionError("schema_not_ready");

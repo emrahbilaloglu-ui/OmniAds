@@ -54,7 +54,7 @@ export async function runBusinessDeletionWorkerTick() {
           attempts=attempts+1,started_at=now(),erasure_started_at=COALESCE(erasure_started_at,now()),updated_at=now()
         WHERE business_ref_id=(SELECT business_ref_id FROM business_deletion_jobs
           WHERE status IN ('queued','running')
-            AND ($1::boolean=false OR COALESCE((archive_state->>'prepared')::boolean,false)=true)
+            AND (($1::boolean=false AND archive_state IS NULL) OR COALESCE((archive_state->>'prepared')::boolean,false)=true)
           ORDER BY created_at,business_ref_id LIMIT 1)
         RETURNING *`, [process.env.BUSINESS_ARCHIVE_ERASURE_ENABLED === "true"]);
       if (!job) return { outcome: "idle" };

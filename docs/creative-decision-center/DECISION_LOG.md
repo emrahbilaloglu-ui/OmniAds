@@ -13799,6 +13799,9 @@ publication/unlink plans resume without rediscovering already destroyed input
 evidence. Automatic process-loss recovery is finite; explicit owner retry retains
 the plan and resets counters/start. Root commit cascades the checkpoint/job;
 there is no completed-business tombstone or customer cleanup receipt.
+Disabling new preparation never disables persisted-plan consumption: prepared
+jobs retain frozen-key GC, and unprepared persisted plans cannot be claimed or
+discarded by the web worker while the processor is parked.
 
 DELETE returns only acknowledgement. `deletion-status` GET and POST retry require
 a current `requireAdmin` application-superadmin check; old ordinary-user signed
@@ -13809,7 +13812,7 @@ anonymous role health/logs carry progress and intervention requirements.
 Require real filesystem/crypto interrupted-write/publication/unlink tests,
 foreign historical-reader continuity, ordinary-user denial, plus migrated real
 PostgreSQL archived-only GC, GLOBAL shared preservation, drift rollback, durable
-recovery, queue serialization and aggregate-deadline/exclusion tests. Keep all67
+recovery, queue serialization, processor-off rollback and aggregate-deadline/exclusion tests. Keep all67
 existing deletion cases, including actual121s root and remaining-budget server
 cancellation. Exact canonical QA/CI/images/deployment and a bounded temporary
 unbound synthetic business with actual automatic archive removal are separate

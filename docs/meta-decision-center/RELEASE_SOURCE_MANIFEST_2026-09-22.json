@@ -1,5 +1,5 @@
 {
-  "manifestHash": "49993dde765b02e940aa8acf30b872ac0f23f386e076208548981f3fd994a510",
+  "manifestHash": "6db092bc7108544f8c1369aa122bdc711c1ca2449004e481d961150438582704",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -868,7 +868,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "b08fc16e2e287f9619a4735707a1b355e619a7abaa69aaa58df8a37d23c41f4f"
+      "sha256": "5c2327aab26f5a91bf66609356fcb7b5959346370cada7a618344400c7465489"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -904,7 +904,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "89509be8eebcb313e660efb79d0f06b8cd2646c629f1140a33a50d55571b5350"
+      "sha256": "f8dfe0736915ff8cc86a688a1ef7a900b85edc0ea2994229bfa055fd604df3c2"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1012,7 +1012,7 @@
     },
     {
       "path": "lib/business-archive-erasure.db.test.ts",
-      "sha256": "26dd2123bd9692a466d50e2d23b43ca07d0f6afba5c1a191fff1f3be85a5c0fe"
+      "sha256": "c020df68076b6f347ae32c90e807922a21c2c1c95c90b974031ddeccbdf7c361"
     },
     {
       "path": "lib/business-archive-erasure.test.ts",
@@ -1044,7 +1044,7 @@
     },
     {
       "path": "lib/business-deletion-jobs.ts",
-      "sha256": "b448820ca4c734ea7248d9de09cbdd918ad8be87c374e470776f79b13a7264f0"
+      "sha256": "5bb276ebc4dcec5c71faa78b8e6c00726e80a21c62a6e61b7656c2c5cb9c4544"
     },
     {
       "path": "lib/business-deletion-native-evaluations.ts",
@@ -1096,7 +1096,7 @@
     },
     {
       "path": "lib/business-deletion.ts",
-      "sha256": "9d20a613beacb6d36b36bb0735b4203f63db5f3a97c7c34f480811bddc196778"
+      "sha256": "c61f6f9432a2e10c566cd5d5f7e4fb07962c9e2b7f0d606d33dc9718e05a15d4"
     },
     {
       "path": "lib/client-auth-state.test.ts",
@@ -3020,7 +3020,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "53416ed31b6c98b23be6b828d24fc0857906a67c51bcae010aa77bbf6e1a5059"
+      "sha256": "6f13e94d5998b053586e226ee9056273aa5e97bbeb3f0472a1ffa5626b9db1ba"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",

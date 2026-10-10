@@ -13699,3 +13699,57 @@ scope/media/registry absence with foreign preservation, then the already
 approved Vornom archive/input offboarding and normal Manage Business deletion.
 A code rollback keeps hidden access and additive D166 indexes. Committed erasure
 cannot be undone by a code revert; shared DR/WAL backups remain excluded.
+
+## D168 — Final root uses the existing operation remainder (2026-10-10)
+
+D167 source b343b3f58f235ffe65837de9b9432cc8d100a640 / live
+8b88c39063621f03e31e1bf6e8297d583f57ffcf passed local, PR/main CI,
+both images, canonical deployment and independent web/worker/API checks.
+Halıcızade attempt14 nevertheless failed at business_root after1,481,495ms;
+the root phase consumed120,098ms. PostgreSQL cancelled the outer root DELETE
+at03:26:48.607UTC, with a parameterized SET NULL context on
+meta_raw_snapshots.business_ref_id. This names the FK active at cancellation,
+not its individual elapsed time. All420 scoped checks,15 full business rows,
+guards, state identities, foreign membership/connection digests, active sessions
+and small indirect-store sizes match the pre-state: the entire transaction
+rolled back. Normal hidden access remains closed. Vornom and its approved
+17 archive files/518 input keys are untouched.
+
+The previous root plan check covered19 RESTRICT/NO ACTION constraints only.
+A new bounded read-only inspection covers ALL179 incoming root actions:
+19 RESTRICT/NO ACTION,39 CASCADE and121 SET NULL, in716 generic/custom
+target plans. Actual SET NULL UPDATE and CASCADE DELETE shapes are explained
+without ANALYZE or execution. Every large lookup has its constrained leading
+index, including idx_meta_raw_snapshots_business_ref. No missing large index
+was found; a new index or global work_mem/planner tuning is not justified.
+Plans prove access shape, not latency or the distribution of120s between FKs.
+
+Amend D167's independent120s cap: only the final background root command may
+use the REMAINDER of the SAME absolute30m operation deadline, with a30m
+ceiling. Root timeout can never restart or extend that deadline. All512-row
+cleanup commands and control census keep30s; direct callers keep30s/four
+minutes; locks keep1500ms. The same pinned transactional backend, mandatory
+server SET LOCAL cancellation and bounded client wait remain. COMMIT re-pins
+the ordinary30s/remaining budget. Any setup, root, global-deadline or COMMIT
+failure still rolls back every earlier owned deletion; all FKs stay active.
+
+The final control-history write fence can now last through the remaining
+operation budget. Heartbeat freshness may expire during this final exclusion;
+fresh heartbeat/capacity readback after release is mandatory. Do not present a
+stale heartbeat as fresh, force a worker/job or expose cleanup to the customer.
+
+The67 migrated cases remain registered. Strengthen the actual PostgreSQL root
+fixture from31s to121s: it must finish beyond D167's cap, with a server bound
+strictly below the operation ceiling, active FKs/origin replication,1500ms
+locks, unchanged foreign bytes and30s restored afterward. Keep the actual
+remaining500ms cancellation, full rollback/backend reuse and existing total-
+deadline cases. This fixture is a required test, not a claim of live success.
+
+D163 durable202 immediate customer removal and owner monitoring remain byte-
+compatible. No UI, decision semantics, provider writes, partial commits,
+maintenance or new operation budget is introduced. Exact-source canonical QA,
+whole CI/images/deploy, all-action root plan coverage and fresh selected gates
+must precede one new authorized physical attempt. Halıcızade terminal success
+and full independent absence must still precede Vornom offboarding. Revert this
+narrow cap/test amendment to restore D167 behavior; hidden markers and additive
+indexes remain. A code revert cannot restore committed physical deletion.

@@ -409,3 +409,16 @@ still restores all owned DB records and original guards; the normal user's
 hidden access remains closed. No partial commit, FK disabling, maintenance or
 customer cleanup/progress screen is introduced. See D167 for actual67-case
 PostgreSQL acceptance and exact-source/live-before-physical gates.
+
+D168 amends D167 after its actual120s root rollback. All179 root FK actions
+have constrained leading access in716 read-only generic/custom target plans;
+the failure is not evidence of a new missing index. The final background root
+uses the remaining SAME30m operation budget, capped by that operation ceiling,
+without restarting its deadline. Ordinary pages/control census/direct calls
+and1500ms locks keep their existing bounds. Mandatory server cancellation,
+the same pinned backend, atomic rollback and ordinary limit before COMMIT stay.
+The real root sleep fixture now crosses121s; the remaining500ms cancellation
+case and67-case registration remain. Final control-history exclusion may hold
+through this remaining budget, so fresh heartbeat/capacity after release is a
+separate acceptance requirement. The customer still leaves at durable202;
+physical status/errors belong to the application owner.

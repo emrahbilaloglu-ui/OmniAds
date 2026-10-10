@@ -1,8 +1,9 @@
 import type { PoolClient } from "pg";
 
-// A single root DELETE runs every incoming business FK trigger. Its aggregate
-// work differs from the 512-row cleanup pages; it is not a new operation budget.
-export const BUSINESS_ERASURE_ROOT_STATEMENT_CAP_MS = 120_000;
+// A single root DELETE runs every incoming business FK trigger. Give it the
+// remaining approved operation budget, with the same finite 30m ceiling.
+// Cleanup pages keep their own 30s bound; this cannot extend the job deadline.
+export const BUSINESS_ERASURE_ROOT_STATEMENT_CAP_MS = 30 * 60_000;
 
 /** Background caller only, on the SAME lock-owning transactional backend.
  * All incoming FKs remain active. The existing transaction wrapper restores

@@ -600,8 +600,8 @@ export async function deleteBusinessWithData(businessId: string,
     ownershipRows: 0, ownershipPages: 0, ownedRows: 0, ownedPages: 0 };
   const mark = (next: string) => { timings.push({ phase, ms: Date.now()-phaseAt }); phase=next; phaseAt=Date.now(); };
   // D162: the approved web-owned background job has a finite 30m total
-  // budget. Cleanup pages retain their 30s/remaining-deadline cap; D167's
-  // background-only final root statement has a separate aggregate FK bound.
+  // budget. Cleanup pages retain their 30s/remaining-deadline cap; D168's
+  // background-only final root statement uses the same remaining job budget.
   const deadlineAtMs = startedAt + (options.client ? 30 * 60_000 : 240_000);
   const transact = (run: () => Promise<void>) => options.client
     ? runPinnedDbTransaction({ client: options.client, timeoutMs: 30_000, lockTimeoutMs: 1500, deadlineAtMs, fn: run })
@@ -924,7 +924,7 @@ export async function deleteBusinessWithData(businessId: string,
       : await sql`DELETE FROM businesses WHERE id=${businessId}::uuid RETURNING id`;
     if (removedRoot.length !== 1) throw new BusinessDeletionError("schema_not_ready", ["business_root"]);
   // Background execution uses its pinned lock-owning backend, a 30m operation
-  // deadline, 30s cleanup pages and one final 120s/remaining-deadline root
+  // deadline, 30s cleanup pages and one final remaining-deadline root
   // statement. No HTTP/proxy timeout is raised.
   // Direct internal callers retain their previous four-minute bound.
   }));

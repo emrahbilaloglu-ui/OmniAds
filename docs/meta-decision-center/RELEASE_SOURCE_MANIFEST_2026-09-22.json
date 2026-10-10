@@ -1,5 +1,5 @@
 {
-  "manifestHash": "a225554060ca5f9e9c8c14df42bfeb2625f24847548f6b88ff8d4f5238811c97",
+  "manifestHash": "02f61d1e9602434711b9641c56572ab1f7df49bbc0257250b12e48e00fa98e18",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -812,7 +812,7 @@
     },
     {
       "path": "docs/architecture/business-deletion-repair.md",
-      "sha256": "15d0d99f603446cc3a0ffa2ea789a6d3699a9ddcb61e5aa7319e373ac78bc963"
+      "sha256": "aa29e963c9c7fef607f69f2888ad9ede62c984240f3b8487250d5f46c6b0fa93"
     },
     {
       "path": "docs/architecture/migration-replay-worker-recovery.md",
@@ -904,7 +904,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "5ec7de20f0a6587695bb3b7edb92d4453d7200ca37ce92ec98611ddfeb673c11"
+      "sha256": "02dca07cb1114611e81b186e4a008a08c1a4735a7f4180a2e3964552b08135d3"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -916,7 +916,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "434ea6a7aa2f93f76c523a15d172f3c89befee3d7a41c13d28daaa5bbeb634b4"
+      "sha256": "5941045f142c737f57c054bd02f3b56315de4ad67807002d594e5be867d96667"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -1040,7 +1040,7 @@
     },
     {
       "path": "lib/business-deletion-root.ts",
-      "sha256": "2b8880969d669a22601e5958bc528cab7d10f7fb7d92e88cbeee21d04109ffb0"
+      "sha256": "24fa4ff4b07634fabc7122cf5d6255dc3344a3dd3285bb08b3426f51a0022bb3"
     },
     {
       "path": "lib/business-deletion-runtime.test.ts",
@@ -1068,11 +1068,11 @@
     },
     {
       "path": "lib/business-deletion.db.test.ts",
-      "sha256": "05aee70489ee226a32f849ce00120f8134855cc98b584cf1dfa2754a754625d5"
+      "sha256": "4e933d813761b187705247f88adbd9afd160651d19ce36c9371feef41ddeab3f"
     },
     {
       "path": "lib/business-deletion.ts",
-      "sha256": "3dcf0ebe662c21aa16b1cce1ecc06464ad05d614d8c84396afc4109341ece42c"
+      "sha256": "472e3358382d1d90cc60beadc1391618f85405e93d251c326e87c8af463f5b60"
     },
     {
       "path": "lib/client-auth-state.test.ts",

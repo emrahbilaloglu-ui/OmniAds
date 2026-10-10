@@ -741,10 +741,10 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
     } finally {await db.end();}
   },60_000);
 
-  it("lets only the durable root statement exceed a cleanup-page cap, with active FKs and foreign bytes preserved",async()=>{
+  it("lets only the durable root use its remaining job budget past 120s, with active FKs and foreign bytes preserved",async()=>{
     const {businessId,otherId}=await fixture();
     const [foreignBefore]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${otherId}::uuid`;
-    await getDb()`CREATE FUNCTION business_delete_root_delay() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(31); RETURN OLD; END $$`;
+    await getDb()`CREATE FUNCTION business_delete_root_delay() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(121); RETURN OLD; END $$`;
     await getDb()`CREATE TRIGGER business_delete_root_delay BEFORE DELETE ON businesses FOR EACH ROW EXECUTE FUNCTION business_delete_root_delay()`;
     const pageCaps:number[]=[],rootCaps:number[]=[];
     try {
@@ -755,8 +755,8 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
           const root=/^SET LOCAL statement_timeout = (\d+)$/.exec(text);
           if(root&&Number(root[1])>30_000)rootCaps.push(Number(root[1]));
           if(text.startsWith("DELETE FROM businesses WHERE id=")) {
-            const {rows:[settings]}=await client.query("SELECT current_setting('statement_timeout') AS statement,current_setting('lock_timeout') AS lock,current_setting('session_replication_role') AS role");
-            expect(settings).toEqual({statement:"2min",lock:"1500ms",role:"origin"});
+            const {rows:[settings]}=await client.query("SELECT (extract(epoch FROM current_setting('statement_timeout')::interval)*1000)::bigint::text AS statement,current_setting('lock_timeout') AS lock,current_setting('session_replication_role') AS role");
+            expect(settings).toEqual({statement:String(rootCaps.at(-1)),lock:"1500ms",role:"origin"});
           }
           return client.query(text,params);
         }};
@@ -764,13 +764,15 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
         const {rows:[after]}=await client.query("SELECT current_setting('statement_timeout') AS statement");
         expect(after.statement).toBe("30s");
       },{timeoutMs:30_000});
-      expect(rootCaps).toEqual([BUSINESS_ERASURE_ROOT_STATEMENT_CAP_MS]);
+      expect(rootCaps).toHaveLength(1);
+      expect(rootCaps[0]).toBeGreaterThan(120_000);
+      expect(rootCaps[0]).toBeLessThan(BUSINESS_ERASURE_ROOT_STATEMENT_CAP_MS);
       expect(pageCaps.length).toBeGreaterThan(1);expect(pageCaps.every(ms=>ms>0&&ms<=30_000)).toBe(true);
       expect(await remains(businessId)).toBe(false);expect(await remains(businessId,"memberships","business_id")).toBe(false);
       const [foreignAfter]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${otherId}::uuid`;
       expect(foreignAfter).toEqual(foreignBefore);
     } finally {await getDb()`DROP TRIGGER business_delete_root_delay ON businesses`;await getDb()`DROP FUNCTION business_delete_root_delay()`;}
-  },60_000);
+  },180_000);
 
   it("cancels the actual root statement at the remaining durable deadline and atomically restores owned and foreign data",async()=>{
     const {businessId,otherId}=await fixture();

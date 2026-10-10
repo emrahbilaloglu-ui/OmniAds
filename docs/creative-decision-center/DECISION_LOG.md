@@ -13662,7 +13662,8 @@ PostgreSQL16's statement timeout measures the complete command, including
 trigger work; its RI source executes RESTRICT checks via SPI in that command.
 References: https://www.postgresql.org/docs/16/runtime-config-client.html and
 https://github.com/postgres/postgres/blob/REL_16_STABLE/src/backend/utils/adt/ri_triggers.c.
-Bounded EXPLAIN found no leaked plan_cache_mode and no new absent root lookup.
+Source inspection found no erasure setting of plan_cache_mode. Bounded
+EXPLAIN compared generic/custom access and found no new absent root lookup.
 Higher bitmap work_mem changes estimates only modestly and proves no runtime
 improvement; it is not adopted. No new index or repeated maintenance is required
 by the observed failure.

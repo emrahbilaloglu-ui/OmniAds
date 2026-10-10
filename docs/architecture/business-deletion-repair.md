@@ -112,7 +112,7 @@ the actual DELETE settings without raising its eight-second query cap.
 The complete operation permits at most 4,194,304
 evaluations and uses a 30-minute background deadline (D162) (four minutes for direct internal callers); bounds roll back all
 prior pages. Erasure alone disables JIT in its transaction. The server statement
-timeout is capped by both the 30-second query limit and remaining transaction
+cleanup timeout is capped by both the 30-second query limit and remaining transaction
 deadline, so an application timeout cannot leave a longer-running statement
 holding its writer locks. Native input keys are captured as evaluations disappear. Only keys with no
 reference from ANY remaining evaluation are collected, in 400-key pages. This
@@ -133,7 +133,7 @@ Unsafe page plans roll back every preceding business/input mutation. At D161 the
 were unchanged. D162 subsequently changes only the approved background total
 deadline from20 to30 minutes, following actual full-input-cleanup completion
 and total-deadline rollback in provider-identity cleanup. Direct internal
-callers remain bounded tofour minutes and every PostgreSQL statement to30
+callers remain bounded tofour minutes and ordinary PostgreSQL statements to30
 seconds or the remaining deadline, whichever is shorter. The lock cap, pages,
 row bounds, GLOBAL reference proof, guards/FKs, writer exclusion and single
 atomic rollback remain unchanged. Local fixtures advance only the application
@@ -397,3 +397,15 @@ access, failure non-resurrection, preserved foreign access and legacy rollout.
 The 30-minute background limit and all physical erasure bounds remain intact.
 Rollback must preserve hidden markers and visibility filters for already
 accepted removals; an older image that ignores them is not an accepted rollback.
+
+
+D167 makes one explicit background-only exception after actual D166 root
+rollback: the final single-business root DELETE, including all incoming FK
+triggers, has a120s cap shortened by the unchanged30m operation deadline. It
+runs on the same pinned transaction/backend, with server SET LOCAL cancellation
+and a bounded client wait. Cleanup pages/control census and direct callers keep
+30s; locks keep1500ms. COMMIT re-pins the ordinary bound. Root or commit failure
+still restores all owned DB records and original guards; the normal user's
+hidden access remains closed. No partial commit, FK disabling, maintenance or
+customer cleanup/progress screen is introduced. See D167 for actual67-case
+PostgreSQL acceptance and exact-source/live-before-physical gates.

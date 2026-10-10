@@ -7,6 +7,7 @@ import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, s
 import { getDb, runDbTransaction, runPinnedDbTransaction, withPinnedDbClient } from "@/lib/db";
 import { BUSINESS_ERASURE_LOCK_NAMESPACE, BUSINESS_ERASURE_INPUT_KEY_PAGE_SQL, BusinessDeletionError, deleteBusinessWithData } from "@/lib/business-deletion";
 import { enqueueBusinessDeletion, runBusinessDeletionWorkerTick } from "@/lib/business-deletion-jobs";
+import { BUSINESS_ERASURE_ROOT_STATEMENT_CAP_MS } from "@/lib/business-deletion-root";
 import { listUserBusinesses, findMembership } from "@/lib/access-membership";
 import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory } from "@/lib/business-deletion-control-receipts";
 import { deleteBusinessNativeEvaluations } from "@/lib/business-deletion-native-evaluations";
@@ -739,6 +740,70 @@ describe.skipIf(!seam)("business deletion on the full migrated PostgreSQL schema
       } finally {await db.query("DROP INDEX idx_engine_v3_ad_evaluations_contract_input");}
     } finally {await db.end();}
   },60_000);
+
+  it("lets only the durable root statement exceed a cleanup-page cap, with active FKs and foreign bytes preserved",async()=>{
+    const {businessId,otherId}=await fixture();
+    const [foreignBefore]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${otherId}::uuid`;
+    await getDb()`CREATE FUNCTION business_delete_root_delay() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(31); RETURN OLD; END $$`;
+    await getDb()`CREATE TRIGGER business_delete_root_delay BEFORE DELETE ON businesses FOR EACH ROW EXECUTE FUNCTION business_delete_root_delay()`;
+    const pageCaps:number[]=[],rootCaps:number[]=[];
+    try {
+      await withPinnedDbClient(async client=>{
+        const wrapped={query:async(text:string,params?:unknown[])=>{
+          const page=/^SET statement_timeout = (\d+)$/.exec(text);
+          if(page)pageCaps.push(Number(page[1]));
+          const root=/^SET LOCAL statement_timeout = (\d+)$/.exec(text);
+          if(root&&Number(root[1])>30_000)rootCaps.push(Number(root[1]));
+          if(text.startsWith("DELETE FROM businesses WHERE id=")) {
+            const {rows:[settings]}=await client.query("SELECT current_setting('statement_timeout') AS statement,current_setting('lock_timeout') AS lock,current_setting('session_replication_role') AS role");
+            expect(settings).toEqual({statement:"2min",lock:"1500ms",role:"origin"});
+          }
+          return client.query(text,params);
+        }};
+        await deleteBusinessWithData(businessId,{client:wrapped as never});
+        const {rows:[after]}=await client.query("SELECT current_setting('statement_timeout') AS statement");
+        expect(after.statement).toBe("30s");
+      },{timeoutMs:30_000});
+      expect(rootCaps).toEqual([BUSINESS_ERASURE_ROOT_STATEMENT_CAP_MS]);
+      expect(pageCaps.length).toBeGreaterThan(1);expect(pageCaps.every(ms=>ms>0&&ms<=30_000)).toBe(true);
+      expect(await remains(businessId)).toBe(false);expect(await remains(businessId,"memberships","business_id")).toBe(false);
+      const [foreignAfter]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${otherId}::uuid`;
+      expect(foreignAfter).toEqual(foreignBefore);
+    } finally {await getDb()`DROP TRIGGER business_delete_root_delay ON businesses`;await getDb()`DROP FUNCTION business_delete_root_delay()`;}
+  },60_000);
+
+  it("cancels the actual root statement at the remaining durable deadline and atomically restores owned and foreign data",async()=>{
+    const {businessId,otherId}=await fixture();
+    const [foreignBefore]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${otherId}::uuid`;
+    await getDb()`CREATE FUNCTION business_delete_root_delay() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(2); RETURN OLD; END $$`;
+    await getDb()`CREATE TRIGGER business_delete_root_delay BEFORE DELETE ON businesses FOR EACH ROW EXECUTE FUNCTION business_delete_root_delay()`;
+    const realNow=Date.now.bind(Date);let late=false,rootCap=0,rootReached=false,offset=0;
+    try {
+      await withPinnedDbClient(async client=>{
+        const startedAt=realNow();
+        const clock=vi.spyOn(Date,"now").mockImplementation(()=>realNow()+offset);
+        const wrapped={query:async(text:string,params?:unknown[])=>{
+          // Advance immediately after the existing session cleanup, before the
+          // final control census and root. The real server cancels pg_sleep.
+          if(text.startsWith("UPDATE sessions SET active_business_id=NULL")) {
+            late=true;offset=30*60_000-500-(realNow()-startedAt);
+          }
+          const cap=/^SET LOCAL statement_timeout = (\d+)$/.exec(text);
+          if(late&&cap)rootCap=Number(cap[1]);
+          if(text.startsWith("DELETE FROM businesses WHERE id="))rootReached=true;
+          return client.query(text,params);
+        }};
+        try {await expect(deleteBusinessWithData(businessId,{client:wrapped as never})).rejects.toThrow();}
+        finally {clock.mockRestore();}
+        expect((await client.query("SELECT 1 AS alive")).rows).toEqual([{alive:1}]);
+      },{timeoutMs:30_000});
+      expect(late).toBe(true);expect(rootReached).toBe(true);expect(rootCap).toBeGreaterThan(0);expect(rootCap).toBeLessThanOrEqual(500);
+      for(const [table,column]of [["businesses","id"],["memberships","business_id"],["business_provider_accounts","business_id"],["meta_entity_observation_runs","business_ref_id"]])
+        expect(await remains(businessId,table,column)).toBe(true);
+      const [foreignAfter]=await getDb()`SELECT to_jsonb(b)::text AS bytes FROM businesses b WHERE id=${otherId}::uuid`;
+      expect(foreignAfter).toEqual(foreignBefore);
+    } finally {await getDb()`DROP TRIGGER business_delete_root_delay ON businesses`;await getDb()`DROP FUNCTION business_delete_root_delay()`;}
+  });
 
   it.each([
     { elapsedMs:20*60_000+1000, completes:true },

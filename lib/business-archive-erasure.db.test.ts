@@ -67,7 +67,12 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
   afterEach(async()=>{
     vi.unstubAllEnvs();await rm(base,{recursive:true,force:true});
     process.env.ADSECUTE_SYNC_GLOBAL_ENABLED="enabled";process.env.ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED="enabled";
-    for(const id of owned) if((await getDb().query("SELECT 1 FROM businesses WHERE id=$1::uuid",[id])).length) await deleteBusinessWithData(id);
+    for(const id of owned) if((await getDb().query("SELECT 1 FROM businesses WHERE id=$1::uuid",[id])).length){
+      // Disposal of deliberately blocked fixtures on this localhost-only DB,
+      // not a production retry: never discard a real persisted archive plan.
+      await getDb().query("DELETE FROM business_deletion_jobs WHERE business_ref_id=$1::uuid",[id]);
+      await deleteBusinessWithData(id);
+    }
   });
   it("stores an additive nullable checkpoint and preserves existing jobs on an idempotent enqueue",async()=>{
     const t=await tenant();await archive(t.id);const first=await enqueueBusinessDeletion(t.id),second=await enqueueBusinessDeletion(t.id);

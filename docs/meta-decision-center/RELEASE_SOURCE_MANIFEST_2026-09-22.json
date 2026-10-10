@@ -1,5 +1,5 @@
 {
-  "manifestHash": "1af6959b250fbb0b6a6fe15565b1965f5fec54f61bc904e74e360d68f37b835e",
+  "manifestHash": "b9563b996c6e80105d2a394ecd14a5eccddb4ddcae0e22b8ac185baa3c6b41c7",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -1012,7 +1012,7 @@
     },
     {
       "path": "lib/business-archive-erasure.db.test.ts",
-      "sha256": "ffe08e7638a19fe2e50edb3a6211d6d96fa19da000f7e5d9751ccdd3241b75fa"
+      "sha256": "48240f43716a64165bd9dffc10149cd1d481b0d307b19b79b8fdb8a7697fa522"
     },
     {
       "path": "lib/business-archive-erasure.test.ts",

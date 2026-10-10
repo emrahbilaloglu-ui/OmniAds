@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Client } from "pg";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb, withPinnedDbClient } from "@/lib/db";
 import { listUserBusinesses, findMembership } from "@/lib/access-membership";
 import { archiveDigest } from "@/lib/business-archive-configuration";
@@ -55,6 +55,17 @@ async function archive(business: string, inputEvidenceRowJson?: string) {
   return f;
 }
 describe.skipIf(!seam)("automatic archive erasure on the actual migrated PostgreSQL schema",()=>{
+  let observedIndexAdded=false;
+  beforeAll(async()=>{
+    // The GLOBAL lookup index exists in the observed production catalog but
+    // is intentionally not created by run-migrations. Reproduce that exact
+    // existing prerequisite only on this disposable localhost cluster.
+    const db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();
+    try{await addObservedProductionReferenceIndex(db);observedIndexAdded=true;}finally{await db.end();}
+  });
+  afterAll(async()=>{
+    if(observedIndexAdded)await getDb().query("DROP INDEX public.idx_engine_v3_ad_evaluations_contract_input");
+  });
   beforeEach(async()=>{
     owned=[];base=await realpath(await mkdtemp(join(tmpdir(),"archive-erasure-db-")));root=join(base,"archive");
     await mkdir(root,{mode:0o700});await mkdir(join(base,"control"),{mode:0o700});
@@ -89,7 +100,7 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
     await expect(readFile(join(root,f.entry.object.key))).rejects.toMatchObject({code:"ENOENT"});
     const [checkpoint]=await getDb().query("SELECT archive_state FROM business_deletion_jobs WHERE business_ref_id=$1::uuid",[t.id]);
     expect(checkpoint!.archive_state.prepared).toBe(true);expect(checkpoint!.archive_state.plan.inputKeys[0].frozenRowSha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"ok"});
+    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
     expect(await getDb().query("SELECT 1 FROM businesses WHERE id=$1::uuid",[t.id])).toEqual([]);
     expect(await getDb().query("SELECT 1 FROM business_deletion_jobs WHERE business_ref_id=$1::uuid",[t.id])).toEqual([]);
     expect(await getDb().query("SELECT 1 FROM engine_v3_ad_decision_input_evidence WHERE contract_version=$1 AND input_hash=$2::character(64)",[input.contract_version,input.input_hash])).toEqual([]);
@@ -97,13 +108,13 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
   it("preserves an archived key and foreign evaluations byte for byte when a GLOBAL hot reference still exists",async()=>{
     const t=await tenant(),db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();
     try{
-      await addObservedProductionReferenceIndex(db);const foreign=await seedTenant(db,1);owned.push(foreign.business);
+      const foreign=await seedTenant(db,1);owned.push(foreign.business);
       const producer=await seedCalibration(db,foreign,"2026-09-23","2026-09-23T12:00:00Z");
       await seedGeneration(db,foreign,{date:"2026-09-23",clock:"2026-09-23T12:01:00Z",finishedAt:"2026-09-23T12:02:00Z",producer,perAccount:[1],tag:"archive-shared"});
       const {rows:[row]}=await db.query("SELECT to_jsonb(i)::text AS row_json FROM engine_v3_ad_decision_input_evidence i JOIN engine_v3_ad_decision_evaluations e USING(contract_version,input_hash) WHERE e.business_ref_id=$1::uuid LIMIT 1",[foreign.business]);
       const evaluations=(await db.query("SELECT to_jsonb(e)::text AS bytes FROM engine_v3_ad_decision_evaluations e WHERE business_ref_id=$1::uuid ORDER BY id",[foreign.business])).rows;
       await archive(t.id,row.row_json);await enqueueBusinessDeletion(t.id);
-      expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"ok"});
+      expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
       const input=JSON.parse(row.row_json);
       expect((await db.query("SELECT to_jsonb(i)::text AS row_json FROM engine_v3_ad_decision_input_evidence i WHERE contract_version=$1 AND input_hash=$2::character(64)",[input.contract_version,input.input_hash])).rows).toEqual([row]);
       expect((await db.query("SELECT to_jsonb(e)::text AS bytes FROM engine_v3_ad_decision_evaluations e WHERE business_ref_id=$1::uuid ORDER BY id",[foreign.business])).rows).toEqual(evaluations);
@@ -128,7 +139,7 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
     // Simulates a process loss before publication; persisted source proof must
     // be reused, not rediscovered from possibly incomplete files.
     expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});
-    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"ok"});
+    expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
     expect(await getDb().query("SELECT 1 FROM business_deletion_jobs WHERE business_ref_id=$1::uuid",[t.id])).toEqual([]);
   });
   it("honors the shared global lock and aggregate deadline before any archive mutation",async()=>{
@@ -139,7 +150,7 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
     await getDb().query("UPDATE business_deletion_jobs SET erasure_started_at=now()-interval '31 minutes' WHERE business_ref_id=$1::uuid",[t.id]);
     expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"failed",phase:"planning"});
     expect(await readFile(join(root,f.entry.object.key))).toEqual(f.bytes);
-    await enqueueBusinessDeletion(t.id);expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"ok"});
+    await enqueueBusinessDeletion(t.id);expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
   });
   it("serializes whole sagas so later preparation cannot consume an earlier frozen archived-only key",async()=>{
     const first=await tenant(),second=await tenant();await archive(first.id,await hotInput());
@@ -147,8 +158,8 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
     expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});
     expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"awaiting_database"});
     const [waiting]=await getDb().query("SELECT archive_state FROM business_deletion_jobs WHERE business_ref_id=$1::uuid",[second.id]);
-    expect(waiting!.archive_state).toBeNull();expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"ok"});
-    expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"ok"});
+    expect(waiting!.archive_state).toBeNull();expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
+    expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
   });
   it("retains frozen archived-only keys when preparation is disabled for rollback and refuses unprepared persisted plans",async()=>{
     const t=await tenant(),input=JSON.parse(await hotInput());await archive(t.id,JSON.stringify(input));await enqueueBusinessDeletion(t.id);
@@ -158,7 +169,7 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
     expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"idle"});
     await expect(deleteBusinessWithData(t.id)).rejects.toMatchObject({code:"external_cleanup_required"});
     vi.stubEnv("BUSINESS_ARCHIVE_ERASURE_ENABLED","true");expect(await runBusinessArchiveErasureTick()).toMatchObject({outcome:"prepared"});
-    vi.stubEnv("BUSINESS_ARCHIVE_ERASURE_ENABLED","false");expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"ok"});
+    vi.stubEnv("BUSINESS_ARCHIVE_ERASURE_ENABLED","false");expect(await runBusinessDeletionWorkerTick()).toMatchObject({outcome:"completed"});
     expect(await getDb().query("SELECT 1 FROM engine_v3_ad_decision_input_evidence WHERE contract_version=$1 AND input_hash=$2::character(64)",[input.contract_version,input.input_hash])).toEqual([]);
   });
 });

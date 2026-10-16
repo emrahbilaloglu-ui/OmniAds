@@ -56,7 +56,11 @@ It never re-queries the two AX-locked tables from another connection. A lost
 COMMIT reply or dispatched-unit restart is status-only owner attention, never
 automatic re-execution or fabricated success. Independent source absence,
 retained/shared bytes, historical HTTP and current GET parity follow the actual
-COMMIT ACK. No claimed OS disk shrink follows a DELETE.
+COMMIT ACK. A durably acknowledged commit resumes only readback/bookkeeping,
+never C3; its original serialized prepared proof is journaled before challenge.
+A foreign erasure's shared-root change requires new publication/HTTP proofs
+while the source is intact, and earlier reads retain their budget charge.
+No claimed OS disk shrink follows a DELETE.
 
 ## Bounds and storage balance
 

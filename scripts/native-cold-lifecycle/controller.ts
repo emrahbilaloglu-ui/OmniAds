@@ -57,9 +57,15 @@ export async function runNativeColdLifecycleTick(stopping:()=>boolean=()=>false)
       unit=await coldJson<ColdUnitState>(coldPath("jobs",global.active.businessId,global.active.purpose,"state.json"));
       need(unit.businessId===global.active.businessId&&unit.jobRunId===global.active.jobRunId&&unit.purpose===global.active.purpose,"EXACT_ACTIVE_COLD_UNIT");
       if(unit.phase==="owner_attention")return {outcome:"owner_attention"};
-      // A process death after dispatch cannot prove whether COMMIT was received.
-      // Never replay it or label independent absence a successful commit ACK.
-      need(!isRetirementDispatched(unit),"COLD_DISPATCHED_STATUS_ONLY_NO_REPLAY");
+      // Only a DURABLE actual ACK can resume readback, never C3. A lost reply
+      // left in 'retiring' stays status-only even if absence is later observed.
+      if(isRetirementDispatched(unit)){
+        need(unit.phase!=="retiring"&&unit.retirement?.committed===true,"COLD_DISPATCHED_STATUS_ONLY_NO_REPLAY");
+        const p=await coldJson<any>(coldPath("jobs",unit.businessId,unit.purpose,"prepared.json"));
+        need(p.contract==="native-cold-prepared-transaction.v1"&&p.proofSha256===unit.capture?.proofSha256&&
+          p.preparedSha256===unit.retirement.preparedSha256&&sha256(p.preparedJson)===p.preparedSha256,
+          "DURABLE_ACTUAL_COMMIT_AND_PREPARED_PROOF_REQUIRED");
+      }
       need(unit.phase!=="capturing","COLD_CAPTURE_INTERRUPTED_STATUS_ONLY");
     }else{
       if(global.nextEligibleAt&&Date.now()<Date.parse(global.nextEligibleAt))return {outcome:"waiting_cadence"};
@@ -85,6 +91,14 @@ export async function runNativeColdLifecycleTick(stopping:()=>boolean=()=>false)
     }
     await active();
     if(unit.session){await cleanupOwnedColdSession(db,unit.session);delete unit.session;await saveUnit();}
+    if(!isRetirementDispatched(unit)&&unit.publication&&
+      (await resolveBusinessArchiveConfiguration()).rootSha256!==unit.publication.rootSha256){
+      // A foreign business erasure may legitimately replace the shared root
+      // while this source-intact unit waits. Revalidate/re-publish its exact
+      // existing leaf and collect NEW full proofs; old reads keep their charge.
+      delete unit.publication;delete unit.httpBefore;delete unit.httpAfter;delete unit.httpBudget;
+      unit.phase="replicated";await saveUnit();
+    }
     if(unit.phase==="sampling"){
       unit.capacityRequest??=await createCapacityRequest(unit.businessId,unit.jobRunId,archiveDigest(`capacity:${unit.purpose}`).slice(0,12),Date.parse(unit.deadlineAt));
       await saveUnit();await waitReplicaAck(unit.capacityRequest,Math.min(Date.now()+100_000,Date.parse(unit.deadlineAt)));
@@ -132,21 +146,34 @@ export async function runNativeColdLifecycleTick(stopping:()=>boolean=()=>false)
         verifyRuntimeObservation(await coldJson(coldPath("replication","runtime.json")));
         await readReplicaAck(unit!.replicaRequest!);
         need((await resolveBusinessArchiveConfiguration()).rootSha256===unit!.publication!.rootSha256,"PRE_COMMIT_ROOT_UNCHANGED");
+        await writeColdJson(coldPath("jobs",unit!.businessId,unit!.purpose,"prepared.json"),{
+          contract:"native-cold-prepared-transaction.v1",preparedJson:JSON.stringify(prepared.prepared),
+          preparedSha256:prepared.preparedSha256,challengeNonce:prepared.challengeNonce,
+          proofSha256:unit!.capture!.proofSha256,gateObservedAt:gate.observedAt,sourceInventorySha256:unit!.sourceInventorySha256},true);
         return {action:"COMMIT_EXACT_UNIT_ONCE",preparedSha256:prepared.preparedSha256,
           challengeNonce:prepared.challengeNonce,proofSha256:unit!.capture!.proofSha256};
       });
       need(unit.retirement?.committed===true,"ACTUAL_C3_COMMIT_ACK_REQUIRED");unit.phase="retired";await saveUnit();
+    }
+    if(unit.phase==="retired"){
       unit.readback=await runColdChild(unit,"readback");need(unit.readback?.exactUnitAbsent===true&&
         unit.readback.retainedRootsFullBytesMatch===true&&unit.readback.inputEvidence?.match===true,"INDEPENDENT_SOURCE_ABSENCE_AND_RETAINED_BYTES_REQUIRED");
       unit.phase="readback";await saveUnit();
+    }
+    if(unit.phase==="readback"){
       unit.httpAfter=await collectColdHttpProof(db,unit,config,"after",saveUnit);
       const current=(a:ColdUnitState["httpAfter"])=>a!.current.map(({bodySha256,...x})=>x);
       need(archiveCanonical(current(unit.httpBefore))===archiveCanonical(current(unit.httpAfter)),"NORMAL_CURRENT_ROUTE_CHANGED_BY_RETIREMENT");
       unit.measurements!.after=await freshColdGate(unit,"read-original");
       unit.phase="complete";await saveUnit();
+    }
+    if(unit.phase==="complete"){
+      // This only completes bookkeeping of an already fully proved unit. An
+      // interrupted outbox unlink is idempotent, never retirement permission.
+      await removeReplicaRequest(unit.replicaRequest!).catch(e=>{if((e as NodeJS.ErrnoException).code!=="ENOENT")throw e;});
       global.archivedOriginals++;global.lastSuccess={businessId:unit.businessId,jobRunId:unit.jobRunId,purpose:unit.purpose,
         completedAt:new Date().toISOString(),evaluations:unit.evaluations,contexts:unit.contexts,archiveBytes:unit.capture!.archiveBytes,
-        privateBytes:unit.restore!.privateBytes,parts:unit.capture!.parts,historicalRequests:unit.httpBefore.requests+unit.httpAfter.requests,
+        privateBytes:unit.restore!.privateBytes,parts:unit.capture!.parts,historicalRequests:unit.httpBefore!.requests+unit.httpAfter!.requests,
         actualCommitAcknowledged:true,independentReadback:true};
       const after=unit.measurements!.after as any;
       global.observations.push({observedAt:after.observedAt,databaseBytes:after.business.databaseBytes,
@@ -154,7 +181,7 @@ export async function runNativeColdLifecycleTick(stopping:()=>boolean=()=>false)
         appArchiveBytes:unit.restore!.privateBytes*2+unit.capture!.archiveBytes,replicaAvailableBytes:after.replicaAvailableBytes});
       global.observations=global.observations.slice(-96);global.lastFailure=null;global.active=null;
       global.nextEligibleAt=new Date(Date.now()+COLD_CADENCE_MS).toISOString();await saveGlobal();
-      await removeReplicaRequest(unit.replicaRequest!);return {outcome:"archived_original",evaluations:unit.evaluations,contexts:unit.contexts};
+      return {outcome:"archived_original",evaluations:unit.evaluations,contexts:unit.contexts};
     }
     throw Error("COLD_UNRECOGNIZED_PHASE");
   }catch(error){

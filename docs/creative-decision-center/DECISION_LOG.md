@@ -14051,6 +14051,11 @@ protocol, private socket-only PG16 companion and existing source capacity sample
 Actual immutable files/copy ACK/HTTP bodies/COMMIT/readback are separate proofs.
 Parent admission occurs before source AX locks; the locked transaction receives
 only one exact nonce-bound parent challenge. Never replay dispatched retirement.
+Persist the original serialized preparation before challenge; a durable actual
+COMMIT ACK permits readback/bookkeeping resumption only. A source-intact unit
+whose root changes during foreign erasure must re-publish/prove the same leaf;
+its earlier HTTP charges are retained. Static gate failures reach owner telemetry
+as sanitized concrete codes rather than an opaque liveness success.
 
 Use incremental tenant CAS routing and scoped superseded metadata cleanup. Keep
 all historical/current authority boundaries. Real authenticated historical HTTP

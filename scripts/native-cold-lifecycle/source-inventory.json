@@ -318,8 +318,8 @@
     },
     {
       "path": "lib/native-cold-owner-status.ts",
-      "sha256": "46814afb90059829c455e49e82e8ab4b77849399d035611d07c830c0f466551e",
-      "bytes": 2658
+      "sha256": "e00519543db22c9f1b4e8ccfed4ecf2dabee16e05d82869a6320ccfb000eda5d",
+      "bytes": 2755
     },
     {
       "path": "lib/native-cold-session.ts",
@@ -398,8 +398,8 @@
     },
     {
       "path": "scripts/business-archive-erasure-worker.ts",
-      "sha256": "152deaa0aaf0aac838b4ee6a1b02e59a2d74a758d4c981ab73402a46804c10db",
-      "bytes": 2583
+      "sha256": "244d59a6e24203cb0b4175f7dafc087d261129dce8f6ca61c572e0c5d09e9ffe",
+      "bytes": 2632
     },
     {
       "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts",
@@ -498,8 +498,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/controller.ts",
-      "sha256": "59e1e0279f9501e537836ba5a0e30bb4a72f4ff6a8018d2ef62be13ab0765771",
-      "bytes": 15148
+      "sha256": "f2c0726029a45a96d6f510593df99a4e08d4311598b513cfd320f361b3f9849e",
+      "bytes": 16920
     },
     {
       "path": "scripts/native-cold-lifecycle/files.ts",
@@ -732,5 +732,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "e99f864daccb8f4e517d0bf06f2d935bc63098092a68437b194baf650d150a4a"
+  "sourceInventorySha256": "8f6f2c2313dfd91c7cabbede98d7865f83c8e939609445169581082a3a463059"
 }

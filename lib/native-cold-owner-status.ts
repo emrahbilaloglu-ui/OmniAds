@@ -13,7 +13,8 @@ export async function getNativeColdOwnerStatus():Promise<NativeColdOwnerStatus>{
   try{
     const worker=JSON.parse((await readSafeArchiveFile("/run/adsecute-business-erasure/health.json",4096)).toString());
     const workerAge=Date.now()-Date.parse(worker.observedAt);
-    if(workerAge<0||workerAge>90_000||worker.outcome==="admission_unavailable")base.status="owner_attention";
+    if(workerAge<0||workerAge>90_000||worker.outcome==="admission_unavailable"){
+      base.status="owner_attention";base.lastFailureCode=typeof worker.reason==="string"?worker.reason:null;}
     const health=JSON.parse((await readSafeArchiveFile(join(root,"replication","health.json"),8192)).toString());
     const age=Date.now()-Date.parse(health.observedAt);
     if(health.contract==="native-cold-replica-health.v1"){
@@ -23,7 +24,7 @@ export async function getNativeColdOwnerStatus():Promise<NativeColdOwnerStatus>{
     const s=JSON.parse((await readSafeArchiveFile(join(root,"state.json"),4*1024**2)).toString());
     if(s.contract!=="native-cold-controller.v1")throw Error("invalid");
     base.archivedOriginals=Number.isSafeInteger(s.archivedOriginals)?s.archivedOriginals:0;
-    base.lastCompletedAt=s.lastSuccess?.completedAt??null;base.lastFailureCode=s.lastFailure?.code??null;
+    base.lastCompletedAt=s.lastSuccess?.completedAt??null;base.lastFailureCode=s.lastFailure?.code??base.lastFailureCode;
     if(s.active&&/^[a-f0-9-]{36}$/.test(s.active.businessId)&&/^[a-f0-9]{12}$/.test(s.active.purpose)){
       const u=JSON.parse((await readSafeArchiveFile(join(root,"jobs",s.active.businessId,s.active.purpose,"state.json"),4*1024**2)).toString());
       base.activePhase=u.phase;

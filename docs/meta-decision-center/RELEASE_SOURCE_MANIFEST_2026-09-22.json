@@ -1,5 +1,5 @@
 {
-  "manifestHash": "d3899a8cd7b8b57bc1f007c6f00fee3e79283ca18a88ea3c0524f8603a312204",
+  "manifestHash": "bd5411e3bc3dc61d052ac5d871b1e62e26d694b7b3feae74451c3d579acb8ae1",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -840,7 +840,7 @@
     },
     {
       "path": "docs/architecture/native-cold-lifecycle.md",
-      "sha256": "f8ec9468fa8d3ae983b445e31e7203cd4cd57c657a778a2911649e799d7f69ad"
+      "sha256": "43de6d3f05c0d43b6e85a04d4de12e63c274b7f477c8a3505463bd4690df48f8"
     },
     {
       "path": "docs/architecture/native-compact-root-history.md",
@@ -920,7 +920,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "3adceb47b803d8748150285acca0b2471c36f99bdbef6e58399beb26a37ddae3"
+      "sha256": "89e7e7d9db321ddf57706d317c59af73ee578aa90a8a24109c32d5946a25dd29"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -2716,7 +2716,7 @@
     },
     {
       "path": "lib/native-cold-owner-status.ts",
-      "sha256": "46814afb90059829c455e49e82e8ab4b77849399d035611d07c830c0f466551e"
+      "sha256": "e00519543db22c9f1b4e8ccfed4ecf2dabee16e05d82869a6320ccfb000eda5d"
     },
     {
       "path": "lib/native-cold-session.ts",
@@ -2960,7 +2960,7 @@
     },
     {
       "path": "scripts/business-archive-erasure-worker.ts",
-      "sha256": "152deaa0aaf0aac838b4ee6a1b02e59a2d74a758d4c981ab73402a46804c10db"
+      "sha256": "244d59a6e24203cb0b4175f7dafc087d261129dce8f6ca61c572e0c5d09e9ffe"
     },
     {
       "path": "scripts/creative-decision-center/generalized-pit-replay.test.ts",
@@ -3267,8 +3267,12 @@
       "sha256": "202e6824e15084ecfd884336af210ac1d8d49409447d3bf7fa2ebf419f6595ec"
     },
     {
+      "path": "scripts/native-cold-lifecycle/controller-protocol.test.ts",
+      "sha256": "3d97eb295827d622f62ae816473299431281091532a6e4881c93bb43e684da58"
+    },
+    {
       "path": "scripts/native-cold-lifecycle/controller.ts",
-      "sha256": "59e1e0279f9501e537836ba5a0e30bb4a72f4ff6a8018d2ef62be13ab0765771"
+      "sha256": "f2c0726029a45a96d6f510593df99a4e08d4311598b513cfd320f361b3f9849e"
     },
     {
       "path": "scripts/native-cold-lifecycle/erasure.test.ts",
@@ -3352,7 +3356,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "5c5f73092bb37b42ddebe7cdcec3e394dd007475308bef0fa870e40bc4135af5"
+      "sha256": "25a13245677d3e98148b6aaff8b501df7ef8f6b2522c0bd9856b042cd6adae52"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",

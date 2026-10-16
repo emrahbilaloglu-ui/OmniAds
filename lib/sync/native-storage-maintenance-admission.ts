@@ -84,6 +84,10 @@ function assessMaintenance(input:MaintenanceInput,originalLimit:1134|3200) {
     bytes(a.rawDatabaseBytes) && bytes(a.accountedDatabaseBytes) && bytes(a.reusableHeapBytes) &&
     a.relation === NATIVE_REUSABLE_HEAP_TABLE &&
     a.accountedDatabaseBytes + a.reusableHeapBytes === a.rawDatabaseBytes &&
+    (a.provenReusableHeapBytes===undefined&&a.uncreditedReusableHeapBytes===undefined||
+      bytes(a.provenReusableHeapBytes??-1)&&bytes(a.uncreditedReusableHeapBytes??-1)&&
+      a.provenReusableHeapBytes===a.reusableHeapBytes+a.uncreditedReusableHeapBytes!&&
+      a.provenReusableHeapBytes!<=a.rawDatabaseBytes)&&
     (a.metric === "raw" && a.reusableHeapBytes === 0 ||
       a.metric === "raw_minus_proven_native_heap_free" && a.fallbackReason === null);
   const accountedBytes = a?.accountedDatabaseBytes ?? b.databaseBytes;

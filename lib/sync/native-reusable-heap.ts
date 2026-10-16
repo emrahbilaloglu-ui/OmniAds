@@ -9,6 +9,27 @@ export interface NativeReusableHeapAccounting {
   reusableHeapBytes: number;
   relation: typeof NATIVE_REUSABLE_HEAP_TABLE;
   fallbackReason: string | null;
+  provenReusableHeapBytes?: number;
+  uncreditedReusableHeapBytes?: number;
+}
+
+/** Proven free space cannot authorize arbitrary growth in another relation.
+ * Credit only as much as the actual volume can reserve for that growth, with
+ * the existing floor plus a separate 512MiB maintenance reserve. The normal
+ * projected-free-space assessor still checks the full credited headroom. */
+export function limitNativeReusableHeapCredit(accounting:NativeReusableHeapAccounting,input:{
+  availableBytes:number;minimumFreeBytes:number;databaseBudgetBytes:number;
+}):NativeReusableHeapAccounting {
+  if(accounting.metric!=="raw_minus_proven_native_heap_free")return accounting;
+  const values=[input.availableBytes,input.minimumFreeBytes,input.databaseBudgetBytes];
+  if(!values.every(x=>Number.isSafeInteger(x)&&x>=0))return {
+    ...accounting,metric:"raw",accountedDatabaseBytes:accounting.rawDatabaseBytes,reusableHeapBytes:0,
+    fallbackReason:"physical_credit_bound_invalid"};
+  const maximum=Math.max(0,input.availableBytes-input.minimumFreeBytes-512*1024**2+
+    accounting.rawDatabaseBytes-input.databaseBudgetBytes);
+  const credited=Math.min(accounting.reusableHeapBytes,maximum);
+  return {...accounting,accountedDatabaseBytes:accounting.rawDatabaseBytes-credited,reusableHeapBytes:credited,
+    provenReusableHeapBytes:accounting.reusableHeapBytes,uncreditedReusableHeapBytes:accounting.reusableHeapBytes-credited};
 }
 
 /** Count allocated, reusable MAIN-heap space once. Dead tuples, TOAST, indexes

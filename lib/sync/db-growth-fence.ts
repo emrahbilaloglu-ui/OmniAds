@@ -1,5 +1,5 @@
 import { getDbWithTimeout } from "@/lib/db";
-import { deriveNativeReusableHeapAccounting, type NativeReusableHeapAccounting } from "./native-reusable-heap";
+import { deriveNativeReusableHeapAccounting, limitNativeReusableHeapCredit, type NativeReusableHeapAccounting } from "./native-reusable-heap";
 import {
   deriveEffectiveStateHistoryBytes,
   toSafeByteCount,
@@ -959,6 +959,9 @@ export async function evaluateDbGrowthFence(input?: {
     } catch {
       databaseAccounting = deriveNativeReusableHeapAccounting(databaseBytes, null, "measurement_error");
     }
+    databaseAccounting=limitNativeReusableHeapCredit(databaseAccounting,{
+      availableBytes:physical.availableBytes ?? -1,minimumFreeBytes:MINIMUM_VOLUME_FREE_BYTES,databaseBudgetBytes:databaseBudget,
+    });
     // All effective headroom might be spent in ANOTHER relation, where the
     // native heap cannot be reused. Reserve the full headroom on the volume.
     physical = evaluatePhysicalCapacity({ ...physicalInput,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFile, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rm, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { Client } from "pg";
 import type { DbClient } from "../../lib/db";
@@ -65,7 +65,22 @@ async function cluster(port: number) {
 type Cluster = Awaited<ReturnType<typeof cluster>>;
 const psql = (c: Cluster, sql: string) =>
   execFileSync(`${PG}/psql`, ["-h", c.sock, "-p", String(c.port), "-U", "nsb_owner", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-qAt", "-c", sql], { encoding: "utf8", env: PG_ENV }).trim();
-function migrate(url: string) {
+async function migrate(url: string) {
+  // D166's empty scalar-FK index is deliberately physically gated too. Seed
+  // the owned host's ACTUAL statfs before the real full-DDL migration, never an
+  // override or a fabricated production sample. This socket is test-owned.
+  const target=new URL(url);
+  assert(target.hostname==="localhost"&&target.searchParams.get("host")?.startsWith(STATE+"/"));
+  const boot=new Client({connectionString:url});await boot.connect();
+  try{
+    await boot.query(`CREATE TABLE public.system_capacity_snapshots (
+      id BIGSERIAL PRIMARY KEY,source TEXT NOT NULL,hostname TEXT,payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      sampled_at TIMESTAMPTZ NOT NULL DEFAULT now(),created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+    const fs=await statfs(STATE);
+    await boot.query(`INSERT INTO public.system_capacity_snapshots(source,hostname,payload) VALUES('db_host_healthcheck','owned-local',$1::jsonb)`,
+      [JSON.stringify({database:{name:target.pathname.slice(1)},disks:[{path:"/var/lib/postgresql",totalBytes:fs.blocks*fs.bsize,
+        usedBytes:(fs.blocks-fs.bfree)*fs.bsize,availableBytes:fs.bavail*fs.bsize}],ownedHostSimulation:true})]);
+  }finally{await boot.end();}
   return new Promise<number>((resolve, reject) => {
     const child = spawn(process.execPath, ["--import", TSX_LOADER, join(REPO_ROOT, "scripts/run-migrations.ts")], { cwd: STATE, stdio: ["ignore","pipe","pipe"],
       env: { NODE_ENV: "production", PATH: PG_ENV.PATH, HOME: STATE, TSX_TSCONFIG_PATH: join(REPO_ROOT, "tsconfig.json"), DATABASE_URL: url,

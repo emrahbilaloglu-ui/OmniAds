@@ -57,6 +57,7 @@ import {
 } from "@/lib/meta/decisions-workspace-read-model";
 import { createControlledExperimentRegistryStore } from "@/lib/meta/controlled-experiment-registry";
 import { D086_REQUIRED_PROFILE_COLUMNS } from "@/lib/meta/budget-readiness-retention";
+import { readPrivateRestoreTemplateMarker } from "./native-cold-lifecycle/private-restore";
 
 const FORBIDDEN_PORTS = new Set([15432, 5432]);
 const EPHEMERAL_DB_NAME = "adsecute_migrations_from_zero";
@@ -1790,6 +1791,15 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
+    // Exercise the shipped reader against an actual shared-object comment.
+    // The old obj_description lookup returned NULL even after successful DDL.
+    const marker="native-cold-full-ddl:"+"a".repeat(40);
+    await client.query(`COMMENT ON DATABASE ${EPHEMERAL_DB_NAME} IS '${marker}'`);
+    if(await readPrivateRestoreTemplateMarker(client)!==marker)
+      throw new Error("Private restore template marker is unreadable after COMMENT ON DATABASE");
+    await client.query(`COMMENT ON DATABASE ${EPHEMERAL_DB_NAME} IS NULL`);
+    if(await readPrivateRestoreTemplateMarker(client)!==null)
+      throw new Error("Private restore template accepts a missing acknowledgment");
     // Parse and bind the production retry-fingerprint statement against the
     // fully migrated catalog. Unit tests drive its decision table with mocks;
     // this empty scope is the schema/SQL half of that gate.

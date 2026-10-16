@@ -14102,3 +14102,17 @@ replica, flag and rollback operations. No change to source DB/provider writes,
 163GiB/physical bounds, clocks, retention, historical/current authority or C3.
 The actual next installation and real-original/copy/HTTP/commit/absence/growth
 acceptance remain required; this repair alone grants no success claim.
+
+D175 live pre-activation correction (2026-10-16): the isolated private template
+had 232 tables and an acknowledged full migration retry (exit 0), yet its marker
+reader returned NULL. `COMMENT ON DATABASE` writes shared-object metadata;
+`obj_description` reads the wrong catalog. Use `shobj_description` in the actual
+reader and exercise that reader after COMMENT and after clearing COMMENT in the
+real PostgreSQL migrations seam. Keep private role/socket/port/image validation,
+invalid-original refusal, exact derived-target absence, all capture/copy/C3
+requirements and default-off writer. Rebind the separate host operator to the
+new runtime inventory; no production-source migration or budget change. The
+operator regression harness disables Python bytecode explicitly so direct runs
+do not contaminate the source manifest. Prior deployment/installer success is
+not acceptance of this corrected source; new CI/images/live readback remain
+required before activation.

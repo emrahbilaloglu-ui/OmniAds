@@ -433,8 +433,8 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "4b0bf94857b3fca51f1089202cc5a8cd6fac6b80955697a026366a18770c110c",
-      "bytes": 170293
+      "sha256": "ed5be14144328a83c5837db5bf0779ad30dc6c1b3e92b6cd64752ff5b83f66d6",
+      "bytes": 171064
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -558,8 +558,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/private-restore.ts",
-      "sha256": "ebe85fea99752483aa1c6ea86e86c078aeb596e9e569756775ca9d3a2541e891",
-      "bytes": 8009
+      "sha256": "6a379a103e3b7dd35aaa190404fb7493ac8bcba52e35ef4eb91307d2ef9d2466",
+      "bytes": 8245
     },
     {
       "path": "scripts/native-cold-lifecycle/replica.ts",
@@ -732,5 +732,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "4fc2add5a34b2933878ff54386affde0bb70308b1338bf47cd833cdcf432189f"
+  "sourceInventorySha256": "e34394db65bb15015169f7e9ef3c738833be8f3b6f85226181696d8c3e6875ac"
 }

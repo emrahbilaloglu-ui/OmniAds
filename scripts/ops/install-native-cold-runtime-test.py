@@ -6,6 +6,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True  # Keep direct runs and CI source manifests clean.
 sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), '../native-cold-lifecycle')))
 spec=importlib.util.spec_from_file_location('cold_runtime_operator', os.path.join(os.path.dirname(__file__),'install-native-cold-runtime.py'))
 op=importlib.util.module_from_spec(spec);spec.loader.exec_module(op)

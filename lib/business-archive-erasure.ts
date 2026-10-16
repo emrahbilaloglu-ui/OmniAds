@@ -83,7 +83,14 @@ function filteredCatalog(file: InventoryFile, businessId: string): Buffer {
   archiveNeed(file.catalog && file.content);
   const raw = JSON.parse(file.content.toString("utf8"));
   raw.entries = raw.entries.filter((e: NativeHistoricalArchiveCatalogEntry) => e.generation.businessId !== businessId);
-  if (raw.groups) raw.groups = raw.groups.filter((g: { coverageRoot: { core: { generation: { businessId: string } } } }) => g.coverageRoot.core.generation.businessId !== businessId);
+  if (raw.groups) raw.groups = raw.groups.filter((g: { coverageRootSha256: string }) => {
+    // v4 stores this root compressed. Ownership comes from the complete
+    // verified/decoded catalog, while surviving ORIGINAL carrier bytes stay
+    // untouched. Never infer a tenant from compressed source text.
+    const verified = file.catalog!.groups?.find(root => root.coverageRootSha256 === g.coverageRootSha256);
+    archiveNeed(verified);
+    return verified.coverageRoot.core.generation.businessId !== businessId;
+  });
   const content = Buffer.from(JSON.stringify(raw));
   openNativeHistoricalArchiveCatalog(content, archiveDigest(content));
   archiveNeed(!content.includes(businessId)); return content;

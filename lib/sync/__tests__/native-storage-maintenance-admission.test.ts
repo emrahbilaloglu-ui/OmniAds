@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FENCED_TABLES, type DbGrowthFenceDecision } from "../db-growth-fence";
 import { assessNativeStorageMaintenanceAdmission, type NativeStorageMaintenanceEvidence } from "../native-storage-maintenance-admission";
+import { deriveNativeReusableHeapAccounting } from "../native-reusable-heap";
 
 const now = Date.parse("2026-10-05T04:05:22Z"), at = new Date(now - 5000).toISOString(), GiB = 1024 ** 3;
 function fixture() {
@@ -24,6 +25,55 @@ function fixture() {
   return { business, evidence, expectedDatabaseBudgetBytes: 163 * GiB, nowMs: now };
 }
 describe("separate native maintenance admission", () => {
+  function reusableFixture() {
+    const f = fixture();
+    f.business.databaseAccounting = deriveNativeReusableHeapAccounting(f.business.databaseBytes!, {
+      total_bytes: 67 * GiB, heap_bytes: 17 * GiB, table_len: 17 * GiB, approx_free_space: 3 * GiB,
+    });
+    Object.assign(f.business, { allowed: true, reason: "ready", offender: null });
+    f.business.physical!.projectedFreeBytes = 50 * GiB -
+      (f.business.databaseBudgetBytes - f.business.databaseAccounting.accountedDatabaseBytes);
+    return f;
+  }
+  it("accepts the actual D170 ready shape above the raw budget without changing business admission", () => {
+    const f = reusableFixture(), before = JSON.stringify(f.business);
+    expect(f.business.databaseBytes).toBeGreaterThan(f.business.databaseBudgetBytes);
+    expect(assessNativeStorageMaintenanceAdmission(f).admitted).toBe(true);
+    expect(JSON.stringify(f.business)).toBe(before);
+  });
+  it.each(["raw", "accounted", "free", "relation", "metric", "negative", "fractional"])("refuses inconsistent D170 accounting: %s", field => {
+    const f = reusableFixture(), a = f.business.databaseAccounting!;
+    if (field === "raw") a.rawDatabaseBytes++;
+    if (field === "accounted") a.accountedDatabaseBytes--;
+    if (field === "free") a.reusableHeapBytes++;
+    if (field === "relation") Object.assign(a, { relation: "meta_raw_snapshots" });
+    if (field === "metric") Object.assign(a, { metric: "caller_claimed_free" });
+    if (field === "negative") { a.accountedDatabaseBytes = -1; a.reusableHeapBytes = a.rawDatabaseBytes + 1; }
+    if (field === "fractional") { a.accountedDatabaseBytes -= 0.5; a.reusableHeapBytes += 0.5; }
+    expect(assessNativeStorageMaintenanceAdmission(f).admitted).toBe(false);
+  });
+  it("does not promote raw-over-budget ready without a proven accounting object", () => {
+    const f = reusableFixture(); delete f.business.databaseAccounting;
+    expect(assessNativeStorageMaintenanceAdmission(f).admitted).toBe(false);
+  });
+  it("accepts a D170 aggregate-only refusal at its accounted offender, without granting business work", () => {
+    const f = reusableFixture();
+    f.business.databaseBytes = 167 * GiB;
+    f.business.databaseAccounting = deriveNativeReusableHeapAccounting(f.business.databaseBytes, {
+      total_bytes: 67 * GiB, heap_bytes: 17 * GiB, table_len: 17 * GiB, approx_free_space: 3 * GiB,
+    });
+    Object.assign(f.business, { allowed: false, reason: "database_budget_exceeded",
+      offender: { table: "database", bytes: 164 * GiB, budget: 163 * GiB } });
+    const before = JSON.stringify(f.business), result = assessNativeStorageMaintenanceAdmission(f);
+    expect(result.admitted).toBe(true); expect(result.businessAllowed).toBe(false);
+    expect(JSON.stringify(f.business)).toBe(before);
+    f.business.offender!.bytes = f.business.databaseBytes;
+    expect(assessNativeStorageMaintenanceAdmission(f).admitted).toBe(false);
+  });
+  it("keeps the extra maintenance physical reserve after D170 accounting", () => {
+    const f = reusableFixture(); f.business.physical!.projectedFreeBytes = 40 * GiB;
+    expect(assessNativeStorageMaintenanceAdmission(f).admitted).toBe(false);
+  });
   it("admits a bounded cleanup while keeping the actual over-budget business refusal byte-for-byte", () => {
     const f = fixture(), before = JSON.stringify(f.business), r = assessNativeStorageMaintenanceAdmission(f);
     expect(r.admitted).toBe(true); expect(r.businessAllowed).toBe(false);

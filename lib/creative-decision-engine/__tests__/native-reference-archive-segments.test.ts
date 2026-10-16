@@ -8,7 +8,12 @@ import { buildNativeReferenceEvidenceArchive, openNativeArchiveByContract, NATIV
 import { buildNativeCalibrationParentArchive, NATIVE_CALIBRATION_PARENT_TABLES } from "../native-calibration-parent-archive";
 import { nativeArchiveByteDigest, openNativeHistoricalArchiveEnvelope, openNativeHistoricalArchiveEvidence,
   sealCompressedNativeHistoricalArchive, openNativeHistoricalArchiveCatalog, resolveNativeHistoricalArchiveEntry,
-  NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT, type NativeHistoricalArchiveCatalogEntry } from "../native-historical-archive";
+  NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT, NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT,
+  nativeHistoricalTrustForStorage, type NativeHistoricalArchiveCatalogEntry } from "../native-historical-archive";
+import { encodeNativeArchiveRoot, decodeNativeArchiveRoot, NATIVE_ARCHIVE_ROOT_ENCODING } from "../native-archive-root-codec";
+import { gzipSync } from "node:zlib";
+import { buildNativeHistoricalCatalogRouting, NativeHistoricalCatalogRouter,
+  NATIVE_HISTORICAL_ROUTING_BOUNDS, type NativeHistoricalMetadataRead } from "../native-historical-catalog-routing";
 import { projectNativeReferenceArchiveSegment, splitNativeReferenceArchive, reassembleNativeReferenceArchive,
   nativeReferenceArchiveCoverageDigest, assertNativeReferenceSegmentMatchesRoot } from "../native-reference-archive-segments";
 
@@ -45,28 +50,83 @@ function originalFixture(count=4,sourceWorkspaceDirty=false) {
   const ids=Array.from({length:count},(_,i)=>uuid(i+100));
   return {full,expected,root,rootDigest,ids};
 }
-function parts(source:ReturnType<typeof originalFixture>) {
-  const midpoint=Math.floor(source.ids.length/2);
-  return [source.ids.slice(0,midpoint),source.ids.slice(midpoint)].map(ids=>projectNativeReferenceArchiveSegment(source.full.bundle,source.expected,ids));
+function parts(source:ReturnType<typeof originalFixture>,groups=2) {
+  return Array.from({length:groups},(_,i)=>source.ids.slice(Math.floor(i*source.ids.length/groups),Math.floor((i+1)*source.ids.length/groups)))
+    .map(ids=>projectNativeReferenceArchiveSegment(source.full.bundle,source.expected,ids));
 }
-function catalog(source:ReturnType<typeof originalFixture>) {
-  const fragments=parts(source);
+function catalog(source:ReturnType<typeof originalFixture>,compact=false,groups=2) {
+  const fragments=parts(source,groups);
   const sealed=fragments.map(part=>sealCompressedNativeHistoricalArchive(part.bundle,{manifestHash:part.manifestHash,
     schemaHash:part.bundle.manifest.schemaHash,generation:source.expected.generation},"public-fixture",key,{
     coverageRoot:source.root,coverageRootSha256:source.rootDigest,evaluationIds:part.bundle.core.manifest.segment!.evaluationIds,
-  }));
+  },compact?{metadataEncoding:NATIVE_ARCHIVE_ROOT_ENCODING}:undefined));
   const entries=sealed.map((blob,i)=>({ ...blob.trust,
     segment:{coverageRootSha256:source.rootDigest,evaluationIds:blob.trust.segment!.evaluationIds},
     object:{bucket:"native-offline.test",key:`native/v2/${blob.trust.ciphertextSha256}.bin`,versionId:`fixture-${i}`},
   }));
-  const raw={contract:NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT,entries,groups:[{
-    coverageRoot:source.root,coverageRootSha256:source.rootDigest,
+  const raw={contract:compact?NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT:NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT,entries,groups:[{
+    coverageRoot:compact?encodeNativeArchiveRoot(source.root):source.root,coverageRootSha256:source.rootDigest,
   }]};
   const bytes=Buffer.from(JSON.stringify(raw)),opened=openNativeHistoricalArchiveCatalog(bytes,nativeArchiveByteDigest(bytes));
   return {fragments,sealed,raw,opened};
 }
 
 describe("bounded original-reference fragments",()=>{
+  it("charges v4 wire bytes separately from decoded cache weight, and never caches an oversize decoded catalog",async()=>{
+    const source=originalFixture(1800),c=catalog(source,true,4);
+    expect(Buffer.byteLength(JSON.stringify(c.opened))).toBeGreaterThan(NATIVE_HISTORICAL_ROUTING_BOUNDS.cacheSourceBytes);
+    const bytes=Buffer.from(JSON.stringify(c.raw)), legacyBytes=Buffer.from(JSON.stringify({contract:"native-historical-archive-catalog.v1",entries:[]}));
+    expect(bytes.length).toBeLessThan(NATIVE_HISTORICAL_ROUTING_BOUNDS.leafBytes);
+    const legacy={content:legacyBytes,sha256:nativeArchiveByteDigest(legacyBytes)};
+    const p=buildNativeHistoricalCatalogRouting({legacy,leaves:[{content:bytes,sha256:nativeArchiveByteDigest(bytes)}]});
+    const calls:string[]=[],load=async(r:NativeHistoricalMetadataRead)=>{calls.push(r.kind);return p.files.find(f=>f.kind===r.kind&&f.sha256===r.sha256)!.content;};
+    const router=new NativeHistoricalCatalogRouter(),request={generation:source.expected.generation,providerAccountId:fixture.request.providerAccountId,
+      adId:"fixture-ad-0",evaluationId:source.ids[0]!};
+    const config={rootSha256:p.root.sha256,legacySha256:legacy.sha256,readerAssetSha256:"a".repeat(64),directory:"/owned/compact"};
+    for(let i=0;i<2;i++)expect((await router.resolve(request,config,load)).entry.metadataEncoding).toBe(NATIVE_ARCHIVE_ROOT_ENCODING);
+    expect(calls.filter(k=>k==="leaf")).toHaveLength(2);
+    expect(calls.filter(k=>k==="root")).toHaveLength(1);
+  },60_000);
+  it("round-trips explicit v4 metadata and full original evidence without current authority",()=>{
+    const source=originalFixture(), c=catalog(source,true);
+    expect(c.raw.groups[0]!.coverageRoot).toMatchObject({contract:NATIVE_ARCHIVE_ROOT_ENCODING});
+    expect(c.opened.groups![0]!.coverageRoot).toEqual(source.root);
+    for(const [i,part] of c.sealed.entries()) {
+      const stored=nativeHistoricalTrustForStorage(part.trust);
+      expect(stored.segment!.coverageRoot).toMatchObject({contract:NATIVE_ARCHIVE_ROOT_ENCODING});
+      const opened=openNativeHistoricalArchiveEnvelope(part.bytes,stored as never,key,source.expected.generation);
+      expect(opened.bundle).toEqual(c.fragments[i]!.bundle);
+      const e=c.opened.entries[i]!, id=e.segment!.evaluationIds[0]!;
+      const evidence=openNativeHistoricalArchiveEvidence(part.bytes,e,key,{generation:source.expected.generation,
+        providerAccountId:fixture.request.providerAccountId,adId:`fixture-ad-${source.ids.indexOf(id)}`,evaluationId:id});
+      expect(evidence).toMatchObject({status:"historical_available",providerAuthority:false,currentDecisionEligible:false,reclaimEligible:false});
+      expect(evidence.rowJson.campaignContextObject).toContain("9007199254740993.123456789");
+    }
+  });
+  it("binds the new metadata encoding to GCM rather than silently relabeling old envelopes",()=>{
+    const s=originalFixture(),c=catalog(s,true),part=c.sealed[0]!;
+    const downgraded=structuredClone(part.trust);delete downgraded.metadataEncoding;
+    expect(()=>openNativeHistoricalArchiveEnvelope(part.bytes,downgraded,key,s.expected.generation)).toThrow();
+    const legacy=catalog(s),upgraded={...legacy.sealed[0]!.trust,metadataEncoding:NATIVE_ARCHIVE_ROOT_ENCODING};
+    expect(()=>openNativeHistoricalArchiveEnvelope(legacy.sealed[0]!.bytes,upgraded,key,s.expected.generation)).toThrow();
+  });
+  it.each(["digest","length","base64","unknown","bomb"])("refuses corrupt/bomb compressed-root metadata: %s",fault=>{
+    const s=originalFixture(),carrier=encodeNativeArchiveRoot(s.root);
+    if(fault==="digest")carrier.decodedSha256="f".repeat(64);
+    if(fault==="length")carrier.decodedBytes--;
+    if(fault==="base64")carrier.gzipBase64+=" ";
+    if(fault==="unknown")Object.assign(carrier,{extra:true});
+    if(fault==="bomb"){carrier.decodedBytes=2*1024*1024;carrier.gzipBase64=gzipSync(Buffer.alloc(carrier.decodedBytes+1)).toString("base64");}
+    expect(()=>decodeNativeArchiveRoot(carrier,true)).toThrow();
+  });
+  it("keeps compressed carriers out of v3 and keeps v4 finite and generation-complete",()=>{
+    const s=originalFixture(),c=catalog(s,true);
+    const check=(raw:unknown)=>{const b=Buffer.from(JSON.stringify(raw));return ()=>openNativeHistoricalArchiveCatalog(b,nativeArchiveByteDigest(b));};
+    expect(check({...c.raw,contract:NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT})).toThrow();
+    expect(check({...c.raw,groups:[...c.raw.groups,...c.raw.groups]})).toThrow();
+    expect(check({...c.raw,entries:[c.raw.entries[0]]})).toThrow();
+    expect(check({...c.raw,entries:Array.from({length:17},()=>c.raw.entries[0])})).toThrow();
+  });
   it("preserves original row_count and labels the selected subset explicitly",()=>{
     const s=originalFixture(),p=parts(s)[0]!,m=p.bundle.core.manifest;
     expect(m.contract).toBe("native-generation-reference-segment.v1");

@@ -47,6 +47,13 @@ For automatic native-archive offboarding, owner-only cleanup monitoring and the
 dedicated archive role, read [D169](DECISION_LOG.md#d169--automatic-archive-offboarding-with-owner-only-cleanup-2026-10-10).
 The total background budget remains 30m; its final statement uses the remainder.
 
+For current lossless archival compatibility, read
+[D172](DECISION_LOG.md#d172--use-the-business-fences-proven-aggregate-accounting-for-archive-admission-2026-10-16),
+[D173](DECISION_LOG.md#d173--compact-original-coverage-metadata-without-enlarging-archive-wire-or-evidence-bounds-2026-10-16)
+and [the compact metadata contract](../architecture/native-compact-root-history.md).
+These are prerequisite admission/read compatibility; automatic cadence, source
+retirement and durable storage balance still need their own live proof.
+
 For the remaining operational reliability work, read [D129](DECISION_LOG.md#d129--bounded-source-reads-terminal-ownership-and-content-equivalent-reuse-2026-09-28).
 Also read [D130](DECISION_LOG.md#d130--indexed-evidence-equality-and-bounded-creative-completion-proofs-2026-09-28)
 for the two SQL access-plan corrections found during natural acceptance.

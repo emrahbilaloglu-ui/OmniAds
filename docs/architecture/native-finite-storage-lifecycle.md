@@ -509,3 +509,13 @@ Ownership capture-only expiry and maintenance settlement keep accepting
 consumed v2 purposes.
 
 **Not claimed.** No production scale, performance, reclaim or closure.
+
+## D172: consume the same aggregate accounting as business admission
+
+D170 keeps allocated database bytes visible while its proven native MAIN free
+space determines aggregate admission. The finite maintenance assessor validates
+the fence's original typed accounting and uses its accounted amount for both
+`ready` and DB-budget-only refusal. Legacy/no-accounting decisions remain raw.
+Inconsistent relation/metric/raw/amounts or unsafe numbers refuse. No business
+decision, budget, physical projection/reserve or archive-removal gate changes.
+This repairs a prerequisite; it is not automatic cold lifecycle acceptance.

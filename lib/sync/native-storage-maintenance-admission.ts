@@ -1,4 +1,5 @@
 import { FENCED_TABLES, type DbGrowthFenceDecision } from "./db-growth-fence";
+import { NATIVE_REUSABLE_HEAP_TABLE } from "./native-reusable-heap";
 
 /** Maintenance is a separate executor class. This never changes business
  * admission, the DB budget, provider flags or the emergency override. DELETE
@@ -49,15 +50,27 @@ export function assessNativeStorageMaintenanceAdmission(input: {
 }) {
   const { business: b, evidence: e, nowMs: now } = input;
   const issues: string[] = [];
+  // Consume the same aggregate measurement as D170's business fence. Raw
+  // allocation can exceed the budget while proven reusable MAIN space makes
+  // that fence ready. Accept only its consistent typed accounting; retain the
+  // fresh full-headroom physical projection and extra maintenance reserve.
+  const a = b.databaseAccounting;
+  const accountingValid = !a || a.rawDatabaseBytes === b.databaseBytes &&
+    bytes(a.rawDatabaseBytes) && bytes(a.accountedDatabaseBytes) && bytes(a.reusableHeapBytes) &&
+    a.relation === NATIVE_REUSABLE_HEAP_TABLE &&
+    a.accountedDatabaseBytes + a.reusableHeapBytes === a.rawDatabaseBytes &&
+    (a.metric === "raw" && a.reusableHeapBytes === 0 ||
+      a.metric === "raw_minus_proven_native_heap_free" && a.fallbackReason === null);
+  const accountedBytes = a?.accountedDatabaseBytes ?? b.databaseBytes;
   const ready = b.allowed === true && b.reason === "ready" && b.offender === null;
   const onlyDatabaseBudget = b.allowed === false && b.reason === "database_budget_exceeded" &&
-    b.offender?.table === "database" && b.offender.bytes === b.databaseBytes &&
-    b.offender.budget === b.databaseBudgetBytes && b.databaseBytes !== null &&
-    b.databaseBytes >= b.databaseBudgetBytes;
+    b.offender?.table === "database" && b.offender.bytes === accountedBytes &&
+    b.offender.budget === b.databaseBudgetBytes && accountedBytes !== null &&
+    accountedBytes >= b.databaseBudgetBytes;
   if (!Number.isFinite(now) || !fresh(b.evaluatedAt, now) || !fresh(e.observedAt, now)) issues.push("stale_measurement");
   if (!bytes(input.expectedDatabaseBudgetBytes) || input.expectedDatabaseBudgetBytes === 0 ||
       b.databaseBudgetBytes !== input.expectedDatabaseBudgetBytes || !bytes(b.databaseBytes ?? -1) ||
-      ready && b.databaseBytes! >= b.databaseBudgetBytes || b.overridden !== false || b.errorMessage !== null ||
+      !accountingValid || ready && accountedBytes! >= b.databaseBudgetBytes || b.overridden !== false || b.errorMessage !== null ||
       !(ready || onlyDatabaseBudget)) issues.push("business_fence_not_supported");
   const tableBudgets = Object.entries(b.tableBudgetBytes ?? {});
   if (tableBudgets.length !== FENCED_TABLES.length ||

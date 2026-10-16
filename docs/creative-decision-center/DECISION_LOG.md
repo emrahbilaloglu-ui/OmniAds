@@ -13914,3 +13914,66 @@ increases without replacing its existing checkpoint, before archive preparation.
 Installing a synthetic interruption checkpoint is fixture setup rather than a
 worker claim and is deliberately outside that trigger predicate. Exact CI/full QA must pass; a mocked SET
 string or an idle live queue cannot claim destructive-flow acceptance.
+
+## D172 — Use the business fence's proven aggregate accounting for archive admission (2026-10-16)
+
+D170 can correctly return `ready` while raw allocated bytes exceed 163 GiB: its
+actual `pgstattuple_approx` MAIN proof reduces aggregate accounting, and the
+physical gate reserves the entire resulting headroom. The older finite archive
+maintenance assessor rejected this exact shape by comparing raw bytes again.
+It also expected a DB-budget offender to equal raw bytes, although D170 reports
+the accounted offender. A regression test reproduces the first refusal.
+
+Maintenance now consumes the SAME business decision's consistent typed
+accounting. Its raw bytes must equal the fence's raw measurement; the relation,
+metric, safe integers, nonnegative byte amounts and `accounted + free = raw`
+must match. A reusable metric must have no fallback reason. Legacy decisions
+without accounting retain raw semantics; malformed accounting refuses. Both
+ready and aggregate-only refusal compare the resulting accounted bytes.
+
+Every source/image/root/restore/copy/HTTP/pin/producer gate, independent table
+fence, 163 GiB budget, 40 GiB physical floor, 512 MiB maintenance reserve and
+measurement-age bound remains. The original business decision is never mutated;
+a maintenance result grants no provider work. This change adds no scheduler,
+archive-format expansion, source retirement or storage-equilibrium claim.
+Those require their own implementation and actual live acceptance.
+
+## D173 — Compact original coverage metadata without enlarging archive wire or evidence bounds (2026-10-16)
+
+A bounded READ ONLY feasibility capture of Grandmix's2517-row original kept
+25,169,225 encoded row bytes and26,527,451 complete plaintext bundle bytes.
+Its core/parent manifest metadata alone occupied982,876 bytes. The old v3
+catalog/fragment trust refused packaging; increasing only the collector row cap
+therefore cannot establish an executable lifecycle.
+
+Add explicit catalog v4 and `native-archive-coverage-root.gzip-json.v1` metadata.
+Gzip transports the original root JSON; exact decoded UTF8 length/SHA, canonical
+base64, at most512KiB compressed and2MiB decoded bytes are independently checked.
+One original group and at most16segments are allowed. Catalog files still fit
+1MiB, routed leaves944KiB, shards/root32KiB; ciphertext2MiB and evidence decode
+8MiB remain unchanged. Complete original IDs, schema/manifest/row hashes,
+calibration parents, exact arbitrary-precision row text and generation coverage
+use the SAME validators after decoding. GCM AAD includes the explicit metadata
+encoding; formats cannot be silently relabeled. v1/v2/v3 remain readable.
+
+The metadata LRU charges decoded serialization for v4 while the per-request
+wire limit continues to charge actual file bytes. A verified value larger than
+the unchanged2MiB cache is request-local. No compressed source can hide a large
+cached root. The offboarding planner derives group ownership from its verified
+decoded catalog and preserves surviving original carriers and ciphertext.
+
+The existing collector and finite operator keep their1134/four-context limits.
+Only an explicit packaging option mints v4; the old default stays v3. This is
+reader/transport compatibility, not a new decision core, automatic scheduler,
+capacity/budget override or permission to rewrite/retire protected history.
+A new caller needs its own measured population/cadence, durable separate copies,
+full-DDL restore, actual HTTP and fresh pin/physical/absence acceptance.
+
+An ephemeral READ ONLY candidate-format proof packaged that same2517-row
+original into four parts:2,297,800 ciphertext bytes and606,144 leaf bytes;
+23.296s and248,336,384B RSS were observed in that process. Its ephemeral key and
+package were discarded. This is no publication, restore, serving, source-removal,
+physical reclaim or sustained-growth proof. Source publication must separately
+run canonical QA/CI and real runtime compatibility acceptance. Before any v4
+publication the previous release remains a rollback; afterwards retain a
+v4-capable reader and the actual immutable catalog/key/copies.

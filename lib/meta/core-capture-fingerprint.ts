@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { MetaAccountDailyRow, MetaAdDailyRow, MetaAdSetDailyRow,
   MetaCampaignDailyRow, MetaWarehouseBaseRow } from "./warehouse-types";
 
-export const META_CORE_CAPTURE_FINGERPRINT_VERSION = "meta-core-capture.v2";
+export const META_CORE_CAPTURE_FINGERPRINT_VERSION = "meta-core-capture.v3";
 
 export type MetaCorePageEvidence = {
   pageIndex: number;
@@ -38,6 +39,42 @@ function canonical(value: unknown): unknown {
 
 function fingerprint(value: unknown) {
   return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
+}
+
+/** Equality of two partial JSON objects is not a complete capture proof. */
+export function isMetaCoreCaptureReplayProof(value: unknown, scope: {
+  businessId: string; providerAccountId: string; day: string; sourceRunId: string;
+}): boolean {
+  const object = (v: unknown): Record<string, unknown> | null =>
+    v !== null && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : null;
+  const core = object(value);
+  if (!core || core.version !== META_CORE_CAPTURE_FINGERPRINT_VERSION ||
+      Object.entries(scope).some(([key,v]) => core[key] !== v) ||
+      typeof core.requestFields !== "string" ||
+      !core.requestFields.split(",").map(s=>s.trim()).includes("actions") ||
+      typeof core.rowsFetchedTotal !== "number" || !Number.isSafeInteger(core.rowsFetchedTotal) ||
+      core.rowsFetchedTotal < 0 || !Array.isArray(core.pages) || core.pages.length === 0) return false;
+  let count = 0;
+  const ids = new Set<string>();
+  for (const [index,value] of core.pages.entries()) {
+    const p = object(value);
+    if (!p || p.pageIndex !== index || typeof p.snapshotId !== "string" || !p.snapshotId ||
+        ids.has(p.snapshotId) || typeof p.rowCount !== "number" || !Number.isSafeInteger(p.rowCount) ||
+        p.rowCount < 0 || p.hasNext !== (index < core.pages.length-1) ||
+        p.providerHttpStatus !== 200 || p.status !== "fetched" || p.requestFields !== core.requestFields) return false;
+    ids.add(p.snapshotId); count += p.rowCount;
+  }
+  if (count !== core.rowsFetchedTotal) return false;
+  const replay = object(core.replayContent);
+  const hashes = object(replay?.surfaceFactFingerprints);
+  const surfaces = ["account_daily","campaign_daily","adset_daily","ad_daily"];
+  const validHashes = (h: Record<string,unknown> | null) => h !== null &&
+    Object.keys(h).length === surfaces.length && surfaces.every(s=>
+      typeof h[s] === "string" && /^[a-f0-9]{64}$/.test(h[s]));
+  if (!replay || !validHashes(hashes) || !validHashes(object(core.surfaceFactFingerprints))) return false;
+  return isDeepStrictEqual(replay, {version:core.version,businessId:core.businessId,
+    providerAccountId:core.providerAccountId,day:core.day,requestFields:core.requestFields,
+    pages:core.pages,rowsFetchedTotal:core.rowsFetchedTotal,surfaceFactFingerprints:hashes});
 }
 
 /** A complete ordered Graph capture plus every normalized Ad fact it produced. */
@@ -76,6 +113,7 @@ export function buildMetaCoreCaptureFingerprint(input: {
   ];
   if (input.accountRows.length !== 1) return null;
   const surfaceFactFingerprints: Record<string, string> = {};
+  const replayFactFingerprints: Record<string, string> = {};
   for (const [surface, rows, rowId] of rowSets) {
     const ids = rows.map(rowId);
     if (ids.some((id) => !id) || new Set(ids).size !== ids.length ||
@@ -99,6 +137,15 @@ export function buildMetaCoreCaptureFingerprint(input: {
       businessId: input.businessId, providerAccountId: input.providerAccountId,
       day: input.day, sourceRunId: input.sourceRunId, surface, facts,
     });
+    // A different fetch attempt does not replace an unchanged publication.
+    // Keep the exact raw page IDs and ALL normalized facts. Only the new run
+    // identity belongs to the observation, rather than to the retained source.
+    const replayFacts = facts.map(({ sourceRunId: _sourceRunId, ...fact }) => fact);
+    replayFactFingerprints[surface] = fingerprint({
+      version: META_CORE_CAPTURE_FINGERPRINT_VERSION,
+      businessId: input.businessId, providerAccountId: input.providerAccountId,
+      day: input.day, surface, facts: replayFacts,
+    });
   }
   return {
     version: META_CORE_CAPTURE_FINGERPRINT_VERSION,
@@ -110,5 +157,12 @@ export function buildMetaCoreCaptureFingerprint(input: {
     pages,
     rowsFetchedTotal: input.rowsFetchedTotal,
     surfaceFactFingerprints,
+    replayContent: {
+      version: META_CORE_CAPTURE_FINGERPRINT_VERSION,
+      businessId: input.businessId, providerAccountId: input.providerAccountId,
+      day: input.day, requestFields: input.requestFields, pages,
+      rowsFetchedTotal: input.rowsFetchedTotal,
+      surfaceFactFingerprints: replayFactFingerprints,
+    },
   };
 }

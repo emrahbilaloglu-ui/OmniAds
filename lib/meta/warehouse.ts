@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { isMetaCoreCaptureReplayProof } from "./core-capture-fingerprint";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { getCurrentSchedulingAttemptId } from "@/lib/sync/scheduling-attempt";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
@@ -1900,6 +1901,51 @@ async function getExistingMetaAuthoritativeSliceVersionForRun(input: {
   return rows[0] ? mapMetaAuthoritativeSliceVersionRow(rows[0]) : null;
 }
 
+/** Observation-only reuse: never republish these IDs under the new source run. */
+export async function readUnchangedMetaCorePublication(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  manifestId: string;
+  sourceRunId: string;
+  surfaces: ReadonlyArray<{
+    surface: "account_daily" | "campaign_daily" | "adset_daily" | "ad_daily";
+    rowCount: number;
+    spend: number;
+  }>;
+}) {
+  if (process.env.META_CORE_UNCHANGED_CAPTURE_REUSE_ENABLED !== "true") return null;
+  const expected = ["account_daily", "campaign_daily", "adset_daily", "ad_daily"];
+  if (input.surfaces.length !== 4 || expected.some((surface) =>
+    input.surfaces.filter((entry) => entry.surface === surface).length !== 1)) return null;
+  return runInTransaction(async () => {
+    // The ingestion caller enters this dedicated transaction before reading
+    // any publication. Four roots must be proved in one consistent snapshot.
+    await getDb().query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const slices: MetaAuthoritativeSliceVersionRecord[] = [];
+    for (const entry of input.surfaces) {
+      const slice = await getEquivalentPublishedMetaAuthoritativeSliceVersion({
+        ...input, surface: entry.surface, stagedRowCount: entry.rowCount,
+        aggregatedSpend: entry.spend, preservePublishedSource: true,
+      });
+      if (!slice) return null;
+      slices.push(slice);
+    }
+    // One complete original capture, not four independently matching pieces.
+    if (new Set(slices.map((slice) => slice.manifestId)).size !== 1 ||
+        new Set(slices.map((slice) => slice.sourceRunId)).size !== 1) return null;
+    return slices;
+  }).catch((error: unknown) => {
+    // This dedicated read transaction has rolled back before normal ingestion
+    // continues. Unavailable optimization proof never suppresses fresh data.
+    const code = (error as { code?: unknown } | null)?.code;
+    console.warn("[meta-core-observation-reuse] comparison_unavailable", {
+      sqlState: typeof code === "string" && /^[A-Z0-9]{5}$/.test(code) ? code : null,
+    });
+    return null;
+  });
+}
+
 /** Reuse only an active, published candidate whose complete capture is identical. */
 async function getEquivalentPublishedMetaAuthoritativeSliceVersion(input: {
   businessId: string;
@@ -1910,11 +1956,13 @@ async function getEquivalentPublishedMetaAuthoritativeSliceVersion(input: {
   sourceRunId?: string | null;
   stagedRowCount?: number | null;
   aggregatedSpend?: number | null;
+  preservePublishedSource?: boolean;
 }) {
   if (!input.manifestId || !input.sourceRunId) return null;
   const sql = getDb();
   const rows = await sql`
-    SELECT candidate.*
+    SELECT candidate.*, old_manifest.meta_json->'coreCapture' AS old_core_capture,
+      new_manifest.meta_json->'coreCapture' AS new_core_capture
     FROM meta_authoritative_publication_pointers pointer
     JOIN meta_authoritative_slice_versions candidate
       ON candidate.id = pointer.active_slice_version_id
@@ -1926,7 +1974,8 @@ async function getEquivalentPublishedMetaAuthoritativeSliceVersion(input: {
       AND pointer.provider_account_id = ${input.providerAccountId}
       AND pointer.day = ${normalizeDate(input.day)}
       AND pointer.surface = ${input.surface}
-      AND pointer.published_by_run_id = ${input.sourceRunId}
+      AND (${input.preservePublishedSource === true}::boolean
+        OR pointer.published_by_run_id = ${input.sourceRunId})
       AND candidate.business_id = pointer.business_id
       AND candidate.provider_account_id = pointer.provider_account_id
       AND candidate.day = pointer.day AND candidate.surface = pointer.surface
@@ -1935,6 +1984,25 @@ async function getEquivalentPublishedMetaAuthoritativeSliceVersion(input: {
       AND candidate.truth_state = 'finalized'
       AND candidate.validation_status = 'passed'
       AND candidate.status = 'published'
+      -- A failed/incomplete newer refresh changes health even at equal spend.
+      -- Preserve the normal recovery publication instead of hiding that state.
+      AND (NOT ${input.preservePublishedSource === true}::boolean OR (
+        NOT EXISTS (
+          SELECT 1 FROM meta_authoritative_slice_versions later
+          WHERE later.business_id = pointer.business_id
+            AND later.provider_account_id = pointer.provider_account_id
+            AND later.day = pointer.day AND later.surface = pointer.surface
+            AND later.candidate_version > candidate.candidate_version
+        ) AND NOT EXISTS (
+          SELECT 1 FROM meta_authoritative_reconciliation_events failure
+          WHERE failure.business_id = pointer.business_id
+            AND failure.provider_account_id = pointer.provider_account_id
+            AND failure.day = pointer.day
+            AND failure.surface IN ('account_daily','campaign_daily','adset_daily','ad_daily')
+            AND failure.result IN ('failed','repair_required')
+            AND failure.created_at > candidate.published_at
+        )
+      ))
       AND candidate.staged_row_count IS NOT DISTINCT FROM ${input.stagedRowCount ?? null}
       AND candidate.aggregated_spend IS NOT DISTINCT FROM ${input.aggregatedSpend ?? null}
       AND old_manifest.business_id = pointer.business_id
@@ -1945,7 +2013,9 @@ async function getEquivalentPublishedMetaAuthoritativeSliceVersion(input: {
       AND new_manifest.business_id = old_manifest.business_id
       AND new_manifest.provider_account_id = old_manifest.provider_account_id
       AND new_manifest.day = old_manifest.day
-      AND new_manifest.run_id = old_manifest.run_id
+      AND new_manifest.run_id = ${input.sourceRunId}
+      AND (${input.preservePublishedSource === true}::boolean
+        OR new_manifest.run_id = old_manifest.run_id)
       AND new_manifest.surface = old_manifest.surface
       AND new_manifest.fetch_status = 'completed'
       AND old_manifest.validation_basis_version IS NOT DISTINCT FROM
@@ -1954,7 +2024,15 @@ async function getEquivalentPublishedMetaAuthoritativeSliceVersion(input: {
       AND old_manifest.source_spend IS NOT DISTINCT FROM new_manifest.source_spend
       AND old_manifest.raw_snapshot_watermark = new_manifest.raw_snapshot_watermark
       AND jsonb_typeof(old_manifest.meta_json->'coreCapture') = 'object'
-      AND old_manifest.meta_json->'coreCapture' = new_manifest.meta_json->'coreCapture'
+      AND CASE WHEN ${input.preservePublishedSource === true}::boolean THEN
+        old_manifest.meta_json #>> '{coreCapture,version}' = 'meta-core-capture.v3'
+        AND new_manifest.meta_json #>> '{coreCapture,version}' = 'meta-core-capture.v3'
+        AND old_manifest.meta_json #>> '{coreCapture,sourceRunId}' = old_manifest.run_id
+        AND new_manifest.meta_json #>> '{coreCapture,sourceRunId}' = new_manifest.run_id
+        AND jsonb_typeof(old_manifest.meta_json #> '{coreCapture,replayContent}') = 'object'
+        AND old_manifest.meta_json #> '{coreCapture,replayContent}' =
+          new_manifest.meta_json #> '{coreCapture,replayContent}'
+      ELSE old_manifest.meta_json->'coreCapture' = new_manifest.meta_json->'coreCapture' END
       AND old_manifest.completed_at <= candidate.published_at
       AND candidate.published_at <= pointer.published_at
       AND new_manifest.completed_at >= old_manifest.completed_at
@@ -2046,7 +2124,14 @@ async function getEquivalentPublishedMetaAuthoritativeSliceVersion(input: {
     stage_started_at: string | null; stage_completed_at: string | null;
     publish_started_at: string | null; published_at: string | null;
     superseded_at: string | null; created_at: string; updated_at: string;
+    old_core_capture?: unknown; new_core_capture?: unknown;
   }>;
+  if (input.preservePublishedSource && rows[0]) {
+    const row = rows[0];
+    const scope = {businessId:input.businessId,providerAccountId:input.providerAccountId,day:normalizeDate(input.day)};
+    if (!isMetaCoreCaptureReplayProof(row.old_core_capture,{...scope,sourceRunId:String(row.source_run_id)}) ||
+        !isMetaCoreCaptureReplayProof(row.new_core_capture,{...scope,sourceRunId:input.sourceRunId})) return null;
+  }
   return rows[0] ? mapMetaAuthoritativeSliceVersionRow(rows[0]) : null;
 }
 

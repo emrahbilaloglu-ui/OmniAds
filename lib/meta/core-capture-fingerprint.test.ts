@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMetaCoreCaptureFingerprint, recordMetaAdPageSourceSnapshots,
+import { buildMetaCoreCaptureFingerprint, recordMetaAdPageSourceSnapshots, isMetaCoreCaptureReplayProof,
   type MetaCorePageEvidence } from
   "./core-capture-fingerprint";
 import type { MetaAccountDailyRow, MetaAdDailyRow,
@@ -30,6 +30,18 @@ const input = { businessId: "business", providerAccountId: "act_1",
   adRows: rows };
 
 describe("complete Meta core capture fingerprint", () => {
+  it("refuses partial, legacy, foreign or internally inconsistent persisted replay proof",()=>{
+    const scope={businessId:input.businessId,providerAccountId:input.providerAccountId,
+      day:input.day,sourceRunId:input.sourceRunId};
+    const core=buildMetaCoreCaptureFingerprint(input)!;
+    expect(isMetaCoreCaptureReplayProof(core,scope)).toBe(true);
+    for(const bad of [null,{}, {...core,version:"meta-core-capture.v2"},
+      {...core,replayContent:{}}, {...core,rowsFetchedTotal:3},
+      {...core,pages:[{...pages[0]!,hasNext:false},pages[1]!] },
+      {...core,replayContent:{...core.replayContent,surfaceFactFingerprints:{}}},
+      {...core,surfaceFactFingerprints:{}},
+      {...core,businessId:"other"}]) expect(isMetaCoreCaptureReplayProof(bad,scope)).toBe(false);
+  });
   it("attributes Ads to their actual page and refuses duplicate-ID attribution", () => {
     const sourceByAdId = new Map<string, string | null>();
     recordMetaAdPageSourceSnapshots(sourceByAdId,
@@ -71,6 +83,31 @@ describe("complete Meta core capture fingerprint", () => {
       campaignRows: [{ ...campaignRows[0]!, objective: "LEADS" }] });
     expect(changed?.surfaceFactFingerprints.campaign_daily)
       .not.toBe(oldCapture?.surfaceFactFingerprints.campaign_daily);
+  });
+
+  it("binds all raw pages and facts while separating a new observation run", () => {
+    const original = buildMetaCoreCaptureFingerprint(input)!;
+    const observed = buildMetaCoreCaptureFingerprint({ ...input, sourceRunId: "run-2",
+      accountRows: accountRows.map((row) => ({ ...row, sourceRunId: "run-2" })),
+      campaignRows: campaignRows.map((row) => ({ ...row, sourceRunId: "run-2" })),
+      adRows: rows.map((row) => ({ ...row, sourceRunId: "run-2" })),
+    })!;
+    expect(observed.sourceRunId).not.toBe(original.sourceRunId);
+    expect(observed.surfaceFactFingerprints).not.toEqual(original.surfaceFactFingerprints);
+    expect(observed.replayContent).toEqual(original.replayContent);
+    const sourceChanged = buildMetaCoreCaptureFingerprint({ ...input,
+      pages: pages.map((page) => ({ ...page, snapshotId: `${page.snapshotId}-new` })),
+      accountRows: accountRows.map((row) => ({ ...row, sourceSnapshotId: "page-1-new" })),
+      campaignRows: campaignRows.map((row) => ({ ...row, sourceSnapshotId: "page-1-new" })),
+      adRows: rows.map((row) => ({ ...row, sourceSnapshotId: "page-1-new" })),
+    })!;
+    expect(sourceChanged.replayContent).not.toEqual(original.replayContent);
+    expect(buildMetaCoreCaptureFingerprint({ ...input,
+      campaignRows: [{ ...campaignRows[0]!, objective: "LEADS" }],
+    })!.replayContent).not.toEqual(original.replayContent);
+    expect(buildMetaCoreCaptureFingerprint({ ...input,
+      adRows: [{ ...rows[0]!, payloadJson: { actions: [{ action_type: "purchase", value: "1" }] } }],
+    })!.replayContent).not.toEqual(original.replayContent);
   });
 
   it("rejects missing actions, a broken pagination chain and page reordering", () => {

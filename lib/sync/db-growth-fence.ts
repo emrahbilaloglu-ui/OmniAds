@@ -1,4 +1,5 @@
 import { getDbWithTimeout } from "@/lib/db";
+import { deriveNativeReusableHeapAccounting, type NativeReusableHeapAccounting } from "./native-reusable-heap";
 import {
   deriveEffectiveStateHistoryBytes,
   toSafeByteCount,
@@ -564,6 +565,7 @@ export interface DbGrowthFenceDecision {
   allowed: boolean;
   reason: DbGrowthFenceReason;
   warning: boolean;
+  /** Raw allocated bytes, including reusable heap; never relabelled as used. */
   databaseBytes: number | null;
   databaseBudgetBytes: number;
   tableBytes: Partial<Record<FencedTable, number>>;
@@ -585,6 +587,9 @@ export interface DbGrowthFenceDecision {
    * the refinement was not attempted (early denials).
    */
   stateHistoryEffective?: StateHistoryFenceMeasurement | null;
+  /** Allocated raw bytes remain above; only verified native MAIN-heap free
+   * space can reduce aggregate accounting. All physical/table fences remain. */
+  databaseAccounting?: NativeReusableHeapAccounting;
 }
 
 export const OVERRIDE_ENV_FLAG = "SYNC_GROWTH_FENCE_OVERRIDE";
@@ -773,7 +778,7 @@ export async function evaluateDbGrowthFence(input?: {
     });
   }
 
-  const databaseBytes = Number(rows[0]?.database_bytes);
+  let databaseBytes = Number(rows[0]?.database_bytes);
   if (!Number.isFinite(databaseBytes) || databaseBytes < 0) {
     return denied({
       reason: "measurement_invalid",
@@ -813,8 +818,9 @@ export async function evaluateDbGrowthFence(input?: {
   // below: that override exists to push past a budget an operator chose, not to
   // authorise writing into a full disk.
   const head = rows[0] ?? {};
+  const physicalReadAt = Date.now();
   const rawSampledAt = head.capacity_sampled_at;
-  const physical = evaluatePhysicalCapacity({
+  const physicalInput = {
     telemetryAvailable: true,
     snapshot:
       head.capacity_id == null && rawSampledAt == null
@@ -836,7 +842,8 @@ export async function evaluateDbGrowthFence(input?: {
     databaseName: head.database_name == null ? null : String(head.database_name),
     databaseBytes,
     databaseBudgetBytes: databaseBudget,
-  });
+  };
+  let physical = evaluatePhysicalCapacity(physicalInput);
   if (!physical.admitted) {
     const reason = PHYSICAL_FENCE_REASON[physical.reason as Exclude<PhysicalCapacityReason, "ok">];
     console.error("[db-growth-fence] refused on physical capacity", {
@@ -931,10 +938,46 @@ export async function evaluateDbGrowthFence(input?: {
     stateHistoryEffective = null;
   }
 
+  let databaseAccounting = deriveNativeReusableHeapAccounting(databaseBytes, null, "disabled");
+  if (env.SYNC_GROWTH_FENCE_REUSABLE_NATIVE_HEAP_ENABLED === "true") {
+    try {
+      const proofRows = await getDbWithTimeout(input?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS).query(`
+        WITH proof AS MATERIALIZED (
+          SELECT table_len, approx_free_space
+          FROM pgstattuple_approx('public.engine_v3_ad_decision_evaluations'::regclass)
+        )
+        SELECT proof.*, pg_database_size(current_database())::bigint AS database_bytes,
+          pg_relation_size('public.engine_v3_ad_decision_evaluations'::regclass)::bigint AS heap_bytes,
+          pg_total_relation_size('public.engine_v3_ad_decision_evaluations'::regclass)::bigint AS total_bytes
+        FROM proof
+      `) as Array<Record<string, unknown>>;
+      const proof = proofRows.length === 1 ? proofRows[0]! : null;
+      const freshRaw = toSafeByteCount(proof?.database_bytes);
+      if (freshRaw !== null) databaseBytes = Math.max(databaseBytes, freshRaw);
+      databaseAccounting = deriveNativeReusableHeapAccounting(databaseBytes,
+        freshRaw === null ? null : proof);
+    } catch {
+      databaseAccounting = deriveNativeReusableHeapAccounting(databaseBytes, null, "measurement_error");
+    }
+    // All effective headroom might be spent in ANOTHER relation, where the
+    // native heap cannot be reused. Reserve the full headroom on the volume.
+    physical = evaluatePhysicalCapacity({ ...physicalInput,
+      snapshot: physicalInput.snapshot ? { ...physicalInput.snapshot,
+        ageSeconds: physicalInput.snapshot.ageSeconds === null ? null :
+          physicalInput.snapshot.ageSeconds + Math.max(0,Date.now()-physicalReadAt)/1000,
+      } : null,
+      databaseBytes: databaseAccounting.accountedDatabaseBytes });
+    if (!physical.admitted) return { ...denied({
+      reason: PHYSICAL_FENCE_REASON[physical.reason as Exclude<PhysicalCapacityReason, "ok">],
+      budget: databaseBudget, databaseBytes, evaluatedAt, physical,
+      errorMessage: physical.detail,
+    }), databaseAccounting };
+  }
+
   let offender: DbGrowthFenceDecision["offender"] = null;
   let reason: DbGrowthFenceReason = "ready";
-  if (databaseBytes >= databaseBudget) {
-    offender = { table: "database", bytes: databaseBytes, budget: databaseBudget };
+  if (databaseAccounting.accountedDatabaseBytes >= databaseBudget) {
+    offender = { table: "database", bytes: databaseAccounting.accountedDatabaseBytes, budget: databaseBudget };
     reason = "database_budget_exceeded";
   } else {
     for (const table of FENCED_TABLES) {
@@ -969,6 +1012,7 @@ export async function evaluateDbGrowthFence(input?: {
         overridden: true,
         physical,
         stateHistoryEffective,
+        databaseAccounting,
       };
     }
     console.error("[db-growth-fence] refused new sync work", {
@@ -990,6 +1034,7 @@ export async function evaluateDbGrowthFence(input?: {
       overridden: false,
       physical,
       stateHistoryEffective,
+      databaseAccounting,
     };
   }
 
@@ -1015,6 +1060,7 @@ export async function evaluateDbGrowthFence(input?: {
     overridden: false,
     physical,
     stateHistoryEffective,
+    databaseAccounting,
   };
 }
 
@@ -1192,6 +1238,7 @@ export async function assertSyncGrowthBoundary(
       console.warn("[db-growth-fence] admitted with warning", {
         operation,
         databaseBytes: decision.databaseBytes,
+        databaseAccounting: decision.databaseAccounting,
         databaseBudgetBytes: decision.databaseBudgetBytes,
         warningRatio: DEFAULT_WARNING_RATIO,
         nearBudgetTables: FENCED_TABLES.filter(

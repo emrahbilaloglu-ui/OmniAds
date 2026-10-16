@@ -26,7 +26,9 @@ export const PINNED_LIBRARY_FILES = ["lib/creative-decision-engine/canonical-eva
   // D169: pointer selection is part of the exact historical-reader trust boundary.
   "lib/business-archive-configuration.ts",
   "lib/creative-decision-engine/native-historical-archive-worker.ts", "lib/creative-decision-engine/native-historical-archive-worker-client.ts",
-  "lib/creative-decision-engine/native-historical-read-controls.ts", "lib/sync/db-growth-fence.ts", "lib/db.ts", "lib/migrations.ts",
+  "lib/creative-decision-engine/native-historical-read-controls.ts", "lib/sync/db-growth-fence.ts",
+  // D170: the aggregate accounting predicate is part of the same admission proof.
+  "lib/sync/native-reusable-heap.ts", "lib/db.ts", "lib/migrations.ts",
   "scripts/run-migrations.ts", "scripts/build-native-historical-worker.mjs",
   "lib/creative-decision-engine/types.ts", "lib/creative-decision-engine/jobs/advisory-lock.ts",
   // D150: the producer whose job lock the retirement excludes; its key formula must be byte-identical at both revisions.

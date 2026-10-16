@@ -19,9 +19,11 @@ export function describeDbGrowthFenceCapacity(decision: DbGrowthFenceDecision) {
     reason: decision.reason,
     overrideApplied: decision.overridden,
     database: capacity(
-      decision.databaseBytes,
+      decision.databaseAccounting?.accountedDatabaseBytes ?? decision.databaseBytes,
       decision.reason === "measurement_invalid" ? undefined : decision.databaseBudgetBytes,
     ),
+    databaseRawBytes: decision.databaseBytes,
+    databaseAccounting: decision.databaseAccounting ?? null,
     tables: FENCED_TABLES.map((table) => ({
       table,
       ...capacity(decision.tableBytes[table], decision.tableBudgetBytes?.[table]),

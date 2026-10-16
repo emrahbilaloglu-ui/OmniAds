@@ -29,7 +29,10 @@ export async function runBusinessArchiveErasureTick() {
       "SELECT pg_try_advisory_lock($1::int,0) AS acquired", [BUSINESS_ERASURE_LOCK_NAMESPACE]);
     if (!lock?.acquired) return { outcome: "busy" };
     try {
-      await client.query("SET statement_timeout='3000ms'; SET lock_timeout='1500ms'; SET enable_seqscan=off; SET enable_bitmapscan=off");
+      // This raw pinned backend bypasses the scoped executor's JIT guard.
+      // Discouraged scans on this tiny control queue can otherwise spend the
+      // complete statement budget compiling instead of reading its first row.
+      await client.query("SET jit=off; SET statement_timeout='3000ms'; SET lock_timeout='1500ms'; SET enable_seqscan=off; SET enable_bitmapscan=off");
       // Serialize the entire archive -> DB saga, including owner-blocked jobs.
       // A later erasure must not collect an archived-only shared key while an
       // earlier durable checkpoint still needs its original frozen-row proof.
@@ -80,7 +83,7 @@ export async function runBusinessArchiveErasureTick() {
       // once its last automatic crash recovery has been consumed.
       await client.query(`UPDATE business_deletion_jobs SET status='failed',error_code='interrupted',updated_at=now()
         WHERE status='running' AND archive_attempts>=3 AND COALESCE((archive_state->>'prepared')::boolean,false)=false`);
-      await client.query("RESET statement_timeout; RESET lock_timeout; RESET enable_seqscan; RESET enable_bitmapscan");
+      await client.query("RESET statement_timeout; RESET lock_timeout; RESET enable_seqscan; RESET enable_bitmapscan; RESET jit");
       const { rows: [unlocked] } = await client.query<{ released: boolean }>(
         "SELECT pg_advisory_unlock($1::int,0) AS released", [BUSINESS_ERASURE_LOCK_NAMESPACE]);
       if (!unlocked?.released) throw new Error("business_archive_erasure_lock_lost");

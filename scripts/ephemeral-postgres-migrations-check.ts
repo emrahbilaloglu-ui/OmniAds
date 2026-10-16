@@ -3337,6 +3337,12 @@ async function main() {
       targetHistoryCases.missingHistoryBusinessId,
     );
 
+    if (process.env.ADSECUTE_EPHEMERAL_ONLY_CORE_CAPTURE_REUSE_SEAM === "1") {
+      await runChildScript(repoRoot,databaseUrl,
+        path.join("scripts","ephemeral-postgres-meta-d101-retry-seam-child.ts"),
+        "Meta complete core capture observation reuse DB seam check");
+      return;
+    }
     if (process.env.ADSECUTE_EPHEMERAL_ONLY_HISTORICAL_REBIND_SEAM === "1") {
       await runChildScript(
         repoRoot,

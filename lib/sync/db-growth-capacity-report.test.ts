@@ -44,4 +44,14 @@ describe("effective sync-capacity reporting", () => {
     expect(result.database.remainingBytes).toBe(-1);
     expect(result.physical).toBeNull();
   });
+  it("shows accounted headroom and keeps the raw allocation/proof visible",()=>{
+    const databaseAccounting={metric:"raw_minus_proven_native_heap_free" as const,
+      rawDatabaseBytes:sample.databaseBytes!,accountedDatabaseBytes:sample.databaseBytes!-500,
+      reusableHeapBytes:500,relation:"engine_v3_ad_decision_evaluations" as const,fallbackReason:null};
+    const result=describeDbGrowthFenceCapacity({...sample,databaseAccounting});
+    expect(result.databaseRawBytes).toBe(sample.databaseBytes);
+    expect(result.database.measuredBytes).toBe(sample.databaseBytes!-500);
+    expect(result.database.remainingBytes).toBe(6_612_575_709);
+    expect(result.databaseAccounting).toEqual(databaseAccounting);
+  });
 });

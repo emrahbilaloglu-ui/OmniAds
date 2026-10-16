@@ -41,6 +41,7 @@ import {
   createMetaAuthoritativeReconciliationEvent,
   createMetaAuthoritativeSliceVersion,
   createMetaAuthoritativeSourceManifest,
+  readUnchangedMetaCorePublication,
   buildMetaSyncCheckpointHash,
   getMetaSyncCheckpoint,
   heartbeatMetaPartitionLease,
@@ -5235,6 +5236,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   let campaignSliceVersionId: string | null = null;
   let adsetSliceVersionId: string | null = null;
   let adSliceVersionId: string | null = null;
+  let reusedCoreCapture = false;
   await captureMetaAccountCoreSubStage({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -5245,6 +5247,40 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     day: normalizedDay,
     stage: "syncMetaAccountCoreWarehouseDay.create_slice_versions",
     run: async () => {
+      const unchanged = authoritativeFinalizationV2Enabled && sourceManifestId &&
+        truthState === "finalized" && canonicalSourceDrift === null
+        ? await readUnchangedMetaCorePublication({
+            businessId: input.credentials.businessId,
+            providerAccountId: input.accountId, day: normalizedDay,
+            manifestId: sourceManifestId, sourceRunId,
+            surfaces: [
+              { surface: "account_daily", rowCount: accountRows.length, spend: accountRows[0]?.spend ?? 0 },
+              { surface: "campaign_daily", rowCount: campaignRows.length, spend: sumRowSpend(campaignRows) },
+              { surface: "adset_daily", rowCount: adsetRows.length, spend: sumRowSpend(adsetRows) },
+              { surface: "ad_daily", rowCount: adRows.length, spend: sumRowSpend(adRows) },
+            ],
+          })
+        : null;
+      if (unchanged) {
+        accountSliceVersionId = unchanged.find((slice) => slice.surface === "account_daily")!.id!;
+        campaignSliceVersionId = unchanged.find((slice) => slice.surface === "campaign_daily")!.id!;
+        adsetSliceVersionId = unchanged.find((slice) => slice.surface === "adset_daily")!.id!;
+        adSliceVersionId = unchanged.find((slice) => slice.surface === "ad_daily")!.id!;
+        reusedCoreCapture = true;
+        incompleteCampaignTruth = collectIncompleteCampaignTruth({ rows: campaignRows, campaignConfigs });
+        incompleteAdSetTruth = collectIncompleteAdSetTruth({ rows: adsetRows, adsetConfigs, campaignConfigs });
+        await createMetaAuthoritativeReconciliationEvent({
+          businessId: input.credentials.businessId, providerAccountId: input.accountId,
+          day: normalizedDay, surface: "account_daily", manifestId: sourceManifestId,
+          sliceVersionId: accountSliceVersionId, eventKind: "capture_unchanged",
+          severity: "info", result: "passed",
+          detailsJson: { contract: "meta-core-observation-reuse.v1", sourceRunId,
+            originalSourceRunId: unchanged[0]!.sourceRunId,
+            originalSliceIds: unchanged.map((slice) => slice.id),
+            publicationAdvanced: false, factRowsWritten: 0 },
+        });
+        return;
+      }
       const accountSliceVersion = authoritativeFinalizationV2Enabled
         ? await createMetaAuthoritativeSliceVersion({
             businessId: input.credentials.businessId,
@@ -5340,7 +5376,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         // fill them. Keep the config gap visible without failing the core
         // capture; the decision authority gate handles fields it actually
         // requires.
-        if (authoritativeFinalizationV2Enabled) {
+        if (authoritativeFinalizationV2Enabled && !reusedCoreCapture) {
           await createMetaAuthoritativeReconciliationEvent({
               businessId: input.credentials.businessId,
               providerAccountId: input.accountId,
@@ -5491,7 +5527,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       day: normalizedDay,
       stage: "syncMetaAccountCoreWarehouseDay.write_account_daily",
       run: async () => {
-        if (truthState === "finalized") {
+        if (truthState === "finalized" && !reusedCoreCapture) {
           if (accountProof) {
             await replaceMetaAccountDailySlice({
               rows: accountRows,
@@ -5522,7 +5558,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       day: normalizedDay,
       stage: "syncMetaAccountCoreWarehouseDay.write_campaign_daily",
       run: async () => {
-        if (truthState === "finalized") {
+        if (truthState === "finalized" && !reusedCoreCapture) {
           if (campaignProof) {
             await replaceMetaCampaignDailySlice({
               slice: {
@@ -5556,7 +5592,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       day: normalizedDay,
       stage: "syncMetaAccountCoreWarehouseDay.write_adset_daily",
       run: async () => {
-        if (truthState === "finalized") {
+        if (truthState === "finalized" && !reusedCoreCapture) {
           if (adsetProof) {
             await replaceMetaAdSetDailySlice({
               slice: {
@@ -5590,7 +5626,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       day: normalizedDay,
       stage: "syncMetaAccountCoreWarehouseDay.write_ad_daily",
       run: async () => {
-        if (truthState === "finalized") {
+        if (truthState === "finalized" && !reusedCoreCapture) {
           if (adProof) {
             await replaceMetaAdDailySlice({
               slice: {
@@ -5610,7 +5646,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       },
     });
   } catch (error) {
-    if (authoritativeFinalizationV2Enabled) {
+    if (authoritativeFinalizationV2Enabled && !reusedCoreCapture) {
       await Promise.all([
         sourceManifestId
           ? updateMetaAuthoritativeSourceManifest({
@@ -5909,7 +5945,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     leaseEpoch: input.leaseEpoch,
     leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
   });
-  if (authoritativeFinalizationV2Enabled) {
+  if (authoritativeFinalizationV2Enabled && !reusedCoreCapture) {
     const publishStartedAt = new Date().toISOString();
     await upsertOwnedMetaPhaseTimingOrThrow({
       partitionId: input.partitionId,
@@ -6166,7 +6202,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           nextPageUrl: null,
           providerCursor: null,
           rowsFetched: rowsFetchedTotal,
-          rowsWritten: truthState === "finalized" ? accountRows.length : 0,
+          rowsWritten: truthState === "finalized" && !reusedCoreCapture ? accountRows.length : 0,
           lastSuccessfulEntityKey: null,
           lastResponseHeaders: checkpointHeaders,
           attemptCount: input.attemptCount,
@@ -6188,7 +6224,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           nextPageUrl: null,
           providerCursor: null,
           rowsFetched: rowsFetchedTotal,
-          rowsWritten: truthState === "finalized" ? adRows.length : 0,
+          rowsWritten: truthState === "finalized" && !reusedCoreCapture ? adRows.length : 0,
           lastSuccessfulEntityKey: adRows.at(-1)?.adId ?? null,
           lastResponseHeaders: checkpointHeaders,
           attemptCount: input.attemptCount,
@@ -6209,7 +6245,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           nextPageUrl: null,
           providerCursor: null,
           rowsFetched: rowsFetchedTotal,
-          rowsWritten: truthState === "finalized" ? adsetRows.length : 0,
+          rowsWritten: truthState === "finalized" && !reusedCoreCapture ? adsetRows.length : 0,
           lastSuccessfulEntityKey: adsetRows.at(-1)?.adsetId ?? null,
           lastResponseHeaders: checkpointHeaders,
           attemptCount: input.attemptCount,
@@ -6241,7 +6277,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         nextPageUrl: null,
         providerCursor: null,
         rowsFetched: rowsFetchedTotal,
-        rowsWritten:
+        rowsWritten: reusedCoreCapture ? 0 :
           accountRows.length +
           campaignRows.length +
           adsetRows.length +
@@ -6286,10 +6322,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   }
 
   return {
-    accountRowsWritten: accountRows.length,
-    campaignRowsWritten: campaignRows.length,
-    adsetRowsWritten: adsetRows.length,
-    adRowsWritten: adRows.length,
+    accountRowsWritten: reusedCoreCapture ? 0 : accountRows.length,
+    campaignRowsWritten: reusedCoreCapture ? 0 : campaignRows.length,
+    adsetRowsWritten: reusedCoreCapture ? 0 : adsetRows.length,
+    adRowsWritten: reusedCoreCapture ? 0 : adRows.length,
     positiveSpendAdIds,
     pageCount: pageIndex,
     restoredPageCount: restoredPages.length,

@@ -13824,3 +13824,93 @@ Do not restore an older static-only reader pointing to purged catalogs, reopen
 hidden business access, recreate erased rows, or claim database file shrink or
 growth admission from SQL DELETE. Shared disaster-recovery backups remain outside
 this application-native archive boundary.
+
+## D170 — Preserve unchanged Meta publications and account for reusable native heap (2026-10-16)
+
+**Observed cause.** After the October15 index-only recovery, production again
+crossed its163GiB aggregate limit. Selected consecutive Grandmix generations
+each wrote2517 evaluations. Their ready-context difference was only calibration
+`computedAt`; the source chain showed eight closed-day publications reusing the
+same ordered raw page while new sync-run identities changed capture identity,
+warehouse clocks and calibration hashes. This is not proof that all provider
+refreshes or all observed growth are duplicates. Catalog estimates also showed
+large dead populations below the default20% automatic vacuum threshold. An
+owner `pgstattuple_approx` measurement proved3400793536 bytes of already reusable
+native MAIN heap; a separate TOAST measurement timed out and proves no free bytes.
+
+**Publication, not decision normalization.** This narrowly extends D110 with
+default-off `META_CORE_UNCHANGED_CAPTURE_REUSE_ENABLED=true`. Capture `.v3`
+keeps full run-bound identity and adds a replay-content object. It binds the
+same ordered immutable raw page IDs, requested fields, completed pagination,
+row count, business/account/day and EVERY normalized fact at all four grains.
+Only the new observation-run ID is absent from replay content; original source
+IDs and all decision hashes/clocks remain unchanged. Both manifests must be
+complete, with equal timezone, spend and validation basis. All four still-active
+verified publications must belong to ONE original manifest/run and their exact
+warehouse populations must retain original source bindings and pre-publication
+clocks. Legacy/malformed/partial/changed/foreign/post-publication inputs refuse.
+Any newer candidate or later failed core reconciliation also refuses reuse,
+so a successful retry publishes normally and clears the visible recovery state.
+
+An equal observation appends its own manifest and `capture_unchanged` receipt;
+it writes zero canonical daily rows and creates/updates/publishes zero slices.
+The receipt names the original roots and explicitly records that publication
+did not advance. Checkpoints report zero rows written. Changed captures take
+the complete existing validation/publication path. This grants no authority to
+the new observation, does not advance provider evidence or decision timestamps,
+and leaves D129's full canonical producer/reuse proof and slot boundaries intact.
+No engine/formula/evaluation epoch or historical record is reinterpreted.
+
+**Capacity.** Default-off
+`SYNC_GROWTH_FENCE_REUSABLE_NATIVE_HEAP_ENABLED=true` permits aggregate
+raw-minus-proven-free MAIN-heap accounting for exactly
+`engine_v3_ad_decision_evaluations`. A fresh bounded `pgstattuple_approx` read
+must have one row, safe integer bytes, exact MAIN relation length and a valid
+raw/heap/free containment proof. A later raw database measurement is never
+allowed to reduce the earlier raw value. Missing privilege/extension, timeout,
+length drift or malformed proof keeps raw accounting. Dead tuple statistics,
+TOAST and indexes are fully counted. Raw database bytes and accounting evidence
+remain explicit; capacity reports use the same accounted bytes as admission.
+The163GiB configured limit, independent table ceilings and override policy are
+unchanged. This is an explicit aggregate accounting change, not returned OS space.
+
+Physical admission is re-evaluated against ALL resulting logical headroom as
+possible new disk allocation in another relation. The existing40GiB floor,
+sample identity/freshness and non-overridable physical refusals remain. Existing
+finite archive operators retain their stricter raw-budget admission; this ADR
+does not broaden their authority. Regular VACUUM may make already-dead space
+reusable; no VACUUM FULL, protected-history deletion or ordinary TTL is introduced.
+Per-table automatic vacuum thresholds require their own measured owner operation
+and rollback receipt. Neither free-space credit nor fewer duplicate writes proves
+unlimited future capacity; natural write/allocation evidence is required.
+
+**Verification and rollback.** Unit controls cover changed actions at equal
+spend, raw-page/order/config changes, no canonical mutation on an equal capture,
+raw fallback, independent table limits and physical reservation of all effective
+headroom. The migrated PostgreSQL seam requires a positive complete cross-run
+observation, byte-identical original pointers/Ad, partial/changed-fact and
+post-publication refusal. Exact-source canonical QA, CI/images and canonical
+deployment precede flag activation and natural provider/native/API readback.
+Disable either flag to restore its preceding policy without rewriting history.
+Image rollback retains `.v3` manifests and all original records. Reverting heap
+accounting may correctly return to capacity-idle; record that operational effect.
+Restore only the explicitly changed vacuum reloptions from their prestate.
+
+## D171 — Bound the archive queue read on its actual pinned backend (2026-10-16)
+
+Exact-head CI60030c85235654283c2b69b112600bcafd3efc97 timed out in the
+D169 worker's oldest-hidden-job SELECT under its existing3000ms statement
+limit. That raw pinned backend bypasses the scoped DB executor's JIT guard;
+discouraged scan costs can trigger compilation even for a tiny control queue.
+Set `jit=off` on that same backend before its control queries and restore the
+role default in the existing cleanup. Preserve every lock/statement/phase and
+aggregate deadline, oldest-job serialization, archive/root proof, atomic
+rollback, customer hiding and owner-only error boundary. No index, production
+trigger, schema, provider authority or history removal changes.
+
+The existing eight migrated archive-erasure cases add a localhost-only trigger
+that checks the claiming backend's actual JIT setting when `archive_attempts`
+increases without replacing its existing checkpoint, before archive preparation.
+Installing a synthetic interruption checkpoint is fixture setup rather than a
+worker claim and is deliberately outside that trigger predicate. Exact CI/full QA must pass; a mocked SET
+string or an idle live queue cannot claim destructive-flow acceptance.

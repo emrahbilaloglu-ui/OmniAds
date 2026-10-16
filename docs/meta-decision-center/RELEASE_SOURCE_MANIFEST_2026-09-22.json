@@ -1,5 +1,5 @@
 {
-  "manifestHash": "e3e26af49b9e9440e16a368ff62fe58cb8415187a2c633efb5d0323c77381ab7",
+  "manifestHash": "1b8504cd3e7ca12ef7d94181e6db503c37415a4161c5507914b592f89273a2b6",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -868,7 +868,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "f9e3c6d60d80276218d8adce45a65aaa651da7a89a36af3e12d27e735915a912"
+      "sha256": "3b7e98bd37958e0c0ead6ea5164ba4c6491d6d06a97474827771a3545d5b3a6c"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -904,7 +904,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "f8dfe0736915ff8cc86a688a1ef7a900b85edc0ea2994229bfa055fd604df3c2"
+      "sha256": "a62a94f2bef18cfdffccc6e5a13b4eb5775777e2cf945d8124f131fb4fec24ec"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -916,7 +916,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "e8380586fdbe52f0c88c1e3ac7603e2fc706cf4574d768a4ba2ff1a811e3bfc9"
+      "sha256": "4c1606c6f49b8db364fe45a21a58c13f7bb655ead71322b45cc491923a4aca04"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -992,11 +992,11 @@
     },
     {
       "path": "lib/api/meta.test.ts",
-      "sha256": "d0a3f3cb7aa942efb3469bc2125c4a401353e1661c165bbf4caaf0e95e34c452"
+      "sha256": "d847ec09936c171725b9159d59e6e78b77dd759a73fe9d1ad0b1d9be3f44448e"
     },
     {
       "path": "lib/api/meta.ts",
-      "sha256": "10a8f0f90713e1038b9fd2d6eecf9ec78ce858aefa00a7266007cb030263239b"
+      "sha256": "e2dd461b11c46e1ceb31650f61c3d38c83c5af82cf64d16e5fcc621454b3fe6b"
     },
     {
       "path": "lib/business-archive-configuration.ts",
@@ -1008,11 +1008,11 @@
     },
     {
       "path": "lib/business-archive-erasure-worker.ts",
-      "sha256": "bc85a2aa8559b2bb8045f7dfc9f60fc4fbbac08d236215a566271fe5aae07d7e"
+      "sha256": "1a188413cd6217631cf4068ea1d4aff70984dce650fb334f0a0d142f4fa3d3a7"
     },
     {
       "path": "lib/business-archive-erasure.db.test.ts",
-      "sha256": "48240f43716a64165bd9dffc10149cd1d481b0d307b19b79b8fdb8a7697fa522"
+      "sha256": "b473859ca7099baaa0291ff582dbd5abbf1232fe48099bfcf19cf2b802c4902e"
     },
     {
       "path": "lib/business-archive-erasure.test.ts",
@@ -2200,11 +2200,11 @@
     },
     {
       "path": "lib/meta/core-capture-fingerprint.test.ts",
-      "sha256": "80108092b3012064e14ecaf49d308bbe70eebd5153c6ac4b82c3cf1d278cebbc"
+      "sha256": "0c6ccd718208baeb3a0432bfb852c2d4c9f2cb43df7b30d1f3ddde8d37570389"
     },
     {
       "path": "lib/meta/core-capture-fingerprint.ts",
-      "sha256": "ea7aaa73f9ab870cf35082585fd00e5dbdbb78564ca18f4e3ec52b3cd4b1cc5e"
+      "sha256": "638110296e6dae28304108469bc3994cbc9250dbd3f3664711c851c0f72f7ece"
     },
     {
       "path": "lib/meta/creative-day-config-proof.test.ts",
@@ -2648,11 +2648,11 @@
     },
     {
       "path": "lib/meta/warehouse.test.ts",
-      "sha256": "de73c7ef5965fe31f771ad8d0b330f9575a24c1300db718403c83fc72bd344a2"
+      "sha256": "ee96c686fa061b4ab9f59fe2b3804a452c75e2232b36b31ee24981354c71d1aa"
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "73d718b7553f6241d562a0b91acb5f6b1fbfd861955c424723b48995d9a381d7"
+      "sha256": "cebb75ad32f9679e0d92801b14aea7ea1f854954ddc3626d60a4c93e259783ac"
     },
     {
       "path": "lib/meta/write-safety-contract.test.ts",
@@ -2708,15 +2708,19 @@
     },
     {
       "path": "lib/sync/db-growth-capacity-report.test.ts",
-      "sha256": "a1d391d53beac4314fe6ac90354e352eeef9d26c2389f96e70deb917c3306b10"
+      "sha256": "031f18f788a25a9a1807b4e98e1a8874180aa817d2b52904c14cba22261cea68"
     },
     {
       "path": "lib/sync/db-growth-capacity-report.ts",
-      "sha256": "1ebbe23ebd4fe3a92fa3c512513871848159f92a66a948a83d6419f288d2a6aa"
+      "sha256": "d1d075dce7363527c8b2e16781b5c1763f904985eb96b23cf47ab6f781ea1529"
+    },
+    {
+      "path": "lib/sync/db-growth-fence.test.ts",
+      "sha256": "2f531f943ac764d7c55eb04fc31043450e3855323b55633dc197253d0de5d5c8"
     },
     {
       "path": "lib/sync/db-growth-fence.ts",
-      "sha256": "40ef93d2f8d288b6de317be10c8a2e2a03b71e59b8a18d0ec41d9a5d03c06f06"
+      "sha256": "4d1c348bc11e54b8031ed0cdd2b93759c9ad85ee28fd3419fa936524afb57303"
     },
     {
       "path": "lib/sync/google-ads-error-classification.test.ts",
@@ -2745,6 +2749,14 @@
     {
       "path": "lib/sync/meta-sync.ts",
       "sha256": "c3cefabff1262070a3b28b2c8075b34ff225f3e04883f69cf575b5770fa887eb"
+    },
+    {
+      "path": "lib/sync/native-reusable-heap.test.ts",
+      "sha256": "979d0b52fd6a44680c609a979b6c447ab036a032b6086829e15481f8bce568df"
+    },
+    {
+      "path": "lib/sync/native-reusable-heap.ts",
+      "sha256": "76f1b4351837728a4fb710b2f5fc54a0785f9f3f18eb0e6a72929b8ef0f6efad"
     },
     {
       "path": "lib/sync/native-storage-maintenance-admission.ts",
@@ -3012,7 +3024,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-meta-d101-retry-seam-child.ts",
-      "sha256": "33d76ed3ec8c94dc20eb43f8145a3e5cf19929c625495d297b90ddbaa3364377"
+      "sha256": "13401ee2bb8405ed7cea78c35ca9eddf879fa73123aba245e34ccd3ba31c2042"
     },
     {
       "path": "scripts/ephemeral-postgres-meta-historical-slice-repair-seam-child.ts",
@@ -3020,7 +3032,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "165ee8e13e1317df9ebe7784a7c017a8cb67a7fba5a7e1ad5fa97054151e8694"
+      "sha256": "a8954f05a6afef9c19c8e13280f46a4b2f2bb983ad966d82aeec3e439a20c163"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -3340,7 +3352,7 @@
     },
     {
       "path": "scripts/native-storage-batch/source-pack.ts",
-      "sha256": "53138771da6fbf4fd47894a5caeea202f0ec98a42f20826e0573a892d2412323"
+      "sha256": "e731f592d6538db3bf9065488cddc8beda7b9f77939d0952f98a2d92451cf186"
     },
     {
       "path": "scripts/native-storage-batch/stage-entry.ts",

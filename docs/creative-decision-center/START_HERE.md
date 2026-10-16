@@ -2,6 +2,11 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For unchanged Meta publication observations and proven reusable native MAIN-heap
+capacity accounting, read [D170](DECISION_LOG.md#d170--preserve-unchanged-meta-publications-and-account-for-reusable-native-heap-2026-10-16).
+Both flags default off. Original decision/source clocks, raw allocation,
+independent relation limits and physical disk floors remain explicit.
+
 For authenticated whole-business erasure, read
 [D153](DECISION_LOG.md#d153--explicit-whole-business-erasure-including-protected-history-2026-10-08)
 and [the deletion contract](../architecture/business-deletion-repair.md).

@@ -12,6 +12,7 @@ import { runColdChild } from "./child";
 import { COLD_COPY_ROOT,coldJson,coldPath,writeColdJson } from "./files";
 import { freshColdGate,sourceConnection,staticColdGate,verifyRuntimeObservation } from "./gate";
 import { collectColdHttpProof,verifyColdHttpProof } from "./http";
+import { readColdOwnerHold } from "./hold";
 import { readColdPrivateConfig } from "./private-original";
 import { dropPrivateRestore } from "./private-restore";
 import { createCapacityRequest,createCopyRequest,readReplicaAck,removeReplicaRequest,waitReplicaAck } from "./replica";
@@ -72,7 +73,8 @@ export async function runNativeColdLifecycleTick(stopping:()=>boolean=()=>false)
       const selected=await selectClosedDayCandidates(db,{cursor:global.cursor,limit:64,cutoffObservedAt:new Date().toISOString(),maxEvaluations:3200});
       for(const candidate of selected.candidates){
         global.cursor={asOfDate:candidate.generation.asOfDate,jobRunId:candidate.generation.jobRunId};
-        if(candidate.metadataVeto){global.vetoes.push({generation:candidate.generation,reason:candidate.metadataVeto,observedAt:new Date().toISOString()});
+        const veto=candidate.metadataVeto??await readColdOwnerHold(candidate.generation);
+        if(veto){global.vetoes.push({generation:candidate.generation,reason:veto,observedAt:new Date().toISOString()});
           global.vetoes=global.vetoes.slice(-64);continue;}
         const now=Date.now(),purpose=randomBytes(6).toString("hex");
         unit={contract:"native-cold-unit-state.v1",businessId:candidate.generation.businessId,jobRunId:candidate.generation.jobRunId,

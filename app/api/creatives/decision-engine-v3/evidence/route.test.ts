@@ -697,3 +697,26 @@ describe("explicit historical archive evidence route",()=>{
     expect(readMetaNativeCanonicalDecisionInventory).not.toHaveBeenCalled(); expect(query).not.toHaveBeenCalled();
   });
 });
+
+describe("all evidence responses forbid caching",()=>{
+  const url=`http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1&asOf=2026-07-16`;
+  it.each(["current_success","current_refusal","disabled","bad_input","access_refusal"])("sets private no-store without changing %s semantics",async kind=>{
+    let expectedStatus=200;
+    if(kind==="current_refusal"){
+      vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue({status:"unavailable",generation:null,items:[],unavailableReason:"native_account_receipt_cardinality_invalid"});expectedStatus=409;
+    }
+    if(kind==="disabled")vi.mocked(resolveEngineV3Flags).mockResolvedValue(flags({enabled:false}));
+    if(kind==="access_refusal"){
+      vi.mocked(requireBusinessAccess).mockResolvedValue({error:NextResponse.json({error:"denied"},{status:403,headers:{"X-Access-Proof":"preserved"}})} as never);expectedStatus=403;
+    }
+    if(kind==="bad_input")expectedStatus=400;
+    const response=await GET(new NextRequest(kind==="bad_input"?url.replace("adId=ad-1","adId="):url));
+    expect(response.status).toBe(expectedStatus);expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const body=await response.json();
+    if(kind==="current_success")expect(body).toMatchObject({status:"available",lineage:{status:"verified"}});
+    if(kind==="current_refusal")expect(body.reason).toBe("native_account_receipt_cardinality_invalid");
+    if(kind==="disabled")expect(body.status).toBe("disabled");
+    if(kind==="bad_input")expect(body).toEqual({error:"adId required"});
+    if(kind==="access_refusal"){expect(body).toEqual({error:"denied"});expect(response.headers.get("X-Access-Proof")).toBe("preserved");}
+  });
+});

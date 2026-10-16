@@ -20,6 +20,8 @@ export interface ColdUnitState {
   retirement?:{committed:boolean;preparedSha256:string;producerExclusionRelease:string};
   readback?:{exactUnitAbsent:boolean;retainedRootsFullBytesMatch:boolean;inputEvidence?:{match:boolean}};
   failure?:{code:string;sqlState:string|null;phase:ColdPhase;observedAt:string};
+  hold?:{contract:"native-cold-source-intact-hold.v1";observedAt:string;originalProofSha256:string;
+    previousUnitSha256:string;sourceFullBytesMatch:true;privateCopiesMatch:true;retirementDispatched:false};
   measurements?:{before:Record<string,unknown>;after:Record<string,unknown>};
 }
 export interface CurrentReadBaseline {providerAccountId:string;adId:string;asOfDate:string;httpStatus:number;

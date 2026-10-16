@@ -2,14 +2,14 @@
 """Versioned host operator for the ALREADY reviewed immutable runtime.
 The deployment intentionally leaves the host Git checkout frozen; its HEAD is
 not release identity. Verify actual images, all runtime source bytes and host
-Compose instead. The operator has its OWN review digest; runtime4fc2 stays exact.
+Compose instead. The operator has its OWN review digest; its runtime inventory stays exact.
 No source DB/provider operation; downstream C3 gates are unchanged.
 """
 import json
 import os
 import re
 import sys
-RUNTIME_INVENTORY = "e34394db65bb15015169f7e9ef3c738833be8f3b6f85226181696d8c3e6875ac"
+RUNTIME_INVENTORY = "064f61d2d0bae598a02a3413e989b03c7a411bb7fd37858f90a4ef7855bd091e"
 sys.path.insert(0, "/opt/adsecute-native-cold/" + RUNTIME_INVENTORY)
 import time
 import subprocess

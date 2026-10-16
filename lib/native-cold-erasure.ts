@@ -128,7 +128,9 @@ export async function finishColdBusinessErasure(businessId:string,attemptId:stri
     for(const key of ["active","lastSuccess","lastFailure"]){
       const item=state[key] as {businessId?:string}|null|undefined;if(item?.businessId===businessId)state[key]=null;
     }
-    const vetoes=state.vetoes as {generation?:{businessId:string}}[]|undefined;
+    const vetoes=state.vetoes as {generation?:{businessId:string;jobRunId?:string}}[]|undefined;
+    if(vetoes?.some(x=>x.generation?.businessId===businessId&&x.generation.jobRunId===
+      (state.cursor as {jobRunId?:string}|null)?.jobRunId))state.cursor=null;
     if(vetoes)state.vetoes=vetoes.filter(x=>x.generation?.businessId!==businessId);
     const reads=state.reads as {businessId:string}[]|undefined;if(reads)state.reads=reads.filter(x=>x.businessId!==businessId);
     if(ownedJobIds.includes((state.cursor as {jobRunId?:string}|null)?.jobRunId??""))state.cursor=null;

@@ -14,7 +14,7 @@ vi.mock("./private-restore",()=>({dropPrivateRestore:async(purpose:string)=>{own
 import { finishColdBusinessErasure } from "../../lib/native-cold-erasure";
 import { archiveCanonical,archiveDigest } from "../../lib/business-archive-configuration";
 afterEach(async()=>{vi.unstubAllEnvs();if(owned.root)await rm(owned.root,{recursive:true,force:true});owned.dropped=[];});
-it("requires independent absence ACK before purging corrupt/partial owned copies, journals and identifying state; preserves foreign bytes",async()=>{
+it.each(["archived","metadata_only"])("requires independent absence ACK before purging owned copies, journals and %s cursor state; preserves foreign bytes",async(cursorKind)=>{
   owned.root=await realpath(await mkdtemp(join(tmpdir(),"owned-cold-erasure-")));vi.stubEnv("NATIVE_COLD_REPLICA_REQUIRED","true");
   const business="00000000-0000-4000-9000-000000000777",foreign="00000000-0000-4000-9000-000000000778",
     job="00000000-0000-4000-9000-000000000001",attempt="00000000-0000-4000-9000-000000000002",purpose="a".repeat(12);
@@ -27,8 +27,9 @@ it("requires independent absence ACK before purging corrupt/partial owned copies
   await put(join(journal,"state.json"),{businessId:business,jobRunId:job,purpose});
   await put(join(journal,"http-before","historical.body.aes"),"encrypted proof fixture");
   const foreignPath=join(owned.root,"copies",foreign,"unchanged.bin");await put(foreignPath,"foreign unchanged bytes");
-  await put(join(owned.root,"state.json"),{active:{businessId:business},cursor:{jobRunId:job},lastSuccess:{businessId:business},
-    lastFailure:{businessId:business},reads:[{businessId:business},{businessId:foreign}],vetoes:[{generation:{businessId:business}},{generation:{businessId:foreign}}]});
+  const cursorJob=cursorKind==="archived"?job:"00000000-0000-4000-9000-000000000999";
+  await put(join(owned.root,"state.json"),{active:{businessId:business},cursor:{jobRunId:cursorJob},lastSuccess:{businessId:business},
+    lastFailure:{businessId:business},reads:[{businessId:business},{businessId:foreign}],vetoes:[{generation:{businessId:business,jobRunId:cursorJob}},{generation:{businessId:foreign}}]});
   const client={query:vi.fn(()=>{throw Error("unexpected production SQL");})};
   expect(await finishColdBusinessErasure(business,attempt,Date.now()+60_000,client as never)).toEqual({waiting:true,proof:null});
   expect(await readFile(corrupt,"utf8")).toContain("corrupt");expect(owned.dropped).toEqual([]);

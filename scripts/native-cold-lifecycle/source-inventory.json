@@ -313,8 +313,8 @@
     },
     {
       "path": "lib/native-cold-erasure.ts",
-      "sha256": "9793a86eb9f704dc700b1c343cbd14bf55794b868cd94d9b81cf89c2c9a9253d",
-      "bytes": 10195
+      "sha256": "a8b488e74448cffbcff84c163ffe6edf885337cdb697d5c7ab5b9f4dcf8d23fc",
+      "bytes": 10377
     },
     {
       "path": "lib/native-cold-owner-status.ts",
@@ -732,5 +732,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "d6adeac1e9f5452f63159eada1e0ace4e88301bc93055742bde44fc393f53e0d"
+  "sourceInventorySha256": "4fc2add5a34b2933878ff54386affde0bb70308b1338bf47cd833cdcf432189f"
 }

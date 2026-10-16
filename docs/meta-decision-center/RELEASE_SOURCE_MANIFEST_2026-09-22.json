@@ -1,5 +1,5 @@
 {
-  "manifestHash": "7ca75eb1b5fdae4f1396b6adbd515185829681f840802ba503a5c01059e7fc7a",
+  "manifestHash": "972de0b10a9d725a03ffef674799631dfec1d57422160ca55ab80926557a5a20",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -2712,7 +2712,7 @@
     },
     {
       "path": "lib/native-cold-erasure.ts",
-      "sha256": "9793a86eb9f704dc700b1c343cbd14bf55794b868cd94d9b81cf89c2c9a9253d"
+      "sha256": "a8b488e74448cffbcff84c163ffe6edf885337cdb697d5c7ab5b9f4dcf8d23fc"
     },
     {
       "path": "lib/native-cold-owner-status.ts",
@@ -3280,7 +3280,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/erasure.test.ts",
-      "sha256": "c6e71bf8ecf92c78ecb0649863e2e8c322214027ed4dde4c1624b380d43d0b53"
+      "sha256": "a285c79adecf27d8aaa5daa4aa477c8e84505505b21f56558f64c334d3d1a6e8"
     },
     {
       "path": "scripts/native-cold-lifecycle/files.ts",
@@ -3360,7 +3360,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "de447f54e668863f83a6a63891ff3d17d1ed070425a490a6dc477dea1a366fe6"
+      "sha256": "b9ea57ecbe69734ef4ad794e43c8fcd5ce9d52de50de2376a08471f446b9678d"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",

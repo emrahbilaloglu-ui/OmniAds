@@ -11,8 +11,8 @@
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.ts",
       "role": "serving-and-history",
-      "sha256": "a8d78c2b58215abbfb2b0e7d0e9196411d77d3685550caa37bc05f5142c7337a",
-      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available."
+      "sha256": "88cc90c46e002c9522115d1369036b52eb376dfc4e25ddfedf588ede9e4bb7b6",
+      "retention": "Keep every retained snapshot and its complete evaluation/context lineage across all dates, epochs and current winners; latest/episode/history/freshness access remains available. D177 applies private no-store uniformly to every returned response, including normal current and refused reads. Original reader selection, lineage SQL, row hashes, historical/current authority and status/body/Retry-After are unchanged; route regression tests cover their preservation."
     },
     {
       "path": "app/api/meta/creative-thumbnail/route.ts",

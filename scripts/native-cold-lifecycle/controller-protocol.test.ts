@@ -12,6 +12,8 @@ vi.mock("./gate",()=>({staticColdGate:async()=>({inventory:"inventory",reviewSha
   freshColdGate:async()=>({observedAt:new Date().toISOString(),business:{databaseBytes:100,databaseAccounting:{accountedDatabaseBytes:90}},replicaAvailableBytes:100})}));
 vi.mock("../../lib/business-archive-configuration",async original=>({...await original<typeof import("../../lib/business-archive-configuration")>(),
   resolveBusinessArchiveConfiguration:async()=>({rootSha256:fixture.root})}));
+vi.mock("./hold",()=>({readColdOwnerHold:vi.fn(async()=>null)}));
+vi.mock("../native-storage-batch/maintenance",()=>({selectClosedDayCandidates:vi.fn()}));
 vi.mock("./private-original",()=>({readColdPrivateConfig:async()=>({config:{generation:{},evaluationRowSha256:{}}})}));
 vi.mock("./private-restore",()=>({dropPrivateRestore:async()=>undefined}));
 vi.mock("./replica",()=>({readReplicaAck:async()=>({}),removeReplicaRequest:async()=>undefined}));
@@ -22,6 +24,8 @@ vi.mock("./http",()=>({collectColdHttpProof:vi.fn(async()=>({requests:8,observed
   verifyColdHttpProof:async()=>({requests:8,observedAt:new Date().toISOString(),current:[],proofSha256:"proof"})}));
 vi.mock("./routing",()=>({ensureTenantRouting:async()=>undefined,publishServedOriginal:vi.fn(async(_c:unknown,_l:unknown,_p:unknown,authorize:(n:number)=>Promise<void>)=>{
   await authorize(1024);return {rootSha256:fixture.root,previousRootSha256:fixture.root,publishedAt:new Date().toISOString(),existing:true};})}));
+import { readColdOwnerHold } from "./hold";
+import { selectClosedDayCandidates } from "../native-storage-batch/maintenance";
 import { runNativeColdLifecycleTick } from "./controller";
 import { collectColdHttpProof } from "./http";
 import { publishServedOriginal } from "./routing";
@@ -63,4 +67,16 @@ it("re-proves the same source-intact leaf after a foreign erasure changes the sh
   await runNativeColdLifecycleTick();expect(publishServedOriginal).toHaveBeenCalledOnce();
   expect(collectColdHttpProof).toHaveBeenCalledOnce();expect(fixture.calls).toEqual(["pins"]);
   expect(fixture.files.get(globalPath).reads.reduce((n:number,x:any)=>n+x.requests,0)).toBe(32);
+});
+
+it("reports a durable source-intact owner hold without recapture, C3, copy overwrite or archive credit",async()=>{
+  const global=fixture.files.get(globalPath);global.active=null;
+  const generation={businessId:business,jobRunId:job,asOfDate:"2026-09-27",engineVersion:"engine"};
+  vi.mocked(selectClosedDayCandidates).mockResolvedValue({candidates:[{generation,metadataVeto:null,evaluations:100,contexts:1}]} as never);
+  vi.mocked(readColdOwnerHold).mockResolvedValue("SOURCE_INTACT_OWNER_HOLD");
+  expect((await runNativeColdLifecycleTick()).outcome).toBe("no_eligible_original");
+  expect(fixture.calls).toEqual([]);expect(collectColdHttpProof).not.toHaveBeenCalled();
+  const after=fixture.files.get(globalPath);expect(after.active).toBeNull();expect(after.archivedOriginals).toBe(0);
+  expect(after.vetoes).toMatchObject([{generation,reason:"SOURCE_INTACT_OWNER_HOLD"}]);
+  expect([...fixture.files.keys()].some(p=>p.includes("/copies/"))).toBe(false);
 });

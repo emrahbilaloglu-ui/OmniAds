@@ -14116,3 +14116,34 @@ operator regression harness disables Python bytecode explicitly so direct runs
 do not contaminate the source manifest. Prior deployment/installer success is
 not acceptance of this corrected source; new CI/images/live readback remain
 required before activation.
+
+## D177 — Current evidence cache contract and source-intact cold owner hold (2026-10-16)
+
+The first D175 production original passed full-DDL restore, both private-copy
+rehashes, the independent replica and all eight historical HTTP reads. Its normal
+current HTTP200 had no Cache-Control header; the required no-store proof refused
+before any prepared transaction or C3 dispatch. Do not relax that proof. Set
+`private, no-store` on every returned evidence response, including current,
+disabled, invalid input and access refusals, preserving status/body/Retry-After.
+No native reader selection, metric, hash, authority or decision rule changes.
+
+A failed, published pre-C3 unit cannot be re-dated or silently adopted by a new
+build. The closed owner recovery first disables the writer, obtains the same
+publisher exclusion and independently recollects the complete bounded original
+READ ONLY. Its exact canonical config/table hashes must equal the frozen proof;
+both private packages must decrypt/reassemble identically. Require no prepared
+file, retirement dispatch or temporary session. Persist a source-intact owner
+hold while preserving the original failure, phase, deadline, source provenance,
+all source rows, published leaf and all copies. Remove only its completed copy
+outbox and clear the exact active pointer; keep cursor/counters unchanged.
+
+On a later metadata scan the immutable copy intent locates that exact held unit.
+A typed SOURCE_INTACT_OWNER_HOLD veto prevents colliding with its private copy
+namespace or starving other originals. The hold never grants retirement,
+restore, current-decision or provider authority. Unknown/drifted holds refuse;
+post-dispatch ambiguity remains status-only and is never eligible for this
+procedure. Tenant erasure already removes these tenant-owned journals and copies.
+The held original remains hot and must be counted as such; no archive success or
+space saving is attributed to it. Code rollback retains compatible readers and
+lifetime replica erasure. Full corrected-source CI/images and real later
+original commit/readback/HTTP acceptance remain separate requirements.

@@ -23,8 +23,8 @@
     },
     {
       "path": "app/api/creatives/decision-engine-v3/evidence/route.ts",
-      "sha256": "a8d78c2b58215abbfb2b0e7d0e9196411d77d3685550caa37bc05f5142c7337a",
-      "bytes": 26053
+      "sha256": "88cc90c46e002c9522115d1369036b52eb376dfc4e25ddfedf588ede9e4bb7b6",
+      "bytes": 26419
     },
     {
       "path": "app/api/meta/creative-thumbnail/route.ts",
@@ -498,8 +498,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/controller.ts",
-      "sha256": "f2c0726029a45a96d6f510593df99a4e08d4311598b513cfd320f361b3f9849e",
-      "bytes": 16920
+      "sha256": "4fcc8dcf0c478f700c56ec0497607c5baa445f30350ee250b277eeffeddced7a",
+      "bytes": 17018
     },
     {
       "path": "scripts/native-cold-lifecycle/files.ts",
@@ -510,6 +510,11 @@
       "path": "scripts/native-cold-lifecycle/gate.ts",
       "sha256": "631fdcf2cd4b7ef8c2c5e6fc6ae1977d2ff885d1c789280ef406f61c2a89c9e5",
       "bytes": 7710
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/hold.ts",
+      "sha256": "ba0135c1bbcc632d7ffaeab13b2fb5ecdf51c0806fbe6318ede5aef7ba0b1a07",
+      "bytes": 2343
     },
     {
       "path": "scripts/native-cold-lifecycle/http.ts",
@@ -578,8 +583,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",
-      "sha256": "0afd0042c2b6a4221081e72cabe59fab7673a04cfe7c705e21eefec696de82e0",
-      "bytes": 2817
+      "sha256": "03dbd46afdce1aff9a3a1ef40b3d33970e521988e8e6cec687a610cd5a28df77",
+      "bytes": 3026
     },
     {
       "path": "scripts/native-cold-lifecycle/unit-child.ts",
@@ -732,5 +737,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "e34394db65bb15015169f7e9ef3c738833be8f3b6f85226181696d8c3e6875ac"
+  "sourceInventorySha256": "064f61d2d0bae598a02a3413e989b03c7a411bb7fd37858f90a4ef7855bd091e"
 }

@@ -506,7 +506,7 @@ function evidenceRowMatches(input: {
   );
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
+async function readEvidence(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const businessId = nonEmpty(url.searchParams.get("businessId"));
   const providerAccountId = nonEmpty(
@@ -722,4 +722,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     flags,
   };
   return NextResponse.json(response);
+}
+
+/** Evidence is tenant-scoped and can change with the selected archive root.
+ * Apply the same cache contract to current, historical and refused responses. */
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const response = await readEvidence(request);
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
 }

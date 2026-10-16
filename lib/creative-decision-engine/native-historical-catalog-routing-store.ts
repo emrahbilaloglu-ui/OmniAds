@@ -14,19 +14,26 @@ const caps: Record<NativeHistoricalMetadataKind, number> = {
 };
 function reference(r: NativeHistoricalMetadataRead) {
   if (!Object.hasOwn(caps, r.kind) || !/^[a-f0-9]{64}$/.test(r.sha256) || r.maxBytes !== caps[r.kind] ||
-      r.bytes !== undefined && (!Number.isSafeInteger(r.bytes) || r.bytes <= 0 || r.bytes > caps[r.kind])) refuse();
+      r.bytes !== undefined && (!Number.isSafeInteger(r.bytes) || r.bytes <= 0 || r.bytes > caps[r.kind]) ||
+      r.businessId !== undefined && (r.kind !== "leaf" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(r.businessId))) refuse();
 }
 function abort(signal: AbortSignal) { if (signal.aborted) refuse(); }
-async function directory(root: string, kind: NativeHistoricalMetadataKind, signal?: AbortSignal) {
+async function directory(root: string, kind: NativeHistoricalMetadataKind, signal?: AbortSignal, businessId?: string) {
   if (signal) abort(signal);
   if (!isAbsolute(root) || resolve(root) !== root || root === "/" || await realpath(root) !== root) refuse();
-  const base = await lstat(root), path = join(root, kind);
+  const base = await lstat(root); let path = join(root, kind);
   if (!base.isDirectory() || base.isSymbolicLink() || (base.mode & 0o022) !== 0) refuse();
   if (signal) abort(signal);
-  const component = await lstat(path);
+  let component = await lstat(path);
   if (!component.isDirectory() || component.isSymbolicLink() || (component.mode & 0o022) !== 0 ||
       component.uid !== base.uid || await realpath(path) !== path) refuse();
-  return { path, uid: base.uid, rootDev: base.dev, rootIno: base.ino, dev: component.dev, ino: component.ino };
+  const parentDev=component.dev,parentIno=component.ino;
+  if(businessId!==undefined){
+    path=join(path,businessId);component=await lstat(path);
+    if(!component.isDirectory()||component.isSymbolicLink()||(component.mode&0o022)!==0||
+      component.uid!==base.uid||await realpath(path)!==path)refuse();
+  }
+  return { path, uid: base.uid, rootDev: base.dev, rootIno: base.ino, parentDev, parentIno, dev: component.dev, ino: component.ino };
 }
 
 /** Configured canonical read-only root + fixed kind/digest names only. The same
@@ -36,7 +43,7 @@ export async function readLocalNativeHistoricalMetadata(root: string, ref: Nativ
   externalSignal?: AbortSignal): Promise<Buffer> {
   reference(ref);
   return withLocalNativeArchiveRead(async signal => {
-    const dir = await directory(root, ref.kind, signal); abort(signal);
+    const dir = await directory(root, ref.kind, signal,ref.businessId); abort(signal);
     const filename = join(dir.path, `${ref.sha256}.json`);
     const file = await open(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
@@ -46,11 +53,12 @@ export async function readLocalNativeHistoricalMetadata(root: string, ref: Nativ
       // Allocate only after the independent fixed cap/stat/exact-length checks.
       const buffer = Buffer.alloc(stat.size + 1); abort(signal);
       const { bytesRead } = await file.read(buffer, 0, buffer.length, 0); abort(signal);
-      const end = await file.stat(), named = await lstat(filename), endDir = await directory(root, ref.kind, signal);
+      const end = await file.stat(), named = await lstat(filename), endDir = await directory(root, ref.kind, signal,ref.businessId);
       if (bytesRead !== stat.size || end.size !== stat.size || end.mtimeMs !== stat.mtimeMs || end.ctimeMs !== stat.ctimeMs ||
           end.nlink !== 1 || end.uid !== dir.uid || (end.mode & 0o022) !== 0 || named.isSymbolicLink() ||
           named.dev !== stat.dev || named.ino !== stat.ino || endDir.uid !== dir.uid || endDir.dev !== dir.dev || endDir.ino !== dir.ino ||
-          endDir.rootDev !== dir.rootDev || endDir.rootIno !== dir.rootIno || nativeArchiveByteDigest(buffer.subarray(0, bytesRead)) !== ref.sha256) refuse();
+          endDir.rootDev !== dir.rootDev || endDir.rootIno !== dir.rootIno || endDir.parentDev!==dir.parentDev||endDir.parentIno!==dir.parentIno||
+          nativeArchiveByteDigest(buffer.subarray(0, bytesRead)) !== ref.sha256) refuse();
       return buffer.subarray(0, bytesRead);
     } finally { await file.close(); }
   }, externalSignal);

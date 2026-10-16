@@ -5,6 +5,8 @@ import { nativeArchiveByteDigest, NATIVE_HISTORICAL_MAX_CATALOG_BYTES, NATIVE_HI
 import type { NativeArchiveGeneration } from "./native-evidence-archive";
 
 export const NATIVE_HISTORICAL_ROUTING_CONTRACT = "native-historical-generation-routing.v1" as const;
+export const NATIVE_HISTORICAL_TENANT_ROUTING_CONTRACT = "native-historical-generation-routing.v2" as const;
+export const NATIVE_HISTORICAL_TENANT_LEAF_LAYOUT = "tenant-sharded.v1" as const;
 export const NATIVE_HISTORICAL_SHARD_CONTRACT = "native-historical-generation-shard.v1" as const;
 export const NATIVE_HISTORICAL_ROUTING_GATE = "ENGINE_V3_NATIVE_ARCHIVE_CATALOG_ROUTING_ENABLED";
 export const NATIVE_HISTORICAL_ROUTING_BOUNDS = Object.freeze({
@@ -18,16 +20,19 @@ export interface NativeHistoricalGenerationRoute {
   generation: NativeArchiveGeneration;
   leaf: NativeHistoricalMetadataRef;
 }
-interface Root {
-  contract: typeof NATIVE_HISTORICAL_ROUTING_CONTRACT;
+export interface NativeHistoricalRoutingRoot {
+  contract: typeof NATIVE_HISTORICAL_ROUTING_CONTRACT | typeof NATIVE_HISTORICAL_TENANT_ROUTING_CONTRACT;
+  leafLayout?: typeof NATIVE_HISTORICAL_TENANT_LEAF_LAYOUT;
   legacy: NativeHistoricalMetadataRef & { jobRunIds: string[] };
   shards: (NativeHistoricalMetadataRef & { bucket: string })[];
 }
-interface Shard {
+type Root = NativeHistoricalRoutingRoot;
+export interface NativeHistoricalRoutingShard {
   contract: typeof NATIVE_HISTORICAL_SHARD_CONTRACT;
   bucket: string;
   records: NativeHistoricalGenerationRoute[];
 }
+type Shard = NativeHistoricalRoutingShard;
 export interface NativeHistoricalRoutingFile extends NativeHistoricalMetadataRef {
   kind: NativeHistoricalMetadataKind;
   content: Buffer;
@@ -44,6 +49,8 @@ export interface NativeHistoricalMetadataRead {
   sha256: string;
   bytes?: number;
   maxBytes: number;
+  /** v2 roots bind this to the verified shard's exact tenant before leaf I/O. */
+  businessId?: string;
 }
 type Load = (reference: NativeHistoricalMetadataRead, signal?: AbortSignal) => Promise<Buffer>;
 const SHA = /^[a-f0-9]{64}$/;
@@ -92,11 +99,14 @@ function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
   }
   return value;
 }
-function root(bytes: Buffer, digest: string, legacyDigest: string): Root {
+export function decodeNativeHistoricalRoutingRoot(bytes: Buffer, digest: string, legacyDigest: string): Root {
   metadata(bytes, digest, NATIVE_HISTORICAL_ROUTING_BOUNDS.rootBytes);
-  const r = object(JSON.parse(bytes.toString("utf8"))); keys(r, ["contract", "legacy", "shards"]);
+  const r = object(JSON.parse(bytes.toString("utf8")));
+  const tenant = r.contract === NATIVE_HISTORICAL_TENANT_ROUTING_CONTRACT;
+  keys(r, tenant ? ["contract", "leafLayout", "legacy", "shards"] : ["contract", "legacy", "shards"]);
   const l = object(r.legacy); keys(l, ["sha256", "bytes", "jobRunIds"]);
-  if (r.contract !== NATIVE_HISTORICAL_ROUTING_CONTRACT || sha(l.sha256) !== sha(legacyDigest) ||
+  if ((!tenant && r.contract !== NATIVE_HISTORICAL_ROUTING_CONTRACT) ||
+      tenant && r.leafLayout !== NATIVE_HISTORICAL_TENANT_LEAF_LAYOUT || sha(l.sha256) !== sha(legacyDigest) ||
       !Array.isArray(l.jobRunIds) || l.jobRunIds.length > 128 || l.jobRunIds.some(j => typeof j !== "string" || !UUID.test(j)) ||
       !Array.isArray(r.shards) || r.shards.length > NATIVE_HISTORICAL_ROUTING_BOUNDS.buckets) refuse();
   const jobRunIds = l.jobRunIds as string[]; sortedUnique(jobRunIds);
@@ -107,10 +117,11 @@ function root(bytes: Buffer, digest: string, legacyDigest: string): Root {
   });
   sortedUnique(shards.map(s => s.bucket));
   if (new Set(shards.map(s => s.sha256)).size !== shards.length) refuse();
-  return deepFreeze({ contract: NATIVE_HISTORICAL_ROUTING_CONTRACT, legacy: {
+  return deepFreeze({ contract: tenant ? NATIVE_HISTORICAL_TENANT_ROUTING_CONTRACT : NATIVE_HISTORICAL_ROUTING_CONTRACT,
+    ...(tenant ? {leafLayout:NATIVE_HISTORICAL_TENANT_LEAF_LAYOUT}:{}),legacy: {
     sha256: sha(l.sha256), bytes: length(l.bytes, NATIVE_HISTORICAL_ROUTING_BOUNDS.legacyBytes), jobRunIds }, shards });
 }
-function shard(bytes: Buffer, reference: Root["shards"][number], legacy: string[]): Shard {
+export function decodeNativeHistoricalRoutingShard(bytes: Buffer, reference: Root["shards"][number], legacy: string[]): Shard {
   metadata(bytes, reference.sha256, NATIVE_HISTORICAL_ROUTING_BOUNDS.shardBytes, reference.bytes);
   const s = object(JSON.parse(bytes.toString("utf8"))); keys(s, ["contract", "bucket", "records"]);
   if (s.contract !== NATIVE_HISTORICAL_SHARD_CONTRACT || s.bucket !== reference.bucket || !Array.isArray(s.records) || !s.records.length) refuse();
@@ -124,7 +135,7 @@ function shard(bytes: Buffer, reference: Root["shards"][number], legacy: string[
   sortedUnique(records.map(r => r.generation.jobRunId));
   return deepFreeze({ contract: NATIVE_HISTORICAL_SHARD_CONTRACT, bucket: reference.bucket, records });
 }
-function leaf(bytes: Buffer, digest: string, expected?: NativeArchiveGeneration, expectedBytes?: number) {
+export function decodeNativeHistoricalRoutingLeaf(bytes: Buffer, digest: string, expected?: NativeArchiveGeneration, expectedBytes?: number) {
   metadata(bytes, digest, NATIVE_HISTORICAL_ROUTING_BOUNDS.leafBytes, expectedBytes);
   const catalog = openImmutableNativeHistoricalArchiveCatalog(bytes, digest);
   if ((catalog.contract !== NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT && catalog.contract !== NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT) || !catalog.entries.length ||
@@ -153,7 +164,7 @@ export function buildNativeHistoricalCatalogRouting(input: {
   const files: NativeHistoricalRoutingFile[] = [{ kind: "legacy", sha256: input.legacy.sha256,
     bytes: input.legacy.content.length, content: Buffer.from(input.legacy.content) }];
   for (const l of input.leaves) {
-    const c = leaf(l.content, l.sha256), g = c.entries[0]!.generation;
+    const c = decodeNativeHistoricalRoutingLeaf(l.content, l.sha256), g = c.entries[0]!.generation;
     if (jobs.has(g.jobRunId)) refuse(); jobs.add(g.jobRunId);
     const bucket = nativeHistoricalGenerationBucket(g.jobRunId), records = buckets.get(bucket) ?? [];
     records.push({ generation: g, leaf: { sha256: l.sha256, bytes: l.content.length } }); buckets.set(bucket, records);
@@ -163,12 +174,12 @@ export function buildNativeHistoricalCatalogRouting(input: {
     records.sort((a, b) => a.generation.jobRunId.localeCompare(b.generation.jobRunId));
     const content = Buffer.from(JSON.stringify({ contract: NATIVE_HISTORICAL_SHARD_CONTRACT, bucket, records }));
     const reference = { bucket, sha256: nativeArchiveByteDigest(content), bytes: length(content.length, b.shardBytes) };
-    shard(content, reference, oldJobs);
+    decodeNativeHistoricalRoutingShard(content, reference, oldJobs);
     files.push({ kind: "shard", sha256: reference.sha256, bytes: content.length, content }); return reference;
   });
   const content = Buffer.from(JSON.stringify({ contract: NATIVE_HISTORICAL_ROUTING_CONTRACT,
     legacy: { sha256: input.legacy.sha256, bytes: input.legacy.content.length, jobRunIds: oldJobs }, shards }));
-  const digest = nativeArchiveByteDigest(content); root(content, digest, input.legacy.sha256);
+  const digest = nativeArchiveByteDigest(content); decodeNativeHistoricalRoutingRoot(content, digest, input.legacy.sha256);
   files.push({ kind: "root", sha256: digest, bytes: content.length, content });
   return { contract: NATIVE_HISTORICAL_ROUTING_CONTRACT, root: { sha256: digest, bytes: content.length },
     files, providerAuthority: false, reclaimEligible: false };
@@ -227,7 +238,7 @@ export class NativeHistoricalCatalogRouter {
     let budget = 0;
     const charge = (entry: Cached) => { budget += entry.bytes; if (budget > b.requestMetadataBytes) refuse(); };
     const r = await this.verified({ kind: "root", sha256: configuration.rootSha256, maxBytes: b.rootBytes }, context, load,
-      bytes => root(bytes, configuration.rootSha256, configuration.legacySha256), signal);
+      bytes => decodeNativeHistoricalRoutingRoot(bytes, configuration.rootSha256, configuration.legacySha256), signal);
     charge(r); const index = r.value as Root;
     if (index.legacy.jobRunIds.includes(g.jobRunId)) {
       const l = await this.verified({ kind: "legacy", sha256: index.legacy.sha256, bytes: index.legacy.bytes, maxBytes: b.legacyBytes }, context, load, bytes => {
@@ -240,13 +251,14 @@ export class NativeHistoricalCatalogRouter {
     }
     const selected = index.shards.find(s => s.bucket === nativeHistoricalGenerationBucket(g.jobRunId)); if (!selected) refuse();
     const s = await this.verified({ kind: "shard", sha256: selected.sha256, bytes: selected.bytes, maxBytes: b.shardBytes }, context, load,
-      bytes => shard(bytes, selected, index.legacy.jobRunIds), signal);
+      bytes => decodeNativeHistoricalRoutingShard(bytes, selected, index.legacy.jobRunIds), signal);
     charge(s); const record = (s.value as Shard).records.find(r => r.generation.jobRunId === g.jobRunId);
     // Full requested generation and tenant checked BEFORE touching a leaf.
     if (!record || !same(record.generation, g)) refuse();
-    const l = await this.verified({ kind: "leaf", ...record.leaf, maxBytes: b.leafBytes },
+    const l = await this.verified({ kind: "leaf", ...record.leaf, maxBytes: b.leafBytes,
+      ...(index.leafLayout ? {businessId:record.generation.businessId}: {}) },
       JSON.stringify([context, selected.sha256, record.generation]), load,
-      bytes => leaf(bytes, record.leaf.sha256, record.generation, record.leaf.bytes), signal);
+      bytes => decodeNativeHistoricalRoutingLeaf(bytes, record.leaf.sha256, record.generation, record.leaf.bytes), signal);
     charge(l);
     return { entry: resolveNativeHistoricalArchiveEntry(l.value as NativeHistoricalArchiveCatalog, request),
       metadataIdentity: [configuration.rootSha256, selected.sha256, record.leaf.sha256] };

@@ -81,7 +81,7 @@ export async function seedCalibration(db: Client, t: OwnedTenant, date: string, 
 }
 /** One native generation through the actual producer, one context per account. */
 export async function seedGeneration(db: Client, t: OwnedTenant, input: { date: string; clock: string; finishedAt: string;
-  producer: string; perAccount: number[]; snapshots?: boolean; tag: string; engineVersion?: string }) {
+  producer: string; perAccount: number[]; snapshots?: boolean; tag: string; engineVersion?: string; nameRepeat?: number }) {
   // A non-current engine is only for owned eligibility fixtures: the same actual producer writes its exact receipt epoch.
   const job = randomUUID(), epoch = input.engineVersion ?? NATIVE_AD_ENGINE_VERSION;
   const total = input.perAccount.reduce((a, b) => a + b, 0);
@@ -97,7 +97,7 @@ export async function seedGeneration(db: Client, t: OwnedTenant, input: { date: 
       const health = makeDataHealth({ calibration: makeDataLayerHealth({ asOfDate: input.date, computedAt: input.clock }) });
       const evaluations = Array.from({ length: count }, (_, index) => {
         const creative = makeCreativeInput({ businessId: t.business, creativeId: `nsb_${input.tag}_${a}_${index}`, campaignId: `nsb_campaign_${index % 3}` });
-        creative.creativeName = `Owned batch ${input.tag} İstanbul şğı 🚀 ${index}: ${"Özgün metin 🚀 ".repeat(48)}`;
+        creative.creativeName = `Owned batch ${input.tag} İstanbul şğı 🚀 ${index}: ${"Özgün metin 🚀 ".repeat(input.nameRepeat??48)}`;
         const decision: DecisionOutput = { creativeId: creative.creativeId, creativeName: "Owned batch fixture", label: "keep",
           preAuthorityLabel: "keep", authorityBlocker: null, reason: "Owned finite batch fixture", confidence: 40,
           truthSource: "commercial_truth", effectiveTargetRoas: 2, ratioToTarget: 1, badges: [], metrics: { spend: 10, purchases: 1, roas: 2, recent7dRoas: 2 },

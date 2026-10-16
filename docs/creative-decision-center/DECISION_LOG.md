@@ -13977,3 +13977,110 @@ physical reclaim or sustained-growth proof. Source publication must separately
 run canonical QA/CI and real runtime compatibility acceptance. Before any v4
 publication the previous release remains a rollback; afterwards retain a
 v4-capable reader and the actual immutable catalog/key/copies.
+
+## D174 — Compact whole-original scope and incremental tenant archive infrastructure (2026-10-16)
+
+The D173 actual2,517-row original needs a separately reviewed collector and
+maintenance scope, rather than silently widening the consumed finite operator.
+Add explicit unit configv3 with exact compact-root/tenant-object markers,
+one whole original at most3,200 evaluations/four contexts and all old byte,
+query, lock, pin, unknown-consumer, original-parent/snapshot and C3 bounds.
+The old finite batch/configv2 remains1,134 and rejects the new unit config.
+Compact maintenance additionally requires actual fresh separate-replica16GiB
+and app8GiB floors, with the same40GiB source floor/512MiB reserve. No caller
+is enabled by this infrastructure or by asserted evidence booleans.
+
+Add routing rootv2/`tenant-sharded.v1`, pointerv2/`routing-cas-v1` and explicit
+`tenant.v1` ciphertext paths. Verify/copy the small old graph once; each append
+stages only one tenant leaf, one bucket and one root. All existing formats,
+wire/decode/cache bounds, exact generation/GCM authentication and strict fixed
+digest filesystem verification remain. Readers reload the atomic pointer.
+
+Complete offboarding for that namespace before any future caller can enable it.
+The D169 global exclusion and immediate hidden-user boundary remain. A finite
+durable page authenticates at most four selected leaves; current/inactive
+global routing metadata is bounded and verified, and foreign leaves/ciphertext
+are preserved without a whole foreign-forest decode. Old route metadata outside
+the new current graph can be removed only after publication plus the existing
+10s reader deadline and1s grace. No retained original is age-pruned.
+Carry only actual live new-page input rows by full hash through indexed400-key
+probes; D150's zero-reference retirement plus the final business transaction's
+unchanged GLOBAL GC/writer exclusion protects absent/shared keys. The legacy
+saga keeps its existing absent-key drift proof. Reset crash attempts only after
+an acknowledged completed page, persist continuation, keep the same absolute
+30m budget and owner-only failure channel. Final DB erasure requires independently
+absent selected routes, inactive identifying metadata, leaves and ciphertext.
+Future private copies/replicas must join this barrier before enabling a publisher.
+
+D170 free-space credit is also physically bounded: credit at most actual spare
+above the40GiB floor plus512MiB reserve and report total proven/uncredited MAIN
+free separately. The normal raw-first physical check and full credited-headroom
+projection remain; no budget increase, dead/TOAST/index estimates or override.
+Maintenance validates the complete optional accounting tuple consistently.
+
+Actual owned PG16/full-DDL3200 acceptance preserves every row/ID/clock/hash,
+restores all tables, commits the C3 challenge, removes exactly3200eval/four
+contexts and3199zero-reference inputs, and preserves the one shared input and
+all foreign/retained rows. The old collector/batch and3201-row compact case
+refuse. Local metadata/worker and paged-erasure crash/foreign-preservation
+tests complement that proof; production cadence/copies/HTTP and growth balance
+remain separate acceptance. See the tenant lifecycle architecture for rollback:
+after new format publication retain capable readers/current pointers and disable
+new publication; never roll back to erased history or claim owned QA as live.
+
+## D175 — Bounded automatic lossless native history and independent replica (2026-10-16)
+
+User-authorized long-term storage requires an actual automatic caller, not an
+increase to163GiB or another one-time free-space claim. Reuse D174 and the
+existing whole-original capture/full-DDL restore/C3 challenge kernels. Only the
+dedicated archive role may execute, with explicit default-off native-archive
+lane, exact immutable three-role source identity, actual completed source review,
+fresh source/consumer/producer/pin/HTTP/physical gates, journaled30m purpose,
+metadata-only64-header selection and one complete3200/four-context original.
+Typed protected/unsupported originals remain intact without starving other
+eligible jobs; unknown integrity/consumer or dispatched-commit ambiguity is
+owner attention. Preserve all earlier byte/query/lock/catalog/evidence limits.
+
+Store the complete compact private original without repeated per-part expanded
+trust roots; hash and bound the original config's compressed and decoded bytes,
+preserving original config JSON ordering for C3. Two private copies, real full-DDL
+restore and verified plaintext-target removal, plus a byte-identical independent
+DB-root encrypted replica must precede publication/removal. The key stays off
+that replica host; two offline key digests must match. Use a fixed forced SSH
+protocol, private socket-only PG16 companion and existing source capacity sampler.
+Actual immutable files/copy ACK/HTTP bodies/COMMIT/readback are separate proofs.
+Parent admission occurs before source AX locks; the locked transaction receives
+only one exact nonce-bound parent challenge. Never replay dispatched retirement.
+Persist the original serialized preparation before challenge; a durable actual
+COMMIT ACK permits readback/bookkeeping resumption only. A source-intact unit
+whose root changes during foreign erasure must re-publish/prove the same leaf;
+its earlier HTTP charges are retained. Static gate failures reach owner telemetry
+as sanitized concrete codes rather than an opaque liveness success.
+
+Use incremental tenant CAS routing and scoped superseded metadata cleanup. Keep
+all historical/current authority boundaries. Real authenticated historical HTTP
+full bodies are encrypted in the journal; normal current GET parity remains a
+separate acceptance. The earlier409 has no inferred repair or pre-retirement
+causality. Reuse of a natural current result is not a new original generation.
+Keep163GiB, source40GiB plus512MiB, separate app8GiB/replica16GiB floors and
+physical-bounded proven MAIN credit. Cooldown1min and rolling15min48 requests/
+24MiB potential download budget leave normal-reader headroom; server limits stay.
+Reserve both HTTP phases before C3; never discover the caller's own budget is
+exhausted only after its actual COMMIT. The source's measured new native
+generation cadence requires room to catch up, rather than a global5min delay.
+
+Lifetime replica erasure remains required after writer rollback. Extend the
+existing immediate user-hide/background-owner-cleanup saga to independent remote
+absence, exact private packages, encrypted proofs/journals, temporary sessions,
+derived plaintext DBs and identifying controller metadata. Erase selected partial
+or corrupt redundant files by durable owner intent; preserve foreign/shared data.
+The replica process gives erase requests priority and cannot resurrect from old
+copy requests. Owner-only capacity status distinguishes liveness, completion,
+stale telemetry and concrete failure. No customer-facing cleanup burden.
+
+After minting pointerv2/tenant objects, rollback means stopping this caller/lane
+with compatible readers/copies/key/replica/erasure still present. An old incapable
+image or full old-env restore is not a valid rollback. Finite media cannot retain
+unbounded growing history forever: live acceptance must report actual generation
+rate, package size, remaining horizon, unsupported/pinned backlog and any
+unobserved native generation. See the cold lifecycle contract for the full sequence.

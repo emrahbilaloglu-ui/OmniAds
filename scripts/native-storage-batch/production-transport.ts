@@ -7,7 +7,7 @@ import type { NativeStorageMaintenanceEvidence, NativeStorageOperation } from ".
 import type { DbGrowthFenceDecision } from "../../lib/sync/db-growth-fence";
 import { NATIVE_HISTORICAL_ROUTING_BOUNDS } from "../../lib/creative-decision-engine/native-historical-catalog-routing";
 import { openImmutableNativeHistoricalArchiveCatalog, type NativeHistoricalArchiveContentTrust } from "../../lib/creative-decision-engine/native-historical-archive";
-import { BatchRefusal, canonicalSha, need, pad, privateDirectory, readExact, same, sha256, writeExclusive } from "./common";
+import { BatchRefusal, canonicalSha, need, pad, privateDirectory, readExact, same, sha256, writeExclusive, UNIT_CONFIG_CONTRACT } from "./common";
 import { computeSourcePack, REPO_ROOT, TSX_LOADER, verifySourceReview } from "./source-pack";
 import { evidencePath, verifyHttpProof, type Sample } from "./http-proof";
 import { persistPrivateCopy, verifyPrivateCopies, type CaptureMetadata, type UnitConfig } from "./capture";
@@ -247,7 +247,8 @@ export class ProductionHostBatchBackend implements NativeStorageBatchBackend {
   }
   async frozenConfig(u: NativeStorageBatchUnit): Promise<UnitConfig> {
     const c = JSON.parse((await readExact(join(this.batchDir(), "units", `${u.generation.jobRunId}.config.json`), 4 * MiB)).toString("utf8")) as UnitConfig;
-    need(canonicalSha(c) === u.originalProofSha256 && same(c.generation, u.generation), "EXACT_FROZEN_UNIT_CONFIG"); return c;
+    need(c.contract===UNIT_CONFIG_CONTRACT&&c.archiveMetadataEncoding===undefined&&c.archiveObjectLayout===undefined&&
+      c.evaluations===u.evaluations&&c.contexts===u.contexts&&canonicalSha(c) === u.originalProofSha256 && same(c.generation, u.generation), "EXACT_FROZEN_UNIT_CONFIG"); return c;
   }
   private async local(name: string) {
     return readExact(join(this.batchDir(), name), 16 * MiB).then(b => JSON.parse(b.toString("utf8")), () => null);

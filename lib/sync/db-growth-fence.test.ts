@@ -153,12 +153,16 @@ describe("db growth fence", () => {
       databaseBudgetBytes:DEFAULT_DATABASE_BUDGET_BYTES,overridden:false,
       databaseAccounting:{rawDatabaseBytes:raw,accountedDatabaseBytes:raw-4*GiB,reusableHeapBytes:4*GiB}});
   });
-  it("reserves all effective headroom on disk even if it is spent in another table",async()=>{
+  it("caps credited headroom and still reserves all of it on disk for any other table",async()=>{
     nativeHeapDb({capacity_payload:capacityPayload({disks:[
       {path:PHYSICAL_DATA_PATH,totalBytes:220*GiB,usedBytes:178*GiB,availableBytes:42*GiB}]})});
     const result=await evaluateDbGrowthFence({env:heapAccountingEnv});
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toBe("physical_projected_free_space_low");
+    expect(result.allowed).toBe(true);
+    expect(result.reason).toBe("ready");
+    expect(result.databaseAccounting).toMatchObject({provenReusableHeapBytes:4*GiB,
+      reusableHeapBytes:2.5*GiB,uncreditedReusableHeapBytes:1.5*GiB});
+    expect(result.physical?.projectedFreeBytes).toBe(40.5*GiB);
+    expect(result.databaseBudgetBytes-result.databaseAccounting!.accountedDatabaseBytes).toBe(1.5*GiB);
     expect(result.overridden).toBe(false);
   });
   it("falls back to the raw refusal if proof is unavailable or malformed",async()=>{

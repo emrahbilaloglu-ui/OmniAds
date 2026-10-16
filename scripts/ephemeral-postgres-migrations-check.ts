@@ -4344,7 +4344,7 @@ async function main() {
     // Removed rows from archive fixtures must not change the older suite's
     // bounded-plan assertions. Both schemas are freshly, fully migrated.
     for (const [deletionDatabaseName, file, label, count] of [
-      ["adsecute_archive_erasure", "lib/business-archive-erasure.db.test.ts", "Automatic archive offboarding DB seam check", 8],
+      ["adsecute_archive_erasure", "lib/business-archive-erasure.db.test.ts", "Automatic archive offboarding DB seam check", 9],
       ["adsecute_business_deletion", "lib/business-deletion.db.test.ts", "Business data deletion and rollback DB seam check", 67],
     ] as const) {
       const deletionUrl = new URL(databaseUrl);

@@ -2,7 +2,8 @@ import { constants } from "node:fs";
 import { link, lstat, mkdir, open, realpath, unlink } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { nativeArchiveByteDigest, nativeHistoricalArchiveStorageVersion, NATIVE_HISTORICAL_MAX_PLAINTEXT_BYTES,
+import { nativeArchiveByteDigest, nativeHistoricalArchiveStorageVersion, nativeHistoricalArchiveObjectKey,
+  NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT, NATIVE_HISTORICAL_MAX_PLAINTEXT_BYTES,
   type NativeHistoricalArchiveContentTrust, type NativeHistoricalArchiveCatalogEntry } from "./native-historical-archive";
 
 export const NATIVE_LOCAL_ARCHIVE_BUCKET = "adsecute-native-local";
@@ -15,25 +16,30 @@ function checkTrust(trust: NativeHistoricalArchiveContentTrust) {
   if (!/^[a-f0-9]{64}$/.test(trust.ciphertextSha256) || !Number.isSafeInteger(trust.ciphertextBytes) ||
       trust.ciphertextBytes <= 0 || trust.ciphertextBytes > MAX_BYTES) refuse("invalid trusted object bound");
 }
-function pointer(trust: NativeHistoricalArchiveContentTrust) {
+function pointer(trust: NativeHistoricalArchiveContentTrust,layout?:typeof NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT) {
   checkTrust(trust);
-  return { bucket: NATIVE_LOCAL_ARCHIVE_BUCKET, key: `native/${nativeHistoricalArchiveStorageVersion(trust)}/${trust.ciphertextSha256}.bin`, versionId: trust.ciphertextSha256 };
+  return { bucket: NATIVE_LOCAL_ARCHIVE_BUCKET, key: nativeHistoricalArchiveObjectKey(trust,layout), versionId: trust.ciphertextSha256,
+    ...(layout?{layout}:{}) };
 }
 
 /** Deployment-selected root only. Each object directory must be owned by the
  * same administrator and neither group nor other writable. The application
  * additionally mounts this root read-only; this is not root-proof Object Lock. */
-async function directory(root: string, version: "v1" | "v2") {
+async function directory(root: string, version: "v1" | "v2",businessId?:string) {
   if (!isAbsolute(root) || resolve(root) !== root || root === "/" || await realpath(root) !== root)
     refuse("noncanonical archive root");
   let owner: number | undefined;
-  for (const filename of [root, join(root, "native"), join(root, `native/${version}`)]) {
+  const filenames=[root,join(root,"native"),join(root,`native/${version}`)];
+  if(businessId!==undefined){if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(businessId))refuse("invalid object tenant");filenames.push(join(filenames[2]!,businessId));}
+  const identity:{dev:number;ino:number}[]=[];
+  for (const filename of filenames) {
     const stat = await lstat(filename);
     if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o022) !== 0 ||
         owner !== undefined && stat.uid !== owner) refuse("unsafe object directory");
     owner = stat.uid;
+    identity.push({dev:stat.dev,ino:stat.ino});
   }
-  return { filename: join(root, `native/${version}`), owner: owner! };
+  return { filename:filenames.at(-1)!, owner: owner!,identity };
 }
 function aborted(signal: AbortSignal) { if (signal.aborted) refuse("read aborted"); }
 
@@ -65,13 +71,13 @@ export async function withLocalNativeArchiveRead<T>(operation: (signal: AbortSig
  * descriptor after cancellation; the deadline does not cancel kernel disk I/O. */
 export async function readLocalNativeArchiveVersion(root: string, entry: NativeHistoricalArchiveCatalogEntry,
   externalSignal?: AbortSignal): Promise<Buffer> {
-  const expected = pointer(entry);
+  const expected = pointer(entry,entry.object.layout),businessId=entry.object.layout?entry.generation.businessId:undefined;
   const version = nativeHistoricalArchiveStorageVersion(entry);
   if (entry.object.bucket !== expected.bucket || entry.object.key !== expected.key || entry.object.versionId !== expected.versionId)
     refuse("local object pointer differs");
   return withLocalNativeArchiveRead(async signal => {
     aborted(signal);
-    const dir = await directory(root, version); aborted(signal);
+    const dir = await directory(root, version,businessId); aborted(signal);
     const filename = join(dir.filename, `${entry.ciphertextSha256}.bin`);
     const file = await open(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
@@ -88,10 +94,11 @@ export async function readLocalNativeArchiveVersion(root: string, entry: NativeH
         count += part.bytesRead;
       }
       aborted(signal);
-      const end = await file.stat(), named = await lstat(filename), endDir = await directory(root, version);
+      const end = await file.stat(), named = await lstat(filename), endDir = await directory(root, version,businessId);
       if (count !== entry.ciphertextBytes || end.size !== stat.size || end.mtimeMs !== stat.mtimeMs ||
           end.ctimeMs !== stat.ctimeMs || named.isSymbolicLink() || named.dev !== stat.dev || named.ino !== stat.ino ||
-          endDir.owner !== dir.owner || nativeArchiveByteDigest(bytes.subarray(0, count)) !== entry.ciphertextSha256)
+          endDir.owner !== dir.owner || JSON.stringify(endDir.identity)!==JSON.stringify(dir.identity)||
+          nativeArchiveByteDigest(bytes.subarray(0, count)) !== entry.ciphertextSha256)
         refuse("object identity or digest changed");
       return bytes.subarray(0, count);
     } finally { await file.close(); }
@@ -104,8 +111,8 @@ export async function readLocalNativeArchiveVersion(root: string, entry: NativeH
  * exact object on retry. It never publishes a catalog, edits DB rows or grants
  * reclaim/provider authority. Source root/key recovery remains a separate gate. */
 export async function persistLocalNativeArchive(root: string, bytes: Uint8Array,
-  trust: NativeHistoricalArchiveContentTrust): Promise<NativeHistoricalArchiveCatalogEntry> {
-  const object = pointer(trust);
+  trust: NativeHistoricalArchiveContentTrust,options?:{layout:typeof NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT}): Promise<NativeHistoricalArchiveCatalogEntry> {
+  const object = pointer(trust,options?.layout),businessId=options?.layout?trust.generation.businessId:undefined;
   const version = nativeHistoricalArchiveStorageVersion(trust);
   if (bytes.byteLength !== trust.ciphertextBytes || nativeArchiveByteDigest(bytes) !== trust.ciphertextSha256)
     refuse("ciphertext does not match independent trust");
@@ -113,7 +120,9 @@ export async function persistLocalNativeArchive(root: string, bytes: Uint8Array,
   await mkdir(join(root, "native"), { mode: 0o700 }).catch(error => { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; });
   await syncDirectory(root);
   await mkdir(join(root, `native/${version}`), { mode: 0o700 }).catch(error => { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; });
-  const dir = await directory(root, version); await syncDirectory(join(root, "native"));
+  await directory(root,version);await syncDirectory(join(root,"native"));
+  if(businessId){await mkdir(join(root,`native/${version}`,businessId),{mode:0o700}).catch(error=>{if(error.code!=="EEXIST")throw error;});await syncDirectory(join(root,`native/${version}`));}
+  const dir = await directory(root, version,businessId);
   const target = join(dir.filename, `${trust.ciphertextSha256}.bin`);
   const temporary = join(dir.filename, `.pending-${randomUUID()}`);
   const entry = { ...trust, object };

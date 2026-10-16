@@ -6,6 +6,8 @@ import { getDb } from "@/lib/db";
 import { openNativeHistoricalArchiveCatalog } from "@/lib/creative-decision-engine/native-historical-archive";
 import { buildNativeHistoricalCatalogRouting } from "@/lib/creative-decision-engine/native-historical-catalog-routing";
 import { resolveBusinessArchiveConfiguration } from "@/lib/business-archive-configuration";
+import { assertNoTenantArchiveRecords } from "@/lib/native-tenant-erasure";
+import { assertColdBusinessLocalAbsent } from "@/lib/native-cold-erasure";
 
 export class BusinessExternalCleanupError extends Error {}
 function refuse(): never { throw new BusinessExternalCleanupError("external_cleanup_required"); }
@@ -34,17 +36,20 @@ export async function assertNoBusinessNativeArchive(businessId: string) {
   if (!path) {
     if (process.env.ENGINE_V3_NATIVE_ARCHIVE_HISTORICAL_READER_ENABLED === "true"
       || process.env.ENGINE_V3_NATIVE_ARCHIVE_CATALOG_ROUTING_ENABLED === "true") refuse();
-    return;
+    await assertColdBusinessLocalAbsent(businessId);return;
   }
   const sha = configuration.catalogSha256;
   if (!sha) refuse();
   const legacy = await metadata(path, sha);
   const catalog = openNativeHistoricalArchiveCatalog(legacy, sha);
   if (catalog.entries.some(e => e.generation.businessId === businessId)) refuse();
-  if (!configuration.routingEnabled) { await assertNoLocalCopies(businessId); return; }
+  if (!configuration.routingEnabled) { await assertNoLocalCopies(businessId);await assertColdBusinessLocalAbsent(businessId); return; }
   const directory = configuration.routingDirectory;
   const rootSha = configuration.rootSha256;
   if (!directory || !rootSha || !isAbsolute(directory) || await realpath(directory) !== directory) refuse();
+  if(directory===join(configuration.localRoot??"","routing-cas-v1")){
+    await assertNoTenantArchiveRecords(businessId);await assertColdBusinessLocalAbsent(businessId);return;
+  }
   const rootBytes = await metadata(join(directory, "root", `${rootSha}.json`), rootSha);
   const root = JSON.parse(rootBytes.toString("utf8")) as { shards: { sha256: string; bytes: number }[] };
   if (!Array.isArray(root.shards) || root.shards.length > 256) refuse();
@@ -68,6 +73,7 @@ export async function assertNoBusinessNativeArchive(businessId: string) {
   const publication = buildNativeHistoricalCatalogRouting({ legacy: { content: legacy, sha256: sha }, leaves });
   if (publication.root.sha256 !== rootSha) refuse();
   await assertNoLocalCopies(businessId);
+  await assertColdBusinessLocalAbsent(businessId);
 }
 
 /** Inactive/staged catalogs are still copies. A finite local census also refuses

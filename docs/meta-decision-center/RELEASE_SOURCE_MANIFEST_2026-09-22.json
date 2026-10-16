@@ -1,5 +1,5 @@
 {
-  "manifestHash": "db51db5b81e90005273d6a12a8dea96a1a6303c153197ff896eda93f36b683bd",
+  "manifestHash": "972de0b10a9d725a03ffef674799631dfec1d57422160ca55ab80926557a5a20",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -44,7 +44,7 @@
     },
     {
       "path": ".gitignore",
-      "sha256": "f2f351b548806eee567225120dd18cdcb0ef32a4d04e4c6a5e8ee3220c23492b"
+      "sha256": "2a813a9bf67b75215238fdf3eefddcc717601c781bf68cc8e7dfbd0313ce6f1a"
     },
     {
       "path": "app/(dashboard)/overview/legacy-page.tsx",
@@ -161,6 +161,10 @@
     {
       "path": "app/admin/businesses/legacy-page.tsx",
       "sha256": "a6c15cc4be30eff0eca55b698ffa9a4fb384b2d175fe613a0b8c0e88de616fd8"
+    },
+    {
+      "path": "app/admin/system-capacity/legacy-page.tsx",
+      "sha256": "3e63aa58e451014fbb78a9040f9ae807244e7e35a270b9cab6b23211a34aeace"
     },
     {
       "path": "app/api/admin/businesses/[businessId]/route.ts",
@@ -804,11 +808,11 @@
     },
     {
       "path": "docker-compose.yml",
-      "sha256": "65e580f8a9ca87443b88c6a0eaabd44372d5c308949b3b4f3c9df0ac5cc7d1b8"
+      "sha256": "bf500ca43d9a751e12fdffa49c65f7ded696e64ee61f1df076a6d3ec1cb6a583"
     },
     {
       "path": "Dockerfile",
-      "sha256": "3a80b2edff19b3c923427c66dd44b3734735357da8cddd10dd5a1a791a5e689a"
+      "sha256": "d488a8a1ff9ee6ff0b7b8fb89c342eb4a085e9d5c271b14efc40ec244ef770fa"
     },
     {
       "path": "docs/architecture/business-deletion-repair.md",
@@ -833,6 +837,10 @@
     {
       "path": "docs/architecture/native-campaign-context-storage.md",
       "sha256": "6c73c43f9ae14d68218fc186f569011be0a6585699a2485d75d2d37c6336d993"
+    },
+    {
+      "path": "docs/architecture/native-cold-lifecycle.md",
+      "sha256": "43de6d3f05c0d43b6e85a04d4de12e63c274b7f477c8a3505463bd4690df48f8"
     },
     {
       "path": "docs/architecture/native-compact-root-history.md",
@@ -872,7 +880,7 @@
     },
     {
       "path": "docs/architecture/native-retained-reader-ledger.json",
-      "sha256": "a7f980c0c3858fc501e2b2a695bcf5b74175328b8a35b611be333dd5dddc1f11"
+      "sha256": "7d361ad6e33ab3190273f532ae8be2600b0f4eee750201b2ada52a66c16f1cdb"
     },
     {
       "path": "docs/architecture/native-retained-reader-lifecycle.md",
@@ -881,6 +889,10 @@
     {
       "path": "docs/architecture/native-segmented-reference-archive.md",
       "sha256": "d0bf746ded601e03da9dd02a2e43132750a4c324c870a2c87ecf671be43627f6"
+    },
+    {
+      "path": "docs/architecture/native-tenant-archive-lifecycle.md",
+      "sha256": "8c772098986052c62e7001dc529d5b2e3e9029c49fefbc0a9068f01f379af15d"
     },
     {
       "path": "docs/audits/D075_STATE_HISTORY_CONSUMER_SWEEP_2026-08-30.md",
@@ -908,7 +920,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "ab5d08425ece8f940fe78ed6b8c740d9e633b341abe3756ed5137efac6637179"
+      "sha256": "89e7e7d9db321ddf57706d317c59af73ee578aa90a8a24109c32d5946a25dd29"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -920,7 +932,7 @@
     },
     {
       "path": "docs/creative-decision-center/START_HERE.md",
-      "sha256": "92da175e4e096796b5610855075c88bb2e2447268138112db0489b7dd7c5b2f2"
+      "sha256": "6b3056981ab9d9b7e0b8f50c30a2f78090e03335504520456e31d28b1213bf37"
     },
     {
       "path": "docs/creative-decision-center/V3_TO_V21_MAPPING.md",
@@ -991,6 +1003,10 @@
       "sha256": "906d5ef641b1fab04abf1b4ce68f4e9861cecdf02354e0c2859942a2f35872f7"
     },
     {
+      "path": "lib/admin-system-capacity.ts",
+      "sha256": "e75f89e6b62c7dab21a4f7a2ffdd12cd1916744de0ecf270b5a90786bbff99ac"
+    },
+    {
       "path": "lib/api/meta-link-click-source.test.ts",
       "sha256": "bd5726991a4efabe8ad6786b4621cfdde91611c249fe5c166417a88d0b504a7e"
     },
@@ -1004,7 +1020,7 @@
     },
     {
       "path": "lib/business-archive-configuration.ts",
-      "sha256": "582007086c1bd4c5c384a512a550ce87a2b5252415629f3ebc94c803b9dbe4e6"
+      "sha256": "be95ca0bc847772867a2ce4834c055b04bf90fb41d3600adce9315af24a1fe6b"
     },
     {
       "path": "lib/business-archive-erasure-entry.test.ts",
@@ -1012,11 +1028,11 @@
     },
     {
       "path": "lib/business-archive-erasure-worker.ts",
-      "sha256": "1a188413cd6217631cf4068ea1d4aff70984dce650fb334f0a0d142f4fa3d3a7"
+      "sha256": "352ec3de7d1f3e76fc93a65d75f082c8941397cb1c87e503aa30d0aa53eaaef8"
     },
     {
       "path": "lib/business-archive-erasure.db.test.ts",
-      "sha256": "b473859ca7099baaa0291ff582dbd5abbf1232fe48099bfcf19cf2b802c4902e"
+      "sha256": "bbd240a0dae3340ab1686434063334c15dd48201e4728a35333e1e078c419f02"
     },
     {
       "path": "lib/business-archive-erasure.test.ts",
@@ -1024,7 +1040,7 @@
     },
     {
       "path": "lib/business-archive-erasure.ts",
-      "sha256": "b5b123be5e6cae1ef3d351038eddf1b1afe6e99426c5fdf88c264dc136f5a700"
+      "sha256": "95e4f8ad42e5d14ee7c84a5c64e2b7fa0772a3caafeb9cc3e6c1a8238c6f61cb"
     },
     {
       "path": "lib/business-deletion-client.test.ts",
@@ -1044,11 +1060,11 @@
     },
     {
       "path": "lib/business-deletion-files.ts",
-      "sha256": "c3dac09458a262f7b8488e5ad501c27e358c4ee3b948e8fd153ab15b7906eb6d"
+      "sha256": "bb2bc25db510a014d48c3e3dff35299ba8b904240de2b6d7013398151210b798"
     },
     {
       "path": "lib/business-deletion-jobs.ts",
-      "sha256": "5bb276ebc4dcec5c71faa78b8e6c00726e80a21c62a6e61b7656c2c5cb9c4544"
+      "sha256": "bfb3fa2b7a9f67d366e7ce2c5af56e2cca2d92adb483428fedf8638d034512b6"
     },
     {
       "path": "lib/business-deletion-native-evaluations.ts",
@@ -1100,7 +1116,7 @@
     },
     {
       "path": "lib/business-deletion.ts",
-      "sha256": "c61f6f9432a2e10c566cd5d5f7e4fb07962c9e2b7f0d606d33dc9718e05a15d4"
+      "sha256": "f89f14d2d27e03533fb577eff379e7a6e05f9975fa9089485ddf503a3b5ebe04"
     },
     {
       "path": "lib/client-auth-state.test.ts",
@@ -1479,6 +1495,10 @@
       "sha256": "226d0e6907e71dc056270a717d7b481d29b76c58a0433be2abd394c889557a91"
     },
     {
+      "path": "lib/creative-decision-engine/__tests__/native-tenant-catalog.test.ts",
+      "sha256": "6dc9e521cb39610b0993062ef150922d0ef5fa877f93f606ed57f5b074878e23"
+    },
+    {
       "path": "lib/creative-decision-engine/__tests__/role-held-verdict-preservation.test.ts",
       "sha256": "597d0ab16a22ef309f23697645308863f673daa11278504705a48bd332d3b8d1"
     },
@@ -1756,19 +1776,19 @@
     },
     {
       "path": "lib/creative-decision-engine/native-historical-archive.ts",
-      "sha256": "85642458feb5114bbb019cd167447076dbe6c0d7065707737b5f27ea0e8f3d57"
+      "sha256": "cf5d354894f946095e3487aca2de7ced394c2080458664728e94c2cd1e44f3ba"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-catalog-routing-store.ts",
-      "sha256": "eea3ebbd83bb9b478936bdfc8669af12e1eefd4034717b6b106879b99d667593"
+      "sha256": "63c23a11153532ec9812a69a18f66ee18e9a31c793f4258b186f0ae93c0b2457"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-catalog-routing.ts",
-      "sha256": "90241878583fb993d7e0443cc79f94bd9e5e7cbb73488f08cb8872c22be9d8f0"
+      "sha256": "9af72bc87d92dfb1ec5c45da53c5ed6757e935abd99aa127defd8678ecfbe6ba"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-local-store.ts",
-      "sha256": "b4edad4ab7b2804157e487bfc3d40b0737aa8b698203ca481b8edcfe58ae6143"
+      "sha256": "da7f6520d658bd5cc16f5dc0e583af625c4c1a2d7d3c368bfceacd36b1e252e3"
     },
     {
       "path": "lib/creative-decision-engine/native-historical-read-controls.ts",
@@ -1797,6 +1817,14 @@
     {
       "path": "lib/creative-decision-engine/native-retained-reader-lifecycle.ts",
       "sha256": "96aaf5ed8ea0ccdb39a977dbec432fec0dc611f0552222c28bf402034705e43a"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-tenant-catalog-store.ts",
+      "sha256": "d3dd9c48b7daf4d618dc79ebbc60a842373e5582b67410e313ffd26de5d74c92"
+    },
+    {
+      "path": "lib/creative-decision-engine/native-tenant-catalog.ts",
+      "sha256": "def8436faeb6a9a8cdf7f3e943a6064f45eceb5902b238d3882719cd7b802b42"
     },
     {
       "path": "lib/creative-decision-engine/profile-scope-callers-account-scope.db.test.ts",
@@ -2683,6 +2711,26 @@
       "sha256": "1c835324802c9c9774721c1fff1a30422c127717e611be13229e6cb896894425"
     },
     {
+      "path": "lib/native-cold-erasure.ts",
+      "sha256": "a8b488e74448cffbcff84c163ffe6edf885337cdb697d5c7ab5b9f4dcf8d23fc"
+    },
+    {
+      "path": "lib/native-cold-owner-status.ts",
+      "sha256": "e00519543db22c9f1b4e8ccfed4ecf2dabee16e05d82869a6320ccfb000eda5d"
+    },
+    {
+      "path": "lib/native-cold-session.ts",
+      "sha256": "09616b46706426e776f73bc6b8294610097ef491b2b584e2c180e91fddd15dd4"
+    },
+    {
+      "path": "lib/native-tenant-erasure.test.ts",
+      "sha256": "1dba6085bfbe033948ee7a9428cb8659adcdc6f23eadc0981367c71200eced92"
+    },
+    {
+      "path": "lib/native-tenant-erasure.ts",
+      "sha256": "ecb8f3b0b84aebc6301c79e42533a7b8e77fbb0548082769b2a73427f0eb96ab"
+    },
+    {
       "path": "lib/overview-summary-support.test.ts",
       "sha256": "3d8149b84f6c6578d9e6843340ebbef5745a768d6dd8e5dcb27dc242db19cf02"
     },
@@ -2704,7 +2752,7 @@
     },
     {
       "path": "lib/sync/__tests__/native-storage-maintenance-admission.test.ts",
-      "sha256": "5d93faee7105c7b18bb8272227ceeef60582147c8c769ee2b402cea5c80624a9"
+      "sha256": "9b5c552d33c5e89329f803159fc4b0f2c32a7883e1b68db51c5e2c86b2e652f3"
     },
     {
       "path": "lib/sync/business-reference-metadata.test.ts",
@@ -2724,11 +2772,19 @@
     },
     {
       "path": "lib/sync/db-growth-fence.test.ts",
-      "sha256": "2f531f943ac764d7c55eb04fc31043450e3855323b55633dc197253d0de5d5c8"
+      "sha256": "1c947581cef67b357b6327c7f61722094fa0b808c82276d3c0272edf695b3e0b"
     },
     {
       "path": "lib/sync/db-growth-fence.ts",
-      "sha256": "4d1c348bc11e54b8031ed0cdd2b93759c9ad85ee28fd3419fa936524afb57303"
+      "sha256": "f1f8d99615ca5de0a24c13cfd30f66c38fa57660e8dbb182e89bc91db3b91bb5"
+    },
+    {
+      "path": "lib/sync/global-kill-switch.test.ts",
+      "sha256": "18b9c90f0b6c54b0895ad718c310cb129ff8d7ed49c7e692b634906d722bc062"
+    },
+    {
+      "path": "lib/sync/global-kill-switch.ts",
+      "sha256": "ee2cf0231e53cfb438fb14244025e2222a8b85332d9dd3793ea9555ed23d48fe"
     },
     {
       "path": "lib/sync/google-ads-error-classification.test.ts",
@@ -2760,15 +2816,15 @@
     },
     {
       "path": "lib/sync/native-reusable-heap.test.ts",
-      "sha256": "979d0b52fd6a44680c609a979b6c447ab036a032b6086829e15481f8bce568df"
+      "sha256": "d58a8fa135189f8d596b5fe6388fd173ebef743f7ad163f1e47afad3ae2bbbd8"
     },
     {
       "path": "lib/sync/native-reusable-heap.ts",
-      "sha256": "76f1b4351837728a4fb710b2f5fc54a0785f9f3f18eb0e6a72929b8ef0f6efad"
+      "sha256": "f4474871395b63cd18d980646ccc64a09cc18e81c0fab3f46ba49b0792cd17cb"
     },
     {
       "path": "lib/sync/native-storage-maintenance-admission.ts",
-      "sha256": "fb4f877c86f59bc6d33b362d61f53b9ab06715b6270d6231ca90472b58b92632"
+      "sha256": "9003be939c8c828a78b005f49e9d76993c51fb97cc7bf99ef29a1ab4f976a1f0"
     },
     {
       "path": "lib/sync/provider-status-truth.ts",
@@ -2904,7 +2960,7 @@
     },
     {
       "path": "scripts/business-archive-erasure-worker.ts",
-      "sha256": "1f9528e2923fad9ddfe1b94dbc1e3548d8295b2353fc6ac097f7930ad80f641c"
+      "sha256": "244d59a6e24203cb0b4175f7dafc087d261129dce8f6ca61c572e0c5d09e9ffe"
     },
     {
       "path": "scripts/creative-decision-center/generalized-pit-replay.test.ts",
@@ -3040,7 +3096,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
-      "sha256": "a8954f05a6afef9c19c8e13280f46a4b2f2bb983ad966d82aeec3e439a20c163"
+      "sha256": "4b0bf94857b3fca51f1089202cc5a8cd6fac6b80955697a026366a18770c110c"
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -3072,7 +3128,7 @@
     },
     {
       "path": "scripts/fixtures/business-archive-erasure.ts",
-      "sha256": "57609c503f1b8826ca5f3348aea352d3e77e4c06357cc86bb9f09009ac3a90d3"
+      "sha256": "4abdf0a092ae2405b18f0b9e7d5ede4f10272288d7aac60ce672d2232a551f30"
     },
     {
       "path": "scripts/fixtures/native-historical-worker-compressed.json",
@@ -3203,6 +3259,118 @@
       "sha256": "db02295af36eb47435b7f90ab0a64a57f03a6eb8ee1142f6615a72590916945a"
     },
     {
+      "path": "scripts/native-cold-lifecycle/boundaries.test.ts",
+      "sha256": "475fdcd79796b038a9a5716b1ab6854a9d07cdca38c21d7ab3e3831c39b8e52d"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/child-protocol.test.ts",
+      "sha256": "e2de4300363c2a3b928a2222bcdb6a220f0123fd941acc4d5af35d447b22b90f"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/child.ts",
+      "sha256": "9297c0a32b48d4c9d836b72589776bcdf0a4bf12e17bace461070a07a0baa89d"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/controller-protocol.test.ts",
+      "sha256": "3d97eb295827d622f62ae816473299431281091532a6e4881c93bb43e684da58"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/controller.ts",
+      "sha256": "f2c0726029a45a96d6f510593df99a4e08d4311598b513cfd320f361b3f9849e"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/erasure.test.ts",
+      "sha256": "a285c79adecf27d8aaa5daa4aa477c8e84505505b21f56558f64c334d3d1a6e8"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/files.ts",
+      "sha256": "81cd2fbc653cf5986769b4a5d492061dd6db96dc1b59af85f38176beb3389980"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/gate.ts",
+      "sha256": "631fdcf2cd4b7ef8c2c5e6fc6ae1977d2ff885d1c789280ef406f61c2a89c9e5"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/http.ts",
+      "sha256": "1418951cc017838c78ecb754019ef9daefb8da5f09e31b102f41ddfff566e7fc"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/install_common.py",
+      "sha256": "595cc6038f9a2f67784f5998ba01dab691b906991297c985a89699785a965c50"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/install-app.py",
+      "sha256": "98a4fd57dab7dc972bbcffd11d63830696500ccc8baccc986f5755b1aaa21c89"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/install-db.py",
+      "sha256": "0d514d9dbfe4dc2d7db4fcab352e0a4e017f547bbe359478df907e169b279f74"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/inventory.test.ts",
+      "sha256": "ba99e4c40716159cad5b57dfcabb494441d67cafb9340e9a0be64f03d52c3340"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/inventory.ts",
+      "sha256": "8c8566e5b315b32770e1f31196dbb3f1918a96d49daf8c81966394f6c678745e"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/mirror_protocol.py",
+      "sha256": "28f7c36c53c645931c55b8a1e1111ee18aa58ea38f6753696f5d02fa784b987f"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/mirror-endpoint.py",
+      "sha256": "306ccde78c4b5b60b31a6b2a9ef4b986ba8b79cd51908111e6d524246506c282"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/mirror-protocol-test.py",
+      "sha256": "10d0fde658f9c688f00b1462ebefa07dd018d17d10d652823acde1bc4139a379"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/mirror-protocol.test.ts",
+      "sha256": "4dd8d66cbff3724323fea87361d6b4ddf1dc1360999c37400e0c83322fde4c2d"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/mirror-replica.py",
+      "sha256": "ec83377e81c6dfcbd71d9b29b6751aab1b9d8e7f84a4aa48e973a10ce38898dc"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/private-original.ts",
+      "sha256": "199b65b1cb46f4de865860ec427c368004f43d04b2434be82521d6116fb8a51d"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/private-restore.test.ts",
+      "sha256": "1031f5c11cfaab00d2774929f67cab8a267d33e9992d827f8283c9ef8c103b02"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/private-restore.ts",
+      "sha256": "ebe85fea99752483aa1c6ea86e86c078aeb596e9e569756775ca9d3a2541e891"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/replica.ts",
+      "sha256": "979d236136238a145c99e8d2ffbb0c997439c4ae610f0c54d0c700f08367c12d"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/routing.ts",
+      "sha256": "4fd7c6d8e9d458b90f2bc8fcac588c08b67c2be8f86d85574ac0af519634b486"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/runtime_probe.py",
+      "sha256": "bcf6463c3374a4928668d163feb9cf3a41026f11500fabff88126c2c268a0c9f"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/source-inventory.json",
+      "sha256": "b9ea57ecbe69734ef4ad794e43c8fcd5ce9d52de50de2376a08471f446b9678d"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/types.ts",
+      "sha256": "0afd0042c2b6a4221081e72cabe59fab7673a04cfe7c705e21eefec696de82e0"
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/unit-child.ts",
+      "sha256": "42de3f61549bb350a55b3845a4152467822bc52f9c2cf35f1df0a999e91c4519"
+    },
+    {
       "path": "scripts/native-evidence-archive-seam.ts",
       "sha256": "19988cc76c5528a084794bdabbb09646be8b5897015068cece4ee78c3546f2f2"
     },
@@ -3272,11 +3440,11 @@
     },
     {
       "path": "scripts/native-storage-batch/backend.ts",
-      "sha256": "748dc32a0a3c75d7cb2d2d923ccbad7146c8eba51b4dad37610abade0d893d9f"
+      "sha256": "e2e2dadc242ad0c457b67d3edfbd536b338c227561237cb1a15b7840e1934bed"
     },
     {
       "path": "scripts/native-storage-batch/capture.ts",
-      "sha256": "0111741a96f8a036df08e5eecf2f0a0a02d9aa4a8552b93110036a4cee47413f"
+      "sha256": "b18657fd44980fcc671d31f953f9f8331b8eca484706dead89d2446a483173ab"
     },
     {
       "path": "scripts/native-storage-batch/cli.ts",
@@ -3284,7 +3452,7 @@
     },
     {
       "path": "scripts/native-storage-batch/common.ts",
-      "sha256": "7f3126c81c0d6e13ade16c35372ee32c4bfbc2001dd12bdebfc0d024938de6ad"
+      "sha256": "193175e3a44d8ed465c6b51928a7bc6c1d1edd0742011e2986440c6b3abcc7c3"
     },
     {
       "path": "scripts/native-storage-batch/http-proof.ts",
@@ -3292,7 +3460,7 @@
     },
     {
       "path": "scripts/native-storage-batch/input-evidence-lifecycle-pg.ts",
-      "sha256": "a46ecaf30d44c0473a9c66808d8987c0f99f8d5b17f6e41b5345111b39788341"
+      "sha256": "499a16a05b926a1eec735c9c2c9b7cb1f12bd64b3a2f47e13f5f2906c90d0085"
     },
     {
       "path": "scripts/native-storage-batch/input-evidence-lifecycle.ts",
@@ -3308,7 +3476,7 @@
     },
     {
       "path": "scripts/native-storage-batch/maintenance.ts",
-      "sha256": "a1a4a3419f1cb761eadaacc21ecc9c58860e8323779f2a621b5048a9626aef2a"
+      "sha256": "e4029c1bc04e03524209a52d2d4414df06af2c535a4bb6b175ea16af8e82aa11"
     },
     {
       "path": "scripts/native-storage-batch/native-producer-idle.ts",
@@ -3324,7 +3492,7 @@
     },
     {
       "path": "scripts/native-storage-batch/owned-fixture.ts",
-      "sha256": "aea4d93943cd83c96c5d326483ce23f5e6c3fe71df540fe243a5f1d008614457"
+      "sha256": "8a32bc07742d66ab0612fbe8c098092c6d56fd4e492e2beb5447fc146f49abe0"
     },
     {
       "path": "scripts/native-storage-batch/production-actor.py",
@@ -3344,7 +3512,7 @@
     },
     {
       "path": "scripts/native-storage-batch/production-transport.ts",
-      "sha256": "aa0991291d87246f4c85431bcbd6018f04958bb75cf7be582964cc6eeca27fea"
+      "sha256": "c73c5af20815d3c0084b54abd8f9189a73d31da70dca4b0477778d053f602dcd"
     },
     {
       "path": "scripts/native-storage-batch/restore.ts",
@@ -3352,7 +3520,7 @@
     },
     {
       "path": "scripts/native-storage-batch/retire.ts",
-      "sha256": "dd6741df7f3e80571d2ce19d79d044f1fb508285c11498b092acddbee1031ab7"
+      "sha256": "cfec62ab1fc9a639248090f7ba5c8b7dc9d2cc8d114ca5a067677aaeb829896a"
     },
     {
       "path": "scripts/native-storage-batch/rw-unit-inventory.ts",
@@ -3360,7 +3528,7 @@
     },
     {
       "path": "scripts/native-storage-batch/source-pack.ts",
-      "sha256": "077aad181f2e571c8c3904f2666c298f5bf3eaf9538e3774f8bfd6f0be74e97a"
+      "sha256": "109b15ff45ba0c1545d14fb23bd318b784f72696837f15d619cdc126a15549c0"
     },
     {
       "path": "scripts/native-storage-batch/stage-entry.ts",

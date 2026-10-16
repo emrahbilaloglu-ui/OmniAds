@@ -24,7 +24,8 @@ export type BusinessArchiveErasurePlan = {
   baseline: FileProof[]; remove: string[]; publication: Publication[];
   pointer: BusinessArchivePointer | null; inputKeys: ArchivedBusinessInputKey[]; planSha256: string;
 };
-export type BusinessArchiveErasureState = { plan: BusinessArchiveErasurePlan; prepared: boolean };
+export type BusinessArchiveErasureState = { plan: BusinessArchiveErasurePlan|import("./native-tenant-erasure").TenantArchiveErasurePlan;
+  prepared: boolean;nextPage?:boolean;awaitingColdReplica?:boolean;coldProof?:import("./native-cold-erasure").ColdBusinessErasureProof|null };
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const SHA = /^[a-f0-9]{64}$/;
 type InventoryFile = FileProof & { content?: Buffer; catalog?: NativeHistoricalArchiveCatalog };
@@ -47,7 +48,8 @@ async function fileDigest(path: string, bytes: number, deadlineAtMs = Date.now()
 }
 /** Complete, finite local inventory. Unknown paths, symlinks, hard links,
  * writable metadata and orphan ciphertext are owner blockers, never absence. */
-export async function inventoryBusinessArchive(root: string, pendingOwnedObjects = new Set<string>(), deadlineAtMs = Date.now() + BUSINESS_ARCHIVE_ERASURE_BOUNDS.phaseMs): Promise<InventoryFile[] & { censusEntries: number }> {
+export async function inventoryBusinessArchive(root: string, pendingOwnedObjects = new Set<string>(), deadlineAtMs = Date.now() + BUSINESS_ARCHIVE_ERASURE_BOUNDS.phaseMs,
+  skipTenantNamespaces=false): Promise<InventoryFile[] & { censusEntries: number }> {
   const files: InventoryFile[] = []; let entries = 0, metadataBytes = 0;
   async function walk(path: string, depth: number) {
     checkDeadline(deadlineAtMs);
@@ -57,7 +59,11 @@ export async function inventoryBusinessArchive(root: string, pendingOwnedObjects
     for (const child of children.sort((a, b) => a.name < b.name ? -1 : 1)) {
       checkDeadline(deadlineAtMs);
       archiveNeed(!child.isSymbolicLink()); const full = join(path, child.name);
-      if (child.isDirectory()) { await walk(full, depth + 1); continue; }
+      if (child.isDirectory()) {
+        if(skipTenantNamespaces&&(relative(root,full)==="routing-cas-v1"||
+          relative(root,path)==="native/v2"&&UUID.test(child.name))){await assertSafeArchiveDirectory(full);continue;}
+        await walk(full, depth + 1); continue;
+      }
       archiveNeed(child.isFile()); const name = relative(root, full), s = await lstat(full);
       archiveNeed(s.nlink === 1 && !(s.mode & 0o022) && s.size > 0);
       if (child.name.endsWith(".json")) {
@@ -99,11 +105,16 @@ function filteredCatalog(file: InventoryFile, businessId: string): Buffer {
  * original generation lineage identify every frozen archived input key. */
 export async function prepareBusinessArchiveErasurePlan(businessId: string, client: Pick<PoolClient, "query">,
   deadlineAtMs = Date.now() + BUSINESS_ARCHIVE_ERASURE_BOUNDS.phaseMs): Promise<BusinessArchiveErasurePlan> {
+  return prepareLegacyBusinessArchiveErasurePlan(businessId,client,deadlineAtMs,await resolveBusinessArchiveConfiguration());
+}
+/** Legacy-content helper for the separate tenant saga. A caller-provided
+ * configuration is descriptive only; it grants no activation or unlink rights. */
+export async function prepareLegacyBusinessArchiveErasurePlan(businessId:string,client:Pick<PoolClient,"query">,
+  deadlineAtMs:number,before:BusinessArchiveConfiguration,skipTenantNamespaces=false):Promise<BusinessArchiveErasurePlan>{
   checkDeadline(deadlineAtMs);
   archiveNeed(UUID.test(businessId));
-  const before = await resolveBusinessArchiveConfiguration();
   archiveNeed(before.transport === "filesystem" && before.localRoot && before.catalogPath && before.catalogSha256);
-  const root = before.localRoot, files = await inventoryBusinessArchive(root, new Set(), deadlineAtMs), byPath = new Map(files.map(f => [f.path, f]));
+  const root = before.localRoot, files = await inventoryBusinessArchive(root, new Set(), deadlineAtMs,skipTenantNamespaces), byPath = new Map(files.map(f => [f.path, f]));
   const catalog = byPath.get(relative(root, before.catalogPath));
   archiveNeed(catalog?.catalog && catalog.sha256 === before.catalogSha256);
   const selected = new Map<string, NativeHistoricalArchiveCatalogEntry>();

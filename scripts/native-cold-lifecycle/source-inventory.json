@@ -1,0 +1,736 @@
+{
+  "contract": "native-cold-source-inventory.v1",
+  "files": [
+    {
+      "path": ".dockerignore",
+      "sha256": "d1cf76b0b5eed238dc5d8b31f125ec4daca74e433a82b50a032844dd124a10d3",
+      "bytes": 175
+    },
+    {
+      "path": "Dockerfile",
+      "sha256": "d488a8a1ff9ee6ff0b7b8fb89c342eb4a085e9d5c271b14efc40ec244ef770fa",
+      "bytes": 4612
+    },
+    {
+      "path": "app/admin/system-capacity/legacy-page.tsx",
+      "sha256": "3e63aa58e451014fbb78a9040f9ae807244e7e35a270b9cab6b23211a34aeace",
+      "bytes": 18686
+    },
+    {
+      "path": "app/api/admin/engine-v3/readiness/route.ts",
+      "sha256": "bf587874112016087f546053b599becab55520d2fba0450e41411b1ff104764c",
+      "bytes": 27914
+    },
+    {
+      "path": "app/api/creatives/decision-engine-v3/evidence/route.ts",
+      "sha256": "a8d78c2b58215abbfb2b0e7d0e9196411d77d3685550caa37bc05f5142c7337a",
+      "bytes": 26053
+    },
+    {
+      "path": "app/api/meta/creative-thumbnail/route.ts",
+      "sha256": "994d337ed8c00c667dbb4fb49b3e81f9312a1a7c8ba8f21888736c39e629e5bb",
+      "bytes": 4989
+    },
+    {
+      "path": "app/api/meta/decisions-workspace/route.ts",
+      "sha256": "9f782fce16d32194cf4df80eea282ae2edb7720b81f1b7e84b06c937808e4705",
+      "bytes": 112793
+    },
+    {
+      "path": "docker-compose.yml",
+      "sha256": "bf500ca43d9a751e12fdffa49c65f7ded696e64ee61f1df076a6d3ec1cb6a583",
+      "bytes": 9011
+    },
+    {
+      "path": "lib/admin-system-capacity.ts",
+      "sha256": "e75f89e6b62c7dab21a4f7a2ffdd12cd1916744de0ecf270b5a90786bbff99ac",
+      "bytes": 19514
+    },
+    {
+      "path": "lib/business-archive-configuration.ts",
+      "sha256": "be95ca0bc847772867a2ce4834c055b04bf90fb41d3600adce9315af24a1fe6b",
+      "bytes": 8831
+    },
+    {
+      "path": "lib/business-archive-erasure-worker.ts",
+      "sha256": "352ec3de7d1f3e76fc93a65d75f082c8941397cb1c87e503aa30d0aa53eaaef8",
+      "bytes": 8566
+    },
+    {
+      "path": "lib/business-archive-erasure.ts",
+      "sha256": "95e4f8ad42e5d14ee7c84a5c64e2b7fa0772a3caafeb9cc3e6c1a8238c6f61cb",
+      "bytes": 25293
+    },
+    {
+      "path": "lib/business-deletion-files.ts",
+      "sha256": "bb2bc25db510a014d48c3e3dff35299ba8b904240de2b6d7013398151210b798",
+      "bytes": 8831
+    },
+    {
+      "path": "lib/business-deletion-jobs.ts",
+      "sha256": "bfb3fa2b7a9f67d366e7ce2c5af56e2cca2d92adb483428fedf8638d034512b6",
+      "bytes": 10018
+    },
+    {
+      "path": "lib/business-deletion-native-evaluations.ts",
+      "sha256": "068d39646e007f282829b0ca440b715731509317cbc55e28e57628cd9c1cc615",
+      "bytes": 5320
+    },
+    {
+      "path": "lib/business-deletion-reference-indexes.ts",
+      "sha256": "5747ba0c08f9a16d0c9dd2255794e51816e791dc93e24426f8242bfba2e460c4",
+      "bytes": 16450
+    },
+    {
+      "path": "lib/business-deletion.ts",
+      "sha256": "f89f14d2d27e03533fb577eff379e7a6e05f9975fa9089485ddf503a3b5ebe04",
+      "bytes": 64712
+    },
+    {
+      "path": "lib/creative-decision-engine/ad-backtest-store.ts",
+      "sha256": "1c14c631de03e2f69ce04215dc03327f2666a0ae718a99f77be183b71fcbe59f",
+      "bytes": 29948
+    },
+    {
+      "path": "lib/creative-decision-engine/ad-evaluation-schema.ts",
+      "sha256": "34bf1e1e39949854af4b5822ec7b64462d15046ab5d1bd088b7a154d227bbbde",
+      "bytes": 37047
+    },
+    {
+      "path": "lib/creative-decision-engine/canonical-evaluation.ts",
+      "sha256": "96c102258a5f96a3a77852cb2d5f888ddafffec23a7ba4ddcbc1b7c7ff9ceb45",
+      "bytes": 39990
+    },
+    {
+      "path": "lib/creative-decision-engine/decision-stability.ts",
+      "sha256": "88ba0cd351abd56f2e0aebfc3913e1a38273b3d42bf7fe182293a0a77d15f65d",
+      "bytes": 16492
+    },
+    {
+      "path": "lib/creative-decision-engine/evaluation-store.ts",
+      "sha256": "4ccbf66efc034fe8de397319b6905886a53cd7759694c7f6317fbae6e36027d8",
+      "bytes": 71807
+    },
+    {
+      "path": "lib/creative-decision-engine/gates/diagnose.ts",
+      "sha256": "0a1ad40ed06f4bb9d976657f9ad4f5510e4c031c35995a8dae30d673f576bc1c",
+      "bytes": 13908
+    },
+    {
+      "path": "lib/creative-decision-engine/jobs/ad-decision-outcomes-job.ts",
+      "sha256": "50b569567473057c316afe84926ff001fb2dabab3410694e7c8d1bfb8619a865",
+      "bytes": 182544
+    },
+    {
+      "path": "lib/creative-decision-engine/jobs/ad-decisions-job.ts",
+      "sha256": "3d57f556719baf8b928ec6399c6315774bfce787bbcd95158e470e85524864d0",
+      "bytes": 153108
+    },
+    {
+      "path": "lib/creative-decision-engine/jobs/ad-operator-response-job.ts",
+      "sha256": "a14bd8b1f88e9f203bdfd11d091e1e7c7401714323962d606e0fd93a91010d0a",
+      "bytes": 163201
+    },
+    {
+      "path": "lib/creative-decision-engine/jobs/advisory-lock.ts",
+      "sha256": "8efc2124a15dcc5e8125140bc063a9e97a781f48068e0aa7004bf3afdbe3b1d7",
+      "bytes": 499
+    },
+    {
+      "path": "lib/creative-decision-engine/jobs/native-decision-reuse.ts",
+      "sha256": "1261dc1adcc888063cd31e13cca75ad040358f2a1f1ff3ae6c6816766dd106ef",
+      "bytes": 15625
+    },
+    {
+      "path": "lib/creative-decision-engine/native-archive-pin-census.ts",
+      "sha256": "cc7506a6989245cd8159a37292e9385426e7679d6a15eed9013cafd92f533e97",
+      "bytes": 14868
+    },
+    {
+      "path": "lib/creative-decision-engine/native-archive-root-codec.ts",
+      "sha256": "29053ecdaea1cfd3d35d07f905dad974bfddacbaf3ab41ef1377f7f31123f20a",
+      "bytes": 3284
+    },
+    {
+      "path": "lib/creative-decision-engine/native-calibration-parent-archive.ts",
+      "sha256": "d6cc15cc78cb9a8d70a5a7f7d76bc43c0ae2ca37258909f98c95fa97e52a259c",
+      "bytes": 20791
+    },
+    {
+      "path": "lib/creative-decision-engine/native-campaign-context-storage.ts",
+      "sha256": "1792d9aea3a50bfc2cacbf8340a77605ff33fa56e743d6e984e1496331042e34",
+      "bytes": 7581
+    },
+    {
+      "path": "lib/creative-decision-engine/native-campaign-context-writer.ts",
+      "sha256": "8495f650d9aa94f0eeeae743ad99c7e8653ff5c5287fc7c43a6c6d2528c1d536",
+      "bytes": 6184
+    },
+    {
+      "path": "lib/creative-decision-engine/native-evaluation-context-unit.ts",
+      "sha256": "ac91f312ac9b24c8135713f54dfcdffbc88ab0b1bed164614b220d150246894a",
+      "bytes": 19519
+    },
+    {
+      "path": "lib/creative-decision-engine/native-evidence-archive.ts",
+      "sha256": "8d27f0f16342c1cfb88c11f15cd56ceb4c9d81fb881358c23d536c730092f34a",
+      "bytes": 21466
+    },
+    {
+      "path": "lib/creative-decision-engine/native-finite-storage-lifecycle.ts",
+      "sha256": "27c71822c87fe39e3a1626499d4ef39905bb4120a4b422ab2a30f4694ff21264",
+      "bytes": 14172
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-archive-reader.ts",
+      "sha256": "eec383db3846db6d062eb2ea622fa419338827a8dc497b27d5db265e23339ccb",
+      "bytes": 10694
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-archive-worker-client.ts",
+      "sha256": "ce5190af3e3476a8862194bb5ea5a72096186db694e994d66fad2c53e3f70371",
+      "bytes": 4126
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-archive-worker.ts",
+      "sha256": "1670f1f19c44a964177e3e3d31c09cd8a5564942279f7390bf860f92afc48348",
+      "bytes": 1164
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-archive.ts",
+      "sha256": "cf5d354894f946095e3487aca2de7ced394c2080458664728e94c2cd1e44f3ba",
+      "bytes": 28176
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-catalog-routing-store.ts",
+      "sha256": "63c23a11153532ec9812a69a18f66ee18e9a31c793f4258b186f0ae93c0b2457",
+      "bytes": 7988
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-catalog-routing.ts",
+      "sha256": "9af72bc87d92dfb1ec5c45da53c5ed6757e935abd99aa127defd8678ecfbe6ba",
+      "bytes": 17812
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-local-store.ts",
+      "sha256": "da7f6520d658bd5cc16f5dc0e583af625c4c1a2d7d3c368bfceacd36b1e252e3",
+      "bytes": 9497
+    },
+    {
+      "path": "lib/creative-decision-engine/native-historical-read-controls.ts",
+      "sha256": "33796ce5a7b405e50c8ebbc1ed93b1f1d1c50c521d6726181ed67c8d8b61dc6d",
+      "bytes": 12563
+    },
+    {
+      "path": "lib/creative-decision-engine/native-job-evaluation-selection.ts",
+      "sha256": "cf3efd3e9d053dbdd1c04cd3c4423fe1d0dd365a9be75efcdf954f10ef513d31",
+      "bytes": 4272
+    },
+    {
+      "path": "lib/creative-decision-engine/native-job-snapshot-selection.ts",
+      "sha256": "10c176341cf3c04bb7c730f30ded75de46378e5251b5da2dbdb646c63d384a20",
+      "bytes": 4485
+    },
+    {
+      "path": "lib/creative-decision-engine/native-reference-archive-segments.ts",
+      "sha256": "7713a27e13bdd4f58cf15588c92a2f40e7df1b5c1936da00f417d12e0a89ca3f",
+      "bytes": 14075
+    },
+    {
+      "path": "lib/creative-decision-engine/native-tenant-catalog-store.ts",
+      "sha256": "d3dd9c48b7daf4d618dc79ebbc60a842373e5582b67410e313ffd26de5d74c92",
+      "bytes": 7326
+    },
+    {
+      "path": "lib/creative-decision-engine/native-tenant-catalog.ts",
+      "sha256": "def8436faeb6a9a8cdf7f3e943a6064f45eceb5902b238d3882719cd7b802b42",
+      "bytes": 8626
+    },
+    {
+      "path": "lib/creative-decision-engine/types.ts",
+      "sha256": "a6a59b804f70cdfc060d48eadf1b95c02237cf557d4672fbd1e5886a65136b1b",
+      "bytes": 46806
+    },
+    {
+      "path": "lib/db.ts",
+      "sha256": "315860d12c3fc92da2f22ae6b84cdf3d4a40945750f3a4a61f1155d74f3798ec",
+      "bytes": 40780
+    },
+    {
+      "path": "lib/meta/ads-action-log.ts",
+      "sha256": "1ba6c4c9cf955f2dbadd4282d8005551d10a830454c16b26b299f14c7bfa7006",
+      "bytes": 192927
+    },
+    {
+      "path": "lib/meta/assigned-account-states.ts",
+      "sha256": "d2a66e55c68b2468c610097b38b7362b42644a190b30454ab90e81026ee1bfd1",
+      "bytes": 7895
+    },
+    {
+      "path": "lib/meta/automation-proposals.ts",
+      "sha256": "d4b86ed7f8a443b7a009e40f3c8b08affae269df85948433caba9f4cba0b63d2",
+      "bytes": 117126
+    },
+    {
+      "path": "lib/meta/campaign-label-guard.ts",
+      "sha256": "9f3282e093c25daa0bd6489ffc8c91d21df1cf8db5b4c3d47c053e02f69a1117",
+      "bytes": 36550
+    },
+    {
+      "path": "lib/meta/controlled-experiment-registry.ts",
+      "sha256": "a4767ac7b9acbc8203cd59ae3d407f175144f45d91452d867349e901bcd49040",
+      "bytes": 266542
+    },
+    {
+      "path": "lib/meta/decisions-workspace-contract.ts",
+      "sha256": "e326ca1e9d9639cbc1ed26a0d9a83e4e656128b98243f0b3c255e29789339e5b",
+      "bytes": 26050
+    },
+    {
+      "path": "lib/meta/decisions-workspace-read-model.ts",
+      "sha256": "576d23574f06e58eeaeb2d3f6e699d50d52dfc614fac65136d7d6c1815cbf36d",
+      "bytes": 261552
+    },
+    {
+      "path": "lib/meta/native-config-action-authority.ts",
+      "sha256": "c2007b19a66275ca9982d918eeec680d17642c6a71fae4590374bd8d11f38057",
+      "bytes": 7209
+    },
+    {
+      "path": "lib/meta/native-decision-workflow-source.ts",
+      "sha256": "bf990c68da2ebc4fee5580741ca18470d551b2b12184ad84219bcfee0bfc6e9c",
+      "bytes": 2095
+    },
+    {
+      "path": "lib/migration-verification.ts",
+      "sha256": "f4bf802a79cdb3e32d82e74b0e0928e613fcf92af4f85c8c150c07099214ffb3",
+      "bytes": 46690
+    },
+    {
+      "path": "lib/migrations.ts",
+      "sha256": "1c835324802c9c9774721c1fff1a30422c127717e611be13229e6cb896894425",
+      "bytes": 850616
+    },
+    {
+      "path": "lib/native-cold-erasure.ts",
+      "sha256": "a8b488e74448cffbcff84c163ffe6edf885337cdb697d5c7ab5b9f4dcf8d23fc",
+      "bytes": 10377
+    },
+    {
+      "path": "lib/native-cold-owner-status.ts",
+      "sha256": "e00519543db22c9f1b4e8ccfed4ecf2dabee16e05d82869a6320ccfb000eda5d",
+      "bytes": 2755
+    },
+    {
+      "path": "lib/native-cold-session.ts",
+      "sha256": "09616b46706426e776f73bc6b8294610097ef491b2b584e2c180e91fddd15dd4",
+      "bytes": 2036
+    },
+    {
+      "path": "lib/native-tenant-erasure.ts",
+      "sha256": "ecb8f3b0b84aebc6301c79e42533a7b8e77fbb0548082769b2a73427f0eb96ab",
+      "bytes": 20420
+    },
+    {
+      "path": "lib/sync/db-growth-fence.ts",
+      "sha256": "f1f8d99615ca5de0a24c13cfd30f66c38fa57660e8dbb182e89bc91db3b91bb5",
+      "bytes": 53183
+    },
+    {
+      "path": "lib/sync/global-kill-switch.ts",
+      "sha256": "ee2cf0231e53cfb438fb14244025e2222a8b85332d9dd3793ea9555ed23d48fe",
+      "bytes": 7176
+    },
+    {
+      "path": "lib/sync/native-reusable-heap.ts",
+      "sha256": "f4474871395b63cd18d980646ccc64a09cc18e81c0fab3f46ba49b0792cd17cb",
+      "bytes": 3126
+    },
+    {
+      "path": "lib/sync/native-storage-maintenance-admission.ts",
+      "sha256": "9003be939c8c828a78b005f49e9d76993c51fb97cc7bf99ef29a1ab4f976a1f0",
+      "bytes": 9439
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "b96113a2afa6314035b27791b13539dbe191c2bac247edd418f1ea943b7f6f99",
+      "bytes": 425662
+    },
+    {
+      "path": "package.json",
+      "sha256": "88ac626a28598ac495419836f9b42e331c927bb4c78b58ae90b3cbadfa355609",
+      "bytes": 23780
+    },
+    {
+      "path": "scripts/audits/d077-production-recovery-readonly-preflight.ts",
+      "sha256": "d6295aec4b16c86a2e3e0f11c02450203874d7f4fe628d9878188c088f99d7dc",
+      "bytes": 30786
+    },
+    {
+      "path": "scripts/audits/d078-hard-action-recompute.ts",
+      "sha256": "ecbd3d738ff400cc28b014d3ff80c9222f8940c16dae3971fc272d515c1027d5",
+      "bytes": 16479
+    },
+    {
+      "path": "scripts/audits/d078-lattice-seed.ts",
+      "sha256": "2bc7fc236274a65c3a6317c587756cfcb456c94da6493d3dbc18d21477903b63",
+      "bytes": 26191
+    },
+    {
+      "path": "scripts/audits/d078-six-business-evidence-bundle.ts",
+      "sha256": "a6d28cbafe659e799ca5d72ab26bff5b10f40f04da924544076bffa422c2fd57",
+      "bytes": 40580
+    },
+    {
+      "path": "scripts/audits/d080-meta-budget-edit-evidence.ts",
+      "sha256": "4fb1398412384b5e08dcac4e79336c4ee3db19bdd9e07f7bf451a89ce26230f9",
+      "bytes": 369070
+    },
+    {
+      "path": "scripts/audits/d080b-meta-budget-policy-simulation.ts",
+      "sha256": "52b11d96e1fa8e596f84d04a07feb922b3113d082c0963ed65db4e33b323ecc9",
+      "bytes": 153182
+    },
+    {
+      "path": "scripts/build-native-historical-worker.mjs",
+      "sha256": "8d80d19f1bb8bd6740baf09d786a56064ed7252261036846fef25fd6f9a9e645",
+      "bytes": 1524
+    },
+    {
+      "path": "scripts/business-archive-erasure-worker.ts",
+      "sha256": "244d59a6e24203cb0b4175f7dafc087d261129dce8f6ca61c572e0c5d09e9ffe",
+      "bytes": 2632
+    },
+    {
+      "path": "scripts/creative-decision-center/meta-decisions-creatives-acceptance.ts",
+      "sha256": "5cf3d7d4d8e66dfdc9990deaf823a3bcd4395741a10065700b14bab3e7c6c812",
+      "bytes": 114783
+    },
+    {
+      "path": "scripts/creative-decision-center/native-ad-account-aov-authority-replay.ts",
+      "sha256": "18da970b6961e6ea4cd7da4e911bed979b5880e2bd146e7a3f09c84b3f29de63",
+      "bytes": 303046
+    },
+    {
+      "path": "scripts/creative-decision-center/native-ad-canary-recompute.ts",
+      "sha256": "4c5a8acc28ec9f29fa26a8226df789095f76e987c3a5efd6414b2e827d38f57b",
+      "bytes": 15212
+    },
+    {
+      "path": "scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts",
+      "sha256": "da8a6ad61584d3920b1d9197961b32008b2b872d82c3a5e672f9782b7b3d4f3e",
+      "bytes": 119533
+    },
+    {
+      "path": "scripts/creative-decision-center/native-ad-repair-differential-replay.ts",
+      "sha256": "86d84610986da4986d98b4bdaa863a97801bad3c7e4a64507fb6d76e2bf0ca3b",
+      "bytes": 61063
+    },
+    {
+      "path": "scripts/ephemeral-postgres-controlled-experiment-registry-seam-child.ts",
+      "sha256": "db0c9c72ae017e99ff5fbb8b73729970d79b9221fa2a501fc38ba27f3d7cb9b5",
+      "bytes": 54016
+    },
+    {
+      "path": "scripts/ephemeral-postgres-migrations-check.ts",
+      "sha256": "4b0bf94857b3fca51f1089202cc5a8cd6fac6b80955697a026366a18770c110c",
+      "bytes": 170293
+    },
+    {
+      "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
+      "sha256": "09beaea7658a6e742579752be25421577430ec8d83c8fba7cdbaf4f926cb7932",
+      "bytes": 170431
+    },
+    {
+      "path": "scripts/ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
+      "sha256": "ca12482aa4d33de9d3f1615cacdb7cc2effee1baf049503fad4ba13101e44934",
+      "bytes": 140139
+    },
+    {
+      "path": "scripts/ephemeral-postgres-state-history-compaction-seam-child.ts",
+      "sha256": "4d1cdf4f947d95c1aaedb81d7377b601cd437b1c84ff050eec1d93d05a1057ac",
+      "bytes": 53236
+    },
+    {
+      "path": "scripts/fixtures/business-archive-erasure.ts",
+      "sha256": "4abdf0a092ae2405b18f0b9e7d5ede4f10272288d7aac60ce672d2232a551f30",
+      "bytes": 6904
+    },
+    {
+      "path": "scripts/generate-native-reference-worker-fixture.ts",
+      "sha256": "2d8c22e628f3263a5375f5a1696e11f359474a5a79537867d23b3db915d41ce9",
+      "bytes": 4140
+    },
+    {
+      "path": "scripts/generate-native-segmented-reference-worker-fixture.ts",
+      "sha256": "29511a39e1e0068be1e05fe11e4bdfe8498182b39ee5541b4889e11b8af6b4ca",
+      "bytes": 4447
+    },
+    {
+      "path": "scripts/native-archive-pin-census-seam.ts",
+      "sha256": "832d3631403fc3714b7523ade55dfb5f80d0b3e96043e870f7f3fe4ce631b120",
+      "bytes": 10365
+    },
+    {
+      "path": "scripts/native-archive-production-schema-seam.ts",
+      "sha256": "97e7b70741041e65602bf323bc8e964e6abf311eb9dfc6a6e8334c1c11e9a727",
+      "bytes": 43979
+    },
+    {
+      "path": "scripts/native-calibration-parent-archive-seam.ts",
+      "sha256": "b8fb77a25eb1f45c5626781929782fe1aeec36973dc010860dc19fbb5a23da50",
+      "bytes": 23028
+    },
+    {
+      "path": "scripts/native-campaign-context-storage-seam.ts",
+      "sha256": "b18f25aaded8db601fcb17ac1074e05cac4359c663863414c9069a3f338d5847",
+      "bytes": 14583
+    },
+    {
+      "path": "scripts/native-campaign-context-writer-seam.ts",
+      "sha256": "db02295af36eb47435b7f90ab0a64a57f03a6eb8ee1142f6615a72590916945a",
+      "bytes": 17486
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/child.ts",
+      "sha256": "9297c0a32b48d4c9d836b72589776bcdf0a4bf12e17bace461070a07a0baa89d",
+      "bytes": 3379
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/controller.ts",
+      "sha256": "f2c0726029a45a96d6f510593df99a4e08d4311598b513cfd320f361b3f9849e",
+      "bytes": 16920
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/files.ts",
+      "sha256": "81cd2fbc653cf5986769b4a5d492061dd6db96dc1b59af85f38176beb3389980",
+      "bytes": 3061
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/gate.ts",
+      "sha256": "631fdcf2cd4b7ef8c2c5e6fc6ae1977d2ff885d1c789280ef406f61c2a89c9e5",
+      "bytes": 7710
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/http.ts",
+      "sha256": "1418951cc017838c78ecb754019ef9daefb8da5f09e31b102f41ddfff566e7fc",
+      "bytes": 11266
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/install-app.py",
+      "sha256": "98a4fd57dab7dc972bbcffd11d63830696500ccc8baccc986f5755b1aaa21c89",
+      "bytes": 7555
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/install-db.py",
+      "sha256": "0d514d9dbfe4dc2d7db4fcab352e0a4e017f547bbe359478df907e169b279f74",
+      "bytes": 4236
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/install_common.py",
+      "sha256": "595cc6038f9a2f67784f5998ba01dab691b906991297c985a89699785a965c50",
+      "bytes": 1806
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/inventory.ts",
+      "sha256": "8c8566e5b315b32770e1f31196dbb3f1918a96d49daf8c81966394f6c678745e",
+      "bytes": 3577
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/mirror-endpoint.py",
+      "sha256": "306ccde78c4b5b60b31a6b2a9ef4b986ba8b79cd51908111e6d524246506c282",
+      "bytes": 3477
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/mirror-replica.py",
+      "sha256": "ec83377e81c6dfcbd71d9b29b6751aab1b9d8e7f84a4aa48e973a10ce38898dc",
+      "bytes": 16499
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/mirror_protocol.py",
+      "sha256": "28f7c36c53c645931c55b8a1e1111ee18aa58ea38f6753696f5d02fa784b987f",
+      "bytes": 9079
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/private-original.ts",
+      "sha256": "199b65b1cb46f4de865860ec427c368004f43d04b2434be82521d6116fb8a51d",
+      "bytes": 7912
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/private-restore.ts",
+      "sha256": "ebe85fea99752483aa1c6ea86e86c078aeb596e9e569756775ca9d3a2541e891",
+      "bytes": 8009
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/replica.ts",
+      "sha256": "979d236136238a145c99e8d2ffbb0c997439c4ae610f0c54d0c700f08367c12d",
+      "bytes": 6332
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/routing.ts",
+      "sha256": "4fd7c6d8e9d458b90f2bc8fcac588c08b67c2be8f86d85574ac0af519634b486",
+      "bytes": 10782
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/runtime_probe.py",
+      "sha256": "bcf6463c3374a4928668d163feb9cf3a41026f11500fabff88126c2c268a0c9f",
+      "bytes": 3667
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/types.ts",
+      "sha256": "0afd0042c2b6a4221081e72cabe59fab7673a04cfe7c705e21eefec696de82e0",
+      "bytes": 2817
+    },
+    {
+      "path": "scripts/native-cold-lifecycle/unit-child.ts",
+      "sha256": "42de3f61549bb350a55b3845a4152467822bc52f9c2cf35f1df0a999e91c4519",
+      "bytes": 8117
+    },
+    {
+      "path": "scripts/native-evidence-archive-seam.ts",
+      "sha256": "19988cc76c5528a084794bdabbb09646be8b5897015068cece4ee78c3546f2f2",
+      "bytes": 13074
+    },
+    {
+      "path": "scripts/native-proposal-lifecycle-fixtures.ts",
+      "sha256": "e2ab6c375e45cf41b88212ecc446df8b7f0a47e45c216514a237182cee5437d2",
+      "bytes": 14546
+    },
+    {
+      "path": "scripts/native-reference-archive-seam.ts",
+      "sha256": "6cce86a9587ad5e6f6796ab933da82e89da597ece531cebaa3213351c99c2ae3",
+      "bytes": 31328
+    },
+    {
+      "path": "scripts/native-storage-batch/archive-engine-eligibility.ts",
+      "sha256": "0b9ea05e57c8d679455d43ef234301f3812df53e694fedf3defdf893971faa0b",
+      "bytes": 1779
+    },
+    {
+      "path": "scripts/native-storage-batch/backend.ts",
+      "sha256": "e2e2dadc242ad0c457b67d3edfbd536b338c227561237cb1a15b7840e1934bed",
+      "bytes": 37589
+    },
+    {
+      "path": "scripts/native-storage-batch/capture.ts",
+      "sha256": "b18657fd44980fcc671d31f953f9f8331b8eca484706dead89d2446a483173ab",
+      "bytes": 46529
+    },
+    {
+      "path": "scripts/native-storage-batch/cli.ts",
+      "sha256": "1cdbafe61cf797626d78d29be4b420ab9b1122703ea2162e7e970e2ca5104271",
+      "bytes": 19649
+    },
+    {
+      "path": "scripts/native-storage-batch/common.ts",
+      "sha256": "193175e3a44d8ed465c6b51928a7bc6c1d1edd0742011e2986440c6b3abcc7c3",
+      "bytes": 6733
+    },
+    {
+      "path": "scripts/native-storage-batch/http-proof.ts",
+      "sha256": "a35f4735d97c250d53509985b278ee68f97c123cba5a24232a14848a848910d2",
+      "bytes": 6015
+    },
+    {
+      "path": "scripts/native-storage-batch/input-evidence-lifecycle-pg.ts",
+      "sha256": "499a16a05b926a1eec735c9c2c9b7cb1f12bd64b3a2f47e13f5f2906c90d0085",
+      "bytes": 53691
+    },
+    {
+      "path": "scripts/native-storage-batch/input-evidence-lifecycle.ts",
+      "sha256": "b4fa159687108185c68c18c94e700e7c8600e90d2cc1491afa4e619cf5ab4093",
+      "bytes": 15239
+    },
+    {
+      "path": "scripts/native-storage-batch/journal.ts",
+      "sha256": "99aa674aa7a0c5a09addd16fd599219209cee4b9b706fe314a171f2c95ea8438",
+      "bytes": 7616
+    },
+    {
+      "path": "scripts/native-storage-batch/maintenance-settlement.ts",
+      "sha256": "fb2bcd79ccd2c8a8a18decb227572d1e41a1190b80bff77e1024fa320a6e9408",
+      "bytes": 15369
+    },
+    {
+      "path": "scripts/native-storage-batch/maintenance.ts",
+      "sha256": "e4029c1bc04e03524209a52d2d4414df06af2c535a4bb6b175ea16af8e82aa11",
+      "bytes": 24545
+    },
+    {
+      "path": "scripts/native-storage-batch/native-producer-idle.ts",
+      "sha256": "fd1b2a2f60c01a002873bd4563bef80b7582ee8518ed0e0d9e842c5297d654d0",
+      "bytes": 4379
+    },
+    {
+      "path": "scripts/native-storage-batch/operator-ownership.ts",
+      "sha256": "5054ccd166bf394c880a2406b32ac8ed9f0d57373287e765f8e52d7628315329",
+      "bytes": 54931
+    },
+    {
+      "path": "scripts/native-storage-batch/owned-e2e.ts",
+      "sha256": "8da089f65cd7caa9b45d1d51059fd5b095f00f60be2a7bfebe0f27d397908e73",
+      "bytes": 35000
+    },
+    {
+      "path": "scripts/native-storage-batch/owned-fixture.ts",
+      "sha256": "8a32bc07742d66ab0612fbe8c098092c6d56fd4e492e2beb5447fc146f49abe0",
+      "bytes": 12591
+    },
+    {
+      "path": "scripts/native-storage-batch/production-actor.py",
+      "sha256": "02d62779b11af704c31bfcf54207ee140fff40ad618be4f3c28c78af36a60ccb",
+      "bytes": 60614
+    },
+    {
+      "path": "scripts/native-storage-batch/production-cli.ts",
+      "sha256": "fa6e80b9cdc43497db665619569000071e3353fb4286931fc3a115750e777c91",
+      "bytes": 17832
+    },
+    {
+      "path": "scripts/native-storage-batch/production-fixture-e2e.ts",
+      "sha256": "e98714714b67add0a6aa5be8432dde1eeed8d40a81baaa03bb1182f873205ec7",
+      "bytes": 87422
+    },
+    {
+      "path": "scripts/native-storage-batch/production-transport.ts",
+      "sha256": "c73c5af20815d3c0084b54abd8f9189a73d31da70dca4b0477778d053f602dcd",
+      "bytes": 56326
+    },
+    {
+      "path": "scripts/native-storage-batch/restore.ts",
+      "sha256": "9c02e55701a1c6143f141391ce55bf789928b587e2c8abcef15feeeff6ecf095",
+      "bytes": 10000
+    },
+    {
+      "path": "scripts/native-storage-batch/retire.ts",
+      "sha256": "cfec62ab1fc9a639248090f7ba5c8b7dc9d2cc8d114ca5a067677aaeb829896a",
+      "bytes": 24774
+    },
+    {
+      "path": "scripts/native-storage-batch/rw-unit-inventory.ts",
+      "sha256": "9827a3633884b1b4d59f3902c8b9bcd79973ebb6c12b1820764a2806c4b4be03",
+      "bytes": 25064
+    },
+    {
+      "path": "scripts/native-storage-batch/source-pack.ts",
+      "sha256": "109b15ff45ba0c1545d14fb23bd318b784f72696837f15d619cdc126a15549c0",
+      "bytes": 6235
+    },
+    {
+      "path": "scripts/native-storage-batch/stage-entry.ts",
+      "sha256": "5d98fcdd0410eaff8cb42afdac841feee68691057f2087c871e5db68f543c99f",
+      "bytes": 20092
+    },
+    {
+      "path": "scripts/run-migrations.ts",
+      "sha256": "2219ae072819223d5bb5631bd8cbd33a7ae5961542f1b60d88f9608140cd1d2c",
+      "bytes": 2846
+    },
+    {
+      "path": "scripts/verify-native-historical-worker-package.mjs",
+      "sha256": "4a4c75ad52a903d944580f0762c865d804c7aacabe8e19cb3b49361e99f004cf",
+      "bytes": 4644
+    }
+  ],
+  "sourceInventorySha256": "4fc2add5a34b2933878ff54386affde0bb70308b1338bf47cd833cdcf432189f"
+}

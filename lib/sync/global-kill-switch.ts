@@ -29,8 +29,8 @@
  *    a host that starts before the operator sets anything resumes writing.
  *  - Lanes are individually addressable AND globally addressable. Enabling
  *    "sync" must not silently enable retention.
- *  - Retention is separate and stays off by default even when everything else
- *    is on, because it is the only path that deletes.
+ *  - Broad retention and lossless native archival are separately admitted and
+ *    stay off by default even when provider ingestion is on.
  *  - An unparseable value disables. A typo must not read as permission.
  */
 
@@ -49,7 +49,9 @@ export const SYNC_LANES = [
   "cron_enqueue",
   /** Account selection mutation, which changes what everything else acts on. */
   "assignment_mutation",
-  /** The only path that deletes. Deliberately last and deliberately separate. */
+  /** Lossless native original archival only; broad retention stays separate/off. */
+  "native_archive",
+  /** Broad destructive retention. Deliberately last and separately admitted. */
   "retention",
 ] as const;
 

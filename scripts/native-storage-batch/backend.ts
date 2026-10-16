@@ -9,7 +9,7 @@ import { buildNativeHistoricalCatalogRouting, NativeHistoricalCatalogRouter, NAT
   type NativeHistoricalMetadataKind } from "../../lib/creative-decision-engine/native-historical-catalog-routing";
 import { persistLocalNativeHistoricalRouting, readLocalNativeHistoricalMetadata } from "../../lib/creative-decision-engine/native-historical-catalog-routing-store";
 import { openImmutableNativeHistoricalArchiveCatalog } from "../../lib/creative-decision-engine/native-historical-archive";
-import { BatchRefusal, canonicalSha, need, pad, privateDirectory, readExact, same, sha256, sortedEntries, writeExclusive } from "./common";
+import { BatchRefusal, canonicalSha, need, pad, privateDirectory, readExact, same, sha256, sortedEntries, writeExclusive, UNIT_CONFIG_CONTRACT } from "./common";
 import { toastObservationAcknowledged, toastObservationEvidence } from "./maintenance";
 import { producerExclusionKey } from "./input-evidence-lifecycle";
 import type { UnitConfig } from "./capture";
@@ -76,7 +76,8 @@ export class OwnedHostBatchBackend implements NativeStorageBatchBackend {
   async frozenConfig(u: NativeStorageBatchUnit): Promise<UnitConfig> {
     const bytes = await readExact(join(this.batchDir, "units", `${u.generation.jobRunId}.config.json`), 4 * MiB);
     const config = JSON.parse(bytes.toString("utf8")) as UnitConfig;
-    need(canonicalSha(config) === u.originalProofSha256 && same(config.generation, u.generation) &&
+    need(config.contract===UNIT_CONFIG_CONTRACT&&config.archiveMetadataEncoding===undefined&&config.archiveObjectLayout===undefined&&
+      canonicalSha(config) === u.originalProofSha256 && same(config.generation, u.generation) &&
       config.evaluations === u.evaluations && config.contexts === u.contexts, "EXACT_FROZEN_UNIT_CONFIG");
     return config;
   }

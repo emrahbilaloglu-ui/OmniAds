@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { FENCED_TABLES, type DbGrowthFenceDecision } from "../db-growth-fence";
 import { assessNativeStorageMaintenanceAdmission, type NativeStorageMaintenanceEvidence } from "../native-storage-maintenance-admission";
 import { deriveNativeReusableHeapAccounting } from "../native-reusable-heap";
+import { assessCompactNativeStorageMaintenanceAdmission,COMPACT_NATIVE_STORAGE_SCOPE } from "../native-storage-maintenance-admission";
+import { NATIVE_ARCHIVE_ROOT_ENCODING } from "../../creative-decision-engine/native-archive-root-codec";
+import { NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT } from "../../creative-decision-engine/native-historical-archive";
 
 const now = Date.parse("2026-10-05T04:05:22Z"), at = new Date(now - 5000).toISOString(), GiB = 1024 ** 3;
 function fixture() {
@@ -25,6 +28,29 @@ function fixture() {
   return { business, evidence, expectedDatabaseBudgetBytes: 163 * GiB, nowMs: now };
 }
 describe("separate native maintenance admission", () => {
+  function compactFixture(){const f=fixture();return {...f,evidence:{...f.evidence,originalRows:2517,
+    scopeContract:COMPACT_NATIVE_STORAGE_SCOPE,archiveMetadataEncoding:NATIVE_ARCHIVE_ROOT_ENCODING,
+    archiveObjectLayout:NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT,originalProofSha256:"c".repeat(64),
+    appVolume:{observedAt:at,availableBytes:10*GiB,minimumFreeBytes:8*GiB},
+    replicaVolume:{observedAt:at,availableBytes:20*GiB,minimumFreeBytes:16*GiB}}};}
+  it("requires a separate compact contract and independent app/replica reserve for a measured large original",()=>{
+    const f=compactFixture(),before=JSON.stringify(f.business);
+    expect(assessNativeStorageMaintenanceAdmission(f).admitted).toBe(false);
+    expect(assessCompactNativeStorageMaintenanceAdmission(f)).toMatchObject({admitted:true,contract:"native-storage-maintenance-admission.v2",businessAllowed:false});
+    expect(JSON.stringify(f.business)).toBe(before);
+    f.evidence.originalRows=3201;expect(assessCompactNativeStorageMaintenanceAdmission(f).admitted).toBe(false);
+  });
+  it.each(["encoding","layout","proof","app","replica","staleReplica","override"])("refuses unsupported compact scope or reserve: %s",field=>{
+    const f=compactFixture();
+    if(field==="encoding")Object.assign(f.evidence,{archiveMetadataEncoding:"unknown"});
+    if(field==="layout")Object.assign(f.evidence,{archiveObjectLayout:"unknown"});
+    if(field==="proof")f.evidence.originalProofSha256="invalid";
+    if(field==="app")f.evidence.appVolume.minimumFreeBytes=2*GiB;
+    if(field==="replica")f.evidence.replicaVolume.availableBytes=16*GiB;
+    if(field==="staleReplica")f.evidence.replicaVolume.observedAt=new Date(now-60001).toISOString();
+    if(field==="override")f.business.overridden=true;
+    expect(assessCompactNativeStorageMaintenanceAdmission(f).admitted).toBe(false);
+  });
   function reusableFixture() {
     const f = fixture();
     f.business.databaseAccounting = deriveNativeReusableHeapAccounting(f.business.databaseBytes!, {

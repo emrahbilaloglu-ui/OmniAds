@@ -77,6 +77,7 @@ ENV APP_BUILD_ID=$APP_BUILD_ID
 ENV ADSECUTE_IMAGE_BUILD_ID=$APP_BUILD_ID
 ENV SYNC_WORKER_MODE=1
 COPY --from=builder /build/package.json /build/package-lock.json /app/
+COPY --from=builder /build/Dockerfile /build/docker-compose.yml /build/.dockerignore /app/
 COPY --from=deps /build/node_modules /app/node_modules
 COPY --from=builder /build/app /app/app
 COPY --from=builder /build/lib /app/lib

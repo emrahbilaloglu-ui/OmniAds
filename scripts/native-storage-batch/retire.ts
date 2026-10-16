@@ -3,6 +3,9 @@ import { DEPENDENT_ROWS_SQL, RETAINED_DEPENDENTS_CONTRACT, TERMINAL_NOOP_DEPENDE
 import { readUnitTransactionInventory } from "./rw-unit-inventory";
 import { BYTE_PRESERVED_TABLES, CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, EXPECTED_INCOMING_FKS, INPUT, NATIVE_JOB, NON_FK_CLASSES,
   NON_FK_TABLES, RETIRED_UNIT_CONFIG_CONTRACTS, SHA, UNIT_CONFIG_CONTRACT, UUID, canonicalSha, exactIds, need, rowSetHash, same, sha256 } from "./common";
+import { COMPACT_UNIT_CONFIG_CONTRACT, COMPACT_UNIT_MAX_EVALUATIONS } from "./common";
+import { NATIVE_ARCHIVE_ROOT_ENCODING } from "../../lib/creative-decision-engine/native-archive-root-codec";
+import { NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT } from "../../lib/creative-decision-engine/native-historical-archive";
 import { INPUT_EVIDENCE_LIFECYCLE, acquireProducerExclusion, compareKeys, frozenRowSha, globalZeroReferenceKeys, keyedDigest,
   liveReferenceCount, producerExclusionHeld, producerExclusionKey, readInputEvidenceCatalog, readInputRows, releaseProducerExclusion,
   requireReferenceIndex, verifyFrozenInputRows, type InputEvidenceConfig, type ProducerExclusion } from "./input-evidence-lifecycle";
@@ -23,9 +26,11 @@ type FrozenInput = UnitConfig & { inputEvidence: InputEvidenceConfig };
 type Key = [string, string];
 export function unitScope(config: UnitConfig, proofSha256: string) {
   need(!(RETIRED_UNIT_CONFIG_CONTRACTS as readonly string[]).includes(config?.contract), "RETIRED_UNIT_CONFIG_NOT_EXECUTABLE");
-  need(config?.contract === UNIT_CONFIG_CONTRACT && canonicalSha(config) === proofSha256, "EXACT_FROZEN_UNIT_CONFIG");
+  const compact=config?.contract===COMPACT_UNIT_CONFIG_CONTRACT;
+  need((compact?config.archiveMetadataEncoding===NATIVE_ARCHIVE_ROOT_ENCODING&&config.archiveObjectLayout===NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT:
+    config?.contract===UNIT_CONFIG_CONTRACT&&config.archiveMetadataEncoding===undefined&&config.archiveObjectLayout===undefined)&&canonicalSha(config)===proofSha256,"EXACT_FROZEN_UNIT_CONFIG");
   frozenRowSha(config as FrozenInput);
-  need(config.evaluations >= 1 && config.evaluations <= 1134 && config.contexts >= 1 && config.contexts <= 4, "FINITE_ORIGINAL_POPULATION");
+  need(config.evaluations >= 1 && config.evaluations <= (compact?COMPACT_UNIT_MAX_EVALUATIONS:1134) && config.contexts >= 1 && config.contexts <= 4, "FINITE_ORIGINAL_POPULATION");
   const d = config.retainedDependents;
   need(d?.contract === RETAINED_DEPENDENTS_CONTRACT && Array.isArray(d.jobIds) && d.jobIds.length === d.rows &&
     d.rows <= TERMINAL_NOOP_DEPENDENT.maxPerOriginal && d.jobIds.every(x => UUID.test(x)) && same(d.jobIds, [...new Set(d.jobIds)].sort()) &&

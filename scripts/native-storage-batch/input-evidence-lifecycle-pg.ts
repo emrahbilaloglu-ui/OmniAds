@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFile, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rm, statfs,stat,writeFile,chmod } from "node:fs/promises";
+import { gzipSync } from "node:zlib";
 import { join } from "node:path";
 import { Client } from "pg";
 import type { DbClient } from "../../lib/db";
@@ -11,8 +12,11 @@ import { NATIVE_STORAGE_BATCH_CONTRACT, runFiniteNativeStorageBatch, validateNat
   type NativeStorageBatchPlan } from "../../lib/creative-decision-engine/native-finite-storage-lifecycle";
 import { validateNativeRetainedReaderLedger } from "../../lib/creative-decision-engine/native-retained-reader-lifecycle";
 import { nativeRetainedReaderSources } from "../native-retained-reader-lifecycle-guard";
-import { collectWholeOriginal, sealAndPersist, verifyCopies, type UnitConfig } from "./capture";
-import { retireOnceWithParentChallenge, prepareUnitRetirement } from "./retire";
+import { collectWholeOriginal, sealAndPersist, verifyCopies, sealWholeOriginal,persistPrivateCopy,verifyPrivateCopies,type UnitConfig } from "./capture";
+import { NATIVE_ARCHIVE_ROOT_ENCODING } from "../../lib/creative-decision-engine/native-archive-root-codec";
+import { NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT } from "../../lib/creative-decision-engine/native-historical-archive";
+import { persistLocalNativeArchive } from "../../lib/creative-decision-engine/native-historical-local-store";
+import { retireOnceWithParentChallenge, prepareUnitRetirement,unitScope } from "./retire";
 import { independentReadback, readSelectedPinClosure, spaceReadback, vacuumComponent, observeTargetToast } from "./maintenance";
 import { collectMaintenanceSettlement, verifyMaintenanceSettlement } from "./maintenance-settlement";
 import { restoreIntoOwnedNewDatabase } from "./restore";
@@ -22,6 +26,7 @@ import { CONTEXT, EVAL, INPUT, UNIT_TABLES, canonicalSha, safeError, sha256, wri
 import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, seedTenant, type OwnedTenant } from "./owned-fixture";
 import { ZERO_REFERENCE_SQL, advisoryLockParts, producerExclusionKey, readReferenceIndexes } from "./input-evidence-lifecycle";
 import { ACTOR_FILE } from "./production-transport";
+import { persistColdPrivateOriginal,readColdPrivateConfig,verifyColdPrivateOriginal } from "../native-cold-lifecycle/private-original";
 import { pythonOutcomes, tsOutcome, type ParityCase } from "./__tests__/d150-parent-parity-cases";
 
 /** OWNED REAL-PG GUARD (fixture only; never imported by the executor). D150 v3
@@ -62,12 +67,32 @@ async function cluster(port: number) {
 type Cluster = Awaited<ReturnType<typeof cluster>>;
 const psql = (c: Cluster, sql: string) =>
   execFileSync(`${PG}/psql`, ["-h", c.sock, "-p", String(c.port), "-U", "nsb_owner", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-qAt", "-c", sql], { encoding: "utf8", env: PG_ENV }).trim();
-function migrate(url: string) {
+async function migrate(url: string) {
+  // D166's empty scalar-FK index is deliberately physically gated too. Seed
+  // the owned host's ACTUAL statfs before the real full-DDL migration, never an
+  // override or a fabricated production sample. This socket is test-owned.
+  const target=new URL(url);
+  assert(target.hostname==="localhost"&&target.searchParams.get("host")?.startsWith(STATE+"/"));
+  const boot=new Client({connectionString:url});await boot.connect();
+  try{
+    await boot.query(`CREATE TABLE public.system_capacity_snapshots (
+      id BIGSERIAL PRIMARY KEY,source TEXT NOT NULL,hostname TEXT,payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      sampled_at TIMESTAMPTZ NOT NULL DEFAULT now(),created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+    const fs=await statfs(STATE);
+    await boot.query(`INSERT INTO public.system_capacity_snapshots(source,hostname,payload) VALUES('db_host_healthcheck','owned-local',$1::jsonb)`,
+      [JSON.stringify({database:{name:target.pathname.slice(1)},disks:[{path:"/var/lib/postgresql",totalBytes:fs.blocks*fs.bsize,
+        usedBytes:(fs.blocks-fs.bfree)*fs.bsize,availableBytes:fs.bavail*fs.bsize}],ownedHostSimulation:true})]);
+  }finally{await boot.end();}
   return new Promise<number>((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", TSX_LOADER, join(REPO_ROOT, "scripts/run-migrations.ts")], { cwd: STATE, stdio: "ignore",
+    const child = spawn(process.execPath, ["--import", TSX_LOADER, join(REPO_ROOT, "scripts/run-migrations.ts")], { cwd: STATE, stdio: ["ignore","pipe","pipe"],
       env: { NODE_ENV: "production", PATH: PG_ENV.PATH, HOME: STATE, TSX_TSCONFIG_PATH: join(REPO_ROOT, "tsconfig.json"), DATABASE_URL: url,
         DATABASE_URL_UNPOOLED: url, DB_SSL_MODE: "disable", ENABLE_RUNTIME_MIGRATIONS: "1", ADSECUTE_EPHEMERAL_DB_SEAM: "1" } });
-    child.once("error", reject); child.once("exit", code => resolve(code ?? 1));
+    let diagnostic="";
+    for(const stream of [child.stdout,child.stderr])stream.on("data",chunk=>{diagnostic=(diagnostic+chunk.toString()).slice(-12_000);});
+    child.once("error", reject); child.once("exit", code => {
+      if(code!==0)process.stderr.write(`Owned migration failed: ${diagnostic}\n`);
+      resolve(code ?? 1);
+    });
   });
 }
 
@@ -101,17 +126,19 @@ async function main() {
   let worlds = 0;
 
   /** A fresh source database from the migrated+index template, seeded through the actual producer writer. */
-  async function world(label: string) {
+  async function world(label: string,compact=false) {
     const name = `nsb_source_${hex}_${two(worlds++)}`;
     psql(pg, `CREATE DATABASE "${name}" TEMPLATE "${srcTpl}"`);
     const db = await connect(name);
     await db.query("SET timezone='UTC'");
-    const t = await seedTenant(db, 2), f = await seedTenant(db, 1);
+    const t = await seedTenant(db, compact?4:2), f = await seedTenant(db, 1);
     const cal = { t14: await seedCalibration(db, t, day(14), clock(day(14), 1)), t1: await seedCalibration(db, t, day(1), clock(day(1), 1)),
       f14: await seedCalibration(db, f, day(14), clock(day(14), 1)), f1: await seedCalibration(db, f, day(1), clock(day(1), 1)) };
     // G2: an unchanged same-day rerun (same tag/date/clock) -> the actual producer shares exactly one input key with G1.
-    const G1 = await seedGeneration(db, t, { date: day(14), clock: clock(day(14), 1), finishedAt: clock(day(14), 2), producer: cal.t14, perAccount: [2, 1], tag: "sh" });
-    const G2 = await seedGeneration(db, t, { date: day(14), clock: clock(day(14), 1), finishedAt: clock(day(14), 3), producer: cal.t14, perAccount: [1, 0], tag: "sh" });
+    const G1 = await seedGeneration(db, t, { date: day(14), clock: clock(day(14), 1), finishedAt: clock(day(14), 2), producer: cal.t14,
+      perAccount: compact?[3197,1,1,1]:[2,1], tag: "sh",...(compact?{nameRepeat:2}:{}) });
+    const G2 = await seedGeneration(db, t, { date: day(14), clock: clock(day(14), 1), finishedAt: clock(day(14), 3), producer: cal.t14,
+      perAccount: compact?[1,0,0,0]:[1,0], tag: "sh",...(compact?{nameRepeat:2}:{}) });
     const later = await seedGeneration(db, t, { date: day(1), clock: clock(day(1), 1), finishedAt: clock(day(1), 2), producer: cal.t1, perAccount: [1, 0], tag: "later" });
     const F1 = await seedGeneration(db, f, { date: day(14), clock: clock(day(14), 1), finishedAt: clock(day(14), 2), producer: cal.f14, perAccount: [2], tag: "fx" });
     await seedGeneration(db, f, { date: day(1), clock: clock(day(1), 1), finishedAt: clock(day(1), 2), producer: cal.f1, perAccount: [1], tag: "fl" });
@@ -121,15 +148,16 @@ async function main() {
       [jobRunId])).rows.map((r: any) => [r.cv, r.ih] as Key);
     const g1Keys = await keysOf(G1.jobRunId), g2Ids = new Set((await keysOf(G2.jobRunId)).map(k => JSON.stringify(k)));
     const shared = g1Keys.filter(k => g2Ids.has(JSON.stringify(k))), zero = g1Keys.filter(k => !g2Ids.has(JSON.stringify(k)));
-    assert(shared.length === 1 && zero.length === 2, `${label}: actual producer shared-key shape`);
+    assert(shared.length === 1 && zero.length === (compact?3199:2), `${label}: actual producer shared-key shape`);
     const producerJobs: string[] = [];
     return { label, name, db, t, f, G1, G2, later, F1, generation, shared, zero, producerJobs, connect: (o?: string) => connect(name, o) };
   }
   type World = Awaited<ReturnType<typeof world>>;
-  const freeze = async (w: World) => {
+  const freeze = async (w: World,compact=false) => {
     const ro = await w.connect();
     try { return await collectWholeOriginal(ro, { generation: w.generation, expectedEvaluations: w.G1.evaluations, expectedContexts: w.G1.contexts,
-      sourceRevision: head, consumerInventorySha256: pack.sourceManifestSha256 }); }
+      sourceRevision: head, consumerInventorySha256: pack.sourceManifestSha256,
+      ...(compact?{archiveMetadataEncoding:NATIVE_ARCHIVE_ROOT_ENCODING}:{}) }); }
     finally { await ro.end(); }
   };
   /** Every row of every unit table, by table (full JSONB bytes). */
@@ -200,6 +228,64 @@ async function main() {
   const close = async (w: World) => { await w.db.end(); };
 
   try {
+    if(wanted("compact")){
+      step="compact3200-seed";const w=await world("compact",true);
+      try{
+        assert.equal(await refusal(()=>freeze(w)),"FINITE_ORIGINAL_POPULATION");
+        step="compact3200-freeze";const frozen=await freeze(w,true),before=await state(w);
+        assert.equal(frozen.config.contract,"finite-native-storage-unit-config.v3");
+        const tooLarge={...frozen.config,evaluations:3201};
+        assert.equal(await refusal(async()=>unitScope(tooLarge,canonicalSha(tooLarge))),"FINITE_ORIGINAL_POPULATION");
+        const oldBatch={contract:NATIVE_STORAGE_BATCH_CONTRACT,purpose:"a".repeat(12),targetRevision:head,
+          sourceManifestSha256:pack.sourceManifestSha256,actualSourceReviewSha256:"b".repeat(64),expectedDatabaseBudgetBytes:163*1024**3,
+          cutoffObservedAt:new Date().toISOString(),units:[{generation:w.generation,evaluations:3200,contexts:4,originalProofSha256:frozen.proofSha256}]} as NativeStorageBatchPlan;
+        assert.equal(await refusal(async()=>validateNativeStorageBatchPlan(oldBatch)),"FINITE_ORIGINAL_POPULATION");
+        const key=randomBytes(32),archiveRoot=join(STATE,"compact-archive"),primary=join(STATE,"compact-primary"),recovery=join(STATE,"compact-recovery");
+        for(const d of [archiveRoot,primary,recovery])await mkdir(d,{mode:0o700});
+        step="compact3200-seal-copies";const sealed=sealWholeOriginal(frozen,`cie-${hex}`,key,{
+          metadataEncoding:NATIVE_ARCHIVE_ROOT_ENCODING,objectLayout:NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT});
+        for(const d of [primary,recovery])await persistPrivateCopy(d,sealed);
+        for(const part of sealed.sealedParts)await persistLocalNativeArchive(archiveRoot,part.bytes,part.trust,{layout:NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT});
+        const whole=await verifyPrivateCopies(sealed.metadata,key,[primary,recovery]);
+        assert.equal((await verifyCopies(sealed.metadata,key,archiveRoot,primary)).manifestHash,whole.manifestHash);
+        step="compact3200-deduplicated-private-original";
+        const compactPrimary=join(STATE,"private-compact-primary"),compactRecovery=join(STATE,"private-compact-recovery");
+        for(const d of [compactPrimary,compactRecovery]){await mkdir(d,{mode:0o700});await persistColdPrivateOriginal(d,sealed,frozen.config);}
+        const packed=await verifyColdPrivateOriginal([compactPrimary,compactRecovery],key,frozen.proofSha256);
+        assert.equal(canonicalSha(packed.whole.bundle),canonicalSha(whole.bundle),"every original byte survives private metadata deduplication");
+        const oldPrivateBytes=(await Promise.all((await readdir(primary)).map(async name=>(await stat(join(primary,name))).size))).reduce((n,b)=>n+b,0);
+        assert(packed.privateBytes<oldPrivateBytes,"private package stores shared root once, rather than repeating each trust root");
+        const gzPath=join(compactRecovery,"config.json.gz"),gz=await readFile(gzPath);await chmod(gzPath,0o600);
+        const corrupt=Buffer.from(gz);corrupt[0]^=1;await writeFile(gzPath,corrupt);
+        assert.notEqual(await refusal(()=>verifyColdPrivateOriginal([compactPrimary,compactRecovery],key,frozen.proofSha256)),"NO_REFUSAL");
+        await writeFile(gzPath,gz);await chmod(gzPath,0o400);
+        const bombDirectory=join(STATE,"private-config-bomb");await mkdir(bombDirectory,{mode:0o700});
+        const bomb=gzipSync(Buffer.alloc(8*1024**2,65)),bad={...packed.descriptor,config:{sha256:sha256(bomb),bytes:bomb.length,
+          decodedSha256:"a".repeat(64),decodedBytes:4*1024**2}};
+        await writeFile(join(bombDirectory,"capture.json"),JSON.stringify(bad),{mode:0o400});
+        await writeFile(join(bombDirectory,"config.json.gz"),bomb,{mode:0o400});
+        assert.notEqual(await refusal(()=>readColdPrivateConfig(bombDirectory,frozen.proofSha256)),"NO_REFUSAL");
+        step="compact3200-full-ddl-restore";const restoreDb=`nsb_restore_${hex}_${two(worlds)}`;
+        psql(pg,`CREATE DATABASE "${restoreDb}" TEMPLATE "${rstTpl}"`);const rdb=await connect(restoreDb);let restored;
+        try{restored=await restoreIntoOwnedNewDatabase(rdb,packed.whole,frozen.config);}finally{await rdb.end();}
+        psql(pg,`DROP DATABASE "${restoreDb}"`);assert.equal(restored.frozenProofParity,true);
+        step="compact3200-retire";const rc=await retireClient(w);
+        const result=await retireOnceWithParentChallenge(rc.client,request(frozen),async line=>challenge(frozen,line));
+        assert.equal(result.committed,true);const read=await w.connect();let back;
+        try{back=await independentReadback(read,frozen.config);}finally{await read.end();}
+        assert.equal(back.exactUnitAbsent,true);assert.equal(back.retainedRootsFullBytesMatch,true);
+        const changed=diff(before,await state(w));
+        assert.equal(changed[EVAL]!.removed.length,3200);assert.equal(changed[CONTEXT]!.removed.length,4);assert.equal(changed[INPUT]!.removed.length,3199);
+        assert(UNIT_TABLES.every(t=>changed[t]!.added.length===0&&([EVAL,CONTEXT,INPUT].includes(t)||changed[t]!.removed.length===0)));
+        assert.equal(await globalDangling(w),0);assert.deepEqual(await lockHolders(w),[]);
+        checks.compact={evaluations:3200,contexts:4,nameRepeat:2,encodedRows:frozen.encodedRows,parts:sealed.metadata.parts.length,
+          leafBytes:sealed.metadata.leafBytes,ciphertextBytes:sealed.metadata.archiveBytes,fullDdlRestore:true,originalBytesVerified:true,
+          privatePackage:{oldPrivateBytes,compactPrivateBytes:packed.privateBytes,files:packed.files,configGzipBytes:packed.descriptor.config.bytes,
+            noPerPartTrustRootCopies:true,configCorruptionRefused:true,configZipBombRefused:true,fullOriginalByteParity:true},
+          committed:true,exactUnitAbsent:back.exactUnitAbsent,inputLifecycle:back.inputEvidence,foreignAndRetainedFullBytesKept:true};
+        key.fill(0);
+      }finally{await close(w);}
+    }
     // ---------------- S1: GREEN full lifecycle ----------------
     if (wanted("green")) {
       step = "green-seed"; const w = await world("green");

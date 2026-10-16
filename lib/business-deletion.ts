@@ -9,6 +9,8 @@ import { assertBusinessExternalDataRemoved, BusinessExternalCleanupError } from 
 import { deleteBusinessReleaseReceipts, deleteBusinessWorkerHistory, BusinessControlReceiptCleanupError } from "@/lib/business-deletion-control-receipts";
 import { deleteBackgroundBusinessRoot } from "@/lib/business-deletion-root";
 import { archiveDigest } from "@/lib/business-archive-configuration";
+import { TENANT_ERASURE_CONTRACT,validateTenantArchiveErasurePlan } from "@/lib/native-tenant-erasure";
+import { validateColdBusinessErasureProof } from "@/lib/native-cold-erasure";
 import { assertArchivedInputPointPlan, validateBusinessArchiveErasurePlan,
   type BusinessArchiveErasureState, type ArchivedBusinessInputKey } from "@/lib/business-archive-erasure";
 import { prepareBusinessProviderAccountErasure, BusinessProviderAccountCleanupError,
@@ -642,13 +644,25 @@ export async function deleteBusinessWithData(businessId: string,
     const [business] = await sql`SELECT id FROM businesses WHERE id=${businessId}::uuid FOR UPDATE`;
     if (!business) throw new BusinessDeletionError("not_found");
     let archivedInputKeys: ArchivedBusinessInputKey[] = [];
-    const [archiveJob] = await sql.query<{ archive_state: BusinessArchiveErasureState | null }>(
-      "SELECT archive_state FROM business_deletion_jobs WHERE business_ref_id=$1::uuid", [businessId]);
+    const [archiveJob] = await sql.query<{ archive_state: BusinessArchiveErasureState | null;hidden_at:string|null }>(
+      "SELECT archive_state,hidden_at::text FROM business_deletion_jobs WHERE business_ref_id=$1::uuid", [businessId]);
     // A rollback may stop NEW preparation; it cannot discard an already durable
     // plan or its archived-only keys after their ciphertext has been removed.
-    if (archiveJob?.archive_state || process.env.BUSINESS_ARCHIVE_ERASURE_ENABLED === "true") {
+    if (archiveJob?.archive_state || process.env.BUSINESS_ARCHIVE_ERASURE_ENABLED === "true"||process.env.NATIVE_COLD_REPLICA_REQUIRED==="true") {
       if (archiveJob?.archive_state?.prepared !== true) throw new BusinessDeletionError("external_cleanup_required");
-      try { validateBusinessArchiveErasurePlan(archiveJob.archive_state.plan, businessId); }
+      try { const plan=archiveJob.archive_state.plan;
+        if(plan.contract===TENANT_ERASURE_CONTRACT)validateTenantArchiveErasurePlan(plan,businessId);
+        else validateBusinessArchiveErasurePlan(plan, businessId);
+        const cold=archiveJob.archive_state.coldProof;
+        if(cold||process.env.NATIVE_COLD_REPLICA_REQUIRED==="true"){
+          if(!cold)throw Error("cold_replica_erasure_proof_required");
+          validateColdBusinessErasureProof(cold,businessId,cold.attemptId);
+          // Owner retries keep the SAME continuously hidden business and its
+          // already durable absence proof. A later recreated business cannot
+          // reuse proof that predates its own hidden boundary.
+          if(!archiveJob.hidden_at||Date.parse(cold.ack.observedAt)<Date.parse(archiveJob.hidden_at))throw Error("cold_erasure_predates_hidden_boundary");
+        }
+      }
       catch { throw new BusinessDeletionError("external_cleanup_required"); }
       archivedInputKeys = archiveJob.archive_state.plan.inputKeys;
     }

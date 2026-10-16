@@ -1,4 +1,5 @@
 import { nativeArchiveByteDigest, NATIVE_HISTORICAL_MAX_CATALOG_BYTES, NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT,
+  NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT,
   openImmutableNativeHistoricalArchiveCatalog, resolveNativeHistoricalArchiveEntry,
   type NativeHistoricalArchiveCatalog, type NativeHistoricalEvidenceRequest } from "./native-historical-archive";
 import type { NativeArchiveGeneration } from "./native-evidence-archive";
@@ -126,7 +127,7 @@ function shard(bytes: Buffer, reference: Root["shards"][number], legacy: string[
 function leaf(bytes: Buffer, digest: string, expected?: NativeArchiveGeneration, expectedBytes?: number) {
   metadata(bytes, digest, NATIVE_HISTORICAL_ROUTING_BOUNDS.leafBytes, expectedBytes);
   const catalog = openImmutableNativeHistoricalArchiveCatalog(bytes, digest);
-  if (catalog.contract !== NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT || !catalog.entries.length ||
+  if ((catalog.contract !== NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT && catalog.contract !== NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT) || !catalog.entries.length ||
       (catalog.groups?.length ?? 0) > 1) refuse();
   const g = catalog.entries[0]!.generation;
   if (expected && !same(g, expected) || catalog.entries.some(e => !same(e.generation, g))) refuse();
@@ -173,7 +174,7 @@ export function buildNativeHistoricalCatalogRouting(input: {
     files, providerAuthority: false, reclaimEligible: false };
 }
 
-type Cached = { value: Root | Shard | NativeHistoricalArchiveCatalog; bytes: number; kind: NativeHistoricalMetadataKind };
+type Cached = { value: Root | Shard | NativeHistoricalArchiveCatalog; bytes: number; weight: number; kind: NativeHistoricalMetadataKind };
 /** Process-local verified metadata LRU: ≤2 MiB original source bytes, ≤2 leaves,
  * ≤32 total entries. Source weight is not a peak JS heap/SLA measurement.
  * No entry can be populated by a caller-supplied verifier or mutable trust. */
@@ -184,7 +185,7 @@ export class NativeHistoricalCatalogRouter {
   clearVerifiedMetadata() { this.entries.clear(); this.sourceBytes = 0; this.leaves = 0; }
   private remove(key: string) {
     const entry = this.entries.get(key); if (!entry) return;
-    this.sourceBytes -= entry.bytes; if (entry.kind === "leaf") this.leaves--; this.entries.delete(key);
+    this.sourceBytes -= entry.weight; if (entry.kind === "leaf") this.leaves--; this.entries.delete(key);
   }
   private async verified(reference: NativeHistoricalMetadataRead, context: string, load: Load,
     verify: (bytes: Buffer) => Cached["value"], signal?: AbortSignal) {
@@ -196,13 +197,19 @@ export class NativeHistoricalCatalogRouter {
     metadata(bytes, reference.sha256, reference.maxBytes, reference.bytes);
     const value = verify(bytes); if (signal?.aborted) refuse();
     const b = NATIVE_HISTORICAL_ROUTING_BOUNDS;
+    // A compressed root must not hide its decoded memory cost from the LRU.
+    // Oversize verified values remain request-local, rather than evicting every
+    // entry and then exceeding the unchanged cache bound.
+    const weight = reference.kind === "leaf" && (value as NativeHistoricalArchiveCatalog).contract === NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT
+      ? Math.max(bytes.length,Buffer.byteLength(JSON.stringify(value))) : bytes.length;
+    const entry = { value, bytes: bytes.length, weight, kind: reference.kind };
+    if(weight>b.cacheSourceBytes)return entry;
     this.remove(key); // Concurrent cold verifications cannot double-count one key.
-    while (this.entries.size >= b.cacheEntries || this.sourceBytes + bytes.length > b.cacheSourceBytes ||
+    while (this.entries.size >= b.cacheEntries || this.sourceBytes + weight > b.cacheSourceBytes ||
         reference.kind === "leaf" && this.leaves >= b.cacheLeaves) {
       const first = this.entries.keys().next().value; if (first === undefined) refuse(); this.remove(first);
     }
-    const entry = { value, bytes: bytes.length, kind: reference.kind };
-    this.entries.set(key, entry); this.sourceBytes += bytes.length; if (reference.kind === "leaf") this.leaves++;
+    this.entries.set(key, entry); this.sourceBytes += weight; if (reference.kind === "leaf") this.leaves++;
     return entry;
   }
   async resolve(request: NativeHistoricalEvidenceRequest, configuration: {

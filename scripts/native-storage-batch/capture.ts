@@ -11,7 +11,9 @@ import { NATIVE_CALIBRATION_PARENT_TABLES, buildNativeCalibrationParentArchive,
 import { splitNativeReferenceArchive, reassembleNativeReferenceArchive } from "../../lib/creative-decision-engine/native-reference-archive-segments";
 import { sealCompressedNativeHistoricalArchive, openNativeHistoricalArchiveEnvelope, openImmutableNativeHistoricalArchiveCatalog,
   nativeHistoricalArchiveStorageVersion, NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT,
+  NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT, nativeHistoricalTrustForStorage,
   type NativeHistoricalArchiveContentTrust } from "../../lib/creative-decision-engine/native-historical-archive";
+import { encodeNativeArchiveRoot, NATIVE_ARCHIVE_ROOT_ENCODING, NATIVE_ARCHIVE_ROOT_CODEC_LIMITS } from "../../lib/creative-decision-engine/native-archive-root-codec";
 import { persistLocalNativeArchive, NATIVE_LOCAL_ARCHIVE_BUCKET } from "../../lib/creative-decision-engine/native-historical-local-store";
 import { CLOSED_DAY_BUFFER_MS, CONTEXT, DECLARED_CLOSURE_GAP, EVAL, EXPECTED_INCOMING_FKS, NATIVE_JOB, NON_FK_CLASSES,
   UNIT_CONFIG_CONTRACT, UNIT_TABLES, UUID, type UnitTable, canonical, canonicalSha, need, rowSetHash, same, sha256, writeExclusive, BatchRefusal,
@@ -363,12 +365,15 @@ export interface SealedPart { ciphertextSha256: string; ciphertextBytes: number;
 /** After ROLLBACK, in memory only: split, exact reassembly, seal every part,
  * decrypt-verify, build the complete v3 leaf (content-addressed local object
  * pointers). No file, no key output. */
-export function sealWholeOriginal(collected: Awaited<ReturnType<typeof collectWholeOriginal>>, keyId: string, key: Buffer) {
+export function sealWholeOriginal(collected: Awaited<ReturnType<typeof collectWholeOriginal>>, keyId: string, key: Buffer,
+  options?: { metadataEncoding: typeof NATIVE_ARCHIVE_ROOT_ENCODING }) {
   need(key.length === 32 && /^[a-zA-Z0-9._-]{1,80}$/.test(keyId), "SEPARATE_ENCRYPTION_KEY_REQUIRED");
   const g = collected.config.generation;
   const expected = { manifestHash: collected.manifestHash, schemaHash: collected.schemaHash, generation: g };
   const split = splitNativeReferenceArchive(collected.bundle, expected);
   need(split.parts.length > 0 && split.parts.length <= 128, "FINITE_COMPLETE_ORIGINAL_SEGMENTS");
+  need(!options || options.metadataEncoding === NATIVE_ARCHIVE_ROOT_ENCODING &&
+    split.parts.length <= NATIVE_ARCHIVE_ROOT_CODEC_LIMITS.catalogSegments,"FINITE_COMPACT_ORIGINAL_SEGMENTS");
   const re = reassembleNativeReferenceArchive(split.parts.map(p => p.bundle), split.root, split.rootDigest);
   need(canonical(re.bundle) === canonical(collected.bundle), "FULL_ORIGINAL_REASSEMBLY_PARITY");
   const entries: Record<string, unknown>[] = [], parts: SealedPart[] = [], sealedParts: { bytes: Buffer; trust: NativeHistoricalArchiveContentTrust; trustBytes: Buffer }[] = [];
@@ -377,11 +382,11 @@ export function sealWholeOriginal(collected: Awaited<ReturnType<typeof collectWh
     const ids = part.bundle.core.manifest.segment!.evaluationIds;
     const sealed = sealCompressedNativeHistoricalArchive(part.bundle, { manifestHash: part.manifestHash,
       schemaHash: part.bundle.manifest.schemaHash, generation: g }, keyId, key,
-      { coverageRoot: split.root, coverageRootSha256: split.rootDigest, evaluationIds: ids });
+      { coverageRoot: split.root, coverageRootSha256: split.rootDigest, evaluationIds: ids }, options);
     need(sealed.trust.plaintextBytes <= 8 * 1024 * 1024 && sealed.bytes.length <= 2 * 1024 * 1024, "UNCHANGED_PER_SEGMENT_TRANSPORT_BOUND");
     const opened = openNativeHistoricalArchiveEnvelope(sealed.bytes, sealed.trust, key, g);
     need(canonical(opened.bundle) === canonical(part.bundle) && opened.view.providerAuthority === false, "SEALED_PART_PARITY");
-    const trustBytes = Buffer.from(JSON.stringify(sealed.trust)), version = nativeHistoricalArchiveStorageVersion(sealed.trust);
+    const trustBytes = Buffer.from(JSON.stringify(options ? nativeHistoricalTrustForStorage(sealed.trust) : sealed.trust)), version = nativeHistoricalArchiveStorageVersion(sealed.trust);
     const object = { bucket: NATIVE_LOCAL_ARCHIVE_BUCKET, key: `native/${version}/${sealed.trust.ciphertextSha256}.bin`, versionId: sealed.trust.ciphertextSha256 };
     const segment = sealed.trust.segment!;
     entries.push({ ...sealed.trust, segment: { coverageRootSha256: segment.coverageRootSha256, evaluationIds: segment.evaluationIds }, object });
@@ -390,8 +395,8 @@ export function sealWholeOriginal(collected: Awaited<ReturnType<typeof collectWh
     sealedParts.push({ bytes: Buffer.from(sealed.bytes), trust: sealed.trust, trustBytes });
     archiveBytes += sealed.bytes.length;
   }
-  const leaf = Buffer.from(JSON.stringify({ contract: NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT,
-    groups: [{ coverageRoot: split.root, coverageRootSha256: split.rootDigest }], entries }));
+  const leaf = Buffer.from(JSON.stringify({ contract: options ? NATIVE_HISTORICAL_COMPACT_ROOT_CATALOG_CONTRACT : NATIVE_HISTORICAL_SEGMENTED_CATALOG_CONTRACT,
+    groups: [{ coverageRoot: options ? encodeNativeArchiveRoot(split.root) : split.root, coverageRootSha256: split.rootDigest }], entries }));
   const leafSha256 = sha256(leaf);
   const catalog = openImmutableNativeHistoricalArchiveCatalog(leaf, leafSha256);
   need(new Set(catalog.entries.flatMap(e => e.segment!.evaluationIds)).size === collected.config.evaluations, "COMPLETE_LEAF_MEMBERSHIP");

@@ -29,8 +29,8 @@
     {
       "path": "lib/business-archive-erasure.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "0afcf353a2642ac1e95570937e785c381efcc0721fe93c15f3dc0695ec38c540",
-      "retention": "D169 explicit whole-business archive offboarding only; bounded authenticated frozen-input/immutable publication plan, GLOBAL shared-content preservation, owner-only recovery; no current authority, provider mutation or age pruning."
+      "sha256": "b5b123be5e6cae1ef3d351038eddf1b1afe6e99426c5fdf88c264dc136f5a700",
+      "retention": "D169 offboarding retains its existing bounds and exact saga; D173 obtains compressed-root ownership from the completely verified decoded catalog and preserves every surviving original compressed carrier, ciphertext and lineage. No history age pruning or new cleanup scope."
     },
     {
       "path": "lib/business-deletion-native-evaluations.ts",
@@ -143,8 +143,8 @@
     {
       "path": "lib/creative-decision-engine/native-historical-archive.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "9412ab4bcc8611e78a4d8668018328f969298916e09b7162192cd3311199786b",
-      "retention": "Original job/member/parent/shared-root and FK/non-FK pin identity stays live; no source removal from this declaration."
+      "sha256": "85642458feb5114bbb019cd167447076dbe6c0d7065707737b5f27ea0e8f3d57",
+      "retention": "Historical-only original evidence; D173 adds explicit v4 compact coverage metadata with unchanged wire/envelope bounds, one original group and at most16segments, at most2MiB decoded root, complete original membership and encoding-bound GCM. Legacy formats remain readable; no current authority or source removal."
     },
     {
       "path": "lib/creative-decision-engine/native-job-evaluation-selection.ts",
@@ -341,8 +341,8 @@
     {
       "path": "scripts/fixtures/business-archive-erasure.ts",
       "role": "owned-fixture",
-      "sha256": "749e610dd778673eb2d2616448f57a8ae7eb912e09891ee5b0b2b6ae1d6e5ab7",
-      "retention": "D169 explicit whole-business archive offboarding only; bounded authenticated frozen-input/immutable publication plan, GLOBAL shared-content preservation, owner-only recovery; no current authority, provider mutation or age pruning."
+      "sha256": "57609c503f1b8826ca5f3348aea352d3e77e4c06357cc86bb9f09009ac3a90d3",
+      "retention": "Public synthetic history and explicit v4 fixture only; no canonical producer/current authority or production generation claim. Exercises selected erasure and foreign historical-reader continuity."
     },
     {
       "path": "scripts/generate-native-reference-worker-fixture.ts",
@@ -407,8 +407,8 @@
     {
       "path": "scripts/native-storage-batch/capture.ts",
       "role": "offline-operator",
-      "sha256": "746516f5627f5b6e3e5dfec465bc7e52e740c25c9f4d78952376f0e4de851503",
-      "retention": "Finite digest-bound whole-original operator only: retain every historical snapshot, outcome/action/workflow/hysteresis/reuse and unknown-consumer pin; retain original jobs/calibration/provider roots and every live-referenced (shared) input-evidence key byte-identical. D150 v3: after the selected original's exact evaluations/contexts are deleted, only its frozen input-evidence keys with zero GLOBAL live evaluation references (catalog- and EXPLAIN-verified (contract_version,input_hash) index probe) are removed, byte-verified, under a session producer exclusion taken before the REPEATABLE READ transaction and held through the parent COMMIT/ROLLBACK; the archived original keeps their full bytes. Exact source/restore/copies/HTTP/pin gates precede selected original retirement. Ordinary main maintenance (evaluations, contexts, input evidence) and allocated/reusable/OS/admission measurements remain separate; no GC, clock normalization, override or general retention authority. Exact terminal manual-projection children may remain live beside their retained original job only with typed identity, catalog/count closure, frozen full-row bytes, fresh recensus, transaction parity and independent readback; real/unknown/changed dependency pins refuse."
+      "sha256": "0111741a96f8a036df08e5eecf2f0a0a02d9aa4a8552b93110036a4cee47413f",
+      "retention": "Whole-original read-only collector keeps1134evaluations/four-context and32MiB source bounds. D173 adds an explicit opt-in v4 metadata serializer; default transport remains v3. Full original rows, manifests, complete coverage and independent copies/restore remain mandatory; no removal authority."
     },
     {
       "path": "scripts/native-storage-batch/common.ts",
@@ -489,5 +489,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "53f4edf5abdf64f7398741c2763b449ce8c9da90f32c47eb26a9c8ef913b75af"
+  "sourceInventorySha256": "a55fa940c5c3ef73bdb32e566e84fdfef6a9cd5b247c67c8a3d3d62baa404f08"
 }

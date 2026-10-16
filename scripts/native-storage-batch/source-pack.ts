@@ -20,6 +20,7 @@ export const PINNED_LIBRARY_FILES = ["lib/creative-decision-engine/canonical-eva
   "lib/creative-decision-engine/native-evidence-archive.ts", "lib/creative-decision-engine/native-calibration-parent-archive.ts",
   "lib/creative-decision-engine/native-archive-pin-census.ts", "lib/creative-decision-engine/native-evaluation-context-unit.ts",
   "lib/creative-decision-engine/native-job-evaluation-selection.ts", "lib/creative-decision-engine/native-job-snapshot-selection.ts",
+  "lib/creative-decision-engine/native-archive-root-codec.ts",
   "lib/creative-decision-engine/native-reference-archive-segments.ts", "lib/creative-decision-engine/native-historical-archive.ts",
   "lib/creative-decision-engine/native-historical-local-store.ts", "lib/creative-decision-engine/native-historical-catalog-routing.ts",
   "lib/creative-decision-engine/native-historical-catalog-routing-store.ts", "lib/creative-decision-engine/native-historical-archive-reader.ts",

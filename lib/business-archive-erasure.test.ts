@@ -31,8 +31,8 @@ async function put(path: string, content: Buffer) {
   const { dirname } = await import("node:path"); await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   await writeFile(path, content, { mode: path.endsWith(".bin") ? 0o440 : 0o600 });
 }
-async function setup(routed = true) {
-  const selected = await businessArchiveFixture(business), foreign = await businessArchiveFixture(randomUUID());
+async function setup(routed = true, compactRoot = false) {
+  const selected = await businessArchiveFixture(business,{compactRoot}), foreign = await businessArchiveFixture(randomUUID(),{compactRoot});
   vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_ID", selected.keyId);
   vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_HEX", selected.key.toString("hex"));
   for (const f of [selected, foreign]) await put(join(archive, f.entry.object.key), f.bytes);
@@ -42,7 +42,7 @@ async function setup(routed = true) {
   vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_CATALOG_PATH", path); vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_CATALOG_SHA256", archiveDigest(legacy));
   vi.stubEnv("ENGINE_V3_NATIVE_ARCHIVE_CATALOG_ROUTING_ENABLED", String(routed));
   if (routed) {
-    const leaves = [selected, foreign].map(f => { const content = Buffer.from(JSON.stringify({
+    const leaves = [selected, foreign].map(f => { const content = f.leaf ?? Buffer.from(JSON.stringify({
       contract: "native-historical-archive-catalog.v3", groups: [], entries: [f.entry],
     })); return { content, sha256: archiveDigest(content) }; });
     const publication = buildNativeHistoricalCatalogRouting({ legacy: { content: legacy, sha256: archiveDigest(legacy) }, leaves });
@@ -57,6 +57,16 @@ async function setup(routed = true) {
 const plan = () => prepareBusinessArchiveErasurePlan(business, { query } as unknown as PoolClient);
 const apply = (p: BusinessArchiveErasurePlan) => applyBusinessArchiveErasurePlan(p, Date.now() + 10_000);
 describe("automatic archive offboarding saga", () => {
+  it("erases v4 compressed-root history and keeps a foreign v4 generation readable through the actual worker",async()=>{
+    const f=await setup(true,true),p=await plan();
+    await apply(p);await assertNoBusinessNativeArchive(business);
+    expect(await readFile(join(archive,f.foreign.entry.object.key))).toEqual(f.foreign.bytes);
+    const template=JSON.parse(await readFile(join(process.cwd(),"scripts/fixtures/native-historical-worker-reference.json"),"utf8"));
+    const proof=await readNativeHistoricalAdEvidence({...template.request,generation:f.foreign.generation});
+    expect(proof.status).toBe("historical_available");
+    expect(proof).toMatchObject({providerAuthority:false,currentDecisionEligible:false,reclaimEligible:false});
+    expect((await inventoryBusinessArchive(archive)).every(file=>!file.content?.includes(business))).toBe(true);
+  });
   it.each([false, true])("removes served and inactive selected copies, preserving foreign ciphertext/metadata (routing=%s)", async routed => {
     const f = await setup(routed), before = await inventoryBusinessArchive(archive), p = await plan();
     expect(p.inputKeys).toHaveLength(1); expect(p.inputKeys[0]!.frozenRowSha256).toBeNull();

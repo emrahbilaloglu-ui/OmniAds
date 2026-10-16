@@ -11,8 +11,10 @@ export async function buildColdSourceInventory(root=ROOT):Promise<Inventory>{
   const ledger=JSON.parse(await readFile(join(root,"docs/architecture/native-retained-reader-ledger.json"),"utf8"));
   const own=(await readdir(join(root,"scripts/native-cold-lifecycle"))).filter(n=>/\.(?:ts|py)$/.test(n)&&
     !n.includes(".test.")&&!n.endsWith("-test.py")).map(n=>`scripts/native-cold-lifecycle/${n}`);
-  const extra=["docker-compose.yml","scripts/business-archive-erasure-worker.ts","lib/business-archive-erasure-worker.ts",
+  const extra=["docker-compose.yml","Dockerfile",".dockerignore","package.json","package-lock.json","scripts/business-archive-erasure-worker.ts","lib/business-archive-erasure-worker.ts",
     "lib/business-archive-configuration.ts","lib/business-deletion-files.ts","lib/native-tenant-erasure.ts",
+    "lib/native-cold-erasure.ts","lib/native-cold-session.ts","lib/business-deletion-jobs.ts",
+    "lib/native-cold-owner-status.ts","lib/admin-system-capacity.ts","app/admin/system-capacity/legacy-page.tsx",
     "lib/creative-decision-engine/native-tenant-catalog.ts","lib/creative-decision-engine/native-tenant-catalog-store.ts",
     "lib/sync/global-kill-switch.ts"];
   const files:Entry[]=[];

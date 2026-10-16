@@ -7,6 +7,7 @@ import { isDemoBusinessId } from "@/lib/demo-business";
 import { archiveNeed,resolveBusinessArchiveConfiguration,BUSINESS_ARCHIVE_TENANT_ROUTING_DIRECTORY } from "@/lib/business-archive-configuration";
 import { prepareTenantArchiveErasurePlan,applyTenantArchiveErasurePlan,validateTenantArchiveErasurePlan,
   assertNoTenantArchiveRecords,TENANT_ERASURE_CONTRACT } from "@/lib/native-tenant-erasure";
+import { finishColdBusinessErasure } from "@/lib/native-cold-erasure";
 import { applyBusinessArchiveErasurePlan, BUSINESS_ARCHIVE_ERASURE_BOUNDS, prepareBusinessArchiveErasurePlan,
   validateBusinessArchiveErasurePlan, type BusinessArchiveErasureState } from "@/lib/business-archive-erasure";
 
@@ -75,14 +76,18 @@ export async function runBusinessArchiveErasureTick() {
           remaining=(await applyTenantArchiveErasurePlan(plan,deadlineAtMs,async next=>{phase=next;})).remaining;
           if(!remaining)await assertNoTenantArchiveRecords(job.business_ref_id);
         }else await applyBusinessArchiveErasurePlan(plan, deadlineAtMs, async next => { phase = next; });
+        phase="cold_replica";
+        const cold=remaining?{waiting:false,proof:null}:await finishColdBusinessErasure(job.business_ref_id,job.attempt_id,deadlineAtMs,client);
+        const pending=remaining||cold.waiting;
         const completed = await client.query(`UPDATE business_deletion_jobs SET archive_state=$3::jsonb,
           archive_attempts=CASE WHEN $4::boolean THEN 0 ELSE archive_attempts END,
           status='queued',error_code=NULL,error_tables='{}',updated_at=now()
           WHERE business_ref_id=$1::uuid AND attempt_id=$2::uuid`,
-        [job.business_ref_id, job.attempt_id, JSON.stringify({ plan, prepared: !remaining,...(remaining?{nextPage:true}:{}) }),remaining]);
+        [job.business_ref_id, job.attempt_id, JSON.stringify({ plan, prepared: !pending,...(remaining?{nextPage:true}:{}),
+          ...(cold.waiting?{awaitingColdReplica:true}:{}),...(cold.proof?{coldProof:cold.proof}:{}) }),pending]);
         archiveNeed(completed.rowCount === 1);
-        console.info("[business archive erasure] prepared");
-        return { outcome: remaining?"archive_page_completed":"prepared" };
+        console.info("[business archive erasure]",{outcome:remaining?"page_completed":cold.waiting?"waiting_replica":"prepared"});
+        return { outcome: remaining?"archive_page_completed":cold.waiting?"awaiting_cold_replica":"prepared" };
       } catch {
         await client.query(`UPDATE business_deletion_jobs SET status='failed',error_code='external_cleanup_required',
           error_tables=$3::text[],updated_at=now() WHERE business_ref_id=$1::uuid AND attempt_id=$2::uuid`,

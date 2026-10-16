@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { assertSafeArchiveDirectory } from "../lib/business-archive-configuration";
 import { runBusinessArchiveErasureTick } from "../lib/business-archive-erasure-worker";
 import { DbGrowthFenceRefusal } from "../lib/sync/db-growth-fence";
+import { runNativeColdLifecycleTick } from "./native-cold-lifecycle/controller";
 
 async function main(){
 const control = dirname(process.env.ENGINE_V3_NATIVE_ARCHIVE_ACTIVE_POINTER ?? "/run/adsecute-business-erasure/active.json");
@@ -11,11 +12,20 @@ let stopping = false;
 for (const signal of ["SIGTERM", "SIGINT"] as const) process.once(signal, () => { stopping = true; });
 while (!stopping) {
   let outcome: string, reason: string | null = null;
-  try { outcome = (await runBusinessArchiveErasureTick()).outcome; }
+  let heartbeat=Promise.resolve();
+  const pulse=setInterval(()=>{heartbeat=heartbeat.then(async()=>{
+    const path=join(control,"health.cold.pending");await writeFile(path,JSON.stringify({contract:"business-archive-erasure-health.v1",
+      buildId:process.env.APP_BUILD_ID,observedAt:new Date().toISOString(),outcome:"finite_archive_operation",reason:null}),{mode:0o600});
+    await rename(path,join(control,"health.json"));
+  }).catch(()=>undefined);},15_000);
+  try { outcome = (await runBusinessArchiveErasureTick()).outcome;
+    if(outcome==="idle"&&!stopping)outcome=`cold_${(await runNativeColdLifecycleTick(()=>stopping)).outcome}`;
+  }
   catch(error) { outcome = "admission_unavailable";
     const code=error instanceof DbGrowthFenceRefusal?error.decision.reason:"measurement_or_gate_unavailable";
     reason=/^[a-z][a-z0-9_]{0,80}$/.test(code)?code:"measurement_or_gate_unavailable";
     console.error("[business archive erasure] admission unavailable",{reason}); }
+  finally{clearInterval(pulse);await heartbeat;}
   const pending = join(control, "health.pending"), health = { contract: "business-archive-erasure-health.v1",
     buildId: process.env.APP_BUILD_ID, observedAt: new Date().toISOString(), outcome, reason };
   await writeFile(pending, JSON.stringify(health), { mode: 0o600 }); await rename(pending, join(control, "health.json"));

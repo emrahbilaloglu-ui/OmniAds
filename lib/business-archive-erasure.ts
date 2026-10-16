@@ -25,7 +25,7 @@ export type BusinessArchiveErasurePlan = {
   pointer: BusinessArchivePointer | null; inputKeys: ArchivedBusinessInputKey[]; planSha256: string;
 };
 export type BusinessArchiveErasureState = { plan: BusinessArchiveErasurePlan|import("./native-tenant-erasure").TenantArchiveErasurePlan;
-  prepared: boolean;nextPage?:boolean };
+  prepared: boolean;nextPage?:boolean;awaitingColdReplica?:boolean;coldProof?:import("./native-cold-erasure").ColdBusinessErasureProof|null };
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const SHA = /^[a-f0-9]{64}$/;
 type InventoryFile = FileProof & { content?: Buffer; catalog?: NativeHistoricalArchiveCatalog };

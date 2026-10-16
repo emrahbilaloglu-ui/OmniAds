@@ -2,6 +2,11 @@
 
 This is the first file future GPT/Codex/Claude chats should read before working on the Adsecute / OmniAds Creative page migration.
 
+For the default-off automatic lossless archive caller and its permanent tenant
+erasure/rollback boundary, read [D175](DECISION_LOG.md#d175--bounded-automatic-lossless-native-history-and-independent-replica-2026-10-16)
+and [the cold lifecycle contract](../architecture/native-cold-lifecycle.md).
+Code, owned tests, a queued service and live completed units are distinct states.
+
 For compact whole-original scope and incremental tenant archive infrastructure,
 read [D174](DECISION_LOG.md#d174--compact-whole-original-scope-and-incremental-tenant-archive-infrastructure-2026-10-16)
 and [the tenant lifecycle contract](../architecture/native-tenant-archive-lifecycle.md).

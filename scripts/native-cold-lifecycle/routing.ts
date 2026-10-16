@@ -42,7 +42,7 @@ function configured(c:BusinessArchiveConfiguration){
 }
 /** Copy-only one-time conversion. Caller holds the existing publisher/erasure
  * exclusion; all old roots/leaves/ciphertext remain available for rollback. */
-export async function ensureTenantRouting(purpose:string){
+export async function ensureTenantRouting(purpose:string,authorize:(serializedBytes:number)=>Promise<void>){
   const c=configured(await resolveBusinessArchiveConfiguration());
   const legacy=await readSafeArchiveFile(c.catalogPath,bounds.legacyBytes,c.catalogSha256);
   const root=await readLocalNativeHistoricalMetadata(c.routingDirectory,{kind:"root",sha256:c.rootSha256,maxBytes:bounds.rootBytes});
@@ -55,6 +55,7 @@ export async function ensureTenantRouting(purpose:string){
     for(const r of shard.records){need(leaves.length<256,"FINITE_OLD_FOREST_MIGRATION");
       leaves.push(await readLocalNativeHistoricalMetadata(c.routingDirectory,{kind:"leaf",...r.leaf,maxBytes:bounds.leafBytes}));}}
   const delta=prepareTenantCatalogMigration({root,rootSha256:c.rootSha256,legacy,shards,leaves});
+  await authorize(delta.files.reduce((n,f)=>n+f.bytes,0)+legacy.length);
   await mkdir(target,{mode:0o700}).catch(e=>{if(e.code!=="EEXIST")throw e;});await assertSafeArchiveDirectory(target);
   await persistTenantCatalogDelta(target,delta,purpose);const catalog=await immutableFiltered(c.localRoot,legacy);
   return configured(await activateBusinessArchivePointer({contract:BUSINESS_ARCHIVE_TENANT_POINTER_CONTRACT,
@@ -82,7 +83,7 @@ export async function stageServedOriginal(config:UnitConfig,leafSha256:string){
 }
 /** Incremental current-root append, never a forest copy. Publication is distinct
  * from source retirement; a crash still leaves the original source intact. */
-export async function publishServedOriginal(config:UnitConfig,leafSha256:string,purpose:string){
+export async function publishServedOriginal(config:UnitConfig,leafSha256:string,purpose:string,authorize:(serializedBytes:number)=>Promise<void>){
   const c=configured(await resolveBusinessArchiveConfiguration());
   need(c.routingDirectory===join(c.localRoot,BUSINESS_ARCHIVE_TENANT_ROUTING_DIRECTORY)&&UUID.test(config.generation.jobRunId),"TENANT_ROOT_REQUIRED");
   const root=await readLocalNativeHistoricalMetadata(c.routingDirectory,{kind:"root",sha256:c.rootSha256,maxBytes:bounds.rootBytes});
@@ -92,8 +93,11 @@ export async function publishServedOriginal(config:UnitConfig,leafSha256:string,
   const previous=prior?decodeNativeHistoricalRoutingShard(shard!,prior,decoded.legacy.jobRunIds).records.find(r=>r.generation.jobRunId===config.generation.jobRunId):null;
   const leaf=await readLeaf(config,leafSha256);
   if(previous){need(archiveCanonical(previous.generation)===archiveCanonical(config.generation)&&previous.leaf.sha256===leafSha256&&previous.leaf.bytes===leaf.bytes.length,"EXACT_EXISTING_GENERATION_ROUTE");
+    await authorize(leaf.catalog.entries.reduce((n,e)=>n+e.ciphertextBytes,0));await stageServedOriginal(config,leafSha256);
     return {rootSha256:c.rootSha256,publishedAt:new Date().toISOString(),existing:true,previousRootSha256:c.rootSha256};}
   const delta=prepareTenantCatalogAppend({root,rootSha256:c.rootSha256,legacySha256:c.catalogSha256,shard,leaf:leaf.bytes});
+  await authorize(delta.files.reduce((n,f)=>n+f.bytes,0)+leaf.catalog.entries.reduce((n,e)=>n+e.ciphertextBytes,0));
+  await stageServedOriginal(config,leafSha256);
   await persistTenantCatalogDelta(c.routingDirectory,delta,purpose);
   const pointer:BusinessArchivePointer={contract:BUSINESS_ARCHIVE_TENANT_POINTER_CONTRACT,baseFingerprint:businessArchiveBaseFingerprint(),
     catalog:{path:`filtered/${c.catalogSha256}.json`,sha256:c.catalogSha256},routing:{directory:BUSINESS_ARCHIVE_TENANT_ROUTING_DIRECTORY,sha256:delta.root.sha256}};

@@ -111,15 +111,19 @@ def atomic_json(path, value):
 
 def validate_manifest(m):
     need(isinstance(m, dict) and set(m) == {'contract', 'kind', 'businessId', 'purpose', 'jobRunId', 'expiresAt', 'files'})
-    need(m['contract'] == CONTRACT and m['kind'] in ('copy', 'erase')
+    need(m['contract'] == CONTRACT and m['kind'] in ('copy', 'erase', 'capacity')
          and isinstance(m['businessId'], str) and UUID.fullmatch(m['businessId'])
          and isinstance(m['purpose'], str) and PURPOSE.fullmatch(m['purpose']) and isinstance(m['files'], list))
     if m['kind'] == 'erase':
         need(m['jobRunId'] is None and m['expiresAt'] is None and not m['files'])
         return m
-    need(isinstance(m['jobRunId'], str) and UUID.fullmatch(m['jobRunId']) and 4 <= len(m['files']) <= 19)
+    need(isinstance(m['jobRunId'], str) and UUID.fullmatch(m['jobRunId']))
     need(isinstance(m['expiresAt'], str))
     datetime.datetime.fromisoformat(m['expiresAt'].replace('Z', '+00:00'))
+    if m['kind'] == 'capacity':
+        need(not m['files'])
+        return m
+    need(4 <= len(m['files']) <= 19)
     names, total = set(), 0
     for f in m['files']:
         need(isinstance(f, dict) and set(f) == {'name', 'sha256', 'bytes'} and isinstance(f['name'], str)
@@ -194,7 +198,7 @@ def validate_ack(a, m, manifest_sha):
          and a['purpose'] == m['purpose'] and a['jobRunId'] == m['jobRunId'] and a['manifestSha256'] == manifest_sha
          and a['files'] == m['files'] and a['verified'] is True and a['sourceDeleted'] is False)
     now = time.time()
-    if m['kind'] == 'copy':
+    if m['kind'] != 'erase':
         need(now <= datetime.datetime.fromisoformat(m['expiresAt'].replace('Z', '+00:00')).timestamp(), 'replica_purpose_expired')
     for at in (a['observedAt'], a['replicaVolume']['observedAt']):
         age = now - datetime.datetime.fromisoformat(at.replace('Z', '+00:00')).timestamp()
@@ -203,5 +207,5 @@ def validate_ack(a, m, manifest_sha):
     need(set(v) == {'observedAt', 'availableBytes', 'minimumFreeBytes', 'device', 'host', 'scope'}
          and v['host'] == '87.99.149.56' and v['scope'] == 'db-root' and isinstance(v['device'], str)
          and v['device'].isdigit() and type(v['availableBytes']) is int and v['minimumFreeBytes'] == ROOT_FLOOR
-         and v['availableBytes'] >= ROOT_FLOOR + RESERVE, 'replica_physical_reserve')
+         and v['availableBytes'] >= (0 if m['kind'] == 'erase' else ROOT_FLOOR + RESERVE), 'replica_physical_reserve')
     return a

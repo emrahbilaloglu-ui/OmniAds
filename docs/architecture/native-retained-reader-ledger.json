@@ -29,8 +29,8 @@
     {
       "path": "lib/business-archive-erasure.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "afd606c80f1111380ac459a7f25e4b807d293c4ca25cc8db1c76cbb6f2a5f13b",
-      "retention": "D174 extracts the old bounded legacy-content planner and permits explicit tenant namespace delegation only. Legacy 256-file/16MiB inventory and original absent-key proof remain; tenant saga is independently validated before activation/removal."
+      "sha256": "95e4f8ad42e5d14ee7c84a5c64e2b7fa0772a3caafeb9cc3e6c1a8238c6f61cb",
+      "retention": "D174 extracts the old bounded legacy-content planner and permits explicit tenant namespace delegation only. Legacy 256-file/16MiB inventory and original absent-key proof remain; tenant saga is independently validated before activation/removal. D175 adds the independently validated cold replica/private-copy/temporary-session/plaintext-restore absence proof to the same hidden-business offboarding barrier. Lifetime replica-required remains on after disabling new archival. No ordinary age pruning or provider authority."
     },
     {
       "path": "lib/business-deletion-native-evaluations.ts",
@@ -47,8 +47,8 @@
     {
       "path": "lib/business-deletion.ts",
       "role": "storage-and-pin-reader",
-      "sha256": "63a34599674ec679754f484945e878368494cf6da90c4cd7a9bc7f26cba9f6e7",
-      "retention": "D174 accepts only the exact validated typed tenant-erasure checkpoint in addition to legacy D169; final shared-input GC, global reference proof, writer exclusion, original full-row hashes, all FKs/guards and atomic rollback remain. No new ordinary pruning or provider authority."
+      "sha256": "f89f14d2d27e03533fb577eff379e7a6e05f9975fa9089485ddf503a3b5ebe04",
+      "retention": "D174 accepts only the exact validated typed tenant-erasure checkpoint in addition to legacy D169; final shared-input GC, global reference proof, writer exclusion, original full-row hashes, all FKs/guards and atomic rollback remain. No new ordinary pruning or provider authority. D175 adds the independently validated cold replica/private-copy/temporary-session/plaintext-restore absence proof to the same hidden-business offboarding barrier. Lifetime replica-required remains on after disabling new archival. No ordinary age pruning or provider authority."
     },
     {
       "path": "lib/creative-decision-engine/ad-backtest-store.ts",
@@ -495,5 +495,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "a96140f001e86d34d10a17848aeb5a84038de29bb50be4b8777a28e3db415375"
+  "sourceInventorySha256": "46e87bf744276d69b1e961d8b8c48c10f28e7124b444543ec17a5b4104ebde6a"
 }

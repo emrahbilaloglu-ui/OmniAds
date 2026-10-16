@@ -32,6 +32,9 @@ def remote(request):
 def sample_existing_capacity():
     # The existing READ-ONLY host sampler, also used by the finite operator.
     # No provider job, arbitrary SQL, scheduler change or budget override.
+    data = os.stat('/var/lib/postgresql/16/main').st_dev
+    need(data == os.stat('/var/lib/postgresql/16/main/pg_wal').st_dev
+         and data != os.stat(ROOT).st_dev == os.stat('/').st_dev, 'source_wal_volume_changed')
     subprocess.run(['/usr/bin/systemctl', 'start', 'adsecute-db-healthcheck.service'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=75, check=True)
     result = subprocess.run(['/usr/bin/systemctl', 'show', 'adsecute-db-healthcheck.service',
@@ -114,7 +117,7 @@ def scrub_one(root):
     first, following, count = None, None, 0
     with os.scandir(root) as businesses:
         for b in businesses:
-            if b.name in ('health.json', 'cursor.json', 'scrub.json', '.lock'):
+            if b.name in ('health.json', 'cursor.json', 'scrub.json', 'installation.json', '.lock'):
                 need(b.is_file(follow_symlinks=False))
                 continue
             need(b.is_dir(follow_symlinks=False) and UUID.fullmatch(b.name))
@@ -257,19 +260,27 @@ def one_tick(root=ROOT, send=remote, enforce_root_device=True):
     r = candidates[0]
     need(set(r) == {'businessId', 'purpose', 'kind', 'manifestSha256'})
     result = send({'op': 'fetch', **{k: r[k] for k in ('businessId', 'purpose', 'manifestSha256')}})
+    if result == {'expired': True, 'manifestSha256': r['manifestSha256']}:
+        return {'outcome': 'owner_attention', 'reason': 'replica_purpose_expired', 'replicaVolume': volume(root, enforce_root_device)}
     need(set(result) == {'manifest', 'manifestSha256', 'files'} and result['manifestSha256'] == r['manifestSha256'])
     m = validate_manifest(result['manifest'])
     need(m['businessId'] == r['businessId'] and m['purpose'] == r['purpose'] and m['kind'] == r['kind'])
-    if m['kind'] == 'copy':
+    if m['kind'] != 'erase':
         ttl = datetime.datetime.fromisoformat(m['expiresAt'].replace('Z', '+00:00')).timestamp() - time.time()
         if ttl <= 0:
             return {'outcome': 'owner_attention', 'reason': 'replica_purpose_expired', 'replicaVolume': volume(root, enforce_root_device)}
         need(ttl <= 30 * 60, 'finite_replica_purpose_required')
+    if m['kind'] == 'copy':
         files = {name: base64.b64decode(data, validate=True) for name, data in result['files'].items()}
         v = replicate(root, m, result['manifestSha256'], files, enforce_root_device)
         if enforce_root_device:
             sample_existing_capacity()
             v = volume(root, True)
+    elif m['kind'] == 'capacity':
+        need(result['files'] == {})
+        if enforce_root_device:
+            sample_existing_capacity()
+        v = volume(root, enforce_root_device)
     else:
         need(result['files'] == {})
         v = erase_business(root, m['businessId'], enforce_root_device)
@@ -279,7 +290,7 @@ def one_tick(root=ROOT, send=remote, enforce_root_device=True):
     need(send({'op': 'ack', **{k: r[k] for k in ('businessId', 'purpose', 'manifestSha256')}, 'ack': ack}) ==
          {'acknowledged': True, 'manifestSha256': result['manifestSha256']})
     atomic_json(cursor_path, {'purpose': '' if m['kind'] == 'erase' else m['purpose']})
-    return {'outcome': 'verified_copy' if m['kind'] == 'copy' else 'verified_business_absence', 'replicaVolume': v}
+    return {'outcome': 'verified_copy' if m['kind'] == 'copy' else 'verified_capacity_sample' if m['kind'] == 'capacity' else 'verified_business_absence', 'replicaVolume': v}
 
 
 def main():
@@ -299,6 +310,13 @@ def main():
             result = {'outcome': 'owner_attention', 'reason': 'native_replica_unavailable'}
         atomic_json(os.path.join(ROOT, 'health.json'), {'contract': 'native-cold-replica-health.v1',
                     'observedAt': utc(), **result})
+        try:
+            need(remote({'op': 'health', 'health': {'contract': 'native-cold-replica-health.v1',
+                        'observedAt': utc(), 'outcome': result['outcome'], 'reason': result.get('reason')}}) == {'recorded': True})
+        except BaseException:
+            # Transport loss is visible as stale/missing owner telemetry. No
+            # customer state or earlier successful erasure ACK is rewritten.
+            pass
         for _ in range(15):
             if STOP:
                 break

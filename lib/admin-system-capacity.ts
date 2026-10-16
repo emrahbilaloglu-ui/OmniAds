@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { hostname, platform } from "node:os";
 import { promisify } from "node:util";
 import { getDbWithTimeout } from "@/lib/db";
+import { getNativeColdOwnerStatus,type NativeColdOwnerStatus } from "@/lib/native-cold-owner-status";
 
 const execFileAsync = promisify(execFile);
 
@@ -69,6 +70,7 @@ export interface AdminSystemCapacityPayload {
   diskSource: "local_runtime" | "db_host_healthcheck";
   diskSnapshotAt: string | null;
   notes: string[];
+  nativeArchiveLifecycle?: NativeColdOwnerStatus;
 }
 
 export interface AdminSystemCapacitySummary {
@@ -584,6 +586,7 @@ export async function getAdminSystemCapacity(options?: {
     disks,
     diskSource,
     diskSnapshotAt: dbHostSnapshot?.sampledAt ?? null,
+    nativeArchiveLifecycle: await getNativeColdOwnerStatus(),
     notes: [
       ...(!dbHostSnapshot
         ? ["DB host disk snapshot is unavailable; DB host telemetry is unknown."]

@@ -56,7 +56,7 @@ export async function runBusinessDeletionWorkerTick() {
           WHERE status IN ('queued','running')
             AND (($1::boolean=false AND archive_state IS NULL) OR COALESCE((archive_state->>'prepared')::boolean,false)=true)
           ORDER BY created_at,business_ref_id LIMIT 1)
-        RETURNING *`, [process.env.BUSINESS_ARCHIVE_ERASURE_ENABLED === "true"]);
+        RETURNING *`, [process.env.BUSINESS_ARCHIVE_ERASURE_ENABLED === "true"||process.env.NATIVE_COLD_REPLICA_REQUIRED==="true"]);
       if (!job) return { outcome: "idle" };
       if (job.status === "failed") return { outcome: "interrupted" };
       try {

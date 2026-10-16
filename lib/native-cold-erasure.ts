@@ -7,9 +7,10 @@ import { createEraseRequest,readReplicaAck,removeReplicaRequest,verifyReplicaAck
 import { need,UUID } from "../scripts/native-storage-batch/common";
 import { cleanupOwnedColdSession,type OwnedColdSession } from "./native-cold-session";
 import type { PoolClient } from "pg";
+import { dropPrivateRestore } from "../scripts/native-cold-lifecycle/private-restore";
 
 export interface ColdBusinessErasureProof {contract:"native-cold-business-erasure.v1";businessId:string;attemptId:string;
-  request:ReplicaRequest;ack:ReplicaAck;localCopiesAbsent:true;localJobsAbsent:true;outboxAbsent:true}
+  request:ReplicaRequest;ack:ReplicaAck;localCopiesAbsent:true;localJobsAbsent:true;outboxAbsent:true;privateRestoreDatabasesAbsent:true}
 const PURPOSE=/^[a-f0-9]{12}$/;
 const COPY_FILE=/^(?:[a-f0-9]{64}\.bin|[a-f0-9]{64}\.trust\.json|leaf-[a-f0-9]{64}\.json|capture\.json|config\.json(?:\.gz)?|intent\.json)(?:\.pending)?$/;
 async function absent(path:string){try{await lstat(path);return false;}catch(e){if((e as NodeJS.ErrnoException).code!=="ENOENT")throw e;return true;}}
@@ -18,7 +19,7 @@ export function validateColdBusinessErasureProof(p:ColdBusinessErasureProof,busi
   need(p?.contract==="native-cold-business-erasure.v1"&&UUID.test(businessId)&&UUID.test(attemptId)&&
     p.businessId===businessId&&p.attemptId===attemptId&&p.request.kind==="erase"&&p.request.businessId===businessId&&
     p.request.purpose===archiveDigest(`business-erasure:${businessId}:${attemptId}`).slice(0,12)&&
-    p.localCopiesAbsent===true&&p.localJobsAbsent===true&&p.outboxAbsent===true,"EXACT_COLD_ERASURE_PROOF");
+    p.localCopiesAbsent===true&&p.localJobsAbsent===true&&p.outboxAbsent===true&&p.privateRestoreDatabasesAbsent===true,"EXACT_COLD_ERASURE_PROOF");
   // An acknowledged absence stays valid while the hidden-business barrier and
   // shared publisher lock prevent all later copy creation. It need not be
   // re-dated during the existing30m database cleanup transaction.
@@ -26,6 +27,7 @@ export function validateColdBusinessErasureProof(p:ColdBusinessErasureProof,busi
 }
 export async function assertColdBusinessLocalAbsent(businessId:string){
   need(UUID.test(businessId),"EXACT_COLD_ERASURE_BUSINESS");
+  if(process.env.NATIVE_COLD_REPLICA_REQUIRED==="true"||!await absent(COLD_ROOT))await assertSafeArchiveDirectory(COLD_ROOT);
   for(const path of [join(COLD_COPY_ROOT,businessId),coldPath("jobs",businessId),coldPath("replication","outbox",businessId)]){
     if(await absent(path))continue;await assertSafeArchiveDirectory(path);
     need((await readdir(path)).length===0,"COLD_BUSINESS_COPIES_REMAIN");
@@ -66,13 +68,17 @@ async function purgeCopies(businessId:string,deadlineAtMs:number){
   await rmdir(business);await sync(COLD_COPY_ROOT);
 }
 async function purgeJobJournals(businessId:string,deadlineAtMs:number,client:Pick<PoolClient,"query">){
-  const business=coldPath("jobs",businessId);if(await absent(business))return;
-  await assertSafeArchiveDirectory(business);let files=0;
+  const business=coldPath("jobs",businessId);if(await absent(business))return [];
+  await assertSafeArchiveDirectory(business);let files=0;const ownedJobIds:string[]=[];
   for(const purpose of await readdir(business)){
     need(PURPOSE.test(purpose),"OWNED_COLD_JOB_PURPOSE");const path=join(business,purpose);await assertSafeArchiveDirectory(path);
-    const state=await coldJson<{businessId:string;purpose:string;session?:OwnedColdSession}>(join(path,"state.json"));
-    need(state.businessId===businessId&&state.purpose===purpose,"OWNED_COLD_JOURNAL_IDENTITY");
+    const state=await coldJson<{businessId:string;jobRunId:string;purpose:string;session?:OwnedColdSession}>(join(path,"state.json"));
+    need(state.businessId===businessId&&state.purpose===purpose&&UUID.test(state.jobRunId),"OWNED_COLD_JOURNAL_IDENTITY");ownedJobIds.push(state.jobRunId);
     if(state.session){await cleanupOwnedColdSession(client,state.session);delete state.session;await writeColdJson(join(path,"state.json"),state);}
+    // A killed restore child may leave its derived plaintext database. Prove
+    // its deterministic isolated target absent BEFORE removing the journal
+    // that owns that target. The helper cannot connect to production.
+    await dropPrivateRestore(purpose);
     const walk=async(dir:string,depth:number):Promise<void>=>{
       need(depth<=3,"FINITE_COLD_JOURNAL_DEPTH");await assertSafeArchiveDirectory(dir);
       for(const name of await readdir(dir)){
@@ -85,7 +91,7 @@ async function purgeJobJournals(businessId:string,deadlineAtMs:number,client:Pic
     };
     await walk(path,0);await rmdir(path);
   }
-  await rmdir(business);await sync(coldPath("jobs"));
+  await rmdir(business);await sync(coldPath("jobs"));return ownedJobIds;
 }
 async function removeOutbox(businessId:string){
   const path=coldPath("replication","outbox",businessId);if(await absent(path))return;
@@ -101,11 +107,12 @@ async function removeOutbox(businessId:string){
 export async function finishColdBusinessErasure(businessId:string,attemptId:string,deadlineAtMs:number,client:Pick<PoolClient,"query">):Promise<{
   waiting:boolean;proof:ColdBusinessErasureProof|null;
 }>{
-  assertColdWriter();need(UUID.test(businessId)&&UUID.test(attemptId)&&Date.now()<deadlineAtMs,"EXACT_COLD_ERASURE_OPERATION");
+  need(UUID.test(businessId)&&UUID.test(attemptId)&&Date.now()<deadlineAtMs,"EXACT_COLD_ERASURE_OPERATION");
   const required=process.env.NATIVE_COLD_REPLICA_REQUIRED==="true";
   const own=!(await absent(join(COLD_COPY_ROOT,businessId)))||!(await absent(coldPath("jobs",businessId)))||
     !(await absent(coldPath("replication","outbox",businessId)));
   if(!required&&!own)return {waiting:false,proof:null};
+  assertColdWriter();
   const purpose=archiveDigest(`business-erasure:${businessId}:${attemptId}`).slice(0,12),m=await createEraseRequest(businessId,purpose);
   let ack:ReplicaAck;
   try{ack=await readReplicaAck(m);}catch(e){
@@ -114,7 +121,7 @@ export async function finishColdBusinessErasure(businessId:string,attemptId:stri
   }
   // Copy creation for hidden businesses is refused by the lock-owning caller;
   // the single replica process prioritizes erase over every older copy request.
-  await purgeCopies(businessId,deadlineAtMs);await purgeJobJournals(businessId,deadlineAtMs,client);await removeOutbox(businessId);
+  await purgeCopies(businessId,deadlineAtMs);const ownedJobIds=await purgeJobJournals(businessId,deadlineAtMs,client);await removeOutbox(businessId);
   const global=coldPath("state.json");
   if(!await absent(global)){
     const state=await coldJson<Record<string,unknown>>(global);
@@ -123,10 +130,12 @@ export async function finishColdBusinessErasure(businessId:string,attemptId:stri
     }
     const vetoes=state.vetoes as {generation?:{businessId:string}}[]|undefined;
     if(vetoes)state.vetoes=vetoes.filter(x=>x.generation?.businessId!==businessId);
+    const reads=state.reads as {businessId:string}[]|undefined;if(reads)state.reads=reads.filter(x=>x.businessId!==businessId);
+    if(ownedJobIds.includes((state.cursor as {jobRunId?:string}|null)?.jobRunId??""))state.cursor=null;
     await writeColdJson(global,state);
   }
   await assertColdBusinessLocalAbsent(businessId);
   const proof:ColdBusinessErasureProof={contract:"native-cold-business-erasure.v1",businessId,attemptId,request:m,ack,
-    localCopiesAbsent:true,localJobsAbsent:true,outboxAbsent:true};validateColdBusinessErasureProof(proof,businessId,attemptId);
+    localCopiesAbsent:true,localJobsAbsent:true,outboxAbsent:true,privateRestoreDatabasesAbsent:true};validateColdBusinessErasureProof(proof,businessId,attemptId);
   return {waiting:false,proof};
 }

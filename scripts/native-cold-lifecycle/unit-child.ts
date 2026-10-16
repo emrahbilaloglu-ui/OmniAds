@@ -46,9 +46,11 @@ async function main(){
     /^[a-f0-9]{12}$/.test(r.purpose??"")&&UUID.test(r.businessId??"")&&UUID.test(r.jobRunId??"")&&
     r.sourceInventorySha256===inventory,"EXACT_COLD_CHILD_REQUEST");
   const directory=join(COLD_COPY_ROOT,r.businessId,r.jobRunId),primary=join(directory,"primary"),recovery=join(directory,"recovery");
-  const intent=await coldJson<{purpose:string;businessId:string;jobRunId:string;sourceBuildId:string;sourceInventorySha256:string}>(join(directory,"intent.json"));
+  const intent=await coldJson<{contract:string;purpose:string;businessId:string;jobRunId:string;sourceBuildId:string;sourceInventorySha256:string;startedAt:string;deadlineAt:string}>(join(directory,"intent.json"));
   need(intent.purpose===r.purpose&&intent.businessId===r.businessId&&intent.jobRunId===r.jobRunId&&
-    intent.sourceBuildId===process.env.APP_BUILD_ID&&intent.sourceInventorySha256===inventory,"EXACT_COLD_CAPTURE_INTENT");
+    intent.sourceBuildId===process.env.APP_BUILD_ID&&intent.sourceInventorySha256===inventory&&intent.contract==="native-cold-copy-intent.v1"&&
+    Date.parse(intent.startedAt)<=Date.now()&&Date.now()<Date.parse(intent.deadlineAt)&&
+    Date.parse(intent.deadlineAt)-Date.parse(intent.startedAt)===30*60_000,"EXACT_COLD_CAPTURE_INTENT");
   if(r.op==="capture"){
     need(Object.keys(r).sort().join(",")==="businessId,contexts,contract,evaluations,generation,jobRunId,op,purpose,sourceInventorySha256"&&
       r.generation?.businessId===r.businessId&&r.generation.jobRunId===r.jobRunId,"EXACT_COLD_CAPTURE_REQUEST");
@@ -63,7 +65,12 @@ async function main(){
       await coldDirectory(primary);await coldDirectory(recovery);
       for(const p of [primary,recovery])await persistColdPrivateOriginal(p,sealed,original.config);
       const identities=new Map(original.identities.map(x=>[x.evaluationId,x]));
-      const samples=[...new Set(sealed.metadata.parts.flatMap(p=>[p.firstEvaluationId,p.lastEvaluationId]))].map(id=>identities.get(id)!);
+      // Every encrypted fragment gets a real HTTP read. Up to eight parts also
+      // read both ends; larger packages stay within16 samples and preserve
+      // the existing shared historical-reader request budget.
+      const sampleIds=sealed.metadata.parts.length<=8?sealed.metadata.parts.flatMap(p=>[p.firstEvaluationId,p.lastEvaluationId]):
+        sealed.metadata.parts.map(p=>p.firstEvaluationId);
+      const samples=[...new Set(sampleIds)].map(id=>identities.get(id)!);
       return emit({type:"result",value:{proofSha256:original.proofSha256,leafSha256:sealed.metadata.leafSha256,
         archiveBytes:sealed.metadata.archiveBytes,parts:sealed.metadata.parts.length,samples,
         evaluations:original.config.evaluations,contexts:original.config.contexts,encodedRows:original.encodedRows,

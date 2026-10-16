@@ -14027,3 +14027,52 @@ tests complement that proof; production cadence/copies/HTTP and growth balance
 remain separate acceptance. See the tenant lifecycle architecture for rollback:
 after new format publication retain capable readers/current pointers and disable
 new publication; never roll back to erased history or claim owned QA as live.
+
+## D175 — Bounded automatic lossless native history and independent replica (2026-10-16)
+
+User-authorized long-term storage requires an actual automatic caller, not an
+increase to163GiB or another one-time free-space claim. Reuse D174 and the
+existing whole-original capture/full-DDL restore/C3 challenge kernels. Only the
+dedicated archive role may execute, with explicit default-off native-archive
+lane, exact immutable three-role source identity, actual completed source review,
+fresh source/consumer/producer/pin/HTTP/physical gates, journaled30m purpose,
+metadata-only64-header selection and one complete3200/four-context original.
+Typed protected/unsupported originals remain intact without starving other
+eligible jobs; unknown integrity/consumer or dispatched-commit ambiguity is
+owner attention. Preserve all earlier byte/query/lock/catalog/evidence limits.
+
+Store the complete compact private original without repeated per-part expanded
+trust roots; hash and bound the original config's compressed and decoded bytes,
+preserving original config JSON ordering for C3. Two private copies, real full-DDL
+restore and verified plaintext-target removal, plus a byte-identical independent
+DB-root encrypted replica must precede publication/removal. The key stays off
+that replica host; two offline key digests must match. Use a fixed forced SSH
+protocol, private socket-only PG16 companion and existing source capacity sampler.
+Actual immutable files/copy ACK/HTTP bodies/COMMIT/readback are separate proofs.
+Parent admission occurs before source AX locks; the locked transaction receives
+only one exact nonce-bound parent challenge. Never replay dispatched retirement.
+
+Use incremental tenant CAS routing and scoped superseded metadata cleanup. Keep
+all historical/current authority boundaries. Real authenticated historical HTTP
+full bodies are encrypted in the journal; normal current GET parity remains a
+separate acceptance. The earlier409 has no inferred repair or pre-retirement
+causality. Reuse of a natural current result is not a new original generation.
+Keep163GiB, source40GiB plus512MiB, separate app8GiB/replica16GiB floors and
+physical-bounded proven MAIN credit. Cadence5min and rolling15min48 requests/
+24MiB potential download budget leave normal-reader headroom; server limits stay.
+
+Lifetime replica erasure remains required after writer rollback. Extend the
+existing immediate user-hide/background-owner-cleanup saga to independent remote
+absence, exact private packages, encrypted proofs/journals, temporary sessions,
+derived plaintext DBs and identifying controller metadata. Erase selected partial
+or corrupt redundant files by durable owner intent; preserve foreign/shared data.
+The replica process gives erase requests priority and cannot resurrect from old
+copy requests. Owner-only capacity status distinguishes liveness, completion,
+stale telemetry and concrete failure. No customer-facing cleanup burden.
+
+After minting pointerv2/tenant objects, rollback means stopping this caller/lane
+with compatible readers/copies/key/replica/erasure still present. An old incapable
+image or full old-env restore is not a valid rollback. Finite media cannot retain
+unbounded growing history forever: live acceptance must report actual generation
+rate, package size, remaining horizon, unsupported/pinned backlog and any
+unobserved native generation. See the cold lifecycle contract for the full sequence.

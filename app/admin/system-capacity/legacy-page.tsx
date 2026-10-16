@@ -355,6 +355,14 @@ export default function AdminSystemCapacityPage() {
         </div>
       </div>
 
+      {payload.nativeArchiveLifecycle ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm">
+          <p className="font-semibold">Kayıpsız geçmiş arşivi: {{disabled:"Kapalı",running:"Etkin",owner_attention:"Sahip müdahalesi gerekiyor",unknown:"Doğrulama bekleniyor"}[payload.nativeArchiveLifecycle.status]}</p>
+          <p className="mt-1 text-slate-600">Doğrulanarak arşivlenen üretim: {payload.nativeArchiveLifecycle.archivedOriginals} · Son tamamlanma: {formatDateTime(payload.nativeArchiveLifecycle.lastCompletedAt)}</p>
+          <p className="mt-1 text-slate-600">Bağımsız kopya: {payload.nativeArchiveLifecycle.replicaFresh?"Güncel bağlantı":"Telemetri yok veya bayat"} · {payload.nativeArchiveLifecycle.replicaOutcome??"Henüz doğrulanmadı"}</p>
+          {payload.nativeArchiveLifecycle.lastFailureCode ? <p className="mt-1 text-amber-800">İnceleme nedeni: {payload.nativeArchiveLifecycle.lastFailureCode}</p> : null}
+        </div>
+      ) : null}
       {payload.notes.length > 0 ? (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

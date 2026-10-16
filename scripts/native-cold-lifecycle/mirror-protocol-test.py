@@ -42,11 +42,11 @@ class Protocol(unittest.TestCase):
         parts[digest(data) + '.bin'] = data
         leaf = b'{"test":"immutable-leaf"}'
         parts['leaf-' + digest(leaf) + '.json'] = leaf
-        if kind == 'erase':
+        if kind != 'copy':
             parts = {}
         m = {'contract': CONTRACT, 'kind': kind, 'businessId': business, 'purpose': purpose,
-             'jobRunId': JOB if kind == 'copy' else None,
-             'expiresAt': (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=30)).isoformat().replace('+00:00', 'Z') if kind == 'copy' else None,
+             'jobRunId': JOB if kind != 'erase' else None,
+             'expiresAt': (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=30)).isoformat().replace('+00:00', 'Z') if kind != 'erase' else None,
              'files': [{'name': n, 'sha256': digest(b), 'bytes': len(b)} for n, b in sorted(parts.items())]}
         target = os.path.join(self.control, 'replication', 'outbox', business, purpose)
         os.makedirs(target, mode=0o700, exist_ok=True)
@@ -148,6 +148,38 @@ class Protocol(unittest.TestCase):
             validate_ack(a, m, digest(canonical(m)))
         with self.assertRaises(ValueError):
             endpoint.handle({'op': 'shell', 'cmd': 'anything'}, self.control)
+
+    def test_capacity_ack_is_distinct_from_copy_and_expired_work_does_not_repeat_sampling(self):
+        m, outbox, _ = self.request(kind='capacity')
+        self.assertEqual(self.tick()['outcome'], 'verified_capacity_sample')
+        self.assertFalse(os.path.lexists(os.path.join(self.root, BIZ)))
+        a = json.loads(read_file(os.path.join(outbox, 'ack.json'), 32768))
+        self.assertEqual(a['kind'], 'capacity')
+        m['expiresAt'] = '2000-01-01T00:00:00Z'
+        atomic_json(os.path.join(outbox, 'manifest.json'), m)
+        result = self.tick()
+        self.assertEqual(result['outcome'], 'owner_attention')
+        self.assertEqual(result['reason'], 'replica_purpose_expired')
+        self.assertEqual(json.loads(read_file(os.path.join(outbox, 'ack.json'), 32768)), a)
+
+    def test_owner_health_is_fresh_bounded_and_never_accepts_customer_rows_or_credentials(self):
+        h = {'contract': 'native-cold-replica-health.v1', 'observedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+             'outcome': 'idle', 'reason': None}
+        os.makedirs(os.path.join(self.control, 'replication'), mode=0o700)
+        self.assertEqual(endpoint.handle({'op': 'health', 'health': h}, self.control), {'recorded': True})
+        for bad in ({**h, 'env': 'secret'}, {**h, 'observedAt': '2000-01-01T00:00:00Z'}, {**h, 'reason': 'arbitrary text'}):
+            with self.assertRaises(ValueError):
+                endpoint.handle({'op': 'health', 'health': bad}, self.control)
+
+    def test_runtime_observer_emits_only_whitelisted_identity_and_key_digest(self):
+        probe = module('owned_runtime_probe', 'runtime_probe.py')
+        env = ['APP_BUILD_ID='+'a'*40, 'ENGINE_V3_NATIVE_ARCHIVE_ENCRYPTION_KEY_HEX='+'b'*64,
+               'DATABASE_URL=secret-production-url', 'PROVIDER_TOKEN=secret-provider-token']
+        c = {'Config': {'Env': env}, 'Id': 'c', 'Image': 'image', 'State': {'StartedAt': 'now', 'Running': True}, 'Mounts': []}
+        i = {'Config': {'Env': ['ADSECUTE_IMAGE_BUILD_ID='+'a'*40], 'Labels': {'org.opencontainers.image.revision': 'a'*40}}}
+        record = json.dumps(probe.role_record(c, i))
+        self.assertNotIn('secret', record)
+        self.assertNotIn('b'*64, record)
 
 
 if __name__ == '__main__':

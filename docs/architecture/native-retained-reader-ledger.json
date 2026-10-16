@@ -419,7 +419,7 @@
     {
       "path": "scripts/native-storage-batch/input-evidence-lifecycle-pg.ts",
       "role": "owned-fixture",
-      "sha256": "5fe6353a0e4e2b0483143fb959635ed7d7d596ba63caea8b76b442e3e42ad839",
+      "sha256": "20e3d7d620fc710e47a0a5cc6dd24f7cff5b3203aa3745328698c2c0529f15f8",
       "retention": "D174 owned-only real-PG compact3200 scenario: old collector/batch refusal, actual producer/full-DDL restore, C3 parent challenge and independent global shared-input/foreign-row/lineage preservation. Not live acceptance."
     },
     {
@@ -489,5 +489,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "ef194c5a64248cc93a2cd525e5cf2cf9205ae2fdc1c0bb78e8801ab1da5e5f64"
+  "sourceInventorySha256": "f405a084bcffaf7f2798a7f86b00d6786e47b58971b30f722ecec87602ad129b"
 }

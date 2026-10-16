@@ -1,9 +1,11 @@
 import { constants } from "node:fs";
-import { lstat, open, realpath } from "node:fs/promises";
+import { lstat, open, realpath, rename, unlink } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 
 export const BUSINESS_ARCHIVE_POINTER_CONTRACT = "business-archive-active-publication.v1";
+export const BUSINESS_ARCHIVE_TENANT_POINTER_CONTRACT = "business-archive-active-publication.v2";
+export const BUSINESS_ARCHIVE_TENANT_ROUTING_DIRECTORY = "routing-cas-v1";
 export const archiveDigest = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 export const archiveCanonical = (value: unknown): string => JSON.stringify(value, (_key, item) =>
   item && typeof item === "object" && !Array.isArray(item)
@@ -57,7 +59,7 @@ export async function readSafeArchiveFile(path: string, maxBytes = 1024 * 1024, 
   } finally { await f.close(); }
 }
 export type BusinessArchivePointer = {
-  contract: typeof BUSINESS_ARCHIVE_POINTER_CONTRACT; baseFingerprint: string;
+  contract: typeof BUSINESS_ARCHIVE_POINTER_CONTRACT | typeof BUSINESS_ARCHIVE_TENANT_POINTER_CONTRACT; baseFingerprint: string;
   catalog: { path: string; sha256: string };
   routing: { directory: string; sha256: string } | null;
 };
@@ -65,7 +67,8 @@ export function validateBusinessArchivePointer(value: unknown, base: BusinessArc
   archiveNeed(value && typeof value === "object" && !Array.isArray(value));
   const p = value as BusinessArchivePointer;
   archiveNeed(Object.keys(p).sort().join(",") === "baseFingerprint,catalog,contract,routing"
-    && p.contract === BUSINESS_ARCHIVE_POINTER_CONTRACT && p.baseFingerprint === businessArchiveBaseFingerprint()
+    && [BUSINESS_ARCHIVE_POINTER_CONTRACT,BUSINESS_ARCHIVE_TENANT_POINTER_CONTRACT].includes(p.contract)
+    && p.baseFingerprint === businessArchiveBaseFingerprint()
     && base.localRoot && base.transport === "filesystem" && p.catalog
     && Object.keys(p.catalog).sort().join(",") === "path,sha256"
     && /^[a-f0-9]{64}$/.test(p.catalog.sha256)
@@ -73,10 +76,36 @@ export function validateBusinessArchivePointer(value: unknown, base: BusinessArc
   scopedArchivePath(base.localRoot, p.catalog.path);
   if (base.routingEnabled) {
     archiveNeed(p.routing && Object.keys(p.routing).sort().join(",") === "directory,sha256" && /^[a-f0-9]{64}$/.test(p.routing.sha256)
-      && p.routing.directory === `routing-auto-${p.routing.sha256.slice(0, 24)}`);
+      && p.routing.directory === (p.contract===BUSINESS_ARCHIVE_TENANT_POINTER_CONTRACT
+        ? BUSINESS_ARCHIVE_TENANT_ROUTING_DIRECTORY : `routing-auto-${p.routing.sha256.slice(0, 24)}`));
     scopedArchivePath(base.localRoot, p.routing.directory);
   } else archiveNeed(p.routing === null);
   return p;
+}
+/** Caller holds the shared publisher/offboarding exclusion. Exact pre-state
+ * compare prevents stale publication from undoing a completed business erase.
+ * Existing immutable metadata must have been fully verified before this call. */
+export async function activateBusinessArchivePointer(pointer:BusinessArchivePointer,expected:BusinessArchiveConfiguration) {
+  validateBusinessArchivePointer(pointer,configuredBusinessArchive());
+  const filename=process.env.ENGINE_V3_NATIVE_ARCHIVE_ACTIVE_POINTER;
+  archiveNeed(filename&&isAbsolute(filename)&&basename(filename)==="active.json");
+  const parent=dirname(filename);await assertSafeArchiveDirectory(parent);
+  archiveNeed(archiveCanonical(await resolveBusinessArchiveConfiguration())===archiveCanonical(expected));
+  const bytes=Buffer.from(JSON.stringify(pointer)),temporary=join(parent,`active-${archiveDigest(bytes)}.pending`);
+  // Only an exact complete previous intent can be reused. Partial/foreign
+  // files block the publisher; they never become an active pointer.
+  let existed=false;
+  try{await readSafeArchiveFile(temporary,4096,archiveDigest(bytes));existed=true;}
+  catch(e){if((e as NodeJS.ErrnoException).code!=="ENOENT")throw e;}
+  if(!existed){const f=await open(temporary,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+    try{await f.writeFile(bytes);await f.sync();}catch(e){await unlink(temporary).catch(()=>undefined);throw e;}finally{await f.close();}}
+  archiveNeed(archiveCanonical(await resolveBusinessArchiveConfiguration())===archiveCanonical(expected));
+  await rename(temporary,filename);
+  const directory=await open(parent,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);
+  try{await directory.sync();}finally{await directory.close();}
+  const actual=await resolveBusinessArchiveConfiguration();
+  archiveNeed(actual.rootSha256===pointer.routing?.sha256&&actual.catalogSha256===pointer.catalog.sha256);
+  return actual;
 }
 /** The writer is the dedicated offboarding role, never a buyer/API request.
  * Every reader reloads the atomic pointer before routing/cache admission.

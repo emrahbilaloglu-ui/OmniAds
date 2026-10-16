@@ -67,10 +67,15 @@ const psql = (c: Cluster, sql: string) =>
   execFileSync(`${PG}/psql`, ["-h", c.sock, "-p", String(c.port), "-U", "nsb_owner", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-qAt", "-c", sql], { encoding: "utf8", env: PG_ENV }).trim();
 function migrate(url: string) {
   return new Promise<number>((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", TSX_LOADER, join(REPO_ROOT, "scripts/run-migrations.ts")], { cwd: STATE, stdio: "ignore",
+    const child = spawn(process.execPath, ["--import", TSX_LOADER, join(REPO_ROOT, "scripts/run-migrations.ts")], { cwd: STATE, stdio: ["ignore","pipe","pipe"],
       env: { NODE_ENV: "production", PATH: PG_ENV.PATH, HOME: STATE, TSX_TSCONFIG_PATH: join(REPO_ROOT, "tsconfig.json"), DATABASE_URL: url,
         DATABASE_URL_UNPOOLED: url, DB_SSL_MODE: "disable", ENABLE_RUNTIME_MIGRATIONS: "1", ADSECUTE_EPHEMERAL_DB_SEAM: "1" } });
-    child.once("error", reject); child.once("exit", code => resolve(code ?? 1));
+    let diagnostic="";
+    for(const stream of [child.stdout,child.stderr])stream.on("data",chunk=>{diagnostic=(diagnostic+chunk.toString()).slice(-12_000);});
+    child.once("error", reject); child.once("exit", code => {
+      if(code!==0)process.stderr.write(`Owned migration failed: ${diagnostic}\n`);
+      resolve(code ?? 1);
+    });
   });
 }
 

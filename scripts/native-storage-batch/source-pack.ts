@@ -17,6 +17,7 @@ export const BATCH_FILES = ["common.ts", "rw-unit-inventory.ts", "capture.ts", "
 export const ADMISSION_FILES = ["lib/creative-decision-engine/native-finite-storage-lifecycle.ts",
   "lib/sync/native-storage-maintenance-admission.ts"];
 export const PINNED_LIBRARY_FILES = ["lib/creative-decision-engine/canonical-evaluation.ts",
+  "scripts/native-cold-lifecycle/private-original.ts",
   "lib/creative-decision-engine/native-evidence-archive.ts", "lib/creative-decision-engine/native-calibration-parent-archive.ts",
   "lib/creative-decision-engine/native-archive-pin-census.ts", "lib/creative-decision-engine/native-evaluation-context-unit.ts",
   "lib/creative-decision-engine/native-job-evaluation-selection.ts", "lib/creative-decision-engine/native-job-snapshot-selection.ts",

@@ -83,10 +83,19 @@ describe("global kill switch", () => {
       "cron_enqueue",
       "google_sync",
       "meta_sync",
+      "native_archive",
       "retention",
       "shopify_sync",
       "source_ingest",
     ]);
+  });
+
+  it("requires explicit native archival admission without enabling broad retention or providers",()=>{
+    const env={ADSECUTE_SYNC_GLOBAL_ENABLED:"enabled",ADSECUTE_SYNC_LANE_NATIVE_ARCHIVE_ENABLED:"enabled"};
+    expect(evaluateLaneAdmission({lane:"native_archive",env}).enabled).toBe(true);
+    for(const lane of ["retention","meta_sync","google_sync","shopify_sync"] as const)
+      expect(evaluateLaneAdmission({lane,env}).enabled).toBe(false);
+    expect(evaluateLaneAdmission({lane:"native_archive",env:{...env,ADSECUTE_SYNC_GLOBAL_ENABLED:"disabled"}}).enabled).toBe(false);
   });
 
   it("downgrades destructive retention to dry run whenever the lane is off", () => {

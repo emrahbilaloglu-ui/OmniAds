@@ -136,3 +136,5 @@ playwright/.evidence/d084-budget-evidence/
 playwright/.harness/
 playwright/.frames/
 playwright/.runtime/
+# Local/host mirror runtime bytecode is derived, never release source.
+scripts/native-cold-lifecycle/__pycache__/

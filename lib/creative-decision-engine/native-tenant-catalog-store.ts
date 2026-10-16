@@ -43,17 +43,23 @@ export async function persistTenantCatalogDelta(root:string,delta:TenantCatalogD
   for(const f of delta.files){
     let directory=join(root,f.kind);if(f.businessId){directory=join(directory,f.businessId);await ensureDirectory(directory,uid);}
     const target=join(directory,`${f.sha256}.json`),temporary=join(directory,`.${purpose}-${f.sha256}.writing`);
+    // A crash can happen after chmod/link but before unlinking our temporary
+    // alias. Recover only the exact owned content/prefix; a two-link inode must
+    // name BOTH this target and this exact purpose-bound temporary name.
+    try{
+      const old=await open(temporary,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+      try{const s=await old.stat();need(s.isFile()&&[1,2].includes(s.nlink)&&s.uid===uid&&!(s.mode&0o022)&&s.size<=f.bytes);
+        const b=Buffer.alloc(s.size+1),r=await old.read(b,0,b.length,0),end=await old.stat();
+        need(r.bytesRead===s.size&&end.size===s.size&&end.mtimeMs===s.mtimeMs&&end.ctimeMs===s.ctimeMs&&
+          b.subarray(0,r.bytesRead).equals(f.content.subarray(0,s.size))&&
+          ((s.mode&0o777)===0o600||s.size===f.bytes&&(s.mode&0o777)===0o440));
+        if(s.nlink===2){const named=await lstat(target);need(named.dev===s.dev&&named.ino===s.ino&&s.size===f.bytes);}
+      }finally{await old.close();}
+      await unlink(temporary);await syncDirectory(directory);
+    }catch(e){if((e as NodeJS.ErrnoException).code!=="ENOENT")throw e;}
     let existing=false;
     try{await lstat(target);existing=true;}catch(e){if((e as NodeJS.ErrnoException).code!=="ENOENT")throw e;}
     if(!existing){
-      try{
-        const old=await open(temporary,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
-        try{const s=await old.stat();need(s.isFile()&&s.nlink===1&&s.uid===uid&&!(s.mode&0o077)&&s.size<=f.bytes);
-          const b=Buffer.alloc(s.size+1),r=await old.read(b,0,b.length,0),end=await old.stat();
-          need(r.bytesRead===s.size&&end.size===s.size&&end.mtimeMs===s.mtimeMs&&end.ctimeMs===s.ctimeMs&&
-            b.subarray(0,r.bytesRead).equals(f.content.subarray(0,s.size)));}finally{await old.close();}
-        await unlink(temporary);
-      }catch(e){if((e as NodeJS.ErrnoException).code!=="ENOENT")throw e;}
       const output=await open(temporary,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
       try{await output.writeFile(f.content);await output.chmod(0o440);await output.sync();}finally{await output.close();}
       try{await link(temporary,target);}catch(e){if((e as NodeJS.ErrnoException).code!=="EEXIST")throw e;}

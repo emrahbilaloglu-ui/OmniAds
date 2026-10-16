@@ -1,4 +1,4 @@
-import { mkdtemp,mkdir,readFile,realpath,rm,lstat } from "node:fs/promises";
+import { mkdtemp,mkdir,readFile,realpath,rm,lstat,writeFile,link } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach,describe,expect,it,vi } from "vitest";
@@ -32,6 +32,16 @@ async function append(w:Awaited<ReturnType<typeof world>>,f:Awaited<ReturnType<t
   await persistTenantCatalogDelta(w.store,delta,purpose);w.current=delta.root;w.root=delta.files.find(f=>f.kind==="root")!.content;return delta;
 }
 describe("incremental tenant native catalogs",()=>{
+  it("recovers the actual chmod/hardlink crash interval without accepting foreign hardlinks",async()=>{
+    const w=await world(),f=await businessArchiveFixture(uuid(10),{compactRoot:true,tenantObjects:true});
+    const d=prepareTenantCatalogAppend({root:w.root,rootSha256:w.current.sha256,legacySha256:archiveDigest(w.legacy),shard:null,leaf:f.leaf!});
+    const leaf=d.files.find(f=>f.kind==="leaf")!,directory=join(w.store,"leaf",f.generation.businessId),purpose="b".repeat(12);
+    await mkdir(directory,{mode:0o700});const temporary=join(directory,`.${purpose}-${leaf.sha256}.writing`),target=join(directory,`${leaf.sha256}.json`);
+    await writeFile(temporary,leaf.content,{mode:0o440});await link(temporary,target);expect((await lstat(target)).nlink).toBe(2);
+    await persistTenantCatalogDelta(w.store,d,purpose);expect((await lstat(target)).nlink).toBe(1);
+    await expect(lstat(temporary)).rejects.toMatchObject({code:"ENOENT"});
+    expect(await readFile(target)).toEqual(leaf.content);
+  });
   it("appends only one leaf/bucket/root, keeps prior leaf bytes, and resolves an exact tenant before file I/O",async()=>{
     const w=await world(),selected=await businessArchiveFixture(uuid(10),{compactRoot:true,jobRunId:uuid(1)});
     const first=await append(w,selected,"b".repeat(12));

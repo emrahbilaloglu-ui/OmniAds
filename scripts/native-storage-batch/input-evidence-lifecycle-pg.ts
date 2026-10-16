@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFile, mkdir, readFile, readdir, rm, statfs } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rm, statfs,stat,writeFile,chmod } from "node:fs/promises";
+import { gzipSync } from "node:zlib";
 import { join } from "node:path";
 import { Client } from "pg";
 import type { DbClient } from "../../lib/db";
@@ -25,6 +26,7 @@ import { CONTEXT, EVAL, INPUT, UNIT_TABLES, canonicalSha, safeError, sha256, wri
 import { addObservedProductionReferenceIndex, seedCalibration, seedGeneration, seedTenant, type OwnedTenant } from "./owned-fixture";
 import { ZERO_REFERENCE_SQL, advisoryLockParts, producerExclusionKey, readReferenceIndexes } from "./input-evidence-lifecycle";
 import { ACTOR_FILE } from "./production-transport";
+import { persistColdPrivateOriginal,readColdPrivateConfig,verifyColdPrivateOriginal } from "../native-cold-lifecycle/private-original";
 import { pythonOutcomes, tsOutcome, type ParityCase } from "./__tests__/d150-parent-parity-cases";
 
 /** OWNED REAL-PG GUARD (fixture only; never imported by the executor). D150 v3
@@ -246,9 +248,26 @@ async function main() {
         for(const part of sealed.sealedParts)await persistLocalNativeArchive(archiveRoot,part.bytes,part.trust,{layout:NATIVE_HISTORICAL_TENANT_OBJECT_LAYOUT});
         const whole=await verifyPrivateCopies(sealed.metadata,key,[primary,recovery]);
         assert.equal((await verifyCopies(sealed.metadata,key,archiveRoot,primary)).manifestHash,whole.manifestHash);
+        step="compact3200-deduplicated-private-original";
+        const compactPrimary=join(STATE,"private-compact-primary"),compactRecovery=join(STATE,"private-compact-recovery");
+        for(const d of [compactPrimary,compactRecovery]){await mkdir(d,{mode:0o700});await persistColdPrivateOriginal(d,sealed,frozen.config);}
+        const packed=await verifyColdPrivateOriginal([compactPrimary,compactRecovery],key,frozen.proofSha256);
+        assert.equal(canonicalSha(packed.whole.bundle),canonicalSha(whole.bundle),"every original byte survives private metadata deduplication");
+        const oldPrivateBytes=(await Promise.all((await readdir(primary)).map(async name=>(await stat(join(primary,name))).size))).reduce((n,b)=>n+b,0);
+        assert(packed.privateBytes<oldPrivateBytes,"private package stores shared root once, rather than repeating each trust root");
+        const gzPath=join(compactRecovery,"config.json.gz"),gz=await readFile(gzPath);await chmod(gzPath,0o600);
+        const corrupt=Buffer.from(gz);corrupt[0]^=1;await writeFile(gzPath,corrupt);
+        assert.notEqual(await refusal(()=>verifyColdPrivateOriginal([compactPrimary,compactRecovery],key,frozen.proofSha256)),"NO_REFUSAL");
+        await writeFile(gzPath,gz);await chmod(gzPath,0o400);
+        const bombDirectory=join(STATE,"private-config-bomb");await mkdir(bombDirectory,{mode:0o700});
+        const bomb=gzipSync(Buffer.alloc(8*1024**2,65)),bad={...packed.descriptor,config:{sha256:sha256(bomb),bytes:bomb.length,
+          decodedSha256:"a".repeat(64),decodedBytes:4*1024**2}};
+        await writeFile(join(bombDirectory,"capture.json"),JSON.stringify(bad),{mode:0o400});
+        await writeFile(join(bombDirectory,"config.json.gz"),bomb,{mode:0o400});
+        assert.notEqual(await refusal(()=>readColdPrivateConfig(bombDirectory,frozen.proofSha256)),"NO_REFUSAL");
         step="compact3200-full-ddl-restore";const restoreDb=`nsb_restore_${hex}_${two(worlds)}`;
         psql(pg,`CREATE DATABASE "${restoreDb}" TEMPLATE "${rstTpl}"`);const rdb=await connect(restoreDb);let restored;
-        try{restored=await restoreIntoOwnedNewDatabase(rdb,whole,frozen.config);}finally{await rdb.end();}
+        try{restored=await restoreIntoOwnedNewDatabase(rdb,packed.whole,frozen.config);}finally{await rdb.end();}
         psql(pg,`DROP DATABASE "${restoreDb}"`);assert.equal(restored.frozenProofParity,true);
         step="compact3200-retire";const rc=await retireClient(w);
         const result=await retireOnceWithParentChallenge(rc.client,request(frozen),async line=>challenge(frozen,line));
@@ -261,6 +280,8 @@ async function main() {
         assert.equal(await globalDangling(w),0);assert.deepEqual(await lockHolders(w),[]);
         checks.compact={evaluations:3200,contexts:4,nameRepeat:2,encodedRows:frozen.encodedRows,parts:sealed.metadata.parts.length,
           leafBytes:sealed.metadata.leafBytes,ciphertextBytes:sealed.metadata.archiveBytes,fullDdlRestore:true,originalBytesVerified:true,
+          privatePackage:{oldPrivateBytes,compactPrivateBytes:packed.privateBytes,files:packed.files,configGzipBytes:packed.descriptor.config.bytes,
+            noPerPartTrustRootCopies:true,configCorruptionRefused:true,configZipBombRefused:true,fullOriginalByteParity:true},
           committed:true,exactUnitAbsent:back.exactUnitAbsent,inputLifecycle:back.inputEvidence,foreignAndRetainedFullBytesKept:true};
         key.fill(0);
       }finally{await close(w);}

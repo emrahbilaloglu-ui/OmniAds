@@ -128,12 +128,40 @@ services:
     volumes:
       - ./native-archive:/run/adsecute-native-archive:rw
       - ./business-erasure-control:/run/adsecute-business-erasure:rw
+      - ./native-restore-socket:/run/adsecute-native-restore-socket:rw
     healthcheck:
       test: ["CMD", "node", "--import", "tsx", "scripts/business-archive-erasure-healthcheck.ts"]
       interval: 15s
       timeout: 5s
       retries: 8
       start_period: 45s
+
+  # Private, credential-free socket-only restore target. No production URL,
+  # network interface, published port or provider-worker mount. The installer
+  # owns these two app-root directories and starts this explicit profile only.
+  native-restore:
+    profiles: [native-restore]
+    image: docker.io/library/postgres@sha256:1a66d744c1b459e13b05a8fca341da84cb63383e99ce262210efee5a319d4551
+    user: postgres
+    network_mode: none
+    restart: unless-stopped
+    stop_grace_period: 30s
+    mem_limit: 512m
+    environment:
+      POSTGRES_USER: native_restore
+      POSTGRES_DB: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_INITDB_ARGS: "--auth-local=trust --auth-host=reject --encoding=UTF8 --locale=C"
+    command: ["postgres", "-c", "listen_addresses=", "-c", "port=25432", "-c", "unix_socket_permissions=0700", "-c", "max_connections=24", "-c", "shared_buffers=32MB", "-c", "maintenance_work_mem=16MB"]
+    volumes:
+      - ./native-restore-data:/var/lib/postgresql/data:rw
+      - ./native-restore-socket:/var/run/postgresql:rw
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "/var/run/postgresql", "-p", "25432", "-U", "native_restore", "-d", "postgres"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
   # Same image as `worker`, different command — so it takes the SAME repository
   # variable. If these two ever resolved to different namespaces, migrations

@@ -425,8 +425,8 @@
     {
       "path": "scripts/native-storage-batch/input-evidence-lifecycle-pg.ts",
       "role": "owned-fixture",
-      "sha256": "053791c65f8729f94897948d14e7cdbcaec9e214c4e131fbb048775d453651f1",
-      "retention": "D174 owned-only real-PG compact3200 scenario: old collector/batch refusal, actual producer/full-DDL restore, C3 parent challenge and independent global shared-input/foreign-row/lineage preservation. Not live acceptance. D174 migration prerequisite uses ACTUAL owned statfs and the exact capacity-table DDL before full migrations; no physical override."
+      "sha256": "499a16a05b926a1eec735c9c2c9b7cb1f12bd64b3a2f47e13f5f2906c90d0085",
+      "retention": "D174 owned-only real-PG compact3200 scenario: old collector/batch refusal, actual producer/full-DDL restore, C3 parent challenge and independent global shared-input/foreign-row/lineage preservation. Not live acceptance. D174 migration prerequisite uses ACTUAL owned statfs and the exact capacity-table DDL before full migrations; no physical override. D175 owned3200 additionally proves a compact private original (single leaf/root, exact gzip original-config bytes, no per-part repeated trust root), full original byte parity and full-DDL restore from that package, measured footprint reduction and config corruption/zip-bomb refusal before C3. Legacy private format is still independently verified."
     },
     {
       "path": "scripts/native-storage-batch/input-evidence-lifecycle.ts",
@@ -495,5 +495,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "3f5ac8a728c5d1c0b47832171bedab0b7354b767a7fa8500baf9713cfb753bca"
+  "sourceInventorySha256": "a96140f001e86d34d10a17848aeb5a84038de29bb50be4b8777a28e3db415375"
 }

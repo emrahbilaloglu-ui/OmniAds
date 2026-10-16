@@ -13895,3 +13895,20 @@ Disable either flag to restore its preceding policy without rewriting history.
 Image rollback retains `.v3` manifests and all original records. Reverting heap
 accounting may correctly return to capacity-idle; record that operational effect.
 Restore only the explicitly changed vacuum reloptions from their prestate.
+
+## D171 — Bound the archive queue read on its actual pinned backend (2026-10-16)
+
+Exact-head CI60030c85235654283c2b69b112600bcafd3efc97 timed out in the
+D169 worker's oldest-hidden-job SELECT under its existing3000ms statement
+limit. That raw pinned backend bypasses the scoped DB executor's JIT guard;
+discouraged scan costs can trigger compilation even for a tiny control queue.
+Set `jit=off` on that same backend before its control queries and restore the
+role default in the existing cleanup. Preserve every lock/statement/phase and
+aggregate deadline, oldest-job serialization, archive/root proof, atomic
+rollback, customer hiding and owner-only error boundary. No index, production
+trigger, schema, provider authority or history removal changes.
+
+The existing eight migrated archive-erasure cases add a localhost-only trigger
+that checks the claiming backend's actual JIT setting when `archive_attempts`
+increases, before archive preparation. Exact CI/full QA must pass; a mocked SET
+string or an idle live queue cannot claim destructive-flow acceptance.

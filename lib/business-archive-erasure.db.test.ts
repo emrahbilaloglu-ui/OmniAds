@@ -61,9 +61,19 @@ describe.skipIf(!seam)("automatic archive erasure on the actual migrated Postgre
     // is intentionally not created by run-migrations. Reproduce that exact
     // existing prerequisite only on this disposable localhost cluster.
     const db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();
-    try{await addObservedProductionReferenceIndex(db);observedIndexAdded=true;}finally{await db.end();}
+    try{
+      await addObservedProductionReferenceIndex(db);observedIndexAdded=true;
+      // PostgreSQL, not a mock of the SET string, observes the actual claiming
+      // backend before any archive plan can be prepared. Localhost fixture only.
+      await db.query(`CREATE FUNCTION owned_archive_claim_jit_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN IF NEW.archive_attempts>OLD.archive_attempts AND current_setting('jit')<>'off' THEN
+          RAISE EXCEPTION 'archive claim backend must disable JIT'; END IF; RETURN NEW; END $$;
+        CREATE TRIGGER owned_archive_claim_jit_guard BEFORE UPDATE ON business_deletion_jobs
+          FOR EACH ROW EXECUTE FUNCTION owned_archive_claim_jit_guard();`);
+    }finally{await db.end();}
   });
   afterAll(async()=>{
+    await getDb().query("DROP TRIGGER IF EXISTS owned_archive_claim_jit_guard ON business_deletion_jobs; DROP FUNCTION IF EXISTS owned_archive_claim_jit_guard()");
     if(observedIndexAdded)await getDb().query("DROP INDEX public.idx_engine_v3_ad_evaluations_contract_input");
   });
   beforeEach(async()=>{

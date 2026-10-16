@@ -1,5 +1,5 @@
 {
-  "manifestHash": "bfe3d58162c07f0c6cc70613dbe247e4f42b17fe27642c5856948371ae54073f",
+  "manifestHash": "2d7391e12e09a4b027bd087e5f4070ba935cda5c150f35388b403cad6a907c4b",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -904,7 +904,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "a27dc39a317c6b0d0117d9858a8cdd152f82dd8be6075b1e956d35e5f577311a"
+      "sha256": "3b86fd81c6679f73b25c9e7bfb31caa11bb524b55707da864b0b2e64874f919e"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -1008,11 +1008,11 @@
     },
     {
       "path": "lib/business-archive-erasure-worker.ts",
-      "sha256": "bc85a2aa8559b2bb8045f7dfc9f60fc4fbbac08d236215a566271fe5aae07d7e"
+      "sha256": "1a188413cd6217631cf4068ea1d4aff70984dce650fb334f0a0d142f4fa3d3a7"
     },
     {
       "path": "lib/business-archive-erasure.db.test.ts",
-      "sha256": "48240f43716a64165bd9dffc10149cd1d481b0d307b19b79b8fdb8a7697fa522"
+      "sha256": "3e74538754c5f305dd73fc170b67648d9be3dd87676d838a8d24f09096b2fd29"
     },
     {
       "path": "lib/business-archive-erasure.test.ts",

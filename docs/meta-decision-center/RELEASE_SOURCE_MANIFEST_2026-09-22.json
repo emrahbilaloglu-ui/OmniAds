@@ -1,5 +1,5 @@
 {
-  "manifestHash": "bd5411e3bc3dc61d052ac5d871b1e62e26d694b7b3feae74451c3d579acb8ae1",
+  "manifestHash": "7ca75eb1b5fdae4f1396b6adbd515185829681f840802ba503a5c01059e7fc7a",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -3263,8 +3263,12 @@
       "sha256": "475fdcd79796b038a9a5716b1ab6854a9d07cdca38c21d7ab3e3831c39b8e52d"
     },
     {
+      "path": "scripts/native-cold-lifecycle/child-protocol.test.ts",
+      "sha256": "e2de4300363c2a3b928a2222bcdb6a220f0123fd941acc4d5af35d447b22b90f"
+    },
+    {
       "path": "scripts/native-cold-lifecycle/child.ts",
-      "sha256": "202e6824e15084ecfd884336af210ac1d8d49409447d3bf7fa2ebf419f6595ec"
+      "sha256": "9297c0a32b48d4c9d836b72589776bcdf0a4bf12e17bace461070a07a0baa89d"
     },
     {
       "path": "scripts/native-cold-lifecycle/controller-protocol.test.ts",
@@ -3356,7 +3360,7 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/source-inventory.json",
-      "sha256": "25a13245677d3e98148b6aaff8b501df7ef8f6b2522c0bd9856b042cd6adae52"
+      "sha256": "de447f54e668863f83a6a63891ff3d17d1ed070425a490a6dc477dea1a366fe6"
     },
     {
       "path": "scripts/native-cold-lifecycle/types.ts",

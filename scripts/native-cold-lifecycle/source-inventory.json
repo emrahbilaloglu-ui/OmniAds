@@ -493,8 +493,8 @@
     },
     {
       "path": "scripts/native-cold-lifecycle/child.ts",
-      "sha256": "202e6824e15084ecfd884336af210ac1d8d49409447d3bf7fa2ebf419f6595ec",
-      "bytes": 3376
+      "sha256": "9297c0a32b48d4c9d836b72589776bcdf0a4bf12e17bace461070a07a0baa89d",
+      "bytes": 3379
     },
     {
       "path": "scripts/native-cold-lifecycle/controller.ts",
@@ -732,5 +732,5 @@
       "bytes": 4644
     }
   ],
-  "sourceInventorySha256": "8f6f2c2313dfd91c7cabbede98d7865f83c8e939609445169581082a3a463059"
+  "sourceInventorySha256": "d6adeac1e9f5452f63159eada1e0ace4e88301bc93055742bde44fc393f53e0d"
 }

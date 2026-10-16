@@ -26,7 +26,7 @@ export async function runColdChild(state:ColdUnitState,op:"capture"|"restore"|"r
         const challenge=await parent(value);child.stdin.write(JSON.stringify(challenge)+"\n");
       }else if(value.type==="result"){
         need(!completed,"ONE_COLD_CHILD_RESULT");completed=true;result=value.value;child.stdin.end();
-      }else{error=Object.assign(Error(typeof value.code==="string"&&/^[A-Z0-9_:,-]{1,160}$/.test(value.code)?value.code:"COLD_CHILD_REFUSED"),
+      }else{error=Object.assign(Error(typeof value.code==="string"&&/^[A-Za-z0-9_:,-]{1,160}$/.test(value.code)?value.code:"COLD_CHILD_REFUSED"),
         {code:/^[A-Z0-9]{5}$/.test(value.sqlState??"")?value.sqlState:undefined});child.kill("SIGTERM");}
     };
     child.stdout.on("data",(c:Buffer)=>{

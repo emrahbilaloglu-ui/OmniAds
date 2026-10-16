@@ -52,6 +52,7 @@ vi.mock("@/lib/meta/entity-state-history", async (importOriginal) => {
 });
 
 vi.mock("@/lib/meta/warehouse", () => ({
+  readUnchangedMetaCorePublication: vi.fn().mockResolvedValue(null),
   createMetaAuthoritativeReconciliationEvent: vi
     .fn()
     .mockResolvedValue({ id: "event-1" }),
@@ -2095,8 +2096,12 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     );
   });
 
-  it("replaces a previously published tiny warehouse truth with a validated rerun", async () => {
+  it.each([false,true])("publishes changed facts and preserves a verified unchanged capture (unchanged=%s)", async (unchanged) => {
     process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    if (unchanged) vi.mocked(warehouse.readUnchangedMetaCorePublication).mockResolvedValueOnce(
+      ["account_daily","campaign_daily","adset_daily","ad_daily"].map((surface) => ({
+        id:`original-${surface}`,surface,sourceRunId:"original-run",
+      })) as never);
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
     vi.mocked(warehouse.getMetaActivePublishedSliceVersion).mockResolvedValue({
       publication: { activeSliceVersionId: "slice-old" },
@@ -2217,9 +2222,22 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         source: "repair_recent_day",
       }),
     ).resolves.toMatchObject({
-      accountRowsWritten: 1,
-      campaignRowsWritten: 1,
+      accountRowsWritten: unchanged ? 0 : 1,
+      campaignRowsWritten: unchanged ? 0 : 1,
     });
+
+    if (unchanged) {
+      for (const writer of [warehouse.replaceMetaAccountDailySlice,warehouse.replaceMetaCampaignDailySlice,
+        warehouse.replaceMetaAdSetDailySlice,warehouse.replaceMetaAdDailySlice,
+        warehouse.createMetaAuthoritativeSliceVersion,warehouse.updateMetaAuthoritativeSliceVersion,
+        warehouse.publishMetaAuthoritativeSliceVersion]) expect(writer).not.toHaveBeenCalled();
+      expect(warehouse.createMetaAuthoritativeReconciliationEvent).toHaveBeenCalledWith(
+        expect.objectContaining({eventKind:"capture_unchanged",detailsJson:expect.objectContaining({
+          originalSourceRunId:"original-run",publicationAdvanced:false,factRowsWritten:0})}));
+      expect(warehouse.upsertMetaSyncCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+        checkpointScope:"ad_daily",status:"succeeded",rowsWritten:0}));
+      return;
+    }
 
     expect(warehouse.replaceMetaAccountDailySlice).toHaveBeenCalledWith(
       expect.objectContaining({

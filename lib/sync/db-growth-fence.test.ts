@@ -136,6 +136,48 @@ describe("db growth fence", () => {
     expect(decision.offender?.table).toBe("database");
   });
 
+  function nativeHeapDb(capacity: Record<string, unknown> = {}, table: Record<string, number> = {}) {
+    const raw = DEFAULT_DATABASE_BUDGET_BYTES + GiB;
+    const proof = {database_bytes:raw,total_bytes:60*GiB,heap_bytes:20*GiB,
+      table_len:20*GiB,approx_free_space:4*GiB};
+    const query = vi.fn(async (sql: string) => sql.includes("WITH proof") ? [proof] :
+      sizes({database_bytes:raw,...table},capacity));
+    vi.mocked(db.getDbWithTimeout).mockReturnValue({query} as never);
+    return {query,proof,raw};
+  }
+  const heapAccountingEnv = {SYNC_GROWTH_FENCE_REUSABLE_NATIVE_HEAP_ENABLED:"true"};
+  it("counts proven reusable native main heap without changing raw bytes, budgets or override",async()=>{
+    const {raw}=nativeHeapDb();
+    const result=await evaluateDbGrowthFence({env:heapAccountingEnv});
+    expect(result).toMatchObject({allowed:true,reason:"ready",databaseBytes:raw,
+      databaseBudgetBytes:DEFAULT_DATABASE_BUDGET_BYTES,overridden:false,
+      databaseAccounting:{rawDatabaseBytes:raw,accountedDatabaseBytes:raw-4*GiB,reusableHeapBytes:4*GiB}});
+  });
+  it("reserves all effective headroom on disk even if it is spent in another table",async()=>{
+    nativeHeapDb({capacity_payload:capacityPayload({disks:[
+      {path:PHYSICAL_DATA_PATH,totalBytes:220*GiB,usedBytes:178*GiB,availableBytes:42*GiB}]})});
+    const result=await evaluateDbGrowthFence({env:heapAccountingEnv});
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toBe("physical_projected_free_space_low");
+    expect(result.overridden).toBe(false);
+  });
+  it("falls back to the raw refusal if proof is unavailable or malformed",async()=>{
+    const {proof}=nativeHeapDb();proof.approx_free_space=-1;
+    expect(await evaluateDbGrowthFence({env:heapAccountingEnv})).toMatchObject({
+      allowed:false,reason:"database_budget_exceeded",databaseAccounting:{metric:"raw"}});
+  });
+  it("keeps independent relation ceilings after aggregate refinement",async()=>{
+    nativeHeapDb({}, {meta_raw_snapshots:DEFAULT_TABLE_BUDGET_BYTES.meta_raw_snapshots+1});
+    expect(await evaluateDbGrowthFence({env:heapAccountingEnv})).toMatchObject({
+      allowed:false,reason:"table_budget_exceeded",offender:{table:"meta_raw_snapshots"}});
+  });
+  it("names the accounted bytes that actually exceed the aggregate budget",async()=>{
+    const {proof,raw}=nativeHeapDb();proof.approx_free_space=GiB/2;
+    expect(await evaluateDbGrowthFence({env:heapAccountingEnv})).toMatchObject({
+      allowed:false,reason:"database_budget_exceeded",databaseBytes:raw,
+      offender:{table:"database",bytes:raw-GiB/2,budget:DEFAULT_DATABASE_BUDGET_BYTES}});
+  });
+
   it.each([
     ["a fenced table is missing", sizes({ meta_creative_lineage_edges: null }), "measurement_missing"],
     ["a measurement is negative", sizes({ sync_release_gates: -1 }), "measurement_invalid"],

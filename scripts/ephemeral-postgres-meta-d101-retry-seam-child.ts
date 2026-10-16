@@ -13,6 +13,7 @@ import {
   listMetaRawSnapshotsForRun,
   persistMetaRawSnapshot,
   publishMetaAuthoritativeSliceVersion,
+  readUnchangedMetaCorePublication,
   replaceMetaAdDailySlice,
   replaceMetaAdSetDailySlice,
   replaceMetaCampaignDailySlice,
@@ -609,28 +610,29 @@ async function main() {
       rowCount, hasNext, providerHttpStatus: 200, status: "fetched",
       requestFields: "actions,spend" });
   function captureFor(snapshotId: string, spend: number, actions: unknown,
-    pages: MetaCorePageEvidence[] = [page(snapshotId, 0, 1, false)]) {
+    pages: MetaCorePageEvidence[] = [page(snapshotId, 0, 1, false)],
+    sourceRunId = receiptRunId) {
     return buildMetaCoreCaptureFingerprint({ businessId: BUSINESS,
-      providerAccountId: ACCOUNT, day: receiptDay, sourceRunId: receiptRunId,
+      providerAccountId: ACCOUNT, day: receiptDay, sourceRunId,
       requestFields: "actions,spend", pages,
       rowsFetchedTotal: pages.reduce((sum, part) => sum + part.rowCount, 0),
       accountRows: [{ businessId: BUSINESS, providerAccountId: ACCOUNT,
-        date: receiptDay, accountName: "D110", sourceRunId: receiptRunId,
+        date: receiptDay, accountName: "D110", sourceRunId,
         sourceSnapshotId: snapshotId, spend }] as MetaAccountDailyRow[],
       campaignRows: [], adsetRows: [],
       adRows: [{ businessId: BUSINESS, providerAccountId: ACCOUNT,
-        date: receiptDay, adId: "ad-d110", sourceRunId: receiptRunId,
+        date: receiptDay, adId: "ad-d110", sourceRunId,
         sourceSnapshotId: snapshotId, spend,
         payloadJson: actions ? { actions } : {} }] as MetaAdDailyRow[],
     });
   }
   async function manifestFor(snapshotId: string, spend: number,
-    coreCapture: ReturnType<typeof captureFor>) {
+    coreCapture: ReturnType<typeof captureFor>, sourceRunId = receiptRunId) {
     return createMetaAuthoritativeSourceManifest({
       businessId: BUSINESS, providerAccountId: ACCOUNT, day: receiptDay,
       surface: "account_daily", accountTimezone: "UTC",
       sourceKind: "finalize_day", sourceWindowKind: "d_minus_1",
-      runId: receiptRunId, fetchStatus: "completed",
+      runId: sourceRunId, fetchStatus: "completed",
       rawSnapshotWatermark: snapshotId,
       sourceSpend: spend, validationBasisVersion: "d110-seam",
       metaJson: { coreCapture },
@@ -758,6 +760,60 @@ async function main() {
   const reorderedCandidate = await candidateFor(reorderedManifest.id!, 11);
   assert(reorderedCandidate && reorderedCandidate.id !== orderedCandidate.id,
     "multi-page reordering must not reuse the previous candidate");
+
+  // An unchanged NEW observation may retain the complete original publication;
+  // it may never rebind its source, advance its clocks, or combine four roots.
+  await db.query(`INSERT INTO meta_account_daily
+    (business_id,business_ref_id,provider_account_id,provider_account_ref_id,date,
+     account_name,account_currency,account_timezone,spend,source_run_id,source_snapshot_id,
+     truth_state,validation_status)
+    VALUES ($1::text,$1::uuid,$2,$3::uuid,$4::date,'D110','USD','UTC',11,$5,$6::uuid,'finalized','passed')`,
+  [BUSINESS,ACCOUNT,ACCOUNT_REF,receiptDay,receiptRunId,pageOneId]);
+  for (const [surface,count,spend] of [["account_daily",1,11],["campaign_daily",0,0],["adset_daily",0,0]] as const) {
+    const candidate = await createMetaAuthoritativeSliceVersion({businessId:BUSINESS,
+      providerAccountId:ACCOUNT,day:receiptDay,surface,manifestId:orderedManifest.id!,
+      sourceRunId:receiptRunId,state:"finalizing",truthState:"finalized",
+      validationStatus:"pending",status:"staging",stagedRowCount:count,aggregatedSpend:spend});
+    assert(candidate?.id,"complete reuse root missing");
+    await publishMetaAuthoritativeSliceVersion({businessId:BUSINESS,providerAccountId:ACCOUNT,
+      day:receiptDay,surface,sliceVersionId:candidate.id,publishedByRunId:receiptRunId,
+      publicationReason:"authoritative_finalize"});
+  }
+  const newRun = randomUUID();
+  const sameNewRun = await manifestFor(pageOneId,11,
+    captureFor(pageOneId,11,null,orderedPages,newRun),newRun);
+  assert(sameNewRun?.id,"new observation missing");
+  const unchangedInput = {businessId:BUSINESS,providerAccountId:ACCOUNT,day:receiptDay,
+    manifestId:sameNewRun.id,sourceRunId:newRun,surfaces:[
+      {surface:"account_daily" as const,rowCount:1,spend:11},
+      {surface:"campaign_daily" as const,rowCount:0,spend:0},
+      {surface:"adset_daily" as const,rowCount:0,spend:0},
+      {surface:"ad_daily" as const,rowCount:1,spend:11}]};
+  const immutableRead = async () => db.query(`
+    SELECT 'pointer' AS kind,row_to_json(p)::text AS bytes FROM meta_authoritative_publication_pointers p
+      WHERE business_id=$1 AND provider_account_id=$2 AND day=$3::date
+    UNION ALL SELECT 'ad',row_to_json(a)::text FROM meta_ad_daily a
+      WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
+    ORDER BY kind,bytes`,[BUSINESS,ACCOUNT,receiptDay]);
+  const originalBytes = JSON.stringify(await immutableRead());
+  process.env.META_CORE_UNCHANGED_CAPTURE_REUSE_ENABLED="false";
+  assert(await readUnchangedMetaCorePublication(unchangedInput)===null,"reuse must default off");
+  process.env.META_CORE_UNCHANGED_CAPTURE_REUSE_ENABLED="true";
+  const retained = await readUnchangedMetaCorePublication(unchangedInput);
+  assert(retained?.length===4 && retained.every(s=>s.sourceRunId===receiptRunId && s.manifestId===orderedManifest.id),
+    "complete unchanged capture must preserve all four original roots across a new run");
+  assert(JSON.stringify(await immutableRead())===originalBytes,"observation reuse moved original bytes/clocks");
+  assert(await readUnchangedMetaCorePublication({...unchangedInput,surfaces:unchangedInput.surfaces.slice(1)})===null,
+    "a partial publication may not reuse");
+  const actionManifest = await manifestFor(pageOneId,11,
+    captureFor(pageOneId,11,[{action_type:"purchase",value:"1"}],orderedPages,newRun),newRun);
+  assert(actionManifest?.id,"action observation missing");
+  assert(await readUnchangedMetaCorePublication({...unchangedInput,manifestId:actionManifest.id})===null,
+    "same spend and pages cannot hide changed normalized facts");
+  await db.query(`UPDATE meta_ad_daily SET updated_at=clock_timestamp()+interval '1 minute'
+    WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date`,[BUSINESS,ACCOUNT,receiptDay]);
+  assert(await readUnchangedMetaCorePublication(unchangedInput)===null,"post-publication warehouse mutation must refuse");
+  delete process.env.META_CORE_UNCHANGED_CAPTURE_REUSE_ENABLED;
   console.log("[meta-d101-retry-seam] PASS: scoped orphan retirement, retry reuse, fresh-request boundary, D110 manifest-bound republish");
   await resetDbClientCache();
 }

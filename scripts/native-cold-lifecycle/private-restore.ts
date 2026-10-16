@@ -22,6 +22,11 @@ export function validatePrivateRestoreUrl(url:string,database:string){
     u.searchParams.get("host")===PRIVATE_RESTORE_SOCKET&&u.searchParams.get("port")===String(PRIVATE_RESTORE_PORT)&&
     u.searchParams.size===2&&url===privateRestoreUrl(database),"PRIVATE_SOCKET_ONLY");
 }
+export async function readPrivateRestoreTemplateMarker(c:Pick<Client,"query">):Promise<string|null>{
+  // Databases are shared objects: COMMENT ON DATABASE uses pg_shdescription.
+  const r=(await c.query("SELECT shobj_description(oid,'pg_database') marker FROM pg_database WHERE datname=current_database()")).rows[0];
+  return r?.marker??null;
+}
 async function client(database:string){
   validatePrivateRestoreUrl(privateRestoreUrl(database),database);
   need(await realpath(PRIVATE_RESTORE_SOCKET)===PRIVATE_RESTORE_SOCKET,"PRIVATE_SOCKET_CANONICAL");
@@ -82,8 +87,7 @@ async function template(build:string){
     const exists=(await admin.query("SELECT datname FROM pg_database WHERE datname=$1",[name])).rows.length===1;
     if(exists){
       const c=await client(name);
-      try{const r=(await c.query("SELECT obj_description(oid,'pg_database') marker FROM pg_database WHERE datname=current_database()")).rows[0];
-        need(r.marker===`native-cold-full-ddl:${build}`,"PRIVATE_TEMPLATE_UNACKNOWLEDGED");}
+      try{need(await readPrivateRestoreTemplateMarker(c)===`native-cold-full-ddl:${build}`,"PRIVATE_TEMPLATE_UNACKNOWLEDGED");}
       finally{await c.end();}
       return name;
     }

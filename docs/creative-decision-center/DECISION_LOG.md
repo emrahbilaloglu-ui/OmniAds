@@ -14084,3 +14084,35 @@ image or full old-env restore is not a valid rollback. Finite media cannot retai
 unbounded growing history forever: live acceptance must report actual generation
 rate, package size, remaining horizon, unsupported/pinned backlog and any
 unobserved native generation. See the cold lifecycle contract for the full sequence.
+
+## D176 — Host archive installation verifies immutable runtime source (2026-10-16)
+
+Actual deployment readback proved all three immutable/OCI role images on
+`eb9d4af190632e078a8394514d25f203bcbb7647`; the host Git checkout deliberately
+remained `6755e76b75a17b4d0036cc7bfe03a6aee5b82793`. The initial installer
+incorrectly treated that checkout as release identity and refused before data
+movement or private-service/key authorization. Do not fake/reset the checkout.
+
+Add a separate SHA-reviewed host operator that verifies live image/OCI/process
+identity, mount/key scopes, reviewed host Compose and the exact runtime146-file
+inventory inside the actual image. Its own additional SHA and targeted operator
+tests are recorded separately; the earlier image CI is not new-operator CI.
+Keep the frozen runtime inventory/image and all original bounded private-PG,
+replica, flag and rollback operations. No change to source DB/provider writes,
+163GiB/physical bounds, clocks, retention, historical/current authority or C3.
+The actual next installation and real-original/copy/HTTP/commit/absence/growth
+acceptance remain required; this repair alone grants no success claim.
+
+D175 live pre-activation correction (2026-10-16): the isolated private template
+had 232 tables and an acknowledged full migration retry (exit 0), yet its marker
+reader returned NULL. `COMMENT ON DATABASE` writes shared-object metadata;
+`obj_description` reads the wrong catalog. Use `shobj_description` in the actual
+reader and exercise that reader after COMMENT and after clearing COMMENT in the
+real PostgreSQL migrations seam. Keep private role/socket/port/image validation,
+invalid-original refusal, exact derived-target absence, all capture/copy/C3
+requirements and default-off writer. Rebind the separate host operator to the
+new runtime inventory; no production-source migration or budget change. The
+operator regression harness disables Python bytecode explicitly so direct runs
+do not contaminate the source manifest. Prior deployment/installer success is
+not acceptance of this corrected source; new CI/images/live readback remain
+required before activation.

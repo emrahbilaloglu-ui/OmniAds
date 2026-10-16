@@ -323,8 +323,8 @@
     {
       "path": "scripts/ephemeral-postgres-migrations-check.ts",
       "role": "owned-fixture",
-      "sha256": "4b0bf94857b3fca51f1089202cc5a8cd6fac6b80955697a026366a18770c110c",
-      "retention": "D174 registers all nine actual migrated archive-erasure cases, including durable multi-page tenant cleanup and exact orphan/shared/foreign-byte preservation. Other suites, physical gates, expected counts and rollback proofs remain unchanged."
+      "sha256": "ed5be14144328a83c5837db5bf0779ad30dc6c1b3e92b6cd64752ff5b83f66d6",
+      "retention": "D174 registers all nine actual migrated archive-erasure cases, including durable multi-page tenant cleanup and exact orphan/shared/foreign-byte preservation. Other suites, physical gates, expected counts and rollback proofs remain unchanged. D175 marker regression sets and clears COMMENT only on the owned ephemeral database and calls the shipped shared-object marker reader. No retained-table selection, row mutations, pins, expected test counts or retention policy changed."
     },
     {
       "path": "scripts/ephemeral-postgres-native-ad-decision-seam.ts",
@@ -495,5 +495,5 @@
       "retention": "Preserve declared original date/account/job/tenant selections; operator source hash is not proof of live or transitive closure."
     }
   ],
-  "sourceInventorySha256": "46e87bf744276d69b1e961d8b8c48c10f28e7124b444543ec17a5b4104ebde6a"
+  "sourceInventorySha256": "98c1c32969c5d8eb07c3188e6a6824e80627f29ac8fe4bb397c73fde97f945d3"
 }

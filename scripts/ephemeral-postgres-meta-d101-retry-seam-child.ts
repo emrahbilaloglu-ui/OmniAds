@@ -757,10 +757,6 @@ async function main() {
   assert(reorderedCapture, "reordered capture fixture missing");
   const reorderedManifest = await manifestFor(pageZeroId, 11, reorderedCapture);
   assert(reorderedManifest, "reordered manifest missing");
-  const reorderedCandidate = await candidateFor(reorderedManifest.id!, 11);
-  assert(reorderedCandidate && reorderedCandidate.id !== orderedCandidate.id,
-    "multi-page reordering must not reuse the previous candidate");
-
   // An unchanged NEW observation may retain the complete original publication;
   // it may never rebind its source, advance its clocks, or combine four roots.
   await db.query(`INSERT INTO meta_account_daily
@@ -795,7 +791,9 @@ async function main() {
     UNION ALL SELECT 'ad',row_to_json(a)::text FROM meta_ad_daily a
       WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date
     ORDER BY kind,bytes`,[BUSINESS,ACCOUNT,receiptDay]);
-  const originalBytes = JSON.stringify(await immutableRead());
+  const originalRows = await immutableRead();
+  const originalBytes = JSON.stringify(originalRows);
+  const originalAdTime = JSON.parse(String(originalRows.find(row=>row.kind==="ad")?.bytes)).updated_at;
   process.env.META_CORE_UNCHANGED_CAPTURE_REUSE_ENABLED="false";
   assert(await readUnchangedMetaCorePublication(unchangedInput)===null,"reuse must default off");
   process.env.META_CORE_UNCHANGED_CAPTURE_REUSE_ENABLED="true";
@@ -813,6 +811,24 @@ async function main() {
   await db.query(`UPDATE meta_ad_daily SET updated_at=clock_timestamp()+interval '1 minute'
     WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date`,[BUSINESS,ACCOUNT,receiptDay]);
   assert(await readUnchangedMetaCorePublication(unchangedInput)===null,"post-publication warehouse mutation must refuse");
+  // Restore only this synthetic fixture's exact clock for independent negative
+  // controls; production never restates a source or publication clock.
+  await db.query(`UPDATE meta_ad_daily SET updated_at=$4::timestamptz
+    WHERE business_id=$1 AND provider_account_id=$2 AND date=$3::date`,[BUSINESS,ACCOUNT,receiptDay,originalAdTime]);
+  assert((await readUnchangedMetaCorePublication(unchangedInput))?.length===4,"clock control did not restore healthy proof");
+  const [failure] = await db.query<{id:string}>(`INSERT INTO meta_authoritative_reconciliation_events
+    (business_id,business_ref_id,provider_account_id,provider_account_ref_id,day,surface,event_kind,severity,result)
+    VALUES ($1::text,$1::uuid,$2,$3::uuid,$4::date,'account_daily','capture_failed','error','failed') RETURNING id::text`,
+  [BUSINESS,ACCOUNT,ACCOUNT_REF,receiptDay]);
+  assert(failure,"failure control missing");
+  assert(await readUnchangedMetaCorePublication(unchangedInput)===null,"new failure must use normal recovery publication");
+  await db.query(`UPDATE meta_authoritative_reconciliation_events SET created_at=$2::timestamptz-interval '1 second'
+    WHERE id=$1::uuid`,[failure.id,originalAdTime]);
+  assert((await readUnchangedMetaCorePublication(unchangedInput))?.length===4,"failure control did not restore healthy proof");
+  const reorderedCandidate = await candidateFor(reorderedManifest.id!, 11);
+  assert(reorderedCandidate && reorderedCandidate.id !== orderedCandidate.id,
+    "multi-page reordering must not reuse the previous candidate");
+  assert(await readUnchangedMetaCorePublication(unchangedInput)===null,"new pending candidate must not retain an older healthy root");
   delete process.env.META_CORE_UNCHANGED_CAPTURE_REUSE_ENABLED;
   console.log("[meta-d101-retry-seam] PASS: scoped orphan retirement, retry reuse, fresh-request boundary, D110 manifest-bound republish");
   await resetDbClientCache();

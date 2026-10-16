@@ -1984,6 +1984,25 @@ async function getEquivalentPublishedMetaAuthoritativeSliceVersion(input: {
       AND candidate.truth_state = 'finalized'
       AND candidate.validation_status = 'passed'
       AND candidate.status = 'published'
+      -- A failed/incomplete newer refresh changes health even at equal spend.
+      -- Preserve the normal recovery publication instead of hiding that state.
+      AND (NOT ${input.preservePublishedSource === true}::boolean OR (
+        NOT EXISTS (
+          SELECT 1 FROM meta_authoritative_slice_versions later
+          WHERE later.business_id = pointer.business_id
+            AND later.provider_account_id = pointer.provider_account_id
+            AND later.day = pointer.day AND later.surface = pointer.surface
+            AND later.candidate_version > candidate.candidate_version
+        ) AND NOT EXISTS (
+          SELECT 1 FROM meta_authoritative_reconciliation_events failure
+          WHERE failure.business_id = pointer.business_id
+            AND failure.provider_account_id = pointer.provider_account_id
+            AND failure.day = pointer.day
+            AND failure.surface IN ('account_daily','campaign_daily','adset_daily','ad_daily')
+            AND failure.result IN ('failed','repair_required')
+            AND failure.created_at > candidate.published_at
+        )
+      ))
       AND candidate.staged_row_count IS NOT DISTINCT FROM ${input.stagedRowCount ?? null}
       AND candidate.aggregated_spend IS NOT DISTINCT FROM ${input.aggregatedSpend ?? null}
       AND old_manifest.business_id = pointer.business_id

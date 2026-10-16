@@ -1,5 +1,5 @@
 {
-  "manifestHash": "3169eaefbd5c4c5ab9fad4ec6cd76cb1471919dd639ab4eb564695bcfde84a61",
+  "manifestHash": "fa4dbfb81a89dd6b7c563619be5ad3c3eb79445a04be4fc47febf252d3bac49d",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -904,7 +904,7 @@
     },
     {
       "path": "docs/creative-decision-center/DECISION_LOG.md",
-      "sha256": "659aae3457e856f91f56adf9080c4ed2aeba43ff93306969c68aff19f94589b3"
+      "sha256": "a27dc39a317c6b0d0117d9858a8cdd152f82dd8be6075b1e956d35e5f577311a"
     },
     {
       "path": "docs/creative-decision-center/GOLDEN_CASES.md",
@@ -2652,7 +2652,7 @@
     },
     {
       "path": "lib/meta/warehouse.ts",
-      "sha256": "e7f394a052f41c1c3becd3317aafbe027813f4b357f0ecae36ff38d64a37df9b"
+      "sha256": "cebb75ad32f9679e0d92801b14aea7ea1f854954ddc3626d60a4c93e259783ac"
     },
     {
       "path": "lib/meta/write-safety-contract.test.ts",
@@ -3024,7 +3024,7 @@
     },
     {
       "path": "scripts/ephemeral-postgres-meta-d101-retry-seam-child.ts",
-      "sha256": "cea2d5f723e78fcbb9f1f4bf8e870e84666e43e4cbc00c52c96a3bce8f9dbacb"
+      "sha256": "13401ee2bb8405ed7cea78c35ca9eddf879fa73123aba245e34ccd3ba31c2042"
     },
     {
       "path": "scripts/ephemeral-postgres-meta-historical-slice-repair-seam-child.ts",

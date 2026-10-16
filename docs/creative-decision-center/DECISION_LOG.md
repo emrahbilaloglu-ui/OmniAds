@@ -13849,6 +13849,8 @@ complete, with equal timezone, spend and validation basis. All four still-active
 verified publications must belong to ONE original manifest/run and their exact
 warehouse populations must retain original source bindings and pre-publication
 clocks. Legacy/malformed/partial/changed/foreign/post-publication inputs refuse.
+Any newer candidate or later failed core reconciliation also refuses reuse,
+so a successful retry publishes normally and clears the visible recovery state.
 
 An equal observation appends its own manifest and `capture_unchanged` receipt;
 it writes zero canonical daily rows and creates/updates/publishes zero slices.

@@ -3576,11 +3576,13 @@ describe("meta warehouse ownership safety", () => {
     const lookupQueries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
+      // The publication proof now has a later-candidate subquery. Classify its
+      // outer query first; it is not a second same-run/manifest retry lookup.
+      if (query.includes("FROM meta_authoritative_publication_pointers pointer")) return [];
       if (query.includes("FROM meta_authoritative_slice_versions") && query.includes("source_run_id")) {
         lookupQueries.push(query);
         return [];
       }
-      if (query.includes("FROM meta_authoritative_publication_pointers pointer")) return [];
       if (query.includes("SELECT COALESCE(MAX(candidate_version), 0) + 1")) {
         return [{ next_candidate_version: insertAttempts === 0 ? 2 : 3 }];
       }

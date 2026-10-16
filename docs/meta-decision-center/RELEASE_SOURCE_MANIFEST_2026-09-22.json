@@ -1,5 +1,5 @@
 {
-  "manifestHash": "fa4dbfb81a89dd6b7c563619be5ad3c3eb79445a04be4fc47febf252d3bac49d",
+  "manifestHash": "bfe3d58162c07f0c6cc70613dbe247e4f42b17fe27642c5856948371ae54073f",
   "hashAlgorithm": "sha256",
   "hashBasis": "sha256 of UTF-8 JSON.stringify(body, null, 2)",
   "contract": "adsecute.meta-decision-release-source.v1",
@@ -2648,7 +2648,7 @@
     },
     {
       "path": "lib/meta/warehouse.test.ts",
-      "sha256": "de73c7ef5965fe31f771ad8d0b330f9575a24c1300db718403c83fc72bd344a2"
+      "sha256": "ee96c686fa061b4ab9f59fe2b3804a452c75e2232b36b31ee24981354c71d1aa"
     },
     {
       "path": "lib/meta/warehouse.ts",
